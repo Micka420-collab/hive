@@ -171,6 +171,22 @@ export class Scheduler {
     return true;
   }
 
+  /**
+   * Annulation demandée par un humain : la tâche passe `failed` immédiatement
+   * (le nœud est prévenu par le serveur via `cancel_task`) et ses dépendantes
+   * échouent en cascade. Sans effet si la tâche est déjà terminée.
+   */
+  cancelTask(taskId: string, reason = 'cancelled', now = Date.now()): Task | undefined {
+    const task = this.store.getTask(taskId);
+    if (!task) return undefined;
+    if (task.status === 'done' || task.status === 'failed') return task;
+    const nodeId = task.assignedNodeId;
+    const patched = this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_cancelled', { taskId, reason, ...(nodeId ? { nodeId } : {}) });
+    this.promoteAndAssign(now);
+    return patched;
+  }
+
   // ─── Interne ───────────────────────────────────────────────────────────────
   private promoteAndAssign(now = Date.now()): void {
     this.promotePendingTasks(now);

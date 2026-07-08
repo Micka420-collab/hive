@@ -9,7 +9,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
-import { parseServerMessage } from '../shared/protocol.js';
+import { ID_PATTERN, parseServerMessage } from '../shared/protocol.js';
 import type { ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
@@ -160,6 +160,20 @@ export class HiveNodeClient {
 
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
   private async runTask(task: Task, repoUrl: string | null): Promise<void> {
+    // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
+    // fait pas confiance au hub (anti path-traversal si le hub était compromis).
+    if (!ID_PATTERN.test(task.id)) {
+      this.send({
+        type: 'task_result',
+        taskId: task.id.slice(0, 64),
+        success: false,
+        diff: '',
+        logs: '[nœud] id de tâche invalide : refusé',
+        durationMs: 0,
+        subAgents: [],
+      });
+      return;
+    }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours
     if (this.active.size >= this.opts.maxConcurrency) {
       // Le scheduler respecte la capacité ; ceci n'est qu'une ceinture de sécurité.

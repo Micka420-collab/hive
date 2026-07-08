@@ -11,6 +11,7 @@
     "dev": "tsx watch src/orchestrator/main.ts",
     "node": "tsx src/node-client/main.ts",
     "demo": "tsx src/demo.ts",
+    "cli": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "build": "npm run typecheck && npm run build:dashboard",
     "build:dashboard": "vite build dashboard",

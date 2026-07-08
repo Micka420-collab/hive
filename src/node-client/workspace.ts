@@ -33,7 +33,9 @@ export interface Workspace {
  * secrets restent locaux au nœud, jamais transmis au hub.
  */
 export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.ProcessEnv {
-  const tmp = path.join(cwd, '.tmp');
+  // TEMP vit À CÔTÉ du workspace, pas dedans : le clone git exige un répertoire
+  // vide et le diff de revue ne doit pas être pollué par des fichiers temporaires.
+  const tmp = `${cwd}.tmp`;
   mkdirSync(tmp, { recursive: true });
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
@@ -61,19 +63,21 @@ export async function prepareWorkspace(
   const cwd = path.resolve(workRoot, 'tasks', task.id);
   // Repartir d'un répertoire vierge à chaque tentative.
   rmSync(cwd, { recursive: true, force: true });
+  rmSync(`${cwd}.tmp`, { recursive: true, force: true });
   mkdirSync(cwd, { recursive: true });
-
-  const env = buildSandboxEnv(cwd, keepEnv);
 
   let git: SimpleGit | null = null;
   let branch: string | null = null;
   if (repoUrl) {
+    // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
     await simpleGit().clone(repoUrl, cwd, ['--depth', '1']);
     git = simpleGit({ baseDir: cwd });
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
     await git.checkoutLocalBranch(branch);
   }
+
+  const env = buildSandboxEnv(cwd, keepEnv);
 
   return {
     cwd,
@@ -89,6 +93,7 @@ export async function prepareWorkspace(
     cleanup(): void {
       try {
         rmSync(cwd, { recursive: true, force: true });
+        rmSync(`${cwd}.tmp`, { recursive: true, force: true });
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

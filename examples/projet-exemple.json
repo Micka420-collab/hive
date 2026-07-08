@@ -1,0 +1,27 @@
+[
+  { "id": "socle", "title": "Échafauder le dépôt", "prompt": "Créer la structure du projet" },
+  {
+    "id": "modele",
+    "title": "Modèle de données",
+    "prompt": "Concevoir le schéma",
+    "dependsOn": ["socle"]
+  },
+  {
+    "id": "api",
+    "title": "API REST",
+    "prompt": "Implémenter les endpoints",
+    "dependsOn": ["modele"]
+  },
+  {
+    "id": "front",
+    "title": "Interface",
+    "prompt": "Construire l'interface",
+    "dependsOn": ["socle"]
+  },
+  {
+    "id": "tests",
+    "title": "Tests de bout en bout",
+    "prompt": "Couvrir les parcours critiques",
+    "dependsOn": ["api", "front"]
+  }
+]

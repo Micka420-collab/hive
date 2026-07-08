@@ -312,6 +312,38 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // Annulation humaine d'une tâche : le nœud reçoit cancel_task et abandonne.
+  app.post<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/cancel',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      if (task.status === 'done' || task.status === 'failed') {
+        return reply.code(409).send({ error: `tâche déjà ${task.status}` });
+      }
+      const nodeId = task.assignedNodeId;
+      const cancelled = scheduler.cancelTask(task.id, 'demande_humaine');
+      if (nodeId) {
+        const nodeWs = nodeSockets.get(nodeId);
+        if (nodeWs) {
+          send(nodeWs, { type: 'cancel_task', taskId: task.id, reason: 'annulée par un humain' });
+        }
+      }
+      stateDirty = true;
+      return cancelled;
+    },
+  );
+
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
   const port = typeof address === 'object' && address !== null ? address.port : config.port;
