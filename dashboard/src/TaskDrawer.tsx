@@ -1,10 +1,14 @@
 // Tiroir latéral : détail complet d'une tâche + son résultat (diff/logs) pour
 // revue humaine, avec possibilité d'annuler une tâche en cours.
 
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { cancelTask, fetchResults } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { formatMs, StatusBadge, useDialog } from './ui';
+
+// L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
+// ouvre le tiroir d'une tâche.
+const CodeEditor = lazy(() => import('./CodeEditor'));
 
 interface Props {
   task: Task;
@@ -17,6 +21,9 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   const [tab, setTab] = useState<'diff' | 'logs'>('diff');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editable, setEditable] = useState(false);
+  const [edited, setEdited] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const dialogRef = useDialog<HTMLElement>(onClose);
 
   useEffect(() => {
@@ -35,6 +42,25 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
     : '—';
   const last = results && results.length > 0 ? results[results.length - 1] : null;
   const cancellable = task.status !== 'done' && task.status !== 'failed';
+
+  // Contenu affiché dans l'éditeur : édition locale prioritaire, sinon la source.
+  const source = last ? (tab === 'diff' ? last.diff : last.logs) : '';
+  const shown = edited ?? source;
+  // Réinitialiser l'édition locale quand on change d'onglet ou de tâche.
+  useEffect(() => {
+    setEdited(null);
+    setCopied(false);
+  }, [tab, task.id, results]);
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(shown);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError('copie impossible dans ce contexte.');
+    }
+  };
 
   const doCancel = async () => {
     setBusy(true);
@@ -89,17 +115,42 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
 
         {last && (
           <>
-            <div className="drawer-tabs">
-              <button className={tab === 'diff' ? 'active' : ''} onClick={() => setTab('diff')}>
-                Diff
-              </button>
-              <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
-                Logs
-              </button>
+            <div className="editor-bar">
+              <div className="drawer-tabs">
+                <button className={tab === 'diff' ? 'active' : ''} onClick={() => setTab('diff')}>
+                  Diff
+                </button>
+                <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
+                  Logs
+                </button>
+              </div>
+              <div className="editor-actions">
+                <label className="toggle" title="Autoriser l'édition locale (non enregistrée)">
+                  <input
+                    type="checkbox"
+                    checked={editable}
+                    onChange={(e) => setEditable(e.target.checked)}
+                  />
+                  éditer
+                </label>
+                <button className="chip" onClick={copyCode}>
+                  {copied ? '✔ copié' : 'copier'}
+                </button>
+              </div>
             </div>
-            <pre className="code-block scroll">
-              {tab === 'diff' ? last.diff || '(aucun diff)' : last.logs || '(aucun log)'}
-            </pre>
+            <Suspense fallback={<pre className="code-block scroll">{shown || '(vide)'}</pre>}>
+              <CodeEditor
+                value={shown || (tab === 'diff' ? '(aucun diff)' : '(aucun log)')}
+                lang={tab === 'diff' ? 'diff' : 'text'}
+                editable={editable}
+                onChange={setEdited}
+              />
+            </Suspense>
+            {editable && (
+              <p className="editor-hint">
+                Édition locale d’exploration — non enregistrée (le merge arrivera au Palier 3).
+              </p>
+            )}
           </>
         )}
         {results !== null && results.length === 0 && (

@@ -46,6 +46,14 @@ orbitale (glisser pour tourner). Le moteur 3D (~290 Ko gzip) est **chargé à la
 demande** : il n'alourdit le démarrage que si l'on active la vue 3D, et retombe
 sur un message clair si WebGL est indisponible.
 
+Le tableau de bord est un **centre de contrôle complet** : rangée de KPI (nœuds,
+avancement, débit), cartes de nœuds avec barres de charge, journal coloré,
+création de projet + tâches depuis l'UI, et un **tiroir de détail par tâche**
+intégrant un **éditeur de code (CodeMirror 6)** — le diff et les logs s'affichent
+avec coloration syntaxique, numéros de ligne et édition locale d'exploration.
+L'éditeur est chargé à la demande (il n'entre dans le bundle qu'à l'ouverture
+d'un tiroir).
+
 **Tester la persistance** : `Ctrl+C` en pleine exécution, puis relancez
 `npm run demo` — le projet et son avancement sont toujours là, et les tâches
 orphelines (`running` au moment du crash) repartent proprement en `ready`.
@@ -230,7 +238,8 @@ src/
   adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · exec.ts
   shared/         types.ts · protocol.ts (messages WS typés + validation)
   demo.ts         npm run demo
-dashboard/        Vite + React (SwarmView.tsx 2D, SwarmView3D.tsx Galacean, InvitePanel.tsx, TaskTable.tsx, api.ts)
+dashboard/        Vite + React : SwarmView 2D/3D (Galacean), StatTiles, NodesPanel,
+                  Journal, TaskDrawer (+ CodeEditor CodeMirror), NewProjectModal, InvitePanel
 tests/            scheduler.test.ts · adapters.test.ts · e2e.test.ts
 ```
 
