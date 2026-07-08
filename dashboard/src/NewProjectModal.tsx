@@ -39,7 +39,17 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
       if (!Array.isArray(parsed) || parsed.length === 0) {
         throw new Error('le JSON doit être un tableau non vide de tâches');
       }
-      tasks = parsed as NewTaskInput[];
+      // Ne conserver que les champs connus : le serveur rejette tout champ
+      // superflu (additionalProperties:false), on nettoie donc en amont.
+      tasks = (parsed as Record<string, unknown>[]).map((t) => {
+        const clean: NewTaskInput = {
+          title: String(t.title ?? ''),
+          prompt: String(t.prompt ?? ''),
+        };
+        if (typeof t.id === 'string') clean.id = t.id;
+        if (Array.isArray(t.dependsOn)) clean.dependsOn = t.dependsOn.map(String);
+        return clean;
+      });
     } catch (e) {
       setError(`Tâches invalides : ${e instanceof Error ? e.message : String(e)}`);
       return;

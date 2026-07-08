@@ -15,10 +15,10 @@ export function StatTiles({ snapshot, throughput }: Props) {
   const done = tasks.filter((t) => t.status === 'done').length;
   const running = tasks.filter((t) => t.status === 'running' || t.status === 'assigned').length;
   const failed = tasks.filter((t) => t.status === 'failed').length;
-  const capacity = nodes
-    .filter((n) => n.status === 'online')
-    .reduce((sum, n) => sum + n.maxConcurrency, 0);
-  const load = nodes.reduce((sum, n) => sum + n.running, 0);
+  const onlineNodes = nodes.filter((n) => n.status === 'online');
+  const capacity = onlineNodes.reduce((sum, n) => sum + n.maxConcurrency, 0);
+  // Charge = tâches actives des nœuds EN LIGNE (cohérent avec la capacité).
+  const load = onlineNodes.reduce((sum, n) => sum + n.running, 0);
 
   return (
     <div className="stat-tiles">

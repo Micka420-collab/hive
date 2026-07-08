@@ -23,10 +23,13 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', 'x-hive-token': getToken(), ...init?.headers },
   });
   if (!res.ok) {
-    let message = `${res.status}`;
+    let message = `Erreur ${res.status}`;
     try {
-      const body = (await res.json()) as { error?: string };
-      if (body.error) message = body.error;
+      // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
+      // → { message } détaillé + { error: "Bad Request" } générique : le message
+      // est alors le plus utile, on le préfère quand il est présent.
+      const body = (await res.json()) as { error?: string; message?: string };
+      message = body.message ?? body.error ?? message;
     } catch {
       /* corps non-JSON */
     }
