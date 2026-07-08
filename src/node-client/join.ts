@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { detectAllAgents, detectBestAgent } from './agent-detect.js';
+import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
@@ -100,6 +100,14 @@ async function main(): Promise<void> {
   // la détection, juste avant de construire le client et son adaptateur.
   process.env.HIVE_TOKEN = invite.token;
 
+  // L'agent réel doit retrouver sa config et sa clé API dans la sandbox
+  // (fusionnées avec un éventuel HIVE_KEEP_ENV fourni par l'utilisateur).
+  const extraKeep = (process.env.HIVE_KEEP_ENV ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const keepEnv = [...new Set([...agentCredentialEnv(detected.agent), ...extraKeep])];
+
   const client = new HiveNodeClient({
     url: invite.url,
     token: invite.token,
@@ -109,6 +117,7 @@ async function main(): Promise<void> {
     maxConcurrency,
     workRoot,
     nodeId,
+    keepEnv,
   });
 
   client.start();

@@ -3,6 +3,8 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
+import { agentCredentialEnv } from './agent-detect.js';
+import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 
 try {
@@ -12,19 +14,24 @@ try {
 }
 
 const maxConcurrency = Number.parseInt(process.env.HIVE_MAX_CONCURRENCY ?? '2', 10);
+const agentType = (process.env.HIVE_AGENT ?? 'shell') as AgentType;
+
+// L'agent réel doit retrouver sa config/clé API dans la sandbox ; on fusionne
+// avec un éventuel HIVE_KEEP_ENV explicite. Le shell simulé ne reçoit rien.
+const extraKeep = (process.env.HIVE_KEEP_ENV ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',
   token: process.env.HIVE_TOKEN ?? 'change-me',
   name: process.env.HIVE_NODE_NAME ?? os.hostname(),
   ownerName: process.env.HIVE_OWNER_NAME ?? os.userInfo().username,
-  agentType: process.env.HIVE_AGENT ?? 'shell',
+  agentType,
   maxConcurrency: Number.isInteger(maxConcurrency) ? Math.min(Math.max(maxConcurrency, 1), 16) : 2,
   workRoot: process.env.HIVE_WORKDIR,
-  keepEnv: (process.env.HIVE_KEEP_ENV ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
+  keepEnv: [...new Set([...agentCredentialEnv(agentType), ...extraKeep])],
 });
 
 client.start();

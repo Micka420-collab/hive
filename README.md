@@ -180,9 +180,10 @@ Adaptateurs fournis :
   (`HIVE_REAL_SHELL=1`) exécute le prompt comme UNE commande via
   `spawn(bin, argv, { shell: false })` — refusé si le token est trivial.
 - **`claude-code`** — lance `claude -p "<prompt>"` (CLI Claude Code headless)
-  dans le workspace isolé de la tâche. Installez le CLI et exportez
-  `HIVE_KEEP_ENV=ANTHROPIC_API_KEY` (ou laissez le CLI utiliser sa config
-  locale). **Les clés API restent sur le nœud, jamais transmises au hub.**
+  dans le workspace isolé de la tâche. La config et la clé API de l'agent lui
+  sont **automatiquement transmises** (HOME/config + `ANTHROPIC_API_KEY`…) pour
+  qu'il s'authentifie ; ajoutez d'autres variables via `HIVE_KEEP_ENV=VAR1,VAR2`.
+  **Les clés restent sur le nœud, jamais transmises au hub.**
 - **`codex`** — lance `codex exec "<prompt>"`, mêmes règles.
 
 Quand le projet a un `repoUrl`, le nœud clone le dépôt dans un répertoire dédié
@@ -203,9 +204,11 @@ aucun merge automatique au Palier 1.
   à 2 Mo, logs/diffs plafonnés.
 - **Anti-DoS** : plafond de messages WebSocket par socket, et limitation de débit
   des routes REST par IP (429 au-delà du plafond) — défense en profondeur.
-- **Sandbox v0** : un cwd dédié par tâche, environnement épuré (pas de
-  HOME/USERPROFILE, TEMP redirigé à côté du workspace), annulation coopérative,
-  timeout dur, sortie plafonnée.
+- **Sandbox v0** : un cwd dédié par tâche, environnement épuré (TEMP redirigé à
+  côté du workspace), annulation coopérative, timeout dur, sortie plafonnée. Le
+  mode `shell` simulé ne reçoit **aucune** variable ; un agent réel
+  (claude-code/codex) reçoit uniquement sa config et sa clé API — le strict
+  nécessaire pour s'authentifier.
 - **Défense en profondeur côté nœud** : le client valide les identifiants reçus
   du hub avant tout usage dans un chemin local (anti path-traversal même si
   l'orchestrateur était compromis).

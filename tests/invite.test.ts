@@ -6,7 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeInvite, encodeInvite, isWsUrl } from '../src/shared/invite.js';
-import { detectAllAgents, detectBestAgent } from '../src/node-client/agent-detect.js';
+import {
+  agentCredentialEnv,
+  detectAllAgents,
+  detectBestAgent,
+} from '../src/node-client/agent-detect.js';
+import { buildSandboxEnv } from '../src/node-client/workspace.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, detectLanWsUrl } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -77,6 +82,29 @@ describe('détection d’agent', () => {
     const best = await detectBestAgent();
     expect(KNOWN.has(best.agent)).toBe(true);
     expect(typeof best.label).toBe('string');
+  });
+
+  it('agentCredentialEnv : rien pour shell, config + clé pour les agents réels', () => {
+    expect(agentCredentialEnv('shell')).toEqual([]);
+    expect(agentCredentialEnv('claude-code')).toContain('ANTHROPIC_API_KEY');
+    expect(agentCredentialEnv('claude-code')).toContain('HOME');
+    expect(agentCredentialEnv('codex')).toContain('OPENAI_API_KEY');
+  });
+
+  it('buildSandboxEnv transmet les identifiants d’un agent réel (et rien au shell)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-env-'));
+    process.env.ANTHROPIC_API_KEY = 'cle-de-test';
+    try {
+      const realEnv = buildSandboxEnv(dir, agentCredentialEnv('claude-code'));
+      expect(realEnv.ANTHROPIC_API_KEY).toBe('cle-de-test');
+      // Le shell simulé reste totalement épuré (aucune clé transmise).
+      const shellEnv = buildSandboxEnv(dir, agentCredentialEnv('shell'));
+      expect(shellEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(`${dir}.tmp`, { recursive: true, force: true });
+    }
   });
 });
 

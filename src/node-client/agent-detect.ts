@@ -95,6 +95,25 @@ export async function detectBestAgent(): Promise<DetectedAgent> {
   return { agent: 'shell', label: 'shell (simulé)' };
 }
 
+/**
+ * Variables d'environnement qu'un agent RÉEL doit retrouver dans la sandbox
+ * pour fonctionner : ses répertoires de config (HOME/…) et ses identifiants
+ * (clé API). Sans elles, la sandbox épurée empêcherait `claude`/`codex` de
+ * s'authentifier. L'adaptateur `shell` simulé ne reçoit rien (isolation totale).
+ * Les secrets restent locaux au nœud — jamais transmis au hub.
+ */
+export function agentCredentialEnv(agent: AgentType): string[] {
+  if (agent === 'shell') return [];
+  const configDirs = ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME'];
+  if (agent === 'claude-code') {
+    return [...configDirs, 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'];
+  }
+  if (agent === 'codex') {
+    return [...configDirs, 'OPENAI_API_KEY', 'OPENAI_BASE_URL'];
+  }
+  return configDirs;
+}
+
 /** Liste tous les agents détectés (pour information / diagnostic). */
 export async function detectAllAgents(): Promise<AgentType[]> {
   const found: AgentType[] = [];
