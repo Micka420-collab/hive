@@ -76,16 +76,50 @@ class HiveScene {
     tasks.forEach((t, i) => this.upsertTask(t, i));
     this.updateThreads(tasks);
     this.updateAgents(tasks, nodes, agentsByTask);
+    this.prune(new Set(tasks.map((t) => t.id)), new Set(nodes.map((n) => n.id)));
   }
 
-  private material(rgb: [number, number, number], emissive = 0.25, alpha = 1): BlinnPhongMaterial {
+  /**
+   * Crée un matériau. `track=true` : sa durée de vie suit celle du contrôleur
+   * (détruit au démontage). `track=false` : l'appelant en est responsable et
+   * doit le détruire quand l'entité disparaît (fils, dont le nombre varie).
+   */
+  private material(
+    rgb: [number, number, number],
+    emissive = 0.25,
+    alpha = 1,
+    track = true,
+  ): BlinnPhongMaterial {
     const { BlinnPhongMaterial, Color } = this.G;
     const mat = new BlinnPhongMaterial(this.engine);
     mat.baseColor = new Color(rgb[0], rgb[1], rgb[2], alpha);
     mat.emissiveColor = new Color(rgb[0] * emissive, rgb[1] * emissive, rgb[2] * emissive, 1);
     if (alpha < 1) mat.isTransparent = true;
-    this.disposables.push(mat);
+    if (track) this.disposables.push(mat);
     return mat;
+  }
+
+  /** Retire les alvéoles/cellules dont l'id a disparu du snapshot (libère la VRAM). */
+  private prune(taskIds: Set<string>, nodeIds: Set<string>): void {
+    for (const [id, rec] of this.taskCells) {
+      if (!taskIds.has(id)) {
+        rec.entity.destroy();
+        rec.material.destroy();
+        this.taskCells.delete(id);
+      }
+    }
+    for (const [id, rec] of this.nodePillars) {
+      if (!nodeIds.has(id)) {
+        for (const agent of this.agentPool.get(id) ?? []) {
+          agent.entity.destroy();
+          agent.material.destroy();
+        }
+        this.agentPool.delete(id);
+        rec.entity.destroy();
+        rec.material.destroy();
+        this.nodePillars.delete(id);
+      }
+    }
   }
 
   private taskPos(index: number): { x: number; z: number } {
@@ -157,10 +191,13 @@ class HiveScene {
       const from = this.taskPos(cellIndex);
       this.upsertThread(t.id, from.x, from.z, node.x, node.z, t.status === 'running');
     }
-    // Retirer les fils dont la tâche n'est plus active.
+    // Retirer les fils dont la tâche n'est plus active — et LIBÉRER leur mesh
+    // (VBO GPU) et leur material, sinon chaque cycle running→done fuit en VRAM.
     for (const [id, thread] of this.threads) {
       if (!active.has(id)) {
         thread.entity.destroy();
+        thread.mesh.destroy();
+        thread.material.destroy();
         this.threads.delete(id);
       }
     }
@@ -180,7 +217,8 @@ class HiveScene {
       const entity = this.root.createChild(`thread-${id}`);
       const renderer = entity.addComponent(MeshRenderer);
       const mesh = new ModelMesh(this.engine);
-      const material = this.material([1, 0.62, 0.1], 0.9);
+      // track=false : le fil est éphémère, on gère nous-mêmes sa destruction.
+      const material = this.material([1, 0.62, 0.1], 0.9, 1, false);
       renderer.setMaterial(material);
       rec = { entity, mesh, material };
       this.threads.set(id, rec);
@@ -265,6 +303,16 @@ class HiveScene {
   }
 
   dispose(): void {
+    // Fils éphémères (non trackés dans disposables) : libérer mesh + material.
+    for (const thread of this.threads.values()) {
+      try {
+        thread.mesh.destroy();
+        thread.material.destroy();
+      } catch {
+        /* déjà libéré */
+      }
+    }
+    this.threads.clear();
     for (const d of this.disposables) {
       try {
         d.destroy();
@@ -279,6 +327,11 @@ export default function SwarmView3D({ tasks, nodes, agentsByTask }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<HiveScene | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Dernières props à jour : le moteur met plusieurs centaines de ms à charger ;
+  // les snapshots arrivés pendant ce délai seraient perdus si le premier sync
+  // utilisait les props figées du montage. On lit ce ref à la fin de l'init.
+  const propsRef = useRef({ tasks, nodes, agentsByTask });
+  propsRef.current = { tasks, nodes, agentsByTask };
 
   // Montage : création du moteur + de la scène (une fois).
   useEffect(() => {
@@ -344,8 +397,9 @@ export default function SwarmView3D({ tasks, nodes, agentsByTask }: Props) {
         }
         root.addComponent(Animator);
 
-        // Premier rendu avec l'état déjà connu.
-        hive.sync(tasks, nodes, agentsByTask);
+        // Premier rendu avec l'état LE PLUS RÉCENT (pas celui figé au montage).
+        const latest = propsRef.current;
+        hive.sync(latest.tasks, latest.nodes, latest.agentsByTask);
 
         onResize = () => engine?.canvas.resizeByClientSize();
         window.addEventListener('resize', onResize);

@@ -27,7 +27,15 @@ function candidates(bin: string): string[] {
   return [bin];
 }
 
-/** Vrai si `bin --version` peut être lancé (le binaire existe sur le PATH). */
+/**
+ * Vrai si `bin --version` s'exécute et retourne le code 0 — un signal POSITIF
+ * de présence d'un vrai agent. On refuse volontairement les faux positifs :
+ *  - timeout → « incertain », traité comme absent (on ne route pas de vraies
+ *    tâches vers un binaire qui se bloque) ;
+ *  - code de sortie ≠ 0, ou erreur de lancement (ENOENT, EACCES…) → absent.
+ * Un environnement cassé retombe ainsi sur le shell simulé (sûr) plutôt que
+ * d'envoyer du travail — et le token — à un binaire douteux.
+ */
 function probeBin(bin: string, timeoutMs = 4_000): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
@@ -45,17 +53,16 @@ function probeBin(bin: string, timeoutMs = 4_000): Promise<boolean> {
     }
     const timer = setTimeout(() => {
       child.kill();
-      finish(true); // il a démarré (donc présent) mais ne répond pas assez vite
+      finish(false); // bloqué : incertain → considéré absent
     }, timeoutMs);
     timer.unref?.();
-    // ENOENT = binaire introuvable ; toute autre issue = binaire présent.
-    child.on('error', (err: NodeJS.ErrnoException) => {
+    child.on('error', () => {
       clearTimeout(timer);
-      finish(err.code !== 'ENOENT');
+      finish(false); // ENOENT / EACCES / etc. → absent
     });
-    child.on('close', () => {
+    child.on('close', (code) => {
       clearTimeout(timer);
-      finish(true);
+      finish(code === 0); // signal positif : le binaire a répondu correctement
     });
   });
 }

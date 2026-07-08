@@ -65,11 +65,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Le token de l'invitation sert aussi de garde-fou aux adaptateurs réels
-  // (claude-code/codex refusent un token trivial) : on l'expose à l'environnement.
-  process.env.HIVE_TOKEN = invite.token;
-
   // Choix de l'agent : HIVE_AGENT force le choix, sinon détection automatique.
+  // IMPORTANT : la détection sonde des binaires du PATH (spawn `--version`) ; on
+  // ne met PAS le token dans l'environnement avant, sinon un binaire homonyme
+  // malveillant (claude.cmd déposé en tête de PATH) l'hériterait. Le token n'est
+  // exposé qu'ensuite, pour le seul adaptateur choisi.
   const forced = process.env.HIVE_AGENT as AgentType | undefined;
   const detected = forced ? { agent: forced, label: forced } : await detectBestAgent();
   const allAgents = await detectAllAgents();
@@ -79,7 +79,9 @@ async function main(): Promise<void> {
   const nodeId = stableNodeId(workRoot);
 
   const hasRealAgent = allAgents.some((a) => a !== 'shell');
-  console.log(`\n🐝 Connexion à la ruche : ${invite.label ?? invite.url}`);
+  // Toujours afficher l'URL RÉELLE de connexion, jamais masquée par le libellé :
+  // c'est là que part le token, l'utilisateur doit pouvoir la vérifier.
+  console.log(`\n🐝 Connexion à : ${invite.url}${invite.label ? `  (« ${invite.label} »)` : ''}`);
   console.log(`   Agents détectés : ${allAgents.join(', ')}`);
   console.log(`   Agent utilisé   : ${detected.label}`);
   if (detected.agent === 'shell' && !hasRealAgent) {
@@ -92,6 +94,11 @@ async function main(): Promise<void> {
       '   ℹ Agent « shell simulé » forcé (HIVE_AGENT) alors que des agents réels sont disponibles.',
     );
   }
+
+  // Le token de l'invitation sert de garde-fou aux adaptateurs réels
+  // (claude-code/codex refusent un token trivial). On ne l'expose qu'ICI, après
+  // la détection, juste avant de construire le client et son adaptateur.
+  process.env.HIVE_TOKEN = invite.token;
 
   const client = new HiveNodeClient({
     url: invite.url,

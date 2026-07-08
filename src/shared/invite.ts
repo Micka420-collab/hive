@@ -21,6 +21,20 @@ export interface Invite {
   label?: string;
 }
 
+/**
+ * Vrai si la chaîne contient un caractère de contrôle (codes < 0x20 ou 0x7f) —
+ * ESC, CR, LF, etc. Interdits dans un libellé affiché en terminal : ils
+ * permettraient une injection ANSI (réécriture/effacement de lignes) pour
+ * masquer l'URL réelle de connexion (hameçonnage).
+ */
+function hasControlChars(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x20 || c === 0x7f) return true;
+  }
+  return false;
+}
+
 function base64urlEncode(input: string): string {
   return Buffer.from(input, 'utf8').toString('base64url');
 }
@@ -65,7 +79,10 @@ export function decodeInvite(raw: unknown): Invite | null {
   if (typeof url !== 'string' || !isWsUrl(url)) return null;
   if (typeof token !== 'string' || token.length === 0 || token.length > LIMITS.token) return null;
   const label =
-    typeof d.label === 'string' && d.label.length > 0 && d.label.length <= LIMITS.name
+    typeof d.label === 'string' &&
+    d.label.length > 0 &&
+    d.label.length <= LIMITS.name &&
+    !hasControlChars(d.label)
       ? d.label
       : undefined;
 

@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeInvite, encodeInvite, isWsUrl } from '../src/shared/invite.js';
+import { detectAllAgents, detectBestAgent } from '../src/node-client/agent-detect.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, detectLanWsUrl } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -44,8 +45,38 @@ describe('invite (encode/décode)', () => {
     expect(isWsUrl('pas une url')).toBe(false);
   });
 
+  it('rejette un label contenant des caractères de contrôle (anti-injection ANSI)', () => {
+    const encoded = encodeInvite({
+      url: 'ws://h/ws',
+      token: TOKEN,
+      label: 'Ruche[2K\rMalveillante',
+    });
+    const decoded = decodeInvite(encoded);
+    expect(decoded).not.toBeNull();
+    // Le token/URL restent utilisables, mais le label piégé est écarté :
+    // l'URL réelle ne peut donc pas être masquée par une réécriture de terminal.
+    expect(decoded?.label).toBeUndefined();
+    expect(decoded?.url).toBe('ws://h/ws');
+  });
+
   it('detectLanWsUrl renvoie une URL WebSocket bien formée', () => {
     expect(isWsUrl(detectLanWsUrl(7777))).toBe(true);
+  });
+});
+
+describe('détection d’agent', () => {
+  const KNOWN = new Set(['claude-code', 'codex', 'shell']);
+
+  it('propose toujours le shell simulé et ne retourne que des agents connus', async () => {
+    const all = await detectAllAgents();
+    expect(all).toContain('shell');
+    for (const a of all) expect(KNOWN.has(a)).toBe(true);
+  });
+
+  it('choisit un agent connu (le shell au minimum)', async () => {
+    const best = await detectBestAgent();
+    expect(KNOWN.has(best.agent)).toBe(true);
+    expect(typeof best.label).toBe('string');
   });
 });
 

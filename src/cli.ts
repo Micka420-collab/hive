@@ -139,7 +139,12 @@ async function cmdInvite(url?: string): Promise<void> {
   console.log('  Étape 2 — il colle cette commande :\n');
   console.log('    ' + inv.joinCommand + '\n');
   console.log('  Son Claude Code / Codex est détecté automatiquement. C’est tout.');
-  console.log('\n  ⚠ ' + inv.note + '\n');
+  console.log('\n  ⚠ ' + inv.note);
+  console.log(
+    '  ⚠ Passer l’invitation en argument la laisse dans l’historique du shell et\n' +
+      '    la rend visible aux autres comptes de la machine. Alternative plus discrète :\n' +
+      '    l’ami lance `npm run join` seul, puis colle l’invitation quand elle est demandée.\n',
+  );
 }
 
 const [cmd, a1, a2] = process.argv.slice(2);

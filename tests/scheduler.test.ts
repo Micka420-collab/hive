@@ -320,4 +320,44 @@ describe('Scheduler (ordonnancement)', () => {
     const { zombies } = scheduler.reconcileNode(n1.id, [t.id]);
     expect(zombies).toEqual([t.id]);
   });
+
+  it('reconcileNode RÉ-ADOPTE une tâche vivante requalifiée par un blip (ne la tue pas)', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const n1 = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    scheduler.handleTaskUpdate(n1.id, t.id); // running sur n1
+
+    // Blip : la déconnexion requalifie la tâche en ready (mais le nœud continue).
+    scheduler.nodeDisconnected(n1.id, 'ws_closed');
+    expect(store.getTask(t.id)?.status).toBe('ready');
+    expect(store.getTask(t.id)?.assignedNodeId).toBeNull();
+
+    // Reconnexion : le nœud déclare qu'il exécute toujours T → ré-adoption.
+    scheduler.registerNode(profile('n1', 1), 100);
+    const { zombies } = scheduler.reconcileNode(n1.id, [t.id], 100);
+    expect(zombies).toEqual([]); // AUCUN zombie : le travail est préservé
+    const after = store.getTask(t.id);
+    expect(after?.status).toBe('running');
+    expect(after?.assignedNodeId).toBe(n1.id);
+    expect(after?.attempts).toBe(0); // aucune tentative brûlée
+
+    // Le résultat légitime du nœud est ensuite accepté (une seule exécution).
+    expect(scheduler.handleTaskResult(n1.id, result(t.id))).toBe(true);
+    expect(store.getTask(t.id)?.status).toBe('done');
+  });
+
+  it('rejectTask n’assigne pas aussitôt la même tâche au nœud qui vient de la refuser', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const n1 = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    expect(store.getTask(t.id)?.assignedNodeId).toBe(n1.id);
+
+    scheduler.rejectTask(n1.id, t.id, 'noeud_sature');
+    // Cooldown actif : la tâche reste ready, pas de ré-assignation immédiate à n1.
+    expect(store.getTask(t.id)?.status).toBe('ready');
+    scheduler.tick();
+    expect(store.getTask(t.id)?.status).toBe('ready');
+  });
 });

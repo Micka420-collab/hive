@@ -6,6 +6,25 @@ import { useState } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
 
+/** Repli de copie pour les contextes non sécurisés (http LAN) via une zone de texte hors écran. */
+function fallbackCopy(text: string): boolean {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok: boolean;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
 export function InvitePanel() {
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState<InviteResponse | null>(null);
@@ -29,12 +48,21 @@ export function InvitePanel() {
 
   const copy = async () => {
     if (!invite) return;
+    const text = invite.joinCommand;
+    // navigator.clipboard n'existe QUE dans un contexte sécurisé (https ou
+    // localhost). Hive étant LAN-first (http://192.168.x.x), on prévoit un repli
+    // via une zone de texte + execCommand, sinon la copie échouerait toujours.
     try {
-      await navigator.clipboard.writeText(invite.joinCommand);
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (!fallbackCopy(text)) {
+        throw new Error('execCommand a échoué');
+      }
+      setError(null);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError('copie impossible — sélectionnez et copiez manuellement.');
+      setError('copie automatique impossible — sélectionnez la commande et copiez-la à la main.');
     }
   };
 

@@ -7,6 +7,9 @@ import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { HiveStore, NodeProfile } from './store.js';
 
+/** Délai pendant lequel un nœud qui vient de refuser une tâche ne la reçoit pas de nouveau. */
+const REJECT_COOLDOWN_MS = 3_000;
+
 export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
@@ -19,6 +22,8 @@ export interface SchedulerOptions {
 export class Scheduler {
   private readonly maxAttempts: number;
   private readonly nodeTimeoutMs: number;
+  /** clé `taskId:nodeId` → timestamp d'expiration du cooldown de refus. */
+  private readonly recentRejections = new Map<string, number>();
 
   constructor(
     private readonly store: HiveStore,
@@ -66,47 +71,68 @@ export class Scheduler {
 
   /**
    * Réconciliation à la (re)connexion d'un nœud. Le nœud déclare les tâches
-   * qu'il exécute réellement (`activeTaskIds`) ; le hub aligne son état :
-   *  - une tâche que le hub croit active sur ce nœud mais que le nœud NE fait
-   *    PAS tourner (crash/redémarrage, process relancé à vide) est requalifiée ;
-   *  - une tâche que le nœud dit exécuter mais qui ne lui est plus assignée
-   *    (déjà réaffectée ailleurs après un blip) est un « zombie » : on demande
-   *    au nœud de l'abandonner (le serveur enverra cancel_task).
-   * Corrige la double exécution et les tâches « running » bloquées à vie.
+   * qu'il exécute RÉELLEMENT (`activeTaskIds`) et le hub aligne son état sur
+   * cette vérité de terrain :
+   *  - tâche déclarée par le nœud, non assignée ailleurs (ready/null après un
+   *    blip, ou toujours à ce nœud) → RÉ-ADOPTÉE (running @ nœud) : on ne tue
+   *    jamais un travail en cours ;
+   *  - tâche déclarée mais désormais assignée à un AUTRE nœud (déjà réaffectée),
+   *    ou déjà terminée/inconnue → « zombie » : on demande au nœud de l'abandonner
+   *    (le serveur enverra cancel_task) pour éviter la double exécution ;
+   *  - tâche que le hub attribue au nœud mais que le nœud ne déclare PAS
+   *    (crash/redémarrage à vide) → requalifiée en ready.
+   *
+   * NB : n'assigne rien ici. L'appelant envoie d'abord les cancel_task puis
+   * déclenche un tick — sinon on risquerait de ré-assigner une tâche qu'on
+   * s'apprête à faire annuler.
    */
   reconcileNode(nodeId: string, activeTaskIds: string[], now = Date.now()): { zombies: string[] } {
     const reported = new Set(activeTaskIds);
-    // Tâches que le hub attribue au nœud mais qu'il ne fait plus tourner.
+    const zombies: string[] = [];
+
+    // 1) Aligner sur ce que le nœud déclare exécuter.
+    for (const taskId of reported) {
+      const task = this.store.getTask(taskId);
+      if (!task || task.status === 'done' || task.status === 'failed') {
+        zombies.push(taskId); // inconnue ou déjà finie : le nœud doit l'abandonner
+        continue;
+      }
+      if (task.assignedNodeId && task.assignedNodeId !== nodeId) {
+        zombies.push(taskId); // réaffectée à un autre nœud : abandon (anti double exécution)
+        continue;
+      }
+      // Non assignée (requalifiée par le blip) ou déjà à nous : on ré-adopte le
+      // travail vivant sans le tuer.
+      if (task.assignedNodeId !== nodeId || task.status !== 'running') {
+        this.store.patchTask(taskId, { status: 'running', assignedNodeId: nodeId }, now);
+        this.emit('task_readopted', { taskId, nodeId });
+      }
+    }
+
+    // 2) Requalifier les tâches que le hub croit à ce nœud mais qu'il ne déclare pas.
     for (const task of this.store.activeTasksOfNode(nodeId)) {
       if (!reported.has(task.id)) {
         this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
         this.emit('task_requeued', { taskId: task.id, nodeId, reason: 'reconcile_orphan' });
       }
     }
-    // Tâches que le nœud exécute encore mais qui ne lui appartiennent plus.
-    const zombies: string[] = [];
-    for (const taskId of reported) {
-      const task = this.store.getTask(taskId);
-      const stillMine =
-        task &&
-        task.assignedNodeId === nodeId &&
-        (task.status === 'assigned' || task.status === 'running');
-      if (!stillMine) zombies.push(taskId);
-    }
+
     if (zombies.length > 0) this.emit('node_reconciled', { nodeId, zombies });
-    this.promoteAndAssign(now);
     return { zombies };
   }
 
   /**
    * Refus d'assignation par un nœud (saturé, id invalide) : la tâche repart en
    * `ready` SANS consommer de tentative — contrairement à un échec d'exécution.
+   * On mémorise le refus pour ne pas ré-assigner aussitôt la même tâche au même
+   * nœud (évite une rafale de ping-pong si les vues de capacité divergent).
    */
   rejectTask(nodeId: string, taskId: string, reason: string, now = Date.now()): void {
     const task = this.store.getTask(taskId);
     if (!task || task.assignedNodeId !== nodeId) return;
     if (task.status !== 'assigned' && task.status !== 'running') return;
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
+    this.recentRejections.set(`${taskId}:${nodeId}`, now + REJECT_COOLDOWN_MS);
     this.emit('task_rejected', { taskId, nodeId, reason });
     this.promoteAndAssign(now);
   }
@@ -278,9 +304,15 @@ export class Scheduler {
     for (const task of this.store.tasksByStatus('ready')) {
       const node = this.store
         .listNodes()
-        .filter((n) => n.status === 'online' && n.running < n.maxConcurrency)
+        .filter(
+          (n) =>
+            n.status === 'online' &&
+            n.running < n.maxConcurrency &&
+            // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
+            (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
+        )
         .sort((a, b) => a.running - b.running || a.name.localeCompare(b.name))[0];
-      if (!node) return; // plus aucune capacité disponible dans la ruche
+      if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       const assigned = this.store.patchTask(
         task.id,
         { status: 'assigned', assignedNodeId: node.id, branch: `hive/${task.id}` },
@@ -296,6 +328,10 @@ export class Scheduler {
   private reapDeadNodes(now: number): void {
     for (const node of this.store.staleNodes(now - this.nodeTimeoutMs)) {
       this.nodeDisconnected(node.id, 'heartbeat_timeout', now);
+    }
+    // Purge des cooldowns de refus expirés (borne la taille de la map).
+    for (const [key, until] of this.recentRejections) {
+      if (until <= now) this.recentRejections.delete(key);
     }
   }
 }
