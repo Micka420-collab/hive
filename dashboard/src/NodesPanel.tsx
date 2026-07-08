@@ -1,0 +1,61 @@
+// Panneau des nœuds : une carte par machine membre, avec charge et agent.
+
+import type { HiveNode } from '../../src/shared/types';
+import { ProgressBar } from './ui';
+
+const AGENT_ICON: Record<string, string> = {
+  shell: '🐚',
+  'claude-code': '✦',
+  codex: '⌗',
+};
+
+function initials(name: string): string {
+  return name
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+export function NodesPanel({ nodes }: { nodes: HiveNode[] }) {
+  const online = nodes.filter((n) => n.status === 'online').length;
+  return (
+    <section className="card panel">
+      <header className="panel-head">
+        <h2>Nœuds</h2>
+        <span className="panel-count">
+          {online}/{nodes.length} en ligne
+        </span>
+      </header>
+      <ul className="node-list">
+        {nodes.map((n) => (
+          <li key={n.id} className={`node-card ${n.status}`}>
+            <div className="node-avatar" title={n.agentType}>
+              {initials(n.name)}
+              <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
+            </div>
+            <div className="node-body">
+              <div className="nc-name">
+                {n.name}
+                <span className={`dot ${n.status}`} title={n.status} />
+              </div>
+              <div className="node-meta">
+                {n.ownerName} · {n.agentType}
+              </div>
+              <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
+            </div>
+            <div className="node-load">
+              {n.running}/{n.maxConcurrency}
+            </div>
+          </li>
+        ))}
+        {nodes.length === 0 && (
+          <li className="empty">
+            Aucun nœud n’a rejoint la ruche. Cliquez « Inviter un ami » pour en connecter un.
+          </li>
+        )}
+      </ul>
+    </section>
+  );
+}

@@ -3,7 +3,7 @@
 // localement ; en mode simulation, la valeur par défaut suffit.
 
 import { parseServerMessage } from '../../src/shared/protocol';
-import type { HiveEvent, StateSnapshot } from '../../src/shared/types';
+import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 
 const TOKEN_KEY = 'hive.token';
 export const DEFAULT_TOKEN = 'change-me';
@@ -14,6 +14,59 @@ export function getToken(): string {
 
 export function saveToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
+}
+
+/** fetch authentifié qui lève une erreur lisible sur réponse non-OK. */
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { 'content-type': 'application/json', 'x-hive-token': getToken(), ...init?.headers },
+  });
+  if (!res.ok) {
+    let message = `${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      /* corps non-JSON */
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as T;
+}
+
+export interface NewTaskInput {
+  id?: string;
+  title: string;
+  prompt: string;
+  dependsOn?: string[];
+}
+
+/** Crée un projet. */
+export function createProject(input: {
+  name: string;
+  repoUrl?: string;
+  description?: string;
+}): Promise<Project> {
+  return api<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Ajoute un lot de tâches (DAG) à un projet. */
+export function addTasks(projectId: string, tasks: NewTaskInput[]): Promise<Task[]> {
+  return api<Task[]>(`/api/projects/${projectId}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify({ tasks }),
+  });
+}
+
+/** Résultats (diff/logs) d'une tâche, pour revue humaine. */
+export function fetchResults(taskId: string): Promise<TaskResult[]> {
+  return api<TaskResult[]>(`/api/tasks/${taskId}/results`);
+}
+
+/** Annule une tâche (le nœud abandonne). */
+export function cancelTask(taskId: string): Promise<Task> {
+  return api<Task>(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: '{}' });
 }
 
 export interface InviteResponse {

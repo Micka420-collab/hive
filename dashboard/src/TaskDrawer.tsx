@@ -1,0 +1,109 @@
+// Tiroir latéral : détail complet d'une tâche + son résultat (diff/logs) pour
+// revue humaine, avec possibilité d'annuler une tâche en cours.
+
+import { useEffect, useState } from 'react';
+import { cancelTask, fetchResults } from './api';
+import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
+import { formatMs, StatusBadge } from './ui';
+
+interface Props {
+  task: Task;
+  nodes: HiveNode[];
+  onClose: () => void;
+}
+
+export function TaskDrawer({ task, nodes, onClose }: Props) {
+  const [results, setResults] = useState<TaskResult[] | null>(null);
+  const [tab, setTab] = useState<'diff' | 'logs'>('diff');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setResults(null);
+    fetchResults(task.id)
+      .then((r) => alive && setResults(r))
+      .catch(() => alive && setResults([]));
+    return () => {
+      alive = false;
+    };
+  }, [task.id]);
+
+  const nodeName = task.assignedNodeId
+    ? (nodes.find((n) => n.id === task.assignedNodeId)?.name ?? task.assignedNodeId.slice(0, 8))
+    : '—';
+  const last = results && results.length > 0 ? results[results.length - 1] : null;
+  const cancellable = task.status !== 'done' && task.status !== 'failed';
+
+  const doCancel = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelTask(task.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+        <header className="drawer-head">
+          <div>
+            <h2>{task.title}</h2>
+            <StatusBadge status={task.status} />
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Fermer">
+            ×
+          </button>
+        </header>
+
+        <dl className="meta-grid">
+          <dt>Nœud</dt>
+          <dd>{nodeName}</dd>
+          <dt>Tentatives</dt>
+          <dd>{task.attempts}</dd>
+          <dt>Branche</dt>
+          <dd className="mono">{task.branch ?? '—'}</dd>
+          <dt>Durée</dt>
+          <dd>{task.result ? formatMs(task.result.durationMs) : '—'}</dd>
+          <dt>Dépendances</dt>
+          <dd>{task.dependsOn.length > 0 ? task.dependsOn.length : 'aucune'}</dd>
+          <dt>ID</dt>
+          <dd className="mono">{task.id}</dd>
+        </dl>
+
+        <h3>Prompt</h3>
+        <pre className="code-block">{task.prompt}</pre>
+
+        {last && (
+          <>
+            <div className="drawer-tabs">
+              <button className={tab === 'diff' ? 'active' : ''} onClick={() => setTab('diff')}>
+                Diff
+              </button>
+              <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
+                Logs
+              </button>
+            </div>
+            <pre className="code-block scroll">
+              {tab === 'diff' ? last.diff || '(aucun diff)' : last.logs || '(aucun log)'}
+            </pre>
+          </>
+        )}
+        {results !== null && results.length === 0 && (
+          <p className="muted-text">Aucun résultat remonté pour l’instant.</p>
+        )}
+
+        {error && <p className="modal-error">{error}</p>}
+        {cancellable && (
+          <button className="btn danger-btn" onClick={doCancel} disabled={busy}>
+            {busy ? 'Annulation…' : 'Annuler la tâche'}
+          </button>
+        )}
+      </aside>
+    </div>
+  );
+}
