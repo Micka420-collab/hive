@@ -2,6 +2,7 @@
 //
 // Usage :
 //   npm run cli -- state                              état de la ruche
+//   npm run cli -- mind ["<requête>"]                 interroger la mémoire (Hive Mind)
 //   npm run cli -- plan "<brief>" [mode]              proposer un DAG (Queen Bee)
 //   npm run cli -- project "Nom" [repoUrl]            créer un projet
 //   npm run cli -- tasks <projectId> <fichier.json>   envoyer un lot de tâches
@@ -65,6 +66,34 @@ async function cmdState(): Promise<void> {
     const done = tasks.filter((t) => t.status === 'done').length;
     console.log(`\n📋 ${p.name} — ${done}/${tasks.length}`);
     printTasks(tasks);
+  }
+}
+
+interface HiveMemory {
+  id: number;
+  projectId: string;
+  taskId: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  score: number | null;
+}
+
+/** Interroge la mémoire partagée (Hive Mind). Sans requête : souvenirs récents. */
+async function cmdMind(query?: string): Promise<void> {
+  const qs = query ? `?q=${encodeURIComponent(query)}&limit=8` : '?limit=10';
+  const res = await api<{ total: number; memories: HiveMemory[] }>(`/api/hive-mind${qs}`);
+  console.log(
+    `\n🧠 Hive Mind — ${res.total} souvenir(s)${query ? ` · requête « ${query} »` : ''}\n`,
+  );
+  if (res.memories.length === 0) {
+    console.log('  (aucun souvenir — la mémoire se remplit quand des tâches réussissent)');
+    return;
+  }
+  for (const m of res.memories) {
+    const score = m.score !== null ? `  [${m.score}]` : '';
+    console.log(`  • ${m.title}${score}`);
+    console.log(`    ${m.content.slice(0, 160)}`);
   }
 }
 
@@ -182,6 +211,7 @@ async function cmdInvite(url?: string): Promise<void> {
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
+  else if (cmd === 'mind') await cmdMind(a1);
   else if (cmd === 'plan' && a1) await cmdPlan(a1, a2);
   else if (cmd === 'project' && a1) await cmdProject(a1, a2);
   else if (cmd === 'tasks' && a1 && a2) await cmdTasks(a1, a2);
@@ -191,7 +221,7 @@ try {
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

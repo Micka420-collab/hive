@@ -18,6 +18,7 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import { buildHiveContext } from './hive-mind.js';
 import { planBrief } from './planner.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
@@ -27,6 +28,9 @@ const WS_MSG_PER_SEC = 100;
 
 /** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
 const EVENT_RETENTION = 5_000;
+
+/** Nombre de souvenirs Hive Mind conservés (les plus anciens sont purgés). */
+const MEMORY_RETENTION = 2_000;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -184,7 +188,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
       if (ws) {
         const project = store.getProject(task.projectId);
-        send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+        // Hive Mind : joindre les souvenirs pertinents des tâches déjà réussies.
+        const hiveContext = buildHiveContext(
+          store.searchMemories(`${task.title} ${task.prompt}`, 3),
+        );
+        send(ws, {
+          type: 'assign_task',
+          task,
+          repoUrl: project?.repoUrl ?? null,
+          ...(hiveContext ? { hiveContext } : {}),
+        });
       }
     },
     onEvent: (event) => {
@@ -372,6 +385,37 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // Mode 'llm' explicite ayant échoué : on remonte l'erreur telle quelle.
         return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
       }
+    },
+  );
+
+  // Hive Mind : interroger la mémoire partagée. Sans `q`, renvoie les souvenirs
+  // les plus récents ; avec `q`, les plus pertinents (BM25) et leur score.
+  app.get<{ Querystring: { q?: string; limit?: number } }>(
+    '/api/hive-mind',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            q: { type: 'string', maxLength: 2000 },
+            limit: { type: 'integer', minimum: 1, maximum: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const q = req.query.q?.trim();
+      const limit = req.query.limit ?? 5;
+      const total = store.countMemories();
+      if (!q) {
+        return { total, memories: store.listMemories(limit).map((m) => ({ ...m, score: null })) };
+      }
+      const memories = store
+        .searchMemories(q, limit)
+        .map((s) => ({ ...s.memory, score: Number(s.score.toFixed(3)) }));
+      return { total, memories };
     },
   );
 
@@ -696,8 +740,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
         }
       }
-      // Borne la croissance du journal d'événements.
+      // Borne la croissance du journal d'événements et de la mémoire Hive Mind.
       store.pruneEvents(EVENT_RETENTION);
+      store.pruneMemories(MEMORY_RETENTION);
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {

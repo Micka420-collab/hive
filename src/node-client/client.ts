@@ -159,7 +159,7 @@ export class HiveNodeClient {
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         break;
       case 'assign_task':
-        void this.runTask(msg.task, msg.repoUrl ?? null);
+        void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext);
         break;
       case 'cancel_task':
         this.active.get(msg.taskId)?.abort();
@@ -187,7 +187,7 @@ export class HiveNodeClient {
   }
 
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
-  private async runTask(task: Task, repoUrl: string | null): Promise<void> {
+  private async runTask(task: Task, repoUrl: string | null, hiveContext?: string): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
     if (!ID_PATTERN.test(task.id)) {
@@ -220,7 +220,13 @@ export class HiveNodeClient {
     let workspace: Workspace | null = null;
     try {
       workspace = await prepareWorkspace(this.workRoot, task, repoUrl, this.opts.keepEnv ?? []);
-      const result = await this.adapter.run(task, {
+      // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
+      // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
+      // workspace restent construits sur la tâche d'origine).
+      const taskForAgent = hiveContext
+        ? { ...task, prompt: `${hiveContext}\n\n${task.prompt}`.slice(0, LIMITS.prompt) }
+        : task;
+      const result = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
         attempt: task.attempts + 1,

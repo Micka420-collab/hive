@@ -5,6 +5,7 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+import { summarizeTask } from './hive-mind.js';
 import type { HiveStore, NodeProfile } from './store.js';
 
 /** Délai pendant lequel un nœud qui vient de refuser une tâche ne la reçoit pas de nouveau. */
@@ -223,6 +224,14 @@ export class Scheduler {
         result: { success: true, nodeId, durationMs: result.durationMs },
       });
       this.emit('task_done', { taskId: task.id, nodeId, durationMs: result.durationMs });
+      // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
+      this.store.recordMemory({
+        projectId: task.projectId,
+        taskId: task.id,
+        title: task.title,
+        content: summarizeTask(task.title, task.prompt, result.logs),
+      });
+      this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
     } else {
       const attempts = task.attempts + 1;
       if (attempts >= this.maxAttempts) {

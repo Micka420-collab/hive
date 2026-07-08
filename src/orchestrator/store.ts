@@ -6,6 +6,8 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
+import { rankMemories } from './hive-mind.js';
+import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -75,6 +77,16 @@ CREATE TABLE IF NOT EXISTS events (
   type    TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS memories (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  projectId TEXT NOT NULL,
+  taskId    TEXT NOT NULL,
+  title     TEXT NOT NULL,
+  content   TEXT NOT NULL DEFAULT '',
+  createdAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_task ON memories(taskId);
 `;
 
 interface ProjectRow {
@@ -126,6 +138,15 @@ interface EventRow {
   ts: number;
   type: string;
   payload: string;
+}
+
+interface MemoryRow {
+  id: number;
+  projectId: string;
+  taskId: string;
+  title: string;
+  content: string;
+  createdAt: number;
 }
 
 export interface NewProject {
@@ -459,6 +480,58 @@ export class HiveStore {
       type: r.type,
       payload: JSON.parse(r.payload) as Record<string, unknown>,
     }));
+  }
+
+  // ─── Hive Mind (mémoire partagée) ──────────────────────────────────────────
+  /** Enregistre (ou remplace) le souvenir d'une tâche. Un souvenir par tâche. */
+  recordMemory(
+    m: { projectId: string; taskId: string; title: string; content: string },
+    now = Date.now(),
+  ): Memory {
+    const content = m.content.slice(0, LIMITS.prompt);
+    // La dernière réussite fait foi : on remplace tout souvenir antérieur.
+    this.db.prepare('DELETE FROM memories WHERE taskId = ?').run(m.taskId);
+    const info = this.db
+      .prepare(
+        'INSERT INTO memories (projectId, taskId, title, content, createdAt) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(m.projectId, m.taskId, m.title.slice(0, LIMITS.title), content, now);
+    return {
+      id: Number(info.lastInsertRowid),
+      projectId: m.projectId,
+      taskId: m.taskId,
+      title: m.title.slice(0, LIMITS.title),
+      content,
+      createdAt: now,
+    };
+  }
+
+  /** Souvenirs les plus récents (corpus borné pour garder le scoring rapide). */
+  listMemories(limit = 500): Memory[] {
+    return this.db
+      .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?')
+      .all(Math.max(1, Math.min(limit, 2000))) as MemoryRow[];
+  }
+
+  countMemories(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as { n: number };
+    return row.n;
+  }
+
+  /** Récupère les souvenirs pertinents pour une requête (BM25 sur le corpus récent). */
+  searchMemories(query: string, limit = 3): ScoredMemory[] {
+    return rankMemories(query, this.listMemories(500), limit);
+  }
+
+  /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */
+  pruneMemories(maxKeep: number): number {
+    const keep = Math.max(0, maxKeep);
+    const info = this.db
+      .prepare(
+        'DELETE FROM memories WHERE id NOT IN (SELECT id FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?)',
+      )
+      .run(keep);
+    return info.changes;
   }
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────

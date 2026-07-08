@@ -16,6 +16,8 @@ export const LIMITS = {
   diff: 1024 * 1024,
   subAgents: 32,
   maxConcurrency: 16,
+  /** Contexte Hive Mind joint à une assignation (borné : injecté dans le prompt). */
+  hiveContext: 8_000,
 } as const;
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -87,6 +89,8 @@ export interface AssignTaskMsg {
   task: Task;
   /** Dépôt du projet à cloner côté nœud (null : workspace vierge sans git). */
   repoUrl?: string | null;
+  /** Contexte Hive Mind (souvenirs pertinents) à préfixer au prompt de la tâche. */
+  hiveContext?: string;
 }
 
 export interface CancelTaskMsg {
@@ -306,8 +310,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'assign_task': {
       if (!isValidTask(m.task)) return null;
       if (m.repoUrl !== undefined && m.repoUrl !== null && !isValidRepoUrl(m.repoUrl)) return null;
+      if (m.hiveContext !== undefined && !isStrAllowEmpty(m.hiveContext, LIMITS.hiveContext)) {
+        return null;
+      }
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
+      if (m.hiveContext !== undefined) msg.hiveContext = m.hiveContext;
       return msg;
     }
     case 'cancel_task':

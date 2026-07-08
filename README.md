@@ -9,7 +9,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-93%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-100%20passing-2ea44f)
 ![Palier](https://img.shields.io/badge/palier-2%20en%20cours-f4b400)
 
 </div>
@@ -21,6 +21,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 |                         |                                                                                                                   |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | 🧠 **Queen Bee**        | Décrivez un projet en une phrase → un **DAG de tâches** est généré (heuristique ou IA).                           |
+| 🧬 **Hive Mind**        | Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans les suivantes.                |
 | 🕸️ **Hub-and-spoke**    | Un orchestrateur, N nœuds membres. Temps réel via WebSocket, état persistant en SQLite.                           |
 | 🐝 **Swarm View**       | Vue vivante de l'essaim, en **2D (SVG léger)** ou **3D ([Galacean Engine](https://github.com/galacean/engine))**. |
 | 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                          |
@@ -88,6 +89,23 @@ ANTHROPIC_API_KEY=sk-ant-…            # présence → mode IA, sinon heuristiq
 HIVE_PLANNER_MODEL=claude-haiku-4-5   # défaut rapide/économique ; opus pour + de finesse
 ```
 
+## 🧩 Hive Mind — la ruche apprend (Palier 2)
+
+La ruche garde une **mémoire partagée** : chaque tâche réussie laisse un
+_souvenir_ (ce qui a été fait + un extrait des logs). Avant d'assigner une
+nouvelle tâche, l'orchestrateur récupère les souvenirs les plus pertinents et
+**les injecte dans le prompt de l'ouvrière** — les tâches suivantes profitent du
+travail déjà accompli.
+
+La récupération est **100 % hors-ligne** (scoring lexical type BM25, sans
+embeddings ni API), donc déterministe et sans coût. Interrogez la mémoire :
+
+```bash
+npm run cli -- mind "authentification jwt"   # souvenirs les plus pertinents
+npm run cli -- mind                          # souvenirs récents
+# ou : GET /api/hive-mind?q=…
+```
+
 ## 🤝 Inviter un ami (connecter son IA en 30 s)
 
 1. **Vous (hôte)** — lancez l'orchestrateur avec un vrai token (`npm run dev`),
@@ -130,7 +148,7 @@ HIVE_PLANNER_MODEL=claude-haiku-4-5   # défaut rapide/économique ; opus pour +
 | `npm run node`          | Un nœud membre (configuré par variables d'environnement)           |
 | `npm run join -- <inv>` | Rejoindre une ruche depuis une invitation (agent auto-détecté)     |
 | `npm run cli`           | CLI : `state`/`project`/`tasks`/`watch`/`cancel`/`events`/`invite` |
-| `npm test`              | Tests unitaires + e2e (vitest) — **93 verts**                      |
+| `npm test`              | Tests unitaires + e2e (vitest) — **100 verts**                     |
 | `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                              |
 | `npm run build`         | Typecheck (orchestrateur + dashboard) + build du dashboard         |
 | `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                          |
@@ -178,6 +196,8 @@ le champ en haut à droite (mémorisé localement).
 
 ```bash
 npm run cli -- state                               # état de la ruche
+npm run cli -- plan "un SaaS avec auth et API"     # proposer un DAG (Queen Bee)
+npm run cli -- mind "authentification jwt"         # interroger la mémoire (Hive Mind)
 npm run cli -- project "Mon SaaS" [repoUrl]        # créer un projet
 npm run cli -- tasks <projectId> mes-taches.json   # envoyer un lot de tâches (DAG)
 npm run cli -- watch <projectId>                   # suivre l'avancement en direct
@@ -253,7 +273,7 @@ pending → ready (dépendances done) → assigned → running → done | failed
 ```
 src/
   orchestrator/   server.ts (Fastify+WS) · scheduler.ts · store.ts (SQLite)
-                  planner.ts (Queen Bee — brief → DAG) · main.ts
+                  planner.ts (Queen Bee — brief → DAG) · hive-mind.ts (mémoire) · main.ts
   node-client/    client.ts (WS+backoff) · workspace.ts (sandbox v0) · main.ts
   adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · exec.ts
   shared/         types.ts · protocol.ts (messages WS typés + validation) · invite.ts
@@ -261,15 +281,16 @@ src/
 dashboard/        Vite + React : SwarmView 2D/3D (Galacean) · StatTiles · NodesPanel
                   Journal · TaskDrawer (+ CodeEditor) · NewProjectModal · InvitePanel
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
-                  invite · planner  — 93 tests
+                  invite · planner · hive-mind  — 100 tests
 ```
 
 ## 🧭 Roadmap
 
 - **Palier 1** ✅ — essaim réel, temps réel, persistant ; Swarm View 2D/3D ;
   invitations ; éditeur intégré ; sécurité & sandbox v0.
-- **Palier 2** 🚧 — **Queen Bee** (découpage IA d'un brief en DAG) ✅ · Hive Mind
-  (mémoire RAG partagée) · Sting Detector (prévention de conflits).
+- **Palier 2** 🚧 — **Queen Bee** (découpage IA d'un brief en DAG) ✅ · **Hive Mind**
+  (mémoire partagée : la ruche apprend des tâches passées) ✅ · Sting Detector
+  (prévention de conflits).
 - **Palier 3** — Honeycomb Merge (merge sémantique + tests) · Drone Wars
   (redondance compétitive) · Time-Lapse Replay (depuis le journal d'événements).
 - **Palier 4** — Nectar & Waggle Board · Night Shift · Parlement des Agents ·
