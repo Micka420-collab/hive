@@ -368,6 +368,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           if (previous && previous !== ws) previous.close(4000, 'remplacé par une nouvelle connexion');
           nodeSockets.set(node.id, ws);
           send(ws, { type: 'registered', nodeId: node.id });
+          // Le socket est branché : on peut maintenant assigner des tâches au nœud.
+          scheduler.tick();
           stateDirty = true;
         } else if (msg.type === 'subscribe') {
           if (!tokenMatches(msg.token, config.token)) {
@@ -426,6 +428,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // ─── Boucles périodiques ───────────────────────────────────────────────────
   const tickTimer = setInterval(() => {
     scheduler.tick();
+    // Filet de sécurité : re-livre `assign_task` pour les tâches assignées
+    // restées muettes (message perdu en vol). Le client ignore les doublons.
+    for (const task of scheduler.staleAssignedTasks(5_000)) {
+      const ws = task.assignedNodeId ? nodeSockets.get(task.assignedNodeId) : undefined;
+      if (ws) {
+        const project = store.getProject(task.projectId);
+        send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+      }
+    }
   }, config.tickMs ?? 2_000);
   tickTimer.unref();
 

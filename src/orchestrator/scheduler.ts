@@ -49,6 +49,10 @@ export class Scheduler {
     this.promoteAndAssign(now);
   }
 
+  /**
+   * Enregistre le nœud SANS assigner de tâche : l'appelant doit d'abord
+   * brancher le canal de livraison (socket WS), puis appeler tick().
+   */
   registerNode(profile: NodeProfile, now = Date.now()): HiveNode {
     const known = profile.nodeId ? this.store.getNode(profile.nodeId) : undefined;
     const node = this.store.registerNode(profile, now);
@@ -57,8 +61,15 @@ export class Scheduler {
       name: node.name,
       agentType: node.agentType,
     });
-    this.promoteAndAssign(now);
     return node;
+  }
+
+  /**
+   * Tâches assignées restées muettes (pas de task_update) au-delà de `ageMs` :
+   * candidates à une re-livraison de `assign_task` (message perdu en vol).
+   */
+  staleAssignedTasks(ageMs: number, now = Date.now()): Task[] {
+    return this.store.tasksByStatus('assigned').filter((t) => now - t.updatedAt > ageMs);
   }
 
   /** Heartbeat découplé de la demande de tâche : il ne fait que prouver la vie du nœud. */

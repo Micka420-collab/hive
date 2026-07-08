@@ -104,6 +104,7 @@ describe('Scheduler (ordonnancement)', () => {
     expect(store.getTask(b.id)?.status).toBe('pending');
 
     const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
     expect(store.getTask(a.id)?.status).toBe('assigned');
     expect(store.getTask(a.id)?.branch).toBe(`hive/${a.id}`);
 
@@ -124,6 +125,7 @@ describe('Scheduler (ordonnancement)', () => {
     store.createTask({ projectId: p.id, title: 'C', prompt: 'c' });
 
     scheduler.registerNode(profile('n1', 2));
+    scheduler.tick();
     expect(store.tasksByStatus('assigned')).toHaveLength(2);
     expect(store.tasksByStatus('ready')).toHaveLength(1);
     expect(store.getNode(assigned[0]!.nodeId)?.running).toBe(2);
@@ -146,6 +148,7 @@ describe('Scheduler (ordonnancement)', () => {
     const p = store.createProject({ name: 'P' });
     const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
     const node = scheduler.registerNode(profile('n1'), 1_000);
+    scheduler.tick(1_000);
     expect(store.getTask(t.id)?.status).toBe('assigned');
 
     // 20 s plus tard sans heartbeat : le nœud est mort.
@@ -174,11 +177,13 @@ describe('Scheduler (ordonnancement)', () => {
     const p = store.createProject({ name: 'P' });
     const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
     const n1 = scheduler.registerNode(profile('n1'), 1_000);
+    scheduler.tick(1_000);
     expect(store.getTask(t.id)?.assignedNodeId).toBe(n1.id);
 
     // n1 meurt, la tâche repart en ready puis est réaffectée à n2.
     scheduler.tick(21_000);
     const n2 = scheduler.registerNode(profile('n2'), 21_000);
+    scheduler.tick(21_000);
     expect(store.getTask(t.id)?.assignedNodeId).toBe(n2.id);
 
     // Résultat tardif de n1 (zombie) : ignoré, sans effet sur la tâche.
@@ -198,6 +203,7 @@ describe('Scheduler (ordonnancement)', () => {
     const p = store.createProject({ name: 'P' });
     const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
     const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
 
     expect(scheduler.handleTaskResult(node.id, result(t.id))).toBe(true);
     expect(scheduler.handleTaskResult(node.id, result(t.id))).toBe(false);
@@ -208,6 +214,7 @@ describe('Scheduler (ordonnancement)', () => {
     const p = store.createProject({ name: 'P' });
     const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
     const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
 
     // Échec 1 et 2 : la tâche repart en ready et est réassignée aussitôt.
     scheduler.handleTaskResult(node.id, result(t.id, false));
@@ -231,6 +238,7 @@ describe('Scheduler (ordonnancement)', () => {
     const b = store.createTask({ projectId: p.id, title: 'B', prompt: 'b', dependsOn: [a.id] });
     const c = store.createTask({ projectId: p.id, title: 'C', prompt: 'c', dependsOn: [b.id] });
     const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
 
     for (let i = 0; i < 3; i++) scheduler.handleTaskResult(node.id, result(a.id, false));
 
@@ -243,6 +251,7 @@ describe('Scheduler (ordonnancement)', () => {
     const p = store.createProject({ name: 'P' });
     const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
     const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
     scheduler.handleTaskUpdate(node.id, t.id);
     scheduler.handleTaskResult(node.id, result(t.id));
 
