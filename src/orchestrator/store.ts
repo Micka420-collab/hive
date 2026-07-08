@@ -431,6 +431,24 @@ export class HiveStore {
     return row.id ?? 0;
   }
 
+  /** Nombre d'événements dans le journal. */
+  countEvents(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Ne conserve que les `maxKeep` événements les plus récents (par id). Borne la
+   * croissance du journal sur un orchestrateur qui tourne longtemps. Retourne le
+   * nombre d'événements supprimés. Appelé périodiquement par le serveur.
+   */
+  pruneEvents(maxKeep: number): number {
+    const cutoff = this.lastEventId() - Math.max(0, maxKeep);
+    if (cutoff <= 0) return 0;
+    const info = this.db.prepare('DELETE FROM events WHERE id <= ?').run(cutoff);
+    return info.changes;
+  }
+
   listEvents(sinceId = 0, limit = 200): HiveEvent[] {
     const rows = this.db
       .prepare('SELECT * FROM events WHERE id > ? ORDER BY id LIMIT ?')

@@ -75,6 +75,26 @@ describe('HiveStore (persistance SQLite)', () => {
     expect(store.getNode(first.id)?.name).toBe('n1-renamed');
     store.close();
   });
+
+  it('borne le journal : pruneEvents ne garde que les N derniers événements', () => {
+    const store = new HiveStore(':memory:');
+    for (let i = 0; i < 50; i++) store.appendEvent('tick', { i });
+    expect(store.countEvents()).toBe(50);
+
+    // Sous le plafond : rien n'est supprimé.
+    expect(store.pruneEvents(100)).toBe(0);
+    expect(store.countEvents()).toBe(50);
+
+    // Au-dessus du plafond : on ne garde que les 10 plus récents.
+    const removed = store.pruneEvents(10);
+    expect(removed).toBe(40);
+    expect(store.countEvents()).toBe(10);
+    const kept = store.listEvents(0, 1000);
+    expect(kept).toHaveLength(10);
+    // Ce sont bien les plus récents (payload i de 40 à 49).
+    expect(kept.map((e) => e.payload.i)).toEqual([40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+    store.close();
+  });
 });
 
 describe('Scheduler (ordonnancement)', () => {

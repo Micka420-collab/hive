@@ -24,6 +24,9 @@ import { HiveStore } from './store.js';
 /** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
 const WS_MSG_PER_SEC = 100;
 
+/** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
+const EVENT_RETENTION = 5_000;
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -637,6 +640,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
         }
       }
+      // Borne la croissance du journal d'événements.
+      store.pruneEvents(EVENT_RETENTION);
     } catch (err) {
       console.error(`[hive] erreur de tick : ${err instanceof Error ? err.message : err}`);
     }
