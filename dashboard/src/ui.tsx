@@ -1,6 +1,58 @@
-// Éléments d'UI partagés : libellés/icônes de statut, badge, barre de progression.
+// Éléments d'UI partagés : libellés/icônes de statut, badge, barre de
+// progression, et hooks d'accessibilité pour les overlays (dialog).
 
+import { useEffect, useRef } from 'react';
+import type { KeyboardEvent } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
+
+/**
+ * Accessibilité d'un overlay (tiroir/modale) :
+ *  - ferme sur Échap ;
+ *  - déplace le focus dans l'overlay à l'ouverture ;
+ *  - restaure le focus sur l'élément déclencheur à la fermeture.
+ * Retourne un ref à poser sur le conteneur (avec role="dialog" aria-modal).
+ */
+export function useDialog<T extends HTMLElement>(onClose: () => void) {
+  const ref = useRef<T>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const trigger = document.activeElement as HTMLElement | null;
+    const el = ref.current;
+    // Focus le 1er élément focusable, sinon le conteneur lui-même.
+    const focusable = el?.querySelector<HTMLElement>(
+      'input, textarea, button, [tabindex]:not([tabindex="-1"])',
+    );
+    (focusable ?? el)?.focus();
+
+    const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') closeRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      trigger?.focus?.(); // restaure le focus au déclencheur
+    };
+  }, []);
+
+  return ref;
+}
+
+/** Props à étaler sur une ligne cliquable pour la rendre activable au clavier. */
+export function activateProps(onActivate: () => void) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick: onActivate,
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: 'en attente',

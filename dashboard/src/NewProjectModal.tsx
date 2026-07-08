@@ -1,9 +1,10 @@
 // Modale de création : lancer un projet et son lot de tâches (DAG) directement
 // depuis l'interface, sans passer par la CLI.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { addTasks, createProject } from './api';
 import type { NewTaskInput } from './api';
+import { useDialog } from './ui';
 
 const EXAMPLE = `[
   { "id": "socle", "title": "Échafauder le dépôt", "prompt": "Créer la structure" },
@@ -18,6 +19,13 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [tasksJson, setTasksJson] = useState(EXAMPLE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Si le projet a déjà été créé mais que l'ajout des tâches a échoué, on ne le
+  // recrée pas au retry (sinon on empilerait des projets vides orphelins).
+  const createdId = useRef<string | null>(null);
+  const closeIfIdle = () => {
+    if (!busy) onClose();
+  };
+  const dialogRef = useDialog<HTMLDivElement>(closeIfIdle);
 
   const submit = async () => {
     setError(null);
@@ -38,11 +46,15 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
     }
     setBusy(true);
     try {
-      const project = await createProject({
-        name: name.trim(),
-        ...(repoUrl.trim() ? { repoUrl: repoUrl.trim() } : {}),
-      });
-      await addTasks(project.id, tasks);
+      // Créer le projet une seule fois, même après un échec d'ajout de tâches.
+      if (!createdId.current) {
+        const project = await createProject({
+          name: name.trim(),
+          ...(repoUrl.trim() ? { repoUrl: repoUrl.trim() } : {}),
+        });
+        createdId.current = project.id;
+      }
+      await addTasks(createdId.current, tasks);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -52,11 +64,18 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={closeIfIdle}>
+      <div
+        className="modal wide"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="np-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="modal-head">
-          <h2>🐝 Nouveau projet</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Fermer">
+          <h2 id="np-title">🐝 Nouveau projet</h2>
+          <button className="modal-close" onClick={closeIfIdle} disabled={busy} aria-label="Fermer">
             ×
           </button>
         </header>

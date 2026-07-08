@@ -13,7 +13,7 @@ import { StatTiles } from './StatTiles';
 import { SwarmView } from './SwarmView';
 import { TaskDrawer } from './TaskDrawer';
 import { TaskTable } from './TaskTable';
-import { StatusBadge } from './ui';
+import { activateProps, StatusBadge } from './ui';
 
 // Le moteur 3D (~290 Ko gzip) n'est chargé que si l'utilisateur active la vue 3D.
 const SwarmView3D = lazy(() => import('./SwarmView3D'));
@@ -182,7 +182,11 @@ export function App() {
                 .filter((t) => t.status !== 'done')
                 .slice(0, 14)
                 .map((t) => (
-                  <li key={t.id} className="clickable" onClick={() => setSelectedId(t.id)}>
+                  <li
+                    key={t.id}
+                    className="clickable"
+                    {...activateProps(() => setSelectedId(t.id))}
+                  >
                     <StatusBadge status={t.status} />
                     <span className="queue-title">{t.title}</span>
                   </li>

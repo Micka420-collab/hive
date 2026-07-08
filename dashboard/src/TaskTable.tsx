@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { HiveNode, Task, TaskStatus } from '../../src/shared/types';
-import { formatMs, StatusBadge, STATUS_LABEL } from './ui';
+import { activateProps, formatMs, StatusBadge, STATUS_LABEL } from './ui';
 
 interface Props {
   tasks: Task[];
@@ -56,7 +56,7 @@ export function TaskTable({ tasks, nodes, onSelect }: Props) {
             </thead>
             <tbody>
               {shown.map((t) => (
-                <tr key={t.id} onClick={() => onSelect(t)} className="clickable">
+                <tr key={t.id} className="clickable" {...activateProps(() => onSelect(t))}>
                   <td className="cell-title">{t.title}</td>
                   <td>
                     <StatusBadge status={t.status} />

@@ -676,6 +676,22 @@ h3 {
   background: var(--panel-2);
 }
 
+/* Focus clavier visible (accessibilité) sur les éléments interactifs. */
+.clickable:focus-visible,
+.btn:focus-visible,
+.chip:focus-visible,
+.view-toggle button:focus-visible,
+.modal-close:focus-visible,
+.copy-btn:focus-visible,
+.drawer-tabs button:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 1px;
+}
+
+.clickable:focus-visible {
+  background: var(--panel-2);
+}
+
 /* ─── États vides ─────────────────────────────────────────────────────── */
 .empty {
   color: var(--muted);

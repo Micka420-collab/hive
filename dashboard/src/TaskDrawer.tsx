@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { cancelTask, fetchResults } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
-import { formatMs, StatusBadge } from './ui';
+import { formatMs, StatusBadge, useDialog } from './ui';
 
 interface Props {
   task: Task;
@@ -17,6 +17,7 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   const [tab, setTab] = useState<'diff' | 'logs'>('diff');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useDialog<HTMLElement>(onClose);
 
   useEffect(() => {
     let alive = true;
@@ -49,10 +50,18 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+      <aside
+        className="drawer"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="drawer-head">
           <div>
-            <h2>{task.title}</h2>
+            <h2 id="drawer-title">{task.title}</h2>
             <StatusBadge status={task.status} />
           </div>
           <button className="modal-close" onClick={onClose} aria-label="Fermer">

@@ -2,7 +2,7 @@
 // affiche la commande prête à copier, avec les étapes pour l'ami. L'ami colle
 // la commande, son agent IA est détecté automatiquement, il rejoint la ruche.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
 
@@ -46,6 +46,16 @@ export function InvitePanel() {
     if (!invite) void generate();
   };
 
+  // Fermeture au clavier (Échap) quand la modale est ouverte.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   const copy = async () => {
     if (!invite) return;
     const text = invite.joinCommand;
@@ -78,9 +88,15 @@ export function InvitePanel() {
 
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invite-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <header className="modal-head">
-              <h2>🐝 Inviter un ami dans la ruche</h2>
+              <h2 id="invite-title">🐝 Inviter un ami dans la ruche</h2>
               <button className="modal-close" onClick={() => setOpen(false)} aria-label="Fermer">
                 ×
               </button>
