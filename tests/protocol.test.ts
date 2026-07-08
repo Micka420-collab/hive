@@ -2,7 +2,29 @@
 // malveillants sont rejetés, les champs inconnus ne sont jamais propagés.
 
 import { describe, expect, it } from 'vitest';
-import { LIMITS, parseClientMessage, parseServerMessage } from '../src/shared/protocol.js';
+import {
+  isValidRepoUrl,
+  isValidTask,
+  LIMITS,
+  parseClientMessage,
+  parseServerMessage,
+} from '../src/shared/protocol.js';
+import type { Task } from '../src/shared/types.js';
+
+const validTask: Task = {
+  id: 'tache-1',
+  projectId: 'projet-1',
+  title: 'Titre',
+  prompt: 'faire',
+  status: 'assigned',
+  dependsOn: [],
+  assignedNodeId: 'n1',
+  result: null,
+  branch: 'hive/tache-1',
+  attempts: 0,
+  createdAt: 0,
+  updatedAt: 0,
+};
 
 const register = {
   type: 'register',
@@ -112,6 +134,92 @@ describe('parseClientMessage', () => {
       }),
     );
     expect(msg?.type).toBe('task_result');
+  });
+
+  it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
+    expect(
+      parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))
+        ?.type,
+    ).toBe('task_reject');
+    expect(
+      parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 'a b', reason: 'x' })),
+    ).toBeNull();
+    expect(
+      parseClientMessage(JSON.stringify({ ...register, activeTasks: ['t1', 't2'] }))?.type,
+    ).toBe('register');
+    // Un activeTasks contenant un id invalide fait rejeter tout le register.
+    expect(
+      parseClientMessage(JSON.stringify({ ...register, activeTasks: ['../evil'] })),
+    ).toBeNull();
+  });
+});
+
+describe('parseServerMessage — validation des messages du hub (anti-traversal/RCE)', () => {
+  it('accepte un assign_task valide', () => {
+    const msg = parseServerMessage(
+      JSON.stringify({ type: 'assign_task', task: validTask, repoUrl: null }),
+    );
+    expect(msg?.type).toBe('assign_task');
+  });
+
+  it('rejette assign_task sans task ou avec un task.id malveillant (path traversal)', () => {
+    expect(parseServerMessage(JSON.stringify({ type: 'assign_task' }))).toBeNull();
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'assign_task', task: { ...validTask, id: '../../evil' } }),
+      ),
+    ).toBeNull();
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'assign_task', task: { ...validTask, id: 'C:\\Windows' } }),
+      ),
+    ).toBeNull();
+  });
+
+  it('rejette assign_task avec un repoUrl à transport dangereux (RCE ext::)', () => {
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'assign_task', task: validTask, repoUrl: "ext::sh -c 'id'" }),
+      ),
+    ).toBeNull();
+  });
+
+  it('rejette cancel_task sans taskId valide', () => {
+    expect(parseServerMessage(JSON.stringify({ type: 'cancel_task', reason: 'x' }))).toBeNull();
+    expect(
+      parseServerMessage(JSON.stringify({ type: 'cancel_task', taskId: 't1', reason: 'x' }))?.type,
+    ).toBe('cancel_task');
+  });
+});
+
+describe('isValidRepoUrl', () => {
+  it('accepte les schémas de transport sûrs', () => {
+    expect(isValidRepoUrl('https://github.com/x/y.git')).toBe(true);
+    expect(isValidRepoUrl('http://host/x.git')).toBe(true);
+    expect(isValidRepoUrl('git://host/x.git')).toBe(true);
+    expect(isValidRepoUrl('ssh://git@host/x.git')).toBe(true);
+    expect(isValidRepoUrl('git@github.com:x/y.git')).toBe(true);
+    expect(isValidRepoUrl('C:\\repos\\x')).toBe(true);
+    expect(isValidRepoUrl('/home/user/repo')).toBe(true);
+  });
+
+  it('rejette ext::, une injection d’argument, et le vide', () => {
+    expect(isValidRepoUrl("ext::sh -c 'id'")).toBe(false);
+    expect(isValidRepoUrl('-oProxyCommand=evil')).toBe(false);
+    expect(isValidRepoUrl('file:///etc/passwd')).toBe(false);
+    expect(isValidRepoUrl('')).toBe(false);
+    expect(isValidRepoUrl(42)).toBe(false);
+  });
+});
+
+describe('isValidTask', () => {
+  it('accepte une tâche bien formée et rejette les cas limites', () => {
+    expect(isValidTask(validTask)).toBe(true);
+    expect(isValidTask({ ...validTask, id: '../x' })).toBe(false);
+    expect(isValidTask({ ...validTask, status: 'zombie' })).toBe(false);
+    expect(isValidTask({ ...validTask, dependsOn: ['ok', '../bad'] })).toBe(false);
+    expect(isValidTask(null)).toBe(false);
+    expect(isValidTask({ ...validTask, attempts: -1 })).toBe(false);
   });
 });
 

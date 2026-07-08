@@ -262,4 +262,62 @@ describe('Scheduler (ordonnancement)', () => {
     expect(types).toContain('task_started');
     expect(types).toContain('task_done');
   });
+
+  it('émet task_progress sur un log seul (agents réels sans sous-agents)', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+
+    scheduler.handleTaskUpdate(node.id, t.id, undefined, 'claude -p démarré');
+    const progress = store.listEvents().filter((e) => e.type === 'task_progress');
+    expect(progress).toHaveLength(1);
+    expect(progress[0]!.payload.log).toBe('claude -p démarré');
+  });
+
+  it('rejectTask requalifie SANS consommer de tentative (nœud saturé)', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    // maxConcurrency 0 impossible : on force l'assignation puis on rejette.
+    const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    expect(store.getTask(t.id)?.status).toBe('assigned');
+
+    scheduler.rejectTask(node.id, t.id, 'noeud_sature');
+    const after = store.getTask(t.id);
+    // Le nœud étant seul et libre, la tâche est aussitôt réassignée, mais sans
+    // qu'aucune tentative n'ait été consommée.
+    expect(after?.attempts).toBe(0);
+    expect(store.listEvents().map((e) => e.type)).toContain('task_rejected');
+  });
+
+  it('reconcileNode requalifie les tâches orphelines d’un nœud redémarré à vide', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    scheduler.handleTaskUpdate(node.id, t.id); // running
+    expect(store.getTask(t.id)?.status).toBe('running');
+
+    // Le nœud redémarre et ne déclare plus aucune tâche active.
+    const { zombies } = scheduler.reconcileNode(node.id, []);
+    expect(zombies).toEqual([]);
+    // La tâche running orpheline est requalifiée (puis réassignée au même nœud).
+    const types = store.listEvents().map((e) => e.type);
+    expect(types).toContain('task_requeued');
+    expect(store.getTask(t.id)?.attempts).toBe(0);
+  });
+
+  it('reconcileNode signale comme zombie une tâche que le nœud croit encore sienne', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const n1 = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    expect(store.getTask(t.id)?.assignedNodeId).toBe(n1.id);
+
+    // La tâche a été réaffectée ailleurs ; n1 croit encore l'exécuter.
+    store.patchTask(t.id, { assignedNodeId: 'autre-noeud', status: 'running' });
+    const { zombies } = scheduler.reconcileNode(n1.id, [t.id]);
+    expect(zombies).toEqual([t.id]);
+  });
 });
