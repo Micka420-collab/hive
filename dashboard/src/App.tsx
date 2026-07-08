@@ -5,6 +5,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
 import { connectFeed, getToken, saveToken } from './api';
+import { ConflictsPanel } from './ConflictsPanel';
+import { HiveMindPanel } from './HiveMindPanel';
 import { InvitePanel } from './InvitePanel';
 import { Journal } from './Journal';
 import { NewProjectModal } from './NewProjectModal';
@@ -80,6 +82,17 @@ export function App() {
   const total = snapshot.tasks.length;
   const done = snapshot.tasks.filter((t) => t.status === 'done').length;
   const projectName = snapshot.projects[snapshot.projects.length - 1]?.name;
+  // Rafraîchissement des panneaux Palier 2 piloté par les events (pas de polling).
+  const memoryTick = events.filter((e) => e.type === 'memory_recorded').length;
+  const conflictTick = events.filter((e) =>
+    [
+      'conflict_detected',
+      'task_conflict_deferred',
+      'task_created',
+      'task_done',
+      'task_failed',
+    ].includes(e.type),
+  ).length;
   const selected = useMemo(
     () => snapshot.tasks.find((t) => t.id === selectedId) ?? null,
     [snapshot.tasks, selectedId],
@@ -173,6 +186,12 @@ export function App() {
         <aside className="col-side">
           <NodesPanel nodes={snapshot.nodes} />
 
+          <ConflictsPanel
+            projects={snapshot.projects}
+            tasks={snapshot.tasks}
+            refreshKey={conflictTick}
+          />
+
           <section className="card panel">
             <header className="panel-head">
               <h2>File d’attente</h2>
@@ -195,6 +214,8 @@ export function App() {
               {total === 0 && <li className="empty">Aucune tâche en attente.</li>}
             </ul>
           </section>
+
+          <HiveMindPanel refreshKey={memoryTick} />
 
           <Journal events={events} />
         </aside>

@@ -99,7 +99,9 @@ nouvelle tâche, l'orchestrateur récupère les souvenirs les plus pertinents et
 travail déjà accompli.
 
 La récupération est **100 % hors-ligne** (scoring lexical type BM25, sans
-embeddings ni API), donc déterministe et sans coût. Interrogez la mémoire :
+embeddings ni API), donc déterministe et sans coût. Le dashboard affiche un
+**panneau Hive Mind** (recherche + souvenirs récents, en direct). Interrogez la
+mémoire :
 
 ```bash
 npm run cli -- mind "authentification jwt"   # souvenirs les plus pertinents
@@ -118,6 +120,9 @@ exécuter d'agent :
   deux jusqu'à ce que l'autre se termine (sérialisation, prévention effective).
 - **Conflit faible** (fort recouvrement de vocabulaire) → simple **avertissement**
   dans le journal, jamais bloquant.
+
+Un **panneau Conflits** apparaît dans le dashboard dès qu'un conflit est détecté
+(et les événements défilent dans le Journal en temps réel).
 
 ```bash
 npm run cli -- stings <projectId>            # conflits potentiels du projet
@@ -299,6 +304,7 @@ src/
   demo.ts         npm run demo
 dashboard/        Vite + React : SwarmView 2D/3D (Galacean) · StatTiles · NodesPanel
                   Journal · TaskDrawer (+ CodeEditor) · NewProjectModal · InvitePanel
+                  HiveMindPanel · ConflictsPanel (Palier 2)
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
                   invite · planner · hive-mind · sting-detector  — 110 tests
 ```

@@ -52,6 +52,21 @@ const EVENTS: Record<string, Meta> = {
     text: (p) => `nœud hors ligne : ${String(p.name ?? '')}`,
   },
   node_reconciled: { icon: '↺', cls: 'muted', text: () => `réconciliation` },
+  memory_recorded: {
+    icon: '🧬',
+    cls: 'muted',
+    text: (p) => `souvenir consigné (${short(p.taskId)})`,
+  },
+  conflict_detected: {
+    icon: '🛡️',
+    cls: 'warn',
+    text: (p) => `conflit ${String(p.severity ?? '')} : ${short(p.a)} ↔ ${short(p.b)}`,
+  },
+  task_conflict_deferred: {
+    icon: '⏸',
+    cls: 'warn',
+    text: (p) => `différée (conflit avec ${short(p.conflictsWith)})`,
+  },
   result_ignored: { icon: '⊘', cls: 'muted', text: (p) => `résultat périmé (${short(p.taskId)})` },
   boot_recovery: {
     icon: '⟲',

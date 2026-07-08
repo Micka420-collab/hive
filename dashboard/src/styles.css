@@ -993,6 +993,101 @@ h3 {
   color: var(--gold);
 }
 
+/* ─── Panneaux Palier 2 : Hive Mind & Conflits ─────────────────────────── */
+.panel-error {
+  color: var(--red, #e06b6b);
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.panel-count.warn {
+  color: var(--amber);
+}
+
+.mind-search {
+  margin-bottom: 8px;
+}
+
+.mind-search input {
+  width: 100%;
+  padding: 5px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.mind-list,
+.conflict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mind-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  border-left: 2px solid var(--honey);
+}
+
+.mind-title {
+  font-size: 12px;
+  color: var(--gold);
+}
+
+.mind-score {
+  color: var(--faint);
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mind-content {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.conflict-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.conflict-item.high {
+  border-left: 2px solid var(--amber);
+}
+
+.conflict-sev {
+  color: var(--amber);
+}
+
+.conflict-pair {
+  flex: 1;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-detail {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

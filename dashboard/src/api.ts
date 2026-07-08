@@ -81,6 +81,39 @@ export function fetchResults(taskId: string): Promise<TaskResult[]> {
   return api<TaskResult[]>(`/api/tasks/${taskId}/results`);
 }
 
+export interface Memory {
+  id: number;
+  projectId: string;
+  taskId: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  score: number | null;
+}
+
+/** Hive Mind : souvenirs pertinents (avec `q`) ou récents. */
+export function fetchMemories(
+  q?: string,
+  limit = 8,
+): Promise<{ total: number; memories: Memory[] }> {
+  const query =
+    q && q.trim() ? `?q=${encodeURIComponent(q.trim())}&limit=${limit}` : `?limit=${limit}`;
+  return api<{ total: number; memories: Memory[] }>(`/api/hive-mind${query}`);
+}
+
+export interface Conflict {
+  a: string;
+  b: string;
+  severity: 'high' | 'low';
+  sharedPaths: string[];
+  sharedTerms: string[];
+}
+
+/** Sting Detector : conflits potentiels d'un projet. */
+export function fetchConflicts(projectId: string): Promise<{ conflicts: Conflict[] }> {
+  return api<{ conflicts: Conflict[] }>(`/api/projects/${projectId}/conflicts`);
+}
+
 /** Annule une tâche (le nœud abandonne). */
 export function cancelTask(taskId: string): Promise<Task> {
   return api<Task>(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: '{}' });
