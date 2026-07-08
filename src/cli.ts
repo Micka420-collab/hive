@@ -2,6 +2,7 @@
 //
 // Usage :
 //   npm run cli -- state                              état de la ruche
+//   npm run cli -- plan "<brief>" [mode]              proposer un DAG (Queen Bee)
 //   npm run cli -- project "Nom" [repoUrl]            créer un projet
 //   npm run cli -- tasks <projectId> <fichier.json>   envoyer un lot de tâches
 //   npm run cli -- watch <projectId>                  suivre l'avancement en direct
@@ -65,6 +66,37 @@ async function cmdState(): Promise<void> {
     console.log(`\n📋 ${p.name} — ${done}/${tasks.length}`);
     printTasks(tasks);
   }
+}
+
+interface PlannedTaskLike {
+  id: string;
+  title: string;
+  prompt: string;
+  dependsOn: string[];
+}
+
+/**
+ * Queen Bee (Palier 2) : propose un DAG à partir d'un brief. La sortie est
+ * imprimée pour revue (arbre + JSON) — à enregistrer puis envoyer via `tasks`.
+ */
+async function cmdPlan(brief: string, mode?: string): Promise<void> {
+  const m = mode === 'heuristic' || mode === 'llm' ? mode : 'auto';
+  const res = await api<{ tasks: PlannedTaskLike[]; source: string; note?: string }>('/api/plan', {
+    method: 'POST',
+    body: JSON.stringify({ brief, mode: m }),
+  });
+  const origin = res.source === 'llm' ? '✨ IA' : '🐝 heuristique';
+  console.log(
+    `\n${origin} — ${res.tasks.length} tâche(s) proposée(s)${res.note ? `\n(${res.note})` : ''}\n`,
+  );
+  for (const t of res.tasks) {
+    const deps = t.dependsOn.length ? `  ← ${t.dependsOn.join(', ')}` : '';
+    console.log(`  ◇ ${t.title}  [${t.id}]${deps}`);
+  }
+  console.log(
+    '\nJSON (enregistrez-le, ajustez, puis : npm run cli -- tasks <projectId> ce-fichier.json) :\n',
+  );
+  console.log(JSON.stringify(res.tasks, null, 2));
 }
 
 async function cmdProject(name: string, repoUrl?: string): Promise<void> {
@@ -150,6 +182,7 @@ async function cmdInvite(url?: string): Promise<void> {
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
+  else if (cmd === 'plan' && a1) await cmdPlan(a1, a2);
   else if (cmd === 'project' && a1) await cmdProject(a1, a2);
   else if (cmd === 'tasks' && a1 && a2) await cmdTasks(a1, a2);
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
@@ -158,7 +191,7 @@ try {
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

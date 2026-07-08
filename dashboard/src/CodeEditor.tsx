@@ -66,7 +66,7 @@ export default function CodeEditor({ value, lang, editable = false, onChange }: 
       view.destroy();
       viewRef.current = null;
     };
-    // eslint-disable-next-line
+    // Montage unique : l'éditeur est créé une fois, puis mis à jour ci-dessous.
   }, []);
 
   // Mise à jour du contenu quand la valeur externe change (sans recréer l'éditeur).
