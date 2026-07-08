@@ -201,6 +201,8 @@ aucun merge automatique au Palier 1.
 - **Validation de toutes les entrées** : JSON Schema sur les routes REST,
   validation champ par champ des messages WS, corps limité à 1 Mo, messages WS
   à 2 Mo, logs/diffs plafonnés.
+- **Anti-DoS** : plafond de messages WebSocket par socket, et limitation de débit
+  des routes REST par IP (429 au-delà du plafond) — défense en profondeur.
 - **Sandbox v0** : un cwd dédié par tâche, environnement épuré (pas de
   HOME/USERPROFILE, TEMP redirigé à côté du workspace), annulation coopérative,
   timeout dur, sortie plafonnée.

@@ -27,6 +27,10 @@ const WS_MSG_PER_SEC = 100;
 /** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
 const EVENT_RETENTION = 5_000;
 
+/** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
+const REST_RATE_WINDOW_MS = 10_000;
+const REST_RATE_MAX = 400;
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -205,6 +209,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     origin: config.corsOrigins,
     methods: ['GET', 'POST'],
     allowedHeaders: ['content-type', 'x-hive-token'],
+  });
+
+  // Limitation de débit des routes /api par IP (fenêtre glissante) : défense en
+  // profondeur contre un flood REST, en complément du plafond côté WebSocket.
+  const apiHits = new Map<string, { count: number; resetAt: number }>();
+  app.addHook('onRequest', async (req, reply) => {
+    if (!req.url.startsWith('/api/')) return;
+    const now = Date.now();
+    let h = apiHits.get(req.ip);
+    if (!h || h.resetAt <= now) {
+      h = { count: 0, resetAt: now + REST_RATE_WINDOW_MS };
+      apiHits.set(req.ip, h);
+    }
+    h.count += 1;
+    if (h.count > REST_RATE_MAX) {
+      return reply.code(429).send({ error: 'trop de requêtes, réessayez dans un instant' });
+    }
   });
 
   const dashboardDist = path.resolve(
@@ -642,6 +663,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       // Borne la croissance du journal d'événements.
       store.pruneEvents(EVENT_RETENTION);
+      // Purge des compteurs de débit expirés (borne la map par IP).
+      const now = Date.now();
+      for (const [ip, h] of apiHits) {
+        if (h.resetAt <= now) apiHits.delete(ip);
+      }
     } catch (err) {
       console.error(`[hive] erreur de tick : ${err instanceof Error ? err.message : err}`);
     }

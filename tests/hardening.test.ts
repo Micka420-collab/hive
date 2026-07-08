@@ -153,6 +153,20 @@ describe('durcissement du serveur', () => {
     expect(good.status).toBe(201);
   });
 
+  it('limite le débit REST : au-delà du plafond, renvoie 429', async () => {
+    // Le plafond est de 400 requêtes /api par IP et par fenêtre de 10 s.
+    // On enchaîne 430 requêtes health : les premières passent, les suivantes 429.
+    let ok = 0;
+    let limited = 0;
+    for (let i = 0; i < 430; i++) {
+      const res = await fetch(`${base}/api/health`);
+      if (res.status === 200) ok++;
+      else if (res.status === 429) limited++;
+    }
+    expect(ok).toBeGreaterThanOrEqual(400);
+    expect(limited).toBeGreaterThan(0);
+  });
+
   it('refuse un prompt qui dépasse la limite et un lot trop grand', async () => {
     const projectId = await newProject();
     const tooLong = await fetch(`${base}/api/projects/${projectId}/tasks`, {
