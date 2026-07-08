@@ -18,7 +18,7 @@ import { HiveStore } from '../src/orchestrator/store.js';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
-import { HiveNodeClient } from '../src/node-client/client.js';
+import { composeAgentPrompt, HiveNodeClient } from '../src/node-client/client.js';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import type { Task } from '../src/shared/types.js';
 
@@ -160,6 +160,20 @@ describe('capture par le scheduler', () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe('composition du prompt (injection)', () => {
+  it('préfixe le contexte sans jamais tronquer le prompt d’origine', () => {
+    const longPrompt = 'X'.repeat(99_000); // proche de la limite protocole (100k)
+    const ctx = 'C'.repeat(8_000);
+    const composed = composeAgentPrompt(ctx, longPrompt);
+    // Le prompt d'origine survit INTÉGRALEMENT (pas de troncature au profit du contexte).
+    expect(composed.endsWith(longPrompt)).toBe(true);
+    expect(composed.startsWith(ctx)).toBe(true);
+    // Sans contexte : prompt inchangé.
+    expect(composeAgentPrompt(undefined, 'brut')).toBe('brut');
+    expect(composeAgentPrompt('', 'brut')).toBe('brut');
   });
 });
 

@@ -33,10 +33,35 @@ const MIN_JACCARD = 0.4;
 // Écarte « e.g. », « 3.14 », « and/or »…
 const PATH_RE = /(?:[\w-]+[/\\])*[\w-]{2,}\.[a-z][a-z0-9]{0,5}\b/gi;
 
+// Technos fréquemment écrites « X.js/ts » qui ne sont PAS des fichiers : on les
+// écarte pour éviter de sérialiser à tort deux tâches qui les mentionnent
+// (heuristique, forcément incomplète). Un vrai chemin avec répertoire
+// (src/node.ts) n'est jamais concerné : seul le nom nu correspond.
+const NOT_FILES = new Set([
+  'node.js',
+  'react.js',
+  'vue.js',
+  'next.js',
+  'nuxt.js',
+  'express.js',
+  'nest.js',
+  'angular.js',
+  'svelte.js',
+  'ember.js',
+  'backbone.js',
+  'three.js',
+  'd3.js',
+  'chart.js',
+  'socket.io',
+]);
+
 /** Extrait les chemins de fichiers cités dans un texte (minuscules, dédoublonnés). */
 export function extractPaths(text: string): Set<string> {
   const out = new Set<string>();
-  for (const m of text.matchAll(PATH_RE)) out.add(m[0].toLowerCase());
+  for (const m of text.matchAll(PATH_RE)) {
+    const p = m[0].toLowerCase();
+    if (!NOT_FILES.has(p)) out.add(p);
+  }
   return out;
 }
 

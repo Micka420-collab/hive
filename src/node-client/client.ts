@@ -37,6 +37,15 @@ export interface NodeClientOptions {
   quiet?: boolean;
 }
 
+/**
+ * Préfixe le contexte Hive Mind au prompt d'une tâche, pour l'agent. Le prompt
+ * d'origine n'est JAMAIS tronqué : ce prompt augmenté reste local (exécuté par
+ * l'adaptateur), il ne repart pas au hub — aucune contrainte de taille protocole.
+ */
+export function composeAgentPrompt(hiveContext: string | undefined, prompt: string): string {
+  return hiveContext ? `${hiveContext}\n\n${prompt}` : prompt;
+}
+
 export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
@@ -224,7 +233,7 @@ export class HiveNodeClient {
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
       // workspace restent construits sur la tâche d'origine).
       const taskForAgent = hiveContext
-        ? { ...task, prompt: `${hiveContext}\n\n${task.prompt}`.slice(0, LIMITS.prompt) }
+        ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
       const result = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,

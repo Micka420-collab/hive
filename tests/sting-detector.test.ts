@@ -31,6 +31,18 @@ describe('extraction de chemins', () => {
     expect(p.has('package.json')).toBe(true);
     // Ni « e.g. », ni un nombre, ni « et/ou ».
     expect(extractPaths('par exemple e.g. la version 3.14 et/ou autre').size).toBe(0);
+    // Les noms de technos « X.js » ne sont pas des fichiers…
+    expect(extractPaths('un backend en Node.js et React.js').size).toBe(0);
+    // …mais un vrai chemin avec répertoire l'est.
+    expect(extractPaths('éditer src/node.ts').has('src/node.ts')).toBe(true);
+  });
+
+  it('ne sérialise pas deux tâches qui ne partagent qu’un nom de techno', () => {
+    const r = analyzePair(
+      { title: 'Backend', prompt: 'construire le backend en Node.js' },
+      { title: 'API', prompt: 'exposer une API en Node.js' },
+    );
+    expect(r.severity).not.toBe('high');
   });
 });
 
