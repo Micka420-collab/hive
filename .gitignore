@@ -1,0 +1,11 @@
+node_modules/
+dashboard/dist/
+data/
+.hive-work/
+coverage/
+.env
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.tsbuildinfo
