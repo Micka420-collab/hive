@@ -30,3 +30,13 @@ const shutdown = async (signal: string): Promise<void> => {
 
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+// Dernier recours : une exception non catchée ne doit pas laisser la ruche dans
+// un état incohérent silencieux. On journalise (les handlers WS/tick catchent
+// déjà les erreurs SQLite courantes ; ceci couvre l'imprévu).
+process.on('uncaughtException', (err) => {
+  console.error('[hive] exception non catchée (orchestrateur) :', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[hive] rejet de promesse non géré (orchestrateur) :', reason);
+});

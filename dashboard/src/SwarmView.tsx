@@ -13,7 +13,9 @@ interface Props {
 }
 
 const W = 880;
-const H = 470;
+const H_MIN = 470;
+const ROW_H = 88;
+const HEX_R = 34;
 
 /** Sommets d'un hexagone pointe en haut. */
 function hexPoints(cx: number, cy: number, r: number): string {
@@ -29,19 +31,28 @@ function hexPoints(cx: number, cy: number, r: number): string {
 function taskPos(index: number): { x: number; y: number } {
   const col = index % 3;
   const row = Math.floor(index / 3);
-  return { x: 120 + col * 100 + (row % 2) * 50, y: 92 + row * 88 };
+  return { x: 120 + col * 100 + (row % 2) * 50, y: 92 + row * ROW_H };
 }
 
-/** Position d'une alvéole de nœud (colonne de droite). */
-function nodePos(index: number, count: number): { x: number; y: number } {
-  if (count === 1) return { x: 700, y: H / 2 };
-  const spacing = Math.min(170, (H - 160) / (count - 1));
+/** Position d'une alvéole de nœud (colonne de droite, centrée sur la hauteur). */
+function nodePos(index: number, count: number, height: number): { x: number; y: number } {
+  if (count <= 1) return { x: 700, y: height / 2 };
+  const spacing = Math.min(170, (height - 160) / (count - 1));
   return { x: 700, y: 100 + index * spacing };
+}
+
+/** Hauteur du viewBox : croît avec le nombre de rangées de tâches pour que
+ *  toutes les cellules restent visibles (sinon elles sortent du cadre SVG). */
+function neededHeight(taskCount: number): number {
+  const rows = Math.ceil(taskCount / 3);
+  const gridBottom = 92 + Math.max(0, rows - 1) * ROW_H + HEX_R + 20;
+  return Math.max(H_MIN, gridBottom);
 }
 
 export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
   const taskIndex = new Map(tasks.map((t, i) => [t.id, i]));
   const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
+  const H = neededHeight(tasks.length);
 
   return (
     <svg className="swarm" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Vue de l'essaim">
@@ -52,7 +63,7 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
         const ni = nodeIndex.get(t.assignedNodeId);
         if (ti === undefined || ni === undefined) return null;
         const a = taskPos(ti);
-        const b = nodePos(ni, nodes.length);
+        const b = nodePos(ni, nodes.length, H);
         return (
           <line
             key={`lien-${t.id}`}
@@ -86,7 +97,7 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
 
       {/* Alvéoles de nœuds + sous-agents en pulsation */}
       {nodes.map((n, i) => {
-        const { x, y } = nodePos(i, nodes.length);
+        const { x, y } = nodePos(i, nodes.length, H);
         const active = tasks.filter(
           (t) => t.assignedNodeId === n.id && (t.status === 'running' || t.status === 'assigned'),
         );

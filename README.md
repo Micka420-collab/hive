@@ -46,15 +46,16 @@ toléré que dans ce mode.
 
 ## Scripts
 
-| Commande                | Effet                                                        |
-| ----------------------- | ------------------------------------------------------------ |
-| `npm run demo`          | Démo complète (orchestrateur + 2 nœuds + projet de 7 tâches) |
-| `npm run dev`           | Orchestrateur seul (watch)                                   |
-| `npm run node`          | Un nœud membre (configuré par variables d'environnement)     |
-| `npm test`              | Tests unitaires + e2e (vitest)                               |
-| `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                        |
-| `npm run build`         | Typecheck + build du dashboard                               |
-| `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                    |
+| Commande                | Effet                                                          |
+| ----------------------- | -------------------------------------------------------------- |
+| `npm run demo`          | Démo complète (orchestrateur + 2 nœuds + projet de 7 tâches)   |
+| `npm run dev`           | Orchestrateur seul (watch)                                     |
+| `npm run node`          | Un nœud membre (configuré par variables d'environnement)       |
+| `npm run cli`           | CLI : `state`, `project`, `tasks`, `watch`, `cancel`, `events` |
+| `npm test`              | Tests unitaires + e2e (vitest)                                 |
+| `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                          |
+| `npm run build`         | Typecheck + build du dashboard                                 |
+| `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                      |
 
 ## Déploiement multi-machines
 
@@ -88,6 +89,20 @@ toléré que dans ce mode.
 
 3. **Dashboard** : ouvrez `http://mon-orchestrateur:7777` et saisissez le token
    dans le champ en haut à droite (mémorisé localement).
+
+## Piloter la ruche depuis le terminal
+
+```bash
+npm run cli -- state                               # état de la ruche
+npm run cli -- project "Mon SaaS" [repoUrl]        # créer un projet
+npm run cli -- tasks <projectId> mes-taches.json   # envoyer un lot de tâches (DAG)
+npm run cli -- watch <projectId>                   # suivre l'avancement en direct
+npm run cli -- cancel <taskId>                     # annuler une tâche (le nœud abandonne)
+```
+
+Format du fichier de tâches : voir `examples/projet-exemple.json` — chaque tâche
+a `title`, `prompt`, et éventuellement `id` et `dependsOn` (références aux ids
+du même lot ou de tâches existantes du projet).
 
 ## Brancher un vrai agent de codage
 
@@ -129,8 +144,11 @@ aucun merge automatique au Palier 1.
   validation champ par champ des messages WS, corps limité à 1 Mo, messages WS
   à 2 Mo, logs/diffs plafonnés.
 - **Sandbox v0** : un cwd dédié par tâche, environnement épuré (pas de
-  HOME/USERPROFILE, TEMP redirigé dans la tâche), annulation coopérative,
+  HOME/USERPROFILE, TEMP redirigé à côté du workspace), annulation coopérative,
   timeout dur, sortie plafonnée.
+- **Défense en profondeur côté nœud** : le client valide les identifiants reçus
+  du hub avant tout usage dans un chemin local (anti path-traversal même si
+  l'orchestrateur était compromis).
 
 ### Limites connues de la sandbox v0 (assumées au Palier 1)
 

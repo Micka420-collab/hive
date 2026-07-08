@@ -9,7 +9,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
-import { ID_PATTERN, parseServerMessage } from '../shared/protocol.js';
+import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type { ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
@@ -58,7 +58,30 @@ export class HiveNodeClient {
   /** Rejoint la ruche (et retente sans fin tant que stop() n'est pas appelé). */
   start(): void {
     this.closed = false;
+    this.warnIfInsecureTransport();
     this.connect();
+  }
+
+  /**
+   * Le token et les diffs transitent dans le premier message : sur un ws://
+   * non-local, ils sont en clair (capture passive → rejeu ; MITM → injection).
+   * On avertit fortement ; utilisez wss:// (proxy TLS) hors de la machine locale.
+   */
+  private warnIfInsecureTransport(): void {
+    try {
+      const url = new URL(this.opts.url);
+      const host = url.hostname;
+      const local =
+        host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+      if (url.protocol === 'ws:' && !local) {
+        this.log(
+          `⚠ SÉCURITÉ : connexion ws:// NON chiffrée vers ${host} — le token et les ` +
+            'diffs circulent en clair. Utilisez wss:// (proxy TLS) hors de la machine locale.',
+        );
+      }
+    } catch {
+      // URL invalide : la connexion échouera et sera journalisée ailleurs.
+    }
   }
 
   /** Quitte la ruche : annule les tâches en cours et ferme la connexion. */
@@ -96,6 +119,9 @@ export class HiveNodeClient {
         maxConcurrency: this.opts.maxConcurrency,
         // En reconnexion, on garde la même identité dans la ruche.
         ...(this.nodeId ? { nodeId: this.nodeId } : {}),
+        // Tâches réellement en cours : permet au hub de réconcilier son état
+        // (requalifier les tâches qu'on ne fait plus, annuler nos zombies).
+        activeTasks: [...this.active.keys()],
       });
     });
 
@@ -117,8 +143,10 @@ export class HiveNodeClient {
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);
     this.log(`connexion perdue — nouvel essai dans ${Math.round(delay / 1000)} s`);
+    // Volontairement NON unref : dans un process de nœud autonome, ce timer est
+    // le seul handle qui maintient l'event loop en vie entre deux tentatives.
+    // L'unref le ferait s'éteindre en silence au lieu de « retenter sans fin ».
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
-    this.reconnectTimer.unref?.();
   }
 
   private onMessage(raw: string): void {
@@ -176,16 +204,10 @@ export class HiveNodeClient {
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours
     if (this.active.size >= this.opts.maxConcurrency) {
-      // Le scheduler respecte la capacité ; ceci n'est qu'une ceinture de sécurité.
-      this.send({
-        type: 'task_result',
-        taskId: task.id,
-        success: false,
-        diff: '',
-        logs: '[nœud] saturé : capacité maximale atteinte',
-        durationMs: 0,
-        subAgents: [],
-      });
+      // Nœud saturé : on REFUSE l'assignation (task_reject) plutôt que de la
+      // marquer en échec — sinon on brûlerait une tentative sans rien exécuter,
+      // ce qui pourrait faire échouer définitivement une tâche jamais lancée.
+      this.send({ type: 'task_reject', taskId: task.id, reason: 'noeud_sature' });
       return;
     }
 
@@ -215,14 +237,17 @@ export class HiveNodeClient {
       });
       // L'adaptateur peut fournir son diff ; sinon le workspace git le calcule.
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
+      // rejeter le message par le hub (fermeture de connexion) et la tâche
+      // bouclerait indéfiniment sans jamais aboutir.
       this.send({
         type: 'task_result',
         taskId: task.id,
         success: result.success,
-        diff,
-        logs: result.logs,
+        diff: diff.slice(0, LIMITS.diff),
+        logs: result.logs.slice(0, LIMITS.log),
         durationMs: Date.now() - started,
-        subAgents: result.subAgents,
+        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {

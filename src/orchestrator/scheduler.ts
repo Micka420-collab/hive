@@ -65,6 +65,53 @@ export class Scheduler {
   }
 
   /**
+   * Réconciliation à la (re)connexion d'un nœud. Le nœud déclare les tâches
+   * qu'il exécute réellement (`activeTaskIds`) ; le hub aligne son état :
+   *  - une tâche que le hub croit active sur ce nœud mais que le nœud NE fait
+   *    PAS tourner (crash/redémarrage, process relancé à vide) est requalifiée ;
+   *  - une tâche que le nœud dit exécuter mais qui ne lui est plus assignée
+   *    (déjà réaffectée ailleurs après un blip) est un « zombie » : on demande
+   *    au nœud de l'abandonner (le serveur enverra cancel_task).
+   * Corrige la double exécution et les tâches « running » bloquées à vie.
+   */
+  reconcileNode(nodeId: string, activeTaskIds: string[], now = Date.now()): { zombies: string[] } {
+    const reported = new Set(activeTaskIds);
+    // Tâches que le hub attribue au nœud mais qu'il ne fait plus tourner.
+    for (const task of this.store.activeTasksOfNode(nodeId)) {
+      if (!reported.has(task.id)) {
+        this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
+        this.emit('task_requeued', { taskId: task.id, nodeId, reason: 'reconcile_orphan' });
+      }
+    }
+    // Tâches que le nœud exécute encore mais qui ne lui appartiennent plus.
+    const zombies: string[] = [];
+    for (const taskId of reported) {
+      const task = this.store.getTask(taskId);
+      const stillMine =
+        task &&
+        task.assignedNodeId === nodeId &&
+        (task.status === 'assigned' || task.status === 'running');
+      if (!stillMine) zombies.push(taskId);
+    }
+    if (zombies.length > 0) this.emit('node_reconciled', { nodeId, zombies });
+    this.promoteAndAssign(now);
+    return { zombies };
+  }
+
+  /**
+   * Refus d'assignation par un nœud (saturé, id invalide) : la tâche repart en
+   * `ready` SANS consommer de tentative — contrairement à un échec d'exécution.
+   */
+  rejectTask(nodeId: string, taskId: string, reason: string, now = Date.now()): void {
+    const task = this.store.getTask(taskId);
+    if (!task || task.assignedNodeId !== nodeId) return;
+    if (task.status !== 'assigned' && task.status !== 'running') return;
+    this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
+    this.emit('task_rejected', { taskId, nodeId, reason });
+    this.promoteAndAssign(now);
+  }
+
+  /**
    * Tâches assignées restées muettes (pas de task_update) au-delà de `ageMs` :
    * candidates à une re-livraison de `assign_task` (message perdu en vol).
    */
@@ -107,11 +154,15 @@ export class Scheduler {
       this.store.patchTask(taskId, { status: 'running' });
       this.emit('task_started', { taskId, nodeId });
     }
-    if (subAgents && subAgents.length > 0) {
+    // Émettre le progrès dès qu'il y a des sous-agents OU un log : les agents
+    // réels (claude-code, codex) n'envoient qu'un log, sans sous-agents — sans
+    // ce OR, le journal du dashboard resterait vide pendant leur exécution.
+    const hasSubAgents = subAgents !== undefined && subAgents.length > 0;
+    if (hasSubAgents || log) {
       this.emit('task_progress', {
         taskId,
         nodeId,
-        subAgents,
+        ...(hasSubAgents ? { subAgents } : {}),
         ...(log ? { log: log.slice(0, 2000) } : {}),
       });
     }

@@ -13,11 +13,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
-import { LIMITS, parseClientMessage } from '../shared/protocol.js';
+import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
+
+/** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
+const WS_MSG_PER_SEC = 100;
 
 export interface ServerConfig {
   port: number;
@@ -44,6 +47,45 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
     dbPath: env.HIVE_DB ?? './data/hive.db',
     simulation: env.HIVE_SIMULATION === '1',
   };
+}
+
+/**
+ * Détecte un cycle de dépendances au sein d'un lot de tâches (uniquement les
+ * tâches portant un id, seules référençables). Retourne le chemin du cycle, ou
+ * null s'il n'y en a pas. DFS à trois couleurs (0 = neuf, 1 = en cours, 2 = fini).
+ */
+export function findCycle(tasks: { id?: string; dependsOn?: string[] }[]): string[] | null {
+  const deps = new Map<string, string[]>();
+  for (const t of tasks) {
+    if (t.id) deps.set(t.id, t.dependsOn ?? []);
+  }
+  const color = new Map<string, number>();
+  const stack: string[] = [];
+
+  const visit = (id: string): string[] | null => {
+    color.set(id, 1);
+    stack.push(id);
+    for (const dep of deps.get(id) ?? []) {
+      if (!deps.has(dep)) continue; // dépendance hors lot : déjà validée par ailleurs
+      const c = color.get(dep) ?? 0;
+      if (c === 1) return [...stack.slice(stack.indexOf(dep)), dep]; // cycle trouvé
+      if (c === 0) {
+        const found = visit(dep);
+        if (found) return found;
+      }
+    }
+    stack.pop();
+    color.set(id, 2);
+    return null;
+  };
+
+  for (const id of deps.keys()) {
+    if ((color.get(id) ?? 0) === 0) {
+      const found = visit(id);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 /** Comparaison de token à temps constant (évite les attaques par chronométrage). */
@@ -204,6 +246,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
+      // repoUrl atteint `git clone` sur chaque nœud : refuser tout schéma non sûr
+      // (le transport ext:: de git = exécution de commande arbitraire = RCE).
+      if (req.body.repoUrl !== undefined && !isValidRepoUrl(req.body.repoUrl)) {
+        return reply.code(400).send({
+          error: 'repoUrl invalide : schémas autorisés http(s)/git/ssh ou chemin local absolu',
+        });
+      }
       const project = store.createProject(req.body);
       emitEvent('project_created', { projectId: project.id, name: project.name });
       return reply.code(201).send(project);
@@ -271,10 +320,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       for (const t of req.body.tasks) {
         for (const dep of t.dependsOn ?? []) {
+          if (t.id && dep === t.id) {
+            return reply.code(400).send({ error: `tâche dépendante d'elle-même : ${t.id}` });
+          }
           if (!existingIds.has(dep) && !batchIds.has(dep)) {
             return reply.code(400).send({ error: `dépendance inconnue : ${dep}` });
           }
         }
+      }
+
+      // Détection de cycle intra-lot : sans elle, des tâches mutuellement
+      // dépendantes resteraient « pending » à jamais, sans erreur visible.
+      const cycle = findCycle(req.body.tasks);
+      if (cycle) {
+        return reply
+          .code(400)
+          .send({ error: `cycle de dépendances détecté : ${cycle.join(' → ')}` });
       }
 
       const created = req.body.tasks.map((t) =>
@@ -370,6 +431,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     let role: 'unknown' | 'node' | 'dashboard' = 'unknown';
     let nodeId: string | null = null;
 
+    // Limitation de débit par socket (anti-DoS/amplification) : un nœud
+    // authentifié ne peut pas noyer le hub et tous les dashboards de messages.
+    // Token bucket rechargé chaque seconde.
+    let budget = WS_MSG_PER_SEC;
+    const budgetTimer = setInterval(() => {
+      budget = WS_MSG_PER_SEC;
+    }, 1_000);
+    budgetTimer.unref?.();
+
     // Sans authentification dans les 5 s, la connexion est fermée.
     const authTimer = setTimeout(() => {
       if (role === 'unknown') ws.close(4401, 'authentification requise');
@@ -377,82 +447,111 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     authTimer.unref?.();
 
     ws.on('message', (data, isBinary) => {
-      if (isBinary) {
-        ws.close(4400, 'binaire refusé');
-        return;
-      }
-      const msg = parseClientMessage(data.toString());
-      if (!msg) {
-        ws.close(4400, 'message invalide');
-        return;
-      }
-
-      // Premier message : authentification (register = nœud, subscribe = dashboard).
-      if (role === 'unknown') {
-        if (msg.type === 'register') {
-          if (!tokenMatches(msg.token, config.token)) {
-            ws.close(4401, 'token invalide');
-            return;
-          }
-          role = 'node';
-          clearTimeout(authTimer);
-          const node = scheduler.registerNode({
-            nodeId: msg.nodeId,
-            name: msg.name,
-            ownerName: msg.ownerName,
-            agentType: msg.agentType,
-            maxConcurrency: msg.maxConcurrency,
-          });
-          nodeId = node.id;
-          const previous = nodeSockets.get(node.id);
-          if (previous && previous !== ws)
-            previous.close(4000, 'remplacé par une nouvelle connexion');
-          nodeSockets.set(node.id, ws);
-          send(ws, { type: 'registered', nodeId: node.id });
-          // Le socket est branché : on peut maintenant assigner des tâches au nœud.
-          scheduler.tick();
-          stateDirty = true;
-        } else if (msg.type === 'subscribe') {
-          if (!tokenMatches(msg.token, config.token)) {
-            ws.close(4401, 'token invalide');
-            return;
-          }
-          role = 'dashboard';
-          clearTimeout(authTimer);
-          dashboardSockets.add(ws);
-          send(ws, { type: 'state', snapshot: store.getSnapshot() });
-        } else {
-          ws.close(4401, 'authentification requise');
+      // Toute exception (ex. écriture SQLite qui échoue) est confinée à ce
+      // message : elle ferme la connexion fautive sans abattre l'orchestrateur.
+      try {
+        if (isBinary) {
+          ws.close(4400, 'binaire refusé');
+          return;
         }
-        return;
-      }
+        if (--budget < 0) {
+          ws.close(4429, 'débit de messages excessif');
+          return;
+        }
+        const msg = parseClientMessage(data.toString());
+        if (!msg) {
+          ws.close(4400, 'message invalide');
+          return;
+        }
 
-      if (role !== 'node' || nodeId === null) return; // le dashboard est en lecture seule
+        // Premier message : authentification (register = nœud, subscribe = dashboard).
+        if (role === 'unknown') {
+          if (msg.type === 'register') {
+            if (!tokenMatches(msg.token, config.token)) {
+              ws.close(4401, 'token invalide');
+              return;
+            }
+            role = 'node';
+            clearTimeout(authTimer);
+            const node = scheduler.registerNode({
+              nodeId: msg.nodeId,
+              name: msg.name,
+              ownerName: msg.ownerName,
+              agentType: msg.agentType,
+              maxConcurrency: msg.maxConcurrency,
+            });
+            nodeId = node.id;
+            const previous = nodeSockets.get(node.id);
+            if (previous && previous !== ws)
+              previous.close(4000, 'remplacé par une nouvelle connexion');
+            nodeSockets.set(node.id, ws);
+            send(ws, { type: 'registered', nodeId: node.id });
+            // Réconciliation : requalifier les tâches que le nœud ne fait plus
+            // tourner (crash/redémarrage), et demander l'abandon de ses zombies
+            // (tâches déjà réaffectées ailleurs après un blip réseau).
+            const { zombies } = scheduler.reconcileNode(node.id, msg.activeTasks ?? []);
+            for (const taskId of zombies) {
+              send(ws, { type: 'cancel_task', taskId, reason: 'tâche réaffectée' });
+            }
+            // Le socket est branché : on peut maintenant assigner des tâches au nœud.
+            scheduler.tick();
+            stateDirty = true;
+          } else if (msg.type === 'subscribe') {
+            if (!tokenMatches(msg.token, config.token)) {
+              ws.close(4401, 'token invalide');
+              return;
+            }
+            role = 'dashboard';
+            clearTimeout(authTimer);
+            dashboardSockets.add(ws);
+            send(ws, { type: 'state', snapshot: store.getSnapshot() });
+          } else {
+            ws.close(4401, 'authentification requise');
+          }
+          return;
+        }
 
-      switch (msg.type) {
-        case 'heartbeat':
-          scheduler.heartbeat(nodeId);
-          break;
-        case 'task_update':
-          scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
-          break;
-        case 'task_result':
-          scheduler.handleTaskResult(nodeId, {
-            taskId: msg.taskId,
-            success: msg.success,
-            diff: msg.diff,
-            logs: msg.logs,
-            durationMs: msg.durationMs,
-            subAgents: msg.subAgents,
-          });
-          break;
-        default:
-          break; // register/subscribe répétés : ignorés
+        if (role !== 'node' || nodeId === null) return; // le dashboard est en lecture seule
+
+        switch (msg.type) {
+          case 'heartbeat':
+            scheduler.heartbeat(nodeId);
+            break;
+          case 'task_update':
+            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
+            break;
+          case 'task_result':
+            scheduler.handleTaskResult(nodeId, {
+              taskId: msg.taskId,
+              success: msg.success,
+              diff: msg.diff,
+              logs: msg.logs,
+              durationMs: msg.durationMs,
+              subAgents: msg.subAgents,
+            });
+            break;
+          case 'task_reject':
+            // Refus d'assignation (nœud saturé) : requeue sans brûler de tentative.
+            scheduler.rejectTask(nodeId, msg.taskId, msg.reason);
+            break;
+          default:
+            break; // register/subscribe répétés : ignorés
+        }
+      } catch (err) {
+        console.error(
+          `[hive] erreur de traitement WS : ${err instanceof Error ? err.message : err}`,
+        );
+        try {
+          ws.close(1011, 'erreur interne');
+        } catch {
+          /* socket déjà fermé */
+        }
       }
     });
 
     ws.on('close', () => {
       clearTimeout(authTimer);
+      clearInterval(budgetTimer);
       if (role === 'node' && nodeId !== null && nodeSockets.get(nodeId) === ws) {
         nodeSockets.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
@@ -468,23 +567,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   // ─── Boucles périodiques ───────────────────────────────────────────────────
   const tickTimer = setInterval(() => {
-    scheduler.tick();
-    // Filet de sécurité : re-livre `assign_task` pour les tâches assignées
-    // restées muettes (message perdu en vol). Le client ignore les doublons.
-    for (const task of scheduler.staleAssignedTasks(5_000)) {
-      const ws = task.assignedNodeId ? nodeSockets.get(task.assignedNodeId) : undefined;
-      if (ws) {
-        const project = store.getProject(task.projectId);
-        send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+    // Une exception ici (ex. SQLite verrouillé) ne doit pas arrêter la boucle
+    // ni abattre le process : on journalise et on retentera au prochain tick.
+    try {
+      scheduler.tick();
+      // Filet de sécurité : re-livre `assign_task` pour les tâches assignées
+      // restées muettes (message perdu en vol). Le client ignore les doublons.
+      for (const task of scheduler.staleAssignedTasks(5_000)) {
+        const ws = task.assignedNodeId ? nodeSockets.get(task.assignedNodeId) : undefined;
+        if (ws) {
+          const project = store.getProject(task.projectId);
+          send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+        }
       }
+    } catch (err) {
+      console.error(`[hive] erreur de tick : ${err instanceof Error ? err.message : err}`);
     }
   }, config.tickMs ?? 2_000);
   tickTimer.unref();
 
   const flushTimer = setInterval(() => {
-    if (stateDirty) {
-      stateDirty = false;
-      broadcastState();
+    try {
+      if (stateDirty) {
+        stateDirty = false;
+        broadcastState();
+      }
+    } catch (err) {
+      console.error(
+        `[hive] erreur de diffusion d'état : ${err instanceof Error ? err.message : err}`,
+      );
     }
   }, 250);
   flushTimer.unref();

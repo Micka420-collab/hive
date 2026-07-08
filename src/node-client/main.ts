@@ -34,3 +34,12 @@ process.on('SIGINT', () => {
   client.stop();
   process.exit(0);
 });
+
+// Dernier recours : un imprévu ne doit pas tuer le nœud en silence et perdre la
+// reconnexion. On journalise et on laisse le client continuer/reconnecter.
+process.on('uncaughtException', (err) => {
+  console.error('[hive] exception non catchée (nœud) :', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[hive] rejet de promesse non géré (nœud) :', reason);
+});

@@ -60,17 +60,43 @@ export async function prepareWorkspace(
   repoUrl: string | null,
   keepEnv: string[] = [],
 ): Promise<Workspace> {
-  const cwd = path.resolve(workRoot, 'tasks', task.id);
-  // Repartir d'un répertoire vierge à chaque tentative.
-  rmSync(cwd, { recursive: true, force: true });
-  rmSync(`${cwd}.tmp`, { recursive: true, force: true });
+  const tasksRoot = path.resolve(workRoot, 'tasks');
+  const cwd = path.resolve(tasksRoot, task.id);
+  // Confinement strict : le cwd DOIT rester sous <workRoot>/tasks. Défense en
+  // profondeur contre un task.id malveillant (« ../… » ou chemin absolu) qui
+  // ferait pointer rmSync/clone hors du répertoire de travail. La validation
+  // de task.id (ID_PATTERN) côté client et protocole est la première barrière ;
+  // ceci en est la seconde, au plus près du sink destructeur.
+  if (cwd !== tasksRoot && !cwd.startsWith(tasksRoot + path.sep)) {
+    throw new Error(`chemin de tâche hors du répertoire de travail : ${task.id}`);
+  }
+  // Repartir d'un répertoire vierge à chaque tentative. maxRetries absorbe les
+  // verrous transitoires de fichiers sous Windows (antivirus, handle git résiduel)
+  // qui, sinon, feraient échouer la tâche à durée nulle et brûleraient un essai.
+  const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
+  rmSync(cwd, rmOpts);
+  rmSync(`${cwd}.tmp`, rmOpts);
   mkdirSync(cwd, { recursive: true });
 
   let git: SimpleGit | null = null;
   let branch: string | null = null;
   if (repoUrl) {
-    // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
-    await simpleGit().clone(repoUrl, cwd, ['--depth', '1']);
+    // GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
+    // transport `ext::` de git (exécution de commande arbitraire = RCE), en plus
+    // de la validation du repoUrl côté hub. On repart d'un environnement épuré
+    // (sans variables d'éditeur, que simple-git refuse) : seuls PATH/HOME et les
+    // variables système passent. Le clone exige un répertoire vide, il précède
+    // donc toute écriture dans cwd.
+    const cloneEnv: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      USERPROFILE: process.env.USERPROFILE,
+      SYSTEMROOT: process.env.SYSTEMROOT,
+      SYSTEMDRIVE: process.env.SYSTEMDRIVE,
+      GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
+      GIT_TERMINAL_PROMPT: '0',
+    };
+    await simpleGit().env(cloneEnv).clone(repoUrl, cwd, ['--depth', '1']);
     git = simpleGit({ baseDir: cwd });
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
@@ -92,8 +118,8 @@ export async function prepareWorkspace(
     },
     cleanup(): void {
       try {
-        rmSync(cwd, { recursive: true, force: true });
-        rmSync(`${cwd}.tmp`, { recursive: true, force: true });
+        rmSync(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        rmSync(`${cwd}.tmp`, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }
