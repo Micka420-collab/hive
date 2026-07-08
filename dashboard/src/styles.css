@@ -1,0 +1,440 @@
+/* Thème « ruche » : fond sombre, miel et ambre. */
+
+:root {
+  --bg: #171310;
+  --panel: #201a14;
+  --panel-2: #262019;
+  --border: #382e20;
+  --text: #f0e6d4;
+  --muted: #a08d6e;
+  --honey: #f6b93b;
+  --amber: #e58e26;
+  --orange: #ff9f1a;
+  --gold: #ffd166;
+  --red: #e55039;
+  --mono: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ─── En-tête ─────────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--honey);
+  white-space: nowrap;
+}
+
+header .subtitle {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.progress-bar {
+  flex: 1;
+  max-width: 340px;
+  height: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), var(--honey));
+  transition: width 0.4s ease;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.token-input {
+  width: 110px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.status.online {
+  color: var(--honey);
+}
+
+.status.offline {
+  color: var(--red);
+}
+
+/* ─── Disposition principale ──────────────────────────────────────────── */
+main {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  padding: 16px 20px;
+  flex: 1;
+}
+
+@media (max-width: 1000px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.swarm-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+aside {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  overflow-y: auto;
+  max-height: calc(100vh - 90px);
+}
+
+aside h2 {
+  margin: 8px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+aside ul {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+
+aside li {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--panel-2);
+  line-height: 1.4;
+}
+
+aside li.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.nodes li strong {
+  display: block;
+  color: var(--gold);
+}
+
+.nodes li span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nodes li.offline strong {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.journal {
+  font-size: 12px;
+}
+
+.journal time {
+  color: var(--muted);
+  font-family: var(--mono);
+  margin-right: 6px;
+}
+
+/* ─── Badges de statut ────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-family: var(--mono);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.badge.ready {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+.badge.assigned {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.badge.running {
+  color: var(--orange);
+  border-color: var(--orange);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+.badge.done {
+  color: #14100b;
+  background: var(--honey);
+  border-color: var(--honey);
+}
+
+.badge.failed {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ─── Swarm View (SVG) ────────────────────────────────────────────────── */
+.swarm {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.swarm-empty {
+  fill: var(--muted);
+  text-anchor: middle;
+  font-style: italic;
+}
+
+.link {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.link.running {
+  stroke: var(--orange);
+  stroke-width: 2;
+  stroke-dasharray: 6 6;
+  animation: dash 0.8s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.cell polygon {
+  fill: var(--panel-2);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  transition:
+    fill 0.3s,
+    stroke 0.3s;
+}
+
+.cell.ready polygon {
+  stroke: var(--gold);
+}
+
+.cell.assigned polygon {
+  fill: #33290f;
+  stroke: var(--amber);
+}
+
+.cell.running polygon {
+  fill: #4a3a12;
+  stroke: var(--orange);
+  animation: cellpulse 1.2s ease-in-out infinite;
+}
+
+.cell.done polygon {
+  fill: var(--honey);
+  stroke: var(--honey);
+}
+
+.cell.failed polygon {
+  fill: #3a1712;
+  stroke: var(--red);
+}
+
+@keyframes cellpulse {
+  50% {
+    fill-opacity: 0.55;
+  }
+}
+
+.cell-label {
+  fill: var(--text);
+  text-anchor: middle;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.cell-status {
+  fill: var(--muted);
+  text-anchor: middle;
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
+.cell.done .cell-label,
+.cell.done .cell-status {
+  fill: #14100b;
+}
+
+.node .node-hex {
+  fill: var(--panel-2);
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+.node.online .node-hex {
+  stroke: var(--honey);
+}
+
+.node.offline .node-hex {
+  stroke: var(--border);
+  stroke-dasharray: 4 4;
+}
+
+.node .halo {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 1.5;
+  opacity: 0.5;
+  animation: halo 1.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes halo {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.12;
+    transform: scale(1.12);
+  }
+}
+
+.node-name {
+  fill: var(--text);
+  text-anchor: middle;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.node.offline .node-name {
+  fill: var(--muted);
+}
+
+.node-info {
+  fill: var(--muted);
+  text-anchor: middle;
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
+.agent {
+  fill: var(--orange);
+  animation: agentpulse 0.9s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.agent.done {
+  fill: var(--honey);
+  animation: none;
+}
+
+.agent.failed {
+  fill: var(--red);
+  animation: none;
+}
+
+@keyframes agentpulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.5);
+  }
+}
+
+/* ─── Table des tâches ────────────────────────────────────────────────── */
+.task-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.task-table th,
+.task-table td {
+  padding: 7px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--panel-2);
+}
+
+.task-table th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: var(--panel-2);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
