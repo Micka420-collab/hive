@@ -19,30 +19,60 @@ export interface Range {
   end: number;
 }
 
+/** Retire le préfixe a/ ou b/ et un éventuel horodatage d'un chemin de diff. */
+function stripPath(raw: string): string {
+  return (raw.split('\t')[0] ?? '').trim().replace(/^[ab]\//, '');
+}
+
 /**
  * Analyse un diff unifié → pour chaque fichier, les plages de lignes de base
  * (côté « - ») que le diff modifie. Ces plages servent à détecter les conflits
  * entre deux diffs issus de la même base.
+ *
+ * Robustesse (revue Palier 3) :
+ *  - conscience de section : `--- `/`+++ ` ne sont traités comme en-têtes que
+ *    dans l'en-tête d'un fichier (juste après `diff --git`, ou au tout début),
+ *    JAMAIS comme des lignes de contenu de hunk (`++ foo` → `+++ foo`) ;
+ *  - clé = chemin de BASE (ancien, côté `--- a/…`) — stable entre deux diffs
+ *    issus de la même base — ce qui rend visibles suppressions et renommages ;
+ *    on ne retombe sur le nouveau chemin que pour un fichier créé (`--- /dev/null`).
  */
 export function parseDiff(diff: string): Map<string, Range[]> {
   const files = new Map<string, Range[]>();
+  let inHeader = true; // vrai au début et après chaque `diff --git`
+  let oldPath: string | null = null;
   let current: string | null = null;
+
   for (const line of diff.split('\n')) {
-    if (line.startsWith('+++ ')) {
-      // Chemin cible (nouveau) ; on retire le préfixe b/ et un éventuel horodatage.
-      const raw = line.slice(4).split('\t')[0]?.trim() ?? '';
-      const path = raw.replace(/^b\//, '');
-      current = path === '/dev/null' || path === '' ? null : path;
+    if (line.startsWith('diff --git ')) {
+      inHeader = true;
+      oldPath = null;
+      current = null;
+      continue;
+    }
+    if (inHeader && line.startsWith('--- ')) {
+      const p = stripPath(line.slice(4));
+      oldPath = p === '/dev/null' || p === '' ? null : p;
+      continue;
+    }
+    if (inHeader && line.startsWith('+++ ')) {
+      const p = stripPath(line.slice(4));
+      const newPath = p === '/dev/null' || p === '' ? null : p;
+      current = oldPath ?? newPath; // base d'abord ; nouveau seulement si création
       if (current && !files.has(current)) files.set(current, []);
+      inHeader = false; // l'en-tête est consommé ; place aux hunks
       continue;
     }
     const m = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/.exec(line);
-    if (m && current) {
-      const start = Number(m[1]);
-      const count = m[2] === undefined ? 1 : Number(m[2]);
-      // count 0 = insertion pure à ce point → plage minimale [start, start].
-      const end = count === 0 ? start : start + count - 1;
-      files.get(current)?.push({ start, end });
+    if (m) {
+      inHeader = false;
+      if (current) {
+        const start = Number(m[1]);
+        const count = m[2] === undefined ? 1 : Number(m[2]);
+        // count 0 = insertion pure à ce point → plage minimale [start, start].
+        const end = count === 0 ? start : start + count - 1;
+        files.get(current)?.push({ start, end });
+      }
     }
   }
   return files;

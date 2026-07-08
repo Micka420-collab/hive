@@ -75,6 +75,34 @@ describe('conflictingFiles', () => {
   });
 });
 
+describe('parsing robuste (revue Palier 3)', () => {
+  it('détecte suppression vs modification du même fichier', () => {
+    const del = `diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ /dev/null\n@@ -1,20 +0,0 @@\n-x\n`;
+    const mod = diffOn('src/foo.ts', 5, 6);
+    // La suppression est indexée sous le chemin de base → conflit visible.
+    expect(parseDiff(del).get('src/foo.ts')).toEqual([{ start: 1, end: 20 }]);
+    expect(conflictingFiles(del, mod)).toEqual(['src/foo.ts']);
+  });
+
+  it('détecte un renommage-avec-édition vs modification (clé = chemin de base)', () => {
+    const rename = `diff --git a/src/old.ts b/src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -10,3 +10,3 @@\n ctx\n-a\n+b\n`;
+    const mod = diffOn('src/old.ts', 10, 3);
+    expect(parseDiff(rename).has('src/old.ts')).toBe(true);
+    expect(conflictingFiles(rename, mod)).toEqual(['src/old.ts']);
+  });
+
+  it("n'est pas trompé par une ligne de contenu commençant par « ++ »", () => {
+    const d = `diff --git a/z.ts b/z.ts\n--- a/z.ts\n+++ b/z.ts\n@@ -1,2 +1,3 @@\n ctx\n+++ build flags\n@@ -20,2 +21,3 @@\n ctx2\n+more\n`;
+    const p = parseDiff(d);
+    // Aucun fichier fantôme « build flags » ; les deux hunks sous z.ts.
+    expect([...p.keys()]).toEqual(['z.ts']);
+    expect(p.get('z.ts')).toEqual([
+      { start: 1, end: 2 },
+      { start: 20, end: 21 },
+    ]);
+  });
+});
+
 describe('buildMergePlan', () => {
   it('ordonne par dépendances et détecte un conflit entre tâches terminées', () => {
     const tasks = [task('a', 'done'), task('b', 'done', ['a'])];

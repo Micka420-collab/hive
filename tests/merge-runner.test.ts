@@ -110,6 +110,22 @@ describe('merge-runner (git réel)', () => {
     expect(res.testsPassed).toBe(false);
   });
 
+  it('épure l’environnement : la commande de test ne voit pas les secrets du nœud', async () => {
+    process.env.HIVE_SECRET_TEST = 'topsecret';
+    try {
+      const res = await runMerge({
+        repoDir,
+        diffs: [{ taskId: 'ta', diff: patchA }],
+        // exit 0 si le secret est ABSENT de l'env enfant, 3 sinon.
+        testCommand: ['node', '-e', 'process.exit(process.env.HIVE_SECRET_TEST ? 3 : 0)'],
+      });
+      expect(res.testsRun).toBe(true);
+      expect(res.testsPassed).toBe(true);
+    } finally {
+      delete process.env.HIVE_SECRET_TEST;
+    }
+  });
+
   it('ne lance pas les tests en présence de conflits', async () => {
     const res = await runMerge({
       repoDir,

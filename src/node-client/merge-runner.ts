@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
+import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
   taskId: string;
@@ -49,10 +50,15 @@ export interface MergeRunResult {
 
 const OUTPUT_CAP = 512 * 1024;
 
-/** Lance une commande (argv) dans un cwd, sans shell, sortie plafonnée, timeout dur. */
+/**
+ * Lance une commande (argv) dans un cwd, sans shell, sortie plafonnée, timeout dur.
+ * L'environnement est ÉPURÉ (aucun secret du nœud transmis à l'enfant — cf. revue
+ * sécurité Palier 3) : seuls PATH/variables système + un TEMP dédié passent.
+ */
 function runProc(
   cmd: string[],
   cwd: string,
+  env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<{ code: number | null; output: string }> {
@@ -60,6 +66,7 @@ function runProc(
     const [bin, ...args] = cmd;
     const child = spawn(bin ?? '', args, {
       cwd,
+      env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       signal,
@@ -126,15 +133,27 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     let testsPassed: boolean | null = null;
     if (opts.testCommand && opts.testCommand.length > 0 && conflicts.length === 0) {
       testsRun = true;
-      const { code, output } = await runProc(
-        opts.testCommand,
-        opts.repoDir,
-        opts.timeoutMs ?? 5 * 60_000,
-        opts.signal,
-      );
-      testsPassed = code === 0;
-      logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);
-      logs.push(output.slice(0, 4000));
+      // Environnement épuré : le hub n'accède à AUCUN secret local du nœud.
+      const env = buildSandboxEnv(opts.repoDir);
+      try {
+        const { code, output } = await runProc(
+          opts.testCommand,
+          opts.repoDir,
+          env,
+          opts.timeoutMs ?? 5 * 60_000,
+          opts.signal,
+        );
+        testsPassed = code === 0;
+        logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);
+        logs.push(output.slice(0, 4000));
+      } finally {
+        rmSync(`${opts.repoDir}.tmp`, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        });
+      }
     }
 
     return { applied, conflicts, mergedDiff, testsRun, testsPassed, logs: logs.join('\n') };

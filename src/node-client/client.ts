@@ -43,6 +43,8 @@ export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
   private readonly active = new Map<string, AbortController>();
+  /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
+  private readonly activeMerges = new Set<string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
@@ -280,6 +282,10 @@ export class HiveNodeClient {
    * remonte le résultat. Ne commit ni ne push jamais (revue humaine).
    */
   private async runMergeJob(msg: AssignMergeMsg): Promise<void> {
+    // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
+    // jobs concurrents sur le même répertoire (course rmSync/clone).
+    if (this.activeMerges.has(msg.mergeId)) return;
+    this.activeMerges.add(msg.mergeId);
     // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
     const dir = path.join(this.workRoot, 'merges', msg.mergeId);
     const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
@@ -322,6 +328,7 @@ export class HiveNodeClient {
       });
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {
+      this.activeMerges.delete(msg.mergeId);
       rmSync(dir, rmOpts);
     }
   }
