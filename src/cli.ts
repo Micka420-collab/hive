@@ -7,11 +7,13 @@
 //   npm run cli -- watch <projectId>                  suivre l'avancement en direct
 //   npm run cli -- cancel <taskId>                    annuler une tâche
 //   npm run cli -- events [sinceId]                   journal d'événements
+//   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { readFileSync } from 'node:fs';
+import type { Verdict } from './orchestrator/parliament.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 
 try {
@@ -122,6 +124,24 @@ async function cmdEvents(sinceId = '0'): Promise<void> {
   }
 }
 
+/** Parlement des Agents : consensus par vote sur les résultats d'une tâche. */
+async function cmdConsensus(taskId: string): Promise<void> {
+  const v = await api<Verdict>(`/api/tasks/${taskId}/consensus`);
+  const verdict: Record<string, string> = {
+    elected: '✅ consensus atteint',
+    no_quorum: `⚠ pas de consensus (quorum ${v.quorum})`,
+    no_ballots: '∅ aucun résultat valide à départager',
+  };
+  console.log(`🏛  Parlement — ${verdict[v.outcome] ?? v.outcome}\n`);
+  v.factions.forEach((f, i) => {
+    const crown = v.winner && f.signature === v.winner.signature ? '👑 ' : '   ';
+    console.log(
+      `${crown}#${i + 1} sig ${f.signature} — ${f.votes} voix ` +
+        `(${f.diversity} type(s) : ${f.agentTypes.join(', ')})`,
+    );
+  });
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -155,10 +175,11 @@ try {
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
   else if (cmd === 'events') await cmdEvents(a1);
+  else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | consensus <taskId> | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

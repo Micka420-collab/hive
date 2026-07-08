@@ -18,6 +18,8 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import { tally, signatureOf } from './parliament.js';
+import type { Ballot } from './parliament.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -451,6 +453,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
       return store.resultsForTask(req.params.taskId);
+    },
+  );
+
+  // Parlement des Agents : consensus par vote sur les résultats d'une tâche.
+  // Lecture seule : on charge les résultats stockés, on en fait des bulletins
+  // (signature = empreinte du diff, agentType retrouvé via le nœud) et on
+  // dépouille. Utile quand plusieurs nœuds ont produit un résultat pour la même
+  // tâche (tentatives multiples, futurs drones).
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/consensus',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const ballots: Ballot[] = store.resultsForTask(req.params.taskId).map((r) => ({
+        nodeId: r.nodeId,
+        agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
+        success: r.success,
+        signature: signatureOf(r.diff),
+      }));
+      return tally(ballots);
     },
   );
 
