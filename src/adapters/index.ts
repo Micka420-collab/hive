@@ -31,6 +31,13 @@ export interface AdapterResult {
   diff: string;
   logs: string;
   subAgents: SubAgent[];
+  /**
+   * Échec d'INFRASTRUCTURE (agent injoignable, non authentifié, quota/crédit
+   * épuisé) — par opposition à un échec de la tâche elle-même. Dans ce cas le
+   * nœud ne « brûle » pas une tentative : il demande une réaffectation
+   * (task_reject) pour qu'un AUTRE nœud, dont l'agent fonctionne, reprenne la tâche.
+   */
+  infra?: boolean;
 }
 
 export interface AgentAdapter {

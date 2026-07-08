@@ -66,6 +66,12 @@ export interface TaskRejectMsg {
   type: 'task_reject';
   taskId: string;
   reason: string;
+  /**
+   * Refus dû à un échec d'INFRASTRUCTURE de l'agent (auth/quota) et non à une
+   * simple saturation : le hub tente un AUTRE nœud, et n'échoue la tâche que si
+   * aucun nœud n'a d'agent fonctionnel (token-failover).
+   */
+  infra?: boolean;
 }
 
 export interface SubscribeMsg {
@@ -264,8 +270,14 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return null;
     }
     case 'task_reject': {
-      if (isId(m.taskId) && isStr(m.reason, LIMITS.name)) {
-        return { type: 'task_reject', taskId: m.taskId, reason: m.reason };
+      if (
+        isId(m.taskId) &&
+        isStr(m.reason, LIMITS.name) &&
+        (m.infra === undefined || typeof m.infra === 'boolean')
+      ) {
+        const msg: TaskRejectMsg = { type: 'task_reject', taskId: m.taskId, reason: m.reason };
+        if (m.infra === true) msg.infra = true;
+        return msg;
       }
       return null;
     }

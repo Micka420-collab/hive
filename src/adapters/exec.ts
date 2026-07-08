@@ -19,6 +19,15 @@ const OUTPUT_CAP = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
 /**
+ * Motifs signalant un échec d'INFRASTRUCTURE de l'agent (auth/quota/crédit) plutôt
+ * qu'un échec de la tâche. Sert au token-failover : la tâche est réaffectée à un
+ * autre nœud plutôt que de brûler une tentative. Volontairement large ; un faux
+ * positif ne fait que déplacer la tâche (au pire elle échoue faute de nœud viable).
+ */
+const INFRA_FAILURE_RE =
+  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
+
+/**
  * Lance un binaire avec ses arguments dans le cwd isolé de la tâche.
  * Sortie plafonnée, timeout dur, annulation via le signal du contexte.
  */
@@ -52,17 +61,27 @@ export function runCommand(
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
       resolve({
         success: false,
         diff: '',
         logs: `${output}\n[hive] échec du lancement de « ${bin} » : ${err.message}`,
         subAgents: [],
+        infra: true,
       });
     });
 
     child.on('close', (code) => {
       clearTimeout(timeout);
-      resolve({ success: code === 0, diff: '', logs: output, subAgents: [] });
+      // Échec dont la sortie évoque un problème d'auth/quota → infra (réaffectation).
+      const infra = code !== 0 && INFRA_FAILURE_RE.test(output);
+      resolve({
+        success: code === 0,
+        diff: '',
+        logs: output,
+        subAgents: [],
+        ...(infra ? { infra: true } : {}),
+      });
     });
   });
 }

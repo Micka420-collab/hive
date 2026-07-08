@@ -612,8 +612,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             });
             break;
           case 'task_reject':
-            // Refus d'assignation (nœud saturé) : requeue sans brûler de tentative.
-            scheduler.rejectTask(nodeId, msg.taskId, msg.reason);
+            // Refus d'assignation (saturation, ou agent en panne → infra) :
+            // requeue sans brûler de tentative ; le token-failover gère l'infra.
+            scheduler.rejectTask(nodeId, msg.taskId, msg.reason, msg.infra ?? false);
             break;
           default:
             break; // register/subscribe répétés : ignorés
