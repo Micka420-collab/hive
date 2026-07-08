@@ -186,7 +186,7 @@ export class Scheduler {
           changed = true;
           continue;
         }
-        if (deps.every((d) => d.status === 'done')) {
+        if (deps.every((d) => d !== undefined && d.status === 'done')) {
           this.store.patchTask(task.id, { status: 'ready' }, now);
           this.emit('task_ready', { taskId: task.id });
           changed = true;

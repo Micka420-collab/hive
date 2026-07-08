@@ -77,6 +77,8 @@ export interface RegisteredMsg {
 export interface AssignTaskMsg {
   type: 'assign_task';
   task: Task;
+  /** Dépôt du projet à cloner côté nœud (null : workspace vierge sans git). */
+  repoUrl?: string | null;
 }
 
 export interface CancelTaskMsg {
