@@ -62,6 +62,20 @@ export function addTasks(projectId: string, tasks: NewTaskInput[]): Promise<Task
   });
 }
 
+export interface PlanResponse {
+  tasks: NewTaskInput[];
+  source: 'heuristic' | 'llm';
+  note?: string;
+}
+
+/** Queen Bee : génère un DAG de tâches à partir d'un brief (Palier 2). */
+export function planBrief(
+  brief: string,
+  mode: 'auto' | 'heuristic' | 'llm' = 'auto',
+): Promise<PlanResponse> {
+  return api<PlanResponse>('/api/plan', { method: 'POST', body: JSON.stringify({ brief, mode }) });
+}
+
 /** Résultats (diff/logs) d'une tâche, pour revue humaine. */
 export function fetchResults(taskId: string): Promise<TaskResult[]> {
   return api<TaskResult[]>(`/api/tasks/${taskId}/results`);

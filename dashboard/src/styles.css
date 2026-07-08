@@ -975,6 +975,24 @@ h3 {
   color: var(--faint);
 }
 
+/* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat. */
+.chip.primary {
+  background: linear-gradient(90deg, var(--amber), var(--honey));
+  color: #14100b;
+  border: none;
+  font-weight: 600;
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.plan-note {
+  font-size: 11px;
+  color: var(--gold);
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

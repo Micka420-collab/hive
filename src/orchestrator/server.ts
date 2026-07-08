@@ -18,6 +18,7 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import { planBrief } from './planner.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -337,6 +338,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const project = store.createProject(req.body);
       emitEvent('project_created', { projectId: project.id, name: project.name });
       return reply.code(201).send(project);
+    },
+  );
+
+  // Queen Bee (Palier 2) : propose un DAG de tâches à partir d'un brief en
+  // langage naturel. Sans effet de bord — la sortie est destinée à être revue,
+  // ajustée, puis envoyée via POST /api/projects/:id/tasks. Découpage heuristique
+  // par défaut (hors-ligne) ; bascule sur l'IA si une clé API locale est présente.
+  app.post<{ Body: { brief: string; mode?: 'auto' | 'heuristic' | 'llm' } }>(
+    '/api/plan',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['brief'],
+          additionalProperties: false,
+          properties: {
+            brief: { type: 'string', minLength: 1, maxLength: 4000 },
+            mode: { type: 'string', enum: ['auto', 'heuristic', 'llm'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      try {
+        const result = await planBrief(req.body.brief, { mode: req.body.mode ?? 'auto' });
+        if (result.tasks.length === 0) {
+          return reply.code(422).send({ error: 'brief trop court pour en déduire des tâches' });
+        }
+        return result;
+      } catch (err) {
+        // Mode 'llm' explicite ayant échoué : on remonte l'erreur telle quelle.
+        return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
+      }
     },
   );
 

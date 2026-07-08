@@ -2,7 +2,7 @@
 // depuis l'interface, sans passer par la CLI.
 
 import { useRef, useState } from 'react';
-import { addTasks, createProject } from './api';
+import { addTasks, createProject, planBrief } from './api';
 import type { NewTaskInput } from './api';
 import { useDialog } from './ui';
 
@@ -56,16 +56,41 @@ const EXAMPLE = j(TEMPLATES[1]!.tasks);
 export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
+  const [brief, setBrief] = useState('');
   const [tasksJson, setTasksJson] = useState(EXAMPLE);
   const [busy, setBusy] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  const [planNote, setPlanNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Si le projet a déjà été créé mais que l'ajout des tâches a échoué, on ne le
   // recrée pas au retry (sinon on empilerait des projets vides orphelins).
   const createdId = useRef<string | null>(null);
   const closeIfIdle = () => {
-    if (!busy) onClose();
+    if (!busy && !planning) onClose();
   };
   const dialogRef = useDialog<HTMLDivElement>(closeIfIdle);
+
+  // Queen Bee : demande un DAG dérivé du brief et le charge dans le champ JSON,
+  // qui reste éditable — la sortie est une proposition, jamais imposée.
+  const generate = async () => {
+    setError(null);
+    setPlanNote(null);
+    setPlanning(true);
+    try {
+      const res = await planBrief(brief.trim());
+      setTasksJson(j(res.tasks));
+      setPlanNote(
+        res.source === 'llm'
+          ? `✨ ${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`
+          : (res.note ??
+              `🐝 ${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPlanning(false);
+    }
+  };
 
   const submit = async () => {
     setError(null);
@@ -151,6 +176,29 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => setRepoUrl(e.target.value)}
             placeholder="https://github.com/moi/projet.git"
           />
+        </label>
+
+        <label className="field">
+          <span>Décrire en langage naturel — Queen Bee génère le DAG (Palier 2)</span>
+          <textarea
+            className="code-input"
+            rows={2}
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            placeholder="Ex : un SaaS de facturation avec authentification, API REST, dashboard et déploiement"
+            disabled={busy || planning}
+          />
+          <div className="template-row">
+            <button
+              type="button"
+              className="chip primary"
+              onClick={generate}
+              disabled={busy || planning || !brief.trim()}
+            >
+              {planning ? 'Génération…' : '✨ Générer les tâches'}
+            </button>
+            {planNote && <span className="plan-note">{planNote}</span>}
+          </div>
         </label>
 
         <label className="field">
