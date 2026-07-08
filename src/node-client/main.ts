@@ -19,9 +19,7 @@ const client = new HiveNodeClient({
   name: process.env.HIVE_NODE_NAME ?? os.hostname(),
   ownerName: process.env.HIVE_OWNER_NAME ?? os.userInfo().username,
   agentType: process.env.HIVE_AGENT ?? 'shell',
-  maxConcurrency: Number.isInteger(maxConcurrency)
-    ? Math.min(Math.max(maxConcurrency, 1), 16)
-    : 2,
+  maxConcurrency: Number.isInteger(maxConcurrency) ? Math.min(Math.max(maxConcurrency, 1), 16) : 2,
   workRoot: process.env.HIVE_WORKDIR,
   keepEnv: (process.env.HIVE_KEEP_ENV ?? '')
     .split(',')

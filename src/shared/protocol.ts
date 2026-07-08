@@ -62,11 +62,7 @@ export interface SubscribeMsg {
 }
 
 export type ClientMessage =
-  | RegisterMsg
-  | HeartbeatMsg
-  | TaskUpdateMsg
-  | TaskResultMsg
-  | SubscribeMsg;
+  RegisterMsg | HeartbeatMsg | TaskUpdateMsg | TaskResultMsg | SubscribeMsg;
 
 // ─── Messages orchestrateur → client ─────────────────────────────────────────
 export interface RegisteredMsg {
@@ -103,12 +99,7 @@ export interface ErrorMsg {
 }
 
 export type ServerMessage =
-  | RegisteredMsg
-  | AssignTaskMsg
-  | CancelTaskMsg
-  | StateMsg
-  | EventMsg
-  | ErrorMsg;
+  RegisteredMsg | AssignTaskMsg | CancelTaskMsg | StateMsg | EventMsg | ErrorMsg;
 
 const SERVER_MESSAGE_TYPES = new Set([
   'registered',

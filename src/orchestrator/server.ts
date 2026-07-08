@@ -66,14 +66,19 @@ export interface HiveServer {
 
 export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // ─── Garde-fous de sécurité, avant toute écoute réseau ─────────────────────
-  if (!config.simulation && (config.token === DEFAULT_TOKEN || config.token.length < MIN_TOKEN_LENGTH)) {
+  if (
+    !config.simulation &&
+    (config.token === DEFAULT_TOKEN || config.token.length < MIN_TOKEN_LENGTH)
+  ) {
     throw new Error(
       `HIVE_TOKEN trivial refusé : définissez un token d'au moins ${MIN_TOKEN_LENGTH} caractères, ` +
         'ou activez HIVE_SIMULATION=1 pour une démo strictement locale.',
     );
   }
   if (config.corsOrigins.length === 0 || config.corsOrigins.includes('*')) {
-    throw new Error('HIVE_CORS_ORIGIN doit lister explicitement les origines autorisées (jamais "*").');
+    throw new Error(
+      'HIVE_CORS_ORIGIN doit lister explicitement les origines autorisées (jamais "*").',
+    );
   }
 
   const store = new HiveStore(config.dbPath);
@@ -89,7 +94,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   const broadcastState = (): void => {
     if (dashboardSockets.size === 0) return;
-    const raw = JSON.stringify({ type: 'state', snapshot: store.getSnapshot() } satisfies ServerMessage);
+    const raw = JSON.stringify({
+      type: 'state',
+      snapshot: store.getSnapshot(),
+    } satisfies ServerMessage);
     for (const ws of dashboardSockets) {
       if (ws.readyState === ws.OPEN) ws.send(raw);
     }
@@ -365,7 +373,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           });
           nodeId = node.id;
           const previous = nodeSockets.get(node.id);
-          if (previous && previous !== ws) previous.close(4000, 'remplacé par une nouvelle connexion');
+          if (previous && previous !== ws)
+            previous.close(4000, 'remplacé par une nouvelle connexion');
           nodeSockets.set(node.id, ws);
           send(ws, { type: 'registered', nodeId: node.id });
           // Le socket est branché : on peut maintenant assigner des tâches au nœud.

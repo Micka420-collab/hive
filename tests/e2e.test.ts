@@ -78,7 +78,12 @@ describe('e2e : orchestrateur + 2 nœuds simulés', () => {
             { id: 't3', title: 'API auth', prompt: 'auth', dependsOn: ['t2'] },
             { id: 't4', title: 'API facturation', prompt: 'billing', dependsOn: ['t2'] },
             { id: 't5', title: 'Interface web', prompt: 'ui', dependsOn: ['t1'] },
-            { id: 't6', title: 'Tests intégration', prompt: 'tests', dependsOn: ['t3', 't4', 't5'] },
+            {
+              id: 't6',
+              title: 'Tests intégration',
+              prompt: 'tests',
+              dependsOn: ['t3', 't4', 't5'],
+            },
             { id: 't7', title: 'Pipeline déploiement', prompt: 'deploy', dependsOn: ['t6'] },
           ],
         }),

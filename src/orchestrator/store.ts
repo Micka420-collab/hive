@@ -201,15 +201,15 @@ export class HiveStore {
       createdAt: Date.now(),
     };
     this.db
-      .prepare('INSERT INTO projects (id, name, repoUrl, description, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .prepare(
+        'INSERT INTO projects (id, name, repoUrl, description, createdAt) VALUES (?, ?, ?, ?, ?)',
+      )
       .run(project.id, project.name, project.repoUrl, project.description, project.createdAt);
     return project;
   }
 
   getProject(id: string): Project | undefined {
-    return this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as
-      | ProjectRow
-      | undefined;
+    return this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
   }
 
   listProjects(): Project[] {
@@ -232,13 +232,29 @@ export class HiveStore {
         .prepare(
           'UPDATE nodes SET name = ?, ownerName = ?, agentType = ?, maxConcurrency = ?, status = ?, lastSeen = ? WHERE id = ?',
         )
-        .run(profile.name, profile.ownerName, profile.agentType, profile.maxConcurrency, 'online', now, id);
+        .run(
+          profile.name,
+          profile.ownerName,
+          profile.agentType,
+          profile.maxConcurrency,
+          'online',
+          now,
+          id,
+        );
     } else {
       this.db
         .prepare(
           'INSERT INTO nodes (id, name, ownerName, agentType, maxConcurrency, status, lastSeen) VALUES (?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(id, profile.name, profile.ownerName, profile.agentType, profile.maxConcurrency, 'online', now);
+        .run(
+          id,
+          profile.name,
+          profile.ownerName,
+          profile.agentType,
+          profile.maxConcurrency,
+          'online',
+          now,
+        );
     }
     return this.getNode(id) as HiveNode;
   }
@@ -263,7 +279,9 @@ export class HiveStore {
   /** Nœuds online dont le dernier heartbeat est antérieur à `cutoff`. */
   staleNodes(cutoff: number): HiveNode[] {
     return this.db
-      .prepare(`${NODE_SELECT} WHERE n.status = 'online' AND (n.lastSeen IS NULL OR n.lastSeen < ?)`)
+      .prepare(
+        `${NODE_SELECT} WHERE n.status = 'online' AND (n.lastSeen IS NULL OR n.lastSeen < ?)`,
+      )
       .all(cutoff) as NodeRow[];
   }
 
@@ -275,7 +293,15 @@ export class HiveStore {
         `INSERT INTO tasks (id, projectId, title, prompt, status, dependsOn, attempts, createdAt, updatedAt)
          VALUES (?, ?, ?, ?, 'pending', ?, 0, ?, ?)`,
       )
-      .run(id, input.projectId, input.title, input.prompt, JSON.stringify(input.dependsOn ?? []), now, now);
+      .run(
+        id,
+        input.projectId,
+        input.title,
+        input.prompt,
+        JSON.stringify(input.dependsOn ?? []),
+        now,
+        now,
+      );
     return this.getTask(id) as Task;
   }
 
@@ -287,7 +313,9 @@ export class HiveStore {
   listTasks(projectId?: string): Task[] {
     const rows = (
       projectId
-        ? this.db.prepare('SELECT * FROM tasks WHERE projectId = ? ORDER BY createdAt, id').all(projectId)
+        ? this.db
+            .prepare('SELECT * FROM tasks WHERE projectId = ? ORDER BY createdAt, id')
+            .all(projectId)
         : this.db.prepare('SELECT * FROM tasks ORDER BY createdAt, id').all()
     ) as TaskRow[];
     return rows.map(rowToTask);
@@ -317,7 +345,8 @@ export class HiveStore {
     const next: Task = {
       ...current,
       status: patch.status ?? current.status,
-      assignedNodeId: patch.assignedNodeId !== undefined ? patch.assignedNodeId : current.assignedNodeId,
+      assignedNodeId:
+        patch.assignedNodeId !== undefined ? patch.assignedNodeId : current.assignedNodeId,
       result: patch.result !== undefined ? patch.result : current.result,
       branch: patch.branch !== undefined ? patch.branch : current.branch,
       attempts: patch.attempts ?? current.attempts,
@@ -392,6 +421,14 @@ export class HiveStore {
       .prepare('INSERT INTO events (ts, type, payload) VALUES (?, ?, ?)')
       .run(ts, type, JSON.stringify(payload));
     return { id: Number(info.lastInsertRowid), ts, type, payload };
+  }
+
+  /** Dernier id d'événement journalisé (0 si journal vide). */
+  lastEventId(): number {
+    const row = this.db.prepare('SELECT MAX(id) AS id FROM events').get() as {
+      id: number | null;
+    };
+    return row.id ?? 0;
   }
 
   listEvents(sinceId = 0, limit = 200): HiveEvent[] {

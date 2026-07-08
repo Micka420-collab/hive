@@ -31,6 +31,8 @@ export interface NodeClientOptions {
   adapter?: AgentAdapter;
   /** Variables d'environnement à laisser passer dans la sandbox (secrets locaux). */
   keepEnv?: string[];
+  /** Identité stable dans la ruche (sinon attribuée par l'orchestrateur). */
+  nodeId?: string;
   /** Coupe les logs console (tests). */
   quiet?: boolean;
 }
@@ -48,6 +50,7 @@ export class HiveNodeClient {
 
   constructor(private readonly opts: NodeClientOptions) {
     this.adapter = opts.adapter ?? getAdapter(opts.agentType);
+    this.nodeId = opts.nodeId ?? null;
     this.workRoot =
       opts.workRoot ?? path.join('.hive-work', opts.name.replace(/[^A-Za-z0-9_-]+/g, '_'));
   }
