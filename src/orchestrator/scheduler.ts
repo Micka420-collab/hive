@@ -6,6 +6,7 @@
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import { summarizeTask } from './hive-mind.js';
+import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
 
 /** Délai pendant lequel un nœud qui vient de refuser une tâche ne la reçoit pas de nouveau. */
@@ -25,6 +26,8 @@ export class Scheduler {
   private readonly nodeTimeoutMs: number;
   /** clé `taskId:nodeId` → timestamp d'expiration du cooldown de refus. */
   private readonly recentRejections = new Map<string, number>();
+  /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
+  private readonly deferredByConflict = new Set<string>();
 
   constructor(
     private readonly store: HiveStore,
@@ -310,7 +313,28 @@ export class Scheduler {
 
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
+    // Tâches déjà actives, enrichie au fil de la passe : une tâche qu'on vient
+    // d'assigner doit être prise en compte pour la détection de conflit des
+    // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).
+    const activeNow = this.store.tasksByStatus('assigned', 'running');
     for (const task of this.store.tasksByStatus('ready')) {
+      // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
+      // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
+      // l'autre se termine — prévention des conflits d'édition concurrents.
+      const clash = activeNow.find(
+        (t) =>
+          t.projectId === task.projectId &&
+          t.id !== task.id &&
+          analyzePair(task, t).severity === 'high',
+      );
+      if (clash) {
+        if (!this.deferredByConflict.has(task.id)) {
+          this.deferredByConflict.add(task.id);
+          this.emit('task_conflict_deferred', { taskId: task.id, conflictsWith: clash.id });
+        }
+        continue;
+      }
+      this.deferredByConflict.delete(task.id);
       const node = this.store
         .listNodes()
         .filter(
@@ -330,6 +354,7 @@ export class Scheduler {
       if (!assigned) continue;
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
       this.opts.onAssign?.(node.id, assigned);
+      activeNow.push(assigned); // les tâches suivantes tiennent compte de celle-ci
     }
   }
 

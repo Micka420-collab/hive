@@ -20,6 +20,7 @@ import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import { buildHiveContext } from './hive-mind.js';
 import { planBrief } from './planner.js';
+import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -510,8 +511,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       for (const t of created) {
         emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
       }
+      // Sting Detector : signaler (sans bloquer) les conflits potentiels que ce
+      // nouveau lot introduit — visible dans le journal du dashboard.
+      const newIds = new Set(created.map((t) => t.id));
+      for (const c of detectConflicts(store.listTasks(project.id))) {
+        if (newIds.has(c.a) || newIds.has(c.b)) {
+          emitEvent('conflict_detected', {
+            projectId: project.id,
+            a: c.a,
+            b: c.b,
+            severity: c.severity,
+            ...(c.sharedPaths.length ? { sharedPaths: c.sharedPaths } : {}),
+          });
+        }
+      }
       scheduler.tick(); // promotion + assignation immédiates
       return reply.code(201).send(created);
+    },
+  );
+
+  // Sting Detector : conflits potentiels au sein d'un projet (analyse advisory).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/conflicts',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      return { conflicts: detectConflicts(store.listTasks(project.id)) };
     },
   );
 

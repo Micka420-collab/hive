@@ -3,6 +3,7 @@
 // Usage :
 //   npm run cli -- state                              état de la ruche
 //   npm run cli -- mind ["<requête>"]                 interroger la mémoire (Hive Mind)
+//   npm run cli -- stings <projectId>                 conflits potentiels (Sting Detector)
 //   npm run cli -- plan "<brief>" [mode]              proposer un DAG (Queen Bee)
 //   npm run cli -- project "Nom" [repoUrl]            créer un projet
 //   npm run cli -- tasks <projectId> <fichier.json>   envoyer un lot de tâches
@@ -94,6 +95,31 @@ async function cmdMind(query?: string): Promise<void> {
     const score = m.score !== null ? `  [${m.score}]` : '';
     console.log(`  • ${m.title}${score}`);
     console.log(`    ${m.content.slice(0, 160)}`);
+  }
+}
+
+interface Conflict {
+  a: string;
+  b: string;
+  severity: 'high' | 'low';
+  sharedPaths: string[];
+  sharedTerms: string[];
+}
+
+/** Liste les conflits potentiels d'un projet (Sting Detector). */
+async function cmdStings(projectId: string): Promise<void> {
+  const res = await api<{ conflicts: Conflict[] }>(`/api/projects/${projectId}/conflicts`);
+  console.log(`\n🐝 Sting Detector — ${res.conflicts.length} conflit(s) potentiel(s)\n`);
+  if (res.conflicts.length === 0) {
+    console.log('  (aucun conflit détecté)');
+    return;
+  }
+  for (const c of res.conflicts) {
+    const badge = c.severity === 'high' ? '⚠ FORT ' : '· faible';
+    const detail = c.sharedPaths.length
+      ? `fichiers : ${c.sharedPaths.join(', ')}`
+      : `termes : ${c.sharedTerms.slice(0, 5).join(', ')}`;
+    console.log(`  ${badge}  ${c.a} ↔ ${c.b}  (${detail})`);
   }
 }
 
@@ -212,6 +238,7 @@ const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
   else if (cmd === 'mind') await cmdMind(a1);
+  else if (cmd === 'stings' && a1) await cmdStings(a1);
   else if (cmd === 'plan' && a1) await cmdPlan(a1, a2);
   else if (cmd === 'project' && a1) await cmdProject(a1, a2);
   else if (cmd === 'tasks' && a1 && a2) await cmdTasks(a1, a2);
@@ -221,7 +248,7 @@ try {
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
