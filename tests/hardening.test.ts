@@ -45,6 +45,19 @@ function send(ws: WebSocket, msg: unknown): void {
   ws.send(JSON.stringify(msg));
 }
 
+/** Collecte les messages JSON reçus sur un socket dans un tableau. */
+function collect(ws: WebSocket): Record<string, unknown>[] {
+  const msgs: Record<string, unknown>[] = [];
+  ws.on('message', (data) => {
+    try {
+      msgs.push(JSON.parse(data.toString()) as Record<string, unknown>);
+    } catch {
+      /* ignore */
+    }
+  });
+  return msgs;
+}
+
 async function waitFor(cond: () => Promise<boolean> | boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -288,5 +301,68 @@ describe('durcissement du serveur', () => {
     } finally {
       client.stop();
     }
+  });
+
+  // ─── Ré-adoption après blip WS (verrou anti-régression) ───────────────────────
+  it('un nœud qui blip puis se reconnecte en déclarant sa tâche la RÉ-ADOPTE (pas d’annulation)', async () => {
+    const NODE = 'n-blip';
+    const register = (activeTasks: string[]) => ({
+      type: 'register',
+      token: TOKEN,
+      name: 'blip',
+      ownerName: 'test',
+      agentType: 'shell',
+      maxConcurrency: 1,
+      nodeId: NODE,
+      activeTasks,
+    });
+    const taskOf = async (id: string): Promise<Task | undefined> => {
+      const s = (await (await fetch(`${base}/api/state`, { headers: jsonHeaders })).json()) as {
+        tasks: Task[];
+      };
+      return s.tasks.find((t) => t.id === id);
+    };
+
+    const projectId = await newProject('Blip');
+    await fetch(`${base}/api/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ tasks: [{ id: 'tblip', title: 'T', prompt: 'p' }] }),
+    });
+
+    // 1) Le nœud rejoint, reçoit la tâche et la déclare en cours.
+    const ws1 = await rawConnect(server.port);
+    const in1 = collect(ws1);
+    send(ws1, register([]));
+    await waitFor(() => in1.some((m) => m.type === 'assign_task'), 8_000);
+    send(ws1, { type: 'task_update', taskId: 'tblip', status: 'running' });
+    await waitFor(async () => (await taskOf('tblip'))?.status === 'running', 8_000);
+
+    // 2) Blip : la socket se ferme → la tâche est requalifiée (ready), mais le
+    //    processus du nœud « continue » (il ne l'a pas abandonnée).
+    ws1.close();
+    await waitFor(async () => (await taskOf('tblip'))?.assignedNodeId === null, 8_000);
+
+    // 3) Reconnexion : le nœud déclare qu'il exécute toujours tblip.
+    const ws2 = await rawConnect(server.port);
+    const in2 = collect(ws2);
+    send(ws2, register(['tblip']));
+    await waitFor(() => in2.some((m) => m.type === 'registered'), 8_000);
+
+    // 4) La tâche est RÉ-ADOPTÉE : running sur le nœud, aucune tentative brûlée,
+    //    et aucun cancel_task ne lui a été envoyé (pas de zombie).
+    await waitFor(async () => {
+      const t = await taskOf('tblip');
+      return t?.status === 'running' && t?.assignedNodeId === NODE;
+    }, 8_000);
+    const t = await taskOf('tblip');
+    expect(t?.attempts).toBe(0);
+    expect(in2.some((m) => m.type === 'cancel_task')).toBe(false);
+
+    const evRes = await fetch(`${base}/api/events?limit=1000`, { headers: jsonHeaders });
+    const events = (await evRes.json()) as { type: string }[];
+    expect(events.map((e) => e.type)).toContain('task_readopted');
+
+    ws2.close();
   });
 });
