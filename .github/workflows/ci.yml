@@ -1,0 +1,42 @@
+name: CI
+
+# Intégration continue de Hive : à chaque push sur main et sur chaque PR, on
+# vérifie la qualité (lint + format), le typage, les tests et le build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  qualite:
+    name: Lint · Typecheck · Tests · Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Lint (ESLint + Prettier)
+        run: npm run lint
+
+      - name: Typecheck (orchestrateur + nœud)
+        run: npm run typecheck
+
+      - name: Typecheck (dashboard)
+        run: npm run typecheck:dashboard
+
+      - name: Tests (vitest, unitaires + e2e)
+        run: npm test
+
+      - name: Build (typecheck + dashboard)
+        run: npm run build

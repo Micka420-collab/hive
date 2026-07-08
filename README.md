@@ -1,5 +1,7 @@
 # 🐝 Hive — Palier 1
 
+![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)
+
 Plateforme communautaire d'orchestration d'agents IA. Un **orchestrateur** central
 (la _Queen_) découpe un projet en tâches et les distribue en temps réel aux
 **machines des membres** (les _Nodes_), qui exécutent chacune un ou plusieurs
