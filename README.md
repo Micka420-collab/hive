@@ -121,8 +121,9 @@ exécuter d'agent :
 - **Conflit faible** (fort recouvrement de vocabulaire) → simple **avertissement**
   dans le journal, jamais bloquant.
 
-Un **panneau Conflits** apparaît dans le dashboard dès qu'un conflit est détecté
-(et les événements défilent dans le Journal en temps réel).
+Un **panneau Conflits** apparaît dans le dashboard dès qu'un conflit est détecté,
+les tâches retenues par sérialisation sont **marquées ⏸** dans la table, et les
+événements défilent dans le Journal en temps réel.
 
 ```bash
 npm run cli -- stings <projectId>            # conflits potentiels du projet

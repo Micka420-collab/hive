@@ -7,12 +7,14 @@ import { activateProps, formatMs, StatusBadge, STATUS_LABEL } from './ui';
 interface Props {
   tasks: Task[];
   nodes: HiveNode[];
+  /** Tâches retenues par le Sting Detector (conflit fichier avec une tâche active). */
+  deferred?: Set<string>;
   onSelect: (task: Task) => void;
 }
 
 const FILTERS: (TaskStatus | 'all')[] = ['all', 'running', 'ready', 'pending', 'done', 'failed'];
 
-export function TaskTable({ tasks, nodes, onSelect }: Props) {
+export function TaskTable({ tasks, nodes, deferred, onSelect }: Props) {
   const [filter, setFilter] = useState<TaskStatus | 'all'>('all');
   const nodeName = new Map(nodes.map((n) => [n.id, n.name]));
   const shown = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
@@ -57,7 +59,17 @@ export function TaskTable({ tasks, nodes, onSelect }: Props) {
             <tbody>
               {shown.map((t) => (
                 <tr key={t.id} className="clickable" {...activateProps(() => onSelect(t))}>
-                  <td className="cell-title">{t.title}</td>
+                  <td className="cell-title">
+                    {t.title}
+                    {deferred?.has(t.id) && t.status === 'ready' && (
+                      <span
+                        className="badge-conflict"
+                        title="Différée par le Sting Detector : conflit de fichier avec une tâche active"
+                      >
+                        ⏸ conflit
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <StatusBadge status={t.status} />
                   </td>

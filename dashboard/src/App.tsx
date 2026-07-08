@@ -27,6 +27,8 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(EMPTY);
   const [events, setEvents] = useState<HiveEvent[]>([]);
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
+  // Tâches retenues par le Sting Detector (conflit fichier avec une tâche active).
+  const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
@@ -58,6 +60,22 @@ export function App() {
             if (!(taskId in prev)) return prev;
             const next = { ...prev };
             delete next[taskId];
+            return next;
+          });
+        }
+        // Suivi des tâches différées pour conflit : marquée à l'event, levée dès
+        // qu'elle est assignée/terminée/réaffectée.
+        if (ev.type === 'task_conflict_deferred') {
+          setDeferred((prev) => new Set(prev).add(taskId));
+        } else if (
+          ['task_assigned', 'task_done', 'task_failed', 'task_cancelled', 'task_requeued'].includes(
+            ev.type,
+          )
+        ) {
+          setDeferred((prev) => {
+            if (!prev.has(taskId)) return prev;
+            const next = new Set(prev);
+            next.delete(taskId);
             return next;
           });
         }
@@ -179,6 +197,7 @@ export function App() {
           <TaskTable
             tasks={snapshot.tasks}
             nodes={snapshot.nodes}
+            deferred={deferred}
             onSelect={(t) => setSelectedId(t.id)}
           />
         </section>
@@ -208,6 +227,11 @@ export function App() {
                   >
                     <StatusBadge status={t.status} />
                     <span className="queue-title">{t.title}</span>
+                    {deferred.has(t.id) && t.status === 'ready' && (
+                      <span className="badge-conflict" title="Différée : conflit de fichier">
+                        ⏸
+                      </span>
+                    )}
                   </li>
                 ))}
               {total > 0 && done === total && <li className="empty">🍯 Tout est butiné !</li>}
