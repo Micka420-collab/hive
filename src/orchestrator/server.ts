@@ -18,6 +18,8 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import type { HiveEvent } from '../shared/types.js';
+import { buildTimeline } from './replay.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -306,6 +308,43 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
       return store.listEvents(req.query.since ?? 0, req.query.limit ?? 200);
+    },
+  );
+
+  // Time-Lapse Replay : rejoue le journal pour renvoyer une frise chronologique
+  // (une image par événement) + le résumé de l'état final. Lecture seule. La
+  // pagination interne (le store plafonne chaque page à 1000) est bornée par
+  // EVENT_RETENTION pour éviter tout abus.
+  app.get<{ Querystring: { since?: number; limit?: number } }>(
+    '/api/replay',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            since: { type: 'integer', minimum: 0 },
+            limit: { type: 'integer', minimum: 1, maximum: EVENT_RETENTION },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const cap = req.query.limit ?? EVENT_RETENTION;
+      const events: HiveEvent[] = [];
+      let cursor = req.query.since ?? 0;
+      for (;;) {
+        const remaining = cap - events.length;
+        if (remaining <= 0) break;
+        const page = store.listEvents(cursor, Math.min(1000, remaining));
+        if (page.length === 0) break;
+        events.push(...page);
+        const last = page[page.length - 1];
+        if (!last) break;
+        cursor = last.id;
+      }
+      return buildTimeline(events);
     },
   );
 
