@@ -6,12 +6,52 @@ import { addTasks, createProject } from './api';
 import type { NewTaskInput } from './api';
 import { useDialog } from './ui';
 
-const EXAMPLE = `[
-  { "id": "socle", "title": "Échafauder le dépôt", "prompt": "Créer la structure" },
-  { "id": "api", "title": "API REST", "prompt": "Endpoints", "dependsOn": ["socle"] },
-  { "id": "front", "title": "Interface", "prompt": "UI", "dependsOn": ["socle"] },
-  { "id": "tests", "title": "Tests e2e", "prompt": "Couvrir", "dependsOn": ["api", "front"] }
-]`;
+const j = (v: unknown) => JSON.stringify(v, null, 2);
+
+/** Modèles de démarrage : remplissent le champ des tâches en un clic. */
+const TEMPLATES: { label: string; tasks: NewTaskInput[] }[] = [
+  {
+    label: 'Tâche unique',
+    tasks: [{ id: 'tache', title: 'Ma tâche', prompt: 'Décrivez le travail à faire' }],
+  },
+  {
+    label: 'API + tests',
+    tasks: [
+      { id: 'modele', title: 'Modèle de données', prompt: 'Concevoir le schéma' },
+      { id: 'api', title: 'API REST', prompt: 'Implémenter les endpoints', dependsOn: ['modele'] },
+      { id: 'tests', title: 'Tests', prompt: 'Couvrir l’API', dependsOn: ['api'] },
+    ],
+  },
+  {
+    label: 'SaaS complet',
+    tasks: [
+      { id: 'socle', title: 'Échafauder le dépôt', prompt: 'Créer la structure' },
+      {
+        id: 'bdd',
+        title: 'Schéma BDD',
+        prompt: 'Comptes, abonnements, factures',
+        dependsOn: ['socle'],
+      },
+      { id: 'auth', title: 'API auth', prompt: 'Signup / login / sessions', dependsOn: ['bdd'] },
+      {
+        id: 'billing',
+        title: 'API facturation',
+        prompt: 'Paiement + webhooks',
+        dependsOn: ['bdd'],
+      },
+      { id: 'ui', title: 'Interface web', prompt: 'Dashboard client', dependsOn: ['socle'] },
+      {
+        id: 'tests',
+        title: 'Tests d’intégration',
+        prompt: 'Auth + facturation + UI',
+        dependsOn: ['auth', 'billing', 'ui'],
+      },
+      { id: 'deploy', title: 'Déploiement', prompt: 'CI/CD', dependsOn: ['tests'] },
+    ],
+  },
+];
+
+const EXAMPLE = j(TEMPLATES[1]!.tasks);
 
 export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
@@ -115,6 +155,19 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
 
         <label className="field">
           <span>Tâches (JSON) — title, prompt, id et dependsOn optionnels</span>
+          <div className="template-row">
+            <span className="template-label">Modèles :</span>
+            {TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.label}
+                type="button"
+                className="chip"
+                onClick={() => setTasksJson(j(tpl.tasks))}
+              >
+                {tpl.label}
+              </button>
+            ))}
+          </div>
           <textarea
             className="code-input"
             rows={10}

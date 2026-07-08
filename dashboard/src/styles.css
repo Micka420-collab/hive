@@ -962,6 +962,19 @@ h3 {
   resize: vertical;
 }
 
+.template-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.template-label {
+  font-size: 11px;
+  color: var(--faint);
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
