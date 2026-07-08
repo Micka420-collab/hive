@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
 import { connectFeed, getToken, saveToken } from './api';
+import { InvitePanel } from './InvitePanel';
 import { SwarmView } from './SwarmView';
 import { TaskTable } from './TaskTable';
 
@@ -71,6 +72,7 @@ export function App() {
           </span>
         </div>
         <div className="header-right">
+          <InvitePanel />
           <input
             type="password"
             className="token-input"

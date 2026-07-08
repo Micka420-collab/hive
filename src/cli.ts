@@ -122,6 +122,26 @@ async function cmdEvents(sinceId = '0'): Promise<void> {
   }
 }
 
+interface InviteResponse {
+  invite: string;
+  url: string;
+  label: string;
+  joinCommand: string;
+  note: string;
+}
+
+/** Génère une invitation à envoyer à un ami (URL éventuelle en 1er argument). */
+async function cmdInvite(url?: string): Promise<void> {
+  const query = url ? `?url=${encodeURIComponent(url)}` : '';
+  const inv = await api<InviteResponse>(`/api/invite${query}`);
+  console.log('\n🐝 Invitation à envoyer à votre ami (ruche : ' + inv.url + ')\n');
+  console.log('  Étape 1 — il récupère Hive puis, dans le dossier :  npm install');
+  console.log('  Étape 2 — il colle cette commande :\n');
+  console.log('    ' + inv.joinCommand + '\n');
+  console.log('  Son Claude Code / Codex est détecté automatiquement. C’est tout.');
+  console.log('\n  ⚠ ' + inv.note + '\n');
+}
+
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
@@ -130,9 +150,10 @@ try {
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
   else if (cmd === 'events') await cmdEvents(a1);
+  else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

@@ -9,10 +9,12 @@ import Fastify from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { existsSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
+import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -30,8 +32,26 @@ export interface ServerConfig {
   dbPath: string;
   /** Mode démo : tolère le token par défaut (jamais en production). */
   simulation: boolean;
+  /** URL WebSocket publique annoncée dans les invitations (HIVE_PUBLIC_URL). */
+  publicUrl?: string;
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
+}
+
+/**
+ * Devine l'adresse WebSocket joignable de cette machine depuis le réseau local
+ * (première IPv4 non interne). Sert d'URL par défaut dans les invitations quand
+ * HIVE_PUBLIC_URL n'est pas défini. L'hôte peut toujours la corriger.
+ */
+export function detectLanWsUrl(port: number): string {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return `ws://${addr.address}:${port}/ws`;
+      }
+    }
+  }
+  return `ws://localhost:${port}/ws`;
 }
 
 export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -46,6 +66,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       .filter(Boolean),
     dbPath: env.HIVE_DB ?? './data/hive.db',
     simulation: env.HIVE_SIMULATION === '1',
+    ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
 
@@ -207,6 +228,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();
   });
+
+  // Génère une invitation à envoyer à un ami : elle encode l'URL WS publique + le
+  // token. L'ami la colle dans `npm run join <invitation>`. ⚠ Elle contient le
+  // token : c'est un secret, à transmettre par un canal privé.
+  app.get<{ Querystring: { url?: string; label?: string } }>(
+    '/api/invite',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            url: { type: 'string', maxLength: 300 },
+            label: { type: 'string', maxLength: LIMITS.name },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      // URL joignable : ?url= explicite > HIVE_PUBLIC_URL > IP LAN détectée.
+      const wsUrl = req.query.url ?? config.publicUrl ?? detectLanWsUrl(port);
+      if (!isWsUrl(wsUrl)) {
+        return reply.code(400).send({ error: 'url doit être un ws:// ou wss:// valide' });
+      }
+      const label = req.query.label ?? `Ruche Hive (${config.host}:${port})`;
+      const invite = encodeInvite({ url: wsUrl, token: config.token, label });
+      return {
+        invite,
+        url: wsUrl,
+        label,
+        joinCommand: `npm run join -- ${invite}`,
+        note: "Cette invitation contient le token de la ruche : ne la partagez qu'avec des personnes de confiance.",
+      };
+    },
+  );
 
   app.get<{ Querystring: { since?: number; limit?: number } }>(
     '/api/events',

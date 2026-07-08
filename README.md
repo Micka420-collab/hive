@@ -44,18 +44,58 @@ La démo tourne en **mode simulation** (`HIVE_SIMULATION=1`) : l'adaptateur
 shell est simulé, aucun processus n'est lancé, et le token par défaut n'est
 toléré que dans ce mode.
 
+## Inviter un ami (connecter son IA en 30 secondes)
+
+Le moyen le plus rapide de faire rejoindre un ami avec **son propre Claude Code,
+Codex ou autre agent** :
+
+1. **Vous (hôte)** — lancez l'orchestrateur avec un vrai token
+   (`npm run dev`, voir déploiement ci-dessous), puis générez une invitation :
+   - dans le **dashboard** : bouton **« + Inviter un ami »** → copiez la commande ;
+   - ou en **terminal** : `npm run cli -- invite`.
+
+   Vous obtenez une commande unique du type :
+
+   ```
+   npm run join -- hive1_eyJ2IjoxLCJ1cmwiOiJ3cy8v…
+   ```
+
+2. **Votre ami** — récupère Hive, lance `npm install`, puis **colle la commande**.
+   C'est tout : l'URL et le token sont dans l'invitation, **son Claude Code /
+   Codex est détecté automatiquement**, et son identité de nœud est mémorisée
+   pour les reconnexions. Aucun fichier de config à éditer.
+
+   ```bash
+   npm run join -- hive1_eyJ2IjoxLCJ1cmwiOiJ3cy8v…
+   # 🐝 Connexion à la ruche : Ruche de Micka
+   #    Agents détectés : claude-code, shell
+   #    Agent utilisé   : Claude Code
+   # ✔ Nœud démarré — vous butinez pour la ruche.
+   ```
+
+> ⚠ **L'invitation contient le token de la ruche : c'est un secret.** Ne
+> l'envoyez qu'à des personnes de confiance, par un canal privé (elle donne le
+> droit de rejoindre la ruche et d'exécuter des tâches).
+
+**Adresse réseau** : l'invitation annonce par défaut l'IP locale détectée
+(réseau local). Pour un accès distant, indiquez l'URL joignable via
+`HIVE_PUBLIC_URL=wss://mondomaine:7777/ws`, l'option du dashboard, ou
+`npm run cli -- invite wss://mondomaine:7777/ws`. Les clés API de l'agent de
+votre ami restent **sur sa machine**, jamais transmises au hub.
+
 ## Scripts
 
-| Commande                | Effet                                                          |
-| ----------------------- | -------------------------------------------------------------- |
-| `npm run demo`          | Démo complète (orchestrateur + 2 nœuds + projet de 7 tâches)   |
-| `npm run dev`           | Orchestrateur seul (watch)                                     |
-| `npm run node`          | Un nœud membre (configuré par variables d'environnement)       |
-| `npm run cli`           | CLI : `state`, `project`, `tasks`, `watch`, `cancel`, `events` |
-| `npm test`              | Tests unitaires + e2e (vitest)                                 |
-| `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                          |
-| `npm run build`         | Typecheck + build du dashboard                                 |
-| `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                      |
+| Commande                | Effet                                                              |
+| ----------------------- | ------------------------------------------------------------------ |
+| `npm run demo`          | Démo complète (orchestrateur + 2 nœuds + projet de 7 tâches)       |
+| `npm run dev`           | Orchestrateur seul (watch)                                         |
+| `npm run node`          | Un nœud membre (configuré par variables d'environnement)           |
+| `npm run join -- <inv>` | Rejoindre une ruche depuis une invitation (agent auto-détecté)     |
+| `npm run cli`           | CLI : `state`/`project`/`tasks`/`watch`/`cancel`/`events`/`invite` |
+| `npm test`              | Tests unitaires + e2e (vitest)                                     |
+| `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                              |
+| `npm run build`         | Typecheck + build du dashboard                                     |
+| `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                          |
 
 ## Déploiement multi-machines
 

@@ -16,6 +16,22 @@ export function saveToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
+export interface InviteResponse {
+  invite: string;
+  url: string;
+  label: string;
+  joinCommand: string;
+  note: string;
+}
+
+/** Demande une invitation à l'orchestrateur (URL WS optionnelle à annoncer). */
+export async function fetchInvite(url?: string): Promise<InviteResponse> {
+  const query = url ? `?url=${encodeURIComponent(url)}` : '';
+  const res = await fetch(`/api/invite${query}`, { headers: { 'x-hive-token': getToken() } });
+  if (!res.ok) throw new Error(`invitation refusée (${res.status})`);
+  return (await res.json()) as InviteResponse;
+}
+
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;

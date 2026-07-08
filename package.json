@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/orchestrator/main.ts",
     "node": "tsx src/node-client/main.ts",
+    "join": "tsx src/node-client/join.ts",
     "demo": "tsx src/demo.ts",
     "cli": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
