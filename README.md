@@ -36,6 +36,14 @@ démonstration de **7 tâches avec dépendances** (DAG). La tâche « API de
 facturation » échoue volontairement à sa première tentative pour montrer le
 mécanisme de retry.
 
+Le Swarm View a **deux rendus** (bascule 2D/3D en haut à droite) : une vue SVG
+légère par défaut, et une vue **3D temps réel propulsée par
+[Galacean Engine](https://github.com/galacean/engine)** — alvéoles-piliers
+hexagonales, ouvrières en orbite pulsante, fils lumineux nœud↔tâche, caméra
+orbitale (glisser pour tourner). Le moteur 3D (~290 Ko gzip) est **chargé à la
+demande** : il n'alourdit le démarrage que si l'on active la vue 3D, et retombe
+sur un message clair si WebGL est indisponible.
+
 **Tester la persistance** : `Ctrl+C` en pleine exécution, puis relancez
 `npm run demo` — le projet et son avancement sont toujours là, et les tâches
 orphelines (`running` au moment du crash) repartent proprement en `ready`.
@@ -220,7 +228,7 @@ src/
   adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · exec.ts
   shared/         types.ts · protocol.ts (messages WS typés + validation)
   demo.ts         npm run demo
-dashboard/        Vite + React (SwarmView.tsx, TaskTable.tsx, api.ts)
+dashboard/        Vite + React (SwarmView.tsx 2D, SwarmView3D.tsx Galacean, InvitePanel.tsx, TaskTable.tsx, api.ts)
 tests/            scheduler.test.ts · adapters.test.ts · e2e.test.ts
 ```
 

@@ -1,14 +1,18 @@
 // Application dashboard : Swarm View + panneau latéral (nœuds connectés,
 // file de tâches, journal), alimentée en temps réel par le WebSocket.
 
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
 import { connectFeed, getToken, saveToken } from './api';
 import { InvitePanel } from './InvitePanel';
 import { SwarmView } from './SwarmView';
 import { TaskTable } from './TaskTable';
 
+// Le moteur 3D (~290 Ko gzip) n'est chargé que si l'utilisateur active la vue 3D.
+const SwarmView3D = lazy(() => import('./SwarmView3D'));
+
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
+type ViewMode = '2d' | '3d';
 
 export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(EMPTY);
@@ -17,6 +21,14 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
+  const [view, setView] = useState<ViewMode>(
+    () => (localStorage.getItem('hive.view') as ViewMode) ?? '2d',
+  );
+
+  const switchView = (mode: ViewMode) => {
+    setView(mode);
+    localStorage.setItem('hive.view', mode);
+  };
 
   useEffect(() => {
     const feed = connectFeed({
@@ -72,6 +84,14 @@ export function App() {
           </span>
         </div>
         <div className="header-right">
+          <div className="view-toggle" role="group" aria-label="Mode d'affichage">
+            <button className={view === '2d' ? 'active' : ''} onClick={() => switchView('2d')}>
+              2D
+            </button>
+            <button className={view === '3d' ? 'active' : ''} onClick={() => switchView('3d')}>
+              3D
+            </button>
+          </div>
           <InvitePanel />
           <input
             type="password"
@@ -91,7 +111,19 @@ export function App() {
 
       <main>
         <section className="swarm-panel">
-          <SwarmView tasks={snapshot.tasks} nodes={snapshot.nodes} agentsByTask={agentsByTask} />
+          {view === '3d' ? (
+            <div className="swarm3d-wrap">
+              <Suspense fallback={<div className="swarm3d-loading">Chargement du moteur 3D…</div>}>
+                <SwarmView3D
+                  tasks={snapshot.tasks}
+                  nodes={snapshot.nodes}
+                  agentsByTask={agentsByTask}
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <SwarmView tasks={snapshot.tasks} nodes={snapshot.nodes} agentsByTask={agentsByTask} />
+          )}
           <TaskTable tasks={snapshot.tasks} nodes={snapshot.nodes} />
         </section>
 
