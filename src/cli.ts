@@ -8,6 +8,7 @@
 //   npm run cli -- cancel <taskId>                    annuler une tâche
 //   npm run cli -- events [sinceId]                   journal d'événements
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
+//   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
@@ -147,6 +148,49 @@ async function cmdMerge(projectId: string): Promise<void> {
     console.log(`  ⚠ ${c.a} ↔ ${c.b} : ${c.file}`);
   }
   console.log('\n  (Analyse advisory : ni merge git ni exécution de tests — différés côté nœud.)');
+  console.log(
+    '  Exécuter réellement : npm run cli -- merge-run ' + projectId + ' [-- cmd de test]',
+  );
+}
+
+interface MergeResult {
+  mergeId: string;
+  applied: string[];
+  conflicts: { taskId: string; reason: string }[];
+  testsRun: boolean;
+  testsPassed: boolean | null;
+}
+
+/** Déclenche l'exécution réelle du merge sur un nœud, puis attend le résultat. */
+async function cmdMergeRun(projectId: string, testCmd: string[]): Promise<void> {
+  const body = testCmd.length ? { testCommand: testCmd } : {};
+  const run = await api<{ mergeId: string; nodeId: string; order: string[] }>(
+    `/api/projects/${projectId}/merge/run`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  console.log(
+    `\n🐝 Merge lancé (${run.mergeId.slice(0, 8)}…) sur ${run.nodeId.slice(0, 8)}… — ordre : ${run.order.join(' → ')}`,
+  );
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const { result } = await api<{ result: MergeResult | null }>(
+      `/api/projects/${projectId}/merge/result`,
+    );
+    if (result && result.mergeId === run.mergeId) {
+      const verdict = result.conflicts.length
+        ? `⚠ ${result.conflicts.length} conflit(s)`
+        : result.testsRun
+          ? result.testsPassed
+            ? '✔ tests OK'
+            : '✘ tests échoués'
+          : '✔ appliqué (sans tests)';
+      console.log(`  ${verdict} — ${result.applied.length} diff(s) appliqué(s)`);
+      for (const c of result.conflicts) console.log(`  ⚠ ${c.taskId} : ${c.reason}`);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  console.log('  (timeout — résultat non revenu ; réessayez `merge-run` ou vérifiez le nœud.)');
 }
 
 interface InviteResponse {
@@ -183,10 +227,11 @@ try {
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
   else if (cmd === 'events') await cmdEvents(a1);
   else if (cmd === 'merge' && a1) await cmdMerge(a1);
+  else if (cmd === 'merge-run' && a1) await cmdMergeRun(a1, process.argv.slice(4));
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | invite [urlWS]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
