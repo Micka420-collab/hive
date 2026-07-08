@@ -85,3 +85,79 @@ export function runCommand(
     });
   });
 }
+
+/**
+ * Comme runCommand, mais invoque `onLine` pour CHAQUE ligne de stdout au fil de
+ * l'eau (flux stream-json d'un agent). Sert au suivi des sous-agents en direct.
+ * Le parseur `onLine` doit être tolérant ; toute exception y est absorbée.
+ */
+export function runCommandStreaming(
+  bin: string,
+  args: string[],
+  ctx: AdapterContext,
+  onLine: (line: string) => void,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<AdapterResult> {
+  return new Promise((resolve) => {
+    const child = spawn(bin, args, {
+      cwd: ctx.cwd,
+      env: ctx.env,
+      shell: false, // jamais d'interprétation shell (contrainte §5.1)
+      windowsHide: true,
+      signal: ctx.signal,
+    });
+
+    let output = '';
+    let buffer = '';
+    const feed = (line: string): void => {
+      try {
+        onLine(line);
+      } catch {
+        /* parseur tolérant : on ignore */
+      }
+    };
+    child.stdout?.on('data', (chunk: Buffer) => {
+      const s = chunk.toString();
+      if (output.length < OUTPUT_CAP) output += s;
+      buffer += s;
+      let idx: number;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        feed(buffer.slice(0, idx));
+        buffer = buffer.slice(idx + 1);
+      }
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      if (output.length < OUTPUT_CAP) output += chunk.toString();
+    });
+
+    const timeout = setTimeout(() => {
+      output += `\n[hive] timeout après ${timeoutMs} ms — processus tué`;
+      child.kill();
+    }, timeoutMs);
+    timeout.unref?.();
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      resolve({
+        success: false,
+        diff: '',
+        logs: `${output}\n[hive] échec du lancement de « ${bin} » : ${err.message}`,
+        subAgents: [],
+        infra: true,
+      });
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (buffer.trim()) feed(buffer); // dernière ligne sans \n final
+      const infra = code !== 0 && INFRA_FAILURE_RE.test(output);
+      resolve({
+        success: code === 0,
+        diff: '',
+        logs: output,
+        subAgents: [],
+        ...(infra ? { infra: true } : {}),
+      });
+    });
+  });
+}
