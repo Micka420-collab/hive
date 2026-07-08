@@ -18,6 +18,7 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import { buildMergePlan } from './honeycomb.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -433,6 +434,38 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       scheduler.tick(); // promotion + assignation immédiates
       return reply.code(201).send(created);
+    },
+  );
+
+  // Honeycomb Merge (Palier 3) : plan d'intégration d'un projet — ordre de merge
+  // (dépendances d'abord) + conflits de lignes entre diffs des tâches terminées.
+  // Advisory : n'effectue ni merge git ni exécution de tests (côté nœud, différé).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/merge',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const tasks = store.listTasks(project.id);
+      const diffs = new Map<string, string>();
+      for (const t of tasks) {
+        if (t.status !== 'done') continue;
+        const success = store
+          .resultsForTask(t.id)
+          .filter((r) => r.success)
+          .at(-1);
+        if (success) diffs.set(t.id, success.diff);
+      }
+      return buildMergePlan(tasks, diffs);
     },
   );
 
