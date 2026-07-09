@@ -7,11 +7,18 @@
 //   npm run cli -- watch <projectId>                  suivre l'avancement en direct
 //   npm run cli -- cancel <taskId>                    annuler une tâche
 //   npm run cli -- events [sinceId]                   journal d'événements
+//   npm run cli -- shift                              disponibilité heures creuses (HIVE_SHIFT, local)
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { readFileSync } from 'node:fs';
+import {
+  formatWindow,
+  isOnShift,
+  minutesUntilOpen,
+  nightShiftFromEnv,
+} from './shared/night-shift.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 
 try {
@@ -122,6 +129,28 @@ async function cmdEvents(sinceId = '0'): Promise<void> {
   }
 }
 
+/**
+ * Night Shift : évalue LOCALEMENT la disponibilité du nœud d'après HIVE_SHIFT et
+ * l'heure de la machine (aucun appel réseau — c'est une préférence du membre).
+ */
+function cmdShift(): void {
+  const policy = nightShiftFromEnv();
+  if (policy.windows.length === 0) {
+    console.log('🌞 Disponibilité 24h/24 (HIVE_SHIFT non défini).');
+    return;
+  }
+  const now = new Date();
+  console.log(`🌙 Night Shift : ${policy.windows.map(formatWindow).join(', ')}`);
+  if (isOnShift(policy, now)) {
+    console.log('  ✅ De service maintenant : le nœud accepte du travail.');
+  } else {
+    const mins = minutesUntilOpen(policy, now);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    console.log(`  ⏾ Hors service. Prochaine ouverture dans ${h}h${String(m).padStart(2, '0')}.`);
+  }
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -155,10 +184,11 @@ try {
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
   else if (cmd === 'events') await cmdEvents(a1);
+  else if (cmd === 'shift') cmdShift();
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | shift | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
