@@ -18,6 +18,7 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import { buildProjectReport } from './project-report.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -343,6 +344,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   interface NewTaskBody {
     tasks: { id?: string; title: string; prompt: string; dependsOn?: string[] }[];
   }
+
+  // Rapport d'avancement d'un projet (lecture seule) : avancement %, répartition
+  // par statut, nœuds contributeurs. Calculé à partir des tâches du projet.
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/report',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      return buildProjectReport(project, store.listTasks(project.id));
+    },
+  );
 
   app.post<{ Params: { projectId: string }; Body: NewTaskBody }>(
     '/api/projects/:projectId/tasks',

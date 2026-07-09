@@ -7,11 +7,13 @@
 //   npm run cli -- watch <projectId>                  suivre l'avancement en direct
 //   npm run cli -- cancel <taskId>                    annuler une tâche
 //   npm run cli -- events [sinceId]                   journal d'événements
+//   npm run cli -- report <projectId>                 avancement d'un projet
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { readFileSync } from 'node:fs';
+import type { ProjectReport } from './orchestrator/project-report.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 
 try {
@@ -122,6 +124,21 @@ async function cmdEvents(sinceId = '0'): Promise<void> {
   }
 }
 
+/** Rapport d'avancement d'un projet. */
+async function cmdReport(projectId: string): Promise<void> {
+  const r = await api<ProjectReport>(`/api/projects/${projectId}/report`);
+  const filled = Math.round((r.progressPct / 100) * 20);
+  const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
+  console.log(`📋 ${r.name} — ${bar} ${r.progressPct}%${r.complete ? ' ✅' : ''}`);
+  console.log(
+    `  ${r.total} tâche(s) : ✔${r.byStatus.done} ▶${r.byStatus.running} ◈${r.byStatus.assigned} ` +
+      `◇${r.byStatus.ready} ·${r.byStatus.pending} ✘${r.byStatus.failed}`,
+  );
+  console.log(
+    `  Nœuds contributeurs : ${r.contributingNodes.length || '—'} · tentatives cumulées : ${r.totalAttempts}`,
+  );
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -155,10 +172,11 @@ try {
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
   else if (cmd === 'events') await cmdEvents(a1);
+  else if (cmd === 'report' && a1) await cmdReport(a1);
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | report <projectId> | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
