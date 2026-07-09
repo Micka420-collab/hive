@@ -18,6 +18,8 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import type { HiveEvent } from '../shared/types.js';
+import { computePulse } from './pulse.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -308,6 +310,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return store.listEvents(req.query.since ?? 0, req.query.limit ?? 200);
     },
   );
+
+  // Hive Pulse : signes vitaux agrégés (débit, latence p50/p95, taux de succès,
+  // nœuds actifs) par repli du journal. Lecture seule ; pagination interne bornée.
+  app.get('/api/pulse', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events: HiveEvent[] = [];
+    let cursor = 0;
+    for (;;) {
+      if (events.length >= EVENT_RETENTION) break;
+      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+      if (page.length === 0) break;
+      events.push(...page);
+      const last = page[page.length - 1];
+      if (!last) break;
+      cursor = last.id;
+    }
+    return computePulse(events);
+  });
 
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
     '/api/projects',
