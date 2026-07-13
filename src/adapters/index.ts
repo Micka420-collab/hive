@@ -5,6 +5,7 @@
 import type { SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createCodexAdapter } from './codex.js';
+import { createHermesAgentAdapter } from './hermes-agent.js';
 import { createShellAdapter } from './shell.js';
 
 export interface AdapterProgress {
@@ -47,7 +48,9 @@ export function getAdapter(name: string): AgentAdapter {
       return createClaudeCodeAdapter();
     case 'codex':
       return createCodexAdapter();
+    case 'hermes-agent':
+      return createHermesAgentAdapter();
     default:
-      throw new Error(`Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex)`);
+      throw new Error(`Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex, hermes-agent)`);
   }
 }

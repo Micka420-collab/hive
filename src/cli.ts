@@ -147,10 +147,21 @@ async function cmdInvite(url?: string): Promise<void> {
   );
 }
 
+async function cmdBrief(projectId: string, brief: string): Promise<void> {
+  const result = await api<{ tasks: Task[]; rationale: string; model: string }>(
+    `/api/projects/${projectId}/brief`,
+    { method: 'POST', body: JSON.stringify({ brief }) },
+  );
+  console.log(`🐝 Queen Bee (${result.model}) — ${result.rationale}`);
+  console.log(`\n${result.tasks.length} tâche(s) générée(s) :`);
+  printTasks(result.tasks);
+}
+
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
   else if (cmd === 'project' && a1) await cmdProject(a1, a2);
+  else if (cmd === 'brief' && a1 && a2) await cmdBrief(a1, a2);
   else if (cmd === 'tasks' && a1 && a2) await cmdTasks(a1, a2);
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
@@ -158,7 +169,7 @@ try {
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | brief <projectId> "<brief>" | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

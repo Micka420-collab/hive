@@ -486,6 +486,80 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── Queen Bee : découpage IA d'un brief en tâches ──────────────────────────
+  interface BriefBody {
+    brief: string;
+    language?: string;
+  }
+
+  app.post<{ Params: { projectId: string }; Body: BriefBody }>(
+    '/api/projects/:projectId/brief',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['brief'],
+          additionalProperties: false,
+          properties: {
+            brief: { type: 'string', minLength: 10, maxLength: 5000 },
+            language: { type: 'string', maxLength: 30 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      // Import dynamique : le module Queen Bee ne se charge que si on l'utilise.
+      const { briefToDAG, loadQueenBeeConfig } = await import('./queen-bee.js');
+      const beeConfig = loadQueenBeeConfig(process.env);
+      if (!beeConfig.apiKey) {
+        return reply.code(500).send({
+          error: 'QUEEN_BEE_API_KEY non configurée. Définissez cette variable (clé OpenRouter).',
+        });
+      }
+      if (req.body.language) beeConfig.language = req.body.language;
+
+      try {
+        const result = await briefToDAG(req.body.brief, beeConfig);
+        // Générer des ids automatiques si absents
+        const tasks = result.tasks.map((t, i) => ({
+          ...t,
+          id: t.id ?? `T${i + 1}`,
+        }));
+        // Injecter les tâches directement
+        const created = tasks.map((t) =>
+          store.createTask({
+            id: t.id,
+            projectId: project.id,
+            title: t.title,
+            prompt: t.prompt,
+            dependsOn: t.dependsOn ?? [],
+          }),
+        );
+        for (const t of created) {
+          emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
+        }
+        scheduler.tick();
+        return reply.code(201).send({
+          tasks: created,
+          rationale: result.rationale,
+          model: result.model,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.code(422).send({ error: message });
+      }
+    },
+  );
+
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
   const port = typeof address === 'object' && address !== null ? address.port : config.port;

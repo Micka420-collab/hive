@@ -109,7 +109,7 @@ votre ami restent **sur sa machine**, jamais transmises au hub.
 | `npm run dev`           | Orchestrateur seul (watch)                                         |
 | `npm run node`          | Un nœud membre (configuré par variables d'environnement)           |
 | `npm run join -- <inv>` | Rejoindre une ruche depuis une invitation (agent auto-détecté)     |
-| `npm run cli`           | CLI : `state`/`project`/`tasks`/`watch`/`cancel`/`events`/`invite` |
+| `npm run cli`           | CLI : `state`/`project`/`brief`/`tasks`/`watch`/`cancel`/`events`/`invite` |
 | `npm test`              | Tests unitaires + e2e (vitest)                                     |
 | `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                              |
 | `npm run build`         | Typecheck + build du dashboard                                     |
@@ -153,7 +153,8 @@ votre ami restent **sur sa machine**, jamais transmises au hub.
 ```bash
 npm run cli -- state                               # état de la ruche
 npm run cli -- project "Mon SaaS" [repoUrl]        # créer un projet
-npm run cli -- tasks <projectId> mes-taches.json   # envoyer un lot de tâches (DAG)
+npm run cli -- brief <projectId> "Description..."   # 🐝 Queen Bee : l'IA découpe ton brief en DAG
+npm run cli -- tasks <projectId> mes-taches.json   # envoyer un lot de tâches (DAG manuel)
 npm run cli -- watch <projectId>                   # suivre l'avancement en direct
 npm run cli -- cancel <taskId>                     # annuler une tâche (le nœud abandonne)
 ```
@@ -185,6 +186,7 @@ Adaptateurs fournis :
   qu'il s'authentifie ; ajoutez d'autres variables via `HIVE_KEEP_ENV=VAR1,VAR2`.
   **Les clés restent sur le nœud, jamais transmises au hub.**
 - **`codex`** — lance `codex exec "<prompt>"`, mêmes règles.
+- **`hermes-agent`** — lance `hermes agent run --prompt "<prompt>"`, mêmes règles.
 
 Quand le projet a un `repoUrl`, le nœud clone le dépôt dans un répertoire dédié
 et travaille sur la branche **`hive/<taskId>`** — jamais sur `main`. Le diff
@@ -238,9 +240,9 @@ pending → ready (dépendances done) → assigned → running → done | failed
 
 ```
 src/
-  orchestrator/   server.ts (Fastify+WS) · scheduler.ts · store.ts (SQLite) · main.ts
+  orchestrator/   server.ts (Fastify+WS) · scheduler.ts · store.ts (SQLite) · queen-bee.ts · main.ts
   node-client/    client.ts (WS+backoff) · workspace.ts (sandbox v0) · main.ts
-  adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · exec.ts
+  adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · hermes-agent.ts · exec.ts
   shared/         types.ts · protocol.ts (messages WS typés + validation)
   demo.ts         npm run demo
 dashboard/        Vite + React : SwarmView 2D/3D (Galacean), StatTiles, NodesPanel,
