@@ -12,6 +12,8 @@ export interface Project {
   name: string;
   repoUrl: string | null;
   description: string | null;
+  visibility: 'public' | 'private';
+  ownerId: string | null;
   createdAt: number;
 }
 
@@ -91,6 +93,20 @@ export const MAX_ATTEMPTS = 3;
 export const NODE_TIMEOUT_MS = 15_000;
 /** Fréquence d'envoi du heartbeat côté nœud. */
 export const HEARTBEAT_INTERVAL_MS = 5_000;
+// ─── Utilisateurs ────────────────────────────────────────────────────────────
+export interface User {
+  id: string;
+  email: string;
+  passwordHash: string;
+  displayName: string;
+  bio: string;
+  avatarUrl: string;
+  createdAt: number;
+}
+
+/** Utilisateur sérialisé pour l'API (sans le hash). */
+export type UserPublic = Omit<User, 'passwordHash'>;
+
 /** Valeur par défaut du token — considérée triviale, refusée hors simulation. */
 export const DEFAULT_TOKEN = 'change-me';
 /** Longueur minimale d'un token jugé non-trivial. */

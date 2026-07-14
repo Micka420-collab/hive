@@ -9,6 +9,8 @@ const project: Project = {
   name: 'SaaS',
   repoUrl: null,
   description: null,
+  visibility: 'private',
+  ownerId: null,
   createdAt: 1,
 };
 

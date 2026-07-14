@@ -4,6 +4,13 @@
 
 **Orchestration communautaire d'agents IA — l'essaim, en temps réel, persistant et visible.**
 
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
+  <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen" alt="node">
+</p>
+
 Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines des membres (_Nodes_), qui exécutent chacune leurs agents de codage (_ouvrières_) dans des espaces de travail isolés. Le contrôle est centralisé ; **le code et les clés restent chez chaque membre.**
 
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
@@ -171,8 +178,8 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 | `npm run dev`           | Orchestrateur seul (watch)                                         |
 | `npm run node`          | Un nœud membre (configuré par variables d'environnement)           |
 | `npm run join -- <inv>` | Rejoindre une ruche depuis une invitation (agent auto-détecté)     |
-| `npm run cli`           | CLI : `state`/`project`/`tasks`/`watch`/`cancel`/`events`/`invite` |
-| `npm test`              | Tests unitaires + e2e (vitest) — **110 verts**                     |
+| `npm run cli`           | CLI : `state`/`mind`/`plan`/`brief`/`project`/`tasks`/`watch`/`merge`/`replay`/`waggle`/`consensus`/`ghost`/`pulse`/`report`/`invite`… |
+| `npm test`              | Tests unitaires + e2e (vitest)                                     |
 | `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                              |
 | `npm run build`         | Typecheck (orchestrateur + dashboard) + build du dashboard         |
 | `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                          |
@@ -224,7 +231,8 @@ npm run cli -- plan "un SaaS avec auth et API"     # proposer un DAG (Queen Bee)
 npm run cli -- mind "authentification jwt"         # interroger la mémoire (Hive Mind)
 npm run cli -- stings <projectId>                  # conflits potentiels (Sting Detector)
 npm run cli -- project "Mon SaaS" [repoUrl]        # créer un projet
-npm run cli -- tasks <projectId> mes-taches.json   # envoyer un lot de tâches (DAG)
+npm run cli -- brief <projectId> "Description..."   # 🐝 Queen Bee : l'IA découpe ton brief en DAG
+npm run cli -- tasks <projectId> mes-taches.json   # envoyer un lot de tâches (DAG manuel)
 npm run cli -- watch <projectId>                   # suivre l'avancement en direct
 npm run cli -- cancel <taskId>                     # annuler une tâche (le nœud abandonne)
 ```
@@ -253,6 +261,7 @@ Adaptateurs fournis :
   isolé. Sa config et sa clé API lui sont **automatiquement transmises**
   (HOME/config + `ANTHROPIC_API_KEY`…) ; variables en plus via `HIVE_KEEP_ENV`.
 - **`codex`** — lance `codex exec "<prompt>"`, mêmes règles.
+- **`hermes-agent`** — lance `hermes agent run --prompt "<prompt>"`, mêmes règles.
 
 Avec un `repoUrl`, le nœud clone le dépôt et travaille sur la branche
 **`hive/<taskId>`** — jamais sur `main`. Le diff remonte pour **revue humaine**
@@ -297,11 +306,14 @@ pending → ready (dépendances done) → assigned → running → done | failed
 
 ```
 src/
-  orchestrator/   server.ts (Fastify+WS) · scheduler.ts · store.ts (SQLite)
-                  planner.ts (Queen Bee) · hive-mind.ts (mémoire) · sting-detector.ts · main.ts
-  node-client/    client.ts (WS+backoff) · workspace.ts (sandbox v0) · main.ts
-  adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · exec.ts
-  shared/         types.ts · protocol.ts (messages WS typés + validation) · invite.ts
+  orchestrator/   server.ts (Fastify+WS) · scheduler.ts · store.ts (SQLite) · auth.ts (JWT)
+                  planner.ts + queen-bee.ts (Queen Bee) · hive-mind.ts (mémoire) · sting-detector.ts
+                  honeycomb.ts (merge) · replay.ts · waggle.ts · parliament.ts · ghost.ts
+                  pulse.ts · project-report.ts · drone-wars.ts · main.ts
+  node-client/    client.ts (WS+backoff) · workspace.ts (sandbox v0) · merge-runner.ts · main.ts
+  adapters/       index.ts (AgentAdapter) · shell.ts · claude-code.ts · codex.ts · custom.ts
+                  hermes-agent.ts · exec.ts · subagent-parser.ts
+  shared/         types.ts · protocol.ts (messages WS typés + validation) · invite.ts · night-shift.ts
   demo.ts         npm run demo
 dashboard/        Vite + React : SwarmView 2D/3D (Galacean) · StatTiles · NodesPanel
                   Journal · TaskDrawer (+ CodeEditor) · NewProjectModal · InvitePanel

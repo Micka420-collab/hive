@@ -385,6 +385,8 @@ export class Scheduler {
         now,
       );
       if (!assigned) continue;
+      // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
+      // sans réécrire le prompt persisté de la tâche.
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
       this.opts.onAssign?.(node.id, assigned);
       activeNow.push(assigned); // les tâches suivantes tiennent compte de celle-ci

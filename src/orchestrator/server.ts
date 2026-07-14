@@ -14,11 +14,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
+import { hashPassword, verifyPassword, signJwt, verifyJwt, isValidEmail } from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
-import type { HiveEvent } from '../shared/types.js';
+import type { HiveEvent, User } from '../shared/types.js';
 import { detectGhosts } from './ghost.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
@@ -48,6 +49,16 @@ const MERGE_TIMEOUT_MS = 10 * 60_000;
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
 const REST_RATE_MAX = 400;
+
+/** Reconstitue un abstract depuis l'index inversé d'OpenAlex. */
+function reconstructAbstract(invertedIndex: Record<string, number[]>): string {
+  const words: Array<[string, number]> = [];
+  for (const [word, positions] of Object.entries(invertedIndex)) {
+    for (const pos of positions) words.push([word, pos]);
+  }
+  words.sort((a, b) => a[1] - b[1]);
+  return words.map(([w]) => w).join(' ');
+}
 
 export interface ServerConfig {
   port: number;
@@ -300,11 +311,67 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   const reject = (reply: FastifyReply) => reply.code(401).send({ error: 'token invalide' });
 
+  /** Requête authentifiée par JWT utilisateur. */
+  interface AuthRequest extends FastifyRequest {
+    userId?: string;
+  }
+
+  const authorizedUser = (req: FastifyRequest): boolean => {
+    const bearer = req.headers.authorization;
+    if (!bearer || !bearer.startsWith('Bearer ')) return false;
+    const token = bearer.slice(7);
+    const payload = verifyJwt(token);
+    if (!payload) return false;
+    (req as AuthRequest).userId = payload.sub;
+    return true;
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
 
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();
+  });
+
+  // ─── Auth routes ──────────────────────────────────────────────────────────
+  app.post<{ Body: { email: string; password: string; displayName: string } }>(
+    '/api/auth/register',
+    async (req, reply) => {
+      const { email, password, displayName } = req.body;
+      if (!isValidEmail(email)) return reply.status(400).send({ error: 'Email invalide' });
+      if (!password || password.length < 8)
+        return reply.status(400).send({ error: 'Mot de passe trop court (min 8 caractères)' });
+      if (!displayName || displayName.length < 2)
+        return reply.status(400).send({ error: 'Nom trop court' });
+      if (store.getUserByEmail(email))
+        return reply.status(409).send({ error: 'Email déjà utilisé' });
+      const user = store.createUser({
+        email,
+        passwordHash: hashPassword(password),
+        displayName,
+      });
+      return { token: signJwt(user.id, user.email) };
+    },
+  );
+
+  app.post<{ Body: { email: string; password: string } }>(
+    '/api/auth/login',
+    async (req, reply) => {
+      const { email, password } = req.body;
+      const user = store.getUserByEmail(email);
+      if (!user || !verifyPassword(password, user.passwordHash))
+        return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
+      return { token: signJwt(user.id, user.email) };
+    },
+  );
+
+  app.get('/api/auth/me', async (req, reply) => {
+    if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+    const userId = (req as AuthRequest).userId!;
+    const user = store.getUserById(userId);
+    if (!user) return reply.status(404).send({ error: 'Utilisateur introuvable' });
+    const { passwordHash, ...publicUser } = user;
+    return publicUser;
   });
 
   // Génère une invitation à envoyer à un ami : elle encode l'URL WS publique + le
@@ -918,6 +985,227 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       stateDirty = true;
       return cancelled;
+    },
+  );
+
+  // ─── Queen Bee : découpage IA d'un brief en tâches ──────────────────────────
+  interface BriefBody {
+    brief: string;
+    language?: string;
+  }
+
+  app.post<{ Params: { projectId: string }; Body: BriefBody }>(
+    '/api/projects/:projectId/brief',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['brief'],
+          additionalProperties: false,
+          properties: {
+            brief: { type: 'string', minLength: 10, maxLength: 5000 },
+            language: { type: 'string', maxLength: 30 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      // Import dynamique : le module Queen Bee ne se charge que si on l'utilise.
+      const { briefToDAG, loadQueenBeeConfig } = await import('./queen-bee.js');
+      const beeConfig = loadQueenBeeConfig(process.env);
+      if (!beeConfig.apiKey) {
+        return reply.code(500).send({
+          error: 'QUEEN_BEE_API_KEY non configurée. Définissez cette variable (clé OpenRouter).',
+        });
+      }
+      if (req.body.language) beeConfig.language = req.body.language;
+
+      try {
+        const result = await briefToDAG(req.body.brief, beeConfig);
+        // Générer des ids automatiques si absents
+        const tasks = result.tasks.map((t, i) => ({
+          ...t,
+          id: t.id ?? `T${i + 1}`,
+        }));
+        // Injecter les tâches directement
+        const created = tasks.map((t) =>
+          store.createTask({
+            id: t.id,
+            projectId: project.id,
+            title: t.title,
+            prompt: t.prompt,
+            dependsOn: t.dependsOn ?? [],
+          }),
+        );
+        for (const t of created) {
+          emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
+        }
+        scheduler.tick();
+        return reply.code(201).send({
+          tasks: created,
+          rationale: result.rationale,
+          model: result.model,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.code(422).send({ error: message });
+      }
+    },
+  );
+
+  // ─── Marketplace ───────────────────────────────────────────────────────────
+  // Projets publics — accessible sans authentification.
+  app.get('/api/projects/public', async (_req, reply) => {
+    const projects = store.listPublicProjects();
+    return reply.send(projects);
+  });
+
+  // Créer un projet (via JWT utilisateur). Accepte visibility + ownerId.
+  app.post<{
+    Body: {
+      name: string;
+      repoUrl?: string;
+      description?: string;
+      visibility?: 'public' | 'private';
+    };
+  }>(
+    '/api/projects/user',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['name'],
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: LIMITS.name },
+            repoUrl: { type: 'string', maxLength: 500 },
+            description: { type: 'string', maxLength: 2000 },
+            visibility: { type: 'string', enum: ['public', 'private'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      if (req.body.repoUrl !== undefined && !isValidRepoUrl(req.body.repoUrl)) {
+        return reply.code(400).send({
+          error: 'repoUrl invalide',
+        });
+      }
+      const userId = (req as AuthRequest).userId!;
+      const project = store.createProject({
+        ...req.body,
+        ownerId: userId,
+      });
+      // Ajoute automatiquement le créateur comme membre
+      store.addMember(project.id, userId, 'owner');
+      emitEvent('project_created', { projectId: project.id, name: project.name, userId });
+      return reply.code(201).send(project);
+    },
+  );
+
+  // Rejoindre un projet
+  app.post<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/join',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const userId = (req as AuthRequest).userId!;
+      store.addMember(project.id, userId);
+      emitEvent('project_member_joined', { projectId: project.id, userId });
+      return reply.send({ joined: true, projectId: project.id });
+    },
+  );
+
+  // Lister les membres d'un projet
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/members',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      return reply.send(store.listMembers(project.id));
+    },
+  );
+
+  // Projets de l'utilisateur connecté
+  app.get('/api/user/projects', async (req, reply) => {
+    if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+    const userId = (req as AuthRequest).userId!;
+    return reply.send(store.listUserProjects(userId));
+  });
+
+  // ─── OpenAlex : moteur de recherche scientifique ────────────────────────────
+  // Proxy vers l'API OpenAlex (gratuite, pas de clé). Accessible sans auth.
+  // Docs : https://docs.openalex.org/api-reference
+  app.get<{ Querystring: { q?: string; page?: string; filter?: string; sort?: string } }>(
+    '/api/openalex/search',
+    async (req, reply) => {
+      const { q, page, filter, sort } = req.query;
+      if (!q || q.length < 2)
+        return reply.status(400).send({ error: 'Requête trop courte (min 2 caractères)' });
+
+      const params = new URLSearchParams();
+      params.set('search', q);
+      if (page) params.set('page', page);
+      if (filter) params.set('filter', filter);
+      if (sort) params.set('sort', sort);
+      else params.set('sort', 'cited_by_count:desc');
+      params.set('per_page', '20');
+
+      // Email "polite" pour lever le rate-limit (recommandé par OpenAlex)
+      const email = process.env.OPENALEX_EMAIL || 'shellia.delcato@gmail.com';
+
+      try {
+        const res = await fetch(`https://api.openalex.org/works?${params}`, {
+          headers: { 'User-Agent': `Hive/0.1 (mailto:${email})` },
+        });
+        if (!res.ok) {
+          return reply.status(res.status).send({
+            error: `OpenAlex a répondu ${res.status}`,
+          });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (await res.json()) as any;
+        // Formater pour le dashboard : ne garder que les champs utiles
+        const results = (data.results ?? []).map((w: Record<string, unknown>) => ({
+          id: w.id,
+          title: w.title,
+          doi: w.doi,
+          year: w.publication_year,
+          citedBy: w.cited_by_count,
+          authors: ((w.authorships as Array<Record<string, unknown>>) ?? [])
+            .slice(0, 5)
+            .map((a) => a.author && (a.author as Record<string, string>).display_name)
+            .filter(Boolean),
+          abstract: ((w.abstract_inverted_index as Record<string, number[]>) != null
+            ? reconstructAbstract(w.abstract_inverted_index as Record<string, number[]>)
+            : null)?.slice(0, 500),
+          type: w.type,
+          openAccess: (w.open_access as Record<string, unknown>)?.is_oa ?? false,
+          url: (w.open_access as Record<string, unknown>)?.oa_url ?? w.doi,
+        }));
+        return reply.send({
+          total: data.meta?.count ?? 0,
+          page: data.meta?.page ?? 1,
+          perPage: data.meta?.per_page ?? 20,
+          results,
+        });
+      } catch (err) {
+        return reply
+          .status(502)
+          .send({ error: `Erreur OpenAlex : ${err instanceof Error ? err.message : err}` });
+      }
     },
   );
 
