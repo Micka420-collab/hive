@@ -12,11 +12,13 @@
 //   npm run cli -- events [sinceId]                   journal d'événements
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
 //   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
+//   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { readFileSync } from 'node:fs';
+import type { ReplayResult, TaskCounts } from './orchestrator/replay.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 
 try {
@@ -280,6 +282,30 @@ async function cmdMergeRun(projectId: string, testCmd: string[]): Promise<void> 
   console.log('  (timeout — résultat non revenu ; réessayez `merge-run` ou vérifiez le nœud.)');
 }
 
+/** Barre compacte des tâches par statut, réutilisant les badges d'affichage. */
+function taskBar(tasks: TaskCounts): string {
+  return Object.entries(BADGE)
+    .map(([status, badge]) => `${badge}${tasks[status as keyof TaskCounts] ?? 0}`)
+    .join(' ');
+}
+
+/** Time-Lapse Replay : rejoue le journal en frise chronologique dans le terminal. */
+async function cmdReplay(sinceId = '0'): Promise<void> {
+  const r = await api<ReplayResult>(`/api/replay?since=${Number(sinceId)}`);
+  if (r.eventCount === 0) {
+    console.log('Journal vide : rien à rejouer.');
+    return;
+  }
+  console.log(`⏱  Time-Lapse : ${r.eventCount} événement(s), jusqu'à #${r.lastEventId}\n`);
+  for (const f of r.frames) {
+    console.log(
+      `  #${String(f.eventId).padStart(4)} ${new Date(f.ts).toLocaleTimeString()} ` +
+        `${f.type.padEnd(16)} P${f.projects} N${f.nodesOnline}/${f.nodesTotal}  ${taskBar(f.tasks)}`,
+    );
+  }
+  if (r.finalCounts) console.log(`\n🍯 État final : ${taskBar(r.finalCounts.tasks)}`);
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -318,10 +344,11 @@ try {
   else if (cmd === 'events') await cmdEvents(a1);
   else if (cmd === 'merge' && a1) await cmdMerge(a1);
   else if (cmd === 'merge-run' && a1) await cmdMergeRun(a1, process.argv.slice(4));
+  else if (cmd === 'replay') await cmdReplay(a1);
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
