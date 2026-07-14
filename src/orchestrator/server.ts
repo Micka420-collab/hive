@@ -25,6 +25,7 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { planBrief } from './planner.js';
+import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
@@ -434,6 +435,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       cursor = last.id;
     }
     return detectGhosts(events);
+  });
+
+  // Hive Pulse : signes vitaux agrégés (débit, latence p50/p95, taux de succès,
+  // nœuds actifs) par repli du journal. Lecture seule ; pagination interne bornée.
+  app.get('/api/pulse', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events: HiveEvent[] = [];
+    let cursor = 0;
+    for (;;) {
+      if (events.length >= EVENT_RETENTION) break;
+      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+      if (page.length === 0) break;
+      events.push(...page);
+      const last = page[page.length - 1];
+      if (!last) break;
+      cursor = last.id;
+    }
+    return computePulse(events);
   });
 
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(

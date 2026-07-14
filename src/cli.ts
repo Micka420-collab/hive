@@ -17,6 +17,7 @@
 //   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
 //   npm run cli -- ghost                              anomalies (nœuds/tâches douteux)
 //   npm run cli -- shift                              disponibilité heures creuses (HIVE_SHIFT, local)
+//   npm run cli -- pulse                              signes vitaux de la ruche
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
@@ -24,6 +25,7 @@
 import { readFileSync } from 'node:fs';
 import type { GhostReport } from './orchestrator/ghost.js';
 import type { Verdict } from './orchestrator/parliament.js';
+import type { HivePulse } from './orchestrator/pulse.js';
 import type { ReplayResult, TaskCounts } from './orchestrator/replay.js';
 import type { WaggleBoard } from './orchestrator/waggle.js';
 import {
@@ -396,6 +398,27 @@ function cmdShift(): void {
   }
 }
 
+/** Hive Pulse : signes vitaux agrégés de la ruche. */
+async function cmdPulse(): Promise<void> {
+  const p = await api<HivePulse>('/api/pulse');
+  const ms = (v: number): string => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`);
+  console.log('💓 Hive Pulse');
+  console.log(
+    `  Tâches : ✔${p.totalDone} ✘${p.totalFailed} — succès ${Math.round(p.successRate * 100)}% · nœuds actifs ${p.activeNodes}`,
+  );
+  console.log(
+    `  Latence : p50 ${ms(p.latency.p50)} · p95 ${ms(p.latency.p95)} · max ${ms(p.latency.max)} (n=${p.latency.count})`,
+  );
+  // Mini-histogramme du débit horaire (dernières tranches).
+  const bars = ' ▁▂▃▄▅▆▇█';
+  const peak = Math.max(1, ...p.throughput.map((b) => b.done + b.failed));
+  const spark = p.throughput
+    .slice(-24)
+    .map((b) => bars[Math.min(8, Math.round(((b.done + b.failed) / peak) * 8))])
+    .join('');
+  if (spark) console.log(`  Débit/h : ${spark}`);
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -439,10 +462,11 @@ try {
   else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
+  else if (cmd === 'pulse') await cmdPulse();
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
