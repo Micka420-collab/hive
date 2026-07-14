@@ -521,7 +521,15 @@ export default function Miellerie({
     }
     window.clearTimeout(armTimer.current);
     setMerge({ step: 'starting' });
-    runMerge(projectId)
+    // Le geste de revue compte : si des productions sont approuvées, SEULES
+    // celles-ci sont coulées dans le miel ; sans approbation explicite, tout
+    // le terminé part (comportement historique, vue Projets inchangée).
+    const approvedIds = snapshot.tasks
+      .filter(
+        (t) => t.projectId === projectId && t.status === 'done' && getReview(t.id) === 'approved',
+      )
+      .map((t) => t.id);
+    runMerge(projectId, undefined, approvedIds.length > 0 ? approvedIds : undefined)
       .then((start) => setMerge({ step: 'waiting', mergeId: start.mergeId, since: Date.now() }))
       .catch((e: unknown) => setMerge({ step: 'error', message: readableError(e) }));
   };

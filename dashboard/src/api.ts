@@ -189,11 +189,21 @@ export interface MergeRunStart {
   order: string[];
 }
 
-/** Déclenche l'exécution réelle du merge sur un nœud (asynchrone). */
-export function runMerge(projectId: string, testCommand?: string[]): Promise<MergeRunStart> {
+/**
+ * Déclenche l'exécution réelle du merge sur un nœud (asynchrone).
+ * `taskIds` : sélection de revue (Miellerie) — seules ces tâches sont intégrées.
+ */
+export function runMerge(
+  projectId: string,
+  testCommand?: string[],
+  taskIds?: string[],
+): Promise<MergeRunStart> {
   return api<MergeRunStart>(`/api/projects/${projectId}/merge/run`, {
     method: 'POST',
-    body: JSON.stringify(testCommand?.length ? { testCommand } : {}),
+    body: JSON.stringify({
+      ...(testCommand?.length ? { testCommand } : {}),
+      ...(taskIds?.length ? { taskIds } : {}),
+    }),
   });
 }
 

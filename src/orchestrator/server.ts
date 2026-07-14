@@ -862,7 +862,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // application des diffs dans l'ordre du plan (conflits git réels), tests
   // optionnels. Asynchrone : le résultat revient via merge_result, à lire sur
   // /merge/result. Ne commit ni ne push jamais.
-  app.post<{ Params: { projectId: string }; Body: { testCommand?: string[] } }>(
+  app.post<{ Params: { projectId: string }; Body: { testCommand?: string[]; taskIds?: string[] } }>(
     '/api/projects/:projectId/merge/run',
     {
       schema: {
@@ -881,6 +881,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               maxItems: LIMITS.testArgs,
               items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
             },
+            // Sélection de revue (Miellerie) : n'intégrer QUE ces tâches.
+            taskIds: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.mergeDiffs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            },
           },
         },
       },
@@ -895,9 +902,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
       }
       const tasks = store.listTasks(project.id);
+      // Sélection optionnelle (revue humaine) : chaque id doit être une tâche
+      // done DE CE projet — on refuse explicitement plutôt que d'ignorer.
+      const selection = req.body.taskIds ? new Set(req.body.taskIds) : null;
+      if (selection) {
+        const byId = new Map(tasks.map((t) => [t.id, t]));
+        for (const id of selection) {
+          const t = byId.get(id);
+          if (!t) return reply.code(400).send({ error: `tâche hors projet : ${id}` });
+          if (t.status !== 'done') {
+            return reply.code(400).send({ error: `tâche non terminée : ${t.title}` });
+          }
+        }
+      }
       const doneDiffs = new Map<string, string>();
       for (const t of tasks) {
         if (t.status !== 'done') continue;
+        if (selection && !selection.has(t.id)) continue;
         const success = store
           .resultsForTask(t.id)
           .filter((r) => r.success)
@@ -905,10 +926,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (success) doneDiffs.set(t.id, success.diff);
       }
       const plan = buildMergePlan(tasks, doneDiffs);
-      if (plan.done === 0) {
+      if (plan.done === 0 || doneDiffs.size === 0) {
         return reply.code(400).send({ error: 'aucune tâche terminée à intégrer' });
       }
-      const diffs = plan.order.map((taskId) => ({ taskId, diff: doneDiffs.get(taskId) ?? '' }));
+      // Ordre topologique du plan, restreint aux tâches réellement à intégrer
+      // (sélection de revue et/ou porteuses d'un diff).
+      const diffs = plan.order
+        .filter((taskId) => doneDiffs.has(taskId))
+        .map((taskId) => ({ taskId, diff: doneDiffs.get(taskId) ?? '' }));
+      if (diffs.length === 0) {
+        return reply.code(400).send({ error: 'aucun diff à intégrer pour cette sélection' });
+      }
       // Le nœud rejette silencieusement un assign_merge > LIMITS.mergeDiffs : on
       // borne ici pour renvoyer une erreur claire plutôt que de perdre le merge.
       if (diffs.length > LIMITS.mergeDiffs) {
