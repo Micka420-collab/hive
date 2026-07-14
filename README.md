@@ -1,8 +1,17 @@
-# 🐝 Hive — Palier 1
+# 🐝 Hive — The Limitless Platform
 
-![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="version">
+  <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/tests-91%2F93%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen" alt="node">
+  <img src="https://img.shields.io/badge/built_by-Micka_%26_Shellia-orange" alt="built by">
+</p>
 
-Plateforme communautaire d'orchestration d'agents IA. Un **orchestrateur** central
+> *« I knew what I needed to do, and I knew how to do it. » — Eddie Morra, Limitless*
+
+Plateforme communautaire d'orchestration d'agents IA. Comme le NZT-48 qui débloque 100% du cerveau, **Hive débloque 100% du potentiel de vos agents.** Un **orchestrateur** central
 (la _Queen_) découpe un projet en tâches et les distribue en temps réel aux
 **machines des membres** (les _Nodes_), qui exécutent chacune un ou plusieurs
 agents de codage (les _ouvrières_) dans des espaces de travail isolés.
