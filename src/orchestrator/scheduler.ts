@@ -28,6 +28,8 @@ export class Scheduler {
   private readonly recentRejections = new Map<string, number>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
+  private readonly infraRejects = new Map<string, number>();
 
   constructor(
     private readonly store: HiveStore,
@@ -126,18 +128,44 @@ export class Scheduler {
   }
 
   /**
-   * Refus d'assignation par un nœud (saturé, id invalide) : la tâche repart en
-   * `ready` SANS consommer de tentative — contrairement à un échec d'exécution.
-   * On mémorise le refus pour ne pas ré-assigner aussitôt la même tâche au même
-   * nœud (évite une rafale de ping-pong si les vues de capacité divergent).
+   * Refus d'assignation par un nœud : la tâche repart en `ready` SANS consommer de
+   * tentative — contrairement à un échec d'exécution. On mémorise le refus pour ne
+   * pas ré-assigner aussitôt la même tâche au même nœud (cooldown), ce qui l'oriente
+   * vers un AUTRE nœud.
+   *
+   * Token-failover (`infra`) : un refus dû à un agent en panne (auth/quota) est
+   * compté ; si tous les nœuds refusent ainsi, la tâche finit par échouer proprement
+   * (« aucun nœud avec un agent fonctionnel ») plutôt que de rebondir sans fin. Un
+   * refus de simple saturation n'est PAS compté (le nœud se libérera).
    */
-  rejectTask(nodeId: string, taskId: string, reason: string, now = Date.now()): void {
+  rejectTask(
+    nodeId: string,
+    taskId: string,
+    reason: string,
+    infra = false,
+    now = Date.now(),
+  ): void {
     const task = this.store.getTask(taskId);
     if (!task || task.assignedNodeId !== nodeId) return;
     if (task.status !== 'assigned' && task.status !== 'running') return;
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + REJECT_COOLDOWN_MS);
-    this.emit('task_rejected', { taskId, nodeId, reason });
+    this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
+
+    if (infra) {
+      const count = (this.infraRejects.get(taskId) ?? 0) + 1;
+      this.infraRejects.set(taskId, count);
+      // Seuil proportionnel au nombre de nœuds : laisser une chance à chacun.
+      const online = this.store.listNodes().filter((n) => n.status === 'online').length;
+      const limit = Math.max(3, online * 3);
+      if (count >= limit) {
+        this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
+        this.emit('task_failed', { taskId, reason: 'no_working_agent', infraRejects: count });
+        this.infraRejects.delete(taskId);
+        this.promoteAndAssign(now); // propager l'échec en cascade aux dépendantes
+        return;
+      }
+    }
     this.promoteAndAssign(now);
   }
 
@@ -183,6 +211,8 @@ export class Scheduler {
     if (task.status === 'assigned') {
       this.store.patchTask(taskId, { status: 'running' });
       this.emit('task_started', { taskId, nodeId });
+      // Un nœud exécute enfin la tâche : l'agent fonctionne, on oublie les refus infra.
+      this.infraRejects.delete(taskId);
     }
     // Émettre le progrès dès qu'il y a des sous-agents OU un log : les agents
     // réels (claude-code, codex) n'envoient qu'un log, sans sous-agents — sans
@@ -219,6 +249,9 @@ export class Scheduler {
       return false;
     }
 
+    // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
+    // oublie l'historique de refus infra pour cette tâche.
+    this.infraRejects.delete(task.id);
     this.store.insertResult({ ...result, nodeId });
 
     if (result.success) {

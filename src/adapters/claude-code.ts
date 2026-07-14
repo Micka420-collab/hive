@@ -1,11 +1,13 @@
-// Adaptateur Claude Code en mode headless (`claude -p`). Ossature du Palier 1 :
-// fonctionnelle mais minimale — le pilotage fin (sous-agents réels, streaming)
-// viendra aux paliers suivants. Les clés API de l'agent restent locales au
-// nœud : rien n'est jamais transmis au hub (contrainte §5.1).
+// Adaptateur Claude Code en mode headless (`claude -p`). Le flux stream-json est
+// lu au fil de l'eau : les sous-agents (outil Task) engendrés par l'agent sont
+// remontés EN DIRECT au hub (« reines & abeilles » — visibles sur le Swarm View).
+// Les clés API de l'agent restent locales au nœud : rien n'est transmis au hub
+// (contrainte §5.1). Le diff est calculé par le workspace git du nœud, pas par stdout.
 
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
-import { assertRealExecutionAllowed, runCommand } from './exec.js';
+import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
+import { createSubAgentTracker } from './subagent-parser.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
@@ -18,15 +20,22 @@ export function createClaudeCodeAdapter(
   return {
     name: 'claude-code',
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
-      ctx.onProgress({ log: 'claude -p (headless) démarré' });
-      // Sortie texte brute ; le diff est calculé par le workspace git du nœud.
-      const result = await runCommand(
+      ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
+      const tracker = createSubAgentTracker();
+      // --verbose est requis par Claude Code pour stream-json en mode -p.
+      const result = await runCommandStreaming(
         'claude',
-        ['-p', task.prompt, '--output-format', 'text'],
+        ['-p', task.prompt, '--output-format', 'stream-json', '--verbose'],
         ctx,
+        (line) => {
+          const subAgents = tracker.feed(line);
+          // Remonter dès qu'un sous-agent apparaît/évolue → butineuses en direct.
+          if (subAgents) ctx.onProgress({ subAgents });
+        },
         CLAUDE_TIMEOUT_MS,
       );
-      return { ...result, subAgents: [] };
+      // La liste finale accompagne le résultat (dernier état des sous-agents).
+      return { ...result, subAgents: tracker.list() };
     },
   };
 }

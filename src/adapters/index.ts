@@ -5,6 +5,7 @@
 import type { SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createCodexAdapter } from './codex.js';
+import { createCustomAdapter } from './custom.js';
 import { createShellAdapter } from './shell.js';
 
 export interface AdapterProgress {
@@ -31,6 +32,13 @@ export interface AdapterResult {
   diff: string;
   logs: string;
   subAgents: SubAgent[];
+  /**
+   * Échec d'INFRASTRUCTURE (agent injoignable, non authentifié, quota/crédit
+   * épuisé) — par opposition à un échec de la tâche elle-même. Dans ce cas le
+   * nœud ne « brûle » pas une tentative : il demande une réaffectation
+   * (task_reject) pour qu'un AUTRE nœud, dont l'agent fonctionne, reprenne la tâche.
+   */
+  infra?: boolean;
 }
 
 export interface AgentAdapter {
@@ -47,7 +55,11 @@ export function getAdapter(name: string): AgentAdapter {
       return createClaudeCodeAdapter();
     case 'codex':
       return createCodexAdapter();
+    case 'custom':
+      return createCustomAdapter();
     default:
-      throw new Error(`Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex)`);
+      throw new Error(
+        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex, custom)`,
+      );
   }
 }

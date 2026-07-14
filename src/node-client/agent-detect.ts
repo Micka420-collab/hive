@@ -7,7 +7,7 @@
 
 import { spawn } from 'node:child_process';
 
-export type AgentType = 'claude-code' | 'codex' | 'shell';
+export type AgentType = 'claude-code' | 'codex' | 'custom' | 'shell';
 
 interface AgentProbe {
   agent: Exclude<AgentType, 'shell'>;
@@ -86,7 +86,14 @@ export interface DetectedAgent {
  * Détecte le meilleur agent disponible, dans l'ordre : Claude Code, puis Codex,
  * sinon l'adaptateur `shell` simulé (toujours disponible, sûr).
  */
-export async function detectBestAgent(): Promise<DetectedAgent> {
+export async function detectBestAgent(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<DetectedAgent> {
+  // Choix explicite du membre : une commande libre (n'importe quelle IA CLI) via
+  // HIVE_AGENT_CMD prime sur la détection automatique.
+  if ((env.HIVE_AGENT_CMD ?? '').trim()) {
+    return { agent: 'custom', label: 'commande personnalisée (HIVE_AGENT_CMD)' };
+  }
   for (const probe of PROBES) {
     if (await firstPresent(probe.bins)) {
       return { agent: probe.agent, label: probe.label };
@@ -115,8 +122,9 @@ export function agentCredentialEnv(agent: AgentType): string[] {
 }
 
 /** Liste tous les agents détectés (pour information / diagnostic). */
-export async function detectAllAgents(): Promise<AgentType[]> {
+export async function detectAllAgents(env: NodeJS.ProcessEnv = process.env): Promise<AgentType[]> {
   const found: AgentType[] = [];
+  if ((env.HIVE_AGENT_CMD ?? '').trim()) found.push('custom');
   for (const probe of PROBES) {
     if (await firstPresent(probe.bins)) found.push(probe.agent);
   }

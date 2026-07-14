@@ -257,6 +257,19 @@ export class HiveNodeClient {
           });
         },
       });
+      // Échec d'INFRASTRUCTURE (agent injoignable/non authentifié, quota) : on ne
+      // brûle PAS une tentative — on demande une réaffectation (token-failover),
+      // pour qu'un autre nœud dont l'agent fonctionne reprenne la tâche.
+      if (!result.success && result.infra) {
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: 'agent indisponible (auth/quota)',
+          infra: true,
+        });
+        this.log(`⇄ ${task.title} : agent indisponible → réaffectation`);
+        return;
+      }
       // L'adaptateur peut fournir son diff ; sinon le workspace git le calcule.
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
