@@ -19,6 +19,7 @@ import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.j
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent } from '../shared/types.js';
+import { detectGhosts } from './ghost.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
@@ -414,6 +415,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       cursor = last.id;
     }
     return buildWaggleBoard(events);
+  });
+
+  // Ghost in the Hive : détection d'anomalies (nœuds flaky/silencieux, tâches en
+  // boucle…) par repli du journal. Lecture seule ; pagination interne bornée par
+  // EVENT_RETENTION (le store plafonne chaque page à 1000).
+  app.get('/api/ghost', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events: HiveEvent[] = [];
+    let cursor = 0;
+    for (;;) {
+      if (events.length >= EVENT_RETENTION) break;
+      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+      if (page.length === 0) break;
+      events.push(...page);
+      const last = page[page.length - 1];
+      if (!last) break;
+      cursor = last.id;
+    }
+    return detectGhosts(events);
   });
 
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(

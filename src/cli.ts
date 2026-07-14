@@ -15,11 +15,13 @@
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
 //   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
+//   npm run cli -- ghost                              anomalies (nœuds/tâches douteux)
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { readFileSync } from 'node:fs';
+import type { GhostReport } from './orchestrator/ghost.js';
 import type { Verdict } from './orchestrator/parliament.js';
 import type { ReplayResult, TaskCounts } from './orchestrator/replay.js';
 import type { WaggleBoard } from './orchestrator/waggle.js';
@@ -350,6 +352,21 @@ async function cmdConsensus(taskId: string): Promise<void> {
   });
 }
 
+/** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
+async function cmdGhost(): Promise<void> {
+  const report = await api<GhostReport>('/api/ghost');
+  const { events, nodes, tasks } = report.scanned;
+  if (report.ghosts.length === 0) {
+    console.log(`👻 Aucune anomalie (${events} événements, ${nodes} nœuds, ${tasks} tâches).`);
+    return;
+  }
+  const icon: Record<string, string> = { high: '🔴', medium: '🟠', low: '🟡' };
+  console.log(`👻 ${report.ghosts.length} anomalie(s) détectée(s) :\n`);
+  for (const g of report.ghosts) {
+    console.log(`  ${icon[g.severity] ?? '•'} [${g.kind}] ${g.target} — ${g.detail}`);
+  }
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -391,10 +408,11 @@ try {
   else if (cmd === 'replay') await cmdReplay(a1);
   else if (cmd === 'waggle') await cmdWaggle();
   else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
+  else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
