@@ -1,0 +1,399 @@
+/* Vues Essaim & Santé — styles partagés (préfixe es-).
+   Thème miel sombre via les variables :root de styles.css. */
+
+.es-view {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Essaim : disposition nœuds / Waggle Board ───────────────────────── */
+
+.es-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .es-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Cartes de nœuds (les ouvrières) ─────────────────────────────────── */
+
+.es-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.es-node {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.es-node.offline {
+  opacity: 0.6;
+}
+
+.es-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.es-node-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.es-node-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Le chip d'agentType est informatif, pas cliquable. */
+.es-chip {
+  cursor: default;
+}
+
+.es-node-load {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.es-node-load .pbar {
+  flex: 1;
+  margin-top: 0;
+}
+
+.es-load-txt {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.es-node-foot {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.es-agents {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.es-agent-chip {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--panel-3);
+  border: 1px solid var(--border-2);
+  color: var(--gold);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.es-agents-none {
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* ─── Waggle Board : podium ───────────────────────────────────────────── */
+
+.es-podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 14px 4px;
+}
+
+.es-podium-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 12px;
+  min-width: 96px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.es-podium-slot.es-rank-1 {
+  border-color: var(--honey);
+  background: linear-gradient(180deg, #33290f, var(--panel-2));
+  padding-bottom: 24px;
+}
+
+.es-podium-slot.es-rank-2 {
+  padding-bottom: 14px;
+}
+
+.es-medal {
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.es-podium-name {
+  font-weight: 600;
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.es-podium-score {
+  font-size: 11px;
+  color: var(--gold);
+}
+
+/* Micro-danse frétillante du n°1 (waggle dance). */
+.es-dance {
+  display: inline-block;
+  animation: es-dance 2s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+
+@keyframes es-dance {
+  0%,
+  50%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  25% {
+    transform: translateX(-2px) rotate(-3deg);
+  }
+  75% {
+    transform: translateX(2px) rotate(3deg);
+  }
+}
+
+/* ─── Waggle Board : liste des barres de nectar ───────────────────────── */
+
+.es-nectar-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.es-nectar-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.es-rank {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  text-align: right;
+}
+
+.es-nectar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.es-nectar-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.es-nectar-stats {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.es-bar {
+  height: 8px;
+  background: var(--panel-3);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.es-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), var(--gold));
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.es-score {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+/* ─── Santé : tuiles de signes vitaux ─────────────────────────────────── */
+
+.es-tiles {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px;
+}
+
+.es-tile-spark {
+  margin-top: 6px;
+  display: block;
+}
+
+/* ─── Santé : anomalies (fantômes) ────────────────────────────────────── */
+
+.es-ghost-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.es-ghost {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  border-left: 2px solid var(--border-2);
+}
+
+.es-ghost.high {
+  border-left-color: var(--red);
+}
+
+.es-ghost.medium {
+  border-left-color: var(--amber);
+}
+
+.es-ghost.low {
+  border-left-color: var(--gold);
+}
+
+.es-ghost-icon {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.es-ghost-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.es-ghost-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+  margin-right: 6px;
+}
+
+.es-ghost-target {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.es-ghost-detail {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.es-scanned {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* ─── Santé : ruche apaisée (aucune anomalie) ─────────────────────────── */
+
+.es-calm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.es-calm-hex {
+  width: 140px;
+  height: 124px;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  background: linear-gradient(180deg, var(--amber), var(--honey));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  animation: es-breathe 4s ease-in-out infinite;
+}
+
+@keyframes es-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.es-calm-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+/* Toute animation es- est coupée si l'utilisateur préfère moins de mouvement. */
+@media (prefers-reduced-motion: reduce) {
+  .es-dance,
+  .es-calm-hex {
+    animation: none;
+  }
+}

@@ -20,6 +20,7 @@ const Essaim = lazy(() => import('./views/Essaim'));
 const Sante = lazy(() => import('./views/Sante'));
 const Chronique = lazy(() => import('./views/Chronique'));
 const Memoire = lazy(() => import('./views/Memoire'));
+const Reine = lazy(() => import('./views/Reine'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
 
@@ -32,12 +33,13 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { id: 'ruche', label: 'Ruche', icon: '🐝', key: '1' },
-  { id: 'miellerie', label: 'Miellerie', icon: '🍯', key: '2' },
-  { id: 'projets', label: 'Projets', icon: '⬡', key: '3' },
-  { id: 'essaim', label: 'Essaim', icon: '🕺', key: '4' },
-  { id: 'sante', label: 'Santé', icon: '💓', key: '5' },
-  { id: 'chronique', label: 'Chronique', icon: '📜', key: '6' },
-  { id: 'memoire', label: 'Mémoire', icon: '🧠', key: '7' },
+  { id: 'reine', label: 'Reine', icon: '👑', key: '2' },
+  { id: 'miellerie', label: 'Miellerie', icon: '🍯', key: '3' },
+  { id: 'projets', label: 'Projets', icon: '⬡', key: '4' },
+  { id: 'essaim', label: 'Essaim', icon: '🕺', key: '5' },
+  { id: 'sante', label: 'Santé', icon: '💓', key: '6' },
+  { id: 'chronique', label: 'Chronique', icon: '📜', key: '7' },
+  { id: 'memoire', label: 'Mémoire', icon: '🧠', key: '8' },
 ];
 
 const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
@@ -55,7 +57,10 @@ function inInput(): boolean {
   if (!el) return false;
   const tag = el.tagName;
   return (
-    tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    (el as HTMLElement).isContentEditable
   );
 }
 
@@ -257,6 +262,7 @@ export function App() {
           {route.view === 'sante' && <Sante {...viewProps} />}
           {route.view === 'chronique' && <Chronique {...viewProps} />}
           {route.view === 'memoire' && <Memoire {...viewProps} />}
+          {route.view === 'reine' && <Reine {...viewProps} />}
         </Suspense>
       </div>
 

@@ -14,13 +14,7 @@ const SwarmView3D = lazy(() => import('../SwarmView3D'));
 
 type SwarmMode = '2d' | '3d';
 
-export default function Ruche({
-  snapshot,
-  events,
-  agentsByTask,
-  deferred,
-  onOpenTask,
-}: ViewProps) {
+export default function Ruche({ snapshot, events, agentsByTask, deferred, onOpenTask }: ViewProps) {
   const [mode, setMode] = useState<SwarmMode>(
     () => (localStorage.getItem('hive.view') as SwarmMode) ?? '2d',
   );

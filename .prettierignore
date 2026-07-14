@@ -5,3 +5,4 @@ data
 coverage
 package-lock.json
 *.db
+.claude

@@ -1,0 +1,288 @@
+/* Styles des vues Chronique (journal + time-lapse) et Mémoire (Hive Mind).
+   Préfixe ch- — complète les classes globales (card, panel, chip, badge…). */
+
+.ch-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px;
+}
+
+/* ─── Journal complet ──────────────────────────────────────────────────── */
+
+.ch-journal-panel {
+  max-height: none;
+}
+
+.ch-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.ch-journal {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  max-height: 68vh;
+}
+
+.ch-row {
+  display: grid;
+  grid-template-columns: 78px minmax(130px, auto) 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+}
+
+.ch-row:hover {
+  background: var(--panel-2);
+}
+
+.ch-type {
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Teinte par famille d'événement : repère visuel discret. */
+.ch-row.fam-noeuds .ch-type {
+  color: var(--blue);
+}
+.ch-row.fam-conflits .ch-type {
+  color: var(--amber);
+}
+.ch-row.fam-merge .ch-type {
+  color: var(--honey);
+}
+.ch-row.fam-memoire .ch-type {
+  color: var(--green);
+}
+.ch-row.fam-autres .ch-type {
+  color: var(--muted);
+}
+
+.ch-payload {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ch-journal-panel .panel-error {
+  margin: 8px 14px 0;
+}
+
+/* ─── Time-Lapse (mode replay) ─────────────────────────────────────────── */
+
+.ch-replay {
+  overflow: hidden;
+}
+
+/* La carte englobante vire sépia : on regarde le passé. */
+.ch-replay.ch-past {
+  filter: sepia(0.35);
+}
+
+.ch-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: linear-gradient(90deg, rgba(229, 142, 38, 0.22), rgba(246, 185, 59, 0.08));
+  border-bottom: 1px solid var(--border-2);
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.ch-banner-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ch-banner-icon {
+  display: inline-block;
+  animation: ch-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes ch-blink {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.ch-replay-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.ch-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ch-controls .btn {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.ch-controls input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--honey);
+}
+
+.ch-frame-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ch-frame-pos {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.ch-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ch-counts .chip {
+  cursor: default;
+}
+
+/* ─── Mémoire (Hive Mind) ──────────────────────────────────────────────── */
+
+.ch-mem-panel {
+  max-height: none;
+}
+
+.ch-mem-tabs {
+  margin: 0;
+}
+
+.ch-mem-search {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px 0;
+  margin: 0;
+}
+
+.ch-mem-search input {
+  flex: 1;
+}
+
+.ch-mem-note {
+  font-size: 12px;
+  margin: 8px 14px 0;
+}
+
+.ch-linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--honey);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ch-linklike:hover {
+  text-decoration: underline;
+}
+
+.ch-mem-list {
+  list-style: none;
+  margin: 0;
+  padding: 12px 14px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.ch-mem-item {
+  gap: 4px;
+}
+
+.ch-mem-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ch-mem-head .mind-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.ch-mem-details summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.ch-mem-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.ch-mem-details[open] summary {
+  display: none;
+}
+
+.ch-mem-more {
+  color: var(--honey);
+  font-style: normal;
+}
+
+.ch-mem-item p {
+  margin: 0;
+}
+
+.ch-mem-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.ch-mem-task {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.ch-mem-task:hover {
+  text-decoration: underline;
+}
+
+.ch-mem-task.ch-gone {
+  color: var(--faint);
+  cursor: default;
+  text-decoration: none;
+}
+
+/* Animations désactivées si l'utilisateur préfère éviter le mouvement. */
+@media (prefers-reduced-motion: reduce) {
+  .ch-banner-icon {
+    animation: none;
+  }
+}

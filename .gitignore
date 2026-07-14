@@ -10,3 +10,4 @@ coverage/
 *.db-shm
 *.tsbuildinfo
 .hermes/
+.claude/

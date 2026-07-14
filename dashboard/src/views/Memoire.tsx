@@ -1,7 +1,161 @@
-// Vue Memoire — stub en attente d'implémentation (remplacé par l'agent de build).
+// Vue Mémoire : le Hive Mind — ce que la ruche a retenu de ses butinages —
+// avec recherche au submit, souvenirs récents en repli, et la bibliothèque
+// scientifique OpenAlex en modale (onglet secondaire).
 
+import { useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
+import { fetchMemories } from '../api';
+import type { Memory } from '../api';
+import { OpenAlexPanel } from '../OpenAlexPanel';
+import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
+import './chronique.css';
 
-export default function Memoire(_props: ViewProps) {
-  return <div className="mc-view-loading">Vue Memoire en construction…</div>;
+/** Longueur au-delà de laquelle le contenu est replié derrière un <details>. */
+const SHORT_LEN = 200;
+
+interface SearchPage {
+  q: string;
+  total: number;
+  memories: Memory[];
+}
+
+export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps) {
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState<SearchPage | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [showOpenAlex, setShowOpenAlex] = useState(false);
+
+  // Souvenirs récents (repli sans recherche active) — 60 s, jamais moins.
+  const recent = useApiPoll(() => fetchMemories(), 60_000, refreshTick);
+
+  // Ids des tâches encore présentes dans le snapshot (lien cliquable sinon éteint).
+  const taskIds = useMemo(() => new Set(snapshot.tasks.map((t) => t.id)), [snapshot.tasks]);
+
+  // Recherche au submit / Entrée uniquement — pas de requête à chaque frappe.
+  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) {
+      setSearch(null);
+      setSearchError(null);
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    fetchMemories(q, 12)
+      .then((r) => setSearch({ q, ...r }))
+      .catch((err: unknown) => setSearchError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setSearching(false));
+  };
+
+  const clearSearch = () => {
+    setSearch(null);
+    setSearchError(null);
+    setQuery('');
+  };
+
+  const page = search ?? recent.data;
+  const memories = page?.memories ?? [];
+  const total = page?.total ?? null;
+  const error = searchError ?? (search ? null : recent.error);
+
+  return (
+    <div className="mc-view ch-view ch-memoire">
+      <section className="card panel ch-mem-panel">
+        <header className="panel-head">
+          <h2>🧬 Hive Mind</h2>
+          <span className="panel-count">
+            {total === null
+              ? 'la ruche fouille ses rayons…'
+              : `la ruche se souvient de ${total} chose${total === 1 ? '' : 's'}`}
+          </span>
+          <div className="drawer-tabs ch-mem-tabs" role="group" aria-label="Sections">
+            <button type="button" className="active">
+              🍯 Souvenirs
+            </button>
+            <button type="button" onClick={() => setShowOpenAlex(true)}>
+              🧬 OpenAlex
+            </button>
+          </div>
+        </header>
+
+        <form className="mind-search ch-mem-search" onSubmit={onSubmit} role="search">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Butiner les souvenirs… (Entrée pour chercher)"
+            aria-label="Rechercher un souvenir"
+          />
+          <button className="btn" type="submit" disabled={searching}>
+            {searching ? '…' : 'Chercher'}
+          </button>
+        </form>
+
+        {search && (
+          <p className="ch-mem-note muted-text">
+            {search.memories.length} souvenir{search.memories.length === 1 ? '' : 's'} pour «{' '}
+            {search.q} » —{' '}
+            <button type="button" className="ch-linklike" onClick={clearSearch}>
+              revenir aux récents
+            </button>
+          </p>
+        )}
+        {error && <p className="panel-error ch-mem-note">{error}</p>}
+
+        <ul className="ch-mem-list">
+          {memories.map((m) => (
+            <li key={m.id} className="mind-item ch-mem-item">
+              <div className="ch-mem-head">
+                <span className="mind-title">{m.title}</span>
+                {m.score !== null && (
+                  <span className="mind-score" title="Score de pertinence">
+                    [{Number.isInteger(m.score) ? m.score : m.score.toFixed(2)}]
+                  </span>
+                )}
+              </div>
+              {m.content.length > SHORT_LEN ? (
+                <details className="ch-mem-details">
+                  <summary className="mind-content">
+                    {m.content.slice(0, SHORT_LEN)}…{' '}
+                    <span className="ch-mem-more">(tout voir)</span>
+                  </summary>
+                  <p className="mind-content">{m.content}</p>
+                </details>
+              ) : (
+                <p className="mind-content">{m.content}</p>
+              )}
+              <div className="ch-mem-foot">
+                <time className="jtime">{timeShort(m.createdAt)}</time>
+                {taskIds.has(m.taskId) ? (
+                  <button
+                    type="button"
+                    className="ch-mem-task mono"
+                    onClick={() => onOpenTask(m.taskId)}
+                    title="Ouvrir la tâche d’origine"
+                  >
+                    {m.taskId.slice(0, 8)}
+                  </button>
+                ) : (
+                  <span className="ch-mem-task mono ch-gone" title="Tâche absente du snapshot">
+                    {m.taskId.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+            </li>
+          ))}
+          {memories.length === 0 && (
+            <li className="empty pad">
+              {search
+                ? 'Aucun souvenir ne correspond à cette recherche.'
+                : 'La ruche n’a encore rien retenu.'}
+            </li>
+          )}
+        </ul>
+      </section>
+
+      {showOpenAlex && <OpenAlexPanel onClose={() => setShowOpenAlex(false)} />}
+    </div>
+  );
 }

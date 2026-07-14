@@ -3,18 +3,18 @@
 // état de revue local. Aucune dépendance externe — CSS dans styles.css (mc-*).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { HiveEvent, StateSnapshot, SubAgent, Task, TaskStatus } from '../../../src/shared/types';
+import type {
+  HiveEvent,
+  StateSnapshot,
+  SubAgent,
+  Task,
+  TaskStatus,
+} from '../../../src/shared/types';
 
 // ─── Contrat commun : App possède l'état temps réel, les vues le reçoivent ───
 
 export type ViewId =
-  | 'ruche'
-  | 'miellerie'
-  | 'projets'
-  | 'essaim'
-  | 'sante'
-  | 'chronique'
-  | 'memoire';
+  'ruche' | 'miellerie' | 'projets' | 'essaim' | 'sante' | 'chronique' | 'memoire' | 'reine';
 
 export interface ViewProps {
   snapshot: StateSnapshot;

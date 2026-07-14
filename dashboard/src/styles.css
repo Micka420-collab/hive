@@ -1635,7 +1635,10 @@ h3 {
   cursor: pointer;
   font: inherit;
   font-size: 10px;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .mc-nav-cell::before {
@@ -1648,7 +1651,9 @@ h3 {
   clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
   background: var(--panel-2);
   opacity: 0.55;
-  transition: background 0.2s, opacity 0.2s;
+  transition:
+    background 0.2s,
+    opacity 0.2s;
   z-index: 0;
 }
 
@@ -1779,7 +1784,9 @@ h3 {
   border: none;
   clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
   background: var(--panel-3);
-  transition: background 0.25s, transform 0.15s;
+  transition:
+    background 0.25s,
+    transform 0.15s;
 }
 
 button.mc-cell {

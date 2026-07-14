@@ -1,0 +1,660 @@
+/* Miellerie — centre de revue : 3 volets, barre de décision, coulée du miel.
+   Préfixe mi-. Réutilise card/panel/btn/chip/badge/code-block/meta-grid/drawer-tabs. */
+
+.mi-view {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 62px);
+}
+
+/* ─── Grille 3 volets (le droit est repliable) ─────────────────────────── */
+.mi-grid {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) 1fr minmax(220px, 280px);
+  gap: 14px;
+  padding: 14px 18px;
+  align-items: start;
+}
+
+.mi-grid.no-info {
+  grid-template-columns: minmax(240px, 300px) 1fr;
+}
+
+/* ─── Volet 1 : file de revue ──────────────────────────────────────────── */
+.panel.mi-queue-pane {
+  position: sticky;
+  top: 74px;
+  max-height: calc(100vh - 150px);
+}
+
+.mi-comb-wrap {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mi-queue .mi-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 8px 3px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.mi-queue .mi-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border-left: 2px solid transparent;
+  border-radius: var(--r-sm);
+}
+
+.mi-queue .mi-row.active {
+  background: var(--panel-2);
+  border-left-color: var(--honey);
+}
+
+.mi-row-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mi-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.mi-row-meta {
+  font-size: 10.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mi-dot {
+  width: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--faint);
+  cursor: help;
+}
+
+.mi-dot.ko {
+  color: var(--red);
+}
+
+/* ─── Volet 2 : inspection ─────────────────────────────────────────────── */
+.mi-inspect {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mi-inspect-head {
+  padding: 14px 16px 0;
+}
+
+.mi-inspect-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mi-inspect-title h2 {
+  font-size: 17px;
+  color: var(--gold);
+}
+
+.mi-inspect-sub {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mi-branch {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 7px;
+  color: var(--gold);
+}
+
+.mi-tabs {
+  margin: 12px 16px 8px;
+}
+
+.mi-tab-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 220px;
+  padding: 0 16px 12px;
+}
+
+.mi-logs {
+  max-height: 420px;
+}
+
+/* ─── Diff pré-découpé par fichier ─────────────────────────────────────── */
+.mi-files {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.mi-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mi-file-chip.open {
+  border-color: var(--honey);
+  color: var(--gold);
+}
+
+.mi-file-chip:focus-visible,
+.mi-file-head:focus-visible,
+.mi-close-info:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 1px;
+}
+
+.mi-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mi-add-stat {
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mi-del-stat {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mi-copy {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.mi-file-section {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.mi-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mi-file-head .mi-file-name {
+  flex: 1;
+}
+
+.mi-fold {
+  color: var(--muted);
+}
+
+.mi-diff-pre {
+  border: none;
+  border-radius: 0;
+  max-height: 420px;
+}
+
+.mi-add {
+  color: var(--green);
+  background: rgba(134, 195, 93, 0.07);
+}
+
+.mi-del {
+  color: var(--red);
+  background: rgba(229, 87, 63, 0.07);
+}
+
+.mi-hunk {
+  color: var(--blue);
+}
+
+.mi-meta {
+  color: var(--faint);
+}
+
+/* ─── Consensus (Parlement des Agents) ─────────────────────────────────── */
+.mi-cons-outcome {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.mi-cons-outcome.elected {
+  color: var(--honey);
+}
+
+.mi-cons-outcome.no_quorum {
+  color: var(--amber);
+}
+
+.mi-cons-outcome.no_ballots {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.mi-cons-bar {
+  position: relative;
+  display: flex;
+  height: 22px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.mi-fac-seg {
+  min-width: 8px;
+  flex-basis: 0;
+}
+
+.mi-fac-seg + .mi-fac-seg {
+  border-left: 1px solid var(--bg);
+}
+
+/* Faction diverse (≥ 2 types d'agents) : dorée — signal fort. */
+.mi-fac-seg.gold {
+  background: linear-gradient(180deg, var(--gold), var(--amber));
+}
+
+/* Faction monoculture : hachurée — accord entre clones, signal faible. */
+.mi-fac-seg.hatch {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--border-2),
+    var(--border-2) 5px,
+    var(--panel-3) 5px,
+    var(--panel-3) 10px
+  );
+}
+
+.mi-fac-seg.win {
+  box-shadow: inset 0 0 0 2px var(--honey);
+}
+
+.mi-quorum {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.85;
+}
+
+.mi-cons-note {
+  margin: 6px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.mi-fac-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mi-fac-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.mi-fac-sig {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.mi-chip-static {
+  cursor: default;
+}
+
+.mi-elected {
+  padding: 1px 8px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--amber), var(--honey));
+  color: #14100b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ─── Barre de décision sticky ─────────────────────────────────────────── */
+.mi-decide {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 0 0 var(--r) var(--r);
+}
+
+.mi-decide kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.btn.primary kbd {
+  border-color: rgba(20, 16, 11, 0.4);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.mi-reject {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.mi-decide-state {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: help;
+}
+
+.mi-info-toggle {
+  margin-left: auto;
+}
+
+/* ─── Volet 3 : verdict ────────────────────────────────────────────────── */
+.mi-info {
+  position: sticky;
+  top: 74px;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+.mi-close-info {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mi-close-info:hover {
+  color: var(--text);
+}
+
+.mi-info-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.mi-info-body .meta-grid dd {
+  font-size: 12.5px;
+  word-break: break-word;
+}
+
+.mi-prompt summary {
+  cursor: pointer;
+  color: var(--honey);
+  font-size: 12.5px;
+}
+
+.mi-prompt .code-block {
+  margin-top: 6px;
+  max-height: 220px;
+}
+
+.mi-sub {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.mi-sting {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mi-sting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.mi-sting-item.high {
+  border-left: 2px solid var(--amber);
+}
+
+.mi-sting-sev {
+  color: var(--amber);
+  font-size: 11px;
+}
+
+.mi-sting-paths {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  word-break: break-all;
+}
+
+/* ─── Pied de vue : coulée du miel ─────────────────────────────────────── */
+.mi-merge {
+  margin-top: auto;
+  padding: 10px 18px 12px;
+  border-top: 1px solid var(--border-2);
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+}
+
+.mi-merge-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.mi-merge-proj {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.mi-merge-count {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mi-merge-count strong {
+  color: var(--honey);
+}
+
+.mi-pour.arming {
+  background: linear-gradient(90deg, var(--red), var(--amber));
+  color: #fff;
+  animation: mi-arm 0.8s ease-in-out infinite;
+}
+
+@keyframes mi-arm {
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
+.mi-merge-wait {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--amber);
+  animation: mi-wait 1.4s ease-in-out infinite;
+}
+
+@keyframes mi-wait {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.mi-plan {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  font-size: 12.5px;
+}
+
+.mi-plan-head {
+  margin: 0 0 4px;
+  color: var(--gold);
+}
+
+.mi-plan-order {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.mi-plan-conflicts {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.mi-plan-conflicts code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.mi-merge-result {
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
+.mi-merge-result p {
+  margin: 0 0 4px;
+}
+
+.mi-merge-logs summary {
+  cursor: pointer;
+  color: var(--honey);
+}
+
+.mi-merge-logs .code-block {
+  margin-top: 6px;
+  max-height: 220px;
+}
+
+/* ─── État vide ────────────────────────────────────────────────────────── */
+.mi-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 440px;
+  margin: 70px auto;
+  text-align: center;
+  color: var(--muted);
+}
+
+.mi-empty-icon {
+  font-size: 44px;
+  filter: drop-shadow(0 0 12px rgba(246, 185, 59, 0.35));
+}
+
+.mi-empty-lead {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text);
+}
+
+/* ─── Mouvement réduit : toute animation désactivée ────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .mi-pour.arming,
+  .mi-merge-wait {
+    animation: none;
+  }
+}
+
+/* ─── Responsive : empilement sous 1080 px ─────────────────────────────── */
+@media (max-width: 1080px) {
+  .mi-grid,
+  .mi-grid.no-info {
+    grid-template-columns: 1fr;
+  }
+
+  .panel.mi-queue-pane,
+  .mi-info {
+    position: static;
+    max-height: 420px;
+  }
+}

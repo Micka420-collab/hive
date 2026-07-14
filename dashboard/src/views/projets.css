@@ -1,0 +1,501 @@
+/* Vue Projets (préfixe pj-) — atelier Queen Bee + cartes projet.
+   Réutilise card, panel-head, btn, chip, pbar, code-block, panel-error…
+   Thème : variables :root de styles.css (miel sombre). */
+
+.pj-view {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Atelier Queen Bee ────────────────────────────────────────────────── */
+
+.pj-queen-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pj-brief {
+  width: 100%;
+  resize: vertical;
+  min-height: 68px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.pj-brief:focus {
+  outline: none;
+  border-color: var(--amber);
+}
+
+.pj-qb-actions,
+.pj-send {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pj-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-select-label select {
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pj-select-label select:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 1px;
+}
+
+.pj-sent {
+  margin: 0;
+  color: var(--gold);
+  font-size: 13px;
+}
+
+/* Prévisualisation du DAG (liste indentée par dependsOn) */
+.pj-plan {
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pj-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pj-src {
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border-2);
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.pj-src.llm {
+  border-color: var(--honey);
+}
+
+.pj-plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pj-plan-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--amber);
+}
+
+.pj-plan-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.pj-plan-arrow {
+  color: var(--faint);
+}
+
+.pj-plan-deps {
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.pj-no-target {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* ─── Grille de cartes projet ──────────────────────────────────────────── */
+
+.pj-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .pj-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pj-card {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.pj-card.pj-selected {
+  border-color: var(--honey);
+  box-shadow: 0 0 0 1px var(--honey);
+}
+
+.pj-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pj-name {
+  font-size: 16px;
+  color: var(--gold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-vis {
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pj-vis.private {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.pj-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pj-repo {
+  display: block;
+  font-size: 11px;
+  color: var(--blue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Rapport d'avancement */
+.pj-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pj-progress .pbar {
+  flex: 1;
+  height: 9px;
+  margin: 0;
+}
+
+.pj-pct {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--gold);
+  min-width: 40px;
+  text-align: right;
+}
+
+.pj-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pj-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.pj-count.ready {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+.pj-count.assigned {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.pj-count.running {
+  color: var(--orange);
+  border-color: var(--orange);
+}
+
+.pj-count.done {
+  color: var(--honey);
+  border-color: var(--honey);
+}
+
+.pj-count.failed {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.pj-meta {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.pj-none {
+  margin: 0;
+  font-size: 12px;
+}
+
+.pj-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+/* ─── Sous-panneaux (plan de merge, conflits Sting) ────────────────────── */
+
+.pj-sub {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pj-sub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pj-sub-head h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.pj-verdict {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.pj-verdict.ok {
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+
+.pj-verdict.ko {
+  color: var(--amber);
+  border: 1px solid var(--amber);
+}
+
+.pj-sub-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-order {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pj-order li::marker {
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+.pj-conf-list,
+.pj-applied {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.pj-conf-list li {
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--red);
+  border-radius: var(--r-sm);
+}
+
+.pj-applied li {
+  padding: 2px 8px;
+  color: var(--honey);
+}
+
+/* Lancement du merge + suivi */
+.pj-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pj-testcmd {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.pj-testcmd:focus {
+  outline: none;
+  border-color: var(--amber);
+}
+
+.pj-confirm {
+  color: var(--gold);
+  font-size: 12px;
+}
+
+.pj-busy {
+  color: var(--orange);
+  font-size: 12px;
+}
+
+.pj-busy-dot {
+  display: inline-block;
+  animation: pj-spin 1.4s linear infinite;
+}
+
+@keyframes pj-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pj-merge-report {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.pj-merge-report p {
+  margin: 0;
+}
+
+.pj-report-detail summary {
+  cursor: pointer;
+  color: var(--honey);
+  font-size: 12px;
+}
+
+.pj-report-detail .code-block {
+  margin-top: 6px;
+}
+
+/* Conflits Sting */
+.pj-sting-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pj-sting {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border-2);
+  font-size: 12px;
+}
+
+.pj-sting.high {
+  border-left-color: var(--amber);
+}
+
+.pj-sting-sev {
+  color: var(--amber);
+  font-size: 11px;
+}
+
+.pj-sting.low .pj-sting-sev {
+  color: var(--faint);
+}
+
+.pj-sting-pair {
+  color: var(--text);
+}
+
+.pj-sting-detail {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+/* Animations neutralisées si l'utilisateur préfère moins de mouvement. */
+@media (prefers-reduced-motion: reduce) {
+  .pj-busy-dot {
+    animation: none;
+  }
+}
