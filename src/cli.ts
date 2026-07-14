@@ -13,12 +13,14 @@
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
 //   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
+//   npm run cli -- waggle                             classement des contributeurs (nectar)
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { readFileSync } from 'node:fs';
 import type { ReplayResult, TaskCounts } from './orchestrator/replay.js';
+import type { WaggleBoard } from './orchestrator/waggle.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 
 try {
@@ -306,6 +308,28 @@ async function cmdReplay(sinceId = '0'): Promise<void> {
   if (r.finalCounts) console.log(`\n🍯 État final : ${taskBar(r.finalCounts.tasks)}`);
 }
 
+/** Waggle Board : classement des nœuds par contribution (nectar). */
+async function cmdWaggle(): Promise<void> {
+  const board = await api<WaggleBoard>('/api/waggle');
+  if (board.nodes.length === 0) {
+    console.log('Aucune contribution encore : la danse frétillante attend le premier nectar.');
+    return;
+  }
+  console.log(
+    `🍯 Waggle Board — ${board.totalTasksDone} tâche(s) butinée(s), ${board.totalTasksFailed} échec(s)\n`,
+  );
+  const medals = ['🥇', '🥈', '🥉'];
+  board.nodes.forEach((n, i) => {
+    const rank = medals[i] ?? `${i + 1}.`;
+    const rate = `${Math.round(n.successRate * 100)}%`;
+    const avg = n.avgDurationMs > 0 ? `${(n.avgDurationMs / 1000).toFixed(1)}s/tâche` : '—';
+    console.log(
+      `  ${rank} ${n.name} [${n.agentType}] — ${n.score} nectar ` +
+        `(✔${n.tasksDone} ✘${n.tasksFailed}, ${rate}, ${avg})`,
+    );
+  });
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -345,10 +369,11 @@ try {
   else if (cmd === 'merge' && a1) await cmdMerge(a1);
   else if (cmd === 'merge-run' && a1) await cmdMergeRun(a1, process.argv.slice(4));
   else if (cmd === 'replay') await cmdReplay(a1);
+  else if (cmd === 'waggle') await cmdWaggle();
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | invite [urlWS]>',
     );
     process.exitCode = 1;
   }
