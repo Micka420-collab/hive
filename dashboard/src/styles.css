@@ -1580,3 +1580,319 @@ h3 {
   color: var(--muted);
   font-family: var(--mono);
 }
+
+/* ─── Mission Control : shell (sidebar alvéolaire + corps) ─────────────────── */
+
+.mc-app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.mc-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  width: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 8px;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  border-right: 1px solid var(--border);
+  z-index: 30;
+}
+
+.mc-sidebar-brand {
+  font-size: 26px;
+  filter: drop-shadow(0 0 8px rgba(246, 185, 59, 0.35));
+  margin-bottom: 4px;
+}
+
+.mc-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.mc-nav-cell {
+  position: relative;
+  width: 68px;
+  padding: 9px 2px 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.mc-nav-cell::before {
+  /* alvéole hexagonale décorative derrière l'icône */
+  content: '';
+  position: absolute;
+  top: 4px;
+  width: 38px;
+  height: 34px;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  background: var(--panel-2);
+  opacity: 0.55;
+  transition: background 0.2s, opacity 0.2s;
+  z-index: 0;
+}
+
+.mc-nav-cell:hover {
+  color: var(--text);
+}
+
+.mc-nav-cell:hover::before {
+  opacity: 0.9;
+}
+
+.mc-nav-cell.active {
+  color: var(--gold);
+}
+
+.mc-nav-cell.active::before {
+  background: linear-gradient(180deg, var(--amber), var(--honey));
+  opacity: 1;
+}
+
+.mc-nav-cell.active .mc-nav-icon {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
+.mc-nav-cell:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 2px;
+}
+
+.mc-nav-icon {
+  position: relative;
+  z-index: 1;
+  font-size: 17px;
+  line-height: 30px;
+}
+
+.mc-nav-label {
+  position: relative;
+  z-index: 1;
+  letter-spacing: 0.04em;
+}
+
+.mc-nav-badge {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  z-index: 2;
+  min-width: 17px;
+  padding: 1px 4px;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.mc-sidebar-pulse {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  width: 100%;
+}
+
+.mc-pulse-rate {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.mc-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.mc-view {
+  flex: 1;
+  min-width: 0;
+}
+
+.mc-view-loading {
+  padding: 60px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.mc-ruche-stats {
+  margin: 14px 18px 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+}
+
+.view-toggle.floating {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+}
+
+.swarm-hero {
+  position: relative;
+}
+
+/* ─── Rayon de miel (grille d'alvéoles) ────────────────────────────────────── */
+
+.mc-comb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+
+.mc-cell {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  background: var(--panel-3);
+  transition: background 0.25s, transform 0.15s;
+}
+
+button.mc-cell {
+  cursor: pointer;
+}
+
+button.mc-cell:hover {
+  transform: scale(1.25);
+}
+
+button.mc-cell:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 1px;
+}
+
+.mc-comb.mini .mc-cell {
+  width: 14px;
+  height: 13px;
+}
+
+.mc-cell.pending {
+  background: var(--panel-3);
+}
+
+.mc-cell.ready {
+  background: var(--border-2);
+}
+
+.mc-cell.assigned {
+  background: var(--blue);
+  opacity: 0.65;
+}
+
+.mc-cell.running {
+  background: linear-gradient(180deg, var(--orange), var(--amber));
+  animation: mc-throb 1.4s ease-in-out infinite;
+}
+
+.mc-cell.done {
+  background: linear-gradient(180deg, var(--gold), var(--honey));
+}
+
+.mc-cell.failed {
+  background: var(--red);
+}
+
+.mc-cell.deferred {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--border-2),
+    var(--border-2) 3px,
+    var(--panel-3) 3px,
+    var(--panel-3) 6px
+  );
+}
+
+.mc-cell.reviewed {
+  box-shadow: inset 0 0 0 20px rgba(246, 185, 59, 0.28);
+}
+
+.mc-cell.rejected {
+  box-shadow: inset 0 0 0 20px rgba(229, 87, 63, 0.4);
+}
+
+@keyframes mc-throb {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ─── Sparkline / ECG ──────────────────────────────────────────────────────── */
+
+.mc-spark polyline {
+  stroke-dasharray: 400;
+  stroke-dashoffset: 0;
+}
+
+.mc-spark.beat polyline {
+  animation: mc-beat 3s linear infinite;
+}
+
+.mc-spark.flat polyline {
+  stroke: var(--faint);
+}
+
+@keyframes mc-beat {
+  from {
+    stroke-dashoffset: 800;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-cell.running,
+  .mc-spark.beat polyline {
+    animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .mc-sidebar {
+    width: 58px;
+  }
+  .mc-nav-cell {
+    width: 48px;
+  }
+  .mc-nav-label {
+    display: none;
+  }
+}

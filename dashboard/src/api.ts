@@ -135,6 +135,88 @@ export async function fetchInvite(url?: string): Promise<InviteResponse> {
   return (await res.json()) as InviteResponse;
 }
 
+// ─── Mission Control : endpoints d'observation et d'action ──────────────────
+
+export type { HivePulse } from '../../src/orchestrator/pulse';
+export type { WaggleBoard, NodeNectar } from '../../src/orchestrator/waggle';
+export type { Ghost, GhostReport } from '../../src/orchestrator/ghost';
+export type { ReplayFrame, ReplayResult, TaskCounts } from '../../src/orchestrator/replay';
+export type { ProjectReport } from '../../src/orchestrator/project-report';
+export type { Faction, Verdict } from '../../src/orchestrator/parliament';
+export type { MergeConflict, MergePlan } from '../../src/orchestrator/honeycomb';
+
+import type { HivePulse } from '../../src/orchestrator/pulse';
+import type { WaggleBoard } from '../../src/orchestrator/waggle';
+import type { GhostReport } from '../../src/orchestrator/ghost';
+import type { ReplayResult } from '../../src/orchestrator/replay';
+import type { ProjectReport } from '../../src/orchestrator/project-report';
+import type { Verdict } from '../../src/orchestrator/parliament';
+import type { MergePlan } from '../../src/orchestrator/honeycomb';
+
+/** Hive Pulse : signes vitaux agrégés (débit, latences, taux de succès). */
+export function fetchPulse(): Promise<HivePulse> {
+  return api<HivePulse>('/api/pulse');
+}
+
+/** Waggle Board : classement de contribution des nœuds (nectar). */
+export function fetchWaggle(): Promise<WaggleBoard> {
+  return api<WaggleBoard>('/api/waggle');
+}
+
+/** Ghost in the Hive : anomalies détectées dans le journal. */
+export function fetchGhosts(): Promise<GhostReport> {
+  return api<GhostReport>('/api/ghost');
+}
+
+/** Time-Lapse Replay : frise chronologique du journal. */
+export function fetchReplay(since = 0): Promise<ReplayResult> {
+  return api<ReplayResult>(`/api/replay?since=${since}`);
+}
+
+/** Rapport d'avancement d'un projet. */
+export function fetchReport(projectId: string): Promise<ProjectReport> {
+  return api<ProjectReport>(`/api/projects/${projectId}/report`);
+}
+
+/** Honeycomb Merge : plan d'intégration (advisory) d'un projet. */
+export function fetchMergePlan(projectId: string): Promise<MergePlan> {
+  return api<MergePlan>(`/api/projects/${projectId}/merge`);
+}
+
+export interface MergeRunStart {
+  mergeId: string;
+  nodeId: string;
+  order: string[];
+}
+
+/** Déclenche l'exécution réelle du merge sur un nœud (asynchrone). */
+export function runMerge(projectId: string, testCommand?: string[]): Promise<MergeRunStart> {
+  return api<MergeRunStart>(`/api/projects/${projectId}/merge/run`, {
+    method: 'POST',
+    body: JSON.stringify(testCommand?.length ? { testCommand } : {}),
+  });
+}
+
+export interface MergeRunResult {
+  mergeId: string;
+  applied: string[];
+  conflicts: { taskId: string; reason: string }[];
+  mergedDiff: string;
+  testsRun: boolean;
+  testsPassed: boolean | null;
+  logs: string;
+}
+
+/** Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti). */
+export function fetchMergeResult(projectId: string): Promise<{ result: MergeRunResult | null }> {
+  return api<{ result: MergeRunResult | null }>(`/api/projects/${projectId}/merge/result`);
+}
+
+/** Parlement des Agents : verdict de consensus sur les résultats d'une tâche. */
+export function fetchConsensus(taskId: string): Promise<Verdict> {
+  return api<Verdict>(`/api/tasks/${taskId}/consensus`);
+}
+
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;

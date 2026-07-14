@@ -1,57 +1,100 @@
-// Centre de contrôle de la ruche : KPIs, Swarm View (2D/3D), table des tâches,
-// panneaux nœuds/file/journal, tiroir de détail et création de projet.
-// Alimenté en temps réel par le flux WebSocket de l'orchestrateur.
+// Hive Mission Control : shell de l'application — sidebar alvéolaire (7 vues,
+// navigation par hash sans router), topbar compacte, pouls de la ruche (ECG),
+// tiroir de tâche et modales globales. L'état temps réel (snapshot + journal)
+// vit ici et descend dans les vues en props (contrat ViewProps).
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
-import { connectFeed, getToken, saveToken } from './api';
-import { ConflictsPanel } from './ConflictsPanel';
-import { HiveMindPanel } from './HiveMindPanel';
+import { connectFeed, fetchPulse, getToken, saveToken } from './api';
 import { InvitePanel } from './InvitePanel';
-import { Journal } from './Journal';
 import { NewProjectModal } from './NewProjectModal';
-import { NodesPanel } from './NodesPanel';
-import { OpenAlexPanel } from './OpenAlexPanel';
-import { StatTiles } from './StatTiles';
-import { SwarmView } from './SwarmView';
 import { TaskDrawer } from './TaskDrawer';
-import { TaskTable } from './TaskTable';
-import { activateProps, StatusBadge } from './ui';
+import Ruche from './views/Ruche';
+import { countPendingReviews, Sparkline, useApiPoll, useReviewTick } from './views/shared';
+import type { ViewId, ViewProps } from './views/shared';
 
-// Le moteur 3D (~290 Ko gzip) n'est chargé que si l'utilisateur active la vue 3D.
-const SwarmView3D = lazy(() => import('./SwarmView3D'));
+// Chaque vue est un chunk séparé — la Ruche (première peinture) reste inline.
+const Miellerie = lazy(() => import('./views/Miellerie'));
+const Projets = lazy(() => import('./views/Projets'));
+const Essaim = lazy(() => import('./views/Essaim'));
+const Sante = lazy(() => import('./views/Sante'));
+const Chronique = lazy(() => import('./views/Chronique'));
+const Memoire = lazy(() => import('./views/Memoire'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
-type ViewMode = '2d' | '3d';
+
+interface NavItem {
+  id: ViewId;
+  label: string;
+  icon: string;
+  key: string;
+}
+
+const NAV: NavItem[] = [
+  { id: 'ruche', label: 'Ruche', icon: '🐝', key: '1' },
+  { id: 'miellerie', label: 'Miellerie', icon: '🍯', key: '2' },
+  { id: 'projets', label: 'Projets', icon: '⬡', key: '3' },
+  { id: 'essaim', label: 'Essaim', icon: '🕺', key: '4' },
+  { id: 'sante', label: 'Santé', icon: '💓', key: '5' },
+  { id: 'chronique', label: 'Chronique', icon: '📜', key: '6' },
+  { id: 'memoire', label: 'Mémoire', icon: '🧠', key: '7' },
+];
+
+const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
+
+/** #/vue/id → { view, selectedId } (fallback ruche sur hash inconnu). */
+function parseHash(): { view: ViewId; selectedId: string | null } {
+  const parts = location.hash.replace(/^#\/?/, '').split('/');
+  const view = VIEW_IDS.has(parts[0] ?? '') ? (parts[0] as ViewId) : 'ruche';
+  return { view, selectedId: parts[1] ? decodeURIComponent(parts[1]) : null };
+}
+
+/** Le focus est-il dans un champ de saisie ? (neutralise les raccourcis) */
+function inInput(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return (
+    tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable
+  );
+}
 
 export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(EMPTY);
   const [events, setEvents] = useState<HiveEvent[]>([]);
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
-  // Tâches retenues par le Sting Detector (conflit fichier avec une tâche active).
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
-  const [view, setView] = useState<ViewMode>(
-    () => (localStorage.getItem('hive.view') as ViewMode) ?? '2d',
-  );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [route, setRoute] = useState(parseHash);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
-  const [showOpenAlex, setShowOpenAlex] = useState(false);
-  const doneTimes = useRef<number[]>([]);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const reviewTick = useReviewTick();
 
-  const switchView = (mode: ViewMode) => {
-    setView(mode);
-    localStorage.setItem('hive.view', mode);
-  };
-
+  // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
     const feed = connectFeed({
       onState: setSnapshot,
       onEvent: (ev) => {
-        setEvents((prev) => [...prev.slice(-199), ev]);
-        if (ev.type === 'task_done') doneTimes.current.push(ev.ts);
+        setEvents((prev) => [...prev.slice(-499), ev]);
+        // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.
+        if (
+          [
+            'task_done',
+            'task_failed',
+            'task_cancelled',
+            'merge_started',
+            'merge_result',
+            'conflict_detected',
+            'memory_recorded',
+            'node_online',
+            'node_offline',
+          ].includes(ev.type)
+        ) {
+          setRefreshTick((t) => t + 1);
+        }
         const taskId = typeof ev.payload.taskId === 'string' ? ev.payload.taskId : null;
         if (!taskId) return;
         if (ev.type === 'task_progress' && Array.isArray(ev.payload.subAgents)) {
@@ -65,8 +108,6 @@ export function App() {
             return next;
           });
         }
-        // Suivi des tâches différées pour conflit : marquée à l'event, levée dès
-        // qu'elle est assignée/terminée/réaffectée.
         if (ev.type === 'task_conflict_deferred') {
           setDeferred((prev) => new Set(prev).add(taskId));
         } else if (
@@ -87,35 +128,38 @@ export function App() {
     return () => feed.close();
   }, [feedKey]);
 
-  // Débit : tâches terminées dans les 60 dernières secondes.
-  const [throughput, setThroughput] = useState(0);
+  // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
-    const tick = () => {
-      const cutoff = Date.now() - 60_000;
-      doneTimes.current = doneTimes.current.filter((t) => t >= cutoff);
-      setThroughput(doneTimes.current.length);
-    };
-    const id = window.setInterval(tick, 1_000);
-    return () => window.clearInterval(id);
+    const onHash = () => setRoute(parseHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const total = snapshot.tasks.length;
-  const done = snapshot.tasks.filter((t) => t.status === 'done').length;
-  const projectName = snapshot.projects[snapshot.projects.length - 1]?.name;
-  // Rafraîchissement des panneaux Palier 2 piloté par les events (pas de polling).
-  const memoryTick = events.filter((e) => e.type === 'memory_recorded').length;
-  const conflictTick = events.filter((e) =>
-    [
-      'conflict_detected',
-      'task_conflict_deferred',
-      'task_created',
-      'task_done',
-      'task_failed',
-    ].includes(e.type),
-  ).length;
-  const selected = useMemo(
-    () => snapshot.tasks.find((t) => t.id === selectedId) ?? null,
-    [snapshot.tasks, selectedId],
+  const navigate = (view: ViewId, selectedId?: string) => {
+    location.hash = selectedId ? `#/${view}/${encodeURIComponent(selectedId)}` : `#/${view}`;
+  };
+
+  // Raccourcis 1-7 : changement de vue sans souris (hors champs de saisie).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || inInput()) return;
+      const item = NAV.find((n) => n.key === e.key);
+      if (item) navigate(item.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // ─── Pouls de la ruche (ECG sidebar) ───────────────────────────────────────
+  const pulse = useApiPoll(fetchPulse, 20_000, refreshTick);
+  const beatValues = useMemo(() => {
+    const buckets = pulse.data?.throughput ?? [];
+    return buckets.slice(-24).map((b) => b.done + b.failed);
+  }, [pulse.data]);
+
+  const pendingReviews = useMemo(
+    () => countPendingReviews(snapshot.tasks),
+    [snapshot.tasks, reviewTick],
   );
 
   const applyToken = () => {
@@ -123,142 +167,103 @@ export function App() {
     setFeedKey((k) => k + 1);
   };
 
+  const viewProps: ViewProps = {
+    snapshot,
+    events,
+    agentsByTask,
+    deferred,
+    onOpenTask: setOpenTaskId,
+    onNavigate: navigate,
+    selectedId: route.selectedId,
+    refreshTick,
+  };
+
+  const openTask = openTaskId ? (snapshot.tasks.find((t) => t.id === openTaskId) ?? null) : null;
+  const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
+    <div className="app mc-app">
+      <nav className="mc-sidebar" aria-label="Navigation principale">
+        <div className="mc-sidebar-brand" title="Hive — Mission Control">
           <span className="brand-logo">🐝</span>
-          <div>
-            <h1>Hive</h1>
-            <span className="brand-sub">{projectName ?? 'Swarm Control'}</span>
-          </div>
         </div>
-
-        <StatTiles snapshot={snapshot} throughput={throughput} />
-
-        <div className="topbar-actions">
-          <div className="view-toggle" role="group" aria-label="Mode d'affichage">
-            <button className={view === '2d' ? 'active' : ''} onClick={() => switchView('2d')}>
-              2D
-            </button>
-            <button className={view === '3d' ? 'active' : ''} onClick={() => switchView('3d')}>
-              3D
-            </button>
-          </div>
-          <button className="btn primary" onClick={() => setShowNewProject(true)}>
-            + Projet
-          </button>
-          <button
-            className="btn ghost"
-            onClick={() => setShowOpenAlex(true)}
-            title="Recherche scientifique OpenAlex"
-          >
-            🧬 OpenAlex
-          </button>
-          <InvitePanel />
-          <input
-            type="password"
-            className="token-input"
-            placeholder="token"
-            title="Token de la ruche (x-hive-token)"
-            value={token}
-            onChange={(e) => setTokenState(e.target.value)}
-            onBlur={applyToken}
-            onKeyDown={(e) => e.key === 'Enter' && applyToken()}
-          />
-          <span className={connected ? 'conn online' : 'conn offline'}>
-            <span className="conn-dot" />
-            {connected ? 'connecté' : 'hors ligne'}
+        <ul className="mc-nav">
+          {NAV.map((item) => (
+            <li key={item.id}>
+              <button
+                className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+                onClick={() => navigate(item.id)}
+                title={`${item.label} (touche ${item.key})`}
+                aria-current={route.view === item.id ? 'page' : undefined}
+              >
+                <span className="mc-nav-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
+                <span className="mc-nav-label">{item.label}</span>
+                {item.id === 'miellerie' && pendingReviews > 0 && (
+                  <span className="mc-nav-badge" title={`${pendingReviews} production(s) à revoir`}>
+                    {pendingReviews > 99 ? '99+' : pendingReviews}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="mc-sidebar-pulse" title="Pouls de la ruche (débit/h)">
+          <Sparkline values={beatValues} width={64} height={22} beat />
+          <span className="mc-pulse-rate">
+            {pulse.data ? `${Math.round(pulse.data.successRate * 100)}%` : '—'}
           </span>
         </div>
-      </header>
+      </nav>
 
-      <main className="layout">
-        <section className="col-main">
-          <div className="card swarm-hero">
-            {view === '3d' ? (
-              <Suspense fallback={<div className="swarm3d-loading">Chargement du moteur 3D…</div>}>
-                <SwarmView3D
-                  tasks={snapshot.tasks}
-                  nodes={snapshot.nodes}
-                  agentsByTask={agentsByTask}
-                />
-              </Suspense>
-            ) : (
-              <SwarmView
-                tasks={snapshot.tasks}
-                nodes={snapshot.nodes}
-                agentsByTask={agentsByTask}
-              />
-            )}
-            {total > 0 && (
-              <div className="hero-progress">
-                <span>
-                  {done}/{total} tâches butinées
-                </span>
-                <div className="pbar big">
-                  <div className="pbar-fill" style={{ width: `${(done / total) * 100}%` }} />
-                </div>
-              </div>
-            )}
+      <div className="mc-body">
+        <header className="topbar mc-topbar">
+          <div className="brand">
+            <div>
+              <h1>{current.label}</h1>
+              <span className="brand-sub">
+                {snapshot.projects.length} projet(s) · {snapshot.nodes.length} nœud(s)
+              </span>
+            </div>
           </div>
+          <div className="topbar-actions">
+            <button className="btn primary" onClick={() => setShowNewProject(true)}>
+              + Projet
+            </button>
+            <InvitePanel />
+            <input
+              type="password"
+              className="token-input"
+              placeholder="token"
+              title="Token de la ruche (x-hive-token)"
+              value={token}
+              onChange={(e) => setTokenState(e.target.value)}
+              onBlur={applyToken}
+              onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+            />
+            <span className={connected ? 'conn online' : 'conn offline'}>
+              <span className="conn-dot" />
+              {connected ? 'connecté' : 'hors ligne'}
+            </span>
+          </div>
+        </header>
 
-          <TaskTable
-            tasks={snapshot.tasks}
-            nodes={snapshot.nodes}
-            deferred={deferred}
-            onSelect={(t) => setSelectedId(t.id)}
-          />
-        </section>
+        <Suspense fallback={<div className="mc-view-loading">Chargement de la vue…</div>}>
+          {route.view === 'ruche' && <Ruche {...viewProps} />}
+          {route.view === 'miellerie' && <Miellerie {...viewProps} />}
+          {route.view === 'projets' && <Projets {...viewProps} />}
+          {route.view === 'essaim' && <Essaim {...viewProps} />}
+          {route.view === 'sante' && <Sante {...viewProps} />}
+          {route.view === 'chronique' && <Chronique {...viewProps} />}
+          {route.view === 'memoire' && <Memoire {...viewProps} />}
+        </Suspense>
+      </div>
 
-        <aside className="col-side">
-          <NodesPanel nodes={snapshot.nodes} />
-
-          <ConflictsPanel
-            projects={snapshot.projects}
-            tasks={snapshot.tasks}
-            refreshKey={conflictTick}
-          />
-
-          <section className="card panel">
-            <header className="panel-head">
-              <h2>File d’attente</h2>
-            </header>
-            <ul className="queue">
-              {snapshot.tasks
-                .filter((t) => t.status !== 'done')
-                .slice(0, 14)
-                .map((t) => (
-                  <li
-                    key={t.id}
-                    className="clickable"
-                    {...activateProps(() => setSelectedId(t.id))}
-                  >
-                    <StatusBadge status={t.status} />
-                    <span className="queue-title">{t.title}</span>
-                    {deferred.has(t.id) && t.status === 'ready' && (
-                      <span className="badge-conflict" title="Différée : conflit de fichier">
-                        ⏸
-                      </span>
-                    )}
-                  </li>
-                ))}
-              {total > 0 && done === total && <li className="empty">🍯 Tout est butiné !</li>}
-              {total === 0 && <li className="empty">Aucune tâche en attente.</li>}
-            </ul>
-          </section>
-
-          <HiveMindPanel refreshKey={memoryTick} />
-
-          <Journal events={events} />
-        </aside>
-      </main>
-
-      {selected && (
-        <TaskDrawer task={selected} nodes={snapshot.nodes} onClose={() => setSelectedId(null)} />
+      {openTask && (
+        <TaskDrawer task={openTask} nodes={snapshot.nodes} onClose={() => setOpenTaskId(null)} />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
-      {showOpenAlex && <OpenAlexPanel onClose={() => setShowOpenAlex(false)} />}
     </div>
   );
 }
