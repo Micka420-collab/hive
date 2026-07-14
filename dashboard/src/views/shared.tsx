@@ -24,8 +24,11 @@ export interface ViewProps {
   deferred: Set<string>;
   /** Ouvre le tiroir de détail d'une tâche (global, au-dessus de toute vue). */
   onOpenTask: (taskId: string) => void;
-  /** Navigue vers une vue (met à jour le hash) ; selectedId optionnel. */
-  onNavigate: (view: ViewId, selectedId?: string) => void;
+  /**
+   * Navigue vers une vue (met à jour le hash) ; selectedId optionnel.
+   * `replace: true` pour les sélections intra-vue (pas d'entrée d'historique).
+   */
+  onNavigate: (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => void;
   /** Identifiant sélectionné porté par le hash (#/vue/id), sinon null. */
   selectedId: string | null;
   /** Compteur incrémenté à chaque événement pertinent — déclenche les re-fetchs. */

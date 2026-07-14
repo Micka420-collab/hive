@@ -240,7 +240,17 @@
   display: none;
 }
 
-.ch-mem-details[open] summary {
+/* Le summary reste visible et focalisable dans les deux états : seul l'aperçu
+   tronqué disparaît une fois déplié, et le libellé bascule voir/replier. */
+.ch-mem-details[open] .ch-mem-preview {
+  display: none;
+}
+
+.ch-mem-details[open] .ch-mem-more-closed {
+  display: none;
+}
+
+.ch-mem-details:not([open]) .ch-mem-more-open {
   display: none;
 }
 

@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchReplay } from '../api';
 import type { ReplayResult } from '../api';
-import { STATUS_ICON, STATUS_LABEL } from '../ui';
+import { modalOpen, STATUS_ICON, STATUS_LABEL } from '../ui';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { TaskStatus } from '../../../src/shared/types';
@@ -35,12 +35,23 @@ function familyOf(type: string): Family {
 
 const STATUSES: TaskStatus[] = ['pending', 'ready', 'assigned', 'running', 'done', 'failed'];
 
-/** Le focus est-il dans un champ de saisie ? (raccourcis clavier neutralisés) */
+/**
+ * Le focus est-il dans un champ de saisie ou un élément interactif ?
+ * (raccourcis neutralisés — Espace doit activer un bouton focalisé, pas la
+ * lecture du replay, et le range garde ses flèches natives)
+ */
 function isTyping(): boolean {
   const el = document.activeElement;
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    tag === 'BUTTON' ||
+    tag === 'A' ||
+    el.isContentEditable
+  );
 }
 
 export default function Chronique({ events }: ViewProps) {
@@ -143,7 +154,7 @@ export default function Chronique({ events }: ViewProps) {
     if (!inReplay || !replay || replay.frames.length === 0) return;
     const last = replay.frames.length - 1;
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping()) return;
+      if (isTyping() || modalOpen()) return;
       if (e.key === ' ') {
         e.preventDefault();
         if (!playing && idx >= last) setIdx(0);

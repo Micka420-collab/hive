@@ -39,6 +39,11 @@ export function useDialog<T extends HTMLElement>(onClose: () => void) {
   return ref;
 }
 
+/** Un dialogue modal (tiroir, modale) est-il ouvert ? Neutralise les raccourcis globaux. */
+export function modalOpen(): boolean {
+  return document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+}
+
 /** Props à étaler sur une ligne cliquable pour la rendre activable au clavier. */
 export function activateProps(onActivate: () => void) {
   return {

@@ -13,7 +13,7 @@ import {
   runMerge,
 } from '../api';
 import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
-import { activateProps, formatMs, StatusBadge } from '../ui';
+import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
 import { getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
 import './miellerie.css';
@@ -307,12 +307,22 @@ export default function Miellerie({
   const flat = groups.flatMap((g) => g.tasks);
   const reviewedCount = flat.filter((t) => getReview(t.id) !== null).length;
 
-  // Sélection : selectedId du hash si présent dans la liste, sinon la première.
+  // Sélection : selectedId du hash si présent dans la liste, sinon la dernière
+  // tâche affichée (épinglée : le re-tri à l'arrivée d'une production ne doit
+  // jamais changer la tâche inspectée sous les doigts de l'utilisateur).
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
   const activeTask =
-    (selectedId ? flat.find((t) => t.id === selectedId) : undefined) ?? flat[0] ?? null;
+    (selectedId ? flat.find((t) => t.id === selectedId) : undefined) ??
+    (pinnedId ? flat.find((t) => t.id === pinnedId) : undefined) ??
+    flat[0] ??
+    null;
   const activeId = activeTask ? activeTask.id : null;
   const projectId = activeTask ? activeTask.projectId : null;
-  const select = (id: string) => onNavigate('miellerie', id);
+  useEffect(() => {
+    if (activeId) setPinnedId(activeId);
+  }, [activeId]);
+  // Sélection intra-vue : replace (pas d'entrée d'historique à chaque j/k).
+  const select = (id: string) => onNavigate('miellerie', id, { replace: true });
 
   const [tab, setTab] = useState<Tab>('diff');
   const [showInfo, setShowInfo] = useState(true);
@@ -331,31 +341,56 @@ export default function Miellerie({
   const pollTick = refreshTick + selEpoch;
 
   // ─── Sondes REST (≥ 30 s + tick) ────────────────────────────────────────────
-  const results = useApiPoll<TaskResult[]>(
-    () => (activeId ? fetchResults(activeId) : Promise.resolve([])),
+  // Chaque sonde renvoie un objet TAGUÉ par l'id demandé (succès ET erreur) :
+  // au changement de sélection, les données/erreurs d'une autre tâche sont
+  // écartées au lieu d'être affichées comme si elles concernaient la nouvelle.
+  const results = useApiPoll<{ id: string; list?: TaskResult[]; error?: string } | null>(
+    () => {
+      const id = activeId;
+      return id
+        ? fetchResults(id).then(
+            (list) => ({ id, list }),
+            (e: unknown) => ({ id, error: e instanceof Error ? e.message : String(e) }),
+          )
+        : Promise.resolve(null);
+    },
     30_000,
     pollTick,
   );
+  const curResults = results.data && results.data.id === activeId ? results.data : null;
+  const resultsError = curResults?.error ?? null;
   // Dernier résultat de LA tâche active (écarte les données périmées d'une autre tâche).
   const lastResult = useMemo(() => {
-    const list = results.data ?? [];
+    const list = curResults?.list ?? [];
     for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
       if (r && r.taskId === activeId) return r;
     }
     return null;
-  }, [results.data, activeId]);
-  const resultsReady = results.data !== null && (results.data.length === 0 || lastResult !== null);
+  }, [curResults, activeId]);
+  const resultsReady =
+    curResults?.list != null && (curResults.list.length === 0 || lastResult !== null);
 
-  const consensus = useApiPoll(
+  const consensus = useApiPoll<{
+    id: string;
+    v?: Awaited<ReturnType<typeof fetchConsensus>>;
+    error?: string;
+  } | null>(
     () => {
       const id = activeId;
-      return id ? fetchConsensus(id).then((v) => ({ id, v })) : Promise.resolve(null);
+      return id
+        ? fetchConsensus(id).then(
+            (v) => ({ id, v }),
+            (e: unknown) => ({ id, error: e instanceof Error ? e.message : String(e) }),
+          )
+        : Promise.resolve(null);
     },
     30_000,
     pollTick,
   );
-  const verdict = consensus.data && consensus.data.id === activeId ? consensus.data.v : null;
+  const curConsensus = consensus.data && consensus.data.id === activeId ? consensus.data : null;
+  const verdict = curConsensus?.v ?? null;
+  const consensusError = curConsensus?.error ?? null;
 
   const conflictsPoll = useApiPoll(
     () => {
@@ -386,7 +421,8 @@ export default function Miellerie({
 
   // ─── Raccourcis clavier (j/k, Enter, a/x/u, i, Esc) ────────────────────────
   const handleKey = (e: KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || inInput()) return;
+    // modalOpen : jamais de décision derrière un tiroir/modale ouverte.
+    if (e.ctrlKey || e.metaKey || e.altKey || inInput() || modalOpen()) return;
     const focused = document.activeElement as HTMLElement | null;
     const tag = focused?.tagName ?? '';
     switch (e.key) {
@@ -409,10 +445,11 @@ export default function Miellerie({
         break;
       }
       case 'a':
-        decide('approved');
+        // e.repeat : maintenir la touche ne doit pas approuver toute la file.
+        if (!e.repeat) decide('approved');
         break;
       case 'x':
-        decide('rejected');
+        if (!e.repeat) decide('rejected');
         break;
       case 'u':
         decide(null);
@@ -496,19 +533,23 @@ export default function Miellerie({
     const id = projectId;
     let alive = true;
     const check = () => {
+      // Timeout évalué hors du .then : un orchestrateur durablement injoignable
+      // ne doit pas laisser « Fusion en cours… » à vie.
+      if (Date.now() - since > 120_000) {
+        if (alive) {
+          setMerge({
+            step: 'error',
+            message: 'Pas de résultat après 2 min — le merge tourne peut-être encore côté nœud.',
+          });
+        }
+        return;
+      }
       fetchMergeResult(id)
         .then(({ result }) => {
-          if (!alive) return;
-          if (result && result.mergeId === mergeId) setMerge({ step: 'done', result });
-          else if (Date.now() - since > 120_000) {
-            setMerge({
-              step: 'error',
-              message: 'Pas de résultat après 2 min — le merge tourne peut-être encore côté nœud.',
-            });
-          }
+          if (alive && result && result.mergeId === mergeId) setMerge({ step: 'done', result });
         })
-        .catch((e: unknown) => {
-          if (alive) setMerge({ step: 'error', message: readableError(e) });
+        .catch(() => {
+          // Relevé raté (coupure réseau, 429…) : on retente au prochain battement.
         });
     };
     check();
@@ -623,8 +664,8 @@ export default function Miellerie({
 
           <div className="mi-tab-body">
             {tab === 'diff' &&
-              (results.error ? (
-                <p className="panel-error">Résultats indisponibles : {results.error}</p>
+              (resultsError ? (
+                <p className="panel-error">Résultats indisponibles : {resultsError}</p>
               ) : !resultsReady ? (
                 <p className="muted-text">Le butin arrive…</p>
               ) : lastResult ? (
@@ -633,8 +674,8 @@ export default function Miellerie({
                 <p className="muted-text">Aucun résultat remonté pour cette tâche.</p>
               ))}
             {tab === 'logs' &&
-              (results.error ? (
-                <p className="panel-error">Résultats indisponibles : {results.error}</p>
+              (resultsError ? (
+                <p className="panel-error">Résultats indisponibles : {resultsError}</p>
               ) : !resultsReady ? (
                 <p className="muted-text">Le butin arrive…</p>
               ) : lastResult ? (
@@ -642,7 +683,7 @@ export default function Miellerie({
               ) : (
                 <p className="muted-text">Aucun résultat remonté pour cette tâche.</p>
               ))}
-            {tab === 'consensus' && <ConsensusPanel verdict={verdict} error={consensus.error} />}
+            {tab === 'consensus' && <ConsensusPanel verdict={verdict} error={consensusError} />}
           </div>
 
           {/* ── Barre de décision sticky ── */}

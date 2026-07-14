@@ -138,36 +138,62 @@ export default function Reine({ snapshot }: ViewProps) {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   };
 
+  /**
+   * Ajoute un message en write-through dans sessionStorage EN PLUS du setState :
+   * si l'utilisateur change de vue pendant que la Reine répond, le composant est
+   * démonté (setState no-op) mais la réponse survit et réapparaît au remontage.
+   */
+  const appendPersist = (msg: ChatMessage, newSuggestions?: string[]) => {
+    const stored = readChat();
+    sessionStorage.setItem(
+      CHAT_KEY,
+      JSON.stringify({
+        messages: [...stored.messages, msg],
+        suggestions: newSuggestions ?? stored.suggestions,
+      }),
+    );
+    setMessages((m) => [...m, msg]);
+    if (newSuggestions) setSuggestions(newSuggestions);
+  };
+
   const send = async (raw: string) => {
     const text = raw.trim();
     if (!text || pending) return;
-    setMessages((m) => [...m, { id: uid(), role: 'user', text, ts: Date.now() }]);
+    appendPersist({ id: uid(), role: 'user', text, ts: Date.now() });
     setDraft('');
     const ta = areaRef.current;
     if (ta) ta.style.height = 'auto';
     setPending(true);
     try {
       const res = await askQueen(text, projectId || undefined);
-      setMessages((m) => [
-        ...m,
+      appendPersist(
         { id: uid(), role: 'queen', text: res.reply, ts: Date.now(), source: res.source },
-      ]);
-      if (res.suggestions && res.suggestions.length > 0) setSuggestions(res.suggestions);
+        res.suggestions && res.suggestions.length > 0 ? res.suggestions : undefined,
+      );
     } catch (e) {
       // 404/501 = endpoint pas encore déployé → accueil dégradé, sans badge.
       const absent = e instanceof ChatHttpError && (e.status === 404 || e.status === 501);
       const reply = absent
         ? WELCOME_DEGRADED
         : `La Reine n’a pas pu répondre : ${e instanceof Error ? e.message : String(e)}. Réessayez dans un instant.`;
-      setMessages((m) => [...m, { id: uid(), role: 'queen', text: reply, ts: Date.now() }]);
+      appendPersist({ id: uid(), role: 'queen', text: reply, ts: Date.now() });
     } finally {
       setPending(false);
     }
   };
 
-  /** Entrée envoie, Maj+Entrée insère une nouvelle ligne (comportement natif). */
+  /**
+   * Entrée envoie, Maj+Entrée insère une nouvelle ligne. Une Entrée de
+   * validation de composition IME (japonais, chinois, coréen…) ne doit jamais
+   * envoyer le message — la Reine est mondiale (keyCode 229 : quirk Safari).
+   */
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (
+      e.key === 'Enter' &&
+      !e.shiftKey &&
+      !e.nativeEvent.isComposing &&
+      e.nativeEvent.keyCode !== 229
+    ) {
       e.preventDefault();
       void send(draft);
     }

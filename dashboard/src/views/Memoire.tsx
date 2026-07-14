@@ -118,8 +118,9 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
               {m.content.length > SHORT_LEN ? (
                 <details className="ch-mem-details">
                   <summary className="mind-content">
-                    {m.content.slice(0, SHORT_LEN)}…{' '}
-                    <span className="ch-mem-more">(tout voir)</span>
+                    <span className="ch-mem-preview">{m.content.slice(0, SHORT_LEN)}… </span>
+                    <span className="ch-mem-more ch-mem-more-closed">(tout voir)</span>
+                    <span className="ch-mem-more ch-mem-more-open">(replier)</span>
                   </summary>
                   <p className="mind-content">{m.content}</p>
                 </details>

@@ -619,10 +619,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         cursor = last.id;
       }
       const projects = store.listProjects();
+      // Focus fourni → un seul rapport à construire (progressReply filtre déjà
+      // dessus) ; sinon un rapport par projet.
+      const focusId = req.body.projectId ?? null;
+      const reportProjects = focusId ? projects.filter((p) => p.id === focusId) : projects;
       const ctx: ConciergeContext = {
         projects,
         nodes: store.listNodes(),
-        reports: projects.map((p) => buildProjectReport(p, store.listTasks(p.id))),
+        reports: reportProjects.map((p) => buildProjectReport(p, store.listTasks(p.id))),
         pulse: computePulse(events),
         waggle: buildWaggleBoard(events),
         ghosts: detectGhosts(events).ghosts,

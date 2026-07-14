@@ -3,12 +3,13 @@
 // tiroir de tâche et modales globales. L'état temps réel (snapshot + journal)
 // vit ici et descend dans les vues en props (contrat ViewProps).
 
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
 import { connectFeed, fetchPulse, getToken, saveToken } from './api';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
+import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import { countPendingReviews, Sparkline, useApiPoll, useReviewTick } from './views/shared';
 import type { ViewId, ViewProps } from './views/shared';
@@ -77,6 +78,8 @@ export function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
+  // Coalescence des invalidations : une rafale d'événements → 1 re-fetch/s max.
+  const refreshTimer = useRef<number | undefined>(undefined);
 
   // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -91,21 +94,30 @@ export function App() {
             'task_failed',
             'task_cancelled',
             'merge_started',
-            'merge_result',
+            'merge_completed',
+            'merge_failed',
             'conflict_detected',
-            'memory_recorded',
             'node_online',
             'node_offline',
           ].includes(ev.type)
         ) {
-          setRefreshTick((t) => t + 1);
+          if (refreshTimer.current === undefined) {
+            refreshTimer.current = window.setTimeout(() => {
+              refreshTimer.current = undefined;
+              setRefreshTick((t) => t + 1);
+            }, 1_000);
+          }
         }
         const taskId = typeof ev.payload.taskId === 'string' ? ev.payload.taskId : null;
         if (!taskId) return;
         if (ev.type === 'task_progress' && Array.isArray(ev.payload.subAgents)) {
           const subAgents = ev.payload.subAgents as SubAgent[];
           setAgentsByTask((prev) => ({ ...prev, [taskId]: subAgents }));
-        } else if (['task_done', 'task_failed', 'task_requeued', 'task_retry'].includes(ev.type)) {
+        } else if (
+          ['task_done', 'task_failed', 'task_cancelled', 'task_requeued', 'task_retry'].includes(
+            ev.type,
+          )
+        ) {
           setAgentsByTask((prev) => {
             if (!(taskId in prev)) return prev;
             const next = { ...prev };
@@ -130,7 +142,13 @@ export function App() {
       },
       onStatus: setConnected,
     });
-    return () => feed.close();
+    return () => {
+      if (refreshTimer.current !== undefined) {
+        window.clearTimeout(refreshTimer.current);
+        refreshTimer.current = undefined;
+      }
+      feed.close();
+    };
   }, [feedKey]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
@@ -140,15 +158,26 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const navigate = (view: ViewId, selectedId?: string) => {
-    location.hash = selectedId ? `#/${view}/${encodeURIComponent(selectedId)}` : `#/${view}`;
+  const navigate = (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => {
+    const hash = selectedId ? `#/${view}/${encodeURIComponent(selectedId)}` : `#/${view}`;
+    if (opts?.replace) {
+      // Sélection intra-vue : pas d'entrée d'historique (replaceState ne
+      // déclenche pas hashchange → setRoute manuel).
+      history.replaceState(null, '', hash);
+      setRoute(parseHash());
+    } else {
+      location.hash = hash;
+    }
   };
 
-  // Raccourcis 1-7 : changement de vue sans souris (hors champs de saisie).
+  // Raccourcis 1-8 : changement de vue sans souris (hors saisie et dialogues).
+  // e.code Digit/Numpad : indépendant de la disposition clavier (AZERTY…).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || inInput()) return;
-      const item = NAV.find((n) => n.key === e.key);
+      if (e.ctrlKey || e.metaKey || e.altKey || inInput() || modalOpen()) return;
+      const item = NAV.find(
+        (n) => n.key === e.key || e.code === `Digit${n.key}` || e.code === `Numpad${n.key}`,
+      );
       if (item) navigate(item.id);
     };
     window.addEventListener('keydown', onKey);
@@ -168,6 +197,9 @@ export function App() {
   );
 
   const applyToken = () => {
+    // Ne reconnecter que si le token a réellement changé : une reconnexion
+    // gratuite perd les événements émis pendant la fenêtre de coupure.
+    if (token === getToken()) return;
     saveToken(token);
     setFeedKey((k) => k + 1);
   };

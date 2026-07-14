@@ -87,7 +87,19 @@ function QueenBee({ projects }: { projects: Project[] }) {
     if (!plan || !target) return;
     setBusy('send');
     setError(null);
-    addTasks(target, plan.tasks)
+    // Les ids du planner sont déterministes ('socle', 'tests'…) et la validation
+    // serveur est GLOBALE : on les suffixe d'un nonce (dependsOn remappés) pour
+    // que le 2e plan de la ruche ne soit pas rejeté en collision d'ids.
+    const suffix = Date.now().toString(36);
+    const rename = new Map(
+      plan.tasks.filter((t) => t.id).map((t) => [t.id!, `${t.id}-${suffix}`] as const),
+    );
+    const uniqueTasks = plan.tasks.map((t) => ({
+      ...t,
+      ...(t.id ? { id: rename.get(t.id) } : {}),
+      ...(t.dependsOn ? { dependsOn: t.dependsOn.map((d) => rename.get(d) ?? d) } : {}),
+    }));
+    addTasks(target, uniqueTasks)
       .then((created) => {
         const name = projects.find((p) => p.id === target)?.name ?? target;
         setSent(`${created.length} tâche(s) déposée(s) dans « ${name} ». Bon butinage !`);
