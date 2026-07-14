@@ -20,12 +20,14 @@ import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.j
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent } from '../shared/types.js';
+import { askConcierge } from './concierge.js';
+import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
-import { planBrief } from './planner.js';
+import { anthropicLlm, llmPlannerAvailable, planBrief } from './planner.js';
 import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
@@ -582,6 +584,54 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // Mode 'llm' explicite ayant échoué : on remonte l'erreur telle quelle.
         return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
       }
+    },
+  );
+
+  // La Reine répond : dialogue en langage naturel avec la ruche. Réponses
+  // composées depuis l'état RÉEL (rapports, pouls, nectar, anomalies, mémoire) ;
+  // bascule sur l'IA (clé locale à la Queen) si disponible, repli live sinon.
+  app.post<{ Body: { message: string; projectId?: string } }>(
+    '/api/chat',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['message'],
+          additionalProperties: false,
+          properties: {
+            message: { type: 'string', minLength: 1, maxLength: 2000 },
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const events: HiveEvent[] = [];
+      let cursor = 0;
+      for (;;) {
+        if (events.length >= EVENT_RETENTION) break;
+        const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+        if (page.length === 0) break;
+        events.push(...page);
+        const last = page[page.length - 1];
+        if (!last) break;
+        cursor = last.id;
+      }
+      const projects = store.listProjects();
+      const ctx: ConciergeContext = {
+        projects,
+        nodes: store.listNodes(),
+        reports: projects.map((p) => buildProjectReport(p, store.listTasks(p.id))),
+        pulse: computePulse(events),
+        waggle: buildWaggleBoard(events),
+        ghosts: detectGhosts(events).ghosts,
+        memories: store.searchMemories(req.body.message, 3).map((s) => s.memory),
+        recentEvents: events.slice(-100),
+        focusProjectId: req.body.projectId ?? null,
+      };
+      const llm = llmPlannerAvailable() ? anthropicLlm() : undefined;
+      return askConcierge(req.body.message, ctx, llm ? { llm } : {});
     },
   );
 
