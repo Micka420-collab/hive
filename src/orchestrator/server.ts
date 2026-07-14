@@ -33,6 +33,16 @@ const EVENT_RETENTION = 5_000;
 const REST_RATE_WINDOW_MS = 10_000;
 const REST_RATE_MAX = 400;
 
+/** Reconstitue un abstract depuis l'index inversé d'OpenAlex. */
+function reconstructAbstract(invertedIndex: Record<string, number[]>): string {
+  const words: Array<[string, number]> = [];
+  for (const [word, positions] of Object.entries(invertedIndex)) {
+    for (const pos of positions) words.push([word, pos]);
+  }
+  words.sort((a, b) => a[1] - b[1]);
+  return words.map(([w]) => w).join(' ');
+}
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -844,6 +854,70 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const userId = (req as AuthRequest).userId!;
     return reply.send(store.listUserProjects(userId));
   });
+
+  // ─── OpenAlex : moteur de recherche scientifique ────────────────────────────
+  // Proxy vers l'API OpenAlex (gratuite, pas de clé). Accessible sans auth.
+  // Docs : https://docs.openalex.org/api-reference
+  app.get<{ Querystring: { q?: string; page?: string; filter?: string; sort?: string } }>(
+    '/api/openalex/search',
+    async (req, reply) => {
+      const { q, page, filter, sort } = req.query;
+      if (!q || q.length < 2)
+        return reply.status(400).send({ error: 'Requête trop courte (min 2 caractères)' });
+
+      const params = new URLSearchParams();
+      params.set('search', q);
+      if (page) params.set('page', page);
+      if (filter) params.set('filter', filter);
+      if (sort) params.set('sort', sort);
+      else params.set('sort', 'cited_by_count:desc');
+      params.set('per_page', '20');
+
+      // Email "polite" pour lever le rate-limit (recommandé par OpenAlex)
+      const email = process.env.OPENALEX_EMAIL || 'shellia.delcato@gmail.com';
+
+      try {
+        const res = await fetch(`https://api.openalex.org/works?${params}`, {
+          headers: { 'User-Agent': `Hive/0.1 (mailto:${email})` },
+        });
+        if (!res.ok) {
+          return reply.status(res.status).send({
+            error: `OpenAlex a répondu ${res.status}`,
+          });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (await res.json()) as any;
+        // Formater pour le dashboard : ne garder que les champs utiles
+        const results = (data.results ?? []).map((w: Record<string, unknown>) => ({
+          id: w.id,
+          title: w.title,
+          doi: w.doi,
+          year: w.publication_year,
+          citedBy: w.cited_by_count,
+          authors: ((w.authorships as Array<Record<string, unknown>>) ?? [])
+            .slice(0, 5)
+            .map((a) => a.author && (a.author as Record<string, string>).display_name)
+            .filter(Boolean),
+          abstract: ((w.abstract_inverted_index as Record<string, number[]>) != null
+            ? reconstructAbstract(w.abstract_inverted_index as Record<string, number[]>)
+            : null)?.slice(0, 500),
+          type: w.type,
+          openAccess: (w.open_access as Record<string, unknown>)?.is_oa ?? false,
+          url: (w.open_access as Record<string, unknown>)?.oa_url ?? w.doi,
+        }));
+        return reply.send({
+          total: data.meta?.count ?? 0,
+          page: data.meta?.page ?? 1,
+          perPage: data.meta?.per_page ?? 20,
+          results,
+        });
+      } catch (err) {
+        return reply
+          .status(502)
+          .send({ error: `Erreur OpenAlex : ${err instanceof Error ? err.message : err}` });
+      }
+    },
+  );
 
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();

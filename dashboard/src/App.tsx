@@ -9,6 +9,7 @@ import { InvitePanel } from './InvitePanel';
 import { Journal } from './Journal';
 import { NewProjectModal } from './NewProjectModal';
 import { NodesPanel } from './NodesPanel';
+import { OpenAlexPanel } from './OpenAlexPanel';
 import { StatTiles } from './StatTiles';
 import { SwarmView } from './SwarmView';
 import { TaskDrawer } from './TaskDrawer';
@@ -33,6 +34,7 @@ export function App() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showOpenAlex, setShowOpenAlex] = useState(false);
   const doneTimes = useRef<number[]>([]);
 
   const switchView = (mode: ViewMode) => {
@@ -114,6 +116,9 @@ export function App() {
           </div>
           <button className="btn primary" onClick={() => setShowNewProject(true)}>
             + Projet
+          </button>
+          <button className="btn ghost" onClick={() => setShowOpenAlex(true)} title="Recherche scientifique OpenAlex">
+            🧬 OpenAlex
           </button>
           <InvitePanel />
           <input
@@ -204,6 +209,7 @@ export function App() {
         <TaskDrawer task={selected} nodes={snapshot.nodes} onClose={() => setSelectedId(null)} />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
+      {showOpenAlex && <OpenAlexPanel onClose={() => setShowOpenAlex(false)} />}
     </div>
   );
 }
