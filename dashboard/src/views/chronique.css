@@ -296,3 +296,9 @@
     animation: none;
   }
 }
+
+.ch-more {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}

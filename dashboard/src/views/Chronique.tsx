@@ -82,11 +82,15 @@ export default function Chronique({ events }: ViewProps) {
     return c;
   }, [events]);
 
-  // Défilement inversé : le plus récent en haut.
-  const rows = useMemo(
+  // Défilement inversé : le plus récent en haut. Rendu plafonné (pas de
+  // virtualisation) : au-delà, un bouton « voir plus » étend par paliers.
+  const PAGE = 300;
+  const [visible, setVisible] = useState(PAGE);
+  const allRows = useMemo(
     () => [...events].reverse().filter((ev) => active.has(familyOf(ev.type))),
     [events, active],
   );
+  const rows = useMemo(() => allRows.slice(0, visible), [allRows, visible]);
 
   // ─── Mode Time-Lapse ───────────────────────────────────────────────────
   const [replay, setReplay] = useState<ReplayResult | null>(null);
@@ -286,7 +290,7 @@ export default function Chronique({ events }: ViewProps) {
           </div>
           <div className="ch-head-actions">
             <span className="panel-count">
-              {rows.length}/{events.length}
+              {allRows.length}/{events.length}
             </span>
             {!inReplay && (
               <button className="btn" onClick={enterReplay} disabled={loadingReplay}>
@@ -310,10 +314,17 @@ export default function Chronique({ events }: ViewProps) {
               </li>
             );
           })}
+          {allRows.length > visible && (
+            <li className="ch-more">
+              <button className="btn" onClick={() => setVisible((v) => v + PAGE)}>
+                Voir {Math.min(PAGE, allRows.length - visible)} événement(s) de plus
+              </button>
+            </li>
+          )}
           {events.length === 0 && (
             <li className="empty">La ruche n’a encore rien vécu — le journal est vide.</li>
           )}
-          {events.length > 0 && rows.length === 0 && (
+          {events.length > 0 && allRows.length === 0 && (
             <li className="empty">Aucun événement ne passe les filtres actifs.</li>
           )}
         </ul>

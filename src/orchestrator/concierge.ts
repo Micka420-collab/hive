@@ -32,6 +32,10 @@ export interface ConciergeContext {
   memories: Memory[];
   /** Derniers événements du journal (récents en dernier). */
   recentEvents: HiveEvent[];
+  /** Verdicts de revue humaine (taskId → approved/rejected) — Miellerie. */
+  reviews: Record<string, 'approved' | 'rejected'>;
+  /** Tâches terminées ou échouées (candidates à la revue humaine). */
+  finishedTasks: { id: string; title: string; status: 'done' | 'failed' }[];
   /** Projet ciblé par la question (optionnel). */
   focusProjectId?: string | null;
 }
@@ -121,7 +125,8 @@ export function detectLanguage(text: string): Lang {
 
 // ─── Détection d'intention (accents ignorés, mots-clés fr + en) ──────────────
 
-export type Intent = 'progress' | 'recent' | 'nodes' | 'health' | 'memory' | 'brief' | 'help';
+export type Intent =
+  'progress' | 'recent' | 'nodes' | 'health' | 'memory' | 'review' | 'brief' | 'help';
 
 function normalize(text: string): string {
   return text
@@ -213,6 +218,10 @@ const INTENT_KEYWORDS: [Intent, string[]][] = [
       'news',
       'log',
     ],
+  ],
+  [
+    'review',
+    ['revue', 'revoir', 'valider', 'approuv', 'rejet', 'miellerie', 'review', 'approve', 'verdict'],
   ],
   [
     'memory',
@@ -404,6 +413,7 @@ const SUGGESTIONS: Record<Lang, Record<Intent, string[]>> = {
       'Quel nœud travaille le mieux ?',
     ],
     memory: ['Où en est le projet ?', 'Aide-moi à écrire un bon brief'],
+    review: ['Où en est le projet ?', 'Quel nœud travaille le mieux ?'],
     brief: ['Quelles bonnes pratiques pour une API ?', 'Où en est le projet ?'],
     help: [
       'Où en est le projet ?',
@@ -417,6 +427,7 @@ const SUGGESTIONS: Record<Lang, Record<Intent, string[]>> = {
     nodes: ['How is the project going?', 'How do I invite a friend?', 'Is the hive healthy?'],
     health: ['What happened recently?', 'How is the project going?', 'Which node works best?'],
     memory: ['How is the project going?', 'Help me write a good brief'],
+    review: ['How is the project going?', 'Which node works best?'],
     brief: ['Best practices for an API?', 'How is the project going?'],
     help: ['How is the project going?', 'Help me write a good brief', 'What happened tonight?'],
   },
@@ -552,6 +563,45 @@ function memoryReply(ctx: ConciergeContext, lang: Lang): string {
   return [head, ...lines].join('\n');
 }
 
+function reviewReply(ctx: ConciergeContext, lang: Lang): string {
+  const finished = ctx.finishedTasks;
+  if (finished.length === 0) {
+    return lang === 'fr'
+      ? 'Aucune production terminée pour l instant — la Miellerie est vide, rien à revoir.'
+      : 'No finished production yet — the Miellerie is empty, nothing to review.';
+  }
+  const approved = finished.filter((t) => ctx.reviews[t.id] === 'approved').length;
+  const rejected = finished.filter((t) => ctx.reviews[t.id] === 'rejected').length;
+  const waiting = finished.filter((t) => !ctx.reviews[t.id]);
+  const sample = waiting
+    .slice(0, 3)
+    .map((t) => `• ${t.status === 'failed' ? '✘' : '✔'} ${t.title}`);
+  if (lang === 'fr') {
+    const lines = [
+      `🍯 Revue humaine : ${finished.length} production(s) terminée(s) — ${approved} approuvée(s), ${rejected} rejetée(s), ${waiting.length} en attente de revue.`,
+    ];
+    if (waiting.length > 0) {
+      lines.push('À revoir en priorité :', ...sample);
+      lines.push('Ouvrez la Miellerie (touche 3) — j/k pour naviguer, a pour approuver.');
+    } else {
+      lines.push('Tout est revu ✅ — le merge Honeycomb est un geste humain, quand vous voulez.');
+    }
+    return lines.join('\n');
+  }
+  const lines = [
+    `🍯 Human review: ${finished.length} finished production(s) — ${approved} approved, ${rejected} rejected, ${waiting.length} awaiting review.`,
+  ];
+  if (waiting.length > 0) {
+    lines.push('To review first:', ...sample);
+    lines.push('Open the Miellerie (key 3) — j/k to navigate, a to approve.');
+  } else {
+    lines.push(
+      'Everything is reviewed ✅ — the Honeycomb merge is a human action, whenever you want.',
+    );
+  }
+  return lines.join('\n');
+}
+
 function briefReply(question: string, ctx: ConciergeContext, lang: Lang): string {
   const kind = detectProjectKind(question);
   const practices = PRACTICES[lang][kind].map((p) => `• ${p}`);
@@ -623,9 +673,11 @@ export function answerLive(question: string, ctx: ConciergeContext): ConciergeAn
             ? healthReply(ctx, lang)
             : intent === 'memory'
               ? memoryReply(ctx, lang)
-              : intent === 'brief'
-                ? briefReply(question, ctx, lang)
-                : helpReply(ctx, lang);
+              : intent === 'review'
+                ? reviewReply(ctx, lang)
+                : intent === 'brief'
+                  ? briefReply(question, ctx, lang)
+                  : helpReply(ctx, lang);
   return { reply, source: 'live', lang, suggestions: SUGGESTIONS[lang][intent] };
 }
 
@@ -673,6 +725,12 @@ export function buildChatPrompt(
       .slice(0, 3)
       .map((m) => ({ titre: clean(m.title), contenu: clean(m.content, 200) })),
     derniersEvenements: ctx.recentEvents.slice(-20).map((e) => ({ type: e.type, ts: e.ts })),
+    revues: {
+      terminees: ctx.finishedTasks.length,
+      approuvees: ctx.finishedTasks.filter((t) => ctx.reviews[t.id] === 'approved').length,
+      rejetees: ctx.finishedTasks.filter((t) => ctx.reviews[t.id] === 'rejected').length,
+      enAttente: ctx.finishedTasks.filter((t) => !ctx.reviews[t.id]).length,
+    },
   };
   const system = [
     'Tu es « la Reine » (the Queen) de Hive, une ruche d agents IA de codage qui travaille 24h/24 pour ses membres, partout dans le monde.',

@@ -632,6 +632,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         ghosts: detectGhosts(events).ghosts,
         memories: store.searchMemories(req.body.message, 3).map((s) => s.memory),
         recentEvents: events.slice(-100),
+        reviews: store.listReviews(),
+        finishedTasks: store
+          .listTasks()
+          .filter((t) => t.status === 'done' || t.status === 'failed')
+          .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
         focusProjectId: req.body.projectId ?? null,
       };
       const llm = llmPlannerAvailable() ? anthropicLlm() : undefined;

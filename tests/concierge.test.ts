@@ -95,6 +95,12 @@ function makeCtx(over: Partial<ConciergeContext> = {}): ConciergeContext {
       { id: 2, ts: 2000, type: 'task_failed', payload: {} },
       { id: 3, ts: 3000, type: 'task_done', payload: {} },
     ],
+    reviews: { 'task-a': 'approved' },
+    finishedTasks: [
+      { id: 'task-a', title: 'construire le socle', status: 'done' },
+      { id: 'task-b', title: 'ajouter les tests', status: 'done' },
+      { id: 'task-c', title: 'deploiement', status: 'failed' },
+    ],
     ...over,
   };
 }
@@ -192,6 +198,14 @@ describe('answerLive', () => {
   it('aide : présente les capacités sans état requis', () => {
     const a = answerLive('salut', makeCtx({ projects: [], reports: [] }));
     expect(a.reply).toContain('la Reine');
+  });
+
+  it('revue : compte les productions à revoir depuis les verdicts serveur', () => {
+    const a = answerLive('que reste-t-il à revoir dans la miellerie ?', makeCtx());
+    expect(a.reply).toContain('3 production(s) terminée(s)');
+    expect(a.reply).toContain('1 approuvée(s)');
+    expect(a.reply).toContain('2 en attente');
+    expect(a.reply).toContain('ajouter les tests');
   });
 
   it('répond en anglais à une question en anglais (projet mondial)', () => {
