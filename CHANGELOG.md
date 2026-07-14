@@ -5,6 +5,28 @@ Tout changement notable de HIVE est documenté dans ce fichier.
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Revues partagées** — les verdicts de la Miellerie vivent côté serveur
+  (`POST /api/tasks/:id/review`, `GET /api/reviews`, événement `task_reviewed`) :
+  tous les opérateurs voient les mêmes approbations en temps réel ;
+  localStorage ne sert plus que de repli hors-ligne.
+- **Merge sélectif** — `POST /merge/run` accepte `taskIds` (validés : tâches
+  terminées du projet) ; « Couler le miel » depuis la Miellerie n'intègre que
+  les productions **approuvées**.
+- **La Reine parle revue** — nouvelle intention `review` : « que reste-t-il à
+  revoir ? » répond avec les compteurs réels (approuvées/rejetées/en attente)
+  et les prochaines productions à inspecter.
+
+### Fixed
+
+- 21 correctifs issus de la revue adversariale multi-agents (AZERTY,
+  raccourcis sous modales, IME, focus des alvéoles, contraste AA, anti-
+  injection du prompt de la Reine, collisions d'ids Queen Bee, pollings
+  résilients…), journal Chronique paginé (300 lignes rendues).
+
 ## [0.2.0] — 2026-07-15
 
 Grande intégration nocturne : les 12 PRs ouvertes (paliers 2 → 4 + innovations)

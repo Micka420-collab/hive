@@ -98,8 +98,10 @@ ruche, navigable au clavier (touches **1-8**) via une sidebar alvéolaire :
 | 📜 **Chronique** | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                         |
 | 🧠 **Mémoire**   | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                 |
 
-Les décisions de revue (approuvée/rejetée) sont locales au navigateur en v1 ;
-le merge reste **toujours** un geste humain explicite.
+Les décisions de revue sont **partagées entre tous les opérateurs** (stockées
+côté orchestrateur, synchronisées en temps réel via WebSocket ; repli
+localStorage hors-ligne). « Couler le miel » n'intègre que les productions
+**approuvées** — le merge reste toujours un geste humain explicite.
 
 ## 👑 La Reine répond — parler à la ruche
 
