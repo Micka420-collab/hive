@@ -10,6 +10,7 @@ import type {
   Task,
   TaskStatus,
 } from '../../../src/shared/types';
+import { postReview } from '../api';
 
 // ─── Contrat commun : App possède l'état temps réel, les vues le reçoivent ───
 
@@ -35,12 +36,36 @@ export interface ViewProps {
   refreshTick: number;
 }
 
-// ─── État de revue local (Miellerie) — v1 côté client, serveur au palier 5 ───
+// ─── État de revue (Miellerie) : serveur partagé + repli localStorage ────────
+// Source de vérité : le serveur (POST /api/tasks/:id/review, GET /api/reviews),
+// synchronisé entre opérateurs via l'événement WS `task_reviewed`. Le
+// localStorage ne sert que de repli si le serveur est injoignable (ou ancien).
 
 export type ReviewState = 'approved' | 'rejected';
 const REVIEW_KEY = 'hive.review';
 
-function readReviews(): Record<string, ReviewState> {
+/** Cache hydraté depuis le serveur ; null tant que /api/reviews n'a pas répondu. */
+let serverReviews: Record<string, ReviewState> | null = null;
+
+function notifyReviewChange(): void {
+  window.dispatchEvent(new CustomEvent('hive:review'));
+}
+
+/** Hydrate le cache depuis GET /api/reviews (appelé par App au démarrage). */
+export function hydrateReviews(map: Record<string, ReviewState>): void {
+  serverReviews = { ...map };
+  notifyReviewChange();
+}
+
+/** Applique un événement `task_reviewed` reçu du flux WS (autre opérateur). */
+export function applyReviewEvent(taskId: string, state: ReviewState | null): void {
+  if (serverReviews === null) serverReviews = {};
+  if (state === null) delete serverReviews[taskId];
+  else serverReviews[taskId] = state;
+  notifyReviewChange();
+}
+
+function readLocalReviews(): Record<string, ReviewState> {
   try {
     return JSON.parse(localStorage.getItem(REVIEW_KEY) ?? '{}') as Record<string, ReviewState>;
   } catch {
@@ -48,16 +73,28 @@ function readReviews(): Record<string, ReviewState> {
   }
 }
 
+function readReviews(): Record<string, ReviewState> {
+  return serverReviews ?? readLocalReviews();
+}
+
 export function getReview(taskId: string): ReviewState | null {
   return readReviews()[taskId] ?? null;
 }
 
 export function setReview(taskId: string, state: ReviewState | null): void {
-  const all = readReviews();
-  if (state === null) delete all[taskId];
-  else all[taskId] = state;
-  localStorage.setItem(REVIEW_KEY, JSON.stringify(all));
-  window.dispatchEvent(new CustomEvent('hive:review'));
+  // Optimiste : cache + repli local immédiats, envoi serveur en arrière-plan.
+  if (serverReviews !== null) {
+    if (state === null) delete serverReviews[taskId];
+    else serverReviews[taskId] = state;
+  }
+  const local = readLocalReviews();
+  if (state === null) delete local[taskId];
+  else local[taskId] = state;
+  localStorage.setItem(REVIEW_KEY, JSON.stringify(local));
+  notifyReviewChange();
+  postReview(taskId, state).catch(() => {
+    // Serveur injoignable ou ancien : la revue reste locale (repli assumé).
+  });
 }
 
 /** Nombre de tâches terminées non revues (badge sidebar + compteurs). */

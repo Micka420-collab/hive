@@ -99,6 +99,12 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_task ON memories(taskId);
 
+CREATE TABLE IF NOT EXISTS reviews (
+  taskId    TEXT PRIMARY KEY,
+  state     TEXT NOT NULL CHECK (state IN ('approved', 'rejected')),
+  updatedAt INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id           TEXT PRIMARY KEY,
   email        TEXT NOT NULL UNIQUE,
@@ -675,6 +681,33 @@ export class HiveStore {
       )
       .run(keep);
     return info.changes;
+  }
+
+  // ─── Revues humaines (Miellerie) ───────────────────────────────────────────
+  /**
+   * Enregistre le verdict de revue humaine d'une tâche ; `null` efface la
+   * revue. Le verdict est partagé entre tous les opérateurs du dashboard.
+   */
+  setTaskReview(taskId: string, state: 'approved' | 'rejected' | null): void {
+    if (state === null) {
+      this.db.prepare('DELETE FROM reviews WHERE taskId = ?').run(taskId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO reviews (taskId, state, updatedAt) VALUES (?, ?, ?)
+         ON CONFLICT(taskId) DO UPDATE SET state = excluded.state, updatedAt = excluded.updatedAt`,
+      )
+      .run(taskId, state, Date.now());
+  }
+
+  /** Toutes les revues, sous forme de dictionnaire taskId → verdict. */
+  listReviews(): Record<string, 'approved' | 'rejected'> {
+    const rows = this.db.prepare('SELECT taskId, state FROM reviews').all() as {
+      taskId: string;
+      state: 'approved' | 'rejected';
+    }[];
+    return Object.fromEntries(rows.map((r) => [r.taskId, r.state]));
   }
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────

@@ -217,6 +217,24 @@ export function fetchConsensus(taskId: string): Promise<Verdict> {
   return api<Verdict>(`/api/tasks/${taskId}/consensus`);
 }
 
+export type ReviewVerdict = 'approved' | 'rejected';
+
+/** Toutes les revues humaines (taskId → verdict), partagées entre opérateurs. */
+export function fetchReviews(): Promise<{ reviews: Record<string, ReviewVerdict> }> {
+  return api<{ reviews: Record<string, ReviewVerdict> }>('/api/reviews');
+}
+
+/** Enregistre (ou efface avec null) le verdict de revue d'une tâche. */
+export function postReview(
+  taskId: string,
+  state: ReviewVerdict | null,
+): Promise<{ taskId: string; state: ReviewVerdict | null }> {
+  return api<{ taskId: string; state: ReviewVerdict | null }>(`/api/tasks/${taskId}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ state }),
+  });
+}
+
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;

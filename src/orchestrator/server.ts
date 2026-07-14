@@ -979,6 +979,45 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // Revue humaine (Miellerie) : verdict approved/rejected partagé entre tous
+  // les opérateurs. `state: null` efface la revue. La revue n'a AUCUN effet de
+  // bord sur la tâche — c'est un avis humain, le merge reste un geste séparé.
+  app.post<{
+    Params: { taskId: string };
+    Body: { state: 'approved' | 'rejected' | null };
+  }>(
+    '/api/tasks/:taskId/review',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['state'],
+          additionalProperties: false,
+          properties: { state: { type: ['string', 'null'], enum: ['approved', 'rejected', null] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      store.setTaskReview(task.id, req.body.state);
+      emitEvent('task_reviewed', { taskId: task.id, state: req.body.state });
+      return { taskId: task.id, state: req.body.state };
+    },
+  );
+
+  // Toutes les revues (dictionnaire taskId → verdict) — hydrate le dashboard.
+  app.get('/api/reviews', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return { reviews: store.listReviews() };
+  });
+
   // Parlement des Agents : consensus par vote sur les résultats d'une tâche.
   // Lecture seule : on charge les résultats stockés, on en fait des bulletins
   // (signature = empreinte du diff, agentType retrouvé via le nœud) et on

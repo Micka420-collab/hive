@@ -5,13 +5,21 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
-import { connectFeed, fetchPulse, getToken, saveToken } from './api';
+import { connectFeed, fetchPulse, fetchReviews, getToken, saveToken } from './api';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
-import { countPendingReviews, Sparkline, useApiPoll, useReviewTick } from './views/shared';
+import {
+  applyReviewEvent,
+  countPendingReviews,
+  hydrateReviews,
+  Sparkline,
+  useApiPoll,
+  useReviewTick,
+} from './views/shared';
+import type { ReviewState } from './views/shared';
 import type { ViewId, ViewProps } from './views/shared';
 
 // Chaque vue est un chunk séparé — la Ruche (première peinture) reste inline.
@@ -110,6 +118,14 @@ export function App() {
         }
         const taskId = typeof ev.payload.taskId === 'string' ? ev.payload.taskId : null;
         if (!taskId) return;
+        // Revue posée par un autre opérateur : synchro immédiate du cache.
+        if (ev.type === 'task_reviewed') {
+          const state = ev.payload.state;
+          applyReviewEvent(
+            taskId,
+            state === 'approved' || state === 'rejected' ? (state as ReviewState) : null,
+          );
+        }
         if (ev.type === 'task_progress' && Array.isArray(ev.payload.subAgents)) {
           const subAgents = ev.payload.subAgents as SubAgent[];
           setAgentsByTask((prev) => ({ ...prev, [taskId]: subAgents }));
@@ -149,6 +165,15 @@ export function App() {
       }
       feed.close();
     };
+  }, [feedKey]);
+
+  // ─── Revues partagées : hydratation depuis le serveur (repli localStorage) ──
+  useEffect(() => {
+    fetchReviews()
+      .then((r) => hydrateReviews(r.reviews))
+      .catch(() => {
+        // Serveur ancien ou injoignable : getReview retombe sur localStorage.
+      });
   }, [feedKey]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
