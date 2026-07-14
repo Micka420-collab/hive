@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
+import { HiveMind } from './hive-mind.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -177,6 +178,7 @@ const NODE_SELECT = `
 
 export class HiveStore {
   private readonly db: Database.Database;
+  readonly hiveMind: HiveMind;
 
   constructor(dbPath: string) {
     if (dbPath !== ':memory:') {
@@ -185,6 +187,7 @@ export class HiveStore {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.exec(SCHEMA);
+    this.hiveMind = new HiveMind(this.db);
   }
 
   close(): void {

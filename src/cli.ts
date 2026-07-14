@@ -157,11 +157,40 @@ async function cmdBrief(projectId: string, brief: string): Promise<void> {
   printTasks(result.tasks);
 }
 
+async function cmdMemory(projectId: string): Promise<void> {
+  const mem = await api<{ total: number; recent: Array<{ id: number; kind: string; title: string; createdAt: number }> }>(
+    `/api/projects/${projectId}/memory`,
+  );
+  console.log(`🧠 Hive Mind — ${mem.total} apprentissage(s) pour ce projet`);
+  if (mem.recent.length === 0) {
+    console.log('  (vide — les tâches terminées nourriront la mémoire automatiquement)');
+    return;
+  }
+  for (const m of mem.recent) {
+    const emoji = m.kind === 'pattern' ? '✅' : m.kind === 'lesson' ? '⚠️' : m.kind === 'snippet' ? '📋' : '📝';
+    console.log(`  ${emoji} [${m.kind}] ${m.title}`);
+  }
+}
+
+async function cmdMemorySearch(projectId: string, query: string): Promise<void> {
+  const result = await api<{ query: string; count: number; results: Array<{ id: number; kind: string; title: string; content: string; rank: number }> }>(
+    `/api/projects/${projectId}/memory/search?q=${encodeURIComponent(query)}&limit=10`,
+  );
+  console.log(`🧠 Recherche "${result.query}" — ${result.count} résultat(s)`);
+  for (const m of result.results) {
+    const emoji = m.kind === 'pattern' ? '✅' : m.kind === 'lesson' ? '⚠️' : m.kind === 'snippet' ? '📋' : '📝';
+    console.log(`\n  ${emoji} ${m.title} (rank: ${m.rank.toFixed(1)})`);
+    console.log(`  ${m.content.slice(0, 200)}`);
+  }
+}
+
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
   else if (cmd === 'project' && a1) await cmdProject(a1, a2);
   else if (cmd === 'brief' && a1 && a2) await cmdBrief(a1, a2);
+  else if (cmd === 'memory' && a1) await cmdMemory(a1);
+  else if (cmd === 'memory-search' && a1 && a2) await cmdMemorySearch(a1, a2);
   else if (cmd === 'tasks' && a1 && a2) await cmdTasks(a1, a2);
   else if (cmd === 'watch' && a1) await cmdWatch(a1);
   else if (cmd === 'cancel' && a1) await cmdCancel(a1);
@@ -169,7 +198,7 @@ try {
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | project <nom> [repoUrl] | brief <projectId> "<brief>" | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | project <nom> [repoUrl] | brief <projectId> "<brief>" | memory <projectId> | memory-search <projectId> "<query>" | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

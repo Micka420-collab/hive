@@ -560,6 +560,150 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── Hive Mind : mémoire RAG partagée de la ruche ──────────────────────────
+  interface MemoryBody {
+    kind: 'pattern' | 'lesson' | 'snippet' | 'note';
+    title: string;
+    content: string;
+    keywords?: string;
+    taskId?: string;
+  }
+
+  // Ajouter une entrée mémoire
+  app.post<{ Params: { projectId: string }; Body: MemoryBody }>(
+    '/api/projects/:projectId/memory',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['kind', 'title', 'content'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', enum: ['pattern', 'lesson', 'snippet', 'note'] },
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            content: { type: 'string', minLength: 1, maxLength: LIMITS.prompt },
+            keywords: { type: 'string', maxLength: 500 },
+            taskId: { type: 'string', maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const id = store.hiveMind.insert({
+        projectId: project.id,
+        taskId: req.body.taskId ?? null,
+        taskTitle: req.body.title,
+        kind: req.body.kind,
+        title: req.body.title,
+        content: req.body.content,
+        keywords: req.body.keywords,
+      });
+      emitEvent('hive_mind_added', { projectId: project.id, memoryId: id, kind: req.body.kind });
+      return reply.code(201).send({ id, kind: req.body.kind });
+    },
+  );
+
+  // Rechercher dans la mémoire
+  app.get<{ Params: { projectId: string }; Querystring: { q: string; limit?: number } }>(
+    '/api/projects/:projectId/memory/search',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        querystring: {
+          type: 'object',
+          required: ['q'],
+          properties: {
+            q: { type: 'string', minLength: 1, maxLength: 200 },
+            limit: { type: 'integer', minimum: 1, maximum: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const results = store.hiveMind.search(req.query.q, project.id, req.query.limit ?? 10);
+      return reply.send({ query: req.query.q, count: results.length, results });
+    },
+  );
+
+  // Ingérer automatiquement depuis une tâche terminée
+  app.post<{ Params: { projectId: string }; Body: { taskId: string } }>(
+    '/api/projects/:projectId/memory/ingest',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.body.taskId);
+      if (!task || task.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'tâche inconnue' });
+      }
+      if (task.status !== 'done' && task.status !== 'failed') {
+        return reply.code(400).send({ error: "la tâche n'est pas terminée" });
+      }
+      const results = store.resultsForTask(task.id);
+      if (results.length === 0) {
+        return reply.code(400).send({ error: 'aucun résultat trouvé pour cette tâche' });
+      }
+      // Utiliser le dernier résultat
+      const lastResult = results[results.length - 1]!;
+      const count = store.hiveMind.ingestFromTask(task, lastResult.diff, lastResult.logs);
+      emitEvent('hive_mind_ingest', {
+        projectId: task.projectId,
+        taskId: task.id,
+        entriesCreated: count,
+      });
+      return reply.send({ ingested: count, taskId: task.id });
+    },
+  );
+
+  // Stats de la mémoire
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/memory',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const recent = store.hiveMind.listRecent(project.id, 20);
+      const total = store.hiveMind.count(project.id);
+      return reply.send({ total, recent });
+    },
+  );
+
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
   const port = typeof address === 'object' && address !== null ? address.port : config.port;

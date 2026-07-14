@@ -217,6 +217,17 @@ export class Scheduler {
 
     this.store.insertResult({ ...result, nodeId });
 
+    // Ingérer automatiquement les apprentissages dans Hive Mind.
+    try {
+      const count = this.store.hiveMind.ingestFromTask(task, result.diff, result.logs);
+      if (count > 0) {
+        this.emit('hive_mind_ingest', { taskId: task.id, entriesCreated: count });
+      }
+    } catch (err) {
+      // L'ingestion ne doit jamais bloquer la finalisation de la tâche.
+      console.error(`[hive-mind] erreur d'ingestion : ${err instanceof Error ? err.message : err}`);
+    }
+
     if (result.success) {
       this.store.patchTask(task.id, {
         status: 'done',
@@ -319,8 +330,13 @@ export class Scheduler {
         now,
       );
       if (!assigned) continue;
+      // Injecter les apprentissages Hive Mind dans le prompt avant d'envoyer au nœud.
+      const hiveContext = this.store.hiveMind.buildContext(task, 5);
+      const enrichedTask: Task = hiveContext
+        ? { ...assigned, prompt: `${hiveContext}\n\n---\n\n${assigned.prompt}` }
+        : assigned;
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
-      this.opts.onAssign?.(node.id, assigned);
+      this.opts.onAssign?.(node.id, enrichedTask);
     }
   }
 
