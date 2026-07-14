@@ -54,6 +54,24 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
   return env;
 }
 
+/**
+ * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
+ * que les clones de tâches : GIT_ALLOW_PROTOCOL neutralise `ext::` (RCE), pas de
+ * prompt de terminal, environnement épuré. `dir` doit être vide/inexistant.
+ */
+export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
+  const cloneEnv: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    SYSTEMROOT: process.env.SYSTEMROOT,
+    SYSTEMDRIVE: process.env.SYSTEMDRIVE,
+    GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
+    GIT_TERMINAL_PROMPT: '0',
+  };
+  await simpleGit().env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+}
+
 export async function prepareWorkspace(
   workRoot: string,
   task: Task,

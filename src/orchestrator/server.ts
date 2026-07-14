@@ -8,7 +8,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { existsSync } from 'node:fs';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,9 +16,10 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
-import type { ServerMessage } from '../shared/protocol.js';
+import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import { buildHiveContext } from './hive-mind.js';
+import { buildMergePlan } from './honeycomb.js';
 import { planBrief } from './planner.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
@@ -32,6 +33,9 @@ const EVENT_RETENTION = 5_000;
 
 /** Nombre de souvenirs Hive Mind conservés (les plus anciens sont purgés). */
 const MEMORY_RETENTION = 2_000;
+
+/** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
+const MERGE_TIMEOUT_MS = 10 * 60_000;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -161,6 +165,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   const nodeSockets = new Map<string, WebSocket>();
   const dashboardSockets = new Set<WebSocket>();
+  // Honeycomb Merge : dernier résultat de merge par projet + suivi des merges en
+  // cours (routage mergeId→projet, nœud, âge — pour détecter les orphelins).
+  const mergeResults = new Map<string, MergeResultMsg>();
+  const pendingMerges = new Map<string, { projectId: string; nodeId: string; startedAt: number }>();
   // Diffusion d'état "sale" : regroupée toutes les 250 ms pour éviter le spam.
   let stateDirty = false;
 
@@ -212,6 +220,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const event = store.appendEvent(type, payload);
     broadcastEvent({ type: 'event', event });
     stateDirty = true;
+  };
+
+  /**
+   * Marque un merge en cours comme échoué (nœud déconnecté, timeout) : range un
+   * résultat d'échec pour que /merge/result ne reste pas `null` éternellement, et
+   * libère l'entrée (anti-fuite mémoire). Honeycomb Merge est advisory/v0 : les
+   * merges en cours ne survivent PAS à un redémarrage de l'orchestrateur.
+   */
+  const failMerge = (mergeId: string, reason: string): void => {
+    const pending = pendingMerges.get(mergeId);
+    if (!pending) return;
+    pendingMerges.delete(mergeId);
+    mergeResults.set(pending.projectId, {
+      type: 'merge_result',
+      mergeId,
+      applied: [],
+      conflicts: [],
+      mergedDiff: '',
+      testsRun: false,
+      testsPassed: null,
+      logs: `[hub] merge interrompu : ${reason}`,
+    });
+    emitEvent('merge_failed', { projectId: pending.projectId, mergeId, reason });
   };
 
   // Reprise après redémarrage : les tâches running orphelines repartent en ready.
@@ -550,6 +581,146 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // Honeycomb Merge (Palier 3) : plan d'intégration d'un projet — ordre de merge
+  // (dépendances d'abord) + conflits de lignes entre diffs des tâches terminées.
+  // Advisory : n'effectue ni merge git ni exécution de tests (côté nœud, différé).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/merge',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const tasks = store.listTasks(project.id);
+      const diffs = new Map<string, string>();
+      for (const t of tasks) {
+        if (t.status !== 'done') continue;
+        const success = store
+          .resultsForTask(t.id)
+          .filter((r) => r.success)
+          .at(-1);
+        if (success) diffs.set(t.id, success.diff);
+      }
+      return buildMergePlan(tasks, diffs);
+    },
+  );
+
+  // Honeycomb Merge — déclenche l'exécution réelle du merge sur un nœud : clone,
+  // application des diffs dans l'ordre du plan (conflits git réels), tests
+  // optionnels. Asynchrone : le résultat revient via merge_result, à lire sur
+  // /merge/result. Ne commit ni ne push jamais.
+  app.post<{ Params: { projectId: string }; Body: { testCommand?: string[] } }>(
+    '/api/projects/:projectId/merge/run',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            testCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!project.repoUrl) {
+        return reply
+          .code(400)
+          .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
+      }
+      const tasks = store.listTasks(project.id);
+      const doneDiffs = new Map<string, string>();
+      for (const t of tasks) {
+        if (t.status !== 'done') continue;
+        const success = store
+          .resultsForTask(t.id)
+          .filter((r) => r.success)
+          .at(-1);
+        if (success) doneDiffs.set(t.id, success.diff);
+      }
+      const plan = buildMergePlan(tasks, doneDiffs);
+      if (plan.done === 0) {
+        return reply.code(400).send({ error: 'aucune tâche terminée à intégrer' });
+      }
+      const diffs = plan.order.map((taskId) => ({ taskId, diff: doneDiffs.get(taskId) ?? '' }));
+      // Le nœud rejette silencieusement un assign_merge > LIMITS.mergeDiffs : on
+      // borne ici pour renvoyer une erreur claire plutôt que de perdre le merge.
+      if (diffs.length > LIMITS.mergeDiffs) {
+        return reply
+          .code(413)
+          .send({ error: `trop de tâches à intégrer (> ${LIMITS.mergeDiffs}) pour un merge (v0)` });
+      }
+      const totalBytes = diffs.reduce((s, d) => s + d.diff.length, 0);
+      if (totalBytes > 1_500_000) {
+        return reply.code(413).send({ error: 'diffs trop volumineux pour un merge (v0)' });
+      }
+      // Choisir un nœud en ligne effectivement connecté.
+      const node = store.listNodes().find((n) => n.status === 'online' && nodeSockets.has(n.id));
+      const ws = node ? nodeSockets.get(node.id) : undefined;
+      if (!node || !ws) {
+        return reply.code(503).send({ error: 'aucun nœud en ligne pour exécuter le merge' });
+      }
+      const mergeId = randomUUID();
+      pendingMerges.set(mergeId, { projectId: project.id, nodeId: node.id, startedAt: Date.now() });
+      send(ws, {
+        type: 'assign_merge',
+        mergeId,
+        repoUrl: project.repoUrl,
+        diffs,
+        ...(req.body.testCommand ? { testCommand: req.body.testCommand } : {}),
+      });
+      emitEvent('merge_started', {
+        projectId: project.id,
+        mergeId,
+        nodeId: node.id,
+        diffs: diffs.length,
+      });
+      return reply.code(202).send({ mergeId, nodeId: node.id, order: plan.order });
+    },
+  );
+
+  // Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/merge/result',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { result: mergeResults.get(req.params.projectId) ?? null };
+    },
+  );
+
   // Le diff d'une tâche remonte pour revue humaine — jamais de merge automatique.
   app.get<{ Params: { taskId: string } }>(
     '/api/tasks/:taskId/results',
@@ -729,6 +900,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             // Refus d'assignation (nœud saturé) : requeue sans brûler de tentative.
             scheduler.rejectTask(nodeId, msg.taskId, msg.reason);
             break;
+          case 'merge_result': {
+            // Honeycomb Merge : range le résultat pour le projet demandeur.
+            const pending = pendingMerges.get(msg.mergeId);
+            if (pending) {
+              mergeResults.set(pending.projectId, msg);
+              pendingMerges.delete(msg.mergeId);
+              emitEvent('merge_completed', {
+                projectId: pending.projectId,
+                mergeId: msg.mergeId,
+                applied: msg.applied.length,
+                conflicts: msg.conflicts.length,
+                testsPassed: msg.testsPassed,
+              });
+            }
+            break;
+          }
           default:
             break; // register/subscribe répétés : ignorés
         }
@@ -750,6 +937,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (role === 'node' && nodeId !== null && nodeSockets.get(nodeId) === ws) {
         nodeSockets.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
+        // Un merge confié à ce nœud ne reviendra jamais : le déclarer échoué
+        // (sinon /merge/result resterait null et l'entrée fuirait).
+        for (const [mergeId, pending] of pendingMerges) {
+          if (pending.nodeId === nodeId) failMerge(mergeId, 'nœud déconnecté');
+        }
         stateDirty = true;
       }
       if (role === 'dashboard') dashboardSockets.delete(ws);
@@ -782,6 +974,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const now = Date.now();
       for (const [ip, h] of apiHits) {
         if (h.resetAt <= now) apiHits.delete(ip);
+      }
+      // Merges orphelins (nœud muet au-delà du délai) → échec, pas de blocage.
+      for (const [mergeId, pending] of pendingMerges) {
+        if (now - pending.startedAt > MERGE_TIMEOUT_MS) failMerge(mergeId, 'délai dépassé');
       }
     } catch (err) {
       console.error(`[hive] erreur de tick : ${err instanceof Error ? err.message : err}`);

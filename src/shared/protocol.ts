@@ -18,6 +18,11 @@ export const LIMITS = {
   maxConcurrency: 16,
   /** Contexte Hive Mind joint à une assignation (borné : injecté dans le prompt). */
   hiveContext: 8_000,
+  /** Nombre max de diffs joints à un merge. */
+  mergeDiffs: 200,
+  /** Nombre max d'arguments d'une commande de test, et longueur de chaque. */
+  testArgs: 32,
+  arg: 1_000,
 } as const;
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -75,8 +80,32 @@ export interface SubscribeMsg {
   token: string;
 }
 
+/** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
+export interface MergeConflictReport {
+  taskId: string;
+  reason: string;
+}
+
+/** Résultat d'un merge exécuté par un nœud (Honeycomb Merge, Palier 3). */
+export interface MergeResultMsg {
+  type: 'merge_result';
+  mergeId: string;
+  applied: string[];
+  conflicts: MergeConflictReport[];
+  mergedDiff: string;
+  testsRun: boolean;
+  testsPassed: boolean | null;
+  logs: string;
+}
+
 export type ClientMessage =
-  RegisterMsg | HeartbeatMsg | TaskUpdateMsg | TaskResultMsg | TaskRejectMsg | SubscribeMsg;
+  | RegisterMsg
+  | HeartbeatMsg
+  | TaskUpdateMsg
+  | TaskResultMsg
+  | TaskRejectMsg
+  | SubscribeMsg
+  | MergeResultMsg;
 
 // ─── Messages orchestrateur → client ─────────────────────────────────────────
 export interface RegisteredMsg {
@@ -114,8 +143,26 @@ export interface ErrorMsg {
   message: string;
 }
 
+/** Un diff de tâche à intégrer lors d'un merge. */
+export interface MergeDiffInput {
+  taskId: string;
+  diff: string;
+}
+
+/** Demande de merge envoyée à un nœud (Honeycomb Merge, Palier 3). */
+export interface AssignMergeMsg {
+  type: 'assign_merge';
+  mergeId: string;
+  /** Dépôt à cloner pour l'intégration. */
+  repoUrl: string;
+  /** Diffs des tâches, dans l'ordre de merge. */
+  diffs: MergeDiffInput[];
+  /** Commande de test optionnelle (argv, jamais interprétée par un shell). */
+  testCommand?: string[];
+}
+
 export type ServerMessage =
-  RegisteredMsg | AssignTaskMsg | CancelTaskMsg | StateMsg | EventMsg | ErrorMsg;
+  RegisteredMsg | AssignTaskMsg | CancelTaskMsg | StateMsg | EventMsg | ErrorMsg | AssignMergeMsg;
 
 const SERVER_MESSAGE_TYPES = new Set([
   'registered',
@@ -124,6 +171,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'state',
   'event',
   'error',
+  'assign_merge',
 ]);
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -159,6 +207,36 @@ function isSubAgents(v: unknown): v is SubAgent[] {
 /** Liste d'identifiants de tâches (bornée), tolérant l'absence. */
 function isIdList(v: unknown): v is string[] {
   return Array.isArray(v) && v.length <= 1000 && v.every((x) => isId(x));
+}
+
+/** Diffs joints à un merge : liste non vide bornée de { taskId, diff }. */
+function isMergeDiffs(v: unknown): v is MergeDiffInput[] {
+  if (!Array.isArray(v) || v.length === 0 || v.length > LIMITS.mergeDiffs) return false;
+  return v.every((d) => {
+    if (typeof d !== 'object' || d === null) return false;
+    const dd = d as Record<string, unknown>;
+    return isId(dd.taskId) && isStrAllowEmpty(dd.diff, LIMITS.diff);
+  });
+}
+
+/** Rapports de conflits d'un merge : liste bornée de { taskId, reason }. */
+function isMergeConflicts(v: unknown): v is MergeConflictReport[] {
+  if (!Array.isArray(v) || v.length > LIMITS.mergeDiffs) return false;
+  return v.every((c) => {
+    if (typeof c !== 'object' || c === null) return false;
+    const cc = c as Record<string, unknown>;
+    return isId(cc.taskId) && isStrAllowEmpty(cc.reason, LIMITS.arg);
+  });
+}
+
+/** Commande (argv) : liste non vide et bornée de chaînes courtes non vides. */
+function isArgv(v: unknown): v is string[] {
+  return (
+    Array.isArray(v) &&
+    v.length >= 1 &&
+    v.length <= LIMITS.testArgs &&
+    v.every((s) => isStr(s, LIMITS.arg))
+  );
 }
 
 /** Statut de tâche connu — utilisé pour valider un objet Task reçu du hub. */
@@ -277,6 +355,29 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (isStr(m.token, LIMITS.token)) return { type: 'subscribe', token: m.token };
       return null;
     }
+    case 'merge_result': {
+      if (
+        isId(m.mergeId) &&
+        isIdList(m.applied) &&
+        isMergeConflicts(m.conflicts) &&
+        isStrAllowEmpty(m.mergedDiff, LIMITS.diff) &&
+        typeof m.testsRun === 'boolean' &&
+        (m.testsPassed === null || typeof m.testsPassed === 'boolean') &&
+        isStrAllowEmpty(m.logs, LIMITS.log)
+      ) {
+        return {
+          type: 'merge_result',
+          mergeId: m.mergeId,
+          applied: m.applied,
+          conflicts: m.conflicts as MergeConflictReport[],
+          mergedDiff: m.mergedDiff,
+          testsRun: m.testsRun,
+          testsPassed: m.testsPassed as boolean | null,
+          logs: m.logs,
+        };
+      }
+      return null;
+    }
     default:
       return null;
   }
@@ -322,6 +423,26 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       return isId(m.taskId) && isStrAllowEmpty(m.reason, LIMITS.name)
         ? { type: 'cancel_task', taskId: m.taskId, reason: m.reason }
         : null;
+    case 'assign_merge': {
+      // Sensible côté nœud : déclenche un clone + application de patches + tests.
+      // Validé champ par champ, comme assign_task.
+      if (
+        isId(m.mergeId) &&
+        isValidRepoUrl(m.repoUrl) &&
+        isMergeDiffs(m.diffs) &&
+        (m.testCommand === undefined || isArgv(m.testCommand))
+      ) {
+        const msg: AssignMergeMsg = {
+          type: 'assign_merge',
+          mergeId: m.mergeId,
+          repoUrl: m.repoUrl,
+          diffs: m.diffs as MergeDiffInput[],
+        };
+        if (m.testCommand !== undefined) msg.testCommand = m.testCommand as string[];
+        return msg;
+      }
+      return null;
+    }
     default:
       // state / event / error : destinés au dashboard, non sensibles côté nœud.
       return data as ServerMessage;

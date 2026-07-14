@@ -5,15 +5,17 @@
 // Consentement (§5.3) : rien ne s'exécute tant que le membre n'a pas lancé
 // ce client lui-même.
 
+import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
-import type { ClientMessage } from '../shared/protocol.js';
+import type { AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
-import { prepareWorkspace } from './workspace.js';
+import { runMerge } from './merge-runner.js';
+import { cloneRepo, prepareWorkspace } from './workspace.js';
 import type { Workspace } from './workspace.js';
 
 export interface NodeClientOptions {
@@ -50,6 +52,8 @@ export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
   private readonly active = new Map<string, AbortController>();
+  /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
+  private readonly activeMerges = new Set<string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
@@ -170,6 +174,9 @@ export class HiveNodeClient {
       case 'assign_task':
         void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext);
         break;
+      case 'assign_merge':
+        void this.runMergeJob(msg);
+        break;
       case 'cancel_task':
         this.active.get(msg.taskId)?.abort();
         break;
@@ -280,6 +287,64 @@ export class HiveNodeClient {
     } finally {
       this.active.delete(task.id);
       workspace?.cleanup();
+    }
+  }
+
+  // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
+  /**
+   * Exécute un merge demandé par le hub : clone le dépôt, applique les diffs dans
+   * l'ordre (conflits git réels détectés), lance éventuellement les tests, et
+   * remonte le résultat. Ne commit ni ne push jamais (revue humaine).
+   */
+  private async runMergeJob(msg: AssignMergeMsg): Promise<void> {
+    // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
+    // jobs concurrents sur le même répertoire (course rmSync/clone).
+    if (this.activeMerges.has(msg.mergeId)) return;
+    this.activeMerges.add(msg.mergeId);
+    // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
+    const dir = path.join(this.workRoot, 'merges', msg.mergeId);
+    const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
+    this.log(
+      `merge ${msg.mergeId.slice(0, 8)}… : clone + intégration de ${msg.diffs.length} diff(s)`,
+    );
+    try {
+      rmSync(dir, rmOpts);
+      mkdirSync(path.dirname(dir), { recursive: true });
+      await cloneRepo(dir, msg.repoUrl);
+      const result = await runMerge({
+        repoDir: dir,
+        diffs: msg.diffs,
+        ...(msg.testCommand ? { testCommand: msg.testCommand } : {}),
+      });
+      this.send({
+        type: 'merge_result',
+        mergeId: msg.mergeId,
+        applied: result.applied,
+        conflicts: result.conflicts,
+        mergedDiff: result.mergedDiff.slice(0, LIMITS.diff),
+        testsRun: result.testsRun,
+        testsPassed: result.testsPassed,
+        logs: result.logs.slice(0, LIMITS.log),
+      });
+      this.log(
+        `merge ${msg.mergeId.slice(0, 8)} : ${result.applied.length} appliqué(s), ${result.conflicts.length} conflit(s)`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.send({
+        type: 'merge_result',
+        mergeId: msg.mergeId,
+        applied: [],
+        conflicts: [],
+        mergedDiff: '',
+        testsRun: false,
+        testsPassed: null,
+        logs: `[nœud] échec du merge : ${message}`,
+      });
+      this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
+    } finally {
+      this.activeMerges.delete(msg.mergeId);
+      rmSync(dir, rmOpts);
     }
   }
 
