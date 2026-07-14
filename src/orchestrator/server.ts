@@ -19,7 +19,7 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
-import type { HiveEvent, User } from '../shared/types.js';
+import type { HiveEvent } from '../shared/types.js';
 import { detectGhosts } from './ghost.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
@@ -354,23 +354,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  app.post<{ Body: { email: string; password: string } }>(
-    '/api/auth/login',
-    async (req, reply) => {
-      const { email, password } = req.body;
-      const user = store.getUserByEmail(email);
-      if (!user || !verifyPassword(password, user.passwordHash))
-        return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
-      return { token: signJwt(user.id, user.email) };
-    },
-  );
+  app.post<{ Body: { email: string; password: string } }>('/api/auth/login', async (req, reply) => {
+    const { email, password } = req.body;
+    const user = store.getUserByEmail(email);
+    if (!user || !verifyPassword(password, user.passwordHash))
+      return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
+    return { token: signJwt(user.id, user.email) };
+  });
 
   app.get('/api/auth/me', async (req, reply) => {
     if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
     const userId = (req as AuthRequest).userId!;
     const user = store.getUserById(userId);
     if (!user) return reply.status(404).send({ error: 'Utilisateur introuvable' });
-    const { passwordHash, ...publicUser } = user;
+    const { passwordHash: _passwordHash, ...publicUser } = user;
     return publicUser;
   });
 
@@ -1190,7 +1187,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             .filter(Boolean),
           abstract: ((w.abstract_inverted_index as Record<string, number[]>) != null
             ? reconstructAbstract(w.abstract_inverted_index as Record<string, number[]>)
-            : null)?.slice(0, 500),
+            : null
+          )?.slice(0, 500),
           type: w.type,
           openAccess: (w.open_access as Record<string, unknown>)?.is_oa ?? false,
           url: (w.open_access as Record<string, unknown>)?.oa_url ?? w.doi,

@@ -110,11 +110,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
       >
         <header className="modal-head">
           <h2 id="oa-title">🧬 OpenAlex — Moteur scientifique</h2>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Fermer"
-          >
+          <button className="modal-close" onClick={onClose} aria-label="Fermer">
             ×
           </button>
         </header>
@@ -193,11 +189,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
 
         {totalPages > 1 && (
           <div className="modal-actions">
-            <button
-              className="btn ghost"
-              onClick={prevPage}
-              disabled={page <= 1 || loading}
-            >
+            <button className="btn ghost" onClick={prevPage} disabled={page <= 1 || loading}>
               ← Précédent
             </button>
             <span className="oa-pager">

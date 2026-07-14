@@ -8,6 +8,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Added
+
 - **🧬 OpenAlex** — moteur de recherche scientifique intégré (papers, auteurs, citations).  
   Route `GET /api/openlex/search?q=...` + onglet dédié dans le dashboard
 - **🧠 Queen Bee** — découpage IA d'un brief projet en DAG de tâches via OpenRouter.  
@@ -20,12 +21,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   CodeMirror, création projet/tâches UI, panneau d'invitation
 
 ### Fixed
+
 - Compilation TypeScript stricte (`tsc --noEmit` propre)
 - Tests Hive Mind : correction FTS5 (requête → OR) + assertion `buildContext`
 
 ## [0.1.0] — 2026-07-14
 
 ### Added
+
 - Orchestrateur central (Fastify + WebSocket + SQLite) avec hub-and-spoke
 - Client nœud avec reconnexion automatique et heartbeat
 - Démo `npm run demo` : orchestrateur + 2 nœuds simulés + projet 7 tâches DAG

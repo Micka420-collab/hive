@@ -30,9 +30,7 @@ describe('Queen Bee', () => {
   });
 
   test('briefToDAG rejette un brief trop court', async () => {
-    await expect(briefToDAG('court', { apiKey: FAKE_KEY })).rejects.toThrow(
-      '10 caractères',
-    );
+    await expect(briefToDAG('court', { apiKey: FAKE_KEY })).rejects.toThrow('10 caractères');
   });
 
   test('briefToDAG rejette un JSON invalide du LLM', async () => {
@@ -47,8 +45,9 @@ describe('Queen Bee', () => {
       text: async () => '',
     })) as unknown as typeof fetch;
 
-    await expect(briefToDAG('Construis un système de cache Redis', { apiKey: FAKE_KEY }))
-      .rejects.toThrow('JSON invalide');
+    await expect(
+      briefToDAG('Construis un système de cache Redis', { apiKey: FAKE_KEY }),
+    ).rejects.toThrow('JSON invalide');
 
     globalThis.fetch = origFetch;
   });
@@ -64,8 +63,9 @@ describe('Queen Bee', () => {
       text: async () => '',
     })) as unknown as typeof fetch;
 
-    await expect(briefToDAG('Projet test', { apiKey: FAKE_KEY }))
-      .rejects.toThrow("n'a produit aucune tâche");
+    await expect(briefToDAG('Projet test', { apiKey: FAKE_KEY })).rejects.toThrow(
+      "n'a produit aucune tâche",
+    );
 
     globalThis.fetch = origFetch;
   });

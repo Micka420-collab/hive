@@ -75,10 +75,7 @@ const DEFAULT_MODEL = 'anthropic/claude-sonnet-4';
  * Appelle un LLM pour découper un brief en DAG de tâches.
  * Lance une erreur si l'API répond mal, si le JSON est invalide, ou si aucune tâche n'est produite.
  */
-export async function briefToDAG(
-  brief: string,
-  config: QueenBeeConfig,
-): Promise<BriefResult> {
+export async function briefToDAG(brief: string, config: QueenBeeConfig): Promise<BriefResult> {
   const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
   const model = config.model ?? DEFAULT_MODEL;
   const language = config.language ?? 'français';

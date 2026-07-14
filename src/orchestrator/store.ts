@@ -20,7 +20,6 @@ import type {
   TaskResultSummary,
   TaskStatus,
   User,
-  UserPublic,
 } from '../shared/types.js';
 
 const SCHEMA = `
@@ -318,7 +317,15 @@ export class HiveStore {
       .prepare(
         'INSERT INTO projects (id, name, repoUrl, description, visibility, ownerId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(project.id, project.name, project.repoUrl, project.description, project.visibility, project.ownerId, project.createdAt);
+      .run(
+        project.id,
+        project.name,
+        project.repoUrl,
+        project.description,
+        project.visibility,
+        project.ownerId,
+        project.createdAt,
+      );
     return project;
   }
 

@@ -172,17 +172,17 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 
 ## 🛠️ Scripts
 
-| Commande                | Effet                                                              |
-| ----------------------- | ------------------------------------------------------------------ |
-| `npm run demo`          | Démo complète (orchestrateur + 2 nœuds + projet de 7 tâches)       |
-| `npm run dev`           | Orchestrateur seul (watch)                                         |
-| `npm run node`          | Un nœud membre (configuré par variables d'environnement)           |
-| `npm run join -- <inv>` | Rejoindre une ruche depuis une invitation (agent auto-détecté)     |
+| Commande                | Effet                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run demo`          | Démo complète (orchestrateur + 2 nœuds + projet de 7 tâches)                                                                           |
+| `npm run dev`           | Orchestrateur seul (watch)                                                                                                             |
+| `npm run node`          | Un nœud membre (configuré par variables d'environnement)                                                                               |
+| `npm run join -- <inv>` | Rejoindre une ruche depuis une invitation (agent auto-détecté)                                                                         |
 | `npm run cli`           | CLI : `state`/`mind`/`plan`/`brief`/`project`/`tasks`/`watch`/`merge`/`replay`/`waggle`/`consensus`/`ghost`/`pulse`/`report`/`invite`… |
-| `npm test`              | Tests unitaires + e2e (vitest)                                     |
-| `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                              |
-| `npm run build`         | Typecheck (orchestrateur + dashboard) + build du dashboard         |
-| `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                          |
+| `npm test`              | Tests unitaires + e2e (vitest)                                                                                                         |
+| `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                                                                                                  |
+| `npm run build`         | Typecheck (orchestrateur + dashboard) + build du dashboard                                                                             |
+| `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                                                                                              |
 
 ## 🌐 Déploiement multi-machines
 

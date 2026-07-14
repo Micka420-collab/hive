@@ -148,7 +148,11 @@ export function App() {
           <button className="btn primary" onClick={() => setShowNewProject(true)}>
             + Projet
           </button>
-          <button className="btn ghost" onClick={() => setShowOpenAlex(true)} title="Recherche scientifique OpenAlex">
+          <button
+            className="btn ghost"
+            onClick={() => setShowOpenAlex(true)}
+            title="Recherche scientifique OpenAlex"
+          >
             🧬 OpenAlex
           </button>
           <InvitePanel />

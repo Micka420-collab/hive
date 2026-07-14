@@ -11,14 +11,11 @@ const JWT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
 // notre propre vérification. En production, utiliser bcryptjs ou argon2.
 
 const PBKDF2_ITERATIONS = 100_000;
-const PBKDF2_KEYLEN = 32;
 const PBKDF2_DIGEST = 'sha256';
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('base64url');
-  const key = createHmac(PBKDF2_DIGEST, salt)
-    .update(password)
-    .digest('base64url');
+  const key = createHmac(PBKDF2_DIGEST, salt).update(password).digest('base64url');
   // Format: iterations$salt$hash
   return `${PBKDF2_ITERATIONS}$${salt}$${key}`;
 }
@@ -28,9 +25,7 @@ export function verifyPassword(password: string, stored: string): boolean {
   if (parts.length !== 3) return false;
   const salt = parts[1]!;
   const expectedHash = parts[2]!;
-  const key = createHmac(PBKDF2_DIGEST, salt)
-    .update(password)
-    .digest('base64url');
+  const key = createHmac(PBKDF2_DIGEST, salt).update(password).digest('base64url');
   try {
     const a = Buffer.from(key);
     const b = Buffer.from(expectedHash);
@@ -43,7 +38,7 @@ export function verifyPassword(password: string, stored: string): boolean {
 // ─── JWT (simple, sans dépendance) ────────────────────────────────────────────
 
 interface JwtPayload {
-  sub: string;   // userId
+  sub: string; // userId
   email: string;
   iat: number;
   exp: number;
