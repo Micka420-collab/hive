@@ -18,6 +18,8 @@ import type {
   TaskResult,
   TaskResultSummary,
   TaskStatus,
+  User,
+  UserPublic,
 } from '../shared/types.js';
 
 const SCHEMA = `
@@ -26,7 +28,17 @@ CREATE TABLE IF NOT EXISTS projects (
   name        TEXT NOT NULL,
   repoUrl     TEXT,
   description TEXT,
+  visibility  TEXT NOT NULL DEFAULT 'private',
+  ownerId     TEXT,
   createdAt   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+  projectId TEXT NOT NULL,
+  userId    TEXT NOT NULL,
+  role      TEXT NOT NULL DEFAULT 'member',
+  joinedAt  INTEGER NOT NULL,
+  PRIMARY KEY (projectId, userId)
 );
 
 CREATE TABLE IF NOT EXISTS nodes (
@@ -76,6 +88,25 @@ CREATE TABLE IF NOT EXISTS events (
   type    TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS users (
+  id           TEXT PRIMARY KEY,
+  email        TEXT NOT NULL UNIQUE,
+  passwordHash TEXT NOT NULL,
+  displayName  TEXT NOT NULL,
+  bio          TEXT DEFAULT '',
+  avatarUrl    TEXT DEFAULT '',
+  createdAt    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  userId    TEXT NOT NULL REFERENCES users(id),
+  role      TEXT NOT NULL DEFAULT 'member',
+  joinedAt  INTEGER NOT NULL,
+  PRIMARY KEY (projectId, userId)
+);
+CREATE INDEX IF NOT EXISTS idx_members_user ON project_members(userId);
 `;
 
 interface ProjectRow {
@@ -83,6 +114,8 @@ interface ProjectRow {
   name: string;
   repoUrl: string | null;
   description: string | null;
+  visibility: 'public' | 'private';
+  ownerId: string | null;
   createdAt: number;
 }
 
@@ -133,6 +166,8 @@ export interface NewProject {
   name: string;
   repoUrl?: string | null;
   description?: string | null;
+  visibility?: 'public' | 'private';
+  ownerId?: string | null;
 }
 
 export interface NewTask {
@@ -157,6 +192,21 @@ export interface TaskPatch {
   result?: TaskResultSummary | null;
   branch?: string | null;
   attempts?: number;
+}
+
+export interface NewUser {
+  email: string;
+  passwordHash: string;
+  displayName: string;
+}
+
+export interface ProjectMember {
+  projectId: string;
+  userId: string;
+  role: string;
+  joinedAt: number;
+  /** Jointure : displayName de l'utilisateur pour l'affichage. */
+  displayName?: string;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -194,6 +244,47 @@ export class HiveStore {
     this.db.close();
   }
 
+  // ─── Utilisateurs ───────────────────────────────────────────────────────────
+  createUser(input: NewUser): User {
+    const id = randomUUID();
+    const now = Date.now();
+    this.db
+      .prepare(
+        'INSERT INTO users (id, email, passwordHash, displayName, createdAt) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(id, input.email, input.passwordHash, input.displayName, now);
+    return {
+      id,
+      email: input.email,
+      passwordHash: input.passwordHash,
+      displayName: input.displayName,
+      bio: '',
+      avatarUrl: '',
+      createdAt: now,
+    };
+  }
+
+  getUserById(id: string): User | undefined {
+    return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
+  }
+
+  getUserByEmail(email: string): User | undefined {
+    return this.db.prepare('SELECT * FROM users WHERE email = ?').get(email) as User | undefined;
+  }
+
+  updateUserProfile(
+    id: string,
+    patch: { displayName?: string; bio?: string; avatarUrl?: string },
+  ): User | undefined {
+    const user = this.getUserById(id);
+    if (!user) return undefined;
+    const next = { ...user, ...patch };
+    this.db
+      .prepare('UPDATE users SET displayName = ?, bio = ?, avatarUrl = ? WHERE id = ?')
+      .run(next.displayName, next.bio, next.avatarUrl, id);
+    return next;
+  }
+
   // ─── Projets ───────────────────────────────────────────────────────────────
   createProject(input: NewProject): Project {
     const project: Project = {
@@ -201,13 +292,15 @@ export class HiveStore {
       name: input.name,
       repoUrl: input.repoUrl ?? null,
       description: input.description ?? null,
+      visibility: input.visibility ?? 'private',
+      ownerId: input.ownerId ?? null,
       createdAt: Date.now(),
     };
     this.db
       .prepare(
-        'INSERT INTO projects (id, name, repoUrl, description, createdAt) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO projects (id, name, repoUrl, description, visibility, ownerId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(project.id, project.name, project.repoUrl, project.description, project.createdAt);
+      .run(project.id, project.name, project.repoUrl, project.description, project.visibility, project.ownerId, project.createdAt);
     return project;
   }
 
@@ -223,6 +316,49 @@ export class HiveStore {
     return this.db
       .prepare('SELECT * FROM projects WHERE name = ? ORDER BY createdAt DESC')
       .get(name) as ProjectRow | undefined;
+  }
+
+  /** Projets publics, triés du plus récent au plus ancien. */
+  listPublicProjects(): Project[] {
+    return this.db
+      .prepare("SELECT * FROM projects WHERE visibility = 'public' ORDER BY createdAt DESC")
+      .all() as ProjectRow[];
+  }
+
+  // ─── Membres des projets ────────────────────────────────────────────────────
+  addMember(projectId: string, userId: string, role = 'member'): ProjectMember {
+    const now = Date.now();
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO project_members (projectId, userId, role, joinedAt) VALUES (?, ?, ?, ?)',
+      )
+      .run(projectId, userId, role, now);
+    return { projectId, userId, role, joinedAt: now };
+  }
+
+  listMembers(projectId: string): ProjectMember[] {
+    const rows = this.db
+      .prepare(
+        `SELECT pm.*, u.displayName
+         FROM project_members pm
+         JOIN users u ON pm.userId = u.id
+         WHERE pm.projectId = ?
+         ORDER BY pm.joinedAt`,
+      )
+      .all(projectId) as (ProjectMember & { displayName: string })[];
+    return rows;
+  }
+
+  listUserProjects(userId: string): (ProjectMember & { projectName: string })[] {
+    return this.db
+      .prepare(
+        `SELECT pm.*, p.name as projectName
+         FROM project_members pm
+         JOIN projects p ON pm.projectId = p.id
+         WHERE pm.userId = ?
+         ORDER BY pm.joinedAt DESC`,
+      )
+      .all(userId) as (ProjectMember & { projectName: string })[];
   }
 
   // ─── Nœuds ─────────────────────────────────────────────────────────────────

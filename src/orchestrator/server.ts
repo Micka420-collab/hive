@@ -14,10 +14,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
+import { hashPassword, verifyPassword, signJwt, verifyJwt, isValidEmail } from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import type { User } from '../shared/types.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 
@@ -246,11 +248,67 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   const reject = (reply: FastifyReply) => reply.code(401).send({ error: 'token invalide' });
 
+  /** Requête authentifiée par JWT utilisateur. */
+  interface AuthRequest extends FastifyRequest {
+    userId?: string;
+  }
+
+  const authorizedUser = (req: FastifyRequest): boolean => {
+    const bearer = req.headers.authorization;
+    if (!bearer || !bearer.startsWith('Bearer ')) return false;
+    const token = bearer.slice(7);
+    const payload = verifyJwt(token);
+    if (!payload) return false;
+    (req as AuthRequest).userId = payload.sub;
+    return true;
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
 
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();
+  });
+
+  // ─── Auth routes ──────────────────────────────────────────────────────────
+  app.post<{ Body: { email: string; password: string; displayName: string } }>(
+    '/api/auth/register',
+    async (req, reply) => {
+      const { email, password, displayName } = req.body;
+      if (!isValidEmail(email)) return reply.status(400).send({ error: 'Email invalide' });
+      if (!password || password.length < 8)
+        return reply.status(400).send({ error: 'Mot de passe trop court (min 8 caractères)' });
+      if (!displayName || displayName.length < 2)
+        return reply.status(400).send({ error: 'Nom trop court' });
+      if (store.getUserByEmail(email))
+        return reply.status(409).send({ error: 'Email déjà utilisé' });
+      const user = store.createUser({
+        email,
+        passwordHash: hashPassword(password),
+        displayName,
+      });
+      return { token: signJwt(user.id, user.email) };
+    },
+  );
+
+  app.post<{ Body: { email: string; password: string } }>(
+    '/api/auth/login',
+    async (req, reply) => {
+      const { email, password } = req.body;
+      const user = store.getUserByEmail(email);
+      if (!user || !verifyPassword(password, user.passwordHash))
+        return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
+      return { token: signJwt(user.id, user.email) };
+    },
+  );
+
+  app.get('/api/auth/me', async (req, reply) => {
+    if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+    const userId = (req as AuthRequest).userId!;
+    const user = store.getUserById(userId);
+    if (!user) return reply.status(404).send({ error: 'Utilisateur introuvable' });
+    const { passwordHash, ...publicUser } = user;
+    return publicUser;
   });
 
   // Génère une invitation à envoyer à un ami : elle encode l'URL WS publique + le
@@ -703,6 +761,89 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply.send({ total, recent });
     },
   );
+
+  // ─── Marketplace ───────────────────────────────────────────────────────────
+  // Projets publics — accessible sans authentification.
+  app.get('/api/projects/public', async (_req, reply) => {
+    const projects = store.listPublicProjects();
+    return reply.send(projects);
+  });
+
+  // Créer un projet (via JWT utilisateur). Accepte visibility + ownerId.
+  app.post<{
+    Body: {
+      name: string;
+      repoUrl?: string;
+      description?: string;
+      visibility?: 'public' | 'private';
+    };
+  }>(
+    '/api/projects/user',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['name'],
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: LIMITS.name },
+            repoUrl: { type: 'string', maxLength: 500 },
+            description: { type: 'string', maxLength: 2000 },
+            visibility: { type: 'string', enum: ['public', 'private'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      if (req.body.repoUrl !== undefined && !isValidRepoUrl(req.body.repoUrl)) {
+        return reply.code(400).send({
+          error: 'repoUrl invalide',
+        });
+      }
+      const userId = (req as AuthRequest).userId!;
+      const project = store.createProject({
+        ...req.body,
+        ownerId: userId,
+      });
+      // Ajoute automatiquement le créateur comme membre
+      store.addMember(project.id, userId, 'owner');
+      emitEvent('project_created', { projectId: project.id, name: project.name, userId });
+      return reply.code(201).send(project);
+    },
+  );
+
+  // Rejoindre un projet
+  app.post<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/join',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const userId = (req as AuthRequest).userId!;
+      store.addMember(project.id, userId);
+      emitEvent('project_member_joined', { projectId: project.id, userId });
+      return reply.send({ joined: true, projectId: project.id });
+    },
+  );
+
+  // Lister les membres d'un projet
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/members',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      return reply.send(store.listMembers(project.id));
+    },
+  );
+
+  // Projets de l'utilisateur connecté
+  app.get('/api/user/projects', async (req, reply) => {
+    if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+    const userId = (req as AuthRequest).userId!;
+    return reply.send(store.listUserProjects(userId));
+  });
 
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
