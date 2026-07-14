@@ -25,16 +25,20 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 
 ## ✨ En bref
 
-|                         |                                                                                                                   |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 🧠 **Queen Bee**        | Décrivez un projet en une phrase → un **DAG de tâches** est généré (heuristique ou IA).                           |
-| 🧬 **Hive Mind**        | Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans les suivantes.                |
-| 🛡️ **Sting Detector**   | Repère les tâches concurrentes qui toucheraient le même fichier et **sérialise** pour éviter les conflits.        |
-| 🕸️ **Hub-and-spoke**    | Un orchestrateur, N nœuds membres. Temps réel via WebSocket, état persistant en SQLite.                           |
-| 🐝 **Swarm View**       | Vue vivante de l'essaim, en **2D (SVG léger)** ou **3D ([Galacean Engine](https://github.com/galacean/engine))**. |
-| 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                          |
-| 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées.                  |
-| 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex` — ou votre propre `AgentAdapter`.                                        |
+|                         |                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🎛️ **Mission Control**  | 8 vues navigables (sidebar alvéolaire, touches 1-8, deep-links `#/vue/id`) : Ruche, Reine, Miellerie, Projets, Essaim, Santé, Chronique, Mémoire.                                 |
+| 👑 **La Reine répond**  | Chat multilingue avec la ruche (`POST /api/chat`, CLI `ask`) : avancement réel, santé, classement, aide au brief avec bonnes pratiques. IA optionnelle, repli hors-ligne garanti. |
+| 🍯 **Miellerie**        | Centre de revue des productions IA : diff par fichier, logs, consensus du Parlement, approbation au clavier (j/k/a/x), merge Honeycomb en un geste.                               |
+| 🧠 **Queen Bee**        | Décrivez un projet en une phrase → un **DAG de tâches** est généré (heuristique ou IA).                                                                                           |
+| 🧬 **Hive Mind**        | Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans les suivantes.                                                                                |
+| 🛡️ **Sting Detector**   | Repère les tâches concurrentes qui toucheraient le même fichier et **sérialise** pour éviter les conflits.                                                                        |
+| 🕸️ **Hub-and-spoke**    | Un orchestrateur, N nœuds membres. Temps réel via WebSocket, état persistant en SQLite.                                                                                           |
+| 🐝 **Swarm View**       | Vue vivante de l'essaim, en **2D (SVG léger)** ou **3D ([Galacean Engine](https://github.com/galacean/engine))**.                                                                 |
+| 💓 **Pouls & fantômes** | Signes vitaux agrégés (`/api/pulse`), anomalies (`/api/ghost`), classement nectar (`/api/waggle`), time-lapse (`/api/replay`), rapport projet (`/api/projects/:id/report`).       |
+| 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                                                                                          |
+| 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées. **Jamais de merge sans revue humaine.**                                          |
+| 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex`, `hermes-agent`, `custom` — ou votre propre `AgentAdapter`.                                                                              |
 
 ## 🗺️ Architecture
 
@@ -77,6 +81,45 @@ volontairement à sa première tentative pour illustrer le mécanisme de _retry_
 
 La démo tourne en **mode simulation** (`HIVE_SIMULATION=1`) : adaptateur shell
 simulé, aucun processus lancé, token par défaut toléré (uniquement dans ce mode).
+
+## 🎛️ Mission Control — l'interface de pilotage
+
+Le dashboard (servi sur `:7777`) est une application complète de gestion de la
+ruche, navigable au clavier (touches **1-8**) via une sidebar alvéolaire :
+
+| Vue              | Ce qu'on y fait                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🐝 **Ruche**     | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                             |
+| 👑 **Reine**     | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                               |
+| 🍯 **Miellerie** | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb. |
+| ⬡ **Projets**    | Rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting.                                                      |
+| 🕺 **Essaim**    | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                               |
+| 💓 **Santé**     | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                 |
+| 📜 **Chronique** | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                         |
+| 🧠 **Mémoire**   | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                 |
+
+Les décisions de revue (approuvée/rejetée) sont locales au navigateur en v1 ;
+le merge reste **toujours** un geste humain explicite.
+
+## 👑 La Reine répond — parler à la ruche
+
+Chaque membre (donneur d'ordre comme porteur de nœud) peut interroger la ruche
+en langage naturel — la langue du message est détectée et la réponse arrive
+dans cette langue :
+
+```bash
+npm run cli -- ask "Où en est le projet ?"
+npm run cli -- ask "Which node works best?"
+# ou : POST /api/chat { "message": "…", "projectId"?: "…" } · vue 👑 Reine du dashboard
+```
+
+Deux modes, jamais bloquants : **état réel** (réponses déterministes composées
+depuis les rapports, le pouls, le nectar, les anomalies et la mémoire — 100 %
+hors-ligne) et **IA** (si `ANTHROPIC_API_KEY` est définie côté Queen :
+`HIVE_CHAT_MODEL`, défaut `claude-haiku-4-5` ; la clé ne quitte jamais
+l'orchestrateur, et le modèle ne reçoit que les chiffres réels de la ruche).
+La Reine guide aussi le donneur d'ordre : bonnes pratiques par type de projet
+(web, API, mobile, data, e-commerce, CLI) et structure de brief efficace.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 

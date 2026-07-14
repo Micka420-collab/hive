@@ -5,25 +5,51 @@ Tout changement notable de HIVE est documenté dans ce fichier.
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-07-15
+
+Grande intégration nocturne : les 12 PRs ouvertes (paliers 2 → 4 + innovations)
+fusionnées et réconciliées avec la lignée auth/marketplace/OpenAlex, puis
+refonte complète de l'interface en **Mission Control**.
 
 ### Added
 
-- **🧬 OpenAlex** — moteur de recherche scientifique intégré (papers, auteurs, citations).  
-  Route `GET /api/openlex/search?q=...` + onglet dédié dans le dashboard
-- **🧠 Queen Bee** — découpage IA d'un brief projet en DAG de tâches via OpenRouter.  
-  Commande CLI `brief` + endpoint `POST /brief`
-- **🧩 Hive Mind** — mémoire RAG partagée entre agents. Store hybride SQLite FTS5 +  
-  embeddings Ollama. API `POST /api/memory`, `GET /api/memory/search?q=...`
-- **🔐 Authentification** — register/login JWT + marketplace de projets publics
-- **Adaptateur Hermes Agent** — `hermes agent run --prompt "<prompt>"`
-- **Dashboard React + Vite** — Swarm View 2D/3D (Galacean), KPI, journal, tiroir  
-  CodeMirror, création projet/tâches UI, panneau d'invitation
+- **🎛️ Mission Control** — le dashboard devient une application 8 vues
+  (sidebar alvéolaire, navigation hash, touches 1-8, deep-links) : Ruche,
+  Reine, Miellerie, Projets, Essaim, Santé, Chronique, Mémoire.
+- **👑 La Reine répond** — dialogue multilingue avec la ruche
+  (`POST /api/chat`, CLI `ask`, vue dédiée) : avancement réel, résumé du
+  journal, classement, santé, aide au cadrage avec bonnes pratiques par type
+  de projet. Détection de langue (fr/en natif, toute langue via IA), repli
+  hors-ligne déterministe garanti — le modèle ne reçoit que les chiffres réels.
+- **🍯 Miellerie** — centre de revue des productions IA : file triée
+  (échecs d'abord), diff découpé par fichier avec stats +/−, logs, consensus
+  du Parlement (barre de factions, quorum), approbation/rejet au clavier
+  (j/k/a/x), footer merge Honeycomb avec suivi du résultat.
+- **Paliers 2→4 fusionnés dans main** : Queen Bee (planner heuristique +
+  Claude), Hive Mind (BM25, injection de contexte à l'assignation),
+  Sting Detector, Honeycomb Merge (plan + exécution réelle sur nœud),
+  token-failover, sous-agents, adaptateur commande libre, Time-Lapse Replay,
+  Drone Wars (cœur pur), Waggle Board, Parlement des Agents, Ghost in the
+  Hive, Night Shift, Hive Pulse, rapport par projet, garde des invariants
+  de sécurité (§5).
+- **🧬 OpenAlex** — moteur de recherche scientifique intégré, désormais dans
+  la vue Mémoire.
+- **🔐 Authentification** — register/login JWT (node:crypto pur) +
+  marketplace de projets publics.
+- **Adaptateur Hermes Agent** — `hermes agent run --prompt "<prompt>"`.
+
+### Changed
+
+- Queen Bee : deux backends complémentaires — `/api/plan` (heuristique +
+  Claude via `ANTHROPIC_API_KEY`) et `/api/projects/:id/brief` (OpenRouter).
+- Hive Mind : la variante BM25 câblée de bout en bout (protocole → nœud →
+  dashboard) remplace la classe FTS5 ; le contexte est joint à l'assignation
+  côté serveur, sans réécrire le prompt persisté.
 
 ### Fixed
 
-- Compilation TypeScript stricte (`tsc --noEmit` propre)
-- Tests Hive Mind : correction FTS5 (requête → OR) + assertion `buildContext`
+- Compilation TypeScript stricte (`tsc --noEmit` propre), ESLint + Prettier
+  zéro erreur, 253 tests vitest verts.
 
 ## [0.1.0] — 2026-07-14
 
