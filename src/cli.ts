@@ -18,6 +18,7 @@
 //   npm run cli -- ghost                              anomalies (nœuds/tâches douteux)
 //   npm run cli -- shift                              disponibilité heures creuses (HIVE_SHIFT, local)
 //   npm run cli -- pulse                              signes vitaux de la ruche
+//   npm run cli -- report <projectId>                 avancement d'un projet
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
@@ -25,6 +26,7 @@
 import { readFileSync } from 'node:fs';
 import type { GhostReport } from './orchestrator/ghost.js';
 import type { Verdict } from './orchestrator/parliament.js';
+import type { ProjectReport } from './orchestrator/project-report.js';
 import type { HivePulse } from './orchestrator/pulse.js';
 import type { ReplayResult, TaskCounts } from './orchestrator/replay.js';
 import type { WaggleBoard } from './orchestrator/waggle.js';
@@ -419,6 +421,21 @@ async function cmdPulse(): Promise<void> {
   if (spark) console.log(`  Débit/h : ${spark}`);
 }
 
+/** Rapport d'avancement d'un projet. */
+async function cmdReport(projectId: string): Promise<void> {
+  const r = await api<ProjectReport>(`/api/projects/${projectId}/report`);
+  const filled = Math.round((r.progressPct / 100) * 20);
+  const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
+  console.log(`📋 ${r.name} — ${bar} ${r.progressPct}%${r.complete ? ' ✅' : ''}`);
+  console.log(
+    `  ${r.total} tâche(s) : ✔${r.byStatus.done} ▶${r.byStatus.running} ◈${r.byStatus.assigned} ` +
+      `◇${r.byStatus.ready} ·${r.byStatus.pending} ✘${r.byStatus.failed}`,
+  );
+  console.log(
+    `  Nœuds contributeurs : ${r.contributingNodes.length || '—'} · tentatives cumulées : ${r.totalAttempts}`,
+  );
+}
+
 interface InviteResponse {
   invite: string;
   url: string;
@@ -463,10 +480,11 @@ try {
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
   else if (cmd === 'pulse') await cmdPulse();
+  else if (cmd === 'report' && a1) await cmdReport(a1);
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

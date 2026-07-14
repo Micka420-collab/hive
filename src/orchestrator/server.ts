@@ -25,6 +25,7 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { planBrief } from './planner.js';
+import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
@@ -554,6 +555,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   interface NewTaskBody {
     tasks: { id?: string; title: string; prompt: string; dependsOn?: string[] }[];
   }
+
+  // Rapport d'avancement d'un projet (lecture seule) : avancement %, répartition
+  // par statut, nœuds contributeurs. Calculé à partir des tâches du projet.
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/report',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      return buildProjectReport(project, store.listTasks(project.id));
+    },
+  );
 
   app.post<{ Params: { projectId: string }; Body: NewTaskBody }>(
     '/api/projects/:projectId/tasks',
