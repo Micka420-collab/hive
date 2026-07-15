@@ -14,12 +14,13 @@ import './chronique.css';
 
 // ─── Familles d'événements (chips de filtre) ────────────────────────────────
 
-type Family = 'taches' | 'noeuds' | 'merge' | 'conflits' | 'memoire' | 'autres';
+type Family = 'taches' | 'noeuds' | 'courses' | 'merge' | 'conflits' | 'memoire' | 'autres';
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
 const FAMILIES: { id: Family; fr: string; en: string }[] = [
   { id: 'taches', fr: '🐝 Tâches', en: '🐝 Tasks' },
   { id: 'noeuds', fr: '🖥️ Nœuds', en: '🖥️ Nodes' },
+  { id: 'courses', fr: '⚔ Courses', en: '⚔ Races' },
   { id: 'merge', fr: '🍯 Merge', en: '🍯 Merge' },
   { id: 'conflits', fr: '🛡️ Conflits', en: '🛡️ Conflicts' },
   { id: 'memoire', fr: '🧬 Mémoire', en: '🧬 Memory' },
@@ -28,6 +29,7 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
 
 function familyOf(type: string): Family {
   if (type === 'conflict_detected' || type === 'task_conflict_deferred') return 'conflits';
+  if (type.startsWith('drone')) return 'courses';
   if (type.startsWith('merge')) return 'merge';
   if (type.startsWith('memory')) return 'memoire';
   if (type.startsWith('task')) return 'taches';
@@ -77,6 +79,7 @@ export default function Chronique({ events }: ViewProps) {
     const c: Record<Family, number> = {
       taches: 0,
       noeuds: 0,
+      courses: 0,
       merge: 0,
       conflits: 0,
       memoire: 0,

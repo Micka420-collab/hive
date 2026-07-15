@@ -148,6 +148,69 @@ const EVENTS: Record<string, Meta> = {
     cls: 'muted',
     text: (p, t) => t(`résultat périmé (${short(p.taskId)})`, `stale result (${short(p.taskId)})`),
   },
+  drone_race_started: {
+    icon: '⚔',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `course lancée : ${String(Array.isArray(p.drones) ? p.drones.length : p.factor)} drone(s) sur ${short(p.taskId)}`,
+        `race started: ${String(Array.isArray(p.drones) ? p.drones.length : p.factor)} drone(s) on ${short(p.taskId)}`,
+      ),
+  },
+  drone_won: {
+    icon: '🏆',
+    cls: 'done',
+    text: (p, t) =>
+      t(
+        `course gagnée par ${short(p.nodeId)} (${short(p.taskId)})`,
+        `race won by ${short(p.nodeId)} (${short(p.taskId)})`,
+      ),
+  },
+  drone_cancelled: {
+    icon: '⊘',
+    cls: 'muted',
+    text: (p, t) =>
+      t(
+        `drone annulé : ${short(p.nodeId)} (course tranchée)`,
+        `drone cancelled: ${short(p.nodeId)} (race decided)`,
+      ),
+  },
+  drone_failed: {
+    icon: '🪂',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `drone tombé : ${short(p.nodeId)}, la course continue`,
+        `drone down: ${short(p.nodeId)}, race goes on`,
+      ),
+  },
+  drone_promoted: {
+    icon: '⬆',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `drone promu primaire : ${short(p.nodeId)} (${short(p.taskId)})`,
+        `drone promoted to primary: ${short(p.nodeId)} (${short(p.taskId)})`,
+      ),
+  },
+  drone_rejected: {
+    icon: '⇄',
+    cls: 'muted',
+    text: (p, t) =>
+      t(
+        `drone a décliné : ${short(p.nodeId)} (${short(p.taskId)})`,
+        `drone declined: ${short(p.nodeId)} (${short(p.taskId)})`,
+      ),
+  },
+  drone_all_failed: {
+    icon: '⚔',
+    cls: 'fail',
+    text: (p, t) =>
+      t(
+        `course perdue : tous les drones ont échoué (${short(p.taskId)})`,
+        `race lost: every drone failed (${short(p.taskId)})`,
+      ),
+  },
   boot_recovery: {
     icon: '⟲',
     cls: 'info',
