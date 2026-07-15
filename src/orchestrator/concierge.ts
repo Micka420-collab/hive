@@ -36,6 +36,13 @@ export interface ConciergeContext {
   reviews: Record<string, 'approved' | 'rejected'>;
   /** Tâches terminées ou échouées (candidates à la revue humaine). */
   finishedTasks: { id: string; title: string; status: 'done' | 'failed' }[];
+  /** Courses de drones en vol (Drone Wars), avec le titre de la tâche disputée. */
+  races: {
+    taskId: string;
+    title: string;
+    factor: number;
+    drones: { nodeId: string; status: string }[];
+  }[];
   /** Projet ciblé par la question (optionnel). */
   focusProjectId?: string | null;
 }
@@ -126,7 +133,7 @@ export function detectLanguage(text: string): Lang {
 // ─── Détection d'intention (accents ignorés, mots-clés fr + en) ──────────────
 
 export type Intent =
-  'progress' | 'recent' | 'nodes' | 'health' | 'memory' | 'review' | 'brief' | 'help';
+  'progress' | 'recent' | 'nodes' | 'races' | 'health' | 'memory' | 'review' | 'brief' | 'help';
 
 function normalize(text: string): string {
   return text
@@ -177,6 +184,13 @@ const INTENT_KEYWORDS: [Intent, string[]][] = [
       'latency',
       'anomal',
     ],
+  ],
+  [
+    // Avant `nodes` : « quel drone a gagné la course ? » parle de courses,
+    // pas du classement. (`course` est sûr : normalize() ne touche pas aux
+    // mots anglais et « of course » reste rare dans une question à la Reine.)
+    'races',
+    ['course', 'drone', 'race', 'duel', 'competit'],
   ],
   [
     'nodes',
@@ -412,6 +426,7 @@ const SUGGESTIONS: Record<Lang, Record<Intent, string[]>> = {
       'Où en est le projet ?',
       'Quel nœud travaille le mieux ?',
     ],
+    races: ['Quel nœud travaille le mieux ?', 'Où en est le projet ?'],
     memory: ['Où en est le projet ?', 'Aide-moi à écrire un bon brief'],
     review: ['Où en est le projet ?', 'Quel nœud travaille le mieux ?'],
     brief: ['Quelles bonnes pratiques pour une API ?', 'Où en est le projet ?'],
@@ -426,6 +441,7 @@ const SUGGESTIONS: Record<Lang, Record<Intent, string[]>> = {
     recent: ['How is the project going?', 'Any anomalies?', 'What has the hive learned?'],
     nodes: ['How is the project going?', 'How do I invite a friend?', 'Is the hive healthy?'],
     health: ['What happened recently?', 'How is the project going?', 'Which node works best?'],
+    races: ['Which node works best?', 'How is the project going?'],
     memory: ['How is the project going?', 'Help me write a good brief'],
     review: ['How is the project going?', 'Which node works best?'],
     brief: ['Best practices for an API?', 'How is the project going?'],
@@ -533,6 +549,33 @@ function nodesReply(ctx: ConciergeContext, lang: Lang): string {
     lang === 'fr'
       ? `🍯 Classement des ouvrières (${ctx.waggle.totalTasksDone} tâche(s) butinées) :`
       : `🍯 Worker leaderboard (${ctx.waggle.totalTasksDone} task(s) gathered):`;
+  return [head, ...lines].join('\n');
+}
+
+function racesReply(ctx: ConciergeContext, lang: Lang): string {
+  if (ctx.races.length === 0) {
+    return lang === 'fr'
+      ? 'Aucune course de drones en vol. Pour en lancer une : le bouton ⚔ du tiroir d’une tâche prête, ou `npm run cli -- race <taskId>` — la même tâche part sur plusieurs nœuds, le premier succès gagne, les perdants sont annulés.'
+      : 'No drone race in flight. To start one: the ⚔ button in a ready task’s drawer, or `npm run cli -- race <taskId>` — the same task flies on several nodes, first success wins, losers are cancelled.';
+  }
+  const nameOf = (nodeId: string): string => {
+    const node = ctx.nodes.find((n) => n.id === nodeId);
+    return node ? clean(node.name) : `${nodeId.slice(0, 8)}…`;
+  };
+  // En vol, un drone est soit encore en course (✈) soit déjà tombé (✘) — une
+  // course tranchée disparaît de la liste, donc pas d'état « gagné » ici.
+  const icon: Record<string, string> = { running: '✈', succeeded: '🏆', failed: '✘' };
+  const lines = ctx.races.map((r) => {
+    const flying = r.drones.filter((d) => d.status === 'running').length;
+    const drones = r.drones.map((d) => `${icon[d.status] ?? '?'} ${nameOf(d.nodeId)}`).join(', ');
+    return lang === 'fr'
+      ? `⚔ « ${clean(r.title)} » — ${flying} drone(s) en vol sur ${r.drones.length} : ${drones}`
+      : `⚔ “${clean(r.title)}” — ${flying} of ${r.drones.length} drone(s) still flying: ${drones}`;
+  });
+  const head =
+    lang === 'fr'
+      ? `${ctx.races.length} course(s) de drones en vol :`
+      : `${ctx.races.length} drone race(s) in flight:`;
   return [head, ...lines].join('\n');
 }
 
@@ -676,15 +719,17 @@ export function answerLive(question: string, ctx: ConciergeContext): ConciergeAn
         ? recentReply(ctx, lang)
         : intent === 'nodes'
           ? nodesReply(ctx, lang)
-          : intent === 'health'
-            ? healthReply(ctx, lang)
-            : intent === 'memory'
-              ? memoryReply(ctx, lang)
-              : intent === 'review'
-                ? reviewReply(ctx, lang)
-                : intent === 'brief'
-                  ? briefReply(question, ctx, lang)
-                  : helpReply(ctx, lang);
+          : intent === 'races'
+            ? racesReply(ctx, lang)
+            : intent === 'health'
+              ? healthReply(ctx, lang)
+              : intent === 'memory'
+                ? memoryReply(ctx, lang)
+                : intent === 'review'
+                  ? reviewReply(ctx, lang)
+                  : intent === 'brief'
+                    ? briefReply(question, ctx, lang)
+                    : helpReply(ctx, lang);
   return { reply, source: 'live', lang, suggestions: SUGGESTIONS[lang][intent] };
 }
 
@@ -725,6 +770,11 @@ export function buildChatPrompt(
       reussites: n.tasksDone,
       echecs: n.tasksFailed,
       victoiresDeCourse: n.raceWins,
+    })),
+    coursesEnVol: ctx.races.map((r) => ({
+      tache: clean(r.title),
+      dronesEnVol: r.drones.filter((d) => d.status === 'running').length,
+      dronesEnroles: r.drones.length,
     })),
     anomalies: ctx.ghosts
       .slice(0, 5)

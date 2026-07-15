@@ -648,6 +648,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .listTasks(focusId ?? undefined)
           .filter((t) => t.status === 'done' || t.status === 'failed')
           .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
+        races: scheduler.listRaces().map((r) => ({
+          taskId: r.taskId,
+          title: store.getTask(r.taskId)?.title ?? r.taskId,
+          factor: r.factor,
+          drones: r.drones.map((d) => ({ nodeId: d.nodeId, status: d.status })),
+        })),
         focusProjectId: req.body.projectId ?? null,
       };
       const llm = llmPlannerAvailable() ? anthropicLlm() : undefined;

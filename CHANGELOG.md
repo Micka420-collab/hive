@@ -42,6 +42,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Courses visibles** — `GET /api/races` expose les courses en vol ; les
   cartes de nœuds de l'Essaim portent un badge ⚔ animé quand un de leurs
   drones vole encore.
+- **La Reine parle courses** — nouvelle intention `races` fr/en (« y a-t-il
+  des courses en vol ? ») : courses réelles avec drones nommés et statuts,
+  ou mode d'emploi pour en lancer une ; courses exposées au mode IA. Le suivi
+  est complet : CLI `races`, badge ⚔ Essaim, famille « Courses » en Chronique,
+  démo avec course automatique.
 - **Night Shift câblé** — `HIVE_SHIFT` agit vraiment : hors des heures de
   service du membre, le nœud refuse poliment tâches ET merges (aucune
   tentative brûlée, `retryAfterMs` évite la re-sollicitation en boucle,
@@ -51,6 +56,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- 4 correctifs (revue du suivi de courses) : victoires plafonnées aux tâches
+  visibles du journal (pas de bonus fantôme après élagage), badge ⚔ coupé par
+  `prefers-reduced-motion` et éteint si le poll `/api/races` est en panne,
+  `role="img"` sur le badge (aria-label prohibé sur un span générique).
 - 8 correctifs (revue du câblage Drone Wars) : startRace respecte le Sting
   Detector, drones fantômes purgés à la réconciliation, capacité consciente
   des drones non-primaires (fini la sur-réservation), promotion en `assigned`

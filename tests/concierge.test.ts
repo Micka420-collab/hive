@@ -91,6 +91,7 @@ function makeCtx(over: Partial<ConciergeContext> = {}): ConciergeContext {
     },
     ghosts: [],
     memories: [],
+    races: [],
     recentEvents: [
       { id: 1, ts: 1000, type: 'task_done', payload: {} },
       { id: 2, ts: 2000, type: 'task_failed', payload: {} },
@@ -222,6 +223,39 @@ describe('answerLive', () => {
     expect(a.lang).toBe('en');
     expect(a.reply).toContain('leaderboard');
     expect(a.reply).toContain('🥇 ruche-alpha');
+  });
+
+  it('courses : détectées fr/en, réponse avec drones réels ou invitation à lancer', () => {
+    expect(detectIntent('y a-t-il des courses de drones en vol ?')).toBe('races');
+    expect(detectIntent('any drone race running?')).toBe('races');
+
+    // Aucune course : la Reine explique comment en lancer une.
+    const vide = answerLive('y a-t-il une course en vol ?', makeCtx());
+    expect(vide.reply).toContain('Aucune course');
+    expect(vide.reply).toContain('npm run cli -- race');
+
+    // Une course en vol : tâche, drones nommés et statuts.
+    const ctx = makeCtx({
+      races: [
+        {
+          taskId: 't9',
+          title: 'Audit de sécurité',
+          factor: 2,
+          drones: [
+            { nodeId: 'n1', status: 'running' },
+            { nodeId: 'autre-noeud-inconnu', status: 'failed' },
+          ],
+        },
+      ],
+    });
+    const fr = answerLive('où en sont les courses ?', ctx);
+    expect(fr.reply).toContain('1 course(s) de drones en vol');
+    expect(fr.reply).toContain('Audit de sécurité');
+    expect(fr.reply).toContain('✈ ruche-alpha'); // n1 résolu par son nom
+    expect(fr.reply).toContain('✘'); // le drone tombé
+    const en = answerLive('is there a race in flight?', ctx);
+    expect(en.lang).toBe('en');
+    expect(en.reply).toContain('drone race(s) in flight');
   });
 
   it('classement : mentionne les victoires de course seulement si > 0', () => {
