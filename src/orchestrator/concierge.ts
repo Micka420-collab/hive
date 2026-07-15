@@ -40,7 +40,6 @@ export interface ConciergeContext {
   races: {
     taskId: string;
     title: string;
-    factor: number;
     drones: { nodeId: string; status: string }[];
   }[];
   /** Projet ciblé par la question (optionnel). */
@@ -118,6 +117,11 @@ const EN_MARKERS = [
   'health',
   'which',
   'where',
+  ' any ',
+  'running',
+  // `race` n'apparaît pas dans les questions françaises (on dit « course ») :
+  // marqueur anglais sans ambiguïté pour les questions Drone Wars courtes.
+  ' race ',
 ];
 
 /**
@@ -145,6 +149,19 @@ function normalize(text: string): string {
 }
 
 const INTENT_KEYWORDS: [Intent, string[]][] = [
+  [
+    // En tête : le vocabulaire de course est très spécifique, alors que
+    // `brief` matche des verbes génériques (démarrer/start) — « comment
+    // démarrer une course ? » doit parler de courses. Frontières de mots :
+    // les mots-clés préfixés d'un espace ne matchent qu'en début de mot
+    // (la question est encadrée d'espaces dans detectIntent) — ` race`
+    // écarte retrace/trace/grâce/embrace, ` duel` écarte individuel.
+    // `competition` (et non `competit`) laisse « compétitif » au classement.
+    // Les locutions « of course » et « race condition » sont neutralisées
+    // avant le match (voir detectIntent).
+    'races',
+    [' race', 'course', 'drone', ' duel', 'competition'],
+  ],
   [
     'brief',
     [
@@ -184,13 +201,6 @@ const INTENT_KEYWORDS: [Intent, string[]][] = [
       'latency',
       'anomal',
     ],
-  ],
-  [
-    // Avant `nodes` : « quel drone a gagné la course ? » parle de courses,
-    // pas du classement. (`course` est sûr : normalize() ne touche pas aux
-    // mots anglais et « of course » reste rare dans une question à la Reine.)
-    'races',
-    ['course', 'drone', 'race', 'duel', 'competit'],
   ],
   [
     'nodes',
@@ -265,7 +275,14 @@ const INTENT_KEYWORDS: [Intent, string[]][] = [
 ];
 
 export function detectIntent(question: string): Intent {
-  const q = normalize(question);
+  // Espaces de garde (les mots-clés « frontière » commencent par un espace),
+  // puis neutralisation de deux locutions qui contiennent un mot-clé de
+  // course sans parler de Drone Wars : « of course » (marqueur de discours
+  // anglais — contient le mot entier `course`, une frontière ne suffit pas)
+  // et « race condition » (question de développeur).
+  const q = ` ${normalize(question)
+    .replace(/\bof courses?\b/g, ' ')
+    .replace(/race conditions?/g, ' ')} `;
   for (const [intent, words] of INTENT_KEYWORDS) {
     if (words.some((w) => q.includes(w))) return intent;
   }

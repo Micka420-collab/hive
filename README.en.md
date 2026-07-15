@@ -64,7 +64,8 @@ npm run demo
 
 Open **http://localhost:7777**: the Swarm View shows the orchestrator live,
 2 simulated nodes (`ruche-alpha`, `ruche-beta`) and a demo project of
-**7 tasks with dependencies** (DAG). The "Billing API" task deliberately fails
+**7 tasks with dependencies** (DAG). The "API de facturation" (billing API)
+task deliberately fails
 on its first attempt to demonstrate the _retry_ mechanism, and an 8th task
 takes off as a **drone race** (⚔) across both nodes as soon as they are
 online — ⚔ badge in the Swarm view, `npm run cli -- races` to follow it.
@@ -125,7 +126,7 @@ an effective brief structure.
 ## 🧠 Queen Bee — from brief to DAG
 
 In **"New project"**, describe the goal in natural language and click
-**"✨ Generate tasks"**: Hive proposes a task graph, editable before launch.
+**"✨ Generate the tasks"**: Hive proposes a task graph, editable before launch.
 From a terminal: `POST /api/plan { "brief": "…" }`.
 
 The planner is **pluggable**, with automatic fallback — never blocking:
@@ -380,7 +381,7 @@ tests/            scheduler · adapters · e2e · resilience · protocol · hard
 - **Tier 4** ✅ — **Nectar & Waggle Board** (+ ⚔ race-win bonus) ·
   **Night Shift** (per-member service hours) · **Agents' Parliament**
   (consensus by vote) · **Ghost in the Hive** (journal anomalies).
-- **Next** — hardened isolation (VM/container), multi-user accounts,
-  hive federation.
+- **Next** — hardened isolation (VM/container), hive federation, finishing
+  user accounts (login UI on top of the existing JWT auth).
 
 <div align="center"><sub>Made with 🍯 — every worker bee counts.</sub></div>

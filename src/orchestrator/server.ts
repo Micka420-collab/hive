@@ -651,7 +651,6 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         races: scheduler.listRaces().map((r) => ({
           taskId: r.taskId,
           title: store.getTask(r.taskId)?.title ?? r.taskId,
-          factor: r.factor,
           drones: r.drones.map((d) => ({ nodeId: d.nodeId, status: d.status })),
         })),
         focusProjectId: req.body.projectId ?? null,

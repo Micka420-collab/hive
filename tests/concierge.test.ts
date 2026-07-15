@@ -225,9 +225,27 @@ describe('answerLive', () => {
     expect(a.reply).toContain('🥇 ruche-alpha');
   });
 
+  it('courses : les mots-clés respectent les frontières de mots (pas de détournement)', () => {
+    // Sous-chaînes pièges démontrées par la revue adversariale : chacune
+    // contenait un mot-clé de course et détournait l'intention d'origine.
+    expect(detectIntent('Retrace-moi ce qui s est passé cette nuit')).toBe('recent');
+    expect(detectIntent('can you trace what happened tonight?')).toBe('recent');
+    expect(detectIntent('Quel est le score individuel de chaque nœud ?')).toBe('nodes');
+    expect(detectIntent('Of course, how is the project going?')).toBe('progress');
+    expect(detectIntent('is there a race condition in the merge?')).not.toBe('races');
+    expect(detectIntent('y a-t-il une race condition dans le scheduler ?')).not.toBe('races');
+    expect(detectIntent('Grâce à quel nœud le projet a-t-il avancé ?')).toBe('nodes');
+    expect(detectIntent('quel nœud est le plus compétitif ?')).toBe('nodes');
+    // Et l'inverse : le vocabulaire de course prime sur les verbes génériques.
+    expect(detectIntent('comment démarrer une course ?')).toBe('races');
+    expect(detectIntent('how do I start a drone race?')).toBe('races');
+  });
+
   it('courses : détectées fr/en, réponse avec drones réels ou invitation à lancer', () => {
     expect(detectIntent('y a-t-il des courses de drones en vol ?')).toBe('races');
     expect(detectIntent('any drone race running?')).toBe('races');
+    // Question anglaise courte : la langue doit aussi être détectée.
+    expect(answerLive('any drone race running?', makeCtx()).lang).toBe('en');
 
     // Aucune course : la Reine explique comment en lancer une.
     const vide = answerLive('y a-t-il une course en vol ?', makeCtx());
@@ -240,7 +258,6 @@ describe('answerLive', () => {
         {
           taskId: 't9',
           title: 'Audit de sécurité',
-          factor: 2,
           drones: [
             { nodeId: 'n1', status: 'running' },
             { nodeId: 'autre-noeud-inconnu', status: 'failed' },

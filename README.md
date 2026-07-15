@@ -386,7 +386,8 @@ tests/            scheduler · adapters · e2e · resilience · protocol · hard
 - **Palier 4** ✅ — **Nectar & Waggle Board** (+ bonus de victoire ⚔) ·
   **Night Shift** (heures de service par membre) · **Parlement des Agents**
   (consensus par vote) · **Ghost in the Hive** (anomalies du journal).
-- **Ensuite** — isolation durcie (VM/conteneur), comptes multi-utilisateurs,
-  fédération de ruches.
+- **Ensuite** — isolation durcie (VM/conteneur), fédération de ruches,
+  finalisation des comptes utilisateurs (UI de connexion sur l'auth JWT
+  existante).
 
 <div align="center"><sub>Fait avec 🍯 — chaque ouvrière compte.</sub></div>
