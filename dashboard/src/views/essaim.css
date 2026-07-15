@@ -54,6 +54,64 @@
   gap: 8px;
 }
 
+/* Colonne droite : courses en vol (si présentes) + Waggle Board empilés. */
+.es-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ─── Courses en vol (Drone Wars) ─────────────────────────────────────── */
+
+.es-races {
+  list-style: none;
+  margin: 0;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.es-race-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.es-race-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.es-race-drones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.es-race-drone {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.es-race-drone.running {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+.es-race-drone.failed {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
 /* Badge ⚔ : le nœud a un drone en vol dans une course (Drone Wars). */
 .es-race-badge {
   margin-right: 6px;

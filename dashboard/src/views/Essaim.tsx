@@ -149,6 +149,46 @@ function NectarList({ board }: { board: WaggleBoard }) {
   );
 }
 
+/** Carte « Courses en vol » : rendue seulement s'il y a au moins une course. */
+function RacesCard({
+  races,
+  snapshot,
+}: {
+  races: { taskId: string; factor: number; drones: { nodeId: string; status: string }[] }[];
+  snapshot: ViewProps['snapshot'];
+}) {
+  const t = useT();
+  const titleOf = (taskId: string): string =>
+    snapshot.tasks.find((task) => task.id === taskId)?.title ?? `${taskId.slice(0, 8)}…`;
+  const nameOf = (nodeId: string): string =>
+    snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
+  const ICON: Record<string, string> = { running: '✈', failed: '✘', succeeded: '🏆' };
+  return (
+    <section className="card">
+      <header className="panel-head">
+        <h2>{t('⚔ Courses en vol', '⚔ Races in flight')}</h2>
+        <span className="panel-count">{races.length}</span>
+      </header>
+      <ul className="es-races">
+        {races.map((r) => (
+          <li key={r.taskId} className="es-race-row">
+            <span className="es-race-title" title={titleOf(r.taskId)}>
+              {titleOf(r.taskId)}
+            </span>
+            <span className="es-race-drones">
+              {r.drones.map((d) => (
+                <span key={d.nodeId} className={`es-race-drone ${d.status}`} title={d.status}>
+                  {ICON[d.status] ?? '?'} {nameOf(d.nodeId)}
+                </span>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProps) {
   const t = useT();
   const waggle = useApiPoll(fetchWaggle, 30_000, refreshTick);
@@ -158,10 +198,10 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
   // Nœuds avec un drone encore en vol : marqués ⚔ sur leur carte. Les courses
   // vivent en mémoire du hub : si le poll tombe en panne, races.data est
   // périmé — on éteint le badge plutôt que d'affirmer une course fantôme.
+  const liveRaces = races.error === null ? (races.data?.races ?? []) : [];
   const racingNodes = new Set<string>();
-  if (races.error === null)
-    for (const r of races.data?.races ?? [])
-      for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
+  for (const r of liveRaces)
+    for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
 
   return (
     <div className="mc-view es-view">
@@ -194,34 +234,37 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
           )}
         </section>
 
-        <section className="card">
-          <header className="panel-head">
-            <h2>Waggle Board</h2>
-            {board && (
-              <span className="panel-count">
-                ✔ {board.totalTasksDone} · ✘ {board.totalTasksFailed}
-              </span>
-            )}
-          </header>
-          {waggle.error && <p className="panel-error">{waggle.error}</p>}
-          {!board && !waggle.error && (
-            <p className="empty pad">{t('Lecture de la danse…', 'Reading the dance…')}</p>
-          )}
-          {board && board.nodes.length === 0 && (
-            <p className="empty pad">
-              {t(
-                'La danse frétillante attend le premier nectar.',
-                'The waggle dance awaits its first nectar.',
+        <div className="es-right-col">
+          {liveRaces.length > 0 && <RacesCard races={liveRaces} snapshot={snapshot} />}
+          <section className="card">
+            <header className="panel-head">
+              <h2>Waggle Board</h2>
+              {board && (
+                <span className="panel-count">
+                  ✔ {board.totalTasksDone} · ✘ {board.totalTasksFailed}
+                </span>
               )}
-            </p>
-          )}
-          {board && board.nodes.length > 0 && (
-            <>
-              <Podium nodes={board.nodes} />
-              <NectarList board={board} />
-            </>
-          )}
-        </section>
+            </header>
+            {waggle.error && <p className="panel-error">{waggle.error}</p>}
+            {!board && !waggle.error && (
+              <p className="empty pad">{t('Lecture de la danse…', 'Reading the dance…')}</p>
+            )}
+            {board && board.nodes.length === 0 && (
+              <p className="empty pad">
+                {t(
+                  'La danse frétillante attend le premier nectar.',
+                  'The waggle dance awaits its first nectar.',
+                )}
+              </p>
+            )}
+            {board && board.nodes.length > 0 && (
+              <>
+                <Podium nodes={board.nodes} />
+                <NectarList board={board} />
+              </>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );
