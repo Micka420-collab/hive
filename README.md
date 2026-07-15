@@ -4,6 +4,8 @@
 
 **Orchestration communautaire d'agents IA — l'essaim, en temps réel, persistant et visible.**
 
+🇫🇷 Français · [🇬🇧 English](README.en.md)
+
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -367,19 +369,24 @@ dashboard/        Vite + React : SwarmView 2D/3D (Galacean) · StatTiles · Node
                   Journal · TaskDrawer (+ CodeEditor) · NewProjectModal · InvitePanel
                   HiveMindPanel · ConflictsPanel (Palier 2)
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
-                  invite · planner · hive-mind · sting-detector  — 110 tests
+                  invite · planner · hive-mind · sting-detector · drone-wars
+                  concierge · reviews · night-shift · waggle · merge — 289 tests
 ```
 
 ## 🧭 Roadmap
 
 - **Palier 1** ✅ — essaim réel, temps réel, persistant ; Swarm View 2D/3D ;
   invitations ; éditeur intégré ; sécurité & sandbox v0.
-- **Palier 2** ✅ _(v0 des trois briques)_ — **Queen Bee** (découpage IA d'un
-  brief en DAG) ✅ · **Hive Mind** (mémoire partagée : la ruche apprend des tâches
-  passées) ✅ · **Sting Detector** (prévention de conflits par sérialisation) ✅.
-- **Palier 3** — Honeycomb Merge (merge sémantique + tests) · Drone Wars
-  (redondance compétitive) · Time-Lapse Replay (depuis le journal d'événements).
-- **Palier 4** — Nectar & Waggle Board · Night Shift · Parlement des Agents ·
-  Ghost in the Hive.
+- **Palier 2** ✅ — **Queen Bee** (découpage IA d'un brief en DAG) ·
+  **Hive Mind** (mémoire partagée : la ruche apprend des tâches passées) ·
+  **Sting Detector** (prévention de conflits par sérialisation).
+- **Palier 3** ✅ — **Honeycomb Merge** (plan d'intégration + exécution réelle
+  sur un nœud, sélection de revue) · **Drone Wars** (redondance compétitive
+  opt-in) · **Time-Lapse Replay** (depuis le journal d'événements).
+- **Palier 4** ✅ — **Nectar & Waggle Board** (+ bonus de victoire ⚔) ·
+  **Night Shift** (heures de service par membre) · **Parlement des Agents**
+  (consensus par vote) · **Ghost in the Hive** (anomalies du journal).
+- **Ensuite** — isolation durcie (VM/conteneur), comptes multi-utilisateurs,
+  fédération de ruches.
 
 <div align="center"><sub>Fait avec 🍯 — chaque ouvrière compte.</sub></div>
