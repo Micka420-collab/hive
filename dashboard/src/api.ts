@@ -142,6 +142,14 @@ export function raceTask(
   });
 }
 
+export type { DroneRace } from '../../src/orchestrator/drone-wars';
+import type { DroneRace } from '../../src/orchestrator/drone-wars';
+
+/** Course en vol d'une tâche (null si aucune). */
+export function fetchRace(taskId: string): Promise<{ race: DroneRace | null }> {
+  return api<{ race: DroneRace | null }>(`/api/tasks/${taskId}/race`);
+}
+
 export interface InviteResponse {
   invite: string;
   url: string;

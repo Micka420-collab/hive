@@ -2,7 +2,8 @@
 // revue humaine, avec possibilité d'annuler une tâche en cours.
 
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { cancelTask, fetchResults, raceTask } from './api';
+import { cancelTask, fetchRace, fetchResults, raceTask } from './api';
+import type { DroneRace } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
@@ -24,6 +25,7 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [raced, setRaced] = useState<number | null>(null);
+  const [race, setRace] = useState<DroneRace | null>(null);
   const [editable, setEditable] = useState(false);
   const [edited, setEdited] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -39,6 +41,22 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
       alive = false;
     };
   }, [task.id]);
+
+  // Drone Wars : une course est-elle en vol sur cette tâche ? (lecture à
+  // l'ouverture et au changement de statut — pas de polling, les événements
+  // WS re-rendent le tiroir via le snapshot).
+  useEffect(() => {
+    let alive = true;
+    setRace(null);
+    if (task.status === 'assigned' || task.status === 'running') {
+      fetchRace(task.id)
+        .then((r) => alive && setRace(r.race))
+        .catch(() => alive && setRace(null));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [task.id, task.status]);
 
   const nodeName = task.assignedNodeId
     ? (nodes.find((n) => n.id === task.assignedNodeId)?.name ?? task.assignedNodeId.slice(0, 8))
@@ -126,6 +144,16 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
           <dt>ID</dt>
           <dd className="mono">{task.id}</dd>
         </dl>
+
+        {race && !race.decided && (
+          <p className="muted-text" title={t('Course de drones en vol', 'Drone race in flight')}>
+            ⚔{' '}
+            {t(
+              `Course en vol : ${race.drones.filter((d) => d.status === 'running').length} drone(s) sur ${race.drones.length} — le premier succès gagne.`,
+              `Race in flight: ${race.drones.filter((d) => d.status === 'running').length} drone(s) of ${race.drones.length} — first success wins.`,
+            )}
+          </p>
+        )}
 
         <h3>Prompt</h3>
         <pre className="code-block">{task.prompt}</pre>
