@@ -410,7 +410,8 @@
 /* Toute animation es- est coupée si l'utilisateur préfère moins de mouvement. */
 @media (prefers-reduced-motion: reduce) {
   .es-dance,
-  .es-calm-hex {
+  .es-calm-hex,
+  .es-race-badge {
     animation: none;
   }
 }

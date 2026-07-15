@@ -117,6 +117,16 @@ describe('buildWaggleBoard', () => {
     expect(bob?.raceWins).toBe(0);
   });
 
+  it('drone_won orphelin (task_done élagué du journal) → aucun bonus fantôme', () => {
+    // L'élagage supprime par id croissant : le task_done (émis juste avant le
+    // drone_won) peut disparaître un cycle plus tôt. La victoire orpheline ne
+    // doit pas créer de score sans tâche visible.
+    const board = buildWaggleBoard(journal(['drone_won', { nodeId: 'n1', taskId: 't1' }]));
+    const n1 = board.nodes.find((n) => n.nodeId === 'n1');
+    expect(n1?.raceWins).toBe(0);
+    expect(n1?.score).toBe(0);
+  });
+
   it('journal vide → tableau vide, pas de meilleur nœud', () => {
     const board = buildWaggleBoard([]);
     expect(board.nodes).toEqual([]);

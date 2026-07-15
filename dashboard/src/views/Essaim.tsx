@@ -41,6 +41,7 @@ function NodeCard({
           {racing && (
             <span
               className="es-race-badge"
+              role="img"
               title={t('en course de drones', 'in a drone race')}
               aria-label={t('en course de drones', 'in a drone race')}
             >
@@ -154,10 +155,13 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
   const races = useApiPoll(fetchRaces, 15_000, refreshTick);
   const online = snapshot.nodes.filter((n) => n.status === 'online').length;
   const board = waggle.data;
-  // Nœuds avec un drone encore en vol : marqués ⚔ sur leur carte.
+  // Nœuds avec un drone encore en vol : marqués ⚔ sur leur carte. Les courses
+  // vivent en mémoire du hub : si le poll tombe en panne, races.data est
+  // périmé — on éteint le badge plutôt que d'affirmer une course fantôme.
   const racingNodes = new Set<string>();
-  for (const r of races.data?.races ?? [])
-    for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
+  if (races.error === null)
+    for (const r of races.data?.races ?? [])
+      for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
 
   return (
     <div className="mc-view es-view">

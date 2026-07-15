@@ -158,6 +158,11 @@ export function buildWaggleBoard(events: HiveEvent[]): WaggleBoard {
     const attempts = a.tasksDone + a.tasksFailed;
     const successRate = attempts === 0 ? 1 : a.tasksDone / attempts;
     const avgDurationMs = a.tasksDone === 0 ? 0 : Math.round(a.totalDurationMs / a.tasksDone);
+    // L'élagage du journal peut couper entre un task_done et son drone_won
+    // (ids adjacents, le task_done part en premier) : on plafonne les
+    // victoires comptées aux tâches encore visibles — jamais de bonus sans la
+    // tâche gagnée qui le justifie.
+    const raceWins = Math.min(a.raceWins, a.tasksDone);
     return {
       nodeId: a.nodeId,
       name: a.name,
@@ -167,8 +172,8 @@ export function buildWaggleBoard(events: HiveEvent[]): WaggleBoard {
       totalDurationMs: a.totalDurationMs,
       avgDurationMs,
       successRate,
-      raceWins: a.raceWins,
-      score: computeScore(a.tasksDone, successRate, a.raceWins),
+      raceWins,
+      score: computeScore(a.tasksDone, successRate, raceWins),
     };
   });
 
