@@ -340,9 +340,10 @@ async function cmdWaggle(): Promise<void> {
     const rank = medals[i] ?? `${i + 1}.`;
     const rate = `${Math.round(n.successRate * 100)}%`;
     const avg = n.avgDurationMs > 0 ? `${(n.avgDurationMs / 1000).toFixed(1)}s/tâche` : '—';
+    const wins = n.raceWins > 0 ? ` ⚔${n.raceWins}` : '';
     console.log(
       `  ${rank} ${n.name} [${n.agentType}] — ${n.score} nectar ` +
-        `(✔${n.tasksDone} ✘${n.tasksFailed}, ${rate}, ${avg})`,
+        `(✔${n.tasksDone} ✘${n.tasksFailed}${wins}, ${rate}, ${avg})`,
     );
   });
 }

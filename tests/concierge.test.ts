@@ -81,6 +81,7 @@ function makeCtx(over: Partial<ConciergeContext> = {}): ConciergeContext {
           totalDurationMs: 6000,
           avgDurationMs: 1200,
           successRate: 5 / 6,
+          raceWins: 0,
           score: 24,
         },
       ],

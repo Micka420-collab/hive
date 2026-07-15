@@ -25,6 +25,8 @@ export interface NodeNectar {
   avgDurationMs: number;
   /** done / (done + failed), dans [0, 1] ; 1 si le nœud n'a jamais échoué. */
   successRate: number;
+  /** Victoires en course de drones (Drone Wars) : premier succès sur une tâche disputée. */
+  raceWins: number;
   /** Score « nectar » : synthèse déterministe et explicable (voir computeScore). */
   score: number;
 }
@@ -45,10 +47,16 @@ interface Acc {
   tasksDone: number;
   tasksFailed: number;
   totalDurationMs: number;
+  raceWins: number;
 }
 
 /** Points par tâche terminée : base du nectar. */
 const NECTAR_PER_TASK = 10;
+
+/** Bonus par victoire de course (Drone Wars) — s'ajoute au nectar de la tâche
+ * gagnée (le vainqueur émet aussi un `task_done`) : gagner face à d'autres
+ * drones vaut une demi-tâche de prestige en plus. */
+const RACE_WIN_BONUS = 5;
 
 function num(payload: Record<string, unknown>, key: string): number {
   const v = payload[key];
@@ -70,6 +78,7 @@ function ensure(map: Map<string, Acc>, nodeId: string): Acc {
       tasksDone: 0,
       tasksFailed: 0,
       totalDurationMs: 0,
+      raceWins: 0,
     };
     map.set(nodeId, acc);
   }
@@ -79,14 +88,18 @@ function ensure(map: Map<string, Acc>, nodeId: string): Acc {
 /**
  * Score nectar : récompense le travail RÉELLEMENT abouti, pondéré par la
  * fiabilité. Un nœud qui échoue souvent butine « moins bon nectar ».
- *   score = tasksDone × 10 × (½ + ½ × tauxDeSuccès)
+ *   score = tasksDone × 10 × (½ + ½ × tauxDeSuccès) + victoires × 5
  * Ainsi une tâche vaut 10 points à fiabilité parfaite, et jusqu'à 5 si le nœud
- * est très peu fiable — sans jamais rendre une contribution négative. Formule
- * volontairement simple et monotone (plus de réussites ou plus de fiabilité ⇒
- * plus de score), donc facile à expliquer à un contributeur.
+ * est très peu fiable — sans jamais rendre une contribution négative. Une
+ * victoire de course (Drone Wars) ajoute un bonus plat de 5 : le vainqueur a
+ * déjà son `task_done`, le bonus salue la vitesse face aux concurrents. Formule
+ * volontairement simple et monotone (plus de réussites, de fiabilité ou de
+ * victoires ⇒ plus de score), donc facile à expliquer à un contributeur.
  */
-export function computeScore(tasksDone: number, successRate: number): number {
-  return Math.round(tasksDone * NECTAR_PER_TASK * (0.5 + 0.5 * successRate));
+export function computeScore(tasksDone: number, successRate: number, raceWins = 0): number {
+  return (
+    Math.round(tasksDone * NECTAR_PER_TASK * (0.5 + 0.5 * successRate)) + raceWins * RACE_WIN_BONUS
+  );
 }
 
 /**
@@ -94,7 +107,12 @@ export function computeScore(tasksDone: number, successRate: number): number {
  *  - `task_done` {nodeId, durationMs} → une réussite (+ durée) au nœud ;
  *  - `task_failed` {nodeId} → un échec au nœud (les échecs SANS nodeId, ex.
  *    `dependency_failed`, ne sont imputables à personne : ignorés) ;
+ *  - `drone_won` {nodeId} → une victoire de course (bonus, en plus du task_done) ;
  *  - `node_registered` / `node_online` {nodeId, name, agentType} → identité.
+ * Les `drone_failed` / `drone_cancelled` restent volontairement NEUTRES : la
+ * course est de la redondance opt-in — pénaliser les perdants découragerait la
+ * participation, un drone annulé n'a commis aucune faute, et l'échec collectif
+ * émet déjà un `task_failed` imputable (pas de double peine).
  * Le classement est trié par score décroissant, puis par réussites, puis par
  * nom (ordre stable et déterministe).
  */
@@ -127,6 +145,10 @@ export function buildWaggleBoard(events: HiveEvent[]): WaggleBoard {
         if (nodeId) ensure(accs, nodeId).tasksFailed += 1;
         break;
       }
+      case 'drone_won': {
+        if (nodeId) ensure(accs, nodeId).raceWins += 1;
+        break;
+      }
       default:
         break;
     }
@@ -145,7 +167,8 @@ export function buildWaggleBoard(events: HiveEvent[]): WaggleBoard {
       totalDurationMs: a.totalDurationMs,
       avgDurationMs,
       successRate,
-      score: computeScore(a.tasksDone, successRate),
+      raceWins: a.raceWins,
+      score: computeScore(a.tasksDone, successRate, a.raceWins),
     };
   });
 

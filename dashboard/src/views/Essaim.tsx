@@ -114,6 +114,7 @@ function NectarList({ board }: { board: WaggleBoard }) {
               <span className="es-nectar-stats">
                 {Math.round(n.successRate * 100)} % · {formatMs(n.avgDurationMs)} · ✔ {n.tasksDone}{' '}
                 ✘ {n.tasksFailed}
+                {n.raceWins > 0 && <> · ⚔ {n.raceWins}</>}
               </span>
             </div>
             <div className="es-bar">

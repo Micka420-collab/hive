@@ -29,6 +29,14 @@ describe('computeScore', () => {
     expect(computeScore(5, 1)).toBeGreaterThanOrEqual(computeScore(5, 0.5));
     expect(computeScore(5, 0.5)).toBeGreaterThanOrEqual(computeScore(5, 0));
   });
+
+  it('ajoute un bonus plat de 5 par victoire de course', () => {
+    expect(computeScore(3, 1, 0)).toBe(30);
+    expect(computeScore(3, 1, 1)).toBe(35);
+    expect(computeScore(3, 1, 2)).toBe(40);
+    // Le bonus ne dépend pas de la fiabilité (plat, jamais négatif).
+    expect(computeScore(2, 0, 1)).toBe(15);
+  });
 });
 
 describe('buildWaggleBoard', () => {
@@ -84,6 +92,29 @@ describe('buildWaggleBoard', () => {
     expect(n1?.tasksFailed).toBe(0);
     expect(n1?.successRate).toBe(1);
     expect(board.totalTasksFailed).toBe(0);
+  });
+
+  it('crédite les victoires de course (drone_won) en bonus du task_done', () => {
+    const board = buildWaggleBoard(
+      journal(
+        ['node_online', { nodeId: 'n1', name: 'Alice', agentType: 'claude-code' }],
+        ['node_online', { nodeId: 'n2', name: 'Bob', agentType: 'codex' }],
+        // Course : Alice gagne (task_done + drone_won), Bob perd (drone_failed).
+        ['task_done', { nodeId: 'n1', durationMs: 800 }],
+        ['drone_won', { nodeId: 'n1', taskId: 't1', cancelled: 1 }],
+        ['drone_failed', { nodeId: 'n2', taskId: 't1' }],
+        ['drone_cancelled', { nodeId: 'n2', taskId: 't1' }],
+      ),
+    );
+    const alice = board.nodes.find((n) => n.nodeId === 'n1');
+    const bob = board.nodes.find((n) => n.nodeId === 'n2');
+    // Alice : 1 tâche (10) + 1 victoire (5) = 15.
+    expect(alice?.raceWins).toBe(1);
+    expect(alice?.score).toBe(15);
+    // Bob : perdre ou être annulé ne pénalise NI les échecs NI la fiabilité.
+    expect(bob?.tasksFailed).toBe(0);
+    expect(bob?.successRate).toBe(1);
+    expect(bob?.raceWins).toBe(0);
   });
 
   it('journal vide → tableau vide, pas de meilleur nœud', () => {
