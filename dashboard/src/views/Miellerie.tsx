@@ -611,6 +611,9 @@ export default function Miellerie({
   const approvedCount = projTasks.filter(
     (t) => t.status === 'done' && getReview(t.id) === 'approved',
   ).length;
+  const rejectedCount = projTasks.filter(
+    (t) => t.status === 'done' && getReview(t.id) === 'rejected',
+  ).length;
   const projName = snapshot.projects.find((p) => p.id === projectId)?.name ?? 'Projet inconnu';
 
   return (
@@ -824,6 +827,12 @@ export default function Miellerie({
           <span className="mi-merge-count">
             Prêt à fusionner : <strong>{approvedCount}</strong> approuvée(s) / {doneCount}{' '}
             terminée(s)
+            {rejectedCount > 0 && (
+              <em className="mi-merge-rejected" title="Les rejets ne coulent jamais dans le miel">
+                {' '}
+                · {rejectedCount} rejetée(s) exclue(s)
+              </em>
+            )}
           </span>
           <button className="btn" onClick={togglePlan}>
             {planOpen ? 'Replier le plan' : 'Plan de merge'}
