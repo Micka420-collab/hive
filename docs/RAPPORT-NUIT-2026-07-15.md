@@ -66,8 +66,8 @@ hash, touches 1-8, chunks lazy par vue) :
 
 ## 6. Qualité
 
-- **4 vagues de revue adversariale** (56 agents vérificateurs) : 21 + 10 + 8
-  - 4 = **43 défauts confirmés et corrigés** avant l'aube.
+- **4 vagues de revue adversariale** (56 agents vérificateurs) :
+  **43 défauts confirmés et corrigés** avant l'aube (21, puis 10, puis 8, puis 4).
 - 268 tests vitest verts (dont intégration serveur+nœud réels), TypeScript
   strict, ESLint + Prettier zéro erreur, CI GitHub verte sur chaque push.
 
