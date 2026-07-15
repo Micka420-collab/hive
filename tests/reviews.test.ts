@@ -82,7 +82,7 @@ describe('POST /api/tasks/:id/review + GET /api/reviews', () => {
       body: JSON.stringify({ state: 'approved' }),
     });
     expect(post.status).toBe(200);
-    expect(await post.json()).toEqual({ taskId: task.id, state: 'approved' });
+    expect(await post.json()).toMatchObject({ taskId: task.id, state: 'approved' });
 
     const list = await fetch(`${base}/api/reviews`, { headers });
     expect(((await list.json()) as { reviews: Record<string, string> }).reviews[task.id]).toBe(
@@ -130,6 +130,68 @@ describe('POST /api/tasks/:id/review + GET /api/reviews', () => {
       body: JSON.stringify({ state: null }),
     });
     expect(clear.status).toBe(200);
+  });
+
+  it('compare-and-set : 409 si le verdict a changé depuis la lecture du client', async () => {
+    // Verdict initial.
+    await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved' }),
+    });
+    const list = await fetch(`${base}/api/reviews`, { headers });
+    const { updatedAt } = (await list.json()) as { updatedAt: Record<string, number> };
+    const seen = updatedAt[task.id]!;
+
+    // Un autre opérateur modifie le verdict entre-temps.
+    await new Promise((r) => setTimeout(r, 5)); // updatedAt strictement différent
+    await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'rejected' }),
+    });
+
+    // Le geste basé sur la vision périmée est refusé avec l'état courant.
+    const stale = await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved', expectedUpdatedAt: seen }),
+    });
+    expect(stale.status).toBe(409);
+    const body = (await stale.json()) as { currentState: string };
+    expect(body.currentState).toBe('rejected');
+
+    // expectedUpdatedAt: null = « je croyais qu'il n'y avait AUCUN verdict ».
+    const noneExpected = await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved', expectedUpdatedAt: null }),
+    });
+    expect(noneExpected.status).toBe(409);
+
+    // Nettoyage pour les tests suivants.
+    await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: null }),
+    });
+  });
+
+  it('écho clientId : task_reviewed porte l identité de l onglet émetteur', async () => {
+    await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved', clientId: 'onglet-de-test' }),
+    });
+    const res = await fetch(`${base}/api/events?limit=1000`, { headers });
+    const events = (await res.json()) as HiveEvent[];
+    const last = events.filter((e) => e.type === 'task_reviewed').at(-1)!;
+    expect(last.payload).toMatchObject({ taskId: task.id, clientId: 'onglet-de-test' });
+    await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: null }),
+    });
   });
 
   it('refuse un verdict inconnu, une tâche inconnue et l absence de token', async () => {

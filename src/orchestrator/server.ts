@@ -1053,7 +1053,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // bord sur la tâche — c'est un avis humain, le merge reste un geste séparé.
   app.post<{
     Params: { taskId: string };
-    Body: { state: 'approved' | 'rejected' | null };
+    Body: {
+      state: 'approved' | 'rejected' | null;
+      expectedUpdatedAt?: number | null;
+      clientId?: string;
+    };
   }>(
     '/api/tasks/:taskId/review',
     {
@@ -1067,7 +1071,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           type: 'object',
           required: ['state'],
           additionalProperties: false,
-          properties: { state: { type: ['string', 'null'], enum: ['approved', 'rejected', null] } },
+          properties: {
+            state: { type: ['string', 'null'], enum: ['approved', 'rejected', null] },
+            // Compare-and-set OPT-IN : horodatage du verdict que le client
+            // croyait courant (null = « aucun verdict »). 409 si décalage —
+            // un geste posé sur une vision périmée ne l'emporte jamais.
+            expectedUpdatedAt: { type: ['integer', 'null'] },
+            // Identité d'onglet (écho dans task_reviewed) : permet au client
+            // de distinguer ses propres échos de ceux des autres opérateurs.
+            clientId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
         },
       },
     },
@@ -1083,16 +1096,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .code(409)
           .send({ error: `tâche ${task.status} — revue possible seulement après terminaison` });
       }
+      if (req.body.expectedUpdatedAt !== undefined) {
+        const current = store.getTaskReview(task.id);
+        const currentTs = current?.updatedAt ?? null;
+        if (currentTs !== req.body.expectedUpdatedAt) {
+          return reply.code(409).send({
+            error: 'verdict modifié par un autre opérateur — rechargez la revue',
+            currentState: current?.state ?? null,
+            currentUpdatedAt: currentTs,
+          });
+        }
+      }
       store.setTaskReview(task.id, req.body.state);
-      emitEvent('task_reviewed', { taskId: task.id, state: req.body.state });
-      return { taskId: task.id, state: req.body.state };
+      emitEvent('task_reviewed', {
+        taskId: task.id,
+        state: req.body.state,
+        ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+      });
+      const saved = store.getTaskReview(task.id);
+      return { taskId: task.id, state: req.body.state, updatedAt: saved?.updatedAt ?? null };
     },
   );
 
   // Toutes les revues (dictionnaire taskId → verdict) — hydrate le dashboard.
+  // `updatedAt` : horodatages par tâche, pour le compare-and-set opt-in.
   app.get('/api/reviews', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    return { reviews: store.listReviews() };
+    return { reviews: store.listReviews(), updatedAt: store.listReviewTimestamps() };
   });
 
   // Parlement des Agents : consensus par vote sur les résultats d'une tâche.

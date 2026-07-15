@@ -710,6 +710,23 @@ export class HiveStore {
     return Object.fromEntries(rows.map((r) => [r.taskId, r.state]));
   }
 
+  /** Horodatage de chaque verdict (compare-and-set multi-opérateurs). */
+  listReviewTimestamps(): Record<string, number> {
+    const rows = this.db.prepare('SELECT taskId, updatedAt FROM reviews').all() as {
+      taskId: string;
+      updatedAt: number;
+    }[];
+    return Object.fromEntries(rows.map((r) => [r.taskId, r.updatedAt]));
+  }
+
+  /** Verdict + horodatage d'une tâche (null si aucune revue). */
+  getTaskReview(taskId: string): { state: 'approved' | 'rejected'; updatedAt: number } | null {
+    const row = this.db
+      .prepare('SELECT state, updatedAt FROM reviews WHERE taskId = ?')
+      .get(taskId) as { state: 'approved' | 'rejected'; updatedAt: number } | undefined;
+    return row ?? null;
+  }
+
   // ─── Snapshot ──────────────────────────────────────────────────────────────
   getSnapshot(): StateSnapshot {
     return { projects: this.listProjects(), nodes: this.listNodes(), tasks: this.listTasks() };
