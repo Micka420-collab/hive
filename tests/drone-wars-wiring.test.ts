@@ -73,6 +73,20 @@ describe('Drone Wars : câblage scheduler', () => {
     expect(assigned.map((a) => a.taskId)).toEqual([task.id, task.id, task.id]);
   });
 
+  it('listRaces expose les courses en vol, vidées une fois tranchées', () => {
+    const { task } = setup(2);
+    expect(scheduler.listRaces()).toEqual([]);
+    const started = scheduler.startRace(task.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    const races = scheduler.listRaces();
+    expect(races).toHaveLength(1);
+    expect(races[0]?.taskId).toBe(task.id);
+    expect(races[0]?.drones.map((d) => d.nodeId).sort()).toEqual([...started.drones].sort());
+    // Victoire → la course sort de la liste (plus rien en vol).
+    scheduler.handleTaskResult(started.drones[0]!, result(task.id));
+    expect(scheduler.listRaces()).toEqual([]);
+  });
+
   it('refuse une course sur une tâche non prête ou déjà en course', () => {
     const { task } = setup(2);
     expect(scheduler.startRace('inconnue', 3)).toMatchObject({ ok: false });

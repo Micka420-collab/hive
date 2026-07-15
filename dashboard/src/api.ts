@@ -151,6 +151,11 @@ export function fetchRace(taskId: string): Promise<{ race: DroneRace | null }> {
   return api<{ race: DroneRace | null }>(`/api/tasks/${taskId}/race`);
 }
 
+/** Toutes les courses en vol (Drone Wars) — pour le badge ⚔ de l'Essaim. */
+export function fetchRaces(): Promise<{ races: DroneRace[] }> {
+  return api<{ races: DroneRace[] }>('/api/races');
+}
+
 export interface InviteResponse {
   invite: string;
   url: string;

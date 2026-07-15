@@ -1207,6 +1207,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // Toutes les courses en vol — permet au dashboard de marquer d'un ⚔ les
+  // nœuds actuellement en course (les courses vivent en mémoire du scheduler).
+  app.get('/api/races', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return { races: scheduler.listRaces() };
+  });
+
   // Annulation humaine d'une tâche : le nœud reçoit cancel_task et abandonne.
   app.post<{ Params: { taskId: string } }>(
     '/api/tasks/:taskId/cancel',

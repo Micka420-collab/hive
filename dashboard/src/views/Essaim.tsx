@@ -1,7 +1,7 @@
 // Vue Essaim — les ouvrières : cartes des nœuds membres (charge, sous-agents
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
-import { fetchWaggle } from '../api';
+import { fetchRaces, fetchWaggle } from '../api';
 import type { NodeNectar, WaggleBoard } from '../api';
 import { useT } from '../i18n';
 import { formatMs, ProgressBar } from '../ui';
@@ -24,12 +24,29 @@ function activeAgentsOf(
   return flying;
 }
 
-function NodeCard({ node, agents }: { node: HiveNode; agents: SubAgent[] }) {
+function NodeCard({
+  node,
+  agents,
+  racing,
+}: {
+  node: HiveNode;
+  agents: SubAgent[];
+  racing: boolean;
+}) {
   const t = useT();
   return (
     <article className={`es-node ${node.status}`}>
       <header className="es-node-head">
         <span className="es-node-name" title={node.name}>
+          {racing && (
+            <span
+              className="es-race-badge"
+              title={t('en course de drones', 'in a drone race')}
+              aria-label={t('en course de drones', 'in a drone race')}
+            >
+              ⚔
+            </span>
+          )}
           {node.name}
         </span>
         <span className={`conn ${node.status}`}>
@@ -134,8 +151,13 @@ function NectarList({ board }: { board: WaggleBoard }) {
 export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProps) {
   const t = useT();
   const waggle = useApiPoll(fetchWaggle, 30_000, refreshTick);
+  const races = useApiPoll(fetchRaces, 15_000, refreshTick);
   const online = snapshot.nodes.filter((n) => n.status === 'online').length;
   const board = waggle.data;
+  // Nœuds avec un drone encore en vol : marqués ⚔ sur leur carte.
+  const racingNodes = new Set<string>();
+  for (const r of races.data?.races ?? [])
+    for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
 
   return (
     <div className="mc-view es-view">
@@ -161,6 +183,7 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
                   key={n.id}
                   node={n}
                   agents={activeAgentsOf(n.id, snapshot.tasks, agentsByTask)}
+                  racing={racingNodes.has(n.id)}
                 />
               ))}
             </div>

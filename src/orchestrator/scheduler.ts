@@ -518,6 +518,11 @@ export class Scheduler {
     return this.races.get(taskId);
   }
 
+  /** Toutes les courses en vol (lecture seule, pour l'API/dashboard). */
+  listRaces(): DroneRace[] {
+    return [...this.races.values()];
+  }
+
   /** Arbitre le résultat d'un drone (succès → victoire ; échec → attente/échec). */
   private handleDroneResult(
     race: DroneRace,
