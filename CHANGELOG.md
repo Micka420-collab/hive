@@ -19,6 +19,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **La Reine parle revue** — nouvelle intention `review` : « que reste-t-il à
   revoir ? » répond avec les compteurs réels (approuvées/rejetées/en attente)
   et les prochaines productions à inspecter.
+- **Night Shift câblé** — `HIVE_SHIFT` agit vraiment : hors des heures de
+  service du membre, le nœud refuse poliment les assignations (aucune
+  tentative brûlée, le hub requalifie). Documenté dans `.env.example`.
 
 ### Fixed
 
