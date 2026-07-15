@@ -114,6 +114,51 @@ describe('Scheduler (ordonnancement)', () => {
     store.close();
   });
 
+  it('retryAfterMs (Night Shift) : cooldown long honoré, plafonné à 24 h', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 'p' });
+    const node = scheduler.registerNode(profile('n1'));
+    const t0 = 1_000_000;
+
+    scheduler.tick(t0);
+    expect(store.getTask(t.id)?.status).toBe('assigned');
+
+    // Refus « hors service » : réouverture dans 2 h.
+    scheduler.rejectTask(node.id, t.id, 'hors_service_night_shift', false, t0, 2 * 3_600_000);
+    expect(store.getTask(t.id)?.status).toBe('ready');
+    expect(store.getTask(t.id)?.attempts).toBe(0); // aucune tentative brûlée
+
+    // Bien après le cooldown COURT (3 s) mais avant la réouverture : pas de ré-assignation.
+    scheduler.tick(t0 + 60_000);
+    expect(store.getTask(t.id)?.status).toBe('ready');
+    // Après la réouverture : le nœud est de nouveau sollicité.
+    scheduler.tick(t0 + 2 * 3_600_000 + 1);
+    expect(store.getTask(t.id)?.status).toBe('assigned');
+
+    // Plafond : un retryAfterMs délirant (10 jours) est borné à 24 h.
+    scheduler.rejectTask(node.id, t.id, 'hors_service_night_shift', false, t0, 10 * 86_400_000);
+    scheduler.tick(t0 + 24 * 3_600_000 + 1);
+    expect(store.getTask(t.id)?.status).toBe('assigned');
+  });
+
+  it('la ré-inscription d’un nœud purge ses cooldowns de refus', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 'p' });
+    const node = scheduler.registerNode(profile('n1'));
+    const t0 = 1_000_000;
+
+    scheduler.tick(t0);
+    scheduler.rejectTask(node.id, t.id, 'hive_shift_invalide', false, t0, 10 * 60_000);
+    scheduler.tick(t0 + 5_000);
+    expect(store.getTask(t.id)?.status).toBe('ready'); // cooldown long actif
+
+    // Le membre corrige sa config et relance le nœud : reconcile purge le cooldown.
+    scheduler.registerNode({ ...profile('n1'), nodeId: node.id }, t0 + 6_000);
+    scheduler.reconcileNode(node.id, [], t0 + 6_000);
+    scheduler.tick(t0 + 7_000);
+    expect(store.getTask(t.id)?.status).toBe('assigned');
+  });
+
   it('promeut pending → ready quand toutes les dépendances sont done', () => {
     const p = store.createProject({ name: 'P' });
     const a = store.createTask({ projectId: p.id, title: 'A', prompt: 'a' });

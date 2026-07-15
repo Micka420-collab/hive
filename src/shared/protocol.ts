@@ -45,6 +45,11 @@ export interface HeartbeatMsg {
   type: 'heartbeat';
   /** Nombre de tâches en cours côté nœud (informatif). */
   running: number;
+  /**
+   * Le nœud est-il de service (Night Shift) ? Absent = disponible. Le hub s'en
+   * sert pour éviter d'office les nœuds hors service à la sélection d'un merge.
+   */
+  onShift?: boolean;
 }
 
 export interface TaskUpdateMsg {
@@ -325,7 +330,14 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return null;
     }
     case 'heartbeat': {
-      if (isInt(m.running, 0, 10_000)) return { type: 'heartbeat', running: m.running };
+      if (
+        isInt(m.running, 0, 10_000) &&
+        (m.onShift === undefined || typeof m.onShift === 'boolean')
+      ) {
+        const msg: HeartbeatMsg = { type: 'heartbeat', running: m.running };
+        if (typeof m.onShift === 'boolean') msg.onShift = m.onShift;
+        return msg;
+      }
       return null;
     }
     case 'task_update': {

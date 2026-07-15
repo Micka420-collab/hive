@@ -193,10 +193,20 @@ export class HiveNodeClient {
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
-      this.send({ type: 'heartbeat', running: this.active.size });
+      this.send({
+        type: 'heartbeat',
+        running: this.active.size,
+        onShift: this.offShiftReject() === null,
+      });
     }, HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
-    this.send({ type: 'heartbeat', running: this.active.size });
+    // onShift : permet au hub d'éviter d'office ce nœud pour un merge quand il
+    // est hors heures de service (les tâches, elles, passent par task_reject).
+    this.send({
+      type: 'heartbeat',
+      running: this.active.size,
+      onShift: this.offShiftReject() === null,
+    });
   }
 
   private stopHeartbeat(): void {

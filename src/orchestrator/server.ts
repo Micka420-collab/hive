@@ -186,6 +186,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   const nodeSockets = new Map<string, WebSocket>();
   const dashboardSockets = new Set<WebSocket>();
+  // État de service Night Shift déclaré par chaque nœud (heartbeat.onShift).
+  // Absent = disponible. Sert à éviter d'office un nœud hors service pour un
+  // merge (les tâches, elles, sont couvertes par task_reject + cooldown).
+  const nodeOnShift = new Map<string, boolean>();
   // Honeycomb Merge : dernier résultat de merge par projet + suivi des merges en
   // cours (routage mergeId→projet, nœud, âge — pour détecter les orphelins).
   const mergeResults = new Map<string, MergeResultMsg>();
@@ -968,11 +972,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (totalBytes > 1_500_000) {
         return reply.code(413).send({ error: 'diffs trop volumineux pour un merge (v0)' });
       }
-      // Choisir un nœud en ligne effectivement connecté.
-      const node = store.listNodes().find((n) => n.status === 'online' && nodeSockets.has(n.id));
+      // Choisir un nœud en ligne, connecté ET de service (Night Shift) : un
+      // nœud hors service refuserait le merge — autant l'éviter d'office.
+      const node = store
+        .listNodes()
+        .find(
+          (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
+        );
       const ws = node ? nodeSockets.get(node.id) : undefined;
       if (!node || !ws) {
-        return reply.code(503).send({ error: 'aucun nœud en ligne pour exécuter le merge' });
+        return reply
+          .code(503)
+          .send({ error: 'aucun nœud en ligne et de service pour exécuter le merge' });
       }
       const mergeId = randomUUID();
       pendingMerges.set(mergeId, { projectId: project.id, nodeId: node.id, startedAt: Date.now() });
@@ -1472,6 +1483,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         switch (msg.type) {
           case 'heartbeat':
             scheduler.heartbeat(nodeId);
+            if (msg.onShift !== undefined) nodeOnShift.set(nodeId, msg.onShift);
             break;
           case 'task_update':
             scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
@@ -1541,6 +1553,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       clearInterval(budgetTimer);
       if (role === 'node' && nodeId !== null && nodeSockets.get(nodeId) === ws) {
         nodeSockets.delete(nodeId);
+        nodeOnShift.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
         // Un merge confié à ce nœud ne reviendra jamais : le déclarer échoué
         // (sinon /merge/result resterait null et l'entrée fuirait).
