@@ -633,8 +633,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         memories: store.searchMemories(req.body.message, 3).map((s) => s.memory),
         recentEvents: events.slice(-100),
         reviews: store.listReviews(),
+        // Scopé sur le projet ciblé quand il est fourni : la Reine ne mélange
+        // pas les revues d'un autre projet dans sa réponse.
         finishedTasks: store
-          .listTasks()
+          .listTasks(focusId ?? undefined)
           .filter((t) => t.status === 'done' || t.status === 'failed')
           .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
         focusProjectId: req.body.projectId ?? null,
@@ -902,8 +904,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
       }
       const tasks = store.listTasks(project.id);
+      // Le serveur est la SOURCE DE VÉRITÉ des revues : une tâche rejetée en
+      // revue ne coule jamais dans le miel, quel que soit le cache du client.
+      const reviews = store.listReviews();
       // Sélection optionnelle (revue humaine) : chaque id doit être une tâche
-      // done DE CE projet — on refuse explicitement plutôt que d'ignorer.
+      // done DE CE projet, non rejetée — on refuse explicitement plutôt que
+      // d'ignorer.
       const selection = req.body.taskIds ? new Set(req.body.taskIds) : null;
       if (selection) {
         const byId = new Map(tasks.map((t) => [t.id, t]));
@@ -913,12 +919,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           if (t.status !== 'done') {
             return reply.code(400).send({ error: `tâche non terminée : ${t.title}` });
           }
+          if (reviews[id] === 'rejected') {
+            return reply.code(400).send({ error: `tâche rejetée en revue : ${t.title}` });
+          }
         }
       }
       const doneDiffs = new Map<string, string>();
+      let rejectedSkipped = 0;
       for (const t of tasks) {
         if (t.status !== 'done') continue;
         if (selection && !selection.has(t.id)) continue;
+        // Sans sélection explicite, les tâches rejetées sont exclues d'office.
+        if (!selection && reviews[t.id] === 'rejected') {
+          rejectedSkipped++;
+          continue;
+        }
         const success = store
           .resultsForTask(t.id)
           .filter((r) => r.success)
@@ -927,7 +942,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       const plan = buildMergePlan(tasks, doneDiffs);
       if (plan.done === 0 || doneDiffs.size === 0) {
-        return reply.code(400).send({ error: 'aucune tâche terminée à intégrer' });
+        return reply.code(400).send({
+          error:
+            rejectedSkipped > 0
+              ? 'toutes les tâches terminées sont rejetées en revue — rien à intégrer'
+              : 'aucune tâche terminée à intégrer',
+        });
       }
       // Ordre topologique du plan, restreint aux tâches réellement à intégrer
       // (sélection de revue et/ou porteuses d'un diff).
@@ -1039,6 +1059,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorized(req)) return reject(reply);
       const task = store.getTask(req.params.taskId);
       if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      // Pas de pré-approbation : on ne juge un diff qu'une fois la tâche
+      // terminée (409 comme /cancel pour les conflits d'état). L'effacement
+      // (null) reste permis quel que soit le statut — toujours sûr.
+      if (req.body.state !== null && task.status !== 'done' && task.status !== 'failed') {
+        return reply
+          .code(409)
+          .send({ error: `tâche ${task.status} — revue possible seulement après terminaison` });
+      }
       store.setTaskReview(task.id, req.body.state);
       emitEvent('task_reviewed', { taskId: task.id, state: req.body.state });
       return { taskId: task.id, state: req.body.state };

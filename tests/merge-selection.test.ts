@@ -95,4 +95,25 @@ describe('POST /merge/run — sélection de tâches (taskIds)', () => {
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toContain('aucun nœud');
   });
+
+  it('une tâche rejetée en revue ne coule JAMAIS (sélection explicite ET repli)', async () => {
+    await fetch(`${base}/api/tasks/${doneTask.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'rejected' }),
+    });
+    // Sélection explicite incluant la rejetée : refus nominatif.
+    const sel = await run([doneTask.id]);
+    expect(sel.status).toBe(400);
+    expect(((await sel.json()) as { error: string }).error).toContain('rejetée en revue');
+    // Repli « tout le terminé » : la rejetée est exclue d'office — ici c'était
+    // la seule, donc plus rien à intégrer.
+    const fallback = await fetch(`${base}/api/projects/${doneTask.projectId}/merge/run`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(fallback.status).toBe(400);
+    expect(((await fallback.json()) as { error: string }).error).toContain('rejetées en revue');
+  });
 });

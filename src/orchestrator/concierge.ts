@@ -466,7 +466,7 @@ function progressReply(ctx: ConciergeContext, lang: Lang): string {
     ]
       .filter(Boolean)
       .join(', ');
-    return `📋 ${r.name}: ${r.progressPct} % (${r.done}/${r.total} ${L.tasks})${extra ? ` — ${extra}` : ''}${r.complete ? ` ${L.done}` : ''}`;
+    return `📋 ${clean(r.name)}: ${r.progressPct} % (${r.done}/${r.total} ${L.tasks})${extra ? ` — ${extra}` : ''}${r.complete ? ` ${L.done}` : ''}`;
   });
   const nodesLine =
     lang === 'fr'
@@ -520,7 +520,7 @@ function nodesReply(ctx: ConciergeContext, lang: Lang): string {
   const perTask = lang === 'fr' ? '/tâche' : '/task';
   const lines = ctx.waggle.nodes.slice(0, 5).map((n, i) => {
     const rank = medals[i] ?? `${i + 1}.`;
-    return `${rank} ${n.name} [${n.agentType}] — ${n.score} nectar (✔${n.tasksDone} ✘${n.tasksFailed}, ${pct(n.successRate)}, ${n.avgDurationMs ? ms(n.avgDurationMs) + perTask : '—'})`;
+    return `${rank} ${clean(n.name)} [${n.agentType}] — ${n.score} nectar (✔${n.tasksDone} ✘${n.tasksFailed}, ${pct(n.successRate)}, ${n.avgDurationMs ? ms(n.avgDurationMs) + perTask : '—'})`;
   });
   const head =
     lang === 'fr'
@@ -541,7 +541,7 @@ function healthReply(ctx: ConciergeContext, lang: Lang): string {
   const icon: Record<string, string> = { high: '🔴', medium: '🟠', low: '🟡' };
   const lines = ctx.ghosts
     .slice(0, 5)
-    .map((g) => `${icon[g.severity] ?? '•'} [${g.kind}] ${g.detail}`);
+    .map((g) => `${icon[g.severity] ?? '•'} [${g.kind}] ${clean(g.detail, 200)}`);
   const head =
     lang === 'fr'
       ? `👻 ${ctx.ghosts.length} anomalie(s) :`
@@ -555,7 +555,7 @@ function memoryReply(ctx: ConciergeContext, lang: Lang): string {
       ? 'La mémoire de la ruche est encore vide — elle se remplit à chaque tâche réussie.'
       : 'The hive memory is still empty — it fills up with every successful task.';
   }
-  const lines = ctx.memories.map((m) => `• ${m.title} — ${m.content.slice(0, 140)}`);
+  const lines = ctx.memories.map((m) => `• ${clean(m.title)} — ${clean(m.content, 140)}`);
   const head =
     lang === 'fr'
       ? '🧠 Ce que la ruche a retenu de pertinent :'
@@ -575,7 +575,7 @@ function reviewReply(ctx: ConciergeContext, lang: Lang): string {
   const waiting = finished.filter((t) => !ctx.reviews[t.id]);
   const sample = waiting
     .slice(0, 3)
-    .map((t) => `• ${t.status === 'failed' ? '✘' : '✔'} ${t.title}`);
+    .map((t) => `• ${t.status === 'failed' ? '✘' : '✔'} ${clean(t.title)}`);
   if (lang === 'fr') {
     const lines = [
       `🍯 Revue humaine : ${finished.length} production(s) terminée(s) — ${approved} approuvée(s), ${rejected} rejetée(s), ${waiting.length} en attente de revue.`,
@@ -613,7 +613,7 @@ function briefReply(question: string, ctx: ConciergeContext, lang: Lang): string
       'Structure de brief efficace : « Objectif (1 phrase) · Utilisateurs · Fonctionnalités clés (3-7) · Pile technique · Contraintes (tests, doc, sécurité) ».',
       'Ensuite : vue Projets → « ✨ Proposer un plan » — je découpe votre brief en tâches avec dépendances, que vous validez avant tout lancement.',
       ctx.projects.length > 0
-        ? `Projets existants : ${ctx.projects.map((p) => p.name).join(', ')}.`
+        ? `Projets existants : ${ctx.projects.map((p) => clean(p.name)).join(', ')}.`
         : 'Aucun projet encore — créez-en un avec « + Projet ».',
     ].join('\n');
   }
@@ -624,7 +624,7 @@ function briefReply(question: string, ctx: ConciergeContext, lang: Lang): string
     'Effective brief structure: "Goal (1 sentence) · Users · Key features (3-7) · Tech stack · Constraints (tests, docs, security)".',
     'Then: Projets view → "✨ Proposer un plan" — I split your brief into tasks with dependencies, which you validate before anything runs.',
     ctx.projects.length > 0
-      ? `Existing projects: ${ctx.projects.map((p) => p.name).join(', ')}.`
+      ? `Existing projects: ${ctx.projects.map((p) => clean(p.name)).join(', ')}.`
       : 'No project yet — create one with "+ Projet".',
   ].join('\n');
 }

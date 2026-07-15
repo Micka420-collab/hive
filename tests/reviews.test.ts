@@ -32,6 +32,7 @@ describe('POST /api/tasks/:id/review + GET /api/reviews', () => {
   let dir: string;
   let base: string;
   let task: Task;
+  let pendingTask: Task;
   const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
 
   beforeAll(async () => {
@@ -55,9 +56,18 @@ describe('POST /api/tasks/:id/review + GET /api/reviews', () => {
     const created = await fetch(`${base}/api/projects/${project.id}/tasks`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ tasks: [{ title: 'à revoir', prompt: 'faire' }] }),
+      body: JSON.stringify({
+        tasks: [
+          { title: 'à revoir', prompt: 'faire' },
+          { title: 'pas encore finie', prompt: 'faire aussi' },
+        ],
+      }),
     });
-    task = ((await created.json()) as Task[])[0]!;
+    const tasks = (await created.json()) as Task[];
+    task = tasks[0]!;
+    pendingTask = tasks[1]!;
+    // On ne peut revoir qu'une production TERMINÉE : la 1re passe done via le store.
+    server.store.patchTask(task.id, { status: 'done' });
   });
 
   afterAll(async () => {
@@ -104,6 +114,22 @@ describe('POST /api/tasks/:id/review + GET /api/reviews', () => {
       taskId: task.id,
       state: 'rejected',
     });
+  });
+
+  it('refuse un verdict sur une tâche non terminée (409, pas de pré-approbation)', async () => {
+    const res = await fetch(`${base}/api/tasks/${pendingTask.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved' }),
+    });
+    expect(res.status).toBe(409);
+    // L effacement (null) reste permis quel que soit le statut.
+    const clear = await fetch(`${base}/api/tasks/${pendingTask.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: null }),
+    });
+    expect(clear.status).toBe(200);
   });
 
   it('refuse un verdict inconnu, une tâche inconnue et l absence de token', async () => {

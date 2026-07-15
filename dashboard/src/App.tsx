@@ -13,6 +13,7 @@ import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import {
   applyReviewEvent,
+  beginReviewHydration,
   countPendingReviews,
   hydrateReviews,
   Sparkline,
@@ -156,7 +157,19 @@ export function App() {
           });
         }
       },
-      onStatus: setConnected,
+      onStatus: (up) => {
+        setConnected(up);
+        // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
+        // émis pendant une coupure ne sont jamais rejoués par le serveur.
+        if (up) {
+          const seq = beginReviewHydration();
+          fetchReviews()
+            .then((r) => hydrateReviews(r.reviews, seq))
+            .catch(() => {
+              // Serveur ancien ou injoignable : getReview retombe sur localStorage.
+            });
+        }
+      },
     });
     return () => {
       if (refreshTimer.current !== undefined) {
@@ -165,15 +178,6 @@ export function App() {
       }
       feed.close();
     };
-  }, [feedKey]);
-
-  // ─── Revues partagées : hydratation depuis le serveur (repli localStorage) ──
-  useEffect(() => {
-    fetchReviews()
-      .then((r) => hydrateReviews(r.reviews))
-      .catch(() => {
-        // Serveur ancien ou injoignable : getReview retombe sur localStorage.
-      });
   }, [feedKey]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────

@@ -521,15 +521,30 @@ export default function Miellerie({
     }
     window.clearTimeout(armTimer.current);
     setMerge({ step: 'starting' });
-    // Le geste de revue compte : si des productions sont approuvées, SEULES
-    // celles-ci sont coulées dans le miel ; sans approbation explicite, tout
-    // le terminé part (comportement historique, vue Projets inchangée).
-    const approvedIds = snapshot.tasks
-      .filter(
-        (t) => t.projectId === projectId && t.status === 'done' && getReview(t.id) === 'approved',
-      )
+    // Le geste de revue compte : approuvées seules si approbation explicite ;
+    // sinon tout le terminé SAUF les rejetées (le serveur les exclut aussi —
+    // défense en profondeur, il est la source de vérité des revues).
+    const doneOfProject = snapshot.tasks.filter(
+      (t) => t.projectId === projectId && t.status === 'done',
+    );
+    const approvedIds = doneOfProject
+      .filter((t) => getReview(t.id) === 'approved')
       .map((t) => t.id);
-    runMerge(projectId, undefined, approvedIds.length > 0 ? approvedIds : undefined)
+    const keptIds = doneOfProject.filter((t) => getReview(t.id) !== 'rejected').map((t) => t.id);
+    if (keptIds.length === 0) {
+      setMerge({
+        step: 'error',
+        message: 'Toutes les productions terminées sont rejetées — rien à couler.',
+      });
+      return;
+    }
+    const taskIds =
+      approvedIds.length > 0
+        ? approvedIds
+        : keptIds.length < doneOfProject.length
+          ? keptIds
+          : undefined;
+    runMerge(projectId, undefined, taskIds)
       .then((start) => setMerge({ step: 'waiting', mergeId: start.mergeId, since: Date.now() }))
       .catch((e: unknown) => setMerge({ step: 'error', message: readableError(e) }));
   };
