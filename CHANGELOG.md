@@ -24,6 +24,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   course (une seule tentative brûlée au pire). Courses en mémoire —
   un redémarrage du hub retombe sur le circuit mono-nœud, sans double
   exécution.
+- **🌍 Interface bilingue fr/en** — bascule FR/EN dans la topbar, détection
+  de la langue du navigateur, 24 fichiers traduits (glossaire ruche : forage,
+  honeycomb, pour the honey, the Honey House…). La Reine répondait déjà dans
+  la langue du message.
+- **Revues multi-opérateurs durcies** — compare-and-set opt-in
+  (`expectedUpdatedAt`, 409 avec l'état courant), horodatages exposés par
+  `GET /api/reviews`, identité d'onglet (`clientId`) échouée dans
+  `task_reviewed` : les échos propres sont reconnus formellement.
 - **La Reine parle revue** — nouvelle intention `review` : « que reste-t-il à
   revoir ? » répond avec les compteurs réels (approuvées/rejetées/en attente)
   et les prochaines productions à inspecter.
@@ -35,6 +43,13 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `.env.example`.
 
 ### Fixed
+
+- 8 correctifs (revue du câblage Drone Wars) : startRace respecte le Sting
+  Detector, drones fantômes purgés à la réconciliation, capacité consciente
+  des drones non-primaires (fini la sur-réservation), promotion en `assigned`
+  (filet staleAssignedTasks réarmé, re-livraison à tous les drones),
+  cancel_task centralisé dans le scheduler, télémétrie des drones visible,
+  workspaces suffixés par nœud (plus de collision sur workRoot partagé).
 
 - 21 correctifs issus de la revue adversariale multi-agents (AZERTY,
   raccourcis sous modales, IME, focus des alvéoles, contraste AA, anti-
