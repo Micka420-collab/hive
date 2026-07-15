@@ -6,6 +6,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
 import { connectFeed, fetchPulse, fetchReviews, getToken, saveToken } from './api';
+import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
@@ -38,19 +39,20 @@ const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
 interface NavItem {
   id: ViewId;
   label: string;
+  labelEn: string;
   icon: string;
   key: string;
 }
 
 const NAV: NavItem[] = [
-  { id: 'ruche', label: 'Ruche', icon: '🐝', key: '1' },
-  { id: 'reine', label: 'Reine', icon: '👑', key: '2' },
-  { id: 'miellerie', label: 'Miellerie', icon: '🍯', key: '3' },
-  { id: 'projets', label: 'Projets', icon: '⬡', key: '4' },
-  { id: 'essaim', label: 'Essaim', icon: '🕺', key: '5' },
-  { id: 'sante', label: 'Santé', icon: '💓', key: '6' },
-  { id: 'chronique', label: 'Chronique', icon: '📜', key: '7' },
-  { id: 'memoire', label: 'Mémoire', icon: '🧠', key: '8' },
+  { id: 'ruche', label: 'Ruche', labelEn: 'Hive', icon: '🐝', key: '1' },
+  { id: 'reine', label: 'Reine', labelEn: 'Queen', icon: '👑', key: '2' },
+  { id: 'miellerie', label: 'Miellerie', labelEn: 'Honey House', icon: '🍯', key: '3' },
+  { id: 'projets', label: 'Projets', labelEn: 'Projects', icon: '⬡', key: '4' },
+  { id: 'essaim', label: 'Essaim', labelEn: 'Swarm', icon: '🕺', key: '5' },
+  { id: 'sante', label: 'Santé', labelEn: 'Health', icon: '💓', key: '6' },
+  { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', icon: '📜', key: '7' },
+  { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', icon: '🧠', key: '8' },
 ];
 
 const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
@@ -88,6 +90,8 @@ export function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
+  const lang = useLang();
+  const t = useT();
   // Coalescence des invalidations : une rafale d'événements → 1 re-fetch/s max.
   const refreshTimer = useRef<number | undefined>(undefined);
 
@@ -263,13 +267,13 @@ export function App() {
               <button
                 className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
                 onClick={() => navigate(item.id)}
-                title={`${item.label} (touche ${item.key})`}
+                title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}
               >
                 <span className="mc-nav-icon" aria-hidden="true">
                   {item.icon}
                 </span>
-                <span className="mc-nav-label">{item.label}</span>
+                <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
                 {item.id === 'miellerie' && pendingReviews > 0 && (
                   <span className="mc-nav-badge" title={`${pendingReviews} production(s) à revoir`}>
                     {pendingReviews > 99 ? '99+' : pendingReviews}
@@ -291,15 +295,23 @@ export function App() {
         <header className="topbar mc-topbar">
           <div className="brand">
             <div>
-              <h1>{current.label}</h1>
+              <h1>{lang === 'fr' ? current.label : current.labelEn}</h1>
               <span className="brand-sub">
-                {snapshot.projects.length} projet(s) · {snapshot.nodes.length} nœud(s)
+                {snapshot.projects.length} {t('projet(s)', 'project(s)')} · {snapshot.nodes.length}{' '}
+                {t('nœud(s)', 'node(s)')}
               </span>
             </div>
           </div>
           <div className="topbar-actions">
             <button className="btn primary" onClick={() => setShowNewProject(true)}>
-              + Projet
+              {t('+ Projet', '+ Project')}
+            </button>
+            <button
+              className="btn ghost mc-lang"
+              onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
+              title={t('Basculer l’interface en anglais', 'Switch interface to French')}
+            >
+              {lang === 'fr' ? 'EN' : 'FR'}
             </button>
             <InvitePanel />
             <input
@@ -315,19 +327,26 @@ export function App() {
             {unsyncedReviews > 0 && (
               <span
                 className="mc-unsynced"
-                title="Verdicts posés hors connexion — renvoyés automatiquement dès que l'orchestrateur répond"
+                title={t(
+                  "Verdicts posés hors connexion — renvoyés automatiquement dès que l'orchestrateur répond",
+                  'Verdicts made while offline — resent automatically once the orchestrator responds',
+                )}
               >
-                ⚠ {unsyncedReviews} revue(s) non synchronisée(s)
+                ⚠ {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
               </span>
             )}
             <span className={connected ? 'conn online' : 'conn offline'}>
               <span className="conn-dot" />
-              {connected ? 'connecté' : 'hors ligne'}
+              {connected ? t('connecté', 'connected') : t('hors ligne', 'offline')}
             </span>
           </div>
         </header>
 
-        <Suspense fallback={<div className="mc-view-loading">Chargement de la vue…</div>}>
+        <Suspense
+          fallback={
+            <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
+          }
+        >
           {route.view === 'ruche' && <Ruche {...viewProps} />}
           {route.view === 'miellerie' && <Miellerie {...viewProps} />}
           {route.view === 'projets' && <Projets {...viewProps} />}
