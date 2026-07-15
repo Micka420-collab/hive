@@ -29,6 +29,15 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   raccourcis sous modales, IME, focus des alvéoles, contraste AA, anti-
   injection du prompt de la Reine, collisions d'ids Queen Bee, pollings
   résilients…), journal Chronique paginé (300 lignes rendues).
+- 10 correctifs (2e passe) : le serveur est la source de vérité des revues
+  (une tâche rejetée ne coule jamais, sélection comme repli), 409 sur la
+  pré-approbation, store client convergent (fencing d'hydratation, POSTs
+  sérialisés, re-hydratation à chaque reconnexion WS).
+- 8 correctifs (3e passe) : `HIVE_SHIFT` malformée ne gèle plus une tâche,
+  `task_reject.retryAfterMs` (cooldown proportionnel — plus de spam du
+  journal la nuit), merge aussi refusé hors service, verdicts WS d'autres
+  opérateurs différés puis rejoués, outbox `hive.review.unsynced` re-postée
+  (bandeau « revues non synchronisées »).
 
 ## [0.2.0] — 2026-07-15
 
