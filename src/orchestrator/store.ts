@@ -619,6 +619,25 @@ export class HiveStore {
     return info.changes;
   }
 
+  /**
+   * Dernier événement d'un type donné dont le payload mentionne `taskId`.
+   * Sert à retrouver l'issue d'une course tranchée (drone_won) : la course
+   * elle-même ne vit qu'en mémoire du scheduler et disparaît à la victoire —
+   * le journal est la seule trace durable (dans la limite de l'élagage).
+   */
+  lastEventFor(type: string, taskId: string): HiveEvent | null {
+    const row = this.db
+      .prepare('SELECT * FROM events WHERE type = ? AND payload LIKE ? ORDER BY id DESC LIMIT 1')
+      .get(type, `%"taskId":"${taskId}"%`) as EventRow | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      ts: row.ts,
+      type: row.type,
+      payload: JSON.parse(row.payload) as Record<string, unknown>,
+    };
+  }
+
   listEvents(sinceId = 0, limit = 200): HiveEvent[] {
     const rows = this.db
       .prepare('SELECT * FROM events WHERE id > ? ORDER BY id LIMIT ?')

@@ -1208,7 +1208,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      return { race: scheduler.getRace(req.params.taskId) ?? null };
+      const race = scheduler.getRace(req.params.taskId) ?? null;
+      if (race) return { race, victory: null };
+      // Course déjà tranchée : le journal garde la victoire (drone_won) —
+      // permet au tiroir d'afficher le vainqueur après coup.
+      const won = store.lastEventFor('drone_won', req.params.taskId);
+      const victory =
+        won && typeof won.payload.nodeId === 'string'
+          ? {
+              nodeId: won.payload.nodeId,
+              cancelled: typeof won.payload.cancelled === 'number' ? won.payload.cancelled : 0,
+            }
+          : null;
+      return { race: null, victory };
     },
   );
 

@@ -3,7 +3,7 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { cancelTask, fetchRace, fetchResults, raceTask } from './api';
-import type { DroneRace } from './api';
+import type { DroneRace, RaceVictory } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
@@ -26,6 +26,7 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [raced, setRaced] = useState<number | null>(null);
   const [race, setRace] = useState<DroneRace | null>(null);
+  const [victory, setVictory] = useState<RaceVictory | null>(null);
   const [editable, setEditable] = useState(false);
   const [edited, setEdited] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -48,9 +49,17 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   useEffect(() => {
     let alive = true;
     setRace(null);
-    if (task.status === 'assigned' || task.status === 'running') {
+    setVictory(null);
+    // En vol : montrer la course. Terminée : montrer le vainqueur éventuel
+    // (reconstruit côté serveur depuis le journal — la course n'est plus en
+    // mémoire une fois tranchée).
+    if (task.status === 'assigned' || task.status === 'running' || task.status === 'done') {
       fetchRace(task.id)
-        .then((r) => alive && setRace(r.race))
+        .then((r) => {
+          if (!alive) return;
+          setRace(r.race);
+          setVictory(r.victory ?? null);
+        })
         .catch(() => alive && setRace(null));
     }
     return () => {
@@ -152,6 +161,26 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
               `Course en vol : ${race.drones.filter((d) => d.status === 'running').length} drone(s) sur ${race.drones.length} — le premier succès gagne.`,
               `Race in flight: ${race.drones.filter((d) => d.status === 'running').length} drone(s) of ${race.drones.length} — first success wins.`,
             )}
+          </p>
+        )}
+        {task.status === 'done' && victory && (
+          <p className="muted-text" title={t('Course de drones gagnée', 'Drone race won')}>
+            🏆{' '}
+            {(() => {
+              const name =
+                nodes.find((n) => n.id === victory.nodeId)?.name ??
+                `${victory.nodeId.slice(0, 8)}…`;
+              return t(
+                `Gagnée en course de drones par ${name}` +
+                  (victory.cancelled > 0
+                    ? ` — ${victory.cancelled} concurrent(s) annulé(s).`
+                    : '.'),
+                `Won in a drone race by ${name}` +
+                  (victory.cancelled > 0
+                    ? ` — ${victory.cancelled} competitor(s) cancelled.`
+                    : '.'),
+              );
+            })()}
           </p>
         )}
 

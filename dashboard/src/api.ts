@@ -146,9 +146,17 @@ export function raceTask(
 export type { DroneRace } from '../../src/orchestrator/drone-wars';
 import type { DroneRace } from '../../src/orchestrator/drone-wars';
 
-/** Course en vol d'une tâche (null si aucune). */
-export function fetchRace(taskId: string): Promise<{ race: DroneRace | null }> {
-  return api<{ race: DroneRace | null }>(`/api/tasks/${taskId}/race`);
+/** Issue d'une course tranchée, reconstruite depuis le journal (drone_won). */
+export interface RaceVictory {
+  nodeId: string;
+  cancelled: number;
+}
+
+/** Course en vol d'une tâche (null si aucune) + victoire passée éventuelle. */
+export function fetchRace(
+  taskId: string,
+): Promise<{ race: DroneRace | null; victory?: RaceVictory | null }> {
+  return api<{ race: DroneRace | null; victory?: RaceVictory | null }>(`/api/tasks/${taskId}/race`);
 }
 
 /** Toutes les courses en vol (Drone Wars) — pour le badge ⚔ de l'Essaim. */
