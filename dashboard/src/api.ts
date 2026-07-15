@@ -131,6 +131,17 @@ export function cancelTask(taskId: string): Promise<Task> {
   return api<Task>(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: '{}' });
 }
 
+/** Drone Wars : course compétitive sur une tâche prête (2-5 nœuds, 1er succès gagne). */
+export function raceTask(
+  taskId: string,
+  factor = 3,
+): Promise<{ taskId: string; drones: string[] }> {
+  return api<{ taskId: string; drones: string[] }>(`/api/tasks/${taskId}/race`, {
+    method: 'POST',
+    body: JSON.stringify({ factor }),
+  });
+}
+
 export interface InviteResponse {
   invite: string;
   url: string;

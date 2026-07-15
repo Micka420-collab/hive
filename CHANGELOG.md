@@ -16,6 +16,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Merge sélectif** — `POST /merge/run` accepte `taskIds` (validés : tâches
   terminées du projet) ; « Couler le miel » depuis la Miellerie n'intègre que
   les productions **approuvées**.
+- **⚔ Drone Wars câblé** — redondance compétitive opt-in : `POST
+/api/tasks/:id/race { factor }` (CLI `race`, bouton du tiroir de tâche)
+  confie la même tâche prête à 2-5 nœuds (diversité d'agents maximisée) ;
+  le premier succès gagne, les perdants reçoivent `cancel_task`. Primaire
+  promu si un drone tombe ; échecs/refus/déconnexions absorbés par la
+  course (une seule tentative brûlée au pire). Courses en mémoire —
+  un redémarrage du hub retombe sur le circuit mono-nœud, sans double
+  exécution.
 - **La Reine parle revue** — nouvelle intention `review` : « que reste-t-il à
   revoir ? » répond avec les compteurs réels (approuvées/rejetées/en attente)
   et les prochaines productions à inspecter.

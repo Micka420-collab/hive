@@ -20,6 +20,7 @@
 //   npm run cli -- pulse                              signes vitaux de la ruche
 //   npm run cli -- report <projectId>                 avancement d'un projet
 //   npm run cli -- ask "<question>" [projectId]       parler à la Reine (état réel de la ruche)
+//   npm run cli -- race <taskId> [facteur]            Drone Wars : course compétitive (2-5 nœuds)
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
@@ -489,6 +490,18 @@ async function cmdAsk(question: string, projectId?: string): Promise<void> {
   }
 }
 
+/** Drone Wars : lance une course compétitive sur une tâche prête. */
+async function cmdRace(taskId: string, factor?: string): Promise<void> {
+  const body = factor ? { factor: Number(factor) } : {};
+  const res = await api<{ taskId: string; drones: string[] }>(`/api/tasks/${taskId}/race`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  console.log(`\n⚔ Course lancée : ${res.drones.length} drone(s) sur la tâche ${res.taskId}`);
+  for (const d of res.drones) console.log(`  🛸 ${d.slice(0, 8)}…`);
+  console.log('  Le premier succès gagne — les perdants seront annulés automatiquement.');
+}
+
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
@@ -511,10 +524,11 @@ try {
   else if (cmd === 'pulse') await cmdPulse();
   else if (cmd === 'report' && a1) await cmdReport(a1);
   else if (cmd === 'ask' && a1) await cmdAsk(a1, a2);
+  else if (cmd === 'race' && a1) await cmdRace(a1, a2);
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

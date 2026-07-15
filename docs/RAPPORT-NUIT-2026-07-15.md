@@ -71,6 +71,13 @@ hash, touches 1-8, chunks lazy par vue) :
 - 268 tests vitest verts (dont intégration serveur+nœud réels), TypeScript
   strict, ESLint + Prettier zéro erreur, CI GitHub verte sur chaque push.
 
+## 7. Drone Wars câblé (matinée)
+
+- Courses compétitives opt-in (`race <taskId> [facteur]`, endpoint + bouton) :
+  2-5 drones sur la même tâche, diversité d'agents, premier succès gagne,
+  perdants annulés, primaire promu en cas de chute — 8 tests dédiés couvrant
+  tous les chemins de sortie (victoire, échecs, refus, déconnexions, annulation).
+
 ## Reste à faire (proposé)
 
 - **Vérification visuelle** du Mission Control (l'extension Chrome n'était
@@ -80,4 +87,3 @@ hash, touches 1-8, chunks lazy par vue) :
 - i18n complète de l'interface (la Reine est déjà multilingue).
 - Compare-and-set serveur sur les revues (`updatedAt`) pour le multi-opérateur
   intensif ; identité d'auteur (`clientId`) dans `task_reviewed`.
-- Drone Wars : câblage du moteur de redondance compétitive dans le scheduler.

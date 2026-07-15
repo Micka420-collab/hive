@@ -5,6 +5,8 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
+import type { DroneRace } from './drone-wars.js';
 import { summarizeTask } from './hive-mind.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
@@ -17,6 +19,8 @@ export interface SchedulerOptions {
   nodeTimeoutMs?: number;
   /** Appelé quand une tâche est assignée — le serveur pousse alors `assign_task` au nœud. */
   onAssign?: (nodeId: string, task: Task) => void;
+  /** Appelé pour annuler le travail d'un nœud (drone perdant) — le serveur envoie `cancel_task`. */
+  onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
   onEvent?: (event: HiveEvent) => void;
 }
@@ -30,6 +34,14 @@ export class Scheduler {
   private readonly deferredByConflict = new Set<string>();
   /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
   private readonly infraRejects = new Map<string, number>();
+  /**
+   * Drone Wars : courses compétitives en vol, EN MÉMOIRE (un redémarrage du hub
+   * abandonne la course ; la tâche est alors récupérée par le circuit normal au
+   * boot — dégradation sûre, jamais de double comptage). Le store garde le
+   * modèle mono-assignation : `assignedNodeId` = drone « primaire » (celui que
+   * suivent reap/réconciliation), promu vers un autre drone s'il tombe.
+   */
+  private readonly races = new Map<string, DroneRace>();
 
   constructor(
     private readonly store: HiveStore,
@@ -125,13 +137,49 @@ export class Scheduler {
     // 2) Requalifier les tâches que le hub croit à ce nœud mais qu'il ne déclare pas.
     for (const task of this.store.activeTasksOfNode(nodeId)) {
       if (!reported.has(task.id)) {
+        // Drone Wars : primaire revenu à vide — sa course continue sans lui
+        // (promotion d'un autre drone), la tâche n'est requalifiée que si la
+        // course s'éteint. Jamais de requeue pendant que des drones volent.
+        if (this.dropDrone(task.id, nodeId, 'reconcile_orphan', now)) continue;
         this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
         this.emit('task_requeued', { taskId: task.id, nodeId, reason: 'reconcile_orphan' });
       }
     }
 
+    // Drone Wars : un drone NON-primaire qui redéclare sa tâche a été zombifié
+    // ci-dessus (le primaire la porte) — il quitte la course proprement.
+    for (const taskId of zombies) this.dropDrone(taskId, nodeId, 'reconcile_zombie', now);
+
     if (zombies.length > 0) this.emit('node_reconciled', { nodeId, zombies });
     return { zombies };
+  }
+
+  /**
+   * Retire un drone d'une course (perte d'infrastructure : blip, zombie…).
+   * Retourne true si la tâche était bien dans une course où ce nœud volait —
+   * l'appelant ne doit alors PAS appliquer sa requalification générique.
+   */
+  private dropDrone(taskId: string, nodeId: string, reason: string, now: number): boolean {
+    const race = this.races.get(taskId);
+    if (!race || !race.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
+      return false;
+    }
+    const { race: updated, decision } = recordDroneResult(race, nodeId, false);
+    this.races.set(taskId, updated);
+    this.emit('drone_failed', { taskId, nodeId, reason });
+    const task = this.store.getTask(taskId);
+    if (!task || task.status === 'done' || task.status === 'failed') {
+      this.races.delete(taskId);
+      return true;
+    }
+    if (decision.outcome === 'all_failed') {
+      this.races.delete(taskId);
+      this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
+      this.emit('task_requeued', { taskId, nodeId, reason: 'drone_all_lost' });
+    } else if (task.assignedNodeId === nodeId) {
+      this.promoteNextDrone(updated, taskId, now);
+    }
+    return true;
   }
 
   /**
@@ -153,14 +201,40 @@ export class Scheduler {
     now = Date.now(),
     retryAfterMs?: number,
   ): void {
-    const task = this.store.getTask(taskId);
-    if (!task || task.assignedNodeId !== nodeId) return;
-    if (task.status !== 'assigned' && task.status !== 'running') return;
-    this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     // Indisponibilité prévisible annoncée par le nœud (Night Shift) : cooldown
     // proportionnel (borné 24 h) — sinon boucle assignation/refus toutes les
     // ~4 s qui noierait le journal pendant toute la fenêtre fermée.
     const cooldown = Math.max(REJECT_COOLDOWN_MS, Math.min(retryAfterMs ?? 0, 24 * 60 * 60 * 1000));
+
+    // Drone Wars : le refus d'un drone enrôlé (saturation, hors service) n'est
+    // qu'un abandon de course — la tâche ne repart en ready que si la course
+    // s'éteint (aucune tentative brûlée : rien n'a tourné).
+    const race = this.races.get(taskId);
+    if (race && race.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
+      const { race: updated, decision } = recordDroneResult(race, nodeId, false);
+      this.races.set(taskId, updated);
+      this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
+      this.emit('drone_rejected', { taskId, nodeId, reason });
+      const task = this.store.getTask(taskId);
+      if (!task || task.status === 'done' || task.status === 'failed') {
+        this.races.delete(taskId);
+        return;
+      }
+      if (decision.outcome === 'all_failed') {
+        this.races.delete(taskId);
+        this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
+        this.emit('task_requeued', { taskId, nodeId, reason: 'drone_all_rejected' });
+        this.promoteAndAssign(now);
+      } else if (task.assignedNodeId === nodeId) {
+        this.promoteNextDrone(updated, taskId, now);
+      }
+      return;
+    }
+
+    const task = this.store.getTask(taskId);
+    if (!task || task.assignedNodeId !== nodeId) return;
+    if (task.status !== 'assigned' && task.status !== 'running') return;
+    this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
     this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
 
@@ -207,6 +281,9 @@ export class Scheduler {
     if (!node || node.status === 'offline') return;
     this.store.setNodeStatus(nodeId, 'offline');
     this.emit('node_offline', { nodeId, name: node.name, reason });
+    // Drone Wars d'abord : une course qui continue promeut un nouveau primaire
+    // (la tâche change d'assigné et n'est PAS requalifiée par la boucle suivante).
+    this.failDronesOfNode(nodeId, now);
     for (const task of this.store.activeTasksOfNode(nodeId)) {
       this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
       this.emit('task_requeued', { taskId: task.id, nodeId, reason });
@@ -250,6 +327,10 @@ export class Scheduler {
       this.emit('result_ignored', { taskId: result.taskId, nodeId, reason: 'unknown_task' });
       return false;
     }
+    // Drone Wars : une course en vol court-circuite le modèle mono-assignation —
+    // le résultat de N'IMPORTE quel drone enrôlé est arbitré par la course.
+    const race = this.races.get(task.id);
+    if (race) return this.handleDroneResult(race, task, nodeId, result);
     const active = task.status === 'assigned' || task.status === 'running';
     if (!active || task.assignedNodeId !== nodeId) {
       this.emit('result_ignored', {
@@ -314,11 +395,182 @@ export class Scheduler {
     const task = this.store.getTask(taskId);
     if (!task) return undefined;
     if (task.status === 'done' || task.status === 'failed') return task;
+    // Drone Wars : annuler TOUS les drones encore en vol, pas seulement le primaire.
+    const race = this.races.get(taskId);
+    if (race) {
+      for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, taskId, reason);
+      this.races.delete(taskId);
+    }
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_cancelled', { taskId, reason, ...(nodeId ? { nodeId } : {}) });
     this.promoteAndAssign(now);
     return patched;
+  }
+
+  // ─── Drone Wars : redondance compétitive (opt-in, par tâche) ────────────────
+
+  /**
+   * Lance une course : la même tâche est confiée à jusqu'à `factor` nœuds
+   * distincts (diversité d'agents maximisée). Le premier succès gagne, les
+   * autres drones sont annulés. Uniquement sur une tâche `ready` — le circuit
+   * automatique reste mono-nœud, la course est un geste explicite (API/CLI).
+   */
+  startRace(
+    taskId: string,
+    factor: number,
+    now = Date.now(),
+  ): { ok: true; drones: string[] } | { ok: false; error: string } {
+    const task = this.store.getTask(taskId);
+    if (!task) return { ok: false, error: 'tâche inconnue' };
+    if (this.races.has(taskId)) {
+      return { ok: false, error: 'une course est déjà en vol pour cette tâche' };
+    }
+    if (task.status !== 'ready') {
+      return {
+        ok: false,
+        error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
+      };
+    }
+    const candidates = this.store
+      .listNodes()
+      .filter(
+        (n) =>
+          n.status === 'online' &&
+          n.running < n.maxConcurrency &&
+          (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
+      )
+      .sort((a, b) => a.running - b.running || a.name.localeCompare(b.name))
+      .map((n) => ({ id: n.id, agentType: n.agentType }));
+    const { race, launch } = enlistDrones(createRace(taskId, factor), candidates);
+    if (launch.length === 0) return { ok: false, error: 'aucun nœud disponible pour la course' };
+
+    // Le 1er drone devient le « primaire » suivi par le store (reap/reconcile) ;
+    // les autres volent en plus — leurs résultats arrivent par le même canal.
+    const primary = launch[0] as string;
+    const assigned = this.store.patchTask(
+      taskId,
+      { status: 'assigned', assignedNodeId: primary, branch: `hive/${taskId}` },
+      now,
+    );
+    if (!assigned) return { ok: false, error: 'tâche introuvable' };
+    this.races.set(taskId, race);
+    this.emit('drone_race_started', { taskId, factor: race.factor, drones: launch });
+    this.emit('task_assigned', { taskId, nodeId: primary, branch: assigned.branch });
+    for (const droneId of launch) this.opts.onAssign?.(droneId, assigned);
+    return { ok: true, drones: launch };
+  }
+
+  /** Course en vol pour une tâche (lecture seule, pour l'API). */
+  getRace(taskId: string): DroneRace | undefined {
+    return this.races.get(taskId);
+  }
+
+  /** Arbitre le résultat d'un drone (succès → victoire ; échec → attente/échec). */
+  private handleDroneResult(
+    race: DroneRace,
+    task: Task,
+    nodeId: string,
+    result: Omit<TaskResult, 'nodeId'>,
+    now = Date.now(),
+  ): boolean {
+    if (task.status === 'done' || task.status === 'failed') {
+      this.races.delete(task.id);
+      this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'race_task_finished' });
+      return false;
+    }
+    const { race: updated, decision } = recordDroneResult(race, nodeId, result.success);
+    if (decision.outcome === 'lost') {
+      this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'drone_race_decided' });
+      return false;
+    }
+    this.races.set(task.id, updated);
+    this.store.insertResult({ ...result, nodeId });
+
+    if (decision.outcome === 'won') {
+      this.races.delete(task.id);
+      this.infraRejects.delete(task.id);
+      this.store.patchTask(
+        task.id,
+        {
+          status: 'done',
+          assignedNodeId: nodeId,
+          result: { success: true, nodeId, durationMs: result.durationMs },
+        },
+        now,
+      );
+      this.emit('task_done', { taskId: task.id, nodeId, durationMs: result.durationMs });
+      this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
+      for (const loser of decision.cancel) {
+        this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
+        this.opts.onCancel?.(loser, task.id, 'course de drones perdue');
+      }
+      // Hive Mind : même parité que le circuit normal — la victoire laisse un souvenir.
+      this.store.recordMemory({
+        projectId: task.projectId,
+        taskId: task.id,
+        title: task.title,
+        content: summarizeTask(task.title, task.prompt, result.logs),
+      });
+      this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+      this.promoteAndAssign(now);
+      return true;
+    }
+
+    if (decision.outcome === 'pending') {
+      // Ce drone a échoué mais d'autres volent encore : la course continue.
+      this.emit('drone_failed', { taskId: task.id, nodeId });
+      if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
+      return true;
+    }
+
+    // all_failed via un VRAI résultat : l'agent a tourné — tentative brûlée,
+    // circuit d'échec normal (retry ou failed définitif).
+    this.races.delete(task.id);
+    this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
+    const attempts = task.attempts + 1;
+    if (attempts >= this.maxAttempts) {
+      this.store.patchTask(task.id, {
+        status: 'failed',
+        attempts,
+        assignedNodeId: null,
+        result: { success: false, nodeId, durationMs: result.durationMs },
+      });
+      this.emit('task_failed', { taskId: task.id, nodeId, attempts });
+    } else {
+      this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
+      this.emit('task_retry', {
+        taskId: task.id,
+        nodeId,
+        attempt: attempts,
+        maxAttempts: this.maxAttempts,
+      });
+    }
+    this.promoteAndAssign(now);
+    return true;
+  }
+
+  /**
+   * Le drone primaire est tombé (échec, refus, déconnexion) mais la course
+   * continue : un autre drone en vol devient le primaire suivi par le store.
+   */
+  private promoteNextDrone(race: DroneRace, taskId: string, now: number): void {
+    const next = runningDrones(race)[0];
+    if (next) {
+      this.store.patchTask(taskId, { status: 'running', assignedNodeId: next }, now);
+      this.emit('drone_promoted', { taskId, nodeId: next });
+    }
+  }
+
+  /**
+   * Un nœud vient de mourir (reap/déconnexion) : ses drones échouent. Appelé
+   * AVANT la requalification générique — une course qui continue promeut un
+   * nouveau primaire (la tâche reste en vol), une course éteinte requalifie la
+   * tâche en ready SANS brûler de tentative (perte d'infrastructure, pas d'échec
+   * de l'agent).
+   */
+  private failDronesOfNode(nodeId: string, now: number): void {
+    for (const taskId of [...this.races.keys()]) this.dropDrone(taskId, nodeId, 'node_lost', now);
   }
 
   // ─── Interne ───────────────────────────────────────────────────────────────

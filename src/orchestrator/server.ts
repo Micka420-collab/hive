@@ -217,6 +217,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   const scheduler = new Scheduler(store, {
+    // Drone Wars : annuler le travail d'un drone perdant (ou d'une course annulée).
+    onCancel: (nodeId, taskId, reason) => {
+      const ws = nodeSockets.get(nodeId);
+      if (ws) send(ws, { type: 'cancel_task', taskId, reason });
+    },
     onAssign: (nodeId, task) => {
       const ws = nodeSockets.get(nodeId);
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
@@ -1115,6 +1120,58 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         signature: signatureOf(r.diff),
       }));
       return tally(ballots);
+    },
+  );
+
+  // Drone Wars : lance une course compétitive — la même tâche (ready) confiée
+  // à jusqu'à `factor` nœuds distincts, le premier succès gagne, les perdants
+  // sont annulés. Geste explicite (jamais automatique), pour tâches critiques.
+  app.post<{ Params: { taskId: string }; Body: { factor?: number } }>(
+    '/api/tasks/:taskId/race',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { factor: { type: 'integer', minimum: 2, maximum: 5 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const started = scheduler.startRace(req.params.taskId, req.body.factor ?? 3);
+      if (!started.ok) {
+        const code = started.error.includes('inconnue')
+          ? 404
+          : started.error.includes('aucun nœud')
+            ? 503
+            : 409;
+        return reply.code(code).send({ error: started.error });
+      }
+      return reply.code(202).send({ taskId: req.params.taskId, drones: started.drones });
+    },
+  );
+
+  // État d'une course en vol (null si aucune) — pour le dashboard/CLI.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/race',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      return { race: scheduler.getRace(req.params.taskId) ?? null };
     },
   );
 

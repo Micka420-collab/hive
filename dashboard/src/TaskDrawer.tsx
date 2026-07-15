@@ -2,7 +2,7 @@
 // revue humaine, avec possibilité d'annuler une tâche en cours.
 
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { cancelTask, fetchResults } from './api';
+import { cancelTask, fetchResults, raceTask } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { formatMs, StatusBadge, useDialog } from './ui';
 
@@ -21,6 +21,7 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   const [tab, setTab] = useState<'diff' | 'logs'>('diff');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [raced, setRaced] = useState<number | null>(null);
   const [editable, setEditable] = useState(false);
   const [edited, setEdited] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -67,6 +68,20 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
     setError(null);
     try {
       await cancelTask(task.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Drone Wars : course compétitive sur une tâche prête (geste humain explicite).
+  const doRace = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await raceTask(task.id);
+      setRaced(res.drones.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -158,6 +173,21 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
         )}
 
         {error && <p className="modal-error">{error}</p>}
+        {task.status === 'ready' && raced === null && (
+          <button
+            className="btn"
+            onClick={doRace}
+            disabled={busy}
+            title="Drone Wars : la même tâche confiée à plusieurs nœuds — le premier succès gagne, les autres sont annulés"
+          >
+            {busy ? 'Lancement…' : '⚔ Course de drones (3 nœuds)'}
+          </button>
+        )}
+        {raced !== null && (
+          <p className="muted-text">
+            ⚔ Course lancée : {raced} drone(s) en vol — le premier succès gagne.
+          </p>
+        )}
         {cancellable && (
           <button className="btn danger-btn" onClick={doCancel} disabled={busy}>
             {busy ? 'Annulation…' : 'Annuler la tâche'}
