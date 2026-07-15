@@ -35,6 +35,13 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **La Reine parle revue** — nouvelle intention `review` : « que reste-t-il à
   revoir ? » répond avec les compteurs réels (approuvées/rejetées/en attente)
   et les prochaines productions à inspecter.
+- **⚔ Le nectar des vainqueurs** — le Waggle Board crédite un bonus de
+  5 nectars par victoire de course (`drone_won`, en plus du `task_done` du
+  vainqueur) ; perdre ou être annulé en course reste neutre (redondance
+  opt-in, pas de double peine). Victoires affichées dans l'Essaim et la CLI.
+- **Courses visibles** — `GET /api/races` expose les courses en vol ; les
+  cartes de nœuds de l'Essaim portent un badge ⚔ animé quand un de leurs
+  drones vole encore.
 - **Night Shift câblé** — `HIVE_SHIFT` agit vraiment : hors des heures de
   service du membre, le nœud refuse poliment tâches ET merges (aucune
   tentative brûlée, `retryAfterMs` évite la re-sollicitation en boucle,

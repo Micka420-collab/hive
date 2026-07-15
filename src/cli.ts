@@ -21,6 +21,7 @@
 //   npm run cli -- report <projectId>                 avancement d'un projet
 //   npm run cli -- ask "<question>" [projectId]       parler à la Reine (état réel de la ruche)
 //   npm run cli -- race <taskId> [facteur]            Drone Wars : course compétitive (2-5 nœuds)
+//   npm run cli -- races                              Drone Wars : courses en vol
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
@@ -31,6 +32,7 @@ import type { Verdict } from './orchestrator/parliament.js';
 import type { ProjectReport } from './orchestrator/project-report.js';
 import type { HivePulse } from './orchestrator/pulse.js';
 import type { ReplayResult, TaskCounts } from './orchestrator/replay.js';
+import type { DroneRace } from './orchestrator/drone-wars.js';
 import type { WaggleBoard } from './orchestrator/waggle.js';
 import {
   formatWindow,
@@ -503,6 +505,25 @@ async function cmdRace(taskId: string, factor?: string): Promise<void> {
   console.log('  Le premier succès gagne — les perdants seront annulés automatiquement.');
 }
 
+/** Drone Wars : liste des courses en vol (en mémoire du hub). */
+async function cmdRaces(): Promise<void> {
+  const { races } = await api<{ races: DroneRace[] }>('/api/races');
+  if (races.length === 0) {
+    console.log('Aucune course en vol — lancez-en une avec : npm run cli -- race <taskId>');
+    return;
+  }
+  const icon: Record<string, string> = { running: '✈', succeeded: '✔', failed: '✘' };
+  console.log(`⚔ ${races.length} course(s) en vol\n`);
+  for (const r of races) {
+    const flying = r.drones.filter((d) => d.status === 'running').length;
+    console.log(`  Tâche ${r.taskId} — facteur ${r.factor}, ${flying} drone(s) encore en vol`);
+    for (const d of r.drones) {
+      const win = r.winner === d.nodeId ? ' 🏆' : '';
+      console.log(`    ${icon[d.status] ?? '?'} ${d.nodeId.slice(0, 8)}… (${d.status})${win}`);
+    }
+  }
+}
+
 const [cmd, a1, a2] = process.argv.slice(2);
 try {
   if (cmd === 'state') await cmdState();
@@ -526,10 +547,11 @@ try {
   else if (cmd === 'report' && a1) await cmdReport(a1);
   else if (cmd === 'ask' && a1) await cmdAsk(a1, a2);
   else if (cmd === 'race' && a1) await cmdRace(a1, a2);
+  else if (cmd === 'races') await cmdRaces();
   else if (cmd === 'invite') await cmdInvite(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS]>',
     );
     process.exitCode = 1;
   }

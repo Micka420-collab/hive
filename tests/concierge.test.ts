@@ -223,6 +223,37 @@ describe('answerLive', () => {
     expect(a.reply).toContain('leaderboard');
     expect(a.reply).toContain('🥇 ruche-alpha');
   });
+
+  it('classement : mentionne les victoires de course seulement si > 0', () => {
+    const withWins = (raceWins: number) =>
+      makeCtx({
+        waggle: {
+          nodes: [
+            {
+              nodeId: 'n1',
+              name: 'ruche-alpha',
+              agentType: 'claude-code',
+              tasksDone: 5,
+              tasksFailed: 1,
+              totalDurationMs: 6000,
+              avgDurationMs: 1200,
+              successRate: 5 / 6,
+              raceWins,
+              score: 24 + raceWins * 5,
+            },
+          ],
+          totalTasksDone: 5,
+          totalTasksFailed: 1,
+          topNodeId: 'n1',
+        },
+      });
+    const fr = answerLive('quel nœud travaille le mieux ?', withWins(2));
+    expect(fr.reply).toContain('⚔ 2 victoire(s) de course');
+    const en = answerLive('which node works best?', withWins(2));
+    expect(en.reply).toContain('⚔ 2 race win(s)');
+    const sans = answerLive('quel nœud travaille le mieux ?', withWins(0));
+    expect(sans.reply).not.toContain('⚔');
+  });
 });
 
 describe('askConcierge (mode IA injecté)', () => {

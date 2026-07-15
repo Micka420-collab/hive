@@ -520,7 +520,14 @@ function nodesReply(ctx: ConciergeContext, lang: Lang): string {
   const perTask = lang === 'fr' ? '/tâche' : '/task';
   const lines = ctx.waggle.nodes.slice(0, 5).map((n, i) => {
     const rank = medals[i] ?? `${i + 1}.`;
-    return `${rank} ${clean(n.name)} [${n.agentType}] — ${n.score} nectar (✔${n.tasksDone} ✘${n.tasksFailed}, ${pct(n.successRate)}, ${n.avgDurationMs ? ms(n.avgDurationMs) + perTask : '—'})`;
+    // Victoires de course (Drone Wars) : un titre de gloire, seulement si > 0.
+    const wins =
+      n.raceWins > 0
+        ? lang === 'fr'
+          ? `, ⚔ ${n.raceWins} victoire(s) de course`
+          : `, ⚔ ${n.raceWins} race win(s)`
+        : '';
+    return `${rank} ${clean(n.name)} [${n.agentType}] — ${n.score} nectar (✔${n.tasksDone} ✘${n.tasksFailed}${wins}, ${pct(n.successRate)}, ${n.avgDurationMs ? ms(n.avgDurationMs) + perTask : '—'})`;
   });
   const head =
     lang === 'fr'
@@ -717,6 +724,7 @@ export function buildChatPrompt(
       score: n.score,
       reussites: n.tasksDone,
       echecs: n.tasksFailed,
+      victoiresDeCourse: n.raceWins,
     })),
     anomalies: ctx.ghosts
       .slice(0, 5)
