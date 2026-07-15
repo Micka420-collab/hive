@@ -1501,6 +1501,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             break;
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.
+            // Un REFUS du nœud (Night Shift…) est un échec explicite — jamais
+            // consigné comme un merge « réussi » vide.
+            if (msg.refused) {
+              failMerge(msg.mergeId, msg.refused);
+              break;
+            }
             const pending = pendingMerges.get(msg.mergeId);
             if (pending) {
               mergeResults.set(pending.projectId, msg);

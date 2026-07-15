@@ -16,7 +16,19 @@ export function saveToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
-/** fetch authentifié qui lève une erreur lisible sur réponse non-OK. */
+/** Erreur API porteuse du statut HTTP (0 = réseau) — permet de distinguer un
+ * échec transitoire (réseau, 5xx) d'un échec définitif (404 tâche disparue). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** fetch authentifié qui lève une ApiError lisible sur réponse non-OK. */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -33,7 +45,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* corps non-JSON */
     }
-    throw new Error(message);
+    throw new ApiError(message, res.status);
   }
   return (await res.json()) as T;
 }

@@ -109,6 +109,11 @@ export interface MergeResultMsg {
   testsRun: boolean;
   testsPassed: boolean | null;
   logs: string;
+  /**
+   * Merge REFUSÉ par le nœud (ex. Night Shift : hors heures de service) : le
+   * hub le traite en échec explicite (merge_failed), jamais en succès vide.
+   */
+  refused?: string;
 }
 
 export type ClientMessage =
@@ -384,9 +389,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStrAllowEmpty(m.mergedDiff, LIMITS.diff) &&
         typeof m.testsRun === 'boolean' &&
         (m.testsPassed === null || typeof m.testsPassed === 'boolean') &&
-        isStrAllowEmpty(m.logs, LIMITS.log)
+        isStrAllowEmpty(m.logs, LIMITS.log) &&
+        (m.refused === undefined || isStr(m.refused, LIMITS.name))
       ) {
-        return {
+        const msg: MergeResultMsg = {
           type: 'merge_result',
           mergeId: m.mergeId,
           applied: m.applied,
@@ -396,6 +402,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           testsPassed: m.testsPassed as boolean | null,
           logs: m.logs,
         };
+        if (typeof m.refused === 'string') msg.refused = m.refused;
+        return msg;
       }
       return null;
     }

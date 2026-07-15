@@ -10,7 +10,7 @@ import type {
   Task,
   TaskStatus,
 } from '../../../src/shared/types';
-import { postReview } from '../api';
+import { ApiError, postReview } from '../api';
 
 // ─── Contrat commun : App possède l'état temps réel, les vues le reçoivent ───
 
@@ -78,19 +78,30 @@ function readLocalReviews(): Record<string, ReviewState> {
 // ─── Verdicts non confirmés par le serveur (outbox persistée) ────────────────
 // Un POST échoué ne perd jamais le verdict : il est superposé à chaque
 // hydratation et re-posté — une micro-coupure ne fait pas couler un rejet.
+// Chaque entrée mémorise `base` (le verdict serveur connu au moment du geste) :
+// si le serveur a changé entre-temps (verdict PLUS RÉCENT d'un autre
+// opérateur), on ne rejoue PAS le geste périmé — la décision serveur prime.
 
-function readUnsynced(): Record<string, ReviewState | null> {
+interface OutboxEntry {
+  state: ReviewState | null;
+  base: ReviewState | null;
+}
+
+function readUnsynced(): Record<string, OutboxEntry> {
   try {
-    return JSON.parse(localStorage.getItem(UNSYNCED_KEY) ?? '{}') as Record<
-      string,
-      ReviewState | null
-    >;
+    const raw = JSON.parse(localStorage.getItem(UNSYNCED_KEY) ?? '{}') as Record<string, unknown>;
+    const out: Record<string, OutboxEntry> = {};
+    for (const [taskId, v] of Object.entries(raw)) {
+      if (v !== null && typeof v === 'object' && 'state' in v) out[taskId] = v as OutboxEntry;
+      else out[taskId] = { state: v as ReviewState | null, base: null }; // ancien format
+    }
+    return out;
   } catch {
     return {};
   }
 }
 
-function writeUnsynced(map: Record<string, ReviewState | null>): void {
+function writeUnsynced(map: Record<string, OutboxEntry>): void {
   localStorage.setItem(UNSYNCED_KEY, JSON.stringify(map));
 }
 
@@ -138,12 +149,21 @@ export function hydrateReviews(map: Record<string, ReviewState>, seq?: number): 
     else serverReviews[taskId] = state;
   }
   // Verdicts jamais confirmés (POST échoué avant une coupure) : superposés à
-  // l'affichage ET re-postés — le serveur convergera vers le geste humain.
-  for (const [taskId, state] of Object.entries(readUnsynced())) {
+  // l'affichage ET re-postés — SAUF si le serveur a changé depuis le geste
+  // (un autre opérateur a statué plus récemment : sa décision prime, l'entrée
+  // périmée est abandonnée).
+  for (const [taskId, entry] of Object.entries(readUnsynced())) {
     if (locallyPending.has(taskId)) continue; // déjà en cours de renvoi
-    if (state === null) delete serverReviews[taskId];
-    else serverReviews[taskId] = state;
-    enqueuePost(taskId, state);
+    const serverVal = map[taskId] ?? null;
+    if (serverVal !== (entry.base ?? null)) {
+      const m = readUnsynced();
+      delete m[taskId];
+      writeUnsynced(m);
+      continue; // l'affichage garde la valeur serveur (plus récente)
+    }
+    if (entry.state === null) delete serverReviews[taskId];
+    else serverReviews[taskId] = entry.state;
+    enqueuePost(taskId, entry.state, entry.base);
   }
   notifyReviewChange();
 }
@@ -170,10 +190,10 @@ export function getReview(taskId: string): ReviewState | null {
 }
 
 /** Enfile un POST de revue sérialisé par tâche, avec suivi unsynced + rejeu WS. */
-function enqueuePost(taskId: string, state: ReviewState | null): void {
+function enqueuePost(taskId: string, state: ReviewState | null, base: ReviewState | null): void {
   // Tant que le serveur n'a pas confirmé, le verdict est « non synchronisé ».
   const unsynced = readUnsynced();
-  unsynced[taskId] = state;
+  unsynced[taskId] = { state, base };
   writeUnsynced(unsynced);
 
   locallyPending.add(taskId);
@@ -183,15 +203,22 @@ function enqueuePost(taskId: string, state: ReviewState | null): void {
     .then(
       () => {
         const m = readUnsynced();
-        if (taskId in m && m[taskId] === state) {
+        if (taskId in m && m[taskId]?.state === state) {
           delete m[taskId];
           writeUnsynced(m);
           notifyReviewChange(); // le bandeau « non synchronisé » se met à jour
         }
       },
-      () => {
-        // Échec (token invalide, serveur ancien/injoignable) : le verdict reste
-        // local ET dans l'outbox — re-posté à la prochaine hydratation.
+      (err: unknown) => {
+        // Échec DÉFINITIF (tâche disparue, requête invalide) : inutile de
+        // rejouer à chaque reconnexion — l'entrée est purgée, le verdict reste
+        // dans le repli local. Échec transitoire (réseau, 5xx, 401/403/409) :
+        // l'entrée reste, re-postée à la prochaine hydratation.
+        if (err instanceof ApiError && [400, 404, 422].includes(err.status)) {
+          const m = readUnsynced();
+          delete m[taskId];
+          writeUnsynced(m);
+        }
         window.dispatchEvent(
           new CustomEvent('hive:review-sync-error', { detail: { taskId, state } }),
         );
@@ -219,6 +246,9 @@ function enqueuePost(taskId: string, state: ReviewState | null): void {
 }
 
 export function setReview(taskId: string, state: ReviewState | null): void {
+  // `base` = verdict serveur connu AVANT ce geste : capturé pour détecter, au
+  // rejeu éventuel de l'outbox, qu'un autre opérateur a statué entre-temps.
+  const base = getReview(taskId);
   // Optimiste : cache + repli local immédiats, envoi serveur sérialisé derrière.
   applyDelta(taskId, state);
   const local = readLocalReviews();
@@ -226,7 +256,7 @@ export function setReview(taskId: string, state: ReviewState | null): void {
   else local[taskId] = state;
   localStorage.setItem(REVIEW_KEY, JSON.stringify(local));
   notifyReviewChange();
-  enqueuePost(taskId, state);
+  enqueuePost(taskId, state, base);
 }
 
 /** Nombre de tâches terminées non revues (badge sidebar + compteurs). */

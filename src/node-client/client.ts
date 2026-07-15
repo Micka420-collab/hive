@@ -227,7 +227,10 @@ export class HiveNodeClient {
   /** Motif de refus Night Shift à joindre à un task_reject, ou null si de service. */
   private offShiftReject(): { reason: string; retryAfterMs?: number } | null {
     const shift = this.shiftPolicy();
-    if (shift === 'invalide') return { reason: 'hive_shift_invalide' };
+    // Config invalide = état durable (corrigée seulement par un redémarrage du
+    // nœud, qui purge ses cooldowns à la ré-inscription) : cooldown long pour
+    // ne pas réintroduire la boucle assignation/refus qui noie le journal.
+    if (shift === 'invalide') return { reason: 'hive_shift_invalide', retryAfterMs: 10 * 60_000 };
     if (shift.windows.length === 0) return null;
     const now = new Date();
     if (isOnShift(shift, now)) return null;
@@ -363,6 +366,8 @@ export class HiveNodeClient {
     // travail au même titre qu'une tâche — refusé hors heures de service.
     const offShift = this.offShiftReject();
     if (offShift) {
+      // `refused` : le hub le traite en merge_failed explicite — jamais en
+      // succès vide qui écraserait le dernier vrai résultat.
       this.send({
         type: 'merge_result',
         mergeId: msg.mergeId,
@@ -372,6 +377,7 @@ export class HiveNodeClient {
         testsRun: false,
         testsPassed: null,
         logs: `[nœud] ${offShift.reason} : merge refusé (Night Shift)`,
+        refused: offShift.reason,
       });
       this.log(`⏾ merge ${msg.mergeId.slice(0, 8)}… : ${offShift.reason} → refus`);
       return;
