@@ -69,7 +69,9 @@ npm run demo
 Ouvrez **http://localhost:7777** : le Swarm View montre en direct l'orchestrateur,
 2 nœuds simulés (`ruche-alpha`, `ruche-beta`) et un projet de démonstration de
 **7 tâches avec dépendances** (DAG). La tâche « API de facturation » échoue
-volontairement à sa première tentative pour illustrer le mécanisme de _retry_.
+volontairement à sa première tentative pour illustrer le mécanisme de _retry_,
+et une 8e tâche part en **course de drones** (⚔) sur les deux nœuds dès qu'ils
+sont en ligne — badge ⚔ dans l'Essaim, `npm run cli -- races` pour la suivre.
 
 - **Basculez 2D ⇄ 3D** en haut à droite. La vue 3D (alvéoles hexagonales,
   ouvrières en orbite, fils lumineux nœud↔tâche, caméra orbitale) est **chargée à

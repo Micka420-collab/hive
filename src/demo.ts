@@ -111,8 +111,48 @@ for (const n of nodes) n.start();
 console.log('👀 Ouvrez le Swarm View, puis testez la persistance : Ctrl+C et relancez.\n');
 
 // ─── 5. Rappels console (le Swarm View reste la vraie vitrine) ──────────────
-const NOTABLE = new Set(['task_done', 'task_retry', 'task_failed', 'task_requeued']);
+const NOTABLE = new Set([
+  'task_done',
+  'task_retry',
+  'task_failed',
+  'task_requeued',
+  'drone_race_started',
+  'drone_won',
+]);
+
+// ⚔ Drone Wars en vitrine : dès que les 2 ouvrières sont en ligne, une 8e
+// tâche est créée et confiée EN COURSE aux deux nœuds (le premier succès
+// gagne, le perdant est annulé). Création + passage ready + startRace dans le
+// même tour synchrone : aucun tick ne peut assigner la tâche entre-temps.
+let raceLaunched = false;
+const demoProject = project; // constante : le narrowing survit dans la closure
+function tryLaunchDemoRace(): void {
+  if (raceLaunched) return;
+  // Reprise d'une démo : la tâche de course existe déjà — ne pas la dupliquer.
+  if (server.store.listTasks(demoProject.id).some((t) => t.title.startsWith('⚔'))) {
+    raceLaunched = true;
+    return;
+  }
+  const online = server.store.listNodes().filter((n) => n.status === 'online');
+  if (online.length < 2) return;
+  raceLaunched = true;
+  const raceTask = server.store.createTask({
+    projectId: demoProject.id,
+    title: '⚔ Audit de sécurité (course de drones)',
+    prompt: 'Passer en revue dépendances et surfaces d’attaque du mini SaaS',
+  });
+  server.store.appendEvent('task_created', { taskId: raceTask.id, title: raceTask.title });
+  server.store.patchTask(raceTask.id, { status: 'ready' });
+  const started = server.scheduler.startRace(raceTask.id, 2);
+  if (!started.ok) {
+    // Pas assez de capacité : la tâche restera prête et suivra le circuit
+    // mono-nœud classique au prochain tick — la démo continue sans course.
+    console.log(`   ⚔ course non lancée (${started.error}) — circuit classique.`);
+  }
+}
+
 const reporter = setInterval(() => {
+  tryLaunchDemoRace();
   for (const ev of server.store.listEvents(lastEventId, 500)) {
     lastEventId = ev.id;
     if (!NOTABLE.has(ev.type)) continue;
@@ -123,6 +163,12 @@ const reporter = setInterval(() => {
       console.log(`   🔁 échec de « ${title} », nouvel essai ${String(ev.payload.attempt)}/3`);
     if (ev.type === 'task_failed') console.log(`   ✘ échec définitif : ${title}`);
     if (ev.type === 'task_requeued') console.log(`   ↩ réaffectée : ${title}`);
+    if (ev.type === 'drone_race_started')
+      console.log(
+        `   ⚔ course lancée : ${String(Array.isArray(ev.payload.drones) ? ev.payload.drones.length : '?')} drones sur « ${title} »`,
+      );
+    if (ev.type === 'drone_won')
+      console.log(`   🏆 course gagnée (« ${title} ») — le perdant est annulé proprement.`);
   }
 
   const all = server.store.listTasks(project.id);
