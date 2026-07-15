@@ -77,9 +77,14 @@ export async function prepareWorkspace(
   task: Task,
   repoUrl: string | null,
   keepEnv: string[] = [],
+  // Suffixe d'instance (nodeId court) : deux nœuds partageant le même workRoot
+  // (démo/tests locaux) peuvent exécuter la MÊME tâche en parallèle (Drone
+  // Wars) sans se détruire mutuellement le répertoire.
+  instanceId = '',
 ): Promise<Workspace> {
   const tasksRoot = path.resolve(workRoot, 'tasks');
-  const cwd = path.resolve(tasksRoot, task.id);
+  const dirName = instanceId ? `${task.id}-${instanceId}` : task.id;
+  const cwd = path.resolve(tasksRoot, dirName);
   // Confinement strict : le cwd DOIT rester sous <workRoot>/tasks. Défense en
   // profondeur contre un task.id malveillant (« ../… » ou chemin absolu) qui
   // ferait pointer rmSync/clone hors du répertoire de travail. La validation

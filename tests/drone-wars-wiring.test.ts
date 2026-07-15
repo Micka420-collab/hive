@@ -163,6 +163,68 @@ describe('Drone Wars : câblage scheduler', () => {
     expect(after.attempts).toBe(0);
   });
 
+  it('refuse une course sur une tâche en conflit FORT avec une tâche active (Sting)', () => {
+    const p = store.createProject({ name: 'P' });
+    const active = store.createTask({
+      projectId: p.id,
+      title: 'modifier `src/app.ts`',
+      prompt: 'éditer le fichier `src/app.ts`',
+    });
+    const ready = store.createTask({
+      projectId: p.id,
+      title: 'retoucher `src/app.ts`',
+      prompt: 'changer aussi `src/app.ts`',
+    });
+    const node = scheduler.registerNode(profile('n1'));
+    store.patchTask(active.id, { status: 'running', assignedNodeId: node.id });
+    store.patchTask(ready.id, { status: 'ready' });
+    scheduler.registerNode(profile('n2'));
+
+    const started = scheduler.startRace(ready.id, 2);
+    expect(started).toMatchObject({ ok: false });
+    if (!started.ok) expect(started.error).toContain('conflit fort');
+  });
+
+  it('réconciliation : un drone fantôme (reconnexion à vide) est purgé de la course', () => {
+    const { task } = setup(2);
+    const started = scheduler.startRace(task.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    const [primary, ghost] = started.drones;
+
+    // Le nœud B redémarre (crash sans FIN TCP) et se ré-inscrit SANS déclarer la tâche.
+    scheduler.reconcileNode(ghost!, []);
+    // Le primaire échoue ensuite : plus aucun drone en vol → la course s'éteint
+    // (sans la purge, le fantôme la maintiendrait en vie pour toujours).
+    scheduler.handleTaskResult(primary!, result(task.id, false));
+    const after = store.getTask(task.id)!;
+    expect(['ready', 'assigned']).toContain(after.status);
+    expect(after.assignedNodeId).not.toBe(ghost);
+  });
+
+  it('capacité : un nœud occupé comme drone non-primaire n est pas sur-réservé', () => {
+    const p = store.createProject({ name: 'P' });
+    const raced = store.createTask({ projectId: p.id, title: 'critique', prompt: 'x' });
+    store.patchTask(raced.id, { status: 'ready' });
+    // Deux nœuds à capacité 1 : la course occupe les deux (primaire + drone).
+    const n1 = scheduler.registerNode({ ...profile('n1'), maxConcurrency: 1 });
+    const n2 = scheduler.registerNode({ ...profile('n2'), maxConcurrency: 1 });
+    void n1;
+    void n2;
+    const started = scheduler.startRace(raced.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    assigned = [];
+
+    // Une nouvelle tâche mono ne doit être assignée à AUCUN des deux (pleins).
+    const mono = store.createTask({ projectId: p.id, title: 'mono', prompt: 'y' });
+    void mono;
+    scheduler.tick();
+    expect(assigned).toHaveLength(0);
+
+    // La course se termine : la capacité se libère, la tâche mono part.
+    scheduler.handleTaskResult(started.drones[0]!, result(raced.id));
+    expect(assigned.some((a) => a.taskId !== raced.id)).toBe(true);
+  });
+
   it('annulation humaine : tous les drones en vol reçoivent cancel_task', () => {
     const { task } = setup(3);
     const started = scheduler.startRace(task.id, 3);

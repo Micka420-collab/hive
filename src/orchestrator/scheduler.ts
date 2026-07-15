@@ -146,8 +146,14 @@ export class Scheduler {
       }
     }
 
-    // Drone Wars : un drone NON-primaire qui redéclare sa tâche a été zombifié
-    // ci-dessus (le primaire la porte) — il quitte la course proprement.
+    // Drone Wars : un nœud qui se ré-inscrit repart de zéro — TOUTE course où
+    // il volait et dont il ne déclare pas la tâche perd ce drone (couvre les
+    // fantômes : crash sans FIN TCP, socket remplacée, assign_task avalé).
+    for (const taskId of [...this.races.keys()]) {
+      if (!reported.has(taskId)) this.dropDrone(taskId, nodeId, 'reconcile_ghost', now);
+    }
+    // Et un drone NON-primaire qui redéclare sa tâche a été zombifié ci-dessus
+    // (le primaire la porte) — il quitte la course proprement.
     for (const taskId of zombies) this.dropDrone(taskId, nodeId, 'reconcile_zombie', now);
 
     if (zombies.length > 0) this.emit('node_reconciled', { nodeId, zombies });
@@ -294,8 +300,25 @@ export class Scheduler {
   /** Le nœud confirme le démarrage effectif (assigned → running) et le progrès des sous-agents. */
   handleTaskUpdate(nodeId: string, taskId: string, subAgents?: SubAgent[], log?: string): void {
     const task = this.store.getTask(taskId);
-    // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée.
-    if (!task || task.assignedNodeId !== nodeId) return;
+    // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
+    // SAUF si le nœud est un drone enrôlé : son progrès est visible (télémétrie
+    // de course), sans jamais toucher au statut ni à l'assignation.
+    if (!task) return;
+    if (task.assignedNodeId !== nodeId) {
+      const race = this.races.get(taskId);
+      if (race?.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
+        const hasProgress = (subAgents !== undefined && subAgents.length > 0) || log !== undefined;
+        if (hasProgress) {
+          this.emit('task_progress', {
+            taskId,
+            nodeId,
+            ...(subAgents && subAgents.length > 0 ? { subAgents } : {}),
+            ...(log !== undefined ? { log: log.slice(0, 2000) } : {}),
+          });
+        }
+      }
+      return;
+    }
     if (task.status !== 'assigned' && task.status !== 'running') return;
     if (task.status === 'assigned') {
       this.store.patchTask(taskId, { status: 'running' });
@@ -400,6 +423,10 @@ export class Scheduler {
     if (race) {
       for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, taskId, reason);
       this.races.delete(taskId);
+    } else if (task.assignedNodeId) {
+      // Mono : le nœud assigné est prévenu ici aussi — la notification vit dans
+      // le scheduler, pas dans chaque appelant (symétrie course/mono).
+      this.opts.onCancel?.(task.assignedNodeId, taskId, reason);
     }
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
@@ -432,15 +459,38 @@ export class Scheduler {
         error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
       };
     }
+    // Sting Detector : une course ne contourne JAMAIS la prévention des
+    // éditions concurrentes — même garde que l'assignation automatique.
+    const clash = this.store
+      .tasksByStatus('assigned', 'running')
+      .find(
+        (t) =>
+          t.projectId === task.projectId &&
+          t.id !== taskId &&
+          analyzePair(task, t).severity === 'high',
+      );
+    if (clash) {
+      return {
+        ok: false,
+        error: `tâche en conflit fort avec la tâche active « ${clash.title} » — course refusée`,
+      };
+    }
+    // La charge des drones non-primaires n'existe pas dans le store : on
+    // l'ajoute ici pour ne pas enrôler des nœuds déjà saturés par une course.
+    const extra = this.droneLoad();
     const candidates = this.store
       .listNodes()
       .filter(
         (n) =>
           n.status === 'online' &&
-          n.running < n.maxConcurrency &&
+          n.running + (extra.get(n.id) ?? 0) < n.maxConcurrency &&
           (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
       )
-      .sort((a, b) => a.running - b.running || a.name.localeCompare(b.name))
+      .sort(
+        (a, b) =>
+          a.running + (extra.get(a.id) ?? 0) - (b.running + (extra.get(b.id) ?? 0)) ||
+          a.name.localeCompare(b.name),
+      )
       .map((n) => ({ id: n.id, agentType: n.agentType }));
     const { race, launch } = enlistDrones(createRace(taskId, factor), candidates);
     if (launch.length === 0) return { ok: false, error: 'aucun nœud disponible pour la course' };
@@ -454,6 +504,8 @@ export class Scheduler {
       now,
     );
     if (!assigned) return { ok: false, error: 'tâche introuvable' };
+    // La tâche part en course : elle n'est plus « différée pour conflit ».
+    this.deferredByConflict.delete(taskId);
     this.races.set(taskId, race);
     this.emit('drone_race_started', { taskId, factor: race.factor, drones: launch });
     this.emit('task_assigned', { taskId, nodeId: primary, branch: assigned.branch });
@@ -481,7 +533,8 @@ export class Scheduler {
     }
     const { race: updated, decision } = recordDroneResult(race, nodeId, result.success);
     if (decision.outcome === 'lost') {
-      this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'drone_race_decided' });
+      // Résultat d'un nœud non enrôlé (ou d'un drone déjà sorti de la course).
+      this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'drone_not_in_race' });
       return false;
     }
     this.races.set(task.id, updated);
@@ -553,13 +606,34 @@ export class Scheduler {
   /**
    * Le drone primaire est tombé (échec, refus, déconnexion) mais la course
    * continue : un autre drone en vol devient le primaire suivi par le store.
+   * Promu en `assigned` (pas `running`) : le statut running n'est jamais
+   * fabriqué sans preuve — le filet staleAssignedTasks reste armé, et le vrai
+   * task_update du promu refera assigned→running comme d'habitude.
    */
   private promoteNextDrone(race: DroneRace, taskId: string, now: number): void {
     const next = runningDrones(race)[0];
     if (next) {
-      this.store.patchTask(taskId, { status: 'running', assignedNodeId: next }, now);
+      this.store.patchTask(taskId, { status: 'assigned', assignedNodeId: next }, now);
       this.emit('drone_promoted', { taskId, nodeId: next });
     }
+  }
+
+  /**
+   * Charge « fantôme » par nœud : les drones NON-primaires en vol n'existent
+   * pas dans le store (mono-assignation) — sans ce complément, l'assignation
+   * et les courses suivantes sur-réserveraient des nœuds déjà occupés.
+   */
+  private droneLoad(): Map<string, number> {
+    const load = new Map<string, number>();
+    for (const race of this.races.values()) {
+      const task = this.store.getTask(race.taskId);
+      for (const d of race.drones) {
+        if (d.status !== 'running') continue;
+        if (task?.assignedNodeId === d.nodeId) continue; // primaire déjà compté par le store
+        load.set(d.nodeId, (load.get(d.nodeId) ?? 0) + 1);
+      }
+    }
+    return load;
   }
 
   /**
@@ -614,6 +688,8 @@ export class Scheduler {
     // d'assigner doit être prise en compte pour la détection de conflit des
     // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).
     const activeNow = this.store.tasksByStatus('assigned', 'running');
+    // Drones non-primaires en vol : charge invisible du store, à additionner.
+    const extra = this.droneLoad();
     for (const task of this.store.tasksByStatus('ready')) {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
@@ -637,11 +713,15 @@ export class Scheduler {
         .filter(
           (n) =>
             n.status === 'online' &&
-            n.running < n.maxConcurrency &&
+            n.running + (extra.get(n.id) ?? 0) < n.maxConcurrency &&
             // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
             (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
         )
-        .sort((a, b) => a.running - b.running || a.name.localeCompare(b.name))[0];
+        .sort(
+          (a, b) =>
+            a.running + (extra.get(a.id) ?? 0) - (b.running + (extra.get(b.id) ?? 0)) ||
+            a.name.localeCompare(b.name),
+        )[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       const assigned = this.store.patchTask(
         task.id,

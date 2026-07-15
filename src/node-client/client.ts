@@ -294,7 +294,15 @@ export class HiveNodeClient {
 
     let workspace: Workspace | null = null;
     try {
-      workspace = await prepareWorkspace(this.workRoot, task, repoUrl, this.opts.keepEnv ?? []);
+      workspace = await prepareWorkspace(
+        this.workRoot,
+        task,
+        repoUrl,
+        this.opts.keepEnv ?? [],
+        // Isole le répertoire par nœud : deux drones d'une même course sur une
+        // même machine (workRoot partagé) ne se marchent pas dessus.
+        this.nodeId ? this.nodeId.slice(0, 8) : '',
+      );
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
       // workspace restent construits sur la tâche d'origine).
@@ -394,7 +402,11 @@ export class HiveNodeClient {
     }
     this.activeMerges.add(msg.mergeId);
     // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
-    const dir = path.join(this.workRoot, 'merges', msg.mergeId);
+    const dir = path.join(
+      this.workRoot,
+      'merges',
+      this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId,
+    );
     const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(
       `merge ${msg.mergeId.slice(0, 8)}… : clone + intégration de ${msg.diffs.length} diff(s)`,

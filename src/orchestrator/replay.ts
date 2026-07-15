@@ -123,6 +123,11 @@ export function applyEvent(state: ReplayState, event: HiveEvent): ReplayState {
     case 'task_readopted':
       setTaskStatus(state, taskId, 'running', nodeId);
       break;
+    // Drone Wars : le primaire promu porte la tâche (assigned jusqu'à son
+    // prochain task_update — le replay le montre repris par le nouveau nœud).
+    case 'drone_promoted':
+      setTaskStatus(state, taskId, 'assigned', nodeId);
+      break;
     case 'task_done':
       setTaskStatus(state, taskId, 'done', nodeId);
       break;

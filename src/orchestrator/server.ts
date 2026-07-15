@@ -1194,14 +1194,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (task.status === 'done' || task.status === 'failed') {
         return reply.code(409).send({ error: `tâche déjà ${task.status}` });
       }
-      const nodeId = task.assignedNodeId;
-      const cancelled = scheduler.cancelTask(task.id, 'demande_humaine');
-      if (nodeId) {
-        const nodeWs = nodeSockets.get(nodeId);
-        if (nodeWs) {
-          send(nodeWs, { type: 'cancel_task', taskId: task.id, reason: 'annulée par un humain' });
-        }
-      }
+      // La notification cancel_task part du scheduler (onCancel) : primaire en
+      // mono, TOUS les drones en course — plus d'envoi manuel dupliqué ici.
+      const cancelled = scheduler.cancelTask(task.id, 'annulée par un humain');
       stateDirty = true;
       return cancelled;
     },
@@ -1635,11 +1630,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       scheduler.tick();
       // Filet de sécurité : re-livre `assign_task` pour les tâches assignées
       // restées muettes (message perdu en vol). Le client ignore les doublons.
+      // Pour une course, TOUS les drones en vol sont re-servis (un assign_task
+      // perdu vers un drone non-primaire n'est visible nulle part ailleurs).
       for (const task of scheduler.staleAssignedTasks(5_000)) {
-        const ws = task.assignedNodeId ? nodeSockets.get(task.assignedNodeId) : undefined;
-        if (ws) {
-          const project = store.getProject(task.projectId);
-          send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+        const project = store.getProject(task.projectId);
+        const race = scheduler.getRace(task.id);
+        const targets = race
+          ? race.drones.filter((d) => d.status === 'running').map((d) => d.nodeId)
+          : task.assignedNodeId
+            ? [task.assignedNodeId]
+            : [];
+        for (const nodeId of targets) {
+          const ws = nodeSockets.get(nodeId);
+          if (ws) send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
         }
       }
       // Borne la croissance du journal d'événements et de la mémoire Hive Mind.
