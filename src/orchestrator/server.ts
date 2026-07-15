@@ -347,6 +347,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // ─── Auth routes ──────────────────────────────────────────────────────────
   app.post<{ Body: { email: string; password: string; displayName: string } }>(
     '/api/auth/register',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['email', 'password', 'displayName'],
+          additionalProperties: false,
+          properties: {
+            email: { type: 'string', minLength: 3, maxLength: 254 },
+            password: { type: 'string', minLength: 8, maxLength: 256 },
+            displayName: { type: 'string', minLength: 2, maxLength: 80 },
+          },
+        },
+      },
+    },
     async (req, reply) => {
       const { email, password, displayName } = req.body;
       if (!isValidEmail(email)) return reply.status(400).send({ error: 'Email invalide' });
@@ -365,13 +379,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  app.post<{ Body: { email: string; password: string } }>('/api/auth/login', async (req, reply) => {
-    const { email, password } = req.body;
-    const user = store.getUserByEmail(email);
-    if (!user || !verifyPassword(password, user.passwordHash))
-      return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
-    return { token: signJwt(user.id, user.email) };
-  });
+  app.post<{ Body: { email: string; password: string } }>(
+    '/api/auth/login',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['email', 'password'],
+          additionalProperties: false,
+          properties: {
+            email: { type: 'string', minLength: 3, maxLength: 254 },
+            password: { type: 'string', minLength: 1, maxLength: 256 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { email, password } = req.body;
+      const user = store.getUserByEmail(email);
+      if (!user || !verifyPassword(password, user.passwordHash))
+        return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
+      return { token: signJwt(user.id, user.email) };
+    },
+  );
 
   app.get('/api/auth/me', async (req, reply) => {
     if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });

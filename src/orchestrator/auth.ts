@@ -1,31 +1,41 @@
-// Module d'authentification : bcrypt pour les mots de passe, JWT pour les sessions.
-// Utilisé par les routes REST et le middleware d'authentification.
+// Module d'authentification : PBKDF2 (natif Node) pour les mots de passe,
+// JWT HS256 signé maison pour les sessions. Utilisé par les routes REST et le
+// middleware d'authentification.
 
-import { timingSafeEqual, randomBytes, createHmac } from 'node:crypto';
+import { timingSafeEqual, randomBytes, createHmac, pbkdf2Sync } from 'node:crypto';
 
 const JWT_SECRET: string = process.env.HIVE_JWT_SECRET || 'change-me-jwt-dev-only';
 const JWT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
 
-// ─── Password hashing (bcrypt-like, sans dépendance native) ──────────────────
-// Utilise PBKDF2 (intégré à Node) — le format de sortie est compatible avec
-// notre propre vérification. En production, utiliser bcryptjs ou argon2.
+// ─── Hachage des mots de passe (PBKDF2, sans dépendance native) ───────────────
+// Format stocké : `iterations$salt$hash` — la vérification relit le nombre
+// d'itérations depuis la chaîne, donc on peut le relever plus tard sans casser
+// les comptes existants.
 
 const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_KEY_LEN = 32;
 const PBKDF2_DIGEST = 'sha256';
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('base64url');
-  const key = createHmac(PBKDF2_DIGEST, salt).update(password).digest('base64url');
-  // Format: iterations$salt$hash
+  const key = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, PBKDF2_KEY_LEN, PBKDF2_DIGEST).toString(
+    'base64url',
+  );
   return `${PBKDF2_ITERATIONS}$${salt}$${key}`;
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
   const parts = stored.split('$');
   if (parts.length !== 3) return false;
+  // Bornes dures : une valeur folle (0, négative, milliards) serait soit un
+  // contournement du coût, soit un déni de service par calcul interminable.
+  const iterations = Number(parts[0]);
+  if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10_000_000) return false;
   const salt = parts[1]!;
   const expectedHash = parts[2]!;
-  const key = createHmac(PBKDF2_DIGEST, salt).update(password).digest('base64url');
+  const key = pbkdf2Sync(password, salt, iterations, PBKDF2_KEY_LEN, PBKDF2_DIGEST).toString(
+    'base64url',
+  );
   try {
     const a = Buffer.from(key);
     const b = Buffer.from(expectedHash);
@@ -76,7 +86,13 @@ export function verifyJwt(token: string): JwtPayload | null {
   } catch {
     return null;
   }
-  const decoded = JSON.parse(base64urlDecode(payload!)) as JwtPayload;
+  let decoded: JwtPayload;
+  try {
+    decoded = JSON.parse(base64urlDecode(payload!)) as JwtPayload;
+  } catch {
+    return null;
+  }
+  if (typeof decoded.sub !== 'string' || typeof decoded.email !== 'string') return null;
   if (typeof decoded.exp !== 'number' || decoded.exp < Math.floor(Date.now() / 1000)) {
     return null;
   }
