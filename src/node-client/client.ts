@@ -10,6 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
+import { isOnShift, nightShiftFromEnv } from '../shared/night-shift.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type { AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
@@ -224,6 +225,15 @@ export class HiveNodeClient {
       // marquer en échec — sinon on brûlerait une tentative sans rien exécuter,
       // ce qui pourrait faire échouer définitivement une tâche jamais lancée.
       this.send({ type: 'task_reject', taskId: task.id, reason: 'noeud_sature' });
+      return;
+    }
+    // Night Shift : hors des heures de service du MEMBRE (HIVE_SHIFT, évalué
+    // localement sur l'horloge de sa machine), le nœud refuse poliment —
+    // aucune tentative brûlée, le hub requalifie et peut servir un autre nœud.
+    const shift = nightShiftFromEnv();
+    if (shift.windows.length > 0 && !isOnShift(shift, new Date())) {
+      this.send({ type: 'task_reject', taskId: task.id, reason: 'hors_service_night_shift' });
+      this.log(`⏾ ${task.title} : hors heures de service (Night Shift) → refus`);
       return;
     }
 
