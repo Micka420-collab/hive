@@ -4,60 +4,102 @@
 import { useRef, useState } from 'react';
 import { addTasks, createProject, planBrief } from './api';
 import type { NewTaskInput } from './api';
+import { useT } from './i18n';
+import type { Translate } from './i18n';
 import { useDialog } from './ui';
 
 const j = (v: unknown) => JSON.stringify(v, null, 2);
 
-/** Modèles de démarrage : remplissent le champ des tâches en un clic. */
-const TEMPLATES: { label: string; tasks: NewTaskInput[] }[] = [
+/** Modèles de démarrage : remplissent le champ des tâches en un clic.
+ *  Fonction paramétrée par `t` (pas de hook au niveau module). */
+const makeTemplates = (t: Translate): { label: string; tasks: NewTaskInput[] }[] => [
   {
-    label: 'Tâche unique',
-    tasks: [{ id: 'tache', title: 'Ma tâche', prompt: 'Décrivez le travail à faire' }],
-  },
-  {
-    label: 'API + tests',
+    label: t('Tâche unique', 'Single task'),
     tasks: [
-      { id: 'modele', title: 'Modèle de données', prompt: 'Concevoir le schéma' },
-      { id: 'api', title: 'API REST', prompt: 'Implémenter les endpoints', dependsOn: ['modele'] },
-      { id: 'tests', title: 'Tests', prompt: 'Couvrir l’API', dependsOn: ['api'] },
+      {
+        id: 'tache',
+        title: t('Ma tâche', 'My task'),
+        prompt: t('Décrivez le travail à faire', 'Describe the work to do'),
+      },
     ],
   },
   {
-    label: 'SaaS complet',
+    label: t('API + tests', 'API + tests'),
     tasks: [
-      { id: 'socle', title: 'Échafauder le dépôt', prompt: 'Créer la structure' },
       {
-        id: 'bdd',
-        title: 'Schéma BDD',
-        prompt: 'Comptes, abonnements, factures',
-        dependsOn: ['socle'],
+        id: 'modele',
+        title: t('Modèle de données', 'Data model'),
+        prompt: t('Concevoir le schéma', 'Design the schema'),
       },
-      { id: 'auth', title: 'API auth', prompt: 'Signup / login / sessions', dependsOn: ['bdd'] },
       {
-        id: 'billing',
-        title: 'API facturation',
-        prompt: 'Paiement + webhooks',
-        dependsOn: ['bdd'],
+        id: 'api',
+        title: t('API REST', 'REST API'),
+        prompt: t('Implémenter les endpoints', 'Implement the endpoints'),
+        dependsOn: ['modele'],
       },
-      { id: 'ui', title: 'Interface web', prompt: 'Dashboard client', dependsOn: ['socle'] },
       {
         id: 'tests',
-        title: 'Tests d’intégration',
-        prompt: 'Auth + facturation + UI',
+        title: t('Tests', 'Tests'),
+        prompt: t('Couvrir l’API', 'Cover the API'),
+        dependsOn: ['api'],
+      },
+    ],
+  },
+  {
+    label: t('SaaS complet', 'Full SaaS'),
+    tasks: [
+      {
+        id: 'socle',
+        title: t('Échafauder le dépôt', 'Scaffold the repository'),
+        prompt: t('Créer la structure', 'Create the structure'),
+      },
+      {
+        id: 'bdd',
+        title: t('Schéma BDD', 'DB schema'),
+        prompt: t('Comptes, abonnements, factures', 'Accounts, subscriptions, invoices'),
+        dependsOn: ['socle'],
+      },
+      {
+        id: 'auth',
+        title: t('API auth', 'Auth API'),
+        prompt: t('Signup / login / sessions', 'Signup / login / sessions'),
+        dependsOn: ['bdd'],
+      },
+      {
+        id: 'billing',
+        title: t('API facturation', 'Billing API'),
+        prompt: t('Paiement + webhooks', 'Payment + webhooks'),
+        dependsOn: ['bdd'],
+      },
+      {
+        id: 'ui',
+        title: t('Interface web', 'Web interface'),
+        prompt: t('Dashboard client', 'Customer dashboard'),
+        dependsOn: ['socle'],
+      },
+      {
+        id: 'tests',
+        title: t('Tests d’intégration', 'Integration tests'),
+        prompt: t('Auth + facturation + UI', 'Auth + billing + UI'),
         dependsOn: ['auth', 'billing', 'ui'],
       },
-      { id: 'deploy', title: 'Déploiement', prompt: 'CI/CD', dependsOn: ['tests'] },
+      {
+        id: 'deploy',
+        title: t('Déploiement', 'Deployment'),
+        prompt: t('CI/CD', 'CI/CD'),
+        dependsOn: ['tests'],
+      },
     ],
   },
 ];
 
-const EXAMPLE = j(TEMPLATES[1]!.tasks);
-
 export function NewProjectModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  const templates = makeTemplates(t);
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
   const [brief, setBrief] = useState('');
-  const [tasksJson, setTasksJson] = useState(EXAMPLE);
+  const [tasksJson, setTasksJson] = useState(() => j(makeTemplates(t)[1]!.tasks));
   const [busy, setBusy] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [planNote, setPlanNote] = useState<string | null>(null);
@@ -81,9 +123,15 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
       setTasksJson(j(res.tasks));
       setPlanNote(
         res.source === 'llm'
-          ? `✨ ${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`
+          ? t(
+              `✨ ${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`,
+              `✨ ${res.tasks.length} tasks proposed by the AI — review then adjust.`,
+            )
           : (res.note ??
-              `🐝 ${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`),
+              t(
+                `🐝 ${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`,
+                `🐝 ${res.tasks.length} tasks (heuristic split) — review then adjust.`,
+              )),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -95,14 +143,19 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const submit = async () => {
     setError(null);
     if (!name.trim()) {
-      setError('Le nom du projet est requis.');
+      setError(t('Le nom du projet est requis.', 'The project name is required.'));
       return;
     }
     let tasks: NewTaskInput[];
     try {
       const parsed: unknown = JSON.parse(tasksJson);
       if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error('le JSON doit être un tableau non vide de tâches');
+        throw new Error(
+          t(
+            'le JSON doit être un tableau non vide de tâches',
+            'the JSON must be a non-empty array of tasks',
+          ),
+        );
       }
       // Ne conserver que les champs connus : le serveur rejette tout champ
       // superflu (additionalProperties:false), on nettoie donc en amont.
@@ -116,7 +169,9 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         return clean;
       });
     } catch (e) {
-      setError(`Tâches invalides : ${e instanceof Error ? e.message : String(e)}`);
+      setError(
+        `${t('Tâches invalides :', 'Invalid tasks:')} ${e instanceof Error ? e.message : String(e)}`,
+      );
       return;
     }
     setBusy(true);
@@ -149,8 +204,13 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2 id="np-title">🐝 Nouveau projet</h2>
-          <button className="modal-close" onClick={closeIfIdle} disabled={busy} aria-label="Fermer">
+          <h2 id="np-title">🐝 {t('Nouveau projet', 'New project')}</h2>
+          <button
+            className="modal-close"
+            onClick={closeIfIdle}
+            disabled={busy}
+            aria-label={t('Fermer', 'Close')}
+          >
             ×
           </button>
         </header>
@@ -158,34 +218,45 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         {error && <p className="modal-error">{error}</p>}
 
         <label className="field">
-          <span>Nom du projet</span>
+          <span>{t('Nom du projet', 'Project name')}</span>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Mon SaaS"
+            placeholder={t('Mon SaaS', 'My SaaS')}
             autoFocus
           />
         </label>
 
         <label className="field">
-          <span>Dépôt git (optionnel)</span>
+          <span>{t('Dépôt git (optionnel)', 'Git repository (optional)')}</span>
           <input
             type="text"
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="https://github.com/moi/projet.git"
+            placeholder={t(
+              'https://github.com/moi/projet.git',
+              'https://github.com/me/project.git',
+            )}
           />
         </label>
 
         <label className="field">
-          <span>Décrire en langage naturel — Queen Bee génère le DAG (Palier 2)</span>
+          <span>
+            {t(
+              'Décrire en langage naturel — Queen Bee génère le DAG (Palier 2)',
+              'Describe in natural language — Queen Bee generates the DAG (Stage 2)',
+            )}
+          </span>
           <textarea
             className="code-input"
             rows={2}
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
-            placeholder="Ex : un SaaS de facturation avec authentification, API REST, dashboard et déploiement"
+            placeholder={t(
+              'Ex : un SaaS de facturation avec authentification, API REST, dashboard et déploiement',
+              'E.g. an invoicing SaaS with authentication, REST API, dashboard and deployment',
+            )}
             disabled={busy || planning}
           />
           <div className="template-row">
@@ -195,17 +266,24 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
               onClick={generate}
               disabled={busy || planning || !brief.trim()}
             >
-              {planning ? 'Génération…' : '✨ Générer les tâches'}
+              {planning
+                ? t('Génération…', 'Generating…')
+                : t('✨ Générer les tâches', '✨ Generate the tasks')}
             </button>
             {planNote && <span className="plan-note">{planNote}</span>}
           </div>
         </label>
 
         <label className="field">
-          <span>Tâches (JSON) — title, prompt, id et dependsOn optionnels</span>
+          <span>
+            {t(
+              'Tâches (JSON) — title, prompt, id et dependsOn optionnels',
+              'Tasks (JSON) — title, prompt, optional id and dependsOn',
+            )}
+          </span>
           <div className="template-row">
-            <span className="template-label">Modèles :</span>
-            {TEMPLATES.map((tpl) => (
+            <span className="template-label">{t('Modèles :', 'Templates:')}</span>
+            {templates.map((tpl) => (
               <button
                 key={tpl.label}
                 type="button"
@@ -227,10 +305,10 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
 
         <div className="modal-actions">
           <button className="btn ghost" onClick={onClose} disabled={busy}>
-            Annuler
+            {t('Annuler', 'Cancel')}
           </button>
           <button className="btn primary" onClick={submit} disabled={busy}>
-            {busy ? 'Création…' : 'Lancer le butinage'}
+            {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
           </button>
         </div>
       </div>

@@ -275,7 +275,10 @@ export function App() {
                 </span>
                 <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
                 {item.id === 'miellerie' && pendingReviews > 0 && (
-                  <span className="mc-nav-badge" title={`${pendingReviews} production(s) à revoir`}>
+                  <span
+                    className="mc-nav-badge"
+                    title={`${pendingReviews} ${t('production(s) à revoir', 'production(s) to review')}`}
+                  >
                     {pendingReviews > 99 ? '99+' : pendingReviews}
                   </span>
                 )}

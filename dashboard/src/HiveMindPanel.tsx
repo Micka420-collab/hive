@@ -4,8 +4,10 @@
 import { useEffect, useState } from 'react';
 import { fetchMemories } from './api';
 import type { Memory } from './api';
+import { useT } from './i18n';
 
 export function HiveMindPanel({ refreshKey }: { refreshKey: number }) {
+  const t = useT();
   const [q, setQ] = useState('');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,7 +43,7 @@ export function HiveMindPanel({ refreshKey }: { refreshKey: number }) {
       >
         <input
           type="text"
-          placeholder="rechercher un savoir…"
+          placeholder={t('rechercher un savoir…', 'search for knowledge…')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -59,7 +61,10 @@ export function HiveMindPanel({ refreshKey }: { refreshKey: number }) {
         ))}
         {memories.length === 0 && !error && (
           <li className="empty">
-            Aucun souvenir — la mémoire se remplit quand des tâches réussissent.
+            {t(
+              'Aucun souvenir — la mémoire se remplit quand des tâches réussissent.',
+              'No memories — the memory fills up as tasks succeed.',
+            )}
           </li>
         )}
       </ul>

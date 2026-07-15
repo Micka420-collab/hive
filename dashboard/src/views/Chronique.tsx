@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchReplay } from '../api';
 import type { ReplayResult } from '../api';
+import { useT } from '../i18n';
 import { modalOpen, STATUS_ICON, STATUS_LABEL } from '../ui';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
@@ -15,13 +16,14 @@ import './chronique.css';
 
 type Family = 'taches' | 'noeuds' | 'merge' | 'conflits' | 'memoire' | 'autres';
 
-const FAMILIES: { id: Family; label: string }[] = [
-  { id: 'taches', label: '🐝 Tâches' },
-  { id: 'noeuds', label: '🖥️ Nœuds' },
-  { id: 'merge', label: '🍯 Merge' },
-  { id: 'conflits', label: '🛡️ Conflits' },
-  { id: 'memoire', label: '🧬 Mémoire' },
-  { id: 'autres', label: '• Autres' },
+// Double libellé fr/en (constante de module) — résolu via t au rendu.
+const FAMILIES: { id: Family; fr: string; en: string }[] = [
+  { id: 'taches', fr: '🐝 Tâches', en: '🐝 Tasks' },
+  { id: 'noeuds', fr: '🖥️ Nœuds', en: '🖥️ Nodes' },
+  { id: 'merge', fr: '🍯 Merge', en: '🍯 Merge' },
+  { id: 'conflits', fr: '🛡️ Conflits', en: '🛡️ Conflicts' },
+  { id: 'memoire', fr: '🧬 Mémoire', en: '🧬 Memory' },
+  { id: 'autres', fr: '• Autres', en: '• Other' },
 ];
 
 function familyOf(type: string): Family {
@@ -55,6 +57,7 @@ function isTyping(): boolean {
 }
 
 export default function Chronique({ events }: ViewProps) {
+  const t = useT();
   // ─── Filtres du journal ────────────────────────────────────────────────
   const [active, setActive] = useState<ReadonlySet<Family>>(
     () => new Set(FAMILIES.map((f) => f.id)),
@@ -186,49 +189,57 @@ export default function Chronique({ events }: ViewProps) {
               <span className="ch-banner-icon" aria-hidden="true">
                 ⏪
               </span>{' '}
-              vous regardez le passé
+              {t('vous regardez le passé', 'you are watching the past')}
             </span>
             <div className="ch-banner-actions">
               <button className="btn" onClick={loadReplay} disabled={loadingReplay}>
-                {loadingReplay ? 'Chargement…' : '↻ Recharger'}
+                {loadingReplay ? t('Chargement…', 'Loading…') : t('↻ Recharger', '↻ Reload')}
               </button>
               <button className="btn primary" onClick={exitReplay}>
-                revenir au direct
+                {t('revenir au direct', 'back to live')}
               </button>
             </div>
           </div>
           <div className="ch-replay-body">
             {frames.length === 0 ? (
               <p className="empty pad">
-                Aucun événement à rejouer — la ruche n’a pas encore d’histoire.
+                {t(
+                  'Aucun événement à rejouer — la ruche n’a pas encore d’histoire.',
+                  'No events to replay — the hive has no history yet.',
+                )}
               </p>
             ) : (
               <>
                 <div className="ch-controls">
-                  <button className="btn" onClick={() => goTo(0)} title="Début" aria-label="Début">
+                  <button
+                    className="btn"
+                    onClick={() => goTo(0)}
+                    title={t('Début', 'Start')}
+                    aria-label={t('Début', 'Start')}
+                  >
                     ⏮
                   </button>
                   <button
                     className="btn"
                     onClick={() => goTo(idx - 1)}
-                    title="Frame précédente (←)"
-                    aria-label="Frame précédente"
+                    title={t('Frame précédente (←)', 'Previous frame (←)')}
+                    aria-label={t('Frame précédente', 'Previous frame')}
                   >
                     ◀
                   </button>
                   <button
                     className="btn"
                     onClick={togglePlay}
-                    title="Lecture / pause (Espace)"
-                    aria-label={playing ? 'Pause' : 'Lecture'}
+                    title={t('Lecture / pause (Espace)', 'Play / pause (Space)')}
+                    aria-label={playing ? t('Pause', 'Pause') : t('Lecture', 'Play')}
                   >
                     {playing ? '⏸' : '▶'}
                   </button>
                   <button
                     className="btn"
                     onClick={() => goTo(idx + 1)}
-                    title="Frame suivante (→)"
-                    aria-label="Frame suivante"
+                    title={t('Frame suivante (→)', 'Next frame (→)')}
+                    aria-label={t('Frame suivante', 'Next frame')}
                   >
                     ⏭
                   </button>
@@ -238,7 +249,7 @@ export default function Chronique({ events }: ViewProps) {
                     max={lastIdx}
                     value={idx}
                     onChange={(e) => goTo(Number(e.target.value))}
-                    aria-label="Position dans la frise"
+                    aria-label={t('Position dans la frise', 'Position in the timeline')}
                   />
                 </div>
                 {frame && (
@@ -252,10 +263,11 @@ export default function Chronique({ events }: ViewProps) {
                     </div>
                     <div className="ch-counts">
                       <span className="chip">
-                        📁 {frame.projects} projet{frame.projects > 1 ? 's' : ''}
+                        📁 {frame.projects} {t('projet', 'project')}
+                        {frame.projects > 1 ? 's' : ''}
                       </span>
                       <span className="chip">
-                        🐝 {frame.nodesOnline}/{frame.nodesTotal} nœud
+                        🐝 {frame.nodesOnline}/{frame.nodesTotal} {t('nœud', 'node')}
                         {frame.nodesTotal > 1 ? 's' : ''}
                       </span>
                       {STATUSES.map((s) => (
@@ -275,8 +287,12 @@ export default function Chronique({ events }: ViewProps) {
 
       <section className="card panel ch-journal-panel">
         <header className="panel-head">
-          <h2>Chronique de la ruche</h2>
-          <div className="filters" role="group" aria-label="Filtres par famille">
+          <h2>{t('Chronique de la ruche', 'Chronicle of the hive')}</h2>
+          <div
+            className="filters"
+            role="group"
+            aria-label={t('Filtres par famille', 'Filters by family')}
+          >
             {FAMILIES.map((f) => (
               <button
                 key={f.id}
@@ -284,7 +300,7 @@ export default function Chronique({ events }: ViewProps) {
                 onClick={() => toggleFamily(f.id)}
                 aria-pressed={active.has(f.id)}
               >
-                {f.label} <span className="chip-count">{counts[f.id]}</span>
+                {t(f.fr, f.en)} <span className="chip-count">{counts[f.id]}</span>
               </button>
             ))}
           </div>
@@ -294,12 +310,16 @@ export default function Chronique({ events }: ViewProps) {
             </span>
             {!inReplay && (
               <button className="btn" onClick={enterReplay} disabled={loadingReplay}>
-                {loadingReplay ? 'Chargement…' : '⏪ Time-Lapse'}
+                {loadingReplay ? t('Chargement…', 'Loading…') : '⏪ Time-Lapse'}
               </button>
             )}
           </div>
         </header>
-        {replayError && <p className="panel-error">Time-Lapse : {replayError}</p>}
+        {replayError && (
+          <p className="panel-error">
+            {t('Time-Lapse :', 'Time-Lapse:')} {replayError}
+          </p>
+        )}
         <ul className="ch-journal">
           {rows.map((ev) => {
             const full = JSON.stringify(ev.payload);
@@ -317,15 +337,26 @@ export default function Chronique({ events }: ViewProps) {
           {allRows.length > visible && (
             <li className="ch-more">
               <button className="btn" onClick={() => setVisible((v) => v + PAGE)}>
-                Voir {Math.min(PAGE, allRows.length - visible)} événement(s) de plus
+                {t('Voir', 'Show')} {Math.min(PAGE, allRows.length - visible)}{' '}
+                {t('événement(s) de plus', 'more event(s)')}
               </button>
             </li>
           )}
           {events.length === 0 && (
-            <li className="empty">La ruche n’a encore rien vécu — le journal est vide.</li>
+            <li className="empty">
+              {t(
+                'La ruche n’a encore rien vécu — le journal est vide.',
+                'Nothing has happened in the hive yet — the journal is empty.',
+              )}
+            </li>
           )}
           {events.length > 0 && allRows.length === 0 && (
-            <li className="empty">Aucun événement ne passe les filtres actifs.</li>
+            <li className="empty">
+              {t(
+                'Aucun événement ne passe les filtres actifs.',
+                'No events match the active filters.',
+              )}
+            </li>
           )}
         </ul>
       </section>

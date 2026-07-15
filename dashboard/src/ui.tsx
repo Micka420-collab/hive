@@ -4,6 +4,8 @@
 import { useEffect, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
+import { useLang } from './i18n';
+import type { UiLang } from './i18n';
 
 /**
  * Accessibilité d'un overlay (tiroir/modale) :
@@ -59,6 +61,7 @@ export function activateProps(onActivate: () => void) {
   };
 }
 
+// Export FR historique conservé tel quel (compat avec les consommateurs existants).
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: 'en attente',
   ready: 'prête',
@@ -67,6 +70,20 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   done: 'terminée',
   failed: 'échouée',
 };
+
+const STATUS_LABEL_EN: Record<TaskStatus, string> = {
+  pending: 'pending',
+  ready: 'ready',
+  assigned: 'assigned',
+  running: 'running',
+  done: 'done',
+  failed: 'failed',
+};
+
+/** Libellé de statut dans la langue demandée (FR = export historique). */
+export function statusLabel(status: TaskStatus, lang: UiLang): string {
+  return lang === 'fr' ? STATUS_LABEL[status] : STATUS_LABEL_EN[status];
+}
 
 export const STATUS_ICON: Record<TaskStatus, string> = {
   pending: '○',
@@ -78,10 +95,11 @@ export const STATUS_ICON: Record<TaskStatus, string> = {
 };
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
+  const lang = useLang();
   return (
     <span className={`badge ${status}`}>
       <span className="badge-icon">{STATUS_ICON[status]}</span>
-      {STATUS_LABEL[status]}
+      {statusLabel(status, lang)}
     </span>
   );
 }

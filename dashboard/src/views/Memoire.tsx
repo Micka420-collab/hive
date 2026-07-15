@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { fetchMemories } from '../api';
 import type { Memory } from '../api';
+import { useT } from '../i18n';
 import { OpenAlexPanel } from '../OpenAlexPanel';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -21,6 +22,7 @@ interface SearchPage {
 }
 
 export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState<SearchPage | null>(null);
   const [searching, setSearching] = useState(false);
@@ -68,12 +70,15 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
           <h2>🧬 Hive Mind</h2>
           <span className="panel-count">
             {total === null
-              ? 'la ruche fouille ses rayons…'
-              : `la ruche se souvient de ${total} chose${total === 1 ? '' : 's'}`}
+              ? t('la ruche fouille ses rayons…', 'the hive is searching its honeycombs…')
+              : t(
+                  `la ruche se souvient de ${total} chose${total === 1 ? '' : 's'}`,
+                  `the hive remembers ${total} thing${total === 1 ? '' : 's'}`,
+                )}
           </span>
           <div className="drawer-tabs ch-mem-tabs" role="group" aria-label="Sections">
             <button type="button" className="active">
-              🍯 Souvenirs
+              {t('🍯 Souvenirs', '🍯 Memories')}
             </button>
             <button type="button" onClick={() => setShowOpenAlex(true)}>
               🧬 OpenAlex
@@ -85,20 +90,26 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Butiner les souvenirs… (Entrée pour chercher)"
-            aria-label="Rechercher un souvenir"
+            placeholder={t(
+              'Butiner les souvenirs… (Entrée pour chercher)',
+              'Forage the memories… (Enter to search)',
+            )}
+            aria-label={t('Rechercher un souvenir', 'Search for a memory')}
           />
           <button className="btn" type="submit" disabled={searching}>
-            {searching ? '…' : 'Chercher'}
+            {searching ? '…' : t('Chercher', 'Search')}
           </button>
         </form>
 
         {search && (
           <p className="ch-mem-note muted-text">
-            {search.memories.length} souvenir{search.memories.length === 1 ? '' : 's'} pour «{' '}
-            {search.q} » —{' '}
+            {t(
+              `${search.memories.length} souvenir${search.memories.length === 1 ? '' : 's'} pour « ${search.q} »`,
+              `${search.memories.length} ${search.memories.length === 1 ? 'memory' : 'memories'} for “${search.q}”`,
+            )}{' '}
+            —{' '}
             <button type="button" className="ch-linklike" onClick={clearSearch}>
-              revenir aux récents
+              {t('revenir aux récents', 'back to recent')}
             </button>
           </p>
         )}
@@ -110,7 +121,7 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
               <div className="ch-mem-head">
                 <span className="mind-title">{m.title}</span>
                 {m.score !== null && (
-                  <span className="mind-score" title="Score de pertinence">
+                  <span className="mind-score" title={t('Score de pertinence', 'Relevance score')}>
                     [{Number.isInteger(m.score) ? m.score : m.score.toFixed(2)}]
                   </span>
                 )}
@@ -119,8 +130,12 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
                 <details className="ch-mem-details">
                   <summary className="mind-content">
                     <span className="ch-mem-preview">{m.content.slice(0, SHORT_LEN)}… </span>
-                    <span className="ch-mem-more ch-mem-more-closed">(tout voir)</span>
-                    <span className="ch-mem-more ch-mem-more-open">(replier)</span>
+                    <span className="ch-mem-more ch-mem-more-closed">
+                      {t('(tout voir)', '(show all)')}
+                    </span>
+                    <span className="ch-mem-more ch-mem-more-open">
+                      {t('(replier)', '(collapse)')}
+                    </span>
                   </summary>
                   <p className="mind-content">{m.content}</p>
                 </details>
@@ -134,12 +149,15 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
                     type="button"
                     className="ch-mem-task mono"
                     onClick={() => onOpenTask(m.taskId)}
-                    title="Ouvrir la tâche d’origine"
+                    title={t('Ouvrir la tâche d’origine', 'Open the originating task')}
                   >
                     {m.taskId.slice(0, 8)}
                   </button>
                 ) : (
-                  <span className="ch-mem-task mono ch-gone" title="Tâche absente du snapshot">
+                  <span
+                    className="ch-mem-task mono ch-gone"
+                    title={t('Tâche absente du snapshot', 'Task absent from the snapshot')}
+                  >
                     {m.taskId.slice(0, 8)}
                   </span>
                 )}
@@ -149,8 +167,11 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
           {memories.length === 0 && (
             <li className="empty pad">
               {search
-                ? 'Aucun souvenir ne correspond à cette recherche.'
-                : 'La ruche n’a encore rien retenu.'}
+                ? t(
+                    'Aucun souvenir ne correspond à cette recherche.',
+                    'No memory matches this search.',
+                  )
+                : t('La ruche n’a encore rien retenu.', 'The hive has not retained anything yet.')}
             </li>
           )}
         </ul>

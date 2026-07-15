@@ -3,6 +3,8 @@
 // design system « ruche ».
 
 import { useState, useCallback, useRef } from 'react';
+import { useT, t as tStatic } from './i18n';
+import type { Translate } from './i18n';
 
 /** Résultat formaté renvoyé par le backend. */
 interface Paper {
@@ -30,27 +32,28 @@ function doiUrl(doi: string): string {
   return doi.startsWith('https://') ? doi : `https://doi.org/${doi}`;
 }
 
-/** Traduit le type OpenAlex en emoji + libellé. */
-function paperBadge(type: string): { emoji: string; label: string } {
+/** Traduit le type OpenAlex en emoji + libellé (t injecté au rendu). */
+function paperBadge(type: string, t: Translate): { emoji: string; label: string } {
   switch (type) {
     case 'journal-article':
-      return { emoji: '📄', label: 'Article' };
+      return { emoji: '📄', label: t('Article', 'Article') };
     case 'book':
-      return { emoji: '📘', label: 'Livre' };
+      return { emoji: '📘', label: t('Livre', 'Book') };
     case 'book-chapter':
-      return { emoji: '📑', label: 'Chapitre' };
+      return { emoji: '📑', label: t('Chapitre', 'Chapter') };
     case 'preprint':
-      return { emoji: '🚀', label: 'Preprint' };
+      return { emoji: '🚀', label: t('Preprint', 'Preprint') };
     case 'dissertation':
-      return { emoji: '🎓', label: 'Thèse' };
+      return { emoji: '🎓', label: t('Thèse', 'Thesis') };
     case 'dataset':
-      return { emoji: '📊', label: 'Dataset' };
+      return { emoji: '📊', label: t('Dataset', 'Dataset') };
     default:
       return { emoji: '📚', label: type };
   }
 }
 
 export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [papers, setPapers] = useState<Paper[]>([]);
   const [total, setTotal] = useState(0);
@@ -73,7 +76,12 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
       const res = await fetch(`/api/openalex/search?${params}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `Erreur ${res.status}`);
+        // tStatic (non réactif) : dans un useCallback à dépendances vides, un
+        // `t` de rendu serait figé sur la langue du premier rendu.
+        throw new Error(
+          (body as { error?: string }).error ??
+            tStatic(`Erreur ${res.status}`, `Error ${res.status}`),
+        );
       }
       const data = (await res.json()) as SearchResponse;
       setPapers(data.results);
@@ -109,8 +117,10 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2 id="oa-title">🧬 OpenAlex — Moteur scientifique</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Fermer">
+          <h2 id="oa-title">
+            🧬 {t('OpenAlex — Moteur scientifique', 'OpenAlex — Scientific search engine')}
+          </h2>
+          <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
           </button>
         </header>
@@ -122,24 +132,30 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
             className="openalex-input"
             value={query}
             onChange={(e) => onInput(e.target.value)}
-            placeholder="Rechercher un article, un auteur, un concept… (ex: transformer attention mechanism, CRISPR, dark matter)"
+            placeholder={t(
+              'Rechercher un article, un auteur, un concept… (ex: transformer attention mechanism, CRISPR, dark matter)',
+              'Search for a paper, an author, a concept… (e.g. transformer attention mechanism, CRISPR, dark matter)',
+            )}
             autoFocus
           />
-          {loading && <span className="openalex-spinner">🔍 Recherche en cours…</span>}
+          {loading && (
+            <span className="openalex-spinner">🔍 {t('Recherche en cours…', 'Searching…')}</span>
+          )}
         </div>
 
         {error && <p className="modal-error">{error}</p>}
 
         {total > 0 && (
           <p className="openalex-count">
-            {total.toLocaleString()} résultat{total > 1 ? 's' : ''}
+            {total.toLocaleString()} {t('résultat', 'result')}
+            {total > 1 ? 's' : ''}
             {totalPages > 1 && ` — page ${page}/${totalPages}`}
           </p>
         )}
 
         <div className="openalex-results">
           {papers.map((paper) => {
-            const badge = paperBadge(paper.type);
+            const badge = paperBadge(paper.type, t);
             return (
               <article key={paper.id} className="openalex-card">
                 <div className="oa-card-head">
@@ -190,7 +206,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
         {totalPages > 1 && (
           <div className="modal-actions">
             <button className="btn ghost" onClick={prevPage} disabled={page <= 1 || loading}>
-              ← Précédent
+              {t('← Précédent', '← Previous')}
             </button>
             <span className="oa-pager">
               Page {page} / {totalPages}
@@ -200,7 +216,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
               onClick={nextPage}
               disabled={page >= totalPages || loading}
             >
-              Suivant →
+              {t('Suivant →', 'Next →')}
             </button>
           </div>
         )}

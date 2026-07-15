@@ -7,6 +7,8 @@ import './reine.css';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { getToken } from '../api';
+import { t as tNow, useT } from '../i18n';
+import type { Translate } from '../i18n';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 
@@ -35,7 +37,7 @@ async function askQueen(message: string, projectId?: string): Promise<ChatRespon
     body: JSON.stringify(projectId ? { message, projectId } : { message }),
   });
   if (!res.ok) {
-    let msg = `Erreur ${res.status}`;
+    let msg = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
     try {
       const body = (await res.json()) as { error?: string; message?: string };
       msg = body.message ?? body.error ?? msg;
@@ -60,18 +62,22 @@ interface ChatMessage {
 
 interface StoredChat {
   messages: ChatMessage[];
+  /** Vide = suggestions par défaut, résolues au rendu dans la langue courante. */
   suggestions: string[];
 }
 
 const CHAT_KEY = 'hive.reine.chat';
 
-const DEFAULT_SUGGESTIONS = [
-  'Où en est le projet ?',
-  "Que s'est-il passé cette nuit ?",
-  'Quel nœud travaille le mieux ?',
-  'Aide-moi à écrire un bon brief',
-  'Quelles bonnes pratiques pour mon projet ?',
-];
+/** Suggestions par défaut — résolues au rendu pour suivre la langue d'interface. */
+function defaultSuggestions(t: Translate): string[] {
+  return [
+    t('Où en est le projet ?', 'How is the project doing?'),
+    t("Que s'est-il passé cette nuit ?", 'What happened overnight?'),
+    t('Quel nœud travaille le mieux ?', 'Which node works best?'),
+    t('Aide-moi à écrire un bon brief', 'Help me write a good brief'),
+    t('Quelles bonnes pratiques pour mon projet ?', 'What are good practices for my project?'),
+  ];
+}
 
 /** Relit la conversation de la session (survit aux changements de vue). */
 function readChat(): StoredChat {
@@ -82,17 +88,14 @@ function readChat(): StoredChat {
       if (Array.isArray(parsed.messages)) {
         return {
           messages: parsed.messages,
-          suggestions:
-            Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0
-              ? parsed.suggestions
-              : DEFAULT_SUGGESTIONS,
+          suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
         };
       }
     }
   } catch {
     /* stockage corrompu → conversation vierge */
   }
-  return { messages: [], suggestions: DEFAULT_SUGGESTIONS };
+  return { messages: [], suggestions: [] };
 }
 
 let seq = 0;
@@ -102,13 +105,19 @@ function uid(): string {
   return `${Date.now().toString(36)}-${seq.toString(36)}`;
 }
 
-const WELCOME_DEGRADED =
-  '🐝 La Reine n’est pas encore réveillée : le canal /api/chat ouvre bientôt.\n' +
-  'En attendant, la Ruche et la Chronique vous renseignent en temps réel sur l’essaim — revenez butiner un peu plus tard.';
+function welcomeDegraded(t: Translate): string {
+  return t(
+    '🐝 La Reine n’est pas encore réveillée : le canal /api/chat ouvre bientôt.\n' +
+      'En attendant, la Ruche et la Chronique vous renseignent en temps réel sur l’essaim — revenez butiner un peu plus tard.',
+    '🐝 The Queen is not awake yet: the /api/chat channel opens soon.\n' +
+      'Meanwhile, the Hive and the Chronicle keep you posted on the swarm in real time — come back to forage a little later.',
+  );
+}
 
 // ─── Vue ──────────────────────────────────────────────────────────────────────
 
 export default function Reine({ snapshot }: ViewProps) {
+  const t = useT();
   const [messages, setMessages] = useState<ChatMessage[]>(() => readChat().messages);
   const [suggestions, setSuggestions] = useState<string[]>(() => readChat().suggestions);
   const [draft, setDraft] = useState('');
@@ -117,6 +126,9 @@ export default function Reine({ snapshot }: ViewProps) {
 
   const threadRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Suggestions affichées : celles de la Reine, sinon les défauts (langue courante).
+  const shownSuggestions = suggestions.length > 0 ? suggestions : defaultSuggestions(t);
 
   // Persiste l'historique à chaque évolution (sessionStorage : survit à la
   // navigation entre vues, pas à la fermeture de l'onglet).
@@ -173,9 +185,13 @@ export default function Reine({ snapshot }: ViewProps) {
     } catch (e) {
       // 404/501 = endpoint pas encore déployé → accueil dégradé, sans badge.
       const absent = e instanceof ChatHttpError && (e.status === 404 || e.status === 501);
+      const detail = e instanceof Error ? e.message : String(e);
       const reply = absent
-        ? WELCOME_DEGRADED
-        : `La Reine n’a pas pu répondre : ${e instanceof Error ? e.message : String(e)}. Réessayez dans un instant.`;
+        ? welcomeDegraded(t)
+        : t(
+            `La Reine n’a pas pu répondre : ${detail}. Réessayez dans un instant.`,
+            `The Queen could not reply: ${detail}. Please try again in a moment.`,
+          );
       appendPersist({ id: uid(), role: 'queen', text: reply, ts: Date.now() });
     } finally {
       setPending(false);
@@ -201,7 +217,7 @@ export default function Reine({ snapshot }: ViewProps) {
 
   const clear = () => {
     setMessages([]);
-    setSuggestions(DEFAULT_SUGGESTIONS);
+    setSuggestions([]);
     sessionStorage.removeItem(CHAT_KEY);
   };
 
@@ -213,17 +229,20 @@ export default function Reine({ snapshot }: ViewProps) {
             👑
           </span>
           <div>
-            <h2>Parlez à la Reine</h2>
+            <h2>{t('Parlez à la Reine', 'Talk to the Queen')}</h2>
             <p className="rn-sub">
-              posez une question sur la ruche, ou faites-vous guider pour votre projet
+              {t(
+                'posez une question sur la ruche, ou faites-vous guider pour votre projet',
+                'ask a question about the hive, or get guidance for your project',
+              )}
             </p>
           </div>
         </div>
         <div className="rn-head-actions">
           <label className="rn-project">
-            <span>Projet</span>
+            <span>{t('Projet', 'Project')}</span>
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">Toute la ruche</option>
+              <option value="">{t('Toute la ruche', 'The whole hive')}</option>
               {snapshot.projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -233,7 +252,7 @@ export default function Reine({ snapshot }: ViewProps) {
           </label>
           {messages.length > 0 && (
             <button className="btn ghost rn-clear" onClick={clear}>
-              Effacer
+              {t('Effacer', 'Clear')}
             </button>
           )}
         </div>
@@ -244,14 +263,16 @@ export default function Reine({ snapshot }: ViewProps) {
         ref={threadRef}
         role="log"
         aria-live="polite"
-        aria-label="Fil de discussion avec la Reine"
+        aria-label={t('Fil de discussion avec la Reine', 'Conversation thread with the Queen')}
       >
         {messages.length === 0 && !pending && (
           <div className="rn-empty">
             <span aria-hidden="true">🍯</span>
             <p>
-              La ruche bourdonne, la Reine écoute. Posez votre première question — ou butinez une
-              suggestion ci-dessous.
+              {t(
+                'La ruche bourdonne, la Reine écoute. Posez votre première question — ou butinez une suggestion ci-dessous.',
+                'The hive is buzzing, the Queen is listening. Ask your first question — or forage a suggestion below.',
+              )}
             </p>
           </div>
         )}
@@ -266,13 +287,22 @@ export default function Reine({ snapshot }: ViewProps) {
               <p className="rn-text">{m.text}</p>
               <div className="rn-meta">
                 {m.source === 'live' && (
-                  <span className="rn-src" title="Réponse calculée sur l’état réel de la ruche">
-                    📡 état réel
+                  <span
+                    className="rn-src"
+                    title={t(
+                      'Réponse calculée sur l’état réel de la ruche',
+                      'Answer computed from the live state of the hive',
+                    )}
+                  >
+                    {t('📡 état réel', '📡 live state')}
                   </span>
                 )}
                 {m.source === 'llm' && (
-                  <span className="rn-src" title="Réponse générée par le modèle">
-                    ✨ IA
+                  <span
+                    className="rn-src"
+                    title={t('Réponse générée par le modèle', 'Answer generated by the model')}
+                  >
+                    {t('✨ IA', '✨ AI')}
                   </span>
                 )}
                 <span className="rn-time">{timeShort(m.ts)}</span>
@@ -286,7 +316,7 @@ export default function Reine({ snapshot }: ViewProps) {
               👑
             </span>
             <div className="rn-bubble rn-thinking">
-              la Reine réfléchit
+              {t('la Reine réfléchit', 'the Queen is thinking')}
               <span className="rn-dots" aria-hidden="true">
                 <i>.</i>
                 <i>.</i>
@@ -299,7 +329,7 @@ export default function Reine({ snapshot }: ViewProps) {
 
       <footer className="rn-composer">
         <div className="rn-chips" aria-label="Suggestions">
-          {suggestions.map((s) => (
+          {shownSuggestions.map((s) => (
             <button
               key={s}
               className="chip rn-chip"
@@ -315,21 +345,24 @@ export default function Reine({ snapshot }: ViewProps) {
             ref={areaRef}
             className="rn-input"
             rows={1}
-            placeholder="Votre question à la Reine… (Entrée pour envoyer, Maj+Entrée : nouvelle ligne)"
+            placeholder={t(
+              'Votre question à la Reine… (Entrée pour envoyer, Maj+Entrée : nouvelle ligne)',
+              'Your question for the Queen… (Enter to send, Shift+Enter: new line)',
+            )}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
               grow();
             }}
             onKeyDown={onKeyDown}
-            aria-label="Message à la Reine"
+            aria-label={t('Message à la Reine', 'Message to the Queen')}
           />
           <button
             className="btn primary rn-send"
             disabled={pending || draft.trim() === ''}
             onClick={() => void send(draft)}
           >
-            Envoyer
+            {t('Envoyer', 'Send')}
           </button>
         </div>
       </footer>

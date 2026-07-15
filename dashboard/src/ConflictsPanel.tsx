@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { fetchConflicts } from './api';
 import type { Conflict } from './api';
+import { useT } from './i18n';
 import type { Project, Task } from '../../src/shared/types';
 
 interface Entry {
@@ -20,6 +21,7 @@ export function ConflictsPanel({
   tasks: Task[];
   refreshKey: number;
 }) {
+  const t = useT();
   const [entries, setEntries] = useState<Entry[]>([]);
 
   useEffect(() => {
@@ -46,7 +48,7 @@ export function ConflictsPanel({
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>🛡️ Conflits</h2>
+        <h2>🛡️ {t('Conflits', 'Conflicts')}</h2>
         <span className="panel-count warn">{entries.length}</span>
       </header>
       <ul className="conflict-list">

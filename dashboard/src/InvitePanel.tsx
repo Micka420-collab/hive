@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
+import { useT } from './i18n';
 
 /** Repli de copie pour les contextes non sécurisés (http LAN) via une zone de texte hors écran. */
 function fallbackCopy(text: string): boolean {
@@ -26,6 +27,7 @@ function fallbackCopy(text: string): boolean {
 }
 
 export function InvitePanel() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState<InviteResponse | null>(null);
   const [customUrl, setCustomUrl] = useState('');
@@ -72,7 +74,12 @@ export function InvitePanel() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError('copie automatique impossible — sélectionnez la commande et copiez-la à la main.');
+      setError(
+        t(
+          'copie automatique impossible — sélectionnez la commande et copiez-la à la main.',
+          'automatic copy failed — select the command and copy it by hand.',
+        ),
+      );
     }
   };
 
@@ -81,9 +88,9 @@ export function InvitePanel() {
       <button
         className="invite-btn"
         onClick={openPanel}
-        title="Inviter un ami à rejoindre la ruche"
+        title={t('Inviter un ami à rejoindre la ruche', 'Invite a friend to join the hive')}
       >
-        + Inviter un ami
+        {t('+ Inviter un ami', '+ Invite a friend')}
       </button>
 
       {open && (
@@ -96,8 +103,14 @@ export function InvitePanel() {
             onClick={(e) => e.stopPropagation()}
           >
             <header className="modal-head">
-              <h2 id="invite-title">🐝 Inviter un ami dans la ruche</h2>
-              <button className="modal-close" onClick={() => setOpen(false)} aria-label="Fermer">
+              <h2 id="invite-title">
+                🐝 {t('Inviter un ami dans la ruche', 'Invite a friend into the hive')}
+              </h2>
+              <button
+                className="modal-close"
+                onClick={() => setOpen(false)}
+                aria-label={t('Fermer', 'Close')}
+              >
                 ×
               </button>
             </header>
@@ -106,28 +119,47 @@ export function InvitePanel() {
 
             <ol className="invite-steps">
               <li>
-                Votre ami récupère Hive et lance <code>npm install</code> dans le dossier.
+                {t('Votre ami récupère Hive et lance ', 'Your friend grabs Hive and runs ')}
+                <code>npm install</code>
+                {t(' dans le dossier.', ' in the folder.')}
               </li>
-              <li>Il colle cette commande — son Claude Code / Codex est détecté tout seul :</li>
+              <li>
+                {t(
+                  'Il colle cette commande — son Claude Code / Codex est détecté tout seul :',
+                  'They paste this command — their Claude Code / Codex is detected automatically:',
+                )}
+              </li>
             </ol>
 
             <div className="invite-cmd">
-              <code>{invite ? invite.joinCommand : 'génération…'}</code>
+              <code>{invite ? invite.joinCommand : t('génération…', 'generating…')}</code>
               <button className="copy-btn" onClick={copy} disabled={!invite}>
-                {copied ? '✔ copié' : 'copier'}
+                {copied ? t('✔ copié', '✔ copied') : t('copier', 'copy')}
               </button>
             </div>
 
             <p className="invite-note">
-              ⚠ Cette invitation contient le token de la ruche : ne la partagez qu’avec des
-              personnes de confiance, par un canal privé.
+              ⚠{' '}
+              {t(
+                'Cette invitation contient le token de la ruche : ne la partagez qu’avec des personnes de confiance, par un canal privé.',
+                'This invitation contains the hive token: only share it with people you trust, over a private channel.',
+              )}
             </p>
 
             <details className="invite-advanced">
-              <summary>Adresse incorrecte ? Régénérer avec une URL précise</summary>
+              <summary>
+                {t(
+                  'Adresse incorrecte ? Régénérer avec une URL précise',
+                  'Wrong address? Regenerate with an exact URL',
+                )}
+              </summary>
               <p>
-                Par défaut l’adresse réseau local est détectée. Pour un accès distant, indiquez
-                l’URL WebSocket joignable (ex. <code>wss://mondomaine:7777/ws</code>).
+                {t(
+                  'Par défaut l’adresse réseau local est détectée. Pour un accès distant, indiquez l’URL WebSocket joignable (ex. ',
+                  'By default the local network address is detected. For remote access, provide the reachable WebSocket URL (e.g. ',
+                )}
+                <code>wss://mondomaine:7777/ws</code>
+                {t(').', ').')}
               </p>
               <div className="invite-url-row">
                 <input
@@ -136,9 +168,15 @@ export function InvitePanel() {
                   value={customUrl}
                   onChange={(e) => setCustomUrl(e.target.value)}
                 />
-                <button onClick={() => void generate(customUrl || undefined)}>Régénérer</button>
+                <button onClick={() => void generate(customUrl || undefined)}>
+                  {t('Régénérer', 'Regenerate')}
+                </button>
               </div>
-              {invite && <p className="invite-current-url">Ruche annoncée : {invite.url}</p>}
+              {invite && (
+                <p className="invite-current-url">
+                  {t('Ruche annoncée :', 'Advertised hive:')} {invite.url}
+                </p>
+              )}
             </details>
           </div>
         </div>

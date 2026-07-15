@@ -3,6 +3,7 @@
 
 import { fetchWaggle } from '../api';
 import type { NodeNectar, WaggleBoard } from '../api';
+import { useT } from '../i18n';
 import { formatMs, ProgressBar } from '../ui';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -24,6 +25,7 @@ function activeAgentsOf(
 }
 
 function NodeCard({ node, agents }: { node: HiveNode; agents: SubAgent[] }) {
+  const t = useT();
   return (
     <article className={`es-node ${node.status}`}>
       <header className="es-node-head">
@@ -32,7 +34,7 @@ function NodeCard({ node, agents }: { node: HiveNode; agents: SubAgent[] }) {
         </span>
         <span className={`conn ${node.status}`}>
           <span className="conn-dot" />
-          {node.status === 'online' ? 'en ligne' : 'hors ligne'}
+          {node.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')}
         </span>
       </header>
       <div className="es-node-meta">
@@ -47,7 +49,9 @@ function NodeCard({ node, agents }: { node: HiveNode; agents: SubAgent[] }) {
       </div>
       <div className="es-agents">
         {agents.length === 0 ? (
-          <span className="es-agents-none">aucun sous-agent en vol</span>
+          <span className="es-agents-none">
+            {t('aucun sous-agent en vol', 'no sub-agents in flight')}
+          </span>
         ) : (
           agents.slice(0, 6).map((a) => (
             <span key={a.id} className="es-agent-chip" title={a.name}>
@@ -58,7 +62,9 @@ function NodeCard({ node, agents }: { node: HiveNode; agents: SubAgent[] }) {
         {agents.length > 6 && <span className="es-agents-none">+{agents.length - 6}</span>}
       </div>
       <footer className="es-node-foot">
-        {node.lastSeen === null ? 'jamais vu' : `vu à ${timeShort(node.lastSeen)}`}
+        {node.lastSeen === null
+          ? t('jamais vu', 'never seen')
+          : `${t('vu à', 'seen at')} ${timeShort(node.lastSeen)}`}
       </footer>
     </article>
   );
@@ -125,6 +131,7 @@ function NectarList({ board }: { board: WaggleBoard }) {
 }
 
 export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProps) {
+  const t = useT();
   const waggle = useApiPoll(fetchWaggle, 30_000, refreshTick);
   const online = snapshot.nodes.filter((n) => n.status === 'online').length;
   const board = waggle.data;
@@ -134,14 +141,17 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
       <div className="es-layout">
         <section className="card">
           <header className="panel-head">
-            <h2>Ouvrières de la ruche</h2>
+            <h2>{t('Ouvrières de la ruche', 'Workers of the hive')}</h2>
             <span className="panel-count">
-              {online}/{snapshot.nodes.length} en ligne
+              {online}/{snapshot.nodes.length} {t('en ligne', 'online')}
             </span>
           </header>
           {snapshot.nodes.length === 0 ? (
             <p className="empty pad">
-              Aucune ouvrière dans l’essaim — invitez un nœud à rejoindre la ruche.
+              {t(
+                'Aucune ouvrière dans l’essaim — invitez un nœud à rejoindre la ruche.',
+                'No workers in the swarm — invite a node to join the hive.',
+              )}
             </p>
           ) : (
             <div className="es-node-grid">
@@ -166,9 +176,16 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
             )}
           </header>
           {waggle.error && <p className="panel-error">{waggle.error}</p>}
-          {!board && !waggle.error && <p className="empty pad">Lecture de la danse…</p>}
+          {!board && !waggle.error && (
+            <p className="empty pad">{t('Lecture de la danse…', 'Reading the dance…')}</p>
+          )}
           {board && board.nodes.length === 0 && (
-            <p className="empty pad">La danse frétillante attend le premier nectar.</p>
+            <p className="empty pad">
+              {t(
+                'La danse frétillante attend le premier nectar.',
+                'The waggle dance awaits its first nectar.',
+              )}
+            </p>
           )}
           {board && board.nodes.length > 0 && (
             <>

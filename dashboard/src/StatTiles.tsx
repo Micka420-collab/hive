@@ -1,6 +1,7 @@
 // Rangée de KPI : l'état de la ruche en un coup d'œil.
 
 import type { StateSnapshot } from '../../src/shared/types';
+import { useT } from './i18n';
 import { ProgressBar } from './ui';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function StatTiles({ snapshot, throughput }: Props) {
+  const t = useT();
   const { nodes, tasks } = snapshot;
   const online = nodes.filter((n) => n.status === 'online').length;
   const done = tasks.filter((t) => t.status === 'done').length;
@@ -27,7 +29,7 @@ export function StatTiles({ snapshot, throughput }: Props) {
           {online}
           <span className="tile-unit">/{nodes.length}</span>
         </div>
-        <div className="tile-label">Nœuds en ligne</div>
+        <div className="tile-label">{t('Nœuds en ligne', 'Nodes online')}</div>
         <ProgressBar value={online} max={Math.max(nodes.length, 1)} />
       </div>
 
@@ -36,22 +38,22 @@ export function StatTiles({ snapshot, throughput }: Props) {
           {done}
           <span className="tile-unit">/{tasks.length}</span>
         </div>
-        <div className="tile-label">Tâches terminées</div>
+        <div className="tile-label">{t('Tâches terminées', 'Tasks done')}</div>
         <ProgressBar value={done} max={Math.max(tasks.length, 1)} />
       </div>
 
       <div className="tile">
         <div className="tile-value">{running}</div>
-        <div className="tile-label">En cours</div>
+        <div className="tile-label">{t('En cours', 'Running')}</div>
         <ProgressBar value={load} max={Math.max(capacity, 1)} />
         <div className="tile-sub">
-          charge {load}/{capacity}
+          {t('charge', 'load')} {load}/{capacity}
         </div>
       </div>
 
       <div className={`tile${failed > 0 ? ' danger' : ''}`}>
         <div className="tile-value">{failed}</div>
-        <div className="tile-label">Échecs</div>
+        <div className="tile-label">{t('Échecs', 'Failures')}</div>
       </div>
 
       <div className="tile">
@@ -59,7 +61,7 @@ export function StatTiles({ snapshot, throughput }: Props) {
           {throughput}
           <span className="tile-unit"> 🍯/min</span>
         </div>
-        <div className="tile-label">Débit</div>
+        <div className="tile-label">{t('Débit', 'Throughput')}</div>
       </div>
     </div>
   );

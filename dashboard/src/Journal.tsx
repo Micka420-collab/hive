@@ -1,85 +1,170 @@
 // Journal d'événements : flux temps réel, coloré et à icônes.
 
 import type { HiveEvent } from '../../src/shared/types';
+import { useT } from './i18n';
+import type { Translate } from './i18n';
 
 interface Meta {
   icon: string;
   cls: string;
-  text: (p: Record<string, unknown>) => string;
+  // `t` injecté au rendu : pas de hook au niveau module.
+  text: (p: Record<string, unknown>, t: Translate) => string;
 }
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
 
 const EVENTS: Record<string, Meta> = {
-  project_created: { icon: '📁', cls: 'info', text: (p) => `projet « ${String(p.name ?? '')} »` },
+  project_created: {
+    icon: '📁',
+    cls: 'info',
+    text: (p, t) => t(`projet « ${String(p.name ?? '')} »`, `project “${String(p.name ?? '')}”`),
+  },
   task_created: {
     icon: '➕',
     cls: 'muted',
-    text: (p) => `tâche : ${String(p.title ?? short(p.taskId))}`,
+    text: (p, t) =>
+      t(
+        `tâche : ${String(p.title ?? short(p.taskId))}`,
+        `task: ${String(p.title ?? short(p.taskId))}`,
+      ),
   },
-  task_ready: { icon: '◇', cls: 'muted', text: (p) => `tâche prête (${short(p.taskId)})` },
+  task_ready: {
+    icon: '◇',
+    cls: 'muted',
+    text: (p, t) => t(`tâche prête (${short(p.taskId)})`, `task ready (${short(p.taskId)})`),
+  },
   task_assigned: {
     icon: '◈',
     cls: 'info',
-    text: (p) => `${short(p.taskId)} → nœud ${short(p.nodeId)}`,
+    text: (p, t) =>
+      t(
+        `${short(p.taskId)} → nœud ${short(p.nodeId)}`,
+        `${short(p.taskId)} → node ${short(p.nodeId)}`,
+      ),
   },
-  task_started: { icon: '▶', cls: 'run', text: (p) => `butinage démarré (${short(p.taskId)})` },
-  task_progress: { icon: '⋯', cls: 'run', text: (p) => `progrès (${short(p.taskId)})` },
-  task_readopted: { icon: '↺', cls: 'info', text: (p) => `ré-adoptée (${short(p.taskId)})` },
+  task_started: {
+    icon: '▶',
+    cls: 'run',
+    text: (p, t) =>
+      t(`butinage démarré (${short(p.taskId)})`, `foraging started (${short(p.taskId)})`),
+  },
+  task_progress: {
+    icon: '⋯',
+    cls: 'run',
+    text: (p, t) => t(`progrès (${short(p.taskId)})`, `progress (${short(p.taskId)})`),
+  },
+  task_readopted: {
+    icon: '↺',
+    cls: 'info',
+    text: (p, t) => t(`ré-adoptée (${short(p.taskId)})`, `re-adopted (${short(p.taskId)})`),
+  },
   task_done: {
     icon: '🍯',
     cls: 'done',
-    text: (p) => `terminée (${short(p.taskId)}) en ${String(p.durationMs)} ms`,
+    text: (p, t) =>
+      t(
+        `terminée (${short(p.taskId)}) en ${String(p.durationMs)} ms`,
+        `done (${short(p.taskId)}) in ${String(p.durationMs)} ms`,
+      ),
   },
   task_retry: {
     icon: '🔁',
     cls: 'warn',
-    text: (p) => `échec, essai ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
+    text: (p, t) =>
+      t(
+        `échec, essai ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
+        `failed, attempt ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
+      ),
   },
-  task_failed: { icon: '✘', cls: 'fail', text: (p) => `échouée (${short(p.taskId)})` },
-  task_cancelled: { icon: '⊘', cls: 'warn', text: (p) => `annulée (${short(p.taskId)})` },
-  task_requeued: { icon: '↩', cls: 'warn', text: (p) => `réaffectée (${short(p.taskId)})` },
-  task_rejected: { icon: '⇄', cls: 'muted', text: (p) => `refusée (${short(p.taskId)})` },
+  task_failed: {
+    icon: '✘',
+    cls: 'fail',
+    text: (p, t) => t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`),
+  },
+  task_cancelled: {
+    icon: '⊘',
+    cls: 'warn',
+    text: (p, t) => t(`annulée (${short(p.taskId)})`, `cancelled (${short(p.taskId)})`),
+  },
+  task_requeued: {
+    icon: '↩',
+    cls: 'warn',
+    text: (p, t) => t(`réaffectée (${short(p.taskId)})`, `requeued (${short(p.taskId)})`),
+  },
+  task_rejected: {
+    icon: '⇄',
+    cls: 'muted',
+    text: (p, t) => t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`),
+  },
   node_registered: {
     icon: '🐝',
     cls: 'info',
-    text: (p) => `nouveau nœud : ${String(p.name ?? '')}`,
+    text: (p, t) =>
+      t(`nouveau nœud : ${String(p.name ?? '')}`, `new node: ${String(p.name ?? '')}`),
   },
-  node_online: { icon: '🟢', cls: 'done', text: (p) => `nœud en ligne : ${String(p.name ?? '')}` },
+  node_online: {
+    icon: '🟢',
+    cls: 'done',
+    text: (p, t) =>
+      t(`nœud en ligne : ${String(p.name ?? '')}`, `node online: ${String(p.name ?? '')}`),
+  },
   node_offline: {
     icon: '⚫',
     cls: 'fail',
-    text: (p) => `nœud hors ligne : ${String(p.name ?? '')}`,
+    text: (p, t) =>
+      t(`nœud hors ligne : ${String(p.name ?? '')}`, `node offline: ${String(p.name ?? '')}`),
   },
-  node_reconciled: { icon: '↺', cls: 'muted', text: () => `réconciliation` },
+  node_reconciled: {
+    icon: '↺',
+    cls: 'muted',
+    text: (_p, t) => t('réconciliation', 'reconciliation'),
+  },
   memory_recorded: {
     icon: '🧬',
     cls: 'muted',
-    text: (p) => `souvenir consigné (${short(p.taskId)})`,
+    text: (p, t) =>
+      t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
   },
   conflict_detected: {
     icon: '🛡️',
     cls: 'warn',
-    text: (p) => `conflit ${String(p.severity ?? '')} : ${short(p.a)} ↔ ${short(p.b)}`,
+    text: (p, t) =>
+      t(
+        `conflit ${String(p.severity ?? '')} : ${short(p.a)} ↔ ${short(p.b)}`,
+        `conflict ${String(p.severity ?? '')}: ${short(p.a)} ↔ ${short(p.b)}`,
+      ),
   },
   task_conflict_deferred: {
     icon: '⏸',
     cls: 'warn',
-    text: (p) => `différée (conflit avec ${short(p.conflictsWith)})`,
+    text: (p, t) =>
+      t(
+        `différée (conflit avec ${short(p.conflictsWith)})`,
+        `deferred (conflicts with ${short(p.conflictsWith)})`,
+      ),
   },
-  result_ignored: { icon: '⊘', cls: 'muted', text: (p) => `résultat périmé (${short(p.taskId)})` },
+  result_ignored: {
+    icon: '⊘',
+    cls: 'muted',
+    text: (p, t) => t(`résultat périmé (${short(p.taskId)})`, `stale result (${short(p.taskId)})`),
+  },
   boot_recovery: {
     icon: '⟲',
     cls: 'info',
-    text: (p) => `reprise : ${String(p.requeued)} tâche(s) requalifiée(s)`,
+    text: (p, t) =>
+      t(
+        `reprise : ${String(p.requeued)} tâche(s) requalifiée(s)`,
+        `recovery: ${String(p.requeued)} task(s) requeued`,
+      ),
   },
 };
 
 export function Journal({ events }: { events: HiveEvent[] }) {
+  const t = useT();
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>Journal</h2>
+        <h2>{t('Journal', 'Journal')}</h2>
         <span className="panel-count">{events.length}</span>
       </header>
       <ul className="journal">
@@ -95,12 +180,14 @@ export function Journal({ events }: { events: HiveEvent[] }) {
             return (
               <li key={ev.id} className={`jrow ${meta.cls}`}>
                 <span className="jicon">{meta.icon}</span>
-                <span className="jtext">{meta.text(ev.payload)}</span>
+                <span className="jtext">{meta.text(ev.payload, t)}</span>
                 <time className="jtime">{new Date(ev.ts).toLocaleTimeString()}</time>
               </li>
             );
           })}
-        {events.length === 0 && <li className="empty">En attente d’événements…</li>}
+        {events.length === 0 && (
+          <li className="empty">{t('En attente d’événements…', 'Waiting for events…')}</li>
+        )}
       </ul>
     </section>
   );

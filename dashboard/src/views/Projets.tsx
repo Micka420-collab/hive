@@ -14,7 +14,8 @@ import {
   runMerge,
 } from '../api';
 import type { MergeRunResult, NewTaskInput, PlanResponse } from '../api';
-import { ProgressBar, STATUS_ICON, STATUS_LABEL } from '../ui';
+import { useLang, useT } from '../i18n';
+import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
@@ -56,6 +57,7 @@ function planDepths(tasks: NewTaskInput[]): number[] {
 }
 
 function QueenBee({ projects }: { projects: Project[] }) {
+  const t = useT();
   const [brief, setBrief] = useState('');
   const [mode, setMode] = useState<PlanMode>('auto');
   const [plan, setPlan] = useState<PlanResponse | null>(null);
@@ -79,7 +81,9 @@ function QueenBee({ projects }: { projects: Project[] }) {
     setSent(null);
     planBrief(brief.trim(), mode)
       .then((p) => setPlan(p))
-      .catch((e: unknown) => setError(`Plan impossible : ${errMsg(e)}`))
+      .catch((e: unknown) =>
+        setError(t(`Plan impossible : ${errMsg(e)}`, `Could not plan: ${errMsg(e)}`)),
+      )
       .finally(() => setBusy('idle'));
   };
 
@@ -102,29 +106,41 @@ function QueenBee({ projects }: { projects: Project[] }) {
     addTasks(target, uniqueTasks)
       .then((created) => {
         const name = projects.find((p) => p.id === target)?.name ?? target;
-        setSent(`${created.length} tâche(s) déposée(s) dans « ${name} ». Bon butinage !`);
+        setSent(
+          t(
+            `${created.length} tâche(s) déposée(s) dans « ${name} ». Bon butinage !`,
+            `${created.length} task(s) dropped into “${name}”. Happy foraging!`,
+          ),
+        );
         setPlan(null);
         setBrief('');
       })
-      .catch((e: unknown) => setError(`Envoi refusé : ${errMsg(e)}`))
+      .catch((e: unknown) =>
+        setError(t(`Envoi refusé : ${errMsg(e)}`, `Send rejected: ${errMsg(e)}`)),
+      )
       .finally(() => setBusy('idle'));
   };
 
   return (
     <section className="card pj-queen">
       <header className="panel-head">
-        <h2>👑 Atelier Queen Bee</h2>
-        <span className="panel-count">brief → plan de butinage</span>
+        <h2>{t('👑 Atelier Queen Bee', '👑 Queen Bee Workshop')}</h2>
+        <span className="panel-count">
+          {t('brief → plan de butinage', 'brief → foraging plan')}
+        </span>
       </header>
       <div className="pj-queen-body">
         <textarea
           className="pj-brief"
           rows={3}
-          placeholder="Décrivez votre projet… (ex. : API de sondages avec auth JWT et dashboard de résultats)"
+          placeholder={t(
+            'Décrivez votre projet… (ex. : API de sondages avec auth JWT et dashboard de résultats)',
+            'Describe your project… (e.g. a survey API with JWT auth and a results dashboard)',
+          )}
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           disabled={busy !== 'idle'}
-          aria-label="Brief du projet"
+          aria-label={t('Brief du projet', 'Project brief')}
         />
         <div className="pj-qb-actions">
           <label className="pj-select-label">
@@ -135,7 +151,7 @@ function QueenBee({ projects }: { projects: Project[] }) {
               disabled={busy !== 'idle'}
             >
               <option value="auto">auto</option>
-              <option value="heuristic">heuristique</option>
+              <option value="heuristic">{t('heuristique', 'heuristic')}</option>
               <option value="llm">llm</option>
             </select>
           </label>
@@ -144,7 +160,9 @@ function QueenBee({ projects }: { projects: Project[] }) {
             onClick={propose}
             disabled={busy !== 'idle' || brief.trim().length < 8}
           >
-            {busy === 'plan' ? 'La reine réfléchit…' : '✨ Proposer un plan'}
+            {busy === 'plan'
+              ? t('La reine réfléchit…', 'The Queen is thinking…')
+              : t('✨ Proposer un plan', '✨ Propose a plan')}
           </button>
         </div>
 
@@ -155,26 +173,30 @@ function QueenBee({ projects }: { projects: Project[] }) {
           <div className="pj-plan">
             <div className="pj-plan-head">
               <span className={`pj-src ${plan.source}`}>
-                {plan.source === 'llm' ? '🧠 llm' : '⚙ heuristique'}
+                {plan.source === 'llm' ? '🧠 llm' : t('⚙ heuristique', '⚙ heuristic')}
               </span>
-              <span className="panel-count">{plan.tasks.length} tâche(s)</span>
+              <span className="panel-count">
+                {plan.tasks.length} {t('tâche(s)', 'task(s)')}
+              </span>
               {plan.note && <span className="plan-note">{plan.note}</span>}
             </div>
-            <ul className="pj-plan-list" aria-label="Prévisualisation du plan">
-              {plan.tasks.map((t, i) => {
-                const deps = (t.dependsOn ?? []).map((d) => titleById.get(d) ?? d);
+            <ul className="pj-plan-list" aria-label={t('Prévisualisation du plan', 'Plan preview')}>
+              {plan.tasks.map((t2, i) => {
+                const deps = (t2.dependsOn ?? []).map((d) => titleById.get(d) ?? d);
                 return (
-                  <li key={t.id ?? `t${i}`} style={{ paddingLeft: 8 + (depths[i] ?? 0) * 18 }}>
+                  <li key={t2.id ?? `t${i}`} style={{ paddingLeft: 8 + (depths[i] ?? 0) * 18 }}>
                     <span className="pj-plan-title">
                       {(depths[i] ?? 0) > 0 && (
                         <span className="pj-plan-arrow" aria-hidden="true">
                           ↳{' '}
                         </span>
                       )}
-                      {t.title}
+                      {t2.title}
                     </span>
                     {deps.length > 0 && (
-                      <span className="pj-plan-deps mono">après : {deps.join(', ')}</span>
+                      <span className="pj-plan-deps mono">
+                        {t('après :', 'after:')} {deps.join(', ')}
+                      </span>
                     )}
                   </li>
                 );
@@ -184,7 +206,7 @@ function QueenBee({ projects }: { projects: Project[] }) {
               {projects.length > 0 ? (
                 <>
                   <label className="pj-select-label">
-                    <span>Projet cible</span>
+                    <span>{t('Projet cible', 'Target project')}</span>
                     <select value={target} onChange={(e) => setTargetId(e.target.value)}>
                       {projects.map((p) => (
                         <option key={p.id} value={p.id}>
@@ -194,13 +216,17 @@ function QueenBee({ projects }: { projects: Project[] }) {
                     </select>
                   </label>
                   <button className="btn primary" onClick={send} disabled={busy !== 'idle'}>
-                    {busy === 'send' ? 'Envoi…' : 'Envoyer les tâches'}
+                    {busy === 'send'
+                      ? t('Envoi…', 'Sending…')
+                      : t('Envoyer les tâches', 'Send the tasks')}
                   </button>
                 </>
               ) : (
                 <p className="muted-text pj-no-target">
-                  Créez d’abord un projet (« + Projet » dans la barre du haut) pour y déposer ces
-                  tâches.
+                  {t(
+                    'Créez d’abord un projet (« + Projet » dans la barre du haut) pour y déposer ces tâches.',
+                    'Create a project first (“+ Project” in the top bar) to drop these tasks into.',
+                  )}
                 </p>
               )}
             </div>
@@ -231,18 +257,19 @@ function MergeReport({
   result: MergeRunResult;
   taskTitles: Map<string, string>;
 }) {
+  const t = useT();
   const tests = !result.testsRun
-    ? 'tests non lancés'
+    ? t('tests non lancés', 'tests not run')
     : result.testsPassed === true
-      ? '✔ tests verts'
+      ? t('✔ tests verts', '✔ tests green')
       : result.testsPassed === false
-        ? '✘ tests rouges'
-        : 'tests sans verdict';
+        ? t('✘ tests rouges', '✘ tests red')
+        : t('tests sans verdict', 'tests without a verdict');
   return (
     <div className="pj-merge-report">
       <p>
-        <strong>{result.applied.length}</strong> diff(s) appliqué(s),{' '}
-        <strong>{result.conflicts.length}</strong> conflit(s) — {tests}
+        <strong>{result.applied.length}</strong> {t('diff(s) appliqué(s),', 'diff(s) applied,')}{' '}
+        <strong>{result.conflicts.length}</strong> {t('conflit(s)', 'conflict(s)')} — {tests}
       </p>
       {result.applied.length > 0 && (
         <ul className="pj-applied">
@@ -262,7 +289,7 @@ function MergeReport({
       )}
       {result.logs && (
         <details className="pj-report-detail">
-          <summary>Journal du merge</summary>
+          <summary>{t('Journal du merge', 'Merge log')}</summary>
           <pre className="code-block scroll">{result.logs}</pre>
         </details>
       )}
@@ -279,6 +306,7 @@ function MergePanel({
   taskTitles: Map<string, string>;
   refreshTick: number;
 }) {
+  const t = useT();
   const planPoll = useApiPoll(() => fetchMergePlan(project.id), 30_000, refreshTick);
   const plan = planPoll.data;
   const [testCmd, setTestCmd] = useState('');
@@ -325,29 +353,45 @@ function MergePanel({
   return (
     <section className="pj-sub">
       <header className="pj-sub-head">
-        <h4>Plan de merge Honeycomb</h4>
+        <h4>{t('Plan de merge Honeycomb', 'Honeycomb merge plan')}</h4>
         {plan && (
           <span className={`pj-verdict ${plan.mergeable ? 'ok' : 'ko'}`}>
-            {plan.mergeable ? '✔ intégrable' : '⚠ pas encore intégrable'}
+            {plan.mergeable
+              ? t('✔ intégrable', '✔ mergeable')
+              : t('⚠ pas encore intégrable', '⚠ not mergeable yet')}
           </span>
         )}
       </header>
-      {planPoll.error && <p className="panel-error">Plan indisponible : {planPoll.error}</p>}
-      {!plan && !planPoll.error && <p className="muted-text">Analyse des diffs…</p>}
+      {planPoll.error && (
+        <p className="panel-error">
+          {t('Plan indisponible :', 'Plan unavailable:')} {planPoll.error}
+        </p>
+      )}
+      {!plan && !planPoll.error && (
+        <p className="muted-text">{t('Analyse des diffs…', 'Analyzing diffs…')}</p>
+      )}
       {plan && (
         <>
           <p className="pj-sub-meta">
-            {plan.done}/{plan.total} tâche(s) terminée(s) · {plan.conflicts.length} conflit(s)
-            ligne-à-ligne
+            {plan.done}/{plan.total} {t('tâche(s) terminée(s)', 'task(s) completed')} ·{' '}
+            {plan.conflicts.length} {t('conflit(s) ligne-à-ligne', 'line-by-line conflict(s)')}
           </p>
           {plan.order.length > 0 ? (
-            <ol className="pj-order" aria-label="Ordre de merge proposé">
+            <ol
+              className="pj-order"
+              aria-label={t('Ordre de merge proposé', 'Proposed merge order')}
+            >
               {plan.order.map((id) => (
                 <li key={id}>{taskTitles.get(id) ?? id}</li>
               ))}
             </ol>
           ) : (
-            <p className="muted-text">Aucune tâche terminée à intégrer pour l’instant.</p>
+            <p className="muted-text">
+              {t(
+                'Aucune tâche terminée à intégrer pour l’instant.',
+                'No completed tasks to merge yet.',
+              )}
+            </p>
           )}
           {plan.conflicts.length > 0 && (
             <ul className="pj-conf-list">
@@ -365,11 +409,14 @@ function MergePanel({
             <input
               className="pj-testcmd"
               type="text"
-              placeholder="Commande de test (optionnel), ex. npm test"
+              placeholder={t(
+                'Commande de test (optionnel), ex. npm test',
+                'Test command (optional), e.g. npm test',
+              )}
               value={testCmd}
               onChange={(e) => setTestCmd(e.target.value)}
               disabled={busyRun}
-              aria-label="Commande de test"
+              aria-label={t('Commande de test', 'Test command')}
             />
             {!confirming && !busyRun && (
               <button
@@ -377,19 +424,22 @@ function MergePanel({
                 onClick={() => setConfirming(true)}
                 disabled={plan.done === 0}
               >
-                Lancer le merge
+                {t('Lancer le merge', 'Run the merge')}
               </button>
             )}
             {confirming && (
               <>
                 <span className="pj-confirm">
-                  Merge réel de « {project.name} » sur un nœud — confirmer ?
+                  {t(
+                    `Merge réel de « ${project.name} » sur un nœud — confirmer ?`,
+                    `Real merge of “${project.name}” on a node — confirm?`,
+                  )}
                 </span>
                 <button className="btn primary" onClick={launch}>
-                  Confirmer
+                  {t('Confirmer', 'Confirm')}
                 </button>
                 <button className="btn ghost" onClick={() => setConfirming(false)}>
-                  Annuler
+                  {t('Annuler', 'Cancel')}
                 </button>
               </>
             )}
@@ -398,14 +448,21 @@ function MergePanel({
                 <span className="pj-busy-dot" aria-hidden="true">
                   ⬡
                 </span>{' '}
-                Merge en cours sur le nœud…
+                {t('Merge en cours sur le nœud…', 'Merge running on the node…')}
               </span>
             )}
           </div>
-          {run.phase === 'error' && <p className="panel-error">Merge refusé : {run.message}</p>}
+          {run.phase === 'error' && (
+            <p className="panel-error">
+              {t('Merge refusé :', 'Merge refused:')} {run.message}
+            </p>
+          )}
           {run.phase === 'timeout' && (
             <p className="panel-error">
-              Pas de résultat après 2 min — vérifiez le nœud puis relancez.
+              {t(
+                'Pas de résultat après 2 min — vérifiez le nœud puis relancez.',
+                'No result after 2 min — check the node, then try again.',
+              )}
             </p>
           )}
           {run.phase === 'done' && <MergeReport result={run.result} taskTitles={taskTitles} />}
@@ -426,34 +483,52 @@ function ConflictsPanel({
   taskTitles: Map<string, string>;
   refreshTick: number;
 }) {
+  const t = useT();
   const poll = useApiPoll(() => fetchConflicts(projectId), 30_000, refreshTick);
   const conflicts = poll.data?.conflicts;
   return (
     <section className="pj-sub">
       <header className="pj-sub-head">
-        <h4>Conflits Sting</h4>
+        <h4>{t('Conflits Sting', 'Sting conflicts')}</h4>
         {conflicts && <span className="panel-count">{conflicts.length}</span>}
       </header>
-      {poll.error && <p className="panel-error">Détection indisponible : {poll.error}</p>}
-      {!conflicts && !poll.error && <p className="muted-text">Inspection des dards…</p>}
+      {poll.error && (
+        <p className="panel-error">
+          {t('Détection indisponible :', 'Detection unavailable:')} {poll.error}
+        </p>
+      )}
+      {!conflicts && !poll.error && (
+        <p className="muted-text">{t('Inspection des dards…', 'Inspecting the stingers…')}</p>
+      )}
       {conflicts && conflicts.length === 0 && (
-        <p className="muted-text">Aucun dard en vue — pas de conflit détecté.</p>
+        <p className="muted-text">
+          {t(
+            'Aucun dard en vue — pas de conflit détecté.',
+            'No stinger in sight — no conflict detected.',
+          )}
+        </p>
       )}
       {conflicts && conflicts.length > 0 && (
         <ul className="pj-sting-list">
           {conflicts.map((c, i) => (
             <li key={`${c.a}-${c.b}-${i}`} className={`pj-sting ${c.severity}`}>
               <span className="pj-sting-sev">
-                {c.severity === 'high' ? '⚡ sévérité haute' : '· sévérité faible'}
+                {c.severity === 'high'
+                  ? t('⚡ sévérité haute', '⚡ high severity')
+                  : t('· sévérité faible', '· low severity')}
               </span>
               <span className="pj-sting-pair">
                 {taskTitles.get(c.a) ?? c.a} ↔ {taskTitles.get(c.b) ?? c.b}
               </span>
               {c.sharedPaths.length > 0 && (
-                <span className="pj-sting-detail mono">fichiers : {c.sharedPaths.join(', ')}</span>
+                <span className="pj-sting-detail mono">
+                  {t('fichiers :', 'files:')} {c.sharedPaths.join(', ')}
+                </span>
               )}
               {c.sharedTerms.length > 0 && (
-                <span className="pj-sting-detail mono">termes : {c.sharedTerms.join(', ')}</span>
+                <span className="pj-sting-detail mono">
+                  {t('termes :', 'terms:')} {c.sharedTerms.join(', ')}
+                </span>
               )}
             </li>
           ))}
@@ -486,6 +561,8 @@ function ProjectCard({
   onOpenTask: ViewProps['onOpenTask'];
   onNavigate: ViewProps['onNavigate'];
 }) {
+  const t = useT();
+  const lang = useLang();
   const reportPoll = useApiPoll(() => fetchReport(project.id), 30_000, refreshTick);
   const report = reportPoll.data;
   const [showMerge, setShowMerge] = useState(false);
@@ -500,7 +577,7 @@ function ProjectCard({
       <header className="pj-head">
         <h3 className="pj-name">{project.name}</h3>
         <span className={`pj-vis ${project.visibility}`}>
-          {project.visibility === 'private' ? '🔒 privé' : '🌐 public'}
+          {project.visibility === 'private' ? t('🔒 privé', '🔒 private') : '🌐 public'}
         </span>
       </header>
       {project.description && <p className="pj-desc">{project.description}</p>}
@@ -510,7 +587,11 @@ function ProjectCard({
         </code>
       )}
 
-      {reportPoll.error && <p className="panel-error">Rapport indisponible : {reportPoll.error}</p>}
+      {reportPoll.error && (
+        <p className="panel-error">
+          {t('Rapport indisponible :', 'Report unavailable:')} {reportPoll.error}
+        </p>
+      )}
       {report && (
         <>
           <div className="pj-progress">
@@ -522,42 +603,54 @@ function ProjectCard({
               <span
                 key={s}
                 className={`pj-count ${s}`}
-                title={`${report.byStatus[s]} ${STATUS_LABEL[s]}(s)`}
+                title={`${report.byStatus[s]} ${statusLabel(s, lang)}(s)`}
               >
                 <span aria-hidden="true">{STATUS_ICON[s]}</span> {report.byStatus[s]}
               </span>
             ))}
             <span className="pj-meta">
-              🐝 {report.contributingNodes.length > 0 ? contributors : 'aucune butineuse'}
+              🐝{' '}
+              {report.contributingNodes.length > 0
+                ? contributors
+                : t('aucune butineuse', 'no foragers')}
             </span>
-            <span className="pj-meta">↻ {report.totalAttempts} tentative(s)</span>
+            <span className="pj-meta">
+              ↻ {report.totalAttempts} {t('tentative(s)', 'attempt(s)')}
+            </span>
           </div>
         </>
       )}
 
       {tasks.length > 0 ? (
-        <Honeycomb tasks={tasks} deferred={deferred} mini onSelect={(t) => onOpenTask(t.id)} />
+        <Honeycomb
+          tasks={tasks}
+          deferred={deferred}
+          mini
+          onSelect={(task) => onOpenTask(task.id)}
+        />
       ) : (
-        <p className="muted-text pj-none">Alvéoles vides — aucune tâche pour l’instant.</p>
+        <p className="muted-text pj-none">
+          {t('Alvéoles vides — aucune tâche pour l’instant.', 'Empty cells — no tasks yet.')}
+        </p>
       )}
 
       <div className="pj-actions">
         <button className="btn" onClick={() => onNavigate('miellerie')}>
-          🍯 Revue
+          {t('🍯 Revue', '🍯 Review')}
         </button>
         <button
           className="btn ghost"
           aria-expanded={showMerge}
           onClick={() => setShowMerge((v) => !v)}
         >
-          ⬡ Plan de merge
+          {t('⬡ Plan de merge', '⬡ Merge plan')}
         </button>
         <button
           className="btn ghost"
           aria-expanded={showConflicts}
           onClick={() => setShowConflicts((v) => !v)}
         >
-          ⚡ Conflits Sting
+          {t('⚡ Conflits Sting', '⚡ Sting conflicts')}
         </button>
       </div>
 
@@ -581,6 +674,7 @@ export default function Projets({
   selectedId,
   refreshTick,
 }: ViewProps) {
+  const t = useT();
   // Récents d'abord : la dernière alvéole créée est en tête de rayon.
   const recents = useMemo(
     () => [...snapshot.projects].sort((a, b) => b.createdAt - a.createdAt),
@@ -588,15 +682,15 @@ export default function Projets({
   );
   const tasksByProject = useMemo(() => {
     const m = new Map<string, Task[]>();
-    for (const t of snapshot.tasks) {
-      const list = m.get(t.projectId);
-      if (list) list.push(t);
-      else m.set(t.projectId, [t]);
+    for (const task of snapshot.tasks) {
+      const list = m.get(task.projectId);
+      if (list) list.push(task);
+      else m.set(task.projectId, [task]);
     }
     return m;
   }, [snapshot.tasks]);
   const taskTitles = useMemo(
-    () => new Map<string, string>(snapshot.tasks.map((t) => [t.id, t.title])),
+    () => new Map<string, string>(snapshot.tasks.map((task) => [task.id, task.title])),
     [snapshot.tasks],
   );
   const nodeNames = useMemo(
@@ -611,9 +705,15 @@ export default function Projets({
       {recents.length === 0 ? (
         <section className="card">
           <p className="empty pad">
-            Aucune alvéole de projet pour l’instant. Créez votre premier projet avec le bouton
-            <strong> « + Projet » </strong>
-            de la barre du haut, puis laissez la Queen Bee planifier le butinage.
+            {t(
+              'Aucune alvéole de projet pour l’instant. Créez votre premier projet avec le bouton',
+              'No project cells yet. Create your first project with the',
+            )}
+            <strong> {t('« + Projet »', '“+ Project”')} </strong>
+            {t(
+              'de la barre du haut, puis laissez la Queen Bee planifier le butinage.',
+              'button in the top bar, then let the Queen Bee plan the foraging.',
+            )}
           </p>
         </section>
       ) : (

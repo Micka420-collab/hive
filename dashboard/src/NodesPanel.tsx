@@ -1,6 +1,7 @@
 // Panneau des nœuds : une carte par machine membre, avec charge et agent.
 
 import type { HiveNode } from '../../src/shared/types';
+import { useT } from './i18n';
 import { ProgressBar } from './ui';
 
 const AGENT_ICON: Record<string, string> = {
@@ -19,13 +20,14 @@ function initials(name: string): string {
 }
 
 export function NodesPanel({ nodes }: { nodes: HiveNode[] }) {
+  const t = useT();
   const online = nodes.filter((n) => n.status === 'online').length;
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>Nœuds</h2>
+        <h2>{t('Nœuds', 'Nodes')}</h2>
         <span className="panel-count">
-          {online}/{nodes.length} en ligne
+          {online}/{nodes.length} {t('en ligne', 'online')}
         </span>
       </header>
       <ul className="node-list">
@@ -52,7 +54,10 @@ export function NodesPanel({ nodes }: { nodes: HiveNode[] }) {
         ))}
         {nodes.length === 0 && (
           <li className="empty">
-            Aucun nœud n’a rejoint la ruche. Cliquez « Inviter un ami » pour en connecter un.
+            {t(
+              'Aucun nœud n’a rejoint la ruche. Cliquez « Inviter un ami » pour en connecter un.',
+              'No node has joined the hive yet. Click “Invite a friend” to connect one.',
+            )}
           </li>
         )}
       </ul>

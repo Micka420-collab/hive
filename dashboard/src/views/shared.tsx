@@ -11,6 +11,8 @@ import type {
   TaskStatus,
 } from '../../../src/shared/types';
 import { ApiError, postReview } from '../api';
+import { useLang, useT } from '../i18n';
+import type { UiLang } from '../i18n';
 
 // ─── Contrat commun : App possède l'état temps réel, les vues le reçoivent ───
 
@@ -335,21 +337,38 @@ export interface HoneycombProps {
   showReview?: boolean;
 }
 
-const HEX_STATUS_TITLE: Record<TaskStatus, string> = {
-  pending: 'en attente',
-  ready: 'prête',
-  assigned: 'assignée',
-  running: 'en cours',
-  done: 'terminée',
-  failed: 'échouée',
+// Double record fr/en résolu au rendu (pas de hook au niveau module).
+const HEX_STATUS_TITLE: Record<UiLang, Record<TaskStatus, string>> = {
+  fr: {
+    pending: 'en attente',
+    ready: 'prête',
+    assigned: 'assignée',
+    running: 'en cours',
+    done: 'terminée',
+    failed: 'échouée',
+  },
+  en: {
+    pending: 'pending',
+    ready: 'ready',
+    assigned: 'assigned',
+    running: 'running',
+    done: 'done',
+    failed: 'failed',
+  },
 };
 
 /** Grille d'hexagones : statut lisible à 3 mètres, cliquable alvéole par alvéole. */
 export function Honeycomb({ tasks, deferred, onSelect, mini, showReview }: HoneycombProps) {
   const reviewTick = useReviewTick();
   void reviewTick; // relit localStorage à chaque changement de revue
+  const lang = useLang();
+  const tr = useT();
   return (
-    <div className={mini ? 'mc-comb mini' : 'mc-comb'} role="list" aria-label="Rayon de miel">
+    <div
+      className={mini ? 'mc-comb mini' : 'mc-comb'}
+      role="list"
+      aria-label={tr('Rayon de miel', 'Honeycomb')}
+    >
       {tasks.map((t) => {
         const review = showReview ? getReview(t.id) : null;
         const cls = [
@@ -360,7 +379,7 @@ export function Honeycomb({ tasks, deferred, onSelect, mini, showReview }: Honey
         ]
           .filter(Boolean)
           .join(' ');
-        const label = `${t.title} — ${HEX_STATUS_TITLE[t.status]}`;
+        const label = `${t.title} — ${HEX_STATUS_TITLE[lang][t.status]}`;
         return onSelect ? (
           <button
             key={t.id}

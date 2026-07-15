@@ -13,6 +13,8 @@ import {
   runMerge,
 } from '../api';
 import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
+import { t as tNow, useT } from '../i18n';
+import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
 import { getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
@@ -42,8 +44,16 @@ function nodeName(nodes: HiveNode[], id: string | null | undefined): string {
 /** Erreur API → texte lisible (503 = aucun nœud en ligne, etc.). */
 function readableError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  if (/503/.test(msg)) return 'Aucun nœud en ligne pour exécuter le merge (503).';
-  if (/failed to fetch/i.test(msg)) return 'Orchestrateur injoignable — vérifiez la connexion.';
+  if (/503/.test(msg))
+    return tNow(
+      'Aucun nœud en ligne pour exécuter le merge (503).',
+      'No node online to run the merge (503).',
+    );
+  if (/failed to fetch/i.test(msg))
+    return tNow(
+      'Orchestrateur injoignable — vérifiez la connexion.',
+      'Orchestrator unreachable — check the connection.',
+    );
   return msg;
 }
 
@@ -99,6 +109,7 @@ function lineClass(line: string): string | undefined {
 // ─── Panneau Diff ────────────────────────────────────────────────────────────
 
 function DiffPanel({ diff }: { diff: string }) {
+  const t = useT();
   const parts = useMemo(() => splitDiff(diff), [diff]);
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set([0]));
   const [copied, setCopied] = useState(false);
@@ -129,12 +140,19 @@ function DiffPanel({ diff }: { diff: string }) {
   };
 
   if (diff.trim() === '') {
-    return <p className="muted-text">Diff vide — rien à butiner sur cette production.</p>;
+    return (
+      <p className="muted-text">
+        {t(
+          'Diff vide — rien à butiner sur cette production.',
+          'Empty diff — nothing to forage on this production.',
+        )}
+      </p>
+    );
   }
 
   const copyBtn = (
     <button className="btn mi-copy" onClick={copy}>
-      {copied ? 'Copié !' : 'Copier le diff'}
+      {copied ? t('Copié !', 'Copied!') : t('Copier le diff', 'Copy the diff')}
     </button>
   );
 
@@ -143,7 +161,12 @@ function DiffPanel({ diff }: { diff: string }) {
     return (
       <div>
         <div className="mi-files">
-          <span className="muted-text">Diff affiché brut (long ou non découpable).</span>
+          <span className="muted-text">
+            {t(
+              'Diff affiché brut (long ou non découpable).',
+              'Diff shown raw (too long or not splittable).',
+            )}
+          </span>
           {copyBtn}
         </div>
         <pre className="code-block scroll mi-diff-pre">{diff}</pre>
@@ -205,28 +228,38 @@ function DiffPanel({ diff }: { diff: string }) {
 
 // ─── Panneau Consensus (Parlement des Agents) ────────────────────────────────
 
-const OUTCOME_LABEL: Record<Verdict['outcome'], string> = {
-  elected: 'Consensus atteint',
-  no_quorum: 'Pas de quorum — arbitrage humain',
-  no_ballots: 'Aucun bulletin',
-};
+const outcomeLabel = (t: Translate): Record<Verdict['outcome'], string> => ({
+  elected: t('Consensus atteint', 'Consensus reached'),
+  no_quorum: t('Pas de quorum — arbitrage humain', 'No quorum — human arbitration'),
+  no_ballots: t('Aucun bulletin', 'No ballots'),
+});
 
 function ConsensusPanel({ verdict, error }: { verdict: Verdict | null; error: string | null }) {
-  if (error) return <p className="panel-error">Consensus indisponible : {error}</p>;
-  if (!verdict) return <p className="muted-text">Dépouillement en cours…</p>;
+  const t = useT();
+  if (error)
+    return (
+      <p className="panel-error">
+        {t('Consensus indisponible :', 'Consensus unavailable:')} {error}
+      </p>
+    );
+  if (!verdict)
+    return <p className="muted-text">{t('Dépouillement en cours…', 'Counting the ballots…')}</p>;
 
   const total = verdict.factions.reduce((sum, f) => sum + f.votes, 0);
   const quorumPct = total > 0 ? Math.min(100, (verdict.quorum / total) * 100) : null;
 
   return (
     <div>
-      <p className={`mi-cons-outcome ${verdict.outcome}`}>{OUTCOME_LABEL[verdict.outcome]}</p>
+      <p className={`mi-cons-outcome ${verdict.outcome}`}>{outcomeLabel(t)[verdict.outcome]}</p>
       {verdict.factions.length > 0 && (
         <>
           <div
             className="mi-cons-bar"
             role="img"
-            aria-label={`${verdict.factions.length} faction(s), quorum à ${verdict.quorum} voix`}
+            aria-label={t(
+              `${verdict.factions.length} faction(s), quorum à ${verdict.quorum} voix`,
+              `${verdict.factions.length} faction(s), quorum at ${verdict.quorum} votes`,
+            )}
           >
             {verdict.factions.map((f) => (
               <div
@@ -235,32 +268,38 @@ function ConsensusPanel({ verdict, error }: { verdict: Verdict | null; error: st
                   verdict.winner?.signature === f.signature ? ' win' : ''
                 }`}
                 style={{ flexGrow: f.votes }}
-                title={`${f.votes} voix — ${f.agentTypes.join(', ')}`}
+                title={t(
+                  `${f.votes} voix — ${f.agentTypes.join(', ')}`,
+                  `${f.votes} vote(s) — ${f.agentTypes.join(', ')}`,
+                )}
               />
             ))}
             {quorumPct !== null && (
               <div
                 className="mi-quorum"
                 style={{ left: `${quorumPct}%` }}
-                title={`Quorum : ${verdict.quorum} voix`}
+                title={t(`Quorum : ${verdict.quorum} voix`, `Quorum: ${verdict.quorum} votes`)}
               />
             )}
           </div>
           <p className="mi-cons-note">
-            quorum : {verdict.quorum} voix · {total} voix exprimée(s)
+            {t(
+              `quorum : ${verdict.quorum} voix · ${total} voix exprimée(s)`,
+              `quorum: ${verdict.quorum} votes · ${total} vote(s) cast`,
+            )}
           </p>
           <ul className="mi-fac-list">
             {verdict.factions.map((f) => (
               <li key={f.signature} className="mi-fac-row">
                 <code className="mi-fac-sig">{f.signature}</code>
-                <span>{f.votes} voix</span>
-                {f.agentTypes.map((t) => (
-                  <span key={t} className="chip mi-chip-static">
-                    {t}
+                <span>{t(`${f.votes} voix`, `${f.votes} vote(s)`)}</span>
+                {f.agentTypes.map((at) => (
+                  <span key={at} className="chip mi-chip-static">
+                    {at}
                   </span>
                 ))}
                 {verdict.winner?.signature === f.signature && (
-                  <span className="mi-elected">👑 Élu</span>
+                  <span className="mi-elected">{t('👑 Élu', '👑 Elected')}</span>
                 )}
               </li>
             ))}
@@ -290,6 +329,7 @@ export default function Miellerie({
   selectedId,
   refreshTick,
 }: ViewProps) {
+  const t = useT();
   const reviewTick = useReviewTick();
   void reviewTick; // relit localStorage (tri + compteurs) à chaque revue
 
@@ -303,7 +343,8 @@ export default function Miellerie({
   }
   const known = new Set(snapshot.projects.map((p) => p.id));
   const orphans = finished.filter((t) => !known.has(t.projectId)).sort(byRank);
-  if (orphans.length > 0) groups.push({ id: '?', name: 'Projet inconnu', tasks: orphans });
+  if (orphans.length > 0)
+    groups.push({ id: '?', name: t('Projet inconnu', 'Unknown project'), tasks: orphans });
   const flat = groups.flatMap((g) => g.tasks);
   const reviewedCount = flat.filter((t) => getReview(t.id) !== null).length;
 
@@ -532,13 +573,22 @@ export default function Miellerie({
       .map((t) => t.id);
     const keptIds = doneOfProject.filter((t) => getReview(t.id) !== 'rejected').map((t) => t.id);
     if (doneOfProject.length === 0) {
-      setMerge({ step: 'error', message: 'Aucune production terminée à couler pour ce projet.' });
+      setMerge({
+        step: 'error',
+        message: tNow(
+          'Aucune production terminée à couler pour ce projet.',
+          'No finished production to pour for this project.',
+        ),
+      });
       return;
     }
     if (keptIds.length === 0) {
       setMerge({
         step: 'error',
-        message: 'Toutes les productions terminées sont rejetées — rien à couler.',
+        message: tNow(
+          'Toutes les productions terminées sont rejetées — rien à couler.',
+          'All finished productions are rejected — nothing to pour.',
+        ),
       });
       return;
     }
@@ -566,7 +616,10 @@ export default function Miellerie({
         if (alive) {
           setMerge({
             step: 'error',
-            message: 'Pas de résultat après 2 min — le merge tourne peut-être encore côté nœud.',
+            message: tNow(
+              'Pas de résultat après 2 min — le merge tourne peut-être encore côté nœud.',
+              'No result after 2 min — the merge may still be running on the node.',
+            ),
           });
         }
         return;
@@ -595,9 +648,17 @@ export default function Miellerie({
           <span className="mi-empty-icon" aria-hidden="true">
             🐝
           </span>
-          <p className="mi-empty-lead">Le nectar arrive — aucune production à revoir.</p>
+          <p className="mi-empty-lead">
+            {t(
+              'Le nectar arrive — aucune production à revoir.',
+              'The nectar is coming — no production to review.',
+            )}
+          </p>
           <p className="muted-text">
-            Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.
+            {t(
+              'Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.',
+              'Finished or failed tasks will appear here for human review.',
+            )}
           </p>
         </div>
       </div>
@@ -618,17 +679,19 @@ export default function Miellerie({
   const rejectedCount = projTasks.filter(
     (t) => t.status === 'done' && getReview(t.id) === 'rejected',
   ).length;
-  const projName = snapshot.projects.find((p) => p.id === projectId)?.name ?? 'Projet inconnu';
+  const projName =
+    snapshot.projects.find((p) => p.id === projectId)?.name ??
+    t('Projet inconnu', 'Unknown project');
 
   return (
     <div className="mc-view mi-view">
       <div className={`mi-grid${showInfo ? '' : ' no-info'}`}>
         {/* ── Volet 1 : file de revue ── */}
-        <aside className="card panel mi-queue-pane" aria-label="File de revue">
+        <aside className="card panel mi-queue-pane" aria-label={t('File de revue', 'Review queue')}>
           <header className="panel-head">
-            <h2>File de revue</h2>
+            <h2>{t('File de revue', 'Review queue')}</h2>
             <span className="panel-count">
-              {reviewedCount}/{flat.length} revues
+              {reviewedCount}/{flat.length} {t('revues', 'reviewed')}
             </span>
           </header>
           <div className="mi-comb-wrap">
@@ -639,27 +702,27 @@ export default function Miellerie({
               <li key={`g-${g.id}`} className="mi-group">
                 ⬡ {g.name} <span className="chip-count">{g.tasks.length}</span>
               </li>,
-              ...g.tasks.map((t) => {
-                const review = getReview(t.id);
-                const active = t.id === activeId;
+              ...g.tasks.map((task) => {
+                const review = getReview(task.id);
+                const active = task.id === activeId;
                 return (
                   <li
-                    key={t.id}
+                    key={task.id}
                     className={`clickable mi-row${active ? ' active' : ''}`}
                     aria-current={active ? 'true' : undefined}
-                    {...activateProps(() => select(t.id))}
+                    {...activateProps(() => select(task.id))}
                   >
-                    <StatusBadge status={t.status} />
+                    <StatusBadge status={task.status} />
                     <span className="mi-row-body">
-                      <span className="mi-row-title">{t.title}</span>
+                      <span className="mi-row-title">{task.title}</span>
                       <span className="mi-row-meta">
-                        {nodeName(snapshot.nodes, t.result?.nodeId ?? t.assignedNodeId)}
-                        {t.result ? ` · ${formatMs(t.result.durationMs)}` : ''}
+                        {nodeName(snapshot.nodes, task.result?.nodeId ?? task.assignedNodeId)}
+                        {task.result ? ` · ${formatMs(task.result.durationMs)}` : ''}
                       </span>
                     </span>
                     <span
                       className={`mi-dot${review === 'approved' ? ' ok' : review === 'rejected' ? ' ko' : ''}`}
-                      title="revue locale (ce navigateur)"
+                      title={t('revue locale (ce navigateur)', 'local review (this browser)')}
                     >
                       {review === 'approved' ? '🍯' : review === 'rejected' ? '✖' : '·'}
                     </span>
@@ -671,23 +734,29 @@ export default function Miellerie({
         </aside>
 
         {/* ── Volet 2 : inspection ── */}
-        <section className="card mi-inspect" aria-label="Inspection de la tâche">
+        <section
+          className="card mi-inspect"
+          aria-label={t('Inspection de la tâche', 'Task inspection')}
+        >
           <header className="mi-inspect-head">
             <div className="mi-inspect-title">
               <StatusBadge status={activeTask.status} />
               <h2>{activeTask.title}</h2>
             </div>
             <div className="mi-inspect-sub">
-              <span title="Nœud butineur">🐝 {activeNode}</span>
+              <span title={t('Nœud butineur', 'Foraging node')}>🐝 {activeNode}</span>
               {activeTask.branch && <code className="mono mi-branch">{activeTask.branch}</code>}
               {activeTask.result && <span>{formatMs(activeTask.result.durationMs)}</span>}
             </div>
           </header>
 
-          <div className="drawer-tabs mi-tabs" aria-label="Onglets d'inspection">
-            {(['diff', 'logs', 'consensus'] as const).map((t) => (
-              <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-                {t === 'diff' ? 'Diff' : t === 'logs' ? 'Logs' : 'Consensus'}
+          <div
+            className="drawer-tabs mi-tabs"
+            aria-label={t("Onglets d'inspection", 'Inspection tabs')}
+          >
+            {(['diff', 'logs', 'consensus'] as const).map((tb) => (
+              <button key={tb} className={tab === tb ? 'active' : ''} onClick={() => setTab(tb)}>
+                {tb === 'diff' ? 'Diff' : tb === 'logs' ? 'Logs' : 'Consensus'}
               </button>
             ))}
           </div>
@@ -695,77 +764,108 @@ export default function Miellerie({
           <div className="mi-tab-body">
             {tab === 'diff' &&
               (resultsError ? (
-                <p className="panel-error">Résultats indisponibles : {resultsError}</p>
+                <p className="panel-error">
+                  {t('Résultats indisponibles :', 'Results unavailable:')} {resultsError}
+                </p>
               ) : !resultsReady ? (
-                <p className="muted-text">Le butin arrive…</p>
+                <p className="muted-text">{t('Le butin arrive…', 'The forage is on its way…')}</p>
               ) : lastResult ? (
                 <DiffPanel diff={lastResult.diff} />
               ) : (
-                <p className="muted-text">Aucun résultat remonté pour cette tâche.</p>
+                <p className="muted-text">
+                  {t(
+                    'Aucun résultat remonté pour cette tâche.',
+                    'No result reported for this task.',
+                  )}
+                </p>
               ))}
             {tab === 'logs' &&
               (resultsError ? (
-                <p className="panel-error">Résultats indisponibles : {resultsError}</p>
+                <p className="panel-error">
+                  {t('Résultats indisponibles :', 'Results unavailable:')} {resultsError}
+                </p>
               ) : !resultsReady ? (
-                <p className="muted-text">Le butin arrive…</p>
+                <p className="muted-text">{t('Le butin arrive…', 'The forage is on its way…')}</p>
               ) : lastResult ? (
-                <pre className="code-block scroll mi-logs">{lastResult.logs || '(aucun log)'}</pre>
+                <pre className="code-block scroll mi-logs">
+                  {lastResult.logs || t('(aucun log)', '(no logs)')}
+                </pre>
               ) : (
-                <p className="muted-text">Aucun résultat remonté pour cette tâche.</p>
+                <p className="muted-text">
+                  {t(
+                    'Aucun résultat remonté pour cette tâche.',
+                    'No result reported for this task.',
+                  )}
+                </p>
               ))}
             {tab === 'consensus' && <ConsensusPanel verdict={verdict} error={consensusError} />}
           </div>
 
           {/* ── Barre de décision sticky ── */}
-          <div className="mi-decide" aria-label="Décision de revue">
+          <div className="mi-decide" aria-label={t('Décision de revue', 'Review decision')}>
             <button
               className="btn primary"
-              title="Approuver — revue locale (ce navigateur)"
+              title={t(
+                'Approuver — revue locale (ce navigateur)',
+                'Approve — local review (this browser)',
+              )}
               onClick={() => decide('approved')}
             >
-              🍯 Approuver <kbd>a</kbd>
+              🍯 {t('Approuver', 'Approve')} <kbd>a</kbd>
             </button>
             <button
               className="btn mi-reject"
-              title="Rejeter — revue locale (ce navigateur)"
+              title={t(
+                'Rejeter — revue locale (ce navigateur)',
+                'Reject — local review (this browser)',
+              )}
               onClick={() => decide('rejected')}
             >
-              ✖ Rejeter <kbd>x</kbd>
+              ✖ {t('Rejeter', 'Reject')} <kbd>x</kbd>
             </button>
             <button
               className="btn ghost"
               disabled={currentReview === null}
-              title="Annuler la revue locale"
+              title={t('Annuler la revue locale', 'Undo the local review')}
               onClick={() => decide(null)}
             >
-              annuler la revue <kbd>u</kbd>
+              {t('annuler la revue', 'undo the review')} <kbd>u</kbd>
             </button>
-            <span className="mi-decide-state" title="revue locale (ce navigateur)">
+            <span
+              className="mi-decide-state"
+              title={t('revue locale (ce navigateur)', 'local review (this browser)')}
+            >
               {currentReview === 'approved'
-                ? 'Revue : 🍯 approuvée'
+                ? t('Revue : 🍯 approuvée', 'Review: 🍯 approved')
                 : currentReview === 'rejected'
-                  ? 'Revue : ✖ rejetée'
-                  : 'Non revue'}
+                  ? t('Revue : ✖ rejetée', 'Review: ✖ rejected')
+                  : t('Non revue', 'Not reviewed')}
             </span>
             <button
               className="btn ghost mi-info-toggle"
-              title="Afficher/replier le volet verdict (i)"
+              title={t(
+                'Afficher/replier le volet verdict (i)',
+                'Show/collapse the verdict pane (i)',
+              )}
               onClick={() => setShowInfo((v) => !v)}
             >
-              {showInfo ? 'Replier le verdict' : 'Verdict'} <kbd>i</kbd>
+              {showInfo ? t('Replier le verdict', 'Collapse the verdict') : 'Verdict'} <kbd>i</kbd>
             </button>
           </div>
         </section>
 
         {/* ── Volet 3 : verdict (repliable, touche i) ── */}
         {showInfo && (
-          <aside className="card mi-info" aria-label="Verdict et contexte">
+          <aside
+            className="card mi-info"
+            aria-label={t('Verdict et contexte', 'Verdict and context')}
+          >
             <header className="panel-head">
               <h2>Verdict</h2>
               <button
                 className="mi-close-info"
-                title="Replier (i)"
-                aria-label="Replier le volet verdict"
+                title={t('Replier (i)', 'Collapse (i)')}
+                aria-label={t('Replier le volet verdict', 'Collapse the verdict pane')}
                 onClick={() => setShowInfo(false)}
               >
                 ✕
@@ -773,13 +873,13 @@ export default function Miellerie({
             </header>
             <div className="mi-info-body">
               <dl className="meta-grid">
-                <dt>Nœud</dt>
+                <dt>{t('Nœud', 'Node')}</dt>
                 <dd>{activeNode}</dd>
-                <dt>Tentatives</dt>
+                <dt>{t('Tentatives', 'Attempts')}</dt>
                 <dd>{activeTask.attempts}</dd>
-                <dt>Branche</dt>
+                <dt>{t('Branche', 'Branch')}</dt>
                 <dd className="mono">{activeTask.branch ?? '—'}</dd>
-                <dt>Dépendances</dt>
+                <dt>{t('Dépendances', 'Dependencies')}</dt>
                 <dd>
                   {activeTask.dependsOn.length > 0
                     ? activeTask.dependsOn.map(titleOf).join(', ')
@@ -790,17 +890,21 @@ export default function Miellerie({
               </dl>
 
               <details className="mi-prompt">
-                <summary>Prompt d’origine</summary>
+                <summary>{t('Prompt d’origine', 'Original prompt')}</summary>
                 <pre className="code-block scroll">{activeTask.prompt}</pre>
               </details>
 
-              <h3 className="mi-sub">Conflits Sting</h3>
+              <h3 className="mi-sub">{t('Conflits Sting', 'Sting conflicts')}</h3>
               {conflictsPoll.error ? (
-                <p className="panel-error">Conflits indisponibles : {conflictsPoll.error}</p>
+                <p className="panel-error">
+                  {t('Conflits indisponibles :', 'Conflicts unavailable:')} {conflictsPoll.error}
+                </p>
               ) : sting === null ? (
-                <p className="muted-text">Analyse des dards…</p>
+                <p className="muted-text">{t('Analyse des dards…', 'Analyzing the stingers…')}</p>
               ) : sting.length === 0 ? (
-                <p className="muted-text">Aucun conflit impliquant cette tâche.</p>
+                <p className="muted-text">
+                  {t('Aucun conflit impliquant cette tâche.', 'No conflict involving this task.')}
+                </p>
               ) : (
                 <ul className="mi-sting">
                   {sting.map((c, i) => {
@@ -808,9 +912,11 @@ export default function Miellerie({
                     return (
                       <li key={i} className={`mi-sting-item ${c.severity}`}>
                         <span className="mi-sting-sev">
-                          {c.severity === 'high' ? '⚡ fort' : '· faible'}
+                          {c.severity === 'high' ? t('⚡ fort', '⚡ high') : t('· faible', '· low')}
                         </span>
-                        <span className="mi-sting-other">avec « {titleOf(other)} »</span>
+                        <span className="mi-sting-other">
+                          {t(`avec « ${titleOf(other)} »`, `with “${titleOf(other)}”`)}
+                        </span>
                         {c.sharedPaths.length > 0 && (
                           <code className="mi-sting-paths">{c.sharedPaths.join(', ')}</code>
                         )}
@@ -825,49 +931,66 @@ export default function Miellerie({
       </div>
 
       {/* ── Pied de vue : coulée du miel (merge par projet) ── */}
-      <footer className="mi-merge" aria-label="Coulée du miel">
+      <footer className="mi-merge" aria-label={t('Coulée du miel', 'Honey pour')}>
         <div className="mi-merge-bar">
           <span className="mi-merge-proj">⬡ {projName}</span>
           <span className="mi-merge-count">
-            Prêt à fusionner : <strong>{approvedCount}</strong> approuvée(s) / {doneCount}{' '}
-            terminée(s)
+            {t('Prêt à fusionner :', 'Ready to merge:')} <strong>{approvedCount}</strong>{' '}
+            {t('approuvée(s)', 'approved')} / {doneCount} {t('terminée(s)', 'finished')}
             {rejectedCount > 0 && (
-              <em className="mi-merge-rejected" title="Les rejets ne coulent jamais dans le miel">
+              <em
+                className="mi-merge-rejected"
+                title={t(
+                  'Les rejets ne coulent jamais dans le miel',
+                  'Rejects never pour into the honey',
+                )}
+              >
                 {' '}
-                · {rejectedCount} rejetée(s) exclue(s)
+                · {rejectedCount} {t('rejetée(s) exclue(s)', 'rejected (excluded)')}
               </em>
             )}
           </span>
           <button className="btn" onClick={togglePlan}>
-            {planOpen ? 'Replier le plan' : 'Plan de merge'}
+            {planOpen
+              ? t('Replier le plan', 'Collapse the plan')
+              : t('Plan de merge', 'Merge plan')}
           </button>
           <button
             className={`btn primary mi-pour${merge.step === 'arming' ? ' arming' : ''}`}
             disabled={merge.step === 'starting' || merge.step === 'waiting'}
-            title="Exécute réellement le merge sur un nœud (double-clic de confirmation)"
+            title={t(
+              'Exécute réellement le merge sur un nœud (double-clic de confirmation)',
+              'Actually runs the merge on a node (double-click to confirm)',
+            )}
             onClick={clickMerge}
           >
             {merge.step === 'arming'
-              ? 'Confirmer la coulée ?'
+              ? t('Confirmer la coulée ?', 'Confirm the pour?')
               : merge.step === 'starting'
-                ? 'Lancement…'
+                ? t('Lancement…', 'Starting…')
                 : merge.step === 'waiting'
-                  ? 'Fusion en cours…'
-                  : '🍯 Couler le miel'}
+                  ? t('Fusion en cours…', 'Merging…')
+                  : t('🍯 Couler le miel', '🍯 Pour the honey')}
           </button>
         </div>
 
         {planOpen && (
           <div className="mi-plan">
-            {planErr && <p className="panel-error">Plan indisponible : {planErr}</p>}
-            {planLoading && <p className="muted-text">Calcul du plan…</p>}
+            {planErr && (
+              <p className="panel-error">
+                {t('Plan indisponible :', 'Plan unavailable:')} {planErr}
+              </p>
+            )}
+            {planLoading && (
+              <p className="muted-text">{t('Calcul du plan…', 'Computing the plan…')}</p>
+            )}
             {planState && planState.id === projectId && (
               <>
                 <p className="mi-plan-head">
-                  {planState.plan.done}/{planState.plan.total} terminée(s) ·{' '}
+                  {planState.plan.done}/{planState.plan.total} {t('terminée(s)', 'finished')} ·{' '}
                   {planState.plan.mergeable
-                    ? 'intégrable d’un coup'
-                    : 'intégration partielle ou conflits'}
+                    ? t('intégrable d’un coup', 'mergeable in one go')
+                    : t('intégration partielle ou conflits', 'partial integration or conflicts')}
                 </p>
                 {planState.plan.order.length > 0 ? (
                   <ol className="mi-plan-order">
@@ -876,10 +999,14 @@ export default function Miellerie({
                     ))}
                   </ol>
                 ) : (
-                  <p className="muted-text">Rien à fusionner pour l’instant.</p>
+                  <p className="muted-text">
+                    {t('Rien à fusionner pour l’instant.', 'Nothing to merge yet.')}
+                  </p>
                 )}
                 {planState.plan.conflicts.length === 0 ? (
-                  <p className="muted-text">Aucun conflit de lignes détecté.</p>
+                  <p className="muted-text">
+                    {t('Aucun conflit de lignes détecté.', 'No line conflicts detected.')}
+                  </p>
                 ) : (
                   <ul className="mi-plan-conflicts">
                     {planState.plan.conflicts.map((c, i) => (
@@ -895,19 +1022,24 @@ export default function Miellerie({
         )}
 
         {merge.step === 'waiting' && (
-          <p className="mi-merge-wait">Le nœud coule le miel… (relevé toutes les 3 s, 2 min max)</p>
+          <p className="mi-merge-wait">
+            {t(
+              'Le nœud coule le miel… (relevé toutes les 3 s, 2 min max)',
+              'The node is pouring the honey… (polled every 3 s, 2 min max)',
+            )}
+          </p>
         )}
         {merge.step === 'error' && <p className="panel-error">{merge.message}</p>}
         {merge.step === 'done' && (
           <div className="mi-merge-result">
             <p>
-              {merge.result.applied.length} branche(s) appliquée(s) ·{' '}
-              {merge.result.conflicts.length} conflit(s) ·{' '}
+              {merge.result.applied.length} {t('branche(s) appliquée(s)', 'branch(es) applied')} ·{' '}
+              {merge.result.conflicts.length} {t('conflit(s)', 'conflict(s)')} ·{' '}
               {merge.result.testsRun
                 ? merge.result.testsPassed
                   ? 'tests ✔'
                   : 'tests ✘'
-                : 'tests non lancés'}
+                : t('tests non lancés', 'tests not run')}
             </p>
             {merge.result.conflicts.length > 0 && (
               <ul className="mi-plan-conflicts">
@@ -920,7 +1052,7 @@ export default function Miellerie({
             )}
             {merge.result.logs && (
               <details className="mi-merge-logs">
-                <summary>Logs du merge</summary>
+                <summary>{t('Logs du merge', 'Merge logs')}</summary>
                 <pre className="code-block scroll">{merge.result.logs}</pre>
               </details>
             )}
