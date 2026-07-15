@@ -41,7 +41,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   opt-in, pas de double peine). Victoires affichées dans l'Essaim et la CLI.
 - **Courses visibles** — `GET /api/races` expose les courses en vol ; les
   cartes de nœuds de l'Essaim portent un badge ⚔ animé quand un de leurs
-  drones vole encore.
+  drones vole encore, et une carte « Courses en vol » liste tâche + drones
+  (noms et statuts). Après la course, le tiroir de tâche affiche le
+  vainqueur 🏆 (retrouvé au journal via `drone_won`).
 - **La Reine parle courses** — nouvelle intention `races` fr/en (« y a-t-il
   des courses en vol ? ») : courses réelles avec drones nommés et statuts,
   ou mode d'emploi pour en lancer une ; courses exposées au mode IA. Le suivi

@@ -263,7 +263,7 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
               : t('⚔ Course de drones (3 nœuds)', '⚔ Drone race (3 nodes)')}
           </button>
         )}
-        {raced !== null && (
+        {raced !== null && task.status !== 'done' && task.status !== 'failed' && (
           <p className="muted-text">
             ⚔ {t('Course lancée :', 'Race launched:')} {raced}{' '}
             {t(

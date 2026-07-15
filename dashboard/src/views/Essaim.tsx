@@ -163,6 +163,16 @@ function RacesCard({
   const nameOf = (nodeId: string): string =>
     snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
   const ICON: Record<string, string> = { running: '✈', failed: '✘', succeeded: '🏆' };
+  // Statuts traduits : le title/aria porte l'état, l'emoji seul ne suffit
+  // ni aux lecteurs d'écran ni aux opérateurs non anglophones.
+  const statusLabel = (status: string): string =>
+    status === 'running'
+      ? t('en vol', 'flying')
+      : status === 'failed'
+        ? t('tombé', 'down')
+        : status === 'succeeded'
+          ? t('vainqueur', 'winner')
+          : status;
   return (
     <section className="card">
       <header className="panel-head">
@@ -177,7 +187,13 @@ function RacesCard({
             </span>
             <span className="es-race-drones">
               {r.drones.map((d) => (
-                <span key={d.nodeId} className={`es-race-drone ${d.status}`} title={d.status}>
+                <span
+                  key={d.nodeId}
+                  className={`es-race-drone ${d.status}`}
+                  role="img"
+                  title={statusLabel(d.status)}
+                  aria-label={`${nameOf(d.nodeId)} — ${statusLabel(d.status)}`}
+                >
                   {ICON[d.status] ?? '?'} {nameOf(d.nodeId)}
                 </span>
               ))}

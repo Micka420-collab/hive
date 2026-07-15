@@ -626,9 +626,15 @@ export class HiveStore {
    * le journal est la seule trace durable (dans la limite de l'élagage).
    */
   lastEventFor(type: string, taskId: string): HiveEvent | null {
+    // json_extract (JSON1, embarqué dans better-sqlite3) : correspondance
+    // EXACTE du taskId — un LIKE laisserait les jokers %/_ d'un id fourni par
+    // le client (ou par le LLM Queen Bee) matcher la victoire d'une AUTRE
+    // tâche (`build_api` matcherait `build-api`).
     const row = this.db
-      .prepare('SELECT * FROM events WHERE type = ? AND payload LIKE ? ORDER BY id DESC LIMIT 1')
-      .get(type, `%"taskId":"${taskId}"%`) as EventRow | undefined;
+      .prepare(
+        "SELECT * FROM events WHERE type = ? AND json_extract(payload, '$.taskId') = ? ORDER BY id DESC LIMIT 1",
+      )
+      .get(type, taskId) as EventRow | undefined;
     if (!row) return null;
     return {
       id: row.id,

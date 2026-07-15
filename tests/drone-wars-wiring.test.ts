@@ -99,6 +99,13 @@ describe('Drone Wars : câblage scheduler', () => {
     expect(won?.payload.cancelled).toBe(1);
     // Une autre tâche ne matche pas (filtre par taskId, pas juste par type).
     expect(store.lastEventFor('drone_won', 'autre-tache')).toBeNull();
+    // Les jokers SQL d'un id client ne matchent pas d'autres tâches : le
+    // `_` de LIKE aurait fait matcher n'importe quel caractère, et `%` un
+    // préfixe entier — la correspondance doit être exacte.
+    const wonId = task.id;
+    expect(store.lastEventFor('drone_won', wonId.replace(/./, '_'))).toBeNull();
+    expect(store.lastEventFor('drone_won', `${wonId[0]}%`)).toBeNull();
+    expect(store.lastEventFor('drone_won', '%')).toBeNull();
   });
 
   it('refuse une course sur une tâche non prête ou déjà en course', () => {
