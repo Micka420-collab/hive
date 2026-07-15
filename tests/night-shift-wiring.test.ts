@@ -90,7 +90,7 @@ describe('Night Shift câblé dans le nœud', () => {
         headers,
         body: JSON.stringify({ tasks: [{ title: 'attendre l aube', prompt: 'plus tard' }] }),
       });
-      // Plusieurs ticks du scheduler : assignation → refus → requalification…
+      // Plusieurs ticks du scheduler : assignation → refus → cooldown long.
       await new Promise((r) => setTimeout(r, 2_000));
       const state = await fetch(`${base}/api/state`, { headers });
       const snapshot = (await state.json()) as { tasks: Task[] };
@@ -98,6 +98,15 @@ describe('Night Shift câblé dans le nœud', () => {
       expect(calls.count).toBe(0); // l'agent n'a jamais été invoqué
       expect(task.attempts).toBe(0); // aucune tentative brûlée
       expect(['ready', 'assigned', 'pending']).toContain(task.status); // jamais failed
+
+      // retryAfterMs (temps jusqu'à la réouverture) = cooldown long côté hub :
+      // UN SEUL cycle assignation/refus, pas une boucle qui noie le journal.
+      const evRes = await fetch(`${base}/api/events?limit=1000`, { headers });
+      const events = (await evRes.json()) as { type: string }[];
+      const assigned = events.filter((e) => e.type === 'task_assigned').length;
+      const rejected = events.filter((e) => e.type === 'task_rejected').length;
+      expect(assigned).toBe(1);
+      expect(rejected).toBe(1);
     },
   );
 });

@@ -96,6 +96,13 @@ export class Scheduler {
     const reported = new Set(activeTaskIds);
     const zombies: string[] = [];
 
+    // Un nœud qui se (ré)inscrit repart de zéro : ses cooldowns de refus
+    // sautent (ex. Night Shift corrigé puis nœud relancé — ne pas attendre
+    // l'expiration d'un cooldown long devenu obsolète).
+    for (const key of this.recentRejections.keys()) {
+      if (key.endsWith(`:${nodeId}`)) this.recentRejections.delete(key);
+    }
+
     // 1) Aligner sur ce que le nœud déclare exécuter.
     for (const taskId of reported) {
       const task = this.store.getTask(taskId);
@@ -144,12 +151,17 @@ export class Scheduler {
     reason: string,
     infra = false,
     now = Date.now(),
+    retryAfterMs?: number,
   ): void {
     const task = this.store.getTask(taskId);
     if (!task || task.assignedNodeId !== nodeId) return;
     if (task.status !== 'assigned' && task.status !== 'running') return;
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
-    this.recentRejections.set(`${taskId}:${nodeId}`, now + REJECT_COOLDOWN_MS);
+    // Indisponibilité prévisible annoncée par le nœud (Night Shift) : cooldown
+    // proportionnel (borné 24 h) — sinon boucle assignation/refus toutes les
+    // ~4 s qui noierait le journal pendant toute la fenêtre fermée.
+    const cooldown = Math.max(REJECT_COOLDOWN_MS, Math.min(retryAfterMs ?? 0, 24 * 60 * 60 * 1000));
+    this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
     this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
 
     if (infra) {

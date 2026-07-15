@@ -1906,3 +1906,9 @@ button.mc-cell:focus-visible {
     display: none;
   }
 }
+
+.mc-unsynced {
+  color: var(--amber);
+  font-size: 12px;
+  white-space: nowrap;
+}

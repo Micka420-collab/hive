@@ -1489,7 +1489,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           case 'task_reject':
             // Refus d'assignation (saturation, ou agent en panne → infra) :
             // requeue sans brûler de tentative ; le token-failover gère l'infra.
-            scheduler.rejectTask(nodeId, msg.taskId, msg.reason, msg.infra ?? false);
+            // retryAfterMs (Night Shift) allonge le cooldown de re-sollicitation.
+            scheduler.rejectTask(
+              nodeId,
+              msg.taskId,
+              msg.reason,
+              msg.infra ?? false,
+              Date.now(),
+              msg.retryAfterMs,
+            );
             break;
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.

@@ -531,6 +531,10 @@ export default function Miellerie({
       .filter((t) => getReview(t.id) === 'approved')
       .map((t) => t.id);
     const keptIds = doneOfProject.filter((t) => getReview(t.id) !== 'rejected').map((t) => t.id);
+    if (doneOfProject.length === 0) {
+      setMerge({ step: 'error', message: 'Aucune production terminée à couler pour ce projet.' });
+      return;
+    }
     if (keptIds.length === 0) {
       setMerge({
         step: 'error',

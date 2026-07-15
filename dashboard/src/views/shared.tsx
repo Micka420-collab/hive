@@ -43,6 +43,7 @@ export interface ViewProps {
 
 export type ReviewState = 'approved' | 'rejected';
 const REVIEW_KEY = 'hive.review';
+const UNSYNCED_KEY = 'hive.review.unsynced';
 
 /** Cache hydraté depuis le serveur ; null tant que /api/reviews n'a pas répondu. */
 let serverReviews: Record<string, ReviewState> | null = null;
@@ -53,8 +54,14 @@ let hydrating = false;
 let pendingDeltas: [string, ReviewState | null][] = [];
 /** POSTs sérialisés par tâche : l'ordre serveur suit l'ordre des gestes. */
 const postChains = new Map<string, Promise<void>>();
-/** Tâches avec un POST local en vol : leurs échos WS sont ignorés (anti-clignotement). */
+/** Tâches avec un POST local en vol : leurs échos WS sont différés (anti-clignotement). */
 const locallyPending = new Set<string>();
+/**
+ * Dernier événement WS reçu PENDANT un POST local en vol : rejoué au drain de
+ * la chaîne — le verdict concurrent d'un AUTRE opérateur ne doit jamais être
+ * perdu (le WS est FIFO, c'est la vérité serveur la plus récente vue).
+ */
+const suppressedWhilePending = new Map<string, ReviewState | null>();
 
 function notifyReviewChange(): void {
   window.dispatchEvent(new CustomEvent('hive:review'));
@@ -66,6 +73,30 @@ function readLocalReviews(): Record<string, ReviewState> {
   } catch {
     return {};
   }
+}
+
+// ─── Verdicts non confirmés par le serveur (outbox persistée) ────────────────
+// Un POST échoué ne perd jamais le verdict : il est superposé à chaque
+// hydratation et re-posté — une micro-coupure ne fait pas couler un rejet.
+
+function readUnsynced(): Record<string, ReviewState | null> {
+  try {
+    return JSON.parse(localStorage.getItem(UNSYNCED_KEY) ?? '{}') as Record<
+      string,
+      ReviewState | null
+    >;
+  } catch {
+    return {};
+  }
+}
+
+function writeUnsynced(map: Record<string, ReviewState | null>): void {
+  localStorage.setItem(UNSYNCED_KEY, JSON.stringify(map));
+}
+
+/** Nombre de verdicts locaux non confirmés par le serveur (bandeau d'alerte). */
+export function countUnsyncedReviews(): number {
+  return Object.keys(readUnsynced()).length;
 }
 
 function applyDelta(taskId: string, state: ReviewState | null): void {
@@ -92,20 +123,40 @@ export function beginReviewHydration(): number {
 export function hydrateReviews(map: Record<string, ReviewState>, seq?: number): void {
   if (seq !== undefined && seq !== hydrationSeq) return; // réponse périmée
   hydrating = false;
+  const prev = serverReviews;
   serverReviews = { ...map };
   for (const [taskId, state] of pendingDeltas) {
     if (state === null) delete serverReviews[taskId];
     else serverReviews[taskId] = state;
   }
   pendingDeltas = [];
+  // POSTs encore en vol : l'état local (geste le plus récent) prime sur un GET
+  // dont l'instantané a pu être pris avant le traitement du POST.
+  for (const taskId of locallyPending) {
+    const state = prev ? (prev[taskId] ?? null) : null;
+    if (state === null) delete serverReviews[taskId];
+    else serverReviews[taskId] = state;
+  }
+  // Verdicts jamais confirmés (POST échoué avant une coupure) : superposés à
+  // l'affichage ET re-postés — le serveur convergera vers le geste humain.
+  for (const [taskId, state] of Object.entries(readUnsynced())) {
+    if (locallyPending.has(taskId)) continue; // déjà en cours de renvoi
+    if (state === null) delete serverReviews[taskId];
+    else serverReviews[taskId] = state;
+    enqueuePost(taskId, state);
+  }
   notifyReviewChange();
 }
 
 /** Applique un événement `task_reviewed` reçu du flux WS (autre opérateur). */
 export function applyReviewEvent(taskId: string, state: ReviewState | null): void {
-  // Écho de notre propre action encore en vol : notre état local est plus
-  // récent que cet écho — l'appliquer ferait clignoter (a puis u rapides).
-  if (locallyPending.has(taskId)) return;
+  // Action locale encore en vol : on DIFFÈRE (sans perdre) — l'événement peut
+  // être notre propre écho (no-op) comme le verdict d'un autre opérateur ;
+  // il sera rejoué au drain de la chaîne de POSTs.
+  if (locallyPending.has(taskId)) {
+    suppressedWhilePending.set(taskId, state);
+    return;
+  }
   applyDelta(taskId, state);
   notifyReviewChange();
 }
@@ -118,6 +169,55 @@ export function getReview(taskId: string): ReviewState | null {
   return readReviews()[taskId] ?? null;
 }
 
+/** Enfile un POST de revue sérialisé par tâche, avec suivi unsynced + rejeu WS. */
+function enqueuePost(taskId: string, state: ReviewState | null): void {
+  // Tant que le serveur n'a pas confirmé, le verdict est « non synchronisé ».
+  const unsynced = readUnsynced();
+  unsynced[taskId] = state;
+  writeUnsynced(unsynced);
+
+  locallyPending.add(taskId);
+  const prev = postChains.get(taskId) ?? Promise.resolve();
+  const next = prev
+    .then(() => postReview(taskId, state))
+    .then(
+      () => {
+        const m = readUnsynced();
+        if (taskId in m && m[taskId] === state) {
+          delete m[taskId];
+          writeUnsynced(m);
+          notifyReviewChange(); // le bandeau « non synchronisé » se met à jour
+        }
+      },
+      () => {
+        // Échec (token invalide, serveur ancien/injoignable) : le verdict reste
+        // local ET dans l'outbox — re-posté à la prochaine hydratation.
+        window.dispatchEvent(
+          new CustomEvent('hive:review-sync-error', { detail: { taskId, state } }),
+        );
+        notifyReviewChange();
+      },
+    );
+  postChains.set(taskId, next);
+  void next.finally(() => {
+    if (postChains.get(taskId) === next) {
+      postChains.delete(taskId);
+      locallyPending.delete(taskId);
+      // Rejouer le dernier événement WS différé pendant le vol : s'il venait
+      // d'un autre opérateur, son verdict (vérité serveur) reprend la main.
+      if (suppressedWhilePending.has(taskId)) {
+        const buffered = suppressedWhilePending.get(taskId) ?? null;
+        suppressedWhilePending.delete(taskId);
+        const current = serverReviews ? (serverReviews[taskId] ?? null) : null;
+        if (buffered !== current) {
+          applyDelta(taskId, buffered);
+          notifyReviewChange();
+        }
+      }
+    }
+  });
+}
+
 export function setReview(taskId: string, state: ReviewState | null): void {
   // Optimiste : cache + repli local immédiats, envoi serveur sérialisé derrière.
   applyDelta(taskId, state);
@@ -126,28 +226,7 @@ export function setReview(taskId: string, state: ReviewState | null): void {
   else local[taskId] = state;
   localStorage.setItem(REVIEW_KEY, JSON.stringify(local));
   notifyReviewChange();
-
-  locallyPending.add(taskId);
-  const prev = postChains.get(taskId) ?? Promise.resolve();
-  const next = prev
-    .then(() => postReview(taskId, state))
-    .then(
-      () => undefined,
-      () => {
-        // Échec signalé (token invalide, serveur ancien/injoignable) : le
-        // verdict reste local — les vues peuvent afficher un avertissement.
-        window.dispatchEvent(
-          new CustomEvent('hive:review-sync-error', { detail: { taskId, state } }),
-        );
-      },
-    );
-  postChains.set(taskId, next);
-  void next.finally(() => {
-    if (postChains.get(taskId) === next) {
-      postChains.delete(taskId);
-      locallyPending.delete(taskId);
-    }
-  });
+  enqueuePost(taskId, state);
 }
 
 /** Nombre de tâches terminées non revues (badge sidebar + compteurs). */

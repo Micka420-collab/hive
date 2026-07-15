@@ -15,6 +15,7 @@ import {
   applyReviewEvent,
   beginReviewHydration,
   countPendingReviews,
+  countUnsyncedReviews,
   hydrateReviews,
   Sparkline,
   useApiPoll,
@@ -224,6 +225,9 @@ export function App() {
     () => countPendingReviews(snapshot.tasks),
     [snapshot.tasks, reviewTick],
   );
+  // Verdicts locaux que le serveur n'a pas (encore) confirmés : visibles,
+  // jamais silencieux — ils sont re-postés automatiquement à la reconnexion.
+  const unsyncedReviews = useMemo(() => countUnsyncedReviews(), [reviewTick]);
 
   const applyToken = () => {
     // Ne reconnecter que si le token a réellement changé : une reconnexion
@@ -308,6 +312,14 @@ export function App() {
               onBlur={applyToken}
               onKeyDown={(e) => e.key === 'Enter' && applyToken()}
             />
+            {unsyncedReviews > 0 && (
+              <span
+                className="mc-unsynced"
+                title="Verdicts posés hors connexion — renvoyés automatiquement dès que l'orchestrateur répond"
+              >
+                ⚠ {unsyncedReviews} revue(s) non synchronisée(s)
+              </span>
+            )}
             <span className={connected ? 'conn online' : 'conn offline'}>
               <span className="conn-dot" />
               {connected ? 'connecté' : 'hors ligne'}

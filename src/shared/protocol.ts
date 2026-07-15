@@ -79,6 +79,13 @@ export interface TaskRejectMsg {
    * aucun nœud n'a d'agent fonctionnel (token-failover).
    */
   infra?: boolean;
+  /**
+   * Indisponibilité PRÉVISIBLE (ex. Night Shift : fenêtre fermée) : durée en ms
+   * avant laquelle il est inutile de représenter cette tâche à CE nœud. Le hub
+   * l'utilise comme cooldown (borné) au lieu du cooldown court par défaut —
+   * sans ce champ, un nœud hors service serait re-sollicité en boucle.
+   */
+  retryAfterMs?: number;
 }
 
 export interface SubscribeMsg {
@@ -355,10 +362,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (
         isId(m.taskId) &&
         isStr(m.reason, LIMITS.name) &&
-        (m.infra === undefined || typeof m.infra === 'boolean')
+        (m.infra === undefined || typeof m.infra === 'boolean') &&
+        (m.retryAfterMs === undefined || isInt(m.retryAfterMs, 0, 24 * 60 * 60 * 1000))
       ) {
         const msg: TaskRejectMsg = { type: 'task_reject', taskId: m.taskId, reason: m.reason };
         if (m.infra === true) msg.infra = true;
+        if (typeof m.retryAfterMs === 'number') msg.retryAfterMs = m.retryAfterMs;
         return msg;
       }
       return null;

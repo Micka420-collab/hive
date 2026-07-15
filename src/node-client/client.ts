@@ -10,7 +10,8 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
-import { isOnShift, nightShiftFromEnv } from '../shared/night-shift.js';
+import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
+import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type { AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
@@ -203,6 +204,39 @@ export class HiveNodeClient {
     this.heartbeatTimer = null;
   }
 
+  /**
+   * Politique Night Shift, parsée SANS jamais lever : une HIVE_SHIFT malformée
+   * ne doit pas transformer une assignation en exception muette (tâche restée
+   * « assigned » en otage côté hub) — on refuse proprement à la place.
+   */
+  private shiftPolicy(): NightShiftPolicy | 'invalide' {
+    try {
+      return nightShiftFromEnv();
+    } catch (err) {
+      if (!this.shiftWarned) {
+        this.shiftWarned = true;
+        this.log(
+          `⚠ HIVE_SHIFT invalide (${err instanceof Error ? err.message : String(err)}) — le nœud refuse le travail tant que la config n'est pas corrigée.`,
+        );
+      }
+      return 'invalide';
+    }
+  }
+  private shiftWarned = false;
+
+  /** Motif de refus Night Shift à joindre à un task_reject, ou null si de service. */
+  private offShiftReject(): { reason: string; retryAfterMs?: number } | null {
+    const shift = this.shiftPolicy();
+    if (shift === 'invalide') return { reason: 'hive_shift_invalide' };
+    if (shift.windows.length === 0) return null;
+    const now = new Date();
+    if (isOnShift(shift, now)) return null;
+    return {
+      reason: 'hors_service_night_shift',
+      retryAfterMs: minutesUntilOpen(shift, now) * 60_000,
+    };
+  }
+
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
   private async runTask(task: Task, repoUrl: string | null, hiveContext?: string): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
@@ -230,10 +264,12 @@ export class HiveNodeClient {
     // Night Shift : hors des heures de service du MEMBRE (HIVE_SHIFT, évalué
     // localement sur l'horloge de sa machine), le nœud refuse poliment —
     // aucune tentative brûlée, le hub requalifie et peut servir un autre nœud.
-    const shift = nightShiftFromEnv();
-    if (shift.windows.length > 0 && !isOnShift(shift, new Date())) {
-      this.send({ type: 'task_reject', taskId: task.id, reason: 'hors_service_night_shift' });
-      this.log(`⏾ ${task.title} : hors heures de service (Night Shift) → refus`);
+    // retryAfterMs = temps jusqu'à la réouverture : le hub ne re-sollicite pas
+    // ce nœud en boucle pendant toute la fenêtre fermée.
+    const offShift = this.offShiftReject();
+    if (offShift) {
+      this.send({ type: 'task_reject', taskId: task.id, ...offShift });
+      this.log(`⏾ ${task.title} : ${offShift.reason} → refus`);
       return;
     }
 
@@ -323,6 +359,23 @@ export class HiveNodeClient {
     // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
     // jobs concurrents sur le même répertoire (course rmSync/clone).
     if (this.activeMerges.has(msg.mergeId)) return;
+    // Night Shift : un merge (clone + application des diffs + tests) est du
+    // travail au même titre qu'une tâche — refusé hors heures de service.
+    const offShift = this.offShiftReject();
+    if (offShift) {
+      this.send({
+        type: 'merge_result',
+        mergeId: msg.mergeId,
+        applied: [],
+        conflicts: [],
+        mergedDiff: '',
+        testsRun: false,
+        testsPassed: null,
+        logs: `[nœud] ${offShift.reason} : merge refusé (Night Shift)`,
+      });
+      this.log(`⏾ merge ${msg.mergeId.slice(0, 8)}… : ${offShift.reason} → refus`);
+      return;
+    }
     this.activeMerges.add(msg.mergeId);
     // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
     const dir = path.join(this.workRoot, 'merges', msg.mergeId);
