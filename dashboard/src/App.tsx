@@ -5,7 +5,18 @@
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
-import { connectFeed, fetchPulse, fetchReviews, getToken, saveToken } from './api';
+import {
+  authMe,
+  clearJwt,
+  connectFeed,
+  fetchPulse,
+  fetchReviews,
+  getJwt,
+  getToken,
+  saveToken,
+} from './api';
+import type { AuthUser } from './api';
+import { AccountPanel } from './AccountPanel';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
@@ -88,6 +99,7 @@ export function App() {
   const [route, setRoute] = useState(parseHash);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
   const lang = useLang();
@@ -242,6 +254,23 @@ export function App() {
     setFeedKey((k) => k + 1);
   };
 
+  // Session utilisateur (JWT) : restaurée au montage si un jeton est présent.
+  // Un jeton périmé est simplement purgé — le dashboard vit très bien sans
+  // compte (le token de ruche suffit pour tout le reste).
+  useEffect(() => {
+    if (!getJwt()) return;
+    let alive = true;
+    authMe()
+      .then((u) => alive && setUser(u))
+      .catch(() => {
+        clearJwt();
+        if (alive) setUser(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const viewProps: ViewProps = {
     snapshot,
     events,
@@ -320,6 +349,7 @@ export function App() {
             >
               {lang === 'fr' ? 'EN' : 'FR'}
             </button>
+            <AccountPanel user={user} onUser={setUser} />
             <InvitePanel />
             <input
               type="password"

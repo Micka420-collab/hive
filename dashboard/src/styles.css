@@ -1912,3 +1912,20 @@ button.mc-cell:focus-visible {
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* Compte utilisateur (topbar) : nom de session + déconnexion. */
+.mc-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mc-account-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}

@@ -303,6 +303,59 @@ export function postReview(
   });
 }
 
+// ─── Comptes utilisateurs (JWT — indépendant du token de ruche) ──────────────
+// Le token de ruche (x-hive-token) protège l'accès à l'orchestrateur ; le JWT
+// identifie une PERSONNE (register/login). Le dashboard reste pleinement
+// utilisable sans compte : la session ne fait qu'ajouter l'identité.
+
+const JWT_KEY = 'hive.jwt';
+
+export function getJwt(): string | null {
+  return localStorage.getItem(JWT_KEY);
+}
+
+export function saveJwt(token: string): void {
+  localStorage.setItem(JWT_KEY, token);
+}
+
+export function clearJwt(): void {
+  localStorage.removeItem(JWT_KEY);
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  bio?: string | null;
+  avatarUrl?: string | null;
+  createdAt?: number;
+}
+
+export function authRegister(
+  email: string,
+  password: string,
+  displayName: string,
+): Promise<{ token: string }> {
+  return api<{ token: string }>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, displayName }),
+  });
+}
+
+export function authLogin(email: string, password: string): Promise<{ token: string }> {
+  return api<{ token: string }>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+/** Profil de la session courante (401 → ApiError, le JWT est alors périmé). */
+export function authMe(): Promise<AuthUser> {
+  return api<AuthUser>('/api/auth/me', {
+    headers: { authorization: `Bearer ${getJwt() ?? ''}` },
+  });
+}
+
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
