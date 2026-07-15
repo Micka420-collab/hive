@@ -170,11 +170,32 @@ export function hydrateReviews(map: Record<string, ReviewState>, seq?: number): 
   notifyReviewChange();
 }
 
+/**
+ * Identité d'onglet : jointe aux POSTs de revue et échouée par le serveur dans
+ * task_reviewed — nos propres échos sont reconnus AVEC CERTITUDE (plus besoin
+ * d'heuristique pour eux), seuls les verdicts d'autrui sont différés/rejoués.
+ */
+function reviewClientId(): string {
+  const KEY = 'hive.clientId';
+  let id = sessionStorage.getItem(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
 /** Applique un événement `task_reviewed` reçu du flux WS (autre opérateur). */
-export function applyReviewEvent(taskId: string, state: ReviewState | null): void {
-  // Action locale encore en vol : on DIFFÈRE (sans perdre) — l'événement peut
-  // être notre propre écho (no-op) comme le verdict d'un autre opérateur ;
-  // il sera rejoué au drain de la chaîne de POSTs.
+export function applyReviewEvent(
+  taskId: string,
+  state: ReviewState | null,
+  fromClientId?: string,
+): void {
+  // Notre propre écho, identifié formellement : l'état local est déjà à jour
+  // (application optimiste au geste) — rien à faire.
+  if (fromClientId && fromClientId === reviewClientId()) return;
+  // Verdict d'autrui pendant qu'une action locale est en vol : on DIFFÈRE
+  // (sans perdre) — rejoué au drain de la chaîne de POSTs.
   if (locallyPending.has(taskId)) {
     suppressedWhilePending.set(taskId, state);
     return;
@@ -201,7 +222,7 @@ function enqueuePost(taskId: string, state: ReviewState | null, base: ReviewStat
   locallyPending.add(taskId);
   const prev = postChains.get(taskId) ?? Promise.resolve();
   const next = prev
-    .then(() => postReview(taskId, state))
+    .then(() => postReview(taskId, state, reviewClientId()))
     .then(
       () => {
         const m = readUnsynced();

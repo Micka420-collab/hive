@@ -130,6 +130,7 @@ export function App() {
           applyReviewEvent(
             taskId,
             state === 'approved' || state === 'rejected' ? (state as ReviewState) : null,
+            typeof ev.payload.clientId === 'string' ? ev.payload.clientId : undefined,
           );
         }
         if (ev.type === 'task_progress' && Array.isArray(ev.payload.subAgents)) {

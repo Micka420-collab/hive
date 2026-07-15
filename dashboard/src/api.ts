@@ -253,18 +253,28 @@ export function fetchConsensus(taskId: string): Promise<Verdict> {
 export type ReviewVerdict = 'approved' | 'rejected';
 
 /** Toutes les revues humaines (taskId → verdict), partagées entre opérateurs. */
-export function fetchReviews(): Promise<{ reviews: Record<string, ReviewVerdict> }> {
-  return api<{ reviews: Record<string, ReviewVerdict> }>('/api/reviews');
+export function fetchReviews(): Promise<{
+  reviews: Record<string, ReviewVerdict>;
+  updatedAt?: Record<string, number>;
+}> {
+  return api<{ reviews: Record<string, ReviewVerdict>; updatedAt?: Record<string, number> }>(
+    '/api/reviews',
+  );
 }
 
-/** Enregistre (ou efface avec null) le verdict de revue d'une tâche. */
+/**
+ * Enregistre (ou efface avec null) le verdict de revue d'une tâche.
+ * `clientId` : identité d'onglet, échouée dans task_reviewed — permet de
+ * distinguer nos propres échos WS de ceux des autres opérateurs.
+ */
 export function postReview(
   taskId: string,
   state: ReviewVerdict | null,
+  clientId?: string,
 ): Promise<{ taskId: string; state: ReviewVerdict | null }> {
   return api<{ taskId: string; state: ReviewVerdict | null }>(`/api/tasks/${taskId}/review`, {
     method: 'POST',
-    body: JSON.stringify({ state }),
+    body: JSON.stringify({ state, ...(clientId ? { clientId } : {}) }),
   });
 }
 
