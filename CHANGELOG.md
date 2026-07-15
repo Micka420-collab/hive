@@ -20,8 +20,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   revoir ? » répond avec les compteurs réels (approuvées/rejetées/en attente)
   et les prochaines productions à inspecter.
 - **Night Shift câblé** — `HIVE_SHIFT` agit vraiment : hors des heures de
-  service du membre, le nœud refuse poliment les assignations (aucune
-  tentative brûlée, le hub requalifie). Documenté dans `.env.example`.
+  service du membre, le nœud refuse poliment tâches ET merges (aucune
+  tentative brûlée, `retryAfterMs` évite la re-sollicitation en boucle,
+  config malformée = refus propre). Le heartbeat déclare `onShift` : la
+  sélection de merge évite d'office les nœuds hors service. Documenté dans
+  `.env.example`.
 
 ### Fixed
 
