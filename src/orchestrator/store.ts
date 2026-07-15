@@ -693,12 +693,16 @@ export class HiveStore {
       this.db.prepare('DELETE FROM reviews WHERE taskId = ?').run(taskId);
       return;
     }
+    // updatedAt STRICTEMENT croissant par ligne : deux écritures dans la même
+    // milliseconde doivent produire des horodatages distincts, sinon le
+    // compare-and-set (expectedUpdatedAt) laisserait passer un écrasement ABA.
+    const prev = this.getTaskReview(taskId)?.updatedAt ?? 0;
     this.db
       .prepare(
         `INSERT INTO reviews (taskId, state, updatedAt) VALUES (?, ?, ?)
          ON CONFLICT(taskId) DO UPDATE SET state = excluded.state, updatedAt = excluded.updatedAt`,
       )
-      .run(taskId, state, Date.now());
+      .run(taskId, state, Math.max(Date.now(), prev + 1));
   }
 
   /** Toutes les revues, sous forme de dictionnaire taskId → verdict. */

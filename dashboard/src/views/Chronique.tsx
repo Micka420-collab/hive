@@ -5,8 +5,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchReplay } from '../api';
 import type { ReplayResult } from '../api';
-import { useT } from '../i18n';
-import { modalOpen, STATUS_ICON, STATUS_LABEL } from '../ui';
+import { useT, useLang } from '../i18n';
+import { modalOpen, STATUS_ICON, statusLabel } from '../ui';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { TaskStatus } from '../../../src/shared/types';
@@ -58,6 +58,7 @@ function isTyping(): boolean {
 
 export default function Chronique({ events }: ViewProps) {
   const t = useT();
+  const lang = useLang();
   // ─── Filtres du journal ────────────────────────────────────────────────
   const [active, setActive] = useState<ReadonlySet<Family>>(
     () => new Set(FAMILIES.map((f) => f.id)),
@@ -271,7 +272,7 @@ export default function Chronique({ events }: ViewProps) {
                         {frame.nodesTotal > 1 ? 's' : ''}
                       </span>
                       {STATUSES.map((s) => (
-                        <span key={s} className={`badge ${s}`} title={STATUS_LABEL[s]}>
+                        <span key={s} className={`badge ${s}`} title={statusLabel(s, lang)}>
                           <span className="badge-icon">{STATUS_ICON[s]}</span>
                           {frame.tasks[s]}
                         </span>

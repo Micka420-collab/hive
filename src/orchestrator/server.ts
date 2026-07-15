@@ -1092,15 +1092,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // terminée (409 comme /cancel pour les conflits d'état). L'effacement
       // (null) reste permis quel que soit le statut — toujours sûr.
       if (req.body.state !== null && task.status !== 'done' && task.status !== 'failed') {
-        return reply
-          .code(409)
-          .send({ error: `tâche ${task.status} — revue possible seulement après terminaison` });
+        return reply.code(409).send({
+          code: 'task_not_terminal',
+          error: `tâche ${task.status} — revue possible seulement après terminaison`,
+        });
       }
       if (req.body.expectedUpdatedAt !== undefined) {
         const current = store.getTaskReview(task.id);
         const currentTs = current?.updatedAt ?? null;
         if (currentTs !== req.body.expectedUpdatedAt) {
           return reply.code(409).send({
+            code: 'review_conflict',
             error: 'verdict modifié par un autre opérateur — rechargez la revue',
             currentState: current?.state ?? null,
             currentUpdatedAt: currentTs,

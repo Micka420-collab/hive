@@ -2,6 +2,7 @@
 // WebSocket (snapshots d'état + journal d'événements). Le token est mémorisé
 // localement ; en mode simulation, la valeur par défaut suffit.
 
+import { t as tNow } from './i18n';
 import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 
@@ -35,7 +36,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', 'x-hive-token': getToken(), ...init?.headers },
   });
   if (!res.ok) {
-    let message = `Erreur ${res.status}`;
+    let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
@@ -162,7 +163,10 @@ export interface InviteResponse {
 export async function fetchInvite(url?: string): Promise<InviteResponse> {
   const query = url ? `?url=${encodeURIComponent(url)}` : '';
   const res = await fetch(`/api/invite${query}`, { headers: { 'x-hive-token': getToken() } });
-  if (!res.ok) throw new Error(`invitation refusée (${res.status})`);
+  if (!res.ok)
+    throw new Error(
+      tNow(`invitation refusée (${res.status})`, `invitation refused (${res.status})`),
+    );
   return (await res.json()) as InviteResponse;
 }
 

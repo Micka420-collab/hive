@@ -258,7 +258,7 @@ export function App() {
 
   return (
     <div className="app mc-app">
-      <nav className="mc-sidebar" aria-label="Navigation principale">
+      <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
           <span className="brand-logo">🐝</span>
         </div>
@@ -287,7 +287,10 @@ export function App() {
             </li>
           ))}
         </ul>
-        <div className="mc-sidebar-pulse" title="Pouls de la ruche (débit/h)">
+        <div
+          className="mc-sidebar-pulse"
+          title={t('Pouls de la ruche (débit/h)', 'Hive pulse (throughput/h)')}
+        >
           <Sparkline values={beatValues} width={64} height={22} beat />
           <span className="mc-pulse-rate">
             {pulse.data ? `${Math.round(pulse.data.successRate * 100)}%` : '—'}
@@ -322,7 +325,7 @@ export function App() {
               type="password"
               className="token-input"
               placeholder="token"
-              title="Token de la ruche (x-hive-token)"
+              title={t('Token de la ruche (x-hive-token)', 'Hive token (x-hive-token)')}
               value={token}
               onChange={(e) => setTokenState(e.target.value)}
               onBlur={applyToken}

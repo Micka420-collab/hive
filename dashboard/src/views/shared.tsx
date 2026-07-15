@@ -171,31 +171,38 @@ export function hydrateReviews(map: Record<string, ReviewState>, seq?: number): 
 }
 
 /**
- * Identité d'onglet : jointe aux POSTs de revue et échouée par le serveur dans
- * task_reviewed — nos propres échos sont reconnus AVEC CERTITUDE (plus besoin
- * d'heuristique pour eux), seuls les verdicts d'autrui sont différés/rejoués.
+ * Identité d'INSTANCE de page (pas persistée : sessionStorage est copié à la
+ * duplication d'onglet, ce qui ferait partager un même id à deux onglets).
+ * Jointe aux POSTs de revue, échouée par le serveur dans task_reviewed —
+ * disponible pour l'observabilité. Repli sans crypto.randomUUID (contexte
+ * non sécurisé : HTTP distant) : nonce maison suffisant pour cet usage.
  */
-function reviewClientId(): string {
-  const KEY = 'hive.clientId';
-  let id = sessionStorage.getItem(KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    sessionStorage.setItem(KEY, id);
+const CLIENT_ID = (() => {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
-  return id;
+})();
+
+function reviewClientId(): string {
+  return CLIENT_ID;
 }
 
-/** Applique un événement `task_reviewed` reçu du flux WS (autre opérateur). */
+/**
+ * Applique un événement `task_reviewed` reçu du flux WS. TOUT événement (écho
+ * propre compris) passe par le même chemin : pendant un POST local en vol il
+ * alimente le tampon (dernier événement vu = vérité serveur la plus récente,
+ * rejouée au drain) ; sinon il s'applique — idempotent pour un écho propre.
+ * Ne JAMAIS court-circuiter sur clientId : jeter l'écho propre casserait
+ * l'invariant FIFO du tampon (un verdict concurrent périmé écraserait le
+ * nôtre au drain).
+ */
 export function applyReviewEvent(
   taskId: string,
   state: ReviewState | null,
-  fromClientId?: string,
+  _fromClientId?: string,
 ): void {
-  // Notre propre écho, identifié formellement : l'état local est déjà à jour
-  // (application optimiste au geste) — rien à faire.
-  if (fromClientId && fromClientId === reviewClientId()) return;
-  // Verdict d'autrui pendant qu'une action locale est en vol : on DIFFÈRE
-  // (sans perdre) — rejoué au drain de la chaîne de POSTs.
   if (locallyPending.has(taskId)) {
     suppressedWhilePending.set(taskId, state);
     return;

@@ -4,6 +4,7 @@
 // temps réel par les snapshots WebSocket.
 
 import type { HiveNode, SubAgent, Task } from '../../src/shared/types';
+import { useT } from './i18n';
 
 interface Props {
   tasks: Task[];
@@ -50,12 +51,18 @@ function neededHeight(taskCount: number): number {
 }
 
 export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
+  const tr = useT();
   const taskIndex = new Map(tasks.map((t, i) => [t.id, i]));
   const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
   const H = neededHeight(tasks.length);
 
   return (
-    <svg className="swarm" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Vue de l'essaim">
+    <svg
+      className="swarm"
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label={tr("Vue de l'essaim", 'Swarm view')}
+    >
       {/* Fils tâche ↔ nœud (assignée : discret ; en cours : animé) */}
       {tasks.map((t) => {
         if (!t.assignedNodeId || (t.status !== 'assigned' && t.status !== 'running')) return null;
@@ -89,7 +96,7 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
               {t.status}
             </text>
             <title>
-              {`${t.title} — ${t.status}${t.attempts > 0 ? ` (${t.attempts} tentative(s))` : ''}`}
+              {`${t.title} — ${t.status}${t.attempts > 0 ? ` (${t.attempts} ${tr('tentative(s)', 'attempt(s)')})` : ''}`}
             </title>
           </g>
         );
@@ -106,7 +113,11 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
         const pulses: SubAgent[] =
           reported.length > 0
             ? reported
-            : active.map((t) => ({ id: t.id, name: 'ouvrière', status: 'running' as const }));
+            : active.map((t) => ({
+                id: t.id,
+                name: tr('ouvrière', 'worker bee'),
+                status: 'running' as const,
+              }));
         return (
           <g key={n.id} className={`node ${n.status}${active.length > 0 ? ' active' : ''}`}>
             {active.length > 0 && <polygon points={hexPoints(x, y, 62)} className="halo" />}
@@ -135,7 +146,7 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
 
       {nodes.length === 0 && tasks.length === 0 && (
         <text x={W / 2} y={H / 2} className="swarm-empty">
-          La ruche attend ses premières ouvrières…
+          {tr('La ruche attend ses premières ouvrières…', 'The hive awaits its first worker bees…')}
         </text>
       )}
     </svg>

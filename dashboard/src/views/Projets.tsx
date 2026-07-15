@@ -603,7 +603,7 @@ function ProjectCard({
               <span
                 key={s}
                 className={`pj-count ${s}`}
-                title={`${report.byStatus[s]} ${statusLabel(s, lang)}(s)`}
+                title={`${report.byStatus[s]} ${statusLabel(s, lang)}${lang === 'fr' ? '(s)' : ''}`}
               >
                 <span aria-hidden="true">{STATUS_ICON[s]}</span> {report.byStatus[s]}
               </span>
