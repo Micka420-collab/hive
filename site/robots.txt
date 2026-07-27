@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://micka420-collab.github.io/hive/sitemap.xml

@@ -6,6 +6,8 @@
 
 [🇫🇷 Français](README.md) · 🇬🇧 English
 
+**🌐 [Discover Hive — the showcase site](https://micka420-collab.github.io/hive/?lang=en)**
+
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -33,6 +35,9 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
 | 🐝 **Swarm View**        | A living view of the swarm, in **2D (lightweight SVG)** or **3D ([Galacean Engine](https://github.com/galacean/engine))**.                                                                                                                                    |
 | ⚔ **Drone Wars**         | Opt-in competitive redundancy: `npm run cli -- race <taskId> [2-5]` (or the drawer button) — the same task flies on several nodes, first success wins, losers are cancelled. Track it: `races` (CLI), ⚔ badge in the Swarm view, nectar bonus for the winner. |
 | 💓 **Pulse & ghosts**    | Aggregated vitals (`/api/pulse`), anomalies (`/api/ghost`), nectar leaderboard (`/api/waggle`), time-lapse (`/api/replay`), project report (`/api/projects/:id/report`).                                                                                      |
+| 🐜 **Pheromones**        | The hive learns **which node succeeds at which kind of task** (api, ui, db, tests, docs, infra) and breaks ties between equally loaded workers. Signal evaporates over 7 days. `/api/pheromones`, `pheromone_route` event, card in the Swarm view.            |
+| 🌡️ **Thermoregulation**  | When failures pile up the hive **fans itself**: per-node concurrency drops (×0.75 then ×0.5) until it cools down, with anti-flapping hysteresis. `/api/thermo`, `thermo_shift` event, gauge in the Health view.                                               |
+| 👶 **Brood Chamber**     | A retried task restarts with the **lessons of its previous failures**, injected inside a data block kept separate from instructions (prompt-injection safe). `brood_context` event.                                                                           |
 | 🤝 **Invite a friend**   | One command to paste — their Claude Code / Codex is auto-detected and joins the hive in 30 s.                                                                                                                                                                 |
 | 🔒 **Safe by default**   | Zero `shell: true`, constant-time token, strict CORS, per-task sandbox, keys never exfiltrated. **Never a merge without human review.**                                                                                                                       |
 | 🧩 **Agent-agnostic**    | `shell` (simulated), `claude-code`, `codex`, `hermes-agent`, `custom` — or your own `AgentAdapter`.                                                                                                                                                           |
@@ -365,7 +370,8 @@ dashboard/        Vite + React: Mission Control (8 views, FR/EN) · SwarmView 2D
                   HiveMindPanel · ConflictsPanel · i18n.ts
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
                   invite · planner · hive-mind · sting-detector · drone-wars
-                  concierge · reviews · night-shift · waggle · merge — 289 tests
+                  concierge · reviews · night-shift · waggle · merge
+                  pheromones · thermo · brood · store-scaling — 374 tests
 ```
 
 ## 🧭 Roadmap
@@ -381,6 +387,11 @@ tests/            scheduler · adapters · e2e · resilience · protocol · hard
 - **Tier 4** ✅ — **Nectar & Waggle Board** (+ ⚔ race-win bonus) ·
   **Night Shift** (per-member service hours) · **Agents' Parliament**
   (consensus by vote) · **Ghost in the Hive** (journal anomalies).
+- **Tier 5** ✅ — **the hive's instinct**: **Pheromones** (learned node ×
+  domain affinity routing, signal evaporating over 7 days) ·
+  **Thermoregulation** (adaptive concurrency ventilation, with hysteresis) ·
+  **Brood Chamber** (retries restart with the lessons of their failures, in a
+  data block kept separate from instructions).
 - **Next** — hardened isolation (VM/container), hive federation, finishing
   user accounts (login UI on top of the existing JWT auth).
 

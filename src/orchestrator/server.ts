@@ -19,7 +19,10 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
-import type { HiveEvent } from '../shared/types.js';
+import type { HiveEvent, Task } from '../shared/types.js';
+import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
+import type { CompteTache, Devis, Pesee } from './balance.js';
+import { leconsDesEchecs } from './brood.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -27,6 +30,8 @@ import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
+import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
+import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, llmPlannerAvailable, planBrief } from './planner.js';
 import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
@@ -34,6 +39,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
+import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 
 /** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
@@ -45,8 +51,38 @@ const EVENT_RETENTION = 5_000;
 /** Nombre de souvenirs Hive Mind conservés (les plus anciens sont purgés). */
 const MEMORY_RETENTION = 2_000;
 
+/**
+ * Nombre de résultats conservés INTACTS. Au-delà, seules les colonnes lourdes
+ * (`diff`, `logs`) sont vidées — la ligne, elle, survit pour la Miellerie, le
+ * Parlement et les phéromones (voir `HiveStore.pruneResults`). Aligné sur
+ * EVENT_RETENTION : les deux racontent la même histoire récente.
+ */
+const RESULT_RETENTION = 5_000;
+
+/**
+ * Mémoïsation de /api/pheromones : le repli est identique d'une seconde à
+ * l'autre (corpus de 500 résultats, demi-vie de 7 jours). Sans ce TTL, N
+ * dashboards en polling déclenchaient N calculs concurrents sur le même tick.
+ */
+const PHEROMONES_TTL_MS = 3_000;
+
+/**
+ * Mémoïsation de la Balance — même raisonnement que PHEROMONES_TTL_MS : N
+ * dashboards en polling sur /api/balance ne doivent pas déclencher N lectures
+ * identiques du corpus de 2 000 résultats. Le TTL porte sur la LECTURE (la
+ * seule I/O) ; les replis dérivés sont calculés une fois par socle.
+ */
+const BALANCE_TTL_MS = 3_000;
+
 /** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
 const MERGE_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Couveuse : part du hiveContext réservée aux leçons des échecs précédents
+ * d'une tâche ré-assignée. Le reste du budget (LIMITS.hiveContext au total)
+ * revient à la mémoire Hive Mind.
+ */
+const BUDGET_COUVEUSE = 3_000;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -74,6 +110,13 @@ export interface ServerConfig {
   publicUrl?: string;
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
+  /**
+   * HIVE_BALANCE : off | observation | strict. Défaut `observation` — la ruche
+   * pèse ce qu'elle dépense sans jamais rien bloquer. Optionnel ici (et non
+   * requis comme le reste) pour que tout appelant existant de `createServer`
+   * continue de compiler : l'ajout de la Balance ne casse aucun contrat.
+   */
+  balance?: 'off' | 'observation' | 'strict';
 }
 
 /**
@@ -104,6 +147,12 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       .filter(Boolean),
     dbPath: env.HIVE_DB ?? './data/hive.db',
     simulation: env.HIVE_SIMULATION === '1',
+    // Toute valeur inconnue retombe sur le défaut : une faute de frappe ne doit
+    // jamais éteindre silencieusement la pesée.
+    balance:
+      env.HIVE_BALANCE === 'off' || env.HIVE_BALANCE === 'strict'
+        ? env.HIVE_BALANCE
+        : 'observation',
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -196,6 +245,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const pendingMerges = new Map<string, { projectId: string; nodeId: string; startedAt: number }>();
   // Diffusion d'état "sale" : regroupée toutes les 250 ms pour éviter le spam.
   let stateDirty = false;
+  // Phéromones : cache de domaines (borné) et mémoïsation à TTL court du repli
+  // servi par /api/pheromones — N dashboards en polling = 1 calcul.
+  const cacheDomaines = new CacheDomaines();
+  let pheromonesMemo: { calculeA: number; traces: TraceePheromone[] } | null = null;
 
   const send = (ws: WebSocket, msg: ServerMessage): void => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -216,7 +269,181 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     for (const ws of dashboardSockets) send(ws, event);
   };
 
+  /** Événement émis par le serveur lui-même (création de projet/tâches). */
+  const emitEvent = (type: string, payload: Record<string, unknown>): void => {
+    const event = store.appendEvent(type, payload);
+    broadcastEvent({ type: 'event', event });
+    stateDirty = true;
+  };
+
+  /**
+   * Contexte joint à `assign_task` : leçons de la Couveuse (tâche déjà échouée)
+   * puis souvenirs du Hive Mind, dans le budget total LIMITS.hiveContext.
+   * PARTAGÉ par les deux chemins de livraison — l'assignation initiale ET la
+   * re-livraison de secours des tâches muettes : sans cela, une tâche re-servie
+   * repartait sans les leçons pourtant annoncées par `brood_context`.
+   * Ne journalise rien (la re-livraison a lieu à chaque tick) : l'appelant
+   * décide s'il émet `brood_context`.
+   */
+  const construireHiveContext = (task: Task): { hiveContext: string; echecs: number } => {
+    // Couveuse : les leçons des échecs précédents viennent EN TÊTE (le plus
+    // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
+    // results ne garde que son id.
+    const echecs = task.attempts > 0 ? store.listFailedResultsForTask(task.id) : [];
+    const lecons =
+      echecs.length > 0
+        ? leconsDesEchecs(
+            echecs.map((e, i) => ({
+              attempt: i + 1,
+              nodeName: store.getNode(e.nodeId)?.name ?? e.nodeId,
+              logs: e.logs,
+              createdAt: e.createdAt,
+            })),
+            BUDGET_COUVEUSE,
+          )
+        : '';
+    // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
+    // RESTANT après la Couveuse (« \n\n » de jonction compris).
+    const souvenirs = buildHiveContext(
+      store.searchMemories(`${task.title} ${task.prompt}`, 3),
+      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0),
+    );
+    return {
+      hiveContext: [lecons, souvenirs].filter(Boolean).join('\n\n'),
+      echecs: lecons ? echecs.length : 0,
+    };
+  };
+
+  // ─── La Balance : socle de lecture, pesée et devis ─────────────────────────
+  //
+  // Tout part d'UNE lecture bornée (≤ CORPUS_BALANCE résultats, index couvrant)
+  // mémoïsée BALANCE_TTL_MS : la pesée et les échantillons de devis en sont des
+  // replis PURS, recalculés une seule fois par socle. Rien n'est jamais écrit.
+  interface SocleBalance {
+    calculeA: number;
+    corpus: ReturnType<HiveStore['listResultsForBalance']>;
+    taches: Map<string, CompteTache>;
+    /** Replis dérivés, calculés à la demande et gardés le temps du socle. */
+    pesee?: Pesee;
+    echantillons?: Map<Domaine, number[]>;
+  }
+  let socleBalance: SocleBalance | null = null;
+
+  const lireSocleBalance = (now = Date.now()): SocleBalance => {
+    if (socleBalance && now - socleBalance.calculeA < BALANCE_TTL_MS) return socleBalance;
+    const corpus = store.listResultsForBalance();
+    // Lecture par clé primaire des SEULES tâches citées par le corpus — jamais
+    // un dépliage de la table `tasks`.
+    const comptes = store.listTaskComptes([...new Set(corpus.map((r) => r.taskId))]);
+    const revues = store.listReviews();
+    socleBalance = {
+      calculeA: now,
+      corpus,
+      taches: new Map(
+        comptes.map((c) => [
+          c.id,
+          { projectId: c.projectId, status: c.status, revue: revues[c.id] ?? null },
+        ]),
+      ),
+    };
+    return socleBalance;
+  };
+
+  const peser = (now = Date.now()): Pesee => {
+    const socle = lireSocleBalance(now);
+    socle.pesee ??= peserLaRuche(socle.corpus, socle.taches);
+    return socle.pesee;
+  };
+
+  /**
+   * Échantillons de coût par domaine : le TOTAL par tâche (toutes tentatives
+   * confondues — reprises comprises, c'est ce qu'une tâche coûte vraiment), sur
+   * les seules tâches ABOUTIES du corpus. Une tâche encore en vol n'a pas fini
+   * de dépenser : l'inclure sous-estimerait le devis.
+   */
+  const echantillonsBalance = (now = Date.now()): Map<Domaine, number[]> => {
+    const socle = lireSocleBalance(now);
+    if (socle.echantillons) return socle.echantillons;
+    const totaux = new Map<string, number>();
+    for (const r of socle.corpus) {
+      if (socle.taches.get(r.taskId)?.status !== 'done') continue;
+      totaux.set(r.taskId, (totaux.get(r.taskId) ?? 0) + Math.max(0, r.durationMs));
+    }
+    const domaines = cacheDomaines.domaines([...totaux.keys()], (manquants) =>
+      store.listTaskTexts(manquants),
+    );
+    const parDomaine = new Map<Domaine, number[]>();
+    for (const [taskId, total] of totaux) {
+      const domaine = domaines.get(taskId);
+      if (!domaine) continue;
+      const liste = parDomaine.get(domaine);
+      if (liste) liste.push(total);
+      else parDomaine.set(domaine, [total]);
+    }
+    socle.echantillons = parDomaine;
+    return parDomaine;
+  };
+
+  /** Devis d'un lot de tâches proposées : par tâche, puis en total. */
+  interface DevisPlan {
+    parTache: Array<{ title: string; domaine: Domaine } & Devis>;
+    /**
+     * Somme des médianes et somme des p90. Ce ne sont ni la médiane ni le p90
+     * de la somme : le total p90 est une borne PESSIMISTE, qui suppose que
+     * toutes les tâches ont un mauvais jour en même temps. Assumé et affiché
+     * comme tel — un devis se lit comme un ordre de grandeur.
+     */
+    totalMedianeMs: number;
+    totalP90Ms: number;
+  }
+
+  /**
+   * Chiffre un lot de tâches PROPOSÉES (pas encore en base, donc classées
+   * directement par `domaineDeTache`, sans cache par id). Silencieux — `null` —
+   * quand aucun domaine n'atteint ECHANTILLON_MIN_DEVIS tâches comparables :
+   * jamais de fausse précision.
+   *
+   * Le devis est un NOMBRE destiné à l'affichage. Aucun texte d'agent n'entre
+   * ici, et rien de ceci ne repart dans un prompt : le jour où un titre devrait
+   * y retourner, il passerait obligatoirement par `champSurUneLigne` /
+   * `blocDonnees` (src/shared/donnees-non-fiables.ts).
+   */
+  const chiffrerDevis = (
+    taches: ReadonlyArray<{ title: string; prompt: string }>,
+  ): DevisPlan | null => {
+    const echantillons = echantillonsBalance();
+    const parTache: DevisPlan['parTache'] = [];
+    for (const tache of taches) {
+      const domaine = domaineDeTache(tache.title, tache.prompt);
+      const devis = estimerCout(domaine, echantillons.get(domaine) ?? []);
+      if (devis) parTache.push({ title: tache.title, ...devis });
+    }
+    if (parTache.length === 0) return null;
+    return {
+      parTache,
+      totalMedianeMs: parTache.reduce((s, d) => s + d.medianeMs, 0),
+      totalP90Ms: parTache.reduce((s, d) => s + d.p90Ms, 0),
+    };
+  };
+
+  /**
+   * Enrobage NON BLOQUANT : un devis qui échoue ne casse jamais un plan. La
+   * Balance est une lecture ; elle n'a le droit de faire échouer aucune route.
+   */
+  const devisSansRisque = (
+    taches: ReadonlyArray<{ title: string; prompt: string }>,
+  ): DevisPlan | null => {
+    try {
+      return chiffrerDevis(taches);
+    } catch (err) {
+      console.error(`[hive] devis indisponible : ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  };
+
   const scheduler = new Scheduler(store, {
+    // Balance : le grand livre suit la table `results` et n'influence RIEN.
+    balance: { mode: config.balance ?? 'observation' },
     // Drone Wars : annuler le travail d'un drone perdant (ou d'une course annulée).
     onCancel: (nodeId, taskId, reason) => {
       const ws = nodeSockets.get(nodeId);
@@ -227,10 +454,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
       if (ws) {
         const project = store.getProject(task.projectId);
-        // Hive Mind : joindre les souvenirs pertinents des tâches déjà réussies.
-        const hiveContext = buildHiveContext(
-          store.searchMemories(`${task.title} ${task.prompt}`, 3),
-        );
+        const { hiveContext, echecs } = construireHiveContext(task);
+        // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
+        // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
+        if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
         send(ws, {
           type: 'assign_task',
           task,
@@ -244,13 +471,6 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       stateDirty = true;
     },
   });
-
-  /** Événement émis par le serveur lui-même (création de projet/tâches). */
-  const emitEvent = (type: string, payload: Record<string, unknown>): void => {
-    const event = store.appendEvent(type, payload);
-    broadcastEvent({ type: 'event', event });
-    stateDirty = true;
-  };
 
   /**
    * Marque un merge en cours comme échoué (nœud déconnecté, timeout) : range un
@@ -561,6 +781,62 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return computePulse(events);
   });
 
+  // Thermorégulation : la température INSTANTANÉE (dérivée de la fenêtre de
+  // 10 minutes) ET l'état hystérésé réellement APPLIQUÉ par le scheduler — les
+  // deux peuvent diverger brièvement, c'est précisément le rôle de
+  // l'hystérésis. Deux noms distincts pour deux sémantiques distinctes.
+  app.get('/api/thermo', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    const instantane = lireTemperature(
+      store.listEventsInWindow(now - FENETRE_THERMO_MS, TYPES_THERMO),
+      now,
+    );
+    return { instantane, applique: scheduler.thermo };
+  });
+
+  // Phéromones : affinité apprise nœud × domaine (qui réussit quel TYPE de
+  // tâche), repliée à la demande depuis les résultats récents — vue dérivée
+  // pure, jamais matérialisée. Lecture seule ; bornée aux 30 premières traces.
+  // Chemin BORNÉ, identique à celui du Scheduler : ≤ 500 résultats, domaine
+  // résolu par clé primaire pour les seules tâches citées, mémoïsé.
+  app.get('/api/pheromones', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    if (!pheromonesMemo || now - pheromonesMemo.calculeA >= PHEROMONES_TTL_MS) {
+      const resultats = store.listResultsForPheromones();
+      const domaines = cacheDomaines.domaines(
+        resultats.map((r) => r.taskId),
+        (manquants) => store.listTaskTexts(manquants),
+      );
+      pheromonesMemo = { calculeA: now, traces: replierTraces(domaines, resultats, now) };
+    }
+    return { traces: pheromonesMemo.traces.slice(0, 30) };
+  });
+
+  // La Balance : où est passé le temps-ouvrière que la ruche a emprunté à ses
+  // membres. Vue dérivée PURE, recalculée depuis un corpus borné — jamais
+  // matérialisée, jamais écrite. `fenetre` dit sur combien de tentatives
+  // l'imputation a été faite, `aJour` si le grand livre a fini son rattrapage :
+  // un chiffre qui ne dit pas ce qu'il n'a pas vu est un chiffre qui ment.
+  //
+  // `durationMs` mesure le temps machine PRÊTÉ, pas le travail accompli : c'est
+  // la bonne unité pour dire ce que la ruche a consommé chez ses membres, et
+  // une très mauvaise pour juger un nœud. Le tableau par nœud n'est donc jamais
+  // trié en « pire contributeur » (balance.ts, doctrine règle 4).
+  app.get('/api/balance', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const balance = scheduler.balance;
+    return {
+      version: VERSION_BALANCE,
+      mode: balance.mode,
+      aJour: balance.aJour,
+      pesee: peser(),
+      soldes: balance.soldes,
+      fenetre: CORPUS_BALANCE,
+    };
+  });
+
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
     '/api/projects',
     {
@@ -618,7 +894,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (result.tasks.length === 0) {
           return reply.code(422).send({ error: 'brief trop court pour en déduire des tâches' });
         }
-        return result;
+        // Balance (prévoir) : ce que ce DAG devrait coûter, d'après les tâches
+        // comparables déjà terminées. Purement indicatif, jamais bloquant, et
+        // `null` tant que l'échantillon est maigre.
+        return { ...result, devis: devisSansRisque(result.tasks) };
       } catch (err) {
         // Mode 'llm' explicite ayant échoué : on remonte l'erreur telle quelle.
         return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
@@ -1354,6 +1633,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           tasks: created,
           rationale: result.rationale,
           model: result.model,
+          // Balance (prévoir) : même devis indicatif que /api/plan.
+          devis: devisSansRisque(created),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1726,14 +2007,26 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           : task.assignedNodeId
             ? [task.assignedNodeId]
             : [];
+        // Le contexte (Couveuse + Hive Mind) est reconstruit ici AUSSI : une
+        // re-livraison nue priverait la tâche des leçons annoncées par
+        // brood_context — l'ouvrière refaisait la même erreur.
+        const { hiveContext } = construireHiveContext(task);
         for (const nodeId of targets) {
           const ws = nodeSockets.get(nodeId);
-          if (ws) send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+          if (ws) {
+            send(ws, {
+              type: 'assign_task',
+              task,
+              repoUrl: project?.repoUrl ?? null,
+              ...(hiveContext ? { hiveContext } : {}),
+            });
+          }
         }
       }
-      // Borne la croissance du journal d'événements et de la mémoire Hive Mind.
+      // Borne la croissance du journal, de la mémoire Hive Mind et des résultats.
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
+      store.pruneResults(RESULT_RETENTION);
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {

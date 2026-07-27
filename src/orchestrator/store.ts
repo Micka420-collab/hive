@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
+import { CORPUS_BALANCE, LOT_GRAND_LIVRE } from './balance.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -81,6 +82,29 @@ CREATE TABLE IF NOT EXISTS results (
   createdAt  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_results_task ON results(taskId);
+-- Index COUVRANT du corpus des phéromones : sans lui, « ORDER BY createdAt
+-- DESC, id DESC LIMIT 500 » scanne toute la table et la trie dans un B-tree
+-- temporaire — en ouvrant au passage les pages de débordement de diff
+-- (≤ 1 Mo) et logs (≤ 512 ko), qui précèdent createdAt dans la ligne.
+-- Toutes les colonnes lues y figurent : la requête ne touche plus une seule
+-- ligne de la table.
+CREATE INDEX IF NOT EXISTS idx_results_recent
+  ON results(createdAt DESC, id DESC, taskId, nodeId, success);
+-- Index COUVRANT de la Balance (le pèse-ruche). Sans lui, la lecture
+-- incrémentale du grand livre retombe sur « SEARCH results USING INTEGER
+-- PRIMARY KEY » : SQLite ouvre alors la LIGNE, et durationMs est stocké APRÈS
+-- diff (≤ 1 Mo) et logs (≤ 512 ko) — il faut traverser toute la chaîne de pages
+-- de débordement pour lire un entier. Même raisonnement que le commentaire
+-- d'idx_results_recent ci-dessus. Plans mesurés, et verrouillés par
+-- tests/store-scaling.test.ts.
+-- NE PAS étendre idx_results_recent pour y arriver : CREATE INDEX IF NOT EXISTS
+-- ne redéfinit PAS un index existant — les bases déjà en service garderaient
+-- l'ancienne définition et perdraient silencieusement leur plan couvrant.
+-- Toujours un nom neuf. Les deux index ont des colonnes de tête différentes :
+-- aucun des deux n'est redondant, et le nouveau ne détourne pas le planner du
+-- corpus des phéromones (prouvé, même fichier de test).
+CREATE INDEX IF NOT EXISTS idx_results_balance
+  ON results(id, taskId, nodeId, success, durationMs);
 
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +112,9 @@ CREATE TABLE IF NOT EXISTS events (
   type    TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '{}'
 );
+-- Lecture par FENÊTRE TEMPORELLE (thermorégulation) : ts en tête pour la
+-- borne « ts >= ? », type ensuite pour filtrer sans ouvrir la ligne.
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts, type);
 
 CREATE TABLE IF NOT EXISTS memories (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,6 +198,33 @@ interface ResultRow {
   subAgents: string;
 }
 
+/** Résultat réduit au strict nécessaire de la Balance (aucune colonne lourde). */
+export interface ResultatBalance {
+  id: number;
+  taskId: string;
+  nodeId: string;
+  success: boolean;
+  durationMs: number;
+}
+
+interface ResultatRow {
+  id: number;
+  taskId: string;
+  nodeId: string;
+  success: number;
+  durationMs: number;
+}
+
+function rowToResultatBalance(r: ResultatRow): ResultatBalance {
+  return {
+    id: r.id,
+    taskId: r.taskId,
+    nodeId: r.nodeId,
+    success: r.success === 1,
+    durationMs: r.durationMs,
+  };
+}
+
 interface EventRow {
   id: number;
   ts: number;
@@ -234,6 +288,9 @@ export interface ProjectMember {
   displayName?: string;
 }
 
+/** Résultats allégés au maximum par passe : borne le coût d'un tick. */
+const LOT_ALLEGEMENT = 2_000;
+
 function rowToTask(row: TaskRow): Task {
   return {
     ...row,
@@ -253,6 +310,11 @@ const NODE_SELECT = `
 
 export class HiveStore {
   private readonly db: Database.Database;
+  /**
+   * Filigrane d'élagage des résultats : id du dernier résultat déjà allégé.
+   * En mémoire seulement — un redémarrage refait une passe complète (idempotente).
+   */
+  private dernierResultatAllege = 0;
 
   constructor(dbPath: string) {
     if (dbPath !== ':memory:') {
@@ -491,6 +553,68 @@ export class HiveStore {
     return rows.map(rowToTask);
   }
 
+  /**
+   * Lecture ciblée par CLÉ PRIMAIRE : seules les colonnes et les lignes
+   * demandées. Découpée en lots de 900 pour rester sous la limite de variables
+   * liées de SQLite (999 par défaut) ; les ids sont dédoublonnés, les inconnus
+   * simplement absents du retour.
+   */
+  private lireParIds<T>(colonnes: string, ids: readonly string[]): T[] {
+    const uniques = [...new Set(ids)];
+    const LOT = 900;
+    const out: T[] = [];
+    for (let i = 0; i < uniques.length; i += LOT) {
+      const lot = uniques.slice(i, i + LOT);
+      const placeholders = lot.map(() => '?').join(', ');
+      out.push(
+        ...(this.db
+          .prepare(`SELECT ${colonnes} FROM tasks WHERE id IN (${placeholders})`)
+          .all(...lot) as T[]),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Titre et prompt des SEULES tâches demandées. Les phéromones n'ont besoin
+   * que des tâches citées par les résultats récents (≤ 500) : un `SELECT *` de
+   * toute la table `tasks`, avec un `JSON.parse` par ligne, jetait 99,5 % du
+   * travail à 100 000 tâches.
+   */
+  listTaskTexts(ids: readonly string[]): Array<{ id: string; title: string; prompt: string }> {
+    return this.lireParIds<{ id: string; title: string; prompt: string }>('id, title, prompt', ids);
+  }
+
+  /**
+   * Projet et statut des SEULES tâches demandées — ce que la Balance a besoin
+   * de savoir pour imputer les tentatives d'un corpus borné. Lecture par clé
+   * primaire (`lireParIds`), jamais un `SELECT *` de `tasks` : c'est exactement
+   * le péché de performance que le dépôt a déjà combattu pour `listTaskTexts`.
+   */
+  listTaskComptes(
+    ids: readonly string[],
+  ): Array<{ id: string; projectId: string; status: TaskStatus }> {
+    return this.lireParIds<{ id: string; projectId: string; status: TaskStatus }>(
+      'id, projectId, status',
+      ids,
+    );
+  }
+
+  /** Projet des SEULES tâches citées — le grand livre n'a pas besoin du statut. */
+  listTaskProjects(ids: readonly string[]): Array<{ id: string; projectId: string }> {
+    return this.lireParIds<{ id: string; projectId: string }>('id, projectId', ids);
+  }
+
+  /**
+   * Statut des SEULES tâches demandées, indexé par id. Sert la promotion des
+   * dépendances : seules les tâches DONT DÉPEND une tâche en attente comptent —
+   * pas toute la table.
+   */
+  taskStatuses(ids: readonly string[]): Map<string, TaskStatus> {
+    const rows = this.lireParIds<{ id: string; status: TaskStatus }>('id, status', ids);
+    return new Map(rows.map((r) => [r.id, r.status]));
+  }
+
   tasksByStatus(...statuses: TaskStatus[]): Task[] {
     const placeholders = statuses.map(() => '?').join(', ');
     const rows = this.db
@@ -585,6 +709,161 @@ export class HiveStore {
     }));
   }
 
+  /**
+   * Échecs enregistrés pour une tâche, du plus ancien au plus récent, réduits
+   * au strict nécessaire de la Couveuse (qui a échoué, quand, avec quels
+   * logs). `resultsForTask` existe mais n'expose pas createdAt, dont la
+   * Couveuse a besoin pour ordonner les leçons.
+   */
+  listFailedResultsForTask(
+    taskId: string,
+  ): Array<{ nodeId: string; logs: string; createdAt: number }> {
+    return this.db
+      .prepare(
+        'SELECT nodeId, logs, createdAt FROM results WHERE taskId = ? AND success = 0 ORDER BY createdAt, id',
+      )
+      .all(taskId) as Array<{ nodeId: string; logs: string; createdAt: number }>;
+  }
+
+  /**
+   * Résultats les plus récents, réduits au strict nécessaire du calcul des
+   * phéromones (qui a réussi/échoué quoi, quand). Corpus borné pour garder le
+   * repli rapide — au-delà, le signal est de toute façon évaporé (demi-vie).
+   */
+  listResultsForPheromones(
+    limit = 500,
+  ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
+    const rows = this.db
+      .prepare(
+        'SELECT taskId, nodeId, success, createdAt FROM results ORDER BY createdAt DESC, id DESC LIMIT ?',
+      )
+      .all(Math.max(1, Math.min(limit, 2000))) as {
+      taskId: string;
+      nodeId: string;
+      success: number;
+      createdAt: number;
+    }[];
+    return rows.map((r) => ({
+      taskId: r.taskId,
+      nodeId: r.nodeId,
+      success: r.success === 1,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  /**
+   * Lecture INCRÉMENTALE du grand livre de la Balance : les résultats
+   * postérieurs au filigrane, par id croissant, plafonnés. En régime établi,
+   * renvoie [] au prix d'une seule sonde sur `idx_results_balance`.
+   *
+   * `INDEXED BY` n'est PAS une coquetterie : plan mesuré sur 5 000 lignes de
+   * 10 ko (SQLite 3.53.2), avec `ANALYZE` joué comme sur une base en service.
+   *  - sans lui : « SEARCH results USING INTEGER PRIMARY KEY (rowid>?) » — la
+   *    LIGNE est ouverte, et `durationMs` étant stocké après `diff` (≤ 1 Mo) et
+   *    `logs` (≤ 512 ko), il faut traverser leurs pages de débordement pour
+   *    lire un entier ;
+   *  - avec lui : « SEARCH results USING COVERING INDEX idx_results_balance
+   *    (id>?) » — pas une seule ligne de la table n'est touchée.
+   * La conception d'origine pariait sur un « , taskId » redondant dans
+   * l'ORDER BY pour faire basculer le planner : la mesure dit que ça ne suffit
+   * plus dès que les statistiques existent. Verrouillé par
+   * tests/store-scaling.test.ts — si un futur SQLite change encore d'avis, ce
+   * test le dira avant la production.
+   */
+  listResultsForLedger(afterId: number, limit = LOT_GRAND_LIVRE): ResultatBalance[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId, nodeId, success, durationMs FROM results INDEXED BY idx_results_balance
+         WHERE id > ? ORDER BY id LIMIT ?`,
+      )
+      .all(Math.max(0, afterId), Math.max(1, Math.min(limit, 10_000))) as ResultatRow[];
+    return rows.map(rowToResultatBalance);
+  }
+
+  /**
+   * Corpus BORNÉ de l'imputation : les N résultats les plus récents (id DESC).
+   * Plan : « SCAN results USING COVERING INDEX idx_results_balance » — parcours
+   * de l'index dans l'ordre voulu, le LIMIT s'arrête au N-ième.
+   */
+  listResultsForBalance(limit = CORPUS_BALANCE): ResultatBalance[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId, nodeId, success, durationMs FROM results INDEXED BY idx_results_balance
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(limit, 10_000))) as ResultatRow[];
+    return rows.map(rowToResultatBalance);
+  }
+
+  /**
+   * Recalcul À FROID de la dépense par projet (JOIN complet sur results).
+   * DIAGNOSTIC ET TESTS UNIQUEMENT : jamais sur le chemin d'un tick, jamais
+   * exposé par une route. Sert à prouver l'invariant « incrémental == à froid »
+   * du grand livre — le seul usage légitime d'un SELECT non borné ici.
+   * `max(durationMs, 0)` : même bornage que le repli en mémoire, sinon les deux
+   * chemins divergeraient sur une horloge de nœud en retard.
+   */
+  depensesParProjet(): Map<string, { depenseMs: number; tentatives: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT t.projectId AS projectId,
+                SUM(max(r.durationMs, 0)) AS depenseMs,
+                COUNT(*) AS tentatives
+         FROM results r JOIN tasks t ON t.id = r.taskId
+         GROUP BY t.projectId`,
+      )
+      .all() as Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+    return new Map(
+      rows.map((r) => [r.projectId, { depenseMs: r.depenseMs, tentatives: r.tentatives }]),
+    );
+  }
+
+  /** Nombre de résultats stockés. */
+  countResults(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM results').get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Élagage des résultats, symétrique de `pruneEvents` / `pruneMemories` — mais
+   * qui ALLÈGE au lieu de supprimer : au-delà des `maxKeep` résultats les plus
+   * récents, seules les colonnes lourdes (`diff` ≤ 1 Mo, `logs` ≤ 512 ko) sont
+   * vidées ; la ligne survit.
+   *
+   * Pourquoi ne pas supprimer la ligne : `results` est la seule trace durable de
+   * QUI a fait QUOI. La Miellerie (revue humaine) et le Parlement lisent
+   * `resultsForTask`, les phéromones agrègent (taskId, nodeId, success,
+   * createdAt) — supprimer les lignes effacerait l'affinité apprise et
+   * l'historique de revue d'une tâche ancienne mais encore ouverte. Or 99,9 %
+   * du volume vit dans `diff` et `logs` : une ligne allégée pèse ~100 octets.
+   *
+   * Rétention retenue : RESULT_RETENTION = 5 000, alignée sur EVENT_RETENTION —
+   * les deux décrivent la même histoire récente, et 5 000 résultats couvrent
+   * dix fois le corpus des phéromones (500) comme l'arriéré de revue plausible.
+   *
+   * Coût borné : un filigrane en mémoire (`dernierResultatAllege`) fait que
+   * chaque passe ne traite que les résultats FRAÎCHEMENT sortis de la fenêtre —
+   * en régime établi, zéro ligne réécrite, une seule sonde sur l'index de clé
+   * primaire (~0,6 ms). Et la passe est plafonnée à LOT_ALLEGEMENT lignes : un
+   * arriéré hérité (une base de plusieurs Go ouverte pour la première fois par
+   * cette version) est rattrapé en quelques ticks au lieu de figer le premier.
+   * Retourne le nombre de résultats allégés.
+   */
+  pruneResults(maxKeep: number): number {
+    const keep = Math.max(0, maxKeep);
+    // Id du plus ancien résultat conservé INTACT (parcours arrière du rowid).
+    const seuil = this.db
+      .prepare('SELECT id FROM results ORDER BY id DESC LIMIT 1 OFFSET ?')
+      .get(keep) as { id: number } | undefined;
+    if (!seuil || seuil.id <= this.dernierResultatAllege) return 0;
+    const borne = Math.min(seuil.id, this.dernierResultatAllege + LOT_ALLEGEMENT);
+    const info = this.db
+      .prepare("UPDATE results SET diff = '', logs = '' WHERE id > ? AND id <= ?")
+      .run(this.dernierResultatAllege, borne);
+    this.dernierResultatAllege = borne;
+    return info.changes;
+  }
+
   // ─── Journal d'événements ──────────────────────────────────────────────────
   appendEvent(type: string, payload: Record<string, unknown>, ts = Date.now()): HiveEvent {
     const info = this.db
@@ -642,6 +921,31 @@ export class HiveStore {
       type: row.type,
       payload: JSON.parse(row.payload) as Record<string, unknown>,
     };
+  }
+
+  /**
+   * Événements d'une FENÊTRE TEMPORELLE, restreints à quelques types. Sert la
+   * thermorégulation : borner la lecture à un lot des N derniers événements
+   * rendait la fenêtre de 10 minutes fictive dès que la ruche était active (un
+   * flot de `task_progress` évinçait les issues). Servi par l'index
+   * `idx_events_ts` — pas de tri temporaire, pas de scan complet.
+   */
+  listEventsInWindow(
+    since: number,
+    types: readonly string[],
+  ): Array<{ type: string; ts: number; payload: Record<string, unknown> }> {
+    if (types.length === 0) return [];
+    const placeholders = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT ts, type, payload FROM events WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
+      )
+      .all(since, ...types) as Array<{ ts: number; type: string; payload: string }>;
+    return rows.map((r) => ({
+      type: r.type,
+      ts: r.ts,
+      payload: JSON.parse(r.payload) as Record<string, unknown>,
+    }));
   }
 
   listEvents(sinceId = 0, limit = 200): HiveEvent[] {

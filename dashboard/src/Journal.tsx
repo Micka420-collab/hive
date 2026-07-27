@@ -3,6 +3,7 @@
 import type { HiveEvent } from '../../src/shared/types';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
+import { bandeText, formatDuree } from './ui';
 
 interface Meta {
   icon: string;
@@ -12,6 +13,22 @@ interface Meta {
 }
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
+
+/**
+ * La Balance au journal. Le pèse-ruche n'a introduit AUCUN type d'événement :
+ * il a rendu ÉCONOMIQUEMENT LISIBLES ceux qui existaient déjà, en ajoutant
+ * `durationMs` aux payloads de `task_retry` et `task_failed` — jusque-là, un
+ * échec ne disait pas ce qu'il avait coûté, et cette histoire était perdue
+ * chaque jour un peu plus.
+ *
+ * Le champ est donc facultatif à l'affichage : absent des événements
+ * journalisés AVANT ce lot (et de `no_working_agent` / `dependency_failed`, qui
+ * n'ont aucune durée en main), il rend `null` et la ligne se lit exactement
+ * comme avant — jamais un « 0 ms » inventé. Le texte reste reconstruit ici
+ * depuis les champs typés du payload, comme tout le reste du journal.
+ */
+const cout = (v: unknown): string | null =>
+  typeof v === 'number' && Number.isFinite(v) ? formatDuree(v) : null;
 
 const EVENTS: Record<string, Meta> = {
   project_created: {
@@ -61,25 +78,38 @@ const EVENTS: Record<string, Meta> = {
   task_done: {
     icon: '🍯',
     cls: 'done',
-    text: (p, t) =>
-      t(
-        `terminée (${short(p.taskId)}) en ${String(p.durationMs)} ms`,
-        `done (${short(p.taskId)}) in ${String(p.durationMs)} ms`,
-      ),
+    text: (p, t) => {
+      const ms = cout(p.durationMs);
+      return ms === null
+        ? t(`terminée (${short(p.taskId)})`, `done (${short(p.taskId)})`)
+        : t(`terminée (${short(p.taskId)}) en ${ms}`, `done (${short(p.taskId)}) in ${ms}`);
+    },
   },
   task_retry: {
     icon: '🔁',
     cls: 'warn',
-    text: (p, t) =>
-      t(
+    text: (p, t) => {
+      const ms = cout(p.durationMs);
+      const base = t(
         `échec, essai ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
         `failed, attempt ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
-      ),
+      );
+      // Le temps que cette tentative a coûté : imputé en « reprise » par la
+      // Balance dès que la tâche aboutit.
+      return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
+    },
   },
   task_failed: {
     icon: '✘',
     cls: 'fail',
-    text: (p, t) => t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`),
+    text: (p, t) => {
+      const ms = cout(p.durationMs);
+      const base = t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`);
+      // « coût : X » plutôt qu'un participe accordé : la durée est formatée
+      // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
+      // sur toutes ces formes.
+      return ms === null ? base : `${base} — ${t(`coût : ${ms}`, `cost: ${ms}`)}`;
+    },
   },
   task_cancelled: {
     icon: '⊘',
@@ -209,6 +239,40 @@ const EVENTS: Record<string, Meta> = {
       t(
         `course perdue : tous les drones ont échoué (${short(p.taskId)})`,
         `race lost: every drone failed (${short(p.taskId)})`,
+      ),
+  },
+  // Instinct de ruche : phéromones, thermorégulation, couveuse. Leur payload ne
+  // porte QUE des faits typés — le texte bilingue est reconstruit ici, comme
+  // pour tout le reste du journal (aucune phrase figée en base).
+  pheromone_route: {
+    icon: '🐜',
+    cls: 'info',
+    text: (p, t) => {
+      // Le nom du nœud est joint au payload ; repli sur l'id abrégé pour les
+      // événements journalisés avant son ajout.
+      const noeud = typeof p.nodeName === 'string' ? p.nodeName : short(p.nodeId);
+      return t(
+        `phéromones : ${short(p.taskId)} → nœud ${noeud} (domaine ${String(p.domaine ?? '')})`,
+        `pheromones: ${short(p.taskId)} → node ${noeud} (domain ${String(p.domaine ?? '')})`,
+      );
+    },
+  },
+  thermo_shift: {
+    icon: '🌡️',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `thermorégulation : la ruche passe en ${bandeText(p.bande, t)} (${String(p.temperature ?? '?')}°) — concurrence ×${String(p.facteur ?? '?')}`,
+        `thermoregulation: the hive shifts to ${bandeText(p.bande, t)} (${String(p.temperature ?? '?')}°) — concurrency ×${String(p.facteur ?? '?')}`,
+      ),
+  },
+  brood_context: {
+    icon: '👶',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `couveuse : ${short(p.taskId)} repart avec les leçons de ${String(p.echecs ?? '?')} échec(s)`,
+        `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
   },
   boot_recovery: {

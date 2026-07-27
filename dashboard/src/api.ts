@@ -79,6 +79,13 @@ export interface PlanResponse {
   tasks: NewTaskInput[];
   source: 'heuristic' | 'llm';
   note?: string;
+  /**
+   * La Balance (prévoir) : devis indicatif du DAG proposé. `undefined` sur un
+   * orchestrateur plus ancien (la route ne le renvoyait pas), `null` quand
+   * aucun domaine n'atteint l'échantillon minimal — les deux se lisent de la
+   * même façon à l'affichage : SILENCE, jamais « 0 ».
+   */
+  devis?: DevisPlan | null;
 }
 
 /** Queen Bee : génère un DAG de tâches à partir d'un brief (Palier 2). */
@@ -192,6 +199,9 @@ export type { ReplayFrame, ReplayResult, TaskCounts } from '../../src/orchestrat
 export type { ProjectReport } from '../../src/orchestrator/project-report';
 export type { Faction, Verdict } from '../../src/orchestrator/parliament';
 export type { MergeConflict, MergePlan } from '../../src/orchestrator/honeycomb';
+export type { Domaine, TraceePheromone } from '../../src/orchestrator/pheromones';
+export type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
+export type { Compte, Devis, Pesee, Poste } from '../../src/orchestrator/balance';
 
 import type { HivePulse } from '../../src/orchestrator/pulse';
 import type { WaggleBoard } from '../../src/orchestrator/waggle';
@@ -200,6 +210,9 @@ import type { ReplayResult } from '../../src/orchestrator/replay';
 import type { ProjectReport } from '../../src/orchestrator/project-report';
 import type { Verdict } from '../../src/orchestrator/parliament';
 import type { MergePlan } from '../../src/orchestrator/honeycomb';
+import type { Domaine, TraceePheromone } from '../../src/orchestrator/pheromones';
+import type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
+import type { Devis, Pesee } from '../../src/orchestrator/balance';
 
 /** Hive Pulse : signes vitaux agrégés (débit, latences, taux de succès). */
 export function fetchPulse(): Promise<HivePulse> {
@@ -214,6 +227,76 @@ export function fetchWaggle(): Promise<WaggleBoard> {
 /** Ghost in the Hive : anomalies détectées dans le journal. */
 export function fetchGhosts(): Promise<GhostReport> {
   return api<GhostReport>('/api/ghost');
+}
+
+/**
+ * Thermorégulation : `instantane` est la température lue dans la fenêtre de
+ * 10 minutes, `applique` l'état HYSTÉRÉSÉ réellement en vigueur dans le
+ * scheduler — les deux divergent le temps d'une confirmation, et c'est
+ * exactement ce que l'opérateur doit voir. Deux noms pour deux sémantiques :
+ * `bande` figurait auparavant des deux côtés avec deux sens différents.
+ */
+export interface ThermoState {
+  instantane: LectureThermo;
+  applique: { bande: BandeThermo; facteur: number };
+}
+
+/** Thermorégulation : température de la ruche et ventilation appliquée. */
+export function fetchThermo(): Promise<ThermoState> {
+  return api<ThermoState>('/api/thermo');
+}
+
+/** Phéromones : affinité apprise nœud × domaine (30 meilleures traces). */
+export function fetchPheromones(): Promise<{ traces: TraceePheromone[] }> {
+  return api<{ traces: TraceePheromone[] }>('/api/pheromones');
+}
+
+/**
+ * La Balance — le pèse-ruche. Deux lectures de natures DIFFÉRENTES cohabitent
+ * dans cette réponse, et l'affichage ne doit jamais les confondre :
+ *  - `pesee` : l'imputation (utile / reprise / échec / rebuté), recalculée à la
+ *    demande sur une FENÊTRE bornée (`fenetre` derniers résultats) ;
+ *  - `soldes` : le grand livre, dépense TOTALE par projet depuis toujours —
+ *    additive, jamais révisée. `aJour: false` ⇒ son rattrapage n'est pas fini
+ *    et les soldes sont encore incomplets : c'est à montrer, pas à masquer.
+ *
+ * `mode: 'off'` ⇒ le grand livre ne tourne pas du tout : `soldes` reste vide et
+ * `aJour` faux. Ce n'est pas une panne, et « 0 » serait un mensonge.
+ *
+ * L'unité est la SECONDE-OUVRIÈRE : du temps machine prêté par les membres,
+ * jamais une somme d'argent — aucun tarif n'existe côté serveur (`enEuros` y
+ * est une projection d'affichage qui exige un tarif fourni par l'appelant).
+ */
+export interface BalanceState {
+  version: number;
+  mode: 'off' | 'observation' | 'strict';
+  aJour: boolean;
+  pesee: Pesee;
+  soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+  /** Taille du corpus lu par l'imputation (CORPUS_BALANCE côté serveur). */
+  fenetre: number;
+}
+
+/** La Balance : où est passé le temps-ouvrière emprunté par la ruche. */
+export function fetchBalance(): Promise<BalanceState> {
+  return api<BalanceState>('/api/balance');
+}
+
+/**
+ * Devis d'un lot de tâches proposées, joint à `POST /api/plan` et à
+ * `POST /api/projects/:id/brief`. Le serveur garde cette forme LOCALE (elle
+ * n'est pas exportée par balance.ts) : on la reconstruit ici à partir des types
+ * exportés du module pur, pour que le typecheck du dashboard casse si `Devis`
+ * bouge.
+ *
+ * `totalP90Ms` est la SOMME des p90, pas le p90 de la somme : une borne
+ * pessimiste qui suppose que toutes les tâches ont un mauvais jour en même
+ * temps. Cette nuance doit rester visible à l'écran.
+ */
+export interface DevisPlan {
+  parTache: Array<{ title: string; domaine: Domaine } & Devis>;
+  totalMedianeMs: number;
+  totalP90Ms: number;
 }
 
 /** Time-Lapse Replay : frise chronologique du journal. */

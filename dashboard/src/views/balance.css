@@ -1,0 +1,440 @@
+/* La Balance (préfixe bal-) — bilan global (Santé), détail projet et devis
+   (Projets). Réutilise card, panel-head, panel-count, panel-error, empty…
+   Thème : variables :root de styles.css uniquement — aucune teinte inventée.
+
+   Les quatre postes reçoivent chacun une teinte de la palette existante, mais
+   la couleur ne porte JAMAIS l'information seule : chaque segment est doublé
+   d'un libellé et d'une valeur en texte dans la légende, et la barre porte un
+   aria-label complet. Les teintes sont posées ici en alias locaux pour que la
+   barre, les pastilles de légende et le tableau parlent d'une seule voix. */
+
+.bal-card,
+.bal-projet,
+.bal-devis {
+  --poste-utile: var(--green);
+  --poste-reprise: var(--gold);
+  --poste-echec: var(--red);
+  --poste-rebute: var(--blue);
+}
+
+.bal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+/* ─── Chiffre de tête : le rendement, puis le total prêté ──────────────── */
+
+.bal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bal-rendement {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--honey);
+}
+
+.bal-unit {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.bal-rendement-label {
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.bal-rendement-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.bal-total {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 15px;
+}
+
+.bal-total-label {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* ─── Barre empilée proportionnelle ────────────────────────────────────── */
+
+.bal-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bal-bar {
+  display: flex;
+  height: 18px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+}
+
+.bal-bar-wrap.compact .bal-bar {
+  height: 10px;
+}
+
+.bal-seg {
+  height: 100%;
+  transition: width 0.4s ease;
+  /* Séparateur entre segments : la frontière reste lisible même quand deux
+     teintes voisines se ressemblent à l'écran (ou en niveaux de gris). */
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.45);
+}
+
+.bal-seg.utile {
+  background: var(--poste-utile);
+}
+
+.bal-seg.reprise {
+  background: var(--poste-reprise);
+}
+
+.bal-seg.echec {
+  background: var(--poste-echec);
+}
+
+/* Rebuté : hachuré en plus de sa teinte — c'est le poste que l'opérateur doit
+   repérer sans compter sur la couleur, et le seul que la revue humaine crée. */
+.bal-seg.rebute {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--poste-rebute) 0,
+    var(--poste-rebute) 4px,
+    var(--panel-3) 4px,
+    var(--panel-3) 7px
+  );
+}
+
+.bal-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 4px 14px;
+}
+
+.bal-bar-wrap.compact .bal-legend {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  font-size: 11px;
+}
+
+.bal-legend-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.bal-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.bal-dot.utile {
+  background: var(--poste-utile);
+}
+
+.bal-dot.reprise {
+  background: var(--poste-reprise);
+}
+
+.bal-dot.echec {
+  background: var(--poste-echec);
+}
+
+.bal-dot.rebute {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--poste-rebute) 0,
+    var(--poste-rebute) 3px,
+    var(--panel-3) 3px,
+    var(--panel-3) 5px
+  );
+}
+
+.bal-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bal-legend-ms {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bal-legend-pct {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+/* ─── Explications, transparence du corpus ─────────────────────────────── */
+
+.bal-aide {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bal-aide strong {
+  color: var(--text);
+}
+
+.bal-reprises {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.bal-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bal-corpus {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bal-rattrapage {
+  margin: 0;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+/* ─── Tableau par nœud (provenance, jamais un classement) ──────────────── */
+
+.bal-noeuds {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.bal-noeuds > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.bal-noeuds > summary:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.bal-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bal-noeuds .bal-note {
+  margin: 8px 0;
+}
+
+.bal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bal-table th,
+.bal-table td {
+  padding: 5px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.bal-table thead th {
+  color: var(--faint);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.bal-table th[scope='col']:first-child,
+.bal-table th[scope='row'] {
+  text-align: left;
+  font-weight: 500;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bal-table td {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* ─── Balance d'un projet (carte projet) ───────────────────────────────── */
+
+.bal-projet {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.bal-projet-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.bal-projet-title {
+  font-weight: 600;
+}
+
+.bal-projet-rendement {
+  color: var(--honey);
+  font-weight: 600;
+}
+
+.bal-projet-total,
+.bal-projet-solde {
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bal-projet-total {
+  margin-left: auto;
+}
+
+/* ─── Devis indicatif (atelier Queen Bee) ──────────────────────────────── */
+
+.bal-devis {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+}
+
+.bal-devis-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bal-devis-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.bal-devis-sample {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bal-devis-totals {
+  margin: 0;
+  font-size: 15px;
+}
+
+.bal-devis-tag {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bal-devis-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bal-devis-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.bal-devis-task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bal-devis-dom {
+  font-size: 10px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.bal-devis-nums {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.bal-devis-n {
+  color: var(--faint);
+}
+
+@media (max-width: 640px) {
+  .bal-total,
+  .bal-projet-total,
+  .bal-devis-sample {
+    margin-left: 0;
+  }
+
+  .bal-devis-list li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -20,6 +20,12 @@
   --red: #e5573f;
   --green: #86c35d;
   --blue: #6bb0d6;
+  /* Thermorégulation : une teinte par bande de température. La couleur ne
+     porte JAMAIS l'information seule — le libellé de bande l'accompagne. */
+  --thermo-froide: var(--blue);
+  --thermo-normale: var(--green);
+  --thermo-chaude: var(--orange);
+  --thermo-surchauffe: var(--red);
   --mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   --r: 10px;
   --r-sm: 7px;

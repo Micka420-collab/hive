@@ -6,6 +6,8 @@
 
 🇫🇷 Français · [🇬🇧 English](README.en.md)
 
+**🌐 [Découvrir Hive — le site vitrine](https://micka420-collab.github.io/hive/)**
+
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -18,8 +20,8 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-110%20passing-2ea44f)
-![Palier](https://img.shields.io/badge/palier%202-v0%20livr%C3%A9-2ea44f)
+![Tests](https://img.shields.io/badge/tests-374%20passing-2ea44f)
+![Palier](https://img.shields.io/badge/palier%205-livr%C3%A9-2ea44f)
 
 </div>
 
@@ -39,6 +41,9 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 | 🐝 **Swarm View**       | Vue vivante de l'essaim, en **2D (SVG léger)** ou **3D ([Galacean Engine](https://github.com/galacean/engine))**.                                                                                                                                            |
 | ⚔ **Drone Wars**        | Redondance compétitive opt-in : `npm run cli -- race <taskId> [2-5]` (ou bouton du tiroir) — la même tâche sur plusieurs nœuds, le premier succès gagne, les perdants sont annulés. Suivi : `races` (CLI), badge ⚔ dans l'Essaim, bonus nectar au vainqueur. |
 | 💓 **Pouls & fantômes** | Signes vitaux agrégés (`/api/pulse`), anomalies (`/api/ghost`), classement nectar (`/api/waggle`), time-lapse (`/api/replay`), rapport projet (`/api/projects/:id/report`).                                                                                  |
+| 🐜 **Phéromones**       | La ruche apprend **quel nœud réussit quel type de tâche** (api, ui, db, tests, docs, infra) et départage les ouvrières à charge égale. Signal évaporé en 7 jours. `/api/pheromones`, événement `pheromone_route`, carte dans l'Essaim.                       |
+| 🌡️ **Thermorégulation** | Quand les échecs s'accumulent, la ruche **ventile** : la concurrence par nœud baisse (×0,75 puis ×0,5) le temps de refroidir, avec hystérésis anti-clignotement. `/api/thermo`, événement `thermo_shift`, jauge dans Santé.                                  |
+| 👶 **Couveuse**         | Une tâche re-tentée repart avec les **leçons de ses échecs précédents**, injectées dans un bloc de données isolé des instructions (anti-injection de prompt). Événement `brood_context`.                                                                     |
 | 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                                                                                                                                                                     |
 | 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées. **Jamais de merge sans revue humaine.**                                                                                                                     |
 | 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex`, `hermes-agent`, `custom` — ou votre propre `AgentAdapter`.                                                                                                                                                         |
@@ -370,7 +375,8 @@ dashboard/        Vite + React : SwarmView 2D/3D (Galacean) · StatTiles · Node
                   HiveMindPanel · ConflictsPanel (Palier 2)
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
                   invite · planner · hive-mind · sting-detector · drone-wars
-                  concierge · reviews · night-shift · waggle · merge — 289 tests
+                  concierge · reviews · night-shift · waggle · merge
+                  pheromones · thermo · brood · store-scaling — 374 tests
 ```
 
 ## 🧭 Roadmap
@@ -386,6 +392,11 @@ tests/            scheduler · adapters · e2e · resilience · protocol · hard
 - **Palier 4** ✅ — **Nectar & Waggle Board** (+ bonus de victoire ⚔) ·
   **Night Shift** (heures de service par membre) · **Parlement des Agents**
   (consensus par vote) · **Ghost in the Hive** (anomalies du journal).
+- **Palier 5** ✅ — **l'instinct de la ruche** : **Phéromones** (routage par
+  affinité apprise nœud × domaine, signal évaporé en 7 jours) ·
+  **Thermorégulation** (ventilation adaptative de la concurrence, avec
+  hystérésis) · **Couveuse** (les re-tentatives repartent avec les leçons de
+  leurs échecs, en bloc de données isolé des instructions).
 - **Ensuite** — isolation durcie (VM/conteneur), fédération de ruches,
   finalisation des comptes utilisateurs (UI de connexion sur l'auth JWT
   existante).

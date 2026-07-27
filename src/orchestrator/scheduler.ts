@@ -5,14 +5,32 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+// La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
+// le grand livre (comptage additif) et son cache de projets sont importés ici.
+// Aucun symbole d'IMPUTATION (`peserLaRuche`, `Pesee`, `Compte`…) ne doit
+// jamais apparaître dans ce fichier — verrouillé par
+// tests/security-invariants.test.ts.
+import { CacheProjets, GrandLivre, LOT_GRAND_LIVRE } from './balance.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { summarizeTask } from './hive-mind.js';
+import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
+import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
+import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
+import type { BandeThermo } from './thermo.js';
 
 /** Délai pendant lequel un nœud qui vient de refuser une tâche ne la reçoit pas de nouveau. */
 const REJECT_COOLDOWN_MS = 3_000;
+
+/**
+ * Hystérésis : nombre de ticks CONSÉCUTIFS passés hors de la bande courante
+ * avant de changer de régime. On compte les ticks divergents, pas les lectures
+ * identiques : deux bandes divergentes en alternance (chaude, surchauffe,
+ * chaude…) ne confirmaient jamais rien et la ruche restait froide.
+ */
+const TICKS_CONFIRMATION_THERMO = 2;
 
 export interface SchedulerOptions {
   maxAttempts?: number;
@@ -23,6 +41,17 @@ export interface SchedulerOptions {
   onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
   onEvent?: (event: HiveEvent) => void;
+  /**
+   * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
+   * (il pèse et se tient à jour, sans JAMAIS rien bloquer — défaut), 'strict'
+   * (réservé : bloquera au plafond quand la porte existera).
+   *
+   * Dans cette version, 'observation' et 'strict' sont RIGOUREUSEMENT
+   * indiscernables : aucun plafond ne peut être défini, donc rien ne bloque.
+   * L'interrupteur est livré maintenant pour que le contrat de configuration
+   * n'ait pas à changer le jour où la porte arrivera.
+   */
+  balance?: { mode: 'off' | 'observation' | 'strict' };
 }
 
 export class Scheduler {
@@ -42,6 +71,30 @@ export class Scheduler {
    * suivent reap/réconciliation), promu vers un autre drone s'il tombe.
    */
   private readonly races = new Map<string, DroneRace>();
+
+  /**
+   * Thermorégulation : bande et facteur EFFECTIFS, c'est-à-dire hystérésés —
+   * appliqués à l'assignation. Au boot la ruche est froide (facteur 1) : le
+   * comportement par défaut est strictement celui d'avant la ventilation.
+   */
+  private bandeThermo: BandeThermo = 'froide';
+  private facteurThermo = 1;
+  /** Ticks consécutifs dont la lecture diverge de la bande appliquée (hystérésis). */
+  private ticksDivergents = 0;
+
+  /**
+   * Phéromones : domaine mémoïsé par tâche (titre et prompt sont immuables).
+   * Cache borné — sur dix ans, la mémoire ne dérive pas.
+   */
+  private readonly cacheDomaines = new CacheDomaines();
+
+  /**
+   * Balance : grand livre de la dépense par projet. CACHE en mémoire, jamais
+   * matérialisé — un redémarrage le reconstruit par rattrapage borné.
+   */
+  private readonly livre = new GrandLivre();
+  /** taskId → projectId, mémoïsé et borné (projectId est immuable). */
+  private readonly cacheProjets = new CacheProjets();
 
   constructor(
     private readonly store: HiveStore,
@@ -66,10 +119,68 @@ export class Scheduler {
     if (orphans.length > 0) this.emit('boot_recovery', { requeued: orphans.length });
   }
 
-  /** Tick périodique : reap des nœuds morts → promotion → assignation. */
+  /** Tick périodique : reap des nœuds morts → thermorégulation → promotion → assignation. */
   tick(now = Date.now()): void {
     this.reapDeadNodes(now);
+    // La température n'est prise QU'ICI : les autres chemins (résultats, refus,
+    // reconnexions) assignent avec le facteur déjà en vigueur, sans re-lecture.
+    this.ventiler(now);
     this.promoteAndAssign(now);
+  }
+
+  /** État thermique effectif (hystérésé) — lecture seule, pour l'API. */
+  get thermo(): { bande: BandeThermo; facteur: number } {
+    return { bande: this.bandeThermo, facteur: this.facteurThermo };
+  }
+
+  /**
+   * Balance : mode, avancement du rattrapage et soldes par projet — lecture
+   * seule, pour l'API (motif `get thermo`). `aJour: false` doit être visible :
+   * un solde en cours de rattrapage affiché comme définitif est un mensonge
+   * court mais coûteux.
+   *
+   * Les soldes ne portent volontairement ni plafond ni verdict : la table des
+   * intentions humaines (`budgets`) et la porte qui s'en sert sont un travail
+   * séparé. Ces deux champs s'ajouteront ici, de façon purement additive.
+   */
+  get balance(): {
+    mode: 'off' | 'observation' | 'strict';
+    aJour: boolean;
+    soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+  } {
+    return {
+      mode: this.opts.balance?.mode ?? 'observation',
+      aJour: this.livre.aJour,
+      soldes: this.livre.soldes(),
+    };
+  }
+
+  /**
+   * Thermorégulation : lit la température de la FENÊTRE de 10 minutes (lecture
+   * ciblée par temps et par type — jamais un lot des N derniers événements, qui
+   * serait noyé par les `task_progress`) et ajuste le facteur de ventilation
+   * avec HYSTÉRÉSIS : la bande ne change qu'après deux ticks consécutifs passés
+   * hors de la bande appliquée, pour éviter le clignotement à la frontière.
+   */
+  private ventiler(now: number): void {
+    const events = this.store.listEventsInWindow(now - FENETRE_MS, TYPES_THERMO);
+    const lecture = lireTemperature(events, now);
+    if (lecture.bande === this.bandeThermo) {
+      this.ticksDivergents = 0; // la lecture confirme la bande courante
+      return;
+    }
+    this.ticksDivergents += 1;
+    if (this.ticksDivergents < TICKS_CONFIRMATION_THERMO) return;
+    this.ticksDivergents = 0;
+    this.bandeThermo = lecture.bande;
+    this.facteurThermo = lecture.facteur;
+    // Payload de FAITS uniquement : le texte (bilingue) est reconstruit à
+    // l'affichage — jamais de message figé dans une base qui vivra dix ans.
+    this.emit('thermo_shift', {
+      bande: lecture.bande,
+      temperature: lecture.temperature,
+      facteur: lecture.facteur,
+    });
   }
 
   /**
@@ -386,6 +497,10 @@ export class Scheduler {
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
     } else {
       const attempts = task.attempts + 1;
+      // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
+      // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
+      // soit l'appelant. La Balance la reborne une troisième fois au repli.
+      const durationMs = Math.max(0, result.durationMs);
       if (attempts >= this.maxAttempts) {
         this.store.patchTask(task.id, {
           status: 'failed',
@@ -393,7 +508,13 @@ export class Scheduler {
           assignedNodeId: null,
           result: { success: false, nodeId, durationMs: result.durationMs },
         });
-        this.emit('task_failed', { taskId: task.id, nodeId, attempts });
+        // `durationMs` : le temps machine que cet échec a coûté. Purement
+        // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
+        // → 0` dans waggle.ts, idem pulse.ts) et n'en tiennent aucun compte.
+        // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
+        // laisser AUCUNE trace de leur coût : une histoire économique
+        // définitivement perdue, jour après jour.
+        this.emit('task_failed', { taskId: task.id, nodeId, attempts, durationMs });
       } else {
         // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
         this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
@@ -402,6 +523,7 @@ export class Scheduler {
           nodeId,
           attempt: attempts,
           maxAttempts: this.maxAttempts,
+          durationMs,
         });
       }
     }
@@ -483,7 +605,14 @@ export class Scheduler {
       .filter(
         (n) =>
           n.status === 'online' &&
-          n.running + (extra.get(n.id) ?? 0) < n.maxConcurrency &&
+          // Thermorégulation : une course MULTIPLIE la charge sur une ruche qui
+          // souffre déjà — elle respecte donc la concurrence effective, comme
+          // l'assignation automatique. Décision assumée : le geste explicite
+          // choisit QUI travaille, jamais COMBIEN la ruche encaisse. Le
+          // plancher de 1 par nœud garantit qu'une course reste possible même
+          // en surchauffe.
+          n.running + (extra.get(n.id) ?? 0) <
+            concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
           (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
       )
       .sort(
@@ -587,6 +716,9 @@ export class Scheduler {
     this.races.delete(task.id);
     this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
     const attempts = task.attempts + 1;
+    // Même enrichissement que le circuit mono : une course perdue coûte au
+    // moins aussi cher qu'une tentative solitaire, elle doit se peser pareil.
+    const durationMs = Math.max(0, result.durationMs);
     if (attempts >= this.maxAttempts) {
       this.store.patchTask(task.id, {
         status: 'failed',
@@ -594,7 +726,7 @@ export class Scheduler {
         assignedNodeId: null,
         result: { success: false, nodeId, durationMs: result.durationMs },
       });
-      this.emit('task_failed', { taskId: task.id, nodeId, attempts });
+      this.emit('task_failed', { taskId: task.id, nodeId, attempts, durationMs });
     } else {
       this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
       this.emit('task_retry', {
@@ -602,6 +734,7 @@ export class Scheduler {
         nodeId,
         attempt: attempts,
         maxAttempts: this.maxAttempts,
+        durationMs,
       });
     }
     this.promoteAndAssign(now);
@@ -669,16 +802,21 @@ export class Scheduler {
       changed = false;
       const pending = this.store.tasksByStatus('pending');
       if (pending.length === 0) return;
-      const all = new Map(this.store.listTasks().map((t) => [t.id, t]));
+      // Statuts des SEULES dépendances citées (lecture par clé primaire) : le
+      // dépliage de toute la table `tasks` à chaque passe — et il y en a une
+      // par nœud fauché — gelait l'orchestrateur à 100 000 tâches.
+      const attendues = new Set<string>();
+      for (const task of pending) for (const dep of task.dependsOn) attendues.add(dep);
+      const statuts = this.store.taskStatuses([...attendues]);
       for (const task of pending) {
-        const deps = task.dependsOn.map((id) => all.get(id));
-        if (deps.some((d) => d === undefined || d.status === 'failed')) {
+        const deps = task.dependsOn.map((id) => statuts.get(id));
+        if (deps.some((d) => d === undefined || d === 'failed')) {
           this.store.patchTask(task.id, { status: 'failed' }, now);
           this.emit('task_failed', { taskId: task.id, reason: 'dependency_failed' });
           changed = true;
           continue;
         }
-        if (deps.every((d) => d !== undefined && d.status === 'done')) {
+        if (deps.every((d) => d === 'done')) {
           this.store.patchTask(task.id, { status: 'ready' }, now);
           this.emit('task_ready', { taskId: task.id });
           changed = true;
@@ -687,14 +825,75 @@ export class Scheduler {
     }
   }
 
+  /**
+   * Fait avancer le grand livre de la Balance en lisant les résultats NOUVEAUX
+   * depuis le filigrane. Le compteur suit la TABLE, pas les sites d'appel de
+   * `insertResult` : un troisième site d'écriture ajouté dans cinq ans ne peut
+   * pas le dérégler. C'est un invariant STRUCTUREL, pas une discipline —
+   * c'était la principale réserve contre un accumulateur incrémental.
+   *
+   * Coût borné : ≤ LOT_GRAND_LIVRE lignes d'un index COUVRANT par passe ; zéro
+   * ligne et une seule sonde en régime établi. Jamais de SELECT non borné sur
+   * le chemin du tick.
+   *
+   * Ce comptage n'a AUCUN effet sur l'ordonnancement : il ne décide rien, il
+   * observe. La porte qui s'en servira un jour est un travail séparé.
+   */
+  private avancerGrandLivre(): void {
+    if (this.opts.balance?.mode === 'off') return;
+    const lot = this.store.listResultsForLedger(this.livre.filigrane, LOT_GRAND_LIVRE);
+    if (lot.length === 0) {
+      this.livre.marquerRattrape();
+      return;
+    }
+    const projets = this.cacheProjets.resoudre(
+      lot.map((r) => r.taskId),
+      (manquants) => this.store.listTaskProjects(manquants),
+    );
+    // Une tentative dont la tâche a disparu est retirée du COMPTE (aucun projet
+    // à qui l'imputer) mais PAS du PARCOURS : le filigrane la dépasse quand
+    // même, sinon le rattrapage bouclerait sur elle à chaque tick, sans fin.
+    const dernier = lot[lot.length - 1]?.id ?? 0;
+    this.livre.absorber(
+      lot.flatMap((r) => {
+        const projectId = projets.get(r.taskId);
+        return projectId ? [{ id: r.id, projectId, durationMs: r.durationMs }] : [];
+      }),
+      dernier,
+    );
+    // Lot incomplet ⇒ le livre a rejoint la fin de la table.
+    if (lot.length < LOT_GRAND_LIVRE) this.livre.marquerRattrape();
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
+    // Balance : le livre avance AVANT toute décision, pour que la lecture
+    // exposée par `get balance` ne soit jamais en retard d'un tick. Il
+    // n'influence rien ici — voir la règle 4 de la doctrine (balance.ts).
+    this.avancerGrandLivre();
     // Tâches déjà actives, enrichie au fil de la passe : une tâche qu'on vient
     // d'assigner doit être prise en compte pour la détection de conflit des
     // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).
     const activeNow = this.store.tasksByStatus('assigned', 'running');
     // Drones non-primaires en vol : charge invisible du store, à additionner.
     const extra = this.droneLoad();
+    // Phéromones : calculées au plus UNE fois par passe, et seulement si un
+    // départage est réellement nécessaire (≥ 2 candidats à charge minimale).
+    // Le corpus est BORNÉ de bout en bout : ≤ 500 résultats récents, dont on ne
+    // résout le domaine que pour les taskId réellement cités (lecture par clé
+    // primaire, mémoïsée). Déplier toute la table `tasks` pour n'en garder que
+    // 0,5 % gelait l'orchestrateur à 100 000 tâches.
+    let traces: TraceePheromone[] | null = null;
+    const lireTraces = (): TraceePheromone[] => {
+      if (traces) return traces;
+      const resultats = this.store.listResultsForPheromones();
+      const domaines = this.cacheDomaines.domaines(
+        resultats.map((r) => r.taskId),
+        (manquants) => this.store.listTaskTexts(manquants),
+      );
+      traces = replierTraces(domaines, resultats, now);
+      return traces;
+    };
     for (const task of this.store.tasksByStatus('ready')) {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
@@ -713,27 +912,60 @@ export class Scheduler {
         continue;
       }
       this.deferredByConflict.delete(task.id);
-      const node = this.store
+      const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+      const eligibles = this.store
         .listNodes()
         .filter(
           (n) =>
             n.status === 'online' &&
-            n.running + (extra.get(n.id) ?? 0) < n.maxConcurrency &&
+            // Thermorégulation : sous ventilation, la capacité de chaque nœud
+            // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
+            // s'arrête pas, elle ralentit).
+            charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
             // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
             (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
         )
-        .sort(
-          (a, b) =>
-            a.running + (extra.get(a.id) ?? 0) - (b.running + (extra.get(b.id) ?? 0)) ||
-            a.name.localeCompare(b.name),
-        )[0];
+        .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
+      let node = eligibles[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
+      // Phéromones : le critère principal « moins chargé » reste intact — elles
+      // ne DÉPARTAGENT que les ex æquo à charge minimale, et seulement sur un
+      // signal net (score strictement positif et sans égalité).
+      let routePheromone: { domaine: Domaine; score: number } | null = null;
+      const chargeMin = charge(node);
+      const exAequo = eligibles.filter((n) => charge(n) === chargeMin);
+      if (exAequo.length >= 2) {
+        const domaine = this.cacheDomaines.domaine(task);
+        const elu = meilleurNoeud(
+          exAequo.map((n) => n.id),
+          domaine,
+          lireTraces(),
+        );
+        const gagnant = elu === null ? undefined : exAequo.find((n) => n.id === elu);
+        if (gagnant) {
+          node = gagnant;
+          const score =
+            lireTraces().find((t) => t.nodeId === gagnant.id && t.domaine === domaine)?.score ?? 0;
+          routePheromone = { domaine, score };
+        }
+      }
       const assigned = this.store.patchTask(
         task.id,
         { status: 'assigned', assignedNodeId: node.id, branch: `hive/${task.id}` },
         now,
       );
       if (!assigned) continue;
+      if (routePheromone) {
+        // Faits typés seulement (dont le NOM du nœud, que le Journal affiche) :
+        // le texte bilingue est reconstruit à l'affichage.
+        this.emit('pheromone_route', {
+          taskId: task.id,
+          nodeId: node.id,
+          nodeName: node.name,
+          domaine: routePheromone.domaine,
+          score: routePheromone.score,
+        });
+      }
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
       // sans réécrire le prompt persisté de la tâche.
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });

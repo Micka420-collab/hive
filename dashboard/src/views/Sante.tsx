@@ -2,10 +2,11 @@
 // dans le journal (Ghost in the Hive). Tout est lu via REST, poll léger.
 
 import { useEffect, useState } from 'react';
-import { fetchGhosts, fetchPulse } from '../api';
-import type { Ghost, HivePulse } from '../api';
+import { fetchBalance, fetchGhosts, fetchPulse, fetchThermo } from '../api';
+import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
-import { activateProps, formatMs } from '../ui';
+import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
+import { CarteBalance } from './Balance';
 import { Sparkline, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { StateSnapshot } from '../../../src/shared/types';
@@ -81,10 +82,97 @@ function PulseTiles({ pulse }: { pulse: HivePulse }) {
   );
 }
 
+/**
+ * Thermorégulation : la jauge de température de la ruche et la ventilation
+ * qu'elle applique. Deux états y cohabitent volontairement :
+ *  - la LECTURE instantanée (`lecture.temperature` / `lecture.bande`), qui
+ *    donne la position du curseur sur l'échelle ;
+ *  - l'état APPLIQUÉ (`applique.bande` / `applique.facteur`), hystérésé : il ne
+ *    suit la lecture qu'après un second relevé concordant. Leur divergence est
+ *    la chose la plus utile à montrer — elle explique pourquoi la concurrence
+ *    n'a pas encore bougé alors que le thermomètre, lui, a déjà grimpé.
+ */
+function ThermoGauge({ thermo }: { thermo: ThermoState }) {
+  const t = useT();
+  const { instantane: lecture, applique: regime } = thermo;
+  const { temperature, signaux } = lecture;
+  const diverge = lecture.bande !== regime.bande;
+  const lu = t(BANDE_LABEL[lecture.bande].fr, BANDE_LABEL[lecture.bande].en);
+  const applique = t(BANDE_LABEL[regime.bande].fr, BANDE_LABEL[regime.bande].en);
+
+  return (
+    <div className={`es-thermo bande-${lecture.bande}`}>
+      <div className="es-thermo-top">
+        <span className="es-thermo-value">{temperature}°</span>
+        <span className="es-thermo-band">{lu}</span>
+        <span className="es-thermo-hint">{t('lecture instantanée', 'instant reading')}</span>
+      </div>
+
+      <div
+        className="es-thermo-gauge"
+        role="meter"
+        aria-label={t('Température de la ruche', 'Hive temperature')}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={temperature}
+        aria-valuetext={t(`${temperature} sur 100 — bande ${lu}`, `${temperature} of 100 — ${lu}`)}
+      >
+        <div className="es-thermo-track" aria-hidden="true" />
+        <div className="es-thermo-needle" style={{ left: `${temperature}%` }} aria-hidden="true" />
+      </div>
+      <div className="es-thermo-scale">
+        {BANDES.map((b) => (
+          <span key={b} className={b === lecture.bande ? 'on' : undefined}>
+            {t(BANDE_LABEL[b].fr, BANDE_LABEL[b].en)}
+          </span>
+        ))}
+      </div>
+
+      <div className="es-thermo-applied">
+        <span>
+          {t('État appliqué', 'Applied state')} : <strong>{applique}</strong>
+        </span>
+        <span className="es-thermo-factor">
+          {t('concurrence', 'concurrency')} ×{regime.facteur}
+        </span>
+        {diverge && (
+          <span className="es-thermo-pending">
+            ⏳ {t('confirmation en cours', 'awaiting confirmation')}
+          </span>
+        )}
+      </div>
+
+      {diverge && (
+        <p className="es-thermo-note">
+          {t(
+            `Lecture : ${lu} · appliqué : ${applique} — l’hystérésis attend un second relevé concordant avant de changer de régime.`,
+            `Reading: ${lu} · applied: ${applique} — hysteresis waits for a second matching reading before switching regime.`,
+          )}
+        </p>
+      )}
+      <p className="es-thermo-note">
+        {t(
+          'Quand la ruche chauffe, elle réduit la concurrence de chaque nœud pour refroidir — puis la restaure quand les issues redeviennent favorables.',
+          'When the hive heats up it lowers each node’s concurrency to cool down — and restores it once outcomes improve.',
+        )}
+      </p>
+      <p className="es-thermo-signals">
+        ✔ {signaux.succes} {t('succès', 'successes')} · ✘ {signaux.echecs} {t('échecs', 'failures')}{' '}
+        · 🔁 {signaux.retries} {t('re-tentatives', 'retries')} · ⇄ {signaux.refusInfra}{' '}
+        {t('refus infra', 'infra declines')} — {t('fenêtre de 10 min', '10-min window')}
+      </p>
+    </div>
+  );
+}
+
 export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) {
   const t = useT();
   const pulse = useApiPoll(fetchPulse, 20_000, refreshTick);
   const ghost = useApiPoll(fetchGhosts, 30_000, refreshTick);
+  const thermo = useApiPoll(fetchThermo, 20_000, refreshTick);
+  // La Balance bouge à l'échelle de l'heure et le serveur la mémoïse : la
+  // cadence des fantômes suffit largement.
+  const balance = useApiPoll(fetchBalance, 30_000, refreshTick);
 
   // Heure locale du dernier relevé effectivement reçu.
   const [lastReading, setLastReading] = useState<number | null>(null);
@@ -93,6 +181,15 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
   }, [pulse.data]);
 
   const report = ghost.data;
+  // Dégradation propre : tant que /api/thermo n'a JAMAIS répondu et qu'il est
+  // en erreur (orchestrateur plus ancien sans la route, ou réseau coupé au
+  // premier appel), la carte est simplement masquée — pas d'erreur criarde
+  // pour une fonctionnalité absente. Une panne SURVENUE ensuite garde le
+  // dernier relevé à l'écran et l'annote « relevé figé ».
+  const thermoHidden = thermo.data === null && thermo.error !== null;
+  // Même règle pour la Balance : route absente (orchestrateur d'avant le
+  // pèse-ruche) ⇒ la carte n'existe pas, la vue Santé reste entière.
+  const balanceHidden = balance.data === null && balance.error !== null;
 
   return (
     <div className="mc-view es-view">
@@ -114,6 +211,45 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
           )
         )}
       </section>
+
+      {!thermoHidden && (
+        <section className="card">
+          <header className="panel-head">
+            <h2>{t('Thermorégulation', 'Thermoregulation')}</h2>
+            {thermo.data && (
+              <span
+                className={thermo.data.applique.facteur < 1 ? 'panel-count warn' : 'panel-count'}
+                title={t('facteur de ventilation appliqué', 'applied ventilation factor')}
+              >
+                ×{thermo.data.applique.facteur}
+              </span>
+            )}
+          </header>
+          {thermo.data ? (
+            <>
+              <ThermoGauge thermo={thermo.data} />
+              {thermo.error && (
+                <p className="panel-error">
+                  {t('relevé figé :', 'reading frozen:')} {thermo.error}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="empty pad">{t('Prise de température…', 'Taking the temperature…')}</p>
+          )}
+        </section>
+      )}
+
+      {/* La Balance vit ici parce que c'est la vue où l'on juge LA RUCHE dans
+          son ensemble — mais elle n'est pas un signe vital et ne rejoint donc
+          jamais les tuiles du pouls : carte à part, vocabulaire à part (temps
+          prêté, postes, fenêtre). « Combien ça a coûté » se lit à côté de
+          « comment ça va », sans se confondre avec. Le détail par projet, lui,
+          vit dans la vue Projets : c'est l'échelle à laquelle on juge un
+          projet, et celle du futur plafond. */}
+      {!balanceHidden && (
+        <CarteBalance balance={balance.data} erreur={balance.error} snapshot={snapshot} />
+      )}
 
       <section className="card">
         <header className="panel-head">
