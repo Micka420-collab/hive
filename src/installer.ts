@@ -24,10 +24,21 @@
 // la génération de configuration est testable sans toucher au disque.
 
 import { randomBytes } from 'node:crypto';
+import { LONGUEUR_MIN_SECRET_JWT, SECRET_JWT_INTERDIT } from './orchestrator/auth.js';
 import { MIN_TOKEN_LENGTH } from './shared/types.js';
 
 /** Longueur du jeton engendré. Confortablement au-delà du minimum exigé. */
 export const LONGUEUR_JETON = 32;
+
+/**
+ * Longueur du secret de session engendré.
+ *
+ * Plus long que le jeton de ruche : celui-ci se recopie à la main entre
+ * machines, le secret de session ne quitte jamais le `.env` de l'hôte. Rien
+ * n'oblige donc à le rendre court, et une clé HMAC-SHA256 mérite ses 64
+ * caractères hexadécimaux.
+ */
+export const LONGUEUR_SECRET_SESSION = 64;
 
 /** Port par défaut de l'orchestrateur. */
 export const PORT_DEFAUT = 7777;
@@ -92,6 +103,7 @@ export function lireEnv(contenu: string): Map<string, string> {
 export function composerReglages(
   existant: Map<string, string>,
   jeton = engendrerJeton(),
+  secretSession = engendrerJeton(LONGUEUR_SECRET_SESSION),
 ): Reglage[] {
   const garde = (cle: string, defaut: string): string => existant.get(cle) ?? defaut;
   return [
@@ -100,6 +112,15 @@ export function composerReglages(
       valeur: garde('HIVE_TOKEN', jeton),
       commentaire:
         'Le secret qui protège votre ruche. Ne le publiez jamais ; partagez plutôt un billet d’invitation.',
+    },
+    {
+      cle: 'HIVE_JWT_SECRET',
+      valeur: garde('HIVE_JWT_SECRET', secretSession),
+      commentaire:
+        'Le secret qui signe les sessions des comptes. Propre à VOTRE ruche : quiconque le connaît ' +
+        'peut se fabriquer la session de n’importe qui, administrateur compris. La ruche refuse de ' +
+        'démarrer sans lui. Le changer déconnecte tout le monde — ce qui est justement ce qu’on veut ' +
+        'faire le jour où on le croit sorti.',
     },
     {
       cle: 'HIVE_PORT',
@@ -156,6 +177,18 @@ export function avertissements(reglages: readonly Reglage[]): string[] {
     dits.push(
       `Votre HIVE_TOKEN fait ${jeton.length} caractères : c’est trop court pour protéger quoi que ce soit. ` +
         `Remplacez-le dans .env par au moins ${MIN_TOKEN_LENGTH} caractères — la ruche refusera de démarrer autrement.`,
+    );
+  }
+  // Un `.env` qui a recopié l'ancien secret publié est aussi ouvert que s'il
+  // n'en avait aucun. La ruche refusera de démarrer, mais autant l'apprendre
+  // ici plutôt qu'au premier `npm run dev`.
+  const secretSession = (reglages.find((r) => r.cle === 'HIVE_JWT_SECRET')?.valeur ?? '').trim();
+  if (secretSession === SECRET_JWT_INTERDIT || secretSession.length < LONGUEUR_MIN_SECRET_JWT) {
+    dits.push(
+      'Votre HIVE_JWT_SECRET est vide, trop court, ou porte encore l’ancienne valeur publiée avec ' +
+        `le code : n’importe qui pourrait se fabriquer la session de votre administrateur. Remplacez-le ` +
+        `dans .env par au moins ${LONGUEUR_MIN_SECRET_JWT} caractères tirés au hasard — la ruche ` +
+        'refusera de démarrer autrement.',
     );
   }
   // L'autonomie réelle dépense du temps-machine sans qu'on la regarde. Une

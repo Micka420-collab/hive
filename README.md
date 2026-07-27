@@ -367,12 +367,23 @@ déconnecter les ruches existantes, mais `npm run join` affiche un avertissement
 HIVE_HOST=0.0.0.0            # accepter les nœuds distants
 HIVE_PORT=7777
 HIVE_TOKEN=<token fort>      # ex. node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+HIVE_JWT_SECRET=<secret fort># ex. node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 HIVE_CORS_ORIGIN=http://mon-orchestrateur:7777
 ```
 
 Puis : `npm run build:dashboard && npm run dev`.
 ⚠️ Hors simulation, l'orchestrateur **refuse de démarrer** si `HIVE_TOKEN` est
-trivial (valeur par défaut ou < 16 caractères) ou si le CORS vaut `*`.
+trivial (valeur par défaut ou < 16 caractères), si `HIVE_JWT_SECRET` manque ou
+fait moins de 24 caractères, ou si le CORS vaut `*`.
+
+`HIVE_JWT_SECRET` signe les **sessions des comptes**. Il est distinct de
+`HIVE_TOKEN` et ne se partage avec personne : `HIVE_TOKEN` se recopie sur chaque
+machine membre, alors que qui connaît le secret de session peut se fabriquer la
+session de n'importe quel compte, **administrateur compris**. Il n'a
+délibérément aucune valeur par défaut — un défaut écrit dans un dépôt public
+serait la même clé pour toutes les ruches du monde. `npm run install:hive` le
+pose pour vous ; le changer déconnecte tout le monde, ce qui est exactement le
+geste à faire le jour où vous le croyez sorti.
 
 </details>
 
