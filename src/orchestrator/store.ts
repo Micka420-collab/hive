@@ -297,6 +297,34 @@ CREATE TABLE IF NOT EXISTS gardiennes (
   createdAt INTEGER NOT NULL
 );
 
+-- ─── Les livraisons ─────────────────────────────────────────────────────────
+-- Ce que la ruche a DEJA ouvert sur le depot de l'utilisateur.
+--
+-- Table LATERALE (regle 2 : aucune migration). Sans cette trace, le runner
+-- d'essaim relirait la meme production relue a chaque cycle et rouvrirait une
+-- pull request toutes les minutes sur le depot de quelqu'un -- la faute la plus
+-- visible qu'une ruche autonome puisse commettre.
+--
+-- BORNE D'ELAGAGE (regle 3), dans le MEME changement : « pruneLivraisons »,
+-- qui garde les N plus recentes et balaye celles dont la tache a disparu.
+-- N est choisi >= RESULT_RETENTION, et l'ecart n'est pas cosmetique : une
+-- production n'est livrable que tant que son resultat existe (il porte le
+-- diff). Elaguer les livraisons AVANT les resultats ressusciterait donc une
+-- tache deja livree, et la ruche rouvrirait sa PR.
+CREATE TABLE IF NOT EXISTS livraisons (
+  taskId    TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL,
+  depot     TEXT NOT NULL,
+  pr        INTEGER NOT NULL,
+  branche   TEXT NOT NULL,
+  etat      TEXT NOT NULL,
+  motif     TEXT NOT NULL DEFAULT '',
+  version   INTEGER NOT NULL,
+  creeA     INTEGER NOT NULL,
+  majA      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_livraisons_projet ON livraisons(projectId, etat);
+
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
 -- Deux tables, une par nature, et surtout PAS une seule : un billet est une
 -- invitation éphémère qu'on distribue, une clé de nœud est une identité durable
@@ -608,6 +636,26 @@ export interface CleNoeudRangee {
   createdAt: number;
   lastSeenAt: number | null;
   revokedAt: number | null;
+}
+
+/**
+ * Une pull request ouverte par la ruche sur le dépôt de l'utilisateur.
+ *
+ * `etat` : `ouverte` (PR en attente) · `fusionnee` · `echouee`. Un échec reste
+ * VISIBLE avec son motif plutôt que d'être effacé — une livraison qui disparaît
+ * sans laisser de trace, c'est une ruche qui retentera la même chose demain.
+ */
+export interface LivraisonRangee {
+  taskId: string;
+  projectId: string;
+  depot: string;
+  pr: number;
+  branche: string;
+  etat: string;
+  motif: string;
+  version: number;
+  creeA: number;
+  majA: number;
 }
 
 /** Une session de Conseil telle qu'elle est rangée. */
@@ -2294,6 +2342,75 @@ export class HiveStore {
     });
     jeter(aJeter.map((r) => r.id));
     return aJeter.length;
+  }
+
+  // ─── Livraisons : ce que la ruche a déjà ouvert sur le dépôt ──────────────
+
+  /** Note (ou met à jour) la pull request ouverte pour une tâche. */
+  setLivraison(l: {
+    taskId: string;
+    projectId: string;
+    depot: string;
+    pr: number;
+    branche: string;
+    etat: string;
+    motif?: string;
+    now?: number;
+  }): void {
+    const now = l.now ?? Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO livraisons (taskId, projectId, depot, pr, branche, etat, motif, version, creeA, majA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(taskId) DO UPDATE SET
+           pr    = excluded.pr,
+           etat  = excluded.etat,
+           motif = excluded.motif,
+           majA  = excluded.majA`,
+      )
+      .run(l.taskId, l.projectId, l.depot, l.pr, l.branche, l.etat, l.motif ?? '', now, now);
+  }
+
+  getLivraison(taskId: string): LivraisonRangee | null {
+    return (
+      (this.db.prepare('SELECT * FROM livraisons WHERE taskId = ?').get(taskId) as
+        LivraisonRangee | undefined) ?? null
+    );
+  }
+
+  /**
+   * Livraisons d'un projet dans un état donné, les plus anciennes d'abord —
+   * la ruche fusionne dans l'ordre où elle a livré.
+   *
+   * BORNÉE par `pruneLivraisons`.
+   */
+  listLivraisons(projectId: string, etat?: string): LivraisonRangee[] {
+    const sql = etat
+      ? 'SELECT * FROM livraisons WHERE projectId = ? AND etat = ? ORDER BY creeA ASC'
+      : 'SELECT * FROM livraisons WHERE projectId = ? ORDER BY creeA ASC';
+    const args = etat ? [projectId, etat] : [projectId];
+    return this.db.prepare(sql).all(...args) as LivraisonRangee[];
+  }
+
+  /**
+   * Ne conserve que les `maxKeep` livraisons les plus récentes, et balaye
+   * celles dont la tâche a disparu.
+   *
+   * `maxKeep` DOIT valoir au moins la rétention des résultats : une production
+   * n'est livrable que tant que son résultat porte encore son diff, donc
+   * élaguer les livraisons plus tôt ressusciterait une tâche déjà livrée et la
+   * ruche rouvrirait sa pull request. L'appelant tient cet écart.
+   */
+  pruneLivraisons(maxKeep: number): number {
+    const garder = Math.max(0, maxKeep);
+    // Orphelines d'abord, et hors du quota : une tâche supprimée ne reviendra
+    // pas, sa livraison n'a plus rien à protéger.
+    this.db.prepare('DELETE FROM livraisons WHERE taskId NOT IN (SELECT id FROM tasks)').run();
+    const seuil = this.db
+      .prepare('SELECT creeA FROM livraisons ORDER BY creeA DESC LIMIT 1 OFFSET ?')
+      .get(garder) as { creeA: number } | undefined;
+    if (!seuil) return 0;
+    return this.db.prepare('DELETE FROM livraisons WHERE creeA <= ?').run(seuil.creeA).changes;
   }
 
   // ─── Plans de verdict : un conseil clos n'est nourri qu'UNE fois ───────────

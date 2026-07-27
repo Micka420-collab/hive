@@ -153,7 +153,20 @@ const MEMORY_RETENTION = 2_000;
  * Parlement et les phéromones (voir `HiveStore.pruneResults`). Aligné sur
  * EVENT_RETENTION : les deux racontent la même histoire récente.
  */
-const RESULT_RETENTION = 5_000;
+export const RESULT_RETENTION = 5_000;
+
+/**
+ * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
+ * (doctrine, règle 3), câblée dans le tick.
+ *
+ * STRICTEMENT PLUS GRANDE que `RESULT_RETENTION`, et l'écart est le cœur de
+ * l'affaire : une production n'est livrable que tant que son résultat porte
+ * encore son `diff`. Élaguer les livraisons AVANT les résultats ressusciterait
+ * une tâche déjà livrée — la ruche rouvrirait sa pull request sur le dépôt de
+ * quelqu'un, et personne ne comprendrait pourquoi. Un test verrouille cette
+ * inégalité, parce qu'elle se perdrait au premier ajustement distrait.
+ */
+export const LIVRAISONS_RETENTION = 10_000;
 
 /**
  * Nombre de verdicts des Gardiennes conservés. Aligné sur EVENT_RETENTION et
@@ -1589,6 +1602,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // un bouton qui allume l'autonomie sans montrer ce qu'elle ferait ensuite
   // demande une confiance qu'on n'a pas à demander.
 
+  /**
+   * Les productions prêtes à partir sur le dépôt, les plus anciennes d'abord.
+   *
+   * QUATRE conditions, et aucune n'est superflue :
+   *   · la tâche est APPROUVÉE par un humain — la ruche autonome ouvre des
+   *     pull requests, elle ne décide pas seule de ce qui mérite d'en être une ;
+   *   · son dernier résultat est un succès PORTEUR D'UN DIFF — un « succès » à
+   *     diff vide n'a rien à livrer (c'est déjà ce que les Gardiennes disent) ;
+   *   · elle n'a pas DÉJÀ été livrée — sans quoi la ruche rouvrirait une PR
+   *     par minute sur le dépôt de quelqu'un ;
+   *   · le projet a un dépôt connu, sinon il n'y a pas d'endroit où livrer.
+   *
+   * L'ordre est celui de la création : la ruche livre dans l'ordre où elle a
+   * travaillé, et deux relevés successifs rendent la même file.
+   */
+  const aLivrer = (projectId: string): Task[] => {
+    if (!depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)) return [];
+    const revues = store.listReviews();
+    return store
+      .listTasks(projectId)
+      .filter((t) => revues[t.id] === 'approved' && !store.getLivraison(t.id))
+      .filter((t) => {
+        const resultats = store.resultsForTask(t.id);
+        const dernier = resultats[resultats.length - 1];
+        return Boolean(dernier?.success && dernier.diff);
+      })
+      .sort((a, b) => a.createdAt - b.createdAt);
+  };
+
   /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
   const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
     const reglage = store.getEssaim(projectId);
@@ -1629,8 +1671,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // `deciderPas` était donc INATTEIGNABLE, et la ruche délibérait sans
       // jamais rien faire de ses délibérations.
       verdictANourrir: store.sessionsANourrir(projectId).length > 0,
-      productionsALivrer: 0,
-      prAFusionner: 0,
+      // Ces deux champs valaient `0` en dur, comme `verdictANourrir` : les
+      // portes `livrer` et `fusionner` étaient donc inatteignables elles aussi.
+      productionsALivrer: aLivrer(projectId).length,
+      prAFusionner: store.listLivraisons(projectId, 'ouverte').length,
       depotInscrit:
         Boolean(reglage?.depotInscrit) && depotDepuisUrl(projet?.repoUrl ?? null) !== null,
       lecons,
@@ -1899,6 +1943,140 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           });
         }
         return Promise.resolve(`chantier correctif ouvert (${lecon.noeuds} machines)`);
+      },
+
+      /**
+       * Ouvrir la pull request d'une production relue.
+       *
+       * PREMIER des deux pas qui ÉCRIVENT sur le dépôt de quelqu'un. Trois
+       * choses ne s'y négocient pas :
+       *
+       *   · le jeton vient de l'environnement, jamais de la base, et son
+       *     absence est un refus net — pas une tentative qui échouera plus loin
+       *     avec un message obscur ;
+       *   · la production a été APPROUVÉE par un humain (`aLivrer`). La ruche
+       *     autonome ouvre des PR, elle ne décide pas seule de ce qui mérite
+       *     d'en être une ;
+       *   · UNE seule par cycle. Livrer en rafale, c'est noyer le dépôt sous
+       *     des PR qu'aucun humain n'aura le temps de lire — et une ruche dont
+       *     on ne lit plus les PR n'est plus relue du tout.
+       *
+       * L'échec est RANGÉ avec son motif, pas seulement journalisé : une
+       * livraison qui disparaît sans trace, c'est une ruche qui retentera
+       * exactement la même chose au cycle suivant.
+       */
+      livrer: async (projectId) => {
+        if (!jetonGithub) return 'aucun jeton GitHub configuré (HIVE_GITHUB_TOKEN)';
+        const projet = store.getProject(projectId);
+        const depot = depotDepuisUrl(projet?.repoUrl ?? null);
+        if (!depot) return 'projet sans dépôt GitHub';
+
+        const task = aLivrer(projectId)[0];
+        if (!task) return 'aucune production relue à livrer';
+
+        const resultats = store.resultsForTask(task.id);
+        const dernier = resultats[resultats.length - 1]!;
+        const noeud = store.getNode(dernier.nodeId);
+        const inspection = store
+          .listInspections()
+          .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId);
+        const branche = nomBranche(task.id);
+
+        try {
+          const fichiers = cheminsDe(analyserRustine(dernier.diff));
+          const resultat = await livrer(
+            { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+            {
+              depot,
+              base: 'main',
+              branche,
+              diff: dernier.diff,
+              titre: task.title,
+              corps: corpsPr({
+                tache: task.title,
+                nodeName: noeud?.name ?? dernier.nodeId,
+                caste: casteDe(dernier.nodeId),
+                ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
+                fichiers,
+              }),
+            },
+          );
+          store.setLivraison({
+            taskId: task.id,
+            projectId,
+            depot,
+            pr: resultat.pr,
+            branche,
+            etat: 'ouverte',
+          });
+          emitEvent('delivery_opened', {
+            taskId: task.id,
+            nodeId: dernier.nodeId,
+            pr: resultat.pr,
+            fichiers: resultat.fichiers.length,
+          });
+          return `pull request #${resultat.pr} ouverte`;
+        } catch (e) {
+          // `pr: 0` — il n'y en a pas. La ligne existe pour que la ruche
+          // n'essaie pas la même production en boucle ; c'est à l'humain de la
+          // débloquer, comme un plafond de La Balance.
+          const motif = e instanceof Error ? e.message : String(e);
+          store.setLivraison({
+            taskId: task.id,
+            projectId,
+            depot,
+            pr: 0,
+            branche,
+            etat: 'echouee',
+            motif: motif.slice(0, 400),
+          });
+          throw e;
+        }
+      },
+
+      /**
+       * Fusionner une pull request que la ruche a ouverte.
+       *
+       * LE GESTE LE PLUS ENGAGEANT DE TOUT LE DÉPÔT. Il n'arrive que si TROIS
+       * conditions sont réunies, et elles le sont à trois endroits différents :
+       *
+       *   1. `deciderPas` exige le niveau « plein » ET le dépôt inscrit — une
+       *      autorisation donnée une seule fois, à la main, pour ce dépôt-là ;
+       *   2. le runner exige les deux interrupteurs, relus juste avant l'effet ;
+       *   3. GitHub lui-même refuse (405) si la PR n'est pas fusionnable :
+       *      conflit, vérification en échec, ou revue exigée par le dépôt.
+       *
+       * La troisième n'est pas la nôtre, et c'est justement pour cela qu'elle
+       * compte : les protections de branche du propriétaire restent la dernière
+       * barrière, et la ruche ne cherche pas à les contourner.
+       */
+      fusionner: async (projectId) => {
+        if (!jetonGithub) return 'aucun jeton GitHub configuré (HIVE_GITHUB_TOKEN)';
+        const ouverte = store.listLivraisons(projectId, 'ouverte')[0];
+        if (!ouverte) return 'aucune pull request ouverte';
+
+        try {
+          const r = await fusionner(
+            { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+            ouverte.depot,
+            ouverte.pr,
+          );
+          store.setLivraison({ ...ouverte, etat: r.fusionnee ? 'fusionnee' : 'ouverte' });
+          emitEvent('delivery_merged', {
+            taskId: ouverte.taskId,
+            pr: ouverte.pr,
+            fusionnee: r.fusionnee,
+          });
+          return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
+        } catch (e) {
+          // Un refus de GitHub (405 : conflit, CI rouge, revue exigée) n'est
+          // PAS une panne de la ruche : c'est le dépôt qui protège sa branche.
+          // On range le motif et on rend la main — retenter en boucle ne
+          // changerait rien et brûlerait le quota d'API.
+          const motif = e instanceof Error ? e.message : String(e);
+          store.setLivraison({ ...ouverte, etat: 'echouee', motif: motif.slice(0, 400) });
+          throw e;
+        }
       },
     },
   });
@@ -4271,6 +4449,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
+      store.pruneLivraisons(LIVRAISONS_RETENTION);
       store.pruneConseils(CONSEILS_CONSERVES);
       // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
       // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.

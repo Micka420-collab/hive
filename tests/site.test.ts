@@ -299,3 +299,87 @@ describe.each(PAGES)('page $nom — ancres', ({ html }) => {
     expect(html).toMatch(/setProperty\(\s*'--h-entete'/);
   });
 });
+
+describe('site vitrine — les raccourcis', () => {
+  // Ces boutons promettent des gestes CONCRETS. Une commande mal orthographiée
+  // ou une portée de jeton trop large sur une page d'accueil, c'est pire
+  // qu'aucun bouton : la personne suit l'instruction et se retrouve avec une
+  // erreur, ou avec un jeton qui peut réécrire ses workflows CI.
+
+  /** Les commandes que les boutons « copier » mettent dans le presse-papier. */
+  function commandesCopiees(): string[] {
+    return [...vitrine.matchAll(/data-cmd="([^"]+)"/g)].map((m) => m[1] ?? '');
+  }
+
+  it('chaque commande copiée existe VRAIMENT dans package.json', () => {
+    // Le mode d'échec le plus bête et le plus probable : un script renommé, et
+    // la page d'accueil continue d'annoncer l'ancien nom.
+    const scripts = Object.keys(
+      (
+        JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+          scripts: Record<string, string>;
+        }
+      ).scripts,
+    );
+    const cmds = commandesCopiees();
+    expect(cmds.length, 'aucun bouton « copier »').toBeGreaterThan(0);
+    for (const cmd of cmds) {
+      // « npm run setup && npm run dev » → ['setup', 'dev'] ; le « -- … » qui
+      // suit un script est un argument passé à la CLI, pas un nom de script.
+      for (const m of cmd.matchAll(/npm run ([\w:]+)/g)) {
+        expect(scripts, `script inconnu dans « ${cmd} » : ${m[1]}`).toContain(m[1]);
+      }
+    }
+  });
+
+  it('les sous-commandes de la CLI existent', () => {
+    const cli = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf8');
+    const sous = commandesCopiees()
+      .map((c) => c.match(/npm run cli -- ([\w-]+)/)?.[1])
+      .filter((s): s is string => Boolean(s));
+    expect(sous.length, 'aucune sous-commande CLI annoncée').toBeGreaterThan(0);
+    for (const nom of sous) {
+      expect(cli, `sous-commande absente de la CLI : ${nom}`).toContain(`'${nom}'`);
+    }
+  });
+
+  it('LE JETON DEMANDÉ NE PEUT PAS TOUCHER AUX WORKFLOWS', () => {
+    // `livraison.ts` documente le choix : une portée `repo` suffit, `workflow`
+    // n'est PAS demandée — la ruche n'a pas à modifier la CI du dépôt qu'elle
+    // sert. Le lien de la page doit demander exactement cela.
+    const lien = vitrine.match(/https:\/\/github\.com\/settings\/tokens\/new\?[^"]+/)?.[0] ?? '';
+    expect(lien, 'lien de création de jeton absent').not.toBe('');
+    const scopes = new URL(lien.replace(/&amp;/g, '&')).searchParams.get('scopes') ?? '';
+    expect(scopes.split(',')).toEqual(['repo']);
+  });
+
+  it('« ouvrir ma ruche » ne code PAS l’adresse en dur', () => {
+    // Le port se règle par HIVE_PORT et une ruche prêtée tourne parfois sur une
+    // autre machine : un href figé mènerait au vide chez tous ceux qui ont
+    // changé quelque chose. Les liens sont composés depuis le champ.
+    const liens = [...vitrine.matchAll(/class="btn ghost rc-lien"[^>]*>/g)].map((m) => m[0]);
+    expect(liens.length, 'aucun lien « ouvrir ma ruche »').toBeGreaterThan(0);
+    for (const l of liens) expect(l, `href figé : ${l}`).not.toMatch(/href=/);
+    expect(vitrine, 'les liens ne sont jamais composés').toMatch(/a\.setAttribute\('href'/);
+  });
+
+  it('la page DIT que ces boutons visent la machine du visiteur', () => {
+    // Sans cette phrase, un bouton « Ouvrir ma ruche » qui ne fait rien passe
+    // pour un site cassé alors que c'est simplement la ruche qui ne tourne pas.
+    const bloc = vitrine.match(/<section id="raccourcis"[\s\S]*?<\/section>/)?.[0] ?? '';
+    expect(bloc, 'section des raccourcis introuvable').not.toBe('');
+    expect(bloc).toMatch(/votre propre machine|VOTRE<\/strong> ruche/);
+    expect(bloc).toMatch(/rc-note/);
+  });
+
+  it('la commande copiée est LISIBLE avant le clic', () => {
+    // Un bouton « copier » qui ne montre pas ce qu'il copie demande une
+    // confiance gratuite — et personne ne colle une commande à l'aveugle.
+    for (const cmd of commandesCopiees()) {
+      const attendu = cmd.replace(/&/g, '&amp;');
+      expect(vitrine, `commande non affichée : ${cmd}`).toContain(
+        `<code class="rc-cmd">${attendu}`,
+      );
+    }
+  });
+});
