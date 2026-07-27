@@ -7,6 +7,22 @@ import { authLogin, authMe, authRegister, clearJwt, saveJwt } from './api';
 import type { AuthUser } from './api';
 import { useT } from './i18n';
 import { useDialog } from './ui';
+import type { LONGUEUR_MIN } from '../../src/orchestrator/comptes';
+
+/**
+ * Longueur minimale d'un mot de passe à l'inscription.
+ *
+ * Elle DOIT valoir `LONGUEUR_MIN` côté serveur, et la ligne suivante le
+ * vérifie à la compilation : le type de la constante serveur est son littéral,
+ * donc un désaccord casse `typecheck:dashboard` au lieu de se manifester par
+ * un formulaire qui s'active puis se fait refuser en 400 — le pire des deux
+ * mondes, où l'écran promet ce que le serveur va rejeter.
+ *
+ * `import type` : aucune ligne de code serveur n'entre dans le bundle.
+ */
+const MDP_MIN = 12;
+const _accordServeur: typeof LONGUEUR_MIN = MDP_MIN;
+void _accordServeur;
 
 interface Props {
   user: AuthUser | null;
@@ -84,8 +100,14 @@ function AccountModal({
     }
   };
 
+  // À la CONNEXION, aucune longueur minimale n'est exigée : un compte créé
+  // avant que la règle n'existe doit pouvoir se connecter, et bloquer le bouton
+  // lui dirait seulement « votre mot de passe est trop court » sans issue.
   const canSubmit =
-    email.includes('@') && password.length >= 8 && (mode === 'login' || displayName.length >= 2);
+    email.includes('@') &&
+    (mode === 'login'
+      ? password.length > 0
+      : password.length >= MDP_MIN && displayName.length >= 2);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -158,7 +180,14 @@ function AccountModal({
         <label className="field">
           <span>
             {t('Mot de passe', 'Password')}{' '}
-            <small>{t('(8 caractères minimum)', '(8 characters minimum)')}</small>
+            {mode === 'register' && (
+              <small>
+                {t(
+                  `(${MDP_MIN} caractères minimum — une phrase de trois mots fait un très bon mot de passe)`,
+                  `(${MDP_MIN} characters minimum — a three-word phrase makes an excellent password)`,
+                )}
+              </small>
+            )}
           </span>
           <input
             type="password"

@@ -11,13 +11,22 @@ import type {
   TaskStatus,
 } from '../../../src/shared/types';
 import { ApiError, postReview } from '../api';
+import type { AuthUser } from '../api';
 import { useLang, useT } from '../i18n';
 import type { UiLang } from '../i18n';
 
 // ─── Contrat commun : App possède l'état temps réel, les vues le reçoivent ───
 
 export type ViewId =
-  'ruche' | 'miellerie' | 'projets' | 'essaim' | 'sante' | 'chronique' | 'memoire' | 'reine';
+  | 'ruche'
+  | 'miellerie'
+  | 'projets'
+  | 'essaim'
+  | 'sante'
+  | 'chronique'
+  | 'memoire'
+  | 'reine'
+  | 'intendance';
 
 export interface ViewProps {
   snapshot: StateSnapshot;
@@ -36,6 +45,13 @@ export interface ViewProps {
   selectedId: string | null;
   /** Compteur incrémenté à chaque événement pertinent — déclenche les re-fetchs. */
   refreshTick: number;
+  /**
+   * La session, ou `null` — le dashboard s'utilise sans compte.
+   *
+   * Ce que les vues en tirent est TOUJOURS cosmétique : masquer ce qui sera
+   * refusé de toute façon. L'autorisation se décide au serveur, jamais ici.
+   */
+  user: AuthUser | null;
 }
 
 // ─── État de revue (Miellerie) : serveur partagé + repli localStorage ────────

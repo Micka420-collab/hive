@@ -175,6 +175,31 @@ CREATE TABLE IF NOT EXISTS essaim (
 -- par projet. Pas d'elagueur, et il ne faut jamais en ajouter — effacer la
 -- ligne d'un client qui paie lui retirerait ses droits sans que personne le
 -- sache.
+-- Les serveurs provisionnes. UNE LIGNE PAR MACHINE, jamais un calcul.
+--
+-- La cle d'idempotence est refAbonnement : un webhook rejoue ne doit pas
+-- demarrer une machine de plus. L'index la sert.
+--
+-- BORNE D'ELAGAGE (regle 3), dans le MEME changement : pruneServeurs, qui ne
+-- retire QUE les lignes « supprime ». Elaguer une machine encore allumee
+-- perdrait la seule trace de ce qu'on paie — et personne ne saurait plus
+-- l'eteindre.
+CREATE TABLE IF NOT EXISTS serveurs (
+  id            TEXT PRIMARY KEY,
+  projectId     TEXT NOT NULL,
+  refAbonnement TEXT NOT NULL,
+  etat          TEXT NOT NULL,
+  fournisseur   TEXT NOT NULL,
+  refMachine    TEXT NOT NULL DEFAULT '',
+  gabarit       TEXT NOT NULL DEFAULT '',
+  motif         TEXT NOT NULL DEFAULT '',
+  version       INTEGER NOT NULL DEFAULT 1,
+  creeA         INTEGER NOT NULL,
+  majA          INTEGER NOT NULL,
+  arreteA       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_serveurs_abonnement ON serveurs(refAbonnement);
+
 CREATE TABLE IF NOT EXISTS abonnements (
   projectId    TEXT PRIMARY KEY REFERENCES projects(id),
   plan         TEXT NOT NULL,
@@ -419,6 +444,23 @@ CREATE TABLE IF NOT EXISTS users (
   bio          TEXT DEFAULT '',
   avatarUrl    TEXT DEFAULT '',
   createdAt    INTEGER NOT NULL
+);
+
+-- Le role d'un compte. TABLE LATERALE, pas une colonne de plus sur « users »
+-- (regle 2 : aucune migration). Une base deja en service ne verrait jamais
+-- une colonne ajoutee apres coup a une table existante.
+--
+-- UNE INTENTION HUMAINE : le premier compte est admin, les suivants sont
+-- membres, et seul un admin change un role. Rien ici ne naît d'un calcul.
+--
+-- BORNE STRUCTURELLE (regle 3), comme « budgets » : une ligne par compte. Pas
+-- d'elagueur, et il ne faut jamais en ajouter — effacer la ligne du dernier
+-- admin rendrait la ruche inadministrable, sans moyen de revenir en arriere.
+CREATE TABLE IF NOT EXISTS user_roles (
+  userId  TEXT PRIMARY KEY REFERENCES users(id),
+  role    TEXT NOT NULL,
+  poseA   INTEGER NOT NULL,
+  posePar TEXT
 );
 
 CREATE TABLE IF NOT EXISTS project_members (
@@ -1415,6 +1457,158 @@ export class HiveStore {
   // ─── Les abonnements : un droit, jamais un moyen de paiement ───────────────
 
   /** Range l'etat d'un abonnement. Aucun champ ne porte de donnee de carte. */
+  // ─── Les roles : qui administre la ruche ───────────────────────────────────
+
+  /** Nombre de comptes. Sert a decider si le prochain cree sera admin. */
+  countUsers(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
+    return row.n;
+  }
+
+  /** Nombre d'administrateurs. Sert a refuser le retrait du dernier. */
+  countAdmins(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM user_roles WHERE role = 'admin'")
+      .get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Role d'un compte. « membre » par defaut : un compte sans ligne de role est
+   * un compte SANS privilege, jamais l'inverse.
+   */
+  getRole(userId: string): string {
+    const row = this.db.prepare('SELECT role FROM user_roles WHERE userId = ?').get(userId) as
+      { role: string } | undefined;
+    return row?.role ?? 'membre';
+  }
+
+  /** Pose le role d'un compte. `posePar` garde qui a decide. */
+  setRole(userId: string, role: string, posePar: string | null = null, now = Date.now()): void {
+    this.db
+      .prepare(
+        `INSERT INTO user_roles (userId, role, poseA, posePar) VALUES (?, ?, ?, ?)
+         ON CONFLICT(userId) DO UPDATE SET role = excluded.role, poseA = excluded.poseA, posePar = excluded.posePar`,
+      )
+      .run(userId, role, now, posePar);
+  }
+
+  /** Tous les comptes avec leur role, pour l'administration. Sans le hash. */
+  listUsersWithRoles(): Array<{
+    id: string;
+    email: string;
+    displayName: string;
+    role: string;
+    createdAt: number;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT u.id AS id, u.email AS email, u.displayName AS displayName,
+                COALESCE(r.role, 'membre') AS role, u.createdAt AS createdAt
+           FROM users u LEFT JOIN user_roles r ON r.userId = u.id
+          ORDER BY u.createdAt ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      email: string;
+      displayName: string;
+      role: string;
+      createdAt: number;
+    }>;
+  }
+
+  // ─── Les serveurs provisionnes ─────────────────────────────────────────────
+
+  /** Range (ou met a jour) un serveur. */
+  setServeur(v: {
+    id: string;
+    projectId: string;
+    refAbonnement: string;
+    etat: string;
+    fournisseur: string;
+    refMachine: string;
+    gabarit: string;
+    motif: string;
+    creeA: number;
+    majA: number;
+    arreteA: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO serveurs (id, projectId, refAbonnement, etat, fournisseur, refMachine, gabarit, motif, version, creeA, majA, arreteA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           etat = excluded.etat, fournisseur = excluded.fournisseur,
+           refMachine = excluded.refMachine, gabarit = excluded.gabarit,
+           motif = excluded.motif, majA = excluded.majA, arreteA = excluded.arreteA`,
+      )
+      .run(
+        v.id,
+        v.projectId,
+        v.refAbonnement,
+        v.etat,
+        v.fournisseur,
+        v.refMachine,
+        v.gabarit,
+        v.motif,
+        v.creeA,
+        v.majA,
+        v.arreteA,
+      );
+  }
+
+  /** Tous les serveurs, ou ceux d'un abonnement. Ordre stable. */
+  listServeurs(refAbonnement?: string): Array<{
+    id: string;
+    projectId: string;
+    refAbonnement: string;
+    etat: string;
+    fournisseur: string;
+    refMachine: string;
+    gabarit: string;
+    motif: string;
+    creeA: number;
+    majA: number;
+    arreteA: number;
+  }> {
+    const sql =
+      `SELECT id, projectId, refAbonnement, etat, fournisseur, refMachine, gabarit, motif, creeA, majA, arreteA
+         FROM serveurs` +
+      (refAbonnement ? ' WHERE refAbonnement = ?' : '') +
+      ' ORDER BY creeA ASC, id ASC';
+    const q = this.db.prepare(sql);
+    return (refAbonnement ? q.all(refAbonnement) : q.all()) as ReturnType<
+      HiveStore['listServeurs']
+    >;
+  }
+
+  getServeur(id: string): ReturnType<HiveStore['listServeurs']>[number] | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, projectId, refAbonnement, etat, fournisseur, refMachine, gabarit, motif, creeA, majA, arreteA
+           FROM serveurs WHERE id = ?`,
+      )
+      .get(id);
+    return (row as ReturnType<HiveStore['listServeurs']>[number]) ?? null;
+  }
+
+  /**
+   * Elague les serveurs SUPPRIMES au-dela de `maxKeep`.
+   *
+   * Ne touche JAMAIS une ligne dans un autre etat : elaguer une machine encore
+   * allumee perdrait la seule trace de ce qu'on paie, et plus personne ne
+   * saurait l'eteindre.
+   */
+  pruneServeurs(maxKeep: number): number {
+    return this.db
+      .prepare(
+        `DELETE FROM serveurs WHERE etat = 'supprime' AND id NOT IN (
+           SELECT id FROM serveurs WHERE etat = 'supprime' ORDER BY majA DESC LIMIT ?
+         )`,
+      )
+      .run(maxKeep).changes;
+  }
+
   setAbonnement(a: {
     projectId: string;
     plan: string;

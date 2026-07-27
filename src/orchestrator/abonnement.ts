@@ -71,14 +71,54 @@ export interface Plan {
   prixCentimes: number;
   /** `null` pour un achat unique (un Rush), sinon la périodicité. */
   periode: 'mois' | null;
+  /**
+   * Serveurs hébergés inclus.
+   *
+   * Déclaré ICI, à côté du prix, et pas dans le module des serveurs : c'est
+   * une propriété de l'OFFRE. Un plan dont le nombre de serveurs vivrait
+   * ailleurs finirait par le contredire.
+   */
+  serveurs: number;
 }
 
 export const PLANS: readonly Plan[] = [
-  { cle: 'libre', nom: 'Ruche libre', heures: 0, prixCentimes: 0, periode: null },
-  { cle: 'eclaireuse', nom: 'Rush Éclaireuse', heures: 10, prixCentimes: 7_900, periode: null },
-  { cle: 'essaim', nom: 'Rush Essaim', heures: 50, prixCentimes: 29_900, periode: null },
-  { cle: 'colonie', nom: 'Rush Colonie', heures: 200, prixCentimes: 99_000, periode: 'mois' },
-  { cle: 'queen', nom: 'Queen hébergée', heures: 0, prixCentimes: 4_900, periode: 'mois' },
+  // La ruche libre est auto-hébergée : aucune machine à démarrer chez nous,
+  // c'est tout l'objet de l'offre.
+  { cle: 'libre', nom: 'Ruche libre', heures: 0, prixCentimes: 0, periode: null, serveurs: 0 },
+  {
+    cle: 'eclaireuse',
+    nom: 'Rush Éclaireuse',
+    heures: 10,
+    prixCentimes: 7_900,
+    periode: null,
+    serveurs: 1,
+  },
+  {
+    cle: 'essaim',
+    nom: 'Rush Essaim',
+    heures: 50,
+    prixCentimes: 29_900,
+    periode: null,
+    serveurs: 1,
+  },
+  {
+    cle: 'colonie',
+    nom: 'Rush Colonie',
+    heures: 200,
+    prixCentimes: 99_000,
+    periode: 'mois',
+    serveurs: 2,
+  },
+  // La Queen hébergée EST un serveur — l'orchestrateur lui-même — sans
+  // heures-ouvrières : c'est un service, pas du temps de calcul.
+  {
+    cle: 'queen',
+    nom: 'Queen hébergée',
+    heures: 0,
+    prixCentimes: 4_900,
+    periode: 'mois',
+    serveurs: 1,
+  },
 ] as const;
 
 export function planParCle(cle: string): Plan | null {
