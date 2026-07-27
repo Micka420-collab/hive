@@ -45,6 +45,8 @@ import {
 import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
+import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
+import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import { CORPUS_GARDIENNES, cheminsPromis, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
 import {
@@ -1282,6 +1284,159 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         prive: depot.prive,
       });
       return reply.code(201).send({ projet, depot });
+    },
+  );
+
+  // ─── La livraison : de la production à la pull request ─────────────────────
+  //
+  // La chaîne complète est décrite en tête de `livraison.ts`. Ici, deux routes
+  // et une frontière :
+  //
+  //   POST /api/livraison            ouvre une branche + une PR — jamais un merge
+  //   POST /api/livraison/fusion     fusionne, sur geste humain explicite
+  //
+  // Les deux sont SÉPARÉES, et c'est tout le sujet. Une seule route qui
+  // livrerait puis fusionnerait « si tout est vert » retirerait la seule
+  // garantie que Hive donne. Cette séparation est verrouillée par
+  // tests/security-invariants.test.ts.
+  app.post<{ Body: { taskId: string; base?: string } }>(
+    '/api/livraison',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['taskId'],
+          properties: {
+            taskId: { type: 'string', minLength: 1, maxLength: 200 },
+            base: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+
+      const task = store.getTask(req.body.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const projet = store.getProject(task.projectId);
+      const depot = depotDepuisUrl(projet?.repoUrl ?? null);
+      if (!depot) {
+        return reply.code(409).send({
+          error: 'projet sans dépôt GitHub',
+          conseil:
+            'Importez le dépôt (« hive github-import ») avant de livrer : la ruche doit savoir où ouvrir la pull request.',
+        });
+      }
+      // La DERNIÈRE production de la tâche : c'est celle qui a été relue.
+      const resultats = store.resultsForTask(task.id);
+      const dernier = resultats[resultats.length - 1];
+      if (!dernier || !dernier.success || !dernier.diff) {
+        return reply.code(409).send({
+          error: 'aucune production livrable',
+          conseil: 'La tâche n’a pas de résultat réussi porteur d’un diff.',
+        });
+      }
+
+      const noeud = store.getNode(dernier.nodeId);
+      const inspection = store
+        .listInspections()
+        .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId);
+      // Les fichiers sont lus du diff AVANT la livraison : le corps de la PR
+      // part avec la requête qui l'ouvre, il ne peut donc pas attendre le
+      // résultat. Une analyse en trop coûte quelques microsecondes ; une PR
+      // qui n'énumère pas ce qu'elle touche coûte une relecture.
+      let fichiers: string[];
+      try {
+        fichiers = cheminsDe(analyserRustine(dernier.diff));
+      } catch (err) {
+        if (err instanceof ErreurRustine) {
+          return reply.code(409).send({ error: err.message, conseil: err.conseil });
+        }
+        throw err;
+      }
+      try {
+        const resultat = await livrer(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          {
+            depot,
+            base: req.body.base ?? 'main',
+            branche: nomBranche(task.id),
+            diff: dernier.diff,
+            titre: task.title,
+            corps: corpsPr({
+              tache: task.title,
+              nodeName: noeud?.name ?? dernier.nodeId,
+              caste: casteDe(dernier.nodeId),
+              ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
+              fichiers,
+            }),
+          },
+        );
+        // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
+        emitEvent('delivery_opened', {
+          taskId: task.id,
+          nodeId: dernier.nodeId,
+          pr: resultat.pr,
+          fichiers: resultat.fichiers.length,
+        });
+        return reply.code(201).send(resultat);
+      } catch (err) {
+        if (err instanceof ErreurRustine) {
+          return reply
+            .code(409)
+            .send({ error: err.message, conseil: err.conseil, chemin: err.chemin });
+        }
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /**
+   * Fusionne une pull request ouverte par la ruche.
+   *
+   * GESTE HUMAIN. Rien dans la ruche n'appelle cette route : ni le Scheduler,
+   * ni un runner, ni une réaction à un résultat de tâche. Elle existe pour
+   * qu'un humain qui a relu puisse conclure sans quitter la ruche.
+   */
+  app.post<{ Body: { projectId: string; pr: number; methode?: 'merge' | 'squash' | 'rebase' } }>(
+    '/api/livraison/fusion',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['projectId', 'pr'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 200 },
+            pr: { type: 'integer', minimum: 1 },
+            methode: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      const depot = depotDepuisUrl(store.getProject(req.body.projectId)?.repoUrl ?? null);
+      if (!depot) return reply.code(404).send({ error: 'projet sans dépôt GitHub' });
+      try {
+        const r = await fusionner(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          depot,
+          req.body.pr,
+          req.body.methode ?? 'squash',
+        );
+        emitEvent('delivery_merged', {
+          projectId: req.body.projectId,
+          pr: req.body.pr,
+          methode: req.body.methode ?? 'squash',
+        });
+        return r;
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
     },
   );
 
