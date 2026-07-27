@@ -4099,12 +4099,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       else params.set('sort', 'cited_by_count:desc');
       params.set('per_page', '20');
 
-      // Email "polite" pour lever le rate-limit (recommandé par OpenAlex)
-      const email = process.env.OPENALEX_EMAIL || 'shellia.delcato@gmail.com';
+      // Adresse « polite » d'OpenAlex : elle élargit les limites de débit.
+      //
+      // ELLE N'A PAS DE VALEUR PAR DÉFAUT, et c'est la même raison que pour le
+      // secret de session : ce dépôt est public, donc un défaut n'est pas un
+      // défaut — c'est une valeur imposée à toutes les installations du monde.
+      // Ici, une boîte personnelle écrite en dur se serait retrouvée à porter
+      // l'attribution du trafic de parfaits inconnus, et aurait été publiée
+      // sans que sa propriétaire l'ait demandé.
+      //
+      // Sans adresse, OpenAlex répond très bien depuis le pool commun. On
+      // n'envoie donc rien plutôt que d'envoyer le contact de quelqu'un
+      // d'autre.
+      const email = (process.env.OPENALEX_EMAIL ?? '').trim();
+      const agentUtilisateur = email === '' ? 'Hive/0.1' : `Hive/0.1 (mailto:${email})`;
 
       try {
         const res = await fetch(`https://api.openalex.org/works?${params}`, {
-          headers: { 'User-Agent': `Hive/0.1 (mailto:${email})` },
+          headers: { 'User-Agent': agentUtilisateur },
         });
         if (!res.ok) {
           return reply.status(res.status).send({
