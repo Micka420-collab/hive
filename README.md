@@ -20,8 +20,8 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-110%20passing-2ea44f)
-![Palier](https://img.shields.io/badge/palier%202-v0%20livr%C3%A9-2ea44f)
+![Tests](https://img.shields.io/badge/tests-374%20passing-2ea44f)
+![Palier](https://img.shields.io/badge/palier%205-livr%C3%A9-2ea44f)
 
 </div>
 
@@ -375,7 +375,8 @@ dashboard/        Vite + React : SwarmView 2D/3D (Galacean) · StatTiles · Node
                   HiveMindPanel · ConflictsPanel (Palier 2)
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
                   invite · planner · hive-mind · sting-detector · drone-wars
-                  concierge · reviews · night-shift · waggle · merge — 289 tests
+                  concierge · reviews · night-shift · waggle · merge
+                  pheromones · thermo · brood · store-scaling — 374 tests
 ```
 
 ## 🧭 Roadmap

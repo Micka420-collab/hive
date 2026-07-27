@@ -370,7 +370,8 @@ dashboard/        Vite + React: Mission Control (8 views, FR/EN) · SwarmView 2D
                   HiveMindPanel · ConflictsPanel · i18n.ts
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
                   invite · planner · hive-mind · sting-detector · drone-wars
-                  concierge · reviews · night-shift · waggle · merge — 289 tests
+                  concierge · reviews · night-shift · waggle · merge
+                  pheromones · thermo · brood · store-scaling — 374 tests
 ```
 
 ## 🧭 Roadmap
