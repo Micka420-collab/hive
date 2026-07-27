@@ -36,6 +36,15 @@ import type { HiveEvent, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
+import {
+  CONSEILS_CONSERVES,
+  avancerConseil,
+  ouvrirConseil,
+  versProposition,
+} from './conseil-runner.js';
+import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
+import { evaluerConseil } from './conseil.js';
+import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { CORPUS_GARDIENNES, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
 import { askConcierge } from './concierge.js';
@@ -678,6 +687,59 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     h.count += 1;
   }
 
+  /** Ce dont le Conseil a besoin du monde. Un seul endroit qui écrit. */
+  const depConseil: DependancesConseil = {
+    store,
+    creerTache: (i) => store.createTask(i),
+    emettre: (type, payload) => emitEvent(type, payload),
+  };
+
+  /**
+   * Fait avancer les conseils ouverts. Appelé à chaque tick.
+   *
+   * Une tâche est TERMINALE quand elle ne bougera plus : `done` (l'éclaireuse
+   * est revenue) ou `failed` (elle n'est pas revenue, et le conseil continue
+   * sans elle). Tout le reste est encore en vol — on ne dépouille pas.
+   *
+   * Aucune session ouverte = aucune requête, aucun coût. C'est le cas normal.
+   */
+  function scruterConseils(): void {
+    const ouvertes = store.sessionsOuvertes();
+    if (ouvertes.length === 0) return;
+    for (const session of ouvertes) {
+      const attendues = store.tachesADepouiller(session.id);
+      if (attendues.length === 0) continue;
+      const terminales = new Map<string, ResultatOuvriere | null>();
+      for (const lien of attendues) {
+        const tache = store.getTask(lien.taskId);
+        // Tâche disparue (élaguée, projet supprimé) : terminale et sans
+        // résultat. La traiter comme « en vol » figerait la session à jamais.
+        if (!tache) {
+          terminales.set(lien.taskId, null);
+          continue;
+        }
+        if (tache.status !== 'done' && tache.status !== 'failed') continue;
+        // Le DERNIER résultat de la tâche : une éclaireuse a pu être
+        // re-tentée, et c'est sa dernière parole qui compte.
+        const tous = store.resultsForTask(lien.taskId);
+        const dernier = tous.length > 0 ? tous[tous.length - 1]! : null;
+        terminales.set(
+          lien.taskId,
+          dernier
+            ? {
+                nodeId: dernier.nodeId,
+                agentType: store.getNode(dernier.nodeId)?.agentType ?? 'inconnu',
+                success: dernier.success,
+                logs: dernier.logs,
+                diff: dernier.diff,
+              }
+            : null,
+        );
+      }
+      if (terminales.size > 0) avancerConseil(depConseil, session, terminales);
+    }
+  }
+
   const dashboardDist = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     '../../dashboard/dist',
@@ -1015,6 +1077,299 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
     },
   );
+
+  // ─── Connecter ses dépôts GitHub ───────────────────────────────────────────
+  //
+  // Le jeton vient de l'ENVIRONNEMENT et n'est jamais rangé : voir l'en-tête de
+  // github.ts. Absent, la fonctionnalité dit comment l'activer plutôt que de
+  // rendre un 500 opaque.
+
+  // UNIQUEMENT `HIVE_GITHUB_TOKEN`, et pas de repli sur `GITHUB_TOKEN`.
+  //
+  // Constaté en exécutant la commande : `GITHUB_TOKEN` est partout — GitHub
+  // Actions le définit d'office (portée limitée au dépôt courant), beaucoup
+  // d'outils et de shells le posent pour leur propre usage. Un repli dessus
+  // faisait envoyer À api.github.com un jeton que l'utilisateur n'avait pas
+  // choisi de donner à Hive, et rendait un « jeton refusé » incompréhensible
+  // pour quelqu'un qui n'avait jamais configuré la fonctionnalité.
+  //
+  // Un secret ne se ramasse pas dans l'environnement au hasard d'un nom
+  // courant : il se donne explicitement.
+  const jetonGithub = process.env.HIVE_GITHUB_TOKEN ?? '';
+  const apiGithub = process.env.HIVE_GITHUB_API;
+
+  function sansJeton(reply: FastifyReply): FastifyReply {
+    return reply.code(501).send({
+      error: 'GitHub non connecté',
+      detail:
+        'Définissez HIVE_GITHUB_TOKEN dans l’environnement de l’orchestrateur, puis relancez-le. ' +
+        'Créez un jeton sur https://github.com/settings/tokens avec la portée « repo » pour voir vos dépôts privés. ' +
+        'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
+    });
+  }
+
+  /** Traduit une erreur GitHub en réponse actionnable, sans jamais fuiter le jeton. */
+  function repondreErreurGithub(reply: FastifyReply, err: unknown): FastifyReply {
+    if (err instanceof ErreurGithub) {
+      return reply.code(err.statut === 400 ? 400 : 502).send({
+        error: err.message,
+        detail: err.conseil,
+        statutGithub: err.statut,
+      });
+    }
+    return reply.code(502).send({
+      error: 'GitHub injoignable',
+      detail: 'Vérifiez la connexion réseau de l’orchestrateur.',
+    });
+  }
+
+  /** La liste dans laquelle choisir. Marque ce qui est DÉJÀ importé. */
+  app.get<{ Querystring: { q?: string } }>(
+    '/api/github/repos',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { q: { type: 'string', maxLength: 100 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      try {
+        const { depots, tronque } = await listerDepots({
+          jeton: jetonGithub,
+          ...(apiGithub ? { api: apiGithub } : {}),
+        });
+        // Signaler ce qui est déjà dans la ruche évite le doublon silencieux :
+        // deux projets Hive sur le même dépôt, c'est deux plans de merge
+        // concurrents sur les mêmes fichiers.
+        const deja = new Set(
+          store
+            .listProjects()
+            .map((p) => p.repoUrl)
+            .filter((u): u is string => Boolean(u)),
+        );
+        const filtres = filtrer(depots, req.query.q ?? '');
+        return {
+          depots: filtres.map((d) => ({ ...d, importe: deja.has(d.cloneUrl) })),
+          total: depots.length,
+          tronque,
+        };
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /** Importe un dépôt choisi : crée le projet Hive correspondant. */
+  app.post<{ Body: { fullName: string } }>(
+    '/api/github/import',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['fullName'],
+          properties: { fullName: { type: 'string', minLength: 3, maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      let depot;
+      try {
+        depot = await lireUnDepot(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          req.body.fullName,
+        );
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+
+      const existant = store.listProjects().find((p) => p.repoUrl === depot.cloneUrl);
+      if (existant) {
+        return reply
+          .code(409)
+          .send({ error: 'dépôt déjà importé', projectId: existant.id, nom: existant.name });
+      }
+
+      const projet = store.createProject({
+        name: depot.fullName,
+        repoUrl: depot.cloneUrl,
+        // La description vient de GitHub, donc d'un tiers possible. Elle est
+        // déjà aplatie et bornée par github.ts ; le Conseil l'emballera ensuite
+        // dans son bloc de données non fiables.
+        ...(depot.description ? { description: depot.description } : {}),
+      });
+      emitEvent('github_imported', {
+        projectId: projet.id,
+        fullName: depot.fullName,
+        prive: depot.prive,
+      });
+      return reply.code(201).send({ projet, depot });
+    },
+  );
+
+  // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
+
+  /**
+   * Ouvre un conseil sur un projet.
+   *
+   * Le geste est EXPLICITEMENT HUMAIN, et c'est le garde-fou : un conseil crée
+   * de vraies tâches d'ouvrières, donc consomme du temps-machine prêté par les
+   * membres. Il n'y a volontairement aucun déclenchement automatique — une
+   * ruche qui s'interrogerait toute seule en boucle brûlerait le temps de ses
+   * membres sans que personne l'ait demandé.
+   */
+  app.post<{ Params: { projectId: string }; Body: { question?: string } }>(
+    '/api/projects/:projectId/conseil',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { question: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      // Un seul conseil à la fois par projet : deux conseils concurrents
+      // doubleraient la dépense et rendraient leurs verdicts incomparables.
+      const dejaOuvert = store.sessionsOuvertes().find((s) => s.projectId === project.id);
+      if (dejaOuvert) {
+        return reply
+          .code(409)
+          .send({ error: 'un conseil est déjà en cours sur ce projet', sessionId: dejaOuvert.id });
+      }
+      const session = ouvrirConseil(depConseil, {
+        projectId: project.id,
+        ...(req.body?.question ? { question: req.body.question } : {}),
+        contexteProjet: [project.name, project.description ?? '', project.repoUrl ?? '']
+          .filter(Boolean)
+          .join(' — '),
+      });
+      return reply.code(201).send(vueSession(session.id));
+    },
+  );
+
+  /** L'état d'un conseil : ses danses, classées, et son verdict s'il est clos. */
+  app.get<{ Params: { sessionId: string } }>(
+    '/api/conseil/:sessionId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['sessionId'],
+          properties: { sessionId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const vue = vueSession(req.params.sessionId);
+      if (!vue) return reply.code(404).send({ error: 'conseil inconnu' });
+      return vue;
+    },
+  );
+
+  /** Les conseils récents, du plus récent au plus ancien. */
+  app.get('/api/conseils', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      conseils: store.listSessions().map((s) => ({
+        id: s.id,
+        question: s.question,
+        projectId: s.projectId,
+        etat: s.etat,
+        tour: s.tour,
+        issue: s.issue,
+        createdAt: s.createdAt,
+        closedAt: s.closedAt,
+      })),
+    };
+  });
+
+  /**
+   * Vue d'un conseil. Le verdict est RECALCULÉ à la lecture par le module pur
+   * plutôt que relu d'une colonne : ainsi la vue ne peut pas diverger de ce que
+   * le protocole dirait aujourd'hui, et un conseil archivé reste rejouable.
+   */
+  function vueSession(sessionId: string): Record<string, unknown> | null {
+    const s = store.getSession(sessionId);
+    if (!s) return null;
+    const propositions = store.listPropositions(sessionId);
+    const avis = store.listAvis(sessionId);
+    const verdict = evaluerConseil({
+      tour: s.tour,
+      propositions: propositions.map(versProposition),
+      avis: avis.map((a) => ({
+        propositionId: a.propositionId,
+        eclaireuse: a.eclaireuse,
+        famille: a.famille,
+        type: a.type,
+        force: a.force,
+        tour: a.tour,
+      })),
+    });
+    const parId = new Map(propositions.map((p) => [p.id, p]));
+    return {
+      id: s.id,
+      question: s.question,
+      projectId: s.projectId,
+      etat: s.etat,
+      tour: s.tour,
+      issue: s.issue ?? verdict.issue,
+      motif: s.motif ?? verdict.motif,
+      createdAt: s.createdAt,
+      closedAt: s.closedAt,
+      enVol: store.tachesADepouiller(sessionId).length,
+      danses: verdict.danses.map((d) => {
+        const p = parId.get(d.proposition.id);
+        return {
+          id: d.proposition.id,
+          titre: d.proposition.titre,
+          corps: p?.corps ?? '',
+          // Les sources sont AFFICHÉES, jamais suivies par la ruche.
+          sources: lireSources(p?.sources),
+          eclaireuse: d.proposition.eclaireuse,
+          famille: d.proposition.famille,
+          qualite: d.proposition.qualite,
+          intensite: d.intensite,
+          soutiens: d.soutiens,
+          arrets: d.arrets,
+          familles: d.familles,
+          quorum: d.quorum,
+          autoSoutienIgnore: d.autoSoutienIgnore,
+          raisons: avis
+            .filter((a) => a.propositionId === d.proposition.id && a.raison)
+            .map((a) => ({ type: a.type, raison: a.raison, eclaireuse: a.eclaireuse })),
+        };
+      }),
+      retenue: verdict.retenue?.proposition.id ?? null,
+    };
+  }
+
+  function lireSources(brut: string | undefined): string[] {
+    if (!brut) return [];
+    try {
+      const v: unknown = JSON.parse(brut);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
 
   /** Qui a les clés de la ruche. Empreintes jamais exposées. */
   app.get('/api/membres', async (req, reply) => {
@@ -2709,6 +3064,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
+      store.pruneConseils(CONSEILS_CONSERVES);
+      // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
+      // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
+      scruterConseils();
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {

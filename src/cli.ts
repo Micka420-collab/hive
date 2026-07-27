@@ -825,6 +825,211 @@ async function installerCloudflared(plateforme: {
   console.log('  Puis :  npm run cli -- cloudflare\n');
 }
 
+interface VueConseil {
+  id: string;
+  question: string;
+  etat: string;
+  tour: number;
+  issue: string | null;
+  motif: string | null;
+  enVol: number;
+  retenue: string | null;
+  danses: {
+    id: string;
+    titre: string;
+    corps: string;
+    sources: string[];
+    eclaireuse: string;
+    famille: string;
+    intensite: number;
+    soutiens: string[];
+    arrets: string[];
+    familles: string[];
+    quorum: boolean;
+    raisons: { type: string; raison: string; eclaireuse: string }[];
+  }[];
+}
+
+/** Ouvre un Conseil des Éclaireuses sur un projet. */
+async function cmdConseil(projectId: string, question?: string): Promise<void> {
+  const v = await api<VueConseil>(`/api/projects/${encodeURIComponent(projectId)}/conseil`, {
+    method: 'POST',
+    body: JSON.stringify(question ? { question } : {}),
+  });
+  console.log(`\n🔭 Conseil ouvert — ${v.id}\n`);
+  console.log(`  Question : ${v.question}\n`);
+  console.log(`  ${v.enVol} éclaireuses partent explorer, chacune sous un angle différent.`);
+  console.log('  Elles chercheront sur le web, puis se vérifieront mutuellement.\n');
+  console.log(`  Suivre :  npm run cli -- conseil-voir ${v.id}\n`);
+  console.log(
+    '  ⚠ Un conseil consomme du temps-ouvrière réel sur les machines des membres.\n' +
+      '    La Balance le compte.\n',
+  );
+}
+
+const ISSUE_LABEL: Record<string, string> = {
+  quorum: '✅ une proposition a convergé',
+  depart: '⚖️  deux propositions à égalité — à vous de trancher',
+  sans_quorum: '… aucune convergence pour l’instant',
+  epuise: '⌛ arrêté sans convergence',
+  vide: '∅ aucune proposition',
+};
+
+/** Affiche l'état d'un conseil : les danses, classées. */
+async function cmdConseilVoir(sessionId: string): Promise<void> {
+  const v = await api<VueConseil>(`/api/conseil/${encodeURIComponent(sessionId)}`);
+  console.log(`\n🔭 ${v.question}\n`);
+  console.log(
+    `  État : ${v.etat} · tour ${v.tour} · ${v.enVol} tâche(s) en vol` +
+      `${v.issue ? `\n  Issue : ${ISSUE_LABEL[v.issue] ?? v.issue}` : ''}`,
+  );
+  if (v.motif) console.log(`  ${v.motif}`);
+  console.log('');
+
+  if (v.danses.length === 0) {
+    console.log('  (aucune proposition — les éclaireuses n’ont pas encore rapporté)\n');
+    return;
+  }
+  for (const d of v.danses) {
+    const marque = d.id === v.retenue ? '★ RETENUE' : d.quorum ? '✓ quorum' : ' ';
+    console.log(`  ${marque}  ${d.titre}`);
+    console.log(
+      `     intensité ${d.intensite.toFixed(1)} · ${d.soutiens.length} soutien(s)` +
+        `${d.arrets.length ? ` · ${d.arrets.length} ARRÊT` : ''}` +
+        ` · familles : ${d.familles.join(', ') || '—'}`,
+    );
+    console.log(`     proposé par ${d.eclaireuse} (${d.famille})`);
+    if (d.corps) console.log(`     ${d.corps.slice(0, 200)}`);
+    for (const r of d.raisons.slice(0, 3)) {
+      console.log(`     ${r.type === 'arret' ? '⛔' : '↳'} ${r.raison.slice(0, 140)}`);
+    }
+    for (const s of d.sources.slice(0, 3)) console.log(`     🔗 ${s}`);
+    console.log('');
+  }
+}
+
+/** Liste les conseils récents. */
+async function cmdConseils(): Promise<void> {
+  const r = await api<{
+    conseils: { id: string; question: string; etat: string; issue: string | null }[];
+  }>('/api/conseils');
+  console.log(`\n🔭 ${r.conseils.length} conseil(s)\n`);
+  for (const c of r.conseils) {
+    const badge =
+      c.etat === 'clos' ? (ISSUE_LABEL[c.issue ?? ''] ?? c.issue ?? 'clos') : '⏳ en cours';
+    console.log(`  ${badge}\n     ${c.question.slice(0, 90)}\n     ${c.id}\n`);
+  }
+}
+
+interface DepotListe {
+  fullName: string;
+  description: string;
+  prive: boolean;
+  langage: string;
+  pousseA: number;
+  archive: boolean;
+  importe: boolean;
+  htmlUrl: string;
+}
+
+/** « il y a 3 jours » — un horodatage brut n'aide pas à choisir. */
+function depuis(ms: number): string {
+  if (!ms) return '—';
+  const j = Math.floor((Date.now() - ms) / 86_400_000);
+  if (j <= 0) return "aujourd'hui";
+  if (j === 1) return 'hier';
+  if (j < 30) return `il y a ${j} j`;
+  if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
+  return `il y a ${Math.floor(j / 365)} an(s)`;
+}
+
+function afficherDepots(depots: DepotListe[], tronque: boolean): void {
+  depots.forEach((d, i) => {
+    const num = String(i + 1).padStart(3);
+    const marque = d.importe ? '✔ déjà dans la ruche' : d.prive ? '🔒 privé' : '';
+    const meta = [d.langage, depuis(d.pousseA), d.archive ? '📦 archivé' : '', marque]
+      .filter(Boolean)
+      .join(' · ');
+    console.log(`  ${num}. ${d.fullName}`);
+    if (meta) console.log(`       ${meta}`);
+    if (d.description) console.log(`       ${d.description.slice(0, 100)}`);
+  });
+  if (tronque) {
+    console.log(
+      '\n  ⚠ Liste tronquée (beaucoup de dépôts). Affinez :  npm run cli -- github <filtre>',
+    );
+  }
+}
+
+/**
+ * Liste les dépôts GitHub et propose d'en importer un par son NUMÉRO.
+ *
+ * Le choix par numéro est délibéré : retaper `owner/repo` à la main sur une
+ * liste de cent lignes, c'est une faute de frappe garantie — et une faute de
+ * frappe ici crée un projet vers le mauvais dépôt.
+ */
+async function cmdGithub(filtre?: string): Promise<void> {
+  const qs = filtre ? `?q=${encodeURIComponent(filtre)}` : '';
+  const r = await api<{ depots: DepotListe[]; total: number; tronque: boolean }>(
+    `/api/github/repos${qs}`,
+  );
+
+  if (r.depots.length === 0) {
+    console.log(
+      filtre
+        ? `\n  Aucun dépôt ne correspond à « ${filtre} » (${r.total} au total).\n`
+        : '\n  Aucun dépôt visible avec ce jeton.\n',
+    );
+    return;
+  }
+
+  console.log(
+    `\n🐙 ${r.depots.length} dépôt(s)${filtre ? ` correspondant à « ${filtre} »` : ''}\n`,
+  );
+  afficherDepots(r.depots, r.tronque);
+
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let reponse: string;
+  try {
+    reponse = (
+      await rl.question('\n  Numéro du dépôt à connecter (Entrée pour quitter) : ')
+    ).trim();
+  } finally {
+    rl.close();
+  }
+  if (!reponse) return;
+
+  const n = Number(reponse);
+  const choisi =
+    Number.isInteger(n) && n >= 1 && n <= r.depots.length ? r.depots[n - 1] : undefined;
+  if (!choisi) {
+    console.error(`\n✘ « ${reponse} » n’est pas un numéro de la liste (1 à ${r.depots.length}).\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (choisi.importe) {
+    console.log(`\n  ${choisi.fullName} est déjà connecté à la ruche.\n`);
+    return;
+  }
+  await cmdGithubImport(choisi.fullName);
+}
+
+/** Connecte un dépôt par son nom complet. */
+async function cmdGithubImport(fullName: string): Promise<void> {
+  const r = await api<{ projet: { id: string; name: string }; depot: DepotListe }>(
+    '/api/github/import',
+    { method: 'POST', body: JSON.stringify({ fullName }) },
+  );
+  console.log(`\n✔ ${r.depot.fullName} est connecté à la ruche.\n`);
+  console.log(`  Projet : ${r.projet.id}\n`);
+  console.log('  Et maintenant :');
+  console.log(`    npm run cli -- brief ${r.projet.id} "ce que vous voulez faire"`);
+  console.log(
+    `    npm run cli -- conseil ${r.projet.id}      # demander à la ruche ce qu’elle en pense\n`,
+  );
+}
+
 async function cmdTunnel(...args: string[]): Promise<void> {
   const port = Number(new URL(BASE).port || 7777);
   const fournisseur = await trouverFournisseur();
@@ -967,12 +1172,17 @@ try {
   else if (cmd === 'invite') await cmdInvite(...process.argv.slice(3));
   else if (cmd === 'tunnel') await cmdTunnel(...process.argv.slice(3));
   else if (cmd === 'cloudflare') await cmdCloudflare(...process.argv.slice(3));
+  else if (cmd === 'conseil' && a1) await cmdConseil(a1, a2);
+  else if (cmd === 'conseil-voir' && a1) await cmdConseilVoir(a1);
+  else if (cmd === 'conseils') await cmdConseils();
+  else if (cmd === 'github') await cmdGithub(a1);
+  else if (cmd === 'github-import' && a1) await cmdGithubImport(a1);
   else if (cmd === 'membres') await cmdMembres();
   else if (cmd === 'exclure' && a1) await cmdExclure(a1);
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }

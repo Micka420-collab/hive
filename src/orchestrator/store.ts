@@ -267,6 +267,75 @@ CREATE TABLE IF NOT EXISTS node_keys (
   revokedAt  INTEGER
 );
 
+-- ─── Le Conseil des Éclaireuses ─────────────────────────────────────────────
+-- Quatre tables parce qu'il y a quatre natures distinctes : une SESSION (la
+-- question posée), les TÂCHES qu'elle a engendrées (le lien vers le travail
+-- réel des ouvrières), les PROPOSITIONS rapportées, et les AVIS émis dessus.
+--
+-- Les propositions et les avis portent du texte écrit par des agents qui ont LU
+-- LE WEB. Ils sont donc rangés tels quels — déjà aplatis et bornés par
+-- eclaireuse.ts — et ne ressortent JAMAIS dans un prompt autrement que via
+-- src/shared/donnees-non-fiables.ts.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : « pruneConseils », qui
+-- ne supprime que des sessions CLOSES au-delà d'un quota. Une session en cours
+-- n'est jamais touchée — la faire disparaître laisserait des tâches
+-- d'éclaireuses orphelines qui tourneraient pour un conseil inexistant.
+CREATE TABLE IF NOT EXISTS conseil_sessions (
+  id        TEXT PRIMARY KEY,
+  question  TEXT NOT NULL,
+  projectId TEXT,
+  etat      TEXT NOT NULL,
+  tour      INTEGER NOT NULL DEFAULT 1,
+  toursSecs INTEGER NOT NULL DEFAULT 0,
+  issue     TEXT,
+  motif     TEXT,
+  version   INTEGER NOT NULL,
+  createdAt INTEGER NOT NULL,
+  closedAt  INTEGER
+);
+
+-- Le lien tache <-> role. Sans lui, on ne saurait pas si un resultat qui
+-- revient est une exploration ou la verification d'une proposition precise.
+CREATE TABLE IF NOT EXISTS conseil_taches (
+  taskId        TEXT PRIMARY KEY,
+  sessionId     TEXT NOT NULL,
+  role          TEXT NOT NULL,
+  lentille      TEXT,
+  propositionId TEXT,
+  tour          INTEGER NOT NULL,
+  depouille     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_conseil_taches_session ON conseil_taches(sessionId, depouille);
+
+CREATE TABLE IF NOT EXISTS conseil_propositions (
+  id         TEXT PRIMARY KEY,
+  sessionId  TEXT NOT NULL,
+  eclaireuse TEXT NOT NULL,
+  famille    TEXT NOT NULL,
+  titre      TEXT NOT NULL,
+  corps      TEXT NOT NULL,
+  qualite    INTEGER NOT NULL,
+  sources    TEXT NOT NULL DEFAULT '[]',
+  tour       INTEGER NOT NULL,
+  createdAt  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conseil_props_session ON conseil_propositions(sessionId);
+
+CREATE TABLE IF NOT EXISTS conseil_avis (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  sessionId     TEXT NOT NULL,
+  propositionId TEXT NOT NULL,
+  eclaireuse    TEXT NOT NULL,
+  famille       TEXT NOT NULL,
+  type          TEXT NOT NULL,
+  force         INTEGER NOT NULL,
+  raison        TEXT NOT NULL DEFAULT '',
+  tour          INTEGER NOT NULL,
+  createdAt     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conseil_avis_session ON conseil_avis(sessionId);
+
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   ts      INTEGER NOT NULL,
@@ -428,6 +497,59 @@ export interface CleNoeudRangee {
   createdAt: number;
   lastSeenAt: number | null;
   revokedAt: number | null;
+}
+
+/** Une session de Conseil telle qu'elle est rangée. */
+export interface SessionRangee {
+  id: string;
+  question: string;
+  projectId: string | null;
+  etat: 'exploration' | 'verification' | 'clos';
+  tour: number;
+  toursSecs: number;
+  issue: string | null;
+  motif: string | null;
+  version: number;
+  createdAt: number;
+  closedAt: number | null;
+}
+
+/** Le lien entre une tâche d'ouvrière et son rôle dans le conseil. */
+export interface TacheConseil {
+  taskId: string;
+  sessionId: string;
+  role: 'exploration' | 'verification';
+  lentille: string | null;
+  propositionId: string | null;
+  tour: number;
+  depouille: number;
+}
+
+export interface PropositionRangee {
+  id: string;
+  sessionId: string;
+  eclaireuse: string;
+  famille: string;
+  titre: string;
+  corps: string;
+  qualite: number;
+  /** JSON : liste d'URLs. Jamais suivies par la ruche. */
+  sources: string;
+  tour: number;
+  createdAt: number;
+}
+
+export interface AvisRange {
+  id: number;
+  sessionId: string;
+  propositionId: string;
+  eclaireuse: string;
+  famille: string;
+  type: 'soutien' | 'arret';
+  force: number;
+  raison: string;
+  tour: number;
+  createdAt: number;
 }
 
 interface EventRow {
@@ -1498,6 +1620,193 @@ export class HiveStore {
            AND (revokedAt IS NOT NULL OR expiresAt <= ? OR usesLeft <= 0)`,
       )
       .run(seuil, now).changes;
+  }
+
+  // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
+
+  creerSession(s: {
+    id: string;
+    question: string;
+    projectId?: string | null;
+    version: number;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO conseil_sessions (id, question, projectId, etat, tour, toursSecs, version, createdAt)
+         VALUES (?, ?, ?, 'exploration', 1, 0, ?, ?)`,
+      )
+      .run(s.id, s.question, s.projectId ?? null, s.version, s.now ?? Date.now());
+  }
+
+  getSession(id: string): SessionRangee | null {
+    return (
+      (this.db.prepare('SELECT * FROM conseil_sessions WHERE id = ?').get(id) as
+        SessionRangee | undefined) ?? null
+    );
+  }
+
+  /** Sessions encore vivantes. Bornée : le chemin du tick la relit à chaque passe. */
+  sessionsOuvertes(limit = 20): SessionRangee[] {
+    return this.db
+      .prepare("SELECT * FROM conseil_sessions WHERE etat != 'clos' ORDER BY createdAt LIMIT ?")
+      .all(Math.max(1, Math.min(limit, 100))) as SessionRangee[];
+  }
+
+  listSessions(limit = 50): SessionRangee[] {
+    return this.db
+      .prepare('SELECT * FROM conseil_sessions ORDER BY createdAt DESC LIMIT ?')
+      .all(Math.max(1, Math.min(limit, 200))) as SessionRangee[];
+  }
+
+  majSession(
+    id: string,
+    champs: {
+      etat?: string;
+      tour?: number;
+      toursSecs?: number;
+      issue?: string | null;
+      motif?: string | null;
+      closedAt?: number | null;
+    },
+  ): void {
+    const set: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(champs)) {
+      if (v === undefined) continue;
+      set.push(`${k} = ?`);
+      vals.push(v);
+    }
+    if (set.length === 0) return;
+    vals.push(id);
+    this.db.prepare(`UPDATE conseil_sessions SET ${set.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  lierTache(t: {
+    taskId: string;
+    sessionId: string;
+    role: 'exploration' | 'verification';
+    lentille?: string | null;
+    propositionId?: string | null;
+    tour: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO conseil_taches (taskId, sessionId, role, lentille, propositionId, tour, depouille)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+      )
+      .run(t.taskId, t.sessionId, t.role, t.lentille ?? null, t.propositionId ?? null, t.tour);
+  }
+
+  /** Tâches d'une session encore à dépouiller. Index dédié : jamais un SCAN. */
+  tachesADepouiller(sessionId: string): TacheConseil[] {
+    return this.db
+      .prepare('SELECT * FROM conseil_taches WHERE sessionId = ? AND depouille = 0')
+      .all(sessionId) as TacheConseil[];
+  }
+
+  marquerDepouillee(taskId: string): void {
+    this.db.prepare('UPDATE conseil_taches SET depouille = 1 WHERE taskId = ?').run(taskId);
+  }
+
+  ajouterProposition(p: {
+    id: string;
+    sessionId: string;
+    eclaireuse: string;
+    famille: string;
+    titre: string;
+    corps: string;
+    qualite: number;
+    sources: string[];
+    tour: number;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO conseil_propositions (id, sessionId, eclaireuse, famille, titre, corps, qualite, sources, tour, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        p.id,
+        p.sessionId,
+        p.eclaireuse,
+        p.famille,
+        p.titre,
+        p.corps,
+        p.qualite,
+        JSON.stringify(p.sources),
+        p.tour,
+        p.now ?? Date.now(),
+      );
+  }
+
+  listPropositions(sessionId: string): PropositionRangee[] {
+    return this.db
+      .prepare('SELECT * FROM conseil_propositions WHERE sessionId = ? ORDER BY tour, id')
+      .all(sessionId) as PropositionRangee[];
+  }
+
+  ajouterAvis(a: {
+    sessionId: string;
+    propositionId: string;
+    eclaireuse: string;
+    famille: string;
+    type: string;
+    force: number;
+    raison: string;
+    tour: number;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO conseil_avis (sessionId, propositionId, eclaireuse, famille, type, force, raison, tour, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        a.sessionId,
+        a.propositionId,
+        a.eclaireuse,
+        a.famille,
+        a.type,
+        a.force,
+        a.raison,
+        a.tour,
+        a.now ?? Date.now(),
+      );
+  }
+
+  listAvis(sessionId: string): AvisRange[] {
+    return this.db
+      .prepare('SELECT * FROM conseil_avis WHERE sessionId = ? ORDER BY tour, id')
+      .all(sessionId) as AvisRange[];
+  }
+
+  /**
+   * Élague les vieilles sessions CLOSES au-delà d'un quota, avec leurs enfants.
+   *
+   * Une session EN COURS n'est jamais touchée : la faire disparaître laisserait
+   * des tâches d'éclaireuses orphelines qui tourneraient — et coûteraient du
+   * temps-ouvrière — pour un conseil qui n'existe plus.
+   */
+  pruneConseils(maxSessions: number): number {
+    const garder = Math.max(0, maxSessions);
+    const aJeter = this.db
+      .prepare(
+        `SELECT id FROM conseil_sessions WHERE etat = 'clos'
+         ORDER BY createdAt DESC LIMIT -1 OFFSET ?`,
+      )
+      .all(garder) as { id: string }[];
+    if (aJeter.length === 0) return 0;
+    const jeter = this.db.transaction((ids: string[]) => {
+      for (const id of ids) {
+        this.db.prepare('DELETE FROM conseil_avis WHERE sessionId = ?').run(id);
+        this.db.prepare('DELETE FROM conseil_propositions WHERE sessionId = ?').run(id);
+        this.db.prepare('DELETE FROM conseil_taches WHERE sessionId = ?').run(id);
+        this.db.prepare('DELETE FROM conseil_sessions WHERE id = ?').run(id);
+      }
+    });
+    jeter(aJeter.map((r) => r.id));
+    return aJeter.length;
   }
 
   // ─── Journal d'événements ──────────────────────────────────────────────────
