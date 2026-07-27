@@ -35,12 +35,18 @@ function fichiersTs(dossier: string): string[] {
 }
 
 /**
- * Variables fournies par le système d'exploitation, jamais par l'hôte.
+ * Variables fournies par le système ou par le terminal, jamais par l'hôte.
  *
  * Les documenter dans `.env.example` serait inviter quelqu'un à définir son
  * `PATH` pour faire tourner une ruche.
+ *
+ * Cette liste est la seule échappatoire de la garde, et elle doit le rester :
+ * n'y ajouter un nom que si l'ENVIRONNEMENT le pose — jamais parce qu'écrire
+ * trois lignes dans `.env.example` semblait fastidieux. Chaque ajout est un
+ * réglage de moins que l'hôte pourra découvrir.
  */
 const DU_SYSTEME = new Set([
+  // Posées par le système d'exploitation.
   'PATH',
   'HOME',
   'USERPROFILE',
@@ -51,6 +57,17 @@ const DU_SYSTEME = new Set([
   'SYSTEMROOT',
   'TMPDIR',
   'NODE_ENV',
+  // Posées par le terminal ou par la CI, et lues par `src/tui/rendu.ts` pour
+  // décider des couleurs et du jeu de caractères. `NO_COLOR` et `FORCE_COLOR`
+  // sont des conventions inter-outils (no-color.org) : les redocumenter comme
+  // des réglages de Hive laisserait croire qu'ils lui sont propres.
+  'NO_COLOR',
+  'FORCE_COLOR',
+  'TERM',
+  'COLORTERM',
+  'TERM_PROGRAM',
+  'WT_SESSION',
+  'CI',
 ]);
 
 /** Chaque réglage lu quelque part dans `src/`, et le fichier qui le lit. */
