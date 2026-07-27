@@ -9,6 +9,34 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🛂 Les Gardiennes — le contrôle d'entrée du nectar** (module pur
+  `src/orchestrator/gardiennes.ts`). Jusqu'ici la ruche croyait l'agent sur
+  parole : un `success: true` accompagné d'un **diff vide** fabriquait un
+  souvenir Hive Mind (pollution définitive de la mémoire collective), déposait
+  une phéromone **positive** sur le couple nœud × domaine, créditait du
+  **nectar** au Waggle Board et comptait en **`utile`** dans La Balance — un
+  mensonge comptable qui empirait de jour en jour. Les Gardiennes inspectent
+  chaque production déclarée réussie et rendent des **griefs typés** :
+  `empty_diff` (diff vide sur une promesse de modification), `surface_missed`
+  (aucun des fichiers annoncés n'est touché — comparaison **normalisée en
+  casse**, `extractPaths` rendant des chemins en minuscules là où `parseDiff`
+  garde la casse d'origine), `malformed_diff` (texte qui ne nomme aucun fichier,
+  ou hunks orphelins) et `logs_contradict` (logs qui crient l'échec sur des
+  motifs **étroits**, distincts de ceux de la Couveuse — « 0 errors » n'accuse
+  personne). Interrupteur `HIVE_GARDIENNES=off|consultatif|strict`, **défaut
+  `consultatif`** : on observe et on annote longtemps avant de contraindre — en
+  `consultatif`, la séquence d'événements est **rigoureusement identique** à
+  celle d'avant (prouvé par le harnais de rejeu partagé). En `strict`, une
+  production creuse emprunte le circuit d'échec existant : elle ne nourrit ni le
+  Hive Mind, ni les phéromones, ni le nectar, ni `utile`, et la tâche **re-tente
+  sur le budget `MAX_ATTEMPTS` existant** — jamais sur un compteur à part, donc
+  jamais sans fin. Le verdict est calculé **à la réception** et rangé aussitôt
+  dans une **table neuve** `gardiennes` (`CREATE TABLE IF NOT EXISTS`, aucun
+  `ALTER TABLE`, aucun index existant modifié) avec sa **borne d'élagage**
+  `pruneGardiennes` dans le même commit : `pruneResults` vide `diff` et `logs`
+  au-delà de 5 000 résultats, donc un verdict recalculé après coup serait faux.
+  `GET /api/gardiennes` (vue dérivée pure et bornée), événement `guard_refused`
+  (faits typés, codes en anglais snake_case).
 - **🐜 Phéromones — routage par affinité apprise** (module pur
   `src/orchestrator/pheromones.ts`). Chaque résultat dépose une phéromone
   (+10 succès, −6 échec) sur le couple **nœud × domaine** de tâche (api, ui,

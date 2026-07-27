@@ -75,6 +75,23 @@ export interface EchecPrecedent {
 }
 
 /**
+ * Lignes exploitables d'un log : ANSI retiré, rognées, vides écartées.
+ *
+ * Extraite d'`extraitDesLogs` pour être PARTAGÉE avec les Gardiennes
+ * (gardiennes.ts), qui scrutent les mêmes logs pour une autre question. Deux
+ * nettoyages parallèles auraient fini par diverger — et le jour où l'un des
+ * deux aurait oublié l'ANSI, une séquence de couleur aurait suffi à cacher une
+ * ligne d'erreur à l'un sans la cacher à l'autre.
+ */
+export function lignesDeLogs(logs: string): string[] {
+  return logs
+    .replace(MOTIF_ANSI, '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+/**
  * Extrait la leçon d'un log d'échec : ses DERNIÈRES lignes non vides (c'est là
  * que vivent les erreurs), ANSI retiré, chaque ligne bornée à 200 caractères,
  * au plus 6 lignes jointes par ' ⏎ '. Si des lignes ressemblent à des erreurs
@@ -83,11 +100,7 @@ export interface EchecPrecedent {
  * compilation, progression) est écarté.
  */
 export function extraitDesLogs(logs: string): string {
-  const lignes = logs
-    .replace(MOTIF_ANSI, '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  const lignes = lignesDeLogs(logs);
   const erreurs = lignes.filter((l) => MOTIF_ERREUR.test(l));
   return (erreurs.length > 0 ? erreurs : lignes)
     .slice(-LIGNES_PAR_ECHEC)

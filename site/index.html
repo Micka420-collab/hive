@@ -965,7 +965,7 @@
         <span class="floatbee b3">🐝</span>
       </div>
       <div class="badges">
-        <span class="badge" style="color: var(--green)" data-i18n="badge.tests">496 tests ✓</span>
+        <span class="badge" style="color: var(--green)" data-i18n="badge.tests">561 tests ✓</span>
         <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
           >Palier 4 livré</span
         >
@@ -1380,6 +1380,15 @@
             l'ouvrière suivante, en bloc de données isolé des instructions.
           </p>
         </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">⚖️</div>
+          <h3 data-i18n="feat.ba.t">La Balance</h3>
+          <p data-i18n="feat.ba">
+            Le pèse-ruche : <strong>où est passée chaque seconde-ouvrière</strong> (utile, reprise,
+            échec, rebuté), le devis d'un projet avant de le lancer, et un plafond facultatif —
+            doublement opt-in, jamais une frontière de sécurité.
+          </p>
+        </div>
       </div>
     </section>
 
@@ -1686,6 +1695,22 @@
           </div>
         </div>
         <div class="step">
+          <div class="rail">
+            <div class="hex">6</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.6.t">Palier 6 — la conscience économique</span>
+              <span class="ok" data-i18n="rm.ok6">✅ livré</span>
+            </div>
+            <p data-i18n="rm.6.d">
+              La Balance : peser le temps-ouvrière et l'imputer à une cause, prévoir le coût d'un
+              projet, borner une dépense — plus deux campagnes d'audit adversarial.
+            </p>
+          </div>
+        </div>
+        <div class="step">
           <div class="rail"><div class="hex next">→</div></div>
           <div class="body">
             <div class="t next" data-i18n="rm.next.t">Ensuite</div>
@@ -1728,7 +1753,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '496 tests ✓',
+          'badge.tests': '561 tests ✓',
           'badge.tier': 'Tier 4 shipped',
           'hero.h1':
             'The AI agent swarm,<br /><span class="grad">orchestrated as a community.</span>',
@@ -1770,6 +1795,9 @@
           'feat.th.t': 'Thermoregulation',
           'feat.th':
             'When failures pile up, the hive <strong>fans itself</strong>: concurrency drops automatically until things cool down, then recovers. Hysteresis built in — never any flapping.',
+          'feat.ba.t': 'The Balance',
+          'feat.ba':
+            'The hive scale: <strong>where every worker-second went</strong> (useful, rework, failure, rejected), a project’s estimate before you launch it, and an optional cap — doubly opt-in, never a security boundary.',
           'feat.co.t': 'Brood Chamber',
           'feat.co':
             'A retried task no longer starts blind: the <strong>lessons from previous failures</strong> are injected into the next worker’s context, inside a data block kept separate from instructions.',
@@ -1847,6 +1875,10 @@
           'rm.4.d':
             'Nectar &amp; Waggle Board · Night Shift · Agent Parliament · Ghost in the Hive.',
           'rm.next.t': 'Next',
+          'rm.6.t': 'Tier 6 — economic awareness',
+          'rm.ok6': '✅ shipped',
+          'rm.6.d':
+            'The Balance: weigh worker-time and impute it to a cause, forecast a project’s cost, cap a spend — plus two adversarial audit campaigns.',
           'rm.5.t': 'Tier 5 — instinct',
           'rm.ok5': '✅ shipped',
           'rm.5.d':

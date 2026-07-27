@@ -14,6 +14,8 @@ import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balan
 import type { DecisionPlafond } from './balance.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
+import { inspecter } from './gardiennes.js';
+import type { Inspection, ModeGardiennes } from './gardiennes.js';
 import { summarizeTask } from './hive-mind.js';
 import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
@@ -72,6 +74,20 @@ export interface SchedulerOptions {
      */
     capaciteCacheProjets?: number;
   };
+  /**
+   * Les Gardiennes (le contrôle d'entrée du nectar) : 'off' (aucune inspection,
+   * aucune écriture — la ruche est indiscernable de celle d'avant), 'consultatif'
+   * (chaque production déclarée réussie est reniflée et le verdict RANGÉ, mais
+   * RIEN n'est refusé et AUCUN événement n'est émis — DÉFAUT), 'strict' (une
+   * production jugée creuse ne franchit pas le trou de vol).
+   *
+   * Le défaut est délibérément non contraignant : un faux positif brûlerait une
+   * tentative légitime, ce qui est strictement pire que le mal qu'on soigne. On
+   * observe et on annote longtemps avant de contraindre — et l'annotation, elle,
+   * est gratuite et ne change RIEN au comportement observable (aucun événement,
+   * aucune décision), ce que prouve le harnais de rejeu.
+   */
+  gardiennes?: { mode: ModeGardiennes };
 }
 
 export class Scheduler {
@@ -669,6 +685,88 @@ export class Scheduler {
     }
   }
 
+  /** Mode des Gardiennes en vigueur. Défaut `consultatif` — jamais contraignant. */
+  private get modeGardiennes(): ModeGardiennes {
+    return this.opts.gardiennes?.mode ?? 'consultatif';
+  }
+
+  /** Les Gardiennes : mode en vigueur — lecture seule, pour l'API (motif `get thermo`). */
+  get gardiennes(): { mode: ModeGardiennes } {
+    return { mode: this.modeGardiennes };
+  }
+
+  /**
+   * Le contrôle d'entrée d'une production. `null` en mode `off` ou sur un échec
+   * DÉCLARÉ : les gardiennes ne reniflent que ce qui prétend ENTRER dans le
+   * rayon — un résultat qui s'annonce en échec n'alimente déjà ni la mémoire,
+   * ni les phéromones positives, ni le nectar.
+   *
+   * Le verdict est calculé ICI, à la réception, jamais plus tard :
+   * `pruneResults` vide `diff` et `logs` au-delà de 5 000 résultats, donc un
+   * recalcul ultérieur accuserait de « diff vide » toutes les productions
+   * anciennes (voir la doctrine, en tête de gardiennes.ts).
+   *
+   * La seule lecture ajoutée est celle du projet, par CLÉ PRIMAIRE, et
+   * uniquement sur le chemin d'un résultat réussi — jamais sur le chemin du
+   * tick. Elle est indispensable : sans dépôt git, `collectDiff()` rend
+   * TOUJOURS '' (node-client/workspace.ts), et juger un diff vide y serait un
+   * faux positif sur 100 % des tâches du projet.
+   */
+  private renifler(task: Task, result: Omit<TaskResult, 'nodeId'>): Inspection | null {
+    if (this.modeGardiennes === 'off' || !result.success) return null;
+    return inspecter({
+      titre: task.title,
+      prompt: task.prompt,
+      success: true,
+      diff: result.diff,
+      logs: result.logs,
+      depotGit: Boolean(this.store.getProject(task.projectId)?.repoUrl),
+    });
+  }
+
+  /**
+   * Range le verdict et, s'il ferme la porte, le journalise. Le fait
+   * `guard_refused` est émis AVANT la conséquence (`task_retry` / `task_failed`,
+   * `drone_all_failed`) : dans l'autre ordre, la Chronique montrerait l'effet
+   * avant la cause, précisément dans le cas intéressant.
+   *
+   * Payload de FAITS TYPÉS uniquement — un id, des entiers, des codes de grief
+   * en anglais snake_case. Aucune phrase n'est jamais persistée : le texte
+   * bilingue du Journal est reconstruit à l'affichage, comme pour `thermo_shift`
+   * et `balance_cap_reached`.
+   *
+   * Aucun événement en `consultatif` : le journal est une ressource PARTAGÉE et
+   * élaguée à 5 000 (Ghost, Waggle, Pulse et la Chronique y lisent tous). Un
+   * fait par production réussie le remplirait de bruit pendant toute la
+   * campagne d'observation — qui est censée durer longtemps. Les verdicts
+   * consultatifs vivent dans leur table et se lisent par `/api/gardiennes`.
+   */
+  private rangerInspection(
+    inspection: Inspection,
+    resultId: number,
+    taskId: string,
+    nodeId: string,
+    refusee: boolean,
+  ): void {
+    this.store.enregistrerInspection({
+      resultId,
+      taskId,
+      nodeId,
+      verdict: inspection.verdict,
+      score: inspection.score,
+      applique: refusee,
+      griefs: inspection.griefs,
+    });
+    if (!refusee) return;
+    this.emit('guard_refused', {
+      taskId,
+      nodeId,
+      verdict: inspection.verdict,
+      score: inspection.score,
+      griefs: inspection.griefs.map((g) => g.code),
+    });
+  }
+
   /**
    * Résultat remonté par un nœud. Idempotence : un résultat pour une tâche
    * réaffectée, requalifiée ou déjà terminée est ignoré (et journalisé).
@@ -697,9 +795,38 @@ export class Scheduler {
     // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
     // oublie l'historique de refus infra pour cette tâche.
     this.infraRejects.delete(task.id);
-    this.store.insertResult({ ...result, nodeId });
 
-    if (result.success) {
+    // ─── Les Gardiennes : le contrôle d'entrée ────────────────────────────────
+    // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
+    // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
+    // circuit d'échec existant, donc elle ne nourrit
+    //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
+    //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
+    //     donc le repli dépose −6 au lieu de +10),
+    //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
+    //     compte que ça),
+    //   - ni `utile` dans La Balance (sans succès retenu, `posteDe` impute la
+    //     tentative en `reprise` ou en `echec`, jamais en `utile`).
+    // Les quatre « ne nourrit pas » sont donc STRUCTURELS : aucun des quatre
+    // modules n'a été modifié, et aucun ne peut être oublié dans trois ans.
+    //
+    // RE-TENTER OU ÉCHOUER ? Re-tenter — mais sur le budget de tentatives
+    // EXISTANT (`attempts`, plafonné par MAX_ATTEMPTS), jamais sur un compteur
+    // à part. C'est la réponse à « une re-tentative infinie sur un agent cassé
+    // serait pire que le mal » : un agent qui rend trois productions creuses de
+    // suite épuise le même budget qu'un agent qui échoue trois fois, et la
+    // tâche finit `failed` proprement. Un compteur séparé aurait rouvert la
+    // porte à l'emballement ; échouer du premier coup aurait puni un incident
+    // (un `git add` oublié) aussi durement qu'une fraude répétée — alors qu'une
+    // deuxième tentative, elle, part sur un AUTRE nœud, avec les logs de la
+    // production refusée en leçon de Couveuse.
+    const inspection = this.renifler(task, result);
+    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennes === 'strict';
+    const retenu = result.success && !refusee;
+    const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
+    if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+
+    if (retenu) {
       this.store.patchTask(task.id, {
         status: 'done',
         result: { success: true, nodeId, durationMs: result.durationMs },
@@ -894,14 +1021,26 @@ export class Scheduler {
       this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'race_task_finished' });
       return false;
     }
-    const { race: updated, decision } = recordDroneResult(race, nodeId, result.success);
+    // Les Gardiennes, PARITÉ EXACTE avec le circuit mono : une production creuse
+    // est un drone qui a ÉCHOUÉ, pas un vainqueur. Le verdict est donc rendu
+    // AVANT `recordDroneResult`, qui reçoit le succès RETENU — sans quoi la
+    // course serait déjà tranchée (`won`, `decided: true`) et les drones encore
+    // en vol annulés au profit d'un retour à vide. Sans cette parité, lancer une
+    // course serait un contournement des Gardiennes.
+    const inspection = this.renifler(task, result);
+    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennes === 'strict';
+    const retenu = result.success && !refusee;
+    const { race: updated, decision } = recordDroneResult(race, nodeId, retenu);
     if (decision.outcome === 'lost') {
       // Résultat d'un nœud non enrôlé (ou d'un drone déjà sorti de la course).
+      // Rien n'entre : ni résultat, ni verdict — inspecter n'était qu'un calcul
+      // pur, il ne laisse aucune trace.
       this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'drone_not_in_race' });
       return false;
     }
     this.races.set(task.id, updated);
-    this.store.insertResult({ ...result, nodeId });
+    const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
+    if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
 
     if (decision.outcome === 'won') {
       this.races.delete(task.id);

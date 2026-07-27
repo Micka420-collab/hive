@@ -229,6 +229,99 @@ describe('index et plans de requête', () => {
     expect(lectures).toBe(1);
   });
 
+  // ─── Les Gardiennes : la table des verdicts ──────────────────────────────
+  //
+  // La table `gardiennes` n'a AUCUN index ajouté, et c'est un choix qui se
+  // prouve : sa seule lecture est un parcours ARRIÈRE de la clé primaire, borné
+  // par un LIMIT. Un index sur (id DESC) serait redondant avec le rowid, et un
+  // index COUVRANT devrait embarquer la colonne `griefs` — c'est-à-dire recopier
+  // le JSON dans l'index. Ce qui rend ce parcours bon marché n'est donc pas un
+  // index mais la PETITESSE des lignes, bornée à la construction des griefs
+  // (voir tests/gardiennes.test.ts, « une ligne de garde reste PETITE »).
+
+  /** Requête EXACTE de `listInspections`. */
+  const SQL_GARDIENNES = `SELECT id, resultId, taskId, nodeId, verdict, score, applique, griefs, createdAt
+         FROM gardiennes ORDER BY id DESC LIMIT ?`;
+
+  it('la lecture des verdicts ne trie RIEN : le LIMIT arrête le parcours de la clé primaire', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const detail = plan(db, SQL_GARDIENNES, 500);
+      // Le plan à éviter absolument : un B-tree temporaire, qui obligerait à
+      // lire et trier TOUTE la table pour n'en rendre que 500 lignes.
+      expect(detail).not.toContain('TEMP B-TREE');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('l’élagage des verdicts est une suppression par PLAGE de clé primaire', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      // `pruneGardiennes` : motif `pruneEvents` à la lettre, plan compris.
+      expect(plan(db, 'SELECT MAX(id) AS id FROM gardiennes')).not.toContain('SCAN gardiennes');
+      expect(plan(db, 'SELECT id FROM gardiennes WHERE id <= ?', 10)).toContain(
+        'INTEGER PRIMARY KEY',
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('la table des verdicts n’ajoute ni index, ni contrainte au voisinage', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const index = (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'gardiennes'",
+          )
+          .all() as Array<{ name: string }>
+      ).map((i) => i.name);
+      // Aucun index explicite : rien à redéfinir un jour, donc rien à perdre
+      // silencieusement (doctrine, règle 2 — un index existant ne se modifie
+      // JAMAIS, et le plus sûr est de n'en pas créer sans nécessité prouvée).
+      expect(index.filter((n) => !n.startsWith('sqlite_autoindex'))).toEqual([]);
+      // Et les index des VOISINS sont intacts : la table neuve n'a touché à rien.
+      const tous = (
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
+          name: string;
+        }>
+      ).map((i) => i.name);
+      expect(tous).toContain('idx_results_recent');
+      expect(tous).toContain('idx_results_balance');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('la table des verdicts arrive sur une base EXISTANTE, sans migration', () => {
+    // Même propriété que pour les index : le SCHEMA est rejoué au boot, la
+    // table manquante est créée, les données conservées. C'est toute la raison
+    // pour laquelle les Gardiennes n'ont pas ajouté une colonne à `results`.
+    const ancienDir = mkdtempSync(path.join(os.tmpdir(), 'hive-sans-gardiennes-'));
+    const anciennePath = path.join(ancienDir, 'hive.db');
+    const ancienne = new Database(anciennePath);
+    ancienne.exec(`
+      CREATE TABLE results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, taskId TEXT NOT NULL, nodeId TEXT NOT NULL,
+        success INTEGER NOT NULL, diff TEXT NOT NULL DEFAULT '', logs TEXT NOT NULL DEFAULT '',
+        durationMs INTEGER NOT NULL DEFAULT 0, subAgents TEXT NOT NULL DEFAULT '[]',
+        createdAt INTEGER NOT NULL);
+      INSERT INTO results (taskId, nodeId, success, createdAt) VALUES ('t', 'n', 1, 1);
+    `);
+    ancienne.close();
+    const migre = new HiveStore(anciennePath);
+    try {
+      expect(migre.countResults()).toBe(1); // rien n'a été perdu
+      expect(migre.countInspections()).toBe(0); // la table neuve est là, et vide
+      expect(migre.listInspections()).toEqual([]);
+    } finally {
+      migre.close();
+      rmSync(ancienDir, { recursive: true, force: true, maxRetries: 3 });
+    }
+  });
+
   it('la fenêtre thermique est servie par idx_events_ts (pas de scan du journal)', () => {
     const db = new Database(dbPath, { readonly: true });
     try {

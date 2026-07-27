@@ -7,6 +7,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
+import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
+import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -167,6 +169,58 @@ CREATE TABLE IF NOT EXISTS balance_ledger_cache (
   tentatives INTEGER NOT NULL,
   filigrane  INTEGER NOT NULL,
   version    INTEGER NOT NULL
+);
+
+-- Les Gardiennes — le contrôle d'entrée du nectar. UNE LIGNE PAR INSPECTION,
+-- écrite À LA RÉCEPTION du résultat (scheduler.handleTaskResult).
+--
+-- POURQUOI UNE TABLE, alors que la doctrine interdit d'écrire un calcul
+-- (règle 1) : parce que ce verdict N'EST PAS RECALCULABLE. pruneResults vide
+-- diff et logs au-delà de 5 000 résultats ; un verdict recalculé plus tard sur
+-- un diff élagué dirait « diff vide » de toutes les productions anciennes.
+-- Ce n'est donc pas un cache (rien ne peut le reconstruire), c'est un FAIT
+-- DATÉ — la seule catégorie d'écriture que la règle 1 n'a jamais visée.
+--
+-- POURQUOI PAS UNE COLONNE SUR results : l'y ajouter exigerait la première
+-- MIGRATION du dépôt, qui n'a aucun mécanisme pour ça (règle 2) — et le verrou
+-- de source de tests/security-invariants.test.ts l'interdit à la lettre. Le piège
+-- est pire qu'il n'en a l'air — ajouter une colonne au SELECT des phéromones
+-- ferait retomber SILENCIEUSEMENT toutes les bases en service hors de l'index
+-- couvrant idx_results_recent, car CREATE INDEX IF NOT EXISTS ne redéfinit PAS
+-- un index existant. Table NEUVE, index existants INTACTS — et aucun index
+-- ajouté ici : la seule lecture est un parcours ARRIÈRE de la clé primaire,
+-- borné par un LIMIT (plan prouvé dans tests/store-scaling.test.ts).
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME commit : pruneGardiennes, aligné sur
+-- EVENT_RETENTION et RESULT_RETENTION. Cette table-ci n'est PAS bornée par
+-- construction (elle grandit avec l'histoire), contrairement à budgets et à
+-- balance_ledger_cache : elle a donc un vrai élagueur, et il SUPPRIME (une
+-- ligne allégée de ses griefs ne dirait plus rien).
+--
+-- resultId : results.id de la production inspectée — le fait pointe sur sa
+--            pièce à conviction, tant qu'elle existe. Aucune clé étrangère :
+--            la table est écrite sur le chemin d'un résultat, et une contrainte
+--            violée y lèverait une exception pour protéger une trace.
+-- applique : 1 = le verdict a RÉELLEMENT refusé l'entrée (mode strict
+--            seulement). En consultatif, toujours 0 : on annote, on ne
+--            contraint pas. C'est ce qui rend les deux modes distinguables
+--            APRÈS COUP, sans quoi une campagne d'observation serait illisible.
+-- griefs   : JSON des griefs typés (codes anglais snake_case, chemins, comptes,
+--            extrait déjà neutralisé). AUCUN texte d'affichage : le bilingue
+--            est reconstruit à la lecture.
+-- version  : VERSION_GARDIENNES à l'inspection. Une v2 du barème cohabitera
+--            avec les lignes v1 sans migration ni corpus corrompu.
+CREATE TABLE IF NOT EXISTS gardiennes (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  resultId  INTEGER NOT NULL,
+  taskId    TEXT NOT NULL,
+  nodeId    TEXT NOT NULL,
+  verdict   TEXT NOT NULL,
+  score     INTEGER NOT NULL,
+  applique  INTEGER NOT NULL DEFAULT 0,
+  griefs    TEXT NOT NULL DEFAULT '[]',
+  version   INTEGER NOT NULL,
+  createdAt INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -367,6 +421,20 @@ export interface ProjectMember {
 
 /** Résultats allégés au maximum par passe : borne le coût d'un tick. */
 const LOT_ALLEGEMENT = 2_000;
+
+/**
+ * Relit les griefs d'une ligne de garde. Tolérant par conception : une ligne
+ * illisible (version future, base éditée à la main) vaut « aucun grief connu »,
+ * jamais une exception qui ferait tomber toute une page de lecture.
+ */
+function lireGriefs(brut: string): Grief[] {
+  try {
+    const lus: unknown = JSON.parse(brut);
+    return Array.isArray(lus) ? (lus as Grief[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 function rowToTask(row: TaskRow): Task {
   return {
@@ -765,8 +833,15 @@ export class HiveStore {
   }
 
   // ─── Résultats ─────────────────────────────────────────────────────────────
-  insertResult(res: TaskResult, now = Date.now()): void {
-    this.db
+  /**
+   * Range un résultat et rend son `results.id`. Le retour est ADDITIF (les
+   * appelants qui l'ignoraient continuent de compiler) : il sert aux Gardiennes
+   * à faire pointer leur verdict sur la production exacte qu'elles ont
+   * reniflée, plutôt que sur un couple (taskId, nodeId) qui se répète à chaque
+   * tentative.
+   */
+  insertResult(res: TaskResult, now = Date.now()): number {
+    const info = this.db
       .prepare(
         'INSERT INTO results (taskId, nodeId, success, diff, logs, durationMs, subAgents, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       )
@@ -780,6 +855,7 @@ export class HiveStore {
         JSON.stringify(res.subAgents.slice(0, LIMITS.subAgents)),
         now,
       );
+    return Number(info.lastInsertRowid);
   }
 
   resultsForTask(taskId: string): TaskResult[] {
@@ -1107,6 +1183,108 @@ export class HiveStore {
       .run(this.dernierResultatAllege, borne);
     this.dernierResultatAllege = borne;
     return info.changes;
+  }
+
+  // ─── Les Gardiennes : le contrôle d'entrée du nectar ───────────────────────
+  //
+  // Aucune de ces méthodes ne CALCULE quoi que ce soit : le verdict est produit
+  // par le module pur `gardiennes.ts` au moment de la réception du résultat, et
+  // seulement rangé ici. Ce qui est écrit n'est pas une vue dérivée mais un
+  // FAIT DATÉ, irrécupérable après l'élagage de `results` — voir le commentaire
+  // de la table, dans le SCHEMA.
+
+  /**
+   * Range le verdict d'une production, tel qu'il a été rendu à la RÉCEPTION.
+   * Jamais appelée en mode `off` : dans ce mode, rien n'est ni lu ni écrit, et
+   * la ruche est indiscernable de celle d'avant les Gardiennes.
+   */
+  enregistrerInspection(
+    entree: Omit<LigneGardienne, 'id' | 'createdAt'>,
+    now = Date.now(),
+  ): number {
+    const info = this.db
+      .prepare(
+        `INSERT INTO gardiennes (resultId, taskId, nodeId, verdict, score, applique, griefs, version, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        Math.max(0, Math.trunc(entree.resultId)),
+        entree.taskId,
+        entree.nodeId,
+        entree.verdict,
+        Math.max(0, Math.trunc(entree.score)),
+        entree.applique ? 1 : 0,
+        JSON.stringify(entree.griefs),
+        VERSION_GARDIENNES,
+        now,
+      );
+    return Number(info.lastInsertRowid);
+  }
+
+  /**
+   * Les N inspections les plus récentes (id décroissant), corpus BORNÉ — c'est
+   * la seule lecture de cette table, et elle sert une vue d'affichage, jamais
+   * une décision. Plan : parcours ARRIÈRE de la clé primaire, arrêté par le
+   * LIMIT ; aucun tri temporaire (verrouillé par tests/store-scaling.test.ts).
+   *
+   * Un `griefs` illisible (ligne écrite par une version future, base bricolée à
+   * la main) rend une liste VIDE plutôt qu'une exception : une page de lecture
+   * ne doit pas tomber parce qu'une ligne sur mille est étrange.
+   */
+  listInspections(limit = CORPUS_GARDIENNES): LigneGardienne[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, resultId, taskId, nodeId, verdict, score, applique, griefs, createdAt
+         FROM gardiennes ORDER BY id DESC LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(limit, 2_000))) as Array<{
+      id: number;
+      resultId: number;
+      taskId: string;
+      nodeId: string;
+      verdict: Verdict;
+      score: number;
+      applique: number;
+      griefs: string;
+      createdAt: number;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      resultId: r.resultId,
+      taskId: r.taskId,
+      nodeId: r.nodeId,
+      verdict: r.verdict,
+      score: r.score,
+      applique: r.applique === 1,
+      griefs: lireGriefs(r.griefs),
+      createdAt: r.createdAt,
+    }));
+  }
+
+  /** Nombre d'inspections rangées. */
+  countInspections(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM gardiennes').get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Ne conserve que les `maxKeep` inspections les plus récentes (par id) —
+   * BORNE D'ÉLAGAGE de la table, livrée dans le même commit qu'elle (doctrine,
+   * règle 3). Motif `pruneEvents` à la lettre, et pour la même raison : cette
+   * table croît avec l'histoire de la ruche.
+   *
+   * Elle SUPPRIME au lieu d'alléger, contrairement à `pruneResults` : une ligne
+   * de garde privée de ses griefs ne dit plus rien du tout (un verdict sans son
+   * motif n'est pas une trace, c'est une accusation), et elle ne sert aucune
+   * autre lecture — ni la Miellerie, ni le Parlement, ni les phéromones.
+   */
+  pruneGardiennes(maxKeep: number): number {
+    const dernier = this.db.prepare('SELECT MAX(id) AS id FROM gardiennes').get() as {
+      id: number | null;
+    };
+    const cutoff = (dernier.id ?? 0) - Math.max(0, maxKeep);
+    if (cutoff <= 0) return 0;
+    return this.db.prepare('DELETE FROM gardiennes WHERE id <= ?').run(cutoff).changes;
   }
 
   // ─── Journal d'événements ──────────────────────────────────────────────────
