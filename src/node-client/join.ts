@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
+import { optionBac, preparerBac } from './bac.js';
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
@@ -237,6 +238,25 @@ async function main(): Promise<void> {
     .filter(Boolean);
   const keepEnv = [...new Set([...agentCredentialEnv(detected.agent), ...extraKeep])];
 
+  // ─── Le bac à sable ────────────────────────────────────────────────────────
+  //
+  // Ce bloc n'existait PAS. Un nœud rejoint par un billet tournait donc
+  // toujours en sandbox de processus, jamais en conteneur — et
+  // `HIVE_ISOLEMENT=exige`, le réglage qu'on pose précisément quand on prête
+  // sa machine à des inconnus, y était sans le moindre effet.
+  //
+  // C'était le pire endroit possible pour ce trou : `join` est le chemin des
+  // AMIS, c'est-à-dire de gens qui n'ont pas lu `.env.example` et qui font
+  // confiance à celui qui leur a envoyé le billet. La décision passe
+  // maintenant par le même `bac.ts` que `main.ts` — un seul code, donc plus
+  // de dérive possible entre les deux chemins de démarrage.
+  const bac = await preparerBac();
+  for (const l of bac.lignes) console.log(l);
+  if (bac.refuse) {
+    console.error('✘ Ce nœud ne démarre pas.\n');
+    process.exit(1);
+  }
+
   const client = new HiveNodeClient({
     url,
     token: secret,
@@ -247,6 +267,7 @@ async function main(): Promise<void> {
     workRoot,
     nodeId,
     keepEnv,
+    ...optionBac(bac, keepEnv),
   });
 
   client.start();
