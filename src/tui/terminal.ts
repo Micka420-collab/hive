@@ -73,6 +73,62 @@ export function toucheDe(brut: string): Touche {
 }
 
 /**
+ * Découpe un tampon d'octets en touches, et rend ce qui reste incomplet.
+ *
+ * ─── LE BUG QUE CETTE FONCTION CORRIGE ───────────────────────────────────────
+ *
+ * Une flèche fait TROIS octets, et rien ne garantit qu'ils arrivent ensemble.
+ * Sur une liaison lente, en SSH, ou sous charge, `ESC` peut être livré seul,
+ * puis `[B` à la lecture suivante. `toucheDe('\x1b')` rendait « annuler » :
+ * l'installeur se FERMAIT au lieu de descendre d'une ligne, et la personne
+ * n'avait aucune idée de ce qui venait de se passer.
+ *
+ * Vérifié en vrai, pas supposé : sur un terminal simulé, une flèche envoyée en
+ * deux morceaux quittait l'installeur.
+ *
+ * La correction n'utilise PAS de minuterie — une minuterie rendrait le
+ * comportement dépendant de la charge de la machine, donc intestable et
+ * capricieux. Un `ESC` seul est simplement RETENU jusqu'à ce que la suite
+ * arrive : si elle complète une flèche, c'est une flèche ; sinon, c'est bien
+ * une annulation. Le prix est qu'Échap n'annule plus instantanément — mais
+ * `^C`, `^D` et « q » le font toujours, et une flèche qui marche vaut mieux
+ * qu'un raccourci qui gagne un dixième de seconde.
+ */
+export function decouper(tampon: string): { touches: Touche[]; reste: string } {
+  const touches: Touche[] = [];
+  let i = 0;
+  while (i < tampon.length) {
+    if (tampon[i] === '\x1b') {
+      const suite = tampon.slice(i, i + 3);
+      // Incomplet : on garde et on attend la suite.
+      if (suite.length < 2) break;
+      if ((suite[1] === '[' || suite[1] === 'O') && suite.length < 3) break;
+      if (suite[1] === '[' || suite[1] === 'O') {
+        const touche = toucheDe(suite);
+        // Une séquence reconnue est consommée ; une séquence inconnue
+        // (`ESC [ C`, `ESC [ 5 ~`…) est ignorée plutôt qu'interprétée au
+        // hasard — mais consommée, sinon elle bloquerait le tampon.
+        if (touche !== 'autre') touches.push(touche);
+        i += 3;
+        continue;
+      }
+      touches.push('annuler');
+      i += 1;
+      break;
+    }
+    const touche = toucheDe(tampon[i]!);
+    touches.push(touche);
+    i += 1;
+    // ON S'ARRÊTE À CE QUI TRANCHE. Le reste du tampon appartient à la
+    // question suivante, et doit lui parvenir TEL QUEL : le ré-encoder
+    // détruirait le texte (« ruche.exemple.fr » n'est pas une suite de
+    // touches de menu), ce qui faisait perdre les réponses saisies d'avance.
+    if (touche === 'entree' || touche === 'annuler') break;
+  }
+  return { touches, reste: tampon.slice(i) };
+}
+
+/**
  * Où va le curseur. Borné aux extrémités, sans rebouclage.
  *
  * Le rebouclage ferait sauter du dernier choix au premier sur une frappe de
@@ -142,6 +198,17 @@ export interface Terminal {
     options: readonly Option[],
     opts: { quoi: string; depart?: number; defautNonInteractif?: number },
   ) => Promise<number>;
+  /**
+   * Demande une ligne de texte (un domaine, un nom de projet).
+   *
+   * Même règle que `choisir` : hors terminal, soit un défaut DOCUMENTÉ, soit
+   * une erreur nommée. Une ligne vide vaut le défaut quand il y en a un —
+   * c'est ce qui permet de valider par ⏎ sans rien taper.
+   */
+  demander: (
+    question: string,
+    opts: { quoi: string; defaut?: string; obligatoire?: boolean },
+  ) => Promise<string>;
   /** Rend le terminal à son propriétaire. Idempotent. */
   restaurer: () => void;
 }
@@ -165,11 +232,31 @@ export function creerTerminal(opts: {
   entree: FluxEntree;
   sortie: FluxSortie;
   env?: Record<string, string | undefined>;
+  /**
+   * Comment lire une ligne. Injecté pour que `demander` se teste sans
+   * terminal ; par défaut, `node:readline/promises`, l'idiome déjà employé
+   * par `join.ts` et `cli.ts`.
+   */
+  lireLigne?: (question: string) => Promise<string>;
 }): Terminal {
   const { entree, sortie } = opts;
   const caps = capacites(opts.env ?? {}, { isTTY: sortie.isTTY, columns: sortie.columns });
   let brutActif = false;
   let curseurCache = false;
+
+  // ─── LE TAMPON EST PORTÉ PAR LE TERMINAL, PAS PAR LA QUESTION ──────────────
+  //
+  // Second défaut trouvé en lançant l'installeur pour de vrai : un terminal ne
+  // livre pas une touche à la fois. Une frappe rapide, un collage, ou une
+  // session pilotée par script arrivent en UN SEUL morceau —
+  // « \n\x1b[B\x1b[B\n » pour trois réponses. Tant que le tampon vivait dans
+  // `choisir`, tout ce qui suivait la touche de validation était JETÉ : la
+  // question suivante s'ouvrait sur un flux vide, puis prenait la fin de
+  // l'entrée pour une annulation.
+  //
+  // Le garder ici fait que les réponses déjà arrivées attendent la question
+  // qui les concerne.
+  let tampon = '';
 
   const restaurer = (): void => {
     if (brutActif) {
@@ -217,25 +304,37 @@ export function creerTerminal(opts: {
 
     try {
       return await new Promise<number>((resoudre, rejeter) => {
+        const traiter = (): boolean => {
+          const { touches, reste } = decouper(tampon);
+          tampon = reste;
+          for (const touche of touches) {
+            if (touche === 'annuler') {
+              rejeter(new Interrompu());
+              return true;
+            }
+            if (touche === 'entree') {
+              // `decouper` s'est arrêté ici : ce qui suit est déjà dans le
+              // tampon, intact, et attend la question suivante.
+              resoudre(index);
+              return true;
+            }
+            const suivant = deplacer(index, touche, options.length);
+            if (suivant !== index) {
+              index = suivant;
+              peindre(false);
+            }
+          }
+          return false;
+        };
+
         const surDonnee = (donnee: Buffer | string): void => {
-          const touche = toucheDe(donnee.toString('utf8'));
-          if (touche === 'annuler') {
-            entree.off('data', surDonnee);
-            rejeter(new Interrompu());
-            return;
-          }
-          if (touche === 'entree') {
-            entree.off('data', surDonnee);
-            resoudre(index);
-            return;
-          }
-          const suivant = deplacer(index, touche, options.length);
-          if (suivant !== index) {
-            index = suivant;
-            peindre(false);
-          }
+          tampon += donnee.toString('utf8');
+          if (traiter()) entree.off('data', surDonnee);
         };
         entree.on('data', surDonnee);
+        // Des réponses peuvent DÉJÀ être arrivées, livrées avec celles de la
+        // question précédente. Les traiter avant d'attendre quoi que ce soit.
+        if (traiter()) entree.off('data', surDonnee);
       });
     } finally {
       // La raison d'être de ce fichier : quoi qu'il arrive au-dessus — choix,
@@ -244,5 +343,56 @@ export function creerTerminal(opts: {
     }
   };
 
-  return { caps, ecrire, choisir, restaurer };
+  const lireLigne =
+    opts.lireLigne ??
+    (async (question: string): Promise<string> => {
+      const { createInterface } = await import('node:readline/promises');
+      const rl = createInterface({
+        input: entree as unknown as NodeJS.ReadableStream,
+        output: sortie as unknown as NodeJS.WritableStream,
+      });
+      try {
+        return await rl.question(question);
+      } finally {
+        // Même règle que le mode brut : ce qu'on ouvre, on le referme.
+        rl.close();
+      }
+    });
+
+  const demander = async (
+    question: string,
+    o: { quoi: string; defaut?: string; obligatoire?: boolean },
+  ): Promise<string> => {
+    if (!caps.interactif) {
+      if (o.defaut !== undefined) return o.defaut;
+      throw new ReponseManquante(o.quoi);
+    }
+    const invite = o.defaut ? `${question} [${o.defaut}] ` : `${question} `;
+    for (;;) {
+      // Une réponse peut déjà être dans le tampon, livrée en même temps que
+      // les précédentes. La consommer ici plutôt que de la jeter est ce qui
+      // rend l'assistant pilotable par un script.
+      const fin = tampon.search(/[\r\n]/);
+      if (fin >= 0) {
+        const ligne = tampon.slice(0, fin).trim();
+        tampon = tampon.slice(fin + 1);
+        sortie.write(invite + ligne + '\n');
+        if (ligne !== '') return ligne;
+        if (o.defaut !== undefined) return o.defaut;
+        if (!o.obligatoire) return '';
+        sortie.write('  (une réponse est nécessaire)\n');
+        continue;
+      }
+      const brut = (await lireLigne(invite)).trim();
+      if (brut !== '') return brut;
+      if (o.defaut !== undefined) return o.defaut;
+      // Obligatoire et vide : on redemande plutôt que d'inventer. Rendre une
+      // chaîne vide ferait porter la question au code appelant, qui la
+      // traiterait mal une fois sur deux.
+      if (!o.obligatoire) return '';
+      sortie.write('  (une réponse est nécessaire)\n');
+    }
+  };
+
+  return { caps, ecrire, choisir, demander, restaurer };
 }
