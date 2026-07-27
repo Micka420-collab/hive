@@ -167,6 +167,27 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
         </div>
       </div>
 
+      {/* CE QUE LA RUCHE FAIT DE CETTE DÉCISION — distinct du verdict, et
+          affiché juste dessous parce que c'est là qu'on le cherche. Sans ces
+          deux lignes, l'écran annoncerait « délibérer » sans que rien ne se
+          passe, et personne ne saurait s'il faut attendre ou s'inquiéter. */}
+      {etat.runner && etat.runner.mode !== 'on' && (
+        <p className="essaim-runner essaim-runner--eteint">
+          {t(
+            'L’autonomie réelle est éteinte sur cette ruche : la décision ci-dessus est calculée, mais rien ne s’exécute. L’hôte l’allume avec HIVE_RUNNER=on.',
+            'Real autonomy is switched off on this hive: the decision above is computed, but nothing runs. The host turns it on with HIVE_RUNNER=on.',
+          )}
+        </p>
+      )}
+      {etat.runner?.enPause && (
+        <p className="essaim-runner essaim-runner--pause">
+          {t(
+            `La ruche a renoncé à ce projet après ${etat.runner.echecs} échecs de suite. Réglez à nouveau l’autonomie ci-dessous pour la faire repartir.`,
+            `The hive gave up on this project after ${etat.runner.echecs} consecutive failures. Set the autonomy level again below to restart it.`,
+          )}
+        </p>
+      )}
+
       {/* La Dérive : ce qui rend une autonomie de plusieurs semaines
           défendable — la ruche sait reconnaître qu'elle se dégrade. Affichée
           AVANT les réglages : on ne propose pas de monter le niveau

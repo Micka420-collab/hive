@@ -394,8 +394,24 @@ export interface DeriveUi {
   motif: string;
 }
 
+/**
+ * Ce que le RUNNER fait de la décision — à ne pas confondre avec le verdict.
+ *
+ * OPTIONNEL : un orchestrateur d'avant le runner ne l'envoie pas. Absent, on
+ * n'affiche rien plutôt que d'affirmer « éteint », ce qui serait une
+ * information inventée.
+ */
+export interface RunnerUi {
+  mode: 'off' | 'on';
+  enPause: boolean;
+  echecs: number;
+  /** Fin du dernier cycle, ou `0` s'il n'a jamais tourné. */
+  dernierTourA: number;
+}
+
 export interface EtatEssaimUi {
   niveau: NiveauEssaim;
+  runner?: RunnerUi;
   derive: DeriveUi;
   decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;

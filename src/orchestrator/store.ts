@@ -1675,6 +1675,23 @@ export class HiveStore {
       .run(projectId, reglage.niveau, reglage.depotInscrit ? 1 : 0, definiPar, now);
   }
 
+  /**
+   * Projets dont l'autonomie n'est PAS éteinte, triés — le runner d'essaim les
+   * parcourt dans cet ordre, et un ordre instable rendrait son choix de projet
+   * imprévisible d'un tick à l'autre.
+   *
+   * BORNÉ PAR CONSTRUCTION : `essaim` est 1:1 avec `projects`, donc cette
+   * lecture ne croît pas avec l'histoire de la ruche. Même justification que
+   * `listBudgets` pour un `SELECT` sans `LIMIT`.
+   */
+  listProjetsAutonomes(): string[] {
+    return (
+      this.db
+        .prepare(`SELECT projectId FROM essaim WHERE niveau <> 'off' ORDER BY projectId`)
+        .all() as Array<{ projectId: string }>
+    ).map((r) => r.projectId);
+  }
+
   /** Réglage d'autonomie d'un projet. `null` si aucun — donc `off`. */
   getEssaim(projectId: string): {
     projectId: string;

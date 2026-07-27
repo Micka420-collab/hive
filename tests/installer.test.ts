@@ -110,6 +110,27 @@ describe('installation — ne JAMAIS écraser', () => {
     expect(r.find((x) => x.cle === 'HIVE_POLYETHISME')?.valeur).not.toBe('strict');
   });
 
+  it('L’AUTONOMIE RÉELLE EST ÉTEINTE À L’INSTALLATION', () => {
+    // Le seul réglage qui fait DÉPENSER sans qu'on regarde. Une ruche
+    // fraîchement installée ne se met pas au travail toute seule pendant la
+    // nuit — ce défaut-là n'est pas un choix de confort.
+    expect(composerReglages(new Map()).find((x) => x.cle === 'HIVE_RUNNER')?.valeur).toBe('off');
+  });
+
+  it('l’allumer est ANNONCÉ, pas glissé dans le fichier', () => {
+    // Un installeur qui se tait sur une configuration coûteuse a échoué même
+    // s'il s'est terminé sans erreur.
+    const dits = avertissements(
+      composerReglages(
+        new Map([
+          ['HIVE_TOKEN', 'un-jeton-bien-assez-long-pour-passer'],
+          ['HIVE_RUNNER', 'on'],
+        ]),
+      ),
+    );
+    expect(dits.some((d) => /HIVE_RUNNER/.test(d) && /seuls?/i.test(d))).toBe(true);
+  });
+
   it('HIVE_HTTP suit le port choisi', () => {
     const r = composerReglages(new Map([['HIVE_PORT', '4242']]));
     expect(r.find((x) => x.cle === 'HIVE_HTTP')?.valeur).toBe('http://localhost:4242');
