@@ -127,6 +127,61 @@ describe('index et plans de requête', () => {
     }
   });
 
+  // ─── La Balance : la table des plafonds (lot 3) ──────────────────────────
+  //
+  // `budgets` est la SEULE table nouvelle de la Balance, et la seule lecture
+  // sans `LIMIT` qu'elle ajoute. Ce qui l'autorise n'est pas une mesure de
+  // durée, c'est une propriété STRUCTURELLE : la table est 1:1 avec `projects`,
+  // donc sa taille ne croît pas avec l'histoire de la ruche. Ces deux tests
+  // prouvent le plan plutôt que de le décréter.
+
+  it('le plafond d’un projet est lu par CLÉ PRIMAIRE, jamais par un parcours', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const detail = plan(
+        db,
+        'SELECT projectId, plafondMs, version, definiPar, updatedAt FROM budgets WHERE projectId = ?',
+        'p',
+      );
+      expect(detail).toContain('SEARCH budgets');
+      expect(detail).not.toContain('SCAN budgets');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('la lecture de TOUS les plafonds ne trie rien : l’index de clé primaire suffit', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const detail = plan(
+        db,
+        'SELECT projectId, plafondMs, version, definiPar, updatedAt FROM budgets ORDER BY projectId',
+      );
+      // Le tri est celui de la clé primaire : aucun B-tree temporaire, aucun
+      // tri en mémoire — même sur une ruche à dix mille projets.
+      expect(detail).not.toContain('TEMP B-TREE');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('la porte n’ajoute AUCUNE lecture par tick : les plafonds sont mémoïsés', () => {
+    // Le chemin du tick ne doit gagner ni un SELECT non borné, ni une lecture
+    // par tâche prête. Preuve par comptage : dix ticks, une seule lecture.
+    const projet = store.createProject({ name: 'P' });
+    store.createTask({ id: 'T1', projectId: projet.id, title: 'T', prompt: 'x' });
+    store.setBudget(projet.id, 10_000_000, null, 1_000);
+    const scheduler = new Scheduler(store, { balance: { mode: 'strict' } });
+    let lectures = 0;
+    const vraie = store.listBudgets.bind(store);
+    store.listBudgets = () => {
+      lectures += 1;
+      return vraie();
+    };
+    for (let i = 0; i < 10; i++) scheduler.tick(2_000 + i);
+    expect(lectures).toBe(1);
+  });
+
   it('la fenêtre thermique est servie par idx_events_ts (pas de scan du journal)', () => {
     const db = new Database(dbPath, { readonly: true });
     try {
@@ -314,7 +369,14 @@ describe('lectures ciblées et élagage', () => {
     expect(absorbees()).toBe(arriere); // rien de neuf : le filigrane ne recule ni ne double
     expect(scheduler.balance.aJour).toBe(true);
     expect(scheduler.balance.soldes).toEqual([
-      { projectId: projet.id, depenseMs: arriere, tentatives: arriere },
+      {
+        projectId: projet.id,
+        depenseMs: arriere,
+        tentatives: arriere,
+        plafondMs: null,
+        etat: 'passe',
+        bloque: false,
+      },
     ]);
   });
 

@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
-import { CORPUS_BALANCE, LOT_GRAND_LIVRE } from './balance.js';
+import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -105,6 +105,35 @@ CREATE INDEX IF NOT EXISTS idx_results_recent
 -- corpus des phéromones (prouvé, même fichier de test).
 CREATE INDEX IF NOT EXISTS idx_results_balance
   ON results(id, taskId, nodeId, success, durationMs);
+
+-- Plafond de dépense par projet (la Balance — BORNER). Cette table stocke une
+-- INTENTION HUMAINE, jamais un calcul : rien de dérivé n'est écrit en base
+-- (doctrine, règle 1). Ligne ABSENTE = pas de plafond = comportement d'avant la
+-- Balance, à la virgule près. L'absence de ligne EST l'état « éteint » : pas de
+-- drapeau actif, pas de plafond nul déguisé.
+--
+-- PAS de pruneBudgets, JAMAIS (doctrine, règle 3). Cette table est 1:1 avec
+-- projects : elle est bornée PAR CONSTRUCTION, sa taille est celle du nombre de
+-- projets de la ruche, et aucune ligne ne peut y naître sans qu'un humain l'ait
+-- posée. Un élagage « par symétrie » avec pruneEvents ou pruneResults effacerait
+-- des intentions humaines encore en vigueur : ce serait un plafond qui se lève
+-- tout seul. Cette phrase est ici pour que personne n'en ajoute un dans trois
+-- ans.
+--
+-- version   : version de la SÉMANTIQUE du plafond au moment de la pose. Une v2
+--             (plafond glissant, plafond par fenêtre…) pourra cohabiter avec
+--             les lignes posées en v1, sans migration ni corpus corrompu.
+-- definiPar : userId de l'opérateur, NULLABLE dès le jour 1 — filtrer par
+--             opérateur plus tard coûtera une clause WHERE, jamais une
+--             modification de colonne. Ce n'est PAS une autorisation, c'est une
+--             trace : la garde reste le token du hub.
+CREATE TABLE IF NOT EXISTS budgets (
+  projectId TEXT PRIMARY KEY REFERENCES projects(id),
+  plafondMs INTEGER NOT NULL,
+  version   INTEGER NOT NULL DEFAULT 1,
+  definiPar TEXT,
+  updatedAt INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,6 +252,20 @@ function rowToResultatBalance(r: ResultatRow): ResultatBalance {
     success: r.success === 1,
     durationMs: r.durationMs,
   };
+}
+
+/**
+ * Plafond de dépense posé par un humain sur un projet. Ligne de la table
+ * `budgets`, rendue telle quelle : aucun calcul, aucune dérivation.
+ */
+export interface Budget {
+  projectId: string;
+  plafondMs: number;
+  /** Version de la sémantique du plafond au moment de la pose (VERSION_BALANCE). */
+  version: number;
+  /** userId de l'opérateur — une TRACE, jamais une autorisation. */
+  definiPar: string | null;
+  updatedAt: number;
 }
 
 interface EventRow {
@@ -816,6 +859,72 @@ export class HiveStore {
     return new Map(
       rows.map((r) => [r.projectId, { depenseMs: r.depenseMs, tentatives: r.tentatives }]),
     );
+  }
+
+  // ─── Budgets : les plafonds posés par des humains (la Balance — borner) ────
+  //
+  // Aucune de ces trois méthodes n'écrit ni ne lit un CALCUL : elles ne
+  // manipulent qu'une intention humaine, un entier et une trace d'opérateur.
+  // Le solde, lui, est un cache en mémoire reconstruit depuis `results` — il
+  // n'est jamais persisté (doctrine, règle 1).
+
+  /**
+   * Pose ou retire le plafond d'un projet. `plafondMs === null` SUPPRIME la
+   * ligne : l'absence de ligne est l'état « éteint », pas un drapeau — un
+   * projet sans plafond doit être indiscernable, en base comme à l'exécution,
+   * d'un projet d'avant la Balance.
+   *
+   * `definiPar` est une TRACE (qui a serré la vis), jamais une autorisation.
+   * Le plafond est borné à 0 : un plafond négatif n'a aucun sens, et la porte
+   * doit rester lisible (`0` = « ce projet ne dépense plus rien »).
+   */
+  setBudget(
+    projectId: string,
+    plafondMs: number | null,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    if (plafondMs === null) {
+      this.db.prepare('DELETE FROM budgets WHERE projectId = ?').run(projectId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO budgets (projectId, plafondMs, version, definiPar, updatedAt)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           plafondMs = excluded.plafondMs,
+           version   = excluded.version,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(projectId, Math.max(0, Math.trunc(plafondMs)), VERSION_BALANCE, definiPar, now);
+  }
+
+  /** Plafond d'un projet, ou `null` s'il n'en a pas. Lecture par clé primaire. */
+  getBudget(projectId: string): Budget | null {
+    const row = this.db
+      .prepare(
+        'SELECT projectId, plafondMs, version, definiPar, updatedAt FROM budgets WHERE projectId = ?',
+      )
+      .get(projectId) as Budget | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Tous les plafonds en vigueur, triés par projet (ordre stable, comme partout
+   * dans le dépôt). BORNÉ PAR CONSTRUCTION : `budgets` est 1:1 avec `projects`,
+   * donc cette lecture ne peut pas croître avec l'histoire de la ruche — c'est
+   * ce qui autorise un `SELECT` sans `LIMIT` ici, et nulle part ailleurs sur le
+   * chemin du tick. Le Scheduler la mémoïse en plus, et ne la relit qu'après un
+   * geste humain.
+   */
+  listBudgets(): Budget[] {
+    return this.db
+      .prepare(
+        'SELECT projectId, plafondMs, version, definiPar, updatedAt FROM budgets ORDER BY projectId',
+      )
+      .all() as Budget[];
   }
 
   /** Nombre de résultats stockés. */

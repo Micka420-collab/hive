@@ -8,6 +8,8 @@
 
 **🌐 [Découvrir Hive — le site vitrine](https://micka420-collab.github.io/hive/)**
 
+<sub>Le site vit dans `site/` et se déploie tout seul à chaque push sur `main`. Première mise en ligne : **Settings → Pages → Source : GitHub Actions**, puis relancer le workflow _Site_. (Sur un dépôt privé, Pages demande une offre payante ; sur un dépôt public, c'est gratuit.)</sub>
+
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -44,6 +46,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 | 🐜 **Phéromones**       | La ruche apprend **quel nœud réussit quel type de tâche** (api, ui, db, tests, docs, infra) et départage les ouvrières à charge égale. Signal évaporé en 7 jours. `/api/pheromones`, événement `pheromone_route`, carte dans l'Essaim.                       |
 | 🌡️ **Thermorégulation** | Quand les échecs s'accumulent, la ruche **ventile** : la concurrence par nœud baisse (×0,75 puis ×0,5) le temps de refroidir, avec hystérésis anti-clignotement. `/api/thermo`, événement `thermo_shift`, jauge dans Santé.                                  |
 | 👶 **Couveuse**         | Une tâche re-tentée repart avec les **leçons de ses échecs précédents**, injectées dans un bloc de données isolé des instructions (anti-injection de prompt). Événement `brood_context`.                                                                     |
+| ⚖️ **La Balance**       | Le pèse-ruche : **peser** (utile / reprise / échec / rebuté), **prévoir** (devis d'un DAG) et **borner** — plafond par projet, doublement opt-in : `HIVE_BALANCE=strict` **et** un plafond posé à la main. `/api/balance`.                                   |
 | 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                                                                                                                                                                     |
 | 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées. **Jamais de merge sans revue humaine.**                                                                                                                     |
 | 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex`, `hermes-agent`, `custom` — ou votre propre `AgentAdapter`.                                                                                                                                                         |
@@ -344,6 +347,16 @@ Avec un `repoUrl`, le nœud clone le dépôt et travaille sur la branche
 > au réseau. D'ici la vraie isolation (VM/conteneur + réseau filtré), ne faites
 > tourner Hive qu'entre **membres de confiance**, et laissez `HIVE_AGENT=shell`
 > simulé partout ailleurs.
+
+> **Limite assumée (le plafond de la Balance)** : le plafond de dépense **n'est
+> PAS une frontière de sécurité**. `durationMs` est une donnée **déclarée par
+> l'agent** — un nœud hostile peut annoncer 24 h par résultat et étrangler un
+> projet à lui seul. Le plafond protège d'un **emballement**, jamais d'un
+> **adversaire** ; le mot « plafond » promet l'inverse, d'où cette phrase. Le
+> blocage est doublement opt-in (`HIVE_BALANCE=strict` **et** un plafond posé à
+> la main sur le projet), les tâches en vol vont à leur terme, les autres projets
+> continuent, et le déblocage est un **geste humain explicite** — exactement
+> comme le merge.
 
 ## 🔄 Modèle de données & cycle de vie
 

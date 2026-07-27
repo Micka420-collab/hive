@@ -74,6 +74,13 @@ const PHEROMONES_TTL_MS = 3_000;
  */
 const BALANCE_TTL_MS = 3_000;
 
+/**
+ * Plafond maximal acceptable : dix ans de temps machine, en millisecondes.
+ * Au-delà, ce n'est plus un budget mais une faute de frappe — et un entier
+ * absurde n'a rien à faire en base. Borne de saisie, pas de sécurité.
+ */
+const PLAFOND_MAX_MS = 10 * 365 * 24 * 3_600_000;
+
 /** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
 const MERGE_TIMEOUT_MS = 10 * 60_000;
 
@@ -503,8 +510,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   await app.register(cors, {
     origin: config.corsOrigins,
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['content-type', 'x-hive-token'],
+    // `PUT` : poser un plafond de dépense est une MODIFICATION d'une ressource
+    // existante et idempotente — le seul verbe honnête. Sans lui ici, le
+    // pré-vol du navigateur refuserait la requête du dashboard.
+    methods: ['GET', 'POST', 'PUT'],
+    allowedHeaders: ['content-type', 'x-hive-token', 'authorization'],
   });
 
   // Limitation de débit des routes /api par IP (fenêtre glissante) : défense en
@@ -836,6 +846,121 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       fenetre: CORPUS_BALANCE,
     };
   });
+
+  /** Solde neutre d'un projet qui n'a encore rien dépensé et n'a pas de plafond. */
+  const soldeVide = (
+    projectId: string,
+  ): (typeof scheduler.balance)['soldes'][number] & { projectId: string } => ({
+    projectId,
+    depenseMs: 0,
+    tentatives: 0,
+    plafondMs: null,
+    etat: 'passe',
+    bloque: false,
+  });
+
+  // La Balance d'UN projet : sa tranche de pesée, son solde, et surtout
+  // l'intention humaine qui le borne — plafond, verdict appliqué, qui l'a posé
+  // et quand. C'est la réponse DURABLE à « pourquoi ce projet ne part-il
+  // plus ? » : cette question ne doit pas dépendre d'un journal élagué à 5 000
+  // événements. Un projet bloqué se lit dans l'état, pas seulement dans
+  // l'histoire.
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/balance',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const balance = scheduler.balance;
+      const solde = balance.soldes.find((s) => s.projectId === project.id) ?? soldeVide(project.id);
+      const budget = store.getBudget(project.id);
+      return {
+        version: VERSION_BALANCE,
+        mode: balance.mode,
+        aJour: balance.aJour,
+        ...solde,
+        /** Trace de l'opérateur (jamais une autorisation) et date de la pose. */
+        definiPar: budget?.definiPar ?? null,
+        updatedAt: budget?.updatedAt ?? null,
+        /** Imputation de ce projet sur la fenêtre bornée — `null` s'il n'y figure pas. */
+        compte: peser().parProjet.find((p) => p.projectId === project.id) ?? null,
+        fenetre: CORPUS_BALANCE,
+      };
+    },
+  );
+
+  // Poser (ou retirer) le plafond de dépense d'un projet. C'est le SEUL geste
+  // qui peut arrêter la ruche pour cause d'économie, et le seul qui peut la
+  // redémarrer : le déblocage est HUMAIN et EXPLICITE, exactement symétrique de
+  // l'invariant du merge. La ruche ne se ré-autorise jamais elle-même à
+  // dépenser.
+  //
+  // `plafondMs: null` retire le plafond (la ligne est supprimée) : le projet
+  // redevient rigoureusement indiscernable d'un projet d'avant la Balance.
+  app.put<{ Params: { projectId: string }; Body: { plafondMs: number | null } }>(
+    '/api/projects/:projectId/balance',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['plafondMs'],
+          additionalProperties: false,
+          properties: {
+            // `null` = pas de plafond ; 0 = « ce projet ne dépense plus rien ».
+            // Un plafond négatif n'a aucun sens et est refusé par le schéma.
+            plafondMs: { type: ['integer', 'null'], minimum: 0, maximum: PLAFOND_MAX_MS },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      // `definiPar` est une TRACE (qui a serré la vis), jamais une
+      // autorisation : la garde reste le token du hub. Si un Bearer JWT valide
+      // accompagne la requête, on sait QUI ; sinon `null`, et c'est très bien.
+      const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      // Le geste humain est journalisé AVANT d'être appliqué : `setPlafond`
+      // relance l'assignation dans la foulée et peut donc émettre un
+      // `balance_seuil` immédiat. Dans l'autre ordre, la Chronique montrerait
+      // la conséquence avant la cause — « seuil franchi » puis « plafond
+      // posé » —, ce qui est illisible précisément dans le cas intéressant.
+      // Faits typés uniquement : aucune phrase n'est persistée, le Journal
+      // reconstruit le bilingue depuis ces champs.
+      emitEvent('balance_plafond', {
+        projectId: project.id,
+        plafondMs: req.body.plafondMs,
+        ...(definiPar ? { definiPar } : {}),
+      });
+      scheduler.setPlafond(project.id, req.body.plafondMs, definiPar);
+      const balance = scheduler.balance;
+      const solde = balance.soldes.find((s) => s.projectId === project.id) ?? soldeVide(project.id);
+      const budget = store.getBudget(project.id);
+      return {
+        version: VERSION_BALANCE,
+        mode: balance.mode,
+        aJour: balance.aJour,
+        ...solde,
+        definiPar: budget?.definiPar ?? null,
+        updatedAt: budget?.updatedAt ?? null,
+      };
+    },
+  );
 
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
     '/api/projects',

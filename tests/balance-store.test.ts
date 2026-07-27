@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { VERSION_BALANCE } from '../src/orchestrator/balance.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { TaskResult } from '../src/shared/types.js';
 
@@ -144,6 +145,93 @@ describe('HiveStore — corpus de la Balance', () => {
   });
 });
 
+describe('HiveStore — budgets : l’intention humaine (la Balance, borner)', () => {
+  let store: HiveStore;
+
+  beforeEach(() => {
+    store = new HiveStore(':memory:');
+  });
+
+  afterEach(() => store.close());
+
+  it('T4 — setBudget / getBudget / listBudgets, et `null` SUPPRIME la ligne', () => {
+    const p1 = store.createProject({ name: 'P1' });
+    const p2 = store.createProject({ name: 'P2' });
+
+    // Aucun plafond : l'absence de ligne EST l'état « éteint ».
+    expect(store.getBudget(p1.id)).toBeNull();
+    expect(store.listBudgets()).toEqual([]);
+
+    store.setBudget(p1.id, 60_000, 'utilisatrice-1', 1_000);
+    store.setBudget(p2.id, 5_000, null, 2_000);
+    expect(store.getBudget(p1.id)).toEqual({
+      projectId: p1.id,
+      plafondMs: 60_000,
+      version: VERSION_BALANCE,
+      definiPar: 'utilisatrice-1',
+      updatedAt: 1_000,
+    });
+    // `definiPar` null est un cas normal (token du hub sans JWT), pas une erreur.
+    expect(store.getBudget(p2.id)?.definiPar).toBeNull();
+    expect(
+      store
+        .listBudgets()
+        .map((b) => b.projectId)
+        .sort(),
+    ).toEqual([p1.id, p2.id].sort());
+
+    // Ré-écriture : la ligne est remplacée, pas dupliquée (clé primaire).
+    store.setBudget(p1.id, 90_000, null, 3_000);
+    expect(store.listBudgets()).toHaveLength(2);
+    expect(store.getBudget(p1.id)).toMatchObject({
+      plafondMs: 90_000,
+      definiPar: null,
+      updatedAt: 3_000,
+    });
+
+    // Retrait : la LIGNE disparaît. Pas de drapeau, pas de plafond nul déguisé —
+    // un projet sans plafond doit être indiscernable, en base, d'un projet
+    // d'avant la Balance.
+    store.setBudget(p1.id, null, 'utilisatrice-1', 4_000);
+    expect(store.getBudget(p1.id)).toBeNull();
+    expect(store.listBudgets().map((b) => b.projectId)).toEqual([p2.id]);
+    // Retirer deux fois ne casse rien.
+    store.setBudget(p1.id, null, null, 5_000);
+    expect(store.listBudgets()).toHaveLength(1);
+  });
+
+  it('T4 — un plafond négatif est ramené à 0, jamais stocké tel quel', () => {
+    const p = store.createProject({ name: 'P' });
+    store.setBudget(p.id, -42, null, 1_000);
+    expect(store.getBudget(p.id)?.plafondMs).toBe(0);
+    // 0 est un plafond LÉGITIME : « ce projet ne dépense plus rien ».
+    expect(store.listBudgets()).toHaveLength(1);
+  });
+
+  it('T4 — listBudgets est trié par projet : un ordre stable, comme partout ailleurs', () => {
+    const ids = ['c', 'a', 'b'].map((n) => {
+      const p = store.createProject({ name: n });
+      store.setBudget(p.id, 1_000, null, 1_000);
+      return p.id;
+    });
+    expect(store.listBudgets().map((b) => b.projectId)).toEqual([...ids].sort());
+  });
+
+  it('la table `budgets` n’a AUCUN élagage — et ne doit jamais en avoir', () => {
+    // Doctrine, règle 3 : bornée par construction (1:1 avec `projects`), donc
+    // pas de `pruneBudgets`. Élaguer effacerait des intentions humaines encore
+    // en vigueur : ce serait un plafond qui se lève tout seul.
+    expect((store as unknown as Record<string, unknown>).pruneBudgets).toBeUndefined();
+    const p = store.createProject({ name: 'P' });
+    store.setBudget(p.id, 1_000, null, 1_000);
+    // Les élagages voisins passent sans toucher au plafond.
+    store.pruneEvents(0);
+    store.pruneMemories(0);
+    store.pruneResults(0);
+    expect(store.getBudget(p.id)).toMatchObject({ plafondMs: 1_000 });
+  });
+});
+
 describe('HiveStore — l’index de la Balance arrive sans migration', () => {
   it('T7 — une base ANTÉRIEURE gagne idx_results_balance, et deux ouvertures sont idempotentes', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-balance-ancienne-'));
@@ -190,13 +278,17 @@ describe('HiveStore — l’index de la Balance arrive sans migration', () => {
         expect(noms).toContain('idx_results_task');
         // Un seul index de Balance, pas un par ouverture.
         expect(noms.filter((n) => n === 'idx_results_balance')).toHaveLength(1);
-        // Et AUCUNE table n'a été ajoutée par ce lot (doctrine, règle 3).
+        // `budgets` arrive elle aussi sans migration : une base antérieure la
+        // gagne à l'ouverture, une seule fois, et la SEULE table nouvelle de
+        // toute la Balance (doctrine, règle 3 — bornée par construction, 1:1
+        // avec `projects`, donc sans élagage).
         const tables = (
           inspection.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
             name: string;
           }>
         ).map((t) => t.name);
-        expect(tables).not.toContain('budgets');
+        expect(tables).toContain('budgets');
+        expect(tables.filter((t) => t === 'budgets')).toHaveLength(1);
       } finally {
         inspection.close();
       }
