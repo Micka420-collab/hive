@@ -2,6 +2,7 @@
 // Règle absolue (§5.1) : spawn(bin, argv, { shell: false }) — jamais shell:true.
 
 import { spawn } from 'node:child_process';
+import { envelopper } from '../node-client/isolement.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
 
@@ -37,8 +38,23 @@ export function runCommand(
   ctx: AdapterContext,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<AdapterResult> {
+  // ISOLEMENT. Si le nœud a trouvé un moteur de conteneurs, la commande de
+  // l'agent est enveloppée dedans AVANT le spawn : c'est le seul endroit où
+  // un agent est lancé, donc le seul endroit où l'oubli serait total.
+  //
+  // `cwd` reste celui de l'hôte : c'est lui qu'on monte, et c'est aussi lui
+  // que `collectDiff()` relira après coup. L'enveloppe ne déplace rien, elle
+  // restreint ce que le processus voit.
+  const lance = ctx.bac
+    ? envelopper(bin, args, {
+        fournisseur: ctx.bac.fournisseur,
+        cwdHote: ctx.cwd,
+        variables: ctx.bac.variables,
+      })
+    : { bin, args };
+
   return new Promise((resolve) => {
-    const child = spawn(bin, args, {
+    const child = spawn(lance.bin, lance.args, {
       cwd: ctx.cwd,
       env: ctx.env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
@@ -98,8 +114,18 @@ export function runCommandStreaming(
   onLine: (line: string) => void,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<AdapterResult> {
+  // Même enveloppe que `runCommand` : sans elle, l'isolement sauterait dès
+  // qu'un agent parle en flux, c'est-à-dire pour le plus courant d'entre eux.
+  const lance = ctx.bac
+    ? envelopper(bin, args, {
+        fournisseur: ctx.bac.fournisseur,
+        cwdHote: ctx.cwd,
+        variables: ctx.bac.variables,
+      })
+    : { bin, args };
+
   return new Promise((resolve) => {
-    const child = spawn(bin, args, {
+    const child = spawn(lance.bin, lance.args, {
       cwd: ctx.cwd,
       env: ctx.env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)

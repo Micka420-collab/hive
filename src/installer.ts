@@ -118,6 +118,14 @@ export function composerReglages(
         'Contrôle d’entrée des productions : off | consultatif | strict. Le défaut observe sans rien refuser.',
     },
     {
+      cle: 'HIVE_ISOLEMENT',
+      valeur: garde('HIVE_ISOLEMENT', 'auto'),
+      commentaire:
+        'Bac à sable des agents : off | auto | exige. « auto » utilise podman/docker/bubblewrap ' +
+        's’il y en a un, sinon travaille quand même en le disant. « exige » refuse de travailler ' +
+        'sans bac à sable — c’est le réglage à choisir si vous prêtez votre machine à des inconnus.',
+    },
+    {
       cle: 'HIVE_POLYETHISME',
       valeur: garde('HIVE_POLYETHISME', 'consignes'),
       commentaire:

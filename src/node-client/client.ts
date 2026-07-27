@@ -18,6 +18,7 @@ import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge } from './merge-runner.js';
 import { cloneRepo, prepareWorkspace } from './workspace.js';
+import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
 
 export interface NodeClientOptions {
@@ -39,6 +40,14 @@ export interface NodeClientOptions {
   nodeId?: string;
   /** Coupe les logs console (tests). */
   quiet?: boolean;
+  /**
+   * Bac à sable résolu par l'appelant (main.ts), ou absent.
+   *
+   * INJECTÉ plutôt que sondé ici : la sonde lance un binaire, et un test de
+   * nœud n'a pas à découvrir podman sur la machine de qui fait tourner la
+   * suite. C'est le même motif que `adapter`.
+   */
+  bac?: { fournisseur: Fournisseur; variables: readonly string[] };
 }
 
 /**
@@ -314,6 +323,7 @@ export class HiveNodeClient {
         env: workspace.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
+        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
         onProgress: (p) => {
           this.send({
             type: 'task_update',
