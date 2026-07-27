@@ -43,15 +43,21 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
-      # Pré-vol : sans lui, un dépôt dont Pages n'est pas activé échoue plus
-      # loin sur une erreur d'API illisible. Ici, le message dit quoi faire.
-      - name: Vérifier que Pages est activé
+      # Pré-vol. DEUX vérifications, et la seconde est la plus importante.
+      #
+      # 1. Pages est-il activé ? Sans ça, le déploiement échoue plus loin sur une
+      #    erreur d'API illisible.
+      # 2. Sa SOURCE est-elle « GitHub Actions » ? C'est le piège qui a coûté le
+      #    plus cher : avec la source par défaut (« Deploy from a branch »),
+      #    GitHub sert le README rendu par Jekyll. Le site répond alors HTTP 200
+      #    avec le MAUVAIS contenu — donc personne ne remarque l'erreur, et ce
+      #    workflow peut même se croire vert. Un échec silencieux est pire qu'un
+      #    échec bruyant : on le corrige des semaines plus tard.
+      - name: Vérifier que Pages est activé, et sur la bonne source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api "repos/${{ github.repository }}/pages" --silent 2>/dev/null; then
-            echo "✅ GitHub Pages est activé sur ce dépôt."
-          else
+          if ! pages=$(gh api "repos/${{ github.repository }}/pages" 2>/dev/null); then
             {
               echo "## 🐝 Le site n'a pas pu être déployé"
               echo
@@ -69,9 +75,32 @@ jobs:
               echo "> (Pro / Team / Enterprise). Rendre le dépôt **public** suffit"
               echo "> sinon — la vitrine est faite pour être vue."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error title=GitHub Pages non activé::Settings → Pages → Source : GitHub Actions, puis relancer ce workflow. Détails dans le résumé du run."
+            echo "::error title=GitHub Pages non activé::Settings → Pages → Source : GitHub Actions, puis relancer ce workflow."
             exit 1
           fi
+
+          build_type=$(echo "$pages" | jq -r '.build_type // "legacy"')
+          if [ "$build_type" != "workflow" ]; then
+            {
+              echo "## 🐝 Pages est activé, mais il ne sert PAS cette vitrine"
+              echo
+              echo "Source actuelle : \`$build_type\` (« Deploy from a branch »)."
+              echo
+              echo "Avec ce réglage, GitHub publie le **README rendu par Jekyll** à la place"
+              echo "de \`site/index.html\`. Le site répond bien en HTTP 200 — avec le mauvais"
+              echo "contenu. C'est pour cela que ce contrôle existe : sans lui, l'erreur"
+              echo "passe inaperçue."
+              echo
+              echo "### Le geste à faire"
+              echo
+              echo "1. **Settings → Pages → Build and deployment**"
+              echo "2. **Source** : passer de « Deploy from a branch » à **GitHub Actions**"
+              echo "3. Relancer ce workflow"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Source Pages incorrecte::Source « $build_type » : GitHub sert le README, pas la vitrine. Settings → Pages → Source : GitHub Actions."
+            exit 1
+          fi
+          echo "✅ Pages activé, source « workflow » — la vitrine sera bien servie."
 
       - name: Configurer Pages
         uses: actions/configure-pages@v5
