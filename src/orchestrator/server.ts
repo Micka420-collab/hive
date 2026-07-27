@@ -48,6 +48,24 @@ import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
+  ECHECS_COMPTE,
+  ECHECS_IP,
+  FENETRE_MS,
+  ROLES,
+  cleCompte,
+  compteurVide,
+  echec,
+  etatInscription,
+  inscriptionPermise,
+  jugerMotDePasse,
+  modeInscriptionDepuisEnv,
+  peut,
+  peutChangerRole,
+  roleALaCreation,
+  tentativeAutorisee,
+} from './comptes.js';
+import type { Compteur, Role } from './comptes.js';
+import {
   ETATS,
   PLANS,
   appliquerEvenement,
@@ -785,6 +803,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     h.count += 1;
   }
 
+  // Mode d'inscription, lu une fois. `ouverte` par défaut : une ruche qui
+  // démarre est vide, et le premier geste est de créer le compte de l'hôte.
+  const modeInscription = modeInscriptionDepuisEnv();
+
+  // ─── La porte d'entrée : anti-force-brute sur /api/auth/login ─────────────
+  //
+  // `/api/auth/login` vérifie un mot de passe par PBKDF2 — 100 000 itérations,
+  // ~50 ms de CPU. Sous la seule limite globale (400 requêtes / 10 s), cela
+  // faisait 2 400 essais de mot de passe par minute ET 20 SECONDES de CPU par
+  // fenêtre de 10 s. C'est exactement le déni de service que `/api/rejoindre`
+  // documente et borne déjà ; il manquait sur la porte principale.
+  //
+  // DEUX compteurs, parce qu'ils attrapent des attaques différentes et que
+  // chacun seul laisse passer l'autre (cf. comptes.ts) : par COMPTE contre
+  // l'attaque distribuée, par IP contre la pulvérisation d'un mot de passe sur
+  // mille comptes.
+  const echecsCompte = new Map<string, Compteur>();
+  const echecsIp = new Map<string, Compteur>();
+
+  /** Purge opportuniste — sans elle, une fuite mémoire lente sur un hub exposé. */
+  const purger = (m: Map<string, Compteur>, now: number): void => {
+    if (m.size <= 10_000) return;
+    for (const [k, v] of m) {
+      if (v.verrouJusqua <= now && (v.depuis === 0 || now - v.depuis >= FENETRE_MS)) m.delete(k);
+    }
+  };
+
+  const noterEchecConnexion = (cle: string, ip: string, now: number): void => {
+    echecsCompte.set(cle, echec(echecsCompte.get(cle) ?? compteurVide(), now, ECHECS_COMPTE));
+    echecsIp.set(ip, echec(echecsIp.get(ip) ?? compteurVide(), now, ECHECS_IP));
+    purger(echecsCompte, now);
+    purger(echecsIp, now);
+  };
+
   /** Ce dont le Conseil a besoin du monde. Un seul endroit qui écrit. */
   const depConseil: DependancesConseil = {
     store,
@@ -898,18 +950,32 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     async (req, reply) => {
       const { email, password, displayName } = req.body;
       if (!isValidEmail(email)) return reply.status(400).send({ error: 'Email invalide' });
-      if (!password || password.length < 8)
-        return reply.status(400).send({ error: 'Mot de passe trop court (min 8 caractères)' });
+
+      // L'inscription peut être fermée ou sur invitation. Le PREMIER compte
+      // passe toujours : sinon une ruche installée en « fermée » serait
+      // définitivement inutilisable, sans moyen de créer son administrateur.
+      const comptes = store.countUsers();
+      const porte = inscriptionPermise({ mode: modeInscription, comptesExistants: comptes });
+      if (!porte.permise) return reply.status(403).send({ error: porte.motif });
+
+      const force = jugerMotDePasse(password);
+      if (!force.accepte) return reply.status(400).send({ error: force.motif });
       if (!displayName || displayName.length < 2)
         return reply.status(400).send({ error: 'Nom trop court' });
       if (store.getUserByEmail(email))
         return reply.status(409).send({ error: 'Email déjà utilisé' });
+
       const user = store.createUser({
         email,
         passwordHash: hashPassword(password),
         displayName,
       });
-      return { token: signJwt(user.id, user.email) };
+      // LE PREMIER COMPTE EST ADMIN. C'est la seule amorce qui ne demande ni
+      // mot de passe par défaut, ni variable d'environnement, ni route
+      // secrète : celui qui installe la ruche est celui qui l'administre.
+      const role = roleALaCreation(comptes);
+      store.setRole(user.id, role, 'amorçage');
+      return { token: signJwt(user.id, user.email), role };
     },
   );
 
@@ -930,10 +996,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const { email, password } = req.body;
+      const now = Date.now();
+      const cle = cleCompte(email);
+
+      // AVANT le PBKDF2, et c'est tout l'intérêt : un verrou qui ne
+      // s'appliquerait qu'après le calcul ne protégerait ni le mot de passe
+      // ni le CPU du hub.
+      const porte = tentativeAutorisee(
+        echecsCompte.get(cle) ?? compteurVide(),
+        echecsIp.get(req.ip) ?? compteurVide(),
+        now,
+      );
+      if (!porte.autorisee) {
+        return reply
+          .status(429)
+          .header('retry-after', String(Math.ceil(porte.attendreMs / 1000)))
+          .send({ error: porte.motif });
+      }
+
       const user = store.getUserByEmail(email);
-      if (!user || !verifyPassword(password, user.passwordHash))
+      // MÊME réponse, qu'on ne connaisse pas l'email ou que le mot de passe
+      // soit faux : distinguer les deux offrirait un annuaire des inscrits.
+      if (!user || !verifyPassword(password, user.passwordHash)) {
+        noterEchecConnexion(cle, req.ip, now);
         return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
-      return { token: signJwt(user.id, user.email) };
+      }
+      // Une réussite efface l'ardoise : quelqu'un qui finit par se souvenir de
+      // son mot de passe ne doit pas rester à un essai du verrou.
+      echecsCompte.delete(cle);
+      return { token: signJwt(user.id, user.email), role: store.getRole(user.id) };
     },
   );
 
@@ -943,7 +1034,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const user = store.getUserById(userId);
     if (!user) return reply.status(404).send({ error: 'Utilisateur introuvable' });
     const { passwordHash: _passwordHash, ...publicUser } = user;
-    return publicUser;
+    return { ...publicUser, role: store.getRole(user.id) };
   });
 
   // Génère une invitation à envoyer à un ami : elle encode l'URL WS publique + le
@@ -1730,6 +1821,87 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     });
     return { applique: true, etat: suivant.etat, heures: d.heures };
   });
+
+  // ─── L'administration des comptes ─────────────────────────────────────────
+  //
+  // Toutes ces routes exigent un COMPTE (JWT), pas seulement le jeton de ruche.
+  // La distinction compte : le jeton de ruche est partagé avec chaque nœud
+  // membre — s'en servir comme preuve d'administration donnerait les pleins
+  // pouvoirs à toute machine qui butine.
+
+  /** Le rôle de l'appelant, ou `null` s'il n'est pas authentifié en tant que compte. */
+  const roleDe = (req: FastifyRequest): { userId: string; role: Role } | null => {
+    if (!authorizedUser(req)) return null;
+    const userId = (req as AuthRequest).userId;
+    if (!userId) return null;
+    const brut = store.getRole(userId);
+    return { userId, role: ROLES.includes(brut as Role) ? (brut as Role) : 'membre' };
+  };
+
+  /** Garde d'action. Rend l'appelant, ou répond et rend `null`. */
+  const exige = (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    action: Parameters<typeof peut>[1],
+  ): { userId: string; role: Role } | null => {
+    const moi = roleDe(req);
+    if (!moi) {
+      void reply.status(401).send({ error: 'Non authentifié' });
+      return null;
+    }
+    if (!peut(moi.role, action)) {
+      // 403 et pas 404 : l'utilisateur EST authentifié, la ressource existe,
+      // et lui faire croire le contraire ne protégerait rien tout en le
+      // laissant chercher une panne inexistante.
+      void reply.status(403).send({ error: 'Action réservée aux administrateurs' });
+      return null;
+    }
+    return moi;
+  };
+
+  app.get('/api/admin/membres', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_membres')) return reply;
+    return {
+      membres: store.listUsersWithRoles(),
+      admins: store.countAdmins(),
+      inscription: etatInscription(modeInscription, store.countUsers()),
+    };
+  });
+
+  app.put<{ Params: { userId: string }; Body: { role: Role } }>(
+    '/api/admin/membres/:userId/role',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['role'],
+          additionalProperties: false,
+          properties: { role: { type: 'string', enum: [...ROLES] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'changer_role');
+      if (!moi) return reply;
+      if (!store.getUserById(req.params.userId)) {
+        return reply.status(404).send({ error: 'Compte introuvable' });
+      }
+      const verdict = peutChangerRole({
+        auteur: moi.role,
+        auteurId: moi.userId,
+        cibleId: req.params.userId,
+        nouveauRole: req.body.role,
+        admins: store.countAdmins(),
+      });
+      if (!verdict.autorise) return reply.status(409).send({ error: verdict.motif });
+
+      store.setRole(req.params.userId, req.body.role, moi.userId);
+      // Faits typés seulement — jamais l'email, qui identifie une personne
+      // dans un journal que tout membre de la ruche peut lire.
+      emitEvent('role_changed', { userId: req.params.userId, role: req.body.role });
+      return { userId: req.params.userId, role: req.body.role };
+    },
+  );
 
   // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
 

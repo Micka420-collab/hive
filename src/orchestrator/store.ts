@@ -421,6 +421,23 @@ CREATE TABLE IF NOT EXISTS users (
   createdAt    INTEGER NOT NULL
 );
 
+-- Le role d'un compte. TABLE LATERALE, pas une colonne de plus sur « users »
+-- (regle 2 : aucune migration). Une base deja en service ne verrait jamais
+-- une colonne ajoutee apres coup a une table existante.
+--
+-- UNE INTENTION HUMAINE : le premier compte est admin, les suivants sont
+-- membres, et seul un admin change un role. Rien ici ne naît d'un calcul.
+--
+-- BORNE STRUCTURELLE (regle 3), comme « budgets » : une ligne par compte. Pas
+-- d'elagueur, et il ne faut jamais en ajouter — effacer la ligne du dernier
+-- admin rendrait la ruche inadministrable, sans moyen de revenir en arriere.
+CREATE TABLE IF NOT EXISTS user_roles (
+  userId  TEXT PRIMARY KEY REFERENCES users(id),
+  role    TEXT NOT NULL,
+  poseA   INTEGER NOT NULL,
+  posePar TEXT
+);
+
 CREATE TABLE IF NOT EXISTS project_members (
   projectId TEXT NOT NULL REFERENCES projects(id),
   userId    TEXT NOT NULL REFERENCES users(id),
@@ -1415,6 +1432,66 @@ export class HiveStore {
   // ─── Les abonnements : un droit, jamais un moyen de paiement ───────────────
 
   /** Range l'etat d'un abonnement. Aucun champ ne porte de donnee de carte. */
+  // ─── Les roles : qui administre la ruche ───────────────────────────────────
+
+  /** Nombre de comptes. Sert a decider si le prochain cree sera admin. */
+  countUsers(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
+    return row.n;
+  }
+
+  /** Nombre d'administrateurs. Sert a refuser le retrait du dernier. */
+  countAdmins(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM user_roles WHERE role = 'admin'")
+      .get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Role d'un compte. « membre » par defaut : un compte sans ligne de role est
+   * un compte SANS privilege, jamais l'inverse.
+   */
+  getRole(userId: string): string {
+    const row = this.db.prepare('SELECT role FROM user_roles WHERE userId = ?').get(userId) as
+      { role: string } | undefined;
+    return row?.role ?? 'membre';
+  }
+
+  /** Pose le role d'un compte. `posePar` garde qui a decide. */
+  setRole(userId: string, role: string, posePar: string | null = null, now = Date.now()): void {
+    this.db
+      .prepare(
+        `INSERT INTO user_roles (userId, role, poseA, posePar) VALUES (?, ?, ?, ?)
+         ON CONFLICT(userId) DO UPDATE SET role = excluded.role, poseA = excluded.poseA, posePar = excluded.posePar`,
+      )
+      .run(userId, role, now, posePar);
+  }
+
+  /** Tous les comptes avec leur role, pour l'administration. Sans le hash. */
+  listUsersWithRoles(): Array<{
+    id: string;
+    email: string;
+    displayName: string;
+    role: string;
+    createdAt: number;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT u.id AS id, u.email AS email, u.displayName AS displayName,
+                COALESCE(r.role, 'membre') AS role, u.createdAt AS createdAt
+           FROM users u LEFT JOIN user_roles r ON r.userId = u.id
+          ORDER BY u.createdAt ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      email: string;
+      displayName: string;
+      role: string;
+      createdAt: number;
+    }>;
+  }
+
   setAbonnement(a: {
     projectId: string;
     plan: string;
