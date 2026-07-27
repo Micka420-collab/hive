@@ -20,6 +20,7 @@ import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.j
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent } from '../shared/types.js';
+import { leconsDesEchecs } from './brood.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -49,6 +50,13 @@ const MEMORY_RETENTION = 2_000;
 
 /** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
 const MERGE_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Couveuse : part du hiveContext réservée aux leçons des échecs précédents
+ * d'une tâche ré-assignée. Le reste du budget (LIMITS.hiveContext au total)
+ * revient à la mémoire Hive Mind.
+ */
+const BUDGET_COUVEUSE = 3_000;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -218,6 +226,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     for (const ws of dashboardSockets) send(ws, event);
   };
 
+  /** Événement émis par le serveur lui-même (création de projet/tâches). */
+  const emitEvent = (type: string, payload: Record<string, unknown>): void => {
+    const event = store.appendEvent(type, payload);
+    broadcastEvent({ type: 'event', event });
+    stateDirty = true;
+  };
+
   const scheduler = new Scheduler(store, {
     // Drone Wars : annuler le travail d'un drone perdant (ou d'une course annulée).
     onCancel: (nodeId, taskId, reason) => {
@@ -229,10 +244,39 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
       if (ws) {
         const project = store.getProject(task.projectId);
-        // Hive Mind : joindre les souvenirs pertinents des tâches déjà réussies.
-        const hiveContext = buildHiveContext(
+        // Couveuse : une tâche déjà échouée (attempts > 0) repart avec les
+        // leçons de ses échecs précédents, EN TÊTE du contexte (le plus
+        // spécifique d'abord). Le nom du nœud fautif est résolu ici — la
+        // table results ne garde que son id.
+        let lecons = '';
+        if (task.attempts > 0) {
+          const echecs = store.listFailedResultsForTask(task.id);
+          lecons = leconsDesEchecs(
+            echecs.map((e, i) => ({
+              attempt: i + 1,
+              nodeName: store.getNode(e.nodeId)?.name ?? e.nodeId,
+              logs: e.logs,
+              createdAt: e.createdAt,
+            })),
+            BUDGET_COUVEUSE,
+          );
+          if (lecons) {
+            emitEvent('brood_context', {
+              taskId: task.id,
+              nodeId,
+              echecs: echecs.length,
+              message: `👶 Couveuse : « ${task.title} » repart avec les leçons de ${echecs.length} échec(s)`,
+            });
+          }
+        }
+        // Hive Mind : joindre les souvenirs pertinents des tâches déjà
+        // réussies, dans le budget RESTANT après la Couveuse (« \n\n » de
+        // jonction compris) — le total reste borné à LIMITS.hiveContext.
+        const souvenirs = buildHiveContext(
           store.searchMemories(`${task.title} ${task.prompt}`, 3),
+          LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0),
         );
+        const hiveContext = [lecons, souvenirs].filter(Boolean).join('\n\n');
         send(ws, {
           type: 'assign_task',
           task,
@@ -246,13 +290,6 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       stateDirty = true;
     },
   });
-
-  /** Événement émis par le serveur lui-même (création de projet/tâches). */
-  const emitEvent = (type: string, payload: Record<string, unknown>): void => {
-    const event = store.appendEvent(type, payload);
-    broadcastEvent({ type: 'event', event });
-    stateDirty = true;
-  };
 
   /**
    * Marque un merge en cours comme échoué (nœud déconnecté, timeout) : range un

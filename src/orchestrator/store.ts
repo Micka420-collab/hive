@@ -586,6 +586,22 @@ export class HiveStore {
   }
 
   /**
+   * Échecs enregistrés pour une tâche, du plus ancien au plus récent, réduits
+   * au strict nécessaire de la Couveuse (qui a échoué, quand, avec quels
+   * logs). `resultsForTask` existe mais n'expose pas createdAt, dont la
+   * Couveuse a besoin pour ordonner les leçons.
+   */
+  listFailedResultsForTask(
+    taskId: string,
+  ): Array<{ nodeId: string; logs: string; createdAt: number }> {
+    return this.db
+      .prepare(
+        'SELECT nodeId, logs, createdAt FROM results WHERE taskId = ? AND success = 0 ORDER BY createdAt, id',
+      )
+      .all(taskId) as Array<{ nodeId: string; logs: string; createdAt: number }>;
+  }
+
+  /**
    * Résultats les plus récents, réduits au strict nécessaire du calcul des
    * phéromones (qui a réussi/échoué quoi, quand). Corpus borné pour garder le
    * repli rapide — au-delà, le signal est de toute façon évaporé (demi-vie).
