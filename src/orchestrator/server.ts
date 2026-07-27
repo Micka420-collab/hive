@@ -68,6 +68,7 @@ import type { Compteur, Role } from './comptes.js';
 import {
   ETATS,
   PLANS,
+  planParCle,
   appliquerEvenement,
   aucunAbonnement,
   droits,
@@ -75,6 +76,16 @@ import {
   verifierSignature,
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
+import {
+  ETATS as ETATS_SERVEUR,
+  FOURNISSEUR_MANUEL,
+  aArreter,
+  decider,
+  replierServeurs,
+  transiter,
+} from './serveurs.js';
+import { RETENTION_JOURS, SERVEURS_MAX, joursAvantSuppression } from './serveurs.js';
+import type { EtatServeur, Serveur } from './serveurs.js';
 import {
   GOUVERNANTES_MIN,
   NIVEAUX,
@@ -1718,6 +1729,131 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── Le provisionnement automatique ───────────────────────────────────────
+  //
+  // Quand un abonnement devient actif, les serveurs de son plan sont demandés
+  // ICI. Le fournisseur est injectable ; celui livré (« manuel ») ne démarre
+  // aucune machine mais produit les instructions exactes, billet compris, pour
+  // que l'humain les colle sur n'importe quel VPS. La CHAÎNE est réelle de bout
+  // en bout ; seul le « qui allume la machine » est remplaçable.
+  const fournisseurServeurs = FOURNISSEUR_MANUEL;
+
+  /**
+   * Gabarit demandé par défaut. Aligné sur ce que l'isolement borne déjà
+   * (2 vCPU / 2 Go de mémoire par tâche) : promettre moins ferait échouer les
+   * tâches, promettre plus ferait payer du matériel inutilisé.
+   */
+  const GABARIT_DEFAUT = '2 vCPU / 4 Go';
+
+  /** Serveurs d'un abonnement, relus depuis la base et rétrécis. */
+  const serveursDe = (refAbonnement?: string): Serveur[] =>
+    store.listServeurs(refAbonnement).map((r) => ({
+      ...r,
+      etat: (ETATS_SERVEUR.includes(r.etat as EtatServeur) ? r.etat : 'echoue') as EtatServeur,
+    }));
+
+  /**
+   * Aligne les serveurs sur les droits d'un abonnement.
+   *
+   * Appelée à chaque webhook accepté — donc potentiellement REJOUÉE. Toute
+   * l'idempotence tient dans `decider`, qui compte ce qui existe déjà : sans
+   * elle, chaque re-livraison démarrerait une machine de plus.
+   */
+  const alignerServeurs = async (
+    projectId: string,
+    refAbonnement: string,
+    plan: string,
+    actif: boolean,
+    now: number,
+  ): Promise<void> => {
+    const existants = serveursDe(refAbonnement);
+
+    if (!actif) {
+      // La facture cesse tout de suite ; les données restent le temps de la
+      // rétention. Deux gestes séparés, jamais fusionnés.
+      for (const s of aArreter(existants)) {
+        const r = transiter(s, 'arrete', 'abonnement sans droits', now);
+        if (r.applique) {
+          try {
+            if (s.refMachine) await fournisseurServeurs.arreter(s.refMachine);
+          } catch (e) {
+            // On range quand même l'arrêt : la ligne doit refléter l'INTENTION,
+            // sinon plus personne ne sait qu'il faut réessayer.
+            app.log.warn({ err: e, id: s.id }, 'arrêt de machine en échec');
+          }
+          store.setServeur(r.serveur);
+          emitEvent('server_stopped', { serverId: s.id, projectId });
+        }
+      }
+      return;
+    }
+
+    const p = planParCle(plan);
+    const verdict = decider(
+      {
+        projectId,
+        refAbonnement,
+        serveursInclus: p?.serveurs ?? 0,
+        gabarit: GABARIT_DEFAUT,
+      },
+      existants,
+    );
+    if (verdict.action === 'rien') return;
+
+    for (let i = 0; i < verdict.combien; i++) {
+      const id = randomUUID();
+      // Le billet est à USAGE UNIQUE : une machine, un billet. Un billet
+      // réutilisable traînerait dans les instructions d'un client et vaudrait
+      // accès permanent à la ruche.
+      const idBillet = `bil-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const label = `serveur ${id.slice(0, 8)}`;
+      store.creerBillet({
+        id: idBillet,
+        secretHash: empreinte(secret),
+        label,
+        expiresAt: now + bornerTtl(undefined),
+        uses: 1,
+        now,
+      });
+      const urlRuche = config.publicUrl ?? `ws://${config.host}:${port}/ws`;
+      const base: Serveur = {
+        id,
+        projectId,
+        refAbonnement,
+        etat: 'demande',
+        fournisseur: fournisseurServeurs.nom,
+        refMachine: '',
+        gabarit: GABARIT_DEFAUT,
+        motif: verdict.motif,
+        creeA: now,
+        majA: now,
+        arreteA: 0,
+      };
+      store.setServeur(base);
+      try {
+        const machine = await fournisseurServeurs.demarrer({
+          gabarit: GABARIT_DEFAUT,
+          billet: encoderBillet({ id: idBillet, secret, label, url: urlRuche }),
+          urlRuche,
+        });
+        const r = transiter(base, 'provisionnement', machine.instructions.join(' ⏎ '), now);
+        store.setServeur({ ...r.serveur, refMachine: machine.ref });
+        emitEvent('server_requested', {
+          serverId: id,
+          projectId,
+          fournisseur: fournisseurServeurs.nom,
+        });
+      } catch (e) {
+        // Un provisionnement raté reste VISIBLE avec son motif : un client qui
+        // a payé et qui attend ne doit pas disparaître d'un tableau de bord.
+        const r = transiter(base, 'echoue', e instanceof Error ? e.message : String(e), now);
+        store.setServeur(r.serveur);
+        emitEvent('server_failed', { serverId: id, projectId });
+      }
+    }
+  };
+
   // ─── Les abonnements : vendre des heures-ouvrières ─────────────────────────
   //
   // Hive ne voit AUCUNE donnée de paiement : ni carte, ni IBAN, ni adresse de
@@ -1819,6 +1955,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       etat: suivant.etat,
       heures: d.heures,
     });
+
+    // LE SERVEUR SE CRÉE TOUT SEUL À L'ACHAT. Après le plafond, pas avant :
+    // une machine qui démarre sans quota consommerait sans jamais s'arrêter.
+    await alignerServeurs(evenement.projectId, suivant.refExterne, suivant.plan, d.actif, now);
     return { applique: true, etat: suivant.etat, heures: d.heures };
   });
 
@@ -1900,6 +2040,89 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dans un journal que tout membre de la ruche peut lire.
       emitEvent('role_changed', { userId: req.params.userId, role: req.body.role });
       return { userId: req.params.userId, role: req.body.role };
+    },
+  );
+
+  // ─── L'administration des serveurs ────────────────────────────────────────
+  //
+  // Réservée aux administrateurs (`gerer_serveurs`). Le chiffre mis en avant
+  // est `facturables` : ce qui coûte de l'argent EN CE MOMENT est la seule
+  // chose qu'un hôte ne veut jamais découvrir en retard.
+
+  app.get('/api/admin/serveurs', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const now = Date.now();
+    const serveurs = serveursDe();
+    return {
+      vue: replierServeurs(serveurs, now),
+      serveurs: serveurs.map((s) => ({
+        ...s,
+        joursAvantSuppression: joursAvantSuppression(s, now),
+      })),
+      fournisseur: fournisseurServeurs.nom,
+      retentionJours: RETENTION_JOURS,
+      serveursMax: SERVEURS_MAX,
+    };
+  });
+
+  /**
+   * Change l'état d'un serveur à la main.
+   *
+   * Les transitions permises sont celles du module pur : on ne ressuscite pas
+   * un serveur supprimé, et on ne saute pas de « demandé » à « prêt ». Un
+   * bouton d'administration qui pourrait poser n'importe quel état ferait
+   * mentir le tableau de bord au premier clic maladroit.
+   */
+  app.put<{ Params: { id: string }; Body: { etat: EtatServeur; motif?: string } }>(
+    '/api/admin/serveurs/:id',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['etat'],
+          additionalProperties: false,
+          properties: {
+            etat: { type: 'string', enum: [...ETATS_SERVEUR] },
+            motif: { type: 'string', maxLength: 400 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'gerer_serveurs');
+      if (!moi) return reply;
+      const brut = store.getServeur(req.params.id);
+      if (!brut) return reply.code(404).send({ error: 'serveur inconnu' });
+
+      const courant: Serveur = {
+        ...brut,
+        etat: (ETATS_SERVEUR.includes(brut.etat as EtatServeur)
+          ? brut.etat
+          : 'echoue') as EtatServeur,
+      };
+      const now = Date.now();
+      const r = transiter(courant, req.body.etat, req.body.motif ?? 'geste humain', now);
+      if (r.refus) return reply.code(409).send({ error: r.refus });
+      if (!r.applique) return { id: courant.id, etat: courant.etat, change: false };
+
+      // La machine SUIT la décision : sans cet appel, le tableau de bord dirait
+      // « arrêté » pendant que la facture continue de courir.
+      try {
+        if (courant.refMachine && req.body.etat === 'arrete') {
+          await fournisseurServeurs.arreter(courant.refMachine);
+        }
+        if (courant.refMachine && req.body.etat === 'supprime') {
+          await fournisseurServeurs.supprimer(courant.refMachine);
+        }
+      } catch (e) {
+        return reply.code(502).send({
+          error: 'le fournisseur a refusé',
+          conseil: e instanceof Error ? e.message : String(e),
+        });
+      }
+      store.setServeur(r.serveur);
+      emitEvent('server_state_changed', { serverId: courant.id, etat: req.body.etat });
+      return { id: courant.id, etat: r.serveur.etat, change: true };
     },
   );
 
