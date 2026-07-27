@@ -250,6 +250,13 @@ npm run cli -- tunnel
 #    ✔ https://xyz.trycloudflare.com  →  wss://xyz.trycloudflare.com/ws
 ```
 
+No `cloudflared`? One command tells you what to do on **your** machine:
+
+```bash
+npm run cli -- cloudflare            # diagnosis + next steps
+npm run cli -- cloudflare --install  # local binary, NO sudo
+```
+
 Hive ships **no tunnel dependency**: the command detects a `cloudflared` (or
 `localtunnel`) that you installed yourself. Routing every member's source code
 through a third party must be your choice, not a side effect of `npm install`.
@@ -257,6 +264,30 @@ through a third party must be your choice, not a side effect of `npm install`.
 > ⚠️ **`ws://` to a public address is refused by default.** It is not only the
 > ticket that would leak, but **all traffic**: prompts, logs and **source-code
 > diffs**. Use `wss://`, or `--insecure` knowing exactly what you are doing.
+
+#### A stable URL — for a hive that lasts
+
+A quick tunnel's URL **changes on every restart**. Nodes remember their key and
+survive restarts, but the URL they learned dies with the tunnel: you would have
+to issue a new ticket to **every member, on every restart**.
+
+With a (free) Cloudflare account and a domain, ten minutes once buys a permanent
+address:
+
+```bash
+npm run cli -- cloudflare --setup hive.mydomain.com
+```
+
+The command lists the four steps (`login`, `create`, `route dns`, `run`),
+**says why each one exists**, flags the one that opens a browser, and gives you
+the line to put in your `.env`:
+
+```
+HIVE_PUBLIC_URL=wss://hive.mydomain.com/ws
+```
+
+It executes nothing on your behalf: you must be able to read what is about to
+happen on your Cloudflare account before it happens.
 
 **Other address options**: `HIVE_PUBLIC_URL=wss://mydomain/ws`, or
 `npm run cli -- invite wss://mydomain/ws`.

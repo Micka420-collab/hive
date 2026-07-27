@@ -26,7 +26,9 @@
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
-import { readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import type { GhostReport } from './orchestrator/ghost.js';
 import type { Verdict } from './orchestrator/parliament.js';
 import type { ProjectReport } from './orchestrator/project-report.js';
@@ -54,6 +56,14 @@ import {
   trouverFournisseur,
   urlRucheDepuisTunnel,
 } from './node-client/tunnel.js';
+import {
+  estArchive,
+  etapesTunnelNomme,
+  hoteValide,
+  methodesInstallation,
+  urlStable,
+  urlTelechargement,
+} from './node-client/cloudflare.js';
 
 const BASE = process.env.HIVE_HTTP ?? 'http://localhost:7777';
 const TOKEN = process.env.HIVE_TOKEN ?? 'change-me';
@@ -607,6 +617,189 @@ async function cmdRevoquerBillet(id: string): Promise<void> {
  * c'est volontaire et affiché. Un tunnel qui survivrait à la fenêtre qui l'a
  * ouvert serait une porte laissée entrebâillée sans que personne s'en souvienne.
  */
+/**
+ * Configurer Cloudflare — diagnostic, installation, et URL stable.
+ *
+ *   npm run cli -- cloudflare                       où j'en suis, et quoi faire
+ *   npm run cli -- cloudflare --install             binaire local, sans sudo
+ *   npm run cli -- cloudflare --setup <hote>        tunnel nommé, URL STABLE
+ *
+ * Pourquoi le tunnel nommé mérite une commande : l'URL d'un tunnel rapide CHANGE
+ * À CHAQUE REDÉMARRAGE. Les nœuds mémorisent leur clé et survivent donc aux
+ * redémarrages, mais l'URL qu'ils ont apprise meurt avec le tunnel — il faudrait
+ * réémettre un billet à chaque membre, à chaque relance. Une ruche communautaire
+ * ne tient pas à ce prix.
+ */
+async function cmdCloudflare(...args: string[]): Promise<void> {
+  const plateforme = { os: process.platform, arch: process.arch };
+  const port = Number(new URL(BASE).port || 7777);
+  const iSetup = args.indexOf('--setup');
+  const hote = iSetup >= 0 ? args[iSetup + 1] : undefined;
+
+  const installe = await versionCloudflared();
+
+  // ─── Diagnostic, toujours affiché : on dit d'abord où en est la machine ────
+  console.log('\n☁️  Cloudflare — état de cette machine\n');
+  console.log(`  Plateforme   : ${plateforme.os}/${plateforme.arch}`);
+  console.log(`  cloudflared  : ${installe ? `✔ installé (${installe})` : '✘ absent'}`);
+  const urlPublique = process.env.HIVE_PUBLIC_URL;
+  console.log(`  HIVE_PUBLIC_URL : ${urlPublique ?? '(non défini — URL devinée sur le LAN)'}`);
+
+  // ─── Installation ─────────────────────────────────────────────────────────
+  if (args.includes('--install')) {
+    if (installe) {
+      console.log('\n✔ Déjà installé, rien à faire.\n');
+      return;
+    }
+    await installerCloudflared(plateforme);
+    return;
+  }
+
+  if (!installe) {
+    console.log('\n📦 Installer cloudflared — au choix :\n');
+    const methodes = methodesInstallation(plateforme);
+    if (methodes.length === 0) {
+      console.log(
+        `  Aucune méthode connue pour ${plateforme.os}/${plateforme.arch}.\n` +
+          '  Voir https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n',
+      );
+      return;
+    }
+    for (const [i, m] of methodes.entries()) {
+      const marque = m.privilegie ? ' (demande sudo/admin)' : '';
+      console.log(`  ${i + 1}. ${m.nom}${marque}\n     ${m.commande}\n`);
+    }
+    console.log('  Puis relancez cette commande pour la suite.\n');
+    return;
+  }
+
+  // ─── Tunnel nommé : l'URL stable ──────────────────────────────────────────
+  if (iSetup >= 0) {
+    if (!hote || !hoteValide(hote)) {
+      console.error(
+        '\n✘ Nom d’hôte invalide.\n\n' +
+          '  Attendu : un sous-domaine QUALIFIÉ d’un domaine que vous gérez sur Cloudflare,\n' +
+          '  par exemple :  npm run cli -- cloudflare --setup ruche.mondomaine.com\n\n' +
+          '  (Pas une URL, pas un chemin — juste le nom d’hôte.)\n',
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const nom = 'hive';
+    console.log(`\n🔗 Tunnel NOMMÉ « ${nom} » → ${hote}\n`);
+    console.log(
+      '  Contrairement au tunnel rapide, cette URL est STABLE : elle survit aux\n' +
+        '  redémarrages, donc vos invitations peuvent la contenir pour de bon.\n',
+    );
+    console.log('  Prérequis : un compte Cloudflare (gratuit) et ce domaine délégué chez eux.\n');
+
+    for (const [i, e] of etapesTunnelNomme(nom, hote, port).entries()) {
+      console.log(`  ${i + 1}. ${e.titre}${e.interactive ? '   ⏸ ouvre votre navigateur' : ''}`);
+      console.log(`     ${e.commande}`);
+      console.log(`     ↳ ${e.pourquoi}\n`);
+    }
+    console.log('  Enfin, pour que les billets annoncent cette URL :\n');
+    console.log(`     HIVE_PUBLIC_URL=${urlStable(hote)}\n`);
+    console.log('     (dans votre .env, puis relancez la ruche)\n');
+    console.log(`  Vérification :  npm run cli -- invite\n`);
+    return;
+  }
+
+  // ─── Sinon : que faire maintenant ─────────────────────────────────────────
+  console.log('\n✔ cloudflared est prêt. Deux usages :\n');
+  console.log('  • Dépanner un ami cet après-midi (URL jetable, rien à configurer) :');
+  console.log('      npm run cli -- tunnel\n');
+  console.log('  • Ruche durable (URL STABLE, survit aux redémarrages) :');
+  console.log('      npm run cli -- cloudflare --setup ruche.mondomaine.com\n');
+  console.log(
+    '  L’URL d’un tunnel rapide change à CHAQUE redémarrage : vos membres devraient\n' +
+      '  alors recevoir un nouveau billet à chaque relance. Le tunnel nommé règle cela.\n',
+  );
+}
+
+/** Version de `cloudflared`, ou `null` s'il est absent. */
+function versionCloudflared(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const p = spawn('cloudflared', ['--version'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
+    });
+    let sortie = '';
+    p.stdout?.on('data', (b: Buffer) => (sortie += b.toString()));
+    p.stderr?.on('data', (b: Buffer) => (sortie += b.toString()));
+    p.on('error', () => resolve(null));
+    p.on('close', () => {
+      const m = sortie.match(/\d+\.\d+\.\d+/);
+      resolve(sortie.trim() ? (m?.[0] ?? sortie.trim().split('\n')[0]!) : null);
+    });
+    setTimeout(() => {
+      p.kill();
+      resolve(null);
+    }, 5_000).unref?.();
+  });
+}
+
+/**
+ * Télécharge le binaire dans `.hive-work/bin/`. Aucun sudo, aucune modification
+ * du système : le binaire vit dans le dossier de travail du projet, et se
+ * supprime en supprimant ce dossier.
+ *
+ * On AFFICHE l'URL avant de télécharger. Récupérer un exécutable depuis
+ * Internet est une action à conséquence : l'utilisateur doit voir d'où il vient,
+ * pas le découvrir après coup.
+ */
+async function installerCloudflared(plateforme: {
+  os: NodeJS.Platform;
+  arch: string;
+}): Promise<void> {
+  const methode = methodesInstallation(plateforme).find((m) => m.cle === 'local');
+  const url = urlTelechargement(plateforme);
+  if (!url || !methode?.automatisable) {
+    console.log('\n📦 Installation automatique indisponible sur cette plateforme.\n');
+    for (const m of methodesInstallation(plateforme)) {
+      console.log(`  • ${m.nom}\n    ${m.commande}\n`);
+    }
+    if (estArchive(plateforme)) {
+      console.log(
+        '  (Cloudflare ne publie qu’une archive .tgz pour macOS : il faut la\n' +
+          '   décompresser, d’où le choix de ne pas l’automatiser en silence.)\n',
+      );
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  const dossier = path.join('.hive-work', 'bin');
+  const cible = path.join(dossier, plateforme.os === 'win32' ? 'cloudflared.exe' : 'cloudflared');
+  console.log(`\n📦 Téléchargement depuis :\n     ${url}\n   vers : ${cible}\n`);
+
+  try {
+    const rep = await fetch(url, { redirect: 'follow' });
+    if (!rep.ok) throw new Error(`HTTP ${rep.status}`);
+    mkdirSync(dossier, { recursive: true });
+    writeFileSync(cible, Buffer.from(await rep.arrayBuffer()), { mode: 0o755 });
+  } catch (err) {
+    console.error(
+      `\n✘ Téléchargement impossible : ${err instanceof Error ? err.message : String(err)}\n\n` +
+        '  Repli — installez-le à la main :\n' +
+        methodesInstallation(plateforme)
+          .filter((m) => m.cle !== 'local')
+          .map((m) => `    ${m.commande}`)
+          .join('\n') +
+        '\n',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const absolu = path.resolve(cible);
+  console.log('✔ Installé.\n');
+  console.log('  Ce dossier n’est pas dans votre PATH. Deux options :\n');
+  console.log(`    export PATH="${path.resolve(dossier)}:$PATH"      # cette session`);
+  console.log(`    sudo ln -s ${absolu} /usr/local/bin/cloudflared   # définitif\n`);
+  console.log('  Puis :  npm run cli -- cloudflare\n');
+}
+
 async function cmdTunnel(...args: string[]): Promise<void> {
   const port = Number(new URL(BASE).port || 7777);
   const fournisseur = await trouverFournisseur();
@@ -748,12 +941,13 @@ try {
   else if (cmd === 'races') await cmdRaces();
   else if (cmd === 'invite') await cmdInvite(...process.argv.slice(3));
   else if (cmd === 'tunnel') await cmdTunnel(...process.argv.slice(3));
+  else if (cmd === 'cloudflare') await cmdCloudflare(...process.argv.slice(3));
   else if (cmd === 'membres') await cmdMembres();
   else if (cmd === 'exclure' && a1) await cmdExclure(a1);
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }
