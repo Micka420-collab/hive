@@ -47,6 +47,8 @@ import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
+import { GOUVERNANTES_MIN, NIVEAUX, deciderPas, gouvernantes, leconsCroisees } from './essaim.js';
+import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essaim.js';
 import { CORPUS_GARDIENNES, cheminsPromis, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
 import {
@@ -1437,6 +1439,146 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       } catch (err) {
         return repondreErreurGithub(reply, err);
       }
+    },
+  );
+
+  // ─── Le Plein Essaim : la ruche se gouverne elle-même ──────────────────────
+  //
+  // Deux routes, et la seconde est un GESTE HUMAIN qui n'a pas d'équivalent
+  // automatique : rien dans la ruche n'appelle POST /api/essaim. Une ruche
+  // autonome capable d'élever son propre niveau d'autonomie ne serait pas
+  // gouvernée, elle serait échappée — la table `essaim` porte `definiPar` pour
+  // que cette phrase reste vérifiable dans trois ans.
+  //
+  // La lecture rend le PAS que la ruche prendrait maintenant, avec son motif :
+  // un bouton qui allume l'autonomie sans montrer ce qu'elle ferait ensuite
+  // demande une confiance qu'on n'a pas à demander.
+
+  /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
+  const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
+    const reglage = store.getEssaim(projectId);
+    const niveau: NiveauAutonomie = NIVEAUX.includes((reglage?.niveau ?? 'off') as NiveauAutonomie)
+      ? ((reglage?.niveau ?? 'off') as NiveauAutonomie)
+      : 'off';
+
+    const inspections = store.listInspections();
+    const antecedents = replierAntecedents(inspections);
+    const noeuds: NoeudObserve[] = store.listNodes().map((n) => ({
+      nodeId: n.id,
+      nom: n.name,
+      enLigne: n.status === 'online',
+      antecedents: antecedents.get(n.id) ?? VIERGE,
+    }));
+
+    const taches = store.listTasks(projectId);
+    const lecons = leconsCroisees(store.listRecentFailures());
+    const projet = store.getProject(projectId);
+
+    // Le plafond vient de La Balance TELLE QU'ELLE EST DÉJÀ CALCULÉE par le
+    // Scheduler — on ne refait pas la somme. Une ruche autonome sans borne de
+    // dépense brûlerait un mois de temps-machine en une nuit ; une ruche qui
+    // calculerait sa borne deux fois de deux façons finirait par se contredire.
+    const solde = scheduler.balance.soldes.find((x) => x.projectId === projectId);
+    const plafond = solde?.etat ?? 'passe';
+
+    const etat: EtatEssaim = {
+      niveau,
+      noeuds,
+      tachesEnCours: taches.filter((t) => t.status === 'assigned' || t.status === 'running').length,
+      tachesPretes: taches.filter((t) => t.status === 'ready').length,
+      conseilEnCours: store
+        .listSessions()
+        .some((c) => c.projectId === projectId && c.etat !== 'clos'),
+      verdictANourrir: false,
+      productionsALivrer: 0,
+      prAFusionner: 0,
+      depotInscrit:
+        Boolean(reglage?.depotInscrit) && depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      lecons,
+      plafond,
+    };
+    return { ...etat, decision: deciderPas(etat) };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/essaim',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const e = etatEssaim(req.params.projectId);
+      return {
+        niveau: e.niveau,
+        decision: e.decision,
+        gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
+        gouvernantesRequises: GOUVERNANTES_MIN,
+        depotInscrit: e.depotInscrit,
+        plafond: e.plafond,
+        lecons: e.lecons,
+        niveaux: NIVEAUX,
+      };
+    },
+  );
+
+  /**
+   * Règle l'autonomie d'un projet. GESTE HUMAIN, sans équivalent automatique.
+   *
+   * `depotInscrit` est l'autorisation de fusionner, donnée UNE FOIS pour ce
+   * dépôt. Elle est distincte du niveau, et les deux sont exigées ensemble pour
+   * qu'une fusion parte (essaim.ts, `deciderPas`).
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { niveau: NiveauAutonomie; depotInscrit?: boolean };
+  }>(
+    '/api/projects/:projectId/essaim',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['niveau'],
+          properties: {
+            niveau: { type: 'string', enum: [...NIVEAUX] },
+            depotInscrit: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projet = store.getProject(req.params.projectId);
+      if (!projet) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const veutFusionner = req.body.niveau === 'plein';
+      const inscrit = req.body.depotInscrit ?? false;
+      // Demander « plein » sur un projet sans dépôt GitHub connu n'a pas de
+      // sens : il n'y a rien à fusionner. On le DIT plutôt que d'accepter un
+      // réglage qui ne produira jamais rien.
+      if (veutFusionner && inscrit && depotDepuisUrl(projet.repoUrl) === null) {
+        return reply.code(409).send({
+          error: 'projet sans dépôt GitHub',
+          conseil:
+            'Importez le dépôt (« hive github-import ») avant d’inscrire le projet pour la fusion autonome.',
+        });
+      }
+
+      store.setEssaim(
+        req.params.projectId,
+        { niveau: req.body.niveau, depotInscrit: inscrit },
+        'humain',
+      );
+      // Faits typés uniquement — le texte bilingue est reconstruit à l'affichage.
+      emitEvent('swarm_level_set', {
+        projectId: req.params.projectId,
+        niveau: req.body.niveau,
+        depotInscrit: inscrit,
+      });
+      const e = etatEssaim(req.params.projectId);
+      return reply
+        .code(200)
+        .send({ niveau: e.niveau, depotInscrit: e.depotInscrit, decision: e.decision });
     },
   );
 

@@ -499,3 +499,164 @@
     animation: none;
   }
 }
+
+/* ── Le Plein Essaim ────────────────────────────────────────────────────────
+   Le pas courant domine le panneau : c'est l'information qui manque à tous
+   les interrupteurs d'autonomie qu'on croise ailleurs. */
+.essaim-panneau {
+  margin-top: 14px;
+  padding: 16px 18px;
+  background: var(--panel-2, #1a150d);
+  border: 1px solid var(--border, #392e1c);
+  border-radius: 10px;
+}
+.essaim-panneau h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.essaim-intro,
+.essaim-desc,
+.essaim-vide {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted, #b39c72);
+}
+.essaim-pas {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: rgba(246, 185, 59, 0.07);
+  border-left: 3px solid var(--gold, #f6b93b);
+}
+.essaim-pas--inerte,
+.essaim-pas--repos {
+  border-left-color: var(--dim, #a09070);
+  background: rgba(160, 144, 112, 0.07);
+}
+.essaim-pas--plafond,
+.essaim-pas--corriger {
+  border-left-color: var(--red, #e5573f);
+  background: rgba(229, 87, 63, 0.09);
+}
+.essaim-pas-icone {
+  font-size: 22px;
+}
+.essaim-pas strong {
+  display: block;
+  font-size: 14px;
+}
+.essaim-motif {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted, #b39c72);
+}
+.essaim-etiquette {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--orange, #e58e26);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.essaim-gouv {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.essaim-gouv-liste {
+  color: var(--text, #f4ecd9);
+}
+.essaim-gouv-manque {
+  color: var(--red, #e5573f);
+}
+.essaim-niveaux {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.essaim-niveau {
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border-2, #4c3d23);
+  background: var(--chip, #2a2216);
+  color: var(--muted, #b39c72);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.essaim-niveau:hover:not(:disabled) {
+  color: var(--text, #f4ecd9);
+}
+.essaim-niveau.actif {
+  background: linear-gradient(90deg, var(--orange, #e58e26), var(--gold, #f6b93b));
+  color: #14100b;
+  border-color: transparent;
+}
+.essaim-niveau:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.essaim-inscription {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--muted, #b39c72);
+  cursor: pointer;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-2, #4c3d23);
+  border-radius: 8px;
+}
+.essaim-inscription input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.essaim-avert {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: #ffb4a6;
+}
+.essaim-lecons {
+  margin-top: 14px;
+}
+.essaim-lecons ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.essaim-lecon {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(57, 46, 28, 0.6);
+}
+.essaim-lecon:last-child {
+  border-bottom: none;
+}
+.essaim-lecon-portee {
+  flex-shrink: 0;
+  min-width: 92px;
+  color: var(--dim, #a09070);
+  font-family: var(--mono, monospace);
+  font-size: 11.5px;
+}
+.essaim-lecon--systemique .essaim-lecon-portee {
+  color: var(--red, #e5573f);
+  font-weight: 700;
+}
+.essaim-lecon-extrait {
+  color: var(--muted, #b39c72);
+  overflow-wrap: anywhere;
+}
+.essaim-erreur {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--red, #e5573f);
+}
