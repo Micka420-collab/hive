@@ -9,6 +9,16 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🌐 Site vitrine** — landing page bilingue FR/EN dans `site/` (design
+  « ruche » : Swarm View animée en SVG, journal vivant, 8 fonctionnalités,
+  architecture hub-and-spoke, sécurité, démarrage, roadmap), auto-déployée
+  sur GitHub Pages par `.github/workflows/pages.yml` à chaque push sur
+  `main`. SEO complet (Open Graph, Twitter Card, JSON-LD, sitemap), image
+  de partage `og.png`, accessibilité (skip-link, `aria-pressed`,
+  `prefers-reduced-motion`), langue mémorisée (`?lang=`, localStorage,
+  langue du navigateur) et compteur d'étoiles GitHub en amélioration
+  progressive.
+
 - **Revues partagées** — les verdicts de la Miellerie vivent côté serveur
   (`POST /api/tasks/:id/review`, `GET /api/reviews`, événement `task_reviewed`) :
   tous les opérateurs voient les mêmes approbations en temps réel ;

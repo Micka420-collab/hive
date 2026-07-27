@@ -6,6 +6,8 @@
 
 [🇫🇷 Français](README.md) · 🇬🇧 English
 
+**🌐 [Discover Hive — the showcase site](https://micka420-collab.github.io/hive/?lang=en)**
+
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>

@@ -1,0 +1,2030 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hive — L'essaim d'agents IA, orchestré en communauté</title>
+    <meta
+      name="description"
+      content="Hive : une Queen centrale découpe un projet en tâches et les distribue aux machines des membres, qui exécutent leurs agents de codage dans des espaces isolés. Le code et les clés restent chez chaque membre."
+    />
+    <link rel="canonical" href="https://micka420-collab.github.io/hive/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Hive — L'essaim d'agents IA, orchestré en communauté" />
+    <meta
+      property="og:description"
+      content="Une Queen centrale, N nœuds membres : orchestration d'agents de codage IA (claude-code, codex…) en essaim, temps réel, persistante et sûre par défaut. Open source, MIT."
+    />
+    <meta property="og:url" content="https://micka420-collab.github.io/hive/" />
+    <meta property="og:image" content="https://micka420-collab.github.io/hive/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Hive — L'essaim d'agents IA, orchestré en communauté" />
+    <meta
+      name="twitter:description"
+      content="Orchestration communautaire d'agents de codage IA : Queen Bee, Hive Mind, Drone Wars, Honeycomb Merge. Open source, MIT."
+    />
+    <meta name="twitter:image" content="https://micka420-collab.github.io/hive/og.png" />
+    <meta name="theme-color" content="#130f09" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Hive",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Linux, macOS, Windows",
+        "description": "Plateforme communautaire d'orchestration d'agents de codage IA (hub-and-spoke) : une Queen centrale distribue les tâches aux nœuds membres qui exécutent leurs agents dans des espaces isolés.",
+        "url": "https://micka420-collab.github.io/hive/",
+        "license": "https://github.com/Micka420-collab/hive/blob/main/LICENSE",
+        "codeRepository": "https://github.com/Micka420-collab/hive",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+      }
+    </script>
+    <style>
+      :root {
+        --bg: #130f09;
+        --panel: #201a11;
+        --panel-2: #1a150d;
+        --chip: #2a2216;
+        --border: #392e1c;
+        --border-2: #4c3d23;
+        --text: #f4ecd9;
+        --muted: #b39c72;
+        --dim: #a09070;
+        --gold: #f6b93b;
+        --gold-2: #ffd166;
+        --orange: #e58e26;
+        --amber: #ff9f1a;
+        --green: #86c35d;
+        --blue: #6bb0d6;
+        --red: #e5573f;
+        --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background:
+          radial-gradient(1200px 600px at 80% -10%, rgba(246, 185, 59, 0.08), transparent),
+          var(--bg);
+        color: var(--text);
+        font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--gold);
+        text-decoration: none;
+      }
+      a:hover {
+        color: var(--gold-2);
+      }
+      :focus-visible {
+        outline: 2px solid var(--gold);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      code,
+      kbd,
+      pre {
+        font-family: var(--mono);
+      }
+      section {
+        scroll-margin-top: 84px;
+      }
+
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 100;
+        padding: 8px 16px;
+        background: var(--gold);
+        color: #14100b;
+        font-weight: 700;
+        border-radius: 0 0 8px 0;
+      }
+      .skip-link:focus {
+        left: 0;
+        color: #14100b;
+      }
+
+      /* ── Header ── */
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 28px;
+        background: linear-gradient(180deg, #201a11, #1a150d);
+        border-bottom: 1px solid var(--border);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        flex-wrap: wrap;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+      }
+      .brand .bee {
+        font-size: 28px;
+        animation: glowpulse 3s ease-in-out infinite;
+      }
+      .brand .name {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--gold);
+        letter-spacing: 0.5px;
+      }
+      .brand .ver {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      nav.main {
+        display: flex;
+        gap: 18px;
+        margin-left: auto;
+        flex-wrap: wrap;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      nav.main a {
+        color: var(--muted);
+      }
+      nav.main a:hover,
+      nav.main a.active {
+        color: var(--gold-2);
+      }
+      .lang-toggle {
+        display: inline-flex;
+        border: 1px solid var(--border-2);
+        border-radius: 7px;
+        overflow: hidden;
+      }
+      .lang-toggle button {
+        padding: 6px 13px;
+        background: var(--chip);
+        color: var(--muted);
+        border: none;
+        cursor: pointer;
+        font-weight: 700;
+        font-family: inherit;
+        font-size: 14px;
+      }
+      .lang-toggle button:hover {
+        color: var(--text);
+      }
+      .lang-toggle button[aria-pressed='true'] {
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+        cursor: default;
+      }
+      .btn-gold {
+        display: inline-block;
+        padding: 7px 16px;
+        border-radius: 7px;
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+        font-weight: 700;
+        font-size: 14px;
+        white-space: nowrap;
+      }
+      .btn-gold:hover {
+        filter: brightness(1.12);
+        color: #14100b;
+      }
+
+      /* ── Hero ── */
+      .hero {
+        position: relative;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 72px 28px 40px;
+        text-align: center;
+        overflow: hidden;
+      }
+      .hero .floatbee {
+        position: absolute;
+        display: inline-block;
+        user-select: none;
+        pointer-events: none;
+      }
+      .hero .floatbee.b1 {
+        left: 3%;
+        top: 26px;
+        font-size: 22px;
+        opacity: 0.7;
+        animation: beefloat 5s ease-in-out infinite;
+      }
+      .hero .floatbee.b2 {
+        right: 3%;
+        top: 60px;
+        font-size: 17px;
+        opacity: 0.55;
+        animation: beefloat 7s ease-in-out infinite 1.2s;
+      }
+      .hero .floatbee.b3 {
+        right: 20%;
+        bottom: 40px;
+        font-size: 14px;
+        opacity: 0.4;
+        animation: beefloat 6s ease-in-out infinite 0.5s;
+      }
+      .badges {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 26px;
+      }
+      .badge {
+        padding: 3px 12px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(34px, 5.5vw, 58px);
+        font-weight: 700;
+        line-height: 1.12;
+        letter-spacing: -0.5px;
+      }
+      .grad {
+        background: linear-gradient(90deg, var(--orange), var(--gold), var(--gold-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .hero .sub {
+        max-width: 680px;
+        margin: 22px auto 0;
+        font-size: 18px;
+        color: var(--muted);
+        text-wrap: pretty;
+      }
+      .hero .sub strong {
+        color: var(--text);
+      }
+      .hero .sub strong.key {
+        color: var(--gold-2);
+      }
+      .cta-row {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 30px;
+      }
+      .cta-main {
+        padding: 12px 26px;
+        border-radius: 8px;
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+        font-weight: 700;
+        font-size: 16px;
+      }
+      .cta-main:hover {
+        filter: brightness(1.12);
+        color: #14100b;
+      }
+      .cta-copy {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 22px;
+        border-radius: 8px;
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        color: var(--gold-2);
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .cta-copy:hover {
+        border-color: var(--gold);
+      }
+      .cta-copy .lbl {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      /* ── Swarm View panel ── */
+      .swarm-panel {
+        margin: 52px auto 0;
+        max-width: 960px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+        text-align: left;
+      }
+      .swarm-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .swarm-title {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .online {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--green);
+      }
+      .online .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 8px var(--green);
+      }
+      .swarm-panel svg {
+        width: 100%;
+        display: block;
+        background: radial-gradient(700px 380px at 50% 20%, rgba(246, 185, 59, 0.05), transparent);
+      }
+      .journal {
+        list-style: none;
+        margin: 0;
+        padding: 8px 10px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .journal li {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 8px;
+        align-items: baseline;
+        padding: 3px 8px;
+        font-size: 12.5px;
+      }
+      .journal .ico {
+        text-align: center;
+      }
+      .journal .msg {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .journal .ts {
+        color: var(--dim);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      /* ── Sections ── */
+      .section {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 70px 28px 10px;
+      }
+      .section:last-of-type {
+        padding-bottom: 30px;
+      }
+      .kicker {
+        margin: 0 0 8px;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--orange);
+        font-weight: 700;
+      }
+      .headline {
+        margin: 0 0 34px;
+        font-size: 28px;
+        font-weight: 700;
+        max-width: 640px;
+        line-height: 1.25;
+      }
+      .headline.tight {
+        margin-bottom: 10px;
+        max-width: 680px;
+      }
+      .lede {
+        margin: 0 0 34px;
+        color: var(--muted);
+        max-width: 640px;
+      }
+      kbd.key {
+        background: var(--chip);
+        border: 1px solid var(--border-2);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 12px;
+      }
+      code.inline {
+        font-size: 13px;
+        color: var(--gold-2);
+      }
+      code.tag {
+        font-size: 12px;
+        background: var(--chip);
+        padding: 1px 6px;
+        border-radius: 4px;
+      }
+
+      /* Features */
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
+        gap: 14px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 20px;
+        transition: border-color 0.15s;
+      }
+      .card:hover {
+        border-color: var(--gold);
+      }
+      .card .ico {
+        font-size: 26px;
+        margin-bottom: 10px;
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        color: var(--gold-2);
+      }
+      .card p {
+        margin: 0;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .card p strong {
+        color: var(--text);
+      }
+
+      /* Architecture */
+      .archi-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 18px;
+        align-items: center;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 34px 26px;
+      }
+      .node-box {
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-radius: 10px;
+        padding: 18px;
+        text-align: center;
+      }
+      .node-box .t {
+        font-weight: 700;
+        margin-top: 6px;
+      }
+      .node-box .id {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gold-2);
+        margin-top: 2px;
+      }
+      .node-box .d {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .archi-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      .wire {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .queen-box {
+        background: linear-gradient(180deg, #2f2410, #201a11);
+        border: 1px solid var(--orange);
+        border-radius: 10px;
+        padding: 20px 30px;
+        text-align: center;
+        box-shadow: 0 0 28px rgba(246, 185, 59, 0.12);
+      }
+      .queen-box .t {
+        font-weight: 700;
+        font-size: 17px;
+        color: var(--gold);
+        margin-top: 4px;
+      }
+      .queen-box .d {
+        font-size: 12.5px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .view-box {
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-radius: 10px;
+        padding: 12px 24px;
+        text-align: center;
+      }
+      .view-box .t {
+        font-weight: 700;
+        font-size: 14px;
+      }
+      .view-box .d {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pill-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+        justify-content: center;
+      }
+      .pill {
+        padding: 6px 14px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      /* Mission Control */
+      .views {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .view-card {
+        display: flex;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        transition: border-color 0.15s;
+      }
+      .view-card:hover {
+        border-color: var(--gold);
+      }
+      .hexico {
+        width: 40px;
+        height: 36px;
+        flex-shrink: 0;
+        clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+        background: var(--chip);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 17px;
+      }
+      .hexico.hot {
+        background: linear-gradient(180deg, var(--orange), var(--gold));
+      }
+      .view-card .t {
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .view-card .d {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      /* Security */
+      .checks {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 10px 26px;
+      }
+      .check {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        font-size: 14.5px;
+      }
+      .check .tick {
+        color: var(--green);
+      }
+      .check code {
+        font-size: 12.5px;
+        color: var(--gold-2);
+      }
+      .warn {
+        margin: 26px 0 0;
+        padding: 14px 18px;
+        border: 1px solid rgba(229, 87, 63, 0.35);
+        border-radius: 8px;
+        background: rgba(229, 87, 63, 0.07);
+        font-size: 13.5px;
+        color: var(--muted);
+      }
+      .warn strong {
+        color: var(--red);
+      }
+
+      /* Get started */
+      .term-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 18px;
+        align-items: start;
+      }
+      .term {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .term-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+      }
+      .term-bar .r {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+      .term-bar .y {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--gold-2);
+      }
+      .term-bar .g {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+      .term-bar .t {
+        margin-left: 8px;
+        font-size: 12px;
+        color: var(--muted);
+        font-family: var(--mono);
+      }
+      .term pre {
+        margin: 0;
+        padding: 16px 18px;
+        font-size: 13px;
+        line-height: 1.7;
+        overflow-x: auto;
+      }
+      .term .p {
+        color: var(--green);
+      }
+      .term .c {
+        color: var(--dim);
+      }
+      .term .o {
+        color: var(--gold-2);
+      }
+      .term-note {
+        padding: 12px 18px;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .term-note kbd {
+        font-size: 11px;
+      }
+
+      /* Roadmap */
+      .timeline {
+        display: flex;
+        flex-direction: column;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 16px;
+      }
+      .step .rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .step .hex {
+        width: 34px;
+        height: 31px;
+        clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+        background: linear-gradient(180deg, var(--orange), var(--gold));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #14100b;
+        font-weight: 700;
+        font-size: 13px;
+      }
+      .step .hex.next {
+        background: var(--chip);
+        border: 1px dashed var(--border-2);
+        color: var(--gold-2);
+      }
+      .step .line {
+        width: 2px;
+        flex: 1;
+        background: var(--border);
+      }
+      .step .body {
+        padding-bottom: 26px;
+      }
+      .step .t {
+        font-weight: 700;
+        font-size: 16px;
+      }
+      .step .t .ok {
+        color: var(--green);
+        font-size: 13px;
+      }
+      .step .t.next {
+        color: var(--gold-2);
+      }
+      .step p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      /* Footer */
+      footer {
+        border-top: 1px solid var(--border);
+        margin-top: 40px;
+        padding: 34px 28px;
+        text-align: center;
+      }
+      footer .links {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        flex-wrap: wrap;
+        font-size: 14px;
+        margin-bottom: 14px;
+      }
+      footer .made {
+        font-size: 13px;
+        color: var(--dim);
+      }
+
+      /* Animations */
+      @keyframes dash {
+        to {
+          stroke-dashoffset: -12;
+        }
+      }
+      @keyframes cellpulse {
+        50% {
+          fill-opacity: 0.55;
+        }
+      }
+      @keyframes agentpulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.35;
+          transform: scale(1.5);
+        }
+      }
+      @keyframes halo {
+        0%,
+        100% {
+          opacity: 0.5;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.12;
+          transform: scale(1.12);
+        }
+      }
+      @keyframes beefloat {
+        0%,
+        100% {
+          transform: translate(0, 0) rotate(-8deg);
+        }
+        50% {
+          transform: translate(10px, -14px) rotate(10deg);
+        }
+      }
+      @keyframes glowpulse {
+        0%,
+        100% {
+          filter: drop-shadow(0 0 10px rgba(246, 185, 59, 0.5));
+        }
+        50% {
+          filter: drop-shadow(0 0 22px rgba(246, 185, 59, 0.85));
+        }
+      }
+      .anim-dash {
+        animation: dash 0.8s linear infinite;
+      }
+      .anim-cell {
+        animation: cellpulse 1.2s ease-in-out infinite;
+      }
+      .anim-cell.d2 {
+        animation-delay: 0.4s;
+      }
+      .anim-agent {
+        animation: agentpulse 0.9s ease-in-out infinite;
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      .anim-agent.d2 {
+        animation-delay: 0.3s;
+      }
+      .anim-agent.d3 {
+        animation-delay: 0.15s;
+      }
+      .anim-halo {
+        animation: halo 1.6s ease-in-out infinite;
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      .anim-halo.d2 {
+        animation-delay: 0.6s;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+        html {
+          scroll-behavior: auto;
+        }
+      }
+
+      @media (max-width: 860px) {
+        .archi-grid {
+          grid-template-columns: 1fr;
+        }
+        .archi-center {
+          order: -1;
+        }
+      }
+      @media (max-width: 720px) {
+        header {
+          padding: 12px 16px;
+          gap: 10px;
+        }
+        nav.main {
+          gap: 12px;
+          font-size: 13px;
+        }
+        .hero {
+          padding: 48px 18px 32px;
+        }
+        .section {
+          padding: 54px 18px 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#features" data-i18n="skip">Aller au contenu</a>
+
+    <header>
+      <div class="brand">
+        <span class="bee" aria-hidden="true">🐝</span>
+        <span class="name">Hive</span>
+        <span class="ver">v0.2.0 · MIT</span>
+      </div>
+      <nav class="main" aria-label="Navigation principale">
+        <a href="#features" data-i18n="nav.features">Fonctionnalités</a>
+        <a href="#archi">Architecture</a>
+        <a href="#mission">Mission Control</a>
+        <a href="#securite" data-i18n="nav.security">Sécurité</a>
+        <a href="#demarrer" data-i18n="nav.start">Démarrer</a>
+        <a href="#roadmap">Roadmap</a>
+      </nav>
+      <div class="lang-toggle" role="group" aria-label="Langue / Language">
+        <button id="btn-fr" aria-pressed="true" lang="fr">FR</button>
+        <button id="btn-en" aria-pressed="false" lang="en">EN</button>
+      </div>
+      <a
+        class="btn-gold"
+        id="gh-btn"
+        href="https://github.com/Micka420-collab/hive"
+        target="_blank"
+        rel="noopener"
+        >★ GitHub</a
+      >
+    </header>
+
+    <section class="hero">
+      <div aria-hidden="true">
+        <span class="floatbee b1">🐝</span>
+        <span class="floatbee b2">🐝</span>
+        <span class="floatbee b3">🐝</span>
+      </div>
+      <div class="badges">
+        <span class="badge" style="color: var(--green)" data-i18n="badge.tests">289 tests ✓</span>
+        <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
+          >Palier 4 livré</span
+        >
+        <span class="badge" style="color: var(--blue)">TypeScript strict</span>
+        <span class="badge" style="color: var(--muted)">Node ≥ 20</span>
+      </div>
+      <h1 data-i18n="hero.h1">
+        L'essaim d'agents IA,<br /><span class="grad">orchestré en communauté.</span>
+      </h1>
+      <p class="sub" data-i18n="hero.sub">
+        Une <strong>Queen</strong> centrale découpe un projet en tâches et les distribue aux
+        machines des membres, qui exécutent leurs agents de codage — les <em>ouvrières</em> — dans
+        des espaces isolés. Le contrôle est centralisé ;
+        <strong class="key">le code et les clés restent chez chaque membre.</strong>
+      </p>
+      <div class="cta-row">
+        <a
+          class="cta-main"
+          href="https://github.com/Micka420-collab/hive"
+          target="_blank"
+          rel="noopener"
+          data-i18n="hero.clone"
+          >Cloner la ruche</a
+        >
+        <button class="cta-copy" id="copy-btn" type="button">
+          $ npm run demo <span class="lbl" id="copy-lbl" data-i18n="hero.copy">copier</span>
+        </button>
+      </div>
+
+      <div class="swarm-panel">
+        <div class="swarm-head">
+          <span class="swarm-title" data-i18n="swarm.title"
+            >🐝 Swarm View — l'essaim en direct</span
+          >
+          <span class="online"
+            ><span class="dot"></span><span data-i18n="swarm.online">en ligne</span></span
+          >
+        </div>
+        <svg
+          viewBox="0 0 900 430"
+          role="img"
+          aria-label="Swarm View : deux nœuds membres reliés à un DAG de tâches hexagonales"
+          data-i18n-attr="aria-label:swarm.alt"
+        >
+          <line x1="358" y1="140" x2="424" y2="105" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line x1="352" y1="155" x2="428" y2="195" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line x1="356" y1="290" x2="426" y2="330" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line x1="476" y1="105" x2="546" y2="140" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line x1="478" y1="205" x2="544" y2="165" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line x1="478" y1="330" x2="548" y2="295" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line x1="570" y1="185" x2="570" y2="255" stroke="#4c3d23" stroke-width="1.5"></line>
+          <line
+            x1="186"
+            y1="210"
+            x2="416"
+            y2="200"
+            stroke="#ff9f1a"
+            stroke-width="2"
+            stroke-dasharray="6 6"
+            class="anim-dash"
+          ></line>
+          <line
+            x1="714"
+            y1="210"
+            x2="486"
+            y2="102"
+            stroke="#ff9f1a"
+            stroke-width="2"
+            stroke-dasharray="6 6"
+            class="anim-dash"
+          ></line>
+          <g transform="translate(330,140)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#f6b93b"
+              stroke="#f6b93b"
+              stroke-width="1.5"
+            ></polygon>
+            <text
+              y="-2"
+              text-anchor="middle"
+              fill="#14100b"
+              font-weight="700"
+              font-size="13"
+              data-i18n="svg.schema"
+            >
+              Schéma
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#14100b"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              done
+            </text>
+          </g>
+          <g transform="translate(330,305)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#f6b93b"
+              stroke="#f6b93b"
+              stroke-width="1.5"
+            ></polygon>
+            <text
+              y="-2"
+              text-anchor="middle"
+              fill="#14100b"
+              font-weight="700"
+              font-size="13"
+              data-i18n="svg.mockups"
+            >
+              Maquettes
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#14100b"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              done
+            </text>
+          </g>
+          <g transform="translate(450,90)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#4a3a12"
+              stroke="#ff9f1a"
+              stroke-width="1.5"
+              class="anim-cell"
+            ></polygon>
+            <text
+              y="-2"
+              text-anchor="middle"
+              fill="#f4ecd9"
+              font-weight="700"
+              font-size="13"
+              data-i18n="svg.billing"
+            >
+              API factu.
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              running ↻2
+            </text>
+          </g>
+          <g transform="translate(450,215)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#4a3a12"
+              stroke="#ff9f1a"
+              stroke-width="1.5"
+              class="anim-cell d2"
+            ></polygon>
+            <text
+              y="-2"
+              text-anchor="middle"
+              fill="#f4ecd9"
+              font-weight="700"
+              font-size="13"
+              data-i18n="svg.auth"
+            >
+              Auth JWT
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              running
+            </text>
+          </g>
+          <g transform="translate(450,340)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#2a2216"
+              stroke="#ffd166"
+              stroke-width="1.5"
+            ></polygon>
+            <text y="-2" text-anchor="middle" fill="#f4ecd9" font-weight="700" font-size="13">
+              CI
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              ready
+            </text>
+          </g>
+          <g transform="translate(570,155)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#33290f"
+              stroke="#e58e26"
+              stroke-width="1.5"
+            ></polygon>
+            <text
+              y="-2"
+              text-anchor="middle"
+              fill="#f4ecd9"
+              font-weight="700"
+              font-size="13"
+              data-i18n="svg.integration"
+            >
+              Intégration
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              assigned
+            </text>
+          </g>
+          <g transform="translate(570,285)">
+            <polygon
+              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+              fill="#2a2216"
+              stroke="#4c3d23"
+              stroke-width="1.5"
+            ></polygon>
+            <text
+              y="-2"
+              text-anchor="middle"
+              fill="#f4ecd9"
+              font-weight="700"
+              font-size="13"
+              data-i18n="svg.e2e"
+            >
+              Tests e2e
+            </text>
+            <text
+              y="14"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="9"
+              font-family="JetBrains Mono,monospace"
+            >
+              pending
+            </text>
+          </g>
+          <g transform="translate(140,210)">
+            <circle
+              r="58"
+              fill="none"
+              stroke="#ff9f1a"
+              stroke-width="1.5"
+              class="anim-halo"
+            ></circle>
+            <polygon
+              points="48,0 24,41.5 -24,41.5 -48,0 -24,-41.5 24,-41.5"
+              fill="#2a2216"
+              stroke="#f6b93b"
+              stroke-width="2"
+            ></polygon>
+            <text y="-4" text-anchor="middle" fill="#f4ecd9" font-weight="600" font-size="13">
+              ruche-alpha
+            </text>
+            <text
+              y="12"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="10"
+              font-family="JetBrains Mono,monospace"
+            >
+              claude-code · 2
+            </text>
+            <circle cx="-12" cy="-26" r="4" fill="#ff9f1a" class="anim-agent"></circle>
+            <circle cx="12" cy="-26" r="4" fill="#ff9f1a" class="anim-agent d2"></circle>
+          </g>
+          <g transform="translate(760,210)">
+            <circle
+              r="58"
+              fill="none"
+              stroke="#ff9f1a"
+              stroke-width="1.5"
+              class="anim-halo d2"
+            ></circle>
+            <polygon
+              points="48,0 24,41.5 -24,41.5 -48,0 -24,-41.5 24,-41.5"
+              fill="#2a2216"
+              stroke="#f6b93b"
+              stroke-width="2"
+            ></polygon>
+            <text y="-4" text-anchor="middle" fill="#f4ecd9" font-weight="600" font-size="13">
+              ruche-beta ⚔
+            </text>
+            <text
+              y="12"
+              text-anchor="middle"
+              fill="#b39c72"
+              font-size="10"
+              font-family="JetBrains Mono,monospace"
+            >
+              codex · 1
+            </text>
+            <circle cx="0" cy="-26" r="4" fill="#ff9f1a" class="anim-agent d3"></circle>
+          </g>
+        </svg>
+        <ul class="journal" id="journal" aria-live="off"></ul>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <h2 class="kicker" data-i18n="feat.kicker">✨ En bref</h2>
+      <p class="headline" data-i18n="feat.headline">
+        Tout ce qu'il faut pour faire butiner un essaim d'IA — sans jamais perdre la main.
+      </p>
+      <div class="cards">
+        <div class="card">
+          <div class="ico" aria-hidden="true">🧠</div>
+          <h3>Queen Bee</h3>
+          <p data-i18n="feat.qb">
+            Décrivez un projet en une phrase → un <strong>DAG de tâches</strong> est généré,
+            heuristique ou IA, éditable avant lancement.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🧬</div>
+          <h3>Hive Mind</h3>
+          <p data-i18n="feat.hm">
+            Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans les
+            suivantes. 100 % hors-ligne.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🛡️</div>
+          <h3>Sting Detector</h3>
+          <p data-i18n="feat.sd">
+            Repère les tâches concurrentes qui toucheraient le même fichier et
+            <strong>sérialise</strong> pour éviter les conflits.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">⚔️</div>
+          <h3>Drone Wars</h3>
+          <p data-i18n="feat.dw">
+            Redondance compétitive opt-in : la même tâche sur 2-5 nœuds, le premier succès gagne,
+            bonus nectar au vainqueur.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🍯</div>
+          <h3 data-i18n="feat.mi.t">Miellerie</h3>
+          <p data-i18n="feat.mi">
+            Revue des productions IA : diff par fichier, logs, consensus du Parlement, approbation
+            au clavier, merge Honeycomb en un geste.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">👑</div>
+          <h3 data-i18n="feat.qa.t">La Reine répond</h3>
+          <p data-i18n="feat.qa">
+            Chat multilingue avec la ruche : avancement réel, santé, classement, aide au brief. IA
+            optionnelle, repli hors-ligne garanti.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🐝</div>
+          <h3>Swarm View 2D/3D</h3>
+          <p data-i18n="feat.sv">
+            L'essaim vivant en SVG léger ou en 3D (alvéoles hexagonales, ouvrières en orbite, caméra
+            orbitale), chargée à la demande.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🧩</div>
+          <h3 data-i18n="feat.aa.t">Agent-agnostique</h3>
+          <p data-i18n="feat.aa">
+            <code class="tag">claude-code</code> <code class="tag">codex</code>
+            <code class="tag">hermes</code> — ou votre propre AgentAdapter.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="archi" class="section">
+      <h2 class="kicker">🗺️ Architecture</h2>
+      <p class="headline" data-i18n="archi.headline">Hub-and-spoke : une Queen, N nœuds membres.</p>
+      <div class="archi-grid">
+        <div class="node-box">
+          <div aria-hidden="true" style="font-size: 22px">🖥️</div>
+          <div class="t" data-i18n="archi.node">Node membre</div>
+          <div class="id">ruche-alpha</div>
+          <div class="d" data-i18n="archi.node.d">agents + sandbox<br />clés locales 🔑</div>
+        </div>
+        <div class="archi-center">
+          <div class="wire">◄─ WebSocket ─►</div>
+          <div class="queen-box">
+            <div aria-hidden="true" style="font-size: 26px">👑</div>
+            <div class="t" data-i18n="archi.queen">Orchestrateur (Queen)</div>
+            <div class="d">Fastify · ws · SQLite<br />scheduler · journal · Queen Bee</div>
+          </div>
+          <div class="wire">│ HTTP :7777</div>
+          <div class="view-box">
+            <div class="t">🐝 Swarm View</div>
+            <div class="d">React · 2D/3D</div>
+          </div>
+        </div>
+        <div class="node-box">
+          <div aria-hidden="true" style="font-size: 22px">💻</div>
+          <div class="t" data-i18n="archi.node2">Node membre</div>
+          <div class="id">ruche-beta</div>
+          <div class="d" data-i18n="archi.node2.d">agents + sandbox<br />clés locales 🔑</div>
+        </div>
+      </div>
+      <div class="pill-row">
+        <span class="pill" data-i18n="archi.p1">⚡ Temps réel via WebSocket</span>
+        <span class="pill" data-i18n="archi.p2"
+          >💾 État persistant en SQLite — survit aux redémarrages</span
+        >
+        <span class="pill" data-i18n="archi.p3"
+          >🔑 Les clés API ne quittent jamais la machine du membre</span
+        >
+      </div>
+    </section>
+
+    <section id="mission" class="section">
+      <h2 class="kicker">🎛️ Mission Control</h2>
+      <p class="headline tight" data-i18n="mc.headline">
+        8 vues navigables au clavier, interface bilingue FR/EN.
+      </p>
+      <p class="lede" data-i18n="mc.lede">
+        Sidebar alvéolaire, touches <kbd class="key">1</kbd>–<kbd class="key">8</kbd>, deep-links
+        <code class="inline">#/vue/id</code>. Les décisions de revue sont partagées entre tous les
+        opérateurs, en temps réel.
+      </p>
+      <div class="views">
+        <div class="view-card">
+          <div class="hexico hot" aria-hidden="true">🐝</div>
+          <div>
+            <div class="t" data-i18n="mc.1.t">1 · Ruche</div>
+            <div class="d" data-i18n="mc.1.d">
+              Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">👑</div>
+          <div>
+            <div class="t" data-i18n="mc.2.t">2 · Reine</div>
+            <div class="d" data-i18n="mc.2.d">
+              Dialoguer avec la ruche dans votre langue : avancement, santé, classement.
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">🍯</div>
+          <div>
+            <div class="t" data-i18n="mc.3.t">3 · Miellerie</div>
+            <div class="d" data-i18n="mc.3.d">
+              Diffs par fichier, logs, consensus, approbation (a/x) au clavier, merge Honeycomb.
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">⬡</div>
+          <div>
+            <div class="t" data-i18n="mc.4.t">4 · Projets</div>
+            <div class="d" data-i18n="mc.4.d">
+              Rapports, atelier brief→DAG (Queen Bee), plan de merge, conflits Sting.
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">🕺</div>
+          <div>
+            <div class="t" data-i18n="mc.5.t">5 · Essaim</div>
+            <div class="d" data-i18n="mc.5.d">
+              Cartes des nœuds membres + Waggle Board (podium nectar).
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">💓</div>
+          <div>
+            <div class="t" data-i18n="mc.6.t">6 · Santé</div>
+            <div class="d" data-i18n="mc.6.d">
+              Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">📜</div>
+          <div>
+            <div class="t" data-i18n="mc.7.t">7 · Chronique</div>
+            <div class="d" data-i18n="mc.7.d">
+              Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
+          <div class="hexico" aria-hidden="true">🧠</div>
+          <div>
+            <div class="t" data-i18n="mc.8.t">8 · Mémoire</div>
+            <div class="d" data-i18n="mc.8.d">
+              Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque OpenAlex.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="securite" class="section">
+      <h2 class="kicker" data-i18n="sec.kicker">🔒 Sécurité</h2>
+      <p class="headline" data-i18n="sec.headline">
+        Sûr par défaut. Jamais de merge sans revue humaine.
+      </p>
+      <div class="checks">
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.1"
+            >Zéro <code>shell: true</code> — tout passe par <code>spawn(bin, argv)</code></span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.2"
+            >Token partagé obligatoire, comparé à <strong>temps constant</strong></span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.3"
+            >CORS restreint — jamais <code>*</code> ; origine WebSocket vérifiée</span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.4"
+            >Validation de toutes les entrées (JSON Schema, plafonds de taille)</span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.5"
+            >Anti-DoS : limitation de débit REST par IP + plafond de messages WS</span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.6"
+            >Sandbox par tâche : cwd dédié, environnement épuré, timeout dur</span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.7"
+            >Les clés API restent chez le membre — <strong>jamais exfiltrées</strong></span
+          >
+        </div>
+        <div class="check">
+          <span class="tick" aria-hidden="true">✔</span
+          ><span data-i18n="sec.8"
+            >Le merge reste toujours un <strong>geste humain explicite</strong></span
+          >
+        </div>
+      </div>
+      <p class="warn" data-i18n="sec.warn">
+        <strong>Limite assumée (sandbox v0)</strong> — un processus réel peut lire le disque et
+        accéder au réseau. D'ici l'isolation VM/conteneur, ne faites tourner Hive qu'entre membres
+        de confiance.
+      </p>
+    </section>
+
+    <section id="demarrer" class="section">
+      <h2 class="kicker" data-i18n="go.kicker">🚀 Démarrer</h2>
+      <p class="headline" data-i18n="go.headline">Une démo complète en deux commandes.</p>
+      <div class="term-grid">
+        <div class="term">
+          <div class="term-bar" aria-hidden="true">
+            <span class="r"></span><span class="y"></span><span class="g"></span
+            ><span class="t" data-i18n="go.t1">démo locale</span>
+          </div>
+          <pre><code data-i18n="go.demo"><span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrateur + 2 nœuds simulés<br />   7 tâches en DAG · 1 retry · 1 ⚔ course</span></code></pre>
+          <div class="term-note" data-i18n="go.n1">
+            Testez la persistance : <kbd class="key">Ctrl+C</kbd> en pleine exécution, relancez —
+            tout est encore là.
+          </div>
+        </div>
+        <div class="term">
+          <div class="term-bar" aria-hidden="true">
+            <span class="r"></span><span class="y"></span><span class="g"></span
+            ><span class="t" data-i18n="go.t2">🤝 inviter un ami — 30 s</span>
+          </div>
+          <pre><code data-i18n="go.invite"><span class="c"># vous (hôte)</span><br /><span class="p">$ </span>npm run cli -- invite<br /><span class="c"># votre ami colle la commande reçue</span><br /><span class="p">$ </span>npm run join -- hive1_eyJ2IjoxLCJ1cmw…<br /><span class="o">🐝 Connexion à la ruche : Ruche de Micka<br />✔ Nœud démarré — vous butinez pour la ruche.</span></code></pre>
+          <div class="term-note" data-i18n="go.n2">
+            Son Claude Code / Codex est détecté automatiquement. ⚠️ L'invitation contient le token :
+            partagez-la par un canal privé.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="roadmap" class="section">
+      <h2 class="kicker">🧭 Roadmap</h2>
+      <p class="headline" data-i18n="rm.headline">
+        Quatre paliers livrés. La ruche continue de grandir.
+      </p>
+      <div class="timeline">
+        <div class="step">
+          <div class="rail">
+            <div class="hex">1</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.1.t">Palier 1</span>
+              <span class="ok" data-i18n="rm.ok1">✅ livré</span>
+            </div>
+            <p data-i18n="rm.1.d">
+              Essaim réel, temps réel, persistant · Swarm View 2D/3D · invitations · éditeur intégré
+              · sécurité &amp; sandbox v0.
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="rail">
+            <div class="hex">2</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.2.t">Palier 2</span>
+              <span class="ok" data-i18n="rm.ok2">✅ livré</span>
+            </div>
+            <p data-i18n="rm.2.d">
+              Queen Bee (brief → DAG) · Hive Mind (mémoire partagée) · Sting Detector (prévention de
+              conflits).
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="rail">
+            <div class="hex">3</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.3.t">Palier 3</span>
+              <span class="ok" data-i18n="rm.ok3">✅ livré</span>
+            </div>
+            <p data-i18n="rm.3.d">
+              Honeycomb Merge (plan + exécution réelle) · Drone Wars · Time-Lapse Replay.
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="rail">
+            <div class="hex">4</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.4.t">Palier 4</span>
+              <span class="ok" data-i18n="rm.ok4">✅ livré</span>
+            </div>
+            <p data-i18n="rm.4.d">
+              Nectar &amp; Waggle Board · Night Shift · Parlement des Agents · Ghost in the Hive.
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="rail"><div class="hex next">→</div></div>
+          <div class="body">
+            <div class="t next" data-i18n="rm.next.t">Ensuite</div>
+            <p data-i18n="rm.next.d">
+              Isolation durcie (VM/conteneur) · fédération de ruches · comptes utilisateurs (UI sur
+              l'auth JWT existante).
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="links">
+        <a href="https://github.com/Micka420-collab/hive" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/Micka420-collab/hive#readme" target="_blank" rel="noopener"
+          >Documentation</a
+        >
+        <a
+          href="https://github.com/Micka420-collab/hive/blob/main/LICENSE"
+          target="_blank"
+          rel="noopener"
+          data-i18n="footer.mit"
+          >Licence MIT</a
+        >
+      </div>
+      <div class="made" data-i18n="footer.made">Fait avec 🍯 — chaque ouvrière compte.</div>
+    </footer>
+
+    <script>
+      (function () {
+        'use strict';
+
+        /* ── i18n ─────────────────────────────────────────────────────────
+       Le HTML est écrit en français (langue par défaut). Au chargement,
+       on capture le contenu FR de chaque [data-i18n] ; le dictionnaire
+       ci-dessous ne contient donc que l'anglais. */
+        var EN = {
+          skip: 'Skip to content',
+          'nav.features': 'Features',
+          'nav.security': 'Security',
+          'nav.start': 'Get started',
+          'badge.tests': '289 tests ✓',
+          'badge.tier': 'Tier 4 shipped',
+          'hero.h1':
+            'The AI agent swarm,<br /><span class="grad">orchestrated as a community.</span>',
+          'hero.sub':
+            'A central <strong>Queen</strong> splits a project into tasks and distributes them to members’ machines, which run their coding agents — the <em>workers</em> — in isolated workspaces. Control is centralized; <strong class="key">code and keys stay on each member’s machine.</strong>',
+          'hero.clone': 'Clone the hive',
+          'hero.copy': 'copy',
+          'swarm.title': '🐝 Swarm View — the swarm, live',
+          'swarm.online': 'online',
+          'swarm.alt': 'Swarm View: two member nodes linked to a DAG of hexagonal tasks',
+          'svg.schema': 'DB schema',
+          'svg.mockups': 'Mockups',
+          'svg.billing': 'Billing API',
+          'svg.auth': 'JWT auth',
+          'svg.integration': 'Integration',
+          'svg.e2e': 'E2E tests',
+          'feat.kicker': '✨ At a glance',
+          'feat.headline':
+            'Everything you need to put an AI swarm to work — without ever losing control.',
+          'feat.qb':
+            'Describe a project in one sentence → a <strong>task DAG</strong> is generated, heuristic or AI, editable before launch.',
+          'feat.hm':
+            'Shared memory: the hive learns from successful tasks and feeds the knowledge back into the next ones. 100% offline.',
+          'feat.sd':
+            'Spots concurrent tasks that would touch the same file and <strong>serializes</strong> them to prevent conflicts.',
+          'feat.dw':
+            'Opt-in competitive redundancy: the same task on 2-5 nodes, first success wins, nectar bonus for the victor.',
+          'feat.mi.t': 'Honey House',
+          'feat.mi':
+            'Review center for AI output: per-file diffs, logs, Parliament consensus, keyboard approval, one-gesture Honeycomb merge.',
+          'feat.qa.t': 'The Queen answers',
+          'feat.qa':
+            'Multilingual chat with the hive: real progress, health, leaderboard, brief coaching. Optional AI, guaranteed offline fallback.',
+          'feat.sv':
+            'The living swarm in lightweight SVG or in 3D (hex cells, orbiting workers, orbital camera), loaded on demand.',
+          'feat.aa.t': 'Agent-agnostic',
+          'feat.aa':
+            '<code class="tag">claude-code</code> <code class="tag">codex</code> <code class="tag">hermes</code> — or your own AgentAdapter.',
+          'archi.headline': 'Hub-and-spoke: one Queen, N member nodes.',
+          'archi.node': 'Member node',
+          'archi.node.d': 'agents + sandbox<br />local keys 🔑',
+          'archi.node2': 'Member node',
+          'archi.node2.d': 'agents + sandbox<br />local keys 🔑',
+          'archi.queen': 'Orchestrator (Queen)',
+          'archi.p1': '⚡ Real-time over WebSocket',
+          'archi.p2': '💾 Persistent state in SQLite — survives restarts',
+          'archi.p3': '🔑 API keys never leave the member’s machine',
+          'mc.headline': '8 keyboard-navigable views, bilingual FR/EN interface.',
+          'mc.lede':
+            'Honeycomb sidebar, keys <kbd class="key">1</kbd>–<kbd class="key">8</kbd>, deep-links <code class="inline">#/view/id</code>. Review decisions are shared between all operators, in real time.',
+          'mc.1.t': '1 · Hive',
+          'mc.1.d': 'Swarm View 2D/3D, KPIs, clickable honeycomb, queue, journal.',
+          'mc.2.t': '2 · Queen',
+          'mc.2.d': 'Talk to the hive in your language: progress, health, leaderboard.',
+          'mc.3.t': '3 · Honey House',
+          'mc.3.d': 'Per-file diffs, logs, consensus, keyboard approval (a/x), Honeycomb merge.',
+          'mc.4.t': '4 · Projects',
+          'mc.4.d': 'Reports, brief→DAG workshop (Queen Bee), merge plan, Sting conflicts.',
+          'mc.5.t': '5 · Swarm',
+          'mc.5.d': 'Member node cards + Waggle Board (nectar podium).',
+          'mc.6.t': '6 · Health',
+          'mc.6.d': 'Hive pulse (throughput, p50/p95 latency, success) + Ghost anomalies.',
+          'mc.7.t': '7 · Chronicle',
+          'mc.7.d':
+            'Filterable journal + Time-Lapse Replay (sepia “you’re watching the past” mode).',
+          'mc.8.t': '8 · Memory',
+          'mc.8.d': 'Search the hive’s knowledge (Hive Mind) + OpenAlex library.',
+          'sec.kicker': '🔒 Security',
+          'sec.headline': 'Safe by default. Never a merge without human review.',
+          'sec.1':
+            'Zero <code>shell: true</code> — everything goes through <code>spawn(bin, argv)</code>',
+          'sec.2': 'Mandatory shared token, compared in <strong>constant time</strong>',
+          'sec.3': 'Restricted CORS — never <code>*</code>; WebSocket origin checked',
+          'sec.4': 'All inputs validated (JSON Schema, size caps)',
+          'sec.5': 'Anti-DoS: per-IP REST rate limiting + WS message cap',
+          'sec.6': 'Per-task sandbox: dedicated cwd, stripped environment, hard timeout',
+          'sec.7': 'API keys stay with the member — <strong>never exfiltrated</strong>',
+          'sec.8': 'Merging is always an <strong>explicit human gesture</strong>',
+          'sec.warn':
+            '<strong>Known limit (sandbox v0)</strong> — a real process can read the disk and reach the network. Until VM/container isolation lands, only run Hive between trusted members.',
+          'go.kicker': '🚀 Get started',
+          'go.headline': 'A full demo in two commands.',
+          'go.t1': 'local demo',
+          'go.demo':
+            '<span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrator + 2 simulated nodes<br />   7-task DAG · 1 retry · 1 ⚔ race</span>',
+          'go.n1':
+            'Test persistence: <kbd class="key">Ctrl+C</kbd> mid-run, restart — everything is still there.',
+          'go.t2': '🤝 invite a friend — 30 s',
+          'go.invite':
+            '<span class="c"># you (host)</span><br /><span class="p">$ </span>npm run cli -- invite<br /><span class="c"># your friend pastes the command</span><br /><span class="p">$ </span>npm run join -- hive1_eyJ2IjoxLCJ1cmw…<br /><span class="o">🐝 Joining the hive: Micka’s Hive<br />✔ Node started — you’re foraging for the hive.</span>',
+          'go.n2':
+            'Their Claude Code / Codex is auto-detected. ⚠️ The invite contains the hive token: share it over a private channel.',
+          'rm.headline': 'Four tiers shipped. The hive keeps growing.',
+          'rm.1.t': 'Tier 1',
+          'rm.ok1': '✅ shipped',
+          'rm.1.d':
+            'Real swarm, real-time, persistent · Swarm View 2D/3D · invitations · built-in editor · security &amp; sandbox v0.',
+          'rm.2.t': 'Tier 2',
+          'rm.ok2': '✅ shipped',
+          'rm.2.d':
+            'Queen Bee (brief → DAG) · Hive Mind (shared memory) · Sting Detector (conflict prevention).',
+          'rm.3.t': 'Tier 3',
+          'rm.ok3': '✅ shipped',
+          'rm.3.d': 'Honeycomb Merge (plan + real execution) · Drone Wars · Time-Lapse Replay.',
+          'rm.4.t': 'Tier 4',
+          'rm.ok4': '✅ shipped',
+          'rm.4.d':
+            'Nectar &amp; Waggle Board · Night Shift · Agent Parliament · Ghost in the Hive.',
+          'rm.next.t': 'Next',
+          'rm.next.d':
+            'Hardened isolation (VM/container) · hive federation · user accounts (UI on the existing JWT auth).',
+          'footer.mit': 'MIT License',
+          'footer.made': 'Made with 🍯 — every worker counts.',
+        };
+
+        var TITLES = {
+          fr: "Hive — L'essaim d'agents IA, orchestré en communauté",
+          en: 'Hive — The AI agent swarm, orchestrated as a community',
+        };
+
+        var FR = {}; // capturé depuis le DOM au chargement
+        var ATTR_FR = {}; // idem pour les attributs data-i18n-attr
+        var nodes = document.querySelectorAll('[data-i18n]');
+        var attrNodes = document.querySelectorAll('[data-i18n-attr]');
+        nodes.forEach(function (el) {
+          FR[el.getAttribute('data-i18n')] = el.innerHTML;
+        });
+        attrNodes.forEach(function (el) {
+          var spec = el.getAttribute('data-i18n-attr').split(':'); // "attr:key"
+          ATTR_FR[spec[1]] = el.getAttribute(spec[0]);
+        });
+
+        var lang = 'fr';
+        function setLang(next) {
+          lang = next === 'en' ? 'en' : 'fr';
+          var dict = lang === 'en' ? EN : FR;
+          nodes.forEach(function (el) {
+            var key = el.getAttribute('data-i18n');
+            if (dict[key] != null) el.innerHTML = dict[key];
+          });
+          attrNodes.forEach(function (el) {
+            var spec = el.getAttribute('data-i18n-attr').split(':');
+            var val = lang === 'en' ? EN[spec[1]] : ATTR_FR[spec[1]];
+            if (val != null) el.setAttribute(spec[0], val);
+          });
+          document.documentElement.lang = lang;
+          document.title = TITLES[lang];
+          document.getElementById('btn-fr').setAttribute('aria-pressed', String(lang === 'fr'));
+          document.getElementById('btn-en').setAttribute('aria-pressed', String(lang === 'en'));
+          try {
+            localStorage.setItem('hive.lang', lang);
+          } catch (e) {
+            /* stockage privé */
+          }
+          renderJournal();
+        }
+
+        document.getElementById('btn-fr').addEventListener('click', function () {
+          setLang('fr');
+        });
+        document.getElementById('btn-en').addEventListener('click', function () {
+          setLang('en');
+        });
+
+        /* Langue initiale : ?lang= > localStorage > langue du navigateur */
+        var initial = 'fr';
+        try {
+          var qs = new URLSearchParams(location.search).get('lang');
+          var saved = localStorage.getItem('hive.lang');
+          if (qs === 'en' || qs === 'fr') initial = qs;
+          else if (saved === 'en' || saved === 'fr') initial = saved;
+          else if (
+            String(navigator.language || '')
+              .toLowerCase()
+              .indexOf('fr') !== 0
+          )
+            initial = 'en';
+        } catch (e) {
+          /* défauts conservés */
+        }
+
+        /* ── Journal vivant ── */
+        var JFR = [
+          { i: '🍯', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: '#f6b93b' },
+          { i: '⚙️', t: 'ruche-alpha butine « Auth JWT » (claude-code)', c: '#ff9f1a' },
+          { i: '↻', t: '« API de facturation » : échec, nouvelle tentative 2/3', c: '#ffd166' },
+          {
+            i: '⚔',
+            t: 'Course de drones lancée sur 2 nœuds — le premier succès gagne',
+            c: '#6bb0d6',
+          },
+          {
+            i: '🛡️',
+            t: 'Sting Detector : « CI » différée (conflit fort avec « Intégration »)',
+            c: '#e58e26',
+          },
+          {
+            i: '🧬',
+            t: 'Hive Mind : 3 souvenirs injectés dans le prompt de l’ouvrière',
+            c: '#86c35d',
+          },
+          {
+            i: '👑',
+            t: 'La Reine répond : « Le projet est à 43 %, ruche-alpha mène au nectar »',
+            c: '#b39c72',
+          },
+          { i: '💓', t: 'Pouls : 14 tâches/h · p95 3,2 s · 96 % de succès', c: '#86c35d' },
+        ];
+        var JEN = [
+          { i: '🍯', t: 'Task "DB schema" done — nectar +12', c: '#f6b93b' },
+          { i: '⚙️', t: 'ruche-alpha foraging "JWT auth" (claude-code)', c: '#ff9f1a' },
+          { i: '↻', t: '"Billing API": failed, retry 2/3', c: '#ffd166' },
+          { i: '⚔', t: 'Drone race started on 2 nodes — first success wins', c: '#6bb0d6' },
+          {
+            i: '🛡️',
+            t: 'Sting Detector: "CI" deferred (strong conflict with "Integration")',
+            c: '#e58e26',
+          },
+          { i: '🧬', t: 'Hive Mind: 3 memories injected into the worker’s prompt', c: '#86c35d' },
+          {
+            i: '👑',
+            t: 'The Queen answers: "Project at 43%, ruche-alpha leads the nectar board"',
+            c: '#b39c72',
+          },
+          { i: '💓', t: 'Pulse: 14 tasks/h · p95 3.2s · 96% success', c: '#86c35d' },
+        ];
+        var tick = 0;
+        var journalEl = document.getElementById('journal');
+        function renderJournal() {
+          var src = lang === 'en' ? JEN : JFR;
+          var now = Date.now();
+          var html = '';
+          for (var k = 0; k < 4; k++) {
+            var e = src[(tick + k) % src.length];
+            var d = new Date(now - (3 - k) * 7000);
+            var hh =
+              ('0' + d.getHours()).slice(-2) +
+              ':' +
+              ('0' + d.getMinutes()).slice(-2) +
+              ':' +
+              ('0' + d.getSeconds()).slice(-2);
+            html +=
+              '<li><span class="ico">' +
+              e.i +
+              '</span><span class="msg" style="color:' +
+              e.c +
+              '">' +
+              e.t.replace(/&/g, '&amp;').replace(/</g, '&lt;') +
+              '</span><span class="ts">' +
+              hh +
+              '</span></li>';
+          }
+          journalEl.innerHTML = html;
+        }
+        var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!reduceMotion)
+          setInterval(function () {
+            tick++;
+            renderJournal();
+          }, 2600);
+
+        setLang(initial);
+
+        /* ── Copier la commande de démo ── */
+        var copyBtn = document.getElementById('copy-btn');
+        var copyLbl = document.getElementById('copy-lbl');
+        var copyTimer = null;
+        copyBtn.addEventListener('click', function () {
+          var cmd = 'npm install && npm run demo';
+          function done() {
+            copyLbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+            clearTimeout(copyTimer);
+            copyTimer = setTimeout(function () {
+              copyLbl.textContent = lang === 'en' ? 'copy' : 'copier';
+            }, 1800);
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(cmd).then(done, function () {
+              fallback();
+            });
+          } else fallback();
+          function fallback() {
+            var ta = document.createElement('textarea');
+            ta.value = cmd;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand('copy');
+              done();
+            } catch (e) {
+              /* copie impossible */
+            }
+            document.body.removeChild(ta);
+          }
+        });
+
+        /* ── Lien de nav actif au fil du défilement ── */
+        var links = document.querySelectorAll('nav.main a');
+        var byId = {};
+        links.forEach(function (a) {
+          byId[a.getAttribute('href').slice(1)] = a;
+        });
+        if ('IntersectionObserver' in window) {
+          var navObs = new IntersectionObserver(
+            function (entries) {
+              entries.forEach(function (en) {
+                if (en.isIntersecting) {
+                  links.forEach(function (a) {
+                    a.classList.remove('active');
+                  });
+                  var a = byId[en.target.id];
+                  if (a) a.classList.add('active');
+                }
+              });
+            },
+            { rootMargin: '-40% 0px -55% 0px' },
+          );
+          document.querySelectorAll('section[id]').forEach(function (s) {
+            navObs.observe(s);
+          });
+        }
+
+        /* ── Compteur d'étoiles GitHub (amélioration progressive) ── */
+        fetch('https://api.github.com/repos/Micka420-collab/hive')
+          .then(function (r) {
+            return r.ok ? r.json() : null;
+          })
+          .then(function (j) {
+            if (j && typeof j.stargazers_count === 'number') {
+              document.getElementById('gh-btn').textContent =
+                '★ ' + j.stargazers_count + ' · GitHub';
+            }
+          })
+          .catch(function () {
+            /* hors-ligne ou limité : on garde le libellé statique */
+          });
+      })();
+    </script>
+  </body>
+</html>
