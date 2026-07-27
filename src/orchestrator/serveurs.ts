@@ -270,6 +270,18 @@ export function transitionPermise(de: EtatServeur, vers: EtatServeur): boolean {
   return TRANSITIONS[de]?.includes(vers) ?? false;
 }
 
+/**
+ * Les états atteignables depuis celui-ci.
+ *
+ * Sert au tableau d'administration : l'écran n'affiche QUE les gestes que le
+ * serveur acceptera. Sans cela, la même matrice serait recopiée côté navigateur
+ * et les deux dériveraient — un bouton proposé ici, refusé là-bas, sans que
+ * rien ne signale la contradiction avant le clic.
+ */
+export function transitionsDepuis(de: EtatServeur): readonly EtatServeur[] {
+  return TRANSITIONS[de] ?? [];
+}
+
 /** Applique une transition, ou explique pourquoi elle est refusée. */
 export function transiter(
   s: Serveur,

@@ -9,6 +9,7 @@ import {
   authMe,
   clearJwt,
   connectFeed,
+  estAdmin,
   fetchPulse,
   fetchReviews,
   getJwt,
@@ -44,6 +45,7 @@ const Sante = lazy(() => import('./views/Sante'));
 const Chronique = lazy(() => import('./views/Chronique'));
 const Memoire = lazy(() => import('./views/Memoire'));
 const Reine = lazy(() => import('./views/Reine'));
+const Intendance = lazy(() => import('./views/Intendance'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
 
@@ -53,6 +55,8 @@ interface NavItem {
   labelEn: string;
   icon: string;
   key: string;
+  /** Vue d'administration : la case n'est montrée qu'aux admins. */
+  admin?: true;
 }
 
 const NAV: NavItem[] = [
@@ -64,8 +68,24 @@ const NAV: NavItem[] = [
   { id: 'sante', label: 'Santé', labelEn: 'Health', icon: '💓', key: '6' },
   { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', icon: '📜', key: '7' },
   { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', icon: '🧠', key: '8' },
+  {
+    id: 'intendance',
+    label: 'Intendance',
+    labelEn: 'Stewardship',
+    icon: '🖥',
+    key: '9',
+    admin: true,
+  },
 ];
 
+/**
+ * TOUS les identifiants de vue, y compris ceux qui ne sont pas dans la barre.
+ *
+ * `parseHash` doit reconnaître `#/intendance` même quand la case est masquée :
+ * un administrateur qui ouvre son signet arrive AVANT que `/api/auth/me` ait
+ * répondu, et le renvoyer sur la Ruche à cet instant-là serait un bug qu'on
+ * ne saurait pas reproduire.
+ */
 const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
 
 /** #/vue/id → { view, selectedId } (fallback ruche sur hash inconnu). */
@@ -104,6 +124,10 @@ export function App() {
   const reviewTick = useReviewTick();
   const lang = useLang();
   const t = useT();
+  // Le gestionnaire de raccourcis est installé UNE fois : il lit la session
+  // par référence, sinon il resterait sur celle du premier rendu (null).
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
   // Coalescence des invalidations : une rafale d'événements → 1 re-fetch/s max.
   const refreshTimer = useRef<number | undefined>(undefined);
 
@@ -228,7 +252,9 @@ export function App() {
       const item = NAV.find(
         (n) => n.key === e.key || e.code === `Digit${n.key}` || e.code === `Numpad${n.key}`,
       );
-      if (item) navigate(item.id);
+      // Une case masquée n'a pas non plus de raccourci : sinon « 9 » emmènerait
+      // un membre sur un écran qui ne sait que lui dire non.
+      if (item && (!item.admin || estAdmin(userRef.current))) navigate(item.id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -283,6 +309,7 @@ export function App() {
     onNavigate: navigate,
     selectedId: route.selectedId,
     refreshTick,
+    user,
   };
 
   const openTask = openTaskId ? (snapshot.tasks.find((t) => t.id === openTaskId) ?? null) : null;
@@ -295,7 +322,7 @@ export function App() {
           <span className="brand-logo">🐝</span>
         </div>
         <ul className="mc-nav">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.admin || estAdmin(user)).map((item) => (
             <li key={item.id}>
               <button
                 className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
@@ -395,6 +422,7 @@ export function App() {
           {route.view === 'chronique' && <Chronique {...viewProps} />}
           {route.view === 'memoire' && <Memoire {...viewProps} />}
           {route.view === 'reine' && <Reine {...viewProps} />}
+          {route.view === 'intendance' && <Intendance {...viewProps} />}
         </Suspense>
       </div>
 

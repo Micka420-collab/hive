@@ -1,0 +1,289 @@
+/* Vue Intendance (préfixe in-) — la salle des machines.
+   Thème miel sombre via les variables :root de styles.css.
+
+   Parti pris d'affichage : ce qui coûte de l'argent est CHAUD, ce qui n'en
+   coûte plus est calme, ce qui est définitif est rouge. Un opérateur doit
+   pouvoir lire la facture d'un coup d'œil sans lire une seule étiquette. */
+
+.in-view {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Le refus (pas de session, ou pas administrateur) ─────────────────── */
+
+.in-refus {
+  padding: 22px 24px;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.in-refus h2 {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.in-refus p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.in-refus-action {
+  color: var(--honey);
+  font-weight: 600;
+}
+
+/* ─── Les tuiles de tête : la facture d'un coup d'œil ──────────────────── */
+
+.in-tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.in-tuile {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: help;
+}
+
+/* Chaud = de l'argent part en ce moment, ou une machine est en échec. */
+.in-tuile.chaud {
+  border-color: var(--amber);
+  background: rgba(229, 142, 38, 0.09);
+}
+
+.in-tuile-valeur {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.in-tuile.chaud .in-tuile-valeur {
+  color: var(--gold);
+}
+
+.in-tuile-libelle {
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ─── L'alerte de rétention : un compte à rebours irréversible ─────────── */
+
+.in-alerte {
+  margin: 0 14px 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--amber);
+  background: rgba(229, 142, 38, 0.1);
+  color: var(--gold);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.in-vide {
+  padding: 0 14px 16px;
+  max-width: 640px;
+  line-height: 1.55;
+}
+
+/* ─── Les tableaux ────────────────────────────────────────────────────── */
+
+.in-table {
+  width: 100%;
+}
+
+.in-table td {
+  vertical-align: top;
+}
+
+.in-table small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+
+.in-projet {
+  display: block;
+  font-weight: 600;
+}
+
+.in-id,
+.in-table code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  word-break: break-all;
+}
+
+.in-date {
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.in-motif {
+  font-style: italic;
+}
+
+/* L'état, coloré par ce qu'il coûte. */
+.in-etat {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.in-etat.etat-provisionnement,
+.in-etat.etat-pret {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.in-etat.etat-demande {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.in-etat.etat-echoue {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.in-etat.etat-supprime {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+/* Une machine supprimée reste lisible mais s'efface visuellement : elle est
+   là pour la trace, plus pour l'action. */
+.in-ligne.etat-supprime {
+  opacity: 0.55;
+}
+
+.in-retention {
+  color: var(--amber) !important;
+  font-weight: 600;
+}
+
+.in-sens {
+  font-style: italic;
+}
+
+/* ─── Les gestes ──────────────────────────────────────────────────────── */
+
+.in-gestes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.in-geste {
+  font-size: 11.5px;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+.in-geste.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.in-geste.danger:hover:not(:disabled) {
+  background: rgba(229, 87, 63, 0.12);
+}
+
+.in-ligne-suite td {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.in-confirme {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--gold);
+}
+
+.in-confirme .btn {
+  font-size: 11.5px;
+  padding: 4px 10px;
+}
+
+.in-confirme .btn.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ─── Les comptes ─────────────────────────────────────────────────────── */
+
+.in-email {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.in-role {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+}
+
+.in-role.admin {
+  border-color: var(--honey);
+  color: var(--honey);
+}
+
+.in-moi {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 760px) {
+  .in-view {
+    padding: 12px;
+  }
+
+  /* Le tableau déborde plutôt que d'écraser les colonnes : sur un téléphone,
+     un « → arrêter » coupé en deux est pire qu'un glissement horizontal. */
+  .in-serveurs .in-table,
+  .in-membres .in-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

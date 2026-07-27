@@ -304,4 +304,107 @@ describe('serveurs — l’administration', () => {
     });
     expect(r.status).toBe(400);
   });
+
+  // ─── Ce que l'écran d'intendance reçoit pour dessiner ses boutons ─────────
+  //
+  // La matrice de transitions ne doit exister QU'UNE fois. Si le navigateur en
+  // gardait une copie, les deux dériveraient au premier ajout d'état : un
+  // bouton proposé ici, refusé là-bas, sans que rien ne signale l'écart avant
+  // le clic. Le serveur envoie donc les gestes permis avec chaque machine.
+
+  const poser = (srv: HiveServer, id: string, etat: string, projectId = 'p'): void => {
+    const now = Date.now();
+    srv.store.setServeur({
+      id,
+      projectId,
+      refAbonnement: `sub-${id}`,
+      etat,
+      fournisseur: 'manuel',
+      refMachine: '',
+      gabarit: '2 vCPU / 4 Go',
+      motif: '',
+      creeA: now,
+      majA: now,
+      arreteA: 0,
+    });
+  };
+
+  interface VueAdmin {
+    serveurs: Array<{
+      id: string;
+      etat: string;
+      projet: string;
+      transitions: string[];
+      joursAvantSuppression: number;
+    }>;
+  }
+
+  const lire = async (base: string, admin: string): Promise<VueAdmin> =>
+    (await (
+      await fetch(`${base}/api/admin/serveurs`, { headers: { authorization: `Bearer ${admin}` } })
+    ).json()) as VueAdmin;
+
+  it('LES GESTES PROPOSÉS SONT CEUX QUE LE SERVEUR ACCEPTE', async () => {
+    // Le contrat qui interdit la copie de la matrice côté navigateur : ce que
+    // la vue liste, le PUT le prend.
+    const { base, srv, admin } = await demarrer();
+    poser(srv, 'srv-pret', 'pret');
+    const { serveurs } = await lire(base, admin);
+    const s = serveurs.find((x) => x.id === 'srv-pret');
+    expect(s?.transitions.length).toBeGreaterThan(0);
+
+    for (const vers of s!.transitions) {
+      // Chaque geste annoncé est rejoué depuis « prêt » sur une machine neuve.
+      const id = `essai-${vers}`;
+      poser(srv, id, 'pret');
+      const r = await fetch(`${base}/api/admin/serveurs/${id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${admin}` },
+        body: JSON.stringify({ etat: vers }),
+      });
+      expect(r.status, `${'pret'} → ${vers}`).toBe(200);
+    }
+  });
+
+  it('un serveur supprimé n’offre AUCUN geste', async () => {
+    // Terminal veut dire terminal : l'écran ne doit pas montrer un bouton qui
+    // laisserait croire qu'on peut ressusciter la machine — et ses données.
+    const { base, srv, admin } = await demarrer();
+    poser(srv, 'srv-mort', 'supprime');
+    const { serveurs } = await lire(base, admin);
+    expect(serveurs.find((s) => s.id === 'srv-mort')?.transitions).toEqual([]);
+  });
+
+  it('la ligne porte le NOM du projet, pas seulement son identifiant', async () => {
+    // « hive-a3f2 » ne dit à personne quelle machine il s'apprête à éteindre.
+    const { base, srv, admin } = await demarrer();
+    const projet = srv.store.createProject({ name: 'Ruche des voisins' });
+    poser(srv, 'srv-nom', 'pret', projet.id);
+    const { serveurs } = await lire(base, admin);
+    expect(serveurs.find((s) => s.id === 'srv-nom')?.projet).toBe('Ruche des voisins');
+  });
+
+  it('un projet effacé ne casse pas la ligne', async () => {
+    // Le nom manque ; la machine, elle, existe encore et coûte de l'argent.
+    const { base, srv, admin } = await demarrer();
+    poser(srv, 'srv-orphelin', 'pret', 'projet-disparu');
+    const { serveurs } = await lire(base, admin);
+    const s = serveurs.find((x) => x.id === 'srv-orphelin');
+    expect(s?.projet).toBe('');
+    expect(s?.etat).toBe('pret');
+  });
+
+  it('/api/auth/me PORTE le rôle — sans lui l’écran d’intendance reste caché', async () => {
+    // Le dashboard décide d'afficher la case « Intendance » sur ce champ. S'il
+    // disparaissait, un administrateur ne verrait plus jamais ses machines.
+    const { base, admin, membre } = await demarrer();
+    const roleDe = async (jeton: string): Promise<string | undefined> =>
+      (
+        (await (
+          await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${jeton}` } })
+        ).json()) as { role?: string }
+      ).role;
+    expect(await roleDe(admin)).toBe('admin');
+    expect(await roleDe(membre)).toBe('membre');
+  });
 });

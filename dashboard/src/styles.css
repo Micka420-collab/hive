@@ -1591,6 +1591,12 @@ h3 {
 
 .mc-app {
   display: flex;
+  /* EXPLICITE, et pas redondant : le shell porte AUSSI la classe `.app`, qui
+     déclare `flex-direction: column`. Sans cette ligne, cette déclaration-là
+     est la seule pour la propriété et l'emporte — la barre alvéolaire, haute
+     de 100vh, se posait alors AU-DESSUS du contenu, et il fallait faire défiler
+     un écran entier de vide avant d'apercevoir la première vue. */
+  flex-direction: row;
   min-height: 100vh;
 }
 

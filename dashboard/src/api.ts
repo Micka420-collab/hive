@@ -559,6 +559,21 @@ export interface AuthUser {
   bio?: string | null;
   avatarUrl?: string | null;
   createdAt?: number;
+  /**
+   * `admin` ou `membre`. OPTIONNEL : un orchestrateur d'avant les rôles ne le
+   * renvoie pas. Absent ⇒ traité comme `membre` — le défaut sûr : au pire
+   * l'écran d'intendance reste caché à quelqu'un qui y aurait droit, alors que
+   * l'inverse afficherait des boutons que le serveur refusera de toute façon.
+   */
+  role?: Role;
+}
+
+export type { Role } from '../../src/orchestrator/comptes';
+import type { Role } from '../../src/orchestrator/comptes';
+
+/** L'appelant est-il administrateur ? Un `role` absent n'est jamais un oui. */
+export function estAdmin(user: AuthUser | null): boolean {
+  return user?.role === 'admin';
 }
 
 export function authRegister(
@@ -581,8 +596,111 @@ export function authLogin(email: string, password: string): Promise<{ token: str
 
 /** Profil de la session courante (401 → ApiError, le JWT est alors périmé). */
 export function authMe(): Promise<AuthUser> {
-  return api<AuthUser>('/api/auth/me', {
-    headers: { authorization: `Bearer ${getJwt() ?? ''}` },
+  return apiCompte<AuthUser>('/api/auth/me');
+}
+
+/**
+ * Appel signé par le COMPTE, pas par la ruche.
+ *
+ * Le jeton de ruche est distribué à chaque nœud membre : s'en servir comme
+ * preuve d'administration donnerait les pleins pouvoirs à toute machine qui
+ * butine. Le serveur le refuse déjà (401) ; ce helper existe pour qu'aucun
+ * appel d'intendance ne parte sans le JWT et n'aille se cogner à ce refus.
+ */
+function apiCompte<T>(path: string, init?: RequestInit): Promise<T> {
+  return api<T>(path, {
+    ...init,
+    headers: { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
+  });
+}
+
+// ─── L'intendance : les serveurs et les membres ─────────────────────────────
+// Réservée aux administrateurs. Cacher les boutons n'est PAS la sécurité — le
+// serveur tranche seul, et un membre qui tape l'URL reçoit 403. Ce qui suit
+// n'est qu'une manière de ne pas proposer des gestes voués à être refusés.
+
+export type { EtatServeur } from '../../src/orchestrator/serveurs';
+import type { EtatServeur, VueServeurs } from '../../src/orchestrator/serveurs';
+import type { Serveur } from '../../src/orchestrator/serveurs';
+
+/**
+ * Un serveur tel que l'intendance le voit. Étend `Serveur` (le type du module
+ * pur — le typecheck casse si un champ y bouge) de trois lectures calculées
+ * côté serveur :
+ *  - `projet` : le nom, parce qu'un identifiant ne dit pas ce qu'on éteint ;
+ *  - `joursAvantSuppression` : `-1` quand la machine n'est pas concernée ;
+ *  - `transitions` : les gestes que le serveur ACCEPTERA. L'écran n'en propose
+ *    pas d'autres, et il ne recopie pas la matrice — elle dériverait.
+ */
+export interface ServeurAdmin extends Serveur {
+  projet: string;
+  joursAvantSuppression: number;
+  transitions: EtatServeur[];
+}
+
+export interface IntendanceServeurs {
+  vue: VueServeurs;
+  serveurs: ServeurAdmin[];
+  fournisseur: string;
+  retentionJours: number;
+  serveursMax: number;
+}
+
+export function fetchServeurs(): Promise<IntendanceServeurs> {
+  return apiCompte<IntendanceServeurs>('/api/admin/serveurs');
+}
+
+/**
+ * Change l'état d'une machine. `change: false` = l'état demandé était déjà le
+ * sien (rejeu, double-clic) : ce n'est pas une erreur, et ça ne doit pas
+ * s'afficher comme telle.
+ */
+export function setServeurEtat(
+  id: string,
+  etat: EtatServeur,
+  motif?: string,
+): Promise<{ id: string; etat: EtatServeur; change: boolean }> {
+  return apiCompte(`/api/admin/serveurs/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ etat, ...(motif ? { motif } : {}) }),
+  });
+}
+
+export interface MembreAdmin {
+  id: string;
+  email: string;
+  displayName: string;
+  /**
+   * `string`, et pas `Role` : la base rend ce qui y est rangé, et rien ne
+   * garantit à la compilation que ce soit un rôle connu. `roleConnu` tranche à
+   * l'affichage plutôt que de mentir dans le type.
+   */
+  role: string;
+  createdAt: number;
+}
+
+/** Rôle sûr à afficher. Tout ce qui n'est pas reconnu retombe sur `membre`. */
+export function roleConnu(brut: string): Role {
+  return brut === 'admin' ? 'admin' : 'membre';
+}
+
+export interface IntendanceMembres {
+  membres: MembreAdmin[];
+  admins: number;
+  inscription: { mode: ModeInscription; avertissement: string };
+}
+
+export type { ModeInscription } from '../../src/orchestrator/comptes';
+import type { ModeInscription } from '../../src/orchestrator/comptes';
+
+export function fetchMembres(): Promise<IntendanceMembres> {
+  return apiCompte<IntendanceMembres>('/api/admin/membres');
+}
+
+export function setMembreRole(userId: string, role: Role): Promise<{ userId: string; role: Role }> {
+  return apiCompte(`/api/admin/membres/${encodeURIComponent(userId)}/role`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
   });
 }
 

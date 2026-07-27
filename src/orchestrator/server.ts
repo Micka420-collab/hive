@@ -84,7 +84,12 @@ import {
   replierServeurs,
   transiter,
 } from './serveurs.js';
-import { RETENTION_JOURS, SERVEURS_MAX, joursAvantSuppression } from './serveurs.js';
+import {
+  RETENTION_JOURS,
+  SERVEURS_MAX,
+  joursAvantSuppression,
+  transitionsDepuis,
+} from './serveurs.js';
 import type { EtatServeur, Serveur } from './serveurs.js';
 import {
   GOUVERNANTES_MIN,
@@ -2053,11 +2058,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     if (!exige(req, reply, 'gerer_serveurs')) return reply;
     const now = Date.now();
     const serveurs = serveursDe();
+    // Le nom du projet, pas seulement son identifiant : « hive-a3f2 » ne dit
+    // à personne quelle machine il s'apprête à éteindre.
+    const noms = new Map(store.listProjects().map((p) => [p.id, p.name]));
     return {
       vue: replierServeurs(serveurs, now),
       serveurs: serveurs.map((s) => ({
         ...s,
+        projet: noms.get(s.projectId) ?? '',
         joursAvantSuppression: joursAvantSuppression(s, now),
+        // Les gestes que CE serveur acceptera. L'écran n'en propose pas
+        // d'autres : recopier la matrice côté navigateur la ferait dériver.
+        transitions: transitionsDepuis(s.etat),
       })),
       fournisseur: fournisseurServeurs.nom,
       retentionJours: RETENTION_JOURS,
