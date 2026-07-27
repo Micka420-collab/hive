@@ -211,3 +211,55 @@ export function etapesTunnelNomme(nom: string, hote: string, port: number): Etap
 export function urlStable(hote: string): string {
   return `wss://${hote}/ws`;
 }
+
+// ─── Intégrité de ce qui est téléchargé ───────────────────────────────────────
+//
+// CE QU'ON NE FAIT PAS, ET POURQUOI. Cloudflare ne publie pas de manifeste de
+// sommes de contrôle à une URL stable à côté de ses binaires : il n'y a donc
+// rien à comparer automatiquement. Prétendre « vérifier la somme » en la
+// recalculant sur le fichier qu'on vient de recevoir ne prouverait RIEN — c'est
+// une tautologie, et une fausse assurance est pire que pas d'assurance.
+//
+// CE QU'ON FAIT :
+//   1. on refuse ce qui n'est manifestement pas un exécutable de cette
+//      plateforme (le mode d'échec réel : un portail captif, un proxy
+//      d'entreprise ou une page d'erreur renvoyés en HTTP 200) ;
+//   2. on AFFICHE l'empreinte SHA-256 de ce qu'on a reçu, pour qui veut la
+//      comparer à la source ;
+//   3. et on rappelle que le chemin réellement signé est le dépôt de paquets
+//      de Cloudflare (apt/rpm, signature GPG).
+
+/** Signature attendue en tête d'un exécutable, par plateforme. */
+export function enTeteAttendu(p: Plateforme): { magie: number[]; quoi: string } | null {
+  if (p.os === 'linux') return { magie: [0x7f, 0x45, 0x4c, 0x46], quoi: 'ELF' }; // \x7fELF
+  if (p.os === 'win32') return { magie: [0x4d, 0x5a], quoi: 'PE (MZ)' }; // MZ
+  if (p.os === 'darwin') return { magie: [0x1f, 0x8b], quoi: 'gzip (.tgz)' };
+  return null;
+}
+
+/**
+ * Vrai si les premiers octets correspondent à ce qu'on attend. Rend `true` sur
+ * une plateforme inconnue : on n'invente pas un refus faute de savoir.
+ */
+export function enTeteValide(p: Plateforme, octets: Uint8Array): boolean {
+  const attendu = enTeteAttendu(p);
+  if (!attendu) return true;
+  if (octets.length < attendu.magie.length) return false;
+  return attendu.magie.every((o, i) => octets[i] === o);
+}
+
+/**
+ * Ce qu'on montre quand le contenu reçu n'est pas un exécutable. Le message
+ * nomme la cause LA PLUS PROBABLE plutôt que de rester vague : dans la vraie
+ * vie, ce n'est presque jamais une attaque, c'est un portail captif ou un proxy.
+ */
+export function diagnosticContenu(octets: Uint8Array): string {
+  const debut = Buffer.from(octets.slice(0, 200)).toString('utf8').trim().toLowerCase();
+  if (debut.startsWith('<!doctype html') || debut.startsWith('<html')) {
+    return 'une page HTML a été reçue à la place du binaire — portail captif Wi-Fi, proxy d’entreprise, ou blocage réseau';
+  }
+  if (debut.startsWith('{') || debut.startsWith('[')) {
+    return 'du JSON a été reçu à la place du binaire — probablement un message d’erreur de l’API';
+  }
+  return 'le contenu reçu n’est pas un exécutable de cette plateforme';
+}

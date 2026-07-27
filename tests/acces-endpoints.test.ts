@@ -209,13 +209,77 @@ describe('échanger un billet', () => {
     expect(await repFaux.json()).toEqual(await repInconnu.json());
   });
 
-  it('rejoindre à nouveau fait une ROTATION de clé, pas une accumulation', async () => {
+  it('un identifiant DÉJÀ PRIS est refusé — on n’éjecte pas un membre en place', async () => {
+    // Sans cette garde, `INSERT OR REPLACE` faisait une rotation de la clé du
+    // nœud visé : n'importe quel porteur d'un billet valide pouvait éjecter un
+    // membre déjà installé en réclamant son identifiant. Une fonctionnalité qui
+    // sert à protéger les accès ne peut pas offrir ce geste-là.
     const a = (await (await creerBillet()).json()) as { billet: string };
     const c1 = (await (await rejoindre(a.billet, 'node-x')).json()) as { cle: string };
+
+    const b = (await (await creerBillet()).json()) as { billet: string; id: string };
+    const rep = await rejoindre(b.billet, 'node-x');
+    expect(rep.status).toBe(409);
+    expect(((await rep.json()) as { detail: string }).detail).toContain('exclure node-x');
+
+    // La clé du membre en place est INTACTE…
+    const range = server.store.getCleNoeud('node-x')!;
+    expect(range.revokedAt).toBeNull();
+    expect(range.ticketId).not.toBe(b.id);
+    // …et le billet du second n'a PAS été brûlé : un refus ne consomme rien.
+    expect(server.store.getBillet(b.id)?.usesLeft).toBe(1);
+    expect(c1.cle).toBeTruthy();
+  });
+
+  it('après une exclusion, l’identifiant redevient disponible', async () => {
+    // Le chemin de récupération : « j'ai perdu ma clé ». Il passe par un GESTE
+    // HUMAIN de l'hôte, comme le merge et comme le plafond — re-cléer un nœud
+    // est une décision, pas un effet de bord d'une requête anonyme.
+    const a = (await (await creerBillet()).json()) as { billet: string };
+    const c1 = (await (await rejoindre(a.billet, 'node-y')).json()) as { cle: string };
+    await fetch(`${base}/api/membres/node-y`, { method: 'DELETE', headers });
+
     const b = (await (await creerBillet()).json()) as { billet: string };
-    const c2 = (await (await rejoindre(b.billet, 'node-x')).json()) as { cle: string };
-    expect(c2.cle).not.toBe(c1.cle);
-    expect(server.store.listClesNoeuds().filter((c) => c.nodeId === 'node-x')).toHaveLength(1);
+    const rep = await rejoindre(b.billet, 'node-y');
+    expect(rep.status).toBe(201);
+    const c2 = (await rep.json()) as { cle: string };
+    expect(c2.cle).not.toBe(c1.cle); // vraie rotation, vraiment vérifiée
+    expect(server.store.getCleNoeud('node-y')?.revokedAt).toBeNull(); // réadmis
+    expect(server.store.listClesNoeuds().filter((c) => c.nodeId === 'node-y')).toHaveLength(1);
+  });
+});
+
+describe('la garde de débit de /api/rejoindre', () => {
+  it('NE compte PAS les réussites : un atelier derrière une seule IP passe', async () => {
+    // Le NAT d'un bureau ou d'une école donne UNE adresse à tout le monde.
+    // Compter les réussites aurait refusé des gens que l'hôte venait justement
+    // d'inviter — et c'était inutile : les réussites sont déjà bornées par le
+    // nombre d'usages du billet.
+    const j = (await (await creerBillet({ uses: 20 })).json()) as { billet: string };
+    const codes: number[] = [];
+    for (let i = 0; i < 15; i++)
+      codes.push((await rejoindre(j.billet, `node-atelier-${i}`)).status);
+    expect(codes.every((c) => c === 201)).toBe(true);
+  });
+
+  it('coupe au-delà de 10 ÉCHECS par minute — le PBKDF2 est cher', async () => {
+    // Cette route est publique et vérifie un secret par PBKDF2 (~50 ms de CPU).
+    // Sous la seule limite globale (400 req / 10 s), une machine pouvait
+    // réclamer 20 SECONDES de calcul par fenêtre de 10 s : le hub cessait de
+    // répondre sans qu'aucune faille ne soit exploitée.
+    const j = (await (await creerBillet()).json()) as { billet: string };
+    const decode = decoderBillet(j.billet, LIMITES)!;
+    const faux =
+      'hive2_' +
+      Buffer.from(
+        JSON.stringify({ v: 2, url: decode.url, id: decode.id, s: 'z'.repeat(43) }),
+      ).toString('base64url');
+
+    const codes: number[] = [];
+    for (let i = 0; i < 14; i++) codes.push((await rejoindre(faux, `node-flood-${i}`)).status);
+    expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
+    expect(codes.slice(0, 10).every((c) => c === 401)).toBe(true);
+    expect(codes[codes.length - 1]).toBe(429);
   });
 });
 
