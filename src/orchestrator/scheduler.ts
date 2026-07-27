@@ -12,9 +12,18 @@ import { calculerPheromones, domaineDeTache, meilleurNoeud } from './pheromones.
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
+import { concurrenceEffective, lireTemperature } from './thermo.js';
+import type { BandeThermo } from './thermo.js';
 
 /** Délai pendant lequel un nœud qui vient de refuser une tâche ne la reçoit pas de nouveau. */
 const REJECT_COOLDOWN_MS = 3_000;
+
+/**
+ * Thermorégulation : nombre d'événements relus à chaque tick pour prendre la
+ * température (le store plafonne une page à 1000). La fenêtre de 10 minutes
+ * fait le vrai tri — ce lot ne fait que borner la lecture.
+ */
+const LOT_EVENEMENTS_THERMO = 1_000;
 
 export interface SchedulerOptions {
   maxAttempts?: number;
@@ -45,6 +54,17 @@ export class Scheduler {
    */
   private readonly races = new Map<string, DroneRace>();
 
+  /**
+   * Thermorégulation : bande et facteur EFFECTIFS, c'est-à-dire hystérésés —
+   * appliqués à l'assignation. Au boot la ruche est froide (facteur 1) : le
+   * comportement par défaut est strictement celui d'avant la ventilation.
+   */
+  private bandeThermo: BandeThermo = 'froide';
+  private facteurThermo = 1;
+  /** Bande divergente pressentie au tick précédent (hystérésis) — null si la
+   *  dernière lecture confirmait la bande courante. */
+  private bandePressentie: BandeThermo | null = null;
+
   constructor(
     private readonly store: HiveStore,
     private readonly opts: SchedulerOptions = {},
@@ -68,10 +88,50 @@ export class Scheduler {
     if (orphans.length > 0) this.emit('boot_recovery', { requeued: orphans.length });
   }
 
-  /** Tick périodique : reap des nœuds morts → promotion → assignation. */
+  /** Tick périodique : reap des nœuds morts → thermorégulation → promotion → assignation. */
   tick(now = Date.now()): void {
     this.reapDeadNodes(now);
+    // La température n'est prise QU'ICI : les autres chemins (résultats, refus,
+    // reconnexions) assignent avec le facteur déjà en vigueur, sans re-lecture.
+    this.ventiler(now);
     this.promoteAndAssign(now);
+  }
+
+  /** État thermique effectif (hystérésé) — lecture seule, pour l'API. */
+  get thermo(): { bande: BandeThermo; facteur: number } {
+    return { bande: this.bandeThermo, facteur: this.facteurThermo };
+  }
+
+  /**
+   * Thermorégulation : lit la température du journal récent et ajuste le
+   * facteur de ventilation avec HYSTÉRÉSIS — la bande ne change que si DEUX
+   * ticks consécutifs lisent la MÊME bande divergente, pour éviter le
+   * clignotement à la frontière entre deux bandes.
+   */
+  private ventiler(now: number): void {
+    const dernierId = this.store.lastEventId();
+    const events = this.store.listEvents(
+      Math.max(0, dernierId - LOT_EVENEMENTS_THERMO),
+      LOT_EVENEMENTS_THERMO,
+    );
+    const lecture = lireTemperature(events, now);
+    if (lecture.bande === this.bandeThermo) {
+      this.bandePressentie = null; // la lecture confirme la bande courante
+      return;
+    }
+    if (this.bandePressentie !== lecture.bande) {
+      this.bandePressentie = lecture.bande; // 1er tick divergent : on attend confirmation
+      return;
+    }
+    this.bandePressentie = null;
+    this.bandeThermo = lecture.bande;
+    this.facteurThermo = lecture.facteur;
+    this.emit('thermo_shift', {
+      bande: lecture.bande,
+      temperature: lecture.temperature,
+      facteur: lecture.facteur,
+      message: `🌡️ Thermorégulation : la ruche passe en ${lecture.bande} (température ${lecture.temperature}°) — concurrence ×${lecture.facteur}`,
+    });
   }
 
   /**
@@ -732,7 +792,10 @@ export class Scheduler {
         .filter(
           (n) =>
             n.status === 'online' &&
-            charge(n) < n.maxConcurrency &&
+            // Thermorégulation : sous ventilation, la capacité de chaque nœud
+            // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
+            // s'arrête pas, elle ralentit).
+            charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
             // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
             (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
         )

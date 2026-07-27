@@ -35,6 +35,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
+import { lireTemperature } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 
 /** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
@@ -560,6 +561,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       cursor = last.id;
     }
     return computePulse(events);
+  });
+
+  // Thermorégulation : la température INSTANTANÉE (dérivée du journal récent)
+  // ET l'état hystérésé réellement appliqué par le scheduler — les deux peuvent
+  // diverger brièvement, c'est précisément le rôle de l'hystérésis. Lecture
+  // seule ; bornée aux 1000 derniers événements (la fenêtre de 10 min trie).
+  app.get('/api/thermo', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events = store.listEvents(Math.max(0, store.lastEventId() - 1_000), 1_000);
+    const lecture = lireTemperature(events, Date.now());
+    const { bande, facteur } = scheduler.thermo;
+    return { lecture, bande, facteur };
   });
 
   // Phéromones : affinité apprise nœud × domaine (qui réussit quel TYPE de

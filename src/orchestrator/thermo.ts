@@ -1,0 +1,114 @@
+// Thermorégulation — la ruche ventile quand elle surchauffe.
+//
+// Quand la ruche réelle monte en température, les ouvrières battent des ailes
+// pour la refroidir. Ici, la « chaleur » est la part d'issues défavorables
+// (échecs, re-tentatives, refus) observée dans le journal récent : plus
+// l'essaim accumule d'échecs, plus il chauffe, et plus l'orchestrateur réduit
+// la concurrence effective par nœud pour laisser la ruche refroidir — puis la
+// restaure quand ça va mieux. Comme pulse.ts et ghost.ts, ce module est PUR :
+// aucune I/O, une vue dérivée du journal d'événements, déterministe.
+
+/** Bandes de température, de la plus calme à la plus critique. */
+export type BandeThermo = 'froide' | 'normale' | 'chaude' | 'surchauffe';
+
+/** Fenêtre d'observation : seules les 10 dernières minutes du journal comptent. */
+const FENETRE_MS = 10 * 60 * 1_000;
+
+/** En deçà de ce nombre d'issues, l'échantillon est trop maigre pour juger. */
+const ECHANTILLON_MIN = 4;
+
+/** Température de repos d'un échantillon maigre : jamais de panique à froid. */
+const TEMPERATURE_REPOS = 20;
+
+// Poids de chaque signal « chaud » : un échec pèse plein pot, un refus
+// (souvent un agent en panne) presque autant, une re-tentative moitié plus —
+// elle sera peut-être suivie d'un succès.
+const POIDS_ECHEC = 1;
+const POIDS_RETRY = 0.6;
+const POIDS_REFUS = 0.8;
+
+/** Frontières des bandes (température dans [0, 100]). */
+const SEUIL_NORMALE = 25;
+const SEUIL_CHAUDE = 50;
+const SEUIL_SURCHAUFFE = 75;
+
+/** Facteur de ventilation par bande : la part de concurrence conservée. */
+const FACTEURS: Record<BandeThermo, number> = {
+  froide: 1,
+  normale: 1,
+  chaude: 0.75,
+  surchauffe: 0.5,
+};
+
+/** Une prise de température : la valeur, sa bande, et les signaux comptés. */
+export interface LectureThermo {
+  /** Température dans [0, 100] : 0 = tout réussit, 100 = tout échoue. */
+  temperature: number;
+  bande: BandeThermo;
+  /** Facteur de ventilation associé à la bande (1 = pleine concurrence). */
+  facteur: number;
+  /** Issues comptées dans la fenêtre d'observation (transparence). */
+  signaux: { echecs: number; retries: number; refusInfra: number; succes: number; total: number };
+}
+
+/**
+ * Prend la température de la ruche en repliant le journal récent : ratio
+ * pondéré d'issues défavorables (task_failed, task_retry, task_rejected)
+ * parmi toutes les issues (avec task_done) des 10 dernières minutes. Cette
+ * vue minimale n'a pas accès au payload : TOUT task_rejected compte comme
+ * refus — un nœud qui refuse en boucle chauffe la ruche, infra ou pas. Un
+ * échantillon de moins de 4 issues est trop maigre pour juger : bande
+ * 'froide' d'office.
+ */
+export function lireTemperature(
+  events: Array<{ type: string; ts: number }>,
+  now: number,
+): LectureThermo {
+  const signaux = { echecs: 0, retries: 0, refusInfra: 0, succes: 0, total: 0 };
+  const debut = now - FENETRE_MS;
+  for (const e of events) {
+    if (e.ts < debut) continue; // hors fenêtre : le passé lointain ne chauffe plus
+    switch (e.type) {
+      case 'task_done':
+        signaux.succes += 1;
+        break;
+      case 'task_failed':
+        signaux.echecs += 1;
+        break;
+      case 'task_retry':
+        signaux.retries += 1;
+        break;
+      case 'task_rejected':
+        signaux.refusInfra += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  signaux.total = signaux.succes + signaux.echecs + signaux.retries + signaux.refusInfra;
+
+  if (signaux.total < ECHANTILLON_MIN) {
+    return { temperature: TEMPERATURE_REPOS, bande: 'froide', facteur: FACTEURS.froide, signaux };
+  }
+
+  const chaleur =
+    signaux.echecs * POIDS_ECHEC + signaux.retries * POIDS_RETRY + signaux.refusInfra * POIDS_REFUS;
+  const temperature = Math.min(100, Math.round((100 * chaleur) / signaux.total));
+  const bande: BandeThermo =
+    temperature < SEUIL_NORMALE
+      ? 'froide'
+      : temperature < SEUIL_CHAUDE
+        ? 'normale'
+        : temperature < SEUIL_SURCHAUFFE
+          ? 'chaude'
+          : 'surchauffe';
+  return { temperature, bande, facteur: FACTEURS[bande], signaux };
+}
+
+/**
+ * Concurrence réellement accordée à un nœud sous ventilation : plancher à 1 —
+ * la ruche ne s'arrête jamais, elle ralentit.
+ */
+export function concurrenceEffective(maxConcurrency: number, facteur: number): number {
+  return Math.max(1, Math.floor(maxConcurrency * facteur));
+}
