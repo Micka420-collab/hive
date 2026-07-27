@@ -150,6 +150,28 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   erreur nommée. `npm run setup` reste donc scriptable et idempotent.
   `docs/adr/` (nouveau) porte les six décisions de cadrage.
 
+- **L'installeur devient scriptable** (lot 4). `src/args.ts` — un analyseur
+  **pur** — remplace les trois mini-analyseurs ad hoc du dépôt, dont **aucun**
+  ne gérait `--drapeau=valeur` : écrire `--uses=3` ne provoquait pas d'erreur,
+  le drapeau était simplement **ignoré** et la commande tournait avec le
+  défaut. Désormais les deux écritures marchent, et **un drapeau inconnu est
+  une erreur** qui liste ce qui existe — jamais un silence : quelqu'un qui
+  tape `--dry-runn`, croit simuler et écrit pour de bon a été trahi par son
+  outil. `--dry-run` montre sans écrire, `--yes` saute les confirmations,
+  `--non-interactive` (implicite si `CI` est posée) ne pose aucune question,
+  `--json` rend un objet analysable par `jq` (Node, port, agent, isolement,
+  action sur le `.env`, code de sortie) et supprime toute prose.
+  **Le `.env` est désormais COMPLÉTÉ, plus régénéré** : `completerEnv` ajoute
+  les clés manquantes en fin de fichier avec leur explication et ne touche à
+  rien d'autre. Les valeurs étaient déjà préservées, mais l'ordre, les
+  commentaires et la mise en forme de l'humain étaient remplacés par les
+  nôtres — donc l'idempotence octet pour octet exigée au §12 de la mission
+  était **fausse**. Elle est vraie, et testée. L'écriture est **atomique**
+  (temporaire + `rename`) : un `^C` au mauvais moment ne laisse plus un `.env`
+  tronqué, c'est-à-dire un jeton coupé en deux et une ruche qui refuse de
+  démarrer sans dire pourquoi. Un port occupé pose le code `4` sans rien
+  annuler.
+
 ### Security
 
 - **Un billet refusé dit pourquoi — et l'oracle temporel qui traînait est

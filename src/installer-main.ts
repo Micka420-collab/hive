@@ -18,9 +18,10 @@
 // projet, et un `.env` existant COMPLÉTÉ, jamais écrasé — écraser un jeton en
 // service couperait tous les nœuds déjà connectés.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { analyser, nonInteractif, type Forme } from './args.js';
 import {
   EXPOSITIONS,
   fusionner,
@@ -36,6 +37,7 @@ import {
   NODE_MIN,
   PORT_DEFAUT,
   avertissements,
+  completerEnv,
   composerReglages,
   lireEnv,
   nodeSuffisant,
@@ -57,6 +59,54 @@ import { Interrompu, ReponseManquante, creerTerminal } from './tui/terminal.js';
 
 const CHEMIN_ENV = path.resolve(process.cwd(), '.env');
 const VERSION = '0.2.0';
+
+/** Les drapeaux acceptés. Tout le reste est une erreur, jamais un silence. */
+const DRAPEAUX: Record<string, Forme> = {
+  yes: 'booleen',
+  'dry-run': 'booleen',
+  'non-interactive': 'booleen',
+  json: 'booleen',
+  help: 'booleen',
+};
+
+const AIDE = [
+  '  npm run install:hive -- [options]',
+  '',
+  '  --dry-run           montre ce qui serait écrit, n’écrit RIEN',
+  '  --yes               ne demande aucune confirmation',
+  '  --non-interactive   ne pose AUCUNE question (implicite si CI est posée)',
+  '  --json              sortie machine, pour Ansible ou un Makefile',
+  '  --help              cette aide',
+  '',
+  `  Codes de sortie : 0 succès · ${CODE.PREREQUIS} prérequis · ` +
+    `${CODE.REPONSE_MANQUANTE} réponse manquante · ${CODE.PORT_OCCUPE} port occupé · ` +
+    `${CODE.REFUS_SECURITE} refus de sécurité · ${CODE.INTERROMPU} interrompu.`,
+];
+
+/**
+ * Écrit un fichier ATOMIQUEMENT : temporaire, puis `rename`.
+ *
+ * `rename` sur le même système de fichiers est atomique — le lecteur voit
+ * l'ancien fichier ou le nouveau, jamais un `.env` à moitié écrit. Sans cela,
+ * un `^C` au mauvais moment, ou un disque plein, laisserait une configuration
+ * TRONQUÉE : un jeton coupé en deux, une ruche qui refuse de démarrer, et
+ * aucune trace de ce qui s'est passé.
+ */
+function ecrireAtomique(chemin: string, contenu: string, mode: number): void {
+  const temporaire = `${chemin}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaire, contenu, { mode });
+    renameSync(temporaire, chemin);
+  } catch (err) {
+    // Ne pas laisser de temporaire derrière soi, même quand ça tourne mal.
+    try {
+      unlinkSync(temporaire);
+    } catch {
+      /* le temporaire n'existait pas : rien à nettoyer */
+    }
+    throw err;
+  }
+}
 
 /** Une ligne de constat, rendue selon que l'on a un terminal ou un tuyau. */
 function constat(v: Verification, caps: Capacites): string {
@@ -106,17 +156,43 @@ const CHEMINS = [
 ];
 
 async function main(): Promise<void> {
+  const args = analyser(process.argv.slice(2), DRAPEAUX);
+  if (args.erreur) {
+    process.stderr.write(`\n✘ ${args.erreur.message}\n\n${AIDE.join('\n')}\n`);
+    process.exitCode = args.erreur.code;
+    return;
+  }
+  if (args.drapeaux.has('help')) {
+    process.stdout.write(`\n${AIDE.join('\n')}\n`);
+    return;
+  }
+  const simulation = args.drapeaux.has('dry-run');
+  const sansQuestion = args.drapeaux.has('yes');
+  const json = args.drapeaux.has('json');
+  // `--json` implique le silence : mêler des questions à une sortie machine
+  // n'a pas de sens, et une sortie machine mêlée de prose n'est plus machine.
+  const muet = nonInteractif(args, process.env) || json;
+
+  /** Ce que `--json` rendra. Rempli au fil de l'eau, écrit une seule fois. */
+  const fait: Record<string, unknown> = { version: VERSION, dryRun: simulation };
+
   const t = creerTerminal({
     entree: process.stdin,
     sortie: process.stdout,
     env: process.env,
   });
-  const caps = t.caps;
+  // `--non-interactive` et `CI` retirent l'interactivité même sur un vrai
+  // terminal : c'est ce qui rend l'installeur scriptable depuis un poste.
+  const caps = muet ? { ...t.caps, interactif: false, cadres: false } : t.caps;
 
   // « Une ligne vide avant et après chaque bloc. La densité, c'est du bruit. »
   // (§6.1) `espacer` sépare à l'intérieur d'un bloc ; ce helper sépare les
   // blocs entre eux, y compris quand ils sont écrits par des appels distincts.
-  const bloc = (...morceaux: string[][]): void => t.ecrire(['', ...espacer(...morceaux)]);
+  // En `--json`, la prose est supprimée : la sortie doit être analysable par
+  // `jq` sans filtre préalable.
+  const bloc = (...morceaux: string[][]): void => {
+    if (!json) t.ecrire(['', ...espacer(...morceaux)]);
+  };
 
   bloc(banniere(VERSION, caps));
 
@@ -175,6 +251,16 @@ async function main(): Promise<void> {
     verifs.map((v) => constat(v, caps)),
   );
 
+  // Un port occupé n'empêche pas d'écrire un `.env`, mais un script doit
+  // pouvoir le savoir sans lire la sortie. Le code est posé ici et n'annule
+  // rien : la suite reste utile.
+  if (!libre) process.exitCode = CODE.PORT_OCCUPE;
+
+  fait.node = process.version;
+  fait.port = { numero: PORT_DEFAUT, libre };
+  fait.agent = agent;
+  fait.isolement = { isole: isolement.isole, moteur: fournisseur?.nom ?? null };
+
   // ─── 2. Le chemin ──────────────────────────────────────────────────────────
   // Hors terminal, le défaut est « ouvrir ma propre ruche » : c'est ce que
   // faisait l'installeur avant, et c'est ce qu'un `npm run setup` scripté
@@ -223,6 +309,12 @@ async function main(): Promise<void> {
   const reglages = composerReglages(existant);
   const ajoutees = reglages.filter((r) => !existant.has(r.cle)).map((r) => r.cle);
 
+  fait.env = {
+    chemin: path.relative(process.cwd(), CHEMIN_ENV),
+    action: neuf ? 'cree' : ajoutees.length === 0 ? 'inchange' : 'complete',
+    clesAjoutees: ajoutees,
+  };
+
   if (!neuf && ajoutees.length === 0) {
     bloc([constat({ etat: 'fait', libelle: '.env déjà complet — rien touché' }, caps)]);
   } else {
@@ -239,10 +331,16 @@ async function main(): Promise<void> {
       ),
     );
 
+    if (simulation) {
+      bloc([constat({ etat: 'avenir', libelle: '--dry-run : rien n’a été écrit.' }, caps)]);
+      if (json) process.stdout.write(`${JSON.stringify(fait, null, 2)}\n`);
+      return;
+    }
+
     // Sur un `.env` EXISTANT, le défaut prudent est de ne rien faire : on
     // touche à la configuration de quelqu'un. Sur un fichier neuf, il n'y a
     // rien à perdre — la question serait une friction sans contrepartie.
-    if (!neuf && caps.interactif) {
+    if (!neuf && caps.interactif && !sansQuestion) {
       const suite = await t.choisir(
         [{ libelle: 'Ne rien changer', aide: 'défaut' }, { libelle: 'Compléter le fichier' }],
         { quoi: 'la confirmation d’écriture', defautNonInteractif: 0 },
@@ -253,7 +351,14 @@ async function main(): Promise<void> {
       }
     }
 
-    writeFileSync(CHEMIN_ENV, rendreEnv(reglages), { mode: 0o600 });
+    // COMPLÉTÉ, pas régénéré : les commentaires, l'ordre et la mise en forme
+    // de l'humain survivent. Régénérer préservait les valeurs mais effaçait
+    // tout le reste — et rendait fausse l'idempotence octet pour octet.
+    ecrireAtomique(
+      CHEMIN_ENV,
+      neuf ? rendreEnv(reglages) : completerEnv(readFileSync(CHEMIN_ENV, 'utf8'), reglages),
+      0o600,
+    );
     bloc([
       constat(
         {
@@ -283,7 +388,7 @@ async function main(): Promise<void> {
   // Il ne tourne qu'en interactif. Hors terminal, poser des questions n'a pas
   // de sens et deviner des réponses en aurait encore moins : `npm run setup`
   // scripté s'arrête ici, exactement comme avant.
-  if (caps.interactif) {
+  if (caps.interactif && !simulation) {
     await assistant(t, bloc, caps, reglages);
   }
 
@@ -292,6 +397,11 @@ async function main(): Promise<void> {
     prochainesEtapes(agent).map((e) => `  ${e}`),
     ['  Votre code et vos clés d’API restent sur cette machine.'],
   );
+
+  if (json) {
+    fait.code = process.exitCode ?? CODE.SUCCES;
+    process.stdout.write(`${JSON.stringify(fait, null, 2)}\n`);
+  }
 }
 
 /**
