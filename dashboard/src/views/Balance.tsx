@@ -17,9 +17,9 @@
 //
 //  2. LE DÉTAIL PAR PROJET → vue Projets (`BalanceProjet`), dans la carte du
 //     projet, sous son rapport d'avancement. C'est l'échelle à laquelle un
-//     opérateur juge un projet, et c'est aussi l'échelle du futur plafond (la
-//     table `budgets` sera 1:1 avec `projects`) : le jour où un plafond
-//     arrivera, il se posera là, à côté du solde — pas à côté du devis.
+//     opérateur juge un projet, et c'est celle du PLAFOND (la table `budgets`
+//     est 1:1 avec `projects`) : le plafond se pose là, à côté du solde — pas à
+//     côté du devis. Le geste « borner » vit donc ICI, et nulle part ailleurs.
 //
 //  3. LE DEVIS → vue Projets, atelier Queen Bee (`CarteDevis`), collé au plan
 //     qu'il chiffre. Un devis est une PRÉVISION sur un DAG proposé ; il n'a
@@ -33,8 +33,11 @@
 // n'en fournit).
 // ═══════════════════════════════════════════════════════════════════════════
 
-import type { BalanceState, Compte, DevisPlan, Poste } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { fetchProjectBalance, setProjectPlafond } from '../api';
+import type { BalanceState, Compte, DevisPlan, Poste, SoldeProjet } from '../api';
 import { useT } from '../i18n';
+import type { Translate } from '../i18n';
 import { DOMAINE_LABEL, formatDuree } from '../ui';
 import type { StateSnapshot } from '../../../src/shared/types';
 import './balance.css';
@@ -373,6 +376,353 @@ export function CarteBalance({
   );
 }
 
+// ─── Borner : le plafond d'un projet ────────────────────────────────────────
+// Troisième question de la Balance (peser, prévoir, BORNER), et la seule qui
+// n'observe pas : elle agit. Tout ce qui suit vit dans la carte projet, à côté
+// du solde qu'elle borne — jamais près du devis (voir `CarteDevis`).
+
+/**
+ * Part du plafond déjà consommée, en points entiers. MÊME formule que le
+ * serveur (`signalerPlafond`) : arrondi PAR DÉFAUT, et 100 % sur un plafond nul
+ * — un plafond de zéro est atteint par définition, pas une division par zéro.
+ */
+function partPlafond(depenseMs: number, plafondMs: number): number {
+  return plafondMs > 0 ? Math.floor((depenseMs * 100) / plafondMs) : 100;
+}
+
+/** Heures saisies → millisecondes ENTIÈRES (le schéma serveur refuse un flottant). */
+function heuresEnMs(heures: number): number {
+  return Math.round(heures * 3_600_000);
+}
+
+/**
+ * Ce qu'un plafond arrête RÉELLEMENT, selon le mode en vigueur — en clair, au
+ * moment où l'opérateur confirme. Poser un plafond en « observation » en
+ * croyant fermer la porte est l'erreur exacte que cette phrase empêche.
+ *
+ * La branche « off » est une ceinture : dans ce mode le serveur ne renvoie
+ * aucun solde, donc aucune carte n'affiche de plafond ni son contrôle. Si cela
+ * changeait, l'écran dirait la vérité plutôt que de promettre un blocage.
+ */
+function effetDuMode(mode: BalanceState['mode'], t: Translate): string {
+  if (mode === 'strict')
+    return t(
+      'la ruche cessera d’assigner de nouvelles tâches de ce projet ; celles déjà en vol iront à leur terme.',
+      'the hive will stop assigning new tasks for this project; those already in flight will run to completion.',
+    );
+  if (mode === 'observation')
+    return t(
+      'la ruche est en « observation » : le franchissement sera journalisé, mais RIEN ne sera arrêté.',
+      'the hive runs in “observation”: the crossing will be journaled, but NOTHING will be stopped.',
+    );
+  return t(
+    'la ruche est en « off » : le grand livre ne tourne pas, le plafond est enregistré mais ne sera pas évalué.',
+    'the hive runs in “off”: the ledger is not running, the cap is recorded but will not be evaluated.',
+  );
+}
+
+/**
+ * L'état d'un projet plafonné, EN TOUTES LETTRES.
+ *
+ * TROIS ÉTATS, JAMAIS CONFONDUS — c'est tout l'intérêt d'avoir `etat` ET
+ * `bloque` :
+ *  - `bloque` : la porte est réellement fermée (verdict au plafond ET mode
+ *    `strict`). Les tâches du projet restent `ready` indéfiniment, et c'est le
+ *    comportement voulu — un opérateur qui ne lirait pas cette ligne croirait
+ *    à une famine, une panne de nœud, un scheduler coincé ;
+ *  - verdict au plafond SANS blocage (mode `observation`) : le fait est
+ *    constaté, la ruche butine toujours. Le taire ferait croire l'inverse ;
+ *  - `alerte` : le seuil d'alerte est franchi, rien n'est bloqué.
+ *
+ * ACCESSIBILITÉ. Aucune information n'est portée par la seule couleur : chaque
+ * badge est un pictogramme SUIVI D'UNE PHRASE, la consommation est écrite en
+ * toutes lettres (« X sur Y · Z % ») et la barre qui la double est décorative
+ * (`aria-hidden`) — elle ne dit rien que le texte ne dise déjà. Le badge de
+ * blocage est un `role="status"` : il s'annonce sans qu'on relise la carte.
+ */
+function EtatPlafond({ solde }: { solde: SoldeProjet }) {
+  const t = useT();
+  const plafondMs = solde.plafondMs ?? null;
+  if (plafondMs === null) return null;
+  const part = partPlafond(solde.depenseMs, plafondMs);
+  const etat = solde.etat ?? 'passe';
+  const bloque = solde.bloque === true;
+
+  return (
+    <div className="bal-plafond">
+      <p className="bal-plafond-jauge">
+        <span className="bal-plafond-titre">{t('Plafond', 'Cap')}</span>{' '}
+        <span className="bal-plafond-chiffres">
+          {t(
+            `${formatDuree(solde.depenseMs)} sur ${formatDuree(plafondMs)} · ${part} %`,
+            `${formatDuree(solde.depenseMs)} of ${formatDuree(plafondMs)} · ${part}%`,
+          )}
+        </span>
+      </p>
+      <div className={`bal-plafond-bar ${etat}`} aria-hidden="true">
+        <span className="bal-plafond-fill" style={{ width: `${Math.min(100, part)}%` }} />
+      </div>
+
+      {bloque && (
+        <p className="bal-plafond-badge bloque" role="status">
+          ⛔{' '}
+          {t(
+            'Assignation ARRÊTÉE — plafond atteint. Les tâches de ce projet restent prêtes tant que le plafond n’est pas relevé ou retiré.',
+            'Assignment STOPPED — cap reached. This project’s tasks stay ready until the cap is raised or removed.',
+          )}
+        </p>
+      )}
+      {!bloque && etat === 'bloque' && (
+        <p className="bal-plafond-badge atteint">
+          ⛔{' '}
+          {t(
+            'Plafond atteint, mais rien n’est arrêté : la ruche ne tourne pas en « strict ».',
+            'Cap reached, yet nothing is stopped: the hive is not running in “strict”.',
+          )}
+        </p>
+      )}
+      {etat === 'alerte' && (
+        <p className="bal-plafond-badge alerte">
+          ⚠{' '}
+          {t(
+            `Alerte : ${part} % du plafond consommés. La ruche prévient, elle ne bloque pas.`,
+            `Alert: ${part}% of the cap spent. The hive warns, it does not block.`,
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Poser et retirer le plafond, depuis la carte projet.
+ *
+ * POURQUOI ICI ET PAS AILLEURS. C'est le seul geste du dashboard qui peut
+ * arrêter la ruche pour cause d'économie, et le seul qui peut la redémarrer :
+ * sans lui, un projet bloqué n'a d'issue qu'un `curl`, et « pourquoi ce projet
+ * ne part-il plus ? » n'a de réponse nulle part à l'écran.
+ *
+ * DEUX GESTES, DEUX EXIGENCES DIFFÉRENTES. Poser un plafond peut fermer la
+ * porte d'un projet : premier clic = armement, second (sous 3 s) = confirmation
+ * — motif exact de la coulée du miel en Miellerie. Le RETRAIT, lui, part au
+ * premier clic : il ne peut qu'ouvrir la porte, jamais la fermer, et faire
+ * attendre un opérateur qui débloque son projet serait une friction gratuite.
+ * La symétrie serait ici une fausse rigueur.
+ *
+ * ACCESSIBILITÉ. Rien que des `button` et un `input` natifs : tabulation,
+ * Entrée et Espace fonctionnent sans une ligne de code. Chaque contrôle porte
+ * un libellé explicite (jamais une icône seule), le bouton d'ouverture porte
+ * son `aria-expanded`, et l'avertissement d'armement est un `role="status"` —
+ * la confirmation demandée est ANNONCÉE, pas seulement colorée en rouge.
+ */
+function ControlePlafond({
+  projectId,
+  projectName,
+  solde,
+  mode,
+  onPlafondChange,
+}: {
+  projectId: string;
+  projectName: string;
+  solde: SoldeProjet;
+  mode: BalanceState['mode'];
+  onPlafondChange?: () => void;
+}) {
+  const t = useT();
+  const plafondMs = solde.plafondMs ?? null;
+  const [trace, setTrace] = useState<{ definiPar: string | null; updatedAt: number | null } | null>(
+    null,
+  );
+  const [ouvert, setOuvert] = useState(false);
+  const [saisie, setSaisie] = useState('');
+  const [arme, setArme] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const armTimer = useRef<number | undefined>(undefined);
+
+  // Qui a posé le plafond, et quand. `/api/balance` porte le plafond mais pas
+  // sa trace : on la lit UNIQUEMENT pour les projets qui en ont un. Le coût est
+  // donc borné par le nombre de plafonds posés — un geste humain, rare — et non
+  // par le nombre de cartes affichées. Un relevé raté laisse le plafond à
+  // l'écran sans sa trace : mieux vaut « qui ? » manquant que le plafond caché.
+  useEffect(() => {
+    if (plafondMs === null) {
+      setTrace(null);
+      return;
+    }
+    let alive = true;
+    void fetchProjectBalance(projectId)
+      .then((detail) => {
+        if (alive)
+          setTrace({ definiPar: detail.definiPar ?? null, updatedAt: detail.updatedAt ?? null });
+      })
+      .catch(() => {
+        /* trace indisponible : le plafond, lui, reste affiché */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId, plafondMs]);
+
+  useEffect(() => () => window.clearTimeout(armTimer.current), []);
+
+  const heures = Number(saisie.replace(',', '.'));
+  const valide = saisie.trim() !== '' && Number.isFinite(heures) && heures >= 0;
+  const cible = valide ? heuresEnMs(heures) : null;
+
+  const desarmer = (): void => {
+    window.clearTimeout(armTimer.current);
+    setArme(false);
+  };
+
+  const appliquer = (ms: number | null): void => {
+    desarmer();
+    setBusy(true);
+    setErreur(null);
+    setProjectPlafond(projectId, ms)
+      .then((detail) => {
+        setTrace({ definiPar: detail.definiPar ?? null, updatedAt: detail.updatedAt ?? null });
+        setSaisie('');
+        setOuvert(false);
+        // Le solde affiché vient du relevé de ruche : on le redemande, sinon
+        // l'écran garderait l'ancien plafond jusqu'au prochain battement.
+        onPlafondChange?.();
+      })
+      .catch((e: unknown) => setErreur(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const poser = (): void => {
+    if (cible === null || busy) return;
+    if (!arme) {
+      setArme(true);
+      window.clearTimeout(armTimer.current);
+      armTimer.current = window.setTimeout(() => setArme(false), 3_000);
+      return;
+    }
+    appliquer(cible);
+  };
+
+  return (
+    <div className="bal-plafond-ctl">
+      {plafondMs !== null && trace && (
+        <p className="bal-plafond-trace">
+          {t('Posé par', 'Set by')}{' '}
+          {trace.definiPar ? (
+            <span className="mono" title={trace.definiPar}>
+              {trace.definiPar.slice(0, 8)}
+            </span>
+          ) : (
+            t(
+              'un opérateur non identifié (jeton de ruche)',
+              'an unidentified operator (hive token)',
+            )
+          )}
+          {trace.updatedAt !== null && ` · ${new Date(trace.updatedAt).toLocaleString()}`}
+        </p>
+      )}
+
+      <div className="bal-plafond-actions">
+        <button
+          className="btn ghost bal-plafond-btn"
+          aria-expanded={ouvert}
+          disabled={busy}
+          onClick={() => {
+            setOuvert((v) => !v);
+            desarmer();
+            setErreur(null);
+          }}
+        >
+          {plafondMs === null
+            ? t('Poser un plafond', 'Set a cap')
+            : t('Modifier le plafond', 'Change the cap')}
+        </button>
+        {plafondMs !== null && (
+          <button
+            className="btn ghost bal-plafond-btn"
+            disabled={busy}
+            onClick={() => appliquer(null)}
+          >
+            {t('Retirer le plafond', 'Remove the cap')}
+          </button>
+        )}
+      </div>
+
+      {ouvert && (
+        <div className="bal-plafond-form">
+          <label className="bal-plafond-label">
+            <span>{t('Plafond, en heures de temps-ouvrière', 'Cap, in hours of worker-time')}</span>
+            <input
+              className="bal-plafond-input"
+              type="number"
+              min={0}
+              step={0.5}
+              inputMode="decimal"
+              value={saisie}
+              disabled={busy}
+              onChange={(e) => {
+                setSaisie(e.target.value);
+                desarmer();
+              }}
+            />
+          </label>
+          {/* Ce que la saisie vaut vraiment, dans l'unité de la Balance : un
+              opérateur ne doit jamais découvrir après coup qu'il a posé 30 h
+              en croyant poser 30 min. */}
+          <p className="bal-plafond-apercu">
+            {cible === null
+              ? t(
+                  'Un nombre d’heures — « 0 » est licite et veut dire : ce projet ne dépense plus rien.',
+                  'A number of hours — “0” is valid and means: this project spends nothing more.',
+                )
+              : t(
+                  `soit ${formatDuree(cible)} de temps machine prêté`,
+                  `that is ${formatDuree(cible)} of lent machine time`,
+                )}
+          </p>
+          <div className="bal-plafond-actions">
+            <button
+              className={`btn primary${arme ? ' bal-arme' : ''}`}
+              disabled={cible === null || busy}
+              onClick={poser}
+            >
+              {busy
+                ? t('Envoi…', 'Sending…')
+                : arme
+                  ? t('Confirmer le plafond ?', 'Confirm the cap?')
+                  : t('Poser le plafond', 'Set the cap')}
+            </button>
+            <button
+              className="btn ghost bal-plafond-btn"
+              disabled={busy}
+              onClick={() => {
+                setOuvert(false);
+                desarmer();
+                setErreur(null);
+              }}
+            >
+              {t('Annuler', 'Cancel')}
+            </button>
+          </div>
+          {arme && cible !== null && (
+            <p className="bal-plafond-avert" role="status">
+              {t(
+                `« ${projectName} » sera plafonné à ${formatDuree(cible)} : ${effetDuMode(mode, t)}`,
+                `“${projectName}” will be capped at ${formatDuree(cible)}: ${effetDuMode(mode, t)}`,
+              )}
+            </p>
+          )}
+          {erreur && (
+            <p className="panel-error">
+              {t('Plafond refusé :', 'Cap refused:')} {erreur}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * La Balance d'UN projet (carte projet, vue Projets).
  *
@@ -384,27 +734,46 @@ export function CarteBalance({
  * ce n'est pas une incohérence, c'est la différence entre « récemment » et
  * « depuis toujours ».
  *
- * L'échelle projet est celle du futur plafond (`budgets`, 1:1 avec `projects`).
- * S'il arrive un jour, il se posera ICI, à côté du solde — et jamais à côté du
- * devis de l'atelier Queen Bee, qui est une prévision sur un plan non engagé.
+ * L'échelle projet est celle du PLAFOND (`budgets`, 1:1 avec `projects`) : il se
+ * pose ICI, à côté du solde qu'il borne — et jamais à côté du devis de l'atelier
+ * Queen Bee, qui est une prévision sur un plan non engagé. Un projet plafonné
+ * dit donc ici, et sans qu'on ait à ouvrir quoi que ce soit, ce qu'il a
+ * consommé de son plafond, si l'assignation est arrêtée, et qui l'a posé.
  */
 export function BalanceProjet({
+  projectId,
+  projectName,
   compte,
   solde,
   mode,
   aJour,
+  onPlafondChange,
 }: {
+  projectId: string;
+  projectName: string;
   compte: Compte | null;
-  solde: { depenseMs: number; tentatives: number } | null;
+  solde: SoldeProjet | null;
   mode: BalanceState['mode'];
   aJour: boolean;
+  onPlafondChange?: () => void;
 }) {
   const t = useT();
-  // Silence complet : ni pesée exploitable, ni solde tenu ⇒ rien à dire sur ce
-  // projet, et surtout pas un bloc vide qui laisserait croire à une panne.
+  // Silence complet : ni pesée exploitable, ni solde tenu, ni plafond posé ⇒
+  // rien à dire sur ce projet, et surtout pas un bloc vide qui laisserait
+  // croire à une panne. Un plafond, lui, se montre TOUJOURS dès qu'il existe :
+  // le serveur fait apparaître au grand livre un projet plafonné même s'il n'a
+  // jamais rien dépensé — c'est précisément le projet (bloqué à zéro dépense)
+  // qu'il ne faut pas rendre invisible.
   const aPesee = compte !== null && compte.totalMs > 0;
   const aSolde = mode !== 'off' && solde !== null;
-  if (!aPesee && !aSolde) return null;
+  const aPlafond = (solde?.plafondMs ?? null) !== null;
+  if (!aPesee && !aSolde && !aPlafond) return null;
+
+  // Le geste « borner » ne s'offre que si le serveur le sert : un orchestrateur
+  // d'AVANT ce lot ne renvoie pas `plafondMs` du tout (`undefined`, et non
+  // `null`), et proposer un bouton qui ne peut que tomber en 404 serait une
+  // promesse en l'air. Le reste de la carte est rigoureusement inchangé.
+  const bornable = solde !== null && solde.plafondMs !== undefined;
 
   return (
     <div className="bal-projet">
@@ -435,6 +804,17 @@ export function BalanceProjet({
           {!aJour && ` ⏳ ${t('rattrapage en cours', 'still catching up')}`}
         </p>
       )}
+
+      {solde && <EtatPlafond solde={solde} />}
+      {bornable && solde && (
+        <ControlePlafond
+          projectId={projectId}
+          projectName={projectName}
+          solde={solde}
+          mode={mode}
+          onPlafondChange={onPlafondChange}
+        />
+      )}
     </div>
   );
 }
@@ -443,9 +823,10 @@ export function BalanceProjet({
  * Le devis d'un plan (atelier Queen Bee, vue Projets).
  *
  * SÉPARÉ DE TOUT PLAFOND, visuellement et conceptuellement : un devis est une
- * prévision sur un DAG qui n'est même pas encore déposé, un plafond serait une
- * intention humaine posée sur un projet existant. Ils ne se lisent pas
- * ensemble, et ce bloc n'a aucune place pour l'un d'eux.
+ * prévision sur un DAG qui n'est même pas encore déposé, un plafond est une
+ * intention humaine posée sur un projet existant (elle vit dans la carte
+ * projet, `ControlePlafond`). Ils ne se lisent pas ensemble, et ce bloc n'a
+ * aucune place pour l'un d'eux.
  *
  * Il porte TOUJOURS la taille de son échantillon : un devis fondé sur 3 tâches
  * comparables et un devis fondé sur 300 s'affichent pareil sans ce chiffre, et
@@ -519,10 +900,15 @@ export function CarteDevis({ devis, nbTaches }: { devis: DevisPlan; nbTaches: nu
         </p>
       )}
 
+      {/* L'affirmation est RESTREINTE À SON SUJET : c'est le devis qui ne borne
+          rien, pas la ruche. Depuis le geste « borner », un seul dispositif peut
+          réellement arrêter une dépense — le plafond du projet, posé à la main
+          dans sa carte — et la note le nomme plutôt que de laisser croire qu'il
+          n'existe pas. */}
       <p className="bal-note">
         {t(
-          'Le total p90 additionne les p90 : il suppose que toutes les tâches ont un mauvais jour en même temps. Un devis se lit comme un ordre de grandeur — il ne borne rien et n’autorise rien, la ruche ne bloque aucune dépense.',
-          'The p90 total adds up the p90s: it assumes every task has a bad day at once. An estimate reads as an order of magnitude — it caps nothing and authorizes nothing, the hive blocks no spending.',
+          'Le total p90 additionne les p90 : il suppose que toutes les tâches ont un mauvais jour en même temps. Un devis se lit comme un ordre de grandeur — il ne borne rien et n’autorise rien. Le seul dispositif qui puisse arrêter une dépense est le plafond du projet, posé à la main dans sa carte.',
+          'The p90 total adds up the p90s: it assumes every task has a bad day at once. An estimate reads as an order of magnitude — it caps nothing and authorizes nothing. The only thing that can actually stop spending is the project cap, set by hand on its card.',
         )}
       </p>
       <p className="bal-note">

@@ -15,7 +15,15 @@ import './chronique.css';
 // ─── Familles d'événements (chips de filtre) ────────────────────────────────
 
 type Family =
-  'taches' | 'noeuds' | 'courses' | 'merge' | 'conflits' | 'memoire' | 'instinct' | 'autres';
+  | 'taches'
+  | 'noeuds'
+  | 'courses'
+  | 'merge'
+  | 'conflits'
+  | 'memoire'
+  | 'instinct'
+  | 'balance'
+  | 'autres';
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
 const FAMILIES: { id: Family; fr: string; en: string }[] = [
@@ -26,6 +34,7 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
   { id: 'conflits', fr: '🛡️ Conflits', en: '🛡️ Conflicts' },
   { id: 'memoire', fr: '🧬 Mémoire', en: '🧬 Memory' },
   { id: 'instinct', fr: '🐜 Instinct', en: '🐜 Instinct' },
+  { id: 'balance', fr: '🧮 Balance', en: '🧮 Balance' },
   { id: 'autres', fr: '• Autres', en: '• Other' },
 ];
 
@@ -37,8 +46,17 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
  */
 const INSTINCT = new Set(['pheromone_route', 'thermo_shift', 'brood_context']);
 
+/**
+ * La Balance, geste « borner » : alerte de seuil, plafond atteint, plafond posé
+ * ou retiré. Famille à part et non « instinct » : l'instinct est ce que la ruche
+ * fait d'elle-même, un plafond est une INTENTION HUMAINE et ses conséquences.
+ * C'est le filtre qu'on isole quand on cherche pourquoi un projet ne part plus.
+ */
+const BALANCE = new Set(['balance_alert', 'balance_cap_reached', 'balance_cap_set']);
+
 function familyOf(type: string): Family {
   if (INSTINCT.has(type)) return 'instinct';
+  if (BALANCE.has(type)) return 'balance';
   if (type === 'conflict_detected' || type === 'task_conflict_deferred') return 'conflits';
   if (type.startsWith('drone')) return 'courses';
   if (type.startsWith('merge')) return 'merge';
@@ -95,6 +113,7 @@ export default function Chronique({ events }: ViewProps) {
       conflits: 0,
       memoire: 0,
       instinct: 0,
+      balance: 0,
       autres: 0,
     };
     for (const ev of events) c[familyOf(ev.type)] += 1;

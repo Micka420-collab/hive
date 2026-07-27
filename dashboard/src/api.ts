@@ -201,7 +201,7 @@ export type { Faction, Verdict } from '../../src/orchestrator/parliament';
 export type { MergeConflict, MergePlan } from '../../src/orchestrator/honeycomb';
 export type { Domaine, TraceePheromone } from '../../src/orchestrator/pheromones';
 export type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
-export type { Compte, Devis, Pesee, Poste } from '../../src/orchestrator/balance';
+export type { Compte, DecisionPlafond, Devis, Pesee, Poste } from '../../src/orchestrator/balance';
 
 import type { HivePulse } from '../../src/orchestrator/pulse';
 import type { WaggleBoard } from '../../src/orchestrator/waggle';
@@ -212,7 +212,7 @@ import type { Verdict } from '../../src/orchestrator/parliament';
 import type { MergePlan } from '../../src/orchestrator/honeycomb';
 import type { Domaine, TraceePheromone } from '../../src/orchestrator/pheromones';
 import type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
-import type { Devis, Pesee } from '../../src/orchestrator/balance';
+import type { DecisionPlafond, Devis, Pesee } from '../../src/orchestrator/balance';
 
 /** Hive Pulse : signes vitaux agrégés (débit, latences, taux de succès). */
 export function fetchPulse(): Promise<HivePulse> {
@@ -272,9 +272,80 @@ export interface BalanceState {
   mode: 'off' | 'observation' | 'strict';
   aJour: boolean;
   pesee: Pesee;
-  soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+  soldes: SoldeProjet[];
   /** Taille du corpus lu par l'imputation (CORPUS_BALANCE côté serveur). */
   fenetre: number;
+}
+
+/**
+ * Le solde d'UN projet au grand livre : ce qu'il a dépensé, ET l'intention
+ * humaine qui le borne. Forme LOCALE au serveur (le type vit inline dans
+ * `Scheduler.balance`, il n'est exporté par aucun module pur) : on la
+ * reconstruit ici depuis `DecisionPlafond`, exporté par balance.ts — même motif
+ * que `DevisPlan`, pour que le typecheck du dashboard casse si le verdict bouge.
+ *
+ * `plafondMs` / `etat` / `bloque` sont OPTIONNELS, et seulement ici : le serveur
+ * les envoie toujours, un orchestrateur d'AVANT le geste « borner » ne les
+ * connaît pas. Absents ⇒ le dashboard se lit exactement comme avant, sans
+ * inventer un « pas de plafond » qui serait une affirmation non vérifiée.
+ *
+ * Distinguer `etat` de `bloque` est essentiel et n'est pas un doublon :
+ * `etat: 'bloque'` est le VERDICT (la dépense a rejoint le plafond), `bloque`
+ * dit si l'assignation est RÉELLEMENT arrêtée — c'est-à-dire verdict `bloque`
+ * ET ruche en mode `strict`. En `observation`, le premier est vrai et le second
+ * faux : la ruche continue de butiner, et l'écran doit le dire.
+ */
+export interface SoldeProjet {
+  projectId: string;
+  depenseMs: number;
+  tentatives: number;
+  /** Plafond posé à la main, en ms. `null` = aucun plafond (l'état normal). */
+  plafondMs?: number | null;
+  etat?: DecisionPlafond;
+  bloque?: boolean;
+}
+
+/**
+ * La Balance d'UN projet — réponse de `GET` et de `PUT
+ * /api/projects/:id/balance`. Elle ajoute au solde la TRACE du geste humain :
+ * qui a posé le plafond (`definiPar`, un userId — jamais une autorisation, la
+ * garde reste le token de ruche) et quand (`updatedAt`). Les deux valent `null`
+ * quand aucun plafond n'est posé, ou quand il l'a été sans session identifiée.
+ *
+ * La route sert aussi `compte` (la tranche de pesée du projet) et `fenetre` :
+ * la carte projet les tient déjà de `/api/balance`, qui couvre toute la ruche en
+ * un seul relevé — inutile de les retyper pour les ignorer.
+ */
+export interface BalanceProjetState extends SoldeProjet {
+  version: number;
+  mode: BalanceState['mode'];
+  aJour: boolean;
+  definiPar?: string | null;
+  updatedAt?: number | null;
+}
+
+/** La Balance d'un projet : son solde, son plafond, et qui l'a posé. */
+export function fetchProjectBalance(projectId: string): Promise<BalanceProjetState> {
+  return api<BalanceProjetState>(`/api/projects/${projectId}/balance`);
+}
+
+/**
+ * Pose (ou retire, avec `null`) le plafond de dépense d'un projet.
+ *
+ * C'est le SEUL geste du dashboard qui peut arrêter la ruche pour cause
+ * d'économie, et le seul qui peut la redémarrer : la ruche ne se ré-autorise
+ * jamais elle-même à dépenser. `0` est licite et veut dire « ce projet ne
+ * dépense plus rien » ; la borne haute est celle du schéma serveur, qui reste
+ * l'autorité et refuse le reste avec un message lisible.
+ */
+export function setProjectPlafond(
+  projectId: string,
+  plafondMs: number | null,
+): Promise<BalanceProjetState> {
+  return api<BalanceProjetState>(`/api/projects/${projectId}/balance`, {
+    method: 'PUT',
+    body: JSON.stringify({ plafondMs }),
+  });
 }
 
 /** La Balance : où est passé le temps-ouvrière emprunté par la ruche. */
