@@ -921,6 +921,115 @@ async function cmdConseils(): Promise<void> {
   }
 }
 
+interface DepotListe {
+  fullName: string;
+  description: string;
+  prive: boolean;
+  langage: string;
+  pousseA: number;
+  archive: boolean;
+  importe: boolean;
+  htmlUrl: string;
+}
+
+/** « il y a 3 jours » — un horodatage brut n'aide pas à choisir. */
+function depuis(ms: number): string {
+  if (!ms) return '—';
+  const j = Math.floor((Date.now() - ms) / 86_400_000);
+  if (j <= 0) return "aujourd'hui";
+  if (j === 1) return 'hier';
+  if (j < 30) return `il y a ${j} j`;
+  if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
+  return `il y a ${Math.floor(j / 365)} an(s)`;
+}
+
+function afficherDepots(depots: DepotListe[], tronque: boolean): void {
+  depots.forEach((d, i) => {
+    const num = String(i + 1).padStart(3);
+    const marque = d.importe ? '✔ déjà dans la ruche' : d.prive ? '🔒 privé' : '';
+    const meta = [d.langage, depuis(d.pousseA), d.archive ? '📦 archivé' : '', marque]
+      .filter(Boolean)
+      .join(' · ');
+    console.log(`  ${num}. ${d.fullName}`);
+    if (meta) console.log(`       ${meta}`);
+    if (d.description) console.log(`       ${d.description.slice(0, 100)}`);
+  });
+  if (tronque) {
+    console.log(
+      '\n  ⚠ Liste tronquée (beaucoup de dépôts). Affinez :  npm run cli -- github <filtre>',
+    );
+  }
+}
+
+/**
+ * Liste les dépôts GitHub et propose d'en importer un par son NUMÉRO.
+ *
+ * Le choix par numéro est délibéré : retaper `owner/repo` à la main sur une
+ * liste de cent lignes, c'est une faute de frappe garantie — et une faute de
+ * frappe ici crée un projet vers le mauvais dépôt.
+ */
+async function cmdGithub(filtre?: string): Promise<void> {
+  const qs = filtre ? `?q=${encodeURIComponent(filtre)}` : '';
+  const r = await api<{ depots: DepotListe[]; total: number; tronque: boolean }>(
+    `/api/github/repos${qs}`,
+  );
+
+  if (r.depots.length === 0) {
+    console.log(
+      filtre
+        ? `\n  Aucun dépôt ne correspond à « ${filtre} » (${r.total} au total).\n`
+        : '\n  Aucun dépôt visible avec ce jeton.\n',
+    );
+    return;
+  }
+
+  console.log(
+    `\n🐙 ${r.depots.length} dépôt(s)${filtre ? ` correspondant à « ${filtre} »` : ''}\n`,
+  );
+  afficherDepots(r.depots, r.tronque);
+
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let reponse: string;
+  try {
+    reponse = (
+      await rl.question('\n  Numéro du dépôt à connecter (Entrée pour quitter) : ')
+    ).trim();
+  } finally {
+    rl.close();
+  }
+  if (!reponse) return;
+
+  const n = Number(reponse);
+  const choisi =
+    Number.isInteger(n) && n >= 1 && n <= r.depots.length ? r.depots[n - 1] : undefined;
+  if (!choisi) {
+    console.error(`\n✘ « ${reponse} » n’est pas un numéro de la liste (1 à ${r.depots.length}).\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (choisi.importe) {
+    console.log(`\n  ${choisi.fullName} est déjà connecté à la ruche.\n`);
+    return;
+  }
+  await cmdGithubImport(choisi.fullName);
+}
+
+/** Connecte un dépôt par son nom complet. */
+async function cmdGithubImport(fullName: string): Promise<void> {
+  const r = await api<{ projet: { id: string; name: string }; depot: DepotListe }>(
+    '/api/github/import',
+    { method: 'POST', body: JSON.stringify({ fullName }) },
+  );
+  console.log(`\n✔ ${r.depot.fullName} est connecté à la ruche.\n`);
+  console.log(`  Projet : ${r.projet.id}\n`);
+  console.log('  Et maintenant :');
+  console.log(`    npm run cli -- brief ${r.projet.id} "ce que vous voulez faire"`);
+  console.log(
+    `    npm run cli -- conseil ${r.projet.id}      # demander à la ruche ce qu’elle en pense\n`,
+  );
+}
+
 async function cmdTunnel(...args: string[]): Promise<void> {
   const port = Number(new URL(BASE).port || 7777);
   const fournisseur = await trouverFournisseur();
@@ -1066,12 +1175,14 @@ try {
   else if (cmd === 'conseil' && a1) await cmdConseil(a1, a2);
   else if (cmd === 'conseil-voir' && a1) await cmdConseilVoir(a1);
   else if (cmd === 'conseils') await cmdConseils();
+  else if (cmd === 'github') await cmdGithub(a1);
+  else if (cmd === 'github-import' && a1) await cmdGithubImport(a1);
   else if (cmd === 'membres') await cmdMembres();
   else if (cmd === 'exclure' && a1) await cmdExclure(a1);
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }

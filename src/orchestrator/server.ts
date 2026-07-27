@@ -44,6 +44,7 @@ import {
 } from './conseil-runner.js';
 import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
+import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { CORPUS_GARDIENNES, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
 import { askConcierge } from './concierge.js';
@@ -1074,6 +1075,142 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       });
       emitEvent('node_joined', { nodeId: req.body.nodeId, ticketId: decode.id });
       return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
+    },
+  );
+
+  // ─── Connecter ses dépôts GitHub ───────────────────────────────────────────
+  //
+  // Le jeton vient de l'ENVIRONNEMENT et n'est jamais rangé : voir l'en-tête de
+  // github.ts. Absent, la fonctionnalité dit comment l'activer plutôt que de
+  // rendre un 500 opaque.
+
+  // UNIQUEMENT `HIVE_GITHUB_TOKEN`, et pas de repli sur `GITHUB_TOKEN`.
+  //
+  // Constaté en exécutant la commande : `GITHUB_TOKEN` est partout — GitHub
+  // Actions le définit d'office (portée limitée au dépôt courant), beaucoup
+  // d'outils et de shells le posent pour leur propre usage. Un repli dessus
+  // faisait envoyer À api.github.com un jeton que l'utilisateur n'avait pas
+  // choisi de donner à Hive, et rendait un « jeton refusé » incompréhensible
+  // pour quelqu'un qui n'avait jamais configuré la fonctionnalité.
+  //
+  // Un secret ne se ramasse pas dans l'environnement au hasard d'un nom
+  // courant : il se donne explicitement.
+  const jetonGithub = process.env.HIVE_GITHUB_TOKEN ?? '';
+  const apiGithub = process.env.HIVE_GITHUB_API;
+
+  function sansJeton(reply: FastifyReply): FastifyReply {
+    return reply.code(501).send({
+      error: 'GitHub non connecté',
+      detail:
+        'Définissez HIVE_GITHUB_TOKEN dans l’environnement de l’orchestrateur, puis relancez-le. ' +
+        'Créez un jeton sur https://github.com/settings/tokens avec la portée « repo » pour voir vos dépôts privés. ' +
+        'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
+    });
+  }
+
+  /** Traduit une erreur GitHub en réponse actionnable, sans jamais fuiter le jeton. */
+  function repondreErreurGithub(reply: FastifyReply, err: unknown): FastifyReply {
+    if (err instanceof ErreurGithub) {
+      return reply.code(err.statut === 400 ? 400 : 502).send({
+        error: err.message,
+        detail: err.conseil,
+        statutGithub: err.statut,
+      });
+    }
+    return reply.code(502).send({
+      error: 'GitHub injoignable',
+      detail: 'Vérifiez la connexion réseau de l’orchestrateur.',
+    });
+  }
+
+  /** La liste dans laquelle choisir. Marque ce qui est DÉJÀ importé. */
+  app.get<{ Querystring: { q?: string } }>(
+    '/api/github/repos',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { q: { type: 'string', maxLength: 100 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      try {
+        const { depots, tronque } = await listerDepots({
+          jeton: jetonGithub,
+          ...(apiGithub ? { api: apiGithub } : {}),
+        });
+        // Signaler ce qui est déjà dans la ruche évite le doublon silencieux :
+        // deux projets Hive sur le même dépôt, c'est deux plans de merge
+        // concurrents sur les mêmes fichiers.
+        const deja = new Set(
+          store
+            .listProjects()
+            .map((p) => p.repoUrl)
+            .filter((u): u is string => Boolean(u)),
+        );
+        const filtres = filtrer(depots, req.query.q ?? '');
+        return {
+          depots: filtres.map((d) => ({ ...d, importe: deja.has(d.cloneUrl) })),
+          total: depots.length,
+          tronque,
+        };
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /** Importe un dépôt choisi : crée le projet Hive correspondant. */
+  app.post<{ Body: { fullName: string } }>(
+    '/api/github/import',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['fullName'],
+          properties: { fullName: { type: 'string', minLength: 3, maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      let depot;
+      try {
+        depot = await lireUnDepot(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          req.body.fullName,
+        );
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+
+      const existant = store.listProjects().find((p) => p.repoUrl === depot.cloneUrl);
+      if (existant) {
+        return reply
+          .code(409)
+          .send({ error: 'dépôt déjà importé', projectId: existant.id, nom: existant.name });
+      }
+
+      const projet = store.createProject({
+        name: depot.fullName,
+        repoUrl: depot.cloneUrl,
+        // La description vient de GitHub, donc d'un tiers possible. Elle est
+        // déjà aplatie et bornée par github.ts ; le Conseil l'emballera ensuite
+        // dans son bloc de données non fiables.
+        ...(depot.description ? { description: depot.description } : {}),
+      });
+      emitEvent('github_imported', {
+        projectId: projet.id,
+        fullName: depot.fullName,
+        prive: depot.prive,
+      });
+      return reply.code(201).send({ projet, depot });
     },
   );
 
