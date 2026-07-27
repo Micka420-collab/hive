@@ -45,8 +45,19 @@ import {
 import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
-import { CORPUS_GARDIENNES, replierInspections } from './gardiennes.js';
+import { CORPUS_GARDIENNES, cheminsPromis, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
+import {
+  SEUIL_BATISSEUSE,
+  SEUIL_BUTINEUSE,
+  VIERGE,
+  castesDepuisInspections,
+  consignes,
+  fiabilite,
+  modeEffectif,
+  replierAntecedents,
+} from './polyethisme.js';
+import type { Caste, ModePolyethisme } from './polyethisme.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -187,6 +198,12 @@ export interface ServerConfig {
    * `createServer` continue de compiler.
    */
   gardiennes?: ModeGardiennes;
+  /**
+   * Le polyéthisme : encadrer les prompts selon l'expérience observée du nœud,
+   * et — en `strict` — exiger une contre-visite avant d'appliquer. Défaut
+   * `consignes` : on encadre, on ne retient rien. Optionnel, comme les autres.
+   */
+  polyethisme?: ModePolyethisme;
 }
 
 /**
@@ -230,6 +247,11 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       env.HIVE_GARDIENNES === 'off' || env.HIVE_GARDIENNES === 'strict'
         ? env.HIVE_GARDIENNES
         : 'consultatif',
+    // Idem : le défaut `consignes` encadre sans jamais retenir de production.
+    polyethisme:
+      env.HIVE_POLYETHISME === 'off' || env.HIVE_POLYETHISME === 'strict'
+        ? env.HIVE_POLYETHISME
+        : 'consignes',
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -365,7 +387,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * Ne journalise rien (la re-livraison a lieu à chaque tick) : l'appelant
    * décide s'il émet `brood_context`.
    */
-  const construireHiveContext = (task: Task): { hiveContext: string; echecs: number } => {
+  const construireHiveContext = (
+    task: Task,
+    /** Octets déjà pris par le cadre du polyéthisme, qui passe en premier. */
+    dejaPris = 0,
+  ): { hiveContext: string; echecs: number } => {
     // Couveuse : les leçons des échecs précédents viennent EN TÊTE (le plus
     // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
     // results ne garde que son id.
@@ -386,7 +412,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // RESTANT après la Couveuse (« \n\n » de jonction compris).
     const souvenirs = buildHiveContext(
       store.searchMemories(`${task.title} ${task.prompt}`, 3),
-      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0),
+      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0) - (dejaPris ? dejaPris + 2 : 0),
     );
     return {
       hiveContext: [lecons, souvenirs].filter(Boolean).join('\n\n'),
@@ -526,6 +552,46 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
   };
 
+  // ─── Le polyéthisme : chaque ouvrière au travail que son expérience permet ─
+  //
+  // Les castes sont DÉRIVÉES des verdicts des Gardiennes — jamais déclarées par
+  // un nœud (polyethisme.ts, doctrine règle 1). Le calcul est un repli PUR sur
+  // le même corpus borné que /api/gardiennes ; on le mémoïse avec le même TTL,
+  // parce qu'il est lu sur le chemin d'assignation (onAssign, appelé par tick)
+  // et qu'une lecture de table par tâche assignée est exactement le motif que
+  // l'audit de La Balance a fait retirer.
+  const modePolyethismeDemande: ModePolyethisme = config.polyethisme ?? 'consignes';
+  let castesMemo: { calculeA: number; castes: Map<string, Caste> } | null = null;
+
+  /** Mode réellement en vigueur : `off` si les Gardiennes n'inspectent rien. */
+  const polyethismeEnVigueur = (): ModePolyethisme =>
+    modeEffectif(modePolyethismeDemande, scheduler.gardiennes.mode !== 'off');
+
+  const casteDe = (nodeId: string, now = Date.now()): Caste => {
+    if (!castesMemo || now - castesMemo.calculeA >= GARDIENNES_TTL_MS) {
+      castesMemo = { calculeA: now, castes: castesDepuisInspections(store.listInspections()) };
+    }
+    // Un nœud sans antécédent est une nourrice : l'inconnu est le cas dangereux.
+    return castesMemo.castes.get(nodeId) ?? 'nourrice';
+  };
+
+  /**
+   * Le cadre de travail joint au prompt d'une ouvrière, ou '' si aucun.
+   *
+   * Le périmètre est déduit de la tâche par la MÊME fonction que les Gardiennes
+   * utilisent pour juger le résultat (`cheminsPromis`). C'est volontaire : la
+   * ruche annonce à l'ouvrière exactement les fichiers sur lesquels elle la
+   * jugera. Un cadre qui parlerait d'autre chose que ce qui est mesuré serait
+   * pire qu'aucun cadre.
+   */
+  const construireCadre = (task: Task, nodeId: string): string => {
+    if (polyethismeEnVigueur() === 'off') return '';
+    return consignes({
+      caste: casteDe(nodeId),
+      perimetre: cheminsPromis(task.title, task.prompt),
+    });
+  };
+
   const scheduler = new Scheduler(store, {
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
@@ -542,15 +608,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
       if (ws) {
         const project = store.getProject(task.projectId);
-        const { hiveContext, echecs } = construireHiveContext(task);
+        // Le cadre du polyéthisme vient EN TÊTE et se taille son budget en
+        // premier : une consigne tronquée à moitié est pire qu'absente, alors
+        // qu'un souvenir en moins n'est qu'un souvenir en moins.
+        const cadre = construireCadre(task, nodeId);
+        const { hiveContext, echecs } = construireHiveContext(task, cadre.length);
         // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
         // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
         if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
+        const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
         send(ws, {
           type: 'assign_task',
           task,
           repoUrl: project?.repoUrl ?? null,
-          ...(hiveContext ? { hiveContext } : {}),
+          ...(contexte ? { hiveContext: contexte } : {}),
         });
       }
     },
@@ -1616,6 +1687,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       gardiennesMemo = { calculeA: now, vue: replierInspections(store.listInspections()) };
     }
     return { ...gardiennesMemo.vue, mode: scheduler.gardiennes.mode, fenetre: CORPUS_GARDIENNES };
+  });
+
+  // Le polyéthisme : quelle caste la ruche reconnaît à chaque nœud, et pourquoi.
+  //
+  // Vue dérivée PURE du même corpus borné que /api/gardiennes — rien n'est
+  // matérialisé, et surtout rien n'est déclaré : un nœud ne peut pas annoncer
+  // sa caste, elle est constatée (polyethisme.ts, doctrine règle 1).
+  //
+  // `mode` est indispensable dans la réponse : en `consignes`, `exigeraient`
+  // compte les productions qui SERAIENT relues en `strict`, alors qu'aucune ne
+  // l'est réellement. Sans le mode, ce nombre se lirait comme un travail fait.
+  app.get('/api/polyethisme', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    const inspections = store.listInspections();
+    const antecedents = replierAntecedents(inspections);
+    const noeuds = store.listNodes().map((n) => {
+      const a = antecedents.get(n.id) ?? VIERGE;
+      return {
+        nodeId: n.id,
+        name: n.name,
+        agentType: n.agentType,
+        caste: casteDe(n.id, now),
+        productions: a.productions,
+        creuses: a.creuses,
+        suspectes: a.suspectes,
+        fiabilite: Math.round(fiabilite(a) * 100) / 100,
+      };
+    });
+    return {
+      mode: polyethismeEnVigueur(),
+      modeDemande: modePolyethismeDemande,
+      fenetre: CORPUS_GARDIENNES,
+      seuils: { batisseuse: SEUIL_BATISSEUSE, butineuse: SEUIL_BUTINEUSE },
+      noeuds: noeuds.sort((a, b) => b.productions - a.productions || a.name.localeCompare(b.name)),
+    };
   });
 
   // La Balance : où est passé le temps-ouvrière que la ruche a emprunté à ses
