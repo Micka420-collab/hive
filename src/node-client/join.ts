@@ -100,12 +100,35 @@ async function echangerBillet(
       body: JSON.stringify({ billet: encoderBillet(billet), nodeId, label }),
     });
     if (!rep.ok) {
-      const detail = (await rep.json().catch(() => null)) as { error?: string } | null;
+      const corps = (await rep.json().catch(() => null)) as {
+        error?: string;
+        motif?: string;
+        detail?: string;
+      } | null;
+
+      // La ruche dit désormais POURQUOI quand elle le peut : expiré, épuisé,
+      // révoqué. Ces trois-là ne s'apprennent qu'avec le bon secret en main,
+      // donc les afficher n'apprend rien à qui ne l'avait pas — et les taire
+      // laissait la personne sans savoir s'il fallait redemander un billet ou
+      // vérifier sa connexion. C'était le cas d'échec le plus fréquent de ce
+      // chemin, et le plus vexant.
+      if (corps?.motif) {
+        console.error(`\n✘ ${corps.error ?? 'Billet refusé.'}\n`);
+        console.error('  L’hôte le crée en une commande : `npm run cli -- invite`.');
+        return null;
+      }
+
+      // Le `detail` du 409 (« identifiant de nœud déjà utilisé ») était lu
+      // puis JETÉ : il porte pourtant la seule marche à suivre utile.
       console.error(
-        `\n✘ La ruche a refusé ce billet (${rep.status}${detail?.error ? ` — ${detail.error}` : ''}).\n` +
-          '  Un billet est éphémère et souvent à usage unique : demandez-en un nouveau à l’hôte\n' +
-          '  (`npm run cli -- invite`).',
+        `\n✘ La ruche a refusé ce billet (${rep.status}${corps?.error ? ` — ${corps.error}` : ''}).`,
       );
+      if (corps?.detail) console.error(`  ${corps.detail}`);
+      else
+        console.error(
+          '  Un billet est éphémère et souvent à usage unique : demandez-en un nouveau à l’hôte\n' +
+            '  (`npm run cli -- invite`).',
+        );
       return null;
     }
     const data = (await rep.json()) as { cle?: unknown };

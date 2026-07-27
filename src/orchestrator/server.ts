@@ -27,14 +27,17 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import {
   TTL_BILLET_MAX_MS,
   USAGES_MAX,
+  EXPLICATION_REFUS,
   bornerTtl,
   bornerUsages,
   decoderBillet,
   empreinte,
+  empreinteLeurre,
   empreinteValide,
   encoderBillet,
   jugerBillet,
   jugerTransport,
+  motifDicible,
   tirerSecret,
 } from '../shared/acces.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
@@ -1258,24 +1261,61 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
       const now = Date.now();
       const range = store.getBillet(decode.id);
+
+      // ─── LE SECRET D'ABORD, ET TOUJOURS AU MÊME COÛT ────────────────────────
+      //
+      // L'ordre a changé, et ce n'est pas cosmétique.
+      //
+      // AVANT : on jugeait l'état du billet, puis on vérifiait le secret. Un
+      // identifiant inconnu était refusé SANS que PBKDF2 tourne — donc en une
+      // fraction du temps qu'il faut à un identifiant connu. Le message
+      // uniforme prétendait cacher quels billets existent ; L'HORLOGE LE
+      // DISAIT. L'oracle existait déjà, il était simplement mesuré au
+      // chronomètre plutôt que lu dans la réponse.
+      //
+      // MAINTENANT : on vérifie toujours le secret, contre l'empreinte réelle
+      // si le billet existe, contre un LEURRE de coût identique sinon. Les
+      // deux chemins coûtent la même chose, et l'oracle temporel disparaît.
+      //
+      // Ce n'est qu'ENSUITE, une fois le porteur authentifié, qu'on peut dire
+      // POURQUOI son billet est refusé : expiré, épuisé ou révoqué ne
+      // s'apprennent qu'avec le bon secret en main, donc les dire n'apprend
+      // rien à qui ne l'avait pas.
+      // Voir `docs/adr/0005-motifs-de-refus-d-un-billet.md`.
+      const secretOk = empreinteValide(decode.secret, range?.secretHash ?? empreinteLeurre());
+
+      const refuserOpaque = (refus: string) => {
+        joinEchec(req.ip);
+        emitEvent('invite_rejected', { ticketId: decode.id, refus });
+        return reply.code(401).send({ error: 'billet refusé' });
+      };
+      // Billet inconnu et secret faux prennent le MÊME chemin et rendent la
+      // MÊME réponse, à l'octet près. C'est cette indistinction-là qui empêche
+      // d'énumérer les identifiants existants.
+      if (!range || !secretOk) return refuserOpaque(range ? 'secret_invalide' : 'inconnu');
+
       const juge = jugerBillet(
-        range && {
+        {
           expireA: range.expiresAt,
           usagesRestants: range.usesLeft,
           revoqueA: range.revokedAt,
         },
         now,
       );
-      // Un seul message pour tous les refus : distinguer « inconnu » de
-      // « secret invalide » dirait à un inconnu QUELS identifiants existent.
-      // La raison précise part au journal, pour l'hôte, jamais au client.
-      const refuser = (refus: string) => {
+      if (!juge.ok) {
         joinEchec(req.ip);
-        emitEvent('invite_rejected', { ticketId: decode.id, refus });
-        return reply.code(401).send({ error: 'billet refusé' });
-      };
-      if (!juge.ok) return refuser(juge.refus);
-      if (!empreinteValide(decode.secret, range!.secretHash)) return refuser('secret_invalide');
+        emitEvent('invite_rejected', { ticketId: decode.id, refus: juge.refus });
+        // Le porteur a prouvé qu'il détenait ce billet : on lui doit la raison,
+        // et surtout la marche à suivre.
+        return reply
+          .code(401)
+          .send(
+            motifDicible(juge.refus)
+              ? { error: EXPLICATION_REFUS[juge.refus], motif: juge.refus }
+              : { error: 'billet refusé' },
+          );
+      }
+      const refuser = refuserOpaque;
 
       // L'IDENTIFIANT EST-IL LIBRE ? Vérifié APRÈS le secret (on ne renseigne
       // pas un inconnu sur les nœuds existants) mais AVANT de consommer le

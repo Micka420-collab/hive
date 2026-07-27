@@ -152,6 +152,30 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Un billet refusé dit pourquoi — et l'oracle temporel qui traînait est
+  fermé** (`docs/adr/0005`). « Billet refusé » sans raison était le cas d'échec
+  le plus fréquent du chemin « rejoindre » et le plus vexant : quelqu'un colle
+  son billet deux jours plus tard, se fait refuser, et n'a aucun moyen de
+  savoir s'il faut en redemander un ou vérifier sa connexion. Le message
+  uniforme se justifiait pourtant : distinguer « inconnu » d'« expiré »
+  permettrait d'**énumérer les identifiants de billets existants**.
+  **Sauf que l'oracle était déjà ouvert, et l'horloge le disait** : un
+  identifiant inconnu était refusé par `jugerBillet` **sans que PBKDF2 tourne**,
+  là où un identifiant connu au mauvais secret payait 100 000 itérations —
+  **1,8 ms contre 18,1 ms, un facteur 9,8**, lisible avec n'importe quel client
+  HTTP. L'ordre de vérification est donc inversé : le secret est contrôlé
+  **d'abord et toujours au même coût**, contre `empreinteLeurre()` — une
+  empreinte factice de dépense identique — quand le billet n'existe pas. Une
+  fois le porteur authentifié, la ruche lui dit **`expire`, `epuise` ou
+  `revoque`** avec la marche à suivre ; ces trois-là ne s'apprennent qu'avec le
+  bon secret en main, donc les révéler n'apprend rien à qui ne l'avait pas.
+  **`inconnu` et `secret_invalide` restent indistinguables à l'octet près** —
+  c'est cette indistinction qui ferme la porte, et un test compare les deux
+  réponses caractère par caractère. Le motif exact continue de partir au
+  journal (`invite_rejected`), pour l'hôte. Au passage, `join.ts` affichait le
+  `detail` du 409 « identifiant déjà utilisé »… en le jetant : il portait
+  pourtant la seule marche à suivre utile.
+
 - **Le secret de session était écrit en dur dans un dépôt public**
   (⚠️ **CHANGEMENT CASSANT** : la ruche refuse désormais de démarrer sans
   `HIVE_JWT_SECRET`, et les sessions ouvertes avec l'ancien secret sont
