@@ -1,0 +1,26 @@
+{
+  // La chaîne de compilation — celle qui n'existait pas.
+  //
+  // `tsconfig.json` porte `noEmit: true` : jusqu'ici RIEN n'était transpilé, et
+  // tout tournait par `tsx` depuis les sources. C'est confortable en
+  // développement et impossible à distribuer : `tsx` est une dépendance de
+  // développement, et un paquet installé ne peut pas s'y fier.
+  //
+  // Ce fichier n'ajoute aucune règle : il hérite de tout, et se contente
+  // d'ÉMETTRE. Les deux configurations ne peuvent donc pas diverger sur ce qui
+  // est vérifié — un typecheck vert et un build cassé seraient le pire des
+  // deux mondes.
+  //
+  // `tests` est exclu : personne n'a besoin de nos tests pour faire tourner une
+  // ruche, et les embarquer gonflerait le paquet de ce que l'on demande à nos
+  // utilisateurs de télécharger.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": ["src"]
+}

@@ -15,6 +15,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
 import { optionBac, preparerBac } from './bac.js';
+import { CODE } from '../codes-sortie.js';
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
@@ -142,7 +143,28 @@ async function echangerBillet(
   }
 }
 
+/**
+ * Demande le billet à l'humain.
+ *
+ * HORS TERMINAL, ON NE DEMANDE PAS — on échoue en le disant. Sans cette garde,
+ * `hive join` sans argument dans un script, un pipe ou une CI attendait une
+ * réponse que personne ne viendrait donner : le processus restait figé
+ * jusqu'au délai d'attente de l'appelant, sans un mot d'explication. Un
+ * blocage silencieux est le pire mode d'échec d'un outil qu'on automatise.
+ */
 async function askInvite(): Promise<string> {
+  if (process.stdin.isTTY !== true) {
+    console.error(
+      '\n✘ Aucun billet fourni, et pas de terminal pour le demander.\n' +
+        '  Passez-le en argument : `hive join hive2_…`\n' +
+        '  ou par l’environnement : `HIVE_INVITE=hive2_… hive join`.',
+    );
+    process.exit(CODE.REPONSE_MANQUANTE);
+  }
+  return askInviteInteractif();
+}
+
+async function askInviteInteractif(): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     return (await rl.question('🐝 Collez votre invitation Hive puis Entrée :\n> ')).trim();

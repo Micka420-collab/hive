@@ -172,6 +172,25 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   démarrer sans dire pourquoi. Un port occupé pose le code `4` sans rien
   annuler.
 
+- **🤝 Rejoindre une ruche en UNE commande, sans rien cloner** — `218 Mo et
+279 paquets` deviennent **4 Mo et 9 paquets**. Prêter du temps-machine à un
+  ami demandait un `git clone` puis un `npm install` complet : un moteur 3D de
+  27 Mo, React, six paquets d'éditeur de code — pour un dashboard qu'un nœud
+  membre **n'ouvre jamais**. La cartographie des imports depuis `join.ts` et
+  `main.ts` a montré qu'un nœud n'atteint à l'exécution que **deux** paquets,
+  `ws` et `simple-git` ; les douze paquets de navigateur (bundlés par Vite)
+  passent en `devDependencies`, et les quatre de l'orchestrateur (Fastify,
+  SQLite) en `optionalDependencies`. Un `bin` (`src/bin.ts`) et une **chaîne de
+  compilation** (`tsconfig.build.json` → `dist/`, qui n'existait pas : tout
+  tournait par `tsx` depuis les sources) rendent la commande installable :
+  `npx github:Micka420-collab/hive join hive2_…`, ou
+  `npm i -g … --omit=optional` pour n'installer strictement rien de superflu.
+  Une dépendance optionnelle absente n'est plus un `ERR_MODULE_NOT_FOUND` brut :
+  l'orchestrateur la **nomme** et donne la commande qui répare. Deux défauts
+  corrigés au passage — `hive join` sans billet et sans terminal **attendait
+  indéfiniment** au lieu de sortir en code 3, et `dist/` n'était ignoré ni par
+  ESLint, ni par Prettier, ni par git.
+
 ### Security
 
 - **Un billet refusé dit pourquoi — et l'oracle temporel qui traînait est

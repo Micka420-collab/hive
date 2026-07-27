@@ -1,4 +1,5 @@
 node_modules/
+dist/
 dashboard/dist/
 data/
 .hive-work/
