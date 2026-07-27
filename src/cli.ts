@@ -48,13 +48,26 @@ try {
   // Pas de .env : défauts.
 }
 
+import {
+  FOURNISSEURS,
+  ouvrirTunnel,
+  trouverFournisseur,
+  urlRucheDepuisTunnel,
+} from './node-client/tunnel.js';
+
 const BASE = process.env.HIVE_HTTP ?? 'http://localhost:7777';
 const TOKEN = process.env.HIVE_TOKEN ?? 'change-me';
 
 async function api<T>(pathname: string, init?: RequestInit): Promise<T> {
+  // `content-type: application/json` seulement quand il Y A un corps : l'annoncer
+  // sur une requête vide (un DELETE, typiquement) est incorrect, et faisait
+  // refuser la requête côté serveur avant même d'atteindre la route.
   const res = await fetch(`${BASE}${pathname}`, {
     ...init,
-    headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+    headers: {
+      ...(init?.body === undefined ? {} : { 'content-type': 'application/json' }),
+      'x-hive-token': TOKEN,
+    },
   });
   if (!res.ok) {
     throw new Error(`${res.status} ${res.statusText} — ${await res.text()}`);
@@ -441,29 +454,214 @@ async function cmdReport(projectId: string): Promise<void> {
   );
 }
 
-interface InviteResponse {
-  invite: string;
+interface BilletResponse {
+  billet: string;
+  id: string;
   url: string;
   label: string;
+  transport: 'sur' | 'clair_prive' | 'clair_public';
+  expiresAt: number;
+  uses: number;
   joinCommand: string;
   note: string;
 }
 
-/** Génère une invitation à envoyer à un ami (URL éventuelle en 1er argument). */
-async function cmdInvite(url?: string): Promise<void> {
-  const query = url ? `?url=${encodeURIComponent(url)}` : '';
-  const inv = await api<InviteResponse>(`/api/invite${query}`);
-  console.log('\n🐝 Invitation à envoyer à votre ami (ruche : ' + inv.url + ')\n');
+/**
+ * Génère un BILLET à envoyer à un ami : éphémère, à usage compté, révocable.
+ *
+ * Usage : invite [urlWS] [--uses N] [--hours H] [--insecure]
+ */
+async function cmdInvite(...args: string[]): Promise<void> {
+  const drapeaux = new Set(args.filter((a) => a.startsWith('--')));
+  const positionnels = args.filter((a) => !a.startsWith('--'));
+  const valeur = (nom: string): number | undefined => {
+    const i = args.indexOf(nom);
+    if (i < 0) return undefined;
+    const n = Number(args[i + 1]);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const heures = valeur('--hours');
+  const body: Record<string, unknown> = {};
+  const url = positionnels.find((a) => a.startsWith('ws'));
+  if (url) body.url = url;
+  const uses = valeur('--uses');
+  if (uses !== undefined) body.uses = uses;
+  if (heures !== undefined) body.ttlMs = Math.round(heures * 3_600_000);
+  if (drapeaux.has('--insecure')) body.insecure = true;
+
+  let inv: BilletResponse;
+  try {
+    inv = await api<BilletResponse>('/api/billets', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('transport en clair')) {
+      console.error(
+        '\n✘ Refus : cette URL enverrait le billet ET tout le trafic de la ruche\n' +
+          '  (prompts, logs, DIFFS DE CODE SOURCE) en clair sur l’Internet public.\n\n' +
+          '  Trois issues, de la meilleure à la moins bonne :\n' +
+          '    1. `npm run cli -- tunnel`   → une URL wss:// chiffrée, sans ouvrir de port\n' +
+          '    2. un reverse proxy à vous, en HTTPS\n' +
+          '    3. `--insecure` si vous savez précisément ce que vous faites\n',
+      );
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
+
+  const restant = Math.max(0, inv.expiresAt - Date.now());
+  const heuresRestantes = Math.round((restant / 3_600_000) * 10) / 10;
+  console.log('\n🐝 Billet à envoyer à votre ami (ruche : ' + inv.url + ')\n');
   console.log('  Étape 1 — il récupère Hive puis, dans le dossier :  npm install');
   console.log('  Étape 2 — il colle cette commande :\n');
   console.log('    ' + inv.joinCommand + '\n');
   console.log('  Son Claude Code / Codex est détecté automatiquement. C’est tout.');
-  console.log('\n  ⚠ ' + inv.note);
   console.log(
-    '  ⚠ Passer l’invitation en argument la laisse dans l’historique du shell et\n' +
-      '    la rend visible aux autres comptes de la machine. Alternative plus discrète :\n' +
-      '    l’ami lance `npm run join` seul, puis colle l’invitation quand elle est demandée.\n',
+    `\n  Ce billet : ${inv.uses === 1 ? 'usage UNIQUE' : inv.uses + ' usages'} · expire dans ${heuresRestantes} h · id ${inv.id}`,
   );
+  console.log(
+    `  Transport : ${
+      inv.transport === 'sur'
+        ? 'wss:// chiffré ✔'
+        : inv.transport === 'clair_prive'
+          ? 'ws:// en clair, réseau privé (usuel en local)'
+          : 'ws:// EN CLAIR sur adresse publique ⚠'
+    }`,
+  );
+  console.log(
+    '\n  Il ne donne aucun pouvoir sur la ruche : il ne sert qu’à obtenir une clé\n' +
+      '  propre à la machine de votre ami. Vous pourrez l’exclure seul, sans toucher\n' +
+      '  aux autres :  npm run cli -- membres  puis  npm run cli -- exclure <nodeId>\n',
+  );
+  console.log(
+    '  ⚠ Passer le billet en argument le laisse dans l’historique du shell. Plus\n' +
+      '    discret : l’ami lance `npm run join` seul, puis colle le billet demandé.\n',
+  );
+}
+
+/** Qui a les clés de la ruche, et quels billets circulent encore. */
+async function cmdMembres(): Promise<void> {
+  const r = await api<{
+    noeuds: {
+      nodeId: string;
+      label: string | null;
+      createdAt: number;
+      lastSeenAt: number | null;
+      revoque: boolean;
+    }[];
+    billets: {
+      id: string;
+      label: string | null;
+      expiresAt: number;
+      usesLeft: number;
+      etat: string;
+    }[];
+  }>('/api/membres');
+
+  console.log('\n🔑 Membres (clés de nœud)');
+  if (r.noeuds.length === 0) {
+    console.log('  — aucun. Les nœuds connectés utilisent encore le token maître.');
+  }
+  for (const n of r.noeuds) {
+    const vu = n.lastSeenAt ? new Date(n.lastSeenAt).toLocaleString() : 'jamais';
+    console.log(
+      `  ${n.revoque ? '⛔' : '✔'} ${n.nodeId}  ${n.label ?? ''}  · vu ${vu}${n.revoque ? '  (RÉVOQUÉ)' : ''}`,
+    );
+  }
+
+  console.log('\n🎫 Billets');
+  if (r.billets.length === 0) console.log('  — aucun.');
+  for (const b of r.billets) {
+    const icone = { vivant: '✔', expire: '⌛', epuise: '∅', revoque: '⛔' }[b.etat] ?? '?';
+    console.log(
+      `  ${icone} ${b.id}  ${b.etat}  · ${b.usesLeft} usage(s) restant(s) · expire ${new Date(b.expiresAt).toLocaleString()}`,
+    );
+  }
+  console.log('');
+}
+
+/** Exclure un membre — sans toucher aux autres. */
+async function cmdExclure(nodeId: string): Promise<void> {
+  await api(`/api/membres/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+  console.log(
+    `\n⛔ ${nodeId} est exclu : sa clé ne vaut plus rien et sa connexion est coupée\n` +
+      '   immédiatement. Les autres membres ne sont pas affectés.\n',
+  );
+}
+
+/** Révoquer un billet encore en circulation. */
+async function cmdRevoquerBillet(id: string): Promise<void> {
+  await api(`/api/billets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  console.log(`\n⛔ Billet ${id} révoqué : il ne peut plus être échangé.\n`);
+}
+
+/**
+ * Ouvre un tunnel chiffré vers la ruche et émet un billet dessus.
+ *
+ * C'est la commande qui rend la connexion à distance réellement simple : aucun
+ * port à ouvrir sur la box, aucun VPN, aucun nom de domaine — et le transport
+ * est en `wss://`, donc chiffré. Le tunnel vit tant que la commande tourne :
+ * c'est volontaire et affiché. Un tunnel qui survivrait à la fenêtre qui l'a
+ * ouvert serait une porte laissée entrebâillée sans que personne s'en souvienne.
+ */
+async function cmdTunnel(...args: string[]): Promise<void> {
+  const port = Number(new URL(BASE).port || 7777);
+  const fournisseur = await trouverFournisseur();
+  if (!fournisseur) {
+    console.error(
+      '\n✘ Aucun outil de tunnel trouvé dans le PATH.\n\n' +
+        '  Hive n’embarque volontairement AUCUNE dépendance de tunnel : faire transiter\n' +
+        '  le code source de tous les membres par un tiers doit être VOTRE choix, pas un\n' +
+        '  effet de bord d’un `npm install`.\n\n' +
+        FOURNISSEURS.map((f) => `  • ${f.nom}  →  ${f.installation}`).join('\n') +
+        '\n',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`\n🌍 Ouverture d’un tunnel via ${fournisseur.nom}…`);
+  let tunnel;
+  try {
+    tunnel = await ouvrirTunnel(fournisseur, port);
+  } catch (err) {
+    console.error(`\n✘ ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const urlWs = urlRucheDepuisTunnel(tunnel.url);
+  if (!urlWs) {
+    tunnel.process.kill();
+    console.error(`\n✘ URL de tunnel inattendue : ${tunnel.url}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`   ✔ ${tunnel.url}  →  ${urlWs}\n`);
+  try {
+    await cmdInvite(urlWs, ...args);
+  } catch (err) {
+    tunnel.process.kill();
+    throw err;
+  }
+
+  console.log(
+    '  ⏳ Le tunnel reste ouvert TANT QUE cette commande tourne. Ctrl+C le referme —\n' +
+      '     et la ruche redevient injoignable de l’extérieur. C’est voulu : une porte\n' +
+      '     qui survit à la fenêtre qui l’a ouverte finit par être oubliée.\n',
+  );
+  const fermer = (): void => {
+    console.log('\n🌍 Fermeture du tunnel…');
+    tunnel.process.kill();
+    process.exit(0);
+  };
+  process.on('SIGINT', fermer);
+  process.on('SIGTERM', fermer);
+  await new Promise(() => {}); // vit jusqu'au signal
 }
 
 async function cmdBrief(projectId: string, brief: string): Promise<void> {
@@ -548,10 +746,14 @@ try {
   else if (cmd === 'ask' && a1) await cmdAsk(a1, a2);
   else if (cmd === 'race' && a1) await cmdRace(a1, a2);
   else if (cmd === 'races') await cmdRaces();
-  else if (cmd === 'invite') await cmdInvite(a1);
+  else if (cmd === 'invite') await cmdInvite(...process.argv.slice(3));
+  else if (cmd === 'tunnel') await cmdTunnel(...process.argv.slice(3));
+  else if (cmd === 'membres') await cmdMembres();
+  else if (cmd === 'exclure' && a1) await cmdExclure(a1);
+  else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }

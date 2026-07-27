@@ -48,7 +48,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 | 👶 **Couveuse**         | Une tâche re-tentée repart avec les **leçons de ses échecs précédents**, injectées dans un bloc de données isolé des instructions (anti-injection de prompt). Événement `brood_context`.                                                                                                     |
 | ⚖️ **La Balance**       | Le pèse-ruche : **peser** (utile / reprise / échec / rebuté), **prévoir** (devis d'un DAG) et **borner** — plafond par projet, doublement opt-in : `HIVE_BALANCE=strict` **et** un plafond posé à la main. `/api/balance`.                                                                   |
 | 🛂 **Les Gardiennes**   | Contrôle d'entrée du nectar : un « succès » à **diff vide**, **hors des fichiers promis**, **non applicable** ou aux **logs qui crient l'échec** n'entre pas sur parole. `HIVE_GARDIENNES=off\|consultatif\|strict` (défaut : annoter, ne rien refuser). `/api/gardiennes`, `guard_refused`. |
-| 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                                                                                                                                                                                                     |
+| 🤝 **Inviter un ami**   | Un **billet** à coller : éphémère, à usage compté, **révocable**. Il ne donne aucun pouvoir sur la ruche — il sert à obtenir une **clé propre à la machine**, donc on peut exclure **une** personne sans éjecter l'essaim. `tunnel` ouvre un accès distant chiffré sans ouvrir de port.      |
 | 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées. **Jamais de merge sans revue humaine.**                                                                                                                                                     |
 | 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex`, `hermes-agent`, `custom` — ou votre propre `AgentAdapter`.                                                                                                                                                                                         |
 
@@ -199,35 +199,87 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 ## 🤝 Inviter un ami (connecter son IA en 30 s)
 
 1. **Vous (hôte)** — lancez l'orchestrateur avec un vrai token (`npm run dev`),
-   puis générez une invitation :
-   - dans le **dashboard** : bouton **« + Inviter un ami »** → copiez la commande ;
-   - ou en **terminal** : `npm run cli -- invite`.
+   puis créez un **billet** :
 
-   Vous obtenez une commande unique :
+   ```bash
+   npm run cli -- invite                    # sur le réseau local
+   npm run cli -- tunnel                    # depuis n'importe où, en wss:// chiffré
+   npm run cli -- invite --uses 3 --hours 2 # 3 machines, valable 2 h
+   ```
+
+   Vous obtenez une commande unique à envoyer :
 
    ```
-   npm run join -- hive1_eyJ2IjoxLCJ1cmwiOiJ3cy8v…
+   npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
    ```
 
 2. **Votre ami** — récupère Hive, lance `npm install`, puis **colle la commande**.
-   L'URL et le token sont dans l'invitation, **son Claude Code / Codex est détecté
-   automatiquement**, et son identité de nœud est mémorisée pour les reconnexions.
+   Son Claude Code / Codex est détecté automatiquement, et sa clé de nœud est
+   mémorisée pour les reconnexions.
 
    ```bash
-   npm run join -- hive1_eyJ2IjoxLCJ1cmwiOiJ3cy8v…
-   # 🐝 Connexion à la ruche : Ruche de Micka
-   #    Agents détectés : claude-code, shell
-   #    Agent utilisé   : Claude Code
+   npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
+   # 🐝 Connexion à : wss://…/ws  (« Ruche de Micka »)
+   #    🔑 Clé de nœud obtenue et mémorisée — les redémarrages ne redemanderont rien.
    # ✔ Nœud démarré — vous butinez pour la ruche.
    ```
 
-> ⚠️ **L'invitation contient le token de la ruche : c'est un secret.** Ne la
-> partagez qu'avec des personnes de confiance, par un canal privé. Les clés API de
-> votre ami restent **sur sa machine**, jamais transmises au hub.
+### Ce qu'un billet est, et ce qu'il n'est pas
 
-**Adresse réseau** : par défaut l'IP locale détectée. Pour un accès distant :
-`HIVE_PUBLIC_URL=wss://mondomaine:7777/ws`, l'option du dashboard, ou
-`npm run cli -- invite wss://mondomaine:7777/ws`.
+Un billet **ne donne aucun pouvoir sur la ruche** : il ne sert qu'à obtenir une
+**clé propre à la machine** de votre ami. C'est ce qui rend possible ce qui ne
+l'était pas :
+
+|                            |                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| **Éphémère**               | 24 h par défaut (`--hours`), puis il ne vaut plus rien                                           |
+| **À usage compté**         | une seule machine par défaut (`--uses`)                                                          |
+| **Révocable**              | `npm run cli -- revoquer <billetId>`                                                             |
+| **Exclusion individuelle** | `npm run cli -- exclure <nodeId>` coupe **une** personne, immédiatement, sans toucher aux autres |
+| **Rien en clair en base**  | seules des empreintes PBKDF2 sont rangées : une base volée ne donne aucun accès                  |
+
+```bash
+npm run cli -- membres        # qui a les clés, quels billets circulent encore
+npm run cli -- exclure node-…  # sa clé ne vaut plus rien, sa connexion est coupée
+```
+
+> Un membre exclu **ne peut pas revenir avec le token maître** : le refus est
+> définitif, il ne se replie pas sur l'ancienne porte.
+
+### Se connecter depuis l'extérieur
+
+Par défaut, la ruche n'est joignable que sur le réseau local. Pour un ami
+ailleurs, `npm run cli -- tunnel` ouvre un tunnel sortant chiffré et émet le
+billet dessus — **aucun port à ouvrir sur la box, aucun VPN, aucun domaine** :
+
+```bash
+npm run cli -- tunnel
+# 🌍 Ouverture d'un tunnel via Cloudflare Quick Tunnel…
+#    ✔ https://xyz.trycloudflare.com  →  wss://xyz.trycloudflare.com/ws
+```
+
+Hive n'embarque **aucune dépendance de tunnel** : la commande détecte un
+`cloudflared` (ou `localtunnel`) que vous avez installé vous-même. Faire
+transiter le code source de tous les membres par un tiers doit être votre choix,
+pas un effet de bord d'un `npm install`.
+
+> ⚠️ **`ws://` vers une adresse publique est refusé par défaut.** Ce n'est pas
+> seulement le billet qui fuiterait, mais **tout le trafic** : prompts, logs et
+> **diffs de code source**. Utilisez `wss://`, ou `--insecure` en connaissance de
+> cause.
+
+**Autres options d'adresse** : `HIVE_PUBLIC_URL=wss://mondomaine/ws`, ou
+`npm run cli -- invite wss://mondomaine/ws`.
+
+<details>
+<summary>Ancien format <code>hive1_</code></summary>
+
+Les invitations `hive1_` contiennent le **token maître** : accès total, sans
+expiration ni révocation individuelle. Elles restent acceptées pour ne pas
+déconnecter les ruches existantes, mais `npm run join` affiche un avertissement.
+Émettez un billet dès que possible.
+
+</details>
 
 ## 🛠️ Scripts
 

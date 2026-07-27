@@ -223,6 +223,50 @@ CREATE TABLE IF NOT EXISTS gardiennes (
   createdAt INTEGER NOT NULL
 );
 
+-- ─── Le trou de vol ─────────────────────────────────────────────────────────
+-- Deux tables, une par nature, et surtout PAS une seule : un billet est une
+-- invitation éphémère qu'on distribue, une clé de nœud est une identité durable
+-- qu'on garde. Les confondre, c'est ce que faisait l'ancien format (un seul
+-- token pour tout et pour tous) — et c'est exactement pourquoi on ne pouvait
+-- exclure personne sans éjecter l'essaim entier.
+--
+-- AUCUN SECRET N'EST RANGÉ ICI. Les deux tables ne portent que des empreintes
+-- PBKDF2 salées (src/shared/acces.ts) : une base volée ne donne aucun accès.
+--
+-- BORNE D'ÉLAGAGE (règle 3 de la doctrine), dans le MÊME changement :
+-- « pruneAcces », qui supprime les billets morts (révoqués, expirés ou épuisés)
+-- au-delà d'une période de grâce. Les billets VIVANTS ne sont jamais élagués —
+-- un billet encore valide qui disparaîtrait rendrait une invitation en circulation
+-- silencieusement inutilisable. Les clés de nœud, elles, ne sont PAS élaguées
+-- automatiquement : ce sont des identités, leur retrait est un geste humain
+-- (révocation), exactement comme le merge.
+CREATE TABLE IF NOT EXISTS invite_tickets (
+  id           TEXT PRIMARY KEY,
+  secretHash   TEXT NOT NULL,
+  label        TEXT,
+  createdBy    TEXT,
+  createdAt    INTEGER NOT NULL,
+  expiresAt    INTEGER NOT NULL,
+  usesLeft     INTEGER NOT NULL,
+  usesTotal    INTEGER NOT NULL,
+  revokedAt    INTEGER,
+  lastUsedAt   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_expiry ON invite_tickets(expiresAt);
+
+-- Une clé par nœud. « nodeId » est la clé primaire : un nœud a UNE identité, et
+-- rejoindre à nouveau avec un nouveau billet remplace sa clé (rotation) plutôt
+-- que d'en accumuler.
+CREATE TABLE IF NOT EXISTS node_keys (
+  nodeId     TEXT PRIMARY KEY,
+  keyHash    TEXT NOT NULL,
+  label      TEXT,
+  ticketId   TEXT,
+  createdAt  INTEGER NOT NULL,
+  lastSeenAt INTEGER,
+  revokedAt  INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   ts      INTEGER NOT NULL,
@@ -354,6 +398,36 @@ export interface Budget {
   /** userId de l'opérateur — une TRACE, jamais une autorisation. */
   definiPar: string | null;
   updatedAt: number;
+}
+
+/**
+ * Un billet tel qu'il est RANGÉ : `secretHash` est une empreinte, jamais le
+ * secret. Le type le dit dans son nom pour qu'aucun appelant ne croie tenir de
+ * quoi reconstruire une invitation — un billet perdu se remplace, il ne se
+ * retrouve pas.
+ */
+export interface BilletRange {
+  id: string;
+  secretHash: string;
+  label: string | null;
+  createdBy: string | null;
+  createdAt: number;
+  expiresAt: number;
+  usesLeft: number;
+  usesTotal: number;
+  revokedAt: number | null;
+  lastUsedAt: number | null;
+}
+
+/** Idem pour la clé d'un nœud : `keyHash` est une empreinte. */
+export interface CleNoeudRangee {
+  nodeId: string;
+  keyHash: string;
+  label: string | null;
+  ticketId: string | null;
+  createdAt: number;
+  lastSeenAt: number | null;
+  revokedAt: number | null;
 }
 
 interface EventRow {
@@ -1285,6 +1359,145 @@ export class HiveStore {
     const cutoff = (dernier.id ?? 0) - Math.max(0, maxKeep);
     if (cutoff <= 0) return 0;
     return this.db.prepare('DELETE FROM gardiennes WHERE id <= ?').run(cutoff).changes;
+  }
+
+  // ─── Le trou de vol : billets et clés de nœud ──────────────────────────────
+  //
+  // Toutes les lectures se font PAR CLÉ PRIMAIRE. C'est structurel, pas une
+  // optimisation : vérifier un secret en parcourant la table obligerait à
+  // calculer un PBKDF2 par ligne, offrant à un inconnu un déni de service à
+  // coût nul. Le billet porte donc son `id` en clair — l'id sert à TROUVER, le
+  // secret à PROUVER.
+
+  creerBillet(billet: {
+    id: string;
+    secretHash: string;
+    label?: string | null;
+    createdBy?: string | null;
+    expiresAt: number;
+    uses: number;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO invite_tickets (id, secretHash, label, createdBy, createdAt, expiresAt, usesLeft, usesTotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        billet.id,
+        billet.secretHash,
+        billet.label ?? null,
+        billet.createdBy ?? null,
+        billet.now ?? Date.now(),
+        billet.expiresAt,
+        billet.uses,
+        billet.uses,
+      );
+  }
+
+  getBillet(id: string): BilletRange | null {
+    const row = this.db.prepare('SELECT * FROM invite_tickets WHERE id = ?').get(id) as
+      BilletRange | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Consomme UN usage, de façon atomique et conditionnelle. Le `WHERE
+   * usesLeft > 0` fait tout le travail : deux nœuds qui échangent le même
+   * billet à usage unique au même instant ne peuvent pas réussir tous les deux,
+   * quel que soit l'entrelacement. Un `SELECT` suivi d'un `UPDATE` aurait
+   * laissé cette course ouverte.
+   */
+  consommerBillet(id: string, now = Date.now()): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE invite_tickets SET usesLeft = usesLeft - 1, lastUsedAt = ?
+           WHERE id = ? AND usesLeft > 0 AND revokedAt IS NULL AND expiresAt > ?`,
+        )
+        .run(now, id, now).changes === 1
+    );
+  }
+
+  revoquerBillet(id: string, now = Date.now()): boolean {
+    return (
+      this.db
+        .prepare('UPDATE invite_tickets SET revokedAt = ? WHERE id = ? AND revokedAt IS NULL')
+        .run(now, id).changes === 1
+    );
+  }
+
+  listBillets(limit = 100): BilletRange[] {
+    return this.db
+      .prepare('SELECT * FROM invite_tickets ORDER BY createdAt DESC LIMIT ?')
+      .all(Math.max(1, Math.min(limit, 500))) as BilletRange[];
+  }
+
+  /**
+   * Range la clé d'un nœud. `INSERT OR REPLACE` : rejoindre à nouveau fait une
+   * ROTATION de clé plutôt qu'une accumulation — et remet `revokedAt` à NULL,
+   * ce qui est voulu : présenter un billet valide est précisément le geste par
+   * lequel un membre exclu peut être réadmis, si l'hôte lui redonne un billet.
+   */
+  poserCleNoeud(cle: {
+    nodeId: string;
+    keyHash: string;
+    label?: string | null;
+    ticketId?: string | null;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO node_keys (nodeId, keyHash, label, ticketId, createdAt, lastSeenAt, revokedAt)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL)`,
+      )
+      .run(cle.nodeId, cle.keyHash, cle.label ?? null, cle.ticketId ?? null, cle.now ?? Date.now());
+  }
+
+  getCleNoeud(nodeId: string): CleNoeudRangee | null {
+    const row = this.db.prepare('SELECT * FROM node_keys WHERE nodeId = ?').get(nodeId) as
+      CleNoeudRangee | undefined;
+    return row ?? null;
+  }
+
+  toucherCleNoeud(nodeId: string, now = Date.now()): void {
+    this.db.prepare('UPDATE node_keys SET lastSeenAt = ? WHERE nodeId = ?').run(now, nodeId);
+  }
+
+  revoquerCleNoeud(nodeId: string, now = Date.now()): boolean {
+    return (
+      this.db
+        .prepare('UPDATE node_keys SET revokedAt = ? WHERE nodeId = ? AND revokedAt IS NULL')
+        .run(now, nodeId).changes === 1
+    );
+  }
+
+  listClesNoeuds(limit = 200): CleNoeudRangee[] {
+    return this.db
+      .prepare('SELECT * FROM node_keys ORDER BY createdAt DESC LIMIT ?')
+      .all(Math.max(1, Math.min(limit, 500))) as CleNoeudRangee[];
+  }
+
+  /**
+   * Élague les billets MORTS (révoqués, expirés ou épuisés) plus vieux que la
+   * période de grâce. Les billets vivants ne sont jamais touchés : un billet
+   * encore valide qui disparaîtrait rendrait une invitation en circulation
+   * silencieusement inutilisable — le pire mode d'échec pour une fonctionnalité
+   * dont tout l'intérêt est qu'on puisse compter dessus.
+   *
+   * La grâce existe pour que « ce billet a été révoqué » reste une réponse
+   * possible quelque temps, plutôt que « billet inconnu » — qui laisserait
+   * croire à une faute de frappe.
+   */
+  pruneAcces(graceMs: number, now = Date.now()): number {
+    const seuil = now - Math.max(0, graceMs);
+    return this.db
+      .prepare(
+        `DELETE FROM invite_tickets
+         WHERE createdAt < ?
+           AND (revokedAt IS NOT NULL OR expiresAt <= ? OR usesLeft <= 0)`,
+      )
+      .run(seuil, now).changes;
   }
 
   // ─── Journal d'événements ──────────────────────────────────────────────────
