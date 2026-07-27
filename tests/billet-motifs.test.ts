@@ -34,6 +34,7 @@ import {
   EXPLICATION_REFUS,
   MOTIFS_DICIBLES,
   decoderBillet,
+  empreinte,
   motifDicible,
 } from '../src/shared/acces.js';
 
@@ -97,10 +98,19 @@ function avecAutreId(billet: string): string {
 
 describe('ce qu’on DIT au porteur du bon secret', () => {
   it('UN BILLET EXPIRÉ LE DIT, et dit quoi faire', async () => {
-    const billet = await creerBillet({ ttlMs: 60_000 });
-    const id = decoderBillet(billet, { id: 64, nom: 120 })!.id;
-    // On périme le billet en base plutôt que d'attendre une minute.
-    server.store.db.prepare('UPDATE invite_tickets SET expiresAt = ? WHERE id = ?').run(1, id);
+    // Posé directement en base avec une expiration passée : le TTL demandé au
+    // serveur est borné à une minute minimum, et attendre une minute dans un
+    // test est le meilleur moyen de le rendre lent puis désactivé.
+    const secret = 'un-secret-de-billet-perime-0123456789';
+    server.store.creerBillet({
+      id: 'billet-perime',
+      secretHash: empreinte(secret),
+      expiresAt: 1,
+      uses: 1,
+    });
+    const billet = `hive2_${Buffer.from(
+      JSON.stringify({ v: 2, url: 'ws://127.0.0.1:7777/ws', id: 'billet-perime', s: secret }),
+    ).toString('base64url')}`;
 
     const rep = await rejoindre(billet, 'node-a');
     expect(rep.status).toBe(401);
