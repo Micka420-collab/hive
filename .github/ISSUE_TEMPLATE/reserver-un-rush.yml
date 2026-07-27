@@ -1,0 +1,94 @@
+name: 🚀 Réserver une place pour un Rush
+description: Vous n'avez pas de machine à prêter et vous voulez acheter du temps d'essaim. Réservez une place dans la file.
+title: '[Rush] '
+labels: ['rush réservé']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Ceci ne prélève rien et n'engage à rien.** Les Rushes ne sont pas encore
+        en vente : il manque le compteur d'heures côté hébergeur, l'encaissement,
+        l'approvisionnement des nœuds et le rattachement d'un plafond payé à un
+        projet ([le détail](https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md#7-ce-quil-reste-à-construire)).
+
+        Réserver une place, c'est se mettre dans la file et nous dire ce dont vous
+        avez besoin — ce qui décide de l'ordre dans lequel on construit la suite.
+
+        **On vous répondra franchement.** Si votre besoin se règle mieux avec la
+        version gratuite auto-hébergée, on vous le dira : c'est plus rapide et ça
+        ne coûte que vos propres jetons.
+
+  - type: input
+    id: objectif
+    attributes:
+      label: Votre objectif, en une phrase
+      description: Un cap concret. « Migrer l'auth vers OAuth » se découpe ; « améliorer le projet » ne se découpe pas.
+      placeholder: Migrer l'authentification de sessions vers OAuth 2 sur notre API Node.
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexte
+    attributes:
+      label: Le contexte
+      description: |
+        Langage, taille approximative du dépôt, ce qui existe déjà. Ce qui nous
+        permet de dire si la ruche a de l'historique sur ce type de travail —
+        et donc si elle peut vous donner un devis honnête plutôt qu'un chiffre inventé.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: offre
+    attributes:
+      label: L'offre qui vous intéresse
+      description: Indicatif — rien n'est figé, et on vous dira si une autre est plus adaptée.
+      options:
+        - Rush Éclaireuse — 10 h, 79 €
+        - Rush Essaim — 50 h, 299 €
+        - Rush Colonie — 200 h/mois, 990 €
+        - Queen hébergée seule — 49 €/mois
+        - Je ne sais pas encore
+    validations:
+      required: true
+
+  - type: input
+    id: depot
+    attributes:
+      label: Le dépôt concerné (facultatif)
+      description: Si c'est public. S'il est privé, ne mettez rien ici — cette issue est publique.
+      placeholder: https://github.com/…
+
+  - type: dropdown
+    id: machine
+    attributes:
+      label: Avez-vous une machine qui pourrait tourner ?
+      description: |
+        Question sincère, pas une question de vente. Si vous en avez une,
+        l'auto-hébergement gratuit est strictement supérieur et on vous
+        orientera vers lui.
+      options:
+        - Non, aucune machine disponible
+        - Oui, mais pas en continu
+        - Oui, mais je préfère ne pas m'en occuper
+        - Oui — je viens surtout comparer
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: comprehension
+    attributes:
+      label: Avant d'envoyer
+      options:
+        - label: >-
+            J'ai compris qu'un Rush achète une capacité bornée, pas une
+            promesse de résultat.
+          required: true
+        - label: >-
+            J'ai compris qu'aucun paiement ne débloque un merge : l'approbation
+            reste un geste humain du propriétaire du dépôt.
+          required: true
+        - label: >-
+            J'ai compris que cette issue est publique et je n'y mets aucun
+            secret, jeton ni information confidentielle.
+          required: true
