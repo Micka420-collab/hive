@@ -1,6 +1,6 @@
 # ADR 0006 — Le TUI s'écrit à la main
 
-- **Statut** : proposé (lot 0 de la mission « L'ACCUEIL »)
+- **Statut** : accepté (lot 0 de la mission « L'ACCUEIL », validé le 2026-07-27)
 - **Date** : 2026-07-27
 - **Concerne** : §6.5, §15 et §16 de `MISSION-ACCUEIL.md`
 

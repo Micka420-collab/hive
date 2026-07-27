@@ -1,6 +1,6 @@
 # ADR 0003 — Une image pour l'orchestrateur, aucune pour le nœud
 
-- **Statut** : proposé (lot 0 de la mission « L'ACCUEIL »)
+- **Statut** : accepté (lot 0 de la mission « L'ACCUEIL », validé le 2026-07-27)
 - **Date** : 2026-07-27
 - **Concerne** : §7.4 et §19.3-19.4 de `MISSION-ACCUEIL.md`
 

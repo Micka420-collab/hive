@@ -1,6 +1,6 @@
 # ADR 0002 — Où servir les scripts d'installation, et à quoi tient leur confiance
 
-- **Statut** : proposé (lot 0 de la mission « L'ACCUEIL »)
+- **Statut** : accepté (lot 0 de la mission « L'ACCUEIL », validé le 2026-07-27)
 - **Date** : 2026-07-27
 - **Concerne** : §7.2.1, §7.3.1, §11.6 et §19.2 de `MISSION-ACCUEIL.md`
 

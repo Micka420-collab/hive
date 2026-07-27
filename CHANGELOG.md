@@ -121,6 +121,35 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   sélection de merge évite d'office les nœuds hors service. Documenté dans
   `.env.example`.
 
+- **🐝 L'accueil — le premier écran devient une fonctionnalité** (lots 1 et 2 de
+  `MISSION-ACCUEIL.md`). `npm run install:hive` affichait une liste : on ne
+  choisissait rien, on subissait. Il pose maintenant la seule question qui
+  compte — **ouvrir sa propre ruche, rejoindre une ruche, ou installer sur un
+  serveur** — et, surtout, **RIEN N'EST ÉCRIT AVANT UN RÉCAPITULATIF** qui
+  nomme les fichiers touchés. Un installeur qu'on n'ose pas lancer n'installe
+  rien ; celui-ci dit ce qu'il va faire avant de le faire, et sur un `.env`
+  **existant** il demande confirmation avec « ne rien changer » pour défaut.
+  Deux modules, sur la ligne de partage habituelle du dépôt :
+  `src/tui/rendu.ts` est **pur** — `(état) => string[]`, aucune I/O, aucune
+  dépendance ajoutée (le TUI est écrit à la main, voir `docs/adr/0006`) — et
+  `src/tui/terminal.ts` porte les effets : mode brut, flèches, `^C`, et **la
+  restauration en `finally`**. Cette dernière est la propriété qui compte : un
+  installeur qui laisse un terminal en mode brut oblige quelqu'un à taper
+  `reset` à l'aveugle dans un shell devenu muet. Les **cinq dégradations** sont
+  testées sans terminal (non-TTY, `NO_COLOR`, `TERM=dumb`, moins de 60
+  colonnes, 200 colonnes), dont la garde qui les résume : **aucun octet `\x1b`
+  n'est émis quand la couleur est coupée**, vérifié sur une page entière. Repli
+  **16 couleurs** quand rien n'annonce la palette 256 — ConHost, la console
+  Windows historique, rend le texte illisible et non « approximatif ». Le
+  curseur du menu ne repose **pas** sur la seule couleur. Les **codes de sortie
+  deviennent un contrat** (`src/codes-sortie.ts`, §9 de la mission) : `2`
+  prérequis manquant — c'était `1` —, `3` réponse absente en mode non
+  interactif, `130` interruption (`128 + SIGINT`, pour qu'un `^C` ne se
+  confonde pas avec un échec et ne déclenche pas une reprise automatique).
+  Hors terminal, **rien n'est deviné** : soit un défaut documenté, soit une
+  erreur nommée. `npm run setup` reste donc scriptable et idempotent.
+  `docs/adr/` (nouveau) porte les six décisions de cadrage.
+
 ### Security
 
 - **Le secret de session était écrit en dur dans un dépôt public**

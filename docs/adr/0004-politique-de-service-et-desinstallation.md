@@ -1,6 +1,6 @@
 # ADR 0004 — Le service est opt-in, et la désinstallation ne touche pas à l'état
 
-- **Statut** : proposé (lot 0 de la mission « L'ACCUEIL »)
+- **Statut** : accepté (lot 0 de la mission « L'ACCUEIL », validé le 2026-07-27)
 - **Date** : 2026-07-27
 - **Concerne** : §7.2.3, §7.3.2-7.3.3 et §19.5 de `MISSION-ACCUEIL.md`
 
