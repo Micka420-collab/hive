@@ -93,6 +93,7 @@ import {
 import { composerTableau } from './tableau.js';
 import type { ProjetVu } from './tableau.js';
 import { Cadencier, enPause, modeRunnerDepuisEnv } from './essaim-runner.js';
+import { corriger as corrigerLecon, planifier as planifierVerdict } from './nourrir.js';
 import type { EtatServeur, Serveur } from './serveurs.js';
 import {
   GOUVERNANTES_MIN,
@@ -133,6 +134,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
+import type { SessionRangee } from './store.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 
@@ -1622,7 +1624,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       conseilEnCours: store
         .listSessions()
         .some((c) => c.projectId === projectId && c.etat !== 'clos'),
-      verdictANourrir: false,
+      // Un conseil clos dont le verdict n'a pas encore été transformé en
+      // travail. Ce champ valait `false` en dur : la porte `planifier` de
+      // `deciderPas` était donc INATTEIGNABLE, et la ruche délibérait sans
+      // jamais rien faire de ses délibérations.
+      verdictANourrir: store.sessionsANourrir(projectId).length > 0,
       productionsALivrer: 0,
       prAFusionner: 0,
       depotInscrit:
@@ -1778,13 +1784,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     emettre: emitEvent,
     actions: {
       /**
-       * Ouvrir un conseil. Le SEUL pas branché pour l'instant, et c'est
-       * délibéré : c'est celui dont le coût est borné par construction
-       * (`TOURS_MAX`), et celui qui ne touche à aucun dépôt.
+       * Ouvrir un conseil. Coût borné par construction (`TOURS_MAX`), et ne
+       * touche à aucun dépôt.
        *
-       * Les quatre autres rendent `non_branche`, visible dans le Journal. Une
-       * ruche qui ne livre pas parce que la livraison n'est pas câblée doit
-       * rester discernable d'une ruche qui n'a rien à livrer.
+       * `livrer` et `fusionner` restent `non_branche`, VISIBLE dans le
+       * Journal : ils écrivent sur le dépôt de quelqu'un et méritent leur
+       * propre garde. Une ruche qui ne livre pas parce que la livraison n'est
+       * pas câblée doit rester discernable d'une ruche qui n'a rien à livrer.
        */
       deliberer: (projectId) => {
         const projet = store.getProject(projectId);
@@ -1801,6 +1807,98 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             .join(' — '),
         });
         return Promise.resolve(`conseil ${session.id} ouvert`);
+      },
+
+      /**
+       * Transformer le verdict d'un conseil clos en travail d'ouvrière.
+       *
+       * Le plus ANCIEN verdict non nourri d'abord : la ruche exécute ses
+       * décisions dans l'ordre où elle les a prises. Et la trace est posée
+       * MÊME quand le verdict ne donne aucune tâche — un « départ » ou un
+       * conseil vide sont des conclusions, pas des échecs, et les relire à
+       * chaque cycle ferait tourner la ruche en rond sur un conseil qui a déjà
+       * dit tout ce qu'il avait à dire.
+       */
+      planifier: (projectId) => {
+        const session = store.sessionsANourrir(projectId)[0];
+        if (!session) return Promise.resolve('aucun verdict en attente');
+
+        const verdict = evaluerConseil(etatConseil(session));
+        // Le CORPS de la proposition n'est pas dans le verdict : `Proposition`
+        // ne porte que ce qui sert à départager. Il faut le relire en base.
+        const retenue = verdict.retenue
+          ? (store
+              .listPropositions(session.id)
+              .find((p) => p.id === verdict.retenue?.proposition.id) ?? null)
+          : null;
+        const taches = planifierVerdict({
+          issue: verdict.issue,
+          question: session.question,
+          retenue: retenue ? { titre: retenue.titre, corps: retenue.corps } : null,
+        });
+
+        for (const t of taches) {
+          const tache = store.createTask({ projectId, title: t.title, prompt: t.prompt });
+          emitEvent('swarm_task_created', {
+            projectId,
+            taskId: tache.id,
+            origine: 'conseil',
+            sessionId: session.id,
+          });
+        }
+        store.marquerPlanifie(session.id, projectId, taches.length);
+        return Promise.resolve(
+          taches.length > 0
+            ? `${taches.length} tâche(s) depuis le conseil ${session.id}`
+            : `conseil ${session.id} clos sans recommandation (${verdict.issue})`,
+        );
+      },
+
+      /**
+       * Ouvrir un chantier sur une leçon systémique.
+       *
+       * Le garde qui compte est le compte de correctifs DÉJÀ EN VOL : sans
+       * lui, une leçon systémique — qui reste systémique tant qu'elle n'est
+       * pas corrigée — ferait créer une tâche identique à chaque cycle, une
+       * par minute, jusqu'à ce que quelqu'un regarde.
+       */
+      corriger: (projectId) => {
+        const lecon = leconsCroisees(store.listRecentFailures()).find(
+          (l) => l.portee === 'systemique',
+        );
+        if (!lecon) return Promise.resolve('plus de leçon systémique');
+
+        const enVol = store
+          .listTasks(projectId)
+          .filter(
+            (t) =>
+              t.title.startsWith('Corriger : ') &&
+              (t.status === 'ready' || t.status === 'assigned' || t.status === 'running'),
+          ).length;
+
+        const taches = corrigerLecon(
+          {
+            signature: lecon.signature,
+            noeuds: lecon.noeuds,
+            occurrences: lecon.occurrences,
+            extrait: lecon.extrait,
+          },
+          enVol,
+        );
+        if (taches.length === 0) return Promise.resolve(`correctif déjà en vol (${enVol})`);
+
+        for (const t of taches) {
+          const tache = store.createTask({ projectId, title: t.title, prompt: t.prompt });
+          // Faits typés seulement : la signature est une donnée d'agent, elle
+          // n'a rien à faire dans un journal que tout membre peut lire.
+          emitEvent('swarm_task_created', {
+            projectId,
+            taskId: tache.id,
+            origine: 'lecon',
+            noeuds: lecon.noeuds,
+          });
+        }
+        return Promise.resolve(`chantier correctif ouvert (${lecon.noeuds} machines)`);
       },
     },
   });
@@ -2301,15 +2399,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * plutôt que relu d'une colonne : ainsi la vue ne peut pas diverger de ce que
    * le protocole dirait aujourd'hui, et un conseil archivé reste rejouable.
    */
-  function vueSession(sessionId: string): Record<string, unknown> | null {
-    const s = store.getSession(sessionId);
-    if (!s) return null;
-    const propositions = store.listPropositions(sessionId);
-    const avis = store.listAvis(sessionId);
-    const verdict = evaluerConseil({
+  /**
+   * L'état d'un conseil, tel que `evaluerConseil` l'attend.
+   *
+   * EXTRAIT plutôt que recopié : la vue humaine et le runner d'essaim lisent
+   * tous deux le verdict, et deux constructions parallèles du même état
+   * finiraient par diverger — l'écran montrerait alors une recommandation, et
+   * la ruche en exécuterait une autre.
+   */
+  function etatConseil(s: SessionRangee): Parameters<typeof evaluerConseil>[0] {
+    return {
       tour: s.tour,
-      propositions: propositions.map(versProposition),
-      avis: avis.map((a) => ({
+      propositions: store.listPropositions(s.id).map(versProposition),
+      avis: store.listAvis(s.id).map((a) => ({
         propositionId: a.propositionId,
         eclaireuse: a.eclaireuse,
         famille: a.famille,
@@ -2317,7 +2419,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         force: a.force,
         tour: a.tour,
       })),
-    });
+    };
+  }
+
+  function vueSession(sessionId: string): Record<string, unknown> | null {
+    const s = store.getSession(sessionId);
+    if (!s) return null;
+    const propositions = store.listPropositions(sessionId);
+    const avis = store.listAvis(sessionId);
+    const verdict = evaluerConseil(etatConseil(s));
     const parId = new Map(propositions.map((p) => [p.id, p]));
     return {
       id: s.id,

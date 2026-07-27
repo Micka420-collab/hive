@@ -344,4 +344,36 @@ describe('l’élagage', () => {
     expect(store.listPropositions(s.id)).toHaveLength(0);
     expect(store.listAvis(s.id)).toHaveLength(0);
   });
+
+  it('LA TRACE « DÉJÀ NOURRI » PART AVEC SA SESSION', () => {
+    // Doctrine règle 3 : une table nouvelle arrive avec sa borne d'élagage, et
+    // la borne est CÂBLÉE. `conseil_plans` est 1:1 avec les sessions ; sans ce
+    // nettoyage elle survivrait à son quota.
+    const s = ouvrirConseil(dep, { projectId });
+    store.majSession(s.id, { etat: 'clos' });
+    store.marquerPlanifie(s.id, projectId, 1);
+    expect(store.dejaPlanifie(s.id)).toBe(true);
+
+    store.pruneConseils(0);
+    expect(store.dejaPlanifie(s.id)).toBe(false);
+  });
+
+  it('UNE TRACE ORPHELINE EST BALAYÉE', () => {
+    // Sinon un « déjà nourri » survivrait à un conseil disparu par un autre
+    // chemin, et empêcherait à jamais de replanifier : un verrou sans serrure.
+    store.marquerPlanifie('conseil-fantome', projectId, 1);
+    expect(store.dejaPlanifie('conseil-fantome')).toBe(true);
+    store.pruneConseils(50);
+    expect(store.dejaPlanifie('conseil-fantome')).toBe(false);
+  });
+
+  it('nourrir DEUX fois ne compte qu’une', () => {
+    // Le runner peut être relancé au milieu d'un cycle : la trace doit être
+    // idempotente, pas lever.
+    const s = ouvrirConseil(dep, { projectId });
+    store.majSession(s.id, { etat: 'clos' });
+    store.marquerPlanifie(s.id, projectId, 1);
+    store.marquerPlanifie(s.id, projectId, 9);
+    expect(store.sessionsANourrir(projectId)).toEqual([]);
+  });
 });

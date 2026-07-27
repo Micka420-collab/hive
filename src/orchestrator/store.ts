@@ -369,6 +369,26 @@ CREATE TABLE IF NOT EXISTS conseil_sessions (
   closedAt  INTEGER
 );
 
+-- Le verdict d'un conseil a-t-il DEJA ete transforme en travail ?
+--
+-- Table LATERALE (regle 2 de la doctrine : aucune migration, aucune colonne
+-- ajoutee a une table existante). Sans cette trace, le runner relirait le meme
+-- verdict clos a chaque cycle et creerait la meme tache toutes les minutes,
+-- pour toujours -- exactement la boucle que la cadence est censee empecher.
+--
+-- BORNE D'ELAGAGE (regle 3), dans le MEME changement : « pruneConseils »
+-- supprime la ligne en meme temps que la session dont elle depend, et un
+-- balayage y jette les orphelines. La table ne peut donc pas depasser le quota
+-- de sessions conservees.
+CREATE TABLE IF NOT EXISTS conseil_plans (
+  sessionId TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL,
+  taches    INTEGER NOT NULL,
+  version   INTEGER NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conseil_plans_projet ON conseil_plans(projectId);
+
 -- Le lien tache <-> role. Sans lui, on ne saurait pas si un resultat qui
 -- revient est une exploration ou la verification d'une proposition precise.
 CREATE TABLE IF NOT EXISTS conseil_taches (
@@ -2250,17 +2270,70 @@ export class HiveStore {
          ORDER BY createdAt DESC LIMIT -1 OFFSET ?`,
       )
       .all(garder) as { id: string }[];
+
+    // Balayage des plans ORPHELINS — AVANT le retour anticipé, et c'est tout
+    // l'intérêt : une trace peut se retrouver sans session par un autre chemin
+    // (base éditée à la main, retour à une version antérieure à cette table).
+    // Placé plus bas, ce nettoyage n'aurait tourné que les jours où il y avait
+    // par ailleurs quelque chose à élaguer, et la trace « déjà nourri »
+    // survivrait à son conseil en empêchant à jamais de replanifier — un
+    // verrou sans serrure.
+    this.db
+      .prepare('DELETE FROM conseil_plans WHERE sessionId NOT IN (SELECT id FROM conseil_sessions)')
+      .run();
+
     if (aJeter.length === 0) return 0;
     const jeter = this.db.transaction((ids: string[]) => {
       for (const id of ids) {
         this.db.prepare('DELETE FROM conseil_avis WHERE sessionId = ?').run(id);
         this.db.prepare('DELETE FROM conseil_propositions WHERE sessionId = ?').run(id);
         this.db.prepare('DELETE FROM conseil_taches WHERE sessionId = ?').run(id);
+        this.db.prepare('DELETE FROM conseil_plans WHERE sessionId = ?').run(id);
         this.db.prepare('DELETE FROM conseil_sessions WHERE id = ?').run(id);
       }
     });
     jeter(aJeter.map((r) => r.id));
     return aJeter.length;
+  }
+
+  // ─── Plans de verdict : un conseil clos n'est nourri qu'UNE fois ───────────
+
+  /** Marque le verdict d'une session comme transformé en travail. */
+  marquerPlanifie(sessionId: string, projectId: string, taches: number, now = Date.now()): void {
+    this.db
+      .prepare(
+        `INSERT INTO conseil_plans (sessionId, projectId, taches, version, creeA)
+         VALUES (?, ?, ?, 1, ?)
+         ON CONFLICT(sessionId) DO NOTHING`,
+      )
+      .run(sessionId, projectId, taches, now);
+  }
+
+  /** Ce verdict a-t-il déjà été transformé en travail ? */
+  dejaPlanifie(sessionId: string): boolean {
+    return (
+      this.db.prepare('SELECT 1 FROM conseil_plans WHERE sessionId = ?').get(sessionId) !==
+      undefined
+    );
+  }
+
+  /**
+   * Sessions CLOSES d'un projet dont le verdict attend encore son plan, de la
+   * plus ancienne à la plus récente — on nourrit dans l'ordre où la ruche a
+   * délibéré, pas dans l'ordre inverse.
+   *
+   * BORNÉE par le quota de sessions conservées (`pruneConseils`) : cette
+   * lecture ne peut pas croître avec l'histoire de la ruche.
+   */
+  sessionsANourrir(projectId: string): SessionRangee[] {
+    return this.db
+      .prepare(
+        `SELECT s.* FROM conseil_sessions s
+          WHERE s.projectId = ? AND s.etat = 'clos'
+            AND s.id NOT IN (SELECT sessionId FROM conseil_plans)
+          ORDER BY s.createdAt ASC`,
+      )
+      .all(projectId) as SessionRangee[];
   }
 
   // ─── Journal d'événements ──────────────────────────────────────────────────
