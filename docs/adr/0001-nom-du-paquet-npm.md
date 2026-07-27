@@ -1,6 +1,6 @@
 # ADR 0001 — Le nom du paquet npm
 
-- **Statut** : proposé (lot 0 de la mission « L'ACCUEIL »)
+- **Statut** : accepté (lot 0 de la mission « L'ACCUEIL », validé le 2026-07-27)
 - **Date** : 2026-07-27
 - **Concerne** : §7.1 et §19.1 de `MISSION-ACCUEIL.md`
 
