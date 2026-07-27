@@ -66,6 +66,12 @@
 .ch-row.fam-instinct .ch-type {
   color: var(--orange);
 }
+/* Balance : la seule famille où la ruche peut S'ARRÊTER — teinte d'arrêt. La
+   couleur ne porte rien seule : le type de l'événement est écrit à côté, et le
+   Journal en reconstruit la phrase complète. */
+.ch-row.fam-balance .ch-type {
+  color: var(--red);
+}
 .ch-row.fam-autres .ch-type {
   color: var(--muted);
 }

@@ -8,6 +8,8 @@
 
 **🌐 [Discover Hive — the showcase site](https://micka420-collab.github.io/hive/?lang=en)**
 
+<sub>The site lives in `site/` and deploys itself on every push to `main`. First publication: **Settings → Pages → Source: GitHub Actions**, then re-run the _Site_ workflow. (On a private repo, Pages requires a paid plan; on a public repo it is free.)</sub>
+
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -38,6 +40,7 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
 | 🐜 **Pheromones**        | The hive learns **which node succeeds at which kind of task** (api, ui, db, tests, docs, infra) and breaks ties between equally loaded workers. Signal evaporates over 7 days. `/api/pheromones`, `pheromone_route` event, card in the Swarm view.            |
 | 🌡️ **Thermoregulation**  | When failures pile up the hive **fans itself**: per-node concurrency drops (×0.75 then ×0.5) until it cools down, with anti-flapping hysteresis. `/api/thermo`, `thermo_shift` event, gauge in the Health view.                                               |
 | 👶 **Brood Chamber**     | A retried task restarts with the **lessons of its previous failures**, injected inside a data block kept separate from instructions (prompt-injection safe). `brood_context` event.                                                                           |
+| ⚖️ **The Balance**       | The hive scale: **weigh** (useful / rework / failure / rejected), **forecast** (a DAG's estimate) and **cap** — per-project spend cap, doubly opt-in (`HIVE_BALANCE=strict` **and** a cap set by hand). `/api/balance`, `…/projects/:id/balance`.             |
 | 🤝 **Invite a friend**   | One command to paste — their Claude Code / Codex is auto-detected and joins the hive in 30 s.                                                                                                                                                                 |
 | 🔒 **Safe by default**   | Zero `shell: true`, constant-time token, strict CORS, per-task sandbox, keys never exfiltrated. **Never a merge without human review.**                                                                                                                       |
 | 🧩 **Agent-agnostic**    | `shell` (simulated), `claude-code`, `codex`, `hermes-agent`, `custom` — or your own `AgentAdapter`.                                                                                                                                                           |
@@ -339,6 +342,15 @@ With a `repoUrl`, the node clones the repository and works on branch
 > reach the network. Until true isolation (VM/container + filtered network),
 > only run Hive among **trusted members**, and keep `HIVE_AGENT=shell`
 > simulated everywhere else.
+
+> **Accepted limitation (the Balance's spend cap)**: the spend cap is **NOT a
+> security boundary**. `durationMs` is **agent-declared** data — a hostile node
+> can claim 24 h per result and choke a project on its own. The cap guards
+> against **runaway spending**, never against an **adversary**; the word "cap"
+> promises the opposite, hence this sentence. Blocking is doubly opt-in
+> (`HIVE_BALANCE=strict` **and** a cap set by hand on the project), in-flight
+> tasks run to completion, other projects carry on, and unblocking is an
+> **explicit human gesture** — exactly like the merge.
 
 ## 🔄 Data model & lifecycle
 

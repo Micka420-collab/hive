@@ -343,6 +343,156 @@
   margin-left: auto;
 }
 
+/* ─── Plafond d'un projet : état, puis pose et retrait ─────────────────────
+   Le plafond est la seule chose de la Balance qui ARRÊTE quelque chose : il se
+   détache du solde par un filet, jamais par une couleur seule. Chaque badge
+   porte son pictogramme ET sa phrase — retirez toute la couleur de cette
+   feuille et l'information reste intégralement lisible. */
+
+.bal-plafond,
+.bal-plafond-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.bal-plafond-jauge {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.bal-plafond-titre {
+  font-weight: 600;
+}
+
+.bal-plafond-chiffres {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bal-plafond-bar {
+  height: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+}
+
+.bal-plafond-fill {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  transition: width 0.4s ease;
+}
+
+.bal-plafond-bar.alerte .bal-plafond-fill {
+  background: var(--amber);
+}
+
+.bal-plafond-bar.bloque .bal-plafond-fill {
+  background: var(--red);
+}
+
+.bal-plafond-badge {
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-2);
+  background: var(--panel-3);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.bal-plafond-badge.bloque {
+  border-color: var(--red);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.bal-plafond-badge.atteint,
+.bal-plafond-badge.alerte {
+  border-color: var(--amber);
+  color: var(--text);
+}
+
+.bal-plafond-trace,
+.bal-plafond-apercu {
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bal-plafond-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Contrôles compacts : ils vivent dans une carte projet, pas dans une barre
+   d'outils — la taille par défaut de .btn y écraserait le solde. */
+.bal-plafond-btn {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+
+.bal-plafond-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+}
+
+.bal-plafond-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.bal-plafond-input {
+  width: 8ch;
+  padding: 4px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.bal-plafond-input:focus-visible,
+.bal-plafond-btn:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 1px;
+}
+
+/* Bouton ARMÉ : le prochain clic peut fermer la porte d'un projet. La teinte
+   d'alerte double le libellé, qui a déjà basculé en question, et la phrase
+   d'avertissement (role="status") dit ce qui va se passer. */
+.bal-arme {
+  background: linear-gradient(90deg, var(--red), var(--amber));
+  color: #fff;
+}
+
+.bal-plafond-avert {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text);
+}
+
 /* ─── Devis indicatif (atelier Queen Bee) ──────────────────────────────── */
 
 .bal-devis {

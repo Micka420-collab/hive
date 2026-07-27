@@ -10,7 +10,8 @@ import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/
 // Aucun symbole d'IMPUTATION (`peserLaRuche`, `Pesee`, `Compte`…) ne doit
 // jamais apparaître dans ce fichier — verrouillé par
 // tests/security-invariants.test.ts.
-import { CacheProjets, GrandLivre, LOT_GRAND_LIVRE } from './balance.js';
+import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balance.js';
+import type { DecisionPlafond } from './balance.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { summarizeTask } from './hive-mind.js';
@@ -43,13 +44,14 @@ export interface SchedulerOptions {
   onEvent?: (event: HiveEvent) => void;
   /**
    * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
-   * (il pèse et se tient à jour, sans JAMAIS rien bloquer — défaut), 'strict'
-   * (réservé : bloquera au plafond quand la porte existera).
+   * (il pèse, se tient à jour et SIGNALE les franchissements, sans jamais rien
+   * bloquer — défaut), 'strict' (au plafond, il cesse d'assigner de nouvelles
+   * tâches du projet concerné).
    *
-   * Dans cette version, 'observation' et 'strict' sont RIGOUREUSEMENT
-   * indiscernables : aucun plafond ne peut être défini, donc rien ne bloque.
-   * L'interrupteur est livré maintenant pour que le contrat de configuration
-   * n'ait pas à changer le jour où la porte arrivera.
+   * Le blocage est DOUBLEMENT opt-in : il faut `strict` ET un plafond posé à la
+   * main sur le projet. Sans ligne `budgets`, les trois modes sont
+   * rigoureusement indiscernables — c'est ce que prouve le harnais de rejeu de
+   * tests/balance-wiring.test.ts.
    */
   balance?: { mode: 'off' | 'observation' | 'strict' };
 }
@@ -95,6 +97,25 @@ export class Scheduler {
   private readonly livre = new GrandLivre();
   /** taskId → projectId, mémoïsé et borné (projectId est immuable). */
   private readonly cacheProjets = new CacheProjets();
+  /**
+   * Plafonds en vigueur, chargés PARESSEUSEMENT depuis `budgets` et gardés
+   * jusqu'au prochain geste humain (`setPlafond` remet à `null`). `budgets`
+   * étant 1:1 avec `projects`, cette carte est bornée par construction — et,
+   * mémoïsée, elle ne coûte pas une lecture par tick.
+   */
+  private budgets: Map<string, number> | null = null;
+  /**
+   * Dédup des franchissements — motif `deferredByConflict` (l. 63). SANS elle,
+   * un projet plafonné émettrait un fait à CHAQUE tick et pour CHAQUE tâche
+   * prête : à un tick toutes les 2 s, la fenêtre de 5 000 événements est
+   * épuisée en moins de trois heures, et Ghost, Waggle, Pulse et la Chronique —
+   * qui lisent tous le MÊME journal élagué — deviennent aveugles à tout le
+   * reste. On journalise donc un FRONT MONTANT, jamais un niveau : redescendre
+   * sous le seuil (ou changer le plafond) vide la mémoire, et le franchissement
+   * suivant se réannonce. Bornées par le nombre de projets, comme `budgets`.
+   */
+  private readonly seuilsEmis = new Set<string>();
+  private readonly alertesEmises = new Set<string>();
 
   constructor(
     private readonly store: HiveStore,
@@ -139,20 +160,169 @@ export class Scheduler {
    * un solde en cours de rattrapage affiché comme définitif est un mensonge
    * court mais coûteux.
    *
-   * Les soldes ne portent volontairement ni plafond ni verdict : la table des
-   * intentions humaines (`budgets`) et la porte qui s'en sert sont un travail
-   * séparé. Ces deux champs s'ajouteront ici, de façon purement additive.
+   * Chaque solde porte son plafond et son verdict, et `bloque` dit si
+   * l'assignation est RÉELLEMENT arrêtée en ce moment (verdict `bloque` ET mode
+   * `strict`). C'est délibéré : si le seul témoin d'un projet plafonné était un
+   * événement dans un journal élagué à 5 000, alors dans trois ans « pourquoi ce
+   * projet est-il bloqué ? » serait sans réponse. Un blocage doit se lire dans
+   * l'ÉTAT COURANT, pas seulement dans l'histoire.
+   *
+   * Les soldes couvrent l'UNION des projets qui ont dépensé et des projets qui
+   * ont un plafond : un projet plafonné à 0 qui n'a encore rien dépensé est
+   * bloqué sans avoir de solde — il doit apparaître, sinon il serait
+   * exactement le « projet en famine silencieuse » que la porte doit rendre
+   * impossible.
    */
   get balance(): {
     mode: 'off' | 'observation' | 'strict';
     aJour: boolean;
-    soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+    soldes: Array<{
+      projectId: string;
+      depenseMs: number;
+      tentatives: number;
+      plafondMs: number | null;
+      etat: DecisionPlafond;
+      bloque: boolean;
+    }>;
   } {
+    const mode = this.opts.balance?.mode ?? 'observation';
+    // Les plafonds sont lus même en `off` : l'intention humaine existe en base
+    // indépendamment du mode. Ce qui change avec le mode, c'est `etat` (qui
+    // vaut alors toujours 'passe') et `bloque` — l'intention est affichée, son
+    // application dit la vérité.
+    const budgets = this.lireBudgets();
+    const comptes = new Map(this.livre.soldes().map((s) => [s.projectId, s]));
+    const projets = [...new Set([...comptes.keys(), ...budgets.keys()])].sort((a, b) =>
+      a.localeCompare(b),
+    );
     return {
-      mode: this.opts.balance?.mode ?? 'observation',
+      mode,
       aJour: this.livre.aJour,
-      soldes: this.livre.soldes(),
+      soldes: projets.map((projectId) => {
+        const compte = comptes.get(projectId);
+        const plafondMs = budgets.get(projectId) ?? null;
+        const etat = this.decisionPlafond(projectId);
+        return {
+          projectId,
+          depenseMs: compte?.depenseMs ?? 0,
+          tentatives: compte?.tentatives ?? 0,
+          plafondMs,
+          etat,
+          bloque: etat === 'bloque' && mode === 'strict',
+        };
+      }),
     };
+  }
+
+  /**
+   * Plafonds en vigueur, lus au plus une fois par geste humain. `budgets` est
+   * 1:1 avec `projects` : la lecture est bornée par construction, et mémoïsée
+   * par-dessus — jamais un SELECT par tick sur le chemin chaud.
+   */
+  private lireBudgets(): Map<string, number> {
+    this.budgets ??= new Map(this.store.listBudgets().map((b) => [b.projectId, b.plafondMs]));
+    return this.budgets;
+  }
+
+  /**
+   * Verdict de plafond pour un projet. Trois raisons de laisser passer, dans
+   * cet ordre :
+   *  - mode `off` : la Balance ne tourne pas ;
+   *  - FAIL-OPEN : le grand livre n'a pas fini son rattrapage, donc le solde est
+   *    INCOMPLET — la ruche ne bloque JAMAIS sur un comptage partiel ; un faux
+   *    blocage au démarrage coûterait bien plus cher qu'un plafond dépassé de
+   *    quelques ticks ;
+   *  - aucun plafond posé sur ce projet (`jugerPlafond(_, null) === 'passe'`).
+   *
+   * Cette méthode décide SI une tâche de ce projet peut être assignée. Elle ne
+   * dit JAMAIS À QUEL NŒUD : c'est la règle 4 de la doctrine, et la distinction
+   * est de fond — router au moins-cher punirait les machines modestes.
+   */
+  private decisionPlafond(projectId: string): DecisionPlafond {
+    if (this.opts.balance?.mode === 'off') return 'passe';
+    if (!this.livre.aJour) return 'passe';
+    return jugerPlafond(this.livre.depense(projectId), this.lireBudgets().get(projectId) ?? null);
+  }
+
+  /**
+   * Journalise un FRANCHISSEMENT de seuil, jamais un état (voir `seuilsEmis`
+   * pour la raison, qui est la santé du journal partagé).
+   *
+   * Payload de FAITS TYPÉS uniquement — des ids et des entiers. Aucune phrase
+   * n'est jamais persistée : le texte bilingue du Journal est reconstruit à
+   * l'affichage depuis ces champs, comme pour `thermo_shift` et
+   * `pheromone_route`.
+   *
+   * `applique` distingue les deux modes : en `observation` le fait est observé
+   * et n'a RIEN bloqué (`false`), en `strict` il a réellement fermé la porte
+   * (`true`).
+   */
+  private signalerPlafond(projectId: string, decision: DecisionPlafond): void {
+    if (decision === 'passe') {
+      // Front descendant : la mémoire s'efface, le prochain franchissement se
+      // réannonce (sinon un plafond relevé puis re-atteint resterait muet).
+      this.seuilsEmis.delete(projectId);
+      this.alertesEmises.delete(projectId);
+      return;
+    }
+    const plafondMs = this.lireBudgets().get(projectId) ?? 0;
+    const depenseMs = this.livre.depense(projectId);
+    if (decision === 'alerte') {
+      if (this.alertesEmises.has(projectId)) return;
+      this.alertesEmises.add(projectId);
+      this.emit('balance_alerte', {
+        projectId,
+        depenseMs,
+        plafondMs,
+        // Entier 0-100, arrondi PAR DÉFAUT : la part annoncée n'exagère jamais
+        // la dépense. `plafondMs > 0` est garanti ici (avec un plafond nul,
+        // jugerPlafond rend 'bloque', jamais 'alerte') — la garde est une
+        // ceinture, pas une supposition.
+        part: plafondMs > 0 ? Math.floor((depenseMs * 100) / plafondMs) : 100,
+      });
+      return;
+    }
+    // Au plafond, l'alerte n'a plus de raison d'être ré-émise : on la marque
+    // comme dite, pour qu'un simple passage sous le plafond ne la fasse pas
+    // rejaillir avant un vrai retour à la normale.
+    this.alertesEmises.add(projectId);
+    if (this.seuilsEmis.has(projectId)) return;
+    this.seuilsEmis.add(projectId);
+    this.emit('balance_seuil', {
+      projectId,
+      depenseMs,
+      plafondMs,
+      applique: this.opts.balance?.mode === 'strict',
+    });
+  }
+
+  /**
+   * Un humain pose (ou retire, avec `null`) le plafond d'un projet. C'est le
+   * SEUL chemin d'écriture de `budgets` : le store est écrit ici, le cache
+   * invalidé dans la foulée, et les deux ne peuvent donc pas diverger. (Écart
+   * assumé avec la conception d'origine, qui écrivait côté route puis
+   * prévenait le scheduler : deux écritures pour une intention, c'est une
+   * divergence qui n'attend que d'arriver.)
+   *
+   * Le déblocage est un GESTE HUMAIN EXPLICITE, exactement symétrique de
+   * l'invariant du merge : la ruche ne se ré-autorise jamais elle-même à
+   * dépenser. Elle repart en revanche dans le MÊME geste — l'assignation est
+   * relancée ici, pas au tick suivant : un humain qui débloque voit sa ruche
+   * repartir, il n'attend pas.
+   */
+  setPlafond(
+    projectId: string,
+    plafondMs: number | null,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    this.store.setBudget(projectId, plafondMs, definiPar, now);
+    this.budgets = null;
+    // Le plafond a changé : ce qui a déjà été annoncé ne vaut plus, un nouveau
+    // franchissement doit pouvoir se dire.
+    this.seuilsEmis.delete(projectId);
+    this.alertesEmises.delete(projectId);
+    this.promoteAndAssign(now);
   }
 
   /**
@@ -581,6 +751,17 @@ export class Scheduler {
         error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
       };
     }
+    // Balance : une course est la dépense la plus LOURDE de la ruche (la même
+    // tâche confiée à N nœuds à la fois). Refus symétrique de la porte
+    // d'assignation — sinon le geste explicite serait un contournement du
+    // plafond, et « borner » ne voudrait plus rien dire.
+    //
+    // Aucun événement n'est émis ici : le refus part en réponse HTTP à l'humain
+    // qui l'a demandé, immédiatement et nommément. Le journaliser en plus
+    // rouvrirait la porte au bruit que la dédup de la porte referme.
+    if (this.opts.balance?.mode === 'strict' && this.decisionPlafond(task.projectId) === 'bloque') {
+      return { ok: false, error: 'plafond de dépense atteint pour ce projet — course refusée' };
+    }
     // Sting Detector : une course ne contourne JAMAIS la prévention des
     // éditions concurrentes — même garde que l'assignation automatique.
     const clash = this.store
@@ -912,6 +1093,18 @@ export class Scheduler {
         continue;
       }
       this.deferredByConflict.delete(task.id);
+      // ─── La Balance : la PORTE ───────────────────────────────────────────
+      // Elle décide SI une tâche de ce projet part, jamais À QUEL NŒUD : la
+      // décision est prise ici, AVANT que la moindre liste de nœuds existe, et
+      // aucune valeur issue du grand livre ne descend plus bas dans cette
+      // boucle (doctrine, règle 4 — verrouillé par tests/security-invariants).
+      //
+      // Ce que la porte ne fait JAMAIS : tuer une tâche en vol (les tâches
+      // déjà parties vont à leur terme), toucher un autre projet (la boucle
+      // continue), ni bloquer un merge (geste humain, hors périmètre).
+      const decision = this.decisionPlafond(task.projectId);
+      this.signalerPlafond(task.projectId, decision);
+      if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
       const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
       const eligibles = this.store
         .listNodes()

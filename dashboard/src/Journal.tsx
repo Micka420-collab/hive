@@ -15,11 +15,12 @@ interface Meta {
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
 
 /**
- * La Balance au journal. Le pèse-ruche n'a introduit AUCUN type d'événement :
- * il a rendu ÉCONOMIQUEMENT LISIBLES ceux qui existaient déjà, en ajoutant
- * `durationMs` aux payloads de `task_retry` et `task_failed` — jusque-là, un
- * échec ne disait pas ce qu'il avait coûté, et cette histoire était perdue
- * chaque jour un peu plus.
+ * La Balance au journal. PESER et PRÉVOIR n'ont introduit aucun type
+ * d'événement : ils ont rendu ÉCONOMIQUEMENT LISIBLES ceux qui existaient déjà,
+ * en ajoutant `durationMs` aux payloads de `task_retry` et `task_failed` —
+ * jusque-là, un échec ne disait pas ce qu'il avait coûté, et cette histoire
+ * était perdue chaque jour un peu plus. Seul BORNER en a trois (`balance_*`,
+ * plus bas) : eux ne décrivent pas un coût, ils décrivent une décision.
  *
  * Le champ est donc facultatif à l'affichage : absent des événements
  * journalisés AVANT ce lot (et de `no_working_agent` / `dependency_failed`, qui
@@ -274,6 +275,59 @@ const EVENTS: Record<string, Meta> = {
         `couveuse : ${short(p.taskId)} repart avec les leçons de ${String(p.echecs ?? '?')} échec(s)`,
         `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
+  },
+  // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
+  // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
+  // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est
+  // réutilisé via `cout` : les durées du journal se lisent partout pareil.
+  balance_alert: {
+    icon: '🧮',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `Balance : le projet ${short(p.projectId)} a consommé ${String(p.part ?? '?')} % de son plafond (${cout(p.depenseMs) ?? '?'} sur ${cout(p.plafondMs) ?? '?'}) — la ruche prévient, elle ne bloque pas`,
+        `Balance: project ${short(p.projectId)} has spent ${String(p.part ?? '?')}% of its cap (${cout(p.depenseMs) ?? '?'} of ${cout(p.plafondMs) ?? '?'}) — the hive warns, it does not block`,
+      ),
+  },
+  balance_cap_reached: {
+    icon: '⛔',
+    cls: 'fail',
+    text: (p, t) => {
+      const chiffres = `${cout(p.depenseMs) ?? '?'} / ${cout(p.plafondMs) ?? '?'}`;
+      // `applique` distingue les deux modes, et c'est TOUTE la ligne : en
+      // `strict` la porte s'est fermée, en `observation` le fait est constaté
+      // et la ruche butine toujours. Les confondre inventerait un blocage.
+      return p.applique === true
+        ? t(
+            `Balance : plafond atteint sur ${short(p.projectId)} (${chiffres}) — assignation arrêtée`,
+            `Balance: cap reached on ${short(p.projectId)} (${chiffres}) — assignment stopped`,
+          )
+        : t(
+            `Balance : plafond atteint sur ${short(p.projectId)} (${chiffres}) — observation, rien n’est arrêté`,
+            `Balance: cap reached on ${short(p.projectId)} (${chiffres}) — observation, nothing is stopped`,
+          );
+    },
+  },
+  balance_cap_set: {
+    icon: '⚖',
+    cls: 'info',
+    text: (p, t) => {
+      // `definiPar` est une TRACE (qui a serré la vis), jamais une
+      // autorisation : absente quand le geste est venu du seul jeton de ruche.
+      const par = typeof p.definiPar === 'string' ? ` ${t('par', 'by')} ${short(p.definiPar)}` : '';
+      const ms = cout(p.plafondMs);
+      // `plafondMs: null` = plafond RETIRÉ : le projet redevient indiscernable
+      // d'un projet d'avant la Balance. Un « 0 ms » se lirait comme l'inverse.
+      return ms === null
+        ? t(
+            `Balance : plafond retiré sur ${short(p.projectId)}${par}`,
+            `Balance: cap removed on ${short(p.projectId)}${par}`,
+          )
+        : t(
+            `Balance : plafond posé à ${ms} sur ${short(p.projectId)}${par}`,
+            `Balance: cap set to ${ms} on ${short(p.projectId)}${par}`,
+          );
+    },
   },
   boot_recovery: {
     icon: '⟲',

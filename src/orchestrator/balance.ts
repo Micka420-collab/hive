@@ -3,10 +3,12 @@
 // Hive dépense des heures-machine prêtées par ses membres. Le grand livre
 // existe déjà — `results.durationMs` survit à l'élagage (`pruneResults` vide
 // `diff`/`logs`, jamais la ligne) — mais personne ne l'a jamais lu en somme, ni
-// surtout IMPUTÉ À UNE CAUSE. Ce module répond à deux des trois questions de la
-// Balance : **peser** (où est passée chaque seconde-ouvrière) et **prévoir**
-// (ce qu'un DAG devrait coûter). La troisième — **borner** — n'existe ici que
-// sous forme de fonction pure (`jugerPlafond`) : aucun blocage n'est câblé.
+// surtout IMPUTÉ À UNE CAUSE. Ce module répond aux trois questions de la
+// Balance : **peser** (où est passée chaque seconde-ouvrière), **prévoir** (ce
+// qu'un DAG devrait coûter) et **borner** (où l'on s'arrête). Les trois vivent
+// ici sous forme PURE ; la décision de borner (`jugerPlafond`) est câblée par
+// le Scheduler, qui en fait une porte — mais uniquement si un humain a posé un
+// plafond ET que la ruche tourne en `strict`. Le blocage est doublement opt-in.
 //
 // Comme thermo.ts, pheromones.ts et ghost.ts : module PUR. Aucune I/O, aucun
 // aléa, aucune horloge implicite — `now` en paramètre s'il en faut un (ici, il
@@ -19,8 +21,9 @@
 // 1. AUCUNE VUE DÉRIVÉE MATÉRIALISÉE. Le grand livre est un CACHE en mémoire,
 //    reconstructible à froid depuis `results` ; l'imputation est une fonction
 //    pure recalculée à la demande. Rien de calculé n'est jamais écrit en base.
-//    (Le jour où une table `budgets` arrivera, elle stockera une INTENTION
-//    HUMAINE — un plafond posé par un opérateur — jamais un calcul.)
+//    La table `budgets` ne fait pas exception : elle stocke une INTENTION
+//    HUMAINE — un plafond posé par un opérateur — jamais un calcul. Le solde,
+//    lui, n'est persisté nulle part et se reconstruit au démarrage.
 //
 // 2. AUCUNE MIGRATION. `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
 //    EXISTS` uniquement ; aucun `ALTER TABLE`, aucun `PRAGMA user_version`. Et
@@ -31,10 +34,13 @@
 //    colonne de plus sur `idx_results_recent`).
 //
 // 3. UNE TABLE NOUVELLE ARRIVE AVEC SA BORNE D'ÉLAGAGE DANS LE MÊME COMMIT.
-//    Ce lot n'en crée aucune : un seul index. Quand `budgets` viendra, elle
-//    sera 1:1 avec `projects` — bornée par construction — et n'aura donc PAS de
-//    `pruneBudgets` : cette phrase est ici pour que personne n'en ajoute un
-//    dans trois ans « par symétrie ».
+//    La seule de toute la Balance est `budgets`, et sa borne est STRUCTURELLE :
+//    1:1 avec `projects`, une ligne par plafond posé à la main, aucune ligne
+//    qui naisse d'un calcul. Elle n'a donc PAS de `pruneBudgets`, et ne doit
+//    jamais en avoir : élaguer `budgets` « par symétrie » avec pruneEvents ou
+//    pruneResults effacerait des intentions humaines encore en vigueur — ce
+//    serait un plafond qui se lève tout seul. Cette phrase est ici pour que
+//    personne n'en ajoute un dans trois ans.
 //
 // 4. LA BALANCE N'ENTRE JAMAIS DANS LE CHOIX DU NŒUD. `durationMs` mesure le
 //    temps machine PRÊTÉ, pas le travail accompli : router au moins-cher
@@ -331,10 +337,18 @@ export type DecisionPlafond = 'passe' | 'alerte' | 'bloque';
  * l'absence de plafond est l'état normal, et le comportement de la ruche y est
  * rigoureusement celui d'avant la Balance.
  *
- * Pure, sans horloge. AUCUN appelant ne bloque quoi que ce soit dans ce lot :
- * la porte (et la table `budgets` qui la nourrit) est un travail séparé. Cette
- * fonction est livrée ici parce qu'elle est le cœur testable de « borner », et
- * qu'elle n'a aucun effet tant que personne ne l'appelle.
+ * Pure, sans horloge, sans état : elle ne fait que comparer deux entiers. C'est
+ * le Scheduler qui en fait une porte (`decisionPlafond`), et lui seul décide
+ * quoi faire d'un verdict — en `observation` il le journalise, en `strict` il
+ * cesse d'assigner de nouvelles tâches du projet. Les tâches DÉJÀ EN VOL vont
+ * à leur terme : le temps déjà dépensé serait perdu, ce serait du gaspillage
+ * supplémentaire au nom de l'économie.
+ *
+ * ⚠ CE N'EST PAS UNE FRONTIÈRE DE SÉCURITÉ. `durationMs` est une donnée
+ * d'AGENT : un nœud hostile peut déclarer 24 h par résultat (la borne d'entrée
+ * de protocol.ts) et étrangler un projet à lui seul. Le plafond protège d'un
+ * emballement, jamais d'un adversaire — le mot « plafond » promet l'inverse,
+ * d'où cette phrase, ici et dans le README.
  */
 export function jugerPlafond(depenseMs: number, plafondMs: number | null): DecisionPlafond {
   if (plafondMs === null) return 'passe';

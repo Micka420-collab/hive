@@ -23,8 +23,29 @@ interface ReponseBalance {
   mode: string;
   aJour: boolean;
   pesee: Pesee;
-  soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+  soldes: Solde[];
   fenetre: number;
+}
+
+/** Un solde tel que l'API le rend : la dépense ET l'intention qui la borne. */
+interface Solde {
+  projectId: string;
+  depenseMs: number;
+  tentatives: number;
+  plafondMs: number | null;
+  etat: 'passe' | 'alerte' | 'bloque';
+  bloque: boolean;
+}
+
+/** Réponse de GET/PUT /api/projects/:id/balance. */
+interface ReponseProjet extends Solde {
+  version: number;
+  mode: string;
+  aJour: boolean;
+  definiPar: string | null;
+  updatedAt: number | null;
+  compte?: { projectId: string; totalMs: number } | null;
+  fenetre?: number;
 }
 
 interface DevisPlan {
@@ -109,7 +130,18 @@ describe('endpoints de la Balance', () => {
     expect(body.mode).toBe('observation'); // défaut : on pèse, on ne bloque rien
     expect(body.aJour).toBe(true);
     expect(body.fenetre).toBe(CORPUS_BALANCE);
-    expect(body.soldes).toEqual([{ projectId, depenseMs: 6_000, tentatives: 3 }]);
+    // Aucun plafond posé : le solde le DIT, plutôt que de laisser le lecteur
+    // deviner qu'il n'y en a pas.
+    expect(body.soldes).toEqual([
+      {
+        projectId,
+        depenseMs: 6_000,
+        tentatives: 3,
+        plafondMs: null,
+        etat: 'passe',
+        bloque: false,
+      },
+    ]);
     // Trois tâches abouties du premier coup : tout le temps a servi.
     expect(body.pesee.global).toMatchObject({
       utileMs: 6_000,
@@ -247,6 +279,158 @@ describe('endpoints de la Balance', () => {
     const body = (await res.json()) as { tasks: PlannedTask[]; devis: DevisPlan | null };
     expect(body.tasks.length).toBeGreaterThan(0); // le plan, lui, est intact
     expect(body.devis).toBeNull();
+  });
+
+  // ─── Borner : GET / PUT /api/projects/:id/balance (lot 3) ─────────────────
+
+  it('T5 — projet inconnu : 404 en lecture comme en écriture', async () => {
+    const lecture = await fetch(`${base}/api/projects/fantome/balance`, { headers });
+    expect(lecture.status).toBe(404);
+    const ecriture = await fetch(`${base}/api/projects/fantome/balance`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ plafondMs: 60_000 }),
+    });
+    expect(ecriture.status).toBe(404);
+    // Et rien n'a été écrit au passage : un projet inconnu ne crée pas de ligne.
+    expect(server.store.listBudgets()).toEqual([]);
+  });
+
+  it('sans token, la Balance d’un projet ne se lit ni ne s’écrit', async () => {
+    const projet = server.store.createProject({ name: 'P' });
+    expect((await fetch(`${base}/api/projects/${projet.id}/balance`)).status).toBe(401);
+    const ecriture = await fetch(`${base}/api/projects/${projet.id}/balance`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plafondMs: 1 }),
+    });
+    expect(ecriture.status).toBe(401);
+    expect(server.store.listBudgets()).toEqual([]);
+  });
+
+  it('T3 — PUT pose le plafond, journalise un fait, et `definiPar` reste null sans JWT', async () => {
+    const projectId = semer('route api', 'creer un endpoint rest', [1_000, 2_000, 3_000]);
+    server.scheduler.tick();
+
+    const res = await fetch(`${base}/api/projects/${projectId}/balance`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ plafondMs: 60_000 }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ReponseProjet;
+    expect(body).toMatchObject({
+      projectId,
+      plafondMs: 60_000,
+      depenseMs: 6_000,
+      etat: 'passe',
+      bloque: false,
+      definiPar: null, // le token du hub ne dit pas QUI : c'est un cas normal
+    });
+    expect(typeof body.updatedAt).toBe('number');
+    expect(server.store.getBudget(projectId)).toMatchObject({ plafondMs: 60_000 });
+
+    // Un fait typé, journalisé : aucune phrase, aucun texte d'affichage figé.
+    const journal = server.store.listEvents(0, 1_000).filter((e) => e.type === 'balance_plafond');
+    expect(journal).toHaveLength(1);
+    expect(journal[0]?.payload).toEqual({ projectId, plafondMs: 60_000 });
+    for (const valeur of Object.values(journal[0]?.payload ?? {})) {
+      if (typeof valeur === 'string') expect(valeur).not.toMatch(/\s/);
+    }
+  });
+
+  it('T3 — avec un Bearer JWT valide, `definiPar` porte la trace de l’opérateur', async () => {
+    const inscription = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'apicultrice@ruche.test',
+        password: 'motdepasse-assez-long',
+        displayName: 'Apicultrice',
+      }),
+    });
+    const { token } = (await inscription.json()) as { token: string };
+    const projet = server.store.createProject({ name: 'P' });
+
+    const res = await fetch(`${base}/api/projects/${projet.id}/balance`, {
+      method: 'PUT',
+      headers: { ...headers, authorization: `Bearer ${token}` },
+      body: JSON.stringify({ plafondMs: 1_000 }),
+    });
+    expect(res.status).toBe(200);
+    const definiPar = server.store.getBudget(projet.id)?.definiPar;
+    expect(typeof definiPar).toBe('string');
+    expect(definiPar).not.toBe('');
+    // `definiPar` est une TRACE, pas une autorisation : la garde reste le token
+    // du hub, et un JWT seul ne suffit pas.
+    const sansJeton = await fetch(`${base}/api/projects/${projet.id}/balance`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ plafondMs: 2_000 }),
+    });
+    expect(sansJeton.status).toBe(401);
+    expect(server.store.getBudget(projet.id)?.plafondMs).toBe(1_000);
+  });
+
+  it('T4 — plafond négatif : 400 ; plafond null : 200 et la ligne disparaît', async () => {
+    const projet = server.store.createProject({ name: 'P' });
+    const envoyer = (corps: unknown): Promise<Response> =>
+      fetch(`${base}/api/projects/${projet.id}/balance`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(corps),
+      });
+
+    expect((await envoyer({ plafondMs: -1 })).status).toBe(400);
+    expect((await envoyer({ plafondMs: 1.5 })).status).toBe(400);
+    expect((await envoyer({ plafondMs: 'beaucoup' })).status).toBe(400);
+    expect((await envoyer({})).status).toBe(400);
+    expect(server.store.listBudgets()).toEqual([]);
+
+    // Champ inconnu : `additionalProperties: false` le FILTRE (convention
+    // Fastify du dépôt, `removeAdditional` par défaut) — il n'entre jamais en
+    // base, et le plafond est posé tel qu'il a été validé.
+    expect((await envoyer({ plafondMs: 1_000, autre: 'chose' })).status).toBe(200);
+    expect(server.store.getBudget(projet.id)).toMatchObject({ plafondMs: 1_000 });
+
+    // 0 est un plafond légitime : « ce projet ne dépense plus rien ».
+    expect((await envoyer({ plafondMs: 0 })).status).toBe(200);
+    expect(server.store.getBudget(projet.id)?.plafondMs).toBe(0);
+
+    // …et `null` le retire : la ligne disparaît, l'état « éteint » est l'absence.
+    const retrait = await envoyer({ plafondMs: null });
+    expect(retrait.status).toBe(200);
+    expect((await retrait.json()) as ReponseProjet).toMatchObject({ plafondMs: null });
+    expect(server.store.getBudget(projet.id)).toBeNull();
+  });
+
+  it('GET /api/projects/:id/balance dit pourquoi un projet est bloqué, durablement', async () => {
+    const projectId = semer('route api', 'creer un endpoint rest', [1_000, 2_000, 3_000]);
+    server.scheduler.tick();
+    await fetch(`${base}/api/projects/${projectId}/balance`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ plafondMs: 1_000 }),
+    });
+
+    const body = (await (
+      await fetch(`${base}/api/projects/${projectId}/balance`, { headers })
+    ).json()) as ReponseProjet;
+    expect(body).toMatchObject({
+      version: VERSION_BALANCE,
+      projectId,
+      depenseMs: 6_000,
+      plafondMs: 1_000,
+      etat: 'bloque',
+      aJour: true,
+      fenetre: CORPUS_BALANCE,
+    });
+    // Mode `observation` par défaut : le verdict est « bloque », mais rien
+    // n'est réellement arrêté — et la réponse le dit sans ambiguïté.
+    expect(body.mode).toBe('observation');
+    expect(body.bloque).toBe(false);
+    // La tranche d'imputation du projet accompagne le solde.
+    expect(body.compte).toMatchObject({ projectId, totalMs: 6_000 });
   });
 
   it('les tâches encore EN VOL n’entrent pas dans l’échantillon d’un devis', async () => {

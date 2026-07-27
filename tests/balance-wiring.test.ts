@@ -59,7 +59,15 @@ interface Trace {
  * démarrage, re-tentative, succès (+ souvenir), refus, échec définitif, cascade,
  * perte de nœud, annulation humaine. Aucun aléa hors des ids, tous fixés.
  */
-function rejouerScenario(balance?: SchedulerOptions['balance']): Trace {
+function rejouerScenario(
+  balance?: SchedulerOptions['balance'],
+  /**
+   * Plafond posé sur le projet AVANT que quoi que ce soit ne tourne (lot 3).
+   * `undefined` = aucune ligne `budgets`, c'est-à-dire l'état de la ruche
+   * d'avant la Balance — le cas que le harnais doit protéger en priorité.
+   */
+  plafondMs?: number,
+): Trace {
   const store = new HiveStore(':memory:');
   try {
     const journal: HiveEvent[] = [];
@@ -73,6 +81,10 @@ function rejouerScenario(balance?: SchedulerOptions['balance']): Trace {
     });
 
     const projet = store.createProject({ name: 'Ruche' });
+    // Écriture directe : poser le plafond fait partie du DÉCOR du scénario, pas
+    // de son déroulé — `setPlafond` relancerait une assignation et brouillerait
+    // la comparaison de séquences.
+    if (plafondMs !== undefined) store.setBudget(projet.id, plafondMs, null, NOW);
     for (const [id, deps] of [
       ['T1', []],
       ['T2', ['T1']],
@@ -163,9 +175,63 @@ describe('Balance : non-régression par rejeu de séquence', () => {
     }
   });
 
-  it('aucun événement `balance_*` n’est émis : la Balance observe, elle ne parle pas', () => {
+  it('aucun événement `balance_*` n’est émis : sans plafond, la Balance se tait', () => {
     const trace = rejouerScenario({ mode: 'strict' });
     expect(trace.types.filter((t) => t.startsWith('balance_'))).toEqual([]);
+  });
+
+  it('T1 (lot 3) — un plafond JAMAIS ATTEINT ne change rien, dans les quatre modes', () => {
+    // Le scénario dépense 4 200 ms sur le projet : dix millions de ms de
+    // plafond ne peuvent pas être franchis. Une ligne `budgets` qui existe mais
+    // ne mord pas doit être aussi invisible que pas de ligne du tout.
+    const reference = rejouerScenario();
+    for (const mode of ['off', 'observation', 'strict'] as const) {
+      const trace = rejouerScenario({ mode }, 10_000_000);
+      expect(trace.types, mode).toEqual(reference.types);
+      expect(trace.evenements, mode).toEqual(reference.evenements);
+      expect(trace.assignations, mode).toEqual(reference.assignations);
+      expect(trace.taches, mode).toEqual(reference.taches);
+    }
+    expect(rejouerScenario(undefined, 10_000_000).evenements).toEqual(reference.evenements);
+  });
+
+  it('T1 (lot 3) — un plafond ATTEINT en `observation` n’arrête rien : seuls des faits s’ajoutent', () => {
+    const reference = rejouerScenario();
+    const observe = rejouerScenario({ mode: 'observation' }, 1_000);
+
+    // Tout ce que la ruche a FAIT est identique, à la virgule près…
+    expect(observe.assignations).toEqual(reference.assignations);
+    expect(observe.annulations).toEqual(reference.annulations);
+    expect(observe.taches).toEqual(reference.taches);
+    // …et ce qu'elle a DIT ne diffère que des faits `balance_*` ajoutés.
+    expect(observe.types.filter((t) => !t.startsWith('balance_'))).toEqual(reference.types);
+    expect(observe.evenements.filter((e) => !e.type.startsWith('balance_'))).toEqual(
+      reference.evenements,
+    );
+
+    // DÉDUPLICATION — le cœur du sujet. Le scénario enchaîne une dizaine de
+    // passes d'assignation sur un projet plafonné ; un événement PAR TICK
+    // épuiserait la fenêtre de 5 000 en trois heures et noierait Ghost, Waggle,
+    // Pulse et la Chronique. On journalise un franchissement, pas un niveau.
+    const balance = observe.evenements.filter((e) => e.type.startsWith('balance_'));
+    expect(balance.map((e) => e.type)).toEqual(['balance_alerte', 'balance_seuil']);
+    expect(balance[0]?.payload).toEqual({
+      projectId: 'PROJET',
+      depenseMs: 900,
+      plafondMs: 1_000,
+      part: 90,
+    });
+    // `applique: false` : le fait est observé, il n'a RIEN bloqué.
+    expect(balance[1]?.payload).toMatchObject({ plafondMs: 1_000, applique: false });
+  });
+
+  it('T1 (lot 3) — le harnais MORD : en `strict`, le même plafond change la séquence', () => {
+    // Sans cette assertion, les trois tests ci-dessus pourraient être verts
+    // parce que la porte ne fait rien du tout.
+    const reference = rejouerScenario();
+    const strict = rejouerScenario({ mode: 'strict' }, 1_000);
+    expect(strict.assignations).not.toEqual(reference.assignations);
+    expect(strict.evenements.some((e) => e.payload.applique === true)).toBe(true);
   });
 
   it('T16 — la thermorégulation ignore la Balance (aucun type balance_* dans TYPES_THERMO)', () => {
@@ -280,7 +346,9 @@ describe('Balance : le grand livre suit la TABLE', () => {
       subAgents: [],
     });
     scheduler.tick(NOW);
-    expect(scheduler.balance.soldes).toEqual([{ projectId, depenseMs: 4_242, tentatives: 1 }]);
+    expect(scheduler.balance.soldes).toEqual([
+      { projectId, depenseMs: 4_242, tentatives: 1, plafondMs: null, etat: 'passe', bloque: false },
+    ]);
     expect(scheduler.balance.aJour).toBe(true);
   });
 
@@ -307,8 +375,10 @@ describe('Balance : le grand livre suit la TABLE', () => {
     }
     scheduler.tick(NOW);
 
+    // Sans plafond posé, chaque solde porte le même verdict neutre : la porte
+    // existe, elle ne se referme sur rien.
     const aFroid = [...store.depensesParProjet().entries()]
-      .map(([id, d]) => ({ projectId: id, ...d }))
+      .map(([id, d]) => ({ projectId: id, ...d, plafondMs: null, etat: 'passe', bloque: false }))
       .sort((a, b) => a.projectId.localeCompare(b.projectId));
     expect(scheduler.balance.soldes).toEqual(aFroid);
 
@@ -349,7 +419,9 @@ describe('Balance : le grand livre suit la TABLE', () => {
       subAgents: [],
     });
     scheduler.tick(NOW);
-    expect(scheduler.balance.soldes).toEqual([{ projectId, depenseMs: 10, tentatives: 1 }]);
+    expect(scheduler.balance.soldes).toEqual([
+      { projectId, depenseMs: 10, tentatives: 1, plafondMs: null, etat: 'passe', bloque: false },
+    ]);
   });
 
   it('mode `off` : le grand livre ne tourne pas du tout (aucune lecture, aucun solde)', () => {
@@ -388,6 +460,377 @@ describe('Balance : le grand livre suit la TABLE', () => {
   });
 });
 
+// ─── La porte (lot 3) ────────────────────────────────────────────────────────
+//
+// Ce que la porte fait : cesser d'assigner de NOUVELLES tâches d'un projet au
+// plafond, en mode `strict` seulement. Ce qu'elle ne fait JAMAIS : tuer une
+// tâche en vol, toucher un autre projet, bloquer un merge, influencer le choix
+// du nœud, ni se ré-autoriser elle-même à dépenser.
+
+/** Décor commun : un projet plafonné, un projet témoin, un nœud, une dépense déjà faite. */
+interface Plateau {
+  scheduler: Scheduler;
+  journal: HiveEvent[];
+  assignations: string[];
+  /** Projet sur lequel le plafond est posé. */
+  projet: string;
+  /** Projet témoin, sans plafond : il doit continuer comme si de rien n'était. */
+  autre: string;
+}
+
+describe('Balance : la porte (borner)', () => {
+  let store: HiveStore;
+  afterEach(() => store.close());
+
+  /**
+   * `depenseMs` est imputée à une tâche DÉJÀ TERMINÉE du projet plafonné : le
+   * grand livre la comptera au premier tick, comme n'importe quelle dépense
+   * héritée d'avant le démarrage.
+   */
+  function plateau(
+    balance: SchedulerOptions['balance'],
+    plafondMs: number | null,
+    depenseMs: number,
+    concurrence = 4,
+  ): Plateau {
+    store = new HiveStore(':memory:');
+    const journal: HiveEvent[] = [];
+    const assignations: string[] = [];
+    const scheduler = new Scheduler(store, {
+      balance,
+      onEvent: (e) => journal.push(e),
+      onAssign: (nodeId, task) => assignations.push(`${task.id}→${nodeId}`),
+    });
+    const projet = store.createProject({ name: 'Plafonné' });
+    const autre = store.createProject({ name: 'Témoin' });
+    store.createTask({ id: 'A0', projectId: projet.id, title: 'passé', prompt: 'x' }, NOW);
+    store.patchTask('A0', { status: 'done' }, NOW);
+    if (depenseMs > 0) {
+      store.insertResult(
+        {
+          taskId: 'A0',
+          nodeId: 'n1',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: depenseMs,
+          subAgents: [],
+        },
+        NOW,
+      );
+    }
+    store.createTask({ id: 'A1', projectId: projet.id, title: 'à faire', prompt: 'x' }, NOW);
+    store.createTask({ id: 'B1', projectId: autre.id, title: 'témoin', prompt: 'y' }, NOW);
+    if (plafondMs !== null) store.setBudget(projet.id, plafondMs, null, NOW);
+    scheduler.registerNode(
+      {
+        nodeId: 'n1',
+        name: 'alfa',
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: concurrence,
+      },
+      NOW,
+    );
+    return { scheduler, journal, assignations, projet: projet.id, autre: autre.id };
+  }
+
+  /** Les événements de la Balance émis jusqu'ici, type et payload. */
+  const faits = (p: Plateau): Array<{ type: string; payload: Record<string, unknown> }> =>
+    p.journal.filter((e) => e.type.startsWith('balance_')).map((e) => ({ ...e }));
+
+  it('T2 — `observation` n’arrête rien : la tâche part, un seul fait, applique:false', () => {
+    const p = plateau({ mode: 'observation' }, 1_000, 1_200);
+    p.scheduler.tick(NOW);
+    p.scheduler.tick(NOW + 1_000);
+    p.scheduler.tick(NOW + 2_000);
+
+    expect(p.assignations).toContain('A1→n1');
+    expect(store.getTask('A1')?.status).toBe('assigned');
+    const seuils = faits(p).filter((e) => e.type === 'balance_seuil');
+    expect(seuils).toHaveLength(1);
+    expect(seuils[0]?.payload).toEqual({
+      projectId: p.projet,
+      depenseMs: 1_200,
+      plafondMs: 1_000,
+      applique: false,
+    });
+  });
+
+  it('T3 — `strict` arrête : aucune assignation, la tâche reste ready, UN seul fait sur trois ticks', () => {
+    const p = plateau({ mode: 'strict' }, 1_000, 1_200);
+    p.scheduler.tick(NOW);
+    p.scheduler.tick(NOW + 1_000);
+    p.scheduler.tick(NOW + 2_000);
+
+    expect(p.assignations).not.toContain('A1→n1');
+    expect(store.getTask('A1')?.status).toBe('ready');
+    expect(
+      p.journal.filter((e) => e.type === 'task_assigned' && e.payload.taskId === 'A1'),
+    ).toEqual([]);
+    // Trois ticks, un seul fait : la dédup tient (motif task_conflict_deferred).
+    const seuils = faits(p).filter((e) => e.type === 'balance_seuil');
+    expect(seuils).toHaveLength(1);
+    expect(seuils[0]?.payload).toMatchObject({ applique: true, plafondMs: 1_000 });
+  });
+
+  it('PAS DE FAMINE SILENCIEUSE : la tâche bloquée s’explique dans l’ÉTAT, pas seulement dans le journal', () => {
+    // Réserve d'un juge, prise au sérieux : si le seul témoin du plafonnement
+    // est un événement dans un journal élagué à 5 000, alors dans trois ans
+    // « pourquoi ce projet est-il bloqué ? » est sans réponse. L'état courant
+    // doit porter la raison, indéfiniment.
+    const p = plateau({ mode: 'strict' }, 1_000, 1_200);
+    p.scheduler.tick(NOW);
+    const solde = p.scheduler.balance.soldes.find((s) => s.projectId === p.projet);
+    expect(solde).toEqual({
+      projectId: p.projet,
+      depenseMs: 1_200,
+      tentatives: 1,
+      plafondMs: 1_000,
+      etat: 'bloque',
+      bloque: true,
+    });
+    // Le projet témoin, lui, n'a rien à expliquer.
+    expect(p.scheduler.balance.soldes.find((s) => s.projectId === p.autre)).toBeUndefined();
+
+    // Et même APRÈS la disparition de l'événement (journal purgé), l'état parle.
+    store.pruneEvents(0);
+    expect(store.listEvents(0, 100)).toEqual([]);
+    expect(p.scheduler.balance.soldes[0]?.bloque).toBe(true);
+    expect(store.getBudget(p.projet)).toMatchObject({ plafondMs: 1_000, definiPar: null });
+  });
+
+  it('un projet plafonné à 0 SANS dépense apparaît quand même dans les soldes', () => {
+    // Le pire cas de la famine silencieuse : rien à afficher côté dépense, tout
+    // à expliquer côté blocage. Un solde absent serait un projet bloqué sans
+    // trace nulle part.
+    const p = plateau({ mode: 'strict' }, 0, 0);
+    p.scheduler.tick(NOW);
+    expect(p.scheduler.balance.soldes).toEqual([
+      {
+        projectId: p.projet,
+        depenseMs: 0,
+        tentatives: 0,
+        plafondMs: 0,
+        etat: 'bloque',
+        bloque: true,
+      },
+    ]);
+    expect(store.getTask('A1')?.status).toBe('ready');
+  });
+
+  it('T4 — Isolation : le projet témoin est assigné dans le MÊME tick', () => {
+    const p = plateau({ mode: 'strict' }, 1_000, 1_200);
+    p.scheduler.tick(NOW);
+    expect(p.assignations).toEqual(['B1→n1']);
+    expect(store.getTask('B1')?.status).toBe('assigned');
+    expect(store.getTask('A1')?.status).toBe('ready');
+  });
+
+  it('T5 — jamais de tâche tuée : une tâche en vol va à son terme et son résultat compte', () => {
+    const p = plateau({ mode: 'strict' }, null, 0);
+    p.scheduler.tick(NOW);
+    p.scheduler.handleTaskUpdate('n1', 'A1', [], 'démarrage');
+    expect(store.getTask('A1')?.status).toBe('running');
+
+    // Le plafond tombe PENDANT le vol : la tâche ne doit pas être touchée. Le
+    // temps déjà dépensé serait perdu — ce serait du gaspillage supplémentaire
+    // au nom de l'économie.
+    p.scheduler.setPlafond(p.projet, 1, null, NOW + 1_000);
+    expect(store.getTask('A1')?.status).toBe('running');
+    expect(p.journal.filter((e) => e.type === 'task_cancelled')).toEqual([]);
+
+    // Et son résultat est accepté normalement, puis compté dans le solde.
+    expect(
+      p.scheduler.handleTaskResult('n1', resultat('A1', { success: true, durationMs: 5_000 })),
+    ).toBe(true);
+    expect(store.getTask('A1')?.status).toBe('done');
+    p.scheduler.tick(NOW + 2_000);
+    expect(p.scheduler.balance.soldes.find((s) => s.projectId === p.projet)?.depenseMs).toBe(5_000);
+  });
+
+  it('T6 — déblocage HUMAIN : la ruche repart dans le geste, et un nouveau franchissement se dit', () => {
+    const p = plateau({ mode: 'strict' }, 1_000, 1_200);
+    p.scheduler.tick(NOW);
+    expect(store.getTask('A1')?.status).toBe('ready');
+    expect(faits(p).filter((e) => e.type === 'balance_seuil')).toHaveLength(1);
+
+    // Geste humain explicite — symétrique de l'invariant du merge. La ruche ne
+    // se ré-autorise jamais elle-même : il faut qu'un humain desserre la vis.
+    p.scheduler.setPlafond(p.projet, 10_000, 'operatrice', NOW + 1_000);
+    expect(store.getTask('A1')?.status).toBe('assigned'); // repart dans le MÊME geste
+    expect(p.assignations).toContain('A1→n1');
+    expect(store.getBudget(p.projet)).toMatchObject({
+      plafondMs: 10_000,
+      definiPar: 'operatrice',
+    });
+
+    // Nouvelle dépense au-delà du nouveau plafond : la dédup a bien été vidée,
+    // le franchissement se réannonce (sinon il serait muet pour toujours).
+    p.scheduler.handleTaskResult('n1', resultat('A1', { success: true, durationMs: 20_000 }));
+    p.scheduler.tick(NOW + 2_000);
+    store.createTask({ id: 'A2', projectId: p.projet, title: 'suite', prompt: 'x' }, NOW);
+    p.scheduler.tick(NOW + 3_000);
+    expect(faits(p).filter((e) => e.type === 'balance_seuil')).toHaveLength(2);
+    expect(store.getTask('A2')?.status).toBe('ready');
+  });
+
+  it('T7 — plafond RETIRÉ : la séquence redevient strictement celle d’une ruche sans Balance', () => {
+    const sansPlafond = plateau({ mode: 'strict' }, null, 1_200);
+    sansPlafond.scheduler.tick(NOW);
+    const reference = sansPlafond.journal.map((e) => e.type);
+    const assignationsRef = [...sansPlafond.assignations];
+    store.close();
+
+    const leve = plateau({ mode: 'strict' }, 1_000, 1_200);
+    // Retrait AVANT le premier tick : la ligne disparaît, l'état « éteint » est
+    // l'absence de ligne — pas un drapeau, pas un plafond nul déguisé.
+    leve.scheduler.setPlafond(leve.projet, null, null, NOW);
+    leve.scheduler.tick(NOW);
+    expect(store.getBudget(leve.projet)).toBeNull();
+    expect(store.listBudgets()).toEqual([]);
+    expect(leve.journal.map((e) => e.type)).toEqual(reference);
+    expect(leve.assignations).toEqual(assignationsRef);
+    expect(faits(leve)).toEqual([]);
+  });
+
+  it('T8 — course : refusée au plafond en `strict`, elle part en `observation`', () => {
+    for (const mode of ['strict', 'observation'] as const) {
+      const p = plateau({ mode }, 1_000, 1_200);
+      p.scheduler.tick(NOW); // le livre rattrape ; A1 et B1 sont traitées
+      // Tâche prête posée APRÈS le tick : la course se lance sur une tâche
+      // `ready`, sans passer par l'assignation automatique.
+      store.createTask({ id: 'A9', projectId: p.projet, title: 'course', prompt: 'x' }, NOW);
+      store.patchTask('A9', { status: 'ready' }, NOW);
+      const avant = [...p.assignations];
+
+      const course = p.scheduler.startRace('A9', 2, NOW);
+      if (mode === 'strict') {
+        expect(course.ok, mode).toBe(false);
+        expect(course.ok ? '' : course.error).toContain('plafond');
+        expect(p.assignations, mode).toEqual(avant); // aucune assignation
+        expect(store.getTask('A9')?.status).toBe('ready');
+      } else {
+        expect(course.ok, mode).toBe(true);
+        expect(store.getTask('A9')?.status).toBe('assigned');
+      }
+      store.close();
+    }
+    // Le `afterEach` refermera le dernier store : rouvrir un store vide évite
+    // un double close.
+    store = new HiveStore(':memory:');
+  });
+
+  it('T13 — alerte à 80 % : un fait, une part entière, et AUCUN blocage', () => {
+    const p = plateau({ mode: 'strict' }, 1_000, 800);
+    p.scheduler.tick(NOW);
+    p.scheduler.tick(NOW + 1_000);
+
+    const alertes = faits(p).filter((e) => e.type === 'balance_alerte');
+    expect(alertes).toHaveLength(1);
+    expect(alertes[0]?.payload).toEqual({
+      projectId: p.projet,
+      depenseMs: 800,
+      plafondMs: 1_000,
+      part: 80,
+    });
+    expect(faits(p).filter((e) => e.type === 'balance_seuil')).toEqual([]);
+    // Prévenir n'est pas bloquer : la tâche est bel et bien partie.
+    expect(p.assignations).toContain('A1→n1');
+    expect(p.scheduler.balance.soldes[0]).toMatchObject({ etat: 'alerte', bloque: false });
+  });
+
+  it('T15 — payloads de FAITS : que des ids et des entiers, jamais une phrase', () => {
+    const p = plateau({ mode: 'strict' }, 1_000, 900); // alerte puis, plus tard, seuil
+    p.scheduler.tick(NOW);
+    p.scheduler.handleTaskResult('n1', resultat('A1', { durationMs: 5_000 }));
+    store.createTask({ id: 'A2', projectId: p.projet, title: 'suite', prompt: 'x' }, NOW);
+    p.scheduler.tick(NOW + 1_000);
+
+    const emis = faits(p);
+    expect(emis.map((e) => e.type).sort()).toEqual(['balance_alerte', 'balance_seuil']);
+    const cles: Record<string, string[]> = {
+      balance_alerte: ['projectId', 'depenseMs', 'plafondMs', 'part'],
+      balance_seuil: ['projectId', 'depenseMs', 'plafondMs', 'applique'],
+    };
+    for (const { type, payload } of emis) {
+      expect(Object.keys(payload).sort()).toEqual([...(cles[type] ?? [])].sort());
+      for (const valeur of Object.values(payload)) {
+        // Aucun texte d'affichage figé : le Journal reconstruit le bilingue
+        // depuis ces champs typés. Une valeur textuelle est un id, jamais une
+        // phrase — et une phrase contient une espace.
+        if (typeof valeur === 'string') expect(valeur).not.toMatch(/\s/);
+      }
+    }
+  });
+
+  it('T10 — FAIL-OPEN pendant le rattrapage : on n’arrête jamais la ruche sur un comptage partiel', () => {
+    store = new HiveStore(':memory:');
+    const assignations: string[] = [];
+    const scheduler = new Scheduler(store, {
+      balance: { mode: 'strict' },
+      onAssign: (nodeId, task) => assignations.push(`${task.id}→${nodeId}`),
+    });
+    const projet = store.createProject({ name: 'Arriéré' });
+    store.createTask({ id: 'A0', projectId: projet.id, title: 'passé', prompt: 'x' }, NOW);
+    store.patchTask('A0', { status: 'done' }, NOW);
+    // Trois lots pleins d'arriéré : le livre ne peut pas être à jour au 1er tick.
+    for (let i = 0; i < 3 * LOT_GRAND_LIVRE; i++) {
+      store.insertResult(
+        {
+          taskId: 'A0',
+          nodeId: 'n1',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+        },
+        NOW,
+      );
+    }
+    store.setBudget(projet.id, 10, null, NOW); // plafond déjà TRÈS largement dépassé
+    store.createTask({ id: 'A1', projectId: projet.id, title: 'à faire', prompt: 'x' }, NOW);
+    scheduler.registerNode(
+      { nodeId: 'n1', name: 'alfa', ownerName: 'test', agentType: 'shell', maxConcurrency: 4 },
+      NOW,
+    );
+
+    scheduler.tick(NOW);
+    // Le comptage est INCOMPLET : la ruche laisse passer. Un faux blocage au
+    // démarrage coûterait bien plus cher qu'un plafond dépassé de trois ticks.
+    expect(scheduler.balance.aJour).toBe(false);
+    expect(assignations).toEqual(['A1→n1']);
+
+    let garde = 0;
+    while (!scheduler.balance.aJour && garde++ < 10) scheduler.tick(NOW + garde);
+    expect(scheduler.balance.aJour).toBe(true);
+
+    // Comptage complet : la porte se ferme sur la tâche SUIVANTE.
+    store.createTask({ id: 'A2', projectId: projet.id, title: 'suite', prompt: 'x' }, NOW);
+    scheduler.tick(NOW + 100);
+    expect(store.getTask('A2')?.status).toBe('ready');
+    expect(assignations).toEqual(['A1→n1']);
+    expect(scheduler.balance.soldes[0]).toMatchObject({ etat: 'bloque', bloque: true });
+  });
+
+  it('les plafonds sont lus UNE fois, pas à chaque tick (mémoïsation invalidée par le geste humain)', () => {
+    const p = plateau({ mode: 'strict' }, 1_000, 500);
+    let lectures = 0;
+    const vraie = store.listBudgets.bind(store);
+    store.listBudgets = () => {
+      lectures += 1;
+      return vraie();
+    };
+    for (let i = 0; i < 10; i++) p.scheduler.tick(NOW + i * 1_000);
+    expect(lectures).toBe(1);
+    // Seul un geste humain rouvre la table.
+    p.scheduler.setPlafond(p.projet, 2_000, null, NOW);
+    p.scheduler.tick(NOW + 20_000);
+    expect(lectures).toBe(2);
+  });
+});
+
 describe('Balance : elle n’entre JAMAIS dans le choix du nœud', () => {
   let store: HiveStore;
   afterEach(() => store.close());
@@ -398,7 +841,11 @@ describe('Balance : elle n’entre JAMAIS dans le choix du nœud', () => {
    * machine. Le nœud choisi doit être le même, Balance éteinte ou allumée :
    * router au moins-cher punirait les machines modestes.
    */
-  function noeudChoisi(balance?: SchedulerOptions['balance']): string | undefined {
+  function noeudChoisi(
+    balance?: SchedulerOptions['balance'],
+    /** Plafond posé sur le projet — assez large pour ne jamais se refermer. */
+    plafondMs?: number,
+  ): string | undefined {
     store = new HiveStore(':memory:');
     const assignations: string[] = [];
     const scheduler = new Scheduler(store, {
@@ -406,6 +853,7 @@ describe('Balance : elle n’entre JAMAIS dans le choix du nœud', () => {
       onAssign: (nodeId) => assignations.push(nodeId),
     });
     const projet = store.createProject({ name: 'P' });
+    if (plafondMs !== undefined) store.setBudget(projet.id, plafondMs, null, NOW);
     // Historique : une tâche déjà terminée, réussie une fois par CHAQUE nœud —
     // même signal de phéromone, seule la durée diffère (n2 est dix fois plus lent).
     store.createTask(
@@ -454,5 +902,18 @@ describe('Balance : elle n’entre JAMAIS dans le choix du nœud', () => {
     expect(noeudChoisi({ mode: 'observation' })).toBe(reference);
     expect(noeudChoisi({ mode: 'strict' })).toBe(reference);
     expect(noeudChoisi()).toBe(reference);
+  });
+
+  it('la PORTE ouverte ne réordonne rien non plus : elle décide SI, jamais À QUI', () => {
+    // Un plafond posé et non atteint fait passer la décision par la porte (donc
+    // par le grand livre) sans rien bloquer. Si le câblage de la porte laissait
+    // fuir une valeur de dépense vers le tri des nœuds, c'est ICI que ça se
+    // verrait — la distinction « si » / « à qui » est de fond, pas de style.
+    const reference = noeudChoisi({ mode: 'off' });
+    expect(noeudChoisi({ mode: 'strict' }, 10_000_000)).toBe(reference);
+    expect(noeudChoisi({ mode: 'observation' }, 10_000_000)).toBe(reference);
+    // Et en alerte (80 % franchis : 11 000 ms dépensés pour 12 000 de plafond),
+    // le verdict change mais le nœud choisi, non.
+    expect(noeudChoisi({ mode: 'strict' }, 12_000)).toBe(reference);
   });
 });

@@ -1,8 +1,19 @@
 name: Site
 
 # Déploie la vitrine statique (site/) sur GitHub Pages à chaque push sur main
-# qui la modifie. `enablement: true` active Pages automatiquement au premier
-# déploiement — aucune configuration manuelle du dépôt n'est nécessaire.
+# qui la modifie.
+#
+# ─── Activation : UN geste manuel, une seule fois ───────────────────────────
+# Settings → Pages → Build and deployment → Source : « GitHub Actions ».
+#
+# On n'utilise PAS `enablement: true` sur `actions/configure-pages` : créer le
+# site Pages demande un droit d'administration que le GITHUB_TOKEN d'un dépôt
+# PRIVÉ n'a pas (« Resource not accessible by integration »). Le workflow
+# échouait donc au premier déploiement pour une raison que personne ne pouvait
+# deviner depuis le log. On préfère un pré-vol qui dit exactement quoi faire.
+#
+# Rappel de plan : sur un dépôt privé, Pages exige une offre payante
+# (Pro / Team / Enterprise). Sur un dépôt public, c'est gratuit.
 
 on:
   push:
@@ -32,10 +43,38 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
+      # Pré-vol : sans lui, un dépôt dont Pages n'est pas activé échoue plus
+      # loin sur une erreur d'API illisible. Ici, le message dit quoi faire.
+      - name: Vérifier que Pages est activé
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" --silent 2>/dev/null; then
+            echo "✅ GitHub Pages est activé sur ce dépôt."
+          else
+            {
+              echo "## 🐝 Le site n'a pas pu être déployé"
+              echo
+              echo "**GitHub Pages n'est pas activé sur ce dépôt.** Le workflow ne peut pas"
+              echo "l'activer lui-même : sur un dépôt privé, le \`GITHUB_TOKEN\` n'a pas le"
+              echo "droit de créer le site Pages."
+              echo
+              echo "### Le geste à faire, une seule fois"
+              echo
+              echo "1. **Settings → Pages → Build and deployment**"
+              echo "2. **Source** : choisir **GitHub Actions**"
+              echo "3. Relancer ce workflow (onglet Actions → *Site* → *Run workflow*)"
+              echo
+              echo "> Sur un dépôt **privé**, Pages exige une offre payante"
+              echo "> (Pro / Team / Enterprise). Rendre le dépôt **public** suffit"
+              echo "> sinon — la vitrine est faite pour être vue."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=GitHub Pages non activé::Settings → Pages → Source : GitHub Actions, puis relancer ce workflow. Détails dans le résumé du run."
+            exit 1
+          fi
+
       - name: Configurer Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Empaqueter le site
         uses: actions/upload-pages-artifact@v3

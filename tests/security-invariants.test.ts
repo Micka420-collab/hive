@@ -151,6 +151,29 @@ describe('invariants de la Balance', () => {
     }
   });
 
+  it('`budgets` n’a pas d’élagage — et personne ne peut en ajouter un par distraction', () => {
+    // Doctrine, règle 3 : une table nouvelle arrive avec sa borne dans le même
+    // commit, et la borne de `budgets` est STRUCTURELLE (1:1 avec `projects`).
+    // Un `pruneBudgets` ajouté « par symétrie » avec pruneEvents/pruneResults
+    // effacerait des intentions humaines encore en vigueur : ce serait un
+    // plafond qui se lève tout seul, sans que personne l'ait demandé.
+    // On verrouille le CODE (une définition, un appel, une propriété), jamais
+    // la prose : le fichier a le droit — le devoir — de nommer `pruneBudgets`
+    // pour dire qu'il n'en veut pas.
+    const coupables = files.filter((f) => /pruneBudgets\s*[(:=]/.test(read(f)));
+    expect(coupables).toEqual([]);
+    // Et l'avertissement lui-même ne doit pas disparaître : sans lui, la règle
+    // se perd et quelqu'un « corrige l'oubli » dans trois ans.
+    const brut = files.map((f) => readFileSync(f, 'utf8')).join('\n');
+    expect(brut).toMatch(/PAS de pruneBudgets/);
+    // …et aucune suppression de masse sur la table (seul `setBudget(…, null)`,
+    // sur UN projet nommé, retire un plafond).
+    const store = fileEndingWith('orchestrator/store.ts');
+    const suppressions = store.match(/DELETE\s+FROM\s+budgets[^']*/gi) ?? [];
+    expect(suppressions).toHaveLength(1);
+    expect(suppressions[0]).toMatch(/WHERE\s+projectId\s*=\s*\?/i);
+  });
+
   it('aucune migration dans src/ : ni ALTER TABLE, ni PRAGMA user_version', () => {
     // Une table latérale versionnée coûte moins cher qu'une colonne ajoutée,
     // pour toujours. Verrou permanent, utile bien au-delà de la Balance : il

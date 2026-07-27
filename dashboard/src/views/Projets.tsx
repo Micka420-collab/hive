@@ -558,6 +558,7 @@ function ProjectCard({
   refreshTick,
   selected,
   balance,
+  onBalanceChange,
   onOpenTask,
   onNavigate,
 }: {
@@ -570,6 +571,8 @@ function ProjectCard({
   selected: boolean;
   /** Pesée + soldes de la ruche entière ; `null` tant qu'aucun relevé (ou route absente). */
   balance: BalanceState | null;
+  /** Redemande le relevé de ruche — un plafond posé ici change le solde de là. */
+  onBalanceChange: () => void;
   onOpenTask: ViewProps['onOpenTask'];
   onNavigate: ViewProps['onNavigate'];
 }) {
@@ -583,9 +586,13 @@ function ProjectCard({
   const contributors = report
     ? report.contributingNodes.map((id) => nodeNames.get(id) ?? id.slice(0, 8)).join(', ')
     : '';
-  // La part de ce projet dans la pesée globale, et son solde au grand livre.
-  // Absents ⇒ `null` : ce projet n'a rien dépensé dans la fenêtre / n'a pas de
-  // ligne au livre. `BalanceProjet` se tait alors, plutôt que d'écrire « 0 ».
+  // La part de ce projet dans la pesée globale, et son solde au grand livre —
+  // qui porte aussi son PLAFOND et l'état de la porte. Absents ⇒ `null` : ce
+  // projet n'a rien dépensé dans la fenêtre / n'a pas de ligne au livre.
+  // `BalanceProjet` se tait alors, plutôt que d'écrire « 0 ». Un projet
+  // plafonné, lui, a toujours sa ligne : le serveur unit les projets qui ont
+  // dépensé et ceux qui sont bornés, pour qu'un projet bloqué à zéro dépense
+  // ne puisse pas disparaître de l'écran.
   const compteProjet = balance?.pesee.parProjet.find((p) => p.projectId === project.id) ?? null;
   const soldeProjet = balance?.soldes.find((s) => s.projectId === project.id) ?? null;
 
@@ -645,10 +652,13 @@ function ProjectCard({
           rigoureusement celle d'avant. */}
       {balance && (
         <BalanceProjet
+          projectId={project.id}
+          projectName={project.name}
           compte={compteProjet}
           solde={soldeProjet}
           mode={balance.mode}
           aJour={balance.aJour}
+          onPlafondChange={onBalanceChange}
         />
       )}
 
@@ -765,6 +775,7 @@ export default function Projets({
               refreshTick={refreshTick}
               selected={p.id === selectedId}
               balance={balance.data}
+              onBalanceChange={balance.refresh}
               onOpenTask={onOpenTask}
               onNavigate={onNavigate}
             />
