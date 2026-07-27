@@ -69,6 +69,8 @@
 
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { lignesDeLogs } from './brood.js';
+import { SOLITUDE_JOURS } from './derive.js';
+import type { Derive } from './derive.js';
 import { evaluerCaste } from './polyethisme.js';
 import type { Antecedents, Caste } from './polyethisme.js';
 
@@ -293,6 +295,8 @@ function extraitCourt(logs: string): string {
 export type Pas =
   /** Aucune gouvernante : la ruche ne peut pas se gouverner. */
   | 'inerte'
+  /** La ruche se dégrade : elle s'arrête d'elle-même (derive.ts). */
+  | 'halte'
   /** Le plafond de dépense est atteint. */
   | 'plafond'
   /** Ouvrir un conseil : décider quoi faire ensuite. */
@@ -332,6 +336,12 @@ export interface EtatEssaim {
   lecons: readonly LeconCroisee[];
   /** Verdict du plafond de dépense (La Balance). */
   plafond: 'passe' | 'alerte' | 'bloque';
+  /**
+   * Verdict de La Dérive — la seule chose qui rende une autonomie de
+   * plusieurs semaines défendable : la ruche sait reconnaître qu'elle se
+   * dégrade, et s'arrêter avant d'avoir pourri le projet.
+   */
+  derive: Derive;
 }
 
 export interface Decision {
@@ -367,6 +377,27 @@ export function deciderPas(etat: EtatEssaim): Decision {
       `${gouv.length} ouvrière(s) de caste gouvernante, ${GOUVERNANTES_MIN} requises`,
     );
   }
+  // LA HALTE, avant toute autre considération de travail. Une ruche qui se
+  // dégrade ne doit pas continuer à produire, même si elle a du budget et des
+  // tâches prêtes — c'est précisément dans ce cas-là qu'elle ferait le plus de
+  // dégâts, parce que rien d'autre ne l'arrêterait.
+  //
+  // NUANCE D'AMORÇAGE, et elle est nécessaire : `indeterminee` ne halte PAS
+  // une ruche neuve. Une ruche qui n'a encore rien produit est non mesurée,
+  // pas aveugle — la halter interdirait à toute autonomie de jamais démarrer.
+  // En revanche, ne toujours pas pouvoir mesurer APRÈS des semaines de
+  // solitude ne veut plus dire « je suis neuve », cela veut dire que la source
+  // de mesure est cassée. Là, on s'arrête.
+  if (etat.derive.etat === 'degradee') {
+    return decision('halte', etat.derive.motif || 'la ruche se dégrade');
+  }
+  if (etat.derive.etat === 'indeterminee' && etat.derive.solitudeJours >= SOLITUDE_JOURS) {
+    return decision(
+      'halte',
+      `dérive non mesurable après ${Math.round(etat.derive.solitudeJours)} jour(s) sans regard humain : ${etat.derive.motif}`,
+    );
+  }
+
   if (etat.plafond === 'bloque') return decision('plafond', 'plafond de dépense atteint');
 
   // Corriger AVANT d'inventer. Une leçon systémique — la même erreur sur trois

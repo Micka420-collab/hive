@@ -660,3 +660,60 @@
   font-size: 12.5px;
   color: var(--red, #e5573f);
 }
+
+/* ── La Dérive : la santé du projet sous autonomie longue ─────────────────── */
+.essaim-derive {
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #392e1c);
+  background: rgba(134, 195, 93, 0.05);
+}
+.essaim-derive--degradee {
+  border-color: var(--red, #e5573f);
+  background: rgba(229, 87, 63, 0.09);
+}
+.essaim-derive--a_surveiller,
+.essaim-derive--indeterminee {
+  border-color: var(--orange, #e58e26);
+  background: rgba(229, 142, 38, 0.07);
+}
+.essaim-echantillon {
+  color: var(--dim, #a09070);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.essaim-derive ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.essaim-ind {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.essaim-ind-cle {
+  flex-shrink: 0;
+  min-width: 88px;
+  font-weight: 600;
+  color: var(--green, #86c35d);
+}
+.essaim-ind--a_surveiller .essaim-ind-cle,
+.essaim-ind--indeterminee .essaim-ind-cle {
+  color: var(--orange, #e58e26);
+}
+.essaim-ind--degradee .essaim-ind-cle {
+  color: var(--red, #e5573f);
+}
+.essaim-ind-constat {
+  color: var(--muted, #b39c72);
+  overflow-wrap: anywhere;
+}
+.essaim-pas--halte {
+  border-left-color: var(--red, #e5573f);
+  background: rgba(229, 87, 63, 0.13);
+}

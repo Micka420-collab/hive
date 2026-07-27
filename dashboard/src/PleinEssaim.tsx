@@ -25,6 +25,8 @@ function libellePas(pas: PasEssaim, t: ReturnType<typeof useT>): string {
   switch (pas) {
     case 'inerte':
       return t('En sommeil', 'Dormant');
+    case 'halte':
+      return t('Halte — la ruche se dégrade', 'Halt — the hive is degrading');
     case 'plafond':
       return t('Plafond atteint', 'Cap reached');
     case 'deliberer':
@@ -47,6 +49,7 @@ function libellePas(pas: PasEssaim, t: ReturnType<typeof useT>): string {
 function iconePas(pas: PasEssaim): string {
   const icones: Record<PasEssaim, string> = {
     inerte: '🌙',
+    halte: '⛔',
     plafond: '🛑',
     deliberer: '🗣️',
     planifier: '🗂️',
@@ -57,6 +60,22 @@ function iconePas(pas: PasEssaim): string {
     repos: '💤',
   };
   return icones[pas];
+}
+
+function libelleIndicateur(
+  cle: 'qualite' | 'entropie' | 'repetition' | 'solitude',
+  t: ReturnType<typeof useT>,
+): string {
+  switch (cle) {
+    case 'qualite':
+      return t('Qualité', 'Quality');
+    case 'entropie':
+      return t('Complexité', 'Complexity');
+    case 'repetition':
+      return t('Répétition', 'Repetition');
+    default:
+      return t('Solitude', 'Solitude');
+  }
 }
 
 function descriptionNiveau(n: NiveauEssaim, t: ReturnType<typeof useT>): string {
@@ -146,6 +165,32 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
           <strong>{libellePas(etat.decision.pas, t)}</strong>
           <span className="essaim-motif">{etat.decision.motif}</span>
         </div>
+      </div>
+
+      {/* La Dérive : ce qui rend une autonomie de plusieurs semaines
+          défendable — la ruche sait reconnaître qu'elle se dégrade. Affichée
+          AVANT les réglages : on ne propose pas de monter le niveau
+          d'autonomie d'une ruche qui est en train de pourrir le projet. */}
+      <div className={`essaim-derive essaim-derive--${etat.derive.etat}`}>
+        <span className="essaim-etiquette">
+          {t('Santé du projet', 'Project health')}
+          {etat.derive.echantillon > 0 && (
+            <span className="essaim-echantillon">
+              {t(
+                ` · ${etat.derive.echantillon} production(s) observée(s)`,
+                ` · ${etat.derive.echantillon} production(s) observed`,
+              )}
+            </span>
+          )}
+        </span>
+        <ul>
+          {etat.derive.indicateurs.map((i) => (
+            <li key={i.cle} className={`essaim-ind essaim-ind--${i.etat}`}>
+              <span className="essaim-ind-cle">{libelleIndicateur(i.cle, t)}</span>
+              <span className="essaim-ind-constat">{i.constat}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* Qui gouverne. Une caste se gagne : ce n'est pas configurable. */}

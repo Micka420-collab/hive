@@ -47,10 +47,18 @@ import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
-import { GOUVERNANTES_MIN, NIVEAUX, deciderPas, gouvernantes, leconsCroisees } from './essaim.js';
+import {
+  GOUVERNANTES_MIN,
+  NIVEAUX,
+  deciderPas,
+  gouvernantes,
+  leconsCroisees,
+  signatureEchec,
+} from './essaim.js';
 import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essaim.js';
+import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
 import { CORPUS_GARDIENNES, cheminsPromis, replierInspections } from './gardiennes.js';
-import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
+import type { ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
 import {
   SEUIL_BATISSEUSE,
   SEUIL_BUTINEUSE,
@@ -1496,6 +1504,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         Boolean(reglage?.depotInscrit) && depotDepuisUrl(projet?.repoUrl ?? null) !== null,
       lecons,
       plafond,
+      derive: mesurerDerive({
+        // Les lignes brutes deviennent des FAITS mesurables ici : le compte de
+        // lignes vient du diff, la signature des logs. Les deux fonctions sont
+        // pures et partagées avec les modules qui les ont définies — un second
+        // compteur de lignes, ou une seconde normalisation d'erreur, finirait
+        // par diverger de l'original (même leçon que l'ANSI de brood.ts).
+        productions: store.listProductionsPourDerive(FENETRE).map((r) => {
+          const { ajouts, suppressions } = compterLignes(r.diff);
+          return {
+            verdict: (r.verdict === 'hollow' || r.verdict === 'suspect'
+              ? r.verdict
+              : 'clean') as Verdict,
+            ajouts,
+            suppressions,
+            signature: r.success ? '' : signatureEchec(r.logs),
+            createdAt: r.createdAt,
+          };
+        }),
+        dernierApportHumain: store.dernierApportHumain(),
+        now: Date.now(),
+      }),
     };
     return { ...etat, decision: deciderPas(etat) };
   };
@@ -1515,6 +1544,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         gouvernantesRequises: GOUVERNANTES_MIN,
         depotInscrit: e.depotInscrit,
         plafond: e.plafond,
+        derive: e.derive,
         lecons: e.lecons,
         niveaux: NIVEAUX,
       };

@@ -24,6 +24,7 @@ import {
   signatureEchec,
 } from '../src/orchestrator/essaim.js';
 import type { EtatEssaim, NoeudObserve } from '../src/orchestrator/essaim.js';
+import { mesurerDerive } from '../src/orchestrator/derive.js';
 import { SEUIL_BUTINEUSE, VIERGE } from '../src/orchestrator/polyethisme.js';
 
 /** Un nœud avec `n` productions impeccables. */
@@ -39,6 +40,9 @@ function noeud(nodeId: string, productions: number, enLigne = true): NoeudObserv
 /** Deux gouvernantes : le minimum pour que la ruche décide. */
 const CONSEIL_MINIMAL = [noeud('a', SEUIL_BUTINEUSE), noeud('b', SEUIL_BUTINEUSE)];
 
+/** Horloge fixe : la dérive se mesure en temps écoulé. */
+const NOW = 1_800_000_000_000;
+
 function etat(p: Partial<EtatEssaim> = {}): EtatEssaim {
   return {
     niveau: 'plein',
@@ -52,6 +56,9 @@ function etat(p: Partial<EtatEssaim> = {}): EtatEssaim {
     depotInscrit: true,
     lecons: [],
     plafond: 'passe',
+    // Les fixtures de ce fichier testent la GOUVERNANCE : la dérive y est
+    // saine, sauf là où un test la met explicitement en cause.
+    derive: mesurerDerive({ productions: [], dernierApportHumain: NOW, now: NOW }),
     ...p,
   };
 }
@@ -375,5 +382,86 @@ describe('essaim — ce que la ruche dit à ses ouvrières', () => {
     expect(
       r.split('\n').filter((x) => x === 'CE QUE LA RUCHE A APPRIS DE SES ERREURS'),
     ).toHaveLength(1);
+  });
+});
+
+describe('essaim — la halte : la ruche s’arrête quand elle se dégrade', () => {
+  const JOUR = 86_400_000;
+
+  /** Une fenêtre de productions qui empilent sans jamais rien retirer. */
+  const cliquet = mesurerDerive({
+    productions: Array.from({ length: 60 }, () => ({
+      verdict: 'clean' as const,
+      ajouts: 100,
+      suppressions: 0,
+      signature: '',
+      createdAt: NOW,
+    })),
+    dernierApportHumain: NOW - JOUR,
+    now: NOW,
+  });
+
+  it('une dérive dégradée arrête tout, même avec du travail prêt', () => {
+    // C'est PRÉCISÉMENT dans ce cas qu'une ruche ferait le plus de dégâts :
+    // du budget, des tâches, des gouvernantes — et une qualité qui s'effondre.
+    expect(cliquet.etat).toBe('degradee');
+    const d = deciderPas(
+      etat({ derive: cliquet, tachesPretes: 10, productionsALivrer: 5, prAFusionner: 3 }),
+    );
+    expect(d.pas).toBe('halte');
+    expect(d.motif).toMatch(/suppressions/);
+  });
+
+  it('la halte passe AVANT le plafond', () => {
+    // Un plafond dit « plus de budget » ; une halte dit « ce que tu produis
+    // n'est plus bon ». La seconde information est la plus urgente.
+    const d = deciderPas(etat({ derive: cliquet, plafond: 'bloque' }));
+    expect(d.pas).toBe('halte');
+  });
+
+  it('mais PAS avant « inerte » : sans gouvernante, rien ne tourne', () => {
+    const d = deciderPas(etat({ derive: cliquet, noeuds: [noeud('jeune', 0)] }));
+    expect(d.pas).toBe('inerte');
+  });
+
+  it('une ruche NEUVE n’est pas haltée par une dérive non mesurable', () => {
+    // Bootstrap : une ruche qui n'a rien produit est non mesurée, pas aveugle.
+    // La halter interdirait à toute autonomie de jamais démarrer.
+    const neuve = mesurerDerive({ productions: [], dernierApportHumain: NOW, now: NOW });
+    expect(neuve.etat).toBe('indeterminee');
+    expect(deciderPas(etat({ derive: neuve })).pas).toBe('deliberer');
+  });
+
+  it('mais une ruche non mesurable APRÈS des semaines de solitude halte', () => {
+    // Là, « je ne peux pas mesurer » ne veut plus dire « je suis neuve » : la
+    // source de mesure est cassée, et la dérive devient invisible juste au
+    // moment où elle devient possible.
+    const aveugle = mesurerDerive({
+      productions: [],
+      dernierApportHumain: NOW - 30 * JOUR,
+      now: NOW,
+    });
+    expect(aveugle.etat).toBe('indeterminee');
+    const d = deciderPas(etat({ derive: aveugle }));
+    expect(d.pas).toBe('halte');
+    expect(d.motif).toMatch(/non mesurable après 30 jour/);
+  });
+
+  it('six semaines d’autonomie IMPECCABLE ne sont pas arrêtées', () => {
+    // La demande, c'est des semaines d'autonomie. Le module ne doit pas la
+    // trahir par excès de prudence.
+    const impeccable = mesurerDerive({
+      productions: Array.from({ length: 200 }, () => ({
+        verdict: 'clean' as const,
+        ajouts: 10,
+        suppressions: 4,
+        signature: '',
+        createdAt: NOW,
+      })),
+      dernierApportHumain: NOW - 42 * JOUR,
+      now: NOW,
+    });
+    expect(impeccable.etat).toBe('saine');
+    expect(deciderPas(etat({ derive: impeccable })).pas).toBe('deliberer');
   });
 });

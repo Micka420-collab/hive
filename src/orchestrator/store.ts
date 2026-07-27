@@ -1313,6 +1313,78 @@ export class HiveStore {
   // elle n'a pas d'élagueur.
 
   /** Pose (ou retire) le réglage d'autonomie d'un projet. */
+  // ─── La Dérive : de quoi mesurer une dégradation lente ─────────────────────
+
+  /**
+   * Productions récentes, jointes à leur verdict de Gardienne.
+   *
+   * BORNÉ par `limit`, et servi par un parcours arrière de clé primaire. La
+   * jointure est sur `gardiennes.resultId`, indexé : une production sans
+   * inspection (mode « off », ou echec declare) sort avec le verdict « clean »
+   * et un diff vide, donc n'influence ni la qualite ni l'entropie.
+   *
+   * Les lignes retenues portent le DIFF, dont on ne garde que le compte de
+   * lignes — jamais le contenu. `pruneResults` vide `diff` au-dela de 5 000
+   * resultats : les productions anciennes comptent alors 0/0, ce qui les sort
+   * de la mesure d'entropie au lieu de la fausser.
+   */
+  listProductionsPourDerive(limit = 400): Array<{
+    verdict: string;
+    diff: string;
+    logs: string;
+    success: boolean;
+    createdAt: number;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT COALESCE(g.verdict, 'clean') AS verdict, r.diff AS diff, r.logs AS logs,
+                r.success AS success, r.createdAt AS createdAt
+           FROM results r
+           LEFT JOIN gardiennes g ON g.resultId = r.id
+          ORDER BY r.id DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map((row) => {
+        const r = row as {
+          verdict: string;
+          diff: string | null;
+          logs: string | null;
+          success: number;
+          createdAt: number;
+        };
+        return {
+          verdict: r.verdict,
+          diff: r.diff ?? '',
+          logs: r.logs ?? '',
+          success: r.success === 1,
+          createdAt: r.createdAt,
+        };
+      });
+  }
+
+  /**
+   * Horodatage du dernier APPORT HUMAIN — la seule chose qui remette à zéro la
+   * solitude de la ruche.
+   *
+   * Un apport humain est un geste qu'aucun agent ne peut poser : creer un
+   * projet, poser un plafond, regler l'autonomie. Deliberement PAS « une tache
+   * creee », qui peut venir de la ruche elle-meme — sinon une ruche autonome
+   * remettrait sa propre solitude a zero a chaque cycle, et l'indicateur ne
+   * mesurerait plus rien.
+   */
+  dernierApportHumain(): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(t) AS t FROM (
+           SELECT MAX(createdAt) AS t FROM projects
+           UNION ALL SELECT MAX(updatedAt) FROM budgets
+           UNION ALL SELECT MAX(updatedAt) FROM essaim
+         )`,
+      )
+      .get() as { t: number | null } | undefined;
+    return row?.t ?? null;
+  }
+
   setEssaim(
     projectId: string,
     reglage: { niveau: string; depotInscrit: boolean } | null,

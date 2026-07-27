@@ -253,3 +253,164 @@ describe('endpoint du Plein Essaim', () => {
     expect((await regler(base, 'inexistant', 'plein', false)).status).toBe(404);
   });
 });
+
+describe('endpoint — La Dérive arrête la ruche', () => {
+  let server: HiveServer | null = null;
+  let dir: string | null = null;
+
+  afterEach(async () => {
+    await server?.stop();
+    server = null;
+    if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    dir = null;
+  });
+
+  async function demarrer(): Promise<{ base: string; srv: HiveServer }> {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-derive-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 10_000,
+    });
+    return { base: `http://127.0.0.1:${server.port}`, srv: server };
+  }
+
+  /** Deux gouvernantes éprouvées, en ligne. */
+  function gouvernantes2(srv: HiveServer): void {
+    for (let i = 0; i < 2; i++) {
+      const id = `g-${i}`;
+      srv.store.registerNode({
+        nodeId: id,
+        name: id,
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: 1,
+      });
+      srv.store.setNodeStatus(id, 'online');
+      for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
+        srv.store.enregistrerInspection({
+          resultId: 900000 + i * 1000 + k,
+          taskId: `G${i}-${k}`,
+          nodeId: id,
+          verdict: 'clean',
+          score: 0,
+          applique: false,
+          griefs: [],
+        });
+      }
+    }
+  }
+
+  it('un cliquet de complexité réel halte la ruche', async () => {
+    // Le scénario que la fonctionnalité existe pour attraper : des semaines de
+    // productions toutes « propres », qui n'ont jamais retiré une ligne.
+    const { base, srv } = await demarrer();
+    const p = srv.store.createProject({
+      name: 'Ruche',
+      repoUrl: 'https://github.com/moi/p.git',
+    }).id;
+    gouvernantes2(srv);
+
+    for (let i = 0; i < 40; i++) {
+      const resultId = srv.store.insertResult({
+        taskId: `t${i}`,
+        nodeId: 'g-0',
+        success: true,
+        // 30 ajouts, zéro suppression : chaque diff est défendable.
+        diff: ['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -1,0 +1,30 @@']
+          .concat(Array.from({ length: 30 }, (_, k) => `+ligne ${k}`))
+          .join('\n'),
+        logs: 'ok',
+        durationMs: 100,
+        subAgents: [],
+      });
+      srv.store.enregistrerInspection({
+        resultId,
+        taskId: `t${i}`,
+        nodeId: 'g-0',
+        verdict: 'clean',
+        score: 0,
+        applique: false,
+        griefs: [],
+      });
+    }
+
+    await fetch(`${base}/api/projects/${p}/essaim`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ niveau: 'plein', depotInscrit: true }),
+    });
+    const rep = await fetch(`${base}/api/projects/${p}/essaim`, { headers });
+    const e = (await rep.json()) as ReponseEssaim & {
+      derive: { etat: string; motif: string; indicateurs: Array<{ cle: string; etat: string }> };
+    };
+
+    expect(e.derive.etat).toBe('degradee');
+    expect(e.decision.pas, 'la ruche devait s’arrêter').toBe('halte');
+    expect(e.derive.motif).toMatch(/suppressions/);
+    const entropie = e.derive.indicateurs.find((i) => i.cle === 'entropie');
+    expect(entropie?.etat).toBe('degradee');
+  });
+
+  it('une ruche neuve n’est pas haltée : elle délibère', async () => {
+    // Bootstrap : sans ça, aucune autonomie ne pourrait jamais démarrer.
+    const { base, srv } = await demarrer();
+    const p = srv.store.createProject({ name: 'Ruche' }).id;
+    gouvernantes2(srv);
+    await fetch(`${base}/api/projects/${p}/essaim`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ niveau: 'gouverne' }),
+    });
+    const e = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers })
+    ).json()) as ReponseEssaim & { derive: { etat: string } };
+    expect(e.derive.etat).toBe('indeterminee');
+    expect(e.decision.pas).toBe('deliberer');
+  });
+
+  it('un travail sain qui supprime aussi n’est pas haltée', async () => {
+    // Le faux positif est le mode d'échec grave : il interrompt un travail
+    // légitime et apprend à l'humain à ignorer l'alarme.
+    const { base, srv } = await demarrer();
+    const p = srv.store.createProject({ name: 'Ruche' }).id;
+    gouvernantes2(srv);
+    for (let i = 0; i < 40; i++) {
+      const resultId = srv.store.insertResult({
+        taskId: `s${i}`,
+        nodeId: 'g-0',
+        success: true,
+        diff: ['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -1,10 +1,10 @@']
+          .concat(Array.from({ length: 10 }, (_, k) => `+neuf ${k}`))
+          .concat(Array.from({ length: 6 }, (_, k) => `-vieux ${k}`))
+          .join('\n'),
+        logs: 'ok',
+        durationMs: 100,
+        subAgents: [],
+      });
+      srv.store.enregistrerInspection({
+        resultId,
+        taskId: `s${i}`,
+        nodeId: 'g-0',
+        verdict: 'clean',
+        score: 0,
+        applique: false,
+        griefs: [],
+      });
+    }
+    await fetch(`${base}/api/projects/${p}/essaim`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ niveau: 'gouverne' }),
+    });
+    const e = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers })
+    ).json()) as ReponseEssaim & { derive: { etat: string } };
+    expect(e.derive.etat).toBe('saine');
+    expect(e.decision.pas).not.toBe('halte');
+  });
+});
