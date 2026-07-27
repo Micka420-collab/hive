@@ -704,6 +704,42 @@ export function setMembreRole(userId: string, role: Role): Promise<{ userId: str
   });
 }
 
+// ─── Mon tableau de bord ────────────────────────────────────────────────────
+// Un seul appel : l'écran doit pouvoir dire d'un bloc « voici ce qui va vous
+// coûter quelque chose si vous ne faites rien ». Enchaîner une requête par
+// projet ferait apparaître les alertes dans l'ordre des latences plutôt que
+// dans celui de l'urgence.
+
+export type { Gravite, ProjetRendu, Tableau } from '../../src/orchestrator/tableau';
+import type { Alerte as AlerteServeur, Tableau } from '../../src/orchestrator/tableau';
+
+/**
+ * Une alerte TELLE QU'ELLE ARRIVE, `details` compris comme facultatif.
+ *
+ * Le type du serveur le déclare obligatoire, et il l'est — pour le serveur
+ * d'aujourd'hui. Mais le dashboard est servi en fichiers statiques : un
+ * navigateur qui a déjà le nouveau bundle peut très bien interroger un
+ * orchestrateur qui n'a pas encore redémarré. Ce cas n'est pas théorique, il
+ * s'est produit en développement, et il faisait planter la vue entière sur un
+ * `a.details.serveur` — toute la page blanche pour une phrase manquante.
+ *
+ * Le type dit donc la vérité du CÂBLE, pas celle du serveur courant.
+ */
+export type Alerte = Omit<AlerteServeur, 'details'> & {
+  details?: AlerteServeur['details'];
+};
+
+export interface MonTableau extends Omit<Tableau, 'alertes'> {
+  alertes: Alerte[];
+  /** `false` ⇒ le grand livre rattrape encore : les dépenses sont incomplètes. */
+  balanceAJour: boolean;
+  balanceMode: 'off' | 'observation' | 'strict';
+}
+
+export function fetchMonTableau(): Promise<MonTableau> {
+  return apiCompte<MonTableau>('/api/moi/tableau');
+}
+
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;

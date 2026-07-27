@@ -17,6 +17,7 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { CLES_ALERTE } from '../src/orchestrator/tableau.js';
 
 const CSS = readFileSync(new URL('../dashboard/src/styles.css', import.meta.url), 'utf8');
 const APP = readFileSync(new URL('../dashboard/src/App.tsx', import.meta.url), 'utf8');
@@ -49,5 +50,32 @@ describe('coquille du dashboard', () => {
     const barre = regle('.mc-sidebar');
     expect(barre).toMatch(/width:\s*84px/);
     expect(barre).toMatch(/position:\s*sticky/);
+  });
+});
+
+describe('les alertes du tableau de bord se traduisent', () => {
+  // Le serveur envoie une CLÉ ; la phrase se compose côté navigateur, dans la
+  // langue de l'interface. Une clé ajoutée au module pur sans son cas dans la
+  // vue ne casserait RIEN : elle retomberait silencieusement sur le message
+  // français de repli, et cette ligne resterait en français sur une interface
+  // anglaise — sans qu'aucun test ne s'en aperçoive. D'où cette garde.
+
+  it('CHAQUE clé d’alerte a son cas dans la vue', () => {
+    const vue = readFileSync(
+      new URL('../dashboard/src/views/MonEspace.tsx', import.meta.url),
+      'utf8',
+    );
+    expect(CLES_ALERTE.length).toBeGreaterThan(0);
+    for (const cle of CLES_ALERTE) {
+      expect(vue, `clé « ${cle} » sans traduction dans MonEspace.tsx`).toContain(`case '${cle}'`);
+    }
+  });
+
+  it('le repli existe toujours — un client plus ancien affiche une phrase, pas du vide', () => {
+    const vue = readFileSync(
+      new URL('../dashboard/src/views/MonEspace.tsx', import.meta.url),
+      'utf8',
+    );
+    expect(vue).toMatch(/default:\s*\n?\s*return a\.message;/);
   });
 });

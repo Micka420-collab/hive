@@ -90,6 +90,8 @@ import {
   joursAvantSuppression,
   transitionsDepuis,
 } from './serveurs.js';
+import { composerTableau } from './tableau.js';
+import type { ProjetVu } from './tableau.js';
 import type { EtatServeur, Serveur } from './serveurs.js';
 import {
   GOUVERNANTES_MIN,
@@ -3628,6 +3630,72 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply.send(store.listMembers(project.id));
     },
   );
+
+  /**
+   * Le tableau de bord de la personne connectée.
+   *
+   * UN SEUL appel plutôt qu'un par projet et par nature de donnée : l'écran
+   * doit pouvoir dire « voici ce qui va vous coûter quelque chose si vous ne
+   * faites rien aujourd'hui » d'un bloc. Enchaîner N requêtes ferait apparaître
+   * les alertes les unes après les autres, dans un ordre dicté par la latence
+   * plutôt que par l'urgence — exactement l'inverse de ce qu'on cherche.
+   *
+   * PORTÉE : les projets DONT LA PERSONNE EST MEMBRE, rien d'autre. Le rôle
+   * d'administrateur de la ruche n'élargit pas cette vue — l'administration a
+   * ses propres routes, et mélanger les deux ferait qu'un admin ne verrait
+   * plus jamais ce que voient ses utilisateurs.
+   */
+  app.get('/api/moi/tableau', async (req, reply) => {
+    if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+    const userId = (req as AuthRequest).userId!;
+    const now = Date.now();
+    const balance = scheduler.balance;
+
+    const projets: ProjetVu[] = [];
+    for (const m of store.listUserProjects(userId)) {
+      const projet = store.getProject(m.projectId);
+      if (!projet) continue; // Projet effacé, adhésion encore là : on saute.
+
+      const a = lireAbonnement(projet.id);
+      const d = droits(a, now);
+      const budget = store.getBudget(projet.id);
+      const solde = balance.soldes.find((s) => s.projectId === projet.id);
+
+      projets.push({
+        projectId: projet.id,
+        nom: projet.name,
+        role: m.role,
+        plan: a.plan,
+        etatAbonnement: a.etat,
+        finPeriode: a.finPeriode,
+        actif: d.actif,
+        motifDroits: d.motif,
+        heures: d.heures,
+        // Le plafond POSÉ fait foi ; celui du plan n'est qu'une intention tant
+        // qu'un webhook ne l'a pas inscrit. Afficher le second ferait croire
+        // à un quota qui ne borne rien.
+        plafondMs: budget?.plafondMs ?? null,
+        depenseMs: solde?.depenseMs ?? 0,
+        serveurs: serveursDe()
+          .filter((s) => s.projectId === projet.id)
+          .map((s) => ({
+            id: s.id,
+            etat: s.etat,
+            joursAvantSuppression: joursAvantSuppression(s, now),
+          })),
+        autonomie: store.getEssaim(projet.id)?.niveau ?? 'off',
+      });
+    }
+
+    return {
+      ...composerTableau(projets, now),
+      // `aJour: false` ⇒ le grand livre n'a pas fini son rattrapage et les
+      // dépenses affichées sont encore incomplètes. C'est à montrer, pas à
+      // masquer : une jauge qui sous-estime rassure à tort.
+      balanceAJour: balance.aJour,
+      balanceMode: balance.mode,
+    };
+  });
 
   // Projets de l'utilisateur connecté
   app.get('/api/user/projects', async (req, reply) => {

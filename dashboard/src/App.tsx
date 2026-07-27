@@ -45,6 +45,7 @@ const Sante = lazy(() => import('./views/Sante'));
 const Chronique = lazy(() => import('./views/Chronique'));
 const Memoire = lazy(() => import('./views/Memoire'));
 const Reine = lazy(() => import('./views/Reine'));
+const MonEspace = lazy(() => import('./views/MonEspace'));
 const Intendance = lazy(() => import('./views/Intendance'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
@@ -68,12 +69,13 @@ const NAV: NavItem[] = [
   { id: 'sante', label: 'Santé', labelEn: 'Health', icon: '💓', key: '6' },
   { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', icon: '📜', key: '7' },
   { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', icon: '🧠', key: '8' },
+  { id: 'monespace', label: 'Mon espace', labelEn: 'My space', icon: '🪪', key: '9' },
   {
     id: 'intendance',
     label: 'Intendance',
     labelEn: 'Stewardship',
     icon: '🖥',
-    key: '9',
+    key: '0',
     admin: true,
   },
 ];
@@ -422,6 +424,7 @@ export function App() {
           {route.view === 'chronique' && <Chronique {...viewProps} />}
           {route.view === 'memoire' && <Memoire {...viewProps} />}
           {route.view === 'reine' && <Reine {...viewProps} />}
+          {route.view === 'monespace' && <MonEspace {...viewProps} />}
           {route.view === 'intendance' && <Intendance {...viewProps} />}
         </Suspense>
       </div>
