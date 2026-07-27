@@ -1353,6 +1353,33 @@
             <code class="tag">hermes</code> — ou votre propre AgentAdapter.
           </p>
         </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🐜</div>
+          <h3 data-i18n="feat.ph.t">Phéromones</h3>
+          <p data-i18n="feat.ph">
+            La ruche apprend <strong>quel nœud réussit quel type de tâche</strong> (API, interface,
+            base, tests…) et départage les ouvrières à charge égale. Le signal s'évapore en 7 jours,
+            comme une vraie phéromone.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🌡️</div>
+          <h3 data-i18n="feat.th.t">Thermorégulation</h3>
+          <p data-i18n="feat.th">
+            Quand les échecs s'accumulent, la ruche <strong>ventile</strong> : la concurrence baisse
+            automatiquement le temps de refroidir, puis remonte. Hystérésis intégrée — jamais de
+            clignotement.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">👶</div>
+          <h3 data-i18n="feat.co.t">Couveuse</h3>
+          <p data-i18n="feat.co">
+            Une tâche re-tentée ne repart plus à l'aveugle : les
+            <strong>leçons des échecs précédents</strong> sont injectées dans le contexte de
+            l'ouvrière suivante, en bloc de données isolé des instructions.
+          </p>
+        </div>
       </div>
     </section>
 
@@ -1643,6 +1670,22 @@
           </div>
         </div>
         <div class="step">
+          <div class="rail">
+            <div class="hex">5</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.5.t">Palier 5 — l'instinct</span>
+              <span class="ok" data-i18n="rm.ok5">✅ livré</span>
+            </div>
+            <p data-i18n="rm.5.d">
+              Phéromones (routage par affinité apprise) · Thermorégulation (ventilation adaptative)
+              · Couveuse (les re-tentatives apprennent de leurs échecs).
+            </p>
+          </div>
+        </div>
+        <div class="step">
           <div class="rail"><div class="hex next">→</div></div>
           <div class="body">
             <div class="t next" data-i18n="rm.next.t">Ensuite</div>
@@ -1721,6 +1764,15 @@
             'Multilingual chat with the hive: real progress, health, leaderboard, brief coaching. Optional AI, guaranteed offline fallback.',
           'feat.sv':
             'The living swarm in lightweight SVG or in 3D (hex cells, orbiting workers, orbital camera), loaded on demand.',
+          'feat.ph.t': 'Pheromones',
+          'feat.ph':
+            'The hive learns <strong>which node succeeds at which kind of task</strong> (API, UI, database, tests…) and breaks ties between equally loaded workers. The signal evaporates over 7 days, like a real pheromone.',
+          'feat.th.t': 'Thermoregulation',
+          'feat.th':
+            'When failures pile up, the hive <strong>fans itself</strong>: concurrency drops automatically until things cool down, then recovers. Hysteresis built in — never any flapping.',
+          'feat.co.t': 'Brood Chamber',
+          'feat.co':
+            'A retried task no longer starts blind: the <strong>lessons from previous failures</strong> are injected into the next worker’s context, inside a data block kept separate from instructions.',
           'feat.aa.t': 'Agent-agnostic',
           'feat.aa':
             '<code class="tag">claude-code</code> <code class="tag">codex</code> <code class="tag">hermes</code> — or your own AgentAdapter.',
@@ -1795,6 +1847,10 @@
           'rm.4.d':
             'Nectar &amp; Waggle Board · Night Shift · Agent Parliament · Ghost in the Hive.',
           'rm.next.t': 'Next',
+          'rm.5.t': 'Tier 5 — instinct',
+          'rm.ok5': '✅ shipped',
+          'rm.5.d':
+            'Pheromones (learned-affinity routing) · Thermoregulation (adaptive ventilation) · Brood Chamber (retries learn from their failures).',
           'rm.next.d':
             'Hardened isolation (VM/container) · hive federation · user accounts (UI on the existing JWT auth).',
           'footer.mit': 'MIT License',

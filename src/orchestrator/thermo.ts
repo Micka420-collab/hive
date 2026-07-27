@@ -12,7 +12,16 @@
 export type BandeThermo = 'froide' | 'normale' | 'chaude' | 'surchauffe';
 
 /** Fenêtre d'observation : seules les 10 dernières minutes du journal comptent. */
-const FENETRE_MS = 10 * 60 * 1_000;
+export const FENETRE_MS = 10 * 60 * 1_000;
+
+/**
+ * Les SEULS types d'événements que la température regarde. L'appelant lit le
+ * journal avec ce filtre ET la fenêtre temporelle : borner la lecture à un LOT
+ * (les N derniers événements, quel que soit leur type) rendait la fenêtre de
+ * 10 minutes fictive — un flot de `task_progress`, de loin le type le plus
+ * fréquent, évinçait les issues et aveuglait la ventilation.
+ */
+export const TYPES_THERMO = ['task_done', 'task_failed', 'task_retry', 'task_rejected'] as const;
 
 /** En deçà de ce nombre d'issues, l'échantillon est trop maigre pour juger. */
 const ECHANTILLON_MIN = 4;
@@ -47,21 +56,31 @@ export interface LectureThermo {
   bande: BandeThermo;
   /** Facteur de ventilation associé à la bande (1 = pleine concurrence). */
   facteur: number;
-  /** Issues comptées dans la fenêtre d'observation (transparence). */
+  /**
+   * Issues comptées dans la fenêtre d'observation (transparence). `echecs`
+   * exclut les échecs en cascade, `refusInfra` ne compte que les refus
+   * d'infrastructure — le nom du champ dit désormais ce qu'il compte.
+   */
   signaux: { echecs: number; retries: number; refusInfra: number; succes: number; total: number };
 }
 
 /**
  * Prend la température de la ruche en repliant le journal récent : ratio
  * pondéré d'issues défavorables (task_failed, task_retry, task_rejected)
- * parmi toutes les issues (avec task_done) des 10 dernières minutes. Cette
- * vue minimale n'a pas accès au payload : TOUT task_rejected compte comme
- * refus — un nœud qui refuse en boucle chauffe la ruche, infra ou pas. Un
+ * parmi toutes les issues (avec task_done) des 10 dernières minutes. Un
  * échantillon de moins de 4 issues est trop maigre pour juger : bande
  * 'froide' d'office.
+ *
+ * Le module reste PUR — il lit le payload, il ne l'interroge nulle part :
+ *  - un `task_failed` de CASCADE (`reason: 'dependency_failed'`) n'est pas un
+ *    échec d'agent : une seule vraie panne propage un échec à toutes ses
+ *    dépendantes et ferait chauffer la ruche dix fois pour un seul incident ;
+ *  - seul un `task_rejected` d'INFRASTRUCTURE (`infra: true` — agent
+ *    injoignable, quota) compte : un refus de saturation ou de Night Shift
+ *    (nœud hors service) vient d'une ruche parfaitement saine.
  */
 export function lireTemperature(
-  events: Array<{ type: string; ts: number }>,
+  events: Array<{ type: string; ts: number; payload?: Record<string, unknown> }>,
   now: number,
 ): LectureThermo {
   const signaux = { echecs: 0, retries: 0, refusInfra: 0, succes: 0, total: 0 };
@@ -73,13 +92,13 @@ export function lireTemperature(
         signaux.succes += 1;
         break;
       case 'task_failed':
-        signaux.echecs += 1;
+        if (e.payload?.reason !== 'dependency_failed') signaux.echecs += 1;
         break;
       case 'task_retry':
         signaux.retries += 1;
         break;
       case 'task_rejected':
-        signaux.refusInfra += 1;
+        if (e.payload?.infra === true) signaux.refusInfra += 1;
         break;
       default:
         break;

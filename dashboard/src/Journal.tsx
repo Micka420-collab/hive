@@ -212,17 +212,21 @@ const EVENTS: Record<string, Meta> = {
         `race lost: every drone failed (${short(p.taskId)})`,
       ),
   },
-  // Instinct de ruche : phéromones, thermorégulation, couveuse. Leur payload
-  // porte un `message` en français (destiné aux logs serveur) — le Journal ne
-  // l'affiche PAS et reconstruit son texte bilingue, comme pour tout le reste.
+  // Instinct de ruche : phéromones, thermorégulation, couveuse. Leur payload ne
+  // porte QUE des faits typés — le texte bilingue est reconstruit ici, comme
+  // pour tout le reste du journal (aucune phrase figée en base).
   pheromone_route: {
     icon: '🐜',
     cls: 'info',
-    text: (p, t) =>
-      t(
-        `phéromones : ${short(p.taskId)} → nœud ${short(p.nodeId)} (domaine ${String(p.domaine ?? '')})`,
-        `pheromones: ${short(p.taskId)} → node ${short(p.nodeId)} (domain ${String(p.domaine ?? '')})`,
-      ),
+    text: (p, t) => {
+      // Le nom du nœud est joint au payload ; repli sur l'id abrégé pour les
+      // événements journalisés avant son ajout.
+      const noeud = typeof p.nodeName === 'string' ? p.nodeName : short(p.nodeId);
+      return t(
+        `phéromones : ${short(p.taskId)} → nœud ${noeud} (domaine ${String(p.domaine ?? '')})`,
+        `pheromones: ${short(p.taskId)} → node ${noeud} (domain ${String(p.domaine ?? '')})`,
+      );
+    },
   },
   thermo_shift: {
     icon: '🌡️',

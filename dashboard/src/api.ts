@@ -221,15 +221,15 @@ export function fetchGhosts(): Promise<GhostReport> {
 }
 
 /**
- * Thermorégulation : `lecture` est la température INSTANTANÉE du journal
- * récent, `bande`/`facteur` l'état HYSTÉRÉSÉ réellement appliqué par le
+ * Thermorégulation : `instantane` est la température lue dans la fenêtre de
+ * 10 minutes, `applique` l'état HYSTÉRÉSÉ réellement en vigueur dans le
  * scheduler — les deux divergent le temps d'une confirmation, et c'est
- * exactement ce que l'opérateur doit voir.
+ * exactement ce que l'opérateur doit voir. Deux noms pour deux sémantiques :
+ * `bande` figurait auparavant des deux côtés avec deux sens différents.
  */
 export interface ThermoState {
-  lecture: LectureThermo;
-  bande: BandeThermo;
-  facteur: number;
+  instantane: LectureThermo;
+  applique: { bande: BandeThermo; facteur: number };
 }
 
 /** Thermorégulation : température de la ruche et ventilation appliquée. */

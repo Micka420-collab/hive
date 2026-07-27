@@ -41,6 +41,9 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 | 🐝 **Swarm View**       | Vue vivante de l'essaim, en **2D (SVG léger)** ou **3D ([Galacean Engine](https://github.com/galacean/engine))**.                                                                                                                                            |
 | ⚔ **Drone Wars**        | Redondance compétitive opt-in : `npm run cli -- race <taskId> [2-5]` (ou bouton du tiroir) — la même tâche sur plusieurs nœuds, le premier succès gagne, les perdants sont annulés. Suivi : `races` (CLI), badge ⚔ dans l'Essaim, bonus nectar au vainqueur. |
 | 💓 **Pouls & fantômes** | Signes vitaux agrégés (`/api/pulse`), anomalies (`/api/ghost`), classement nectar (`/api/waggle`), time-lapse (`/api/replay`), rapport projet (`/api/projects/:id/report`).                                                                                  |
+| 🐜 **Phéromones**       | La ruche apprend **quel nœud réussit quel type de tâche** (api, ui, db, tests, docs, infra) et départage les ouvrières à charge égale. Signal évaporé en 7 jours. `/api/pheromones`, événement `pheromone_route`, carte dans l'Essaim.                       |
+| 🌡️ **Thermorégulation** | Quand les échecs s'accumulent, la ruche **ventile** : la concurrence par nœud baisse (×0,75 puis ×0,5) le temps de refroidir, avec hystérésis anti-clignotement. `/api/thermo`, événement `thermo_shift`, jauge dans Santé.                                  |
+| 👶 **Couveuse**         | Une tâche re-tentée repart avec les **leçons de ses échecs précédents**, injectées dans un bloc de données isolé des instructions (anti-injection de prompt). Événement `brood_context`.                                                                     |
 | 🤝 **Inviter un ami**   | Une commande à coller — son Claude Code / Codex est détecté et rejoint la ruche en 30 s.                                                                                                                                                                     |
 | 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées. **Jamais de merge sans revue humaine.**                                                                                                                     |
 | 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex`, `hermes-agent`, `custom` — ou votre propre `AgentAdapter`.                                                                                                                                                         |
@@ -388,6 +391,11 @@ tests/            scheduler · adapters · e2e · resilience · protocol · hard
 - **Palier 4** ✅ — **Nectar & Waggle Board** (+ bonus de victoire ⚔) ·
   **Night Shift** (heures de service par membre) · **Parlement des Agents**
   (consensus par vote) · **Ghost in the Hive** (anomalies du journal).
+- **Palier 5** ✅ — **l'instinct de la ruche** : **Phéromones** (routage par
+  affinité apprise nœud × domaine, signal évaporé en 7 jours) ·
+  **Thermorégulation** (ventilation adaptative de la concurrence, avec
+  hystérésis) · **Couveuse** (les re-tentatives repartent avec les leçons de
+  leurs échecs, en bloc de données isolé des instructions).
 - **Ensuite** — isolation durcie (VM/conteneur), fédération de ruches,
   finalisation des comptes utilisateurs (UI de connexion sur l'auth JWT
   existante).

@@ -5,6 +5,7 @@
 
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import {
+  CacheDomaines,
   calculerPheromones,
   domaineDeTache,
   meilleurNoeud,
@@ -59,6 +60,13 @@ describe('domaineDeTache', () => {
 
   it('aucun mot-clé → general', () => {
     expect(domaineDeTache('Réfléchir au produit', 'faire quelque chose d’utile')).toBe('general');
+  });
+
+  it('tolère le pluriel sur un mot-clé COMPOSÉ : « bases de données »', () => {
+    // Le `s?` posé en fin de chaîne ne couvrait que le dernier mot : le
+    // pluriel français, lui, se pose d'abord sur le premier.
+    expect(domaineDeTache('Nettoyer les bases de données', 'purge hebdomadaire')).toBe('db');
+    expect(domaineDeTache('Nettoyer la base de données', 'purge hebdomadaire')).toBe('db');
   });
 });
 
@@ -119,6 +127,50 @@ describe('calculerPheromones', () => {
       1_000,
     );
     expect(traces).toEqual([]);
+  });
+});
+
+describe('CacheDomaines (mémoïsation bornée)', () => {
+  const tache = (id: string) => ({ id, title: 'route api', prompt: 'endpoint rest' });
+
+  it('ne classe qu’UNE fois par taskId (titre et prompt sont immuables)', () => {
+    const cache = new CacheDomaines();
+    for (let i = 0; i < 50; i++) expect(cache.domaine(tache('t-1'))).toBe('api');
+    expect(cache.statistiques).toEqual({ taille: 1, calculs: 1 });
+  });
+
+  it('ne lit que les ids MANQUANTS, et ignore les tâches introuvables', () => {
+    const cache = new CacheDomaines();
+    const lus: string[][] = [];
+    const lire = (manquants: string[]) => {
+      lus.push([...manquants]);
+      return manquants.filter((id) => id !== 'purgee').map(tache);
+    };
+
+    const premier = cache.domaines(['t-1', 't-2', 't-1', 'purgee'], lire);
+    expect(premier).toEqual(
+      new Map([
+        ['t-1', 'api'],
+        ['t-2', 'api'],
+      ]),
+    );
+    expect(lus).toEqual([['t-1', 't-2', 'purgee']]); // dédoublonné
+
+    // Deuxième passe : plus rien à lire pour les ids déjà connus.
+    const second = cache.domaines(['t-1', 't-2'], lire);
+    expect(second.size).toBe(2);
+    expect(lus).toHaveLength(1);
+    expect(cache.statistiques.calculs).toBe(2);
+  });
+
+  it('capacité plafonnée : la plus ancienne entrée est purgée (pas de fuite sur dix ans)', () => {
+    const cache = new CacheDomaines(3);
+    for (const id of ['a', 'b', 'c', 'd']) cache.domaine(tache(id));
+    expect(cache.statistiques).toEqual({ taille: 3, calculs: 4 });
+    cache.domaine(tache('a')); // 'a' a été évincée : recalculée
+    expect(cache.statistiques).toEqual({ taille: 3, calculs: 5 });
+    cache.domaine(tache('d')); // 'd' est encore là
+    expect(cache.statistiques.calculs).toBe(5);
   });
 });
 
@@ -203,13 +255,15 @@ describe('Phéromones : câblage scheduler', () => {
     expect(store.getTask(task.id)?.assignedNodeId).toBe(nb.id);
     expect(assigned).toEqual([{ nodeId: nb.id, taskId: task.id }]);
     const route = store.listEvents().find((e) => e.type === 'pheromone_route');
-    expect(route?.payload).toMatchObject({
+    expect(route?.payload).toEqual({
       taskId: task.id,
       nodeId: nb.id,
+      nodeName: 'b-butineur',
       domaine: 'api',
       score: 20,
     });
-    expect(String(route?.payload.message)).toContain('b-butineur');
+    // Faits typés uniquement : le nom du nœud remplace le message français figé.
+    expect(route?.payload.message).toBeUndefined();
   });
 
   it('sans historique : pas de pheromone_route, l’ordre actuel (nom) décide', () => {
@@ -230,6 +284,47 @@ describe('Phéromones : câblage scheduler', () => {
     expect(store.getTask(task.id)?.assignedNodeId).toBe(na.id);
     expect(assigned).toEqual([{ nodeId: na.id, taskId: task.id }]);
     expect(store.listEvents().some((e) => e.type === 'pheromone_route')).toBe(false);
+  });
+
+  it('ne classe QUE les tâches citées par les résultats : la table tasks n’est jamais dépliée', () => {
+    const now = Date.now();
+    const p = store.createProject({ name: 'P' });
+    scheduler.registerNode(profile('a-eclaireur'), now);
+    const nb = scheduler.registerNode(profile('b-butineur'), now);
+    // 400 tâches terminées SANS résultat : du bruit qu'aucun calcul de domaine
+    // ne doit toucher (à 100 000 tâches, c'est ce dépliage qui gelait le tick).
+    for (let i = 0; i < 400; i++) {
+      const bruit = store.createTask({ projectId: p.id, title: `bruit ${i}`, prompt: 'blabla' });
+      store.patchTask(bruit.id, { status: 'done' });
+    }
+    historiqueApi(p.id, nb.id, 2, now); // 2 tâches réellement citées
+    const task = store.createTask({
+      projectId: p.id,
+      title: 'nouvelle route api',
+      prompt: 'exposer un endpoint rest',
+    });
+    store.patchTask(task.id, { status: 'ready' });
+
+    // Instrumentation : le chemin des phéromones ne doit JAMAIS passer par un
+    // SELECT * de la table tasks, et ne lire que les ids cités.
+    let dépliages = 0;
+    const idsLus: string[] = [];
+    const vraiListTasks = store.listTasks.bind(store);
+    store.listTasks = (projectId?: string) => {
+      dépliages += 1;
+      return vraiListTasks(projectId);
+    };
+    const vraisTextes = store.listTaskTexts.bind(store);
+    store.listTaskTexts = (ids: readonly string[]) => {
+      idsLus.push(...ids);
+      return vraisTextes(ids);
+    };
+
+    scheduler.tick(now);
+
+    expect(dépliages).toBe(0);
+    expect(idsLus).toHaveLength(2);
+    expect(store.getTask(task.id)?.assignedNodeId).toBe(nb.id); // le routage marche toujours
   });
 
   it('ne renverse jamais le critère principal : le moins chargé gagne malgré les phéromones', () => {

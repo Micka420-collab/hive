@@ -51,15 +51,30 @@ function normaliser(texte: string): string {
 }
 
 /**
- * Occurrences d'un mot-clé en MOT ENTIER (pluriel en `s` toléré). Le tiret est
- * exclu des frontières : « celui-ci » ne compte pas pour 'ci', mais « ci/cd »
- * et « ci : … » comptent bien.
+ * Compile un mot-clé en motif de MOT ENTIER. Le tiret est exclu des frontières :
+ * « celui-ci » ne compte pas pour 'ci', mais « ci/cd » et « ci : … » comptent
+ * bien. Le pluriel en `s` est toléré sur CHAQUE mot du motif : un `s?` posé
+ * seulement en fin de chaîne laissait « bases de donnees » hors du compte de
+ * « base de donnees » — en français, le pluriel se pose aussi sur le 1er mot.
  */
-function compter(texte: string, motCle: string): number {
-  const echappe = motCle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`(?<![a-z0-9-])${echappe}s?(?![a-z0-9-])`, 'g');
-  return texte.match(re)?.length ?? 0;
+function compilerMotCle(motCle: string): RegExp {
+  const corps = motCle
+    .split(/\s+/)
+    .map((mot) => `${mot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?`)
+    .join('\\s+');
+  return new RegExp(`(?<![a-z0-9-])${corps}(?![a-z0-9-])`, 'g');
 }
+
+/**
+ * Motifs compilés UNE SEULE FOIS au chargement du module. Recompiler les ~47
+ * RegExp à chaque appel de `domaineDeTache` coûtait plus cher que le scan
+ * lui-même, sur un chemin appelé jusqu'à 500 fois par tick.
+ * `String.prototype.match` remet `lastIndex` à 0 sur un motif global : partager
+ * les instances entre appels est sûr.
+ */
+const MOTIFS: ReadonlyArray<readonly [Domaine, readonly RegExp[]]> = MOTS_CLES.map(
+  ([domaine, mots]) => [domaine, mots.map(compilerMotCle)] as const,
+);
 
 /**
  * Devine le domaine d'une tâche par comptage de mots-clés FR/EN. Le titre est
@@ -71,15 +86,85 @@ export function domaineDeTache(title: string, prompt: string): Domaine {
   const texte = `${normaliser(title)} ${normaliser(title)} ${normaliser(prompt)}`;
   let meilleur: Domaine = 'general';
   let meilleurCompte = 0;
-  for (const [domaine, mots] of MOTS_CLES) {
+  for (const [domaine, motifs] of MOTIFS) {
     let compte = 0;
-    for (const mot of mots) compte += compter(texte, mot);
+    for (const motif of motifs) compte += texte.match(motif)?.length ?? 0;
     if (compte > meilleurCompte) {
       meilleur = domaine;
       meilleurCompte = compte;
     }
   }
   return meilleur;
+}
+
+/** Ce que le cache a besoin de connaître d'une tâche pour la classer. */
+export interface TacheClassable {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+/** Capacité par défaut du cache de domaines (quelques milliers d'entrées). */
+const CAPACITE_DOMAINES = 4_000;
+
+/**
+ * Mémoïsation bornée du domaine, par `taskId`. Le titre et le prompt d'une
+ * tâche sont IMMUABLES (`patchTask` ne les met jamais à jour) : le domaine
+ * d'une tâche ne change donc jamais et se mémoïse sans risque de péremption.
+ *
+ * Le cache est un OBJET explicitement instancié par son propriétaire (le
+ * Scheduler, le serveur) — le module reste sans état global. Sa capacité est
+ * plafonnée et la plus ancienne entrée est purgée à l'insertion : sur dix ans
+ * et 100 000 tâches, la mémoire ne dérive pas.
+ */
+export class CacheDomaines {
+  private readonly cache = new Map<string, Domaine>();
+  /** Nombre de classements réellement calculés (observabilité + tests de non-régression). */
+  private calculs = 0;
+
+  constructor(private readonly capacite: number = CAPACITE_DOMAINES) {}
+
+  /** Domaine d'une tâche, calculé au plus une fois par `id`. */
+  domaine(tache: TacheClassable): Domaine {
+    const connu = this.cache.get(tache.id);
+    if (connu !== undefined) return connu;
+    const domaine = domaineDeTache(tache.title, tache.prompt);
+    this.calculs += 1;
+    if (this.cache.size >= this.capacite) {
+      const plusAncienne = this.cache.keys().next().value;
+      if (plusAncienne !== undefined) this.cache.delete(plusAncienne);
+    }
+    this.cache.set(tache.id, domaine);
+    return domaine;
+  }
+
+  /**
+   * Domaines des SEULES tâches citées : les ids déjà connus ne coûtent rien, et
+   * `lire` n'est appelé que pour les manquants (lecture ciblée par clé
+   * primaire côté store — jamais un dépliage de la table `tasks`).
+   */
+  domaines(
+    ids: readonly string[],
+    lire: (manquants: string[]) => TacheClassable[],
+  ): Map<string, Domaine> {
+    const uniques = [...new Set(ids)];
+    const manquants = uniques.filter((id) => !this.cache.has(id));
+    if (manquants.length > 0) {
+      for (const tache of lire(manquants)) this.domaine(tache);
+    }
+    const domaines = new Map<string, Domaine>();
+    for (const id of uniques) {
+      const domaine = this.cache.get(id);
+      // Tâche introuvable (purgée) : sans domaine imputable, elle est ignorée.
+      if (domaine !== undefined) domaines.set(id, domaine);
+    }
+    return domaines;
+  }
+
+  /** Transparence : taille du cache et nombre de classements calculés depuis le boot. */
+  get statistiques(): { taille: number; calculs: number } {
+    return { taille: this.cache.size, calculs: this.calculs };
+  }
 }
 
 /** Trace de phéromone : l'affinité apprise d'un nœud pour un domaine. */
@@ -112,7 +197,20 @@ export function calculerPheromones(
 ): TraceePheromone[] {
   const domaines = new Map<string, Domaine>();
   for (const t of taches) domaines.set(t.id, domaineDeTache(t.title, t.prompt));
+  return replierTraces(domaines, resultats, now);
+}
 
+/**
+ * Cœur du repli, quand l'appelant connaît DÉJÀ le domaine des tâches citées
+ * (cache mémoïsé). Même contrat que `calculerPheromones`, sans reclasser quoi
+ * que ce soit : c'est ce chemin qu'emprunte le Scheduler, pour ne jamais payer
+ * le classement des tâches qu'aucun résultat récent ne cite.
+ */
+export function replierTraces(
+  domaines: ReadonlyMap<string, Domaine>,
+  resultats: Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }>,
+  now: number,
+): TraceePheromone[] {
   const traces = new Map<string, TraceePheromone>();
   for (const r of resultats) {
     const domaine = domaines.get(r.taskId);

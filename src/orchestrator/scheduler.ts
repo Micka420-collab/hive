@@ -8,22 +8,23 @@ import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { summarizeTask } from './hive-mind.js';
-import { calculerPheromones, domaineDeTache, meilleurNoeud } from './pheromones.js';
+import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
-import { concurrenceEffective, lireTemperature } from './thermo.js';
+import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
 import type { BandeThermo } from './thermo.js';
 
 /** Délai pendant lequel un nœud qui vient de refuser une tâche ne la reçoit pas de nouveau. */
 const REJECT_COOLDOWN_MS = 3_000;
 
 /**
- * Thermorégulation : nombre d'événements relus à chaque tick pour prendre la
- * température (le store plafonne une page à 1000). La fenêtre de 10 minutes
- * fait le vrai tri — ce lot ne fait que borner la lecture.
+ * Hystérésis : nombre de ticks CONSÉCUTIFS passés hors de la bande courante
+ * avant de changer de régime. On compte les ticks divergents, pas les lectures
+ * identiques : deux bandes divergentes en alternance (chaude, surchauffe,
+ * chaude…) ne confirmaient jamais rien et la ruche restait froide.
  */
-const LOT_EVENEMENTS_THERMO = 1_000;
+const TICKS_CONFIRMATION_THERMO = 2;
 
 export interface SchedulerOptions {
   maxAttempts?: number;
@@ -61,9 +62,14 @@ export class Scheduler {
    */
   private bandeThermo: BandeThermo = 'froide';
   private facteurThermo = 1;
-  /** Bande divergente pressentie au tick précédent (hystérésis) — null si la
-   *  dernière lecture confirmait la bande courante. */
-  private bandePressentie: BandeThermo | null = null;
+  /** Ticks consécutifs dont la lecture diverge de la bande appliquée (hystérésis). */
+  private ticksDivergents = 0;
+
+  /**
+   * Phéromones : domaine mémoïsé par tâche (titre et prompt sont immuables).
+   * Cache borné — sur dix ans, la mémoire ne dérive pas.
+   */
+  private readonly cacheDomaines = new CacheDomaines();
 
   constructor(
     private readonly store: HiveStore,
@@ -103,34 +109,30 @@ export class Scheduler {
   }
 
   /**
-   * Thermorégulation : lit la température du journal récent et ajuste le
-   * facteur de ventilation avec HYSTÉRÉSIS — la bande ne change que si DEUX
-   * ticks consécutifs lisent la MÊME bande divergente, pour éviter le
-   * clignotement à la frontière entre deux bandes.
+   * Thermorégulation : lit la température de la FENÊTRE de 10 minutes (lecture
+   * ciblée par temps et par type — jamais un lot des N derniers événements, qui
+   * serait noyé par les `task_progress`) et ajuste le facteur de ventilation
+   * avec HYSTÉRÉSIS : la bande ne change qu'après deux ticks consécutifs passés
+   * hors de la bande appliquée, pour éviter le clignotement à la frontière.
    */
   private ventiler(now: number): void {
-    const dernierId = this.store.lastEventId();
-    const events = this.store.listEvents(
-      Math.max(0, dernierId - LOT_EVENEMENTS_THERMO),
-      LOT_EVENEMENTS_THERMO,
-    );
+    const events = this.store.listEventsInWindow(now - FENETRE_MS, TYPES_THERMO);
     const lecture = lireTemperature(events, now);
     if (lecture.bande === this.bandeThermo) {
-      this.bandePressentie = null; // la lecture confirme la bande courante
+      this.ticksDivergents = 0; // la lecture confirme la bande courante
       return;
     }
-    if (this.bandePressentie !== lecture.bande) {
-      this.bandePressentie = lecture.bande; // 1er tick divergent : on attend confirmation
-      return;
-    }
-    this.bandePressentie = null;
+    this.ticksDivergents += 1;
+    if (this.ticksDivergents < TICKS_CONFIRMATION_THERMO) return;
+    this.ticksDivergents = 0;
     this.bandeThermo = lecture.bande;
     this.facteurThermo = lecture.facteur;
+    // Payload de FAITS uniquement : le texte (bilingue) est reconstruit à
+    // l'affichage — jamais de message figé dans une base qui vivra dix ans.
     this.emit('thermo_shift', {
       bande: lecture.bande,
       temperature: lecture.temperature,
       facteur: lecture.facteur,
-      message: `🌡️ Thermorégulation : la ruche passe en ${lecture.bande} (température ${lecture.temperature}°) — concurrence ×${lecture.facteur}`,
     });
   }
 
@@ -545,7 +547,14 @@ export class Scheduler {
       .filter(
         (n) =>
           n.status === 'online' &&
-          n.running + (extra.get(n.id) ?? 0) < n.maxConcurrency &&
+          // Thermorégulation : une course MULTIPLIE la charge sur une ruche qui
+          // souffre déjà — elle respecte donc la concurrence effective, comme
+          // l'assignation automatique. Décision assumée : le geste explicite
+          // choisit QUI travaille, jamais COMBIEN la ruche encaisse. Le
+          // plancher de 1 par nœud garantit qu'une course reste possible même
+          // en surchauffe.
+          n.running + (extra.get(n.id) ?? 0) <
+            concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
           (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
       )
       .sort(
@@ -731,16 +740,21 @@ export class Scheduler {
       changed = false;
       const pending = this.store.tasksByStatus('pending');
       if (pending.length === 0) return;
-      const all = new Map(this.store.listTasks().map((t) => [t.id, t]));
+      // Statuts des SEULES dépendances citées (lecture par clé primaire) : le
+      // dépliage de toute la table `tasks` à chaque passe — et il y en a une
+      // par nœud fauché — gelait l'orchestrateur à 100 000 tâches.
+      const attendues = new Set<string>();
+      for (const task of pending) for (const dep of task.dependsOn) attendues.add(dep);
+      const statuts = this.store.taskStatuses([...attendues]);
       for (const task of pending) {
-        const deps = task.dependsOn.map((id) => all.get(id));
-        if (deps.some((d) => d === undefined || d.status === 'failed')) {
+        const deps = task.dependsOn.map((id) => statuts.get(id));
+        if (deps.some((d) => d === undefined || d === 'failed')) {
           this.store.patchTask(task.id, { status: 'failed' }, now);
           this.emit('task_failed', { taskId: task.id, reason: 'dependency_failed' });
           changed = true;
           continue;
         }
-        if (deps.every((d) => d !== undefined && d.status === 'done')) {
+        if (deps.every((d) => d === 'done')) {
           this.store.patchTask(task.id, { status: 'ready' }, now);
           this.emit('task_ready', { taskId: task.id });
           changed = true;
@@ -759,13 +773,19 @@ export class Scheduler {
     const extra = this.droneLoad();
     // Phéromones : calculées au plus UNE fois par passe, et seulement si un
     // départage est réellement nécessaire (≥ 2 candidats à charge minimale).
+    // Le corpus est BORNÉ de bout en bout : ≤ 500 résultats récents, dont on ne
+    // résout le domaine que pour les taskId réellement cités (lecture par clé
+    // primaire, mémoïsée). Déplier toute la table `tasks` pour n'en garder que
+    // 0,5 % gelait l'orchestrateur à 100 000 tâches.
     let traces: TraceePheromone[] | null = null;
     const lireTraces = (): TraceePheromone[] => {
-      traces ??= calculerPheromones(
-        this.store.listTasks().map((t) => ({ id: t.id, title: t.title, prompt: t.prompt })),
-        this.store.listResultsForPheromones(),
-        now,
+      if (traces) return traces;
+      const resultats = this.store.listResultsForPheromones();
+      const domaines = this.cacheDomaines.domaines(
+        resultats.map((r) => r.taskId),
+        (manquants) => this.store.listTaskTexts(manquants),
       );
+      traces = replierTraces(domaines, resultats, now);
       return traces;
     };
     for (const task of this.store.tasksByStatus('ready')) {
@@ -809,7 +829,7 @@ export class Scheduler {
       const chargeMin = charge(node);
       const exAequo = eligibles.filter((n) => charge(n) === chargeMin);
       if (exAequo.length >= 2) {
-        const domaine = domaineDeTache(task.title, task.prompt);
+        const domaine = this.cacheDomaines.domaine(task);
         const elu = meilleurNoeud(
           exAequo.map((n) => n.id),
           domaine,
@@ -830,12 +850,14 @@ export class Scheduler {
       );
       if (!assigned) continue;
       if (routePheromone) {
+        // Faits typés seulement (dont le NOM du nœud, que le Journal affiche) :
+        // le texte bilingue est reconstruit à l'affichage.
         this.emit('pheromone_route', {
           taskId: task.id,
           nodeId: node.id,
+          nodeName: node.name,
           domaine: routePheromone.domaine,
           score: routePheromone.score,
-          message: `🐜 Phéromones : « ${task.title} » routée vers ${node.name} (domaine ${routePheromone.domaine})`,
         });
       }
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),

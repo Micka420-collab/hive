@@ -312,6 +312,38 @@ describe('Scheduler (ordonnancement)', () => {
     expect(store.getTask(c.id)?.status).toBe('failed');
   });
 
+  it('la promotion ne lit que les dépendances citées, jamais toute la table tasks', () => {
+    const p = store.createProject({ name: 'P' });
+    const a = store.createTask({ projectId: p.id, title: 'A', prompt: 'a' });
+    store.createTask({ projectId: p.id, title: 'B', prompt: 'b', dependsOn: [a.id] });
+    // 500 tâches sans rapport : un `SELECT *` de la table à chaque passe (et il
+    // y en a une par nœud fauché) gelait l'orchestrateur à 100 000 tâches.
+    for (let i = 0; i < 500; i++) {
+      store.createTask({ projectId: p.id, title: `bruit ${i}`, prompt: 'x' });
+    }
+    let dépliages = 0;
+    const idsLus: string[] = [];
+    const vraiListTasks = store.listTasks.bind(store);
+    store.listTasks = (projectId?: string) => {
+      dépliages += 1;
+      return vraiListTasks(projectId);
+    };
+    const vraisStatuts = store.taskStatuses.bind(store);
+    store.taskStatuses = (ids: readonly string[]) => {
+      idsLus.push(...ids);
+      return vraisStatuts(ids);
+    };
+
+    scheduler.tick();
+
+    expect(dépliages).toBe(0);
+    // Seule la dépendance réellement citée est lue (une fois par passe de la
+    // boucle de point fixe), jamais les 502 tâches de la table.
+    expect(new Set(idsLus)).toEqual(new Set([a.id]));
+    expect(idsLus.length).toBeLessThanOrEqual(4);
+    expect(store.getTask(a.id)?.status).toBe('ready');
+  });
+
   it('journalise chaque transition dans le journal d’événements', () => {
     const p = store.createProject({ name: 'P' });
     const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });

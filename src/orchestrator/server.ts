@@ -19,7 +19,7 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
-import type { HiveEvent } from '../shared/types.js';
+import type { HiveEvent, Task } from '../shared/types.js';
 import { leconsDesEchecs } from './brood.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
@@ -28,7 +28,8 @@ import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
-import { calculerPheromones } from './pheromones.js';
+import { CacheDomaines, replierTraces } from './pheromones.js';
+import type { TraceePheromone } from './pheromones.js';
 import { anthropicLlm, llmPlannerAvailable, planBrief } from './planner.js';
 import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
@@ -36,7 +37,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
-import { lireTemperature } from './thermo.js';
+import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 
 /** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
@@ -47,6 +48,21 @@ const EVENT_RETENTION = 5_000;
 
 /** Nombre de souvenirs Hive Mind conservés (les plus anciens sont purgés). */
 const MEMORY_RETENTION = 2_000;
+
+/**
+ * Nombre de résultats conservés INTACTS. Au-delà, seules les colonnes lourdes
+ * (`diff`, `logs`) sont vidées — la ligne, elle, survit pour la Miellerie, le
+ * Parlement et les phéromones (voir `HiveStore.pruneResults`). Aligné sur
+ * EVENT_RETENTION : les deux racontent la même histoire récente.
+ */
+const RESULT_RETENTION = 5_000;
+
+/**
+ * Mémoïsation de /api/pheromones : le repli est identique d'une seconde à
+ * l'autre (corpus de 500 résultats, demi-vie de 7 jours). Sans ce TTL, N
+ * dashboards en polling déclenchaient N calculs concurrents sur le même tick.
+ */
+const PHEROMONES_TTL_MS = 3_000;
 
 /** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
 const MERGE_TIMEOUT_MS = 10 * 60_000;
@@ -206,6 +222,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const pendingMerges = new Map<string, { projectId: string; nodeId: string; startedAt: number }>();
   // Diffusion d'état "sale" : regroupée toutes les 250 ms pour éviter le spam.
   let stateDirty = false;
+  // Phéromones : cache de domaines (borné) et mémoïsation à TTL court du repli
+  // servi par /api/pheromones — N dashboards en polling = 1 calcul.
+  const cacheDomaines = new CacheDomaines();
+  let pheromonesMemo: { calculeA: number; traces: TraceePheromone[] } | null = null;
 
   const send = (ws: WebSocket, msg: ServerMessage): void => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -233,6 +253,44 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     stateDirty = true;
   };
 
+  /**
+   * Contexte joint à `assign_task` : leçons de la Couveuse (tâche déjà échouée)
+   * puis souvenirs du Hive Mind, dans le budget total LIMITS.hiveContext.
+   * PARTAGÉ par les deux chemins de livraison — l'assignation initiale ET la
+   * re-livraison de secours des tâches muettes : sans cela, une tâche re-servie
+   * repartait sans les leçons pourtant annoncées par `brood_context`.
+   * Ne journalise rien (la re-livraison a lieu à chaque tick) : l'appelant
+   * décide s'il émet `brood_context`.
+   */
+  const construireHiveContext = (task: Task): { hiveContext: string; echecs: number } => {
+    // Couveuse : les leçons des échecs précédents viennent EN TÊTE (le plus
+    // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
+    // results ne garde que son id.
+    const echecs = task.attempts > 0 ? store.listFailedResultsForTask(task.id) : [];
+    const lecons =
+      echecs.length > 0
+        ? leconsDesEchecs(
+            echecs.map((e, i) => ({
+              attempt: i + 1,
+              nodeName: store.getNode(e.nodeId)?.name ?? e.nodeId,
+              logs: e.logs,
+              createdAt: e.createdAt,
+            })),
+            BUDGET_COUVEUSE,
+          )
+        : '';
+    // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
+    // RESTANT après la Couveuse (« \n\n » de jonction compris).
+    const souvenirs = buildHiveContext(
+      store.searchMemories(`${task.title} ${task.prompt}`, 3),
+      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0),
+    );
+    return {
+      hiveContext: [lecons, souvenirs].filter(Boolean).join('\n\n'),
+      echecs: lecons ? echecs.length : 0,
+    };
+  };
+
   const scheduler = new Scheduler(store, {
     // Drone Wars : annuler le travail d'un drone perdant (ou d'une course annulée).
     onCancel: (nodeId, taskId, reason) => {
@@ -244,39 +302,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
       if (ws) {
         const project = store.getProject(task.projectId);
-        // Couveuse : une tâche déjà échouée (attempts > 0) repart avec les
-        // leçons de ses échecs précédents, EN TÊTE du contexte (le plus
-        // spécifique d'abord). Le nom du nœud fautif est résolu ici — la
-        // table results ne garde que son id.
-        let lecons = '';
-        if (task.attempts > 0) {
-          const echecs = store.listFailedResultsForTask(task.id);
-          lecons = leconsDesEchecs(
-            echecs.map((e, i) => ({
-              attempt: i + 1,
-              nodeName: store.getNode(e.nodeId)?.name ?? e.nodeId,
-              logs: e.logs,
-              createdAt: e.createdAt,
-            })),
-            BUDGET_COUVEUSE,
-          );
-          if (lecons) {
-            emitEvent('brood_context', {
-              taskId: task.id,
-              nodeId,
-              echecs: echecs.length,
-              message: `👶 Couveuse : « ${task.title} » repart avec les leçons de ${echecs.length} échec(s)`,
-            });
-          }
-        }
-        // Hive Mind : joindre les souvenirs pertinents des tâches déjà
-        // réussies, dans le budget RESTANT après la Couveuse (« \n\n » de
-        // jonction compris) — le total reste borné à LIMITS.hiveContext.
-        const souvenirs = buildHiveContext(
-          store.searchMemories(`${task.title} ${task.prompt}`, 3),
-          LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0),
-        );
-        const hiveContext = [lecons, souvenirs].filter(Boolean).join('\n\n');
+        const { hiveContext, echecs } = construireHiveContext(task);
+        // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
+        // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
+        if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
         send(ws, {
           type: 'assign_task',
           task,
@@ -600,26 +629,37 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return computePulse(events);
   });
 
-  // Thermorégulation : la température INSTANTANÉE (dérivée du journal récent)
-  // ET l'état hystérésé réellement appliqué par le scheduler — les deux peuvent
-  // diverger brièvement, c'est précisément le rôle de l'hystérésis. Lecture
-  // seule ; bornée aux 1000 derniers événements (la fenêtre de 10 min trie).
+  // Thermorégulation : la température INSTANTANÉE (dérivée de la fenêtre de
+  // 10 minutes) ET l'état hystérésé réellement APPLIQUÉ par le scheduler — les
+  // deux peuvent diverger brièvement, c'est précisément le rôle de
+  // l'hystérésis. Deux noms distincts pour deux sémantiques distinctes.
   app.get('/api/thermo', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    const events = store.listEvents(Math.max(0, store.lastEventId() - 1_000), 1_000);
-    const lecture = lireTemperature(events, Date.now());
-    const { bande, facteur } = scheduler.thermo;
-    return { lecture, bande, facteur };
+    const now = Date.now();
+    const instantane = lireTemperature(
+      store.listEventsInWindow(now - FENETRE_THERMO_MS, TYPES_THERMO),
+      now,
+    );
+    return { instantane, applique: scheduler.thermo };
   });
 
   // Phéromones : affinité apprise nœud × domaine (qui réussit quel TYPE de
   // tâche), repliée à la demande depuis les résultats récents — vue dérivée
   // pure, jamais matérialisée. Lecture seule ; bornée aux 30 premières traces.
+  // Chemin BORNÉ, identique à celui du Scheduler : ≤ 500 résultats, domaine
+  // résolu par clé primaire pour les seules tâches citées, mémoïsé.
   app.get('/api/pheromones', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    const taches = store.listTasks().map((t) => ({ id: t.id, title: t.title, prompt: t.prompt }));
-    const traces = calculerPheromones(taches, store.listResultsForPheromones(), Date.now());
-    return { traces: traces.slice(0, 30) };
+    const now = Date.now();
+    if (!pheromonesMemo || now - pheromonesMemo.calculeA >= PHEROMONES_TTL_MS) {
+      const resultats = store.listResultsForPheromones();
+      const domaines = cacheDomaines.domaines(
+        resultats.map((r) => r.taskId),
+        (manquants) => store.listTaskTexts(manquants),
+      );
+      pheromonesMemo = { calculeA: now, traces: replierTraces(domaines, resultats, now) };
+    }
+    return { traces: pheromonesMemo.traces.slice(0, 30) };
   });
 
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
@@ -1787,14 +1827,26 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           : task.assignedNodeId
             ? [task.assignedNodeId]
             : [];
+        // Le contexte (Couveuse + Hive Mind) est reconstruit ici AUSSI : une
+        // re-livraison nue priverait la tâche des leçons annoncées par
+        // brood_context — l'ouvrière refaisait la même erreur.
+        const { hiveContext } = construireHiveContext(task);
         for (const nodeId of targets) {
           const ws = nodeSockets.get(nodeId);
-          if (ws) send(ws, { type: 'assign_task', task, repoUrl: project?.repoUrl ?? null });
+          if (ws) {
+            send(ws, {
+              type: 'assign_task',
+              task,
+              repoUrl: project?.repoUrl ?? null,
+              ...(hiveContext ? { hiveContext } : {}),
+            });
+          }
         }
       }
-      // Borne la croissance du journal d'événements et de la mémoire Hive Mind.
+      // Borne la croissance du journal, de la mémoire Hive Mind et des résultats.
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
+      store.pruneResults(RESULT_RETENTION);
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {

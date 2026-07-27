@@ -86,18 +86,18 @@ function PulseTiles({ pulse }: { pulse: HivePulse }) {
  * qu'elle applique. Deux états y cohabitent volontairement :
  *  - la LECTURE instantanée (`lecture.temperature` / `lecture.bande`), qui
  *    donne la position du curseur sur l'échelle ;
- *  - l'état APPLIQUÉ (`bande` / `facteur`), hystérésé : il ne suit la lecture
- *    qu'après un second relevé concordant. Leur divergence est la chose la
- *    plus utile à montrer — elle explique pourquoi la concurrence n'a pas
- *    encore bougé alors que le thermomètre, lui, a déjà grimpé.
+ *  - l'état APPLIQUÉ (`applique.bande` / `applique.facteur`), hystérésé : il ne
+ *    suit la lecture qu'après un second relevé concordant. Leur divergence est
+ *    la chose la plus utile à montrer — elle explique pourquoi la concurrence
+ *    n'a pas encore bougé alors que le thermomètre, lui, a déjà grimpé.
  */
 function ThermoGauge({ thermo }: { thermo: ThermoState }) {
   const t = useT();
-  const { lecture, bande, facteur } = thermo;
+  const { instantane: lecture, applique: regime } = thermo;
   const { temperature, signaux } = lecture;
-  const diverge = lecture.bande !== bande;
+  const diverge = lecture.bande !== regime.bande;
   const lu = t(BANDE_LABEL[lecture.bande].fr, BANDE_LABEL[lecture.bande].en);
-  const applique = t(BANDE_LABEL[bande].fr, BANDE_LABEL[bande].en);
+  const applique = t(BANDE_LABEL[regime.bande].fr, BANDE_LABEL[regime.bande].en);
 
   return (
     <div className={`es-thermo bande-${lecture.bande}`}>
@@ -132,7 +132,7 @@ function ThermoGauge({ thermo }: { thermo: ThermoState }) {
           {t('État appliqué', 'Applied state')} : <strong>{applique}</strong>
         </span>
         <span className="es-thermo-factor">
-          {t('concurrence', 'concurrency')} ×{facteur}
+          {t('concurrence', 'concurrency')} ×{regime.facteur}
         </span>
         {diverge && (
           <span className="es-thermo-pending">
@@ -158,7 +158,7 @@ function ThermoGauge({ thermo }: { thermo: ThermoState }) {
       <p className="es-thermo-signals">
         ✔ {signaux.succes} {t('succès', 'successes')} · ✘ {signaux.echecs} {t('échecs', 'failures')}{' '}
         · 🔁 {signaux.retries} {t('re-tentatives', 'retries')} · ⇄ {signaux.refusInfra}{' '}
-        {t('refus', 'declines')} — {t('fenêtre de 10 min', '10-min window')}
+        {t('refus infra', 'infra declines')} — {t('fenêtre de 10 min', '10-min window')}
       </p>
     </div>
   );
@@ -211,10 +211,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
             <h2>{t('Thermorégulation', 'Thermoregulation')}</h2>
             {thermo.data && (
               <span
-                className={thermo.data.facteur < 1 ? 'panel-count warn' : 'panel-count'}
+                className={thermo.data.applique.facteur < 1 ? 'panel-count warn' : 'panel-count'}
                 title={t('facteur de ventilation appliqué', 'applied ventilation factor')}
               >
-                ×{thermo.data.facteur}
+                ×{thermo.data.applique.facteur}
               </span>
             )}
           </header>

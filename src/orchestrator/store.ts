@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS results (
   createdAt  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_results_task ON results(taskId);
+-- Index COUVRANT du corpus des phéromones : sans lui, « ORDER BY createdAt
+-- DESC, id DESC LIMIT 500 » scanne toute la table et la trie dans un B-tree
+-- temporaire — en ouvrant au passage les pages de débordement de diff
+-- (≤ 1 Mo) et logs (≤ 512 ko), qui précèdent createdAt dans la ligne.
+-- Toutes les colonnes lues y figurent : la requête ne touche plus une seule
+-- ligne de la table.
+CREATE INDEX IF NOT EXISTS idx_results_recent
+  ON results(createdAt DESC, id DESC, taskId, nodeId, success);
 
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +96,9 @@ CREATE TABLE IF NOT EXISTS events (
   type    TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '{}'
 );
+-- Lecture par FENÊTRE TEMPORELLE (thermorégulation) : ts en tête pour la
+-- borne « ts >= ? », type ensuite pour filtrer sans ouvrir la ligne.
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts, type);
 
 CREATE TABLE IF NOT EXISTS memories (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,6 +245,9 @@ export interface ProjectMember {
   displayName?: string;
 }
 
+/** Résultats allégés au maximum par passe : borne le coût d'un tick. */
+const LOT_ALLEGEMENT = 2_000;
+
 function rowToTask(row: TaskRow): Task {
   return {
     ...row,
@@ -253,6 +267,11 @@ const NODE_SELECT = `
 
 export class HiveStore {
   private readonly db: Database.Database;
+  /**
+   * Filigrane d'élagage des résultats : id du dernier résultat déjà allégé.
+   * En mémoire seulement — un redémarrage refait une passe complète (idempotente).
+   */
+  private dernierResultatAllege = 0;
 
   constructor(dbPath: string) {
     if (dbPath !== ':memory:') {
@@ -491,6 +510,48 @@ export class HiveStore {
     return rows.map(rowToTask);
   }
 
+  /**
+   * Lecture ciblée par CLÉ PRIMAIRE : seules les colonnes et les lignes
+   * demandées. Découpée en lots de 900 pour rester sous la limite de variables
+   * liées de SQLite (999 par défaut) ; les ids sont dédoublonnés, les inconnus
+   * simplement absents du retour.
+   */
+  private lireParIds<T>(colonnes: string, ids: readonly string[]): T[] {
+    const uniques = [...new Set(ids)];
+    const LOT = 900;
+    const out: T[] = [];
+    for (let i = 0; i < uniques.length; i += LOT) {
+      const lot = uniques.slice(i, i + LOT);
+      const placeholders = lot.map(() => '?').join(', ');
+      out.push(
+        ...(this.db
+          .prepare(`SELECT ${colonnes} FROM tasks WHERE id IN (${placeholders})`)
+          .all(...lot) as T[]),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Titre et prompt des SEULES tâches demandées. Les phéromones n'ont besoin
+   * que des tâches citées par les résultats récents (≤ 500) : un `SELECT *` de
+   * toute la table `tasks`, avec un `JSON.parse` par ligne, jetait 99,5 % du
+   * travail à 100 000 tâches.
+   */
+  listTaskTexts(ids: readonly string[]): Array<{ id: string; title: string; prompt: string }> {
+    return this.lireParIds<{ id: string; title: string; prompt: string }>('id, title, prompt', ids);
+  }
+
+  /**
+   * Statut des SEULES tâches demandées, indexé par id. Sert la promotion des
+   * dépendances : seules les tâches DONT DÉPEND une tâche en attente comptent —
+   * pas toute la table.
+   */
+  taskStatuses(ids: readonly string[]): Map<string, TaskStatus> {
+    const rows = this.lireParIds<{ id: string; status: TaskStatus }>('id, status', ids);
+    return new Map(rows.map((r) => [r.id, r.status]));
+  }
+
   tasksByStatus(...statuses: TaskStatus[]): Task[] {
     const placeholders = statuses.map(() => '?').join(', ');
     const rows = this.db
@@ -627,6 +688,52 @@ export class HiveStore {
     }));
   }
 
+  /** Nombre de résultats stockés. */
+  countResults(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM results').get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Élagage des résultats, symétrique de `pruneEvents` / `pruneMemories` — mais
+   * qui ALLÈGE au lieu de supprimer : au-delà des `maxKeep` résultats les plus
+   * récents, seules les colonnes lourdes (`diff` ≤ 1 Mo, `logs` ≤ 512 ko) sont
+   * vidées ; la ligne survit.
+   *
+   * Pourquoi ne pas supprimer la ligne : `results` est la seule trace durable de
+   * QUI a fait QUOI. La Miellerie (revue humaine) et le Parlement lisent
+   * `resultsForTask`, les phéromones agrègent (taskId, nodeId, success,
+   * createdAt) — supprimer les lignes effacerait l'affinité apprise et
+   * l'historique de revue d'une tâche ancienne mais encore ouverte. Or 99,9 %
+   * du volume vit dans `diff` et `logs` : une ligne allégée pèse ~100 octets.
+   *
+   * Rétention retenue : RESULT_RETENTION = 5 000, alignée sur EVENT_RETENTION —
+   * les deux décrivent la même histoire récente, et 5 000 résultats couvrent
+   * dix fois le corpus des phéromones (500) comme l'arriéré de revue plausible.
+   *
+   * Coût borné : un filigrane en mémoire (`dernierResultatAllege`) fait que
+   * chaque passe ne traite que les résultats FRAÎCHEMENT sortis de la fenêtre —
+   * en régime établi, zéro ligne réécrite, une seule sonde sur l'index de clé
+   * primaire (~0,6 ms). Et la passe est plafonnée à LOT_ALLEGEMENT lignes : un
+   * arriéré hérité (une base de plusieurs Go ouverte pour la première fois par
+   * cette version) est rattrapé en quelques ticks au lieu de figer le premier.
+   * Retourne le nombre de résultats allégés.
+   */
+  pruneResults(maxKeep: number): number {
+    const keep = Math.max(0, maxKeep);
+    // Id du plus ancien résultat conservé INTACT (parcours arrière du rowid).
+    const seuil = this.db
+      .prepare('SELECT id FROM results ORDER BY id DESC LIMIT 1 OFFSET ?')
+      .get(keep) as { id: number } | undefined;
+    if (!seuil || seuil.id <= this.dernierResultatAllege) return 0;
+    const borne = Math.min(seuil.id, this.dernierResultatAllege + LOT_ALLEGEMENT);
+    const info = this.db
+      .prepare("UPDATE results SET diff = '', logs = '' WHERE id > ? AND id <= ?")
+      .run(this.dernierResultatAllege, borne);
+    this.dernierResultatAllege = borne;
+    return info.changes;
+  }
+
   // ─── Journal d'événements ──────────────────────────────────────────────────
   appendEvent(type: string, payload: Record<string, unknown>, ts = Date.now()): HiveEvent {
     const info = this.db
@@ -684,6 +791,31 @@ export class HiveStore {
       type: row.type,
       payload: JSON.parse(row.payload) as Record<string, unknown>,
     };
+  }
+
+  /**
+   * Événements d'une FENÊTRE TEMPORELLE, restreints à quelques types. Sert la
+   * thermorégulation : borner la lecture à un lot des N derniers événements
+   * rendait la fenêtre de 10 minutes fictive dès que la ruche était active (un
+   * flot de `task_progress` évinçait les issues). Servi par l'index
+   * `idx_events_ts` — pas de tri temporaire, pas de scan complet.
+   */
+  listEventsInWindow(
+    since: number,
+    types: readonly string[],
+  ): Array<{ type: string; ts: number; payload: Record<string, unknown> }> {
+    if (types.length === 0) return [];
+    const placeholders = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT ts, type, payload FROM events WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
+      )
+      .all(since, ...types) as Array<{ ts: number; type: string; payload: string }>;
+    return rows.map((r) => ({
+      type: r.type,
+      ts: r.ts,
+      payload: JSON.parse(r.payload) as Record<string, unknown>,
+    }));
   }
 
   listEvents(sinceId = 0, limit = 200): HiveEvent[] {
