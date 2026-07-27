@@ -344,6 +344,93 @@
       .btn.ghost:hover {
         border-color: var(--gold);
       }
+      /* ── Raccourcis : les gestes qu'on vient chercher ── */
+      .rc-adresse {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 0 0 20px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .rc-adresse input {
+        font-family: var(--mono);
+        font-size: 13px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border-2);
+        background: var(--panel);
+        color: var(--gold-soft);
+        min-width: 220px;
+      }
+      .rc-adresse input:focus {
+        outline: 2px solid var(--gold);
+        outline-offset: 1px;
+      }
+      .rc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+        gap: 14px;
+      }
+      .rc {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 18px;
+      }
+      .rc:hover {
+        border-color: var(--gold);
+      }
+      .rc-tete {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .rc-tete .t {
+        font-weight: 700;
+        font-size: 15.5px;
+      }
+      .rc-d {
+        margin: 0;
+        font-size: 13.5px;
+        color: var(--muted);
+        line-height: 1.55;
+        flex: 1;
+      }
+      .rc-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .rc-actions .btn {
+        padding: 9px 15px;
+        font-size: 13.5px;
+      }
+      /* La commande exacte, lisible AVANT de cliquer : un bouton « copier »
+         qui ne montre pas ce qu'il copie demande une confiance gratuite. */
+      .rc-cmd {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--dim);
+        background: var(--bg-2);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 8px 10px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .rc-note {
+        margin: 18px 0 0;
+        font-size: 13.5px;
+        color: var(--dim);
+        line-height: 1.6;
+        max-width: 760px;
+      }
+
       .co-note {
         margin: 0 0 30px;
         font-size: 13.5px;
@@ -1110,6 +1197,7 @@
         <a href="#mission">Mission Control</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
         <a href="#communaute" data-i18n="nav.community">Communauté</a>
+        <a href="#raccourcis" data-i18n="nav.shortcuts">Raccourcis</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
         <a href="#demarrer" data-i18n="nav.start">Démarrer</a>
         <a href="#roadmap">Roadmap</a>
@@ -1857,6 +1945,113 @@
       </div>
     </section>
 
+    <section id="raccourcis" class="section">
+      <h2 class="kicker" data-i18n="rc.kicker">⚡ Raccourcis</h2>
+      <p class="headline tight" data-i18n="rc.headline">
+        Connecter un dépôt, inviter un ami : deux clics chacun.
+      </p>
+      <p class="lede" data-i18n="rc.lede">
+        Ces boutons ouvrent <strong>VOTRE</strong> ruche, sur votre machine. Cette page ne voit rien
+        et n’envoie rien : elle ne fait que composer la bonne adresse et copier la bonne commande.
+      </p>
+
+      <!-- L'adresse est modifiable, et ce n'est pas un détail : le port se
+           règle par HIVE_PORT, et une ruche prêtée tourne parfois sur une autre
+           machine du réseau. Un lien codé en dur sur localhost:7777 mènerait au
+           vide chez tous ceux qui ont changé quoi que ce soit. -->
+      <p class="rc-adresse">
+        <label for="rc-url" data-i18n="rc.adresse">Adresse de votre ruche</label>
+        <input
+          id="rc-url"
+          type="url"
+          value="http://localhost:7777"
+          spellcheck="false"
+          autocomplete="off"
+        />
+      </p>
+
+      <div class="rc-grid">
+        <article class="rc">
+          <div class="rc-tete">
+            <span class="hexico hot" aria-hidden="true">🐙</span>
+            <span class="t" data-i18n="rc.gh.t">Connecter un projet GitHub</span>
+          </div>
+          <p class="rc-d" data-i18n="rc.gh.d">
+            Un jeton à portée <code class="inline">repo</code>, et la ruche sait ouvrir des pull
+            requests sur votre dépôt. La portée <code class="inline">workflow</code> n’est pas
+            demandée : Hive n’a pas à toucher à votre CI.
+          </p>
+          <code class="rc-cmd">npm run cli -- github</code>
+          <div class="rc-actions">
+            <a
+              class="btn primary"
+              href="https://github.com/settings/tokens/new?scopes=repo&amp;description=Hive"
+              target="_blank"
+              rel="noopener"
+              data-i18n="rc.gh.jeton"
+              >Créer le jeton</a
+            >
+            <button class="btn ghost rc-copier" type="button" data-cmd="npm run cli -- github">
+              <span data-i18n="rc.copier">Copier la commande</span>
+            </button>
+            <a class="btn ghost rc-lien" data-vue="#/projets" data-i18n="rc.ouvrir"
+              >Ouvrir ma ruche</a
+            >
+          </div>
+        </article>
+
+        <article class="rc">
+          <div class="rc-tete">
+            <span class="hexico" aria-hidden="true">🤝</span>
+            <span class="t" data-i18n="rc.ami.t">Inviter un ami</span>
+          </div>
+          <p class="rc-d" data-i18n="rc.ami.d">
+            Un billet éphémère, à usage compté et révocable. Il ne donne aucun pouvoir sur la ruche
+            : il sert à obtenir une clé propre à la machine de votre ami, qu’on peut retirer sans
+            éjecter l’essaim.
+          </p>
+          <code class="rc-cmd">npm run cli -- invite</code>
+          <div class="rc-actions">
+            <button class="btn primary rc-copier" type="button" data-cmd="npm run cli -- invite">
+              <span data-i18n="rc.copier">Copier la commande</span>
+            </button>
+            <a class="btn ghost rc-lien" data-vue="#/essaim" data-i18n="rc.ouvrir"
+              >Ouvrir ma ruche</a
+            >
+          </div>
+        </article>
+
+        <article class="rc">
+          <div class="rc-tete">
+            <span class="hexico" aria-hidden="true">🪪</span>
+            <span class="t" data-i18n="rc.moi.t">Installer et ouvrir ma ruche</span>
+          </div>
+          <p class="rc-d" data-i18n="rc.moi.d">
+            <code class="inline">npm run setup</code> engendre votre jeton, écrit le
+            <code class="inline">.env</code> et vous dit ce qui reste à faire. Rien n’est envoyé
+            nulle part : tout vit sur votre machine.
+          </p>
+          <code class="rc-cmd">npm run setup &amp;&amp; npm run dev</code>
+          <div class="rc-actions">
+            <button
+              class="btn ghost rc-copier"
+              type="button"
+              data-cmd="npm run setup && npm run dev"
+            >
+              <span data-i18n="rc.copier">Copier la commande</span>
+            </button>
+            <a class="btn ghost rc-lien" data-vue="" data-i18n="rc.ouvrir">Ouvrir ma ruche</a>
+          </div>
+        </article>
+      </div>
+
+      <p class="rc-note" data-i18n="rc.note">
+        « Ouvrir ma ruche » ne marche que si elle tourne déjà — c’est un lien vers votre propre
+        machine, pas vers un service. Si rien ne s’ouvre, lancez d’abord
+        <code class="inline">npm run dev</code>, ou corrigez l’adresse ci-dessus.
+      </p>
+    </section>
+
     <section id="demarrer" class="section">
       <h2 class="kicker" data-i18n="go.kicker">🚀 Démarrer</h2>
       <p class="headline" data-i18n="go.headline">Une démo complète en deux commandes.</p>
@@ -2129,6 +2324,7 @@
           'sec.warn':
             '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
           'nav.community': 'Community',
+          'nav.shortcuts': 'Shortcuts',
           'nav.rush': 'Rush',
           'co.cloud.lien': 'See the offers and the economic model →',
           'co.kicker': '\u{1F91D} The community',
@@ -2154,6 +2350,25 @@
             'Hive is and will remain <strong>free and self-hosted</strong>: your hive runs at home, your keys never leave. For those who cannot keep a machine running, a paid hosting offer is being considered \u2014 nodes rented by the hour, to move a project forward without hardware.',
           'co.cloud.h':
             'This does not exist yet. It is written here because the direction is decided, not because it is available.',
+          'rc.kicker': '⚡ Shortcuts',
+          'rc.headline': 'Connect a repo, invite a friend: two clicks each.',
+          'rc.lede':
+            'These buttons open <strong>YOUR</strong> hive, on your machine. This page sees nothing and sends nothing: all it does is build the right address and copy the right command.',
+          'rc.adresse': 'Your hive’s address',
+          'rc.gh.t': 'Connect a GitHub project',
+          'rc.gh.d':
+            'A token with the <code class="inline">repo</code> scope, and the hive can open pull requests on your repository. The <code class="inline">workflow</code> scope is not requested: Hive has no business touching your CI.',
+          'rc.gh.jeton': 'Create the token',
+          'rc.copier': 'Copy the command',
+          'rc.ouvrir': 'Open my hive',
+          'rc.ami.t': 'Invite a friend',
+          'rc.ami.d':
+            'A short-lived ticket, with a counted number of uses, revocable. It grants no power over the hive: it serves to obtain a key specific to your friend’s machine, which can be withdrawn without ejecting the swarm.',
+          'rc.moi.t': 'Install and open my hive',
+          'rc.moi.d':
+            '<code class="inline">npm run setup</code> generates your token, writes the <code class="inline">.env</code> and tells you what is left to do. Nothing is sent anywhere: it all lives on your machine.',
+          'rc.note':
+            '“Open my hive” only works if it is already running — it is a link to your own machine, not to a service. If nothing opens, start <code class="inline">npm run dev</code> first, or fix the address above.',
           'go.kicker': '🚀 Get started',
           'go.headline': 'A full demo in two commands.',
           'go.t1': 'local demo',
@@ -2345,25 +2560,14 @@
 
         setLang(initial);
 
-        /* ── Copier la commande de démo ── */
-        var copyBtn = document.getElementById('copy-btn');
-        var copyLbl = document.getElementById('copy-lbl');
-        var copyTimer = null;
-        copyBtn.addEventListener('click', function () {
-          var cmd = 'npm install && npm run demo';
-          function done() {
-            copyLbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
-            clearTimeout(copyTimer);
-            copyTimer = setTimeout(function () {
-              copyLbl.textContent = lang === 'en' ? 'copy' : 'copier';
-            }, 1800);
-          }
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(cmd).then(done, function () {
-              fallback();
-            });
-          } else fallback();
-          function fallback() {
+        /* ── Copier une commande ────────────────────────────────────────────
+           UNE seule implémentation, avec son repli `execCommand` : la partager
+           entre le bouton du héros et ceux des raccourcis évite d'avoir deux
+           gestions du presse-papier qui divergeraient au premier correctif.
+           `ok` n'est appelé QUE si la copie a réellement eu lieu — annoncer
+           « copié ✓ » sur un presse-papier vide ferait coller du vide. */
+        function copier(cmd, ok) {
+          function repli() {
             var ta = document.createElement('textarea');
             ta.value = cmd;
             ta.style.position = 'fixed';
@@ -2372,12 +2576,83 @@
             ta.select();
             try {
               document.execCommand('copy');
-              done();
+              ok();
             } catch (e) {
-              /* copie impossible */
+              /* copie impossible : le texte reste lisible à l'écran */
             }
             document.body.removeChild(ta);
           }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(cmd).then(ok, repli);
+          } else repli();
+        }
+
+        /* ── Copier la commande de démo ── */
+        var copyLbl = document.getElementById('copy-lbl');
+        var copyTimer = null;
+        document.getElementById('copy-btn').addEventListener('click', function () {
+          copier('npm install && npm run demo', function () {
+            copyLbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+            clearTimeout(copyTimer);
+            copyTimer = setTimeout(function () {
+              copyLbl.textContent = lang === 'en' ? 'copy' : 'copier';
+            }, 1800);
+          });
+        });
+
+        /* ── Raccourcis ─────────────────────────────────────────────────────
+           Les liens « Ouvrir ma ruche » sont composés à partir de l'adresse
+           saisie, jamais codés en dur : le port se règle par HIVE_PORT et une
+           ruche prêtée tourne parfois sur une autre machine du réseau.
+           L'adresse est mémorisée localement — la retaper à chaque visite
+           serait la meilleure façon de ne plus jamais s'en servir. */
+        var rcUrl = document.getElementById('rc-url');
+        var RC_CLE = 'hive.site.ruche';
+        try {
+          var memo = localStorage.getItem(RC_CLE);
+          if (memo) rcUrl.value = memo;
+        } catch (e) {
+          /* stockage refusé : le défaut fait l'affaire */
+        }
+
+        function majLiens() {
+          var base = rcUrl.value.trim().replace(/\/+$/, '');
+          document.querySelectorAll('.rc-lien').forEach(function (a) {
+            // Une adresse vide ⇒ PAS de href : un lien mort qui a l'air vivant
+            // est pire qu'un bouton visiblement inactif.
+            if (!base) {
+              a.removeAttribute('href');
+              return;
+            }
+            a.setAttribute('href', base + (a.getAttribute('data-vue') || ''));
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener');
+          });
+        }
+        rcUrl.addEventListener('input', function () {
+          majLiens();
+          try {
+            localStorage.setItem(RC_CLE, rcUrl.value.trim());
+          } catch (e) {
+            /* stockage refusé : les liens marchent quand même */
+          }
+        });
+        majLiens();
+
+        document.querySelectorAll('.rc-copier').forEach(function (btn) {
+          var lbl = btn.querySelector('span');
+          var minuteur = null;
+          btn.addEventListener('click', function () {
+            copier(btn.getAttribute('data-cmd'), function () {
+              lbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+              clearTimeout(minuteur);
+              minuteur = setTimeout(function () {
+                // On repasse par le dictionnaire : le libellé doit revenir dans
+                // la langue COURANTE, pas dans celle du clic.
+                lbl.textContent = (lang === 'en' ? EN : FR)['rc.copier'];
+              }, 1800);
+            });
+          });
         });
 
         /* ── Lien de nav actif au fil du défilement ── */
