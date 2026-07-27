@@ -9,6 +9,7 @@
 //      les répétitions. Sans ça, « plus les agents interagissent, plus ils
 //      apprennent » serait une phrase, pas un mécanisme.
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   GOUVERNANTES_MIN,
@@ -463,5 +464,58 @@ describe('essaim — la halte : la ruche s’arrête quand elle se dégrade', ()
     });
     expect(impeccable.etat).toBe('saine');
     expect(deciderPas(etat({ derive: impeccable })).pas).toBe('deliberer');
+  });
+});
+
+describe('essaim — aucun pas mort dans le vocabulaire', () => {
+  // Le type `Pas` déclarait dix valeurs ; `deciderPas` n'en rendait que neuf.
+  // `repos` n'était produit par AUCUN chemin — le repli d'une ruche oisive est
+  // `deliberer`, jamais « rien à faire ». Rien n'était cassé, mais deux
+  // branches d'interface (une icône, un libellé) attendaient une décision
+  // impossible, et quiconque auditait « tous les pas sont-ils traités ? »
+  // perdait du temps sur un pas qui ne viendrait jamais.
+  //
+  // Cette garde relit le module : chaque valeur déclarée doit apparaître dans
+  // un `decision('…')`. C'est la seule façon d'empêcher le mort-bois de
+  // repousser — un type est trop facile à étendre « au cas où ».
+
+  const SOURCE = readFileSync(new URL('../src/orchestrator/essaim.ts', import.meta.url), 'utf8');
+
+  /**
+   * Les valeurs déclarées par le type `Pas`.
+   *
+   * Les commentaires sont RETIRÉS avant de chercher le point-virgule final :
+   * l'un d'eux en contient un (« Le travail est en cours ; laisser les
+   * ouvrières travailler »), et l'analyse s'arrêtait au milieu du type — la
+   * garde passait alors en n'ayant lu que la moitié des valeurs. Même piège
+   * que le test des invariants de sécurité.
+   */
+  function pasDeclares(): string[] {
+    const sansCommentaires = SOURCE.replace(/\/\*[\s\S]*?\*\//g, '');
+    const bloc = sansCommentaires.slice(sansCommentaires.indexOf('export type Pas ='));
+    return [...bloc.slice(0, bloc.indexOf(';')).matchAll(/'([a-z_]+)'/g)].map((m) => m[1] ?? '');
+  }
+
+  /** Les valeurs que `deciderPas` peut réellement rendre. */
+  function pasProduits(): Set<string> {
+    // Le motif traverse les sauts de ligne : plusieurs appels sont formatés
+    // sur trois lignes par Prettier, et un grep par ligne les manquerait.
+    return new Set([...SOURCE.matchAll(/decision\(\s*'([a-z_]+)'/g)].map((m) => m[1] ?? ''));
+  }
+
+  it('CHAQUE pas déclaré est réellement produit', () => {
+    const produits = pasProduits();
+    const declares = pasDeclares();
+    expect(declares.length, 'type `Pas` illisible').toBeGreaterThan(5);
+    const morts = declares.filter((p) => !produits.has(p));
+    expect(morts, `pas déclarés que rien ne produit : ${morts.join(', ')}`).toEqual([]);
+  });
+
+  it('chaque pas produit est déclaré', () => {
+    // L'inverse : un `decision('x')` sur une valeur hors du type ne
+    // compilerait pas, mais la garde coûte une ligne et ferme la boucle.
+    const declares = new Set(pasDeclares());
+    const inconnus = [...pasProduits()].filter((p) => !declares.has(p));
+    expect(inconnus, `pas produits hors du type : ${inconnus.join(', ')}`).toEqual([]);
   });
 });

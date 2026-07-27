@@ -310,9 +310,7 @@ export type Pas =
   /** Ouvrir les pull requests des productions prêtes. */
   | 'livrer'
   /** Fusionner ce qui est relu et autorisé. */
-  | 'fusionner'
-  /** Rien à faire maintenant. */
-  | 'repos';
+  | 'fusionner';
 
 /** L'état observé de la ruche, réduit aux faits qui décident. */
 export interface EtatEssaim {

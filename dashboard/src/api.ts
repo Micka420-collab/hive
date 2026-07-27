@@ -361,8 +361,7 @@ export type PasEssaim =
   | 'butiner'
   | 'corriger'
   | 'livrer'
-  | 'fusionner'
-  | 'repos';
+  | 'fusionner';
 
 export type NiveauEssaim = 'off' | 'propose' | 'gouverne' | 'plein';
 

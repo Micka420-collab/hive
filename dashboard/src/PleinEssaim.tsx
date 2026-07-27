@@ -42,7 +42,12 @@ function libellePas(pas: PasEssaim, t: ReturnType<typeof useT>): string {
     case 'fusionner':
       return t('Fusionner', 'Merge');
     default:
-      return t('Repos', 'Rest');
+      // Le dashboard est servi en fichiers statiques : ce navigateur peut
+      // parler à un orchestrateur plus récent, qui connaît un pas de plus.
+      // On rend alors son NOM BRUT — inélégant, mais vrai. Inventer un
+      // libellé (« Repos ») afficherait une décision que la ruche n'a pas
+      // prise, et c'est le pire mensonge possible sur cet écran.
+      return pas;
   }
 }
 
@@ -57,9 +62,10 @@ function iconePas(pas: PasEssaim): string {
     corriger: '🔧',
     livrer: '📤',
     fusionner: '🔀',
-    repos: '💤',
   };
-  return icones[pas];
+  // `??` et pas un accès nu : un pas inconnu d'un serveur plus récent rendrait
+  // `undefined`, donc une puce vide à côté d'un libellé bien présent.
+  return icones[pas] ?? '•';
 }
 
 function libelleIndicateur(
