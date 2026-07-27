@@ -258,6 +258,13 @@ npm run cli -- tunnel
 #    ✔ https://xyz.trycloudflare.com  →  wss://xyz.trycloudflare.com/ws
 ```
 
+Pas de `cloudflared` ? Une commande vous dit quoi faire sur **votre** machine :
+
+```bash
+npm run cli -- cloudflare            # diagnostic + prochaines étapes
+npm run cli -- cloudflare --install  # binaire local, AUCUN sudo
+```
+
 Hive n'embarque **aucune dépendance de tunnel** : la commande détecte un
 `cloudflared` (ou `localtunnel`) que vous avez installé vous-même. Faire
 transiter le code source de tous les membres par un tiers doit être votre choix,
@@ -267,6 +274,30 @@ pas un effet de bord d'un `npm install`.
 > seulement le billet qui fuiterait, mais **tout le trafic** : prompts, logs et
 > **diffs de code source**. Utilisez `wss://`, ou `--insecure` en connaissance de
 > cause.
+
+#### URL stable — pour une ruche qui dure
+
+L'URL d'un tunnel rapide **change à chaque redémarrage**. Les nœuds mémorisent
+leur clé et survivent aux relances, mais l'URL qu'ils ont apprise meurt avec le
+tunnel : il faudrait réémettre un billet à **chaque membre, à chaque relance**.
+
+Avec un compte Cloudflare (gratuit) et un domaine, dix minutes une fois suffisent
+à obtenir une adresse définitive :
+
+```bash
+npm run cli -- cloudflare --setup ruche.mondomaine.com
+```
+
+La commande énumère les quatre étapes (`login`, `create`, `route dns`, `run`),
+**dit pourquoi chacune existe**, signale celle qui ouvre un navigateur, et donne
+la ligne à poser dans votre `.env` :
+
+```
+HIVE_PUBLIC_URL=wss://ruche.mondomaine.com/ws
+```
+
+Elle n'exécute rien à votre place : vous devez pouvoir lire ce qui va être fait
+sur votre compte Cloudflare avant que ça arrive.
 
 **Autres options d'adresse** : `HIVE_PUBLIC_URL=wss://mondomaine/ws`, ou
 `npm run cli -- invite wss://mondomaine/ws`.
