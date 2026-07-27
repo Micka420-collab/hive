@@ -35,7 +35,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 
 |                         |                                                                                                                                                                                                                                                                                              |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🎛️ **Mission Control**  | 8 vues navigables (sidebar alvéolaire, touches 1-8, deep-links `#/vue/id`), **interface bilingue FR/EN** (bascule topbar) : Ruche, Reine, Miellerie, Projets, Essaim, Santé, Chronique, Mémoire.                                                                                             |
+| 🎛️ **Mission Control**  | 10 vues navigables (sidebar alvéolaire, touches 1-9 et 0, deep-links `#/vue/id`), **interface bilingue FR/EN** (bascule topbar) : Ruche, Reine, Miellerie, Projets, Essaim, Santé, Chronique, Mémoire, Mon espace, Intendance (admins).                                                      |
 | 👑 **La Reine répond**  | Chat multilingue avec la ruche (`POST /api/chat`, CLI `ask`) : avancement réel, santé, classement, aide au brief avec bonnes pratiques. IA optionnelle, repli hors-ligne garanti.                                                                                                            |
 | 🍯 **Miellerie**        | Centre de revue des productions IA : diff par fichier, logs, consensus du Parlement, approbation au clavier (j/k/a/x), merge Honeycomb en un geste.                                                                                                                                          |
 | 🧠 **Queen Bee**        | Décrivez un projet en une phrase → un **DAG de tâches** est généré (heuristique ou IA).                                                                                                                                                                                                      |
@@ -116,18 +116,32 @@ simulé, aucun processus lancé, token par défaut toléré (uniquement dans ce 
 ## 🎛️ Mission Control — l'interface de pilotage
 
 Le dashboard (servi sur `:7777`) est une application complète de gestion de la
-ruche, navigable au clavier (touches **1-8**) via une sidebar alvéolaire :
+ruche, navigable au clavier (touches **1-9**, `0`) via une sidebar alvéolaire :
 
-| Vue              | Ce qu'on y fait                                                                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 🐝 **Ruche**     | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                             |
-| 👑 **Reine**     | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                               |
-| 🍯 **Miellerie** | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb. |
-| ⬡ **Projets**    | Rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting.                                                      |
-| 🕺 **Essaim**    | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                               |
-| 💓 **Santé**     | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                 |
-| 📜 **Chronique** | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                         |
-| 🧠 **Mémoire**   | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                 |
+| Vue               | Ce qu'on y fait                                                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                             |
+| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                               |
+| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb. |
+| ⬡ **Projets**     | Rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting.                                                      |
+| 🕺 **Essaim**     | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                               |
+| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                 |
+| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                         |
+| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                 |
+| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.       |
+| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés et les comptes de la ruche.                                                       |
+
+**Mon espace** répond à une seule question : _qu'est-ce qui va me coûter quelque
+chose si je ne fais rien aujourd'hui ?_ Les alertes passent donc avant les
+cartes, et leur ordre est une prise de position — ce qui est **irréversible**
+(des données sur le point d'être effacées) prime ce qui coupe le service, qui
+prime un quota qui se vide. Une facture se règle après coup ; des données
+effacées ne reviennent pas.
+
+**L'Intendance** exige un COMPTE administrateur, jamais le seul jeton de ruche :
+celui-ci est distribué à chaque nœud membre, et s'en servir comme preuve
+donnerait les pleins pouvoirs à toute machine qui butine. Le premier compte créé
+est administrateur, et le dernier ne peut pas se retirer.
 
 Les décisions de revue sont **partagées entre tous les opérateurs** (stockées
 côté orchestrateur, synchronisées en temps réel via WebSocket ; repli
