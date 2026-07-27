@@ -232,6 +232,79 @@ describe('HiveStore — budgets : l’intention humaine (la Balance, borner)', (
   });
 });
 
+describe('HiveStore — balance_ledger_cache : un CACHE, et rien d’autre', () => {
+  let store: HiveStore;
+
+  beforeEach(() => {
+    store = new HiveStore(':memory:');
+  });
+
+  afterEach(() => store.close());
+
+  const soldes = [
+    { projectId: 'p1', depenseMs: 400, tentatives: 3 },
+    { projectId: 'p2', depenseMs: 700, tentatives: 2 },
+  ];
+
+  it('écriture / lecture : un instantané cohérent, ou rien', () => {
+    expect(store.lireCacheGrandLivre()).toBeNull(); // base neuve : pas de cache
+    store.insertResult(resultat('t1', { durationMs: 1 }));
+    store.insertResult(resultat('t2', { durationMs: 1 }));
+    store.ecrireCacheGrandLivre(2, soldes);
+    expect(store.lireCacheGrandLivre()).toEqual({ filigrane: 2, soldes });
+
+    // Réécriture TOTALE : l'ancien contenu ne survit pas par morceaux.
+    store.ecrireCacheGrandLivre(2, [{ projectId: 'p3', depenseMs: 1, tentatives: 1 }]);
+    expect(store.lireCacheGrandLivre()?.soldes.map((s) => s.projectId)).toEqual(['p3']);
+  });
+
+  it('une VERSION étrangère jette le cache : reconstruction totale, jamais un solde faux', () => {
+    store.insertResult(resultat('t1', { durationMs: 1 }));
+    store.ecrireCacheGrandLivre(1, soldes);
+    const db = (store as unknown as { db: Database.Database }).db;
+    db.prepare('UPDATE balance_ledger_cache SET version = ?').run(VERSION_BALANCE + 1);
+    expect(store.lireCacheGrandLivre()).toBeNull();
+    // Et la table a bien été vidée : le doute ne se relit pas au démarrage suivant.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM balance_ledger_cache').get()).toEqual({ n: 0 });
+  });
+
+  it('des filigranes DIVERGENTS jettent le cache (l’écriture est atomique : c’est une corruption)', () => {
+    store.insertResult(resultat('t1', { durationMs: 1 }));
+    store.ecrireCacheGrandLivre(1, soldes);
+    const db = (store as unknown as { db: Database.Database }).db;
+    db.prepare('UPDATE balance_ledger_cache SET filigrane = 99 WHERE projectId = ?').run('p2');
+    expect(store.lireCacheGrandLivre()).toBeNull();
+  });
+
+  it('un filigrane AU-DELÀ du dernier résultat jette le cache (base revenue en arrière)', () => {
+    store.insertResult(resultat('t1', { durationMs: 1 }));
+    expect(store.lastResultId()).toBe(1);
+    store.ecrireCacheGrandLivre(5_000, soldes);
+    expect(store.lireCacheGrandLivre()).toBeNull();
+  });
+
+  it('vider le cache est la PROCÉDURE de reconstruction : gratuite et sans perte', () => {
+    store.insertResult(resultat('t1', { durationMs: 1 }));
+    store.ecrireCacheGrandLivre(1, soldes);
+    store.viderCacheGrandLivre();
+    expect(store.lireCacheGrandLivre()).toBeNull();
+    // La vérité, elle, n'a pas bougé d'un octet : `results` est intacte.
+    expect(store.listResultsForLedger(0)).toHaveLength(1);
+  });
+
+  it('la table du cache n’a AUCUN élagage — sa borne est structurelle (règle 3)', () => {
+    // Une ligne par PROJET, jamais par résultat : elle ne croît pas avec
+    // l'histoire. Les élagages voisins ne la touchent pas non plus.
+    expect((store as unknown as Record<string, unknown>).pruneLedgerCache).toBeUndefined();
+    store.insertResult(resultat('t1', { durationMs: 1 }));
+    store.ecrireCacheGrandLivre(1, soldes);
+    store.pruneEvents(0);
+    store.pruneMemories(0);
+    store.pruneResults(0);
+    expect(store.lireCacheGrandLivre()).toEqual({ filigrane: 1, soldes });
+  });
+});
+
 describe('HiveStore — l’index de la Balance arrive sans migration', () => {
   it('T7 — une base ANTÉRIEURE gagne idx_results_balance, et deux ouvertures sont idempotentes', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-balance-ancienne-'));

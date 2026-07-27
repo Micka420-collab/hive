@@ -18,12 +18,42 @@
 //
 // ─── DOCTRINE — quatre règles, à lire avant de modifier ce fichier ───────────
 //
-// 1. AUCUNE VUE DÉRIVÉE MATÉRIALISÉE. Le grand livre est un CACHE en mémoire,
-//    reconstructible à froid depuis `results` ; l'imputation est une fonction
-//    pure recalculée à la demande. Rien de calculé n'est jamais écrit en base.
-//    La table `budgets` ne fait pas exception : elle stocke une INTENTION
-//    HUMAINE — un plafond posé par un opérateur — jamais un calcul. Le solde,
-//    lui, n'est persisté nulle part et se reconstruit au démarrage.
+// 1. AUCUNE VUE DÉRIVÉE MATÉRIALISÉE — SAUF UN CACHE, ET IL SE NOMME COMME TEL.
+//    L'imputation (`peserLaRuche`) est une fonction pure recalculée à la
+//    demande, sur un corpus borné ; elle n'est écrite nulle part et ne le sera
+//    jamais. La table `budgets` n'est pas une exception : elle stocke une
+//    INTENTION HUMAINE — un plafond posé par un opérateur — jamais un calcul.
+//
+//    L'EXCEPTION, unique et délimitée : `balance_ledger_cache` (store.ts), qui
+//    persiste le couple (filigrane, soldes) du grand livre. Cette règle
+//    l'interdisait ; elle a été AMENDÉE, et voici pourquoi :
+//
+//    a) Le grand livre est ADDITIF, ORDONNÉ PAR id, JAMAIS RÉVISÉ, et
+//       indépendant de l'ordre du lot. Aucune ligne de `results` n'est jamais
+//       supprimée — `pruneResults` ALLÈGE (`diff`/`logs` vidés), la ligne
+//       survit. La somme par projet est donc monotone : un solde absorbé ne
+//       peut plus changer. C'est exactement l'argument qui autorisait déjà
+//       l'accumulateur EN MÉMOIRE ; le persister n'ajoute pas une classe de
+//       divergence, il prolonge la durée de vie de la même.
+//    b) Ce que la règle interdisait vraiment, c'est qu'un CALCUL devienne une
+//       SOURCE DE VÉRITÉ. Ici il n'en devient pas une : le nom de la table le
+//       dit, elle porte un `version`, et sa procédure de reconstruction totale
+//       est « DELETE FROM balance_ledger_cache » — le rattrapage la refait à
+//       l'identique depuis `results`. `lireCacheGrandLivre` la jette au moindre
+//       doute (version étrangère, filigranes divergents entre lignes,
+//       filigrane au-delà du dernier `results.id`).
+//    c) Le prix de l'interdiction était réel et croissant : sans cache, le
+//       filigrane repart de 0 à CHAQUE démarrage et le rattrapage relit tout
+//       l'historique — et pendant ce temps `aJour` vaut `false`, donc la porte
+//       des plafonds est FAIL-OPEN. Sur un an de ruche, cela fait des minutes
+//       de plafonds inopérants à chaque redémarrage. Le coût grandit avec
+//       l'histoire ; la garantie, non.
+//
+//    CONDITION DE VALIDITÉ, à relire avant de toucher à `results` : le jour où
+//    une ligne de `results` pourra être SUPPRIMÉE (et pas seulement allégée),
+//    cet amendement tombe — le cache compterait des tentatives qui n'existent
+//    plus. Il faudrait alors soit le supprimer, soit incrémenter
+//    VERSION_BALANCE pour l'invalider partout.
 //
 // 2. AUCUNE MIGRATION. `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
 //    EXISTS` uniquement ; aucun `ALTER TABLE`, aucun `PRAGMA user_version`. Et
@@ -34,13 +64,19 @@
 //    colonne de plus sur `idx_results_recent`).
 //
 // 3. UNE TABLE NOUVELLE ARRIVE AVEC SA BORNE D'ÉLAGAGE DANS LE MÊME COMMIT.
-//    La seule de toute la Balance est `budgets`, et sa borne est STRUCTURELLE :
-//    1:1 avec `projects`, une ligne par plafond posé à la main, aucune ligne
-//    qui naisse d'un calcul. Elle n'a donc PAS de `pruneBudgets`, et ne doit
-//    jamais en avoir : élaguer `budgets` « par symétrie » avec pruneEvents ou
-//    pruneResults effacerait des intentions humaines encore en vigueur — ce
-//    serait un plafond qui se lève tout seul. Cette phrase est ici pour que
-//    personne n'en ajoute un dans trois ans.
+//    La Balance en a deux, et les deux ont une borne STRUCTURELLE, pas un
+//    élagueur : une ligne par PROJET, donc une taille qui ne croît pas avec
+//    l'histoire de la ruche.
+//    - `budgets` : 1:1 avec `projects`, une ligne par plafond posé à la main,
+//      aucune ligne qui naisse d'un calcul. Elle n'a donc PAS de
+//      `pruneBudgets`, et ne doit jamais en avoir : élaguer `budgets` « par
+//      symétrie » avec pruneEvents ou pruneResults effacerait des intentions
+//      humaines encore en vigueur — ce serait un plafond qui se lève tout seul.
+//      Cette phrase est ici pour que personne n'en ajoute un dans trois ans.
+//    - `balance_ledger_cache` : une ligne par projet ayant dépensé (donc
+//      ≤ `projects`), réécrite en entier à chaque sauvegarde. Pas d'élagueur
+//      non plus — et là, en effacer le contenu ne coûte rien du tout : c'est
+//      littéralement la procédure de reconstruction.
 //
 // 4. LA BALANCE N'ENTRE JAMAIS DANS LE CHOIX DU NŒUD. `durationMs` mesure le
 //    temps machine PRÊTÉ, pas le travail accompli : router au moins-cher
@@ -51,6 +87,8 @@
 //    n'est JAMAIS trié en « pire contributeur ».
 
 import type { TaskStatus } from '../shared/types.js';
+import { CacheBorne } from './cache-borne.js';
+import type { StatistiquesCache } from './cache-borne.js';
 import type { Domaine } from './pheromones.js';
 
 /**
@@ -370,11 +408,15 @@ export interface LigneLivre {
  * incrémentable sans risque, là où l'imputation (qui dépend du statut FINAL de
  * la tâche) ne l'est pas.
  *
- * ÉTAT COURANT, PAS DE L'HISTOIRE : rien n'est journalisé ici, rien n'est écrit
- * en base. Un redémarrage reconstruit par rattrapage borné (≤ LOT_GRAND_LIVRE
- * lignes d'un index couvrant par passe). Sans cette phrase, quelqu'un
- * « corrigera l'oubli » dans trois ans et noiera le journal de 5 000 événements
- * sous un fait comptable par résultat.
+ * ÉTAT COURANT, PAS DE L'HISTOIRE : rien n'est JOURNALISÉ ici. Sans cette
+ * phrase, quelqu'un « corrigera l'oubli » dans trois ans et noiera le journal de
+ * 5 000 événements sous un fait comptable par résultat. Ce qui est écrit en
+ * base — et uniquement cela — est un INSTANTANÉ du couple (filigrane, soldes)
+ * dans `balance_ledger_cache`, repris par `charger` au démarrage suivant pour
+ * ne pas relire tout l'historique ; le reste du chemin est identique, et un
+ * cache absent ou jeté ne change qu'une chose : la durée du rattrapage
+ * (≤ LOT_GRAND_LIVRE lignes d'un index couvrant par passe). Voir la règle 1 de
+ * la doctrine, en tête de fichier.
  *
  * Le filigrane suit la TABLE, pas les sites d'appel de `insertResult` : un
  * troisième site d'écriture ajouté en 2029 ne peut pas dérégler le compteur.
@@ -428,6 +470,31 @@ export class GrandLivre {
   }
 
   /**
+   * Reprend un instantané du cache reconstructible (`balance_ledger_cache`) :
+   * on repart de ces soldes et de ce filigrane au lieu de relire tout
+   * l'historique. À n'appeler qu'AVANT la première absorption — un livre déjà
+   * entamé serait écrasé, pas fusionné, et l'appel est donc REFUSÉ dans ce cas
+   * (silencieusement : le rattrapage depuis 0 reste correct, simplement plus
+   * long ; jamais un solde faux).
+   *
+   * `aJour` n'est PAS remis à `true` : reprendre un instantané ne dit rien de
+   * ce qui a été inséré depuis. Seul un lot incomplet le prouve, comme avant.
+   */
+  charger(
+    filigrane: number,
+    soldes: ReadonlyArray<{ projectId: string; depenseMs: number; tentatives: number }>,
+  ): void {
+    if (this.dernierId !== 0 || this.comptes.size > 0) return;
+    for (const s of soldes) {
+      this.comptes.set(s.projectId, {
+        depenseMs: Math.max(0, s.depenseMs),
+        tentatives: Math.max(0, s.tentatives),
+      });
+    }
+    this.dernierId = Math.max(0, filigrane);
+  }
+
+  /**
    * Le dernier lot lu était incomplet ⇒ le livre a rejoint la table. Jamais
    * remis à `false` : une fois le rattrapage terminé, l'avancement se fait lot
    * par lot et le livre ne redevient pas incomplet.
@@ -456,16 +523,22 @@ const CAPACITE_PROJETS = 20_000;
  * IMMUABLE (`patchTask` ne touche jamais `projectId`) : il se mémoïse sans
  * aucun risque de péremption.
  *
- * Bornée, purge du plus ancien à l'insertion — motif `CacheDomaines`. Sans ce
- * cache, un rattrapage de 100 000 résultats rouvrirait 100 000 lignes `tasks`
- * (prompt ≤ 100 ko chacune) ; avec lui, chaque tâche n'est lue qu'une fois.
+ * Sans ce cache, un rattrapage de 100 000 résultats rouvrirait 100 000 lignes
+ * `tasks` (prompt ≤ 100 ko chacune) ; avec lui, chaque tâche n'est lue qu'une
+ * fois.
+ *
+ * Toute la mécanique — bornage, LRU, éviction O(1) amorti, et surtout
+ * l'invariant « ce que `resoudre` a résolu, il le rend » — vit dans
+ * `CacheBorne` (cache-borne.ts), partagé avec `CacheDomaines`. Cette classe
+ * n'est plus qu'un TYPAGE de ce cache : elle nomme la clé (taskId), la valeur
+ * (projectId) et la forme des lignes rendues par le store.
  */
 export class CacheProjets {
-  private readonly cache = new Map<string, string>();
-  /** Nombre de résolutions réellement demandées au store (observabilité + tests). */
-  private lectures = 0;
+  private readonly cache: CacheBorne<string>;
 
-  constructor(private readonly capacite: number = CAPACITE_PROJETS) {}
+  constructor(capacite: number | undefined = CAPACITE_PROJETS) {
+    this.cache = new CacheBorne<string>(capacite ?? CAPACITE_PROJETS);
+  }
 
   /**
    * Projets des SEULES tâches citées : les ids déjà connus ne coûtent rien, et
@@ -479,30 +552,13 @@ export class CacheProjets {
     ids: readonly string[],
     manquants: (ids: string[]) => Array<{ id: string; projectId: string }>,
   ): Map<string, string> {
-    const uniques = [...new Set(ids)];
-    const absents = uniques.filter((id) => !this.cache.has(id));
-    if (absents.length > 0) {
-      this.lectures += 1;
-      for (const { id, projectId } of manquants(absents)) this.memoriser(id, projectId);
-    }
-    const projets = new Map<string, string>();
-    for (const id of uniques) {
-      const projectId = this.cache.get(id);
-      if (projectId !== undefined) projets.set(id, projectId);
-    }
-    return projets;
-  }
-
-  private memoriser(id: string, projectId: string): void {
-    if (this.cache.size >= this.capacite) {
-      const plusAncienne = this.cache.keys().next().value;
-      if (plusAncienne !== undefined) this.cache.delete(plusAncienne);
-    }
-    this.cache.set(id, projectId);
+    return this.cache.resoudre(ids, (absents) =>
+      manquants(absents).map((ligne) => [ligne.id, ligne.projectId] as const),
+    );
   }
 
   /** Transparence : taille du cache et nombre d'appels au résolveur. */
-  get statistiques(): { taille: number; lectures: number } {
-    return { taille: this.cache.size, lectures: this.lectures };
+  get statistiques(): StatistiquesCache {
+    return this.cache.statistiques;
   }
 }

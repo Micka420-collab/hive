@@ -331,7 +331,7 @@ describe('endpoints de la Balance', () => {
     expect(server.store.getBudget(projectId)).toMatchObject({ plafondMs: 60_000 });
 
     // Un fait typé, journalisé : aucune phrase, aucun texte d'affichage figé.
-    const journal = server.store.listEvents(0, 1_000).filter((e) => e.type === 'balance_plafond');
+    const journal = server.store.listEvents(0, 1_000).filter((e) => e.type === 'balance_cap_set');
     expect(journal).toHaveLength(1);
     expect(journal[0]?.payload).toEqual({ projectId, plafondMs: 60_000 });
     for (const valeur of Object.values(journal[0]?.payload ?? {})) {
@@ -402,6 +402,123 @@ describe('endpoints de la Balance', () => {
     expect(retrait.status).toBe(200);
     expect((await retrait.json()) as ReponseProjet).toMatchObject({ plafondMs: null });
     expect(server.store.getBudget(projet.id)).toBeNull();
+  });
+
+  it('T4bis — la COERCITION d’AJV ne peut plus fabriquer un plafond', async () => {
+    // Fastify active `coerceTypes` par défaut. Contre un schéma
+    // `type: ['integer', 'null']`, cela transformait silencieusement :
+    //   false → 0    (un projet ARRÊTÉ NET, personne ne l'a demandé)
+    //   ""    → null (le plafond RETIRÉ, personne ne l'a demandé)
+    // Le schéma croyait borner une valeur que la coercition avait déjà
+    // remplacée. On refuse donc la valeur BRUTE, avant la validation.
+    const projet = server.store.createProject({ name: 'P' });
+    const envoyer = (corps: unknown): Promise<Response> =>
+      fetch(`${base}/api/projects/${projet.id}/balance`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(corps),
+      });
+
+    // Un plafond légitime est posé d'abord : ce qui suit ne doit RIEN changer.
+    expect((await envoyer({ plafondMs: 60_000 })).status).toBe(200);
+
+    for (const valeur of [false, true, '', '0', '60000', [], {}, [60_000]]) {
+      const res = await envoyer({ plafondMs: valeur });
+      expect({ valeur, status: res.status }).toEqual({ valeur, status: 400 });
+      // Et surtout : le plafond en vigueur n'a pas bougé d'un millième.
+      expect(server.store.getBudget(projet.id)?.plafondMs).toBe(60_000);
+    }
+
+    // Aucun fait n'a été journalisé pour ces refus : la Chronique ne raconte
+    // pas des plafonds qui n'ont pas été posés.
+    const poses = server.store.listEvents(0, 1_000).filter((e) => e.type === 'balance_cap_set');
+    expect(poses).toHaveLength(1);
+
+    // Les deux seules valeurs acceptables le restent.
+    expect((await envoyer({ plafondMs: 0 })).status).toBe(200);
+    expect((await envoyer({ plafondMs: null })).status).toBe(200);
+    expect(server.store.getBudget(projet.id)).toBeNull();
+  });
+
+  it('mode `off` : aucun solde inventé, mais le PLAFOND reste lisible', async () => {
+    // `GET /api/balance` ne doit plus fabriquer un `depenseMs: 0` pour un
+    // projet plafonné alors que le livre ne tourne pas — un solde inconnu n'est
+    // pas un solde nul. Mais l'intention humaine, elle, doit rester visible :
+    // un plafond qui disparaît de l'affichage parce que la Balance est éteinte
+    // serait un mensonge, au pire endroit pour en faire un.
+    const eteinte = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'eteinte.db'),
+      simulation: false,
+      tickMs: 10_000,
+      balance: 'off',
+    });
+    try {
+      const url = `http://127.0.0.1:${eteinte.port}`;
+      const projet = eteinte.store.createProject({ name: 'P' });
+      const tache = eteinte.store.createTask({ projectId: projet.id, title: 'T', prompt: 'x' });
+      eteinte.store.insertResult({
+        taskId: tache.id,
+        nodeId: 'n1',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 30_000,
+        subAgents: [],
+      });
+      await fetch(`${url}/api/projects/${projet.id}/balance`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ plafondMs: 60_000 }),
+      });
+      eteinte.scheduler.tick();
+
+      const global = (await (await fetch(`${url}/api/balance`, { headers })).json()) as {
+        mode: string;
+        soldes: Solde[];
+      };
+      expect(global.mode).toBe('off');
+      expect(global.soldes).toEqual([]);
+
+      const parProjet = (await (
+        await fetch(`${url}/api/projects/${projet.id}/balance`, { headers })
+      ).json()) as ReponseProjet;
+      expect(parProjet.mode).toBe('off');
+      expect(parProjet.plafondMs).toBe(60_000);
+      expect(parProjet.bloque).toBe(false); // en `off`, rien ne bloque jamais
+    } finally {
+      await eteinte.stop();
+    }
+  });
+
+  it('le socle ne déplie JAMAIS la table `reviews` (lecture ciblée par clé primaire)', async () => {
+    // `reviews` n'est jamais élaguée : la lire en entier toutes les 3 s, dans
+    // la boucle d'événements, coûtait 159,8 ms mesurées à 100 000 revues.
+    const projectId = semer('route api', 'creer un endpoint rest', [1_000, 2_000]);
+    // Des revues sur des tâches ÉTRANGÈRES au corpus : elles ne doivent jamais
+    // être lues, et encore moins entrer dans la pesée.
+    for (let i = 0; i < 50; i++) server.store.setTaskReview(`hors-corpus-${i}`, 'rejected');
+    server.scheduler.tick();
+
+    let deplie = 0;
+    const vraie = server.store.listReviews.bind(server.store);
+    server.store.listReviews = () => {
+      deplie += 1;
+      return vraie();
+    };
+    const res = await fetch(`${base}/api/balance`, { headers });
+    expect(res.status).toBe(200);
+    expect(deplie).toBe(0);
+
+    // Et le verdict des tâches DU corpus, lui, est bien pris en compte.
+    const tache = server.store.listTasks(projectId)[0];
+    expect(tache).toBeDefined();
+    server.store.setTaskReview(tache?.id ?? '', 'rejected');
+    const verdicts = server.store.listReviewsFor([tache?.id ?? '']);
+    expect(verdicts[tache?.id ?? '']).toBe('rejected');
   });
 
   it('GET /api/projects/:id/balance dit pourquoi un projet est bloqué, durablement', async () => {

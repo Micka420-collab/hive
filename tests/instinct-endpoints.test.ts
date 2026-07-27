@@ -161,6 +161,46 @@ describe('endpoints de l’instinct de ruche', () => {
     expect(dépliages).toBe(0);
   });
 
+  // ─── Le filet de re-livraison ne doit RIEN recalculer pour rien ──────────
+  //
+  // Le contexte (Couveuse + Hive Mind) coûte un BM25 sur toute la mémoire —
+  // ~37 ms mesurées sur 500 souvenirs — et il était payé PAR TÂCHE MUETTE ET
+  // PAR TICK, dans le corps SYNCHRONE du setInterval, AVANT même de savoir si
+  // une socket était ouverte. À 2 s de tick, c'est la boucle d'événements de la
+  // ruche qui s'arrête, en boucle, pour rien.
+
+  it(
+    'aucune socket ouverte ⇒ AUCUN contexte calculé pour une tâche muette',
+    { timeout: 10_000 },
+    async () => {
+      const projet = server.store.createProject({ name: 'Ruche' });
+      const task = server.store.createTask({
+        projectId: projet.id,
+        title: 'Tâche orpheline',
+        prompt: 'personne au bout du fil',
+      });
+      // `assigned` à un nœud qui n'a jamais eu de socket, et muette depuis
+      // longtemps : le filet la voit à chaque tick.
+      server.store.patchTask(
+        task.id,
+        { status: 'assigned', assignedNodeId: 'noeud-jamais-connecte' },
+        Date.now() - 60_000,
+      );
+
+      let recherches = 0;
+      const vraie = server.store.searchMemories.bind(server.store);
+      server.store.searchMemories = (q: string, n?: number) => {
+        recherches += 1;
+        return n === undefined ? vraie(q) : vraie(q, n);
+      };
+      // Plusieurs ticks (tickMs = 80 ms) : le filet passe et repasse.
+      await new Promise((r) => setTimeout(r, 600));
+      expect(recherches).toBe(0);
+      // La tâche est bien restée muette : le filet la voyait à chaque passe.
+      expect(server.scheduler.staleAssignedTasks(5_000).map((t) => t.id)).toEqual([task.id]);
+    },
+  );
+
   it(
     'la re-livraison de secours porte le contexte de la Couveuse',
     { timeout: 20_000 },
@@ -208,11 +248,25 @@ describe('endpoints de l’instinct de ruche', () => {
         });
         server.store.patchTask(task.id, { status: 'ready', attempts: 1 });
 
+        // Compté à partir d'ici : combien de fois le contexte est RECALCULÉ.
+        let recherches = 0;
+        const vraie = server.store.searchMemories.bind(server.store);
+        server.store.searchMemories = (q: string, n?: number) => {
+          recherches += 1;
+          return n === undefined ? vraie(q) : vraie(q, n);
+        };
+
         const deadline = Date.now() + 15_000;
-        while (assignations.length < 2 && Date.now() < deadline) {
+        while (assignations.length < 4 && Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 100));
         }
         expect(assignations.length).toBeGreaterThanOrEqual(2);
+
+        // Le contexte d'une tâche muette ne change pas d'un tick à l'autre : au
+        // plus deux calculs (l'assignation initiale, puis la première
+        // re-livraison), quel que soit le nombre de re-livraisons.
+        expect(assignations.length).toBeGreaterThanOrEqual(4);
+        expect(recherches).toBeLessThanOrEqual(2);
 
         // Les DEUX chemins servent le même contexte : sans cela, la leçon
         // annoncée par brood_context n'arrivait jamais à l'ouvrière re-servie.
