@@ -585,6 +585,32 @@ export class HiveStore {
     }));
   }
 
+  /**
+   * Résultats les plus récents, réduits au strict nécessaire du calcul des
+   * phéromones (qui a réussi/échoué quoi, quand). Corpus borné pour garder le
+   * repli rapide — au-delà, le signal est de toute façon évaporé (demi-vie).
+   */
+  listResultsForPheromones(
+    limit = 500,
+  ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
+    const rows = this.db
+      .prepare(
+        'SELECT taskId, nodeId, success, createdAt FROM results ORDER BY createdAt DESC, id DESC LIMIT ?',
+      )
+      .all(Math.max(1, Math.min(limit, 2000))) as {
+      taskId: string;
+      nodeId: string;
+      success: number;
+      createdAt: number;
+    }[];
+    return rows.map((r) => ({
+      taskId: r.taskId,
+      nodeId: r.nodeId,
+      success: r.success === 1,
+      createdAt: r.createdAt,
+    }));
+  }
+
   // ─── Journal d'événements ──────────────────────────────────────────────────
   appendEvent(type: string, payload: Record<string, unknown>, ts = Date.now()): HiveEvent {
     const info = this.db

@@ -8,6 +8,8 @@ import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { summarizeTask } from './hive-mind.js';
+import { calculerPheromones, domaineDeTache, meilleurNoeud } from './pheromones.js';
+import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
 
@@ -695,6 +697,17 @@ export class Scheduler {
     const activeNow = this.store.tasksByStatus('assigned', 'running');
     // Drones non-primaires en vol : charge invisible du store, à additionner.
     const extra = this.droneLoad();
+    // Phéromones : calculées au plus UNE fois par passe, et seulement si un
+    // départage est réellement nécessaire (≥ 2 candidats à charge minimale).
+    let traces: TraceePheromone[] | null = null;
+    const lireTraces = (): TraceePheromone[] => {
+      traces ??= calculerPheromones(
+        this.store.listTasks().map((t) => ({ id: t.id, title: t.title, prompt: t.prompt })),
+        this.store.listResultsForPheromones(),
+        now,
+      );
+      return traces;
+    };
     for (const task of this.store.tasksByStatus('ready')) {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
@@ -713,27 +726,55 @@ export class Scheduler {
         continue;
       }
       this.deferredByConflict.delete(task.id);
-      const node = this.store
+      const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+      const eligibles = this.store
         .listNodes()
         .filter(
           (n) =>
             n.status === 'online' &&
-            n.running + (extra.get(n.id) ?? 0) < n.maxConcurrency &&
+            charge(n) < n.maxConcurrency &&
             // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
             (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
         )
-        .sort(
-          (a, b) =>
-            a.running + (extra.get(a.id) ?? 0) - (b.running + (extra.get(b.id) ?? 0)) ||
-            a.name.localeCompare(b.name),
-        )[0];
+        .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
+      let node = eligibles[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
+      // Phéromones : le critère principal « moins chargé » reste intact — elles
+      // ne DÉPARTAGENT que les ex æquo à charge minimale, et seulement sur un
+      // signal net (score strictement positif et sans égalité).
+      let routePheromone: { domaine: Domaine; score: number } | null = null;
+      const chargeMin = charge(node);
+      const exAequo = eligibles.filter((n) => charge(n) === chargeMin);
+      if (exAequo.length >= 2) {
+        const domaine = domaineDeTache(task.title, task.prompt);
+        const elu = meilleurNoeud(
+          exAequo.map((n) => n.id),
+          domaine,
+          lireTraces(),
+        );
+        const gagnant = elu === null ? undefined : exAequo.find((n) => n.id === elu);
+        if (gagnant) {
+          node = gagnant;
+          const score =
+            lireTraces().find((t) => t.nodeId === gagnant.id && t.domaine === domaine)?.score ?? 0;
+          routePheromone = { domaine, score };
+        }
+      }
       const assigned = this.store.patchTask(
         task.id,
         { status: 'assigned', assignedNodeId: node.id, branch: `hive/${task.id}` },
         now,
       );
       if (!assigned) continue;
+      if (routePheromone) {
+        this.emit('pheromone_route', {
+          taskId: task.id,
+          nodeId: node.id,
+          domaine: routePheromone.domaine,
+          score: routePheromone.score,
+          message: `🐜 Phéromones : « ${task.title} » routée vers ${node.name} (domaine ${routePheromone.domaine})`,
+        });
+      }
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
       // sans réécrire le prompt persisté de la tâche.
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });

@@ -27,6 +27,7 @@ import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
+import { calculerPheromones } from './pheromones.js';
 import { anthropicLlm, llmPlannerAvailable, planBrief } from './planner.js';
 import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
@@ -559,6 +560,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       cursor = last.id;
     }
     return computePulse(events);
+  });
+
+  // Phéromones : affinité apprise nœud × domaine (qui réussit quel TYPE de
+  // tâche), repliée à la demande depuis les résultats récents — vue dérivée
+  // pure, jamais matérialisée. Lecture seule ; bornée aux 30 premières traces.
+  app.get('/api/pheromones', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const taches = store.listTasks().map((t) => ({ id: t.id, title: t.title, prompt: t.prompt }));
+    const traces = calculerPheromones(taches, store.listResultsForPheromones(), Date.now());
+    return { traces: traces.slice(0, 30) };
   });
 
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
