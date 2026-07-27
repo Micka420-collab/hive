@@ -131,6 +131,15 @@ export function composerReglages(
       commentaire:
         'Encadrement des ouvrières selon leur expérience : off | consignes | strict. Le défaut encadre sans rien retenir.',
     },
+    {
+      cle: 'HIVE_RUNNER',
+      valeur: garde('HIVE_RUNNER', 'off'),
+      commentaire:
+        'Autonomie réelle : off | on. C’est le commutateur de l’HÔTE — celui qui prête le ' +
+        'temps-machine. Sur « on », les projets réglés en autonomie agissent seuls : ils ouvrent ' +
+        'des conseils, créent des tâches, et dépensent. Le défaut est « off » : une ruche ' +
+        'fraîchement installée ne se met pas à travailler toute seule pendant la nuit.',
+    },
   ];
 }
 
@@ -147,6 +156,17 @@ export function avertissements(reglages: readonly Reglage[]): string[] {
     dits.push(
       `Votre HIVE_TOKEN fait ${jeton.length} caractères : c’est trop court pour protéger quoi que ce soit. ` +
         `Remplacez-le dans .env par au moins ${MIN_TOKEN_LENGTH} caractères — la ruche refusera de démarrer autrement.`,
+    );
+  }
+  // L'autonomie réelle dépense du temps-machine sans qu'on la regarde. Une
+  // ruche qui l'aurait allumée sans que son hôte s'en souvienne travaillerait
+  // toute la nuit ; le dire à l'installation est le dernier moment où
+  // quelqu'un lit encore.
+  if (reglages.find((r) => r.cle === 'HIVE_RUNNER')?.valeur === 'on') {
+    dits.push(
+      'HIVE_RUNNER est sur « on » : les projets réglés en autonomie AGIRONT seuls — conseils ' +
+        'ouverts, tâches créées, temps-machine dépensé, sans que personne clique. Repassez-le à ' +
+        '« off » dans .env si ce n’est pas ce que vous voulez.',
     );
   }
   return dits;

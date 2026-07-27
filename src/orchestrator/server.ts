@@ -92,6 +92,7 @@ import {
 } from './serveurs.js';
 import { composerTableau } from './tableau.js';
 import type { ProjetVu } from './tableau.js';
+import { Cadencier, enPause, modeRunnerDepuisEnv } from './essaim-runner.js';
 import type { EtatServeur, Serveur } from './serveurs.js';
 import {
   GOUVERNANTES_MIN,
@@ -1661,6 +1662,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       const e = etatEssaim(req.params.projectId);
+      const suivi = cadencier.suivi(req.params.projectId);
       return {
         niveau: e.niveau,
         decision: e.decision,
@@ -1671,6 +1673,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         derive: e.derive,
         lecons: e.lecons,
         niveaux: NIVEAUX,
+        /**
+         * Ce que le RUNNER fait de cette décision. Distinct du verdict : une
+         * ruche peut décider « délibérer » et ne rien faire parce que l'hôte
+         * n'a pas allumé l'autonomie, ou parce qu'elle est en pause après cinq
+         * échecs. Sans ces trois champs, l'écran montrerait une décision qui
+         * n'arrive jamais et personne ne saurait pourquoi.
+         */
+        runner: {
+          mode: modeRunner,
+          enPause: enPause(suivi),
+          echecs: suivi.echecs,
+          dernierTourA: suivi.dernierTourA,
+        },
       };
     },
   );
@@ -1729,12 +1744,66 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         niveau: req.body.niveau,
         depotInscrit: inscrit,
       });
+      // Régler l'autonomie est LE geste humain qui lève une pause du runner.
+      // Sans ce rappel, un projet mis en pause après cinq échecs ne repartirait
+      // jamais — et le seul bouton qui parle d'autonomie ne le débloquerait pas.
+      cadencier.reprendre(req.params.projectId);
+
       const e = etatEssaim(req.params.projectId);
       return reply
         .code(200)
         .send({ niveau: e.niveau, depotInscrit: e.depotInscrit, decision: e.decision });
     },
   );
+
+  // ─── Le runner : la ruche agit vraiment ────────────────────────────────────
+  //
+  // `deciderPas` savait déjà quoi faire ; personne ne l'appelait en boucle. Ce
+  // cadencier est ce qui transforme le verdict en geste — et c'est le seul
+  // endroit du dépôt où la ruche agit sans clic humain, d'où les garde-fous
+  // détaillés en tête d'essaim-runner.ts.
+  //
+  // `HIVE_RUNNER` est le commutateur de l'HÔTE, distinct du niveau réglé par
+  // l'utilisateur. Éteint par défaut : le niveau dit ce que l'utilisateur veut,
+  // celui-ci dit si la machine qui paie est d'accord pour le faire.
+  const modeRunner = modeRunnerDepuisEnv();
+
+  const cadencier = new Cadencier({
+    lireDecision: (projectId) => etatEssaim(projectId).decision,
+    lireNiveau: (projectId) => {
+      const brut = store.getEssaim(projectId)?.niveau ?? 'off';
+      return NIVEAUX.includes(brut as NiveauAutonomie) ? (brut as NiveauAutonomie) : 'off';
+    },
+    lireMode: () => modeRunner,
+    emettre: emitEvent,
+    actions: {
+      /**
+       * Ouvrir un conseil. Le SEUL pas branché pour l'instant, et c'est
+       * délibéré : c'est celui dont le coût est borné par construction
+       * (`TOURS_MAX`), et celui qui ne touche à aucun dépôt.
+       *
+       * Les quatre autres rendent `non_branche`, visible dans le Journal. Une
+       * ruche qui ne livre pas parce que la livraison n'est pas câblée doit
+       * rester discernable d'une ruche qui n'a rien à livrer.
+       */
+      deliberer: (projectId) => {
+        const projet = store.getProject(projectId);
+        if (!projet) throw new Error('projet inconnu');
+        // Un seul conseil à la fois, même garde que la route humaine : deux
+        // conseils concurrents doubleraient la dépense et rendraient leurs
+        // verdicts incomparables.
+        const deja = store.sessionsOuvertes().find((s) => s.projectId === projectId);
+        if (deja) return Promise.resolve(`conseil déjà ouvert (${deja.id})`);
+        const session = ouvrirConseil(depConseil, {
+          projectId,
+          contexteProjet: [projet.name, projet.description ?? '', projet.repoUrl ?? '']
+            .filter(Boolean)
+            .join(' — '),
+        });
+        return Promise.resolve(`conseil ${session.id} ouvert`);
+      },
+    },
+  });
 
   // ─── Le provisionnement automatique ───────────────────────────────────────
   //
@@ -4096,6 +4165,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
       // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
       scruterConseils();
+      // Le runner d'essaim. Le test du mode est fait AVANT de lire la base :
+      // sur une ruche dont l'hôte n'a pas allumé l'autonomie — le cas par
+      // défaut — ce branchement ne coûte pas une seule requête SQL, toutes les
+      // deux secondes, pour toujours. Le cadencier tient sa propre cadence
+      // (une minute par projet) ; l'appeler à chaque tick est sans effet.
+      if (modeRunner === 'on') {
+        const autonomes = store.listProjetsAutonomes();
+        if (autonomes.length > 0) {
+          // Le cycle est asynchrone : on ne l'attend PAS dans le tick, sinon un
+          // conseil lent retarderait l'ordonnancement de toute la ruche. Le
+          // cadencier refuse déjà tout chevauchement.
+          void cadencier.tour(autonomes).catch((err: unknown) => {
+            console.error(
+              `[hive] erreur de cycle d’essaim : ${err instanceof Error ? err.message : err}`,
+            );
+          });
+        }
+      }
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {
