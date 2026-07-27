@@ -1,0 +1,90 @@
+name: 🐝 Proposer un projet à la ruche
+description: Vous avez une idée ? Proposez-la, la communauté en discute et des membres peuvent s'y atteler.
+title: '[Projet] '
+labels: ['projet proposé']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de proposer un projet à la ruche 🐝
+
+        **Comment ça se passe ensuite.** Votre proposition devient une discussion
+        publique. Si elle intéresse des membres, ils connectent leur machine et
+        leurs agents s'y mettent — leur code et leurs clés restent chez eux.
+
+        **Ce qui fait une bonne proposition** : un besoin réel, un premier pas
+        concret, et une façon de savoir que c'est réussi. Une idée vague reste
+        une idée ; une idée découpable devient du travail.
+
+  - type: input
+    id: nom
+    attributes:
+      label: Le projet en une phrase
+      description: De quoi s'agit-il, pour qui ?
+      placeholder: Un tableau de bord pour suivre la consommation électrique d'un local associatif
+    validations:
+      required: true
+
+  - type: textarea
+    id: probleme
+    attributes:
+      label: Quel problème réel cela résout-il ?
+      description: |
+        Décrivez la situation actuelle et ce qui coince. C'est la partie la plus
+        importante : une ruche peut construire beaucoup de choses, encore
+        faut-il que quelqu'un en ait besoin.
+    validations:
+      required: true
+
+  - type: textarea
+    id: premier-pas
+    attributes:
+      label: Le premier pas
+      description: |
+        Quelle est la plus petite chose livrable qui aurait déjà de la valeur ?
+        Un projet qui démarre par « tout refaire » ne démarre jamais.
+      placeholder: Une page qui affiche la courbe des 30 derniers jours à partir d'un CSV.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reussite
+    attributes:
+      label: Comment saura-t-on que c'est réussi ?
+      description: Un critère observable, pas une impression.
+      placeholder: Le trésorier de l'asso consulte la page chaque mois sans nous demander d'export.
+    validations:
+      required: true
+
+  - type: input
+    id: depot
+    attributes:
+      label: Dépôt existant (facultatif)
+      description: Si du code existe déjà, son URL. Sinon, laissez vide.
+      placeholder: https://github.com/…
+
+  - type: dropdown
+    id: participation
+    attributes:
+      label: Votre participation
+      description: Une ruche fonctionne parce que ses membres prêtent du temps-machine.
+      options:
+        - Je connecte un nœud et je participe
+        - Je peux suivre et relire, sans nœud
+        - Je propose seulement l'idée
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: comprehension
+    attributes:
+      label: Avant d'envoyer
+      options:
+        - label: >-
+            J'ai compris que Hive n'exécute rien sans qu'un humain relise et
+            approuve — aucun merge n'est automatique.
+          required: true
+        - label: >-
+            Je ne demande pas de travail sur du code que je n'ai pas le droit de
+            faire modifier.
+          required: true

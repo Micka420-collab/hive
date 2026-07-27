@@ -33,11 +33,22 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
+         va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
+         Voir site/fonts/LICENSE.txt (SIL OFL 1.1) pour l'origine des fichiers. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="fonts/space-grotesk-latin-400-600-700.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="fonts/jetbrains-mono-latin-400-600.woff2"
+      crossorigin
     />
     <script type="application/ld+json">
       {
@@ -54,6 +65,50 @@
       }
     </script>
     <style>
+      /* ── Fontes (SIL OFL 1.1, cf. fonts/LICENSE.txt) ─────────────────────── */
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('fonts/jetbrains-mono-latin-ext-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('fonts/jetbrains-mono-latin-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url('fonts/space-grotesk-latin-ext-400-600-700.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url('fonts/space-grotesk-latin-400-600-700.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+
       :root {
         --bg: #130f09;
         --panel: #201a11;
@@ -111,8 +166,13 @@
       pre {
         font-family: var(--mono);
       }
+      /* L'en-tête est collant : une ancre doit s'arrêter SOUS lui, sinon le
+         titre de section atterrit derrière la barre. Sa hauteur n'est pas
+         constante — 72 px en large, jusqu'à 176 px quand la nav passe à la
+         ligne — donc elle est mesurée au chargement et injectée dans
+         --h-entete. La valeur en repli couvre le cas « JS désactivé ». */
       section {
-        scroll-margin-top: 84px;
+        scroll-margin-top: calc(var(--h-entete, 72px) + 12px);
       }
 
       .skip-link {
@@ -215,6 +275,114 @@
       .btn-gold:hover {
         filter: brightness(1.12);
         color: #14100b;
+      }
+
+      /* ── Communauté ── */
+      .etapes {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 14px;
+        margin: 30px 0 26px;
+      }
+      .etape {
+        position: relative;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 22px 20px 20px;
+      }
+      /* Le numéro est décoratif : l'ordre est déjà porté par le texte et le DOM. */
+      .etape-num {
+        width: 30px;
+        height: 27px;
+        clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+        background: linear-gradient(180deg, var(--orange), var(--gold));
+        color: #14100b;
+        font-weight: 700;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 12px;
+      }
+      .etape h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        color: var(--gold-soft);
+      }
+      .etape p {
+        margin: 0;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .co-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .btn.primary {
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+      }
+      .btn.primary:hover {
+        filter: brightness(1.12);
+        color: #14100b;
+      }
+      .btn.ghost {
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        color: var(--gold-soft);
+      }
+      .btn.ghost:hover {
+        border-color: var(--gold);
+      }
+      .co-note {
+        margin: 0 0 30px;
+        font-size: 13.5px;
+        color: var(--dim);
+        max-width: 620px;
+      }
+      .cloud {
+        position: relative;
+        background: linear-gradient(180deg, #241c10, var(--panel));
+        border: 1px solid var(--border-2);
+        border-radius: 10px;
+        padding: 24px 22px;
+      }
+      .cloud-tag {
+        display: inline-block;
+        padding: 3px 11px;
+        border-radius: 20px;
+        border: 1px solid var(--orange);
+        color: var(--gold);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 12px;
+      }
+      .cloud h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      .cloud p {
+        margin: 0 0 8px;
+        font-size: 14.5px;
+        color: var(--muted);
+        max-width: 720px;
+      }
+      /* L'aveu d'indisponibilité doit se lire, pas se deviner. */
+      .cloud-honest {
+        font-style: italic;
+        color: var(--dim) !important;
       }
 
       /* ── Hero ── */
@@ -941,6 +1109,7 @@
         <a href="#archi">Architecture</a>
         <a href="#mission">Mission Control</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
+        <a href="#communaute" data-i18n="nav.community">Communauté</a>
         <a href="#demarrer" data-i18n="nav.start">Démarrer</a>
         <a href="#roadmap">Roadmap</a>
       </nav>
@@ -1581,6 +1750,82 @@
       </p>
     </section>
 
+    <section id="communaute" class="section">
+      <h2 class="kicker" data-i18n="co.kicker">🤝 La communauté</h2>
+      <p class="headline" data-i18n="co.headline">
+        Proposez un projet. La ruche en discute. Des membres s'y attellent.
+      </p>
+      <p class="lede" data-i18n="co.lede">
+        Une ruche n'est pas un outil qu'on utilise seul : c'est du temps-machine que des membres se
+        prêtent. Un projet qui intéresse la communauté trouve des ouvrières.
+      </p>
+
+      <div class="etapes">
+        <div class="etape">
+          <div class="etape-num" aria-hidden="true">1</div>
+          <h3 data-i18n="co.e1.t">Vous proposez</h3>
+          <p data-i18n="co.e1.d">
+            Un besoin réel, un premier pas concret, et de quoi savoir que c'est réussi. Le
+            formulaire vous demande exactement ces trois choses.
+          </p>
+        </div>
+        <div class="etape">
+          <div class="etape-num" aria-hidden="true">2</div>
+          <h3 data-i18n="co.e2.t">La ruche en discute</h3>
+          <p data-i18n="co.e2.d">
+            La proposition devient une discussion publique. On la découpe, on la critique, on la
+            précise — ou on explique franchement pourquoi elle ne tient pas.
+          </p>
+        </div>
+        <div class="etape">
+          <div class="etape-num" aria-hidden="true">3</div>
+          <h3 data-i18n="co.e3.t">Des membres s'y mettent</h3>
+          <p data-i18n="co.e3.d">
+            Ceux que le projet intéresse connectent leur machine. Leurs agents travaillent, leur
+            code et leurs clés restent chez eux, et rien n'est intégré sans relecture humaine.
+          </p>
+        </div>
+      </div>
+
+      <div class="co-actions">
+        <a
+          class="btn primary"
+          href="https://github.com/Micka420-collab/hive/issues/new?template=proposer-un-projet.yml"
+          target="_blank"
+          rel="noopener"
+          data-i18n="co.cta"
+          >Proposer mon projet</a
+        >
+        <a
+          class="btn ghost"
+          href="https://github.com/Micka420-collab/hive/issues?q=is%3Aissue+label%3A%22projet+propos%C3%A9%22"
+          target="_blank"
+          rel="noopener"
+          data-i18n="co.voir"
+          >Voir les projets proposés</a
+        >
+      </div>
+      <p class="co-note" data-i18n="co.note">
+        Le bouton ouvre un formulaire sur GitHub — pas de compte à créer sur un site de plus, pas de
+        boîte noire : la discussion est publique et vous en gardez la main.
+      </p>
+
+      <div class="cloud">
+        <div class="cloud-tag" data-i18n="co.cloud.tag">Bientôt</div>
+        <h3 data-i18n="co.cloud.t">Hive Cloud — pour ceux qui n'ont pas de machine à prêter</h3>
+        <p data-i18n="co.cloud.d">
+          Hive est et restera <strong>gratuit et auto-hébergé</strong> : votre ruche tourne chez
+          vous, vos clés ne partent jamais. Pour qui ne peut pas laisser une machine allumée, une
+          offre d'hébergement payante est à l'étude — des nœuds loués à l'heure, pour faire avancer
+          un projet sans matériel.
+        </p>
+        <p class="cloud-honest" data-i18n="co.cloud.h">
+          Cela n'existe pas encore. C'est écrit ici parce que la direction est décidée, pas parce
+          que c'est disponible.
+        </p>
+      </div>
+    </section>
+
     <section id="demarrer" class="section">
       <h2 class="kicker" data-i18n="go.kicker">🚀 Démarrer</h2>
       <p class="headline" data-i18n="go.headline">Une démo complète en deux commandes.</p>
@@ -1846,6 +2091,30 @@
           'sec.8': 'Merging is always an <strong>explicit human gesture</strong>',
           'sec.warn':
             '<strong>Known limit (sandbox v0)</strong> — a real process can read the disk and reach the network. Until VM/container isolation lands, only run Hive between trusted members.',
+          'nav.community': 'Community',
+          'co.kicker': '\u{1F91D} The community',
+          'co.headline': 'Propose a project. The hive discusses it. Members take it on.',
+          'co.lede':
+            'A hive is not a tool you use alone: it is machine time that members lend each other. A project the community cares about finds workers.',
+          'co.e1.t': 'You propose',
+          'co.e1.d':
+            'A real need, a concrete first step, and a way to know it worked. The form asks you for exactly those three things.',
+          'co.e2.t': 'The hive discusses it',
+          'co.e2.d':
+            'Your proposal becomes a public discussion. It gets split up, challenged, sharpened \u2014 or plainly told why it does not hold.',
+          'co.e3.t': 'Members take it on',
+          'co.e3.d':
+            'Those interested connect their machine. Their agents work, their code and keys stay with them, and nothing is merged without human review.',
+          'co.cta': 'Propose my project',
+          'co.voir': 'See proposed projects',
+          'co.note':
+            'The button opens a form on GitHub \u2014 no account to create on yet another site, no black box: the discussion is public and stays yours.',
+          'co.cloud.tag': 'Coming',
+          'co.cloud.t': 'Hive Cloud \u2014 for those with no machine to lend',
+          'co.cloud.d':
+            'Hive is and will remain <strong>free and self-hosted</strong>: your hive runs at home, your keys never leave. For those who cannot keep a machine running, a paid hosting offer is being considered \u2014 nodes rented by the hour, to move a project forward without hardware.',
+          'co.cloud.h':
+            'This does not exist yet. It is written here because the direction is decided, not because it is available.',
           'go.kicker': '🚀 Get started',
           'go.headline': 'A full demo in two commands.',
           'go.t1': 'local demo',
@@ -2096,6 +2365,28 @@
           document.querySelectorAll('section[id]').forEach(function (s) {
             navObs.observe(s);
           });
+        }
+
+        /* ── Hauteur de l'en-tête collant ──────────────────────────────
+       Publie la hauteur réelle dans --h-entete pour que les ancres
+       s'arrêtent sous la barre (cf. `section { scroll-margin-top }`).
+       Elle change quand la nav passe à la ligne : au redimensionnement,
+       mais aussi au changement de langue, les libellés anglais étant
+       plus courts. ResizeObserver couvre les deux d'un coup. */
+        var entete = document.querySelector('header');
+        if (entete) {
+          var publierHauteur = function () {
+            document.documentElement.style.setProperty(
+              '--h-entete',
+              Math.round(entete.getBoundingClientRect().height) + 'px',
+            );
+          };
+          publierHauteur();
+          if (typeof ResizeObserver === 'function') {
+            new ResizeObserver(publierHauteur).observe(entete);
+          } else {
+            window.addEventListener('resize', publierHauteur);
+          }
         }
 
         /* ── Compteur d'étoiles GitHub (amélioration progressive) ── */

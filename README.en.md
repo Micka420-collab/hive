@@ -8,6 +8,8 @@
 
 **🌐 [Discover Hive — the showcase site](https://micka420-collab.github.io/hive/?lang=en)**
 
+**🤝 [Propose a project to the hive](https://github.com/Micka420-collab/hive/issues/new?template=proposer-un-projet.yml)** · [see proposed projects](https://github.com/Micka420-collab/hive/issues?q=is%3Aissue+label%3A%22projet+propos%C3%A9%22)
+
 <sub>The site lives in `site/` and deploys itself on every push to `main`. First publication: **Settings → Pages → Source: GitHub Actions**, then re-run the _Site_ workflow. (On a private repo, Pages requires a paid plan; on a public repo it is free.)</sub>
 
 <p align="center">
