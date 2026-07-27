@@ -6,8 +6,10 @@
 // fait une seule fois, et qu'on ne lui pardonne pas.
 
 import { describe, expect, it } from 'vitest';
+import { SECRET_JWT_INTERDIT } from '../src/orchestrator/auth.js';
 import {
   LONGUEUR_JETON,
+  LONGUEUR_SECRET_SESSION,
   NODE_MIN,
   avertissements,
   composerReglages,
@@ -129,6 +131,37 @@ describe('installation — ne JAMAIS écraser', () => {
       ),
     );
     expect(dits.some((d) => /HIVE_RUNNER/.test(d) && /seuls?/i.test(d))).toBe(true);
+  });
+
+  it('L’INSTALLATION POSE UN SECRET DE SESSION, ET IL N’EST PAS LE JETON', () => {
+    // La ruche refuse de démarrer sans lui : s'il manquait ici, « npm run
+    // setup » livrerait une installation qui ne démarre pas. Et il doit être
+    // DISTINCT du jeton de ruche — celui-là se recopie de machine en machine,
+    // et se retrouve donc dans des mains qui n'ont pas à signer de sessions.
+    const r = composerReglages(new Map());
+    const secret = r.find((x) => x.cle === 'HIVE_JWT_SECRET')?.valeur ?? '';
+    expect(secret).toHaveLength(LONGUEUR_SECRET_SESSION);
+    expect(secret).not.toBe(r.find((x) => x.cle === 'HIVE_TOKEN')?.valeur);
+    expect(secret).not.toBe(SECRET_JWT_INTERDIT);
+  });
+
+  it('mais il ne bouge pas s’il existe déjà — sinon tout le monde est déconnecté', () => {
+    const r = composerReglages(new Map([['HIVE_JWT_SECRET', 'le-secret-en-service']]));
+    expect(r.find((x) => x.cle === 'HIVE_JWT_SECRET')?.valeur).toBe('le-secret-en-service');
+  });
+
+  it('un .env qui a recopié l’ancien secret PUBLIÉ est signalé', () => {
+    // Il a circulé dans un dépôt public. Le garder, c'est laisser n'importe qui
+    // se fabriquer la session de l'administrateur.
+    const dits = avertissements(
+      composerReglages(
+        new Map([
+          ['HIVE_TOKEN', 'un-jeton-bien-assez-long-pour-passer'],
+          ['HIVE_JWT_SECRET', SECRET_JWT_INTERDIT],
+        ]),
+      ),
+    );
+    expect(dits.some((d) => /HIVE_JWT_SECRET/.test(d))).toBe(true);
   });
 
   it('HIVE_HTTP suit le port choisi', () => {

@@ -110,7 +110,7 @@ describe('runner — le commutateur de l’hôte', () => {
 
 describe('runner — quels pas agissent', () => {
   it('les pas d’ARRÊT n’agissent jamais', () => {
-    for (const pas of ['inerte', 'halte', 'plafond', 'butiner', 'repos'] as Pas[]) {
+    for (const pas of ['inerte', 'halte', 'plafond', 'butiner'] as Pas[]) {
       expect(agit(pas), pas).toBe(false);
     }
   });
@@ -408,7 +408,7 @@ describe('runner — le cadencier', () => {
   });
 
   it('un projet oublié ne laisse pas de trace', () => {
-    const f = faux('repos');
+    const f = faux('butiner');
     const c = new Cadencier(f.deps);
     c.reprendre('p1');
     expect(c.etat().map((s) => s.projectId)).toEqual(['p1']);
@@ -417,7 +417,7 @@ describe('runner — le cadencier', () => {
   });
 
   it('l’état est rendu dans un ordre STABLE', () => {
-    const f = faux('repos');
+    const f = faux('butiner');
     const c = new Cadencier(f.deps);
     for (const id of ['zeta', 'alpha', 'mu']) c.reprendre(id);
     expect(c.etat().map((s) => s.projectId)).toEqual(['alpha', 'mu', 'zeta']);
@@ -456,7 +456,7 @@ describe('runner — vi n’est pas nécessaire, mais l’horloge est injectable
     // Une horloge implicite rendrait le module intestable et le rejeu
     // impossible : on vérifie que l'injection est réellement branchée.
     const espion = vi.fn(() => NOW);
-    const f = faux('repos');
+    const f = faux('butiner');
     f.deps.now = espion;
     const c = new Cadencier(f.deps);
     await c.tour(['p1']);

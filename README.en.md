@@ -355,12 +355,22 @@ working, but `npm run join` prints a warning. Issue a ticket as soon as you can.
 HIVE_HOST=0.0.0.0            # accept remote nodes
 HIVE_PORT=7777
 HIVE_TOKEN=<strong token>    # e.g. node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+HIVE_JWT_SECRET=<strong secret> # e.g. node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 HIVE_CORS_ORIGIN=http://my-orchestrator:7777
 ```
 
 Then: `npm run build:dashboard && npm run dev`.
 ⚠️ Outside simulation, the orchestrator **refuses to start** if `HIVE_TOKEN` is
-trivial (default value or < 16 characters) or if CORS is `*`.
+trivial (default value or < 16 characters), if `HIVE_JWT_SECRET` is missing or
+shorter than 24 characters, or if CORS is `*`.
+
+`HIVE_JWT_SECRET` signs **account sessions**. It is distinct from `HIVE_TOKEN`
+and shared with nobody: `HIVE_TOKEN` gets copied onto every member machine,
+whereas anyone who knows the session secret can forge a session for any account,
+**including the administrator's**. It deliberately has no default value — a
+default written in a public repository would be the same key for every hive in
+the world. `npm run install:hive` sets it for you; changing it logs everyone
+out, which is exactly what you want the day you think it leaked.
 
 </details>
 

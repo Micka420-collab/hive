@@ -121,6 +121,38 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   sélection de merge évite d'office les nœuds hors service. Documenté dans
   `.env.example`.
 
+### Security
+
+- **Le secret de session était écrit en dur dans un dépôt public**
+  (⚠️ **CHANGEMENT CASSANT** : la ruche refuse désormais de démarrer sans
+  `HIVE_JWT_SECRET`, et les sessions ouvertes avec l'ancien secret sont
+  invalidées — c'est le prix, et il est juste). `auth.ts` signait les jetons de
+  session avec `process.env.HIVE_JWT_SECRET || 'change-me-jwt-dev-only'`, et ni
+  `npm run install:hive` ni les README ne posaient cette variable : **toutes**
+  les ruches installées signaient donc avec la même clé, lisible par quiconque
+  ouvrait le fichier. `verifyJwt` ne vérifiant que la signature et l'expiration,
+  et `roleDe` rendant « membre » pour un identifiant inconnu, un jeton forgé
+  donnait (1) une **session complète sans compte**, contournant intégralement
+  `HIVE_INSCRIPTION=fermee`, et (2) forgé sur l'identifiant de l'administrateur,
+  **l'administration entière** — serveurs, rôles, tout. L'invariant « le jeton
+  de ruche ne vaut pas preuve d'administration » était scrupuleusement tenu,
+  mais le JWT n'en valait pas davantage. Il n'y a plus **aucune** valeur par
+  défaut : `secretJwtDepuisEnv` refuse l'absence, le blanc, l'ancien secret
+  publié (`SECRET_JWT_INTERDIT`, qui traîne désormais dans les `.env` recopiés)
+  et tout secret de moins de `LONGUEUR_MIN_SECRET_JWT` = 24 caractères — le
+  marque-place `change-me` de `.env.example` compris. La garde vit dans
+  `createServer`, **avant toute écoute réseau**, sur le modèle exact de celle de
+  `HIVE_TOKEN` : un serveur qui ne démarre pas se remarque, un serveur
+  silencieusement forgeable non. La simulation (`npm run demo`) démarre toujours
+  sans configuration, sur un secret **éphémère tiré au sort par processus** : les
+  sessions d'une démo meurent avec elle. `npm run install:hive` engendre
+  désormais un `HIVE_JWT_SECRET` de 64 caractères — **distinct du jeton de
+  ruche**, qui lui se recopie de machine en machine — préserve celui qui existe
+  déjà, et signale un `.env` qui aurait recopié l'ancien secret. Documenté dans
+  les deux README et `.env.example` ; `tests/jwt-secret.test.ts` exécute la
+  contrefaçon (ancien secret public, compte inexistant, secret d'une autre
+  ruche) avec le jeton légitime en contrôle négatif.
+
 ### Fixed
 
 - **Injection de prompt par le Hive Mind** (faille adjacente à celle de la

@@ -14,7 +14,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
-import { hashPassword, verifyPassword, signJwt, verifyJwt, isValidEmail } from './auth.js';
+import {
+  hashPassword,
+  verifyPassword,
+  signJwt,
+  verifyJwt,
+  isValidEmail,
+  secretJwtDepuisEnv,
+  LONGUEUR_MIN_SECRET_JWT,
+} from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import {
   TTL_BILLET_MAX_MS,
@@ -401,6 +409,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   if (config.corsOrigins.length === 0 || config.corsOrigins.includes('*')) {
     throw new Error(
       'HIVE_CORS_ORIGIN doit lister explicitement les origines autorisées (jamais "*").',
+    );
+  }
+  // Le secret des sessions. Sans lui, les jetons seraient signés avec une clé
+  // que tout le monde peut lire, et se forger la session de l'administrateur
+  // deviendrait un exercice de cinq lignes. Voir auth.ts pour l'histoire.
+  if (!config.simulation && secretJwtDepuisEnv() === '') {
+    throw new Error(
+      `HIVE_JWT_SECRET manquant, trop court (${LONGUEUR_MIN_SECRET_JWT} caractères minimum) ou laissé ` +
+        'à l’ancienne valeur publiée : donnez à votre ruche un secret de session qui n’appartienne qu’à elle — ' +
+        "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\" — " +
+        'ou activez HIVE_SIMULATION=1 pour une démo strictement locale. ' +
+        '« npm run install:hive » le pose pour vous.',
     );
   }
 
