@@ -36,6 +36,14 @@ import type { HiveEvent, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
+import {
+  CONSEILS_CONSERVES,
+  avancerConseil,
+  ouvrirConseil,
+  versProposition,
+} from './conseil-runner.js';
+import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
+import { evaluerConseil } from './conseil.js';
 import { CORPUS_GARDIENNES, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
 import { askConcierge } from './concierge.js';
@@ -678,6 +686,59 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     h.count += 1;
   }
 
+  /** Ce dont le Conseil a besoin du monde. Un seul endroit qui écrit. */
+  const depConseil: DependancesConseil = {
+    store,
+    creerTache: (i) => store.createTask(i),
+    emettre: (type, payload) => emitEvent(type, payload),
+  };
+
+  /**
+   * Fait avancer les conseils ouverts. Appelé à chaque tick.
+   *
+   * Une tâche est TERMINALE quand elle ne bougera plus : `done` (l'éclaireuse
+   * est revenue) ou `failed` (elle n'est pas revenue, et le conseil continue
+   * sans elle). Tout le reste est encore en vol — on ne dépouille pas.
+   *
+   * Aucune session ouverte = aucune requête, aucun coût. C'est le cas normal.
+   */
+  function scruterConseils(): void {
+    const ouvertes = store.sessionsOuvertes();
+    if (ouvertes.length === 0) return;
+    for (const session of ouvertes) {
+      const attendues = store.tachesADepouiller(session.id);
+      if (attendues.length === 0) continue;
+      const terminales = new Map<string, ResultatOuvriere | null>();
+      for (const lien of attendues) {
+        const tache = store.getTask(lien.taskId);
+        // Tâche disparue (élaguée, projet supprimé) : terminale et sans
+        // résultat. La traiter comme « en vol » figerait la session à jamais.
+        if (!tache) {
+          terminales.set(lien.taskId, null);
+          continue;
+        }
+        if (tache.status !== 'done' && tache.status !== 'failed') continue;
+        // Le DERNIER résultat de la tâche : une éclaireuse a pu être
+        // re-tentée, et c'est sa dernière parole qui compte.
+        const tous = store.resultsForTask(lien.taskId);
+        const dernier = tous.length > 0 ? tous[tous.length - 1]! : null;
+        terminales.set(
+          lien.taskId,
+          dernier
+            ? {
+                nodeId: dernier.nodeId,
+                agentType: store.getNode(dernier.nodeId)?.agentType ?? 'inconnu',
+                success: dernier.success,
+                logs: dernier.logs,
+                diff: dernier.diff,
+              }
+            : null,
+        );
+      }
+      if (terminales.size > 0) avancerConseil(depConseil, session, terminales);
+    }
+  }
+
   const dashboardDist = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     '../../dashboard/dist',
@@ -1015,6 +1076,163 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
     },
   );
+
+  // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
+
+  /**
+   * Ouvre un conseil sur un projet.
+   *
+   * Le geste est EXPLICITEMENT HUMAIN, et c'est le garde-fou : un conseil crée
+   * de vraies tâches d'ouvrières, donc consomme du temps-machine prêté par les
+   * membres. Il n'y a volontairement aucun déclenchement automatique — une
+   * ruche qui s'interrogerait toute seule en boucle brûlerait le temps de ses
+   * membres sans que personne l'ait demandé.
+   */
+  app.post<{ Params: { projectId: string }; Body: { question?: string } }>(
+    '/api/projects/:projectId/conseil',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { question: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      // Un seul conseil à la fois par projet : deux conseils concurrents
+      // doubleraient la dépense et rendraient leurs verdicts incomparables.
+      const dejaOuvert = store.sessionsOuvertes().find((s) => s.projectId === project.id);
+      if (dejaOuvert) {
+        return reply
+          .code(409)
+          .send({ error: 'un conseil est déjà en cours sur ce projet', sessionId: dejaOuvert.id });
+      }
+      const session = ouvrirConseil(depConseil, {
+        projectId: project.id,
+        ...(req.body?.question ? { question: req.body.question } : {}),
+        contexteProjet: [project.name, project.description ?? '', project.repoUrl ?? '']
+          .filter(Boolean)
+          .join(' — '),
+      });
+      return reply.code(201).send(vueSession(session.id));
+    },
+  );
+
+  /** L'état d'un conseil : ses danses, classées, et son verdict s'il est clos. */
+  app.get<{ Params: { sessionId: string } }>(
+    '/api/conseil/:sessionId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['sessionId'],
+          properties: { sessionId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const vue = vueSession(req.params.sessionId);
+      if (!vue) return reply.code(404).send({ error: 'conseil inconnu' });
+      return vue;
+    },
+  );
+
+  /** Les conseils récents, du plus récent au plus ancien. */
+  app.get('/api/conseils', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      conseils: store.listSessions().map((s) => ({
+        id: s.id,
+        question: s.question,
+        projectId: s.projectId,
+        etat: s.etat,
+        tour: s.tour,
+        issue: s.issue,
+        createdAt: s.createdAt,
+        closedAt: s.closedAt,
+      })),
+    };
+  });
+
+  /**
+   * Vue d'un conseil. Le verdict est RECALCULÉ à la lecture par le module pur
+   * plutôt que relu d'une colonne : ainsi la vue ne peut pas diverger de ce que
+   * le protocole dirait aujourd'hui, et un conseil archivé reste rejouable.
+   */
+  function vueSession(sessionId: string): Record<string, unknown> | null {
+    const s = store.getSession(sessionId);
+    if (!s) return null;
+    const propositions = store.listPropositions(sessionId);
+    const avis = store.listAvis(sessionId);
+    const verdict = evaluerConseil({
+      tour: s.tour,
+      propositions: propositions.map(versProposition),
+      avis: avis.map((a) => ({
+        propositionId: a.propositionId,
+        eclaireuse: a.eclaireuse,
+        famille: a.famille,
+        type: a.type,
+        force: a.force,
+        tour: a.tour,
+      })),
+    });
+    const parId = new Map(propositions.map((p) => [p.id, p]));
+    return {
+      id: s.id,
+      question: s.question,
+      projectId: s.projectId,
+      etat: s.etat,
+      tour: s.tour,
+      issue: s.issue ?? verdict.issue,
+      motif: s.motif ?? verdict.motif,
+      createdAt: s.createdAt,
+      closedAt: s.closedAt,
+      enVol: store.tachesADepouiller(sessionId).length,
+      danses: verdict.danses.map((d) => {
+        const p = parId.get(d.proposition.id);
+        return {
+          id: d.proposition.id,
+          titre: d.proposition.titre,
+          corps: p?.corps ?? '',
+          // Les sources sont AFFICHÉES, jamais suivies par la ruche.
+          sources: lireSources(p?.sources),
+          eclaireuse: d.proposition.eclaireuse,
+          famille: d.proposition.famille,
+          qualite: d.proposition.qualite,
+          intensite: d.intensite,
+          soutiens: d.soutiens,
+          arrets: d.arrets,
+          familles: d.familles,
+          quorum: d.quorum,
+          autoSoutienIgnore: d.autoSoutienIgnore,
+          raisons: avis
+            .filter((a) => a.propositionId === d.proposition.id && a.raison)
+            .map((a) => ({ type: a.type, raison: a.raison, eclaireuse: a.eclaireuse })),
+        };
+      }),
+      retenue: verdict.retenue?.proposition.id ?? null,
+    };
+  }
+
+  function lireSources(brut: string | undefined): string[] {
+    if (!brut) return [];
+    try {
+      const v: unknown = JSON.parse(brut);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
 
   /** Qui a les clés de la ruche. Empreintes jamais exposées. */
   app.get('/api/membres', async (req, reply) => {
@@ -2709,6 +2927,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
+      store.pruneConseils(CONSEILS_CONSERVES);
+      // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
+      // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
+      scruterConseils();
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {
