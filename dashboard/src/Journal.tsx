@@ -3,6 +3,7 @@
 import type { HiveEvent } from '../../src/shared/types';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
+import { bandeText } from './ui';
 
 interface Meta {
   icon: string;
@@ -209,6 +210,36 @@ const EVENTS: Record<string, Meta> = {
       t(
         `course perdue : tous les drones ont échoué (${short(p.taskId)})`,
         `race lost: every drone failed (${short(p.taskId)})`,
+      ),
+  },
+  // Instinct de ruche : phéromones, thermorégulation, couveuse. Leur payload
+  // porte un `message` en français (destiné aux logs serveur) — le Journal ne
+  // l'affiche PAS et reconstruit son texte bilingue, comme pour tout le reste.
+  pheromone_route: {
+    icon: '🐜',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `phéromones : ${short(p.taskId)} → nœud ${short(p.nodeId)} (domaine ${String(p.domaine ?? '')})`,
+        `pheromones: ${short(p.taskId)} → node ${short(p.nodeId)} (domain ${String(p.domaine ?? '')})`,
+      ),
+  },
+  thermo_shift: {
+    icon: '🌡️',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `thermorégulation : la ruche passe en ${bandeText(p.bande, t)} (${String(p.temperature ?? '?')}°) — concurrence ×${String(p.facteur ?? '?')}`,
+        `thermoregulation: the hive shifts to ${bandeText(p.bande, t)} (${String(p.temperature ?? '?')}°) — concurrency ×${String(p.facteur ?? '?')}`,
+      ),
+  },
+  brood_context: {
+    icon: '👶',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `couveuse : ${short(p.taskId)} repart avec les leçons de ${String(p.echecs ?? '?')} échec(s)`,
+        `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
   },
   boot_recovery: {

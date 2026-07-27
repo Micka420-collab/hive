@@ -192,6 +192,8 @@ export type { ReplayFrame, ReplayResult, TaskCounts } from '../../src/orchestrat
 export type { ProjectReport } from '../../src/orchestrator/project-report';
 export type { Faction, Verdict } from '../../src/orchestrator/parliament';
 export type { MergeConflict, MergePlan } from '../../src/orchestrator/honeycomb';
+export type { Domaine, TraceePheromone } from '../../src/orchestrator/pheromones';
+export type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
 
 import type { HivePulse } from '../../src/orchestrator/pulse';
 import type { WaggleBoard } from '../../src/orchestrator/waggle';
@@ -200,6 +202,8 @@ import type { ReplayResult } from '../../src/orchestrator/replay';
 import type { ProjectReport } from '../../src/orchestrator/project-report';
 import type { Verdict } from '../../src/orchestrator/parliament';
 import type { MergePlan } from '../../src/orchestrator/honeycomb';
+import type { TraceePheromone } from '../../src/orchestrator/pheromones';
+import type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
 
 /** Hive Pulse : signes vitaux agrégés (débit, latences, taux de succès). */
 export function fetchPulse(): Promise<HivePulse> {
@@ -214,6 +218,28 @@ export function fetchWaggle(): Promise<WaggleBoard> {
 /** Ghost in the Hive : anomalies détectées dans le journal. */
 export function fetchGhosts(): Promise<GhostReport> {
   return api<GhostReport>('/api/ghost');
+}
+
+/**
+ * Thermorégulation : `lecture` est la température INSTANTANÉE du journal
+ * récent, `bande`/`facteur` l'état HYSTÉRÉSÉ réellement appliqué par le
+ * scheduler — les deux divergent le temps d'une confirmation, et c'est
+ * exactement ce que l'opérateur doit voir.
+ */
+export interface ThermoState {
+  lecture: LectureThermo;
+  bande: BandeThermo;
+  facteur: number;
+}
+
+/** Thermorégulation : température de la ruche et ventilation appliquée. */
+export function fetchThermo(): Promise<ThermoState> {
+  return api<ThermoState>('/api/thermo');
+}
+
+/** Phéromones : affinité apprise nœud × domaine (30 meilleures traces). */
+export function fetchPheromones(): Promise<{ traces: TraceePheromone[] }> {
+  return api<{ traces: TraceePheromone[] }>('/api/pheromones');
 }
 
 /** Time-Lapse Replay : frise chronologique du journal. */

@@ -125,6 +125,9 @@ export function App() {
             'conflict_detected',
             'node_online',
             'node_offline',
+            // Changement de régime thermique : la jauge de Santé doit refléter
+            // la nouvelle bande appliquée sans attendre le prochain poll.
+            'thermo_shift',
           ].includes(ev.type)
         ) {
           if (refreshTimer.current === undefined) {

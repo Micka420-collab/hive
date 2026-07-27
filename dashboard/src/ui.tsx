@@ -4,8 +4,9 @@
 import { useEffect, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
+import type { BandeThermo } from './api';
 import { useLang } from './i18n';
-import type { UiLang } from './i18n';
+import type { Translate, UiLang } from './i18n';
 
 /**
  * Accessibilité d'un overlay (tiroir/modale) :
@@ -117,6 +118,27 @@ export function ProgressBar({ value, max }: { value: number; max: number }) {
       <div className="pbar-fill" style={{ width: `${pct}%` }} />
     </div>
   );
+}
+
+// ─── Thermorégulation : bandes de température ────────────────────────────────
+// Double libellé fr/en (constante de module) — résolu via `t` au rendu, comme
+// KIND_LABEL côté Santé. Partagé par la carte Thermorégulation et le Journal.
+
+export const BANDE_LABEL: Record<BandeThermo, { fr: string; en: string }> = {
+  froide: { fr: 'froide', en: 'cold' },
+  normale: { fr: 'normale', en: 'normal' },
+  chaude: { fr: 'chaude', en: 'hot' },
+  surchauffe: { fr: 'surchauffe', en: 'overheating' },
+};
+
+/** Les 4 bandes, de la plus calme à la plus critique (échelle de la jauge). */
+export const BANDES: BandeThermo[] = ['froide', 'normale', 'chaude', 'surchauffe'];
+
+/** Libellé d'une bande venue d'un payload non typé ; repli sur la valeur brute. */
+export function bandeText(value: unknown, t: Translate): string {
+  const brut = String(value ?? '');
+  const connue = BANDE_LABEL[brut as BandeThermo];
+  return connue ? t(connue.fr, connue.en) : brut;
 }
 
 /** Durée lisible (ms → « 1,2 s » / « 340 ms »). */

@@ -63,6 +63,9 @@
 .ch-row.fam-memoire .ch-type {
   color: var(--green);
 }
+.ch-row.fam-instinct .ch-type {
+  color: var(--orange);
+}
 .ch-row.fam-autres .ch-type {
   color: var(--muted);
 }

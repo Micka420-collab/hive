@@ -14,7 +14,8 @@ import './chronique.css';
 
 // ─── Familles d'événements (chips de filtre) ────────────────────────────────
 
-type Family = 'taches' | 'noeuds' | 'courses' | 'merge' | 'conflits' | 'memoire' | 'autres';
+type Family =
+  'taches' | 'noeuds' | 'courses' | 'merge' | 'conflits' | 'memoire' | 'instinct' | 'autres';
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
 const FAMILIES: { id: Family; fr: string; en: string }[] = [
@@ -24,10 +25,20 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
   { id: 'merge', fr: '🍯 Merge', en: '🍯 Merge' },
   { id: 'conflits', fr: '🛡️ Conflits', en: '🛡️ Conflicts' },
   { id: 'memoire', fr: '🧬 Mémoire', en: '🧬 Memory' },
+  { id: 'instinct', fr: '🐜 Instinct', en: '🐜 Instinct' },
   { id: 'autres', fr: '• Autres', en: '• Other' },
 ];
 
+/**
+ * Instinct de ruche : les trois comportements adaptatifs de l'essaim
+ * (phéromones de routage, thermorégulation, couveuse). Ils ne relèvent ni du
+ * cycle de vie d'une tâche ni de celui d'un nœud — ils méritent leur filtre.
+ * Testé AVANT les préfixes : `thermo_shift` n'est pas un événement de tâche.
+ */
+const INSTINCT = new Set(['pheromone_route', 'thermo_shift', 'brood_context']);
+
 function familyOf(type: string): Family {
+  if (INSTINCT.has(type)) return 'instinct';
   if (type === 'conflict_detected' || type === 'task_conflict_deferred') return 'conflits';
   if (type.startsWith('drone')) return 'courses';
   if (type.startsWith('merge')) return 'merge';
@@ -83,6 +94,7 @@ export default function Chronique({ events }: ViewProps) {
       merge: 0,
       conflits: 0,
       memoire: 0,
+      instinct: 0,
       autres: 0,
     };
     for (const ev of events) c[familyOf(ev.type)] += 1;
