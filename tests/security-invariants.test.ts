@@ -85,6 +85,92 @@ describe('invariants de sécurité (§5)', () => {
   });
 });
 
+// ─── Invariants de la Balance (doctrine, balance.ts) ──────────────────────────
+//
+// Deux verrous de SOURCE, du même genre que ceux ci-dessus : ils ne testent pas
+// un comportement, ils rendent une classe de régression impossible à commettre
+// sans faire rougir la CI.
+
+/**
+ * Ce que le Scheduler a le droit d'importer de la Balance : le comptage additif
+ * (`GrandLivre`), son cache (`CacheProjets`), sa borne de lot, et le verdict de
+ * plafond — le jour où la porte existera. RIEN de l'imputation.
+ */
+const IMPORTS_BALANCE_AUTORISES = new Set([
+  'GrandLivre',
+  'CacheProjets',
+  'LOT_GRAND_LIVRE',
+  'jugerPlafond',
+  'DecisionPlafond',
+  'SEUIL_ALERTE',
+]);
+
+/** Symboles d'IMPUTATION : leur seule présence dans le scheduler est la faute. */
+const SYMBOLES_INTERDITS_DANS_LE_SCHEDULER = [
+  'peserLaRuche',
+  'estimerCout',
+  'enEuros',
+  'CORPUS_BALANCE',
+  'Pesee',
+  'Compte',
+  'Poste',
+  'Tentative',
+  'Devis',
+];
+
+describe('invariants de la Balance', () => {
+  it('la Balance n’entre JAMAIS dans le choix du nœud (surface d’import verrouillée)', () => {
+    // `durationMs` mesure le temps machine PRÊTÉ, pas le travail accompli :
+    // router au moins-cher punirait les machines modestes et créerait une
+    // course vers le bas. Le Scheduler n'a donc accès qu'au COMPTAGE, jamais à
+    // l'imputation — et le complément comportemental (deux nœuds à charge
+    // égale, l'un dix fois plus gourmand → même nœud choisi) vit dans
+    // tests/balance-wiring.test.ts.
+    const scheduler = fileEndingWith('orchestrator/scheduler.ts');
+    const ligne = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*'\.\/balance\.js'/g;
+    const importes: string[] = [];
+    for (const m of scheduler.matchAll(ligne)) {
+      for (const brut of (m[1] ?? '').split(',')) {
+        const nom = brut
+          .trim()
+          .replace(/^type\s+/, '')
+          .split(/\s+as\s+/)[0];
+        if (nom) importes.push(nom);
+      }
+    }
+    expect(importes.length, 'le scheduler doit importer la Balance').toBeGreaterThan(0);
+    for (const nom of importes) {
+      expect(IMPORTS_BALANCE_AUTORISES.has(nom), `import interdit dans scheduler.ts : ${nom}`).toBe(
+        true,
+      );
+    }
+    for (const interdit of SYMBOLES_INTERDITS_DANS_LE_SCHEDULER) {
+      expect(scheduler, `${interdit} n’a rien à faire dans le scheduler`).not.toMatch(
+        new RegExp(`\\b${interdit}\\b`),
+      );
+    }
+  });
+
+  it('aucune migration dans src/ : ni ALTER TABLE, ni PRAGMA user_version', () => {
+    // Une table latérale versionnée coûte moins cher qu'une colonne ajoutée,
+    // pour toujours. Verrou permanent, utile bien au-delà de la Balance : il
+    // interdit d'ouvrir la porte des migrations sans y penser.
+    const alterations = files.filter((f) => /\bALTER\s+TABLE\b/i.test(read(f)));
+    expect(alterations).toEqual([]);
+    const versions = files.filter((f) => /user_version/i.test(read(f)));
+    expect(versions).toEqual([]);
+    // …et le schéma n'utilise QUE des créations idempotentes.
+    const store = fileEndingWith('orchestrator/store.ts');
+    const creations = store.match(/CREATE\s+(TABLE|INDEX)[^(]*/gi) ?? [];
+    expect(creations.length).toBeGreaterThan(5);
+    for (const creation of creations) {
+      expect(creation, `création non idempotente : ${creation.trim()}`).toMatch(
+        /IF\s+NOT\s+EXISTS/i,
+      );
+    }
+  });
+});
+
 // ─── §5.2 — injection de prompt : les données non fiables restent des données ─
 //
 // Classe de faille, pas instance. Tout texte qui vient d'ailleurs que du code de

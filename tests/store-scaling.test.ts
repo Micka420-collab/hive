@@ -8,6 +8,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { LOT_GRAND_LIVRE } from '../src/orchestrator/balance.js';
+import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { TYPES_THERMO } from '../src/orchestrator/thermo.js';
 
@@ -50,6 +52,78 @@ describe('index et plans de requête', () => {
       expect(detail).not.toContain('TEMP B-TREE');
     } finally {
       db.close();
+    }
+  });
+
+  // ─── La Balance : les deux lectures du grand livre ────────────────────────
+  //
+  // C'est ICI que se joue la régression silencieuse la plus coûteuse du lot :
+  // sans index couvrant, SQLite ouvre la LIGNE de `results` pour lire un entier
+  // (`durationMs`), qui est stocké APRÈS `diff` (≤ 1 Mo) et `logs` (≤ 512 ko) —
+  // il faut traverser toute leur chaîne de pages de débordement. Ces deux tests
+  // prouvent le plan au lieu de le décréter.
+
+  /** Requête EXACTE de `listResultsForLedger` (lecture incrémentale du livre). */
+  const SQL_LEDGER = `SELECT id, taskId, nodeId, success, durationMs FROM results
+     INDEXED BY idx_results_balance WHERE id > ? ORDER BY id LIMIT ?`;
+  /** Requête EXACTE de `listResultsForBalance` (corpus borné de l'imputation). */
+  const SQL_CORPUS = `SELECT id, taskId, nodeId, success, durationMs FROM results
+     INDEXED BY idx_results_balance ORDER BY id DESC LIMIT ?`;
+
+  it('la lecture incrémentale du grand livre est servie par un index COUVRANT', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const detail = plan(db, SQL_LEDGER, 0, 2_000);
+      expect(detail).toContain('COVERING INDEX idx_results_balance');
+      // Le plan à éviter : la ligne ouverte, donc les pages de débordement de
+      // diff/logs traversées pour lire un entier.
+      expect(detail).not.toContain('INTEGER PRIMARY KEY');
+      expect(detail).not.toContain('TEMP B-TREE');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('le corpus de l’imputation est servi par le même index, sans tri temporaire', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const detail = plan(db, SQL_CORPUS, 2_000);
+      expect(detail).toContain('SCAN results USING COVERING INDEX idx_results_balance');
+      expect(detail).not.toContain('TEMP B-TREE');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('l’index de la Balance ne détourne pas le planner du corpus des phéromones', () => {
+    // Non-régression du voisin : un troisième index sur `results` ne doit pas
+    // faire perdre à la requête des phéromones son propre index couvrant.
+    // `ANALYZE` joué comme sur une base en service : c'est justement lorsque
+    // les statistiques existent que le planner change d'avis.
+    const ecriture = new Database(dbPath);
+    const inserer = ecriture.prepare(
+      'INSERT INTO results (taskId, nodeId, success, diff, logs, durationMs, subAgents, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    const gros = 'x'.repeat(2_000);
+    ecriture.transaction(() => {
+      for (let i = 0; i < 2_000; i++) {
+        inserer.run(`t${i % 40}`, `n${i % 4}`, i % 2, gros, gros, i, '[]', 1_000 + i);
+      }
+    })();
+    ecriture.exec('ANALYZE');
+    try {
+      expect(
+        plan(
+          ecriture,
+          'SELECT taskId, nodeId, success, createdAt FROM results ORDER BY createdAt DESC, id DESC LIMIT ?',
+          500,
+        ),
+      ).toContain('COVERING INDEX idx_results_recent');
+      // Et les deux lectures de la Balance tiennent AUSSI avec des statistiques.
+      expect(plan(ecriture, SQL_LEDGER, 0, 2_000)).toContain('COVERING INDEX idx_results_balance');
+      expect(plan(ecriture, SQL_CORPUS, 2_000)).toContain('COVERING INDEX idx_results_balance');
+    } finally {
+      ecriture.close();
     }
   });
 
@@ -202,6 +276,46 @@ describe('lectures ciblées et élagage', () => {
     expect(store.pruneResults(5)).toBe(1);
     expect(store.resultsForTask('t7')[0]?.diff).toBe('');
     expect(store.resultsForTask('t8')[0]?.diff).toBe(gros);
+  });
+
+  it('le rattrapage du grand livre est BORNÉ : un tick absorbe exactement LOT_GRAND_LIVRE', () => {
+    // Un arriéré hérité (base ouverte pour la première fois par cette version)
+    // doit être rattrapé en quelques ticks, jamais figer le premier. La borne
+    // est PROUVÉE — pas mesurée en temps, donc déterministe dans dix ans.
+    const scheduler = new Scheduler(store);
+    const projet = store.createProject({ name: 'P' });
+    const tache = store.createTask({ projectId: projet.id, title: 'T', prompt: 'x' });
+    const arriere = 3 * LOT_GRAND_LIVRE;
+    for (let i = 0; i < arriere; i++) {
+      store.insertResult({
+        taskId: tache.id,
+        nodeId: 'n1',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 1,
+        subAgents: [],
+      });
+    }
+    const absorbees = (): number =>
+      scheduler.balance.soldes.reduce((somme, s) => somme + s.tentatives, 0);
+
+    scheduler.tick();
+    expect(absorbees()).toBe(LOT_GRAND_LIVRE);
+    // FAIL-OPEN : tant que le livre n'a pas rejoint la table, il le DIT.
+    expect(scheduler.balance.aJour).toBe(false);
+    scheduler.tick();
+    expect(absorbees()).toBe(2 * LOT_GRAND_LIVRE);
+    scheduler.tick();
+    expect(absorbees()).toBe(arriere);
+    // Le dernier lot était PLEIN : le livre ne peut pas encore savoir qu'il a fini.
+    expect(scheduler.balance.aJour).toBe(false);
+    scheduler.tick();
+    expect(absorbees()).toBe(arriere); // rien de neuf : le filigrane ne recule ni ne double
+    expect(scheduler.balance.aJour).toBe(true);
+    expect(scheduler.balance.soldes).toEqual([
+      { projectId: projet.id, depenseMs: arriere, tentatives: arriere },
+    ]);
   });
 
   it('pruneResults ne fait rien tant que la rétention n’est pas atteinte', () => {

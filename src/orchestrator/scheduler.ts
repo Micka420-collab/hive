@@ -5,6 +5,12 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+// La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
+// le grand livre (comptage additif) et son cache de projets sont importés ici.
+// Aucun symbole d'IMPUTATION (`peserLaRuche`, `Pesee`, `Compte`…) ne doit
+// jamais apparaître dans ce fichier — verrouillé par
+// tests/security-invariants.test.ts.
+import { CacheProjets, GrandLivre, LOT_GRAND_LIVRE } from './balance.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { summarizeTask } from './hive-mind.js';
@@ -35,6 +41,17 @@ export interface SchedulerOptions {
   onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
   onEvent?: (event: HiveEvent) => void;
+  /**
+   * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
+   * (il pèse et se tient à jour, sans JAMAIS rien bloquer — défaut), 'strict'
+   * (réservé : bloquera au plafond quand la porte existera).
+   *
+   * Dans cette version, 'observation' et 'strict' sont RIGOUREUSEMENT
+   * indiscernables : aucun plafond ne peut être défini, donc rien ne bloque.
+   * L'interrupteur est livré maintenant pour que le contrat de configuration
+   * n'ait pas à changer le jour où la porte arrivera.
+   */
+  balance?: { mode: 'off' | 'observation' | 'strict' };
 }
 
 export class Scheduler {
@@ -71,6 +88,14 @@ export class Scheduler {
    */
   private readonly cacheDomaines = new CacheDomaines();
 
+  /**
+   * Balance : grand livre de la dépense par projet. CACHE en mémoire, jamais
+   * matérialisé — un redémarrage le reconstruit par rattrapage borné.
+   */
+  private readonly livre = new GrandLivre();
+  /** taskId → projectId, mémoïsé et borné (projectId est immuable). */
+  private readonly cacheProjets = new CacheProjets();
+
   constructor(
     private readonly store: HiveStore,
     private readonly opts: SchedulerOptions = {},
@@ -106,6 +131,28 @@ export class Scheduler {
   /** État thermique effectif (hystérésé) — lecture seule, pour l'API. */
   get thermo(): { bande: BandeThermo; facteur: number } {
     return { bande: this.bandeThermo, facteur: this.facteurThermo };
+  }
+
+  /**
+   * Balance : mode, avancement du rattrapage et soldes par projet — lecture
+   * seule, pour l'API (motif `get thermo`). `aJour: false` doit être visible :
+   * un solde en cours de rattrapage affiché comme définitif est un mensonge
+   * court mais coûteux.
+   *
+   * Les soldes ne portent volontairement ni plafond ni verdict : la table des
+   * intentions humaines (`budgets`) et la porte qui s'en sert sont un travail
+   * séparé. Ces deux champs s'ajouteront ici, de façon purement additive.
+   */
+  get balance(): {
+    mode: 'off' | 'observation' | 'strict';
+    aJour: boolean;
+    soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+  } {
+    return {
+      mode: this.opts.balance?.mode ?? 'observation',
+      aJour: this.livre.aJour,
+      soldes: this.livre.soldes(),
+    };
   }
 
   /**
@@ -450,6 +497,10 @@ export class Scheduler {
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
     } else {
       const attempts = task.attempts + 1;
+      // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
+      // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
+      // soit l'appelant. La Balance la reborne une troisième fois au repli.
+      const durationMs = Math.max(0, result.durationMs);
       if (attempts >= this.maxAttempts) {
         this.store.patchTask(task.id, {
           status: 'failed',
@@ -457,7 +508,13 @@ export class Scheduler {
           assignedNodeId: null,
           result: { success: false, nodeId, durationMs: result.durationMs },
         });
-        this.emit('task_failed', { taskId: task.id, nodeId, attempts });
+        // `durationMs` : le temps machine que cet échec a coûté. Purement
+        // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
+        // → 0` dans waggle.ts, idem pulse.ts) et n'en tiennent aucun compte.
+        // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
+        // laisser AUCUNE trace de leur coût : une histoire économique
+        // définitivement perdue, jour après jour.
+        this.emit('task_failed', { taskId: task.id, nodeId, attempts, durationMs });
       } else {
         // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
         this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
@@ -466,6 +523,7 @@ export class Scheduler {
           nodeId,
           attempt: attempts,
           maxAttempts: this.maxAttempts,
+          durationMs,
         });
       }
     }
@@ -658,6 +716,9 @@ export class Scheduler {
     this.races.delete(task.id);
     this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
     const attempts = task.attempts + 1;
+    // Même enrichissement que le circuit mono : une course perdue coûte au
+    // moins aussi cher qu'une tentative solitaire, elle doit se peser pareil.
+    const durationMs = Math.max(0, result.durationMs);
     if (attempts >= this.maxAttempts) {
       this.store.patchTask(task.id, {
         status: 'failed',
@@ -665,7 +726,7 @@ export class Scheduler {
         assignedNodeId: null,
         result: { success: false, nodeId, durationMs: result.durationMs },
       });
-      this.emit('task_failed', { taskId: task.id, nodeId, attempts });
+      this.emit('task_failed', { taskId: task.id, nodeId, attempts, durationMs });
     } else {
       this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
       this.emit('task_retry', {
@@ -673,6 +734,7 @@ export class Scheduler {
         nodeId,
         attempt: attempts,
         maxAttempts: this.maxAttempts,
+        durationMs,
       });
     }
     this.promoteAndAssign(now);
@@ -763,8 +825,52 @@ export class Scheduler {
     }
   }
 
+  /**
+   * Fait avancer le grand livre de la Balance en lisant les résultats NOUVEAUX
+   * depuis le filigrane. Le compteur suit la TABLE, pas les sites d'appel de
+   * `insertResult` : un troisième site d'écriture ajouté dans cinq ans ne peut
+   * pas le dérégler. C'est un invariant STRUCTUREL, pas une discipline —
+   * c'était la principale réserve contre un accumulateur incrémental.
+   *
+   * Coût borné : ≤ LOT_GRAND_LIVRE lignes d'un index COUVRANT par passe ; zéro
+   * ligne et une seule sonde en régime établi. Jamais de SELECT non borné sur
+   * le chemin du tick.
+   *
+   * Ce comptage n'a AUCUN effet sur l'ordonnancement : il ne décide rien, il
+   * observe. La porte qui s'en servira un jour est un travail séparé.
+   */
+  private avancerGrandLivre(): void {
+    if (this.opts.balance?.mode === 'off') return;
+    const lot = this.store.listResultsForLedger(this.livre.filigrane, LOT_GRAND_LIVRE);
+    if (lot.length === 0) {
+      this.livre.marquerRattrape();
+      return;
+    }
+    const projets = this.cacheProjets.resoudre(
+      lot.map((r) => r.taskId),
+      (manquants) => this.store.listTaskProjects(manquants),
+    );
+    // Une tentative dont la tâche a disparu est retirée du COMPTE (aucun projet
+    // à qui l'imputer) mais PAS du PARCOURS : le filigrane la dépasse quand
+    // même, sinon le rattrapage bouclerait sur elle à chaque tick, sans fin.
+    const dernier = lot[lot.length - 1]?.id ?? 0;
+    this.livre.absorber(
+      lot.flatMap((r) => {
+        const projectId = projets.get(r.taskId);
+        return projectId ? [{ id: r.id, projectId, durationMs: r.durationMs }] : [];
+      }),
+      dernier,
+    );
+    // Lot incomplet ⇒ le livre a rejoint la fin de la table.
+    if (lot.length < LOT_GRAND_LIVRE) this.livre.marquerRattrape();
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
+    // Balance : le livre avance AVANT toute décision, pour que la lecture
+    // exposée par `get balance` ne soit jamais en retard d'un tick. Il
+    // n'influence rien ici — voir la règle 4 de la doctrine (balance.ts).
+    this.avancerGrandLivre();
     // Tâches déjà actives, enrichie au fil de la passe : une tâche qu'on vient
     // d'assigner doit être prise en compte pour la détection de conflit des
     // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).

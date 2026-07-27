@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
+import { CORPUS_BALANCE, LOT_GRAND_LIVRE } from './balance.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -89,6 +90,21 @@ CREATE INDEX IF NOT EXISTS idx_results_task ON results(taskId);
 -- ligne de la table.
 CREATE INDEX IF NOT EXISTS idx_results_recent
   ON results(createdAt DESC, id DESC, taskId, nodeId, success);
+-- Index COUVRANT de la Balance (le pèse-ruche). Sans lui, la lecture
+-- incrémentale du grand livre retombe sur « SEARCH results USING INTEGER
+-- PRIMARY KEY » : SQLite ouvre alors la LIGNE, et durationMs est stocké APRÈS
+-- diff (≤ 1 Mo) et logs (≤ 512 ko) — il faut traverser toute la chaîne de pages
+-- de débordement pour lire un entier. Même raisonnement que le commentaire
+-- d'idx_results_recent ci-dessus. Plans mesurés, et verrouillés par
+-- tests/store-scaling.test.ts.
+-- NE PAS étendre idx_results_recent pour y arriver : CREATE INDEX IF NOT EXISTS
+-- ne redéfinit PAS un index existant — les bases déjà en service garderaient
+-- l'ancienne définition et perdraient silencieusement leur plan couvrant.
+-- Toujours un nom neuf. Les deux index ont des colonnes de tête différentes :
+-- aucun des deux n'est redondant, et le nouveau ne détourne pas le planner du
+-- corpus des phéromones (prouvé, même fichier de test).
+CREATE INDEX IF NOT EXISTS idx_results_balance
+  ON results(id, taskId, nodeId, success, durationMs);
 
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,6 +196,33 @@ interface ResultRow {
   logs: string;
   durationMs: number;
   subAgents: string;
+}
+
+/** Résultat réduit au strict nécessaire de la Balance (aucune colonne lourde). */
+export interface ResultatBalance {
+  id: number;
+  taskId: string;
+  nodeId: string;
+  success: boolean;
+  durationMs: number;
+}
+
+interface ResultatRow {
+  id: number;
+  taskId: string;
+  nodeId: string;
+  success: number;
+  durationMs: number;
+}
+
+function rowToResultatBalance(r: ResultatRow): ResultatBalance {
+  return {
+    id: r.id,
+    taskId: r.taskId,
+    nodeId: r.nodeId,
+    success: r.success === 1,
+    durationMs: r.durationMs,
+  };
 }
 
 interface EventRow {
@@ -543,6 +586,26 @@ export class HiveStore {
   }
 
   /**
+   * Projet et statut des SEULES tâches demandées — ce que la Balance a besoin
+   * de savoir pour imputer les tentatives d'un corpus borné. Lecture par clé
+   * primaire (`lireParIds`), jamais un `SELECT *` de `tasks` : c'est exactement
+   * le péché de performance que le dépôt a déjà combattu pour `listTaskTexts`.
+   */
+  listTaskComptes(
+    ids: readonly string[],
+  ): Array<{ id: string; projectId: string; status: TaskStatus }> {
+    return this.lireParIds<{ id: string; projectId: string; status: TaskStatus }>(
+      'id, projectId, status',
+      ids,
+    );
+  }
+
+  /** Projet des SEULES tâches citées — le grand livre n'a pas besoin du statut. */
+  listTaskProjects(ids: readonly string[]): Array<{ id: string; projectId: string }> {
+    return this.lireParIds<{ id: string; projectId: string }>('id, projectId', ids);
+  }
+
+  /**
    * Statut des SEULES tâches demandées, indexé par id. Sert la promotion des
    * dépendances : seules les tâches DONT DÉPEND une tâche en attente comptent —
    * pas toute la table.
@@ -686,6 +749,73 @@ export class HiveStore {
       success: r.success === 1,
       createdAt: r.createdAt,
     }));
+  }
+
+  /**
+   * Lecture INCRÉMENTALE du grand livre de la Balance : les résultats
+   * postérieurs au filigrane, par id croissant, plafonnés. En régime établi,
+   * renvoie [] au prix d'une seule sonde sur `idx_results_balance`.
+   *
+   * `INDEXED BY` n'est PAS une coquetterie : plan mesuré sur 5 000 lignes de
+   * 10 ko (SQLite 3.53.2), avec `ANALYZE` joué comme sur une base en service.
+   *  - sans lui : « SEARCH results USING INTEGER PRIMARY KEY (rowid>?) » — la
+   *    LIGNE est ouverte, et `durationMs` étant stocké après `diff` (≤ 1 Mo) et
+   *    `logs` (≤ 512 ko), il faut traverser leurs pages de débordement pour
+   *    lire un entier ;
+   *  - avec lui : « SEARCH results USING COVERING INDEX idx_results_balance
+   *    (id>?) » — pas une seule ligne de la table n'est touchée.
+   * La conception d'origine pariait sur un « , taskId » redondant dans
+   * l'ORDER BY pour faire basculer le planner : la mesure dit que ça ne suffit
+   * plus dès que les statistiques existent. Verrouillé par
+   * tests/store-scaling.test.ts — si un futur SQLite change encore d'avis, ce
+   * test le dira avant la production.
+   */
+  listResultsForLedger(afterId: number, limit = LOT_GRAND_LIVRE): ResultatBalance[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId, nodeId, success, durationMs FROM results INDEXED BY idx_results_balance
+         WHERE id > ? ORDER BY id LIMIT ?`,
+      )
+      .all(Math.max(0, afterId), Math.max(1, Math.min(limit, 10_000))) as ResultatRow[];
+    return rows.map(rowToResultatBalance);
+  }
+
+  /**
+   * Corpus BORNÉ de l'imputation : les N résultats les plus récents (id DESC).
+   * Plan : « SCAN results USING COVERING INDEX idx_results_balance » — parcours
+   * de l'index dans l'ordre voulu, le LIMIT s'arrête au N-ième.
+   */
+  listResultsForBalance(limit = CORPUS_BALANCE): ResultatBalance[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId, nodeId, success, durationMs FROM results INDEXED BY idx_results_balance
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(limit, 10_000))) as ResultatRow[];
+    return rows.map(rowToResultatBalance);
+  }
+
+  /**
+   * Recalcul À FROID de la dépense par projet (JOIN complet sur results).
+   * DIAGNOSTIC ET TESTS UNIQUEMENT : jamais sur le chemin d'un tick, jamais
+   * exposé par une route. Sert à prouver l'invariant « incrémental == à froid »
+   * du grand livre — le seul usage légitime d'un SELECT non borné ici.
+   * `max(durationMs, 0)` : même bornage que le repli en mémoire, sinon les deux
+   * chemins divergeraient sur une horloge de nœud en retard.
+   */
+  depensesParProjet(): Map<string, { depenseMs: number; tentatives: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT t.projectId AS projectId,
+                SUM(max(r.durationMs, 0)) AS depenseMs,
+                COUNT(*) AS tentatives
+         FROM results r JOIN tasks t ON t.id = r.taskId
+         GROUP BY t.projectId`,
+      )
+      .all() as Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+    return new Map(
+      rows.map((r) => [r.projectId, { depenseMs: r.depenseMs, tentatives: r.tentatives }]),
+    );
   }
 
   /** Nombre de résultats stockés. */

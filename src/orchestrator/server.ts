@@ -20,6 +20,8 @@ import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.j
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent, Task } from '../shared/types.js';
+import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
+import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
@@ -28,8 +30,8 @@ import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
-import { CacheDomaines, replierTraces } from './pheromones.js';
-import type { TraceePheromone } from './pheromones.js';
+import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
+import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, llmPlannerAvailable, planBrief } from './planner.js';
 import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
@@ -63,6 +65,14 @@ const RESULT_RETENTION = 5_000;
  * dashboards en polling déclenchaient N calculs concurrents sur le même tick.
  */
 const PHEROMONES_TTL_MS = 3_000;
+
+/**
+ * Mémoïsation de la Balance — même raisonnement que PHEROMONES_TTL_MS : N
+ * dashboards en polling sur /api/balance ne doivent pas déclencher N lectures
+ * identiques du corpus de 2 000 résultats. Le TTL porte sur la LECTURE (la
+ * seule I/O) ; les replis dérivés sont calculés une fois par socle.
+ */
+const BALANCE_TTL_MS = 3_000;
 
 /** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
 const MERGE_TIMEOUT_MS = 10 * 60_000;
@@ -100,6 +110,13 @@ export interface ServerConfig {
   publicUrl?: string;
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
+  /**
+   * HIVE_BALANCE : off | observation | strict. Défaut `observation` — la ruche
+   * pèse ce qu'elle dépense sans jamais rien bloquer. Optionnel ici (et non
+   * requis comme le reste) pour que tout appelant existant de `createServer`
+   * continue de compiler : l'ajout de la Balance ne casse aucun contrat.
+   */
+  balance?: 'off' | 'observation' | 'strict';
 }
 
 /**
@@ -130,6 +147,12 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       .filter(Boolean),
     dbPath: env.HIVE_DB ?? './data/hive.db',
     simulation: env.HIVE_SIMULATION === '1',
+    // Toute valeur inconnue retombe sur le défaut : une faute de frappe ne doit
+    // jamais éteindre silencieusement la pesée.
+    balance:
+      env.HIVE_BALANCE === 'off' || env.HIVE_BALANCE === 'strict'
+        ? env.HIVE_BALANCE
+        : 'observation',
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -291,7 +314,136 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     };
   };
 
+  // ─── La Balance : socle de lecture, pesée et devis ─────────────────────────
+  //
+  // Tout part d'UNE lecture bornée (≤ CORPUS_BALANCE résultats, index couvrant)
+  // mémoïsée BALANCE_TTL_MS : la pesée et les échantillons de devis en sont des
+  // replis PURS, recalculés une seule fois par socle. Rien n'est jamais écrit.
+  interface SocleBalance {
+    calculeA: number;
+    corpus: ReturnType<HiveStore['listResultsForBalance']>;
+    taches: Map<string, CompteTache>;
+    /** Replis dérivés, calculés à la demande et gardés le temps du socle. */
+    pesee?: Pesee;
+    echantillons?: Map<Domaine, number[]>;
+  }
+  let socleBalance: SocleBalance | null = null;
+
+  const lireSocleBalance = (now = Date.now()): SocleBalance => {
+    if (socleBalance && now - socleBalance.calculeA < BALANCE_TTL_MS) return socleBalance;
+    const corpus = store.listResultsForBalance();
+    // Lecture par clé primaire des SEULES tâches citées par le corpus — jamais
+    // un dépliage de la table `tasks`.
+    const comptes = store.listTaskComptes([...new Set(corpus.map((r) => r.taskId))]);
+    const revues = store.listReviews();
+    socleBalance = {
+      calculeA: now,
+      corpus,
+      taches: new Map(
+        comptes.map((c) => [
+          c.id,
+          { projectId: c.projectId, status: c.status, revue: revues[c.id] ?? null },
+        ]),
+      ),
+    };
+    return socleBalance;
+  };
+
+  const peser = (now = Date.now()): Pesee => {
+    const socle = lireSocleBalance(now);
+    socle.pesee ??= peserLaRuche(socle.corpus, socle.taches);
+    return socle.pesee;
+  };
+
+  /**
+   * Échantillons de coût par domaine : le TOTAL par tâche (toutes tentatives
+   * confondues — reprises comprises, c'est ce qu'une tâche coûte vraiment), sur
+   * les seules tâches ABOUTIES du corpus. Une tâche encore en vol n'a pas fini
+   * de dépenser : l'inclure sous-estimerait le devis.
+   */
+  const echantillonsBalance = (now = Date.now()): Map<Domaine, number[]> => {
+    const socle = lireSocleBalance(now);
+    if (socle.echantillons) return socle.echantillons;
+    const totaux = new Map<string, number>();
+    for (const r of socle.corpus) {
+      if (socle.taches.get(r.taskId)?.status !== 'done') continue;
+      totaux.set(r.taskId, (totaux.get(r.taskId) ?? 0) + Math.max(0, r.durationMs));
+    }
+    const domaines = cacheDomaines.domaines([...totaux.keys()], (manquants) =>
+      store.listTaskTexts(manquants),
+    );
+    const parDomaine = new Map<Domaine, number[]>();
+    for (const [taskId, total] of totaux) {
+      const domaine = domaines.get(taskId);
+      if (!domaine) continue;
+      const liste = parDomaine.get(domaine);
+      if (liste) liste.push(total);
+      else parDomaine.set(domaine, [total]);
+    }
+    socle.echantillons = parDomaine;
+    return parDomaine;
+  };
+
+  /** Devis d'un lot de tâches proposées : par tâche, puis en total. */
+  interface DevisPlan {
+    parTache: Array<{ title: string; domaine: Domaine } & Devis>;
+    /**
+     * Somme des médianes et somme des p90. Ce ne sont ni la médiane ni le p90
+     * de la somme : le total p90 est une borne PESSIMISTE, qui suppose que
+     * toutes les tâches ont un mauvais jour en même temps. Assumé et affiché
+     * comme tel — un devis se lit comme un ordre de grandeur.
+     */
+    totalMedianeMs: number;
+    totalP90Ms: number;
+  }
+
+  /**
+   * Chiffre un lot de tâches PROPOSÉES (pas encore en base, donc classées
+   * directement par `domaineDeTache`, sans cache par id). Silencieux — `null` —
+   * quand aucun domaine n'atteint ECHANTILLON_MIN_DEVIS tâches comparables :
+   * jamais de fausse précision.
+   *
+   * Le devis est un NOMBRE destiné à l'affichage. Aucun texte d'agent n'entre
+   * ici, et rien de ceci ne repart dans un prompt : le jour où un titre devrait
+   * y retourner, il passerait obligatoirement par `champSurUneLigne` /
+   * `blocDonnees` (src/shared/donnees-non-fiables.ts).
+   */
+  const chiffrerDevis = (
+    taches: ReadonlyArray<{ title: string; prompt: string }>,
+  ): DevisPlan | null => {
+    const echantillons = echantillonsBalance();
+    const parTache: DevisPlan['parTache'] = [];
+    for (const tache of taches) {
+      const domaine = domaineDeTache(tache.title, tache.prompt);
+      const devis = estimerCout(domaine, echantillons.get(domaine) ?? []);
+      if (devis) parTache.push({ title: tache.title, ...devis });
+    }
+    if (parTache.length === 0) return null;
+    return {
+      parTache,
+      totalMedianeMs: parTache.reduce((s, d) => s + d.medianeMs, 0),
+      totalP90Ms: parTache.reduce((s, d) => s + d.p90Ms, 0),
+    };
+  };
+
+  /**
+   * Enrobage NON BLOQUANT : un devis qui échoue ne casse jamais un plan. La
+   * Balance est une lecture ; elle n'a le droit de faire échouer aucune route.
+   */
+  const devisSansRisque = (
+    taches: ReadonlyArray<{ title: string; prompt: string }>,
+  ): DevisPlan | null => {
+    try {
+      return chiffrerDevis(taches);
+    } catch (err) {
+      console.error(`[hive] devis indisponible : ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  };
+
   const scheduler = new Scheduler(store, {
+    // Balance : le grand livre suit la table `results` et n'influence RIEN.
+    balance: { mode: config.balance ?? 'observation' },
     // Drone Wars : annuler le travail d'un drone perdant (ou d'une course annulée).
     onCancel: (nodeId, taskId, reason) => {
       const ws = nodeSockets.get(nodeId);
@@ -662,6 +814,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return { traces: pheromonesMemo.traces.slice(0, 30) };
   });
 
+  // La Balance : où est passé le temps-ouvrière que la ruche a emprunté à ses
+  // membres. Vue dérivée PURE, recalculée depuis un corpus borné — jamais
+  // matérialisée, jamais écrite. `fenetre` dit sur combien de tentatives
+  // l'imputation a été faite, `aJour` si le grand livre a fini son rattrapage :
+  // un chiffre qui ne dit pas ce qu'il n'a pas vu est un chiffre qui ment.
+  //
+  // `durationMs` mesure le temps machine PRÊTÉ, pas le travail accompli : c'est
+  // la bonne unité pour dire ce que la ruche a consommé chez ses membres, et
+  // une très mauvaise pour juger un nœud. Le tableau par nœud n'est donc jamais
+  // trié en « pire contributeur » (balance.ts, doctrine règle 4).
+  app.get('/api/balance', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const balance = scheduler.balance;
+    return {
+      version: VERSION_BALANCE,
+      mode: balance.mode,
+      aJour: balance.aJour,
+      pesee: peser(),
+      soldes: balance.soldes,
+      fenetre: CORPUS_BALANCE,
+    };
+  });
+
   app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
     '/api/projects',
     {
@@ -719,7 +894,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (result.tasks.length === 0) {
           return reply.code(422).send({ error: 'brief trop court pour en déduire des tâches' });
         }
-        return result;
+        // Balance (prévoir) : ce que ce DAG devrait coûter, d'après les tâches
+        // comparables déjà terminées. Purement indicatif, jamais bloquant, et
+        // `null` tant que l'échantillon est maigre.
+        return { ...result, devis: devisSansRisque(result.tasks) };
       } catch (err) {
         // Mode 'llm' explicite ayant échoué : on remonte l'erreur telle quelle.
         return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
@@ -1455,6 +1633,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           tasks: created,
           rationale: result.rationale,
           model: result.model,
+          // Balance (prévoir) : même devis indicatif que /api/plan.
+          devis: devisSansRisque(created),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
