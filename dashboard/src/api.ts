@@ -349,6 +349,63 @@ export function setProjectPlafond(
 }
 
 /** La Balance : où est passé le temps-ouvrière emprunté par la ruche. */
+// ─── Le Plein Essaim : l'autonomie d'un projet ──────────────────────────────
+
+/** Un pas que la ruche prendrait maintenant. Miroir de `Pas` (essaim.ts). */
+export type PasEssaim =
+  | 'inerte'
+  | 'plafond'
+  | 'deliberer'
+  | 'planifier'
+  | 'butiner'
+  | 'corriger'
+  | 'livrer'
+  | 'fusionner'
+  | 'repos';
+
+export type NiveauEssaim = 'off' | 'propose' | 'gouverne' | 'plein';
+
+export interface LeconEssaim {
+  signature: string;
+  noeuds: number;
+  taches: number;
+  occurrences: number;
+  portee: 'isolee' | 'confirmee' | 'systemique';
+  confiance: number;
+  extrait: string;
+  vueA: number;
+}
+
+export interface EtatEssaimUi {
+  niveau: NiveauEssaim;
+  decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
+  gouvernantes: Array<{ nodeId: string; nom: string }>;
+  gouvernantesRequises: number;
+  depotInscrit: boolean;
+  plafond: 'passe' | 'alerte' | 'bloque';
+  lecons: LeconEssaim[];
+  niveaux: NiveauEssaim[];
+}
+
+export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
+  return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
+}
+
+/**
+ * Règle l'autonomie. `depotInscrit` est l'autorisation de fusionner, donnée
+ * une seule fois pour ce dépôt — distincte du niveau, et exigée avec lui.
+ */
+export function setEssaim(
+  projectId: string,
+  niveau: NiveauEssaim,
+  depotInscrit: boolean,
+): Promise<{ niveau: NiveauEssaim; depotInscrit: boolean }> {
+  return api(`/api/projects/${projectId}/essaim`, {
+    method: 'POST',
+    body: JSON.stringify({ niveau, depotInscrit }),
+  });
+}
+
 export function fetchBalance(): Promise<BalanceState> {
   return api<BalanceState>('/api/balance');
 }

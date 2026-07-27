@@ -1,0 +1,1346 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rush — acheter du temps d’essaim pour faire avancer votre projet | Hive</title>
+    <meta
+      name="description"
+      content="Un Rush, c’est un plafond d’heures-ouvrières payé d’avance, exécuté sur des nœuds hébergés, sur l’objectif que vous fixez. Devis fondé sur l’historique, plafond appliqué par le code, merge toujours humain."
+    />
+    <meta name="theme-color" content="#130f09" />
+    <link rel="canonical" href="https://micka420-collab.github.io/hive/rush/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Rush — acheter du temps d’essaim | Hive" />
+    <meta
+      property="og:description"
+      content="Vous n’achetez pas une promesse : vous achetez une capacité bornée. Devis fondé sur l’historique mesuré, plafond appliqué par le Scheduler, heures creuses non décomptées."
+    />
+    <meta property="og:url" content="https://micka420-collab.github.io/hive/rush/" />
+    <meta property="og:image" content="https://micka420-collab.github.io/hive/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
+    />
+    <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
+         va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
+         Voir site/fonts/LICENSE.txt (SIL OFL 1.1) pour l'origine des fichiers. -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="../fonts/space-grotesk-latin-400-600-700.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="../fonts/jetbrains-mono-latin-400-600.woff2"
+      crossorigin
+    />
+    <style>
+      /* ── Fontes (SIL OFL 1.1, cf. ../fonts/LICENSE.txt) ─────────────────────── */
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/jetbrains-mono-latin-ext-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/jetbrains-mono-latin-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url('../fonts/space-grotesk-latin-ext-400-600-700.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url('../fonts/space-grotesk-latin-400-600-700.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+
+      :root {
+        --bg: #130f09;
+        --panel: #201a11;
+        --panel-2: #1a150d;
+        --chip: #2a2216;
+        --border: #392e1c;
+        --border-2: #4c3d23;
+        --text: #f4ecd9;
+        --muted: #b39c72;
+        --dim: #a09070;
+        --gold: #f6b93b;
+        --gold-2: #ffd166;
+        --orange: #e58e26;
+        --green: #86c35d;
+        --blue: #6bb0d6;
+        --red: #e5573f;
+        --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background:
+          radial-gradient(1200px 600px at 80% -10%, rgba(246, 185, 59, 0.08), transparent),
+          var(--bg);
+        color: var(--text);
+        font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--gold);
+        text-decoration: none;
+      }
+      a:hover {
+        color: var(--gold-2);
+      }
+      :focus-visible {
+        outline: 2px solid var(--gold);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      code,
+      kbd,
+      pre {
+        font-family: var(--mono);
+      }
+      /* Voir site/index.html : la hauteur de l'en-tête collant est mesurée et
+         publiée dans --h-entete, parce qu'elle double quand la nav se replie. */
+      section {
+        scroll-margin-top: calc(var(--h-entete, 72px) + 12px);
+      }
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 100;
+        padding: 8px 16px;
+        background: var(--gold);
+        color: #14100b;
+        font-weight: 700;
+        border-radius: 0 0 8px 0;
+      }
+      .skip-link:focus {
+        left: 0;
+        color: #14100b;
+      }
+
+      /* ── En-tête ── */
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 28px;
+        background: linear-gradient(180deg, #201a11, #1a150d);
+        border-bottom: 1px solid var(--border);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        flex-wrap: wrap;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+      }
+      .brand .bee {
+        font-size: 28px;
+      }
+      .brand .name {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--gold);
+        letter-spacing: 0.5px;
+      }
+      .brand .ver {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      nav.main {
+        display: flex;
+        gap: 18px;
+        margin-left: auto;
+        flex-wrap: wrap;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      nav.main a {
+        color: var(--muted);
+      }
+      nav.main a:hover {
+        color: var(--gold-2);
+      }
+      .lang-toggle {
+        display: inline-flex;
+        border: 1px solid var(--border-2);
+        border-radius: 7px;
+        overflow: hidden;
+      }
+      .lang-toggle button {
+        padding: 6px 13px;
+        background: var(--chip);
+        color: var(--muted);
+        border: none;
+        cursor: pointer;
+        font-weight: 700;
+        font-family: inherit;
+        font-size: 14px;
+      }
+      .lang-toggle button:hover {
+        color: var(--text);
+      }
+      .lang-toggle button[aria-pressed='true'] {
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+        cursor: default;
+      }
+
+      /* ── Boutons ── */
+      .btn {
+        display: inline-block;
+        padding: 12px 22px;
+        border-radius: 9px;
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .btn.primary {
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+      }
+      .btn.primary:hover {
+        filter: brightness(1.12);
+        color: #14100b;
+      }
+      .btn.ghost {
+        border: 1px solid var(--border-2);
+        color: var(--text);
+        background: var(--panel-2);
+      }
+      .btn.ghost:hover {
+        border-color: var(--gold);
+        color: var(--gold-2);
+      }
+      .btn-gold {
+        display: inline-block;
+        padding: 7px 16px;
+        border-radius: 7px;
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        color: #14100b;
+        font-weight: 700;
+        font-size: 14px;
+        white-space: nowrap;
+      }
+      .btn-gold:hover {
+        filter: brightness(1.12);
+        color: #14100b;
+      }
+
+      /* ── Sections ── */
+      .section {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 70px 28px 10px;
+      }
+      .kicker {
+        margin: 0 0 8px;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--orange);
+        font-weight: 700;
+      }
+      .headline {
+        margin: 0 0 20px;
+        font-size: 28px;
+        font-weight: 700;
+        max-width: 700px;
+        line-height: 1.25;
+      }
+      .lede {
+        margin: 0 0 34px;
+        color: var(--muted);
+        max-width: 660px;
+      }
+
+      /* ── Bandeau d'honnêteté, tout en haut ── */
+      .avis {
+        background: rgba(229, 87, 63, 0.12);
+        border-bottom: 1px solid rgba(229, 87, 63, 0.4);
+        padding: 11px 28px;
+        text-align: center;
+        font-size: 14px;
+        color: #f3c9c0;
+      }
+      .avis strong {
+        color: #ff9f8e;
+      }
+
+      /* ── Héros ── */
+      .hero {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 64px 28px 20px;
+      }
+      .hero h1 {
+        margin: 0 0 18px;
+        font-size: 42px;
+        line-height: 1.12;
+        font-weight: 700;
+        max-width: 780px;
+      }
+      .hero h1 .accent {
+        background: linear-gradient(90deg, var(--gold), var(--orange));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .hero .sub {
+        font-size: 18px;
+        color: var(--muted);
+        max-width: 640px;
+        margin: 0 0 26px;
+      }
+      .hero-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+
+      /* ── Définition en trois temps ── */
+      .def {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 14px;
+        margin: 34px 0 10px;
+      }
+      .def-c {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 20px;
+      }
+      .def-c h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        color: var(--gold-2);
+      }
+      .def-c p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14.5px;
+      }
+
+      /* ── Les trois verbes ── */
+      .verbes {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+        gap: 14px;
+        margin-bottom: 22px;
+      }
+      .verbe {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--gold);
+        border-radius: 10px;
+        padding: 20px;
+      }
+      .verbe h3 {
+        margin: 0 0 6px;
+        font-size: 17px;
+      }
+      .verbe .fn {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--blue);
+        display: block;
+        margin-bottom: 10px;
+      }
+      .verbe p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14.5px;
+      }
+
+      /* ── Grille tarifaire ── */
+      .prix {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 16px;
+        margin-bottom: 18px;
+        align-items: start;
+      }
+      .offre {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px 20px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      .offre.libre {
+        border-color: var(--green);
+      }
+      .offre.phare {
+        border-color: var(--gold);
+        box-shadow: 0 0 0 1px rgba(246, 185, 59, 0.25);
+      }
+      .offre .etiq {
+        font-size: 11.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 700;
+        color: #14100b;
+        background: linear-gradient(90deg, var(--orange), var(--gold));
+        border-radius: 5px;
+        padding: 2px 8px;
+        align-self: flex-start;
+        margin-bottom: 12px;
+      }
+      .offre.libre .etiq {
+        background: var(--green);
+      }
+      .offre h3 {
+        margin: 0 0 4px;
+        font-size: 19px;
+      }
+      .offre .tag {
+        margin: 0 0 16px;
+        font-size: 13.5px;
+        color: var(--dim);
+        min-height: 40px;
+      }
+      .offre .montant {
+        font-size: 34px;
+        font-weight: 700;
+        color: var(--gold-2);
+        line-height: 1;
+      }
+      .offre .montant .par {
+        font-size: 14px;
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .offre .unitaire {
+        font-size: 13px;
+        color: var(--dim);
+        margin: 6px 0 18px;
+        font-family: var(--mono);
+      }
+      .offre ul {
+        list-style: none;
+        margin: 0 0 20px;
+        padding: 0;
+        font-size: 14px;
+        color: var(--muted);
+        flex: 1;
+      }
+      .offre li {
+        padding: 5px 0 5px 20px;
+        position: relative;
+      }
+      .offre li::before {
+        content: '✓';
+        position: absolute;
+        left: 0;
+        color: var(--green);
+        font-weight: 700;
+      }
+      .offre li.non::before {
+        content: '—';
+        color: var(--dim);
+      }
+      .offre .btn {
+        text-align: center;
+        width: 100%;
+      }
+
+      /* ── Note sous la grille ── */
+      .note-prix {
+        color: var(--dim);
+        font-size: 13.5px;
+        max-width: 780px;
+        margin: 0 0 8px;
+      }
+
+      /* ── Tableau ── */
+      .tableau {
+        overflow-x: auto;
+        margin: 0 0 20px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 560px;
+        font-size: 14px;
+      }
+      th,
+      td {
+        padding: 11px 14px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      thead th {
+        background: var(--panel-2);
+        color: var(--gold-2);
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      td.num {
+        text-align: right;
+        font-family: var(--mono);
+      }
+      td.neg {
+        color: var(--red);
+      }
+
+      /* ── Ce qui n'est pas à vendre ── */
+      .jamais {
+        background: var(--panel-2);
+        border: 1px solid var(--border-2);
+        border-radius: 12px;
+        padding: 26px 24px;
+      }
+      .jamais h3 {
+        margin: 0 0 14px;
+        font-size: 18px;
+        color: var(--gold-2);
+      }
+      .jamais ul {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+      .jamais li {
+        margin-bottom: 9px;
+      }
+      .jamais li:last-child {
+        margin-bottom: 0;
+      }
+
+      /* ── Questions ── */
+      details {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 15px 18px;
+        margin-bottom: 10px;
+      }
+      details[open] {
+        border-color: var(--border-2);
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--text);
+      }
+      summary::marker {
+        color: var(--gold);
+      }
+      details p {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 14.5px;
+      }
+
+      /* ── Appel final ── */
+      .final {
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        border: 1px solid var(--border-2);
+        border-radius: 14px;
+        padding: 36px 28px;
+        text-align: center;
+        margin-top: 20px;
+      }
+      .final h2 {
+        margin: 0 0 12px;
+        font-size: 25px;
+      }
+      .final p {
+        margin: 0 auto 22px;
+        color: var(--muted);
+        max-width: 560px;
+      }
+      .final-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      footer {
+        border-top: 1px solid var(--border);
+        margin-top: 46px;
+        padding: 34px 28px;
+        text-align: center;
+      }
+      footer .links {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        flex-wrap: wrap;
+        font-size: 14px;
+        margin-bottom: 14px;
+      }
+      footer .made {
+        font-size: 13px;
+        color: var(--dim);
+      }
+
+      @media (max-width: 720px) {
+        .hero h1 {
+          font-size: 31px;
+        }
+        .section {
+          padding-top: 48px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#offres" data-i18n="skip">Aller aux offres</a>
+
+    <p class="avis" data-i18n="avis">
+      <strong>Rien n’est en vente aujourd’hui.</strong> Cette page décrit une offre en préparation,
+      chiffrée et documentée, pour qu’on puisse la critiquer avant qu’elle existe.
+    </p>
+
+    <header>
+      <div class="brand">
+        <span class="bee" aria-hidden="true">🐝</span>
+        <span class="name">Hive</span>
+        <span class="ver">Rush</span>
+      </div>
+      <nav class="main">
+        <a href="#quoi" data-i18n="nav.what">Ce que c’est</a>
+        <a href="#confiance" data-i18n="nav.trust">Pourquoi nous croire</a>
+        <a href="#offres" data-i18n="nav.pricing">Offres</a>
+        <a href="#jamais" data-i18n="nav.never">Jamais à vendre</a>
+        <a href="#questions" data-i18n="nav.faq">Questions</a>
+        <a href="../" data-i18n="nav.home">← Le projet</a>
+      </nav>
+      <div class="lang-toggle" role="group" aria-label="Langue / Language">
+        <button id="btn-fr" type="button" aria-pressed="true">FR</button>
+        <button id="btn-en" type="button" aria-pressed="false">EN</button>
+      </div>
+      <a
+        class="btn-gold"
+        href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
+        data-i18n="nav.doc"
+        >📄 Le modèle en détail</a
+      >
+    </header>
+
+    <main>
+      <div class="hero">
+        <h1>
+          <span data-i18n="hero.1">Vous n’avez pas de machine à prêter.</span><br />
+          <span class="accent" data-i18n="hero.2">Achetez du temps d’essaim.</span>
+        </h1>
+        <p class="sub" data-i18n="hero.sub">
+          Un <strong>Rush</strong>, c’est un plafond d’heures-ouvrières payé d’avance, exécuté sur
+          des nœuds que nous hébergeons, sur l’objectif que vous fixez. La ruche travaille, ouvre
+          des pull requests sur <em>votre</em> dépôt, et s’arrête net au plafond.
+        </p>
+        <div class="hero-actions">
+          <a
+            class="btn primary"
+            href="https://github.com/Micka420-collab/hive/issues/new?template=reserver-un-rush.yml"
+            data-i18n="hero.cta"
+            >Réserver ma place</a
+          >
+          <a class="btn ghost" href="#offres" data-i18n="hero.cta2">Voir les tarifs</a>
+        </div>
+      </div>
+
+      <section id="quoi" class="section">
+        <h2 class="kicker" data-i18n="q.kicker">🎯 Ce que vous achetez, exactement</h2>
+        <p class="headline" data-i18n="q.headline">
+          Une capacité bornée. Pas une promesse de résultat.
+        </p>
+        <p class="lede" data-i18n="q.lede">
+          C’est la distinction qui tient toute cette page. Personne ne peut honnêtement vous vendre
+          « votre projet sera fini ». On peut vous vendre un volume de travail encadré, mesuré, et
+          qui s’arrête où vous l’avez décidé.
+        </p>
+        <div class="def">
+          <div class="def-c">
+            <h3 data-i18n="q.1.t">Vous fixez l’objectif</h3>
+            <p data-i18n="q.1.d">
+              Un cap concret, pas une intention. « Migrer l’authentification vers OAuth » se découpe
+              ; « améliorer le projet » ne se découpe pas.
+            </p>
+          </div>
+          <div class="def-c">
+            <h3 data-i18n="q.2.t">La ruche vous donne un devis</h3>
+            <p data-i18n="q.2.d">
+              Fondé sur ce qu’ont réellement coûté des tâches comparables. Sous trois échantillons,
+              elle se tait plutôt que d’inventer un chiffre.
+            </p>
+          </div>
+          <div class="def-c">
+            <h3 data-i18n="q.3.t">L’essaim travaille sous plafond</h3>
+            <p data-i18n="q.3.d">
+              Chaque seconde-ouvrière est imputée à une cause. À 80 % du plafond vous êtes alerté ;
+              au plafond, l’ordonnanceur cesse d’assigner.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="confiance" class="section">
+        <h2 class="kicker" data-i18n="c.kicker">⚖️ Pourquoi nous croire</h2>
+        <p class="headline" data-i18n="c.headline">
+          Ce qui rend un Rush vendable était écrit avant qu’on pense à vendre.
+        </p>
+        <p class="lede" data-i18n="c.lede">
+          Le mode d’échec de tout service d’agents IA au forfait est toujours le même : un agent
+          s’emballe, brûle des jetons sans produire, et la marge part avec — le client paie
+          l’emballement. Hive avait déjà les trois organes qui bornent ça, dans un module écrit pour
+          des raisons écologiques, pas commerciales.
+        </p>
+        <div class="verbes">
+          <div class="verbe">
+            <h3 data-i18n="c.1.t">Peser</h3>
+            <span class="fn">peserLaRuche()</span>
+            <p data-i18n="c.1.d">
+              Chaque seconde-ouvrière est imputée à une cause et ventilée par projet. Votre relevé
+              n’est pas un récapitulatif commercial : c’est la même fonction qui fait tourner la
+              ruche.
+            </p>
+          </div>
+          <div class="verbe">
+            <h3 data-i18n="c.2.t">Prévoir</h3>
+            <span class="fn">estimerCout()</span>
+            <p data-i18n="c.2.d">
+              Médiane et p90 sur des tâches comparables réellement mesurées. La médiane pour qu’une
+              tâche pathologique ne déplace pas le devis ; le p90 parce que c’est le mauvais jour
+              qu’il faut provisionner.
+            </p>
+          </div>
+          <div class="verbe">
+            <h3 data-i18n="c.3.t">Borner</h3>
+            <span class="fn">jugerPlafond()</span>
+            <p data-i18n="c.3.d">
+              <code>passe</code> · <code>alerte</code> à 80 % · <code>bloque</code>. Ce n’est pas
+              une intention affichée dans une interface : c’est une porte dans l’ordonnanceur.
+            </p>
+          </div>
+        </div>
+        <p class="note-prix" data-i18n="c.gard">
+          <strong>Et une quatrième chose, plus rare :</strong> les Gardiennes savent distinguer une
+          heure <em>utile</em> d’une heure <em>dépensée</em>. Un succès déclaré qui ne rapporte
+          aucun diff est déjà détecté aujourd’hui, dans le projet gratuit. D’où l’engagement
+          ci-dessous : <strong>les heures jugées creuses ne sont pas décomptées.</strong>
+        </p>
+      </section>
+
+      <section id="offres" class="section">
+        <h2 class="kicker" data-i18n="o.kicker">💰 Les offres</h2>
+        <p class="headline" data-i18n="o.headline">
+          Le noyau reste gratuit. On ne vend que ce qui coûte vraiment : des machines allumées.
+        </p>
+        <div class="prix">
+          <div class="offre libre">
+            <span class="etiq" data-i18n="o.0.e">Toujours</span>
+            <h3 data-i18n="o.0.t">Ruche libre</h3>
+            <p class="tag" data-i18n="o.0.tag">Vos machines, vos clés, vos amis.</p>
+            <div class="montant">0 €</div>
+            <p class="unitaire" data-i18n="o.0.u">pour toujours</p>
+            <ul>
+              <li data-i18n="o.0.1">Nœuds illimités</li>
+              <li data-i18n="o.0.2">Toutes les fonctionnalités</li>
+              <li data-i18n="o.0.3">Clés d’API jamais transmises</li>
+              <li class="non" data-i18n="o.0.4">Vos machines doivent tourner</li>
+            </ul>
+            <a class="btn ghost" href="../#demarrer" data-i18n="o.0.cta">Installer</a>
+          </div>
+
+          <div class="offre">
+            <span class="etiq" data-i18n="o.1.e">Découverte</span>
+            <h3 data-i18n="o.1.t">Rush Éclaireuse</h3>
+            <p class="tag" data-i18n="o.1.tag">Un objectif, pour voir ce que ça donne.</p>
+            <div class="montant">79 €</div>
+            <p class="unitaire" data-i18n="o.1.u">10 h-ouvrières · 7,90 €/h</p>
+            <ul>
+              <li data-i18n="o.1.1">1 objectif cadré</li>
+              <li data-i18n="o.1.2">Devis avant paiement</li>
+              <li data-i18n="o.1.3">PR sur votre dépôt</li>
+              <li data-i18n="o.1.4">Report du crédit 90 jours</li>
+            </ul>
+            <a
+              class="btn ghost"
+              href="https://github.com/Micka420-collab/hive/issues/new?template=reserver-un-rush.yml"
+              data-i18n="o.cta"
+              >Réserver</a
+            >
+          </div>
+
+          <div class="offre phare">
+            <span class="etiq" data-i18n="o.2.e">Le plus juste</span>
+            <h3 data-i18n="o.2.t">Rush Essaim</h3>
+            <p class="tag" data-i18n="o.2.tag">De quoi faire avancer un vrai chantier.</p>
+            <div class="montant">299 €</div>
+            <p class="unitaire" data-i18n="o.2.u">50 h-ouvrières · 5,98 €/h</p>
+            <ul>
+              <li data-i18n="o.2.1">Plusieurs objectifs</li>
+              <li data-i18n="o.2.2">Contre-visite systématique</li>
+              <li data-i18n="o.2.3">Heures creuses non décomptées</li>
+              <li data-i18n="o.2.4">Relevé détaillé par poste</li>
+            </ul>
+            <a
+              class="btn primary"
+              href="https://github.com/Micka420-collab/hive/issues/new?template=reserver-un-rush.yml"
+              data-i18n="o.cta2"
+              >Réserver ma place</a
+            >
+          </div>
+
+          <div class="offre">
+            <span class="etiq" data-i18n="o.3.e">Continu</span>
+            <h3 data-i18n="o.3.t">Rush Colonie</h3>
+            <p class="tag" data-i18n="o.3.tag">L’essaim tourne tous les mois sur votre projet.</p>
+            <div class="montant">990 € <span class="par" data-i18n="o.3.par">/ mois</span></div>
+            <p class="unitaire" data-i18n="o.3.u">200 h-ouvrières · 4,95 €/h</p>
+            <ul>
+              <li data-i18n="o.3.1">Tout Essaim, en continu</li>
+              <li data-i18n="o.3.2">Queen hébergée incluse</li>
+              <li data-i18n="o.3.3">Sans reconduction tacite</li>
+              <li data-i18n="o.3.4">Résiliable à tout moment</li>
+            </ul>
+            <a
+              class="btn ghost"
+              href="https://github.com/Micka420-collab/hive/issues/new?template=reserver-un-rush.yml"
+              data-i18n="o.cta"
+              >Réserver</a
+            >
+          </div>
+        </div>
+
+        <p class="note-prix" data-i18n="o.note">
+          <strong>+ Queen hébergée — 49 €/mois.</strong> Pour ceux qui ont déjà des nœuds mais ne
+          veulent pas garder un orchestrateur allumé. C’est l’offre la plus saine du lot : coût
+          quasi fixe, revenu récurrent, et elle ne dépend d’aucune hypothèse sur le prix des jetons.
+        </p>
+
+        <h3 class="kicker" style="margin-top: 32px" data-i18n="o.marge.k">
+          📉 La marge, et ce qui la casse
+        </h3>
+        <p class="lede" data-i18n="o.marge.d">
+          Le coût d’une heure-ouvrière est dominé par les jetons du modèle, pas par la machine — et
+          il est <em>variable</em>. Voici la même grille, à deux hypothèses de coût. La colonne de
+          droite est celle qu’il faut regarder : elle dit à quel moment une offre devient une
+          bêtise.
+        </p>
+        <div class="tableau">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="o.th.1">Offre</th>
+                <th data-i18n="o.th.2">Prix / h</th>
+                <th data-i18n="o.th.3">Marge si 3,50 €/h</th>
+                <th data-i18n="o.th.4">Marge si 5 €/h</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-i18n="o.tr.1">Rush Éclaireuse</td>
+                <td class="num">7,90 €</td>
+                <td class="num">56 %</td>
+                <td class="num">37 %</td>
+              </tr>
+              <tr>
+                <td data-i18n="o.tr.2">Rush Essaim</td>
+                <td class="num">5,98 €</td>
+                <td class="num">41 %</td>
+                <td class="num">16 %</td>
+              </tr>
+              <tr>
+                <td data-i18n="o.tr.3">Rush Colonie</td>
+                <td class="num">4,95 €</td>
+                <td class="num">29 %</td>
+                <td class="num neg">−1 %</td>
+              </tr>
+              <tr>
+                <td data-i18n="o.tr.4">Queen hébergée</td>
+                <td class="num" data-i18n="o.tr.4b">coût fixe</td>
+                <td class="num">~85 %</td>
+                <td class="num">~85 %</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note-prix" data-i18n="o.marge.n">
+          Oui, cette page publie ses propres marges. C’est délibéré : un client qui comprend d’où
+          vient le prix négocie mieux et se sent moins pris pour un imbécile. Et le
+          <strong>−1 %</strong> est là pour dire que l’offre Colonie ne survit pas à des jetons plus
+          chers — le jour venu, ce sera le volume qui baissera, jamais la qualité du modèle.
+        </p>
+      </section>
+
+      <section id="jamais" class="section">
+        <h2 class="kicker" data-i18n="j.kicker">🚫 Ce qui ne sera jamais à vendre</h2>
+        <p class="headline" data-i18n="j.headline">Une liste courte, et elle ne s’allongera pas.</p>
+        <div class="jamais">
+          <h3 data-i18n="j.t">Quatre engagements</h3>
+          <ul>
+            <li data-i18n="j.1">
+              <strong>Aucun paiement ne débloque un merge.</strong> L’approbation reste un geste
+              humain du propriétaire du dépôt. Vendre l’automatisation du merge, ce serait vendre le
+              contournement de la seule garantie que Hive donne.
+            </li>
+            <li data-i18n="j.2">
+              <strong>Aucune fonctionnalité du noyau ne sera retenue derrière un mur.</strong> Pas
+              de limite artificielle de nœuds, pas de version mutilée. La ruche libre reste entière.
+            </li>
+            <li data-i18n="j.3">
+              <strong>Vos clés d’API ne transitent jamais par nous</strong> en auto-hébergé, et sur
+              les nœuds hébergés elles restent des clés à nous, jamais les vôtres.
+            </li>
+            <li data-i18n="j.4">
+              <strong>Pas de reconduction tacite sur les Rushes.</strong> Le prélèvement qu’on
+              n’avait pas vu venir est ce qui détruit la confiance dans ce marché.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="questions" class="section">
+        <h2 class="kicker" data-i18n="f.kicker">❓ Les questions qui fâchent</h2>
+        <p class="headline" data-i18n="f.headline">Celles qu’on se poserait à votre place.</p>
+
+        <details>
+          <summary data-i18n="f.1.q">
+            Comment savoir si 10 heures suffisent pour ce que je veux ?
+          </summary>
+          <p data-i18n="f.1.a">
+            Vous ne le savez pas, et nous non plus au départ. C’est pour ça que le devis vient d’une
+            statistique sur des tâches comparables déjà exécutées, et pas d’une estimation
+            commerciale. Si la ruche n’a pas assez d’historique sur votre type de travail, elle le
+            dit — et dans ce cas commencez par un Rush Éclaireuse, qui existe exactement pour ça.
+          </p>
+        </details>
+
+        <details>
+          <summary data-i18n="f.2.q">
+            Qu’est-ce qui m’empêche de payer pour du code qui ne sert à rien ?
+          </summary>
+          <p data-i18n="f.2.a">
+            Rien ne peut garantir la valeur d’un code — pas nous, pas un humain non plus. Ce qu’on
+            peut garantir, c’est qu’une heure qui n’a rien produit n’est pas facturée : les
+            Gardiennes détectent un succès déclaré sans diff, et ces heures-là ne sont pas
+            décomptées de votre plafond. Et rien n’entre dans votre dépôt sans que vous l’ayez relu.
+          </p>
+        </details>
+
+        <details>
+          <summary data-i18n="f.3.q">
+            Un modèle moins puissant va-t-il travailler sur mon projet ?
+          </summary>
+          <p data-i18n="f.3.a">
+            Possiblement, et c’est voulu : une tâche cadrée n’a pas besoin du modèle le plus cher.
+            Mais une ouvrière peu expérimentée reçoit des consignes plus strictes, un périmètre plus
+            étroit, et sa production passe en <em>contre-visite</em> chez une ouvrière plus
+            expérimentée qui répond à deux questions — est-ce juste, et peut-on faire mieux ? Une
+            contre-visite coûte une fraction d’une reprise complète : c’est aussi ce qui permet de
+            tenir les prix ci-dessus.
+          </p>
+        </details>
+
+        <details>
+          <summary data-i18n="f.4.q">Et si je veux juste rester en gratuit ?</summary>
+          <p data-i18n="f.4.a">
+            Alors restez en gratuit. Sérieusement : si vous avez une machine qui peut tourner la
+            nuit, l’auto-hébergement est strictement supérieur — c’est plus rapide, ça ne coûte que
+            vos propres jetons, et vous gardez la main sur tout. Les Rushes existent pour ceux qui
+            n’ont pas cette machine, pas pour convertir ceux qui l’ont.
+          </p>
+        </details>
+
+        <details>
+          <summary data-i18n="f.5.q">Pourquoi publier vos marges ?</summary>
+          <p data-i18n="f.5.a">
+            Parce que le chiffre qui compte n’est pas la marge, c’est la question « ce prix
+            tiendra-t-il ? ». Un fournisseur dont l’offre est à perte disparaît, et vous avec.
+            Publier la sensibilité au coût des jetons, c’est la seule façon de montrer que le modèle
+            a été calculé et pas espéré.
+          </p>
+        </details>
+
+        <details>
+          <summary data-i18n="f.6.q">Quand est-ce disponible ?</summary>
+          <p data-i18n="f.6.a">
+            Pas de date. Il manque quatre choses, listées dans le document du modèle économique : un
+            compteur d’heures côté hébergeur, l’encaissement, l’approvisionnement des nœuds, et le
+            rattachement d’un plafond payé à un projet. Réserver une place vous met dans la file ;
+            ça ne prélève rien et ça n’engage à rien.
+          </p>
+        </details>
+      </section>
+
+      <section class="section">
+        <div class="final">
+          <h2 data-i18n="fin.t">Réservez une place, pas un abonnement.</h2>
+          <p data-i18n="fin.d">
+            Le formulaire est une issue GitHub publique : pas de compte à créer, pas de carte
+            bancaire, pas de relance commerciale. Vous décrivez votre projet, on vous dit
+            franchement si un Rush est le bon outil — ou si vous feriez mieux d’installer la version
+            gratuite.
+          </p>
+          <div class="final-actions">
+            <a
+              class="btn primary"
+              href="https://github.com/Micka420-collab/hive/issues/new?template=reserver-un-rush.yml"
+              data-i18n="fin.cta"
+              >Réserver ma place</a
+            >
+            <a
+              class="btn ghost"
+              href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
+              data-i18n="fin.cta2"
+              >Lire le modèle économique</a
+            >
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="links">
+        <a href="../" data-i18n="foot.1">Le projet</a>
+        <a href="../#communaute" data-i18n="foot.2">Proposer un projet</a>
+        <a href="https://github.com/Micka420-collab/hive" data-i18n="foot.3">GitHub</a>
+        <a
+          href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
+          data-i18n="foot.4"
+          >Modèle économique</a
+        >
+      </div>
+      <p class="made" data-i18n="foot.made">
+        Licence MIT — le noyau restera gratuit et auto-hébergeable.
+      </p>
+    </footer>
+
+    <script>
+      (function () {
+        'use strict';
+
+        /* ── i18n ─────────────────────────────────────────────────────────
+       Même mécanique que site/index.html : le HTML est écrit en français,
+       on capture le FR depuis le DOM au chargement, et le dictionnaire
+       ci-dessous ne porte que l'anglais. */
+        var EN = {
+          skip: 'Skip to pricing',
+          avis:
+            '<strong>Nothing is on sale today.</strong> This page describes an offer in ' +
+            'preparation — costed and documented — so it can be criticised before it exists.',
+          'nav.what': 'What it is',
+          'nav.trust': 'Why trust us',
+          'nav.pricing': 'Pricing',
+          'nav.never': 'Never for sale',
+          'nav.faq': 'Questions',
+          'nav.home': '← The project',
+          'nav.doc': '📄 The model in full',
+          'hero.1': 'You have no machine to lend.',
+          'hero.2': 'Buy swarm time.',
+          'hero.sub':
+            'A <strong>Rush</strong> is a cap of worker-hours, paid upfront, run on nodes we ' +
+            'host, against the objective you set. The hive works, opens pull requests on ' +
+            '<em>your</em> repository, and stops dead at the cap.',
+          'hero.cta': 'Reserve a slot',
+          'hero.cta2': 'See pricing',
+          'q.kicker': '🎯 What you are buying, exactly',
+          'q.headline': 'A bounded capacity. Not a promise of results.',
+          'q.lede':
+            'That distinction holds up this entire page. Nobody can honestly sell you "your ' +
+            'project will be finished". What can be sold is a volume of framed, measured work ' +
+            'that stops where you decided.',
+          'q.1.t': 'You set the objective',
+          'q.1.d':
+            'A concrete target, not an intention. "Migrate auth to OAuth" can be split up; ' +
+            '"improve the project" cannot.',
+          'q.2.t': 'The hive quotes you',
+          'q.2.d':
+            'Based on what comparable tasks actually cost. Below three samples it stays silent ' +
+            'rather than inventing a number.',
+          'q.3.t': 'The swarm works under a cap',
+          'q.3.d':
+            'Every worker-second is imputed to a cause. At 80% of the cap you are warned; at the ' +
+            'cap, the scheduler stops assigning.',
+          'c.kicker': '⚖️ Why trust us',
+          'c.headline': 'What makes a Rush sellable was written before we thought about selling.',
+          'c.lede':
+            'Every flat-rate AI agent service fails the same way: an agent runs away, burns ' +
+            'tokens without producing, and the margin goes with it — the customer pays for the ' +
+            'runaway. Hive already had the three organs that bound this, in a module written for ' +
+            'ecological reasons, not commercial ones.',
+          'c.1.t': 'Weigh',
+          'c.1.d':
+            'Every worker-second is imputed to a cause and broken down per project. Your ' +
+            'statement is not a commercial summary: it is the very function that runs the hive.',
+          'c.2.t': 'Forecast',
+          'c.2.d':
+            'Median and p90 over comparable tasks actually measured. The median so one ' +
+            'pathological task cannot move the quote; the p90 because it is the bad day you have ' +
+            'to provision for.',
+          'c.3.t': 'Cap',
+          'c.3.d':
+            '<code>pass</code> · <code>warn</code> at 80% · <code>block</code>. Not an intention ' +
+            'displayed in a UI: a gate inside the scheduler.',
+          'c.gard':
+            '<strong>And a fourth thing, rarer:</strong> the Guard Bees can tell a ' +
+            '<em>useful</em> hour from a <em>spent</em> one. A declared success that brings back ' +
+            'no diff is already detected today, in the free project. Hence the commitment below: ' +
+            '<strong>hours judged hollow are not deducted.</strong>',
+          'o.kicker': '💰 Pricing',
+          'o.headline':
+            'The core stays free. We only sell what actually costs money: machines left running.',
+          'o.0.e': 'Always',
+          'o.0.t': 'Free hive',
+          'o.0.tag': 'Your machines, your keys, your friends.',
+          'o.0.u': 'forever',
+          'o.0.1': 'Unlimited nodes',
+          'o.0.2': 'Every feature',
+          'o.0.3': 'API keys never transmitted',
+          'o.0.4': 'Your machines have to run',
+          'o.0.cta': 'Install',
+          'o.1.e': 'Discovery',
+          'o.1.t': 'Scout Rush',
+          'o.1.tag': 'One objective, to see how it goes.',
+          'o.1.u': '10 worker-hours · €7.90/h',
+          'o.1.1': '1 framed objective',
+          'o.1.2': 'Quote before payment',
+          'o.1.3': 'PRs on your repository',
+          'o.1.4': '90-day credit rollover',
+          'o.2.e': 'Best value',
+          'o.2.t': 'Swarm Rush',
+          'o.2.tag': 'Enough to move a real piece of work.',
+          'o.2.u': '50 worker-hours · €5.98/h',
+          'o.2.1': 'Several objectives',
+          'o.2.2': 'Systematic second opinion',
+          'o.2.3': 'Hollow hours not deducted',
+          'o.2.4': 'Itemised statement',
+          'o.3.e': 'Continuous',
+          'o.3.t': 'Colony Rush',
+          'o.3.tag': 'The swarm runs on your project every month.',
+          'o.3.par': '/ month',
+          'o.3.u': '200 worker-hours · €4.95/h',
+          'o.3.1': 'Everything in Swarm, continuously',
+          'o.3.2': 'Hosted Queen included',
+          'o.3.3': 'No silent renewal',
+          'o.3.4': 'Cancel any time',
+          'o.cta': 'Reserve',
+          'o.cta2': 'Reserve my slot',
+          'o.note':
+            '<strong>+ Hosted Queen — €49/month.</strong> For those who already have nodes but ' +
+            'do not want to keep an orchestrator running. It is the healthiest offer of the lot: ' +
+            'near-fixed cost, recurring revenue, and it rests on no assumption about token prices.',
+          'o.marge.k': '📉 The margin, and what breaks it',
+          'o.marge.d':
+            'The cost of a worker-hour is dominated by model tokens, not by the machine — and it ' +
+            'is <em>variable</em>. Here is the same grid under two cost assumptions. The ' +
+            'right-hand column is the one to read: it says when an offer becomes a mistake.',
+          'o.th.1': 'Offer',
+          'o.th.2': 'Price / h',
+          'o.th.3': 'Margin at €3.50/h',
+          'o.th.4': 'Margin at €5/h',
+          'o.tr.1': 'Scout Rush',
+          'o.tr.2': 'Swarm Rush',
+          'o.tr.3': 'Colony Rush',
+          'o.tr.4': 'Hosted Queen',
+          'o.tr.4b': 'fixed cost',
+          'o.marge.n':
+            'Yes, this page publishes its own margins. Deliberately: a customer who understands ' +
+            'where the price comes from negotiates better and feels less taken for a fool. And ' +
+            'the <strong>−1%</strong> is there to say that the Colony offer does not survive more ' +
+            'expensive tokens — when that day comes, the included volume will drop, never the ' +
+            'quality of the model.',
+          'j.kicker': '🚫 What will never be for sale',
+          'j.headline': 'A short list, and it will not grow.',
+          'j.t': 'Four commitments',
+          'j.1':
+            '<strong>No payment unlocks a merge.</strong> Approval stays an explicit human ' +
+            'gesture by the repository owner. Selling merge automation would be selling a way ' +
+            'around the only guarantee Hive gives.',
+          'j.2':
+            '<strong>No core feature will be held behind a paywall.</strong> No artificial node ' +
+            'limit, no crippled edition. The free hive stays whole.',
+          'j.3':
+            '<strong>Your API keys never pass through us</strong> when self-hosted, and on ' +
+            'hosted nodes they stay our keys, never yours.',
+          'j.4':
+            '<strong>No silent renewal on Rushes.</strong> The charge you did not see coming is ' +
+            'what destroys trust in this market.',
+          'f.kicker': '❓ The awkward questions',
+          'f.headline': 'The ones we would ask in your place.',
+          'f.1.q': 'How do I know whether 10 hours is enough for what I want?',
+          'f.1.a':
+            'You do not, and neither do we at the start. That is why the quote comes from a ' +
+            'statistic over comparable tasks already executed, not from a sales estimate. If the ' +
+            'hive lacks history on your kind of work, it says so — and in that case start with a ' +
+            'Scout Rush, which exists for exactly this.',
+          'f.2.q': 'What stops me paying for code that turns out useless?',
+          'f.2.a':
+            'Nothing can guarantee the value of code — not us, not a human either. What can be ' +
+            'guaranteed is that an hour which produced nothing is not billed: the Guard Bees ' +
+            'detect a declared success with no diff, and those hours are not deducted from your ' +
+            'cap. And nothing enters your repository until you have reviewed it.',
+          'f.3.q': 'Will a less capable model work on my project?',
+          'f.3.a':
+            'Possibly, and that is intended: a well-framed task does not need the most expensive ' +
+            'model. But a less experienced worker gets stricter instructions, a narrower ' +
+            'perimeter, and its output goes through a <em>second opinion</em> from a more ' +
+            'experienced worker answering two questions — is it right, and can we do better? A ' +
+            'second opinion costs a fraction of a full retry: that is also what makes the prices ' +
+            'above possible.',
+          'f.4.q': 'What if I just want to stay on the free version?',
+          'f.4.a':
+            'Then stay on it. Seriously: if you have a machine that can run overnight, ' +
+            'self-hosting is strictly better — it is faster, it costs only your own tokens, and ' +
+            'you keep control of everything. Rushes exist for people without that machine, not ' +
+            'to convert people who have one.',
+          'f.5.q': 'Why publish your margins?',
+          'f.5.a':
+            'Because the number that matters is not the margin, it is the question "will this ' +
+            'price hold?". A supplier whose offer runs at a loss disappears, and you with it. ' +
+            'Publishing the sensitivity to token costs is the only way to show the model was ' +
+            'computed rather than hoped for.',
+          'f.6.q': 'When is this available?',
+          'f.6.a':
+            'No date. Four things are missing, listed in the economic model document: an ' +
+            'hour counter on the host side, payment collection, node provisioning, and binding a ' +
+            'paid cap to a project. Reserving a slot puts you in the queue; it charges nothing ' +
+            'and commits you to nothing.',
+          'fin.t': 'Reserve a slot, not a subscription.',
+          'fin.d':
+            'The form is a public GitHub issue: no account to create, no card, no sales ' +
+            'follow-up. You describe your project, we tell you frankly whether a Rush is the ' +
+            'right tool — or whether you would be better off installing the free version.',
+          'fin.cta': 'Reserve my slot',
+          'fin.cta2': 'Read the economic model',
+          'foot.1': 'The project',
+          'foot.2': 'Propose a project',
+          'foot.3': 'GitHub',
+          'foot.4': 'Economic model',
+          'foot.made': 'MIT licence — the core will stay free and self-hostable.',
+        };
+
+        var TITLES = {
+          fr: 'Rush — acheter du temps d’essaim pour faire avancer votre projet | Hive',
+          en: 'Rush — buy swarm time to move your project forward | Hive',
+        };
+
+        var FR = {};
+        var nodes = document.querySelectorAll('[data-i18n]');
+        nodes.forEach(function (el) {
+          FR[el.getAttribute('data-i18n')] = el.innerHTML;
+        });
+
+        var lang = 'fr';
+        function setLang(next) {
+          lang = next === 'en' ? 'en' : 'fr';
+          var dict = lang === 'en' ? EN : FR;
+          nodes.forEach(function (el) {
+            var key = el.getAttribute('data-i18n');
+            if (dict[key] != null) el.innerHTML = dict[key];
+          });
+          document.documentElement.lang = lang;
+          document.title = TITLES[lang];
+          document.getElementById('btn-fr').setAttribute('aria-pressed', String(lang === 'fr'));
+          document.getElementById('btn-en').setAttribute('aria-pressed', String(lang === 'en'));
+          try {
+            localStorage.setItem('hive.lang', lang);
+          } catch (e) {
+            /* stockage privé */
+          }
+        }
+
+        document.getElementById('btn-fr').addEventListener('click', function () {
+          setLang('fr');
+        });
+        document.getElementById('btn-en').addEventListener('click', function () {
+          setLang('en');
+        });
+
+        /* Langue initiale : ?lang= gagne, puis le choix mémorisé, puis le
+           navigateur. Même ordre que le site vitrine pour que passer de l'un
+           à l'autre ne change pas la langue sous les pieds du visiteur. */
+        var initial = 'fr';
+        try {
+          var q = new URLSearchParams(location.search).get('lang');
+          var saved = localStorage.getItem('hive.lang');
+          if (q === 'en' || q === 'fr') initial = q;
+          else if (saved === 'en' || saved === 'fr') initial = saved;
+          else if ((navigator.language || '').slice(0, 2) !== 'fr') initial = 'en';
+        } catch (e) {
+          /* stockage privé ou URL exotique : on reste en français */
+        }
+        setLang(initial);
+
+        /* ── Hauteur de l'en-tête collant ──────────────────────────────
+       Publie la hauteur réelle dans --h-entete pour que les ancres
+       s'arrêtent sous la barre. Elle change au redimensionnement comme
+       au changement de langue : ResizeObserver couvre les deux. */
+        var entete = document.querySelector('header');
+        if (entete) {
+          var publierHauteur = function () {
+            document.documentElement.style.setProperty(
+              '--h-entete',
+              Math.round(entete.getBoundingClientRect().height) + 'px',
+            );
+          };
+          publierHauteur();
+          if (typeof ResizeObserver === 'function') {
+            new ResizeObserver(publierHauteur).observe(entete);
+          } else {
+            window.addEventListener('resize', publierHauteur);
+          }
+        }
+      })();
+    </script>
+  </body>
+</html>

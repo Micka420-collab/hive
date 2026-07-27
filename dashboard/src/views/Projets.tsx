@@ -18,6 +18,7 @@ import type { BalanceState, MergeRunResult, NewTaskInput, PlanResponse } from '.
 import { useLang, useT } from '../i18n';
 import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { BalanceProjet, CarteDevis } from './Balance';
+import { PleinEssaim } from '../PleinEssaim';
 import { Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
@@ -661,6 +662,12 @@ function ProjectCard({
           onPlafondChange={onBalanceChange}
         />
       )}
+
+      {/* Le Plein Essaim : l'autonomie du projet. Placé APRÈS La Balance, et
+          c'est délibéré — on ne propose pas à quelqu'un d'allumer une
+          gouvernance autonome avant de lui avoir montré ce que la ruche
+          dépense. */}
+      <PleinEssaim projectId={project.id} />
 
       {tasks.length > 0 ? (
         <Honeycomb

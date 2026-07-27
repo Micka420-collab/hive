@@ -45,8 +45,23 @@ import {
 import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
-import { CORPUS_GARDIENNES, replierInspections } from './gardiennes.js';
+import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
+import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
+import { GOUVERNANTES_MIN, NIVEAUX, deciderPas, gouvernantes, leconsCroisees } from './essaim.js';
+import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essaim.js';
+import { CORPUS_GARDIENNES, cheminsPromis, replierInspections } from './gardiennes.js';
 import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
+import {
+  SEUIL_BATISSEUSE,
+  SEUIL_BUTINEUSE,
+  VIERGE,
+  castesDepuisInspections,
+  consignes,
+  fiabilite,
+  modeEffectif,
+  replierAntecedents,
+} from './polyethisme.js';
+import type { Caste, ModePolyethisme } from './polyethisme.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -187,6 +202,12 @@ export interface ServerConfig {
    * `createServer` continue de compiler.
    */
   gardiennes?: ModeGardiennes;
+  /**
+   * Le polyéthisme : encadrer les prompts selon l'expérience observée du nœud,
+   * et — en `strict` — exiger une contre-visite avant d'appliquer. Défaut
+   * `consignes` : on encadre, on ne retient rien. Optionnel, comme les autres.
+   */
+  polyethisme?: ModePolyethisme;
 }
 
 /**
@@ -230,6 +251,11 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       env.HIVE_GARDIENNES === 'off' || env.HIVE_GARDIENNES === 'strict'
         ? env.HIVE_GARDIENNES
         : 'consultatif',
+    // Idem : le défaut `consignes` encadre sans jamais retenir de production.
+    polyethisme:
+      env.HIVE_POLYETHISME === 'off' || env.HIVE_POLYETHISME === 'strict'
+        ? env.HIVE_POLYETHISME
+        : 'consignes',
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -365,7 +391,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * Ne journalise rien (la re-livraison a lieu à chaque tick) : l'appelant
    * décide s'il émet `brood_context`.
    */
-  const construireHiveContext = (task: Task): { hiveContext: string; echecs: number } => {
+  const construireHiveContext = (
+    task: Task,
+    /** Octets déjà pris par le cadre du polyéthisme, qui passe en premier. */
+    dejaPris = 0,
+  ): { hiveContext: string; echecs: number } => {
     // Couveuse : les leçons des échecs précédents viennent EN TÊTE (le plus
     // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
     // results ne garde que son id.
@@ -386,7 +416,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // RESTANT après la Couveuse (« \n\n » de jonction compris).
     const souvenirs = buildHiveContext(
       store.searchMemories(`${task.title} ${task.prompt}`, 3),
-      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0),
+      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0) - (dejaPris ? dejaPris + 2 : 0),
     );
     return {
       hiveContext: [lecons, souvenirs].filter(Boolean).join('\n\n'),
@@ -526,6 +556,46 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
   };
 
+  // ─── Le polyéthisme : chaque ouvrière au travail que son expérience permet ─
+  //
+  // Les castes sont DÉRIVÉES des verdicts des Gardiennes — jamais déclarées par
+  // un nœud (polyethisme.ts, doctrine règle 1). Le calcul est un repli PUR sur
+  // le même corpus borné que /api/gardiennes ; on le mémoïse avec le même TTL,
+  // parce qu'il est lu sur le chemin d'assignation (onAssign, appelé par tick)
+  // et qu'une lecture de table par tâche assignée est exactement le motif que
+  // l'audit de La Balance a fait retirer.
+  const modePolyethismeDemande: ModePolyethisme = config.polyethisme ?? 'consignes';
+  let castesMemo: { calculeA: number; castes: Map<string, Caste> } | null = null;
+
+  /** Mode réellement en vigueur : `off` si les Gardiennes n'inspectent rien. */
+  const polyethismeEnVigueur = (): ModePolyethisme =>
+    modeEffectif(modePolyethismeDemande, scheduler.gardiennes.mode !== 'off');
+
+  const casteDe = (nodeId: string, now = Date.now()): Caste => {
+    if (!castesMemo || now - castesMemo.calculeA >= GARDIENNES_TTL_MS) {
+      castesMemo = { calculeA: now, castes: castesDepuisInspections(store.listInspections()) };
+    }
+    // Un nœud sans antécédent est une nourrice : l'inconnu est le cas dangereux.
+    return castesMemo.castes.get(nodeId) ?? 'nourrice';
+  };
+
+  /**
+   * Le cadre de travail joint au prompt d'une ouvrière, ou '' si aucun.
+   *
+   * Le périmètre est déduit de la tâche par la MÊME fonction que les Gardiennes
+   * utilisent pour juger le résultat (`cheminsPromis`). C'est volontaire : la
+   * ruche annonce à l'ouvrière exactement les fichiers sur lesquels elle la
+   * jugera. Un cadre qui parlerait d'autre chose que ce qui est mesuré serait
+   * pire qu'aucun cadre.
+   */
+  const construireCadre = (task: Task, nodeId: string): string => {
+    if (polyethismeEnVigueur() === 'off') return '';
+    return consignes({
+      caste: casteDe(nodeId),
+      perimetre: cheminsPromis(task.title, task.prompt),
+    });
+  };
+
   const scheduler = new Scheduler(store, {
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
@@ -542,15 +612,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
       if (ws) {
         const project = store.getProject(task.projectId);
-        const { hiveContext, echecs } = construireHiveContext(task);
+        // Le cadre du polyéthisme vient EN TÊTE et se taille son budget en
+        // premier : une consigne tronquée à moitié est pire qu'absente, alors
+        // qu'un souvenir en moins n'est qu'un souvenir en moins.
+        const cadre = construireCadre(task, nodeId);
+        const { hiveContext, echecs } = construireHiveContext(task, cadre.length);
         // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
         // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
         if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
+        const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
         send(ws, {
           type: 'assign_task',
           task,
           repoUrl: project?.repoUrl ?? null,
-          ...(hiveContext ? { hiveContext } : {}),
+          ...(contexte ? { hiveContext: contexte } : {}),
         });
       }
     },
@@ -1214,6 +1289,299 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── La livraison : de la production à la pull request ─────────────────────
+  //
+  // La chaîne complète est décrite en tête de `livraison.ts`. Ici, deux routes
+  // et une frontière :
+  //
+  //   POST /api/livraison            ouvre une branche + une PR — jamais un merge
+  //   POST /api/livraison/fusion     fusionne, sur geste humain explicite
+  //
+  // Les deux sont SÉPARÉES, et c'est tout le sujet. Une seule route qui
+  // livrerait puis fusionnerait « si tout est vert » retirerait la seule
+  // garantie que Hive donne. Cette séparation est verrouillée par
+  // tests/security-invariants.test.ts.
+  app.post<{ Body: { taskId: string; base?: string } }>(
+    '/api/livraison',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['taskId'],
+          properties: {
+            taskId: { type: 'string', minLength: 1, maxLength: 200 },
+            base: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+
+      const task = store.getTask(req.body.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const projet = store.getProject(task.projectId);
+      const depot = depotDepuisUrl(projet?.repoUrl ?? null);
+      if (!depot) {
+        return reply.code(409).send({
+          error: 'projet sans dépôt GitHub',
+          conseil:
+            'Importez le dépôt (« hive github-import ») avant de livrer : la ruche doit savoir où ouvrir la pull request.',
+        });
+      }
+      // La DERNIÈRE production de la tâche : c'est celle qui a été relue.
+      const resultats = store.resultsForTask(task.id);
+      const dernier = resultats[resultats.length - 1];
+      if (!dernier || !dernier.success || !dernier.diff) {
+        return reply.code(409).send({
+          error: 'aucune production livrable',
+          conseil: 'La tâche n’a pas de résultat réussi porteur d’un diff.',
+        });
+      }
+
+      const noeud = store.getNode(dernier.nodeId);
+      const inspection = store
+        .listInspections()
+        .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId);
+      // Les fichiers sont lus du diff AVANT la livraison : le corps de la PR
+      // part avec la requête qui l'ouvre, il ne peut donc pas attendre le
+      // résultat. Une analyse en trop coûte quelques microsecondes ; une PR
+      // qui n'énumère pas ce qu'elle touche coûte une relecture.
+      let fichiers: string[];
+      try {
+        fichiers = cheminsDe(analyserRustine(dernier.diff));
+      } catch (err) {
+        if (err instanceof ErreurRustine) {
+          return reply.code(409).send({ error: err.message, conseil: err.conseil });
+        }
+        throw err;
+      }
+      try {
+        const resultat = await livrer(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          {
+            depot,
+            base: req.body.base ?? 'main',
+            branche: nomBranche(task.id),
+            diff: dernier.diff,
+            titre: task.title,
+            corps: corpsPr({
+              tache: task.title,
+              nodeName: noeud?.name ?? dernier.nodeId,
+              caste: casteDe(dernier.nodeId),
+              ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
+              fichiers,
+            }),
+          },
+        );
+        // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
+        emitEvent('delivery_opened', {
+          taskId: task.id,
+          nodeId: dernier.nodeId,
+          pr: resultat.pr,
+          fichiers: resultat.fichiers.length,
+        });
+        return reply.code(201).send(resultat);
+      } catch (err) {
+        if (err instanceof ErreurRustine) {
+          return reply
+            .code(409)
+            .send({ error: err.message, conseil: err.conseil, chemin: err.chemin });
+        }
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /**
+   * Fusionne une pull request ouverte par la ruche.
+   *
+   * GESTE HUMAIN. Rien dans la ruche n'appelle cette route : ni le Scheduler,
+   * ni un runner, ni une réaction à un résultat de tâche. Elle existe pour
+   * qu'un humain qui a relu puisse conclure sans quitter la ruche.
+   */
+  app.post<{ Body: { projectId: string; pr: number; methode?: 'merge' | 'squash' | 'rebase' } }>(
+    '/api/livraison/fusion',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['projectId', 'pr'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 200 },
+            pr: { type: 'integer', minimum: 1 },
+            methode: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      const depot = depotDepuisUrl(store.getProject(req.body.projectId)?.repoUrl ?? null);
+      if (!depot) return reply.code(404).send({ error: 'projet sans dépôt GitHub' });
+      try {
+        const r = await fusionner(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          depot,
+          req.body.pr,
+          req.body.methode ?? 'squash',
+        );
+        emitEvent('delivery_merged', {
+          projectId: req.body.projectId,
+          pr: req.body.pr,
+          methode: req.body.methode ?? 'squash',
+        });
+        return r;
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  // ─── Le Plein Essaim : la ruche se gouverne elle-même ──────────────────────
+  //
+  // Deux routes, et la seconde est un GESTE HUMAIN qui n'a pas d'équivalent
+  // automatique : rien dans la ruche n'appelle POST /api/essaim. Une ruche
+  // autonome capable d'élever son propre niveau d'autonomie ne serait pas
+  // gouvernée, elle serait échappée — la table `essaim` porte `definiPar` pour
+  // que cette phrase reste vérifiable dans trois ans.
+  //
+  // La lecture rend le PAS que la ruche prendrait maintenant, avec son motif :
+  // un bouton qui allume l'autonomie sans montrer ce qu'elle ferait ensuite
+  // demande une confiance qu'on n'a pas à demander.
+
+  /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
+  const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
+    const reglage = store.getEssaim(projectId);
+    const niveau: NiveauAutonomie = NIVEAUX.includes((reglage?.niveau ?? 'off') as NiveauAutonomie)
+      ? ((reglage?.niveau ?? 'off') as NiveauAutonomie)
+      : 'off';
+
+    const inspections = store.listInspections();
+    const antecedents = replierAntecedents(inspections);
+    const noeuds: NoeudObserve[] = store.listNodes().map((n) => ({
+      nodeId: n.id,
+      nom: n.name,
+      enLigne: n.status === 'online',
+      antecedents: antecedents.get(n.id) ?? VIERGE,
+    }));
+
+    const taches = store.listTasks(projectId);
+    const lecons = leconsCroisees(store.listRecentFailures());
+    const projet = store.getProject(projectId);
+
+    // Le plafond vient de La Balance TELLE QU'ELLE EST DÉJÀ CALCULÉE par le
+    // Scheduler — on ne refait pas la somme. Une ruche autonome sans borne de
+    // dépense brûlerait un mois de temps-machine en une nuit ; une ruche qui
+    // calculerait sa borne deux fois de deux façons finirait par se contredire.
+    const solde = scheduler.balance.soldes.find((x) => x.projectId === projectId);
+    const plafond = solde?.etat ?? 'passe';
+
+    const etat: EtatEssaim = {
+      niveau,
+      noeuds,
+      tachesEnCours: taches.filter((t) => t.status === 'assigned' || t.status === 'running').length,
+      tachesPretes: taches.filter((t) => t.status === 'ready').length,
+      conseilEnCours: store
+        .listSessions()
+        .some((c) => c.projectId === projectId && c.etat !== 'clos'),
+      verdictANourrir: false,
+      productionsALivrer: 0,
+      prAFusionner: 0,
+      depotInscrit:
+        Boolean(reglage?.depotInscrit) && depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      lecons,
+      plafond,
+    };
+    return { ...etat, decision: deciderPas(etat) };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/essaim',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const e = etatEssaim(req.params.projectId);
+      return {
+        niveau: e.niveau,
+        decision: e.decision,
+        gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
+        gouvernantesRequises: GOUVERNANTES_MIN,
+        depotInscrit: e.depotInscrit,
+        plafond: e.plafond,
+        lecons: e.lecons,
+        niveaux: NIVEAUX,
+      };
+    },
+  );
+
+  /**
+   * Règle l'autonomie d'un projet. GESTE HUMAIN, sans équivalent automatique.
+   *
+   * `depotInscrit` est l'autorisation de fusionner, donnée UNE FOIS pour ce
+   * dépôt. Elle est distincte du niveau, et les deux sont exigées ensemble pour
+   * qu'une fusion parte (essaim.ts, `deciderPas`).
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { niveau: NiveauAutonomie; depotInscrit?: boolean };
+  }>(
+    '/api/projects/:projectId/essaim',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['niveau'],
+          properties: {
+            niveau: { type: 'string', enum: [...NIVEAUX] },
+            depotInscrit: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projet = store.getProject(req.params.projectId);
+      if (!projet) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const veutFusionner = req.body.niveau === 'plein';
+      const inscrit = req.body.depotInscrit ?? false;
+      // Demander « plein » sur un projet sans dépôt GitHub connu n'a pas de
+      // sens : il n'y a rien à fusionner. On le DIT plutôt que d'accepter un
+      // réglage qui ne produira jamais rien.
+      if (veutFusionner && inscrit && depotDepuisUrl(projet.repoUrl) === null) {
+        return reply.code(409).send({
+          error: 'projet sans dépôt GitHub',
+          conseil:
+            'Importez le dépôt (« hive github-import ») avant d’inscrire le projet pour la fusion autonome.',
+        });
+      }
+
+      store.setEssaim(
+        req.params.projectId,
+        { niveau: req.body.niveau, depotInscrit: inscrit },
+        'humain',
+      );
+      // Faits typés uniquement — le texte bilingue est reconstruit à l'affichage.
+      emitEvent('swarm_level_set', {
+        projectId: req.params.projectId,
+        niveau: req.body.niveau,
+        depotInscrit: inscrit,
+      });
+      const e = etatEssaim(req.params.projectId);
+      return reply
+        .code(200)
+        .send({ niveau: e.niveau, depotInscrit: e.depotInscrit, decision: e.decision });
+    },
+  );
+
   // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
 
   /**
@@ -1616,6 +1984,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       gardiennesMemo = { calculeA: now, vue: replierInspections(store.listInspections()) };
     }
     return { ...gardiennesMemo.vue, mode: scheduler.gardiennes.mode, fenetre: CORPUS_GARDIENNES };
+  });
+
+  // Le polyéthisme : quelle caste la ruche reconnaît à chaque nœud, et pourquoi.
+  //
+  // Vue dérivée PURE du même corpus borné que /api/gardiennes — rien n'est
+  // matérialisé, et surtout rien n'est déclaré : un nœud ne peut pas annoncer
+  // sa caste, elle est constatée (polyethisme.ts, doctrine règle 1).
+  //
+  // `mode` est indispensable dans la réponse : en `consignes`, `exigeraient`
+  // compte les productions qui SERAIENT relues en `strict`, alors qu'aucune ne
+  // l'est réellement. Sans le mode, ce nombre se lirait comme un travail fait.
+  app.get('/api/polyethisme', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    const inspections = store.listInspections();
+    const antecedents = replierAntecedents(inspections);
+    const noeuds = store.listNodes().map((n) => {
+      const a = antecedents.get(n.id) ?? VIERGE;
+      return {
+        nodeId: n.id,
+        name: n.name,
+        agentType: n.agentType,
+        caste: casteDe(n.id, now),
+        productions: a.productions,
+        creuses: a.creuses,
+        suspectes: a.suspectes,
+        fiabilite: Math.round(fiabilite(a) * 100) / 100,
+      };
+    });
+    return {
+      mode: polyethismeEnVigueur(),
+      modeDemande: modePolyethismeDemande,
+      fenetre: CORPUS_GARDIENNES,
+      seuils: { batisseuse: SEUIL_BATISSEUSE, butineuse: SEUIL_BUTINEUSE },
+      noeuds: noeuds.sort((a, b) => b.productions - a.productions || a.name.localeCompare(b.name)),
+    };
   });
 
   // La Balance : où est passé le temps-ouvrière que la ruche a emprunté à ses

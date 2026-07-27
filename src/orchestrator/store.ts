@@ -137,6 +137,28 @@ CREATE TABLE IF NOT EXISTS budgets (
   updatedAt INTEGER NOT NULL
 );
 
+-- Le Plein Essaim — l'autonomie d'un projet, et rien d'autre.
+--
+-- UNE INTENTION HUMAINE, pas un calcul (règle 1 : aucune vue dérivée
+-- matérialisée). Le niveau d'autonomie et l'inscription du dépôt sont posés à
+-- la main par le propriétaire du projet ; rien ici ne naît d'une décision de
+-- la ruche. Une ruche autonome qui pourrait élever son PROPRE niveau
+-- d'autonomie ne serait pas gouvernée, elle serait échappée.
+--
+-- BORNE STRUCTURELLE, comme « budgets » (règle 3) : une ligne par projet, donc
+-- une taille qui ne croît pas avec l'histoire de la ruche. Pas d'élagueur, et
+-- il ne faut jamais en ajouter « par symétrie » — élaguer cette table
+-- rendrait silencieusement à « off » un projet que l'humain avait ouvert, ou
+-- pire, désinscrirait un dépôt sans que personne le sache.
+CREATE TABLE IF NOT EXISTS essaim (
+  projectId     TEXT PRIMARY KEY REFERENCES projects(id),
+  niveau        TEXT NOT NULL,
+  depotInscrit  INTEGER NOT NULL DEFAULT 0,
+  version       INTEGER NOT NULL DEFAULT 1,
+  definiPar     TEXT,
+  updatedAt     INTEGER NOT NULL
+);
+
 -- La Balance — CACHE RECONSTRUCTIBLE du grand livre. Son nom le dit, et c'est
 -- délibéré : balance_ledger_cache n'est PAS une source de vérité. La vérité
 -- reste results, et cette table peut être effacée à tout moment sans perdre
@@ -1284,6 +1306,82 @@ export class HiveStore {
    * Le plafond est borné à 0 : un plafond négatif n'a aucun sens, et la porte
    * doit rester lisible (`0` = « ce projet ne dépense plus rien »).
    */
+  // ─── Le Plein Essaim : l'autonomie, posée à la main ────────────────────────
+  //
+  // Aucune écriture ici ne vient de la ruche : `definiPar` porte QUI a décidé,
+  // et ce doit toujours être un humain. Voir la table (store.ts) pour pourquoi
+  // elle n'a pas d'élagueur.
+
+  /** Pose (ou retire) le réglage d'autonomie d'un projet. */
+  setEssaim(
+    projectId: string,
+    reglage: { niveau: string; depotInscrit: boolean } | null,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    if (reglage === null) {
+      this.db.prepare('DELETE FROM essaim WHERE projectId = ?').run(projectId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO essaim (projectId, niveau, depotInscrit, version, definiPar, updatedAt)
+         VALUES (?, ?, ?, 1, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           niveau = excluded.niveau,
+           depotInscrit = excluded.depotInscrit,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(projectId, reglage.niveau, reglage.depotInscrit ? 1 : 0, definiPar, now);
+  }
+
+  /** Réglage d'autonomie d'un projet. `null` si aucun — donc `off`. */
+  getEssaim(projectId: string): {
+    projectId: string;
+    niveau: string;
+    depotInscrit: boolean;
+    definiPar: string | null;
+    updatedAt: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT projectId, niveau, depotInscrit, definiPar, updatedAt FROM essaim WHERE projectId = ?',
+      )
+      .get(projectId) as
+      | {
+          projectId: string;
+          niveau: string;
+          depotInscrit: number;
+          definiPar: string | null;
+          updatedAt: number;
+        }
+      | undefined;
+    if (!row) return null;
+    return { ...row, depotInscrit: row.depotInscrit === 1 };
+  }
+
+  /**
+   * Échecs récents, tous projets et tous nœuds confondus — la matière des
+   * leçons croisées.
+   *
+   * BORNÉ par `limit` et servi par l'index couvrant existant : c'est un
+   * parcours arrière de clé primaire, pas un dépliage de `results`.
+   */
+  listRecentFailures(limit = 300): Array<{
+    nodeId: string;
+    taskId: string;
+    logs: string;
+    createdAt: number;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT nodeId, taskId, logs, createdAt FROM results
+         WHERE success = 0 ORDER BY id DESC LIMIT ?`,
+      )
+      .all(limit) as Array<{ nodeId: string; taskId: string; logs: string; createdAt: number }>;
+  }
+
   setBudget(
     projectId: string,
     plafondMs: number | null,

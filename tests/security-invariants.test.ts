@@ -300,3 +300,52 @@ describe('invariants d’encapsulation des données non fiables (§5.2)', () => 
     }
   });
 });
+
+describe('invariants de la chaîne de livraison', () => {
+  // Hive tient UNE promesse depuis le premier jour : rien n'entre dans le code
+  // de quelqu'un sans qu'un humain l'ait relu et approuvé. Tout le reste est
+  // négociable ; cela, non. Ces gardes existent pour qu'une modification bien
+  // intentionnée — « et si on mergeait automatiquement quand la CI est verte ? »
+  // — coûte un test rouge plutôt qu'une découverte en production.
+
+  const livraison = fileEndingWith('orchestrator/livraison.ts');
+
+  it('livrer() n’appelle jamais fusionner()', () => {
+    // Vérifié sur le CODE, commentaires retirés (cf. stripComments).
+    const debut = livraison.indexOf('export async function livrer');
+    expect(debut, 'livrer() introuvable').toBeGreaterThan(-1);
+    const suite = livraison.indexOf('export async function fusionner');
+    const corps = livraison.slice(debut, suite > debut ? suite : undefined);
+    expect(corps).not.toMatch(/fusionner\s*\(/);
+    expect(corps, 'aucun appel de fusion ne doit partir de livrer()').not.toMatch(/\/merge/);
+  });
+
+  it('aucun module ne fusionne de sa propre initiative', () => {
+    // `fusionner` ne doit être appelée que depuis une route ou une commande,
+    // c'est-à-dire à la demande explicite d'un humain — jamais depuis le
+    // Scheduler, un runner, ou une réaction à un résultat de tâche.
+    const interdits = ['orchestrator/scheduler.ts', 'orchestrator/conseil-runner.ts'];
+    for (const chemin of interdits) {
+      expect(fileEndingWith(chemin), `${chemin} ne doit pas fusionner`).not.toMatch(
+        /fusionner\s*\(/,
+      );
+    }
+  });
+
+  it('la fusion n’est jamais la méthode par défaut d’un appel HTTP', () => {
+    // Un PUT vers /merge doit être un geste nommé, pas un effet de bord d'une
+    // fonction dont le nom parle d'autre chose.
+    const occurrences = [...livraison.matchAll(/\/merge/g)];
+    expect(occurrences.length, 'un seul point de fusion attendu').toBe(1);
+  });
+
+  it('un chemin de diff ne peut pas sortir du dépôt', () => {
+    // La rustine est le seul endroit qui voit un chemin produit par un agent
+    // avant qu'il ne devienne une écriture sur le dépôt de quelqu'un.
+    const rustine = fileEndingWith('orchestrator/rustine.ts');
+    expect(rustine).toMatch(/export function cheminValide/);
+    // La validation est appelée pendant l'ANALYSE, donc avant tout appel réseau.
+    const analyse = rustine.slice(rustine.indexOf('export function analyserRustine'));
+    expect(analyse).toMatch(/cheminValide\(/);
+  });
+});

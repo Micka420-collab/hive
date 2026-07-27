@@ -195,7 +195,7 @@ export function expliquerStatut(statut: number, reste: string | null): ErreurGit
   );
 }
 
-function entetes(jeton: string): Record<string, string> {
+export function entetes(jeton: string): Record<string, string> {
   return {
     accept: 'application/vnd.github+json',
     authorization: `Bearer ${jeton}`,
