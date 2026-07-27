@@ -165,6 +165,53 @@ describe('index et plans de requête', () => {
     }
   });
 
+  // ─── La Balance : les verdicts de revue du socle ─────────────────────────
+  //
+  // `reviews` n'est JAMAIS élaguée : c'est la seule table du socle de la
+  // Balance dont la taille croît sans borne avec l'histoire de la ruche. La
+  // lire en entier (`SELECT taskId, state FROM reviews`, sans WHERE ni LIMIT)
+  // pour n'en garder que les ≤ 2 000 clés du corpus coûtait 159,8 ms à 100 000
+  // revues, contre 6,0 ms en lecture ciblée — et cela toutes les 3 s, dans la
+  // boucle d'événements, à cause du polling du dashboard sur /api/balance.
+
+  it('les verdicts du socle sont lus par CLÉ PRIMAIRE : SEARCH reviews, jamais SCAN', () => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      // Requête EXACTE de `listReviewsFor` (un lot de 900 au maximum).
+      const ids = Array.from({ length: 900 }, (_, i) => `t${i}`);
+      const detail = plan(
+        db,
+        `SELECT taskId, state FROM reviews WHERE taskId IN (${ids.map(() => '?').join(', ')})`,
+        ...ids,
+      );
+      expect(detail).toContain('SEARCH reviews');
+      expect(detail).not.toContain('SCAN reviews');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('listReviewsFor ne lit QUE les tâches citées, même avec un corpus de revues bien plus large', () => {
+    const projet = store.createProject({ name: 'P' });
+    const ids: string[] = [];
+    for (let i = 0; i < 1_200; i++) {
+      const t = store.createTask({ id: `t${i}`, projectId: projet.id, title: 'T', prompt: 'x' });
+      store.setTaskReview(t.id, i % 2 === 0 ? 'approved' : 'rejected');
+      ids.push(t.id);
+    }
+    // Découpage en lots de 900 : le cas > 999 variables liées est couvert.
+    const cibles = ids.slice(0, 1_000);
+    const verdicts = store.listReviewsFor(cibles);
+    expect(Object.keys(verdicts)).toHaveLength(1_000);
+    expect(verdicts['t0']).toBe('approved');
+    expect(verdicts['t1']).toBe('rejected');
+    // Les 200 autres ne sont PAS dans le retour : c'est tout l'objet.
+    expect(verdicts['t1100']).toBeUndefined();
+    // Ids inconnus : simplement absents, jamais une exception.
+    expect(store.listReviewsFor(['inexistante'])).toEqual({});
+    expect(store.listReviewsFor([])).toEqual({});
+  });
+
   it('la porte n’ajoute AUCUNE lecture par tick : les plafonds sont mémoïsés', () => {
     // Le chemin du tick ne doit gagner ni un SELECT non borné, ni une lecture
     // par tâche prête. Preuve par comptage : dix ticks, une seule lecture.

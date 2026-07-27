@@ -376,4 +376,88 @@ describe('CacheProjets — mémoïsation bornée', () => {
     expect(projets.size).toBe(0);
     expect(cache.statistiques.taille).toBe(0);
   });
+
+  // ─── Le défaut qui faisait perdre des dépenses DÉFINITIVEMENT ─────────────
+  //
+  // L'ancienne implémentation insérait les manquants puis RELISAIT le cache
+  // pour construire sa carte de retour. Or l'insertion purge, et la victime
+  // pouvait être une clé que l'appel courant devait rendre : la ligne
+  // disparaissait du retour, le grand livre ne l'imputait à personne — et son
+  // filigrane, lui, avait avancé. La dépense était perdue pour toujours, avec
+  // `aJour: true` et sans le moindre signal.
+
+  it('T19 — un HIT ancien survit à la purge déclenchée par l’absent du même appel', () => {
+    // Cache PLEIN (capacité 2, deux entrées anciennes), puis un appel qui cite
+    // un hit ancien ET un absent : l'insertion de l'absent purge forcément
+    // quelque chose. Ce qui est purgé ne doit jamais manquer au RETOUR.
+    const cache = new CacheProjets(2);
+    const resoudre = (ids: string[]): Array<{ id: string; projectId: string }> =>
+      ids.map((id) => ({ id, projectId: `p-${id}` }));
+    cache.resoudre(['vieille', 'moyenne'], resoudre);
+    expect(cache.statistiques.taille).toBe(2);
+
+    const rendu = cache.resoudre(['vieille', 'neuve'], resoudre);
+    expect(rendu).toEqual(
+      new Map([
+        ['vieille', 'p-vieille'],
+        ['neuve', 'p-neuve'],
+      ]),
+    );
+    expect(cache.statistiques.taille).toBe(2); // toujours borné
+  });
+
+  it('T19 — le cache borne la MÉMOIRE, jamais la réponse (lot plus grand que la capacité)', () => {
+    // Cas du rattrapage réel : un lot de 40 tentatives sur 40 tâches, un cache
+    // de 8. Avant, 32 lignes sortaient du retour et leur dépense n'était
+    // imputée à personne.
+    const cache = new CacheProjets(8);
+    const ids = Array.from({ length: 40 }, (_, i) => `t${i}`);
+    const rendu = cache.resoudre(ids, (manquants) =>
+      manquants.map((id) => ({ id, projectId: `p-${id}` })),
+    );
+    expect(rendu.size).toBe(40);
+    for (const id of ids) expect(rendu.get(id)).toBe(`p-${id}`);
+    expect(cache.statistiques.taille).toBe(8);
+  });
+
+  it('T19 — LRU et non FIFO : un hit rafraîchit la position, c’est l’inutilisée qui sort', () => {
+    // Le FIFO expulsait l'entrée la plus LONGTEMPS VIVANTE — donc précisément
+    // la tâche qui accumule le plus de tentatives, celle qu'on relit le plus.
+    const cache = new CacheProjets(2);
+    const demandes: string[][] = [];
+    const resoudre = (ids: string[]): Array<{ id: string; projectId: string }> => {
+      demandes.push([...ids]);
+      return ids.map((id) => ({ id, projectId: `p-${id}` }));
+    };
+    cache.resoudre(['a'], resoudre);
+    cache.resoudre(['b'], resoudre);
+    cache.resoudre(['a'], resoudre); // hit : 'a' redevient la plus récente
+    cache.resoudre(['c'], resoudre); // insertion : c'est 'b' qui doit sortir
+    demandes.length = 0;
+    cache.resoudre(['a', 'c'], resoudre);
+    expect(demandes).toEqual([]); // 'a' ET 'c' encore là : aucune relecture
+    cache.resoudre(['b'], resoudre);
+    expect(demandes).toEqual([['b']]); // 'b' est bien celle qui est sortie
+  });
+
+  it('T19 — sous forte rotation, la taille reste bornée et les récentes sont gardées', () => {
+    // 5 000 insertions dans un cache de 50, entrecoupées de hits sur une clé
+    // « chaude » : elle ne doit jamais sortir, et la taille ne doit jamais
+    // déborder. (La file interne du LRU est compactée en amorti — sans quoi
+    // elle croîtrait avec le nombre de touches, pas avec la capacité.)
+    const cache = new CacheProjets(50);
+    const resoudre = (ids: string[]): Array<{ id: string; projectId: string }> =>
+      ids.map((id) => ({ id, projectId: `p-${id}` }));
+    cache.resoudre(['chaude'], resoudre);
+    for (let i = 0; i < 5_000; i++) {
+      cache.resoudre([`froide-${i}`, 'chaude'], resoudre);
+      expect(cache.statistiques.taille).toBeLessThanOrEqual(50);
+    }
+    const demandes: string[][] = [];
+    cache.resoudre(['chaude'], (ids) => {
+      demandes.push([...ids]);
+      return resoudre(ids);
+    });
+    expect(demandes).toEqual([]);
+  });
 });

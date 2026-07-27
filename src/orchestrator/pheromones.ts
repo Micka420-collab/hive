@@ -11,6 +11,8 @@
 // serveur comme dashboard. Le signal s'évapore avec le temps (demi-vie de
 // 7 jours), comme une vraie phéromone.
 
+import { CacheBorne } from './cache-borne.js';
+
 /** Types de tâches que la ruche sait distinguer (heuristique par mots-clés). */
 export type Domaine = 'api' | 'ui' | 'db' | 'tests' | 'docs' | 'infra' | 'general';
 
@@ -114,27 +116,30 @@ const CAPACITE_DOMAINES = 4_000;
  *
  * Le cache est un OBJET explicitement instancié par son propriétaire (le
  * Scheduler, le serveur) — le module reste sans état global. Sa capacité est
- * plafonnée et la plus ancienne entrée est purgée à l'insertion : sur dix ans
- * et 100 000 tâches, la mémoire ne dérive pas.
+ * plafonnée et la moins récemment utilisée est purgée à l'insertion : sur dix
+ * ans et 100 000 tâches, la mémoire ne dérive pas.
+ *
+ * Le bornage, le LRU et l'éviction O(1) amorti vivent dans `CacheBorne`
+ * (cache-borne.ts), partagé avec `CacheProjets` (balance.ts) — les deux classes
+ * avaient strictement le même contrat, donc les deux mêmes défauts. Ce qui
+ * reste ici, et qui n'appartient qu'aux phéromones : le CALCUL du domaine et
+ * son compteur.
  */
 export class CacheDomaines {
-  private readonly cache = new Map<string, Domaine>();
+  private readonly cache: CacheBorne<Domaine>;
   /** Nombre de classements réellement calculés (observabilité + tests de non-régression). */
   private calculs = 0;
 
-  constructor(private readonly capacite: number = CAPACITE_DOMAINES) {}
+  constructor(capacite: number = CAPACITE_DOMAINES) {
+    this.cache = new CacheBorne<Domaine>(capacite);
+  }
 
   /** Domaine d'une tâche, calculé au plus une fois par `id`. */
   domaine(tache: TacheClassable): Domaine {
-    const connu = this.cache.get(tache.id);
+    const connu = this.cache.lire(tache.id);
     if (connu !== undefined) return connu;
-    const domaine = domaineDeTache(tache.title, tache.prompt);
-    this.calculs += 1;
-    if (this.cache.size >= this.capacite) {
-      const plusAncienne = this.cache.keys().next().value;
-      if (plusAncienne !== undefined) this.cache.delete(plusAncienne);
-    }
-    this.cache.set(tache.id, domaine);
+    const domaine = this.classer(tache);
+    this.cache.memoriser(tache.id, domaine);
     return domaine;
   }
 
@@ -142,28 +147,29 @@ export class CacheDomaines {
    * Domaines des SEULES tâches citées : les ids déjà connus ne coûtent rien, et
    * `lire` n'est appelé que pour les manquants (lecture ciblée par clé
    * primaire côté store — jamais un dépliage de la table `tasks`).
+   *
+   * Comme `CacheProjets.resoudre` : une tâche classée pendant CET appel est
+   * dans le retour même si le cache l'a déjà purgée — le cache borne la
+   * mémoire, jamais la réponse. Une tâche introuvable (purgée) n'a pas de
+   * domaine imputable : elle est simplement absente du retour.
    */
   domaines(
     ids: readonly string[],
     lire: (manquants: string[]) => TacheClassable[],
   ): Map<string, Domaine> {
-    const uniques = [...new Set(ids)];
-    const manquants = uniques.filter((id) => !this.cache.has(id));
-    if (manquants.length > 0) {
-      for (const tache of lire(manquants)) this.domaine(tache);
-    }
-    const domaines = new Map<string, Domaine>();
-    for (const id of uniques) {
-      const domaine = this.cache.get(id);
-      // Tâche introuvable (purgée) : sans domaine imputable, elle est ignorée.
-      if (domaine !== undefined) domaines.set(id, domaine);
-    }
-    return domaines;
+    return this.cache.resoudre(ids, (manquants) =>
+      lire(manquants).map((tache) => [tache.id, this.classer(tache)] as const),
+    );
   }
 
   /** Transparence : taille du cache et nombre de classements calculés depuis le boot. */
   get statistiques(): { taille: number; calculs: number } {
-    return { taille: this.cache.size, calculs: this.calculs };
+    return { taille: this.cache.statistiques.taille, calculs: this.calculs };
+  }
+
+  private classer(tache: TacheClassable): Domaine {
+    this.calculs += 1;
+    return domaineDeTache(tache.title, tache.prompt);
   }
 }
 

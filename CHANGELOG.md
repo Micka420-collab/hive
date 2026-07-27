@@ -166,6 +166,44 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   journal la nuit), merge aussi refusé hors service, verdicts WS d'autres
   opérateurs différés puis rejoués, outbox `hive.review.unsynced` re-postée
   (bandeau « revues non synchronisées »).
+- **⚖️ La Balance — audit adverse, 8 correctifs.**
+  - **Le grand livre perdait des dépenses, définitivement.** `CacheProjets.resoudre`
+    insérait les manquants puis RELISAIT le cache pour bâtir son retour ; la purge
+    d'insertion pouvait emporter une clé que l'appel devait rendre, et le filigrane
+    ayant avancé, la dépense n'était jamais relue. Reproduit : 21 006 ms comptés
+    contre 5 021 006 ms réels, avec `aJour: true` — un projet à 50× son plafond que
+    `jugerPlafond` laissait passer. Le cache borné est désormais un objet UNIQUE
+    (`src/orchestrator/cache-borne.ts`, partagé avec `CacheDomaines` qui avait le
+    même contrat et le même défaut) : le retour est bâti sur les hits relevés AVANT
+    insertion et les lignes rendues par le chargeur, l'éviction est un VRAI LRU, et
+    elle est en **O(1) amorti** (file explicite) au lieu de `keys().next()`, qui est
+    O(taille) dans V8 — 6 540 ms → 368 ms sur un rattrapage de 400 000 tentatives.
+  - **`listReviewsFor(ids)`** : le socle de la Balance ne déplie plus la table
+    `reviews` (jamais élaguée) toutes les 3 s pour n'en garder que 2 000 clés —
+    144 ms → 4,7 ms à 100 000 revues, sur un chemin qui bloquait la boucle
+    d'événements et retardait le tick.
+  - **Coercition AJV** : `plafondMs: false` devenait un plafond de 0 (projet arrêté
+    net) et `""` un `null` (plafond retiré). La valeur BRUTE est refusée en
+    `preValidation`, avant que le schéma ne valide une valeur déjà remplacée.
+  - **Filet de re-livraison** : le contexte (BM25 sur la mémoire) n'est plus
+    reconstruit par tâche muette ET par tick dans le corps synchrone du
+    `setInterval` ; il n'est calculé que si une socket est ouverte, et mémoïsé par
+    tâche.
+  - **Rattrapage du grand livre au démarrage** : nouveau CACHE reconstructible
+    `balance_ledger_cache` (filigrane + soldes), qui **amende explicitement la
+    règle 1 de la doctrine** — motif et condition de validité écrits dans
+    `balance.ts`. 200 000 résultats : 101 ticks de rattrapage (≈ 200 s de plafonds
+    FAIL-OPEN à chaque démarrage) → 5 ticks. Jeté au moindre doute (version,
+    filigranes divergents, filigrane au-delà du dernier `results.id`) ; la
+    reconstruction totale est un `DELETE`.
+  - **Mode `off`** : plus de `depenseMs: 0` fabriqué pour les projets plafonnés —
+    un solde inconnu n'est pas un solde nul. `soldes: []`.
+  - **Événements renommés** avant qu'une base de production n'existe :
+    `balance_alerte` → `balance_alert`, `balance_seuil` → `balance_cap_reached`,
+    `balance_plafond` → `balance_cap_set`. C'étaient les 3 seuls types en français
+    sur 46.
+  - Commentaire faux corrigé dans `pruneResults` (le seuil est le plus RÉCENT
+    résultat à alléger, pas le plus ancien conservé intact).
 
 ## [0.2.0] — 2026-07-15
 

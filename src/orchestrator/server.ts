@@ -340,9 +340,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     if (socleBalance && now - socleBalance.calculeA < BALANCE_TTL_MS) return socleBalance;
     const corpus = store.listResultsForBalance();
     // Lecture par clé primaire des SEULES tâches citées par le corpus — jamais
-    // un dépliage de la table `tasks`.
-    const comptes = store.listTaskComptes([...new Set(corpus.map((r) => r.taskId))]);
-    const revues = store.listReviews();
+    // un dépliage de `tasks`, et plus jamais de `reviews` non plus : le même
+    // tableau d'ids sert les deux. `reviews` n'est pas élaguée, elle : la lire
+    // en entier toutes les 3 s pour n'en garder que ≤ 2 000 clés bloquait la
+    // boucle d'événements ~160 ms à 100 000 revues (mesuré), donc retardait le
+    // tick du Scheduler et tout le trafic WebSocket.
+    const ids = [...new Set(corpus.map((r) => r.taskId))];
+    const comptes = store.listTaskComptes(ids);
+    const revues = store.listReviewsFor(ids);
     socleBalance = {
       calculeA: now,
       corpus,
@@ -847,14 +852,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     };
   });
 
-  /** Solde neutre d'un projet qui n'a encore rien dépensé et n'a pas de plafond. */
+  /**
+   * Solde neutre d'un projet qui ne figure pas dans le grand livre : il n'a
+   * encore rien dépensé — ou le livre ne tourne pas (mode `off`), et c'est
+   * `mode` qui le dit dans la même réponse.
+   *
+   * `plafondMs` est repris de `budgets` et non forcé à `null` : l'intention
+   * humaine existe en base indépendamment du livre, et un plafond qui
+   * disparaîtrait de l'affichage parce que la Balance est éteinte serait un
+   * mensonge — le pire endroit pour en faire un.
+   */
   const soldeVide = (
     projectId: string,
+    plafondMs: number | null = null,
   ): (typeof scheduler.balance)['soldes'][number] & { projectId: string } => ({
     projectId,
     depenseMs: 0,
     tentatives: 0,
-    plafondMs: null,
+    plafondMs,
     etat: 'passe',
     bloque: false,
   });
@@ -881,8 +896,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const balance = scheduler.balance;
-      const solde = balance.soldes.find((s) => s.projectId === project.id) ?? soldeVide(project.id);
       const budget = store.getBudget(project.id);
+      const solde =
+        balance.soldes.find((s) => s.projectId === project.id) ??
+        soldeVide(project.id, budget?.plafondMs ?? null);
       return {
         version: VERSION_BALANCE,
         mode: balance.mode,
@@ -922,9 +939,26 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           properties: {
             // `null` = pas de plafond ; 0 = « ce projet ne dépense plus rien ».
             // Un plafond négatif n'a aucun sens et est refusé par le schéma.
+            // Les bornes ci-dessous ne valent QUE parce que `preValidation`
+            // a déjà refusé la valeur BRUTE — voir juste en dessous.
             plafondMs: { type: ['integer', 'null'], minimum: 0, maximum: PLAFOND_MAX_MS },
           },
         },
+      },
+      // Fastify active la COERCITION d'AJV par défaut : sans ce garde-fou,
+      // `false` devient l'entier 0 — un projet arrêté net — et `""` devient
+      // `null` — un plafond retiré. Le schéma croit borner une valeur que la
+      // coercition a déjà remplacée. On refuse donc la valeur BRUTE, ici, où
+      // `req.body` est encore le JSON d'origine (preValidation s'exécute AVANT
+      // la validation de schéma). Le seul geste qui peut arrêter la ruche pour
+      // cause d'économie ne doit jamais être posé par une conversion implicite.
+      preValidation: async (req: FastifyRequest, reply: FastifyReply) => {
+        const brut = (req.body as { plafondMs?: unknown } | null | undefined)?.plafondMs;
+        if (brut !== null && !Number.isInteger(brut)) {
+          return reply
+            .code(400)
+            .send({ error: 'plafondMs doit être un entier de millisecondes, ou null' });
+        }
       },
     },
     async (req, reply) => {
@@ -937,20 +971,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
       // Le geste humain est journalisé AVANT d'être appliqué : `setPlafond`
       // relance l'assignation dans la foulée et peut donc émettre un
-      // `balance_seuil` immédiat. Dans l'autre ordre, la Chronique montrerait
-      // la conséquence avant la cause — « seuil franchi » puis « plafond
-      // posé » —, ce qui est illisible précisément dans le cas intéressant.
+      // `balance_cap_reached` immédiat. Dans l'autre ordre, la Chronique
+      // montrerait la conséquence avant la cause — « seuil franchi » puis
+      // « plafond posé » —, illisible précisément dans le cas intéressant.
       // Faits typés uniquement : aucune phrase n'est persistée, le Journal
       // reconstruit le bilingue depuis ces champs.
-      emitEvent('balance_plafond', {
+      emitEvent('balance_cap_set', {
         projectId: project.id,
         plafondMs: req.body.plafondMs,
         ...(definiPar ? { definiPar } : {}),
       });
       scheduler.setPlafond(project.id, req.body.plafondMs, definiPar);
       const balance = scheduler.balance;
-      const solde = balance.soldes.find((s) => s.projectId === project.id) ?? soldeVide(project.id);
       const budget = store.getBudget(project.id);
+      const solde =
+        balance.soldes.find((s) => s.projectId === project.id) ??
+        soldeVide(project.id, budget?.plafondMs ?? null);
       return {
         version: VERSION_BALANCE,
         mode: balance.mode,
@@ -2115,6 +2151,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   // ─── Boucles périodiques ───────────────────────────────────────────────────
+
+  /**
+   * Contexte de RE-LIVRAISON mémoïsé par tâche muette. Bornée par le nombre de
+   * tâches actuellement muettes (les autres sont oubliées à la fin de chaque
+   * passe) : sur dix ans, la mémoire ne dérive pas.
+   */
+  const contextesRelivres = new Map<string, string>();
+
   const tickTimer = setInterval(() => {
     // Une exception ici (ex. SQLite verrouillé) ne doit pas arrêter la boucle
     // ni abattre le process : on journalise et on retentera au prochain tick.
@@ -2124,19 +2168,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // restées muettes (message perdu en vol). Le client ignore les doublons.
       // Pour une course, TOUS les drones en vol sont re-servis (un assign_task
       // perdu vers un drone non-primaire n'est visible nulle part ailleurs).
-      for (const task of scheduler.staleAssignedTasks(5_000)) {
-        const project = store.getProject(task.projectId);
+      const muettes = scheduler.staleAssignedTasks(5_000);
+      for (const task of muettes) {
         const race = scheduler.getRace(task.id);
         const targets = race
           ? race.drones.filter((d) => d.status === 'running').map((d) => d.nodeId)
           : task.assignedNodeId
             ? [task.assignedNodeId]
             : [];
+        // Aucune socket ouverte ⇒ personne à re-servir : ni contexte, ni
+        // lecture du projet. Le contexte coûte un BM25 sur la mémoire Hive Mind
+        // (~37 ms mesurées sur 500 souvenirs) et il était payé PAR TÂCHE MUETTE
+        // ET PAR TICK, dans le corps SYNCHRONE d'un setInterval de 2 s, avant
+        // même de savoir s'il y avait quelqu'un au bout du fil.
+        const ouvertes = targets.filter((nodeId) => nodeSockets.has(nodeId));
+        if (ouvertes.length === 0) continue;
+        const project = store.getProject(task.projectId);
         // Le contexte (Couveuse + Hive Mind) est reconstruit ici AUSSI : une
         // re-livraison nue priverait la tâche des leçons annoncées par
-        // brood_context — l'ouvrière refaisait la même erreur.
-        const { hiveContext } = construireHiveContext(task);
-        for (const nodeId of targets) {
+        // brood_context — l'ouvrière refaisait la même erreur. MÉMOÏSÉ par
+        // taskId : une tâche muette l'est par définition parce qu'elle ne rend
+        // rien, donc ses leçons ne changent pas d'un tick à l'autre — le
+        // recalculer à chaque tick, c'était refaire le même travail pour le
+        // même octet.
+        let hiveContext = contextesRelivres.get(task.id);
+        if (hiveContext === undefined) {
+          hiveContext = construireHiveContext(task).hiveContext;
+          contextesRelivres.set(task.id, hiveContext);
+        }
+        for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
             send(ws, {
@@ -2146,6 +2206,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               ...(hiveContext ? { hiveContext } : {}),
             });
           }
+        }
+      }
+      // La mémoïsation est bornée par les tâches ENCORE muettes : dès qu'une
+      // tâche rend un résultat (ou est réassignée), son contexte est oublié —
+      // et sera donc recalculé, à jour, si elle redevenait muette.
+      if (contextesRelivres.size > 0) {
+        const encoreMuettes = new Set(muettes.map((t) => t.id));
+        for (const taskId of contextesRelivres.keys()) {
+          if (!encoreMuettes.has(taskId)) contextesRelivres.delete(taskId);
         }
       }
       // Borne la croissance du journal, de la mémoire Hive Mind et des résultats.

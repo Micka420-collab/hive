@@ -26,6 +26,14 @@ import type { BandeThermo } from './thermo.js';
 const REJECT_COOLDOWN_MS = 3_000;
 
 /**
+ * Intervalle minimal entre deux écritures du cache du grand livre. Un cache en
+ * retard n'est JAMAIS faux : il fait seulement relire quelques lots de plus au
+ * prochain démarrage. On paie donc une petite transaction toutes les 10 s, et
+ * pas une par tick.
+ */
+const INTERVALLE_SAUVEGARDE_LIVRE_MS = 10_000;
+
+/**
  * Hystérésis : nombre de ticks CONSÉCUTIFS passés hors de la bande courante
  * avant de changer de régime. On compte les ticks divergents, pas les lectures
  * identiques : deux bandes divergentes en alternance (chaude, surchauffe,
@@ -53,7 +61,17 @@ export interface SchedulerOptions {
    * rigoureusement indiscernables — c'est ce que prouve le harnais de rejeu de
    * tests/balance-wiring.test.ts.
    */
-  balance?: { mode: 'off' | 'observation' | 'strict' };
+  balance?: {
+    mode: 'off' | 'observation' | 'strict';
+    /**
+     * Capacité du cache `taskId → projectId` du grand livre. Réglage : la
+     * valeur par défaut (CAPACITE_PROJETS, quelques dizaines de milliers) vaut
+     * pour une ruche réelle ; l'abaisser sert à éprouver le comportement
+     * SOUS-DIMENSIONNÉ, où le cache purge pendant qu'on résout — et où
+     * l'ancienne implémentation perdait des dépenses définitivement.
+     */
+    capaciteCacheProjets?: number;
+  };
 }
 
 export class Scheduler {
@@ -91,12 +109,21 @@ export class Scheduler {
   private readonly cacheDomaines = new CacheDomaines();
 
   /**
-   * Balance : grand livre de la dépense par projet. CACHE en mémoire, jamais
-   * matérialisé — un redémarrage le reconstruit par rattrapage borné.
+   * Balance : grand livre de la dépense par projet. CACHE — reconstructible
+   * intégralement depuis `results` par rattrapage borné. Un instantané
+   * (filigrane + soldes) est repris au premier tick depuis
+   * `balance_ledger_cache` pour ne pas relire tout l'historique à chaque
+   * démarrage (doctrine, règle 1 amendée — balance.ts).
    */
   private readonly livre = new GrandLivre();
+  /** Cache du livre : repris une seule fois, au premier tick qui fait tourner le livre. */
+  private livreRepris = false;
+  /** Filigrane déjà écrit dans le cache (0 = rien écrit par ce process). */
+  private filigraneSauve = 0;
+  /** Horodatage de la dernière sauvegarde du cache — `-∞` : la première a toujours lieu. */
+  private derniereSauvegardeLivre = Number.NEGATIVE_INFINITY;
   /** taskId → projectId, mémoïsé et borné (projectId est immuable). */
-  private readonly cacheProjets = new CacheProjets();
+  private readonly cacheProjets: CacheProjets;
   /**
    * Plafonds en vigueur, chargés PARESSEUSEMENT depuis `budgets` et gardés
    * jusqu'au prochain geste humain (`setPlafond` remet à `null`). `budgets`
@@ -123,6 +150,7 @@ export class Scheduler {
   ) {
     this.maxAttempts = opts.maxAttempts ?? MAX_ATTEMPTS;
     this.nodeTimeoutMs = opts.nodeTimeoutMs ?? NODE_TIMEOUT_MS;
+    this.cacheProjets = new CacheProjets(opts.balance?.capaciteCacheProjets);
   }
 
   /** Journalise la transition et la propage (dashboard, logs). */
@@ -172,6 +200,14 @@ export class Scheduler {
    * bloqué sans avoir de solde — il doit apparaître, sinon il serait
    * exactement le « projet en famine silencieuse » que la porte doit rendre
    * impossible.
+   *
+   * SAUF en mode `off`, où la liste est VIDE. Le grand livre ne tourne pas :
+   * l'union avec les projets plafonnés y fabriquait un `depenseMs: 0` qui n'est
+   * pas un solde nul mais un solde INCONNU — et rien, dans la réponse, ne
+   * permettait de distinguer les deux. Un zéro inventé sur la seule page qui
+   * réponde à « combien ce projet a-t-il coûté ? » est pire que l'absence :
+   * `off` veut dire « la Balance ne pèse rien », et c'est ce que la liste vide
+   * dit. Le mode reste dans la réponse, donc l'affichage sait pourquoi.
    */
   get balance(): {
     mode: 'off' | 'observation' | 'strict';
@@ -186,10 +222,13 @@ export class Scheduler {
     }>;
   } {
     const mode = this.opts.balance?.mode ?? 'observation';
-    // Les plafonds sont lus même en `off` : l'intention humaine existe en base
-    // indépendamment du mode. Ce qui change avec le mode, c'est `etat` (qui
-    // vaut alors toujours 'passe') et `bloque` — l'intention est affichée, son
-    // application dit la vérité.
+    // En `off`, le livre n'a jamais tourné : aucun solde n'existe, et aucun
+    // n'est inventé (voir le commentaire de la propriété). L'intention humaine,
+    // elle, reste lisible par `/api/projects/:id/balance`, qui lit `budgets`.
+    if (mode === 'off') return { mode, aJour: this.livre.aJour, soldes: [] };
+    // Les plafonds sont lus au-delà : l'intention humaine existe en base
+    // indépendamment du mode. Ce qui change avec le mode, c'est `etat` et
+    // `bloque` — l'intention est affichée, son application dit la vérité.
     const budgets = this.lireBudgets();
     const comptes = new Map(this.livre.soldes().map((s) => [s.projectId, s]));
     const projets = [...new Set([...comptes.keys(), ...budgets.keys()])].sort((a, b) =>
@@ -256,6 +295,15 @@ export class Scheduler {
    * `applique` distingue les deux modes : en `observation` le fait est observé
    * et n'a RIEN bloqué (`false`), en `strict` il a réellement fermé la porte
    * (`true`).
+   *
+   * NOMS D'ÉVÉNEMENTS EN ANGLAIS — `balance_alert`, `balance_cap_reached`,
+   * `balance_cap_set`. Le code et les commentaires de ce dépôt sont en
+   * français, mais les 46 types d'événements PERSISTÉS sont en anglais
+   * (`task_failed`, `thermo_shift`, `pheromone_route`…) : ce sont des clés de
+   * corpus, pas de la prose. Trois exceptions françaises s'étaient glissées ici
+   * (`balance_alerte`, `balance_seuil`, `balance_plafond`) ; elles ont été
+   * renommées avant qu'une seule base de production n'existe, parce qu'après,
+   * ce n'est plus un renommage mais une migration de journal.
    */
   private signalerPlafond(projectId: string, decision: DecisionPlafond): void {
     if (decision === 'passe') {
@@ -270,7 +318,7 @@ export class Scheduler {
     if (decision === 'alerte') {
       if (this.alertesEmises.has(projectId)) return;
       this.alertesEmises.add(projectId);
-      this.emit('balance_alerte', {
+      this.emit('balance_alert', {
         projectId,
         depenseMs,
         plafondMs,
@@ -288,7 +336,7 @@ export class Scheduler {
     this.alertesEmises.add(projectId);
     if (this.seuilsEmis.has(projectId)) return;
     this.seuilsEmis.add(projectId);
-    this.emit('balance_seuil', {
+    this.emit('balance_cap_reached', {
       projectId,
       depenseMs,
       plafondMs,
@@ -1020,11 +1068,16 @@ export class Scheduler {
    * Ce comptage n'a AUCUN effet sur l'ordonnancement : il ne décide rien, il
    * observe. La porte qui s'en servira un jour est un travail séparé.
    */
-  private avancerGrandLivre(): void {
+  private avancerGrandLivre(now: number): void {
     if (this.opts.balance?.mode === 'off') return;
+    this.reprendreCacheGrandLivre();
     const lot = this.store.listResultsForLedger(this.livre.filigrane, LOT_GRAND_LIVRE);
     if (lot.length === 0) {
       this.livre.marquerRattrape();
+      // Rien de neuf, mais une sauvegarde peut rester due : la précédente a pu
+      // être refusée par l'intervalle. Sans cette ligne, le dernier lot absorbé
+      // avant un arrêt serait relu au démarrage suivant, pour rien.
+      this.sauvegarderCacheGrandLivre(now);
       return;
     }
     const projets = this.cacheProjets.resoudre(
@@ -1044,6 +1097,39 @@ export class Scheduler {
     );
     // Lot incomplet ⇒ le livre a rejoint la fin de la table.
     if (lot.length < LOT_GRAND_LIVRE) this.livre.marquerRattrape();
+    this.sauvegarderCacheGrandLivre(now);
+  }
+
+  /**
+   * Reprend l'instantané du grand livre, UNE SEULE FOIS, au premier tick qui
+   * fait tourner le livre — jamais dans le constructeur : construire un
+   * Scheduler ne doit pas toucher la base, et un livre non encore démarré doit
+   * se lire comme vide (`soldes: []`, `aJour: false`), ce qu'attend l'affichage.
+   *
+   * En mode `off` on n'arrive jamais ici : le livre ne tourne pas, donc rien
+   * n'est ni lu ni écrit.
+   */
+  private reprendreCacheGrandLivre(): void {
+    if (this.livreRepris) return;
+    this.livreRepris = true;
+    const cache = this.store.lireCacheGrandLivre();
+    if (!cache) return;
+    this.livre.charger(cache.filigrane, cache.soldes);
+    this.filigraneSauve = cache.filigrane;
+  }
+
+  /**
+   * Écrit l'instantané, au plus une fois par INTERVALLE_SAUVEGARDE_LIVRE_MS et
+   * seulement si le filigrane a bougé. Un cache en retard n'est pas faux : le
+   * rattrapage reprend simplement quelques lots plus tôt.
+   */
+  private sauvegarderCacheGrandLivre(now: number): void {
+    const filigrane = this.livre.filigrane;
+    if (filigrane === this.filigraneSauve) return;
+    if (now - this.derniereSauvegardeLivre < INTERVALLE_SAUVEGARDE_LIVRE_MS) return;
+    this.store.ecrireCacheGrandLivre(filigrane, this.livre.soldes());
+    this.filigraneSauve = filigrane;
+    this.derniereSauvegardeLivre = now;
   }
 
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
@@ -1051,7 +1137,7 @@ export class Scheduler {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
     // exposée par `get balance` ne soit jamais en retard d'un tick. Il
     // n'influence rien ici — voir la règle 4 de la doctrine (balance.ts).
-    this.avancerGrandLivre();
+    this.avancerGrandLivre(now);
     // Tâches déjà actives, enrichie au fil de la passe : une tâche qu'on vient
     // d'assigner doit être prise en compte pour la détection de conflit des
     // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).

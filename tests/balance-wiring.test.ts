@@ -214,7 +214,7 @@ describe('Balance : non-régression par rejeu de séquence', () => {
     // épuiserait la fenêtre de 5 000 en trois heures et noierait Ghost, Waggle,
     // Pulse et la Chronique. On journalise un franchissement, pas un niveau.
     const balance = observe.evenements.filter((e) => e.type.startsWith('balance_'));
-    expect(balance.map((e) => e.type)).toEqual(['balance_alerte', 'balance_seuil']);
+    expect(balance.map((e) => e.type)).toEqual(['balance_alert', 'balance_cap_reached']);
     expect(balance[0]?.payload).toEqual({
       projectId: 'PROJET',
       depenseMs: 900,
@@ -382,14 +382,91 @@ describe('Balance : le grand livre suit la TABLE', () => {
       .sort((a, b) => a.projectId.localeCompare(b.projectId));
     expect(scheduler.balance.soldes).toEqual(aFroid);
 
-    // Redémarrage : un Scheduler NEUF sur le MÊME store reconstruit le livre
-    // par rattrapage — rien n'était persisté, et rien ne manque.
+    // Redémarrage : un Scheduler NEUF sur le MÊME store retrouve le même
+    // livre — par reprise du cache reconstructible ET rattrapage de la suite.
+    // Avant le premier tick, il ne prétend RIEN savoir : pas de solde, pas de
+    // « à jour ». Construire un Scheduler ne touche pas la base.
     const apresRedemarrage = new Scheduler(store);
     expect(apresRedemarrage.balance.aJour).toBe(false);
     expect(apresRedemarrage.balance.soldes).toEqual([]);
     apresRedemarrage.tick(NOW);
     expect(apresRedemarrage.balance.aJour).toBe(true);
     expect(apresRedemarrage.balance.soldes).toEqual(aFroid);
+
+    // Et le cache JETÉ, le rattrapage refait exactement le même chiffre : c'est
+    // toute la justification de l'amendement à la règle 1 de la doctrine.
+    store.viderCacheGrandLivre();
+    const sansCache = new Scheduler(store);
+    sansCache.tick(NOW);
+    expect(sansCache.balance.soldes).toEqual(aFroid);
+  });
+
+  it('P2 — au redémarrage, le rattrapage ne relit PAS tout l’historique', () => {
+    // Sans cache du grand livre, le filigrane repartait de 0 à chaque process :
+    // sur un an de ruche, le rattrapage relisait tout — et pendant ce temps
+    // `aJour` vaut `false`, donc la porte des plafonds est FAIL-OPEN.
+    store = new HiveStore(':memory:');
+    const projet = store.createProject({ name: 'P' });
+    for (let i = 0; i < 30; i++) {
+      store.createTask({ id: `T${i}`, projectId: projet.id, title: 'T', prompt: 'x' }, NOW);
+      store.insertResult({
+        taskId: `T${i}`,
+        nodeId: 'n1',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 10,
+        subAgents: [],
+      });
+    }
+    const premier = new Scheduler(store);
+    premier.tick(NOW);
+    const attendu = premier.balance.soldes;
+    expect(attendu[0]?.depenseMs).toBe(300);
+
+    // Redémarrage : on COMPTE les lignes réellement relues.
+    let relues = 0;
+    const vraie = store.listResultsForLedger.bind(store);
+    store.listResultsForLedger = (afterId: number, limit?: number) => {
+      const lot = limit === undefined ? vraie(afterId) : vraie(afterId, limit);
+      relues += lot.length;
+      return lot;
+    };
+    const second = new Scheduler(store);
+    second.tick(NOW);
+    expect(relues).toBe(0); // le filigrane a été repris, il ne reste rien à lire
+    expect(second.balance.aJour).toBe(true);
+    expect(second.balance.soldes).toEqual(attendu);
+
+    // Un résultat de plus : il est bien absorbé, et lui seul est relu.
+    store.createTask({ id: 'Tsuite', projectId: projet.id, title: 'T', prompt: 'x' }, NOW);
+    store.insertResult({
+      taskId: 'Tsuite',
+      nodeId: 'n1',
+      success: true,
+      diff: '',
+      logs: '',
+      durationMs: 7,
+      subAgents: [],
+    });
+    second.tick(NOW + 60_000);
+    expect(relues).toBe(1);
+    expect(second.balance.soldes[0]?.depenseMs).toBe(307);
+  });
+
+  it('P2 — le cache du grand livre ne tourne pas en mode `off` (ni lu, ni écrit)', () => {
+    const { scheduler } = ruche({ mode: 'off' });
+    store.insertResult({
+      taskId: 'T1',
+      nodeId: 'n1',
+      success: true,
+      diff: '',
+      logs: '',
+      durationMs: 500,
+      subAgents: [],
+    });
+    scheduler.tick(NOW);
+    expect(store.lireCacheGrandLivre()).toBeNull();
   });
 
   it('T12 — une tentative orpheline n’enraye pas le rattrapage', () => {
@@ -444,6 +521,110 @@ describe('Balance : le grand livre suit la TABLE', () => {
     scheduler.tick(NOW);
     expect(lectures).toBe(0);
     expect(scheduler.balance).toEqual({ mode: 'off', aJour: false, soldes: [] });
+  });
+
+  it('mode `off` : aucun solde INVENTÉ, même sur un projet plafonné', () => {
+    // L'union « projets qui ont dépensé ∪ projets plafonnés » fabriquait un
+    // `depenseMs: 0` sur un projet plafonné alors que le livre ne tourne pas :
+    // ce n'est pas un solde nul, c'est un solde INCONNU, et rien dans la
+    // réponse ne permettait de faire la différence.
+    const { scheduler, projectId } = ruche({ mode: 'off' });
+    store.setBudget(projectId, 60_000, null, NOW);
+    store.insertResult({
+      taskId: 'T1',
+      nodeId: 'n1',
+      success: true,
+      diff: '',
+      logs: '',
+      durationMs: 30_000,
+      subAgents: [],
+    });
+    scheduler.tick(NOW);
+    expect(scheduler.balance).toEqual({ mode: 'off', aJour: false, soldes: [] });
+    // L'intention humaine, elle, reste lisible là où elle vit : `budgets`.
+    expect(store.getBudget(projectId)?.plafondMs).toBe(60_000);
+  });
+
+  // ─── Le défaut P0 : une dépense perdue par la purge du cache ──────────────
+  //
+  // Le test T9 restait SOUS la capacité du cache de projets : il ne pouvait
+  // donc pas voir que `resoudre` reconstruisait son retour depuis un cache qui
+  // venait de purger. Ici l'échelle DÉPASSE la capacité — c'est la seule
+  // configuration où le défaut se manifeste, et il était alors définitif : le
+  // filigrane avançait, les lignes n'étaient jamais relues.
+
+  it('T9bis — incrémental == recalcul à FROID à une échelle SUPÉRIEURE à la capacité du cache', () => {
+    store = new HiveStore(':memory:');
+    const CAPACITE = 8;
+    const TACHES = 40;
+    const scheduler = new Scheduler(store, {
+      balance: { mode: 'observation', capaciteCacheProjets: CAPACITE },
+    });
+    const projets = [store.createProject({ name: 'A' }), store.createProject({ name: 'B' })];
+    for (let i = 0; i < TACHES; i++) {
+      store.createTask(
+        {
+          id: `T${i}`,
+          projectId: (projets[i % 2] ?? projets[0])?.id ?? '',
+          title: 'T',
+          prompt: 'x',
+        },
+        NOW,
+      );
+      store.insertResult({
+        taskId: `T${i}`,
+        nodeId: 'n1',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 100 + i,
+        subAgents: [],
+      });
+    }
+    // Un SEUL lot : les 40 tâches sont résolues dans le même appel à
+    // `resoudre`, avec un cache de 8. Avant, 32 dépenses disparaissaient.
+    scheduler.tick(NOW);
+    expect(scheduler.balance.aJour).toBe(true);
+
+    const aFroid = [...store.depensesParProjet().entries()]
+      .map(([id, d]) => ({ projectId: id, ...d, plafondMs: null, etat: 'passe', bloque: false }))
+      .sort((a, b) => a.projectId.localeCompare(b.projectId));
+    expect(scheduler.balance.soldes).toEqual(aFroid);
+    // Et la somme est bien celle de TOUTES les tentatives, pas d'un sous-ensemble.
+    const total = scheduler.balance.soldes.reduce((s, x) => s + x.depenseMs, 0);
+    let attendu = 0;
+    for (let i = 0; i < TACHES; i++) attendu += 100 + i;
+    expect(total).toBe(attendu);
+    expect(scheduler.balance.soldes.reduce((s, x) => s + x.tentatives, 0)).toBe(TACHES);
+  });
+
+  it('T9bis — le plafond VOIT la dépense réelle même avec un cache sous-dimensionné', () => {
+    // La conséquence opérationnelle du défaut : le projet avait consommé 50×
+    // son plafond et `jugerPlafond` rendait 'passe' — la ruche continuait
+    // d'assigner, sans le moindre signal.
+    store = new HiveStore(':memory:');
+    const scheduler = new Scheduler(store, {
+      balance: { mode: 'strict', capaciteCacheProjets: 4 },
+    });
+    const projet = store.createProject({ name: 'P' });
+    store.setBudget(projet.id, 100_000, null, NOW);
+    for (let i = 0; i < 30; i++) {
+      store.createTask({ id: `T${i}`, projectId: projet.id, title: 'T', prompt: 'x' }, NOW);
+      store.insertResult({
+        taskId: `T${i}`,
+        nodeId: 'n1',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 200_000,
+        subAgents: [],
+      });
+    }
+    scheduler.tick(NOW);
+    const solde = scheduler.balance.soldes.find((s) => s.projectId === projet.id);
+    expect(solde?.depenseMs).toBe(30 * 200_000);
+    expect(solde?.etat).toBe('bloque');
+    expect(solde?.bloque).toBe(true);
   });
 
   it('la lecture du chemin du tick est BORNÉE : jamais plus de LOT_GRAND_LIVRE par passe', () => {
@@ -547,7 +728,7 @@ describe('Balance : la porte (borner)', () => {
 
     expect(p.assignations).toContain('A1→n1');
     expect(store.getTask('A1')?.status).toBe('assigned');
-    const seuils = faits(p).filter((e) => e.type === 'balance_seuil');
+    const seuils = faits(p).filter((e) => e.type === 'balance_cap_reached');
     expect(seuils).toHaveLength(1);
     expect(seuils[0]?.payload).toEqual({
       projectId: p.projet,
@@ -569,7 +750,7 @@ describe('Balance : la porte (borner)', () => {
       p.journal.filter((e) => e.type === 'task_assigned' && e.payload.taskId === 'A1'),
     ).toEqual([]);
     // Trois ticks, un seul fait : la dédup tient (motif task_conflict_deferred).
-    const seuils = faits(p).filter((e) => e.type === 'balance_seuil');
+    const seuils = faits(p).filter((e) => e.type === 'balance_cap_reached');
     expect(seuils).toHaveLength(1);
     expect(seuils[0]?.payload).toMatchObject({ applique: true, plafondMs: 1_000 });
   });
@@ -653,7 +834,7 @@ describe('Balance : la porte (borner)', () => {
     const p = plateau({ mode: 'strict' }, 1_000, 1_200);
     p.scheduler.tick(NOW);
     expect(store.getTask('A1')?.status).toBe('ready');
-    expect(faits(p).filter((e) => e.type === 'balance_seuil')).toHaveLength(1);
+    expect(faits(p).filter((e) => e.type === 'balance_cap_reached')).toHaveLength(1);
 
     // Geste humain explicite — symétrique de l'invariant du merge. La ruche ne
     // se ré-autorise jamais elle-même : il faut qu'un humain desserre la vis.
@@ -671,7 +852,7 @@ describe('Balance : la porte (borner)', () => {
     p.scheduler.tick(NOW + 2_000);
     store.createTask({ id: 'A2', projectId: p.projet, title: 'suite', prompt: 'x' }, NOW);
     p.scheduler.tick(NOW + 3_000);
-    expect(faits(p).filter((e) => e.type === 'balance_seuil')).toHaveLength(2);
+    expect(faits(p).filter((e) => e.type === 'balance_cap_reached')).toHaveLength(2);
     expect(store.getTask('A2')?.status).toBe('ready');
   });
 
@@ -726,7 +907,7 @@ describe('Balance : la porte (borner)', () => {
     p.scheduler.tick(NOW);
     p.scheduler.tick(NOW + 1_000);
 
-    const alertes = faits(p).filter((e) => e.type === 'balance_alerte');
+    const alertes = faits(p).filter((e) => e.type === 'balance_alert');
     expect(alertes).toHaveLength(1);
     expect(alertes[0]?.payload).toEqual({
       projectId: p.projet,
@@ -734,7 +915,7 @@ describe('Balance : la porte (borner)', () => {
       plafondMs: 1_000,
       part: 80,
     });
-    expect(faits(p).filter((e) => e.type === 'balance_seuil')).toEqual([]);
+    expect(faits(p).filter((e) => e.type === 'balance_cap_reached')).toEqual([]);
     // Prévenir n'est pas bloquer : la tâche est bel et bien partie.
     expect(p.assignations).toContain('A1→n1');
     expect(p.scheduler.balance.soldes[0]).toMatchObject({ etat: 'alerte', bloque: false });
@@ -748,10 +929,10 @@ describe('Balance : la porte (borner)', () => {
     p.scheduler.tick(NOW + 1_000);
 
     const emis = faits(p);
-    expect(emis.map((e) => e.type).sort()).toEqual(['balance_alerte', 'balance_seuil']);
+    expect(emis.map((e) => e.type).sort()).toEqual(['balance_alert', 'balance_cap_reached']);
     const cles: Record<string, string[]> = {
-      balance_alerte: ['projectId', 'depenseMs', 'plafondMs', 'part'],
-      balance_seuil: ['projectId', 'depenseMs', 'plafondMs', 'applique'],
+      balance_alert: ['projectId', 'depenseMs', 'plafondMs', 'part'],
+      balance_cap_reached: ['projectId', 'depenseMs', 'plafondMs', 'applique'],
     };
     for (const { type, payload } of emis) {
       expect(Object.keys(payload).sort()).toEqual([...(cles[type] ?? [])].sort());

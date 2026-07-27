@@ -135,6 +135,40 @@ CREATE TABLE IF NOT EXISTS budgets (
   updatedAt INTEGER NOT NULL
 );
 
+-- La Balance — CACHE RECONSTRUCTIBLE du grand livre. Son nom le dit, et c'est
+-- délibéré : balance_ledger_cache n'est PAS une source de vérité. La vérité
+-- reste results, et cette table peut être effacée à tout moment sans perdre
+-- une seule information — le rattrapage la reconstruit à l'identique. Voir la
+-- règle 1 de la doctrine (balance.ts) pour la justification complète de la
+-- seule exception à « rien de calculé n'est écrit en base ».
+--
+-- Elle existe pour une seule raison : sans elle, le filigrane repart de 0 à
+-- chaque démarrage et le rattrapage relit TOUT l'historique — O(un an de ruche)
+-- au boot, pendant lequel la porte des plafonds reste ouverte (FAIL-OPEN).
+--
+-- BORNE D'ÉLAGAGE (règle 3), STRUCTURELLE comme celle de budgets : une ligne
+-- par projet ayant dépensé, donc ≤ projects. Elle ne croît pas avec l'histoire
+-- de la ruche, et n'a donc PAS de pruneLedgerCache.
+--
+-- filigrane : id du dernier résultat absorbé. IDENTIQUE sur toutes les lignes —
+--             elles sont réécrites ensemble, dans une seule transaction. Des
+--             filigranes divergents = cache corrompu = reconstruction totale.
+-- version   : VERSION_BALANCE au moment de l'écriture. Une v2 de l'imputation
+--             invalide le cache sans migration : on le jette, on recompte.
+--
+-- AUCUNE clé étrangère vers projects, contrairement à budgets — et c'est
+-- délibéré : cette table est écrite DANS LE TICK. Une contrainte violée y
+-- lèverait une exception sur le chemin chaud pour protéger... un cache, qu'on
+-- peut jeter. Un projectId orphelin dans un cache ne coûte rien ; un tick qui
+-- explose, si.
+CREATE TABLE IF NOT EXISTS balance_ledger_cache (
+  projectId  TEXT PRIMARY KEY,
+  depenseMs  INTEGER NOT NULL,
+  tentatives INTEGER NOT NULL,
+  filigrane  INTEGER NOT NULL,
+  version    INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   ts      INTEGER NOT NULL,
@@ -601,8 +635,19 @@ export class HiveStore {
    * demandées. Découpée en lots de 900 pour rester sous la limite de variables
    * liées de SQLite (999 par défaut) ; les ids sont dédoublonnés, les inconnus
    * simplement absents du retour.
+   *
+   * `table` / `cle` par défaut sur `tasks(id)` — le cas de très loin le plus
+   * fréquent. `reviews(taskId)` emprunte le même chemin : sa clé primaire est
+   * un index, le plan est un SEARCH, jamais un SCAN (verrouillé par
+   * tests/store-scaling.test.ts). Ni l'un ni l'autre ne vient jamais de
+   * l'extérieur : ce sont des littéraux de ce fichier.
    */
-  private lireParIds<T>(colonnes: string, ids: readonly string[]): T[] {
+  private lireParIds<T>(
+    colonnes: string,
+    ids: readonly string[],
+    table: 'tasks' | 'reviews' = 'tasks',
+    cle: 'id' | 'taskId' = 'id',
+  ): T[] {
     const uniques = [...new Set(ids)];
     const LOT = 900;
     const out: T[] = [];
@@ -611,7 +656,7 @@ export class HiveStore {
       const placeholders = lot.map(() => '?').join(', ');
       out.push(
         ...(this.db
-          .prepare(`SELECT ${colonnes} FROM tasks WHERE id IN (${placeholders})`)
+          .prepare(`SELECT ${colonnes} FROM ${table} WHERE ${cle} IN (${placeholders})`)
           .all(...lot) as T[]),
       );
     }
@@ -838,6 +883,95 @@ export class HiveStore {
     return rows.map(rowToResultatBalance);
   }
 
+  /** Id du dernier résultat inséré (0 si la table est vide). */
+  lastResultId(): number {
+    const row = this.db.prepare('SELECT MAX(id) AS id FROM results').get() as { id: number | null };
+    return row.id ?? 0;
+  }
+
+  /**
+   * Lit le CACHE du grand livre. `null` — et la table est vidée — dès que le
+   * moindre doute existe :
+   *  - table vide (premier démarrage, ou cache déjà jeté) ;
+   *  - `version` ≠ VERSION_BALANCE : la sémantique de l'imputation a changé ;
+   *  - filigranes divergents entre lignes : l'écriture est atomique, donc c'est
+   *    une corruption ;
+   *  - filigrane au-delà du dernier `results.id` : la base a reculé (restaurée
+   *    depuis une sauvegarde partielle) et le cache compte des lignes qui
+   *    n'existent plus.
+   *
+   * Dans tous ces cas, la PROCÉDURE DE RECONSTRUCTION TOTALE est la même et
+   * elle est gratuite : repartir du filigrane 0 et relire `results`. C'est ce
+   * qui autorise ce cache à exister — il n'a aucun moyen de mentir durablement.
+   */
+  lireCacheGrandLivre(): {
+    filigrane: number;
+    soldes: Array<{ projectId: string; depenseMs: number; tentatives: number }>;
+  } | null {
+    const rows = this.db
+      .prepare(
+        `SELECT projectId, depenseMs, tentatives, filigrane, version
+         FROM balance_ledger_cache ORDER BY projectId`,
+      )
+      .all() as Array<{
+      projectId: string;
+      depenseMs: number;
+      tentatives: number;
+      filigrane: number;
+      version: number;
+    }>;
+    if (rows.length === 0) return null;
+    const filigrane = rows[0]?.filigrane ?? 0;
+    const douteux =
+      rows.some((r) => r.version !== VERSION_BALANCE || r.filigrane !== filigrane) ||
+      filigrane > this.lastResultId();
+    if (douteux) {
+      this.viderCacheGrandLivre();
+      return null;
+    }
+    return {
+      filigrane,
+      soldes: rows.map((r) => ({
+        projectId: r.projectId,
+        depenseMs: r.depenseMs,
+        tentatives: r.tentatives,
+      })),
+    };
+  }
+
+  /**
+   * Réécrit le cache EN ENTIER, dans une seule transaction : soit toutes les
+   * lignes portent le même filigrane, soit aucune ne change. Un remplacement
+   * total (et non un `UPSERT` ligne à ligne) parce que le cache doit être un
+   * instantané cohérent, jamais un mélange de deux passes.
+   */
+  ecrireCacheGrandLivre(
+    filigrane: number,
+    soldes: ReadonlyArray<{ projectId: string; depenseMs: number; tentatives: number }>,
+  ): void {
+    const inserer = this.db.prepare(
+      `INSERT INTO balance_ledger_cache (projectId, depenseMs, tentatives, filigrane, version)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM balance_ledger_cache').run();
+      for (const s of soldes) {
+        inserer.run(
+          s.projectId,
+          Math.max(0, Math.trunc(s.depenseMs)),
+          Math.max(0, Math.trunc(s.tentatives)),
+          Math.max(0, Math.trunc(filigrane)),
+          VERSION_BALANCE,
+        );
+      }
+    })();
+  }
+
+  /** Reconstruction totale : on jette, le rattrapage recomptera depuis `results`. */
+  viderCacheGrandLivre(): void {
+    this.db.prepare('DELETE FROM balance_ledger_cache').run();
+  }
+
   /**
    * Recalcul À FROID de la dépense par projet (JOIN complet sur results).
    * DIAGNOSTIC ET TESTS UNIQUEMENT : jamais sur le chemin d'un tick, jamais
@@ -960,7 +1094,9 @@ export class HiveStore {
    */
   pruneResults(maxKeep: number): number {
     const keep = Math.max(0, maxKeep);
-    // Id du plus ancien résultat conservé INTACT (parcours arrière du rowid).
+    // Id du PLUS RÉCENT résultat à ALLÉGER : le parcours arrière du rowid saute
+    // les `keep` résultats conservés intacts et rend le suivant — qui est donc
+    // le premier hors fenêtre, et il est bien vidé (`id <= borne` ci-dessous).
     const seuil = this.db
       .prepare('SELECT id FROM results ORDER BY id DESC LIMIT 1 OFFSET ?')
       .get(keep) as { id: number } | undefined;
@@ -1143,7 +1279,37 @@ export class HiveStore {
       .run(taskId, state, Math.max(Date.now(), prev + 1));
   }
 
-  /** Toutes les revues, sous forme de dictionnaire taskId → verdict. */
+  /**
+   * Verdicts des SEULES tâches citées. C'était la dernière lecture NON BORNÉE
+   * du socle de la Balance : `listReviews()` dépliait toute la table `reviews`
+   * (jamais élaguée, elle) pour n'en garder que les ≤ 2 000 clés du corpus —
+   * 159,8 ms mesurées à 100 000 revues, contre 6,0 ms en lecture ciblée. Sur un
+   * socle re-lu toutes les 3 s parce que le dashboard interroge `/api/balance`,
+   * cela faisait ~160 ms de boucle d'événements BLOQUÉE toutes les 3 secondes,
+   * en permanence : chaque blocage retardait le tick du Scheduler et tout le
+   * trafic WebSocket.
+   *
+   * Même découpage en lots de 900 que `lireParIds` sur `tasks`, sur la clé
+   * primaire `reviews.taskId`.
+   */
+  listReviewsFor(ids: readonly string[]): Record<string, 'approved' | 'rejected'> {
+    const rows = this.lireParIds<{ taskId: string; state: 'approved' | 'rejected' }>(
+      'taskId, state',
+      ids,
+      'reviews',
+      'taskId',
+    );
+    return Object.fromEntries(rows.map((r) => [r.taskId, r.state]));
+  }
+
+  /**
+   * Toutes les revues, sous forme de dictionnaire taskId → verdict.
+   *
+   * NON BORNÉE, et assumée comme telle : elle sert les vues de REVUE (la
+   * Miellerie), dont l'objet est justement de montrer tous les verdicts. Elle
+   * n'a rien à faire sur un chemin de polling ni dans un tick — pour n'en
+   * connaître qu'un sous-ensemble, `listReviewsFor`.
+   */
   listReviews(): Record<string, 'approved' | 'rejected'> {
     const rows = this.db.prepare('SELECT taskId, state FROM reviews').all() as {
       taskId: string;

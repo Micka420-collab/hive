@@ -363,6 +363,11 @@ pending → ready (dependencies done) → assigned → running → done | failed
 - Result for a reassigned or finished task → **ignored** (idempotence).
 - Every transition is journaled in `events` (the source of Time-Lapse Replay).
 - All state lives in SQLite (`data/hive.db`) and survives restarts.
+- The Balance's **ledger** (per-project spend, **all-time**) is a **rebuildable
+  cache**: `balance_ledger_cache` only speeds up startup, and
+  `DELETE FROM balance_ledger_cache` is enough to rebuild it identically from
+  `results`. Nothing else computed is ever written to the database — the weighing
+  itself is recomputed on demand over a bounded window.
 
 ## 📁 Layout
 
@@ -383,7 +388,7 @@ dashboard/        Vite + React: Mission Control (8 views, FR/EN) · SwarmView 2D
 tests/            scheduler · adapters · e2e · resilience · protocol · hardening
                   invite · planner · hive-mind · sting-detector · drone-wars
                   concierge · reviews · night-shift · waggle · merge
-                  pheromones · thermo · brood · store-scaling — 374 tests
+                  pheromones · thermo · brood · store-scaling — 496 tests
 ```
 
 ## 🧭 Roadmap
