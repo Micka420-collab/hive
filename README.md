@@ -8,6 +8,8 @@
 
 **🌐 [Découvrir Hive — le site vitrine](https://micka420-collab.github.io/hive/)**
 
+**🤝 [Proposer un projet à la ruche](https://github.com/Micka420-collab/hive/issues/new?template=proposer-un-projet.yml)** · [voir les projets proposés](https://github.com/Micka420-collab/hive/issues?q=is%3Aissue+label%3A%22projet+propos%C3%A9%22)
+
 <sub>Le site vit dans `site/` et se déploie tout seul à chaque push sur `main`. Première mise en ligne : **Settings → Pages → Source : GitHub Actions**, puis relancer le workflow _Site_. (Sur un dépôt privé, Pages demande une offre payante ; sur un dépôt public, c'est gratuit.)</sub>
 
 <p align="center">
