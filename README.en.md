@@ -65,6 +65,20 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
                                   └────────────────┘
 ```
 
+## ⚡ Install (one command)
+
+```bash
+npm run setup
+```
+
+Checks Node, installs dependencies, generates a random token, writes a
+commented `.env` with mode `600`, and detects your coding agent. It touches
+**nothing** outside the project folder: no `sudo`, no system package, no
+startup service.
+
+Safe to re-run: **a value already present in `.env` is never rewritten** —
+overwriting a live token would cut off every connected node.
+
 ## 🚀 Quick start (demo)
 
 Prerequisite: **Node.js ≥ 20**.
