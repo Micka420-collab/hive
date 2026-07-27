@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   artefactCloudflared,
+  diagnosticContenu,
+  enTeteAttendu,
+  enTeteValide,
   estArchive,
   etapesTunnelNomme,
   hoteValide,
@@ -161,6 +164,51 @@ describe('les étapes du tunnel nommé', () => {
 
   it('l’URL stable est celle que les invitations pourront contenir', () => {
     expect(urlStable('hive.exemple.com')).toBe('wss://hive.exemple.com/ws');
+  });
+});
+
+describe('l’intégrité de ce qui est téléchargé', () => {
+  it('reconnaît l’en-tête attendu par plateforme', () => {
+    expect(enTeteAttendu(linux)?.quoi).toBe('ELF');
+    expect(enTeteAttendu(win)?.quoi).toBe('PE (MZ)');
+    expect(enTeteAttendu(mac)?.quoi).toBe('gzip (.tgz)');
+    expect(enTeteAttendu({ os: 'freebsd', arch: 'x64' })).toBeNull();
+  });
+
+  it('accepte un vrai binaire, refuse tout le reste', () => {
+    expect(enTeteValide(linux, new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x02]))).toBe(true);
+    expect(enTeteValide(win, new Uint8Array([0x4d, 0x5a, 0x90]))).toBe(true);
+    expect(enTeteValide(mac, new Uint8Array([0x1f, 0x8b, 0x08]))).toBe(true);
+    // Un ELF servi à Windows, et réciproquement.
+    expect(enTeteValide(win, new Uint8Array([0x7f, 0x45, 0x4c, 0x46]))).toBe(false);
+    expect(enTeteValide(linux, new Uint8Array([0x4d, 0x5a]))).toBe(false);
+    // Vide ou tronqué.
+    expect(enTeteValide(linux, new Uint8Array([]))).toBe(false);
+    expect(enTeteValide(linux, new Uint8Array([0x7f, 0x45]))).toBe(false);
+  });
+
+  it('sur une plateforme inconnue, n’invente pas un refus', () => {
+    // Faute de savoir ce qu'on attend, bloquer serait arbitraire — et
+    // empêcherait une plateforme future de fonctionner sans raison.
+    expect(enTeteValide({ os: 'sunos', arch: 'x64' }, new Uint8Array([1, 2, 3]))).toBe(true);
+  });
+
+  it('LE mode d’échec réel : une page HTML servie en HTTP 200', () => {
+    // Portail captif Wi-Fi, proxy d'entreprise, blocage réseau. Écrire ce
+    // fichier puis le rendre exécutable produirait une erreur incompréhensible
+    // au premier lancement — le message doit nommer la vraie cause.
+    const html = new TextEncoder().encode('<!DOCTYPE html><html><body>Connexion requise');
+    expect(enTeteValide(linux, html)).toBe(false);
+    expect(diagnosticContenu(html)).toMatch(/portail captif|proxy/i);
+  });
+
+  it('nomme aussi le cas JSON (message d’erreur d’API)', () => {
+    const json = new TextEncoder().encode('{"message":"Not Found"}');
+    expect(diagnosticContenu(json)).toMatch(/JSON/i);
+  });
+
+  it('reste prudent quand il ne sait pas', () => {
+    expect(diagnosticContenu(new Uint8Array([0, 1, 2, 3]))).toMatch(/n’est pas un exécutable/);
   });
 });
 

@@ -27,7 +27,8 @@
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { GhostReport } from './orchestrator/ghost.js';
 import type { Verdict } from './orchestrator/parliament.js';
@@ -57,6 +58,9 @@ import {
   urlRucheDepuisTunnel,
 } from './node-client/tunnel.js';
 import {
+  diagnosticContenu,
+  enTeteAttendu,
+  enTeteValide,
   estArchive,
   etapesTunnelNomme,
   hoteValide,
@@ -773,11 +777,23 @@ async function installerCloudflared(plateforme: {
   const cible = path.join(dossier, plateforme.os === 'win32' ? 'cloudflared.exe' : 'cloudflared');
   console.log(`\n📦 Téléchargement depuis :\n     ${url}\n   vers : ${cible}\n`);
 
+  let empreinte: string;
   try {
     const rep = await fetch(url, { redirect: 'follow' });
     if (!rep.ok) throw new Error(`HTTP ${rep.status}`);
+    const octets = new Uint8Array(await rep.arrayBuffer());
+
+    // On refuse ce qui n'est manifestement pas un exécutable AVANT d'écrire :
+    // le mode d'echec reel n'est presque jamais une attaque, c'est un portail
+    // captif ou un proxy qui renvoie une page HTML en HTTP 200. Ecrire ce
+    // fichier puis le rendre executable produirait une erreur incomprehensible
+    // au premier lancement.
+    if (!enTeteValide(plateforme, octets)) {
+      throw new Error(diagnosticContenu(octets));
+    }
+    empreinte = createHash('sha256').update(octets).digest('hex');
     mkdirSync(dossier, { recursive: true });
-    writeFileSync(cible, Buffer.from(await rep.arrayBuffer()), { mode: 0o755 });
+    writeFileSync(cible, Buffer.from(octets), { mode: 0o755 });
   } catch (err) {
     console.error(
       `\n✘ Téléchargement impossible : ${err instanceof Error ? err.message : String(err)}\n\n` +
@@ -793,7 +809,16 @@ async function installerCloudflared(plateforme: {
   }
 
   const absolu = path.resolve(cible);
-  console.log('✔ Installé.\n');
+  const attendu = enTeteAttendu(plateforme);
+  console.log(
+    `✔ Installé — en-tête ${attendu?.quoi ?? 'vérifié'}, ${(statSync(cible).size / 1048576).toFixed(1)} Mo.`,
+  );
+  console.log(`  SHA-256 : ${empreinte}`);
+  console.log(
+    '  (Cloudflare ne publie pas de manifeste de sommes à une URL stable : cette\n' +
+      '   empreinte est là pour QUI VEUT la comparer à la source. Pour une intégrité\n' +
+      '   réellement signée, passez par le dépôt de paquets Cloudflare — apt/rpm, GPG.)\n',
+  );
   console.log('  Ce dossier n’est pas dans votre PATH. Deux options :\n');
   console.log(`    export PATH="${path.resolve(dossier)}:$PATH"      # cette session`);
   console.log(`    sudo ln -s ${absolu} /usr/local/bin/cloudflared   # définitif\n`);

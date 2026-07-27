@@ -126,6 +126,22 @@ const BUDGET_COUVEUSE = 3_000;
 const REST_RATE_WINDOW_MS = 10_000;
 const REST_RATE_MAX = 400;
 
+/**
+ * Limitation DÉDIÉE de `/api/rejoindre`, bien plus serrée que la globale.
+ *
+ * Cette route est publique par construction (celui qui la frappe n'a pas encore
+ * d'accès) et elle vérifie un secret par PBKDF2 — 100 000 itérations, ~50 ms de
+ * CPU. Sous la seule limite globale (400 requêtes / 10 s), une machine pouvait
+ * réclamer 20 SECONDES de calcul par fenêtre de 10 s : le hub s'arrêtait de
+ * répondre sans qu'aucune faille ne soit exploitée. Un déni de service par
+ * simple usage de la fonctionnalité.
+ *
+ * 10 tentatives par minute et par IP : large pour un humain qui rejoint une
+ * ruche (il le fait une fois), dérisoire pour un attaquant.
+ */
+const JOIN_RATE_WINDOW_MS = 60_000;
+const JOIN_RATE_MAX = 10;
+
 /** Reconstitue un abstract depuis l'index inversé d'OpenAlex. */
 function reconstructAbstract(invertedIndex: Record<string, number[]>): string {
   const words: Array<[string, number]> = [];
@@ -598,7 +614,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // `PUT` : poser un plafond de dépense est une MODIFICATION d'une ressource
     // existante et idempotente — le seul verbe honnête. Sans lui ici, le
     // pré-vol du navigateur refuserait la requête du dashboard.
-    methods: ['GET', 'POST', 'PUT'],
+    // `DELETE` : exclure un membre et révoquer un billet sont des SUPPRESSIONS.
+    // Sans lui, le pré-vol du navigateur refuserait ces deux gestes — le CLI
+    // fonctionnerait (pas de pré-vol hors navigateur), et le défaut n'aurait
+    // été découvert qu'au moment d'écrire l'interface.
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['content-type', 'x-hive-token', 'authorization'],
   });
 
@@ -618,6 +638,45 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply.code(429).send({ error: 'trop de requêtes, réessayez dans un instant' });
     }
   });
+
+  /**
+   * Compteur dédié de `/api/rejoindre`. Séparé du compteur global : celui-ci
+   * protège une ressource particulière (le CPU du PBKDF2), pas le débit général.
+   */
+  const joinHits = new Map<string, { count: number; resetAt: number }>();
+
+  /**
+   * Vrai si cette IP a encore droit à une tentative. NE COMPTE RIEN : seuls les
+   * ÉCHECS sont comptés (`joinEchec`).
+   *
+   * Compter les réussites aurait cassé un usage parfaitement légitime : un
+   * atelier de dix personnes derrière une seule IP publique (le NAT d'un bureau,
+   * d'une école) avec un billet `--uses 10`. Toutes auraient été refusées alors
+   * que l'hôte les avait justement invitées. Et c'était inutile : les
+   * réussites sont DÉJÀ bornées, par le nombre d'usages du billet.
+   *
+   * Ce qu'on veut plafonner, c'est le PBKDF2 payé pour rien — donc l'échec.
+   */
+  function joinAutorise(ip: string): boolean {
+    const h = joinHits.get(ip);
+    return !h || h.resetAt <= Date.now() || h.count < JOIN_RATE_MAX;
+  }
+
+  /** Compte une tentative infructueuse pour cette IP. */
+  function joinEchec(ip: string): void {
+    const now = Date.now();
+    let h = joinHits.get(ip);
+    if (!h || h.resetAt <= now) {
+      h = { count: 0, resetAt: now + JOIN_RATE_WINDOW_MS };
+      joinHits.set(ip, h);
+      // Purge opportuniste : sans elle, la table grandirait d'une entrée par IP
+      // vue, indéfiniment — une fuite mémoire lente sur un hub exposé.
+      if (joinHits.size > 10_000) {
+        for (const [k, v] of joinHits) if (v.resetAt <= now) joinHits.delete(k);
+      }
+    }
+    h.count += 1;
+  }
 
   const dashboardDist = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -881,8 +940,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
+      // Garde de débit AVANT tout travail : le décodage est bon marché, mais la
+      // vérification PBKDF2 qui suit ne l'est pas, et cette route est publique.
+      if (!joinAutorise(req.ip)) {
+        return reply.code(429).send({ error: 'trop de tentatives, réessayez dans une minute' });
+      }
       const decode = decoderBillet(req.body.billet, { id: LIMITS.id, nom: LIMITS.name });
-      if (!decode) return reply.code(400).send({ error: 'billet illisible' });
+      if (!decode) {
+        joinEchec(req.ip);
+        return reply.code(400).send({ error: 'billet illisible' });
+      }
 
       const now = Date.now();
       const range = store.getBillet(decode.id);
@@ -898,11 +965,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // « secret invalide » dirait à un inconnu QUELS identifiants existent.
       // La raison précise part au journal, pour l'hôte, jamais au client.
       const refuser = (refus: string) => {
+        joinEchec(req.ip);
         emitEvent('invite_rejected', { ticketId: decode.id, refus });
         return reply.code(401).send({ error: 'billet refusé' });
       };
       if (!juge.ok) return refuser(juge.refus);
       if (!empreinteValide(decode.secret, range!.secretHash)) return refuser('secret_invalide');
+
+      // L'IDENTIFIANT EST-IL LIBRE ? Vérifié APRÈS le secret (on ne renseigne
+      // pas un inconnu sur les nœuds existants) mais AVANT de consommer le
+      // billet (un refus ne doit pas brûler un usage).
+      //
+      // Sans cette garde, `INSERT OR REPLACE` faisait une ROTATION de la clé du
+      // nœud visé : n'importe quel porteur d'un billet valide pouvait éjecter un
+      // membre déjà en place en réclamant son identifiant — par malveillance, ou
+      // simplement parce que deux personnes ont saisi le même nom. Une
+      // fonctionnalité dont l'objet est de protéger les accès ne peut pas offrir
+      // ce geste-là.
+      //
+      // Le déblocage est un GESTE HUMAIN DE L'HÔTE (`exclure`), comme le merge
+      // et comme le plafond : re-clé d'un nœud existant est une décision, pas un
+      // effet de bord d'une requête anonyme.
+      const existante = store.getCleNoeud(req.body.nodeId);
+      if (existante && existante.revokedAt === null) {
+        joinEchec(req.ip);
+        emitEvent('invite_rejected', { ticketId: decode.id, refus: 'identifiant_occupe' });
+        return reply.code(409).send({
+          error: 'identifiant de nœud déjà utilisé',
+          detail:
+            "Ce nœud possède déjà une clé. Si c'est bien votre machine et que vous avez perdu " +
+            'sa clé, demandez à l’hôte de la ruche : npm run cli -- exclure ' +
+            req.body.nodeId,
+        });
+      }
+
       // Consommation ATOMIQUE : deux nœuds qui présentent le même billet à
       // usage unique au même instant ne peuvent pas réussir tous les deux.
       if (!store.consommerBillet(decode.id, now)) return refuser('course_perdue');
