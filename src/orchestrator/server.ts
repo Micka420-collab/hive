@@ -23,6 +23,8 @@ import type { HiveEvent, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
+import { CORPUS_GARDIENNES, replierInspections } from './gardiennes.js';
+import type { ModeGardiennes, VueGardiennes } from './gardiennes.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -60,6 +62,15 @@ const MEMORY_RETENTION = 2_000;
 const RESULT_RETENTION = 5_000;
 
 /**
+ * Nombre de verdicts des Gardiennes conservés. Aligné sur EVENT_RETENTION et
+ * RESULT_RETENTION : les trois racontent la même histoire récente, et un
+ * verdict dont le `diff` et les `logs` ont déjà été vidés par `pruneResults` a
+ * de toute façon perdu ses pièces à conviction. C'est la BORNE D'ÉLAGAGE que la
+ * doctrine (règle 3, balance.ts) exige dans le même commit que la table.
+ */
+const GARDIENNES_RETENTION = 5_000;
+
+/**
  * Mémoïsation de /api/pheromones : le repli est identique d'une seconde à
  * l'autre (corpus de 500 résultats, demi-vie de 7 jours). Sans ce TTL, N
  * dashboards en polling déclenchaient N calculs concurrents sur le même tick.
@@ -73,6 +84,13 @@ const PHEROMONES_TTL_MS = 3_000;
  * seule I/O) ; les replis dérivés sont calculés une fois par socle.
  */
 const BALANCE_TTL_MS = 3_000;
+
+/**
+ * Mémoïsation de /api/gardiennes — même raisonnement que PHEROMONES_TTL_MS. Le
+ * repli est identique d'une seconde à l'autre (corpus borné à
+ * CORPUS_GARDIENNES) : N dashboards en polling = 1 lecture.
+ */
+const GARDIENNES_TTL_MS = 3_000;
 
 /**
  * Plafond maximal acceptable : dix ans de temps machine, en millisecondes.
@@ -124,6 +142,13 @@ export interface ServerConfig {
    * continue de compiler : l'ajout de la Balance ne casse aucun contrat.
    */
   balance?: 'off' | 'observation' | 'strict';
+  /**
+   * HIVE_GARDIENNES : off | consultatif | strict. Défaut `consultatif` — la
+   * ruche renifle chaque production et range son verdict, sans jamais rien
+   * refuser. Optionnel (comme `balance`) pour que tout appelant existant de
+   * `createServer` continue de compiler.
+   */
+  gardiennes?: ModeGardiennes;
 }
 
 /**
@@ -160,6 +185,13 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       env.HIVE_BALANCE === 'off' || env.HIVE_BALANCE === 'strict'
         ? env.HIVE_BALANCE
         : 'observation',
+    // Même règle : une faute de frappe retombe sur le défaut NON contraignant,
+    // jamais sur `strict`. Se tromper de valeur ne doit pas pouvoir fermer le
+    // trou de vol.
+    gardiennes:
+      env.HIVE_GARDIENNES === 'off' || env.HIVE_GARDIENNES === 'strict'
+        ? env.HIVE_GARDIENNES
+        : 'consultatif',
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -256,6 +288,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // servi par /api/pheromones — N dashboards en polling = 1 calcul.
   const cacheDomaines = new CacheDomaines();
   let pheromonesMemo: { calculeA: number; traces: TraceePheromone[] } | null = null;
+  // Les Gardiennes : même mémoïsation à TTL court que les phéromones — le repli
+  // d'un corpus borné est identique d'une seconde à l'autre.
+  let gardiennesMemo: { calculeA: number; vue: VueGardiennes } | null = null;
 
   const send = (ws: WebSocket, msg: ServerMessage): void => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -456,6 +491,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const scheduler = new Scheduler(store, {
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
+    // Les Gardiennes : le contrôle d'entrée du nectar. Défaut `consultatif` —
+    // on renifle et on annote, on ne refuse rien.
+    gardiennes: { mode: config.gardiennes ?? 'consultatif' },
     // Drone Wars : annuler le travail d'un drone perdant (ou d'une course annulée).
     onCancel: (nodeId, taskId, reason) => {
       const ws = nodeSockets.get(nodeId);
@@ -827,6 +865,28 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       pheromonesMemo = { calculeA: now, traces: replierTraces(domaines, resultats, now) };
     }
     return { traces: pheromonesMemo.traces.slice(0, 30) };
+  });
+
+  // Les Gardiennes : ce que le contrôle d'entrée a refusé — ou seulement noté.
+  // Vue dérivée PURE (`replierInspections`) d'un corpus BORNÉ des dernières
+  // inspections, jamais matérialisée.
+  //
+  // Ce qui est LU ici, en revanche, a bel et bien été écrit : le verdict n'est
+  // pas recalculable après coup (`pruneResults` vide `diff` et `logs` au-delà
+  // de 5 000 résultats), il est donc rangé à la RÉCEPTION du résultat. Cette
+  // route ne fait que replier des faits datés.
+  //
+  // `mode` est dans la réponse, et il est indispensable : en `consultatif`,
+  // `refusees` vaut toujours 0 — non pas parce que rien n'est creux, mais parce
+  // que rien n'est refusé. Sans le mode, un zéro se lirait comme une bonne
+  // nouvelle.
+  app.get('/api/gardiennes', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    if (!gardiennesMemo || now - gardiennesMemo.calculeA >= GARDIENNES_TTL_MS) {
+      gardiennesMemo = { calculeA: now, vue: replierInspections(store.listInspections()) };
+    }
+    return { ...gardiennesMemo.vue, mode: scheduler.gardiennes.mode, fenetre: CORPUS_GARDIENNES };
   });
 
   // La Balance : où est passé le temps-ouvrière que la ruche a emprunté à ses
@@ -2217,10 +2277,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           if (!encoreMuettes.has(taskId)) contextesRelivres.delete(taskId);
         }
       }
-      // Borne la croissance du journal, de la mémoire Hive Mind et des résultats.
+      // Borne la croissance du journal, de la mémoire Hive Mind, des résultats
+      // et des verdicts de garde (doctrine, règle 3 : une table nouvelle arrive
+      // avec sa borne d'élagage, et la borne est CÂBLÉE, pas seulement écrite).
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
+      store.pruneGardiennes(GARDIENNES_RETENTION);
       // Purge des compteurs de débit expirés (borne la map par IP).
       const now = Date.now();
       for (const [ip, h] of apiHits) {

@@ -168,7 +168,9 @@ describe('endpoints de la Balance', () => {
     const rejetee = creer('rejetee', 'done');
     const echouee = creer('echouee', 'failed');
     server.store.setTaskReview(rejetee, 'rejected');
-    const poser = (taskId: string, success: boolean, durationMs: number): void =>
+    // `insertResult` rend désormais le `results.id` inséré (les Gardiennes y
+    // rattachent leur verdict) : l'aide locale le propage plutôt que de le taire.
+    const poser = (taskId: string, success: boolean, durationMs: number): number =>
       server.store.insertResult({
         taskId,
         nodeId: 'n1',
