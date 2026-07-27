@@ -29,7 +29,7 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
 
 |                          |                                                                                                                                                                                                                                                                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🎛️ **Mission Control**   | 8 navigable views (honeycomb sidebar, keys 1-8, deep links `#/view/id`), **bilingual FR/EN interface** (topbar toggle): Hive, Queen, Honey House, Projects, Swarm, Health, Chronicle, Memory.                                                                                                                           |
+| 🎛️ **Mission Control**   | 10 navigable views (honeycomb sidebar, keys 1-9 and 0, deep links `#/view/id`), **bilingual FR/EN interface** (topbar toggle): Hive, Queen, Honey House, Projects, Swarm, Health, Chronicle, Memory, My space, Stewardship (admins).                                                                                    |
 | 👑 **The Queen replies** | Multilingual chat with the hive (`POST /api/chat`, CLI `ask`): real progress, health, leaderboard, brief-writing guidance. Optional AI mode, guaranteed offline fallback.                                                                                                                                               |
 | 🍯 **Honey House**       | Review center for AI production: per-file diffs, logs, Parliament consensus, keyboard approval (j/k/a/x), one-gesture Honeycomb merge.                                                                                                                                                                                  |
 | 🧠 **Queen Bee**         | Describe a project in one sentence → a **task DAG** is generated (heuristic or AI).                                                                                                                                                                                                                                     |
@@ -111,7 +111,7 @@ adapter, no process spawned, default token tolerated (only in this mode).
 ## 🎛️ Mission Control — the cockpit
 
 The dashboard (served on `:7777`) is a full hive-management application,
-keyboard-navigable (keys **1-8**) through a honeycomb sidebar:
+keyboard-navigable (keys **1-9** and `0`) through a honeycomb sidebar:
 
 | View               | What you do there                                                                                                                      |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -123,6 +123,19 @@ keyboard-navigable (keys **1-8**) through a honeycomb sidebar:
 | 💓 **Health**      | Hive pulse (throughput, p50/p95 latency, success rate) + Ghost anomalies.                                                              |
 | 📜 **Chronicle**   | Filterable journal + Time-Lapse Replay (sepia "you are watching the past" mode).                                                       |
 | 🧠 **Memory**      | Search the hive's knowledge (Hive Mind) + OpenAlex scientific library.                                                                 |
+| 🪪 **My space**    | One person's dashboard: their projects, quota, subscriptions, machines — and whatever needs their attention, ranked by urgency.        |
+| 🖥 **Stewardship**  | _Administrators only._ The machines started for subscribers, and the hive's accounts.                                                  |
+
+**My space** answers a single question: _what will cost me something if I do
+nothing today?_ Alerts therefore come before cards, and their order is a stance
+— what is **irreversible** (data about to be erased) outranks what stops the
+service, which outranks a quota running low. A bill can be paid after the fact;
+erased data does not come back.
+
+**Stewardship** requires an administrator ACCOUNT, never the hive token alone:
+that token is handed to every member node, and using it as proof would give full
+powers to any machine that forages. The first account created is an
+administrator, and the last one cannot step down.
 
 Review decisions are **shared across all operators** (stored on the
 orchestrator, synced in real time over WebSocket; offline localStorage

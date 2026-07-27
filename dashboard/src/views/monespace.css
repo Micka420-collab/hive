@@ -1,0 +1,365 @@
+/* Vue Mon espace (préfixe me-) — le tableau de bord d'une personne.
+   Thème miel sombre via les variables :root de styles.css.
+
+   Hiérarchie visuelle : les alertes tiennent le haut et la couleur ; les
+   projets viennent après, calmes. Un écran où tout crie n'alerte sur rien. */
+
+.me-view {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── L'accueil sans compte ───────────────────────────────────────────── */
+
+.me-accueil {
+  padding: 22px 24px;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.me-accueil h2 {
+  font-size: 15px;
+}
+
+.me-accueil p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.me-accueil-action {
+  color: var(--honey);
+  font-weight: 600;
+}
+
+/* ─── L'en-tête chiffré ───────────────────────────────────────────────── */
+
+.me-tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.me-tuile {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.me-tuile.chaud {
+  border-color: var(--amber);
+  background: rgba(229, 142, 38, 0.09);
+}
+
+.me-tuile-valeur {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.me-tuile.chaud .me-tuile-valeur {
+  color: var(--gold);
+}
+
+.me-tuile-libelle {
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.me-note {
+  margin: 0 14px 14px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ─── Les alertes ─────────────────────────────────────────────────────── */
+
+.me-alertes.calme {
+  border-color: var(--border);
+}
+
+.me-rien {
+  padding: 16px 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.me-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.me-alerte {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--panel-2);
+}
+
+.me-alerte:last-child {
+  border-bottom: 0;
+}
+
+/* La couleur ne porte JAMAIS l'information seule : la puce la double, et le
+   message dit toujours ce qui se passe en toutes lettres. */
+.me-alerte.critique {
+  border-left: 3px solid var(--red);
+}
+
+.me-alerte.attention {
+  border-left: 3px solid var(--amber);
+}
+
+.me-alerte.info {
+  border-left: 3px solid var(--blue);
+}
+
+.me-puce {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.me-alerte-corps {
+  flex: 1;
+  min-width: 0;
+}
+
+.me-alerte-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.me-alerte-projet {
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--honey);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.me-jours {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ─── Les cartes de projet ────────────────────────────────────────────── */
+
+.me-vide {
+  padding: 0 16px 18px;
+  max-width: 640px;
+  line-height: 1.55;
+}
+
+.me-grille {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+
+.me-carte {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Un projet qui ne butine plus s'estompe — mais reste lisible : c'est
+   justement celui dont on veut lire le motif. */
+.me-carte.inactive {
+  opacity: 0.78;
+  border-style: dashed;
+}
+
+.me-carte-tete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.me-carte-nom {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.me-carte-nom:hover {
+  color: var(--honey);
+}
+
+.me-role {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--gold);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.me-faits {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px 12px;
+}
+
+.me-faits dt {
+  font-size: 10px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.me-faits dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.me-faits dd small {
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+.me-etat {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.me-etat.actif {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.me-etat.impaye {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.me-etat.expire,
+.me-etat.annule {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.me-plan {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* ─── La jauge de quota ───────────────────────────────────────────────── */
+
+.me-jauge-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.me-jauge {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.me-jauge span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), var(--honey));
+  transition: width 0.3s;
+}
+
+.me-jauge.haute span {
+  background: var(--amber);
+}
+
+.me-jauge.pleine span {
+  background: var(--red);
+}
+
+.me-jauge-texte {
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.me-sans-plafond {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+  font-style: italic;
+}
+
+.me-motif {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--amber);
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .me-view {
+    padding: 12px;
+  }
+}

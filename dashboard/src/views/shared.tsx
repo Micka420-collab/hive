@@ -26,6 +26,7 @@ export type ViewId =
   | 'chronique'
   | 'memoire'
   | 'reine'
+  | 'monespace'
   | 'intendance';
 
 export interface ViewProps {
