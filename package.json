@@ -13,6 +13,8 @@
     "join": "tsx src/node-client/join.ts",
     "demo": "tsx src/demo.ts",
     "cli": "tsx src/cli.ts",
+    "install:hive": "tsx src/installer-main.ts",
+    "setup": "npm install && npm run install:hive",
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:dashboard": "tsc -p dashboard/tsconfig.json",
     "build": "npm run typecheck && npm run typecheck:dashboard && npm run build:dashboard",

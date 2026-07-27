@@ -354,6 +354,7 @@ export function setProjectPlafond(
 /** Un pas que la ruche prendrait maintenant. Miroir de `Pas` (essaim.ts). */
 export type PasEssaim =
   | 'inerte'
+  | 'halte'
   | 'plafond'
   | 'deliberer'
   | 'planifier'
@@ -376,8 +377,26 @@ export interface LeconEssaim {
   vueA: number;
 }
 
+export interface IndicateurDerive {
+  cle: 'qualite' | 'entropie' | 'repetition' | 'solitude';
+  etat: 'saine' | 'a_surveiller' | 'degradee' | 'indeterminee';
+  valeur: number;
+  unite: 'points' | 'part' | 'jours';
+  seuil: number;
+  constat: string;
+}
+
+export interface DeriveUi {
+  etat: 'saine' | 'a_surveiller' | 'degradee' | 'indeterminee';
+  indicateurs: IndicateurDerive[];
+  echantillon: number;
+  solitudeJours: number;
+  motif: string;
+}
+
 export interface EtatEssaimUi {
   niveau: NiveauEssaim;
+  derive: DeriveUi;
   decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;
   gouvernantesRequises: number;

@@ -14,6 +14,8 @@ export interface AdapterProgress {
   log?: string;
 }
 
+import type { Fournisseur } from '../node-client/isolement.js';
+
 export interface AdapterContext {
   /** Répertoire de travail isolé de la tâche (sandbox v0). */
   cwd: string;
@@ -25,6 +27,20 @@ export interface AdapterContext {
   signal: AbortSignal;
   /** Remontée de progrès vers l'orchestrateur (sous-agents, logs). */
   onProgress: (progress: AdapterProgress) => void;
+  /**
+   * Bac à sable dans lequel envelopper la commande, s'il y en a un.
+   *
+   * Résolu UNE FOIS au démarrage du nœud, jamais par tâche : sonder un binaire
+   * à chaque butinage coûterait un `spawn` de plus par tâche pour une réponse
+   * qui ne change pas. Absent ⇒ la commande part telle quelle, avec la seule
+   * sandbox de processus (voir `isolement.ts` pour ce que cela protège, et
+   * surtout pour ce que cela ne protège pas).
+   */
+  bac?: {
+    fournisseur: Fournisseur;
+    /** Noms — jamais valeurs — des variables à transmettre dans le bac. */
+    variables: readonly string[];
+  };
 }
 
 export interface AdapterResult {

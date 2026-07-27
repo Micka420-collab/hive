@@ -1745,9 +1745,14 @@
         </div>
       </div>
       <p class="warn" data-i18n="sec.warn">
-        <strong>Limite assumée (sandbox v0)</strong> — un processus réel peut lire le disque et
-        accéder au réseau. D'ici l'isolation VM/conteneur, ne faites tourner Hive qu'entre membres
-        de confiance.
+        <strong>Ce que l'isolement ne fait pas</strong> — avec podman, docker ou bubblewrap
+        installé, l'agent ne voit que le répertoire de sa tâche : ni votre HOME, ni vos clés SSH, ni
+        vos autres projets. Le <strong>réseau reste ouvert</strong>, parce qu'un agent de codage
+        doit joindre l'API de son modèle. L'isolement l'empêche donc de <em>lire</em> votre machine,
+        pas d'<em>envoyer</em> ce qu'il a produit. Sans moteur de conteneurs, il ne reste qu'une
+        sandbox de processus : dans ce cas, ne faites tourner Hive qu'entre gens de confiance — ou
+        passez <code>HIVE_ISOLEMENT=exige</code> pour que le nœud refuse de travailler sans bac à
+        sable.
       </p>
     </section>
 
@@ -2096,7 +2101,7 @@
           'sec.7': 'API keys stay with the member — <strong>never exfiltrated</strong>',
           'sec.8': 'Merging is always an <strong>explicit human gesture</strong>',
           'sec.warn':
-            '<strong>Known limit (sandbox v0)</strong> — a real process can read the disk and reach the network. Until VM/container isolation lands, only run Hive between trusted members.',
+            '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
           'nav.community': 'Community',
           'nav.rush': 'Rush',
           'co.cloud.lien': 'See the offers and the economic model →',

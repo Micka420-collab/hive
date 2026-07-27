@@ -159,6 +159,33 @@ CREATE TABLE IF NOT EXISTS essaim (
   updatedAt     INTEGER NOT NULL
 );
 
+-- Les abonnements — l'etat d'un droit, jamais un moyen de paiement.
+--
+-- CE QUI N'ENTRE JAMAIS ICI : numero de carte, IBAN, adresse de facturation,
+-- nom de porteur. Le processeur de paiement les detient ; cette table n'a
+-- qu'un identifiant OPAQUE (refExterne) et un etat. Detenir une donnee de
+-- carte ferait entrer toute ruche auto-hebergee dans le perimetre PCI-DSS,
+-- qu'aucun particulier ne peut tenir.
+--
+-- UNE INTENTION EXTERIEURE, pas un calcul (regle 1) : l'etat vient du
+-- processeur, via un webhook dont la signature est verifiee. Rien ici ne naît
+-- d'une decision de la ruche.
+--
+-- BORNE STRUCTURELLE (regle 3), comme « budgets » et « essaim » : une ligne
+-- par projet. Pas d'elagueur, et il ne faut jamais en ajouter — effacer la
+-- ligne d'un client qui paie lui retirerait ses droits sans que personne le
+-- sache.
+CREATE TABLE IF NOT EXISTS abonnements (
+  projectId    TEXT PRIMARY KEY REFERENCES projects(id),
+  plan         TEXT NOT NULL,
+  etat         TEXT NOT NULL,
+  refExterne   TEXT NOT NULL DEFAULT '',
+  finPeriode   INTEGER,
+  impayeDepuis INTEGER,
+  version      INTEGER NOT NULL DEFAULT 1,
+  majA         INTEGER NOT NULL
+);
+
 -- La Balance — CACHE RECONSTRUCTIBLE du grand livre. Son nom le dit, et c'est
 -- délibéré : balance_ledger_cache n'est PAS une source de vérité. La vérité
 -- reste results, et cette table peut être effacée à tout moment sans perdre
@@ -1313,6 +1340,124 @@ export class HiveStore {
   // elle n'a pas d'élagueur.
 
   /** Pose (ou retire) le réglage d'autonomie d'un projet. */
+  // ─── La Dérive : de quoi mesurer une dégradation lente ─────────────────────
+
+  /**
+   * Productions récentes, jointes à leur verdict de Gardienne.
+   *
+   * BORNÉ par `limit`, et servi par un parcours arrière de clé primaire. La
+   * jointure est sur `gardiennes.resultId`, indexé : une production sans
+   * inspection (mode « off », ou echec declare) sort avec le verdict « clean »
+   * et un diff vide, donc n'influence ni la qualite ni l'entropie.
+   *
+   * Les lignes retenues portent le DIFF, dont on ne garde que le compte de
+   * lignes — jamais le contenu. `pruneResults` vide `diff` au-dela de 5 000
+   * resultats : les productions anciennes comptent alors 0/0, ce qui les sort
+   * de la mesure d'entropie au lieu de la fausser.
+   */
+  listProductionsPourDerive(limit = 400): Array<{
+    verdict: string;
+    diff: string;
+    logs: string;
+    success: boolean;
+    createdAt: number;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT COALESCE(g.verdict, 'clean') AS verdict, r.diff AS diff, r.logs AS logs,
+                r.success AS success, r.createdAt AS createdAt
+           FROM results r
+           LEFT JOIN gardiennes g ON g.resultId = r.id
+          ORDER BY r.id DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map((row) => {
+        const r = row as {
+          verdict: string;
+          diff: string | null;
+          logs: string | null;
+          success: number;
+          createdAt: number;
+        };
+        return {
+          verdict: r.verdict,
+          diff: r.diff ?? '',
+          logs: r.logs ?? '',
+          success: r.success === 1,
+          createdAt: r.createdAt,
+        };
+      });
+  }
+
+  /**
+   * Horodatage du dernier APPORT HUMAIN — la seule chose qui remette à zéro la
+   * solitude de la ruche.
+   *
+   * Un apport humain est un geste qu'aucun agent ne peut poser : creer un
+   * projet, poser un plafond, regler l'autonomie. Deliberement PAS « une tache
+   * creee », qui peut venir de la ruche elle-meme — sinon une ruche autonome
+   * remettrait sa propre solitude a zero a chaque cycle, et l'indicateur ne
+   * mesurerait plus rien.
+   */
+  dernierApportHumain(): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(t) AS t FROM (
+           SELECT MAX(createdAt) AS t FROM projects
+           UNION ALL SELECT MAX(updatedAt) FROM budgets
+           UNION ALL SELECT MAX(updatedAt) FROM essaim
+         )`,
+      )
+      .get() as { t: number | null } | undefined;
+    return row?.t ?? null;
+  }
+
+  // ─── Les abonnements : un droit, jamais un moyen de paiement ───────────────
+
+  /** Range l'etat d'un abonnement. Aucun champ ne porte de donnee de carte. */
+  setAbonnement(a: {
+    projectId: string;
+    plan: string;
+    etat: string;
+    refExterne: string;
+    finPeriode: number | null;
+    impayeDepuis: number | null;
+    majA: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO abonnements (projectId, plan, etat, refExterne, finPeriode, impayeDepuis, version, majA)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           plan = excluded.plan,
+           etat = excluded.etat,
+           refExterne = excluded.refExterne,
+           finPeriode = excluded.finPeriode,
+           impayeDepuis = excluded.impayeDepuis,
+           majA = excluded.majA`,
+      )
+      .run(a.projectId, a.plan, a.etat, a.refExterne, a.finPeriode, a.impayeDepuis, a.majA);
+  }
+
+  /** Abonnement d'un projet. `null` s'il n'en a aucun. */
+  getAbonnement(projectId: string): {
+    projectId: string;
+    plan: string;
+    etat: string;
+    refExterne: string;
+    finPeriode: number | null;
+    impayeDepuis: number | null;
+    majA: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT projectId, plan, etat, refExterne, finPeriode, impayeDepuis, majA
+           FROM abonnements WHERE projectId = ?`,
+      )
+      .get(projectId);
+    return (row as ReturnType<HiveStore['getAbonnement']>) ?? null;
+  }
+
   setEssaim(
     projectId: string,
     reglage: { niveau: string; depotInscrit: boolean } | null,

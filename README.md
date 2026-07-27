@@ -71,6 +71,20 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
                                   └────────────────┘
 ```
 
+## ⚡ Installation (une commande)
+
+```bash
+npm run setup
+```
+
+Vérifie Node, installe les dépendances, engendre un jeton aléatoire, écrit un
+`.env` commenté en `600`, et détecte votre agent de codage. Il ne touche à
+**rien** en dehors du dossier du projet : pas de `sudo`, pas de paquet système,
+pas de service au démarrage.
+
+Relançable sans risque : **une valeur déjà présente dans `.env` n'est jamais
+réécrite** — écraser un jeton en service couperait tous les nœuds connectés.
+
 ## 🚀 Démarrage rapide (démo)
 
 Prérequis : **Node.js ≥ 20**.
