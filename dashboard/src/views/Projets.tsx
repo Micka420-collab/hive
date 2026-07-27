@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   addTasks,
+  fetchBalance,
   fetchConflicts,
   fetchMergePlan,
   fetchMergeResult,
@@ -13,9 +14,10 @@ import {
   planBrief,
   runMerge,
 } from '../api';
-import type { MergeRunResult, NewTaskInput, PlanResponse } from '../api';
+import type { BalanceState, MergeRunResult, NewTaskInput, PlanResponse } from '../api';
 import { useLang, useT } from '../i18n';
 import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
+import { BalanceProjet, CarteDevis } from './Balance';
 import { Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
@@ -202,6 +204,13 @@ function QueenBee({ projects }: { projects: Project[] }) {
                 );
               })}
             </ul>
+            {/* Devis (la Balance, « prévoir ») : `null` — ou absent, sur un
+                orchestrateur d'avant le pèse-ruche — ⇒ SILENCE complet, jamais
+                un « 0 » qui se lirait comme « gratuit ». Placé après le plan
+                qu'il chiffre et avant l'envoi : c'est le dernier chiffre qu'on
+                regarde avant de déposer les tâches. Volontairement loin de tout
+                solde et de tout plafond — voir CarteDevis. */}
+            {plan.devis && <CarteDevis devis={plan.devis} nbTaches={plan.tasks.length} />}
             <div className="pj-send">
               {projects.length > 0 ? (
                 <>
@@ -548,6 +557,7 @@ function ProjectCard({
   deferred,
   refreshTick,
   selected,
+  balance,
   onOpenTask,
   onNavigate,
 }: {
@@ -558,6 +568,8 @@ function ProjectCard({
   deferred: Set<string>;
   refreshTick: number;
   selected: boolean;
+  /** Pesée + soldes de la ruche entière ; `null` tant qu'aucun relevé (ou route absente). */
+  balance: BalanceState | null;
   onOpenTask: ViewProps['onOpenTask'];
   onNavigate: ViewProps['onNavigate'];
 }) {
@@ -571,6 +583,11 @@ function ProjectCard({
   const contributors = report
     ? report.contributingNodes.map((id) => nodeNames.get(id) ?? id.slice(0, 8)).join(', ')
     : '';
+  // La part de ce projet dans la pesée globale, et son solde au grand livre.
+  // Absents ⇒ `null` : ce projet n'a rien dépensé dans la fenêtre / n'a pas de
+  // ligne au livre. `BalanceProjet` se tait alors, plutôt que d'écrire « 0 ».
+  const compteProjet = balance?.pesee.parProjet.find((p) => p.projectId === project.id) ?? null;
+  const soldeProjet = balance?.soldes.find((s) => s.projectId === project.id) ?? null;
 
   return (
     <article className={`card pj-card${selected ? ' pj-selected' : ''}`}>
@@ -619,6 +636,20 @@ function ProjectCard({
             </span>
           </div>
         </>
+      )}
+
+      {/* La Balance à l'échelle du projet : ce que ce projet a coûté en
+          temps-ouvrière. Sous le rapport d'avancement (« où en est-on »), parce
+          qu'elle en est la contrepartie (« ce que ça a pris »). Rendue
+          seulement quand le pèse-ruche a répondu ; sinon la carte projet est
+          rigoureusement celle d'avant. */}
+      {balance && (
+        <BalanceProjet
+          compte={compteProjet}
+          solde={soldeProjet}
+          mode={balance.mode}
+          aJour={balance.aJour}
+        />
       )}
 
       {tasks.length > 0 ? (
@@ -697,6 +728,11 @@ export default function Projets({
     () => new Map<string, string>(snapshot.nodes.map((n) => [n.id, n.name])),
     [snapshot.nodes],
   );
+  // UN SEUL relevé de la Balance pour toutes les cartes : /api/balance rend la
+  // ruche entière (pesée par projet + soldes), une carte par projet en aurait
+  // fait N appels identiques. Erreur ou route absente ⇒ `data` reste null et
+  // aucune carte n'affiche de bloc Balance — les cartes projet sont intactes.
+  const balance = useApiPoll(fetchBalance, 30_000, refreshTick);
 
   return (
     <div className="mc-view pj-view">
@@ -728,6 +764,7 @@ export default function Projets({
               deferred={deferred}
               refreshTick={refreshTick}
               selected={p.id === selectedId}
+              balance={balance.data}
               onOpenTask={onOpenTask}
               onNavigate={onNavigate}
             />

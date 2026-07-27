@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
-import type { BandeThermo } from './api';
+import type { BandeThermo, Domaine } from './api';
 import { useLang } from './i18n';
 import type { Translate, UiLang } from './i18n';
 
@@ -144,4 +144,52 @@ export function bandeText(value: unknown, t: Translate): string {
 /** Durée lisible (ms → « 1,2 s » / « 340 ms »). */
 export function formatMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
+}
+
+// ─── Domaines (phéromones, devis de la Balance) ──────────────────────────────
+// Double libellé fr/en, résolu via `t` au rendu. Ici plutôt que dans une vue :
+// la carte Phéromones (Essaim) et le devis de la Balance (Projets) sont deux
+// chunks lazy distincts — partager la constante par ui.tsx évite d'en tirer un
+// dans l'autre. Même motif que BANDE_LABEL, partagé par Santé et le Journal.
+
+export const DOMAINE_LABEL: Record<Domaine, { fr: string; en: string }> = {
+  api: { fr: 'API', en: 'API' },
+  ui: { fr: 'Interface', en: 'UI' },
+  db: { fr: 'Base de données', en: 'Database' },
+  tests: { fr: 'Tests', en: 'Tests' },
+  docs: { fr: 'Documentation', en: 'Docs' },
+  infra: { fr: 'Infra', en: 'Infra' },
+  general: { fr: 'Général', en: 'General' },
+};
+
+/**
+ * Durée d'AGRÉGAT lisible — l'échelle de la Balance, où l'on additionne des
+ * heures de temps machine et non plus la latence d'une tâche (`formatMs`, qui
+ * reste le bon outil sous la minute).
+ *
+ * Trois paliers, parce qu'un opérateur ne lit pas « 15 132 400 ms » :
+ * millisecondes sous la seconde, secondes sous la minute, puis « m min s » et
+ * « h h min ». Le reste est omis dès que le chiffre de tête est assez gros pour
+ * porter l'ordre de grandeur (au-delà de 10 min / 10 h, la précision fine est
+ * du bruit). Unités s / min / h : identiques en français et en anglais, donc
+ * aucune chaîne à traduire ici.
+ *
+ * JAMAIS de symbole monétaire : l'unité de la Balance est la seconde-ouvrière,
+ * du temps machine PRÊTÉ. Aucun tarif n'est connu de la ruche, et convertir
+ * sans tarif serait inventer un chiffre (balance.ts, `enEuros`).
+ */
+export function formatDuree(ms: number): string {
+  const v = Math.max(0, ms);
+  if (v < 1_000) return `${Math.round(v)} ms`;
+  const s = v / 1_000;
+  // Sous 10 s, une décimale : c'est l'échelle d'une tâche courte, pas du bruit.
+  if (s < 9.95) return `${s.toFixed(1)} s`;
+  const sec = Math.round(s);
+  if (sec < 60) return `${sec} s`;
+  const min = Math.floor(sec / 60);
+  const restSec = sec % 60;
+  if (min < 60) return restSec === 0 || min >= 10 ? `${min} min` : `${min} min ${restSec} s`;
+  const h = Math.floor(min / 60);
+  const restMin = min % 60;
+  return restMin === 0 || h >= 10 ? `${h} h` : `${h} h ${restMin} min`;
 }

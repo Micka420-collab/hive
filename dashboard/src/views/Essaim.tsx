@@ -2,9 +2,9 @@
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
 import { fetchPheromones, fetchRaces, fetchWaggle } from '../api';
-import type { Domaine, NodeNectar, TraceePheromone, WaggleBoard } from '../api';
+import type { NodeNectar, TraceePheromone, WaggleBoard } from '../api';
 import { useT } from '../i18n';
-import { formatMs, ProgressBar } from '../ui';
+import { DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
@@ -204,17 +204,6 @@ function RacesCard({
     </section>
   );
 }
-
-// Double libellé fr/en (constante de module) — résolu via t au rendu.
-const DOMAINE_LABEL: Record<Domaine, { fr: string; en: string }> = {
-  api: { fr: 'API', en: 'API' },
-  ui: { fr: 'Interface', en: 'UI' },
-  db: { fr: 'Base de données', en: 'Database' },
-  tests: { fr: 'Tests', en: 'Tests' },
-  docs: { fr: 'Documentation', en: 'Docs' },
-  infra: { fr: 'Infra', en: 'Infra' },
-  general: { fr: 'Général', en: 'General' },
-};
 
 /**
  * Phéromones : l'affinité apprise nœud × domaine.

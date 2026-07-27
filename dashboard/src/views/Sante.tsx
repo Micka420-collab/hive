@@ -2,10 +2,11 @@
 // dans le journal (Ghost in the Hive). Tout est lu via REST, poll léger.
 
 import { useEffect, useState } from 'react';
-import { fetchGhosts, fetchPulse, fetchThermo } from '../api';
+import { fetchBalance, fetchGhosts, fetchPulse, fetchThermo } from '../api';
 import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
 import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
+import { CarteBalance } from './Balance';
 import { Sparkline, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { StateSnapshot } from '../../../src/shared/types';
@@ -169,6 +170,9 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
   const pulse = useApiPoll(fetchPulse, 20_000, refreshTick);
   const ghost = useApiPoll(fetchGhosts, 30_000, refreshTick);
   const thermo = useApiPoll(fetchThermo, 20_000, refreshTick);
+  // La Balance bouge à l'échelle de l'heure et le serveur la mémoïse : la
+  // cadence des fantômes suffit largement.
+  const balance = useApiPoll(fetchBalance, 30_000, refreshTick);
 
   // Heure locale du dernier relevé effectivement reçu.
   const [lastReading, setLastReading] = useState<number | null>(null);
@@ -183,6 +187,9 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
   // pour une fonctionnalité absente. Une panne SURVENUE ensuite garde le
   // dernier relevé à l'écran et l'annote « relevé figé ».
   const thermoHidden = thermo.data === null && thermo.error !== null;
+  // Même règle pour la Balance : route absente (orchestrateur d'avant le
+  // pèse-ruche) ⇒ la carte n'existe pas, la vue Santé reste entière.
+  const balanceHidden = balance.data === null && balance.error !== null;
 
   return (
     <div className="mc-view es-view">
@@ -231,6 +238,17 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
             <p className="empty pad">{t('Prise de température…', 'Taking the temperature…')}</p>
           )}
         </section>
+      )}
+
+      {/* La Balance vit ici parce que c'est la vue où l'on juge LA RUCHE dans
+          son ensemble — mais elle n'est pas un signe vital et ne rejoint donc
+          jamais les tuiles du pouls : carte à part, vocabulaire à part (temps
+          prêté, postes, fenêtre). « Combien ça a coûté » se lit à côté de
+          « comment ça va », sans se confondre avec. Le détail par projet, lui,
+          vit dans la vue Projets : c'est l'échelle à laquelle on juge un
+          projet, et celle du futur plafond. */}
+      {!balanceHidden && (
+        <CarteBalance balance={balance.data} erreur={balance.error} snapshot={snapshot} />
       )}
 
       <section className="card">
