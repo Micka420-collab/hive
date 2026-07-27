@@ -48,6 +48,16 @@ import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
+  ETATS,
+  PLANS,
+  appliquerEvenement,
+  aucunAbonnement,
+  droits,
+  lireCharge,
+  verifierSignature,
+} from './abonnement.js';
+import type { Abonnement, EtatAbonnement } from './abonnement.js';
+import {
   GOUVERNANTES_MIN,
   NIVEAUX,
   deciderPas,
@@ -687,6 +697,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     'application/json',
     { parseAs: 'string' },
     (_req, body: string, done) => {
+      // Le corps BRUT est conservé pour la seule route qui en a besoin : la
+      // signature d'un webhook porte sur les octets reçus, pas sur le JSON
+      // reparsé. Re-sérialiser changerait l'ordre des clés et les espaces,
+      // donc la signature — et on refuserait des appels authentiques.
+      (_req as { rawBody?: string }).rawBody = body;
       if (body.trim() === '') {
         done(null, undefined);
         return;
@@ -1611,6 +1626,110 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         .send({ niveau: e.niveau, depotInscrit: e.depotInscrit, decision: e.decision });
     },
   );
+
+  // ─── Les abonnements : vendre des heures-ouvrières ─────────────────────────
+  //
+  // Hive ne voit AUCUNE donnée de paiement : ni carte, ni IBAN, ni adresse de
+  // facturation. Le processeur les détient ; on n'en garde qu'un identifiant
+  // opaque et un état (abonnement.ts).
+  //
+  // Le secret de signature vient de l'environnement, jamais de la base — même
+  // doctrine que le jeton GitHub. Sans lui, la route REFUSE TOUT : « pas de
+  // secret configuré donc on laisse passer » est la porte dérobée la plus
+  // fréquente de toutes les intégrations de paiement.
+  const secretWebhook = process.env.HIVE_WEBHOOK_SECRET ?? '';
+
+  /** L'abonnement d'un projet, ou l'absence d'abonnement. */
+  const lireAbonnement = (projectId: string): Abonnement => {
+    const range = store.getAbonnement(projectId);
+    if (!range) return aucunAbonnement(projectId);
+    // La base rend une chaîne : on la RÉTRÉCIT ici. Un état inconnu — écrit
+    // par une version plus récente, puis relu après un retour arrière — ne
+    // doit surtout pas donner de droits par accident. Il retombe sur `aucun`,
+    // qui n'en donne aucun.
+    const etat = ETATS.includes(range.etat as EtatAbonnement)
+      ? (range.etat as EtatAbonnement)
+      : 'aucun';
+    return { ...range, etat };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/abonnement',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const now = Date.now();
+      const a = lireAbonnement(req.params.projectId);
+      const d = droits(a, now);
+      return {
+        plan: a.plan,
+        etat: a.etat,
+        finPeriode: a.finPeriode,
+        droits: d,
+        plans: PLANS,
+        // On dit si un secret est configuré, JAMAIS le secret : sans lui,
+        // aucun abonnement ne peut être activé, et le silence sur ce point
+        // ferait chercher la panne au mauvais endroit.
+        webhookConfigure: secretWebhook !== '',
+      };
+    },
+  );
+
+  /**
+   * Webhook du processeur de paiement.
+   *
+   * PAS de garde par jeton de ruche : le processeur ne le connaît pas. C'est
+   * la SIGNATURE qui authentifie, et elle est vérifiée sur le corps BRUT avant
+   * qu'on regarde son contenu. Les deux contrôles sont distincts : la
+   * signature dit que l'expéditeur détient le secret, elle ne dit rien de la
+   * forme de ce qu'il envoie.
+   */
+  app.post('/api/webhooks/abonnement', async (req, reply) => {
+    const brut = (req as { rawBody?: string }).rawBody ?? '';
+    const entete = String(req.headers['x-hive-signature'] ?? '');
+    const now = Date.now();
+
+    const v = verifierSignature({ charge: brut, entete, secret: secretWebhook, now });
+    if (!v.valide) {
+      // 401 et un motif COURT : un message bavard aiderait à forger la requête
+      // suivante. Le détail utile est journalisé côté serveur, pas renvoyé.
+      app.log.warn({ motif: v.motif }, 'webhook d’abonnement refusé');
+      return reply.code(401).send({ error: 'signature refusée' });
+    }
+
+    const evenement = lireCharge(req.body);
+    if (!evenement) return reply.code(400).send({ error: 'charge inexploitable' });
+    if (!store.getProject(evenement.projectId)) {
+      return reply.code(404).send({ error: 'projet inconnu' });
+    }
+
+    const courant = lireAbonnement(evenement.projectId);
+    const suivant = appliquerEvenement(courant, evenement);
+    if (!suivant) {
+      // Événement plus ancien que l'état courant, ou plan inconnu : on accuse
+      // réception sans rien changer. Renvoyer une erreur ferait re-livrer le
+      // webhook en boucle par le processeur.
+      return { applique: false, motif: 'sans effet' };
+    }
+    store.setAbonnement(suivant);
+
+    // Le plafond de La Balance suit les droits : vendre n'ajoute AUCUN
+    // mécanisme d'exécution, cela alimente une porte qui existait déjà.
+    const d = droits(suivant, now);
+    store.setBudget(evenement.projectId, d.plafondMs, 'abonnement');
+
+    // Faits typés seulement — jamais le refExterne, qui identifie un client
+    // chez le processeur et n'a rien à faire dans un journal partagé.
+    emitEvent('subscription_changed', {
+      projectId: evenement.projectId,
+      plan: suivant.plan,
+      etat: suivant.etat,
+      heures: d.heures,
+    });
+    return { applique: true, etat: suivant.etat, heures: d.heures };
+  });
 
   // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
 

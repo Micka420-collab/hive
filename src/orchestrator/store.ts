@@ -159,6 +159,33 @@ CREATE TABLE IF NOT EXISTS essaim (
   updatedAt     INTEGER NOT NULL
 );
 
+-- Les abonnements — l'etat d'un droit, jamais un moyen de paiement.
+--
+-- CE QUI N'ENTRE JAMAIS ICI : numero de carte, IBAN, adresse de facturation,
+-- nom de porteur. Le processeur de paiement les detient ; cette table n'a
+-- qu'un identifiant OPAQUE (refExterne) et un etat. Detenir une donnee de
+-- carte ferait entrer toute ruche auto-hebergee dans le perimetre PCI-DSS,
+-- qu'aucun particulier ne peut tenir.
+--
+-- UNE INTENTION EXTERIEURE, pas un calcul (regle 1) : l'etat vient du
+-- processeur, via un webhook dont la signature est verifiee. Rien ici ne naît
+-- d'une decision de la ruche.
+--
+-- BORNE STRUCTURELLE (regle 3), comme « budgets » et « essaim » : une ligne
+-- par projet. Pas d'elagueur, et il ne faut jamais en ajouter — effacer la
+-- ligne d'un client qui paie lui retirerait ses droits sans que personne le
+-- sache.
+CREATE TABLE IF NOT EXISTS abonnements (
+  projectId    TEXT PRIMARY KEY REFERENCES projects(id),
+  plan         TEXT NOT NULL,
+  etat         TEXT NOT NULL,
+  refExterne   TEXT NOT NULL DEFAULT '',
+  finPeriode   INTEGER,
+  impayeDepuis INTEGER,
+  version      INTEGER NOT NULL DEFAULT 1,
+  majA         INTEGER NOT NULL
+);
+
 -- La Balance — CACHE RECONSTRUCTIBLE du grand livre. Son nom le dit, et c'est
 -- délibéré : balance_ledger_cache n'est PAS une source de vérité. La vérité
 -- reste results, et cette table peut être effacée à tout moment sans perdre
@@ -1383,6 +1410,52 @@ export class HiveStore {
       )
       .get() as { t: number | null } | undefined;
     return row?.t ?? null;
+  }
+
+  // ─── Les abonnements : un droit, jamais un moyen de paiement ───────────────
+
+  /** Range l'etat d'un abonnement. Aucun champ ne porte de donnee de carte. */
+  setAbonnement(a: {
+    projectId: string;
+    plan: string;
+    etat: string;
+    refExterne: string;
+    finPeriode: number | null;
+    impayeDepuis: number | null;
+    majA: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO abonnements (projectId, plan, etat, refExterne, finPeriode, impayeDepuis, version, majA)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           plan = excluded.plan,
+           etat = excluded.etat,
+           refExterne = excluded.refExterne,
+           finPeriode = excluded.finPeriode,
+           impayeDepuis = excluded.impayeDepuis,
+           majA = excluded.majA`,
+      )
+      .run(a.projectId, a.plan, a.etat, a.refExterne, a.finPeriode, a.impayeDepuis, a.majA);
+  }
+
+  /** Abonnement d'un projet. `null` s'il n'en a aucun. */
+  getAbonnement(projectId: string): {
+    projectId: string;
+    plan: string;
+    etat: string;
+    refExterne: string;
+    finPeriode: number | null;
+    impayeDepuis: number | null;
+    majA: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT projectId, plan, etat, refExterne, finPeriode, impayeDepuis, majA
+           FROM abonnements WHERE projectId = ?`,
+      )
+      .get(projectId);
+    return (row as ReturnType<HiveStore['getAbonnement']>) ?? null;
   }
 
   setEssaim(
