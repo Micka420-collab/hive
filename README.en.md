@@ -42,7 +42,7 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
 | 👶 **Brood Chamber**     | A retried task restarts with the **lessons of its previous failures**, injected inside a data block kept separate from instructions (prompt-injection safe). `brood_context` event.                                                                                                                                     |
 | ⚖️ **The Balance**       | The hive scale: **weigh** (useful / rework / failure / rejected), **forecast** (a DAG's estimate) and **cap** — per-project spend cap, doubly opt-in (`HIVE_BALANCE=strict` **and** a cap set by hand). `/api/balance`, `…/projects/:id/balance`.                                                                       |
 | 🛂 **The Guards**        | Entrance control for incoming nectar: a "success" with an **empty diff**, **outside the promised files**, **unapplicable**, or with **logs screaming failure** does not enter on the worker's word. `HIVE_GARDIENNES=off\|consultatif\|strict` (default: annotate, refuse nothing). `/api/gardiennes`, `guard_refused`. |
-| 🤝 **Invite a friend**   | One command to paste — their Claude Code / Codex is auto-detected and joins the hive in 30 s.                                                                                                                                                                                                                           |
+| 🤝 **Invite a friend**   | A **ticket** to paste: ephemeral, counted uses, **revocable**. It grants no power over the hive — it obtains a key **belonging to that machine**, so you can remove **one** person without ejecting the swarm. `tunnel` opens encrypted remote access with no port to forward.                                          |
 | 🔒 **Safe by default**   | Zero `shell: true`, constant-time token, strict CORS, per-task sandbox, keys never exfiltrated. **Never a merge without human review.**                                                                                                                                                                                 |
 | 🧩 **Agent-agnostic**    | `shell` (simulated), `claude-code`, `codex`, `hermes-agent`, `custom` — or your own `AgentAdapter`.                                                                                                                                                                                                                     |
 
@@ -190,37 +190,85 @@ npm run cli -- stings <projectId>            # the project's potential conflicts
 
 ## 🤝 Invite a friend (connect their AI in 30 s)
 
-1. **You (host)** — run the orchestrator with a real token (`npm run dev`),
-   then generate an invitation:
-   - in the **dashboard**: **"+ Invite a friend"** button → copy the command;
-   - or in a **terminal**: `npm run cli -- invite`.
-
-   You get a single command:
-
-   ```
-   npm run join -- hive1_eyJ2IjoxLCJ1cmwiOiJ3cy8v…
-   ```
-
-2. **Your friend** — grabs Hive, runs `npm install`, then **pastes the
-   command**. The URL and token are inside the invitation, **their Claude
-   Code / Codex is auto-detected**, and their node identity is remembered for
-   reconnections.
+1. **You (host)** — start the orchestrator with a real token (`npm run dev`),
+   then create a **ticket**:
 
    ```bash
-   npm run join -- hive1_eyJ2IjoxLCJ1cmwiOiJ3cy8v…
-   # 🐝 Joining the hive: Micka's Hive
-   #    Detected agents : claude-code, shell
-   #    Agent in use    : Claude Code
-   # ✔ Node started — you are foraging for the hive.
+   npm run cli -- invite                    # on the local network
+   npm run cli -- tunnel                    # from anywhere, over encrypted wss://
+   npm run cli -- invite --uses 3 --hours 2 # 3 machines, valid for 2 h
    ```
 
-> ⚠️ **The invitation contains the hive token: it is a secret.** Only share it
-> with people you trust, over a private channel. Your friend's API keys stay
-> **on their machine**, never sent to the hub.
+   You get a single command to send:
 
-**Network address**: the detected local IP by default. For remote access:
-`HIVE_PUBLIC_URL=wss://mydomain:7777/ws`, the dashboard option, or
-`npm run cli -- invite wss://mydomain:7777/ws`.
+   ```
+   npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
+   ```
+
+2. **Your friend** — gets Hive, runs `npm install`, then **pastes the command**.
+   Their Claude Code / Codex is auto-detected, and their node key is remembered
+   across restarts.
+
+   ```bash
+   npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
+   # 🐝 Connecting to: wss://…/ws  ("Micka's Hive")
+   #    🔑 Node key obtained and stored — restarts won't ask again.
+   # ✔ Node started — you're foraging for the hive.
+   ```
+
+### What a ticket is, and what it is not
+
+A ticket **grants no power over the hive**: it only serves to obtain a key that
+belongs to your friend's machine. That is what makes possible what previously
+was not:
+
+|                             |                                                                                                      |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Ephemeral**               | 24 h by default (`--hours`), then it is worthless                                                    |
+| **Counted uses**            | one machine by default (`--uses`)                                                                    |
+| **Revocable**               | `npm run cli -- revoquer <ticketId>`                                                                 |
+| **Individual removal**      | `npm run cli -- exclure <nodeId>` cuts **one** person off, immediately, without touching anyone else |
+| **Nothing stored in clear** | only PBKDF2 hashes are stored: a stolen database grants no access                                    |
+
+```bash
+npm run cli -- membres         # who holds keys, which tickets are still around
+npm run cli -- exclure node-…  # their key becomes worthless, their socket is closed
+```
+
+> A removed member **cannot come back using the master token**: the refusal is
+> final, it does not fall back to the old door.
+
+### Connecting from outside
+
+By default the hive is only reachable on the local network. For a friend
+elsewhere, `npm run cli -- tunnel` opens an encrypted outbound tunnel and issues
+the ticket on it — **no port to open on your router, no VPN, no domain name**:
+
+```bash
+npm run cli -- tunnel
+# 🌍 Opening a tunnel via Cloudflare Quick Tunnel…
+#    ✔ https://xyz.trycloudflare.com  →  wss://xyz.trycloudflare.com/ws
+```
+
+Hive ships **no tunnel dependency**: the command detects a `cloudflared` (or
+`localtunnel`) that you installed yourself. Routing every member's source code
+through a third party must be your choice, not a side effect of `npm install`.
+
+> ⚠️ **`ws://` to a public address is refused by default.** It is not only the
+> ticket that would leak, but **all traffic**: prompts, logs and **source-code
+> diffs**. Use `wss://`, or `--insecure` knowing exactly what you are doing.
+
+**Other address options**: `HIVE_PUBLIC_URL=wss://mydomain/ws`, or
+`npm run cli -- invite wss://mydomain/ws`.
+
+<details>
+<summary>Legacy <code>hive1_</code> format</summary>
+
+`hive1_` invitations contain the **master token**: full access, with no expiry
+and no individual revocation. They are still accepted so existing hives keep
+working, but `npm run join` prints a warning. Issue a ticket as soon as you can.
+
+</details>
 
 ## 🛠️ Scripts
 

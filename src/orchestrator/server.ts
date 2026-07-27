@@ -16,6 +16,19 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { hashPassword, verifyPassword, signJwt, verifyJwt, isValidEmail } from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
+import {
+  TTL_BILLET_MAX_MS,
+  USAGES_MAX,
+  bornerTtl,
+  bornerUsages,
+  decoderBillet,
+  empreinte,
+  empreinteValide,
+  encoderBillet,
+  jugerBillet,
+  jugerTransport,
+  tirerSecret,
+} from '../shared/acces.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -551,6 +564,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // ─── HTTP (REST + dashboard) ───────────────────────────────────────────────
   const app = Fastify({ bodyLimit: 1024 * 1024, logger: false });
 
+  // Un corps VIDE annoncé en JSON vaut « pas de corps », pas une erreur.
+  //
+  // Par défaut Fastify rend `FST_ERR_CTP_EMPTY_JSON_BODY` — un 400 illisible —
+  // dès qu'une requête porte `content-type: application/json` sans corps. C'est
+  // exactement ce que fait un DELETE envoyé par un client qui pose ce header sur
+  // toutes ses requêtes (le CLI de Hive le faisait), et le message n'aide
+  // personne à comprendre pourquoi « exclure un membre » échoue.
+  //
+  // Les routes qui EXIGENT un corps ne sont pas affaiblies : leur schéma porte
+  // `required`, donc elles refusent toujours — mais avec un message qui nomme le
+  // champ manquant.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_req, body: string, done) => {
+      if (body.trim() === '') {
+        done(null, undefined);
+        return;
+      }
+      try {
+        done(null, JSON.parse(body));
+      } catch {
+        const err = new Error('corps JSON illisible') as Error & { statusCode?: number };
+        err.statusCode = 400;
+        done(err, undefined);
+      }
+    },
+  );
+
   await app.register(cors, {
     origin: config.corsOrigins,
     // `PUT` : poser un plafond de dépense est une MODIFICATION d'une ressource
@@ -717,7 +759,243 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         label,
         joinCommand: `npm run join -- ${invite}`,
         note: "Cette invitation contient le token de la ruche : ne la partagez qu'avec des personnes de confiance.",
+        // L'ancien format donne un accès TOTAL et DÉFINITIF. On ne le retire
+        // pas (des ruches tournent avec), mais on ne le laisse plus passer pour
+        // ce qu'il n'est pas : le remplaçant est annoncé ici même.
+        obsolete: {
+          raison:
+            'Ce format partage le token maître : ni expiration, ni usage unique, ni révocation individuelle.',
+          remplacant: 'POST /api/billets',
+        },
       };
+    },
+  );
+
+  // ─── Le trou de vol ────────────────────────────────────────────────────────
+
+  /**
+   * Crée un BILLET : une invitation éphémère, à usage compté et révocable, qui
+   * ne donne aucun pouvoir sur la ruche — elle ne sert qu'à demander une clé.
+   *
+   * Le secret n'existe qu'ici, le temps de la réponse : seule son empreinte est
+   * rangée. Un billet perdu ne se retrouve pas, il se remplace — c'est le prix
+   * (assumé) du fait qu'une base volée ne donne aucun accès.
+   */
+  app.post<{
+    Body: { url?: string; label?: string; ttlMs?: number; uses?: number; insecure?: boolean };
+  }>(
+    '/api/billets',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            url: { type: 'string', maxLength: 300 },
+            label: { type: 'string', maxLength: LIMITS.name },
+            ttlMs: { type: 'integer', minimum: 0, maximum: TTL_BILLET_MAX_MS },
+            uses: { type: 'integer', minimum: 1, maximum: USAGES_MAX },
+            insecure: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const body = req.body ?? {};
+      const wsUrl = body.url ?? config.publicUrl ?? detectLanWsUrl(port);
+      const transport = jugerTransport(wsUrl);
+      if (!transport) {
+        return reply.code(400).send({ error: 'url doit être un ws:// ou wss:// valide' });
+      }
+      // GARDE-FOU : en clair vers l'Internet public, ce n'est pas seulement le
+      // billet qui fuite — c'est TOUT le trafic de la ruche, donc les prompts,
+      // les logs et les DIFFS DE CODE SOURCE des tâches. On refuse par défaut,
+      // et le contournement doit être demandé explicitement (`insecure`) pour
+      // que personne ne le fasse sans le savoir.
+      if (transport === 'clair_public' && body.insecure !== true) {
+        return reply.code(400).send({
+          error: 'transport en clair vers une adresse publique',
+          detail:
+            'ws:// hors réseau privé exposerait le billet ET tout le trafic (prompts, logs, diffs de code) en clair. ' +
+            'Utilisez wss:// (voir `npm run cli -- tunnel`), ou passez insecure=true en connaissance de cause.',
+          url: wsUrl,
+        });
+      }
+
+      const now = Date.now();
+      const id = `bil-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const ttl = bornerTtl(body.ttlMs);
+      const uses = bornerUsages(body.uses);
+      const label = body.label ?? `Ruche Hive (${config.host}:${port})`;
+      store.creerBillet({
+        id,
+        secretHash: empreinte(secret),
+        label,
+        expiresAt: now + ttl,
+        uses,
+        now,
+      });
+      // Fait typé : ni le secret, ni l'empreinte n'entrent au journal.
+      emitEvent('invite_created', { ticketId: id, uses, expiresAt: now + ttl, transport });
+
+      const billet = encoderBillet({ url: wsUrl, id, secret, label });
+      return reply.code(201).send({
+        billet,
+        id,
+        url: wsUrl,
+        label,
+        transport,
+        expiresAt: now + ttl,
+        uses,
+        joinCommand: `npm run join -- ${billet}`,
+        note:
+          uses === 1
+            ? 'Billet à usage UNIQUE : il devient inutile dès que votre ami a rejoint.'
+            : `Billet valable pour ${uses} machines.`,
+      });
+    },
+  );
+
+  /**
+   * Échange un billet contre la clé propre du nœud. Route PUBLIQUE — par
+   * construction : celui qui la frappe n'a pas encore d'accès, c'est tout
+   * l'objet de l'échange. Sa seule défense est le billet lui-même, d'où :
+   * lecture par clé primaire, PBKDF2 payé en dernier, et consommation atomique.
+   */
+  app.post<{ Body: { billet: string; nodeId: string; label?: string } }>(
+    '/api/rejoindre',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['billet', 'nodeId'],
+          properties: {
+            billet: { type: 'string', minLength: 1, maxLength: 2_000 },
+            nodeId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            label: { type: 'string', maxLength: LIMITS.name },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const decode = decoderBillet(req.body.billet, { id: LIMITS.id, nom: LIMITS.name });
+      if (!decode) return reply.code(400).send({ error: 'billet illisible' });
+
+      const now = Date.now();
+      const range = store.getBillet(decode.id);
+      const juge = jugerBillet(
+        range && {
+          expireA: range.expiresAt,
+          usagesRestants: range.usesLeft,
+          revoqueA: range.revokedAt,
+        },
+        now,
+      );
+      // Un seul message pour tous les refus : distinguer « inconnu » de
+      // « secret invalide » dirait à un inconnu QUELS identifiants existent.
+      // La raison précise part au journal, pour l'hôte, jamais au client.
+      const refuser = (refus: string) => {
+        emitEvent('invite_rejected', { ticketId: decode.id, refus });
+        return reply.code(401).send({ error: 'billet refusé' });
+      };
+      if (!juge.ok) return refuser(juge.refus);
+      if (!empreinteValide(decode.secret, range!.secretHash)) return refuser('secret_invalide');
+      // Consommation ATOMIQUE : deux nœuds qui présentent le même billet à
+      // usage unique au même instant ne peuvent pas réussir tous les deux.
+      if (!store.consommerBillet(decode.id, now)) return refuser('course_perdue');
+
+      const cle = tirerSecret();
+      store.poserCleNoeud({
+        nodeId: req.body.nodeId,
+        keyHash: empreinte(cle),
+        label: req.body.label ?? range!.label,
+        ticketId: decode.id,
+        now,
+      });
+      emitEvent('node_joined', { nodeId: req.body.nodeId, ticketId: decode.id });
+      return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
+    },
+  );
+
+  /** Qui a les clés de la ruche. Empreintes jamais exposées. */
+  app.get('/api/membres', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    return {
+      noeuds: store.listClesNoeuds().map((c) => ({
+        nodeId: c.nodeId,
+        label: c.label,
+        createdAt: c.createdAt,
+        lastSeenAt: c.lastSeenAt,
+        revoque: c.revokedAt !== null,
+      })),
+      billets: store.listBillets().map((b) => ({
+        id: b.id,
+        label: b.label,
+        createdAt: b.createdAt,
+        expiresAt: b.expiresAt,
+        usesLeft: b.usesLeft,
+        usesTotal: b.usesTotal,
+        // État calculé plutôt que rangé : un billet devient « expiré » par le
+        // simple passage du temps, sans que personne n'écrive rien.
+        etat:
+          b.revokedAt !== null
+            ? 'revoque'
+            : b.expiresAt <= now
+              ? 'expire'
+              : b.usesLeft <= 0
+                ? 'epuise'
+                : 'vivant',
+      })),
+    };
+  });
+
+  /** Exclure un membre — le geste que l'ancien modèle rendait impossible. */
+  app.delete<{ Params: { nodeId: string } }>(
+    '/api/membres/:nodeId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const fait = store.revoquerCleNoeud(req.params.nodeId);
+      if (!fait) return reply.code(404).send({ error: 'nœud inconnu ou déjà révoqué' });
+      emitEvent('node_revoked', { nodeId: req.params.nodeId });
+      // La révocation doit MORDRE tout de suite : un membre exclu qui reste
+      // connecté jusqu'à sa prochaine reconnexion, ce n'est pas une exclusion.
+      const socket = nodeSockets.get(req.params.nodeId);
+      if (socket) socket.close(4403, 'accès révoqué');
+      return { nodeId: req.params.nodeId, revoque: true };
+    },
+  );
+
+  /** Révoquer un billet encore en circulation. */
+  app.delete<{ Params: { id: string } }>(
+    '/api/billets/:id',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const fait = store.revoquerBillet(req.params.id);
+      if (!fait) return reply.code(404).send({ error: 'billet inconnu ou déjà révoqué' });
+      emitEvent('invite_revoked', { ticketId: req.params.id });
+      return { id: req.params.id, revoque: true };
     },
   );
 
@@ -2017,6 +2295,37 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const port = typeof address === 'object' && address !== null ? address.port : config.port;
 
   // ─── WebSocket temps réel ──────────────────────────────────────────────────
+  /**
+   * Vérifie la clé propre d'un nœud.
+   *
+   *   • `cle`     — clé valide, ce nœud est admis sous sa propre identité.
+   *   • `revoque` — clé connue mais RÉVOQUÉE : refus définitif, et surtout on
+   *                 ne consulte PAS le token maître ensuite. Sans cette
+   *                 distinction, un membre exclu qui aurait retenu le token de
+   *                 ruche rentrerait par la porte de service, et la révocation
+   *                 ne serait qu'un affichage.
+   *   • `refuse`  — aucune clé pour ce nœud, ou clé fausse : l'appelant peut
+   *                 encore tenter le token maître (compatibilité).
+   *
+   * Le PBKDF2 n'est payé QUE si une ligne existe pour ce `nodeId`. Un inconnu
+   * qui bombarde des identifiants au hasard ne déclenche donc aucun calcul —
+   * il ne coûte qu'une lecture par clé primaire.
+   */
+  function verifierAccesNoeud(
+    nodeId: string | undefined,
+    presente: string,
+  ): 'cle' | 'revoque' | 'refuse' {
+    // Sans identifiant annoncé, il ne peut exister aucune clé : le nœud n'a
+    // jamais échangé de billet. On ne cherche même pas — et l'appelant se
+    // rabattra sur le token maître, ce qui est exactement le chemin d'un nœud
+    // d'avant les billets.
+    if (!nodeId) return 'refuse';
+    const rangee = store.getCleNoeud(nodeId);
+    if (!rangee) return 'refuse';
+    if (rangee.revokedAt !== null) return 'revoque';
+    return empreinteValide(presente, rangee.keyHash) ? 'cle' : 'refuse';
+  }
+
   const wss = new WebSocketServer({
     server: app.server,
     path: '/ws',
@@ -2074,10 +2383,30 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // Premier message : authentification (register = nœud, subscribe = dashboard).
         if (role === 'unknown') {
           if (msg.type === 'register') {
-            if (!tokenMatches(msg.token, config.token)) {
+            // Deux clés ouvrent le trou de vol, et l'ordre compte.
+            //
+            // 1. La CLÉ DU NŒUD — le cas normal depuis les billets. Elle est
+            //    propre à ce nœud, donc révocable individuellement : c'est ce
+            //    qui permet enfin d'exclure UNE personne sans éjecter l'essaim.
+            // 2. Le TOKEN DE RUCHE — la clé maîtresse historique. Toujours
+            //    acceptée : la couper aurait déconnecté toutes les ruches
+            //    existantes au premier `git pull`, et une mise à jour de
+            //    sécurité qui casse la production ne se déploie jamais.
+            //
+            // La clé de nœud est essayée D'ABORD : un nœud révoqué qui
+            // connaîtrait aussi le token maître ne doit pas se faufiler par la
+            // seconde porte. `cleNoeudValide` rend `false` sur une clé révoquée,
+            // et on refuse alors sans consulter le token maître.
+            const verdict = verifierAccesNoeud(msg.nodeId, msg.token);
+            if (verdict === 'revoque') {
+              ws.close(4403, 'accès révoqué');
+              return;
+            }
+            if (verdict === 'refuse' && !tokenMatches(msg.token, config.token)) {
               ws.close(4401, 'token invalide');
               return;
             }
+            if (verdict === 'cle' && msg.nodeId) store.toucherCleNoeud(msg.nodeId);
             role = 'node';
             clearTimeout(authTimer);
             const node = scheduler.registerNode({
