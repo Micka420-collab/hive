@@ -1081,6 +1081,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return true;
   };
 
+  /**
+   * Une LECTURE de projet est-elle permise à cet appelant ?
+   *
+   * ─── L'INCOHÉRENCE QUE CE HELPER SUPPRIME ──────────────────────────────────
+   *
+   * Onze routes de l'espace projet se gardent par le seul JETON DE RUCHE, sans
+   * aucune règle par projet, là où Le Rayon, les membres et les partages se
+   * gardent par COMPTE. Conséquence visible tout de suite : un compte qui
+   * appelle l'API sans le jeton de ruche reçoit 401 sur le rapport de SON
+   * PROPRE projet. Le tableau de bord ne s'en aperçoit pas — il envoie les deux
+   * en-têtes — mais toute autre intégration s'y cogne.
+   *
+   * Ce helper AJOUTE la porte du compte, il n'en retire aucune : ce qui passait
+   * hier passe encore. C'est délibérément une ouverture et non un
+   * resserrement — resserrer casserait la CLI (qui n'a que le jeton de ruche)
+   * et le mode « tableau de bord sans compte », tous deux documentés.
+   *
+   * ⚠ CE HELPER NE RÉSOUT PAS le fond du problème, et il ne faut pas le croire.
+   * Le README dit que `HIVE_TOKEN` SE RECOPIE SUR CHAQUE MACHINE MEMBRE : tant
+   * que la porte du jeton reste ouverte sur ces routes, toute abeille de
+   * l'essaim lit le plan de merge, la balance et les tâches de n'importe quel
+   * projet. Trancher cela change le contrat du produit — c'est une décision
+   * d'hôte, pas un correctif qu'on glisse dans un lot.
+   */
+  const lectureProjetPermise = (req: FastifyRequest, projectId: string): boolean => {
+    if (authorized(req)) return true;
+    if (!authorizedUser(req)) return false;
+    const projet = store.getProject(projectId);
+    if (!projet) return false;
+    return peutLireCode(
+      projet,
+      lecteurDe(req),
+      store.estMembre(projectId, (req as AuthRequest).userId!),
+    );
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
 
   app.get('/api/state', async (req, reply) => {
@@ -1895,7 +1931,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/essaim',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -2451,7 +2487,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/abonnement',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -3288,7 +3324,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const balance = scheduler.balance;
@@ -3722,7 +3758,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       return { conflicts: detectConflicts(store.listTasks(project.id)) };
@@ -3744,7 +3780,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const tasks = store.listTasks(project.id);
@@ -3940,7 +3976,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }

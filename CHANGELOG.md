@@ -66,6 +66,25 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
+  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
+  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
+  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
+  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
+  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
+  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
+  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
+  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
+  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
+  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
+  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
+  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
+  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
+  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
+  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
+  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
+  conscient et non une découverte.
+
 - **Un projet créé depuis le tableau de bord n'appartenait à personne** — sur le
   parcours le PLUS courant du produit. `POST /api/projects` s'authentifie par le
   jeton de RUCHE : il n'a personne à qui attribuer le projet, et le magasin range
@@ -822,6 +841,25 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
+  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
+  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
+  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
+  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
+  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
+  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
+  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
+  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
+  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
+  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
+  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
+  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
+  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
+  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
+  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
+  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
+  conscient et non une découverte.
+
 - **L'intégration continue repasse au vert : un test n'y tournait pas.**
   `tests/isolement-couverture.test.ts` énumérait les fichiers avec `globSync`
   de `node:fs` — une fonction qui **n'existe qu'à partir de Node 22**. Le
@@ -1040,6 +1078,25 @@ refonte complète de l'interface en **Mission Control**.
   de ruche — et c'est le cas que l'adoption rattrape.
 
 ### Fixed
+
+- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
+  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
+  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
+  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
+  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
+  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
+  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
+  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
+  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
+  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
+  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
+  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
+  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
+  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
+  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
+  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
+  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
+  conscient et non une découverte.
 
 - Compilation TypeScript stricte (`tsc --noEmit` propre), ESLint + Prettier
   zéro erreur, 253 tests vitest verts.
