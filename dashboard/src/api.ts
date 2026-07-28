@@ -246,6 +246,32 @@ export function fetchThermo(): Promise<ThermoState> {
   return api<ThermoState>('/api/thermo');
 }
 
+/**
+ * Les Guetteuses — ce que la ruche a vu passer sur ses leurres.
+ *
+ * ─── POURQUOI CETTE FONCTION MANQUAIT, ET CE QUE ÇA COÛTAIT ─────────────────
+ *
+ * `GET /api/guet` existait côté serveur, et AUCUN écran ne l'appelait. Un
+ * mécanisme de détection sans écran est pire qu'une absence de détection : on
+ * croit surveillé ce qui ne l'est pas. Le seul signal qui sortait était une
+ * ligne brute au journal — sans niveau, sans conseil, sans la liste de ce
+ * qu'on avait cherché chez vous.
+ */
+export type NiveauGuet = 'calme' | 'reniflage' | 'balayage';
+
+export interface VerdictGuet {
+  niveau: NiveauGuet;
+  passages: number;
+  sources: number;
+  appats: string[];
+  conseil: string;
+  derniers: { source: string; chemin: string; appat: string; quand: number }[];
+}
+
+export function fetchGuet(): Promise<VerdictGuet> {
+  return api<VerdictGuet>('/api/guet');
+}
+
 /** Phéromones : affinité apprise nœud × domaine (30 meilleures traces). */
 export function fetchPheromones(): Promise<{ traces: TraceePheromone[] }> {
   return api<{ traces: TraceePheromone[] }>('/api/pheromones');

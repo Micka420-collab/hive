@@ -728,3 +728,87 @@
     animation: none;
   }
 }
+
+/* ─── Les Guetteuses ─────────────────────────────────────────────────────────
+ *
+ * Le CALME s'affiche autant que l'alerte. Un panneau qui n'apparaît qu'en cas
+ * de problème ne dit jamais « la surveillance fonctionne, et elle ne voit
+ * rien » — et on finit par ne plus savoir si elle marche. */
+
+.gu-verdict {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-2);
+}
+
+.gu-verdict.ton-calme {
+  border-color: var(--border-2);
+}
+
+.gu-verdict.ton-chaud {
+  border-color: #d99a2b;
+  background: rgba(217, 154, 43, 0.08);
+}
+
+.gu-verdict.ton-brulant {
+  border-color: #e05c5c;
+  background: rgba(224, 92, 92, 0.1);
+}
+
+.gu-icone {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.gu-chiffres {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* Le conseil est aussi visible que l'alerte : dire « on vous sonde » sans dire
+   quoi faire ne produit que de l'inquiétude, qu'on apprend à ignorer. */
+.gu-conseil {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.gu-liste {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.gu-liste li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.03));
+}
+
+.gu-liste code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gu-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+  line-height: 1.5;
+}

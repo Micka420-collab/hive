@@ -2,7 +2,8 @@
 // dans le journal (Ghost in the Hive). Tout est lu via REST, poll léger.
 
 import { useEffect, useState } from 'react';
-import { fetchBalance, fetchGhosts, fetchPulse, fetchThermo } from '../api';
+import { fetchBalance, fetchGhosts, fetchGuet, fetchPulse, fetchThermo } from '../api';
+import type { NiveauGuet } from '../api';
 import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
 import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
@@ -321,6 +322,101 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
           </>
         )}
       </section>
+
+      <Guetteuses refreshTick={refreshTick} />
     </div>
+  );
+}
+
+/** Ce que chaque niveau veut dire, en une ligne, sans dramatiser ni minimiser. */
+const NIVEAU_GUET: Record<NiveauGuet, { fr: string; en: string; ton: string; icone: string }> = {
+  calme: { fr: 'Rien à signaler', en: 'Nothing to report', ton: 'calme', icone: '🐝' },
+  reniflage: { fr: 'On vous regarde', en: 'Someone is looking', ton: 'chaud', icone: '👀' },
+  balayage: {
+    fr: 'Un outil déroule sa liste',
+    en: 'A tool is running its list',
+    ton: 'brulant',
+    icone: '🚨',
+  },
+};
+
+/**
+ * Les Guetteuses — ce que la ruche a vu passer sur ses leurres.
+ *
+ * ─── POURQUOI CE PANNEAU EXISTE ──────────────────────────────────────────────
+ *
+ * `GET /api/guet` était servi par l'orchestrateur et AUCUN écran ne l'appelait.
+ * Un mécanisme de détection sans écran est pire qu'une absence de détection :
+ * on croit surveillé ce qui ne l'est pas. Le seul signal qui sortait était une
+ * ligne brute au journal — sans niveau, sans conseil, sans la liste de ce qu'on
+ * avait cherché chez vous.
+ *
+ * ─── DEUX RÈGLES D'AFFICHAGE ─────────────────────────────────────────────────
+ *
+ * 1. LE CALME S'AFFICHE AUSSI. Un panneau qui n'apparaît qu'en cas d'alerte ne
+ *    dit jamais « la surveillance fonctionne, et elle ne voit rien » — et on
+ *    finit par ne plus savoir si elle marche.
+ * 2. LE CONSEIL EST AUSSI GROS QUE L'ALERTE. Dire « on vous sonde » sans dire
+ *    quoi faire ne produit que de l'inquiétude, qu'on apprend à ignorer.
+ */
+function Guetteuses({ refreshTick }: { refreshTick: number }) {
+  const t = useT();
+  const guet = useApiPoll(fetchGuet, 30_000, refreshTick);
+  // Orchestrateur plus ancien, sans la route : le panneau n'existe pas, plutôt
+  // qu'une erreur criarde pour une fonctionnalité absente. Même règle que la
+  // thermorégulation et la Balance au-dessus.
+  if (guet.data === null && guet.error !== null) return null;
+  const v = guet.data;
+  const n = NIVEAU_GUET[v?.niveau ?? 'calme'];
+
+  return (
+    <section className="card">
+      <header className="panel-head">
+        <h2>{t('Les Guetteuses', 'The Lookouts')}</h2>
+        <span className="muted-text">
+          {t('sondages sur la dernière heure', 'probes over the last hour')}
+        </span>
+      </header>
+      {!v ? (
+        <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
+      ) : (
+        <>
+          <div className={`gu-verdict ton-${n.ton}`}>
+            <span className="gu-icone" aria-hidden="true">
+              {n.icone}
+            </span>
+            <div>
+              <strong>{t(n.fr, n.en)}</strong>
+              <p className="gu-chiffres">
+                {v.passages} {t('passage(s)', 'probe(s)')} · {v.sources}{' '}
+                {t('adresse(s) distincte(s)', 'distinct address(es)')}
+                {v.appats.length > 0 && ` · ${v.appats.join(', ')}`}
+              </p>
+            </div>
+          </div>
+          {/* Le conseil compte autant que l'alerte : dire « on vous sonde »
+              sans dire quoi faire ne produit que de l'inquiétude. */}
+          <p className="gu-conseil">{v.conseil}</p>
+          {v.derniers.length > 0 && (
+            <ul className="gu-liste">
+              {v.derniers.slice(0, 8).map((p, i) => (
+                <li key={`${p.quand}-${i}`}>
+                  <code>{p.chemin}</code>
+                  <span className="muted-text">
+                    {p.appat} · {new Date(p.quand).toLocaleTimeString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="gu-note">
+            {t(
+              'Les Guetteuses ne bloquent personne : derrière un reverse proxy, toutes les requêtes viennent de la même adresse, et un blocage y couperait tout le monde sur la foi d’un seul visiteur curieux.',
+              'The Lookouts block nobody: behind a reverse proxy every request comes from the same address, and blocking there would cut everyone off on the strength of a single curious visitor.',
+            )}
+          </p>
+        </>
+      )}
+    </section>
   );
 }
