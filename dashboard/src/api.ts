@@ -1091,6 +1091,77 @@ function apiLecture<T>(path: string, init?: RequestInit): Promise<T> {
   });
 }
 
+// ─── Les issues, et ce que devient le travail livré ─────────────────────────
+//
+// Les deux API existaient et rien ne les montrait. Un travail invisible est un
+// travail qui n'a pas été fait, du point de vue de qui regarde l'écran.
+
+export interface IssueVue {
+  numero: number;
+  titre: string;
+  corps: string;
+  etat: string;
+  auteur: string;
+  etiquettes: string[];
+  htmlUrl: string;
+  verrouillee: boolean;
+  commentaires: number;
+  majA: number;
+}
+
+/**
+ * Les issues ouvertes du dépôt d'un projet.
+ *
+ * LECTURE PAYANTE : chaque appel consomme le quota GitHub de l'hôte. C'est
+ * pour cela que le serveur la range parmi les ENGAGEMENTS (ADR 0007), et pour
+ * cela que l'écran ne la sonde pas en boucle — elle se demande, elle ne se
+ * surveille pas.
+ */
+export function fetchIssues(
+  projectId: string,
+): Promise<{ depot: string; issues: IssueVue[]; tronque: boolean }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/issues`);
+}
+
+/** Prend une issue : la ruche la découpe en tâches. */
+export function prendreIssue(
+  projectId: string,
+  numero: number,
+): Promise<{ issue: IssueVue; taches: { id: string; title: string }[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/issues/${numero}`, {
+    method: 'POST',
+  });
+}
+
+export interface LivraisonVue {
+  taskId: string;
+  depot: string;
+  pr: number;
+  branche: string;
+  titre?: string;
+  etat?: string;
+  dit?: string;
+  reprenable?: boolean;
+  /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
+  illisible?: string;
+}
+
+/** Ce que deviennent les pull requests ouvertes par la ruche. */
+export function fetchLivraisons(projectId: string): Promise<{ livraisons: LivraisonVue[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/livraisons`);
+}
+
+/** Reprend une livraison : la CI ou la revue redeviennent du travail. */
+export function reprendreLivraison(
+  projectId: string,
+  taskId: string,
+): Promise<{ tache: { id: string; title: string }; etat: string; dit: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/livraisons/${encodeURIComponent(taskId)}/reprendre`,
+    { method: 'POST' },
+  );
+}
+
 // ─── L'intendance : les serveurs et les membres ─────────────────────────────
 // Réservée aux administrateurs. Cacher les boutons n'est PAS la sécurité — le
 // serveur tranche seul, et un membre qui tape l'URL reçoit 403. Ce qui suit
