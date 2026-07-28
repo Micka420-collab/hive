@@ -236,6 +236,50 @@ source du problème plutôt que la protection.
 > **Règle** — quand un outil refuse quelque chose « pour votre bien », d'abord
 > comprendre pourquoi, puis chercher la voie que la garde laisse ouverte.
 
+### 4.3 — `--ignore-scripts` visait `prepare` et aurait emporté le binaire natif
+
+Même forme que 4.1, sur un autre outil, et avec une aggravation.
+
+La première construction de l'image est morte à l'étage qui SERT :
+
+    > hive@0.2.0 prepare
+    > npm run build:node
+    sh: 1: tsc: not found
+    npm error code 127
+
+npm lance `prepare` à **chaque `npm ci`, y compris avec `--omit=dev`** — et le
+`prepare` de ce dépôt appelle `tsc`, qui est justement ce que `--omit=dev`
+vient de retirer. L'étage se coupait la branche sur laquelle il était assis.
+
+Le correctif qui vient à l'esprit est un drapeau : `--ignore-scripts`. Il est
+juste sur le symptôme et faux sur le reste — il neutralise AUSSI le script
+d'installation de `better-sqlite3`, celui qui télécharge le binaire prébuilt.
+Mesuré sur les deux vrais manifestes du dépôt, avant de choisir :
+
+| approche                         | `npm ci` | binaire natif |
+| -------------------------------- | -------- | ------------- |
+| tel quel                         | **127**  | —             |
+| `--ignore-scripts`               | 0        | **absent**    |
+| `npm pkg delete scripts.prepare` | 0        | présent       |
+
+**L'aggravation est là.** Le défaut de départ est une construction ROUGE : elle
+s'arrête, elle se lit, elle se corrige. Le correctif d'une ligne rend la
+construction VERTE et déplace la panne au démarrage, sur un module natif
+introuvable — c'est-à-dire exactement la panne que le choix de `slim` plutôt
+qu'`alpine` évite vingt lignes plus haut dans le même fichier. J'aurais
+réintroduit par le correctif ce que le fichier documente avoir évité.
+
+> **Règle** — un correctif qui fait passer un rouge au vert n'a rien prouvé
+> tant qu'on n'a pas demandé **ce qu'il éteint d'autre**. Et se méfier
+> particulièrement de celui qui transforme un échec bruyant en succès
+> apparent : une image qui refuse de se construire est un problème, une image
+> qui se construit et ne démarre pas est un piège.
+
+**Ce qui le garde** : deux tests dans `tests/conteneur.test.ts` — l'un exige
+que tout `npm ci` neutralise `prepare`, l'autre exige que l'étage qui sert le
+fasse **sans** `--ignore-scripts`. Les deux mutants ont été joués : chacun
+rougit le sien.
+
 ---
 
 ## 5. Gestes destructeurs
@@ -324,6 +368,36 @@ plateforme, lisible seulement sur cette plateforme, donc jamais éprouvé.
 > (`decider(bin, plateforme)`, `candidates(bin, plateforme)`), avec
 > `process.platform` par défaut. La branche win32 se vérifie alors depuis Linux,
 > à chaque CI.
+
+**La frontière de cette règle** — ajoutée après qu'elle m'a coûté deux tests
+rouges sous Windows. Le paramètre rend la branche win32 vérifiable **tant que
+le test reste pur**. Dès qu'un test écrit sur le VRAI disque, le paramètre doit
+dire la VÉRITÉ.
+
+`tests/sauvegarde.test.ts` avait un helper `ctx()` figeant `plateforme:
+'linux'` — correct, et précieux, pour les tests de `planifier`. Deux tests plus
+bas s'en servaient en y passant un chemin de `mkdtempSync`. Sous Windows,
+c'est `D:\a\_temp\…`, jugé par `path.posix.isAbsolute` :
+
+    path.posix.isAbsolute('D:\\a\\_temp\\x')  →  false   ← le refus
+    path.win32.isAbsolute('D:\\a\\_temp\\x')  →  true
+    path.posix.isAbsolute('/tmp/x')           →  true
+    path.win32.isAbsolute('/tmp/x')           →  true    ← l'asymétrie
+
+La sauvegarde était refusée pour « chemin relatif » sur un chemin absolu.
+
+La dernière ligne du tableau est celle qui compte : un chemin POSIX est absolu
+pour les **deux** juges. Mentir sur la plateforme depuis Linux ne casse donc
+rien, et **la panne ne se simule pas à l'envers**. Aucune garde sur la source
+ne l'aurait vue non plus — la ligne fautive est syntaxiquement identique à
+celle, correcte, du test pur d'à côté. Seule la branche Windows de la matrice
+rend ce défaut, et c'est là que la matrice à trois OS paie son coût.
+
+> **Règle** — un test qui touche le vrai disque prend `process.platform`, sans
+> exception. Les deux moitiés ne partagent pas le même helper : dans
+> `tests/empreinte.test.ts` (où je l'avais fait juste) il y a `ctxPosix` d'un
+> côté et un contexte réel de l'autre. Un seul helper avec un défaut commode
+> est le piège.
 
 ### 6.4 — Un test qui LANCE un script POSIX doit sonder la plateforme
 
@@ -549,6 +623,7 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 | geste                               | ce qui se passe vraiment                                                       |
 | ----------------------------------- | ------------------------------------------------------------------------------ |
+| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)        |
 | `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                             |
 | `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                      |
 | `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                     |

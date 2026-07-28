@@ -123,6 +123,58 @@ describe('LA BASE DE L’IMAGE', () => {
     );
   });
 
+  it('AUCUN `npm ci` NE DÉCLENCHE `prepare` — le défaut qui a rougi la première construction', () => {
+    // ─── CE QUE CE TEST GARDE ─────────────────────────────────────────────
+    //
+    // `package.json` porte « prepare: npm run build:node », et npm lance
+    // `prepare` à CHAQUE `npm ci` — y compris avec `--omit=dev`. Les deux
+    // étages de l'image tombaient dessus, chacun à sa façon :
+    //
+    //   étage 1 : `prepare` s'exécute alors que seuls les deux manifestes ont
+    //             été copiés → error TS5058, `tsconfig.build.json` absent.
+    //   étage 2 : `--omit=dev` a retiré TypeScript, et `prepare` appelle
+    //             `tsc` → sh: 1: tsc: not found, npm error code 127.
+    //
+    // Rien dans le Dockerfile ne le laissait voir : la ligne fautive est dans
+    // `package.json`, à deux fichiers de là.
+    const logiques = DOCKERFILE_NU.replace(/\\\r?\n\s*/g, ' ')
+      .split(/\r?\n/)
+      .filter((l) => /npm ci/.test(l));
+
+    expect(logiques.length, 'plus aucun `npm ci` : ce test garde le vide').toBeGreaterThan(0);
+
+    for (const ligne of logiques) {
+      const neutralise =
+        ligne.includes('--ignore-scripts') || /npm pkg delete scripts\.prepare/.test(ligne);
+      expect(neutralise, `« ${ligne.trim()} » laisserait tourner \`prepare\``).toBe(true);
+    }
+  });
+
+  it('…mais l’étage QUI SERT ne se neutralise pas au `--ignore-scripts`', () => {
+    // Le correctif d'une ligne est un piège : `--ignore-scripts` tuerait aussi
+    // le script d'installation de `better-sqlite3`, celui qui télécharge le
+    // binaire prébuilt. Mesuré sur les deux vrais manifestes de ce dépôt :
+    //
+    //   tel quel                        npm ci → 127        (tsc: not found)
+    //   --ignore-scripts                npm ci → 0          binaire ABSENT
+    //   npm pkg delete scripts.prepare  npm ci → 0          binaire présent
+    //
+    // La ligne du milieu construit une image verte qui meurt au démarrage sur
+    // un module natif introuvable — la panne exacte que le choix de `slim`
+    // plutôt qu'`alpine` évite vingt lignes plus haut. Une image qui échoue à
+    // se construire est un problème ; une image qui se construit et ne démarre
+    // pas est un piège.
+    const sert = DOCKERFILE_NU.replace(/\\\r?\n\s*/g, ' ')
+      .split(/\r?\n/)
+      .filter((l) => /npm ci/.test(l) && l.includes('--omit=dev'));
+
+    expect(sert.length, 'l’étage qui sert doit installer sans les dépendances de dev').toBe(1);
+    expect(sert[0], '`--ignore-scripts` ici priverait la ruche de son module natif').not.toContain(
+      '--ignore-scripts',
+    );
+    expect(sert[0]).toMatch(/npm pkg delete scripts\.prepare/);
+  });
+
   it('installe depuis le LOCK, pas depuis une résolution du jour', () => {
     // `npm install` dans une image donne une image qu'on ne peut pas
     // reproduire : deux constructions du même commit peuvent différer.
