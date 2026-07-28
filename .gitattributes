@@ -1,0 +1,30 @@
+# Fins de ligne : LF partout, dans le dépôt ET dans les copies de travail.
+#
+# ─── POURQUOI CE FICHIER EXISTE, ET POURQUOI MAINTENANT ──────────────────────
+#
+# Sans lui, Git sous Windows convertit en CRLF à la sortie (`core.autocrlf` vaut
+# `true` par défaut sur les runners Windows, et sur la plupart des installations
+# Windows). Chaque fichier arrive alors avec des fins de ligne que Prettier
+# refuse — sa valeur par défaut est `endOfLine: "lf"` — et `npm run lint`
+# échoue sur la TOTALITÉ du dépôt, sans qu'un seul caractère ait été écrit par
+# qui que ce soit.
+#
+# C'est le premier mur qu'aurait rencontré la CI Windows, et il n'a rien à voir
+# avec le code. Il aurait fallu le franchir avant de pouvoir apprendre quoi que
+# ce soit d'utile de cette plateforme.
+#
+# `text=auto eol=lf` : Git normalise en LF dans l'objet, et écrit LF dans la
+# copie de travail — quel que soit le système. Une seule vérité, partout.
+
+* text=auto eol=lf
+
+# Ce qui n'est PAS du texte ne doit jamais être touché : une image « normalisée »
+# est une image corrompue.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
