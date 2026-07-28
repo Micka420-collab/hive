@@ -147,19 +147,19 @@ simulé, aucun processus lancé, token par défaut toléré (uniquement dans ce 
 Le dashboard (servi sur `:7777`) est une application complète de gestion de la
 ruche, navigable au clavier (touches **1-9**, `0`) via une sidebar alvéolaire :
 
-| Vue               | Ce qu'on y fait                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                             |
-| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                               |
-| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb. |
-| ⬡ **Projets**     | Rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting.                                                      |
-| 🐝 **Rayon**      | **Le code du projet, lisible** : arbre de fichiers, éditeur coloré, aperçu du site produit, et retouche → tâche pour la Reine.                         |
-| 🕺 **Essaim**     | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                               |
-| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                 |
-| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                         |
-| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                 |
-| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.       |
-| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés et les comptes de la ruche.                                                       |
+| Vue               | Ce qu'on y fait                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                                                        |
+| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                                                          |
+| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb.                            |
+| ⬡ **Projets**     | Connecter un dépôt GitHub, rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting, équipe, partage en lecture, Conseil des Éclaireuses. |
+| 🐝 **Rayon**      | **Le code du projet, lisible** : arbre de fichiers, éditeur coloré, aperçu du site produit, et retouche → tâche pour la Reine.                                                    |
+| 🕺 **Essaim**     | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                                                          |
+| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                                            |
+| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                                                    |
+| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                                            |
+| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.                                  |
+| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés et les comptes de la ruche.                                                                                  |
 
 **Mon espace** répond à une seule question : _qu'est-ce qui va me coûter quelque
 chose si je ne fais rien aujourd'hui ?_ Les alertes passent donc avant les

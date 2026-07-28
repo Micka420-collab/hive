@@ -9,6 +9,27 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
+  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
+  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
+  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
+  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
+  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
+  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
+  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
+  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
+  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
+  est l'information la plus chère du conseil, et elle ne vit que dans une
+  perdante. La **diversité des familles** est affichée à côté du nombre de
+  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
+  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
+  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
+  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
+  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
+  maintenant : le détail annonce donc son verdict **provisoire** tant que le
+  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
+  détail.
+
 - **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
   en tête de la vue Projets). `GET /api/github/repos` et
   `POST /api/github/import` vivaient depuis le début sans aucune interface :
@@ -730,6 +751,27 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
+  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
+  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
+  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
+  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
+  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
+  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
+  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
+  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
+  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
+  est l'information la plus chère du conseil, et elle ne vit que dans une
+  perdante. La **diversité des familles** est affichée à côté du nombre de
+  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
+  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
+  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
+  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
+  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
+  maintenant : le détail annonce donc son verdict **provisoire** tant que le
+  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
+  détail.
+
 - **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
   en tête de la vue Projets). `GET /api/github/repos` et
   `POST /api/github/import` vivaient depuis le début sans aucune interface :
@@ -913,6 +955,27 @@ refonte complète de l'interface en **Mission Control**.
   côté serveur, sans réécrire le prompt persisté.
 
 ### Added
+
+- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
+  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
+  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
+  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
+  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
+  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
+  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
+  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
+  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
+  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
+  est l'information la plus chère du conseil, et elle ne vit que dans une
+  perdante. La **diversité des familles** est affichée à côté du nombre de
+  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
+  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
+  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
+  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
+  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
+  maintenant : le détail annonce donc son verdict **provisoire** tant que le
+  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
+  détail.
 
 - **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
   en tête de la vue Projets). `GET /api/github/repos` et

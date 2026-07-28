@@ -976,3 +976,129 @@
   color: var(--muted);
   font-size: 12px;
 }
+
+/* ─── Le Conseil des Éclaireuses ───────────────────────────────────────────── */
+
+.pj-cs-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pj-cs-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.pj-cs-question {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-cs-question:hover {
+  color: var(--gold);
+}
+
+.pj-cs-issue {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.pj-cs-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.pj-cs-resume {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.pj-cs-danses {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pj-cs-danses li {
+  padding: 7px 9px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border-2);
+}
+
+/* La retenue se distingue, les autres restent lisibles : c'est dans les
+   perdantes que vivent les objections, et elles valent le détour. */
+.pj-cs-retenue {
+  border-left-color: var(--honey);
+}
+
+.pj-cs-contestee {
+  border-left-color: var(--amber);
+}
+
+.pj-cs-titre {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+
+.pj-cs-marque {
+  color: var(--honey);
+}
+
+.pj-cs-chiffres {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pj-cs-arrets {
+  color: var(--amber);
+}
+
+.pj-cs-corps {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-cs-objection {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+.pj-cs-sources {
+  margin: 3px 0 0;
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}

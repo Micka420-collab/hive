@@ -138,6 +138,70 @@ export function createProject(input: {
   return api<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) });
 }
 
+// ─── Le Conseil des Éclaireuses ─────────────────────────────────────────────
+//
+// Le Conseil ne change RIEN : son verdict est une PROPOSITION À UN HUMAIN. Un
+// mécanisme dont la sortie EST une proposition à un humain, et que cet humain
+// ne peut lire qu'en ligne de commande, est le cas le plus net de « mécanisme
+// sans écran » — plus net encore que Les Guetteuses, dont la sortie était au
+// moins une alerte.
+
+/** Ce que devient un conseil. `quorum` est le seul cas qui recommande. */
+export type IssueConseil = 'quorum' | 'depart' | 'sans_quorum' | 'epuise' | 'vide';
+
+export interface DanseConseil {
+  id: string;
+  titre: string;
+  corps: string;
+  /** AFFICHÉES, jamais suivies par la ruche. */
+  sources: string[];
+  eclaireuse: string;
+  famille: string;
+  qualite: number;
+  intensite: number;
+  soutiens: string[];
+  arrets: string[];
+  familles: string[];
+  quorum: boolean;
+  autoSoutienIgnore: boolean;
+  raisons: { type: 'soutien' | 'arret'; raison?: string; eclaireuse: string }[];
+}
+
+export interface SessionConseil {
+  id: string;
+  question: string;
+  projectId: string;
+  etat: string;
+  tour: number;
+  issue: IssueConseil;
+  motif?: string;
+  createdAt: number;
+  closedAt?: number | null;
+  enVol: number;
+  danses: DanseConseil[];
+  /** L'identifiant de la danse retenue, ou `null` si rien n'a convergé. */
+  retenue: string | null;
+}
+
+export interface ConseilResume {
+  id: string;
+  question: string;
+  projectId: string;
+  etat: string;
+  tour: number;
+  issue: IssueConseil | null;
+  createdAt: number;
+  closedAt?: number | null;
+}
+
+export function fetchConseils(): Promise<{ conseils: ConseilResume[] }> {
+  return api<{ conseils: ConseilResume[] }>('/api/conseils');
+}
+
+export function fetchConseil(sessionId: string): Promise<SessionConseil> {
+  return api<SessionConseil>(`/api/conseil/${encodeURIComponent(sessionId)}`);
+}
+
 // ─── Connecter un dépôt GitHub ──────────────────────────────────────────────
 //
 // Ces deux routes vivaient depuis le début sans aucun écran : connecter un

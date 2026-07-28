@@ -12,6 +12,8 @@ import {
   estAdmin,
   fetchBalance,
   fetchConflicts,
+  fetchConseil,
+  fetchConseils,
   fetchDepotsGithub,
   fetchMembresProjet,
   fetchMergePlan,
@@ -28,10 +30,12 @@ import type {
   AuthUser,
   BalanceState,
   DepotsGithub,
+  IssueConseil,
   MergeRunResult,
   NewTaskInput,
   PartageCree,
   PlanResponse,
+  SessionConseil,
 } from '../api';
 import { useLang, useT } from '../i18n';
 import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
@@ -909,6 +913,175 @@ function PartagesProjet({
 }
 
 /**
+ * Le Conseil des Éclaireuses — ce que la ruche PROPOSE, et qui l'a contredite.
+ *
+ * ─── POURQUOI CET ÉCRAN EST LE PLUS MANQUANT DE TOUS ─────────────────────────
+ *
+ * Le Conseil ne change rien : son verdict est une PROPOSITION À UN HUMAIN,
+ * exactement comme la Miellerie propose un merge sans jamais le faire. Un
+ * mécanisme dont la sortie EST une proposition à un humain, et que cet humain
+ * ne peut lire qu'en ligne de commande, ne sert à personne. C'est plus net
+ * encore que Les Guetteuses, dont la sortie était au moins une alerte.
+ *
+ * ─── CE QU'ON MONTRE, ET POURQUOI PAS SEULEMENT LA GAGNANTE ──────────────────
+ *
+ * Le protocole est fait pour éviter quatre pièges de délibération, et trois
+ * d'entre eux ne se voient QUE dans les perdantes :
+ *
+ *   • Les SIGNAUX D'ARRÊT. Une éclaireuse convaincue qu'une piste est mauvaise
+ *     l'inhibe activement. N'afficher que la retenue effacerait l'objection —
+ *     c'est-à-dire l'information la plus chère du conseil.
+ *   • La DIVERSITÉ des familles. Dix instances du même modèle qui s'accordent,
+ *     ce n'est pas dix avis : c'est un avis répété dix fois. On montre donc les
+ *     familles distinctes, pas seulement le nombre de soutiens.
+ *   • L'ÉGALITÉ (`depart`). Plusieurs propositions au quorum, c'est à l'humain
+ *     de trancher — et il ne peut trancher que s'il les voit toutes.
+ *
+ * Une issue sans recommandation (`vide`, `sans_quorum`, `epuise`) se DIT. Un
+ * écran qui n'afficherait rien dans ces cas-là laisserait croire à une panne,
+ * alors que « personne n'a rien trouvé » est un résultat.
+ */
+function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshTick: number }) {
+  const t = useT();
+  const liste = useApiPoll(fetchConseils, 60_000, refreshTick);
+  const [ouvert, setOuvert] = useState<string | null>(null);
+  const [session, setSession] = useState<SessionConseil | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  const miens = (liste.data?.conseils ?? []).filter((c) => c.projectId === projectId);
+
+  useEffect(() => {
+    if (!ouvert) return setSession(null);
+    let vivant = true;
+    fetchConseil(ouvert)
+      .then((s) => vivant && setSession(s))
+      .catch((e: unknown) => vivant && setErreur(errMsg(e)));
+    return () => {
+      vivant = false;
+    };
+  }, [ouvert]);
+
+  // Aucune délibération sur ce projet : on se tait plutôt que d'afficher une
+  // section vide sur chaque carte.
+  if (miens.length === 0) return null;
+
+  const ISSUE: Record<IssueConseil, { fr: string; en: string }> = {
+    quorum: { fr: '✔ une piste a convergé', en: '✔ one path converged' },
+    depart: { fr: '⚖ égalité — à vous de trancher', en: '⚖ tie — yours to settle' },
+    sans_quorum: { fr: '… du débat, rien de convergé', en: '… debate, nothing converged' },
+    epuise: { fr: '⏳ arrêté sans converger', en: '⏳ stopped without converging' },
+    vide: { fr: '∅ personne n’a rien trouvé', en: '∅ nobody found anything' },
+  };
+
+  return (
+    <div className="pj-sub">
+      <div className="pj-sub-head">
+        <h4>{t('Conseil des Éclaireuses', 'Council of Scouts')}</h4>
+        <span className="pj-sub-meta">{miens.length}</span>
+      </div>
+
+      <ul className="pj-cs-liste">
+        {miens.map((c) => (
+          <li key={c.id}>
+            <button
+              className="pj-cs-question"
+              onClick={() => setOuvert(ouvert === c.id ? null : c.id)}
+            >
+              {ouvert === c.id ? '▾' : '▸'} {c.question}
+            </button>
+            {/* DEUX QUESTIONS DIFFÉRENTES, et l'écran doit les distinguer.
+                La liste rend l'issue RANGÉE — celle d'un conseil clos — donc
+                `null` tant qu'il délibère. Le détail, lui, RECALCULE ce que le
+                protocole dirait à cet instant. Afficher l'un pour l'autre
+                donnerait un résumé qui contredit son propre détail. */}
+            <span className="pj-cs-issue">
+              {c.issue
+                ? t(ISSUE[c.issue].fr, ISSUE[c.issue].en)
+                : t('délibère encore', 'still deliberating')}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {erreur && <p className="panel-error">{erreur}</p>}
+
+      {session && (
+        <div className="pj-cs-detail">
+          {/* Tant que le conseil n'est pas clos, ce verdict est ce que le
+              protocole dirait MAINTENANT — il peut encore changer. Le taire
+              ferait passer une lecture instantanée pour une conclusion. */}
+          <p className="pj-cs-resume">
+            {t(`Tour ${session.tour}`, `Round ${session.tour}`)} ·{' '}
+            {t(ISSUE[session.issue].fr, ISSUE[session.issue].en)}
+            {!session.closedAt && ` — ${t('provisoire', 'provisional')}`}
+            {session.enVol > 0 && ` · ${session.enVol} ${t('en vol', 'in flight')}`}
+          </p>
+          {session.danses.length === 0 ? (
+            <p className="muted-text">
+              {t(
+                'Aucune proposition : les éclaireuses n’ont rien rapporté.',
+                'No proposal: the scouts brought nothing back.',
+              )}
+            </p>
+          ) : (
+            <ul className="pj-cs-danses">
+              {session.danses.map((d) => (
+                <li
+                  key={d.id}
+                  className={
+                    d.id === session.retenue
+                      ? 'pj-cs-retenue'
+                      : d.arrets.length
+                        ? 'pj-cs-contestee'
+                        : ''
+                  }
+                >
+                  <div className="pj-cs-titre">
+                    {d.id === session.retenue && <span className="pj-cs-marque">★</span>}
+                    <strong>{d.titre}</strong>
+                    <span className="pj-cs-chiffres">
+                      {/* Les FAMILLES, pas seulement les soutiens : dix clones
+                          d'accord ne font pas dix avis. */}
+                      ↑{d.soutiens.length} · {d.familles.length} {t('famille(s)', 'famil(y|ies)')}
+                      {d.arrets.length > 0 && (
+                        <span className="pj-cs-arrets"> · ⛔{d.arrets.length}</span>
+                      )}
+                    </span>
+                  </div>
+                  {d.corps && <p className="pj-cs-corps">{d.corps}</p>}
+                  {/* LES OBJECTIONS EN CLAIR. C'est l'information la plus chère
+                      du conseil : une piste qu'une éclaireuse a vérifiée et
+                      jugée mauvaise. */}
+                  {d.raisons
+                    .filter((r) => r.type === 'arret' && r.raison)
+                    .map((r, i) => (
+                      <p key={i} className="pj-cs-objection">
+                        ⛔ {r.raison}
+                      </p>
+                    ))}
+                  {d.sources.length > 0 && (
+                    <p className="pj-cs-sources">
+                      {/* AFFICHÉES, jamais suivies par la ruche. */}
+                      {d.sources.join(' · ')}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="pj-equipe-moi">
+            {t(
+              'Le Conseil ne décide rien : il propose, vous tranchez.',
+              'The Council decides nothing: it proposes, you settle.',
+            )}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Le connecteur GitHub — connecter un dépôt existant en un clic.
  *
  * ─── CE QUI MANQUAIT ─────────────────────────────────────────────────────────
@@ -1196,6 +1369,10 @@ function ProjectCard({
           lui montrer le projet sont deux gestes différents, et c'est le second
           qui se donne à des gens qui n'ont pas de compte ici. */}
       <PartagesProjet project={project} user={user} refreshTick={refreshTick} />
+
+      {/* Le Conseil en dernier : c'est une lecture de délibération, pas un
+          geste. Il ne s'affiche que si ce projet a délibéré. */}
+      <ConseilProjet projectId={project.id} refreshTick={refreshTick} />
 
       {tasks.length > 0 ? (
         <Honeycomb

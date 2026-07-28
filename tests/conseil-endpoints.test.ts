@@ -5,9 +5,10 @@
 // qu'un conseil crée de vraies tâches d'ouvrières, et que la vue rendue à
 // l'humain ne laisse jamais fuir ce qu'elle ne doit pas montrer.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -173,5 +174,63 @@ describe('lire un conseil', () => {
       conseils: { id: string }[];
     };
     expect(r.conseils.map((c) => c.id)).toContain(v0.id);
+  });
+});
+
+// ─── L'ÉCRAN — un verdict que personne ne lit n'est pas un verdict ──────────
+//
+// Le Conseil ne change RIEN : sa sortie EST une proposition à un humain,
+// exactement comme la Miellerie propose un merge sans jamais le faire. Il a
+// pourtant vécu sans aucune interface — l'humain devait ouvrir un terminal pour
+// lire ce qu'on avait délibéré pour lui. C'est le cas le plus net de
+// « mécanisme sans écran » du dépôt, plus net que Les Guetteuses, dont la
+// sortie était au moins une alerte.
+
+describe('le Conseil, côté écran', () => {
+  const VUE = (() => {
+    const brut = readFileSync(
+      fileURLToPath(new URL('../dashboard/src/views/Projets.tsx', import.meta.url)),
+      'utf8',
+    );
+    // Dépouillé : l'en-tête du panneau EXPLIQUE les règles, il ne les applique
+    // pas — une garde qui lit le fichier brut accuse la phrase qui protège.
+    return brut.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+  })();
+
+  it('LES DEUX ROUTES SONT LUES', () => {
+    expect(VUE).toContain('fetchConseils');
+    expect(VUE).toContain('fetchConseil');
+  });
+
+  it('ON MONTRE LES PERDANTES, PAS SEULEMENT LA RETENUE', () => {
+    // Trois des quatre pièges que le protocole évite ne se voient QUE dans les
+    // propositions écartées : le signal d'arrêt, la diversité des familles, et
+    // l'égalité. N'afficher que la gagnante effacerait l'objection — c'est
+    // l'information la plus chère du conseil.
+    expect(VUE).toContain('session.danses.map');
+    expect(VUE).toContain('pj-cs-objection');
+  });
+
+  it('LA DIVERSITÉ EST AFFICHÉE, PAS SEULEMENT LE NOMBRE DE SOUTIENS', () => {
+    // Dix instances du même modèle qui s'accordent, ce n'est pas dix avis :
+    // c'est un avis répété dix fois. Montrer `soutiens` seul laisserait croire
+    // au consensus là où le protocole refuse justement le quorum.
+    expect(VUE).toContain('d.familles.length');
+  });
+
+  it('UNE ISSUE SANS RECOMMANDATION SE DIT', () => {
+    // « personne n'a rien trouvé » est un résultat. Un écran vide dans ce
+    // cas-là laisserait croire à une panne.
+    for (const issue of ['quorum', 'depart', 'sans_quorum', 'epuise', 'vide']) {
+      expect(VUE, issue).toContain(`${issue}:`);
+    }
+  });
+
+  it('LE VERDICT D’UN CONSEIL OUVERT EST ANNONCÉ PROVISOIRE', () => {
+    // La liste rend l'issue RANGÉE (nulle tant qu'on délibère), le détail
+    // RECALCULE ce que le protocole dirait maintenant. Sans le mot, le résumé
+    // aurait l'air de contredire son propre détail.
+    expect(VUE).toContain('session.closedAt');
+    expect(VUE).toMatch(/provisoire/);
   });
 });
