@@ -83,6 +83,7 @@ import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
+import { briefDeIssue, motifRefus, recevable } from '../shared/issue.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
   ECHECS_COMPTE,
@@ -4334,6 +4335,162 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const cancelled = scheduler.cancelTask(task.id, 'annulée par un humain');
       stateDirty = true;
       return cancelled;
+    },
+  );
+
+  // ─── Les issues comme source de travail ────────────────────────────────────
+  //
+  // La ruche savait importer un dépôt, découper un brief, travailler, et ouvrir
+  // une pull request. Il manquait la PREMIÈRE marche : d'où vient le brief. Une
+  // issue EST un brief — écrit par quelqu'un qui a pris le temps de décrire ce
+  // qu'il veut, et qui attend une réponse.
+  //
+  // Les deux routes sont sous la garde d'ENGAGEMENT (ADR 0007) : lister les
+  // issues d'un projet, c'est déjà consommer le quota GitHub de l'hôte ; en
+  // prendre une, c'est faire travailler l'essaim.
+
+  /** Un seul texte pour ce refus : deux formulations divergeraient un jour. */
+  const SANS_JETON_GITHUB =
+    'HIVE_GITHUB_TOKEN non configuré. Sans jeton, la ruche ne peut pas lire les issues du dépôt.';
+
+  /** Le dépôt `owner/repo` d'un projet, ou `null` s'il n'en a pas. */
+  const depotDeProjet = (repoUrl: string | null): string | null => depotDepuisUrl(repoUrl);
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/issues',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const fullName = depotDeProjet(project.repoUrl);
+      if (!fullName) {
+        return reply.code(400).send({
+          error: 'Ce projet n’est pas rattaché à un dépôt GitHub : il n’a pas d’issues à lire.',
+        });
+      }
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      try {
+        const { listerIssues } = await import('./github.js');
+        const { issues, tronque } = await listerIssues(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+        );
+        return { depot: fullName, issues, tronque };
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; numero: string } }>(
+    '/api/projects/:projectId/issues/:numero',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'numero'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            numero: { type: 'string', pattern: '^[1-9][0-9]{0,9}$' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const fullName = depotDeProjet(project.repoUrl);
+      if (!fullName) {
+        return reply.code(400).send({ error: 'Ce projet n’est pas rattaché à un dépôt GitHub.' });
+      }
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      // ON RELIT L'ISSUE À LA SOURCE, jamais depuis ce que le client envoie.
+      // Le client ne fournit qu'un NUMÉRO : le titre, le corps et l'état
+      // viennent de GitHub à cet instant. Sinon n'importe quel appelant
+      // fabriquerait le « contenu d'une issue » et la ruche le planifierait.
+      const { lireUneIssue } = await import('./github.js');
+      let issue;
+      try {
+        issue = await lireUneIssue(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+          Number(req.params.numero),
+        );
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+
+      const verdict = recevable(issue);
+      if (!verdict.ok) {
+        return reply.code(409).send({ error: motifRefus(verdict.refus), refus: verdict.refus });
+      }
+
+      const brief = briefDeIssue(issue);
+      if (brief === '') {
+        return reply.code(422).send({
+          error:
+            'Cette issue ne tient pas dans un brief. Décrivez la demande en quelques lignes dans une tâche.',
+        });
+      }
+
+      const { briefToDAG, loadQueenBeeConfig } = await import('./queen-bee.js');
+      const beeConfig = loadQueenBeeConfig(process.env);
+      if (!beeConfig.apiKey) {
+        return reply.code(500).send({
+          error: 'QUEEN_BEE_API_KEY non configurée. Définissez cette variable (clé OpenRouter).',
+        });
+      }
+
+      try {
+        const dag = await briefToDAG(brief, beeConfig);
+        const creees = dag.tasks.map((t, i) =>
+          store.createTask({
+            id: t.id ?? `I${issue.numero}-${i + 1}`,
+            projectId: project.id,
+            title: t.title,
+            prompt: t.prompt,
+            dependsOn: t.dependsOn ?? [],
+          }),
+        );
+        for (const t of creees) {
+          emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
+        }
+        emitEvent('issue_prise', {
+          projectId: project.id,
+          numero: issue.numero,
+          titre: issue.titre,
+          taches: creees.length,
+        });
+        scheduler.tick();
+        stateDirty = true;
+        return reply.code(201).send({ issue, taches: creees, devis: devisSansRisque(creees) });
+      } catch (e) {
+        return reply
+          .code(502)
+          .send({ error: e instanceof Error ? e.message : 'découpage impossible' });
+      }
     },
   );
 

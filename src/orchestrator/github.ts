@@ -29,6 +29,8 @@
 // ensuite dans son bloc de données non fiables.
 
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+import { lireIssue, pourChoisir as pourChoisirIssues } from '../shared/issue.js';
+import type { IssueGithub } from '../shared/issue.js';
 
 /** Base de l'API. Surchargée par HIVE_GITHUB_API (GitHub Enterprise). */
 export const API_DEFAUT = 'https://api.github.com';
@@ -234,6 +236,103 @@ export async function listerDepots(
     if (page === PAGES_MAX) tronque = true;
   }
   return { depots: pourChoisir(depots), tronque };
+}
+
+/**
+ * Liste les issues OUVERTES d'un dépôt.
+ *
+ * ⚠ `?pulls=false` N'EXISTE PAS dans l'API GitHub : cet endpoint rend les pull
+ * requests avec les issues, et aucun paramètre ne les écarte. Le filtre vit
+ * donc dans `lireIssue`, qui refuse tout objet portant une clé `pull_request`.
+ * On le rappelle ici parce que c'est en lisant CE code qu'on croira, un jour,
+ * pouvoir se passer du filtre.
+ *
+ * Pagination bornée comme pour les dépôts : un dépôt à 4 000 issues ne doit ni
+ * figer l'orchestrateur, ni rendre une liste que personne ne parcourra.
+ */
+export async function listerIssues(
+  opts: OptionsGithub,
+  fullName: string,
+): Promise<{ issues: IssueGithub[]; tronque: boolean }> {
+  if (!estFullName(fullName)) {
+    throw new ErreurGithub(
+      'nom de dépôt invalide',
+      400,
+      'Attendu : owner/repo — par exemple Micka420-collab/hive.',
+    );
+  }
+  const f = opts.fetcheur ?? fetch;
+  const base = (opts.api ?? API_DEFAUT).replace(/\/+$/, '');
+  const issues: IssueGithub[] = [];
+  let tronque = false;
+
+  for (let page = 1; page <= PAGES_MAX; page++) {
+    const url = `${base}/repos/${fullName}/issues?state=open&per_page=${PAR_PAGE}&page=${page}&sort=updated&direction=desc`;
+    const rep = await f(url, { headers: entetes(opts.jeton) });
+    if (!rep.ok) throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
+
+    const brut: unknown = await rep.json();
+    if (!Array.isArray(brut)) break;
+    for (const item of brut) {
+      const i = lireIssue(item);
+      if (i) issues.push(i);
+    }
+    // La page COMPLÈTE compte pour la pagination, pas seulement ce qu'on en a
+    // retenu : une page de 100 entrées dont 100 sont des PR est pleine, et
+    // s'arrêter là ferait manquer les issues de la page suivante.
+    if (brut.length < PAR_PAGE) break;
+    if (page === PAGES_MAX) tronque = true;
+  }
+  return { issues: pourChoisirIssues(issues), tronque };
+}
+
+/**
+ * Récupère UNE issue par son numéro.
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE PLUTÔT QUE DE FILTRER LA LISTE ───────────
+ *
+ * Prendre une issue est un ACTE : ce qui part en planification doit être ce que
+ * GitHub dit MAINTENANT, pas une entrée d'une liste chargée il y a dix minutes,
+ * et surtout pas un objet fourni par le client. Sans cette relecture,
+ * n'importe quel appelant fabriquerait le « contenu d'une issue » et la ruche
+ * le découperait en tâches.
+ *
+ * Le filtre des pull requests s'applique ici aussi : `/issues/{n}` répond pour
+ * une PR, avec sa clé `pull_request`.
+ */
+export async function lireUneIssue(
+  opts: OptionsGithub,
+  fullName: string,
+  numero: number,
+): Promise<IssueGithub> {
+  if (!estFullName(fullName)) {
+    throw new ErreurGithub(
+      'nom de dépôt invalide',
+      400,
+      'Attendu : owner/repo — par exemple Micka420-collab/hive.',
+    );
+  }
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new ErreurGithub('numéro d’issue invalide', 400, 'Un numéro d’issue est un entier > 0.');
+  }
+  const f = opts.fetcheur ?? fetch;
+  const base = (opts.api ?? API_DEFAUT).replace(/\/+$/, '');
+  const rep = await f(`${base}/repos/${fullName}/issues/${numero}`, {
+    headers: entetes(opts.jeton),
+  });
+  if (!rep.ok) throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
+
+  const i = lireIssue(await rep.json());
+  if (!i) {
+    // Le cas le plus probable n'est pas une réponse illisible : c'est une PULL
+    // REQUEST. Le dire évite une demi-heure de recherche sur un « 502 » muet.
+    throw new ErreurGithub(
+      'ce numéro ne désigne pas une issue',
+      409,
+      `#${numero} est une pull request, ou une issue sans titre exploitable. Chez GitHub, une pull request EST une issue : seul son contenu les distingue.`,
+    );
+  }
+  return i;
 }
 
 /** Récupère UN dépôt par `owner/repo`. */
