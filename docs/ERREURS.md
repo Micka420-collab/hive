@@ -375,6 +375,40 @@ BOM ; un bloc `run:` ne le peut pas.
 > `Ã` » peut être vrai d'une sortie vide ; « un `é` a survécu » ne peut pas.
 > Les deux assertions cohabitent, mais c'est la seconde qui porte.
 
+### 6.8 — Windows PowerShell 5.1 mange les guillemets des arguments natifs
+
+Le pas 5.1 réparé, la panne a bougé — et elle est passée **dans
+`install.ps1`**, à sa toute première vérification :
+
+```
+powershell.exe : [eval]:1
+```
+
+`[eval]:1` est le préfixe d'erreur de `node -p`. L'appel était
+`node -p 'process.versions.node.split(".")[0]'`. Impeccable sous `pwsh` ; sous
+5.1, Node recevait `process.versions.node.split(.)[0]`.
+
+Windows PowerShell 5.1 réécrit les arguments d'une commande native avec ses
+propres règles et **mange les guillemets doubles** qu'ils contiennent.
+PowerShell 7.3 a corrigé ce passage d'arguments ; 5.1 ne le sera jamais — c'est
+un composant du système, pas une application qu'on met à jour.
+
+Et comme `$ErrorActionPreference` vaut `Stop`, la sortie d'erreur native
+devient une exception : **l'installeur mourait à son premier contrôle**, sous
+l'interpréteur que la plupart des gens ont, sur le seul chemin d'installation
+proposé aux utilisateurs Windows.
+
+Trois défauts réels sortis du seul fait de lancer 5.1 (§ 6.6, § 6.7, celui-ci).
+Chacun invisible sous `pwsh`, chacun fatal chez l'utilisateur.
+
+> **Règle** — aucun guillemet double dans un argument passé à une commande
+> native depuis PowerShell. Quand une expression en réclame, on la simplifie
+> jusqu'à ce qu'elle n'en ait plus besoin — ici, `node -p` rend la version
+> entière et c'est PowerShell qui la découpe. Une garde de
+> `tests/installeurs.test.ts` l'exige, et elle **compte** ce qu'elle a
+> inspecté : à zéro argument vu, elle échoue plutôt que de passer sans rien
+> regarder.
+
 ---
 
 ## 7. Ordre indéfini : lire, ce n'est rien ; supprimer, c'est grave

@@ -176,6 +176,49 @@ describe('CE QU’UN INSTALLEUR NE DOIT JAMAIS FAIRE', () => {
     }
   });
 
+  it('install.ps1 ne passe AUCUN guillemet double à une commande native', () => {
+    // ─── CE QUE WINDOWS POWERSHELL 5.1 FAIT DES ARGUMENTS ────────────────────
+    //
+    // 5.1 réécrit les arguments d'une commande native avec ses propres règles,
+    // et MANGE les guillemets doubles qu'ils contiennent. PowerShell 7.3 a
+    // corrigé ce passage d'arguments ; 5.1 ne le sera jamais — c'est le
+    // composant du système, pas une application qu'on met à jour.
+    //
+    // Le défaut vécu : `node -p 'process.versions.node.split(".")[0]'`.
+    // Impeccable sous `pwsh`. Sous 5.1, Node recevait
+    // `process.versions.node.split(.)[0]` et rendait « [eval]:1 SyntaxError ».
+    // Comme `$ErrorActionPreference` vaut `Stop`, la sortie d'erreur native
+    // devient une exception : l'installeur mourait à sa TOUTE PREMIÈRE
+    // vérification, sous l'interpréteur que la plupart des gens ont.
+    //
+    // On juge L'EXÉCUTION, pas l'affichage — même partage que la garde `sudo`
+    // plus haut. Une ligne qui MONTRE une commande à taper n'invoque rien.
+    //
+    // (Première version de ce test : une regex qui traversait les retours à la
+    //  ligne. Elle a attrapé un `Dire "… npm run install:hive …"` et rougi pour
+    //  la mauvaise raison. Une garde qui se trompe de sujet est une garde qui
+    //  sera désactivée le jour où elle gênera.)
+    const affichage = /^\s*(Dire|Ok|Echec|Alerte|Etape|Write-Host)\b/;
+    let vus = 0;
+    for (const ligne of PS_NU.split('\n')) {
+      if (affichage.test(ligne)) continue;
+      const natif = /\b(node|npm|git)\b/.exec(ligne);
+      if (!natif) continue;
+      for (const arg of ligne.matchAll(/'([^'\n]*)'/g)) {
+        vus++;
+        expect(
+          arg[1],
+          `argument simple-quoté de \`${natif[1]}\` contenant un guillemet ` +
+            `double : Windows PowerShell 5.1 le mangera — ${ligne.trim()}`,
+        ).not.toMatch(/"/);
+      }
+    }
+    // SANS CECI, LA GARDE EST DÉCOR. Si un remaniement retirait le seul
+    // argument simple-quoté du script, la boucle ne tournerait plus et le test
+    // resterait vert en n'ayant rien regardé — c'est le § 1.2 de `ERREURS.md`.
+    expect(vus, 'aucun argument natif inspecté : la garde ne regarde plus rien').toBeGreaterThan(0);
+  });
+
   it('les deux passent la main à l’installeur du projet, sans le réécrire', () => {
     // Dupliquer ici la génération du jeton, l'écriture du `.env` en 600 et la
     // détection d'agent ferait DEUX installeurs à maintenir — dont un que rien

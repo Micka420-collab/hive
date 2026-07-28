@@ -107,9 +107,26 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   exit $CODE_PREREQUIS
 }
 
-# On lit la version PAR NODE LUI-MÊME plutôt qu'en découpant `node --version` :
-# une chaîne comme « v24.3.1-nightly » casse un découpage naïf, pas ceci.
-$majeur = [int](node -p 'process.versions.node.split(".")[0]')
+# On demande sa version À NODE LUI-MÊME plutôt que de découper `node --version` :
+# le préfixe « v » et un suffixe comme « -nightly » cassent un découpage naïf.
+#
+# ─── ET AUCUN GUILLEMET DOUBLE NE PASSE PAR LÀ ───────────────────────────────
+#
+# La version précédente était `node -p 'process.versions.node.split(".")[0]'`.
+# Elle marchait sous PowerShell 7 et MOURAIT sous Windows PowerShell 5.1 : 5.1
+# réécrit les arguments d'une commande native avec ses propres règles, et MANGE
+# les guillemets doubles qu'ils contiennent. Node recevait donc
+# `process.versions.node.split(.)[0]` et rendait « [eval]:1 SyntaxError ».
+#
+# Comme `$ErrorActionPreference` vaut `Stop`, la sortie d'erreur native devient
+# une exception : l'installeur mourait à sa TOUTE PREMIÈRE vérification, sous
+# l'interpréteur que la plupart des gens ont. PowerShell 7.3 a corrigé ce
+# passage d'arguments ; 5.1 ne le sera jamais.
+#
+# Le découpage se fait donc côté PowerShell, et l'expression envoyée à Node ne
+# contient plus un seul caractère spécial. `tests/installeurs.test.ts` l'exige.
+$version = node -p 'process.versions.node'
+$majeur = [int](($version -split '\.')[0])
 if ($majeur -lt $NODE_MIN) {
   Echec "Node $majeur détecté — Hive exige $NODE_MIN ou plus."
   Dire ''
