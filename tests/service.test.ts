@@ -30,6 +30,7 @@ import {
   type Plan,
   citerSystemd,
   echapperXml,
+  codeJournal,
   planifier,
   rendreGestes,
   scriptDe,
@@ -424,6 +425,18 @@ describe('LE RENDU DES GESTES — la branche qu’un test ne peut pas exercer', 
 
   it('aucun geste, aucune ligne', () => {
     expect(rendreGestes([])).toEqual([]);
+  });
+
+  it('un journal ILLISIBLE n’est pas un journal vide', () => {
+    // Les codes de sortie sont une interface publique : une supervision doit
+    // pouvoir distinguer « rien à lire » de « je n'ai pas pu lire ». Selon la
+    // machine, `journalctl` réussit, échoue faute de bus de session, ou
+    // n'existe pas — d'où une fonction pure plutôt qu'un test de bout en bout
+    // qui serait vrai ici et faux ailleurs.
+    expect(codeJournal(0, 1)).toBe(0);
+    expect(codeJournal(1, 1)).toBe(1);
+    expect(codeJournal(-1, 1)).toBe(1);
+    expect(codeJournal(127, 1)).toBe(1);
   });
 });
 

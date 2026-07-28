@@ -198,6 +198,25 @@ export function nomDe(cible: Cible, plateforme: NodeJS.Platform): string {
  * le service de qui fait tourner la suite. Extraire le rendu est la seule façon
  * de le couvrir sans toucher à la machine de quelqu'un.
  */
+/**
+ * Ce que `hive service logs` doit rendre comme code de sortie.
+ *
+ * ─── POURQUOI UNE FONCTION POUR UNE COMPARAISON ─────────────────────────────
+ *
+ * Les codes de sortie de ce projet sont une INTERFACE PUBLIQUE
+ * (`src/codes-sortie.ts`) : un script de supervision s'en sert pour distinguer
+ * « le journal est vide » de « je n'ai pas pu lire le journal ».
+ *
+ * Et cette ligne-là ne s'éprouve pas de bout en bout : selon la machine,
+ * `journalctl` réussit, échoue faute de bus de session, ou n'existe pas. Un
+ * test qui fixerait un code serait vrai ici et faux ailleurs. La loupe l'a
+ * signalé, à raison ; la sortir du câblage est la seule façon de la couvrir
+ * sans mentir sur ce qu'on vérifie.
+ */
+export function codeJournal(codeDuJournal: number, codeErreur: number): number {
+  return codeDuJournal === 0 ? 0 : codeErreur;
+}
+
 export function rendreGestes(issues: readonly { code: number; quoi: string }[]): string[] {
   return issues.map((i) => `  ${i.code === 0 ? '✔' : '·'} ${i.quoi}`);
 }

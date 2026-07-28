@@ -619,7 +619,8 @@ async function cmdDesinstaller(...args: string[]): Promise<void> {
 async function cmdService(...args: string[]): Promise<void> {
   const { CODE } = await import('./codes-sortie.js');
   const svc = await import('./service-reel.js');
-  const { AVERTISSEMENT_LINGER, planifier, rendreGestes } = await import('./shared/service.js');
+  const { AVERTISSEMENT_LINGER, codeJournal, planifier, rendreGestes } =
+    await import('./shared/service.js');
 
   const sous = args.find((a) => !a.startsWith('--')) ?? 'status';
   const racine = process.cwd();
@@ -724,7 +725,9 @@ async function cmdService(...args: string[]): Promise<void> {
     const r = svc.journal(ctx);
     if ('motif' in r) return dire(r);
     console.log(r.sortie || '(rien dans le journal)');
-    if (r.code !== 0) process.exitCode = CODE.ERREUR;
+    // Un journal illisible n'est pas un journal vide : la distinction est ce
+    // qu'une supervision regarde. Voir `codeJournal`.
+    process.exitCode = codeJournal(r.code, CODE.ERREUR);
     return;
   }
 
