@@ -92,6 +92,31 @@ function envGit(): NodeJS.ProcessEnv {
     SYSTEMDRIVE: process.env.SYSTEMDRIVE,
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
+    // ─── LA PORTE QUE `GIT_TERMINAL_PROMPT=0` NE FERME PAS ────────────────────
+    //
+    // Le commentaire ci-dessus a raison sur le fond, et son câblage ne couvrait
+    // que POSIX. `GIT_TERMINAL_PROMPT` gouverne l'invite du TERMINAL. Sous
+    // Windows, la configuration SYSTÈME de Git inscrit
+    // `credential.helper=manager` — Git Credential Manager — qui ne lit pas
+    // cette variable et attend sur sa propre interface, indéfiniment.
+    //
+    // Ça s'est vu au millième près sur la CI Windows : trois tests lisant un
+    // dépôt inatteignable ont bloqué à 30 008, 30 019 et 30 009 ms. Le plafond,
+    // pas une lenteur.
+    //
+    // `GIT_CONFIG_NOSYSTEM` fait ignorer à git la configuration machine — donc
+    // l'assistant qui y est inscrit. Et c'est PLUS qu'un correctif Windows : un
+    // miroir n'a aucune raison d'hériter des réglages d'une machine qu'il ne
+    // choisit pas. Un `url.<base>.insteadOf` posé là redirigerait nos clones
+    // vers un autre hôte sans que rien ne le dise.
+    //
+    // On ne passe PAS par une configuration `credential.helper=` : simple-git la
+    // bloque, et il a raison — un assistant peut désigner n'importe quel
+    // binaire. On coupe la source plutôt que de désactiver la garde.
+    GIT_CONFIG_NOSYSTEM: '1',
+    // Ceinture et bretelles : GCM lit aussi son propre environnement, et
+    // certaines versions ne regardent que celui-ci.
+    GCM_INTERACTIVE: 'Never',
   };
 }
 

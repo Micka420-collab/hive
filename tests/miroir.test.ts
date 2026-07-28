@@ -13,7 +13,15 @@
 // garantie peut être établie, et sans lui la moitié du module pur ne sert à
 // rien : on aurait fermé la porte d'entrée en laissant la fenêtre ouverte.
 
-import { lstatSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
@@ -279,5 +287,49 @@ describe('le miroir, sur un vrai dépôt', () => {
       const m = new Miroir(path.join(racineTests, 'casse'));
       await expect(m.rafraichir('p', '/depot/qui/nexiste/pas')).rejects.toThrow();
     });
+  });
+});
+
+describe('LE MIROIR NE PEUT PAS ATTENDRE INDÉFINIMENT DES IDENTIFIANTS', () => {
+  // ─── CE QUE CETTE GARDE TIENT ──────────────────────────────────────────────
+  //
+  // `GIT_TERMINAL_PROMPT=0` était posé, et son commentaire disait juste :
+  // sans lui, un dépôt privé sans identifiants fait attendre git et la requête
+  // HTTP reste ouverte. Mais il ne gouverne que l'invite du TERMINAL.
+  //
+  // Sous Windows, la configuration SYSTÈME inscrit `credential.helper=manager`,
+  // qui n'obéit pas à cette variable. Trois tests ont bloqué à 30 008, 30 019 et
+  // 30 009 ms sur la CI Windows — le plafond au millième près, pas une lenteur.
+  //
+  // La règle était écrite ; son câblage ne couvrait que POSIX. Cette garde
+  // vérifie les DEUX verrous, pour que le prochain qui « nettoie »
+  // l'environnement de git voie rouge plutôt que de rendre le hub bloquant.
+
+  /** La source SANS ses commentaires — sinon la prose ci-dessus la ferait passer. */
+  const sourceNue = ((): string =>
+    readFileSync(new URL('../src/orchestrator/miroir.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, ''))();
+
+  it('l’invite de terminal est coupée', () => {
+    expect(sourceNue).toMatch(/GIT_TERMINAL_PROMPT:\s*'0'/);
+  });
+
+  it('LA CONFIGURATION MACHINE EST IGNORÉE — c’est là que vit l’assistant Windows', () => {
+    // Et ça vaut plus qu'un correctif Windows : un `url.<base>.insteadOf` posé
+    // dans la configuration système redirigerait nos clones vers un autre hôte.
+    expect(sourceNue).toMatch(/GIT_CONFIG_NOSYSTEM:\s*'1'/);
+  });
+
+  it('et l’assistant lui-même est mis en non-interactif', () => {
+    expect(sourceNue).toMatch(/GCM_INTERACTIVE:\s*'Never'/);
+  });
+
+  it('AUCUN assistant d’identifiants n’est CONFIGURÉ — on coupe la source, on ne la remplace pas', () => {
+    // simple-git bloque `credential.helper` par configuration, et il a raison :
+    // un assistant peut désigner n'importe quel binaire. Le jour où quelqu'un
+    // débloquerait ça avec `allowUnsafeCredentialHelper`, ce test le dirait.
+    expect(sourceNue).not.toMatch(/allowUnsafeCredentialHelper/);
+    expect(sourceNue).not.toMatch(/credential\.helper/);
   });
 });

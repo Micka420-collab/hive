@@ -149,18 +149,12 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
   });
 
   it('LE PROJET IMPORTÉ EST LISIBLE PAR L’ADMINISTRATEUR', async () => {
-    // ─── POURQUOI UN DÉLAI EXPLICITE, ET POURQUOI CELUI-CI ───────────────────
-    //
-    // Ce test tombait à 5 000 ms — le défaut de vitest — sur la CI Windows, et
-    // NULLE PART ailleurs. Ce n'est pas une lenteur inventée : la lecture du code passe par le miroir, donc par un `git clone` réel, sensiblement plus lent sous Windows.
-    //
-    // 30 secondes n'est pas « une marge confortable », c'est une HYPOTHÈSE
-    // VÉRIFIABLE : si le test passe désormais, le diagnostic « plus lent sous
-    // Windows » était juste. S'il retombe à 30 s, ce n'est plus de la lenteur
-    // mais un blocage, et il faudra le CORRIGER, pas rallonger encore.
-    // LE test de ce fichier. Un projet importé est privé ET sans propriétaire :
-    // sans que le rôle soit consulté, il n'était lisible par personne, et la
-    // fonctionnalité entière était morte sans qu'aucun test ne le dise.
+    // Ce test a bloqué à 30 000 ms EXACTEMENT sur la première CI Windows — pas
+    // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
+    // lenteur, mais une attente sans fin : git y attendait des identifiants via
+    // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
+    // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
+    // qu'un délai rallongé n'aurait fait que retarder le même blocage.
     const id = server.store.listProjects()[0]!.id;
     for (const route of [
       `/api/projects/${id}/rayon`,
@@ -176,7 +170,7 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
       expect(res.status, route).not.toBe(404);
       expect(res.status, route).not.toBe(401);
     }
-  }, 30_000);
+  });
 
   it('…et un membre ordinaire ne le lit pas pour autant', async () => {
     // Le droit vient du RÔLE. Si l'absence de propriétaire suffisait, tout
@@ -339,17 +333,12 @@ describe('connecter un dépôt depuis un COMPTE', () => {
   });
 
   it('…ET ELLE PEUT S’EN SERVIR TOUT DE SUITE, sans passer par une adoption', async () => {
-    // ─── POURQUOI UN DÉLAI EXPLICITE, ET POURQUOI CELUI-CI ───────────────────
-    //
-    // Ce test tombait à 5 000 ms — le défaut de vitest — sur la CI Windows, et
-    // NULLE PART ailleurs. Ce n'est pas une lenteur inventée : la lecture du code passe par le miroir, donc par un `git clone` réel, sensiblement plus lent sous Windows.
-    //
-    // 30 secondes n'est pas « une marge confortable », c'est une HYPOTHÈSE
-    // VÉRIFIABLE : si le test passe désormais, le diagnostic « plus lent sous
-    // Windows » était juste. S'il retombe à 30 s, ce n'est plus de la lenteur
-    // mais un blocage, et il faudra le CORRIGER, pas rallonger encore.
-    // C'est tout l'objet. Avant, un membre ordinaire recevait 404 sur le dépôt
-    // qu'il venait lui-même de connecter.
+    // Ce test a bloqué à 30 000 ms EXACTEMENT sur la première CI Windows — pas
+    // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
+    // lenteur, mais une attente sans fin : git y attendait des identifiants via
+    // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
+    // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
+    // qu'un délai rallongé n'aurait fait que retarder le même blocage.
     const id = server2.store.listProjects()[0]!.id;
     for (const route of [`/api/projects/${id}/rayon`, `/api/projects/${id}/members`]) {
       const res = await fetch(`${base2}${route}`, { headers: commeMembre() });
@@ -360,7 +349,7 @@ describe('connecter un dépôt depuis un COMPTE', () => {
       await fetch(`${base2}/api/projects/${id}/members`, { headers: commeMembre() })
     ).json()) as { userId: string; role: string }[];
     expect(membres.find((m) => m.userId === idMembre2)?.role).toBe('owner');
-  }, 30_000);
+  });
 
   it('L’ÉCRAN EXISTE — les deux routes ne sont plus réservées à la ligne de commande', () => {
     const brut = readFileSync(
