@@ -1,8 +1,8 @@
 // Vue Essaim — les ouvrières : cartes des nœuds membres (charge, sous-agents
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
-import { fetchPheromones, fetchRaces, fetchWaggle } from '../api';
-import type { NodeNectar, TraceePheromone, WaggleBoard } from '../api';
+import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
+import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
 import { useT } from '../i18n';
 import { DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { timeShort, useApiPoll } from './shared';
@@ -319,6 +319,138 @@ function PheromonesCard({
   );
 }
 
+/**
+ * Le polyéthisme — quelle ouvrière est encadrée, laquelle relit les autres.
+ *
+ * ─── CE QUE CETTE CARTE DOIT DIRE, ET QU'AUCUNE AUTRE NE DIT ────────────────
+ *
+ * Une ruche accueille les agents que ses membres ont sous la main : un Claude
+ * Code d'un côté, un modèle local de 7 milliards de paramètres monté ce matin de
+ * l'autre. Le Waggle Board les classe par VOLUME, les phéromones par affinité.
+ * Ni l'un ni l'autre ne répond à « à qui puis-je confier quoi ». C'est ce que
+ * la caste dit — et elle se GAGNE : il n'existe volontairement aucun champ par
+ * lequel un nœud annoncerait sa puissance.
+ *
+ * DEUX PIÈGES D'AFFICHAGE, tous les deux évités ici :
+ *
+ *   1. Montrer le mode DEMANDÉ comme s'il s'appliquait. Sans Gardiennes, aucune
+ *      inspection n'est rangée, donc aucune caste ne peut se gagner, donc le
+ *      polyéthisme s'éteint de lui-même. L'écart entre les deux est le fait le
+ *      plus utile de la carte : il explique pourquoi tout le monde est nourrice.
+ *   2. Faire lire « nourrice » comme un mauvais point. Un nœud sans historique
+ *      n'est pas mauvais, il est NON OBSERVÉ — et c'est l'état de tout nouvel
+ *      arrivant. La carte dit donc ce qui manque pour monter, pas un reproche.
+ */
+function CasteBadge({ caste }: { caste: Caste }) {
+  const t = useT();
+  const libelle: Record<Caste, string> = {
+    nourrice: t('nourrice', 'nurse'),
+    batisseuse: t('bâtisseuse', 'builder'),
+    butineuse: t('butineuse', 'forager'),
+  };
+  return <span className={`es-caste es-caste-${caste}`}>{libelle[caste]}</span>;
+}
+
+function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
+  const t = useT();
+  if (!vue) return null;
+  // L'écart entre demandé et effectif n'est PAS un détail : c'est lui qui
+  // explique une ruche entièrement composée de nourrices.
+  const eteintParLesGardiennes = vue.mode === 'off' && vue.modeDemande !== 'off';
+
+  return (
+    <section className="card">
+      <header className="panel-head">
+        <h2>{t('🐝 Polyéthisme', '🐝 Division of labour')}</h2>
+        <span className="panel-count">
+          {t('mode', 'mode')} {vue.mode}
+        </span>
+      </header>
+
+      {eteintParLesGardiennes && (
+        <p className="panel-error es-poly-note">
+          {/* Le premier jet disait « toutes les ouvrières restent nourrices ».
+              C'était faux, et l'écran le montrait : une ruche qui a EU des
+              Gardiennes garde ses lignes d'inspection, donc ses castes, tout en
+              ayant le mode éteint. Ce qui est vrai, c'est que plus rien ne s'en
+              sert. */}
+          {t(
+            `Réglé sur « ${vue.modeDemande} », mais ÉTEINT : les Gardiennes n’inspectent plus rien, donc aucune caste ne se gagne ni ne se perd, et aucune n’est appliquée — ni cadre, ni contre-visite. Ce qui suit est le dernier état observé.`,
+            `Set to “${vue.modeDemande}”, but OFF: the Guards no longer inspect anything, so no caste is earned or lost, and none is applied — no guidance, no counter-review. What follows is the last observed state.`,
+          )}
+        </p>
+      )}
+
+      {vue.noeuds.length === 0 ? (
+        <p className="empty pad">
+          {t(
+            'Aucune ouvrière observée — les castes apparaissent après les premières inspections.',
+            'No worker observed yet — castes appear after the first inspections.',
+          )}
+        </p>
+      ) : (
+        <>
+          <ul className="es-poly">
+            {vue.noeuds.map((n) => {
+              // Ce qui manque pour monter d'un cran, en clair. Un badge seul
+              // laisserait l'hôte deviner pourquoi son nœud stagne.
+              const cible = n.caste === 'nourrice' ? vue.seuils.batisseuse : vue.seuils.butineuse;
+              const manque = Math.max(0, cible - n.productions);
+              return (
+                <li key={n.nodeId} className="es-poly-row">
+                  <div className="es-poly-head">
+                    <span className="es-poly-name" title={n.name}>
+                      {n.name}
+                    </span>
+                    <CasteBadge caste={n.caste} />
+                  </div>
+                  <div className="es-poly-stats">
+                    <span title={t('productions observées', 'productions observed')}>
+                      {n.productions} {t('production(s)', 'production(s)')}
+                    </span>
+                    {n.creuses > 0 && (
+                      <span className="es-poly-grief" title={t('diffs vides', 'empty diffs')}>
+                        ⌀ {n.creuses}
+                      </span>
+                    )}
+                    {n.suspectes > 0 && (
+                      <span className="es-poly-grief" title={t('suspectes', 'suspicious')}>
+                        ⚠ {n.suspectes}
+                      </span>
+                    )}
+                    <span className="es-poly-fia">
+                      {t('fiabilité', 'reliability')} {Math.round(n.fiabilite * 100)}%
+                    </span>
+                  </div>
+                  {n.caste !== 'butineuse' && (
+                    <span className="es-poly-manque">
+                      {manque > 0
+                        ? t(
+                            `${manque} production(s) de plus pour le palier suivant`,
+                            `${manque} more production(s) to reach the next tier`,
+                          )
+                        : t(
+                            'le volume y est — c’est la fiabilité qui retient',
+                            'volume is there — reliability is what holds it back',
+                          )}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="es-poly-pied">
+            {t(
+              `Une caste se gagne sur les ${vue.fenetre} dernières inspections, et se perd de la même façon. Une butineuse peut contre-visiter ; une nourrice est encadrée.`,
+              `A caste is earned over the last ${vue.fenetre} inspections, and lost the same way. A forager may counter-review; a nurse is guided.`,
+            )}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProps) {
   const t = useT();
   const waggle = useApiPoll(fetchWaggle, 30_000, refreshTick);
@@ -326,6 +458,9 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
   // Les phéromones s'évaporent avec une demi-vie de 7 jours : la cadence du
   // Waggle Board suffit largement.
   const pheromones = useApiPoll(fetchPheromones, 30_000, refreshTick);
+  // Les castes sont mémoïsées côté serveur sur la fenêtre des Gardiennes : les
+  // interroger plus souvent ne rendrait pas des chiffres plus frais.
+  const poly = useApiPoll(fetchPolyethisme, 60_000, refreshTick);
   const online = snapshot.nodes.filter((n) => n.status === 'online').length;
   const board = waggle.data;
   // Nœuds avec un drone encore en vol : marqués ⚔ sur leur carte. Les courses
@@ -373,6 +508,9 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
           {!(pheromones.data === null && pheromones.error !== null) && (
             <PheromonesCard traces={pheromones.data?.traces ?? null} snapshot={snapshot} />
           )}
+          {/* Même dégradation propre : un orchestrateur plus ancien n'a pas la
+              route, et la vue Essaim doit rester entière sans elle. */}
+          <PolyethismeCard vue={poly.data} />
         </div>
 
         <div className="es-right-col">

@@ -8,14 +8,15 @@
 //      bavard supprimerait la tâche au lieu de l'encadrer ;
 //   3. l'interrupteur coupe bien, y compris par sa dépendance aux Gardiennes.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ModeGardiennes } from '../src/orchestrator/gardiennes.js';
 import type { ModePolyethisme } from '../src/orchestrator/polyethisme.js';
-import { SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
+import { CASTES, SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { LIMITS } from '../src/shared/protocol.js';
@@ -260,5 +261,45 @@ describe('polyéthisme — câblage', () => {
     const srv = await demarrer({ polyethisme: 'consignes' });
     const rep = await fetch(`http://127.0.0.1:${srv.port}/api/polyethisme`);
     expect(rep.status).toBe(401);
+  });
+});
+
+// ─── L'ÉCRAN — parce qu'une route que personne n'affiche n'existe pas ────────
+//
+// `/api/polyethisme` a vécu plusieurs semaines complètement branchée côté
+// serveur, testée, et invisible : aucune vue ne la lisait. La ruche calculait
+// des castes que personne ne voyait, ce qui revient à ne pas les calculer.
+
+describe('la carte du polyéthisme, côté écran', () => {
+  const BRUT = readFileSync(
+    fileURLToPath(new URL('../dashboard/src/views/Essaim.tsx', import.meta.url)),
+    'utf8',
+  );
+  /** Le CODE seul : l'en-tête de la carte PARLE des castes, il ne les affiche pas. */
+  const VUE = BRUT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+
+  it('LA VUE ESSAIM LIT BIEN LA ROUTE', () => {
+    expect(VUE).toContain('fetchPolyethisme');
+    expect(VUE).toContain('<PolyethismeCard');
+  });
+
+  it('LES DEUX MODES SONT AFFICHÉS, PAS SEULEMENT CELUI QU’ON A RÉGLÉ', () => {
+    // Sans Gardiennes, aucune inspection n'est rangée, donc aucune caste ne se
+    // gagne : montrer le seul mode DEMANDÉ laisserait croire à un encadrement
+    // qui ne tourne pas, et rendrait incompréhensible une ruche entièrement
+    // composée de nourrices.
+    expect(VUE).toContain('vue.mode');
+    expect(VUE).toContain('vue.modeDemande');
+  });
+
+  it('les trois castes ont un libellé — aucune ne s’affiche par sa seule couleur', () => {
+    for (const caste of CASTES) expect(VUE, caste).toContain(`${caste}:`);
+  });
+
+  it('la carte dit ce qui MANQUE pour monter, pas seulement le palier atteint', () => {
+    // Un badge seul laisserait l'hôte deviner pourquoi son nœud stagne — et
+    // « nourrice » se lirait comme un reproche au lieu d'un état d'observation.
+    expect(VUE).toContain('vue.seuils.batisseuse');
+    expect(VUE).toContain('vue.seuils.butineuse');
   });
 });

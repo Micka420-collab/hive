@@ -348,6 +348,45 @@ export function fetchPheromones(): Promise<{ traces: TraceePheromone[] }> {
   return api<{ traces: TraceePheromone[] }>('/api/pheromones');
 }
 
+/** Caste d'une ouvrière : nourrice (encadrée) → bâtisseuse → butineuse (relit). */
+export type Caste = 'nourrice' | 'batisseuse' | 'butineuse';
+
+export interface OuvrierePolyethisme {
+  nodeId: string;
+  name: string;
+  agentType: string;
+  caste: Caste;
+  /** Productions observées : le dénominateur de tout le reste. */
+  productions: number;
+  /** Jugées creuses par les Gardiennes — le grief le plus lourd. */
+  creuses: number;
+  /** Jugées suspectes : signal réel, mais heuristique. */
+  suspectes: number;
+  /** Entre 0 et 1, déjà arrondie au centième côté serveur. */
+  fiabilite: number;
+}
+
+/**
+ * Le polyéthisme — chaque ouvrière au travail que son expérience permet.
+ *
+ * `mode` est celui qui S'APPLIQUE, `modeDemande` celui qu'on a réglé : les deux
+ * diffèrent quand les Gardiennes sont éteintes, puisque sans source de qualité
+ * aucune caste ne peut se gagner. Afficher le seul mode demandé laisserait
+ * croire à un encadrement qui ne tourne pas.
+ */
+export interface VuePolyethisme {
+  mode: 'off' | 'consignes' | 'strict';
+  modeDemande: 'off' | 'consignes' | 'strict';
+  /** Taille du corpus d'inspections sur lequel les castes sont calculées. */
+  fenetre: number;
+  seuils: { batisseuse: number; butineuse: number };
+  noeuds: OuvrierePolyethisme[];
+}
+
+export function fetchPolyethisme(): Promise<VuePolyethisme> {
+  return api<VuePolyethisme>('/api/polyethisme');
+}
+
 /**
  * La Balance — le pèse-ruche. Deux lectures de natures DIFFÉRENTES cohabitent
  * dans cette réponse, et l'affichage ne doit jamais les confondre :

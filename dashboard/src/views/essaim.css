@@ -933,3 +933,104 @@
   font-weight: 600;
   flex: none;
 }
+
+/* ─── Polyéthisme — la caste de chaque ouvrière ────────────────────────────── */
+
+.es-poly {
+  list-style: none;
+  margin: 0;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.es-poly-row {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border-2);
+}
+
+.es-poly-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.es-poly-name {
+  font-weight: 600;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La caste porte son NOM, jamais une couleur seule : « nourrice » n'est pas un
+   reproche, c'est un état d'observation, et un point rouge le dirait mal. */
+.es-caste {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.es-caste-nourrice {
+  color: var(--muted);
+}
+
+.es-caste-batisseuse {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+.es-caste-butineuse {
+  color: var(--honey);
+  border-color: var(--honey);
+}
+
+.es-poly-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.es-poly-grief {
+  color: var(--amber);
+  font-family: var(--mono);
+}
+
+.es-poly-fia {
+  margin-left: auto;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.es-poly-manque {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.es-poly-note {
+  margin: 0;
+  padding: 10px 14px 0;
+  font-size: 12px;
+}
+
+.es-poly-pied {
+  margin: 0;
+  padding: 0 14px 12px;
+  font-size: 11px;
+  color: var(--faint);
+}
