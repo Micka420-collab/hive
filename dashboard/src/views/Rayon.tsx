@@ -17,14 +17,20 @@
 //    ou trop gros doit DIRE pourquoi il ne s'ouvre pas. Une vue qui ne réagit
 //    pas au clic laisse croire à une panne, et on recharge la page pour rien.
 //
-// 3. LA LECTURE EST LE DÉFAUT, POUR TOUT LE MONDE. L'éditeur s'ouvre en
-//    lecture même pour la Reine : ce qu'on voit ici est le MIROIR du dépôt, pas
-//    une copie de travail. Laisser modifier un texte qui ne sera jamais
-//    enregistré nulle part est le pire des mensonges d'interface — on croit
-//    avoir corrigé quelque chose, et rien n'est parti.
+// 3. LA LECTURE EST LE DÉFAUT, ET L'ÉCRITURE N'EN EST PAS UNE. L'éditeur
+//    s'ouvre en lecture ; « Proposer une retouche » le rend modifiable. Mais ce
+//    qu'on voit est le MIROIR du dépôt — un clone jetable — et rien ne s'y
+//    écrit jamais. La retouche part comme TÂCHE : une ouvrière l'applique chez
+//    elle, la teste, et son diff passe par la revue comme tout le reste.
+//
+//    D'où le libellé du bouton : « Proposer », jamais « Enregistrer ». Un
+//    bouton « enregistrer » promettrait une écriture qui n'arrive pas, et on
+//    ne s'en apercevrait qu'au rafraîchissement suivant, en cherchant pourquoi
+//    le correctif a disparu. C'est le pire mensonge qu'une interface puisse
+//    faire.
 
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { fetchFichierRayon, fetchRayon } from '../api';
+import { fetchFichierRayon, fetchRayon, proposerRetouche } from '../api';
 import type { EntreeRayon, FichierRayon } from '../api';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -72,6 +78,34 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(false);
+  // `null` = lecture. Un objet = la Reine est en train de retoucher. On garde
+  // le texte ICI plutôt que dans l'éditeur : c'est lui qu'on compare à
+  // `fichier.contenu` pour savoir ce qui a bougé.
+  const [retouche, setRetouche] = useState<{ texte: string; note: string } | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const [propose, setPropose] = useState<string | null>(null);
+
+  const envoyer = async () => {
+    if (!projet || !fichier || !retouche) return;
+    setEnvoi(true);
+    setErreur(null);
+    try {
+      const r = await proposerRetouche(projet.id, {
+        chemin: fichier.chemin,
+        avant: fichier.contenu,
+        apres: retouche.texte,
+        ...(retouche.note.trim() ? { note: retouche.note.trim() } : {}),
+      });
+      setPropose(r.task.title);
+      setRetouche(null);
+    } catch (e) {
+      // Le refus du serveur s'AFFICHE tel quel : il dit pourquoi et propose
+      // une issue (« décrivez-la en mots »), ce qu'un « échec » ne ferait pas.
+      setErreur(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEnvoi(false);
+    }
+  };
 
   const charger = useCallback(async (projectId: string, chemin: string) => {
     try {
@@ -90,6 +124,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
     setFichier(null);
     setOuvert(null);
     setErreur(null);
+    setRetouche(null);
+    setPropose(null);
     if (!projet) return;
     setChargement(true);
     void charger(projet.id, '').finally(() => setChargement(false));
@@ -109,6 +145,10 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
     setOuvert(chemin);
     setFichier(null);
     setErreur(null);
+    // Changer de fichier abandonne la retouche en cours : la garder
+    // appliquerait le texte d'un fichier à un autre.
+    setRetouche(null);
+    setPropose(null);
     try {
       setFichier(await fetchFichierRayon(projet.id, chemin));
     } catch (e) {
@@ -206,14 +246,60 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
                 <span className="muted-text">
                   {fichier.langage} · {taille(fichier.taille, t)}
                 </span>
+                {/* LE BOUTON DIT « PROPOSER », PAS « ENREGISTRER ».
+                    Ce qu'on voit est le miroir du dépôt : rien ne s'écrit ici.
+                    La retouche part comme TÂCHE, une ouvrière l'applique et la
+                    teste, et son diff passe par la revue comme tout le reste.
+                    Un bouton « enregistrer » promettrait une écriture qui
+                    n'arrive jamais — le pire mensonge d'interface possible. */}
+                {!retouche ? (
+                  <button
+                    className="btn ghost ry-geste"
+                    onClick={() => setRetouche({ texte: fichier.contenu, note: '' })}
+                  >
+                    ✎ {t('Proposer une retouche', 'Propose a change')}
+                  </button>
+                ) : (
+                  <span className="ry-mode">{t('retouche en cours', 'change in progress')}</span>
+                )}
               </div>
               <Suspense fallback={<p className="muted-text">{t('Éditeur…', 'Editor…')}</p>}>
-                {/* Lecture seule, y compris pour la Reine : ce qu'on voit est le
-                    MIROIR du dépôt. Laisser modifier un texte qui ne sera
-                    enregistré nulle part ferait croire à une correction qui
-                    n'est jamais partie. */}
-                <CodeEditor value={fichier.contenu} lang={fichier.langage as CodeLang} />
+                <CodeEditor
+                  value={retouche ? retouche.texte : fichier.contenu}
+                  lang={fichier.langage as CodeLang}
+                  editable={retouche !== null}
+                  onChange={(texte) => setRetouche((r) => (r ? { ...r, texte } : r))}
+                />
               </Suspense>
+              {retouche && (
+                <div className="ry-retouche">
+                  <input
+                    className="ry-note"
+                    placeholder={t(
+                      'Pourquoi ce changement ? (facultatif, mais ça aide l’ouvrière)',
+                      'Why this change? (optional, but it helps the worker)',
+                    )}
+                    value={retouche.note}
+                    onChange={(e) => setRetouche((r) => (r ? { ...r, note: e.target.value } : r))}
+                    maxLength={400}
+                  />
+                  <button className="btn" disabled={envoi} onClick={() => void envoyer()}>
+                    {envoi ? '…' : t('Envoyer à l’essaim', 'Send to the swarm')}
+                  </button>
+                  <button className="btn ghost" disabled={envoi} onClick={() => setRetouche(null)}>
+                    {t('Abandonner', 'Discard')}
+                  </button>
+                </div>
+              )}
+              {propose && (
+                <p className="ry-propose">
+                  ✔{' '}
+                  {t(
+                    `Tâche créée : « ${propose} ». Une ouvrière va l’appliquer et la tester ; le résultat passera par la Miellerie comme tout le reste.`,
+                    `Task created: “${propose}”. A worker will apply and test it; the result goes through the Honey House like everything else.`,
+                  )}
+                </p>
+              )}
             </>
           )}
         </section>

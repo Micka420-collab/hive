@@ -247,6 +247,23 @@ export function fetchThermo(): Promise<ThermoState> {
 }
 
 /**
+ * Proposer une retouche : la modification part comme TÂCHE, jamais comme
+ * écriture dans le miroir.
+ *
+ * Le Rayon est un clone jetable. Écrire dedans ferait croire à une correction
+ * qui disparaîtrait au prochain rafraîchissement, sans rien dire.
+ */
+export function proposerRetouche(
+  projectId: string,
+  corps: { chemin: string; avant: string; apres: string; note?: string },
+): Promise<{ task: { id: string; title: string } }> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/rayon/retouche`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+}
+
+/**
  * Les Guetteuses — ce que la ruche a vu passer sur ses leurres.
  *
  * ─── POURQUOI CETTE FONCTION MANQUAIT, ET CE QUE ÇA COÛTAIT ─────────────────

@@ -191,3 +191,58 @@
     max-height: 34vh;
   }
 }
+
+/* ─── La retouche ────────────────────────────────────────────────────────────
+ *
+ * Le bouton dit « Proposer », jamais « Enregistrer » : rien ne s'écrit dans le
+ * miroir, la retouche part comme tâche. Le style suit le propos — la barre de
+ * retouche ressemble à un formulaire d'envoi, pas à une barre de sauvegarde. */
+
+.ry-geste {
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  padding: 3px 10px;
+}
+
+.ry-mode {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent, #ffb020);
+  color: var(--accent, #ffb020);
+}
+
+.ry-retouche {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-2);
+  background: var(--bg-2);
+}
+
+.ry-note {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-1, #0d0d0f);
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12.5px;
+}
+
+/* La confirmation dit ce qui va se passer ENSUITE, pas seulement « c'est
+   parti » : sans ça, on attend une modification du fichier qui n'arrivera pas
+   avant la revue. */
+.ry-propose {
+  margin: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
