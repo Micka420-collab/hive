@@ -209,6 +209,43 @@ describe('côté nœud : runMerge refuse, même si le hub a laissé passer', () 
     expect((await git.status()).files).toEqual(avant.files);
   });
 
+  it('LA COMMANDE DE TEST EST ENVELOPPÉE DANS LE BAC À SABLE', async () => {
+    // Ce chemin ne passait par AUCUNE enveloppe : `HIVE_ISOLEMENT=exige`
+    // empêchait un agent de sortir de son bac pendant que les tests d'un merge
+    // tournaient à côté, sur l'hôte nu. On le prouve ici pour de vrai, sans
+    // docker : un faux moteur qui se contente d'imprimer son argv.
+    const faux = path.join(dir, 'faux-moteur.cjs');
+    writeFileSync(faux, 'console.log(JSON.stringify(process.argv.slice(2)));\n');
+    const lanceur = path.join(dir, 'moteur');
+    writeFileSync(lanceur, `#!/bin/sh\nexec node ${JSON.stringify(faux)} "$@"\n`, { mode: 0o755 });
+
+    const r = await runMerge({
+      repoDir,
+      diffs: [],
+      testCommand: ['npm', 'test'],
+      timeoutMs: 30_000,
+      bac: {
+        fournisseur: {
+          nom: 'faux',
+          bin: lanceur,
+          niveau: 'conteneur',
+          installation: 'aucune',
+          garanties: [],
+        },
+        variables: ['ANTHROPIC_API_KEY'],
+      },
+    });
+
+    expect(r.testsRun).toBe(true);
+    // Le vrai binaire lancé est le moteur, pas `npm` : l'enveloppe a bien eu lieu.
+    expect(r.logs, 'le clone doit être le répertoire monté').toContain(`--volume=${repoDir}:`);
+    expect(r.logs, "la commande de test doit être à l'intérieur").toMatch(/"npm","test"/);
+    // Le secret passe par son NOM, jamais par sa valeur : `--env=CLE=valeur`
+    // écrirait le secret dans la table des processus, lisible par `ps`.
+    expect(r.logs).toContain('--env=ANTHROPIC_API_KEY');
+    expect(r.logs).not.toMatch(/--env=ANTHROPIC_API_KEY=/);
+  });
+
   it('laisse passer un vrai lanceur (la garde ne casse pas le chemin nominal)', async () => {
     const r = await runMerge({
       repoDir,

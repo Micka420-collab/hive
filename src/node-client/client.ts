@@ -453,6 +453,9 @@ export class HiveNodeClient {
         repoDir: dir,
         diffs: msg.diffs,
         ...(msg.testCommand ? { testCommand: msg.testCommand } : {}),
+        // Le bac à sable du nœud suit le merge : la commande de test exécute du
+        // code du dépôt, au même titre qu'un agent.
+        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
       });
       this.send({
         type: 'merge_result',

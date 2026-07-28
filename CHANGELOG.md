@@ -193,6 +193,26 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **La commande de test d'un merge passe enfin par le bac à sable** — et un
+  test tient désormais la liste de ce qui doit y passer
+  (`tests/isolement-couverture.test.ts`). `exec.ts` portait ce commentaire :
+  « c'est le **seul** endroit où un agent est lancé, donc le seul endroit où
+  l'oubli serait total ». Il était faux, et le croire a coûté cher :
+  `merge-runner.ts` lançait la commande de test avec son propre `spawn`, sans
+  enveloppe. Autrement dit `HIVE_ISOLEMENT=exige` — le réglage qu'on pose
+  précisément quand on prête sa machine à des inconnus — empêchait bien un
+  agent de sortir de son bac **pendant que les tests d'un merge tournaient à
+  côté, sur l'hôte nu, avec le `HOME` du membre**. Le bac du nœud suit
+  maintenant le merge (le clone est le seul volume monté, racine en lecture
+  seule, `cap-drop=ALL`, secrets transmis **par leur nom**), et un test
+  behavioural le prouve sans docker, à l'aide d'un faux moteur qui imprime son
+  argv — il vérifie aussi qu'aucun `--env=CLE=valeur` n'apparaît, ce qui
+  écrirait le secret dans la table des processus. Le test de couverture, lui,
+  énumère les `spawn` du dépôt et exige pour chacun soit une enveloppe, soit
+  une **dérogation nommée avec sa raison** (détection d'agents, sonde de moteur
+  de conteneurs, tunnel cloudflared) ; une dérogation orpheline est refusée
+  elle aussi. Un commentaire ne vérifiait rien — et n'a rien vérifié.
+
 - **Le prompt d'une tâche ne peut plus devenir une option de l'agent** (module
   `src/adapters/prompt-argv.ts`). L'adaptateur claude-code lançait
   `claude -p <prompt> --output-format stream-json --verbose` : un prompt
