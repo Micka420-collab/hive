@@ -23,37 +23,71 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { peutRejoindre, peutVoirMembres } from '../src/shared/acces-projet.js';
+import { peutLireCode, peutRejoindre, peutVoirMembres } from '../src/shared/acces-projet.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
 describe('la décision, seule', () => {
   const publique = { visibility: 'public' as const, ownerId: 'proprio' };
   const privee = { visibility: 'private' as const, ownerId: 'proprio' };
+  /** Un membre ordinaire : il ne voit que ce qui le regarde. */
+  const qui = (userId: string) => ({ userId, voitTout: false });
+  /** Un administrateur : la matrice lui accorde `voir_tous_les_projets`. */
+  const admin = (userId = 'la-reine') => ({ userId, voitTout: true });
 
   it('un projet PUBLIC est ouvert — c’est ce que le mot veut dire', () => {
-    expect(peutRejoindre(publique, 'inconnu', false)).toBe(true);
-    expect(peutVoirMembres(publique, 'inconnu', false)).toBe(true);
+    expect(peutRejoindre(publique, qui('inconnu'), false)).toBe(true);
+    expect(peutVoirMembres(publique, qui('inconnu'), false)).toBe(true);
+    expect(peutLireCode(publique, qui('inconnu'), false)).toBe(true);
   });
 
   it('UN PROJET PRIVÉ NE S’OUVRE PAS TOUT SEUL', () => {
-    expect(peutRejoindre(privee, 'inconnu', false)).toBe(false);
-    expect(peutVoirMembres(privee, 'inconnu', false)).toBe(false);
+    expect(peutRejoindre(privee, qui('inconnu'), false)).toBe(false);
+    expect(peutVoirMembres(privee, qui('inconnu'), false)).toBe(false);
+    expect(peutLireCode(privee, qui('inconnu'), false)).toBe(false);
   });
 
   it('le propriétaire et les membres passent', () => {
-    expect(peutRejoindre(privee, 'proprio', false)).toBe(true);
-    expect(peutRejoindre(privee, 'membre', true)).toBe(true);
-    expect(peutVoirMembres(privee, 'proprio', false)).toBe(true);
-    expect(peutVoirMembres(privee, 'membre', true)).toBe(true);
+    expect(peutRejoindre(privee, qui('proprio'), false)).toBe(true);
+    expect(peutRejoindre(privee, qui('membre'), true)).toBe(true);
+    expect(peutVoirMembres(privee, qui('proprio'), false)).toBe(true);
+    expect(peutVoirMembres(privee, qui('membre'), true)).toBe(true);
   });
 
-  it('un projet SANS propriétaire ne s’ouvre pas à qui n’en a pas non plus', () => {
-    // `ownerId` est nullable en base. Comparer `null === undefined`-ment ferait
-    // du premier venu le propriétaire de tous les projets orphelins.
+  it('un projet SANS propriétaire n’appartient pas au premier venu', () => {
+    // `ownerId` est nullable en base : un projet sans propriétaire n'appartient
+    // à personne, pas à tout le monde. Comparer sans garde ferait de quiconque
+    // a un `userId` vide le propriétaire de tous les projets orphelins.
     const orphelin = { visibility: 'private' as const, ownerId: null };
-    expect(peutRejoindre(orphelin, 'quelquun', false)).toBe(false);
-    expect(peutVoirMembres(orphelin, 'quelquun', false)).toBe(false);
+    expect(peutRejoindre(orphelin, qui('quelquun'), false)).toBe(false);
+    expect(peutVoirMembres(orphelin, qui('quelquun'), false)).toBe(false);
+    expect(peutLireCode(orphelin, { userId: '', voitTout: false }, false)).toBe(false);
+  });
+
+  describe('L’ADMINISTRATEUR VOIT TOUT — la matrice le disait déjà', () => {
+    // Ce bloc existe à cause d'un trou trouvé en éprouvant le connecteur
+    // GitHub de bout en bout : un projet IMPORTÉ est privé et sans
+    // propriétaire (la route d'import s'authentifie par le jeton de ruche,
+    // pas par un compte), donc il n'était lisible par PERSONNE — pas même par
+    // l'administrateur de la ruche.
+    it('il lit un projet privé dont il n’est ni propriétaire ni membre', () => {
+      expect(peutLireCode(privee, admin(), false)).toBe(true);
+      expect(peutVoirMembres(privee, admin(), false)).toBe(true);
+      expect(peutRejoindre(privee, admin(), false)).toBe(true);
+    });
+
+    it('IL LIT UN PROJET ORPHELIN — le cas exact du dépôt importé', () => {
+      const importe = { visibility: 'private' as const, ownerId: null };
+      expect(peutLireCode(importe, admin(), false)).toBe(true);
+      expect(peutRejoindre(importe, admin(), false)).toBe(true);
+    });
+
+    it('…et un membre ordinaire, non', () => {
+      // Le droit vient du RÔLE, pas de l'absence de propriétaire : sinon tout
+      // projet orphelin serait public de fait.
+      const importe = { visibility: 'private' as const, ownerId: null };
+      expect(peutLireCode(importe, qui('un-membre'), false)).toBe(false);
+    });
   });
 });
 
@@ -94,8 +128,19 @@ describe('sur le vrai serveur', () => {
       ownerId: 'un-autre-compte',
     }).id;
     publicId = server.store.createProject({ name: 'Projet public', visibility: 'public' }).id;
+    // LE PREMIER COMPTE D'UNE RUCHE EST ADMINISTRATEUR — c'est l'amorçage
+    // voulu, et c'est un piège pour ce fichier : l'« intrus » d'origine était
+    // administrateur sans que personne s'en aperçoive, et ne prouvait donc
+    // rien du tout sur le contrôle d'accès. On en inscrit un premier, qui
+    // occupe la place d'admin, et l'intrus n'est que le second.
+    const premier = await inscrire('la-reine@exemple.test');
+    expect(premier, "l'inscription doit rendre un jeton").not.toBe('');
     jetonIntrus = await inscrire('intrus@exemple.test');
     expect(jetonIntrus, "l'inscription doit rendre un jeton").not.toBe('');
+    const moi = (await (
+      await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${jetonIntrus}` } })
+    ).json()) as { role?: string };
+    expect(moi.role, "l'intrus ne doit surtout pas être administrateur").not.toBe('admin');
   });
 
   afterAll(async () => {

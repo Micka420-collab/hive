@@ -4256,7 +4256,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // confirmerait que le projet existe, et répété sur une liste
       // d'identifiants il dessinerait la carte des projets de la ruche. Même
       // raisonnement que pour les billets (ADR 0005).
-      if (!peutRejoindre(project, userId, store.estMembre(project.id, userId))) {
+      if (!peutRejoindre(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         emitEvent('project_join_refused', { projectId: project.id, userId });
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -4281,6 +4281,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   //
   // Le refus de la première prend la forme de l'inexistence, comme partout
   // ailleurs : un 403 sur un projet privé confirmerait qu'il existe.
+
+  /**
+   * Le lecteur, avec son rôle.
+   *
+   * Le rôle est LU ICI et pas déduit ailleurs : c'est `voir_tous_les_projets`
+   * de la matrice qui décide, et la matrice est la seule source. Un projet
+   * importé depuis GitHub n'a pas de propriétaire — la route d'import
+   * s'authentifie par le jeton de ruche, pas par un compte — et sans cette
+   * lecture du rôle, il n'était lisible par PERSONNE.
+   */
+  const lecteurDe = (req: FastifyRequest): { userId: string; voitTout: boolean } => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const moi = roleDe(req);
+    return { userId, voitTout: moi !== null && peut(moi.role, 'voir_tous_les_projets') };
+  };
 
   /**
    * Le porteur d'un lien de partage a-t-il le droit de faire CET acte sur CE
@@ -4352,7 +4367,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
     const project = store.getProject(projectId);
     const userId = (req as AuthRequest).userId!;
-    if (!project || !peutLireCode(project, userId, store.estMembre(projectId, userId))) {
+    if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(projectId, userId))) {
       reply.code(404).send({ error: 'projet inconnu' });
       return null;
     }
@@ -4458,7 +4473,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const project = store.getProject(req.params.projectId);
       // Partager, c'est décider qui voit : seuls le propriétaire et les membres
       // le peuvent, et le refus prend la forme de l'inexistence comme ailleurs.
-      if (!project || !peutLireCode(project, userId, store.estMembre(project.id, userId))) {
+      if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       const id = `par-${randomUUID()}`.slice(0, LIMITS.id);
@@ -4494,7 +4509,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const userId = (req as AuthRequest).userId!;
       const project = store.getProject(req.params.projectId);
-      if (!project || !peutLireCode(project, userId, store.estMembre(project.id, userId))) {
+      if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       const now = Date.now();
@@ -4521,7 +4536,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const userId = (req as AuthRequest).userId!;
       const project = store.getProject(req.params.projectId);
-      if (!project || !peutLireCode(project, userId, store.estMembre(project.id, userId))) {
+      if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       const p = store.getPartage(req.params.partageId);
@@ -4548,7 +4563,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // La liste NOMME des gens. Sur un projet privé, elle était lisible par
       // tout titulaire d'un compte : créer un compte suffisait à énumérer qui
       // travaille sur quoi. Même refus indistinguable qu'au-dessus.
-      if (!peutVoirMembres(project, userId, store.estMembre(project.id, userId))) {
+      if (!peutVoirMembres(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       return reply.send(store.listMembers(project.id));

@@ -38,6 +38,40 @@ export interface ProjetAcces {
 }
 
 /**
+ * Ce qu'il faut savoir de la PERSONNE pour trancher.
+ *
+ * ─── LE TROU QUE CE TYPE BOUCHE, ET COMMENT IL EST NÉ ────────────────────────
+ *
+ * Les trois fonctions ci-dessous ne regardaient que la personne et le projet.
+ * Elles ignoraient le RÔLE — alors que la matrice des rôles déclare depuis le
+ * début une action `voir_tous_les_projets`, accordée à l'administrateur.
+ *
+ * Le résultat s'est vu en éprouvant le connecteur GitHub de bout en bout :
+ * `POST /api/github/import` s'authentifie par le JETON DE RUCHE, pas par un
+ * compte. Il n'a donc personne à qui attribuer le projet, et le crée
+ * `visibility: 'private'`, `ownerId: null`.
+ *
+ * Un projet importé était donc **illisible par tout le monde** : ni par
+ * l'administrateur, ni par qui que ce soit. Il existait, des tâches pouvaient
+ * tourner dessus, et aucun humain ne pouvait en ouvrir le code. La
+ * fonctionnalité entière était morte, sans qu'aucun test ne le dise — parce
+ * qu'aucun test ne faisait le trajet complet « importer, puis lire ».
+ *
+ * ─── POURQUOI L'ADMINISTRATEUR PASSE ─────────────────────────────────────────
+ *
+ * Ce n'est pas une exception de confort. Dans une ruche auto-hébergée,
+ * l'administrateur est celui qui tient la machine et le fichier SQLite : lui
+ * refuser la lecture par l'interface ne protège personne, cela l'oblige juste
+ * à ouvrir la base à la main. La matrice le disait déjà ; il manquait de la
+ * consulter.
+ */
+export interface Lecteur {
+  userId: string;
+  /** A l'action `voir_tous_les_projets` (rôle administrateur). */
+  voitTout: boolean;
+}
+
+/**
  * Cette personne peut-elle rejoindre ce projet d'elle-même ?
  *
  * Un projet PUBLIC est ouvert : c'est ce que « public » veut dire, et le
@@ -46,9 +80,10 @@ export interface ProjetAcces {
  * passent, pour que re-cliquer « rejoindre » reste sans effet plutôt que
  * d'être une erreur.
  */
-export function peutRejoindre(projet: ProjetAcces, userId: string, dejaMembre: boolean): boolean {
+export function peutRejoindre(projet: ProjetAcces, lecteur: Lecteur, dejaMembre: boolean): boolean {
   if (projet.visibility === 'public') return true;
-  return projet.ownerId === userId || dejaMembre;
+  if (lecteur.voitTout) return true;
+  return estProprietaire(projet, lecteur) || dejaMembre;
 }
 
 /**
@@ -58,9 +93,14 @@ export function peutRejoindre(projet: ProjetAcces, userId: string, dejaMembre: b
  * qu'on vient voir — c'est une ruche communautaire. Sur un projet privé, elle
  * nomme des gens, et personne d'extérieur n'a à la lire.
  */
-export function peutVoirMembres(projet: ProjetAcces, userId: string, dejaMembre: boolean): boolean {
+export function peutVoirMembres(
+  projet: ProjetAcces,
+  lecteur: Lecteur,
+  dejaMembre: boolean,
+): boolean {
   if (projet.visibility === 'public') return true;
-  return projet.ownerId === userId || dejaMembre;
+  if (lecteur.voitTout) return true;
+  return estProprietaire(projet, lecteur) || dejaMembre;
 }
 
 /**
@@ -78,7 +118,21 @@ export function peutVoirMembres(projet: ProjetAcces, userId: string, dejaMembre:
  * privées : c'est `shared/rayon.ts` qui tient cette liste-là, et les DEUX
  * gardes doivent passer.
  */
-export function peutLireCode(projet: ProjetAcces, userId: string, dejaMembre: boolean): boolean {
+export function peutLireCode(projet: ProjetAcces, lecteur: Lecteur, dejaMembre: boolean): boolean {
   if (projet.visibility === 'public') return true;
-  return projet.ownerId === userId || dejaMembre;
+  if (lecteur.voitTout) return true;
+  return estProprietaire(projet, lecteur) || dejaMembre;
+}
+
+/**
+ * Cette personne est-elle propriétaire de ce projet ?
+ *
+ * `ownerId` est NULLABLE, et c'est là qu'est le piège : un projet sans
+ * propriétaire n'appartient à personne, pas à tout le monde. Comparer sans
+ * cette garde ferait du premier venu dont `userId` vaudrait `null` — ou de
+ * n'importe quelle chaîne vide qui traînerait — le propriétaire de tous les
+ * projets orphelins.
+ */
+function estProprietaire(projet: ProjetAcces, lecteur: Lecteur): boolean {
+  return projet.ownerId !== null && projet.ownerId === lecteur.userId;
 }
