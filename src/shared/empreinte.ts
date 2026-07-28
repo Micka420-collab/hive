@@ -102,11 +102,68 @@ export interface Contexte {
   readonly workdir: string;
   /** `os.tmpdir()`. */
   readonly tmpdir: string;
+  /**
+   * `os.homedir()`.
+   *
+   * Hive n'écrit rien dans le dossier personnel — SAUF si l'on a demandé un
+   * service : c'est là que vivent l'unité `systemd --user` et le `LaunchAgent`
+   * de macOS. Un inventaire qui les tairait laisserait derrière lui exactement
+   * ce que l'ADR 0004 redoute : une unité orpheline qui relance un binaire
+   * supprimé, c'est-à-dire une erreur toutes les cinq secondes dans le journal
+   * de quelqu'un.
+   */
+  readonly home: string;
   readonly plateforme: NodeJS.Platform;
 }
 
 /** Le préfixe des répertoires de patchs d'une fusion (`merge-runner.ts`). */
 export const PREFIXE_FUSION = 'hive-merge-';
+
+/**
+ * Le fichier de service, s'il peut y en avoir un sur cette plateforme.
+ *
+ * ─── POURQUOI C'EST LE SEUL EMPLACEMENT « PEUT-ÊTRE » ────────────────────────
+ *
+ * Le service est OPT-IN : la plupart des installations n'en ont pas. Mais quand
+ * il y en a un, c'est la chose la plus facile à oublier — un fichier de trois
+ * lignes dans un dossier qu'on n'ouvre jamais, qui RELANCE quelque chose. Le
+ * relevé le cherche donc toujours, et la moitié impure ne le montrera que s'il
+ * est là.
+ *
+ * On ne décrit que le niveau UTILISATEUR : c'est le défaut, et le seul que Hive
+ * pose sans qu'on lui donne les droits d'administrateur. Un service de niveau
+ * système a été installé sciemment, avec un `sudo` tapé à la main ; celui-là,
+ * on le nomme dans la conséquence plutôt que d'aller fouiller `/etc`.
+ */
+function emplacementService(ctx: Contexte, p: typeof path.posix): Emplacement[] {
+  const chemin =
+    ctx.plateforme === 'linux'
+      ? p.join(ctx.home, '.config', 'systemd', 'user', 'hive-ruche.service')
+      : ctx.plateforme === 'darwin'
+        ? p.join(ctx.home, 'Library', 'LaunchAgents', 'fr.hive.ruche.plist')
+        : ctx.plateforme === 'win32'
+          ? p.join(ctx.racine, 'data', 'hive-ruche.xml')
+          : null;
+  if (chemin === null) return [];
+
+  return [
+    {
+      cle: 'service',
+      chemin,
+      quoi: 'le service qui relance la ruche au démarrage — seulement si vous en avez demandé un',
+      genre: 'travail',
+      // Retirer le FICHIER sans désinscrire le service laisse une inscription
+      // qui pointe vers rien. `hive service uninstall` fait les deux, dans le
+      // bon ordre. C'est pour ça que celui-ci n'est pas `retirable`.
+      retirable: false,
+      consequence:
+        'à retirer avec `hive service uninstall`, PAS à la main : effacer le fichier ' +
+        'sans désinscrire laisse une unité orpheline qui relance un binaire absent. ' +
+        'Un service de niveau système, lui, vit hors du dossier personnel et n’est ' +
+        'pas listé ici — il a été posé avec un `sudo` tapé sciemment.',
+    },
+  ];
+}
 
 /**
  * Tout ce que la ruche a pu écrire sur cette machine, du plus grave au plus
@@ -182,6 +239,7 @@ export function empreinte(ctx: Contexte): Emplacement[] {
         },
       ],
     },
+    ...emplacementService(ctx, p),
     {
       cle: 'fusions',
       chemin: ctx.tmpdir,

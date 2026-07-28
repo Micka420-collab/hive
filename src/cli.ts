@@ -601,6 +601,154 @@ async function cmdDesinstaller(...args: string[]): Promise<void> {
   console.log('');
 }
 
+/**
+ * `hive service install | status | logs | uninstall`.
+ *
+ * ─── LE NIVEAU EST UNE QUESTION, JAMAIS UN DÉFAUT DEVINÉ ─────────────────────
+ *
+ * L'ADR 0004 : « Le choix du niveau (utilisateur / système) est une question
+ * POSÉE, jamais un défaut deviné — et en `--non-interactive`, son absence est
+ * une erreur de code 3, pas un défaut silencieux. »
+ *
+ * Ici, on va un cran plus loin que « poser la question » : le niveau
+ * utilisateur est le défaut ANNONCÉ, et le niveau système ne s'obtient qu'avec
+ * `--systeme` tapé à la main. Un niveau système posé par inadvertance réclame
+ * l'administrateur, survit à tout, et se retire moins facilement qu'il ne
+ * s'installe. Ce n'est pas quelque chose qu'on décide pour quelqu'un.
+ */
+async function cmdService(...args: string[]): Promise<void> {
+  const { CODE } = await import('./codes-sortie.js');
+  const svc = await import('./service-reel.js');
+  const { AVERTISSEMENT_LINGER, codeJournal, planifier, rendreGestes } =
+    await import('./shared/service.js');
+
+  const sous = args.find((a) => !a.startsWith('--')) ?? 'status';
+  const racine = process.cwd();
+
+  // ─── LES DEUX FAÇONS DE DEMANDER LE NIVEAU SYSTÈME ─────────────────────────
+  //
+  // `--systeme` l'exige. `--niveau=…` existe pour les scripts, et parce qu'un
+  // outil qui n'accepte qu'une seule orthographe force à lire sa documentation
+  // pour rien.
+  const niveauBrut = args.find((a) => a.startsWith('--niveau='))?.slice('--niveau='.length);
+  if (niveauBrut !== undefined && niveauBrut !== 'utilisateur' && niveauBrut !== 'systeme') {
+    console.error(
+      `\n✘ Niveau inconnu : « ${niveauBrut} ». Les deux valeurs sont ` +
+        '`utilisateur` et `systeme`.\n',
+    );
+    process.exitCode = CODE.REPONSE_MANQUANTE;
+    return;
+  }
+  const demande = args.includes('--systeme')
+    ? 'systeme'
+    : args.includes('--utilisateur')
+      ? 'utilisateur'
+      : (niveauBrut ?? null);
+
+  // ─── LE NIVEAU EST TOUJOURS EXIGÉ POUR `install`, PAS SEULEMENT EN CI ──────
+  //
+  // L'ADR 0004 n'exige ce refus qu'en `--non-interactive`. On va plus strict,
+  // et plus simple : `install` sans niveau REFUSE, terminal ou pas. Deux
+  // raisons.
+  //
+  //   · un défaut, même annoncé, reste un défaut deviné. Le niveau système
+  //     réclame l'administrateur et se retire moins facilement qu'il ne
+  //     s'installe ; le niveau utilisateur s'arrête à la fermeture de session.
+  //     Aucun des deux n'est anodin au point d'être choisi pour quelqu'un ;
+  //   · un comportement IDENTIQUE avec et sans terminal, c'est un mode de moins
+  //     où se cacher un défaut. Ce dépôt a déjà payé pour des chemins que la
+  //     CI n'empruntait pas.
+  //
+  // Les autres sous-commandes (`status`, `logs`, `uninstall`) prennent le
+  // niveau utilisateur par défaut : elles ne POSENT rien, elles regardent.
+  if (sous === 'install' && demande === null) {
+    console.error('\n✘ À quel niveau installer le service ? Il faut le dire.\n');
+    console.error('  --utilisateur   aucun droit administrateur. S’arrête à la fermeture');
+    console.error('                  de session, sauf `loginctl enable-linger $USER`.');
+    console.error('  --systeme       survit à la déconnexion, réclame l’administrateur.\n');
+    console.error('  npm run cli -- service install --utilisateur\n');
+    process.exitCode = CODE.REPONSE_MANQUANTE;
+    return;
+  }
+
+  const niveau = demande === 'systeme' ? 'systeme' : 'utilisateur';
+  const ctx = svc.contexteReel(racine, niveau);
+
+  const dire = (r: { motif: string }): void => {
+    console.error(`\n✘ ${r.motif}\n`);
+    process.exitCode = CODE.PREREQUIS;
+  };
+
+  if (sous === 'install') {
+    // ─── LES AVERTISSEMENTS VIENNENT AVANT, PAS APRÈS ────────────────────────
+    //
+    // Le plan porte déjà ce qu'il faut savoir : que le niveau système réclame
+    // l'administrateur, que `systemd --user` s'arrête à la fermeture de
+    // session. Les afficher APRÈS l'installation, c'est prévenir quelqu'un
+    // d'une conséquence qu'il vient de subir.
+    //
+    // On planifie d'abord, on dit, puis on agit. Ça retire aussi une
+    // duplication : ce texte n'existe qu'à un seul endroit — le module pur, où
+    // il est testé. La loupe avait fait survivre un `if (niveau === 'systeme')`
+    // ici, sur une bannière qui redisait ce que le plan disait déjà.
+    const avant = planifier(ctx);
+    if (avant.genre === 'refus') return dire(avant);
+    for (const a of avant.avertissements) console.log(`\n  ⚠ ${a}`);
+
+    const r = svc.installer(ctx);
+    if ('motif' in r) return dire(r);
+
+    console.log(`\n🐝 Service « ${r.plan.nom} »\n`);
+    console.log(`  ▸ fichier posé : ${r.plan.fichier.chemin}`);
+    for (const ligne of rendreGestes(r.issues)) console.log(ligne);
+    for (const i of r.issues) if (i.sortie) console.log(`      ${i.sortie}`);
+    console.log('');
+    if (!r.abouti) process.exitCode = CODE.ERREUR;
+    return;
+  }
+
+  if (sous === 'uninstall') {
+    const r = svc.desinstaller(ctx);
+    if ('motif' in r) return dire(r);
+    for (const ligne of rendreGestes(r.issues)) console.log(ligne);
+    // L'exigence de l'ADR 0004 : après `uninstall`, aucun fichier ne subsiste.
+    console.log(
+      `\n  ${r.abouti ? '✔' : '✘'} ${r.plan.fichier.chemin} — ` +
+        `${r.abouti ? 'retiré' : 'IL SUBSISTE'}\n`,
+    );
+    console.log('  Ni le `.env` ni la base n’ont été touchés — voir `hive desinstaller`.\n');
+    if (!r.abouti) process.exitCode = CODE.ERREUR;
+    return;
+  }
+
+  if (sous === 'logs') {
+    const r = svc.journal(ctx);
+    if ('motif' in r) return dire(r);
+    console.log(r.sortie || '(rien dans le journal)');
+    // Un journal illisible n'est pas un journal vide : la distinction est ce
+    // qu'une supervision regarde. Voir `codeJournal`.
+    process.exitCode = codeJournal(r.code, CODE.ERREUR);
+    return;
+  }
+
+  if (sous === 'status') {
+    const r = svc.statut(ctx);
+    if ('motif' in r) return dire(r);
+    // « inactif » et « jamais installé » sont deux situations différentes, et
+    // la sortie de `systemctl` ne les distingue pas toujours.
+    console.log(`\n  ${r.pose ? '✔ fichier de service posé' : '· aucun fichier de service'}`);
+    console.log(r.sortie ? `\n${r.sortie}\n` : '\n');
+    if (!r.pose) {
+      console.log('  Pour en poser un :\n    npm run cli -- service install\n');
+      console.log(`  ⚠ ${AVERTISSEMENT_LINGER}\n`);
+    }
+    return;
+  }
+
+  console.error('\nUsage : service <install | status | logs | uninstall> [--systeme]\n');
+  process.exitCode = CODE.ERREUR;
+}
+
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
 async function cmdGhost(): Promise<void> {
   const report = await api<GhostReport>('/api/ghost');
@@ -1404,6 +1552,7 @@ try {
   else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
   else if (cmd === 'doctor') await cmdDoctor(...process.argv.slice(3));
   else if (cmd === 'desinstaller') await cmdDesinstaller(...process.argv.slice(3));
+  else if (cmd === 'service') await cmdService(...process.argv.slice(3));
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
   else if (cmd === 'pulse') await cmdPulse();
@@ -1426,7 +1575,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }

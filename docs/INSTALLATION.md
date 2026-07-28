@@ -164,6 +164,54 @@ votre machine.
 
 ---
 
+## Faire tourner la ruche en permanence
+
+Une ruche qui tient des semaines doit survivre à un redémarrage. C'est
+**optionnel** : rien ne s'installe sans qu'on le demande.
+
+```sh
+npm run cli -- service install --utilisateur
+```
+
+Le niveau doit être **dit**, jamais deviné — la commande refuse sans, avec le
+code de sortie `3` :
+
+|                 |                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `--utilisateur` | aucun droit administrateur. S'arrête à la fermeture de session, sauf `loginctl enable-linger $USER` |
+| `--systeme`     | survit à la déconnexion, réclame l'administrateur                                                   |
+
+| plateforme | ce qui est posé                              |
+| ---------- | -------------------------------------------- |
+| Linux      | une unité `systemd --user`, durcie           |
+| macOS      | un `LaunchAgent`                             |
+| Windows    | une tâche planifiée à l'ouverture de session |
+
+```sh
+npm run cli -- service status     # posé ? actif ?
+npm run cli -- service logs       # les 200 dernières lignes
+npm run cli -- service uninstall  # retire ce qui a été posé, et rien d'autre
+```
+
+**`service uninstall` ne touche ni au `.env` ni à la base** — il désinscrit,
+puis efface le fichier de service. Dans cet ordre : l'inverse laisserait une
+unité orpheline qui relance un binaire absent, c'est-à-dire une erreur toutes
+les cinq secondes dans votre journal.
+
+Sous Linux, l'unité est durcie : `NoNewPrivileges`, `PrivateTmp`,
+`ProtectSystem=strict`, `ProtectHome=read-only`, et un `ReadWritePaths` réduit
+au seul dossier d'installation. Sous Windows, la tâche tourne en
+`LeastPrivilege` — une ruche n'a aucune raison d'être administrateur.
+
+> **Ce qui n'est pas vérifié automatiquement.** La CI éprouve la FORME des trois
+> fichiers de service, l'échappement des chemins hostiles, et le cycle
+> install → uninstall contre un système simulé. Elle ne peut pas vérifier que
+> `systemctl`, `launchctl` et `schtasks` ACCEPTENT ces fichiers : un runner n'a
+> ni bus de session, ni session graphique, ni envie qu'on inscrive une tâche
+> chez lui. Ça, il faut une vraie machine.
+
+---
+
 ## Désinstaller
 
 ```sh
@@ -216,11 +264,16 @@ dans votre dossier personnel. Ce n'est pas une promesse en prose :
 [`tests/empreinte.test.ts`](../tests/empreinte.test.ts) relève les appels
 d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 
-**Deux nuances, parce qu'elles vous concernent :**
+**Trois nuances, parce qu'elles vous concernent :**
 
-- `$TMPDIR/hive-merge-*` est la seule écriture hors du dossier. Ces
-  répertoires sont effacés à la fin de chaque fusion ; il n'en reste que si un
-  processus a été tué au mauvais moment. `desinstaller` les trouve.
+- `$TMPDIR/hive-merge-*` : ces répertoires sont effacés à la fin de chaque
+  fusion ; il n'en reste que si un processus a été tué au mauvais moment.
+  `desinstaller` les trouve.
+- **si vous avez demandé un service**, son fichier vit dans votre dossier
+  personnel — `~/.config/systemd/user/` sous Linux, `~/Library/LaunchAgents/`
+  sous macOS. C'est la seule chose que Hive écrit là, elle est **opt-in**, et
+  `desinstaller` la liste. Retirez-la avec `hive service uninstall`, **pas à la
+  main** : effacer le fichier sans désinscrire laisse une unité orpheline.
 - si vous avez rejoint une ruche avec `npx github:… join`, le dossier
   `.hive-work` a été créé **là où vous avez tapé la commande** — pas dans
   `~/hive`, que vous n'avez peut-être pas. Votre clé de nœud y est. Lancez

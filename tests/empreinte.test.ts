@@ -66,16 +66,18 @@ const ctxPosix: Contexte = {
   dbPath: '/home/moi/hive/data/hive.db',
   workdir: '/home/moi/hive/.hive-work',
   tmpdir: '/tmp',
+  home: '/home/moi',
   plateforme: 'linux',
 };
 
 describe('L’EMPREINTE — module pur', () => {
-  it('nomme les cinq endroits où la ruche écrit', () => {
+  it('nomme les six endroits où la ruche peut écrire', () => {
     expect(empreinte(ctxPosix).map((e) => e.cle)).toEqual([
       'env',
       'base',
       'rayons',
       'travail',
+      'service',
       'fusions',
     ]);
   });
@@ -130,17 +132,32 @@ describe('L’EMPREINTE — module pur', () => {
       dbPath: 'C:\\Users\\moi\\hive\\data\\hive.db',
       workdir: 'C:\\Users\\moi\\hive\\.hive-work',
       tmpdir: 'C:\\Users\\moi\\AppData\\Local\\Temp',
+      home: 'C:\\Users\\moi',
       plateforme: 'win32',
     });
     expect(win.find((e) => e.cle === 'env')!.chemin).toBe('C:\\Users\\moi\\hive\\.env');
     expect(win.find((e) => e.cle === 'rayons')!.chemin).toBe('C:\\Users\\moi\\hive\\data\\rayons');
+    // Windows range son XML de tâche planifiée DANS l'installation, pas dans le
+    // dossier personnel — contrairement à systemd et à launchd. C'est le seul
+    // des trois pour lequel « supprimer le dossier » emporte aussi le fichier
+    // de service (mais pas son inscription : `hive service uninstall` reste le
+    // bon geste).
+    expect(win.find((e) => e.cle === 'service')!.chemin).toBe(
+      'C:\\Users\\moi\\hive\\data\\hive-ruche.xml',
+    );
   });
 
-  it('UNE SEULE chose sort du dossier d’installation : les restes de fusion', () => {
+  it('DEUX choses sortent du dossier d’installation, et pas une de plus', () => {
+    // Les restes de fusion, toujours — et le fichier de SERVICE, qui vit dans
+    // le dossier personnel quand on en a demandé un. Ce second est arrivé avec
+    // le lot du service, et c'est ce test qui a exigé qu'on le dise : la
+    // documentation annonçait « une seule écriture hors du dossier ».
     const dehors = horsDuDossier(ctxPosix);
-    expect(dehors.map((e) => e.cle)).toEqual(['fusions']);
-    expect(dehors[0]!.prefixe).toBe(PREFIXE_FUSION);
-    expect(dehors[0]!.genre).toBe('transitoire');
+    expect(dehors.map((e) => e.cle)).toEqual(['service', 'fusions']);
+    expect(dehors.find((e) => e.cle === 'fusions')!.prefixe).toBe(PREFIXE_FUSION);
+    // Le fichier de service n'est jamais retiré à la main : `hive service
+    // uninstall` désinscrit d'abord.
+    expect(dehors.find((e) => e.cle === 'service')!.retirable).toBe(false);
   });
 
   it('…et `HIVE_DB` hors du dossier le fait savoir', () => {
@@ -148,7 +165,7 @@ describe('L’EMPREINTE — module pur', () => {
     // hors du dossier » : c'est faux POUR LUI, et c'est justement le cas où il
     // faut le dire.
     const ailleurs = horsDuDossier({ ...ctxPosix, dbPath: '/var/lib/hive/hive.db' });
-    expect(ailleurs.map((e) => e.cle).sort()).toEqual(['base', 'fusions', 'rayons']);
+    expect(ailleurs.map((e) => e.cle).sort()).toEqual(['base', 'fusions', 'rayons', 'service']);
   });
 });
 
@@ -159,6 +176,7 @@ describe('LE RELEVÉ — sur un vrai disque', () => {
     dbPath: path.join(bac, 'ruche', 'data', 'hive.db'),
     workdir: path.join(bac, 'ruche', '.hive-work'),
     tmpdir: path.join(bac, 'temp'),
+    home: path.join(bac, 'maison'),
     plateforme: process.platform,
   };
 
@@ -561,6 +579,11 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/node-client/merge-runner.ts': 'os.tmpdir()/hive-merge-* — effacé en finally',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
+    'src/service-reel.ts':
+      'le fichier de service — unité systemd, LaunchAgent ou tâche planifiée. ' +
+      'Décidé ici plutôt que subi : c’est le seul écrit de Hive dans le dossier ' +
+      'personnel, il est opt-in, et il figure dans `empreinte()` sous la clé ' +
+      '« service » — donc dans `hive desinstaller`.',
     'src/orchestrator/store.ts': '<données> — le dossier de la base SQLite',
   };
 
@@ -621,13 +644,44 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     ).toEqual(Object.keys(AUTORISES).sort());
   });
 
-  it('`os.homedir()` N’APPARAÎT NULLE PART dans `src/`', () => {
-    // C'est la porte de sortie la plus banale : un `~/.hiverc`, un cache dans
-    // `~/.cache`, et la promesse « rien hors du dossier » tombe. Les
-    // `HOME`/`USERPROFILE` du dépôt ne servent qu'à transmettre
-    // l'environnement à un processus fils — jamais à composer un chemin.
+  it('`os.homedir()` n’apparaît QUE là où c’est déclaré, et jamais pour ÉCRIRE', () => {
+    // ─── UNE RÈGLE QUI A DÛ ÉVOLUER, ET POURQUOI ─────────────────────────────
+    //
+    // Cette garde disait « nulle part », et c'était juste tant que Hive
+    // n'écrivait rien dans le dossier personnel. Le service a changé ça : une
+    // unité `systemd --user` et un `LaunchAgent` y vivent, par construction.
+    //
+    // Interdire `homedir()` serait devenu faux ; le retirer aurait rendu la
+    // porte de sortie la plus banale — un `~/.hiverc`, un cache dans
+    // `~/.cache` — de nouveau invisible. La règle devient donc : `homedir()`
+    // n'apparaît que dans les deux fichiers qui construisent un CONTEXTE, et
+    // jamais dans la même expression qu'un appel d'écriture.
+    //
+    // Les modules PURS, eux, reçoivent le dossier personnel en paramètre : ce
+    // sont eux qui composent les chemins, et ils sont testables sans disque.
+    const DECLARES: Record<string, string> = {
+      'src/desinstallation.ts': 'construit le contexte du relevé — il CHERCHE, il n’écrit pas',
+      'src/service-reel.ts': 'construit le contexte du service — le chemin vient du module pur',
+    };
+    const avec = sources()
+      .filter((f) => /\bhomedir\s*\(/.test(nu(f.texte)))
+      .map((f) => f.chemin)
+      .sort();
+    expect(
+      avec,
+      'un fichier de `src/` s’est mis à lire le dossier personnel. Si c’est ' +
+        'légitime, déclarez-le ici — et vérifiez qu’il ne compose pas un chemin ' +
+        'd’écriture avec.',
+    ).toEqual(Object.keys(DECLARES).sort());
+
+    // Et la garde qui compte vraiment : jamais un `homedir()` DANS un appel
+    // d'écriture. `writeFileSync(path.join(os.homedir(), …))` reste interdit.
     for (const f of sources()) {
-      expect(nu(f.texte), `${f.chemin} utilise os.homedir()`).not.toMatch(/\bhomedir\s*\(/);
+      for (const appel of f.texte.matchAll(new RegExp(MOTIF_ECRITURE.source + '[^;]*', 'g'))) {
+        expect(appel[0], `${f.chemin} écrit à partir de os.homedir()`).not.toMatch(
+          /\bhomedir\s*\(/,
+        );
+      }
     }
   });
 
