@@ -39,21 +39,27 @@ const PS = lire('install.ps1');
 const SH_NU = sansCommentaires(SH, '#');
 
 /**
- * Cette machine a-t-elle un shell POSIX ?
+ * Peut-on lancer `install.sh` DANS SON ENVIRONNEMENT CIBLE ?
  *
- * Faux sous Windows. J'ai écrit ces tests en lançant `sh install.sh` sans me
- * poser la question — et la CI Windows a rendu un code de sortie -1 : le
- * `spawn` lui-même échouait, faute de `sh`.
+ * ─── DEUX CONDITIONS, ET J'AI MIS DEUX RUNS À LES TROUVER ────────────────────
  *
- * C'est la même famille que § 6.3 de `docs/ERREURS.md` — du code dépendant de
- * la plateforme, écrit depuis une seule d'entre elles. Sauf qu'ici je l'ai
- * commis dans le fichier qui teste les DEUX installeurs.
+ * 1. Un shell POSIX doit exister. Ma première version lançait `sh` sans poser
+ *    la question ; la CI Windows a rendu un `spawn` en échec, code -1.
  *
- * La sonde est au chargement, pas dans un `beforeAll` : `it.runIf(...)`
- * s'évalue à la COLLECTE. Posée trop tard, elle vaudrait toujours `false` et
- * désactiverait ces tests PARTOUT, y compris là où ils doivent tourner.
+ * 2. ET la plateforme doit être POSIX. Correction suivante : j'ai sondé la
+ *    présence de `sh`… qui EXISTE sous Windows, parce que Git Bash est sur le
+ *    PATH des runners GitHub. La sonde disait donc vrai, les tests tournaient,
+ *    et ils testaient une configuration QUE PERSONNE N'UTILISE : `install.sh`
+ *    vise Linux et macOS ; sous Windows on lance `install.ps1`.
+ *
+ * Sonder une CAPACITÉ ne suffit pas quand ce qui compte est la CIBLE. Le fait
+ * qu'une chose soit possible ne veut pas dire qu'elle est pertinente.
+ *
+ * La sonde reste au chargement du module : `it.runIf(...)` s'évalue à la
+ * COLLECTE, et posée dans un `beforeAll` elle désactiverait tout, partout.
  */
 const shellPosix = ((): boolean => {
+  if (process.platform === 'win32') return false;
   try {
     execFileSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' });
     return true;
@@ -160,9 +166,9 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
   it('cette machine a-t-elle un shell POSIX ? — la question doit être posée', () => {
     if (!shellPosix) {
       console.warn(
-        '⚠ pas de shell POSIX ici : `install.sh` n’est PAS exécuté sur cette ' +
-          'plateforme. Il l’est sur Linux et macOS à chaque CI, et `install.ps1` ' +
-          'est exercé sous Windows par le workflow.',
+        '⚠ `install.sh` n’est PAS exécuté ici : ce n’est pas sa plateforme cible. ' +
+          'Il l’est sur Linux et macOS à chaque CI, et `install.ps1` est exercé ' +
+          'sous Windows par un pas du workflow.',
       );
     }
     // SUR POSIX, LA SONDE DOIT DIRE OUI. Sans cette assertion, une sonde
@@ -217,7 +223,8 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
       mkdirSync(faux, { recursive: true });
       writeFileSync(path.join(faux, 'node'), `#!/bin/sh\necho ${NODE_MINIMUM}\n`, { mode: 0o755 });
 
-      const r = lancer(['--dry-run', `--dir=${cible}`], `${faux}:${process.env.PATH ?? ''}`);
+      const chemin = [faux, process.env.PATH ?? ''].join(path.delimiter);
+      const r = lancer(['--dry-run', `--dir=${cible}`], chemin);
       expect(r.code, `--dry-run devrait aboutir :\n${r.sortie}`).toBe(0);
       // La garantie qui fait qu'on ose lancer un script inconnu.
       expect(existsSync(cible), '--dry-run a créé le dossier').toBe(false);

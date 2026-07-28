@@ -226,6 +226,16 @@ moins.**
 > premier : une ligne qui échouait à tous les coups en ayant l'air de couvrir un
 > cas.
 
+### 6.3 — Une branche par plateforme est invérifiable si elle lit `process.platform`
+
+C'est la cause commune de 6.2 et de plusieurs autres : du code spécifique à une
+plateforme, lisible seulement sur cette plateforme, donc jamais éprouvé.
+
+> **Règle** — la plateforme se passe **en paramètre**
+> (`decider(bin, plateforme)`, `candidates(bin, plateforme)`), avec
+> `process.platform` par défaut. La branche win32 se vérifie alors depuis Linux,
+> à chaque CI.
+
 ### 6.4 — Un test qui LANCE un script POSIX doit sonder la plateforme
 
 J'ai écrit `tests/installeurs.test.ts` en lançant `sh install.sh` — sans me
@@ -247,15 +257,34 @@ installeurs — donc en ayant la question des plateformes sous les yeux.
 > sur POSIX, `.ps1` en CI Windows, gardes sur la source partout), l'écrire dans
 > le fichier. Sinon la prochaine personne verra un trou et non un partage.
 
-### 6.3 — Une branche par plateforme est invérifiable si elle lit `process.platform`
+### 6.5 — Sonder une CAPACITÉ ne répond pas à la question de la CIBLE
 
-C'est la cause commune de 6.2 et de plusieurs autres : du code spécifique à une
-plateforme, lisible seulement sur cette plateforme, donc jamais éprouvé.
+La correction de 6.4 sondait `sh` par un `execFileSync('sh', ['-c', 'exit 0'])`.
+Elle n'a rien changé : **Windows _a_ un `sh`**, parce que Git Bash est sur le
+PATH des runners GitHub. La sonde disait vrai, les tests tournaient — et ils
+éprouvaient une configuration **que personne n'utilise**, `install.sh` sous
+Git Bash, alors que Windows a `install.ps1`.
 
-> **Règle** — la plateforme se passe **en paramètre**
-> (`decider(bin, plateforme)`, `candidates(bin, plateforme)`), avec
-> `process.platform` par défaut. La branche win32 se vérifie alors depuis Linux,
-> à chaque CI.
+J'avais posé la bonne question sur le mauvais sujet : « est-ce _possible_ ? »
+au lieu de « est-ce la _cible_ ? ». Une réponse juste à une question
+hors-sujet ressemble à s'y méprendre à une correction.
+
+Et le test qui a cassé au run suivant ne cassait pas pour cette raison, mais
+pour une seconde faute Windows cachée dessous : je composais un `PATH` avec
+`` `${faux}:${process.env.PATH}` ``. Le séparateur est `;` sous Windows. Le
+faux `node` n'était donc jamais trouvé, et le script sortait sur la garde de
+version. Deux défauts empilés, dont le second n'apparaît qu'une fois le premier
+levé — c'est la forme habituelle : **une correction qui débloque l'exécution
+révèle le bug suivant, elle ne le crée pas.**
+
+> **Règle** — quand une sonde décide si un test s'exécute, elle doit exprimer
+> la **pertinence**, pas la faisabilité. Ici : `if (process.platform === 'win32')
+return false;` **avant** de chercher `sh`.
+>
+> **Règle** — jamais de `:` littéral pour composer un `PATH`, ni de `/` pour
+> composer un chemin. `path.delimiter` et `path.join`, y compris dans les tests
+> — surtout dans les tests, puisque ce sont eux qui tournent sur les trois
+> plateformes.
 
 ---
 
