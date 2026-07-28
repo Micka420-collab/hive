@@ -447,6 +447,7 @@ working, but `npm run join` prints a warning. Issue a ticket as soon as you can.
 | `npm run cli`           | CLI: `state`/`mind`/`plan`/`brief`/`project`/`tasks`/`watch`/`merge`/`replay`/`waggle`/`consensus`/`ghost`/`pulse`/`report`/`invite`… |
 | `npm test`              | Unit + e2e tests (vitest)                                                                                                             |
 | `npm run lint`          | ESLint + Prettier (zero errors required)                                                                                              |
+| `npm run cli -- doctor` | **The doctor** — 11 failure causes, and for each the exact command that repairs it. `--json` for monitoring.                          |
 | `npm run loupe`         | **The magnifying glass** — is the code this branch adds defended by its own tests? (see below)                                        |
 | `npm run build`         | Typecheck (orchestrator + dashboard) + dashboard build                                                                                |
 | `npm run dev:dashboard` | Dashboard in dev mode (Vite, proxy to :7777)                                                                                          |
