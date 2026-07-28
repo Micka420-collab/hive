@@ -71,12 +71,13 @@ const ctxPosix: Contexte = {
 };
 
 describe('L’EMPREINTE — module pur', () => {
-  it('nomme les six endroits où la ruche peut écrire', () => {
+  it('nomme les sept endroits où la ruche peut écrire', () => {
     expect(empreinte(ctxPosix).map((e) => e.cle)).toEqual([
       'env',
       'base',
       'rayons',
       'travail',
+      'sauvegardes',
       'service',
       'fusions',
     ]);
@@ -165,7 +166,13 @@ describe('L’EMPREINTE — module pur', () => {
     // hors du dossier » : c'est faux POUR LUI, et c'est justement le cas où il
     // faut le dire.
     const ailleurs = horsDuDossier({ ...ctxPosix, dbPath: '/var/lib/hive/hive.db' });
-    expect(ailleurs.map((e) => e.cle).sort()).toEqual(['base', 'fusions', 'rayons', 'service']);
+    expect(ailleurs.map((e) => e.cle).sort()).toEqual([
+      'base',
+      'fusions',
+      'rayons',
+      'sauvegardes',
+      'service',
+    ]);
   });
 });
 
@@ -585,6 +592,10 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'personnel, il est opt-in, et il figure dans `empreinte()` sous la clé ' +
       '« service » — donc dans `hive desinstaller`.',
     'src/orchestrator/store.ts': '<données> — le dossier de la base SQLite',
+    'src/sauvegarde-reelle.ts':
+      '<données>/sauvegardes — les copies de la base. Écrites par `VACUUM INTO` ' +
+      'sous un nom `.part`, publiées par un renommage atomique, et élaguées à un ' +
+      'nombre borné. Déclaré dans `empreinte()` sous la clé « sauvegardes ».',
   };
 
   const sources = (): { chemin: string; texte: string }[] => {

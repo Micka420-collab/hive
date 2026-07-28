@@ -1,0 +1,31 @@
+# Ce qui n'a rien à faire dans le contexte de construction.
+#
+# Chaque fichier listé ici est un fichier que Docker n'envoie pas au démon, ne
+# met pas en cache, et ne peut pas se retrouver dans une couche par accident.
+# Les deux premières lignes comptent plus que toutes les autres.
+
+# ─── DES SECRETS. Jamais. ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# ─── Ce qui est reconstruit dans l'image ────────────────────────────────────
+node_modules/
+dist/
+dashboard/dist/
+dashboard/node_modules/
+
+# ─── Ce qui ne sert pas à construire ────────────────────────────────────────
+.git/
+.github/
+.hive-work/
+site/
+docs/
+tests/
+coverage/
+*.log
+.DS_Store

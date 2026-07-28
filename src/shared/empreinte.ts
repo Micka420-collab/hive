@@ -239,6 +239,20 @@ export function empreinte(ctx: Contexte): Emplacement[] {
         },
       ],
     },
+    {
+      cle: 'sauvegardes',
+      chemin: p.join(donnees, 'sauvegardes'),
+      quoi: 'les copies de la base prises par `hive sauvegarde`',
+      genre: 'etat',
+      // Ce ne sont PAS des données reconstructibles : ce sont des états
+      // passés de la ruche, et c'est tout leur intérêt. `--oui` n'y touche
+      // donc pas — le jour où quelqu'un désinstalle en croyant faire le
+      // ménage, il ne doit pas emporter son filet de sécurité avec.
+      retirable: false,
+      consequence:
+        'l’historique de la ruche. `hive sauvegarde` en garde un nombre borné et ' +
+        'élague les plus anciennes lui-même ; ce dossier ne grossit pas sans fin.',
+    },
     ...emplacementService(ctx, p),
     {
       cle: 'fusions',
