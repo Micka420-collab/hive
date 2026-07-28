@@ -43,7 +43,8 @@
 // d'être envoyé — un titre de PR ne doit pas pouvoir contenir de saut de ligne,
 // et le corps annonce explicitement d'où il vient.
 
-import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+import { champSurUneLigne, neutraliserDelimiteur } from '../shared/donnees-non-fiables.js';
+import type { Controle, FaitsPr, Revue } from '../shared/retour.js';
 import { API_DEFAUT, ErreurGithub, entetes, estFullName, expliquerStatut } from './github.js';
 import type { Fetcheur } from './github.js';
 import { analyserRustine, appliquerRustine, cheminsDe } from './rustine.js';
@@ -117,6 +118,80 @@ export function depotDepuisUrl(url: string | null): string | null {
   const plein = segments.join('/');
   return estFullName(plein) ? plein : null;
 }
+
+/**
+ * Lit les FAITS VIVANTS d'une pull request : son état, ses contrôles, ses revues.
+ *
+ * Trois appels, et pas un de plus — un par nature de fait. On ne range rien de
+ * ce qui est lu ici : l'état d'une livraison se dérive à la lecture
+ * (`shared/retour.ts`), parce qu'un statut rangé se périme exactement quand il
+ * compte, pendant qu'un humain regarde l'écran.
+ *
+ * ⚠ LES CHECK-RUNS SE LISENT SUR LE SHA DE TÊTE, pas sur le numéro de PR : une
+ * pull request n'a pas de contrôles, c'est un COMMIT qui en a. Les lire sur
+ * autre chose que la tête de la branche rendrait les résultats du commit
+ * précédent — donc du rouge déjà réparé, ou du vert déjà périmé.
+ */
+export async function lireFaitsPr(
+  opts: OptionsLivraison,
+  depot: string,
+  numero: number,
+): Promise<FaitsPr> {
+  const ctx = contexte(opts, depot);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new ErreurGithub('numéro de pull request invalide', 400, 'Attendu : un entier > 0.');
+  }
+
+  const pr = await lire(ctx, `/repos/${ctx.depot}/pulls/${numero}`);
+  const tete = chaine(champ(pr, 'head'), 'sha');
+  const fusionnableBrut = champ(pr, 'mergeable');
+
+  const controles: Controle[] = [];
+  if (tete) {
+    const runs = await lireOuNull(
+      ctx,
+      `/repos/${ctx.depot}/commits/${tete}/check-runs?per_page=100`,
+    );
+    const liste = champ(runs, 'check_runs');
+    if (Array.isArray(liste)) {
+      for (const r of liste) {
+        controles.push({
+          nom: chaine(r, 'name'),
+          conclusion: chaine(r, 'conclusion'),
+          statut: chaine(r, 'status'),
+          url: chaine(r, 'html_url'),
+        });
+      }
+    }
+  }
+
+  const revues: Revue[] = [];
+  const brutes = await lireOuNull(ctx, `/repos/${ctx.depot}/pulls/${numero}/reviews?per_page=100`);
+  if (Array.isArray(brutes)) {
+    for (const r of brutes) {
+      const soumise = Date.parse(chaine(r, 'submitted_at'));
+      revues.push({
+        auteur: chaine(champ(r, 'user'), 'login'),
+        etat: chaine(r, 'state'),
+        // Borné ET neutralisé dès la lecture : ce texte repart en consigne.
+        corps: neutraliserDelimiteur(chaine(r, 'body').slice(0, MAX_CORPS_REVUE)),
+        soumiseA: Number.isFinite(soumise) ? soumise : 0,
+      });
+    }
+  }
+
+  return {
+    numero,
+    ouverte: chaine(pr, 'state') === 'open',
+    fusionnee: champ(pr, 'merged') === true || chaine(pr, 'merged_at') !== '',
+    fusionnable: typeof fusionnableBrut === 'boolean' ? fusionnableBrut : null,
+    controles,
+    revues,
+  };
+}
+
+/** Au-delà, un commentaire de revue n'est plus une demande, c'est un document. */
+const MAX_CORPS_REVUE = 4_000;
 
 /** Nom de branche sûr, dérivé d'un identifiant de tâche. */
 export function nomBranche(taskId: string): string {

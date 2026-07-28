@@ -82,8 +82,17 @@ import {
 import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
-import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
+import {
+  corpsPr,
+  depotDepuisUrl,
+  fusionner,
+  lireFaitsPr,
+  livrer,
+  nomBranche,
+} from './livraison.js';
 import { briefDeIssue, motifRefus, recevable } from '../shared/issue.js';
+import { briefDeRetour, demandeDuTravail, direEtat, etatLivraison } from '../shared/retour.js';
+import type { EtatLivraison, FaitsPr } from '../shared/retour.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
   ECHECS_COMPTE,
@@ -206,6 +215,16 @@ export const RESULT_RETENTION = 5_000;
  * inégalité, parce qu'elle se perdrait au premier ajustement distrait.
  */
 export const LIVRAISONS_RETENTION = 10_000;
+
+/**
+ * Livraisons dont on va lire les faits en une fois.
+ *
+ * BORNE DE COURTOISIE, et elle protège l'hôte plus que GitHub : chaque
+ * livraison coûte trois appels d'API, et un projet qui en aurait rangé mille
+ * épuiserait le quota horaire du jeton en une seule ouverture d'écran. On lit
+ * les plus RÉCENTES — celles dont l'état est encore susceptible de changer.
+ */
+export const MAX_LIVRAISONS_LUES = 20;
 
 /**
  * Nombre de verdicts des Gardiennes conservés. Aligné sur EVENT_RETENTION et
@@ -4345,6 +4364,181 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── Le chemin de RETOUR : ce que la pull request renvoie à la ruche ───────
+  //
+  // La ruche savait aller — issue → DAG → travail → pull request — et pas
+  // revenir. Une fois la PR ouverte elle devenait aveugle : la CI casse,
+  // personne ne le sait ; un relecteur demande des changements, personne ne le
+  // sait. Le travail s'arrêtait là où il commence vraiment.
+  //
+  // DEUX ROUTES, ET LA SÉPARATION EST LA DÉCISION :
+  //
+  //   · VOIR ne coûte que des appels de lecture chez GitHub. L'état est dérivé
+  //     à chaque lecture, jamais rangé — un statut rangé se périme exactement
+  //     quand il compte.
+  //   · REPRENDRE fait travailler l'essaim, donc dépense du temps-ouvrière.
+  //     C'est un GESTE, comme prendre une issue et comme fusionner. La ruche ne
+  //     se remet pas au travail toute seule sur la foi d'un webhook : ce serait
+  //     la seule dépense qu'aucun humain n'aurait demandée.
+
+  /** Les faits d'une livraison, lus chez GitHub et repliés en un état. */
+  const etatDeLivraison = async (l: {
+    taskId: string;
+    depot: string;
+    pr: number;
+  }): Promise<{
+    taskId: string;
+    depot: string;
+    pr: number;
+    etat: EtatLivraison;
+    faits: FaitsPr;
+  }> => {
+    const faits = await lireFaitsPr(
+      { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+      l.depot,
+      l.pr,
+    );
+    return { taskId: l.taskId, depot: l.depot, pr: l.pr, etat: etatLivraison(faits), faits };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/livraisons',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      const rangees = store.listLivraisons(req.params.projectId);
+      const livraisons = [];
+      // SÉQUENTIEL, comme la livraison elle-même : une rafale de requêtes
+      // déclencherait la limite SECONDAIRE de GitHub, qui est un bannissement
+      // temporaire et non un simple 429.
+      for (const l of rangees.slice(-MAX_LIVRAISONS_LUES)) {
+        try {
+          const vue = await etatDeLivraison(l);
+          const tache = store.getTask(l.taskId);
+          livraisons.push({
+            ...vue,
+            branche: l.branche,
+            titre: tache?.title ?? '',
+            dit: direEtat(vue.etat),
+            reprenable: demandeDuTravail(vue.etat),
+          });
+        } catch (e) {
+          // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
+          // toute la liste inutilisable : on dit ce qu'on n'a pas pu lire.
+          const err = e as { message?: string };
+          livraisons.push({
+            taskId: l.taskId,
+            depot: l.depot,
+            pr: l.pr,
+            branche: l.branche,
+            illisible: err.message ?? 'échec GitHub',
+          });
+        }
+      }
+      return { livraisons };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; taskId: string } }>(
+    '/api/projects/:projectId/livraisons/:taskId/reprendre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'taskId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      const rangee = store.getLivraison(req.params.taskId);
+      // Le refus prend la forme de l'inexistence : une livraison d'un AUTRE
+      // projet ne doit pas se laisser deviner par un message différent.
+      if (!rangee || rangee.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'livraison inconnue' });
+      }
+
+      let vue;
+      try {
+        vue = await etatDeLivraison(rangee);
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+
+      if (!demandeDuTravail(vue.etat)) {
+        return reply
+          .code(409)
+          .send({ error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat });
+      }
+
+      const tacheOrigine = store.getTask(rangee.taskId);
+      const brief = briefDeRetour({
+        faits: vue.faits,
+        etat: vue.etat,
+        tache: tacheOrigine?.title ?? rangee.taskId,
+      });
+      if (brief === '') {
+        return reply
+          .code(422)
+          .send({ error: 'Les faits de cette pull request ne tiennent pas dans une consigne.' });
+      }
+
+      // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
+      // la faire passer par la Queen Bee dépenserait un appel de modèle pour
+      // redécouper ce que la CI a déjà nommé précisément.
+      const tache = store.createTask({
+        id: `r${vue.pr}-${Date.now().toString(36)}`,
+        projectId: req.params.projectId,
+        title: `Reprise PR #${vue.pr} — ${vue.etat}`,
+        prompt: brief,
+        dependsOn: [],
+      });
+      // LE LIEN VERS L'ISSUE SUIT LA REPRISE. Sans cela, la pull request de la
+      // correction ne refermerait plus l'issue d'origine, et le demandeur
+      // verrait sa demande rester ouverte alors qu'elle a été traitée.
+      const issue = store.issueDeTache(rangee.taskId);
+      if (issue) {
+        store.lierTacheIssue({
+          taskId: tache.id,
+          projectId: req.params.projectId,
+          depot: issue.depot,
+          numero: issue.numero,
+        });
+      }
+      emitEvent('livraison_reprise', {
+        projectId: req.params.projectId,
+        taskId: tache.id,
+        origine: rangee.taskId,
+        pr: vue.pr,
+        etat: vue.etat,
+      });
+      scheduler.tick();
+      stateDirty = true;
+      return reply.code(201).send({ tache, etat: vue.etat, dit: direEtat(vue.etat) });
+    },
+  );
+
   // ─── Les issues comme source de travail ────────────────────────────────────
   //
   // La ruche savait importer un dépôt, découper un brief, travailler, et ouvrir
@@ -4573,19 +4767,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
       try {
         const result = await briefToDAG(req.body.brief, beeConfig);
-        // Générer des ids automatiques si absents
-        const tasks = result.tasks.map((t, i) => ({
-          ...t,
-          id: t.id ?? `T${i + 1}`,
-        }));
-        // Injecter les tâches directement
-        const created = tasks.map((t) =>
+
+        // ─── MÊME RÈGLE QUE POUR LES ISSUES, ET POUR LA MÊME RAISON ─────────
+        //
+        // La Queen Bee rend des identifiants de son cru — « A », « T1 ». Ils
+        // sont uniques DANS UN DÉCOUPAGE, pas dans un projet : découper deux
+        // briefs sur le même projet redemandait les mêmes clés primaires, et
+        // la route rendait un 422 qui ne disait rien de la cause.
+        //
+        // On préfixe, et on REMAPPE `dependsOn` : renuméroter les tâches sans
+        // renuméroter leurs dépendances casserait le DAG en silence — la
+        // seconde tâche partirait sans attendre la première.
+        const prefixe = `b-${Date.now().toString(36)}`;
+        const idNeuf = new Map<string, string>();
+        result.tasks.forEach((t, i) => idNeuf.set(t.id ?? `T${i + 1}`, `${prefixe}-${i + 1}`));
+        const created = result.tasks.map((t, i) =>
           store.createTask({
-            id: t.id,
+            id: idNeuf.get(t.id ?? `T${i + 1}`)!,
             projectId: project.id,
             title: t.title,
             prompt: t.prompt,
-            dependsOn: t.dependsOn ?? [],
+            dependsOn: (t.dependsOn ?? []).map((d) => idNeuf.get(d) ?? d),
           }),
         );
         for (const t of created) {
