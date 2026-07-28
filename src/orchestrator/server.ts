@@ -104,6 +104,7 @@ import {
   SERVEURS_MAX,
   joursAvantSuppression,
   transitionsDepuis,
+  caviarderBillet,
 } from './serveurs.js';
 import { composerTableau } from './tableau.js';
 import type { ProjetVu } from './tableau.js';
@@ -2253,6 +2254,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * l'idempotence tient dans `decider`, qui compte ce qui existe déjà : sans
    * elle, chaque re-livraison démarrerait une machine de plus.
    */
+  /**
+   * Les billets de rattachement des serveurs provisionnés — EN MÉMOIRE SEULE.
+   *
+   * Un billet à usage unique, expirant, est exactement le genre de secret
+   * qu'on ne range pas : il vaut un accès à la ruche tant qu'il n'est pas
+   * consommé. Vivre en mémoire signifie qu'un redémarrage du hub le perd, et
+   * c'est la bonne propriété — le code le dit déjà ailleurs : « un billet perdu
+   * ne se retrouve pas, il se remplace ».
+   *
+   * Il est remis UNE FOIS puis oublié : celui qui l'a lu l'a, et il ne traîne
+   * pas dans une réponse d'API qu'on rejoue en rafraîchissant une page.
+   */
+  const billetsServeurs = new Map<string, { billet: string; expire: number }>();
+
   const alignerServeurs = async (
     projectId: string,
     refAbonnement: string,
@@ -2311,6 +2326,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         now,
       });
       const urlRuche = config.publicUrl ?? `ws://${config.host}:${port}/ws`;
+      const billetServeur = encoderBillet({ id: idBillet, secret, label, url: urlRuche });
       const base: Serveur = {
         id,
         projectId,
@@ -2328,11 +2344,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       try {
         const machine = await fournisseurServeurs.demarrer({
           gabarit: GABARIT_DEFAUT,
-          billet: encoderBillet({ id: idBillet, secret, label, url: urlRuche }),
+          billet: billetServeur,
           urlRuche,
         });
-        const r = transiter(base, 'provisionnement', machine.instructions.join(' ⏎ '), now);
+        // LE BILLET NE SE RANGE PAS. Les instructions le contiennent par
+        // construction, et un billet porte le secret EN CLAIR : les écrire
+        // dans `motif` annulait toute la précaution prise à côté (ne ranger
+        // que `secretHash`, une empreinte PBKDF2). L'empreinte dans `billets`,
+        // et le secret juste à côté dans `serveurs`, durablement.
+        // Il est remis à l'administrateur par `GET /api/admin/serveurs/:id/billet`,
+        // une seule fois, depuis la mémoire.
+        const r = transiter(
+          base,
+          'provisionnement',
+          caviarderBillet(machine.instructions, billetServeur).join(' ⏎ '),
+          now,
+        );
         store.setServeur({ ...r.serveur, refMachine: machine.ref });
+        billetsServeurs.set(id, { billet: billetServeur, expire: now + bornerTtl(undefined) });
         emitEvent('server_requested', {
           serverId: id,
           projectId,
@@ -2564,6 +2593,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       retentionJours: RETENTION_JOURS,
       serveursMax: SERVEURS_MAX,
     };
+  });
+
+  /**
+   * Le billet de rattachement d'un serveur — REMIS UNE SEULE FOIS.
+   *
+   * Il était auparavant rangé en clair dans `serveurs.motif`, parce que les
+   * instructions du fournisseur le contiennent par construction. Un billet
+   * porte le secret en clair : l'écrire en base annulait toute la précaution
+   * prise à côté, où seule une empreinte PBKDF2 est rangée.
+   *
+   * Une seule remise, puis oubli : celui qui l'a lu l'a. Le laisser
+   * consultable indéfiniment recréerait exactement ce qu'on vient de retirer,
+   * en mémoire au lieu du disque.
+   */
+  app.get<{ Params: { id: string } }>('/api/admin/serveurs/:id/billet', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const garde = billetsServeurs.get(req.params.id);
+    billetsServeurs.delete(req.params.id);
+    if (!garde || garde.expire <= Date.now()) {
+      // Même réponse que « jamais eu de billet » : un billet périmé et un
+      // billet déjà lu se remplacent tous les deux de la même façon.
+      return reply.code(404).send({
+        error:
+          'aucun billet à remettre pour ce serveur — un billet ne se retrouve pas, ' +
+          'il se remplace : relancez le provisionnement.',
+      });
+    }
+    return reply.send({ billet: garde.billet, commande: `npm run join ${garde.billet}` });
   });
 
   /**

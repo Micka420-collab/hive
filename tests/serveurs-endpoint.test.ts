@@ -104,16 +104,59 @@ describe('serveurs — provisionnement automatique', () => {
     expect(vue.vue.facturables).toBe(1);
   });
 
-  it('les instructions livrées contiennent un billet utilisable', async () => {
-    // Toute la chaîne est réelle : achat → serveur → billet à usage unique →
-    // machine rattachée. Seul « qui allume la machine » est remplaçable.
+  it('LE BILLET N’EST PLUS RANGÉ DANS LE MOTIF — il y était en clair', async () => {
+    // Ce test affirmait l'inverse : il vérifiait que `motif` contenait
+    // « npm run join hive2_… ». C'était la fuite, prise pour une
+    // fonctionnalité. Un billet porte le secret EN CLAIR (base64url lisible),
+    // et `serveurs.motif` est durable, exporté par l'API d'administration, et
+    // sans borne liée à la péremption du billet — pendant que la table
+    // `billets` juste à côté ne range, elle, qu'une empreinte PBKDF2.
     const { base, srv, admin } = await demarrer();
     const p = srv.store.createProject({ name: 'Ruche' }).id;
     await poster(base, achat(p));
     const vue = await lireServeurs(base, admin);
     expect(vue.fournisseur).toBe('manuel');
-    expect(vue.serveurs[0]?.motif).toMatch(/npm run join hive2_/);
+    expect(vue.serveurs[0]?.motif, 'le billet est encore rangé en clair').not.toMatch(/hive2_/);
+    // …et le motif reste utile : c'est encore ce que l'administrateur lit.
+    expect(vue.serveurs[0]?.motif).toMatch(/npm run join/);
     expect(vue.serveurs[0]?.motif).toMatch(/podman/);
+  });
+
+  it('LE BILLET EST REMIS UNE FOIS, PUIS OUBLIÉ', async () => {
+    // Toute la chaîne reste réelle : achat → serveur → billet à usage unique →
+    // machine rattachée. Ce qui change, c'est le canal : la mémoire du hub,
+    // une seule lecture, plutôt qu'une colonne de base de données.
+    const { base, srv, admin } = await demarrer();
+    const p = srv.store.createProject({ name: 'Ruche' }).id;
+    await poster(base, achat(p));
+    const vue = await lireServeurs(base, admin);
+    const id = vue.serveurs[0]!.id;
+
+    const remise = await fetch(`${base}/api/admin/serveurs/${id}/billet`, {
+      headers: { authorization: `Bearer ${admin}` },
+    });
+    expect(remise.status).toBe(200);
+    const corps = (await remise.json()) as { billet: string; commande: string };
+    expect(corps.billet).toMatch(/^hive2_/);
+    expect(corps.commande).toBe(`npm run join ${corps.billet}`);
+
+    // La seconde lecture ne rend rien : le laisser consultable indéfiniment
+    // recréerait ce qu'on vient de retirer, en mémoire au lieu du disque.
+    const seconde = await fetch(`${base}/api/admin/serveurs/${id}/billet`, {
+      headers: { authorization: `Bearer ${admin}` },
+    });
+    expect(seconde.status).toBe(404);
+  });
+
+  it('la remise du billet exige le droit d’administrer les serveurs', async () => {
+    const { base, srv, admin } = await demarrer();
+    const p = srv.store.createProject({ name: 'Ruche' }).id;
+    await poster(base, achat(p));
+    const id = (await lireServeurs(base, admin)).serveurs[0]!.id;
+    // Sans jeton du tout : la route ne doit pas être une porte de service.
+    const sans = await fetch(`${base}/api/admin/serveurs/${id}/billet`);
+    expect(sans.status).toBeGreaterThanOrEqual(401);
+    expect(sans.status).toBeLessThan(404);
   });
 
   it('REJOUER LE WEBHOOK NE FACTURE PAS DIX MACHINES', async () => {

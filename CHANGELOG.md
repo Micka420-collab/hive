@@ -193,6 +193,30 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Le billet d'un serveur provisionné était rangé EN CLAIR dans
+  `serveurs.motif`.** Les instructions du fournisseur manuel contiennent le
+  billet de rattachement — c'est leur raison d'être, l'humain doit pouvoir
+  coller la commande — et elles étaient persistées telles quelles comme motif
+  de transition. Or **un billet porte le secret en clair** : `hive2_…` est un
+  base64url lisible, pas un chiffrement. Toute la précaution prise à côté était
+  donc annulée par cette ligne : la table `billets` ne range qu'une **empreinte
+  PBKDF2** (`secretHash`), pendant que le secret dormait en clair juste à côté
+  dans `serveurs`, durablement, exporté par `GET /api/admin/serveurs`, et sans
+  aucune borne liée à la péremption du billet — un billet à usage unique
+  consommé il y a trois mois y était encore lisible. `motif` est un champ
+  d'**état** : personne ne s'attend à y trouver un identifiant, il s'affiche
+  dans une page d'administration, se copie dans un fil de support, se lit dans
+  une sauvegarde. Ce qui est rangé est désormais **caviardé**
+  (`caviarderBillet`, module pur — le reste des instructions survit, sinon
+  l'administrateur ne saurait plus quoi faire), et le billet est remis par
+  `GET /api/admin/serveurs/:id/billet`, **une seule fois, depuis la mémoire**,
+  sous le droit `gerer_serveurs`. Vivre en mémoire signifie qu'un redémarrage
+  le perd : c'est la bonne propriété pour un secret à usage unique, et le code
+  le disait déjà — « un billet perdu ne se retrouve pas, il se remplace ». Un
+  test existant **affirmait la fuite comme si c'était une fonctionnalité**
+  (il vérifiait que `motif` contenait `npm run join hive2_…`) ; il vérifie
+  maintenant le contraire.
+
 - **Le hub analysait 2 Mo de JSON pour un inconnu, avant de savoir qui il
   était.** `maxPayload` du serveur WebSocket vaut 2 Mo, et c'est la bonne
   valeur pour un nœud **authentifié** : il remonte des diffs. C'était la
