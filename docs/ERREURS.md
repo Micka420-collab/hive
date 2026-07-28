@@ -282,6 +282,19 @@ moins.**
 > premier : une ligne qui échouait à tous les coups en ayant l'air de couvrir un
 > cas.
 
+**Et je l'ai recommis quatre lots plus tard**, dans un test :
+`execFileSync('npx', ['tsx', 'src/cli.ts', …])`. Vert sur cette machine,
+condamné sous Windows pour exactement la même raison — `npx` y est `npx.cmd`.
+Attrapé en relisant mon propre rappel de contrôle, pas par un test.
+
+Une règle apprise dans le code produit ne se transporte pas toute seule dans
+les tests : c'est là qu'on écrit vite, en croyant que « ce n'est qu'un test ».
+
+> **Règle** — pour lancer du Node depuis un test, `process.execPath` et rien
+> d'autre. C'est un vrai exécutable sur les trois plateformes, il n'y a aucune
+> résolution de `PATH` à faire, et c'est plus rapide (ici : 4,0 s → 1,8 s).
+> `node --import tsx <fichier.ts>` remplace `npx tsx <fichier.ts>`.
+
 ### 6.3 — Une branche par plateforme est invérifiable si elle lit `process.platform`
 
 C'est la cause commune de 6.2 et de plusieurs autres : du code spécifique à une
@@ -341,6 +354,19 @@ return false;` **avant** de chercher `sh`.
 > composer un chemin. `path.delimiter` et `path.join`, y compris dans les tests
 > — surtout dans les tests, puisque ce sont eux qui tournent sur les trois
 > plateformes.
+
+**La même faute, quatre lots plus tard, sur un autre sujet.** Un test vérifiait
+que le calcul de taille ne suit pas les liens symboliques. Il créait le lien
+avec `execFileSync('ln', ['-s', …])` et s'abstenait « s'il n'y a pas de `ln` ».
+
+Sous Windows, Git Bash **en a un**, il réussit — et **copie le dossier** au
+lieu de lier. Le test a mesuré 51 000 octets au lieu de 1 000 et accusé la
+garde d'avoir suivi un lien qui n'existait pas.
+
+> **Règle** — une sonde qui conditionne un test doit interroger le **résultat**,
+> pas l'outil. Ici : créer le lien avec `node:fs`, puis exiger
+> `lstatSync(lien).isSymbolicLink()`. Si ce n'en est pas un, il n'y a rien à
+> conclure — et on le DIT, plutôt que de passer en silence.
 
 ### 6.6 — Il y a DEUX PowerShell, et ils ne lisent pas le même fichier
 

@@ -19,7 +19,16 @@
 // câblage n'est pas une règle.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -216,6 +225,19 @@ describe('LE RELEVÉ — sur un vrai disque', () => {
     //
     // (Cette garde a été écrite avec `statSync`, qui SUIT les liens : elle ne
     //  gardait donc rien. `lstatSync` corrigé — c'est la famille § 1.1.)
+    //
+    // ─── ET LA SONDE, ELLE AUSSI, A DÛ CHANGER DE QUESTION ───────────────────
+    //
+    // Première version : `execFileSync('ln', ['-s', …])`, avec un `catch` qui
+    // s'abstenait « s'il n'y a pas de `ln` ». Sous Windows, Git Bash EN A UN,
+    // il réussit — et COPIE le dossier au lieu de lier. Le test a mesuré
+    // 51 000 octets et accusé la garde d'avoir suivi un lien qui n'existait
+    // pas. C'est le § 6.5, recommis : j'ai sondé une CAPACITÉ là où seul
+    // comptait le RÉSULTAT.
+    //
+    // On crée donc le lien avec `node:fs` — pas d'outil externe — puis on
+    // VÉRIFIE que c'en est un. Si le système ne sait pas en faire (Windows sans
+    // droit ni mode développeur), il n'y a rien à conclure et rien à casser.
     const b = mkdtempSync(path.join(os.tmpdir(), 'hive-lien-'));
     try {
       const dossier = path.join(b, 'd');
@@ -224,11 +246,19 @@ describe('LE RELEVÉ — sur un vrai disque', () => {
       const cible = path.join(b, 'gros');
       mkdirSync(cible, { recursive: true });
       writeFileSync(path.join(cible, 'enorme.bin'), 'y'.repeat(50_000));
+
+      const lien = path.join(dossier, 'lien');
       try {
-        execFileSync('ln', ['-s', cible, path.join(dossier, 'lien')], { stdio: 'ignore' });
+        symlinkSync(cible, lien, 'junction');
       } catch {
-        return; // pas de `ln` : rien à conclure, et rien à casser.
+        console.warn('⚠ ce système ne crée pas de lien ici : garde non exercée.');
+        return;
       }
+      if (!lstatSync(lien).isSymbolicLink()) {
+        console.warn('⚠ ce qui a été créé n’est pas un lien : garde non exercée.');
+        return;
+      }
+
       expect(DISQUE.taille(dossier), 'le lien a été suivi').toBe(1000);
     } finally {
       rmSync(b, { recursive: true, force: true });
@@ -279,11 +309,27 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
     try {
       return {
         code: 0,
-        sortie: execFileSync('npx', ['tsx', 'src/cli.ts', 'desinstaller', ...args], {
-          cwd: new URL('.', RACINE).pathname,
-          encoding: 'utf8',
-          env: { ...process.env, NO_COLOR: '1', HIVE_DB: '', HIVE_WORKDIR: '' },
-        }),
+        // ─── PAS `npx`, ET C'EST UNE LEÇON DÉJÀ PAYÉE ───────────────────────
+        //
+        // La première version lançait `execFileSync('npx', ['tsx', …])`. Sous
+        // Windows, `npx` est `npx.cmd`, et Node REFUSE d'exécuter un `.cmd`
+        // sans `shell: true` — durci depuis la CVE-2024-27980. Ces trois tests
+        // auraient rougi sur la seule plateforme où je ne les avais pas vus
+        // tourner. C'est exactement le § 6.2 de `docs/ERREURS.md`, le défaut
+        // que ce dépôt a déjà sorti une fois, dans `agent-detect`.
+        //
+        // `process.execPath` est un VRAI exécutable partout, et `--import tsx`
+        // est l'invocation documentée de tsx v4. Aucun `.cmd` sur le chemin,
+        // aucune résolution de `npx` à faire, et c'est plus rapide.
+        sortie: execFileSync(
+          process.execPath,
+          ['--import', 'tsx', 'src/cli.ts', 'desinstaller', ...args],
+          {
+            cwd: new URL('.', RACINE).pathname,
+            encoding: 'utf8',
+            env: { ...process.env, NO_COLOR: '1', HIVE_DB: '', HIVE_WORKDIR: '' },
+          },
+        ),
       };
     } catch (e) {
       const err = e as { status?: number; stdout?: string; stderr?: string };
