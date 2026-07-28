@@ -64,6 +64,26 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
   de ruche — et c'est le cas que l'adoption rattrape.
 
+### Tests
+
+- **La boucle complète d'une caste, du travail réel au cadre injecté**
+  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
+  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
+  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
+  parcourait était celui du milieu : un nœud rend une production → les
+  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
+  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
+  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
+  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
+  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
+  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
+  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
+  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
+  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
+  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
+  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
+  fichier pour que la prochaine lecture ne refasse pas l'erreur.
+
 ### Fixed
 
 - **La ruche fusionnait n'importe quelle pull request du dépôt.**
@@ -857,6 +877,26 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
   de ruche — et c'est le cas que l'adoption rattrape.
 
+### Tests
+
+- **La boucle complète d'une caste, du travail réel au cadre injecté**
+  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
+  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
+  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
+  parcourait était celui du milieu : un nœud rend une production → les
+  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
+  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
+  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
+  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
+  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
+  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
+  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
+  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
+  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
+  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
+  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
+  fichier pour que la prochaine lecture ne refasse pas l'erreur.
+
 ### Fixed
 
 - **La ruche fusionnait n'importe quelle pull request du dépôt.**
@@ -1112,6 +1152,26 @@ refonte complète de l'interface en **Mission Control**.
   orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
   administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
   de ruche — et c'est le cas que l'adoption rattrape.
+
+### Tests
+
+- **La boucle complète d'une caste, du travail réel au cadre injecté**
+  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
+  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
+  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
+  parcourait était celui du milieu : un nœud rend une production → les
+  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
+  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
+  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
+  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
+  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
+  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
+  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
+  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
+  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
+  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
+  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
+  fichier pour que la prochaine lecture ne refasse pas l'erreur.
 
 ### Fixed
 
