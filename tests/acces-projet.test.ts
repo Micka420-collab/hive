@@ -23,7 +23,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { peutLireCode, peutRejoindre, peutVoirMembres } from '../src/shared/acces-projet.js';
+import {
+  peutAdmettre,
+  peutLireCode,
+  peutRejoindre,
+  peutVoirMembres,
+} from '../src/shared/acces-projet.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -88,6 +93,57 @@ describe('la décision, seule', () => {
       const importe = { visibility: 'private' as const, ownerId: null };
       expect(peutLireCode(importe, qui('un-membre'), false)).toBe(false);
     });
+  });
+
+  describe('ADMETTRE — un droit de propriétaire, que « public » ne dilue pas', () => {
+    // Trouvé en MUTANT : élargir `peutAdmettre` aux projets PUBLICS ne
+    // rougissait aucun test. Ceux qui existent suivent tous le scénario de
+    // l'adoption — donc un projet PRIVÉ — et la moitié publique de la table
+    // n'était vérifiée nulle part.
+    //
+    // La règle y est pourtant la même, et c'est contre-intuitif : sur un
+    // projet public, n'importe qui peut DÉJÀ se joindre lui-même. Ce
+    // qu'« admettre » ajoute, c'est inscrire QUELQU'UN D'AUTRE — un acte qui
+    // engage un tiers, et que le propriétaire seul doit pouvoir faire. Sans
+    // cela, la liste des membres d'un projet ouvert devient un mur où chacun
+    // écrit le nom de son voisin.
+    for (const projet of [publique, privee]) {
+      it(`sur un projet ${projet.visibility}, seuls le propriétaire et l’administrateur admettent`, () => {
+        expect(peutAdmettre(projet, qui('proprio'))).toBe(true);
+        expect(peutAdmettre(projet, admin())).toBe(true);
+        expect(peutAdmettre(projet, qui('un-inconnu'))).toBe(false);
+        // « Déjà membre » n'entre même pas dans la signature, et c'est le
+        // fond de la règle : un invité n'invite pas à son tour, sinon
+        // « privé » ne veut plus rien dire au bout de trois personnes.
+        expect(peutAdmettre(projet, qui('un-membre'))).toBe(false);
+      });
+    }
+
+    it('un projet ORPHELIN ne s’admet pas — il s’adopte d’abord', () => {
+      const orphelin = { visibility: 'private' as const, ownerId: null };
+      expect(peutAdmettre(orphelin, qui('quelquun'))).toBe(false);
+      expect(peutAdmettre(orphelin, admin())).toBe(true);
+    });
+  });
+
+  it('UN LECTEUR SANS IDENTIFIANT N’EST PROPRIÉTAIRE DE RIEN', () => {
+    // `lecteurDe` (server.ts) rend `userId: ''` pour une requête NON
+    // authentifiée — c'est son `?? ''`. La garde de `estProprietaire` ne
+    // regardait que `ownerId !== null` : un projet dont le propriétaire serait
+    // la chaîne vide aurait donc appartenu à tout visiteur anonyme, alors même
+    // que le commentaire du module annonçait le contraire.
+    //
+    // Aucune route n'écrit aujourd'hui un `ownerId` vide — les deux voies par
+    // compte imposent l'identifiant du JWT, et le schéma de la voie « jeton de
+    // ruche » refuse le champ. C'est donc de la défense en profondeur, pas un
+    // trou ouvert : ce test fige la règle avant qu'une troisième voie
+    // d'écriture ne la découvre à nos dépens.
+    const vide = { visibility: 'private' as const, ownerId: '' };
+    const anonyme = { userId: '', voitTout: false };
+    expect(peutLireCode(vide, anonyme, false)).toBe(false);
+    expect(peutVoirMembres(vide, anonyme, false)).toBe(false);
+    expect(peutRejoindre(vide, anonyme, false)).toBe(false);
+    expect(peutAdmettre(vide, anonyme)).toBe(false);
   });
 });
 
