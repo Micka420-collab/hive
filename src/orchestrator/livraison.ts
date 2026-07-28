@@ -403,10 +403,22 @@ export function corpsPr(opts: {
   verdictGardiennes?: string;
   contreVisite?: { suite: string; raison: string } | null;
   fichiers: readonly string[];
+  /**
+   * L'issue à l'origine de la tâche, s'il y en a une.
+   *
+   * ⚠ CE NUMÉRO VIENT DE L'API, JAMAIS DU TEXTE DE L'ISSUE. Un corps d'issue
+   * qui contiendrait « Closes #7 » ne doit pas pouvoir faire refermer l'issue
+   * de quelqu'un d'autre : c'est le lien rangé par la ruche qui décide, et lui
+   * seul. D'où un `number`, et pas une chaîne libre.
+   */
+  issue?: number;
 }): string {
   const lignes: string[] = [
     '## 🐝 Ouvert par une ruche Hive',
     '',
+    ...(typeof opts.issue === 'number' && Number.isInteger(opts.issue) && opts.issue > 0
+      ? [`Closes #${opts.issue}`, '']
+      : []),
     `**Tâche** — ${champSurUneLigne(opts.tache, 300)}`,
     `**Ouvrière** — ${champSurUneLigne(opts.nodeName, 80)}${opts.caste ? ` (${opts.caste})` : ''}`,
     '',

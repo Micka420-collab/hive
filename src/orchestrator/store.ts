@@ -326,6 +326,26 @@ CREATE TABLE IF NOT EXISTS livraisons (
 );
 CREATE INDEX IF NOT EXISTS idx_livraisons_projet ON livraisons(projectId, etat);
 
+-- ─── D'où vient une tâche : l'issue qui l'a demandée ────────────────────────
+-- Table LATÉRALE, et pas une colonne de plus sur « tasks » : la très grande
+-- majorité des tâches ne vient d'aucune issue, et une colonne vide sur toutes
+-- les lignes est une colonne qu'on finit par remplir d'autre chose.
+--
+-- Le lien sert à UNE chose : écrire « Closes #N » dans la pull request pour que
+-- GitHub referme l'issue au merge. Sans lui, la ruche répond à une demande sans
+-- jamais dire qu'elle y répond, et le demandeur doit refermer à la main.
+--
+-- BORNE D'ÉLAGAGE : le lien ne survit pas à sa tâche (pruneTachesIssue). Il
+-- n'a aucun intérêt propre — sans la tâche, il ne désigne plus rien.
+CREATE TABLE IF NOT EXISTS taches_issue (
+  taskId    TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL,
+  depot     TEXT NOT NULL,
+  numero    INTEGER NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_taches_issue_projet ON taches_issue(projectId, numero);
+
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
 -- Deux tables, une par nature, et surtout PAS une seule : un billet est une
 -- invitation éphémère qu'on distribue, une clé de nœud est une identité durable
@@ -2088,6 +2108,45 @@ export class HiveStore {
     const cutoff = (dernier.id ?? 0) - Math.max(0, maxKeep);
     if (cutoff <= 0) return 0;
     return this.db.prepare('DELETE FROM gardiennes WHERE id <= ?').run(cutoff).changes;
+  }
+
+  // ─── D'où vient une tâche : l'issue qui l'a demandée ───────────────────────
+
+  /** Rattache une tâche à l'issue qui l'a demandée. Idempotent. */
+  lierTacheIssue(lien: {
+    taskId: string;
+    projectId: string;
+    depot: string;
+    numero: number;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO taches_issue (taskId, projectId, depot, numero, creeA) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(lien.taskId, lien.projectId, lien.depot, lien.numero, lien.now ?? Date.now());
+  }
+
+  /** L'issue d'une tâche, ou `null` si elle ne vient pas d'une issue. */
+  issueDeTache(taskId: string): { depot: string; numero: number } | null {
+    const l = this.db
+      .prepare('SELECT depot, numero FROM taches_issue WHERE taskId = ?')
+      .get(taskId) as { depot: string; numero: number } | undefined;
+    return l ?? null;
+  }
+
+  /**
+   * Élague les liens dont la tâche n'existe plus.
+   *
+   * C'est la borne, et elle est RÉFÉRENTIELLE plutôt que temporelle : un lien
+   * sans sa tâche ne désigne plus rien, et les tâches ont déjà leur propre
+   * élagage. Une borne « garder les N derniers » serait ici un second réglage à
+   * accorder au premier, donc un désaccord en puissance.
+   */
+  pruneTachesIssue(): number {
+    return this.db
+      .prepare('DELETE FROM taches_issue WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
   }
 
   // ─── Le trou de vol : billets et clés de nœud ──────────────────────────────

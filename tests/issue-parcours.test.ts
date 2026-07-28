@@ -24,6 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { FERMETURE_DONNEES, OUVERTURE_DONNEES } from '../src/shared/donnees-non-fiables.js';
+import { corpsPr } from '../src/orchestrator/livraison.js';
 
 const TOKEN = 'jeton-issue-suffisamment-long-42';
 
@@ -250,7 +251,105 @@ describe('d’une issue GitHub à des tâches de la ruche', () => {
     }
   });
 
+  it('PRENDRE UNE ISSUE RANGE LE LIEN POUR CHAQUE TÂCHE CRÉÉE', async () => {
+    const r = await fetch(`${base}/api/projects/${projet}/issues/3`, {
+      method: 'POST',
+      headers: jeton,
+    });
+    expect(r.status, `non servis : ${nonServis.join(', ')}`).toBe(201);
+    const { taches } = (await r.json()) as { taches: { id: string }[] };
+    expect(taches.length).toBeGreaterThan(0);
+    for (const t of taches) {
+      expect(server.store.issueDeTache(t.id), t.id).toEqual({ depot: 'micka/ruche', numero: 3 });
+    }
+  });
+
+  it('REPRENDRE LA MÊME ISSUE NE COLLISIONNE PAS, ET LE DAG SURVIT', async () => {
+    // C'est la SECONDE prise de l'issue #3 dans ce fichier — geste naturel
+    // quand le premier découpage ne convient pas. La Queen Bee rend des
+    // identifiants de son cru (« A », « B »), uniques dans un découpage et pas
+    // dans un projet : sans préfixe, la clé primaire entrait en collision et la
+    // route rendait un 502 muet.
+    const r = await fetch(`${base}/api/projects/${projet}/issues/3`, {
+      method: 'POST',
+      headers: jeton,
+    });
+    expect(r.status, `non servis : ${nonServis.join(', ')}`).toBe(201);
+    const { taches } = (await r.json()) as { taches: { id: string }[] };
+    expect(taches).toHaveLength(2);
+    for (const t of taches) expect(t.id).toMatch(/^i3-/);
+
+    // ET LE DAG A SURVÉCU. Renuméroter les tâches sans renuméroter leurs
+    // dépendances les casserait en silence — bien pire qu'une collision
+    // bruyante : la seconde tâche partirait sans attendre la première.
+    const seconde = server.store.getTask(taches[1]!.id);
+    expect(seconde?.dependsOn, 'la dépendance doit pointer sur le NOUVEL id').toEqual([
+      taches[0]!.id,
+    ]);
+  });
+
+  it('une tâche ordinaire n’a pas de lien — et n’en invente pas', () => {
+    const seule = server.store.createTask({
+      projectId: projet,
+      title: 'tâche à la main',
+      prompt: 'sans issue',
+    });
+    expect(server.store.issueDeTache(seule.id)).toBeNull();
+  });
+
+  it('L’ÉLAGAGE EST RÉFÉRENTIEL : un lien sans sa tâche disparaît', () => {
+    // La borne vit avec la table, dans le même commit. Elle est référentielle
+    // et non temporelle : un « garder les N derniers » serait un second réglage
+    // à accorder à l'élagage des tâches, donc un désaccord en puissance.
+    server.store.lierTacheIssue({
+      taskId: 'tache-qui-nexiste-pas',
+      projectId: projet,
+      depot: 'micka/ruche',
+      numero: 99,
+    });
+    expect(server.store.issueDeTache('tache-qui-nexiste-pas')).not.toBeNull();
+    const supprimes = server.store.pruneTachesIssue();
+    expect(supprimes).toBeGreaterThanOrEqual(1);
+    expect(server.store.issueDeTache('tache-qui-nexiste-pas')).toBeNull();
+    // …et il n'emporte pas les liens dont la tâche vit encore.
+    const vivantes = server.store.listTasks(projet);
+    const avecLien = vivantes.filter((t) => server.store.issueDeTache(t.id) !== null);
+    expect(avecLien.length, 'les liens des tâches vivantes doivent survivre').toBeGreaterThan(0);
+  });
+
   it('les faux services ont tout servi — sinon les verdicts ci-dessus mentent', () => {
     expect(nonServis, 'requêtes non servies').toEqual([]);
+  });
+});
+
+describe('la boucle se referme : « Closes #N » dans la pull request', () => {
+  // Le lot précédent laissait la boucle ouverte : la ruche répondait à une
+  // demande sans jamais dire qu'elle y répondait, et le demandeur devait
+  // refermer son issue à la main.
+  //
+  // Le lien tâche→issue vit dans une table LATÉRALE (`taches_issue`) : la très
+  // grande majorité des tâches ne vient d'aucune issue, et une colonne vide sur
+  // toutes les lignes est une colonne qu'on finit par remplir d'autre chose.
+
+  it('LE NUMÉRO VIENT DU LIEN RANGÉ, JAMAIS DU TEXTE DE L’ISSUE', () => {
+    // Un corps d'issue qui contiendrait « Closes #7 » ne doit pas pouvoir faire
+    // refermer l'issue de quelqu'un d'autre. `corpsPr` prend un `number`, et ce
+    // nombre vient de `issueDeTache` — donc de ce que la ruche a rangé quand
+    // elle a lu l'API, pas de ce que l'auteur a écrit.
+    const avec = corpsPr({ tache: 't', nodeName: 'n', fichiers: ['a.ts'], issue: 42 });
+    expect(avec).toContain('Closes #42');
+    // …et l'annonce précède le corps, là où GitHub la lit.
+    expect(avec.indexOf('Closes #42')).toBeLessThan(avec.indexOf('**Tâche**'));
+  });
+
+  it('SANS ISSUE, AUCUNE MENTION — une PR ordinaire ne referme rien', () => {
+    const sans = corpsPr({ tache: 't', nodeName: 'n', fichiers: ['a.ts'] });
+    expect(sans).not.toMatch(/Closes #/);
+    // Un numéro absurde ne passe pas non plus : 0 n'est pas une issue.
+    for (const numero of [0, -1, 1.5, Number.NaN]) {
+      expect(corpsPr({ tache: 't', nodeName: 'n', fichiers: [], issue: numero })).not.toMatch(
+        /Closes #/,
+      );
+    }
   });
 });
