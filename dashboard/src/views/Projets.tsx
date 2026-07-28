@@ -36,6 +36,7 @@ import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
+import { sansIdentifiants } from '../../../src/shared/projet-public';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
 import './projets.css';
 
@@ -962,9 +963,17 @@ function ProjectCard({
         </span>
       </header>
       {project.description && <p className="pj-desc">{project.description}</p>}
+      {/* LAVÉE DE SES IDENTIFIANTS, ici comme dans Le Rayon.
+          Un `repoUrl` peut porter un jeton : c'est la façon dont on donne ses
+          identifiants à `git clone` sans configuration
+          (`https://user:ghp_…@github.com/…`), et le champ de création de projet
+          l'accepte tel quel. Cette carte est vue par toute abeille qui rejoint
+          la ruche — c'est même le but du tableau de bord. L'afficher brut
+          donnerait le jeton GitHub de l'hôte à chaque nouvelle arrivante.
+          Le `title` aussi : un survol de souris est une lecture. */}
       {project.repoUrl && (
-        <code className="pj-repo mono" title={project.repoUrl}>
-          {project.repoUrl}
+        <code className="pj-repo mono" title={sansIdentifiants(project.repoUrl) ?? ''}>
+          {sansIdentifiants(project.repoUrl) ?? '—'}
         </code>
       )}
 

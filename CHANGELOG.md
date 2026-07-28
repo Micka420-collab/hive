@@ -7,6 +7,29 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Le jeton du dépôt s'affichait encore sur la carte projet** (troisième
+  endroit, troisième découverte séparée). Un `repoUrl` porte un secret
+  POTENTIEL : la façon de donner ses identifiants à `git clone` sans
+  configuration, c'est de les écrire dedans (`https://user:ghp_…@github.com/…`),
+  et le champ « dépôt » du formulaire de création l'accepte tel quel. La fuite a
+  été fermée sur le catalogue public, puis dans la vue Rayon — et la carte
+  projet l'affichait toujours brut, en texte **et** en attribut `title`, juste à
+  côté de la vue qui, elle, le lavait. Cette carte est vue par toute abeille qui
+  rejoint la ruche : c'est même le but du tableau de bord. Le correctif a donc
+  été écrit deux fois avant d'être complet, et ce n'est pas un défaut
+  d'attention — c'est qu'aucun test ne portait sur la RÈGLE, seulement sur
+  chacun de ses endroits. Deux gardes nouvelles la portent désormais :
+  `tests/repourl-affichage.test.ts` refuse qu'une vue lise `x.repoUrl` sans
+  passer par `sansIdentifiants`, et `tests/parcours-jeton-depot.test.ts` suit un
+  projet dont l'URL porte un secret sur TOUT son trajet — adopté, ouvrière
+  admise, partagé, lu — et vérifie que le secret n'apparaît dans aucune réponse,
+  refus du miroir compris (« git a échoué sur <URL> » est l'explication la plus
+  naturelle à écrire, et la pire). Ce dernier porte son propre méta-test : une
+  réponse vide ou refusée ne prouve rien, et un test qui n'a rien regardé est le
+  pire des verts.
+
 ### Added
 
 - **🔗 Le partage en lecture A ENFIN UN ÉCRAN — aux deux bouts** (vue
