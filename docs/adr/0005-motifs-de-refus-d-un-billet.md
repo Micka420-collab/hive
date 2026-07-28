@@ -1,6 +1,6 @@
 # ADR 0005 — Dire pourquoi un billet est refusé, sans en dire trop
 
-- **Statut** : proposé (lot 0 de la mission « L'ACCUEIL »)
+- **Statut** : accepté (2026-07-27 — décision déléguée, prise après lecture du code)
 - **Date** : 2026-07-27
 - **Concerne** : §5 B de `MISSION-ACCUEIL.md`, et la limite du §16
 
@@ -40,6 +40,22 @@ secret. Les révéler n'apprend rien à qui n'a pas ce secret — il le savait d
 `inconnu` et `secret_invalide` restent **un seul et même message**, parce que
 c'est leur indistinction qui ferme l'oracle.
 
+## Ce que la lecture du code a changé — et qui tranche la question
+
+L'ADR a d'abord été écrit sur le papier, en pesant un GAIN d'ergonomie contre
+un RISQUE de sécurité. La lecture de `server.ts` a montré que ce n'était pas
+l'arbitrage réel : **l'oracle existait déjà**.
+
+Dans le code d'avant, un identifiant inconnu était refusé par `jugerBillet`
+**sans que PBKDF2 tourne**. Un identifiant connu au mauvais secret, lui, payait
+100 000 itérations. Le message uniforme prétendait cacher quels billets
+existent ; **l'horloge le disait**. Mesuré : **1,8 ms contre 18,1 ms, un facteur
+9,8** — lisible avec n'importe quel client HTTP, et parfaitement stable.
+
+La décision n'est donc pas « un peu d'ergonomie contre un peu de sécurité ».
+Vérifier le secret d'abord et TOUJOURS au même coût **ferme un oracle qui était
+ouvert**, et l'ergonomie vient par-dessus. C'est un gain net des deux côtés.
+
 ## Décision
 
 **C**, avec une inversion de l'ordre de vérification.
@@ -60,9 +76,14 @@ La réponse devient :
 
 L'ordre de vérification devient donc : trouver le billet → **vérifier le
 secret** → juger l'état. Un billet inconnu et un secret faux prennent le même
-chemin, et — point à ne pas manquer — **doivent coûter le même temps**, sinon
-la durée de la réponse rétablit l'oracle. Le PBKDF2 doit tourner dans les deux
-cas, y compris sur un billet inconnu.
+chemin, et — c'est le point central, pas un détail — **coûtent le même temps** :
+`empreinteLeurre()` fournit une empreinte factice de coût identique, contre
+laquelle on vérifie quand le billet n'existe pas. Le résultat est faux à coup
+sûr ; la dépense est la même.
+
+Le leurre est calculé **à la première demande**, pas au chargement du module :
+le payer à l'import le ferait payer à chacun des quarante tests qui démarrent
+un serveur.
 
 Le `detail` déjà renvoyé en `409` (« identifiant de nœud déjà utilisé ») est
 par ailleurs perdu à l'affichage par `join.ts:102`, qui ne lit que `error`.

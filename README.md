@@ -72,6 +72,32 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
                                   └────────────────┘
 ```
 
+## 🤝 Rejoindre la ruche d'un ami — une commande, sans rien cloner
+
+On vous a envoyé un billet ? Une seule ligne suffit :
+
+```bash
+npx github:Micka420-collab/hive join hive2_votre-billet
+```
+
+Pas de `git clone`, pas de dashboard, pas de base de données : **4 Mo et
+9 paquets**. Le billet contient l'adresse de la ruche et de quoi obtenir une
+clé propre à votre machine — il n'y a aucun fichier à éditer.
+
+Pour ne strictement rien installer de superflu :
+
+```bash
+npm install -g github:Micka420-collab/hive --omit=optional
+hive join hive2_votre-billet
+```
+
+`--omit=optional` retire Fastify et SQLite, dont **seule** la ruche complète a
+besoin. Un nœud qui prête du temps-machine ne lance pas de serveur.
+
+> Avant, il fallait cloner le dépôt et installer **218 Mo et 279 paquets** —
+> dont un moteur 3D et un éditeur de code, pour un dashboard qu'un nœud
+> n'ouvre jamais.
+
 ## ⚡ Installation (une commande)
 
 ```bash

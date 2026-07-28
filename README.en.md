@@ -66,6 +66,32 @@ A central _Queen_ breaks a project into tasks and distributes them to members' m
                                   └────────────────┘
 ```
 
+## 🤝 Join a friend's hive — one command, nothing to clone
+
+Got a ticket? One line is enough:
+
+```bash
+npx github:Micka420-collab/hive join hive2_your-ticket
+```
+
+No `git clone`, no dashboard, no database: **4 MB and 9 packages**. The ticket
+carries the hive's address and what it takes to obtain a key of your own —
+there is no file to edit.
+
+To install strictly nothing superfluous:
+
+```bash
+npm install -g github:Micka420-collab/hive --omit=optional
+hive join hive2_your-ticket
+```
+
+`--omit=optional` drops Fastify and SQLite, which **only** a full hive needs. A
+node lending machine time never starts a server.
+
+> Before, this meant cloning the repository and installing **218 MB and 279
+> packages** — including a 3D engine and a code editor, for a dashboard a node
+> never opens.
+
 ## ⚡ Install (one command)
 
 ```bash

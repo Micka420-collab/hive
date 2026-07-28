@@ -227,6 +227,44 @@ export function rendreEnv(reglages: readonly Reglage[]): string {
   return lignes.join('\n');
 }
 
+/**
+ * Complète un `.env` existant SANS toucher à ce qu'il contient déjà.
+ *
+ * ─── LE DÉFAUT QUE CETTE FONCTION CORRIGE ────────────────────────────────────
+ *
+ * `installer-main.ts` régénérait le fichier ENTIER par `rendreEnv` dès qu'une
+ * clé manquait. Les valeurs étaient bien préservées — c'était l'invariant, et
+ * il tenait — mais l'ORDRE, les COMMENTAIRES et la mise en forme de l'humain
+ * étaient remplacés par les nôtres. Quelqu'un qui avait rangé son `.env` à sa
+ * façon, ou qui y avait noté pourquoi il avait mis telle valeur, retrouvait un
+ * fichier réécrit.
+ *
+ * Conséquence mesurable : un `.env` écrit à la main n'était pas identique
+ * octet pour octet après passage, donc l'idempotence exigée au §12 de la
+ * mission était FAUSSE.
+ *
+ * Ici, les clés absentes sont AJOUTÉES EN FIN DE FICHIER, précédées de leur
+ * explication, et rien d'autre n'est touché. Un fichier déjà complet est rendu
+ * tel quel, au caractère près.
+ */
+export function completerEnv(contenu: string, reglages: readonly Reglage[]): string {
+  const present = lireEnv(contenu);
+  const manquants = reglages.filter((r) => !present.has(r.cle));
+  if (manquants.length === 0) return contenu;
+
+  const lignes: string[] = [];
+  for (const r of manquants) {
+    lignes.push(`# ${r.commentaire}`);
+    lignes.push(`${r.cle}=${r.valeur}`);
+    lignes.push('');
+  }
+  // Un fichier vide n'a pas besoin d'en-tête de section : c'est une création,
+  // pas une complétion.
+  const corps = contenu.trimEnd();
+  if (corps === '') return lignes.join('\n');
+  return `${corps}\n\n# ─── Complété par « npm run install:hive » ───\n${lignes.join('\n')}`;
+}
+
 /** Version de Node exigée, telle que le `package.json` la déclare. */
 export const NODE_MIN = 20;
 

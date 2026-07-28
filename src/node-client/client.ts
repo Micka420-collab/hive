@@ -10,6 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
+import { jugerCommandeTest } from '../shared/commande-test.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
@@ -410,6 +411,29 @@ export class HiveNodeClient {
       this.log(`⏾ merge ${msg.mergeId.slice(0, 8)}… : ${offShift.reason} → refus`);
       return;
     }
+    // La commande de test s'exécute ICI, sur cette machine. `runMerge` la
+    // refuse aussi (c'est la garde qui fait foi) ; on la juge en amont pour ne
+    // pas cloner un dépôt pour rien et pour rendre le refus lisible à l'hôte —
+    // un « échec du merge » générique ne lui dirait pas qu'on vient de lui
+    // demander de lancer un binaire arbitraire.
+    if (msg.testCommand) {
+      const verdict = jugerCommandeTest(msg.testCommand);
+      if (!verdict.ok) {
+        this.send({
+          type: 'merge_result',
+          mergeId: msg.mergeId,
+          applied: [],
+          conflicts: [],
+          mergedDiff: '',
+          testsRun: false,
+          testsPassed: null,
+          logs: `[nœud] commande de test refusée : ${verdict.motif}`,
+          refused: 'commande de test refusée',
+        });
+        this.log(`✘ merge ${msg.mergeId.slice(0, 8)}… : ${verdict.motif}`);
+        return;
+      }
+    }
     this.activeMerges.add(msg.mergeId);
     // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
     const dir = path.join(
@@ -429,6 +453,9 @@ export class HiveNodeClient {
         repoDir: dir,
         diffs: msg.diffs,
         ...(msg.testCommand ? { testCommand: msg.testCommand } : {}),
+        // Le bac à sable du nœud suit le merge : la commande de test exécute du
+        // code du dépôt, au même titre qu'un agent.
+        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
       });
       this.send({
         type: 'merge_result',

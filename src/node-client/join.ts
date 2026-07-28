@@ -15,6 +15,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
 import { optionBac, preparerBac } from './bac.js';
+import { CODE } from '../codes-sortie.js';
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
@@ -100,12 +101,35 @@ async function echangerBillet(
       body: JSON.stringify({ billet: encoderBillet(billet), nodeId, label }),
     });
     if (!rep.ok) {
-      const detail = (await rep.json().catch(() => null)) as { error?: string } | null;
+      const corps = (await rep.json().catch(() => null)) as {
+        error?: string;
+        motif?: string;
+        detail?: string;
+      } | null;
+
+      // La ruche dit désormais POURQUOI quand elle le peut : expiré, épuisé,
+      // révoqué. Ces trois-là ne s'apprennent qu'avec le bon secret en main,
+      // donc les afficher n'apprend rien à qui ne l'avait pas — et les taire
+      // laissait la personne sans savoir s'il fallait redemander un billet ou
+      // vérifier sa connexion. C'était le cas d'échec le plus fréquent de ce
+      // chemin, et le plus vexant.
+      if (corps?.motif) {
+        console.error(`\n✘ ${corps.error ?? 'Billet refusé.'}\n`);
+        console.error('  L’hôte le crée en une commande : `npm run cli -- invite`.');
+        return null;
+      }
+
+      // Le `detail` du 409 (« identifiant de nœud déjà utilisé ») était lu
+      // puis JETÉ : il porte pourtant la seule marche à suivre utile.
       console.error(
-        `\n✘ La ruche a refusé ce billet (${rep.status}${detail?.error ? ` — ${detail.error}` : ''}).\n` +
-          '  Un billet est éphémère et souvent à usage unique : demandez-en un nouveau à l’hôte\n' +
-          '  (`npm run cli -- invite`).',
+        `\n✘ La ruche a refusé ce billet (${rep.status}${corps?.error ? ` — ${corps.error}` : ''}).`,
       );
+      if (corps?.detail) console.error(`  ${corps.detail}`);
+      else
+        console.error(
+          '  Un billet est éphémère et souvent à usage unique : demandez-en un nouveau à l’hôte\n' +
+            '  (`npm run cli -- invite`).',
+        );
       return null;
     }
     const data = (await rep.json()) as { cle?: unknown };
@@ -119,7 +143,28 @@ async function echangerBillet(
   }
 }
 
+/**
+ * Demande le billet à l'humain.
+ *
+ * HORS TERMINAL, ON NE DEMANDE PAS — on échoue en le disant. Sans cette garde,
+ * `hive join` sans argument dans un script, un pipe ou une CI attendait une
+ * réponse que personne ne viendrait donner : le processus restait figé
+ * jusqu'au délai d'attente de l'appelant, sans un mot d'explication. Un
+ * blocage silencieux est le pire mode d'échec d'un outil qu'on automatise.
+ */
 async function askInvite(): Promise<string> {
+  if (process.stdin.isTTY !== true) {
+    console.error(
+      '\n✘ Aucun billet fourni, et pas de terminal pour le demander.\n' +
+        '  Passez-le en argument : `hive join hive2_…`\n' +
+        '  ou par l’environnement : `HIVE_INVITE=hive2_… hive join`.',
+    );
+    process.exit(CODE.REPONSE_MANQUANTE);
+  }
+  return askInviteInteractif();
+}
+
+async function askInviteInteractif(): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     return (await rl.question('🐝 Collez votre invitation Hive puis Entrée :\n> ')).trim();

@@ -27,16 +27,22 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import {
   TTL_BILLET_MAX_MS,
   USAGES_MAX,
+  EXPLICATION_REFUS,
   bornerTtl,
   bornerUsages,
   decoderBillet,
   empreinte,
+  empreinteLeurre,
   empreinteValide,
   encoderBillet,
   jugerBillet,
   jugerTransport,
+  motifDicible,
   tirerSecret,
 } from '../shared/acces.js';
+import { Registre } from './guetteuses.js';
+import { jugerCommandeTest } from '../shared/commande-test.js';
+import { vuePublique } from '../shared/projet-public.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -425,6 +431,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
+
+  // Les guetteuses observent en mémoire : une table qui grossirait à chaque
+  // requête d'un scanner offrirait à l'attaquant de quoi remplir le disque de
+  // sa victime.
+  const guet = new Registre();
 
   const nodeSockets = new Map<string, WebSocket>();
   const dashboardSockets = new Set<WebSocket>();
@@ -1258,24 +1269,61 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
       const now = Date.now();
       const range = store.getBillet(decode.id);
+
+      // ─── LE SECRET D'ABORD, ET TOUJOURS AU MÊME COÛT ────────────────────────
+      //
+      // L'ordre a changé, et ce n'est pas cosmétique.
+      //
+      // AVANT : on jugeait l'état du billet, puis on vérifiait le secret. Un
+      // identifiant inconnu était refusé SANS que PBKDF2 tourne — donc en une
+      // fraction du temps qu'il faut à un identifiant connu. Le message
+      // uniforme prétendait cacher quels billets existent ; L'HORLOGE LE
+      // DISAIT. L'oracle existait déjà, il était simplement mesuré au
+      // chronomètre plutôt que lu dans la réponse.
+      //
+      // MAINTENANT : on vérifie toujours le secret, contre l'empreinte réelle
+      // si le billet existe, contre un LEURRE de coût identique sinon. Les
+      // deux chemins coûtent la même chose, et l'oracle temporel disparaît.
+      //
+      // Ce n'est qu'ENSUITE, une fois le porteur authentifié, qu'on peut dire
+      // POURQUOI son billet est refusé : expiré, épuisé ou révoqué ne
+      // s'apprennent qu'avec le bon secret en main, donc les dire n'apprend
+      // rien à qui ne l'avait pas.
+      // Voir `docs/adr/0005-motifs-de-refus-d-un-billet.md`.
+      const secretOk = empreinteValide(decode.secret, range?.secretHash ?? empreinteLeurre());
+
+      const refuserOpaque = (refus: string) => {
+        joinEchec(req.ip);
+        emitEvent('invite_rejected', { ticketId: decode.id, refus });
+        return reply.code(401).send({ error: 'billet refusé' });
+      };
+      // Billet inconnu et secret faux prennent le MÊME chemin et rendent la
+      // MÊME réponse, à l'octet près. C'est cette indistinction-là qui empêche
+      // d'énumérer les identifiants existants.
+      if (!range || !secretOk) return refuserOpaque(range ? 'secret_invalide' : 'inconnu');
+
       const juge = jugerBillet(
-        range && {
+        {
           expireA: range.expiresAt,
           usagesRestants: range.usesLeft,
           revoqueA: range.revokedAt,
         },
         now,
       );
-      // Un seul message pour tous les refus : distinguer « inconnu » de
-      // « secret invalide » dirait à un inconnu QUELS identifiants existent.
-      // La raison précise part au journal, pour l'hôte, jamais au client.
-      const refuser = (refus: string) => {
+      if (!juge.ok) {
         joinEchec(req.ip);
-        emitEvent('invite_rejected', { ticketId: decode.id, refus });
-        return reply.code(401).send({ error: 'billet refusé' });
-      };
-      if (!juge.ok) return refuser(juge.refus);
-      if (!empreinteValide(decode.secret, range!.secretHash)) return refuser('secret_invalide');
+        emitEvent('invite_rejected', { ticketId: decode.id, refus: juge.refus });
+        // Le porteur a prouvé qu'il détenait ce billet : on lui doit la raison,
+        // et surtout la marche à suivre.
+        return reply
+          .code(401)
+          .send(
+            motifDicible(juge.refus)
+              ? { error: EXPLICATION_REFUS[juge.refus], motif: juge.refus }
+              : { error: 'billet refusé' },
+          );
+      }
+      const refuser = refuserOpaque;
 
       // L'IDENTIFIANT EST-IL LIBRE ? Vérifié APRÈS le secret (on ne renseigne
       // pas un inconnu sur les nœuds existants) mais AVANT de consommer le
@@ -2850,6 +2898,50 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   // Hive Pulse : signes vitaux agrégés (débit, latence p50/p95, taux de succès,
   // nœuds actifs) par repli du journal. Lecture seule ; pagination interne bornée.
+  // ─── Les Guetteuses ────────────────────────────────────────────────────────
+  //
+  // Elles ne ferment aucune porte : elles rendent le reniflage BRUYANT. Sans
+  // elles, quelqu'un peut passer une nuit à chercher un `.env` ou un
+  // `/phpmyadmin` sur une ruche exposée sans que son propriétaire l'apprenne
+  // jamais. Le renseignement précède l'intrusion ; le voir, c'est gagner le
+  // temps de réagir avant que quoi que ce soit de coûteux n'arrive.
+  app.setNotFoundHandler((req, reply) => {
+    const maintenant = Date.now();
+    const leurre = guet.noter(req.url, req.ip, maintenant);
+    if (leurre) {
+      // ON N'ÉCRIT PAS AU JOURNAL À CHAQUE PASSAGE, et c'est une correction,
+      // pas une économie : le journal est durable et borné à EVENT_RETENTION,
+      // et cette route n'est couverte par AUCUNE limitation de débit (le
+      // crochet ne voit que `/api/*`). Une boucle `curl` anonyme y écrivait
+      // une ligne par requête et chassait tout l'historique d'audit — le
+      // module de détection devenait l'arme.
+      //
+      // `doitAlerter` ne rend un niveau que lorsqu'il MONTE, et au plus une
+      // fois par fenêtre. Le compte exact reste en mémoire, pour /api/guet.
+      const niveau = guet.doitAlerter(maintenant);
+      if (niveau) {
+        emitEvent('guet_leurre', {
+          niveau,
+          chemin: leurre.chemin,
+          appat: leurre.appat,
+          intention: leurre.intention,
+        });
+      }
+    }
+    // La réponse est EXACTEMENT celle d'un 404 ordinaire. Un leurre qui se
+    // signale — par un message, un délai, un en-tête — cesse d'être un leurre.
+    return reply.code(404).send({ error: 'introuvable' });
+  });
+
+  /**
+   * Ce que les guetteuses ont vu. Réservé à l'hôte : c'est un renseignement
+   * sur qui s'intéresse à sa ruche.
+   */
+  app.get('/api/guet', async (req, reply) => {
+    if (!authorized(req)) return reply.status(401).send({ error: 'Non autorisé' });
+    return reply.send({ ...guet.verdict(Date.now()), derniers: guet.derniers() });
+  });
+
   app.get('/api/pulse', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     const events: HiveEvent[] = [];
@@ -3515,6 +3607,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .code(400)
           .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
       }
+      // Cette commande s'exécutera sur la MACHINE D'UN MEMBRE. Le schéma
+      // Fastify ne borne que la forme (tableau de chaînes) ; c'est ici qu'on
+      // borne le binaire. Refus tôt et explicite : la vraie garde est côté
+      // nœud, celle-ci sert à donner un message lisible plutôt qu'un merge
+      // qui échoue silencieusement à l'autre bout.
+      if (req.body.testCommand) {
+        const verdict = jugerCommandeTest(req.body.testCommand);
+        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+      }
       const tasks = store.listTasks(project.id);
       // Le serveur est la SOURCE DE VÉRITÉ des revues : une tâche rejetée en
       // revue ne coule jamais dans le miel, quel que soit le cache du client.
@@ -3934,9 +4035,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   // ─── Marketplace ───────────────────────────────────────────────────────────
   // Projets publics — accessible sans authentification.
+  // La SEULE route de la ruche qui ne demande aucune authentification — c'est
+  // voulu, c'est un catalogue. Elle renvoyait la ligne entière de la base :
+  // `repoUrl` compris, alors qu'un dépôt privé se clone en écrivant ses
+  // identifiants DANS l'URL (`https://user:ghp_…@github.com/…`), et `ownerId`
+  // compris, qui désigne une cible nommée sans rien apprendre au visiteur.
+  // La projection est explicite et testée : cf. src/shared/projet-public.ts.
   app.get('/api/projects/public', async (_req, reply) => {
-    const projects = store.listPublicProjects();
-    return reply.send(projects);
+    return reply.send(store.listPublicProjects().map(vuePublique));
   });
 
   // Créer un projet (via JWT utilisateur). Accepte visibility + ownerId.

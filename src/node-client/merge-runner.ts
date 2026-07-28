@@ -15,6 +15,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
+import { jugerCommandeTest } from '../shared/commande-test.js';
+import { envelopper } from './isolement.js';
+import type { Fournisseur } from './isolement.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -29,6 +32,17 @@ export interface MergeRunOptions {
   diffs: MergeDiff[];
   /** Commande de test à lancer si aucun conflit (argv, jamais interprétée par un shell). */
   testCommand?: string[];
+  /**
+   * Le bac à sable du nœud, s'il en a un.
+   *
+   * IL MANQUAIT ICI, ET C'ÉTAIT LE TROU LE PLUS EMBARRASSANT DU LOT : les
+   * adaptateurs de tâches passent tous par `runCommand`, qui enveloppe. Ce
+   * chemin-ci ne passait par rien. Autrement dit `HIVE_ISOLEMENT=exige` — le
+   * réglage qu'on pose précisément quand on prête sa machine à des inconnus —
+   * empêchait bien un agent de sortir de son bac, pendant que la commande de
+   * test d'un merge s'exécutait à côté, sur l'hôte nu.
+   */
+  bac?: { fournisseur: Fournisseur; variables: readonly string[] };
   /** Délai max de la commande de test (défaut 5 min). */
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -61,10 +75,26 @@ function runProc(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal?: AbortSignal,
+  bac?: { fournisseur: Fournisseur; variables: readonly string[] },
 ): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
-    const child = spawn(bin ?? '', args, {
+    // ISOLEMENT — même enveloppe que les adaptateurs de tâches. Ce chemin n'y
+    // passait pas, et c'était le trou le plus embarrassant : la commande de
+    // test d'un merge exécute du code fourni par le dépôt, exactement comme un
+    // agent, mais tournait sur l'hôte nu même sous `HIVE_ISOLEMENT=exige`.
+    //
+    // `cwdHote` est le clone : c'est lui qu'on monte, et c'est aussi lui que
+    // git relira après. L'enveloppe ne déplace rien, elle restreint ce que le
+    // processus voit.
+    const lance = bac
+      ? envelopper(bin ?? '', args, {
+          fournisseur: bac.fournisseur,
+          cwdHote: cwd,
+          variables: bac.variables,
+        })
+      : { bin: bin ?? '', args };
+    const child = spawn(lance.bin, lance.args, {
       cwd,
       env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
@@ -98,6 +128,16 @@ function runProc(
  * (git), puis lance éventuellement les tests. Ne commit ni ne push jamais.
  */
 export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
+  // LA GARDE QUI COMPTE. Le hub refuse déjà les commandes hors liste, mais un
+  // nœud ne doit pas tenir pour acquis que le hub est bien celui qu'il croit :
+  // le jeton de ruche est partagé, les anciennes invitations le portent en
+  // clair, et le transport peut être un ws:// de réseau local. On vérifie donc
+  // AVANT toute écriture — `spawn(argv[0])` sans shell exécute quand même le
+  // binaire qu'on lui nomme.
+  if (opts.testCommand && opts.testCommand.length > 0) {
+    const verdict = jugerCommandeTest(opts.testCommand);
+    if (!verdict.ok) throw new Error(`commande de test refusée : ${verdict.motif}`);
+  }
   const git = simpleGit({ baseDir: opts.repoDir });
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];
@@ -142,6 +182,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           env,
           opts.timeoutMs ?? 5 * 60_000,
           opts.signal,
+          opts.bac,
         );
         testsPassed = code === 0;
         logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);

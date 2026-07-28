@@ -258,6 +258,65 @@ export interface EtatBillet {
 export type RefusBillet = 'inconnu' | 'revoque' | 'expire' | 'epuise' | 'secret_invalide';
 
 /**
+ * Les motifs qu'on peut DIRE au client — et les seuls.
+ *
+ * Ils ont tous une propriété commune : on ne peut les apprendre qu'en
+ * présentant le BON secret du billet. Les révéler n'apprend donc rien à qui
+ * n'avait pas déjà le billet en main — il le savait déjà.
+ *
+ * `inconnu` et `secret_invalide` n'y sont pas, et n'y seront jamais : c'est
+ * leur INDISTINCTION qui empêche d'énumérer les identifiants de billets
+ * existants. Voir `docs/adr/0005-motifs-de-refus-d-un-billet.md`.
+ */
+export const MOTIFS_DICIBLES = ['expire', 'epuise', 'revoque'] as const;
+export type MotifDicible = (typeof MOTIFS_DICIBLES)[number];
+
+export function motifDicible(refus: string): refus is MotifDicible {
+  return (MOTIFS_DICIBLES as readonly string[]).includes(refus);
+}
+
+/**
+ * Ce qu'on dit à l'invité, et QUOI FAIRE.
+ *
+ * « Billet refusé » sans raison est le cas d'échec le plus fréquent du chemin
+ * « rejoindre », et le plus vexant : la personne a attendu deux jours avant de
+ * coller son billet, et n'a aucun moyen de savoir s'il faut en redemander un
+ * ou vérifier sa connexion. Un message qui ne dit pas quoi faire ensuite ne
+ * sert à rien.
+ */
+export const EXPLICATION_REFUS: Record<MotifDicible, string> = {
+  expire: 'Ce billet a expiré. Demandez-en un nouveau à l’hôte de la ruche.',
+  epuise:
+    'Ce billet a déjà servi le nombre de fois prévu. Demandez-en un nouveau à ' +
+    'l’hôte de la ruche.',
+  revoque: 'L’hôte de la ruche a révoqué ce billet. Demandez-lui-en un autre.',
+};
+
+/**
+ * Une empreinte factice, de coût IDENTIQUE à une vraie.
+ *
+ * ─── POURQUOI ELLE EXISTE ────────────────────────────────────────────────────
+ *
+ * Un message uniforme ne suffit pas à cacher qu'un billet existe : L'HORLOGE
+ * PARLE. Vérifier un secret coûte 100 000 itérations de PBKDF2 ; ne pas le
+ * vérifier ne coûte rien. Tant que la route renonçait AVANT le calcul pour un
+ * identifiant inconnu, la différence de temps de réponse distinguait
+ * « inconnu » de « connu, mauvais secret » — c'est-à-dire exactement ce que le
+ * message uniforme prétendait cacher.
+ *
+ * On calcule donc TOUJOURS, contre cette empreinte-là quand le billet n'existe
+ * pas. Le résultat est faux à coup sûr ; le coût, lui, est le même.
+ *
+ * Calculée une seule fois, à la première demande : la payer au chargement du
+ * module la ferait payer à chaque test qui démarre un serveur.
+ */
+let leurre: string | null = null;
+export function empreinteLeurre(): string {
+  if (leurre === null) leurre = empreinte(tirerSecret());
+  return leurre;
+}
+
+/**
  * Décide si un billet peut être échangé, à `maintenant`. L'ORDRE des refus est
  * délibéré : révoqué avant expiré avant épuisé. Un opérateur qui a révoqué un
  * billet veut lire « révoqué », pas « expiré » — le second lui ferait croire

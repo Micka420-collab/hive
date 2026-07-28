@@ -39,8 +39,15 @@ export function runCommand(
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<AdapterResult> {
   // ISOLEMENT. Si le nœud a trouvé un moteur de conteneurs, la commande de
-  // l'agent est enveloppée dedans AVANT le spawn : c'est le seul endroit où
-  // un agent est lancé, donc le seul endroit où l'oubli serait total.
+  // l'agent est enveloppée dedans AVANT le spawn.
+  //
+  // Ce commentaire disait « c'est le SEUL endroit où un agent est lancé, donc
+  // le seul endroit où l'oubli serait total ». C'était faux, et le croire a
+  // coûté cher : `merge-runner.ts` lançait la commande de test d'un merge avec
+  // son propre `spawn`, sans enveloppe — du code du dépôt exécuté sur l'hôte nu
+  // pendant que `HIVE_ISOLEMENT=exige` était posé. C'est désormais
+  // `tests/isolement-couverture.test.ts` qui tient la liste, parce qu'un
+  // commentaire ne vérifie rien.
   //
   // `cwd` reste celui de l'hôte : c'est lui qu'on monte, et c'est aussi lui
   // que `collectDiff()` relira après coup. L'enveloppe ne déplace rien, elle

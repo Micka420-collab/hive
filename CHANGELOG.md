@@ -150,7 +150,217 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   erreur nommée. `npm run setup` reste donc scriptable et idempotent.
   `docs/adr/` (nouveau) porte les six décisions de cadrage.
 
+- **L'installeur devient scriptable** (lot 4). `src/args.ts` — un analyseur
+  **pur** — remplace les trois mini-analyseurs ad hoc du dépôt, dont **aucun**
+  ne gérait `--drapeau=valeur` : écrire `--uses=3` ne provoquait pas d'erreur,
+  le drapeau était simplement **ignoré** et la commande tournait avec le
+  défaut. Désormais les deux écritures marchent, et **un drapeau inconnu est
+  une erreur** qui liste ce qui existe — jamais un silence : quelqu'un qui
+  tape `--dry-runn`, croit simuler et écrit pour de bon a été trahi par son
+  outil. `--dry-run` montre sans écrire, `--yes` saute les confirmations,
+  `--non-interactive` (implicite si `CI` est posée) ne pose aucune question,
+  `--json` rend un objet analysable par `jq` (Node, port, agent, isolement,
+  action sur le `.env`, code de sortie) et supprime toute prose.
+  **Le `.env` est désormais COMPLÉTÉ, plus régénéré** : `completerEnv` ajoute
+  les clés manquantes en fin de fichier avec leur explication et ne touche à
+  rien d'autre. Les valeurs étaient déjà préservées, mais l'ordre, les
+  commentaires et la mise en forme de l'humain étaient remplacés par les
+  nôtres — donc l'idempotence octet pour octet exigée au §12 de la mission
+  était **fausse**. Elle est vraie, et testée. L'écriture est **atomique**
+  (temporaire + `rename`) : un `^C` au mauvais moment ne laisse plus un `.env`
+  tronqué, c'est-à-dire un jeton coupé en deux et une ruche qui refuse de
+  démarrer sans dire pourquoi. Un port occupé pose le code `4` sans rien
+  annuler.
+
+- **🤝 Rejoindre une ruche en UNE commande, sans rien cloner** — `218 Mo et
+279 paquets` deviennent **4 Mo et 9 paquets**. Prêter du temps-machine à un
+  ami demandait un `git clone` puis un `npm install` complet : un moteur 3D de
+  27 Mo, React, six paquets d'éditeur de code — pour un dashboard qu'un nœud
+  membre **n'ouvre jamais**. La cartographie des imports depuis `join.ts` et
+  `main.ts` a montré qu'un nœud n'atteint à l'exécution que **deux** paquets,
+  `ws` et `simple-git` ; les douze paquets de navigateur (bundlés par Vite)
+  passent en `devDependencies`, et les quatre de l'orchestrateur (Fastify,
+  SQLite) en `optionalDependencies`. Un `bin` (`src/bin.ts`) et une **chaîne de
+  compilation** (`tsconfig.build.json` → `dist/`, qui n'existait pas : tout
+  tournait par `tsx` depuis les sources) rendent la commande installable :
+  `npx github:Micka420-collab/hive join hive2_…`, ou
+  `npm i -g … --omit=optional` pour n'installer strictement rien de superflu.
+  Une dépendance optionnelle absente n'est plus un `ERR_MODULE_NOT_FOUND` brut :
+  l'orchestrateur la **nomme** et donne la commande qui répare. Deux défauts
+  corrigés au passage — `hive join` sans billet et sans terminal **attendait
+  indéfiniment** au lieu de sortir en code 3, et `dist/` n'était ignoré ni par
+  ESLint, ni par Prettier, ni par git.
+
 ### Security
+
+- **La commande de test d'un merge passe enfin par le bac à sable** — et un
+  test tient désormais la liste de ce qui doit y passer
+  (`tests/isolement-couverture.test.ts`). `exec.ts` portait ce commentaire :
+  « c'est le **seul** endroit où un agent est lancé, donc le seul endroit où
+  l'oubli serait total ». Il était faux, et le croire a coûté cher :
+  `merge-runner.ts` lançait la commande de test avec son propre `spawn`, sans
+  enveloppe. Autrement dit `HIVE_ISOLEMENT=exige` — le réglage qu'on pose
+  précisément quand on prête sa machine à des inconnus — empêchait bien un
+  agent de sortir de son bac **pendant que les tests d'un merge tournaient à
+  côté, sur l'hôte nu, avec le `HOME` du membre**. Le bac du nœud suit
+  maintenant le merge (le clone est le seul volume monté, racine en lecture
+  seule, `cap-drop=ALL`, secrets transmis **par leur nom**), et un test
+  behavioural le prouve sans docker, à l'aide d'un faux moteur qui imprime son
+  argv — il vérifie aussi qu'aucun `--env=CLE=valeur` n'apparaît, ce qui
+  écrirait le secret dans la table des processus. Le test de couverture, lui,
+  énumère les `spawn` du dépôt et exige pour chacun soit une enveloppe, soit
+  une **dérogation nommée avec sa raison** (détection d'agents, sonde de moteur
+  de conteneurs, tunnel cloudflared) ; une dérogation orpheline est refusée
+  elle aussi. Un commentaire ne vérifiait rien — et n'a rien vérifié.
+
+- **Le prompt d'une tâche ne peut plus devenir une option de l'agent** (module
+  `src/adapters/prompt-argv.ts`). L'adaptateur claude-code lançait
+  `claude -p <prompt> --output-format stream-json --verbose` : un prompt
+  commençant par un tiret n'était alors plus un prompt, mais une option.
+  **Vérifié sur le binaire réel** — `claude -p '--version' …` imprimait
+  `2.1.220 (Claude Code)` et sortait, sans jamais voir de prompt ; avec `--`
+  posé au bon endroit, la même chaîne redevient du texte et la session démarre.
+  Ce n'est **pas** « de l'exécution de code là où il n'y en avait pas » — un
+  nœud accepte déjà d'exécuter l'agent sur des prompts venus du hub, et le dire
+  serait exagérer. Ce que l'injection ajoutait, c'est le contrôle des
+  **options** de l'agent, donc de quoi désarmer les garde-fous que le membre a
+  posés sur **sa** machine (permissions, répertoires autorisés, configuration
+  MCP) : il croyait prêter un agent bridé, il prêtait l'agent que le hub
+  configure. Et le prompt n'est pas toujours écrit par un humain — le
+  planificateur, la Reine et le runner d'essaim en fabriquent, il suffit qu'un
+  modèle produise une ligne qui commence par un tiret. `claude` et `codex`
+  posent désormais le terminateur POSIX `--` devant le prompt (options
+  d'abord) ; l'adaptateur `custom`, dont la commande appartient à l'opérateur
+  et peut ne pas comprendre `--`, neutralise le **texte** au lieu de la
+  commande — un prompt qui commence par un tiret reçoit une espace de tête,
+  invisible pour du langage naturel et impossible à lire comme une option.
+  **Une liste Markdown (« - corriger le bug ») reste donc parfaitement
+  légitime** : c'est le cas qu'un simple refus aurait cassé.
+
+- **La route anonyme `GET /api/projects/public` ne publie plus la ligne entière
+  de la base** (module `src/shared/projet-public.ts`). C'est la seule route de
+  la ruche qui ne demande aucune authentification — c'est voulu, c'est un
+  catalogue — et elle renvoyait `SELECT * FROM projects`. Deux colonnes n'y
+  avaient rien à faire : **`repoUrl`**, alors qu'un dépôt privé se clone en
+  écrivant ses identifiants dans l'URL
+  (`https://user:ghp_…@github.com/org/depot.git`, que `isValidRepoUrl`
+  acceptait sans rien dire) — un jeton GitHub partait donc à quiconque savait
+  faire un `curl` — et **`ownerId`**, qui désigne une cible nommée sans rien
+  apprendre d'utile au visiteur. La réponse est maintenant une **projection
+  explicite**, construite champ par champ, avec l'URL du dépôt **lavée de ses
+  identifiants** (et un chemin local jamais publié : il décrit l'arborescence
+  de la machine de l'hôte). Le correctif qui compte n'est pas le filtre mais le
+  **test associé** : il relit `types.ts` et échoue si un champ de `Project`
+  n'est ni publié ni explicitement retenu **avec sa raison écrite**. Sans lui,
+  la prochaine colonne ajoutée à la table serait publiée le jour de son ajout —
+  c'est très exactement ainsi que cette fuite était née.
+
+- **La commande de test d'un merge ne peut plus être n'importe quel binaire**
+  (module pur `src/shared/commande-test.ts`). `POST /api/projects/:id/merge/run`
+  acceptait un `testCommand: string[]` que le hub relayait au premier nœud en
+  ligne, lequel exécutait `spawn(argv[0], argv.slice(1), { shell: false })`.
+  **`shell: false` ne protégeait de rien ici** : ce qu'il empêche, c'est
+  l'interprétation d'une _chaîne_ par un shell — or `argv[0]` **est** le
+  binaire. `["/bin/sh", "-c", "curl … | sh"]` s'exécutait tel quel sur la
+  machine d'un membre, avec ses droits et son `HOME`. Deux aggravations
+  rendaient l'affaire sérieuse plutôt que théorique : **le jeton de ruche n'est
+  pas un secret d'administrateur** (les anciennes invitations `hive1_` le
+  portent en clair, sans expiration ni révocation individuelle — quiconque en a
+  reçu une gardait donc l'exécution de code sur toutes les machines de l'essaim,
+  pour toujours), et **ce chemin ne passe pas par le bac à sable**
+  (`merge-runner.ts` n'appelle pas `envelopper()`, donc `HIVE_ISOLEMENT=exige`
+  — le réglage qu'on pose précisément quand on prête sa machine à des inconnus
+  — n'avait aucun effet). Le binaire est désormais restreint à une **liste de
+  lanceurs de tests** (npm, pnpm, yarn, bun, node, deno, make, cargo, go,
+  pytest, python, mvn, gradle, dotnet, composer, rake, bundle, phpunit, vitest,
+  jest), suffixes Windows compris (`npm.cmd`), plus les **wrappers du dépôt**
+  `./gradlew` et `./mvnw` reconnus à leur nom **exact** — la seule entorse à la
+  règle « pas de chemin », et elle est close par comparaison littérale (un test
+  vérifie que `./gradlew/../../bin/sh` reste refusé). Cela ne rend pas la
+  commande inoffensive et ne le prétend pas : `npm test` exécute ce que le
+  `package.json` du dépôt contient, et c'est exactement ce qu'on lui demande.
+  **La frontière de confiance redevient le dépôt que l'hôte a choisi de
+  connecter, au lieu de « n'importe quel exécutable de la machine du membre ».**
+  La garde est posée **aux deux bouts** : le hub refuse en 400 avec un motif
+  lisible, et le nœud refuse à son tour — c'est celle-là qui compte, un nœud ne
+  devant pas tenir pour acquis que le hub est bien celui qu'il croit sur un
+  transport que la ruche accepte encore en clair. Un test de source relit
+  `merge-runner.ts` et échoue si le jugement cesse de précéder l'exécution, et
+  un autre vérifie qu'aucun shell ni téléchargeur ne s'est glissé dans la liste
+  — l'y ajouter rouvrirait la faille en une ligne sans qu'aucun autre test ne
+  bronche.
+
+- **Les Guetteuses n'écrivent plus au journal à chaque passage — le détecteur
+  ne peut pas servir d'arme.** Régression introduite par la version initiale du
+  module et corrigée avant publication : un événement `guet_leurre` était émis à
+  **chaque** leurre touché. Or le journal est durable et **borné à 5 000
+  entrées**, et cette route n'est couverte par **aucune limitation de débit**
+  (le crochet ne voit que `/api/*`, et un leurre n'en fait par construction pas
+  partie). `for i in $(seq 6000); do curl -s ruche/.env; done` **chassait donc
+  tout l'historique d'audit** — nœuds rejoints, billets révoqués, rôles changés,
+  plafonds posés. Le module écrit pour rendre le reniflage bruyant offrait le
+  levier pour rendre tout le reste silencieux. On écrit désormais par
+  **changement d'état** et non par passage : `Registre.doitAlerter()` ne rend un
+  niveau que lorsqu'il **monte**, et la reprise après retour au calme est bornée
+  à une par fenêtre — au pire **deux lignes par heure** au lieu de six mille.
+  Deux pièges opposés ont été trouvés et fermés en écrivant les tests :
+  l'escalade « reniflage → balayage » était étouffée par la fenêtre (soit
+  exactement l'alerte qui compte), et le réarmement dépendait d'un verdict
+  « calme » **qu'on n'observe jamais** — cette méthode n'étant appelée qu'au
+  moment où un leurre vient d'être touché, une ruche sondée une fois serait
+  devenue sourde pour toujours. Une nouvelle campagne se reconnaît maintenant à
+  ceci que le passage est le seul de sa fenêtre. Le **compte exact reste
+  disponible** sur `GET /api/guet` : on écrit moins, on ne voit pas moins.
+
+- **🐝 Les Guetteuses — rendre une intrusion BRUYANTE** (module pur
+  `src/orchestrator/guetteuses.ts`, route `GET /api/guet`, événement
+  `guet_leurre`). **Elles ne ferment aucune porte de plus, et ne prétendent pas
+  le faire** : il n'existe pas de sécurité inviolable, et un projet qui le
+  prétendrait rendrait le pire service à ses utilisateurs — on baisse la garde
+  devant ce qu'on croit imprenable. Ce qui manquait est ailleurs : quelqu'un
+  pouvait passer une nuit à sonder une ruche exposée — chercher un `.env`, un
+  `/phpmyadmin`, une sauvegarde oubliée — **sans que son propriétaire
+  l'apprenne jamais**. Le renseignement précède l'intrusion ; le voir, c'est
+  gagner le temps de révoquer un billet ou de couper une écoute publique avant
+  que quoi que ce soit de coûteux n'arrive. Seize chemins-leurres qu'**aucun**
+  client légitime ne demande (ni le dashboard, ni la CLI, ni un nœud), la
+  normalisation des contournements usuels (`//.env`, `/./.env`, `%2E`, casse,
+  antislash), et trois niveaux — calme, reniflage, balayage — chacun avec la
+  marche à suivre. **L'invariant qui décide de tout est le zéro faux positif** :
+  une alerte qui se trompe est une alerte qu'on apprend à ignorer, donc pire
+  que rien puisqu'elle donne l'illusion d'une surveillance. Un test relit les
+  routes réellement déclarées par `server.ts` et vérifie qu'**aucun leurre n'en
+  croise une**. La réponse servie est **exactement** le 404 ordinaire : un
+  leurre qui se signale cesse d'être un leurre. Le registre vit en mémoire et
+  est **borné** — une table qui grossirait à chaque requête d'un scanner lui
+  offrirait de quoi remplir le disque de sa victime. Et rien n'est **bloqué**
+  automatiquement : derrière un reverse proxy, toutes les requêtes viennent de
+  la même adresse, et un blocage y couperait tout le monde sur la foi d'un seul
+  visiteur curieux.
+
+- **Un billet refusé dit pourquoi — et l'oracle temporel qui traînait est
+  fermé** (`docs/adr/0005`). « Billet refusé » sans raison était le cas d'échec
+  le plus fréquent du chemin « rejoindre » et le plus vexant : quelqu'un colle
+  son billet deux jours plus tard, se fait refuser, et n'a aucun moyen de
+  savoir s'il faut en redemander un ou vérifier sa connexion. Le message
+  uniforme se justifiait pourtant : distinguer « inconnu » d'« expiré »
+  permettrait d'**énumérer les identifiants de billets existants**.
+  **Sauf que l'oracle était déjà ouvert, et l'horloge le disait** : un
+  identifiant inconnu était refusé par `jugerBillet` **sans que PBKDF2 tourne**,
+  là où un identifiant connu au mauvais secret payait 100 000 itérations —
+  **1,8 ms contre 18,1 ms, un facteur 9,8**, lisible avec n'importe quel client
+  HTTP. L'ordre de vérification est donc inversé : le secret est contrôlé
+  **d'abord et toujours au même coût**, contre `empreinteLeurre()` — une
+  empreinte factice de dépense identique — quand le billet n'existe pas. Une
+  fois le porteur authentifié, la ruche lui dit **`expire`, `epuise` ou
+  `revoque`** avec la marche à suivre ; ces trois-là ne s'apprennent qu'avec le
+  bon secret en main, donc les révéler n'apprend rien à qui ne l'avait pas.
+  **`inconnu` et `secret_invalide` restent indistinguables à l'octet près** —
+  c'est cette indistinction qui ferme la porte, et un test compare les deux
+  réponses caractère par caractère. Le motif exact continue de partir au
+  journal (`invite_rejected`), pour l'hôte. Au passage, `join.ts` affichait le
+  `detail` du 409 « identifiant déjà utilisé »… en le jetant : il portait
+  pourtant la seule marche à suivre utile.
 
 - **Le secret de session était écrit en dur dans un dépôt public**
   (⚠️ **CHANGEMENT CASSANT** : la ruche refuse désormais de démarrer sans

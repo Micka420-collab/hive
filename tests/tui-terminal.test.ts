@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { CODE } from '../src/codes-sortie.js';
 import {
   Interrompu,
+  decouper,
   ReponseManquante,
   creerTerminal,
   deplacer,
@@ -114,6 +115,63 @@ describe('les touches (fonction pure)', () => {
   });
 });
 
+describe('UNE FLÈCHE COUPÉE EN DEUX RESTE UNE FLÈCHE', () => {
+  // Le bug trouvé en lançant l'installeur pour de vrai, sur un terminal
+  // simulé : les trois octets d'une flèche étaient arrivés séparément, et
+  // l'`ESC` seul avait été lu comme « annuler ». L'installeur se FERMAIT au
+  // lieu de descendre d'une ligne, et rien ne disait pourquoi.
+  it('en un seul morceau', () => {
+    expect(decouper('\x1b[B')).toEqual({ touches: ['bas'], reste: '' });
+  });
+
+  it('EN DEUX MORCEAUX : l’ESC est RETENU, pas pris pour une annulation', () => {
+    const premier = decouper('\x1b');
+    expect(premier.touches, 'un ESC seul ne décide de rien').toEqual([]);
+    expect(premier.reste).toBe('\x1b');
+    expect(decouper(premier.reste + '[B').touches).toEqual(['bas']);
+  });
+
+  it('en trois morceaux, un octet à la fois', () => {
+    let reste = '';
+    const vues: string[] = [];
+    for (const octet of ['\x1b', '[', 'A']) {
+      const r = decouper(reste + octet);
+      reste = r.reste;
+      vues.push(...r.touches);
+    }
+    expect(vues).toEqual(['haut']);
+    expect(reste).toBe('');
+  });
+
+  it('plusieurs touches dans un seul morceau sont toutes vues', () => {
+    // Une frappe rapide, ou un collage : rien ne doit être perdu.
+    expect(decouper('\x1b[B\x1b[B\r').touches).toEqual(['bas', 'bas', 'entree']);
+  });
+
+  it('un ESC suivi d’autre chose reste une annulation', () => {
+    expect(decouper('\x1bq').touches).toEqual(['annuler']);
+  });
+
+  it('LE RESTE EST RENDU BRUT, pas ré-encodé', () => {
+    // Le défaut trouvé en lançant l'assistant : tout arrive en un morceau,
+    // « \r ruche.exemple.fr \r ». Ré-encoder le reste en touches détruisait le
+    // texte — un nom de domaine n'est pas une suite de flèches — et la
+    // question suivante s'ouvrait sur du vide.
+    const r = decouper('\rruche.exemple.fr\rautre-chose');
+    expect(r.touches).toEqual(['entree']);
+    expect(r.reste).toBe('ruche.exemple.fr\rautre-chose');
+  });
+
+  it('une séquence inconnue est CONSOMMÉE, pas gardée — sinon elle bloque', () => {
+    expect(decouper('\x1b[C')).toEqual({ touches: [], reste: '' });
+    expect(decouper('\x1b[C\r').touches).toEqual(['entree']);
+  });
+
+  it('^C reste instantané, sans attendre quoi que ce soit', () => {
+    expect(decouper('\x03').touches).toEqual(['annuler']);
+  });
+});
+
 describe('le curseur du menu (fonction pure)', () => {
   it('reste dans la liste, sans reboucler', () => {
     expect(deplacer(0, 'haut', 3)).toBe(0);
@@ -137,6 +195,14 @@ describe('choisir, au clavier', () => {
     const { clavier, t } = terminal();
     const promesse = t.choisir(CHOIX, { quoi: 'le chemin d’entrée' });
     clavier.taper('\x1b[B', '\x1b[B', '\r');
+    expect(await promesse).toBe(2);
+  });
+
+  it('MÊME QUAND LES OCTETS ARRIVENT COUPÉS — le cas qui fermait l’installeur', async () => {
+    const { clavier, t } = terminal();
+    const promesse = t.choisir(CHOIX, { quoi: 'x' });
+    // Un octet à la fois, comme sur une liaison lente ou en SSH.
+    clavier.taper('\x1b', '[', 'B', '\x1b', '[', 'B', '\r');
     expect(await promesse).toBe(2);
   });
 
@@ -252,6 +318,55 @@ describe('hors terminal, rien n’est deviné', () => {
     const sansBrut = { ...clavier, setRawMode: undefined } as unknown as FluxEntree;
     const t = creerTerminal({ entree: sansBrut, sortie: new Ecran(true, 100), env: {} });
     expect(await t.choisir(CHOIX, { quoi: 'x', defautNonInteractif: 2 })).toBe(2);
+  });
+});
+
+describe('demander une ligne', () => {
+  function avecReponses(...reponses: string[]) {
+    const donnees = [...reponses];
+    const clavier = new Clavier();
+    const ecran = new Ecran();
+    const t = creerTerminal({
+      entree: clavier,
+      sortie: ecran,
+      env: { TERM: 'xterm-256color' },
+      lireLigne: async (q: string) => {
+        ecran.write(q);
+        return Promise.resolve(donnees.shift() ?? '');
+      },
+    });
+    return { t, ecran };
+  }
+
+  it('rend la réponse, débarrassée des espaces', async () => {
+    const { t } = avecReponses('  ruche.exemple.fr  ');
+    expect(await t.demander('Domaine ?', { quoi: 'le domaine' })).toBe('ruche.exemple.fr');
+  });
+
+  it('⏎ SEUL PREND LE DÉFAUT, et le défaut est affiché', async () => {
+    const { t, ecran } = avecReponses('');
+    expect(await t.demander('Nom du tunnel ?', { quoi: 'le nom', defaut: 'hive' })).toBe('hive');
+    expect(ecran.ecrit, 'le défaut doit être visible avant de valider').toContain('[hive]');
+  });
+
+  it('une réponse OBLIGATOIRE est redemandée plutôt qu’inventée', async () => {
+    // Rendre une chaîne vide ferait porter la question au code appelant, qui
+    // la traiterait mal une fois sur deux.
+    const { t, ecran } = avecReponses('', '   ', 'enfin-une-reponse');
+    expect(await t.demander('Domaine ?', { quoi: 'le domaine', obligatoire: true })).toBe(
+      'enfin-une-reponse',
+    );
+    expect(ecran.ecrit).toContain('une réponse est nécessaire');
+  });
+
+  it('hors terminal : le défaut documenté, ou une erreur nommée', async () => {
+    const clavier = new Clavier();
+    clavier.isTTY = false;
+    const t = creerTerminal({ entree: clavier, sortie: new Ecran(false, 100), env: {} });
+    expect(await t.demander('Domaine ?', { quoi: 'le domaine', defaut: 'x' })).toBe('x');
+    await expect(t.demander('Domaine ?', { quoi: 'le domaine' })).rejects.toBeInstanceOf(
+      ReponseManquante,
+    );
   });
 });
 
