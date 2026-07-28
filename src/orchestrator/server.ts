@@ -1802,6 +1802,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         }
         throw err;
       }
+      // L'issue d'origine, si cette tâche vient d'une demande GitHub.
+      const issueOrigine = store.issueDeTache(task.id);
       try {
         const resultat = await livrer(
           { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -1817,6 +1819,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               caste: casteDe(dernier.nodeId),
               ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
               fichiers,
+              // L'issue d'origine, s'il y en a une : c'est elle qui referme la
+              // boucle côté GitHub au moment du merge.
+              ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
             }),
           },
         );
@@ -2333,6 +2338,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .listInspections()
           .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId);
         const branche = nomBranche(task.id);
+        const issueOrigine = store.issueDeTache(task.id);
 
         try {
           const fichiers = cheminsDe(analyserRustine(dernier.diff));
@@ -2350,6 +2356,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 caste: casteDe(dernier.nodeId),
                 ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
                 fichiers,
+                ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
               }),
             },
           );
@@ -4465,16 +4472,44 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
       try {
         const dag = await briefToDAG(brief, beeConfig);
+
+        // ─── LES IDENTIFIANTS SONT RÉÉCRITS, ET C'EST NÉCESSAIRE ────────────
+        //
+        // La Queen Bee rend des identifiants de son cru — « A », « B », « T1 ».
+        // Ils sont uniques DANS UN DÉCOUPAGE, pas dans un projet. Reprendre la
+        // même issue une seconde fois (parce que le premier plan ne convenait
+        // pas, geste parfaitement naturel) redemandait donc les mêmes clés
+        // primaires, et la route rendait un 502 qui ne disait rien.
+        //
+        // On préfixe, et on REMAPPE `dependsOn` dans la foulée : renuméroter
+        // les tâches sans renuméroter leurs dépendances casserait le DAG en
+        // silence, ce qui est bien pire qu'une collision bruyante.
+        const prefixe = `i${issue.numero}-${Date.now().toString(36)}`;
+        const idNeuf = new Map<string, string>();
+        dag.tasks.forEach((t, i) => idNeuf.set(t.id ?? `T${i + 1}`, `${prefixe}-${i + 1}`));
         const creees = dag.tasks.map((t, i) =>
           store.createTask({
-            id: t.id ?? `I${issue.numero}-${i + 1}`,
+            id: idNeuf.get(t.id ?? `T${i + 1}`)!,
             projectId: project.id,
             title: t.title,
             prompt: t.prompt,
-            dependsOn: t.dependsOn ?? [],
+            // Une dépendance vers une tâche hors de ce découpage est laissée
+            // telle quelle : c'est au magasin de la refuser, pas à nous de
+            // deviner à quoi elle voulait pointer.
+            dependsOn: (t.dependsOn ?? []).map((d) => idNeuf.get(d) ?? d),
           }),
         );
         for (const t of creees) {
+          // LE LIEN VERS L'ISSUE, posé ici et nulle part ailleurs : c'est le
+          // seul endroit où l'on sait de quelle demande vient cette tâche.
+          // Sans lui, la pull request répondrait à l'issue sans le dire, et
+          // le demandeur devrait refermer à la main.
+          store.lierTacheIssue({
+            taskId: t.id,
+            projectId: project.id,
+            depot: fullName,
+            numero: issue.numero,
+          });
           emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
         }
         emitEvent('issue_prise', {
@@ -5706,6 +5741,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneResults(RESULT_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
+      // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
+      store.pruneTachesIssue();
       store.pruneConseils(CONSEILS_CONSERVES);
       // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
       // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
