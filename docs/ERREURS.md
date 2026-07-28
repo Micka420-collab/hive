@@ -138,6 +138,23 @@ passait grâce à sa propre documentation.
 > d'abord** :
 > `.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')`
 
+**Récurrence, sur un fichier de CI cette fois** — et dans l'autre sens, ce qui
+la rend plus instructive. `tests/conteneur.test.ts` lit trois fichiers ; j'avais
+posé le retrait des commentaires sur le Dockerfile et le compose, **pas** sur
+`ci.yml`. Les nouvelles gardes ont donc échoué sur ma propre prose : le
+commentaire qui explique _pourquoi `--retry-connrefused` n'est plus là_ contient
+`--retry-connrefused`.
+
+Un échec est le cas heureux. Le même oubli, sur une garde formulée en positif,
+serait passé **grâce** à l'explication — exactement le défaut d'origine.
+
+> **Règle** — le retrait des commentaires vaut pour **tout** format lu comme du
+> texte, pas seulement pour les sources du langage : YAML, Dockerfile, shell,
+> `.ini`. En YAML comme en shell, une ligne commençant par `#` est un
+> commentaire, et le même retrait les couvre tous les deux. Et quand un fichier
+> de test lit plusieurs fichiers, ils passent **tous** par le même filtre — un
+> seul nu et deux habillés est un piège qui attend.
+
 ### 2.4 — Prétendre tester un chemin inatteignable
 
 Un test passait `{ PATH: '' }` à `detectBestAgent` en croyant forcer le repli.
@@ -205,6 +222,50 @@ net et il a servi :
 > test lent finit avant. Écrire l'hypothèse dans le code avant de la vérifier :
 > « si ça retombe au plafond, c'est un blocage à corriger, pas un délai à
 > rallonger ».
+
+### 3.3 — Attendre, oui, mais attendre la BONNE erreur
+
+Le pas de CI qui attend la ruche dans le conteneur ne faisait **pas** de
+`sleep` deviné : il bouclait avec `curl --retry 30 --retry-connrefused`. C'est
+la bonne intention, et elle n'a servi à rien — le pas a échoué **en 0,2 s**.
+
+    curl: (56) Recv failure: Connection reset by peer
+
+Docker publie le port de l'hôte dès le `docker run` : `docker-proxy` écoute
+**avant** que la ruche ne soit prête. La connexion aboutit donc, puis elle est
+coupée. Ce n'est pas « connection refused » (7), le seul cas que
+`--retry-connrefused` reprend. Mesuré sur un port qui accepte puis coupe,
+c'est-à-dire dans ces conditions exactes :
+
+| drapeau               | tentatives             |
+| --------------------- | ---------------------- |
+| `--retry-connrefused` | **1 — aucune reprise** |
+| `--retry-all-errors`  | 4 (1 + 3 reprises)     |
+
+La boucle d'attente ne bouclait pas. Elle en avait toute l'apparence : le
+nombre de reprises, le délai, le commentaire qui explique qu'on n'attend pas
+une durée devinée. Tout était juste sauf le prédicat.
+
+> **Règle** — une boucle d'attente se choisit sur **la panne qu'on va
+> réellement rencontrer**, pas sur celle qu'on imagine. Devant un port
+> intermédiaire — Docker, un proxy, un tunnel — la panne d'attente n'est
+> presque jamais « refusé » : c'est « accepté puis coupé ». Et le seul moyen de
+> le savoir est de regarder le code de sortie, pas de relire l'intention.
+
+### 3.4 — Un diagnostic placé en aval de ce qu'il diagnostique n'existe pas
+
+Le même pas finissait par `docker logs ruche-ci | tail -20`, mis là exprès pour
+qu'on sache ce que la ruche avait dit. Sous `bash -e`, l'échec de `curl`
+l'emportait avec lui.
+
+**La seule fois où ce journal servait à quelque chose était donc la seule fois
+où il ne s'affichait pas.** La première panne réelle du démarrage n'a rien
+diagnostiqué : il a fallu deviner depuis le seul code de sortie de `curl`.
+
+> **Règle** — tout ce qui sert à COMPRENDRE une panne se met dans un pas
+> séparé en `if: always()`, jamais à la suite de ce qui peut échouer. La
+> question à se poser en écrivant un diagnostic : « celui-ci tourne-t-il encore
+> le jour où j'en ai besoin ? »
 
 ---
 

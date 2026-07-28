@@ -259,7 +259,14 @@ describe('LA SONDE DE SANTÉ INTERROGE LA RUCHE, PAS LE PORT', () => {
 });
 
 describe('LA CI CONSTRUIT L’IMAGE — sans quoi rien de tout ceci n’est vérifié', () => {
-  const CI = lire('.github/workflows/ci.yml');
+  // Commentaires retirés, comme pour le Dockerfile et le compose. La règle est
+  // au § 2.3 du journal, et je l'avais appliquée à deux fichiers sur trois :
+  // les commentaires de ce travail-ci CITENT `--retry-connrefused` et
+  // `docker logs` pour expliquer pourquoi ils n'y sont plus / y sont. Sans ce
+  // retrait, une garde échoue sur sa propre prose — ou pire, passe grâce à
+  // elle. En YAML comme en shell, une ligne qui commence par `#` est un
+  // commentaire : le même retrait vaut pour les deux.
+  const CI = nu(lire('.github/workflows/ci.yml'));
 
   it('un travail construit l’image à chaque PR', () => {
     expect(CI).toMatch(/docker build/);
@@ -277,9 +284,38 @@ describe('LA CI CONSTRUIT L’IMAGE — sans quoi rien de tout ceci n’est vér
     );
   });
 
-  it('elle n’attend pas avec un `sleep` deviné', () => {
-    // `--retry-connrefused` attend CE QU'ON ATTEND. Un `sleep 10` est soit trop
-    // court un jour de lenteur, soit dix secondes perdues à chaque run.
-    expect(CI).toMatch(/--retry-connrefused/);
+  it('elle n’attend pas avec un `sleep` deviné — et elle attend la BONNE erreur', () => {
+    // Un `sleep 10` est soit trop court un jour de lenteur, soit dix secondes
+    // perdues à chaque run. On attend donc ce qu'on attend.
+    //
+    // Encore faut-il attendre la bonne panne. `--retry-connrefused` ne reprend
+    // QUE « connection refused » (7). Or Docker publie le port de l'hôte dès le
+    // `run` : `docker-proxy` écoute avant la ruche, la connexion aboutit, puis
+    // elle est coupée — `curl: (56) Recv failure: Connection reset by peer`.
+    // Mesuré sur un port qui accepte puis coupe :
+    //
+    //     --retry-connrefused   1 tentative, aucune reprise
+    //     --retry-all-errors    4 tentatives (1 + 3 reprises)
+    //
+    // La boucle d'attente ne bouclait pas, et l'image échouait en 0,2 s.
+    expect(CI, 'un `sleep` deviné ne garde rien').not.toMatch(/^\s*sleep \d+\s*$/m);
+    expect(CI).toMatch(/--retry-all-errors/);
+    expect(CI, '`--retry-connrefused` ne reprend pas une connexion COUPÉE').not.toMatch(
+      /--retry-connrefused/,
+    );
+  });
+
+  it('LE JOURNAL DU CONTENEUR SORT MÊME QUAND LE DÉMARRAGE ÉCHOUE', () => {
+    // `docker logs` était la dernière ligne du pas qui attend la ruche. Sous
+    // `bash -e`, l'échec de `curl` l'emportait : la seule fois où ce journal
+    // servait était la seule fois où il ne s'affichait pas. La première panne
+    // réelle du démarrage n'a donc rien diagnostiqué du tout.
+    //
+    // Un diagnostic placé en aval de ce qu'il diagnostique n'existe pas.
+    const pas = CI.split(/^\s{6}- name:/m).find((p) => /docker logs/.test(p));
+    expect(pas, 'plus aucun pas ne montre le journal du conteneur').toBeDefined();
+    expect(pas, 'sans `if: always()` le journal disparaît quand il devient utile').toMatch(
+      /if:\s*always\(\)/,
+    );
   });
 });
