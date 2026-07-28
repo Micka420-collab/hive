@@ -9,6 +9,45 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **👥 Adopter un projet, y admettre des ouvrières** (règles pures
+  `peutAdopter` / `peutAdmettre` dans `src/shared/acces-projet.ts`, routes
+  `POST /api/projects/:id/adopter` et `…/membres` en POST et DELETE, panneau
+  « Équipe » dans la vue Projets). Un
+  projet privé n'avait **aucun moyen de gagner un membre** : `POST /join`
+  n'admet, sur un projet privé, que le propriétaire, l'administrateur et ceux
+  qui sont déjà membres — ce qui est correct (on ne s'invite pas chez les
+  autres) et incomplet, puisqu'il n'existait aucune route pour INVITER. Un
+  dépôt importé de GitHub cumulait les deux : privé **et** sans propriétaire,
+  l'import s'authentifiant par le jeton de ruche, qui n'est le compte de
+  personne. On connectait son dépôt, et aucune de ses abeilles ne le voyait —
+  l'exact contraire de ce pour quoi Le Rayon a été construit. Chaque route se
+  comportait pourtant comme son test le demandait : le défaut n'était dans
+  aucune, il était dans ce qu'**aucune ne faisait**. Deux règles tiennent le
+  reste : **adopter n'est jamais prendre** (un projet qui a déjà un
+  propriétaire ne change pas de mains, même pour un administrateur — il peut
+  déjà tout LIRE, s'approprier est un autre acte ; la condition « pas encore de
+  propriétaire » vit DANS l'instruction d'écriture, donc deux adoptions ne
+  peuvent pas réussir toutes les deux) et **admettre est le droit du
+  propriétaire, pas d'un membre** (sinon le premier invité invite à son tour,
+  et « privé » ne veut plus rien dire au bout de trois personnes). L'admission
+  se fait par **identifiant de compte, jamais par courriel** : le courriel
+  ferait de cette route un oracle « ce courriel a-t-il un compte ici ? »
+  interrogeable par tout propriétaire de projet, alors que l'inscription a été
+  durcie exprès pour ne pas répondre à cette question. L'écran montre donc à
+  chacun son propre identifiant, à donner comme on se passe un billet. Le
+  refus garde la forme exacte de l'inexistence, vérifiée à l'octet près.
+
+- **🐝 Le polyéthisme a un écran** (carte dans la vue Essaim).
+  `/api/polyethisme` calculait des castes que personne ne voyait, ce qui
+  revient à ne pas les calculer. Le Waggle Board classe par volume, les
+  phéromones par affinité ; ni l'un ni l'autre ne répond à « à qui puis-je
+  confier quoi ». La carte affiche les **deux modes** — celui qu'on a réglé et
+  celui qui s'applique — parce que sans Gardiennes le polyéthisme s'éteint de
+  lui-même, et que cet écart est le fait le plus utile de l'écran. Chaque ligne
+  dit ce qui **manque** pour monter d'un palier : « nourrice » n'est pas un
+  reproche, c'est l'état d'un nœud **non observé**, donc de tout nouvel
+  arrivant.
+
 - **📦 L'environnement — l'agent installe ce dont il a besoin** (module pur
   `src/shared/preparation.ts`, champ `prepareCommand` sur
   `POST /api/projects/:id/merge/run`). `npm test` sur un clone frais échoue

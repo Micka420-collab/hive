@@ -742,6 +742,50 @@ export function estAdmin(user: AuthUser | null): boolean {
   return user?.role === 'admin';
 }
 
+/** Une adhésion à un projet. `displayName` vient de la jointure sur les comptes. */
+export interface MembreProjet {
+  projectId: string;
+  userId: string;
+  role: string;
+  joinedAt: number;
+  displayName?: string;
+}
+
+export function fetchMembresProjet(projectId: string): Promise<MembreProjet[]> {
+  return apiCompte<MembreProjet[]>(`/api/projects/${projectId}/members`);
+}
+
+/**
+ * Se déclarer propriétaire d'un projet ORPHELIN.
+ *
+ * Un dépôt importé depuis GitHub n'a pas de propriétaire : l'import
+ * s'authentifie par le jeton de ruche, qui n'est le compte de personne. Sans
+ * adoption, il n'a personne pour y admettre des ouvrières.
+ */
+export function adopterProjet(projectId: string): Promise<{ adopted: boolean }> {
+  return apiCompte<{ adopted: boolean }>(`/api/projects/${projectId}/adopter`, { method: 'POST' });
+}
+
+export function admettreMembre(
+  projectId: string,
+  userId: string,
+): Promise<{ admitted: boolean; userId: string }> {
+  return apiCompte<{ admitted: boolean; userId: string }>(`/api/projects/${projectId}/membres`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export function retirerMembre(
+  projectId: string,
+  userId: string,
+): Promise<{ removed: boolean; userId: string }> {
+  return apiCompte<{ removed: boolean; userId: string }>(
+    `/api/projects/${projectId}/membres/${userId}`,
+    { method: 'DELETE' },
+  );
+}
+
 export function authRegister(
   email: string,
   password: string,

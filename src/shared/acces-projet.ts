@@ -125,6 +125,49 @@ export function peutLireCode(projet: ProjetAcces, lecteur: Lecteur, dejaMembre: 
 }
 
 /**
+ * Cette personne peut-elle ADMETTRE quelqu'un d'autre dans ce projet ?
+ *
+ * ─── LE CUL-DE-SAC QUE CETTE FONCTION OUVRE ──────────────────────────────────
+ *
+ * Un projet privé n'avait aucun moyen de gagner un membre. `peutRejoindre`
+ * n'admet, sur un projet privé, que le propriétaire, l'administrateur et ceux
+ * qui sont DÉJÀ membres — ce qui est correct (on ne s'invite pas chez les
+ * autres) et incomplet : personne ne pouvait inviter non plus. Un projet privé
+ * restait donc à jamais l'affaire d'une seule personne.
+ *
+ * C'est le contraire de ce qu'on construit. Le Rayon a été fait pour que « les
+ * abeilles qui se connectent voient le code » ; un dépôt importé de GitHub est
+ * privé, et il n'existait aucun chemin pour y faire entrer une ouvrière.
+ *
+ * Le droit d'admettre est donc celui du PROPRIÉTAIRE, pas d'un membre : sinon
+ * le premier invité inviterait à son tour, et « privé » ne voudrait plus rien
+ * dire au bout de trois personnes. L'administrateur passe, pour la même raison
+ * qu'ailleurs — il tient la machine et le fichier SQLite.
+ */
+export function peutAdmettre(projet: ProjetAcces, lecteur: Lecteur): boolean {
+  return lecteur.voitTout || estProprietaire(projet, lecteur);
+}
+
+/**
+ * Cette personne peut-elle ADOPTER ce projet — s'en déclarer propriétaire ?
+ *
+ * UNIQUEMENT si le projet est ORPHELIN. Un projet importé par le jeton de ruche
+ * n'a pas de propriétaire (l'import ne s'authentifie pas par un compte) : sans
+ * adoption, il n'a personne pour admettre des membres, et le cul-de-sac
+ * ci-dessus se referme définitivement sur lui.
+ *
+ * **Adopter n'est jamais prendre.** Un projet qui a déjà un propriétaire ne
+ * change pas de mains par cette route, même pour un administrateur : ce serait
+ * un vol de projet déguisé en fonctionnalité d'administration, et rien dans la
+ * ruche ne le justifie. L'administrateur peut déjà tout LIRE ; s'approprier est
+ * un autre acte.
+ */
+export function peutAdopter(projet: ProjetAcces, lecteur: Lecteur): boolean {
+  if (projet.ownerId !== null) return false;
+  return lecteur.voitTout;
+}
+
+/**
  * Cette personne est-elle propriétaire de ce projet ?
  *
  * `ownerId` est NULLABLE, et c'est là qu'est le piège : un projet sans

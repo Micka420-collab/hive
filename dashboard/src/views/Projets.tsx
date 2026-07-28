@@ -6,15 +6,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   addTasks,
+  admettreMembre,
+  adopterProjet,
+  estAdmin,
   fetchBalance,
   fetchConflicts,
+  fetchMembresProjet,
   fetchMergePlan,
   fetchMergeResult,
   fetchReport,
   planBrief,
+  retirerMembre,
   runMerge,
 } from '../api';
-import type { BalanceState, MergeRunResult, NewTaskInput, PlanResponse } from '../api';
+import type { AuthUser, BalanceState, MergeRunResult, NewTaskInput, PlanResponse } from '../api';
 import { useLang, useT } from '../i18n';
 import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { BalanceProjet, CarteDevis } from './Balance';
@@ -582,6 +587,145 @@ function ConflictsPanel({
 
 // ─── Carte projet : identité, rapport, rayon de miel, actions ────────────────
 
+/**
+ * L'équipe d'un projet — et le cul-de-sac qu'elle ouvre.
+ *
+ * ─── CE QUI N'AVAIT AUCUN CHEMIN ─────────────────────────────────────────────
+ *
+ * Un projet privé n'avait aucun moyen de gagner un membre : on ne s'invite pas
+ * chez les autres (correct), et personne ne pouvait inviter non plus (oubli).
+ * Un dépôt importé de GitHub cumule les deux — privé ET sans propriétaire,
+ * puisque l'import s'authentifie par le jeton de ruche, qui n'est le compte de
+ * personne. On connectait son dépôt, et aucune de ses abeilles ne le voyait.
+ *
+ * ─── POURQUOI ON ADMET PAR IDENTIFIANT, ET PAS PAR COURRIEL ──────────────────
+ *
+ * Admettre par courriel serait plus agréable, et ferait de cette route un
+ * oracle : « ce courriel a-t-il un compte ici ? », interrogeable par tout
+ * propriétaire de projet. L'inscription a été durcie exprès pour ne pas
+ * répondre à cette question. On ne la rouvre pas ailleurs.
+ *
+ * L'ouvrière donne donc son identifiant — une chaîne opaque, qu'elle lit sur
+ * cette même carte — exactement comme on se passe un billet d'invitation.
+ */
+function EquipeProjet({
+  project,
+  user,
+  refreshTick,
+}: {
+  project: Project;
+  user: AuthUser | null;
+  refreshTick: number;
+}) {
+  const t = useT();
+  const [tick, setTick] = useState(0);
+  const membres = useApiPoll(() => fetchMembresProjet(project.id), 120_000, refreshTick + tick);
+  const [aAdmettre, setAAdmettre] = useState('');
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [occupe, setOccupe] = useState(false);
+
+  // Cosmétique, toujours : le serveur retranche de toute façon. On masque ce
+  // qu'il refusera, on ne décide rien ici.
+  const jeSuisAdmin = estAdmin(user);
+  const jeSuisProprio = project.ownerId !== null && project.ownerId === user?.id;
+  const jePeuxAdmettre = jeSuisAdmin || jeSuisProprio;
+  const orphelin = project.ownerId === null;
+
+  const agir = (p: Promise<unknown>) => {
+    setOccupe(true);
+    setErreur(null);
+    p.then(() => setTick((n) => n + 1))
+      .catch((e: unknown) => setErreur(errMsg(e)))
+      .finally(() => setOccupe(false));
+  };
+
+  // Sans compte, cette carte n'a rien à dire : les routes exigent un COMPTE, et
+  // afficher une équipe vide laisserait croire qu'il n'y a personne.
+  if (!user) return null;
+
+  return (
+    <div className="pj-sub pj-equipe">
+      <div className="pj-sub-head">
+        <h4>{t('Équipe', 'Team')}</h4>
+        {membres.data && <span className="pj-sub-meta">{membres.data.length}</span>}
+      </div>
+
+      {orphelin && jeSuisAdmin && (
+        <div className="pj-orphelin">
+          <p>
+            {t(
+              'Ce projet n’a pas de propriétaire — un dépôt importé appartient à la ruche, pas à un compte. Sans propriétaire, personne ne peut y admettre d’ouvrière.',
+              'This project has no owner — an imported repository belongs to the hive, not to an account. Without an owner, nobody can admit a worker to it.',
+            )}
+          </p>
+          <button
+            className="btn primary"
+            disabled={occupe}
+            onClick={() => agir(adopterProjet(project.id))}
+          >
+            {t('Adopter ce projet', 'Adopt this project')}
+          </button>
+        </div>
+      )}
+
+      {membres.data && membres.data.length > 0 && (
+        <ul className="pj-equipe-liste">
+          {membres.data.map((m) => (
+            <li key={m.userId}>
+              <span className="pj-equipe-nom">{m.displayName ?? m.userId.slice(0, 8)}</span>
+              <span className="pj-equipe-role">{m.role}</span>
+              {jePeuxAdmettre && m.role !== 'owner' && (
+                <button
+                  className="btn ghost pj-equipe-x"
+                  disabled={occupe}
+                  aria-label={t('Retirer', 'Remove')}
+                  title={t('Retirer du projet', 'Remove from project')}
+                  onClick={() => agir(retirerMembre(project.id, m.userId))}
+                >
+                  ✕
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {jePeuxAdmettre && (
+        <div className="pj-run">
+          <input
+            className="pj-testcmd"
+            type="text"
+            placeholder={t('Identifiant du compte à admettre', 'Account identifier to admit')}
+            value={aAdmettre}
+            onChange={(e) => setAAdmettre(e.target.value)}
+            disabled={occupe}
+            aria-label={t('Identifiant du compte', 'Account identifier')}
+          />
+          <button
+            className="btn"
+            disabled={occupe || aAdmettre.trim() === ''}
+            onClick={() => {
+              agir(admettreMembre(project.id, aAdmettre.trim()));
+              setAAdmettre('');
+            }}
+          >
+            {t('Admettre', 'Admit')}
+          </button>
+        </div>
+      )}
+
+      {/* L'autre bout de la manœuvre : ce qu'on donne à la personne qui tient
+          le projet. Sans ça, « admettre par identifiant » n'a pas de mode
+          d'emploi et la carte est inutilisable. */}
+      <p className="pj-equipe-moi">
+        {t('Votre identifiant :', 'Your identifier:')} <code className="mono">{user.id}</code>
+      </p>
+
+      {erreur && <p className="panel-error">{erreur}</p>}
+    </div>
+  );
+}
+
 function ProjectCard({
   project,
   tasks,
@@ -594,6 +738,7 @@ function ProjectCard({
   onBalanceChange,
   onOpenTask,
   onNavigate,
+  user,
 }: {
   project: Project;
   tasks: Task[];
@@ -608,6 +753,7 @@ function ProjectCard({
   onBalanceChange: () => void;
   onOpenTask: ViewProps['onOpenTask'];
   onNavigate: ViewProps['onNavigate'];
+  user: AuthUser | null;
 }) {
   const t = useT();
   const lang = useLang();
@@ -701,6 +847,11 @@ function ProjectCard({
           dépense. */}
       <PleinEssaim projectId={project.id} />
 
+      {/* L'équipe, sous l'autonomie : « qui a le droit de voir ça » se pose
+          après « qu'est-ce que ça fait ». C'est aussi le seul endroit d'où un
+          dépôt importé peut sortir de son orphelinat. */}
+      <EquipeProjet project={project} user={user} refreshTick={refreshTick} />
+
       {tasks.length > 0 ? (
         <Honeycomb
           tasks={tasks}
@@ -753,6 +904,7 @@ export default function Projets({
   onNavigate,
   selectedId,
   refreshTick,
+  user,
 }: ViewProps) {
   const t = useT();
   // Récents d'abord : la dernière alvéole créée est en tête de rayon.
@@ -817,6 +969,7 @@ export default function Projets({
               onBalanceChange={balance.refresh}
               onOpenTask={onOpenTask}
               onNavigate={onNavigate}
+              user={user}
             />
           ))}
         </div>

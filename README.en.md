@@ -202,6 +202,15 @@ self-contained file and displayed in an `<iframe sandbox>` **without
 with a `Content-Security-Policy` that cuts the network (`connect-src 'none'`,
 `form-action 'none'`) and no navigation of any kind.
 
+**Letting a worker into a private project** is done from the "Team" panel in the
+Projects view. A repository imported from GitHub arrives **without an owner** —
+the import authenticates with the hive token, which is nobody's account: an
+administrator **adopts** it first, then admits whoever they want. Admission goes
+by **account identifier**, never by email: email would turn this route into an
+oracle answering "does this email have an account here?" for any project owner.
+Everyone reads their own identifier on that same card, and hands it over the way
+one hands over an invitation ticket.
+
 **Sharing read-only** is done from the project view and yields a URL to paste
 (`https://<your-tunnel>/#/partage/hive3_…`). The share token is **not** the hive
 token: it carries two acts only (see progress, read code), applies to **one**

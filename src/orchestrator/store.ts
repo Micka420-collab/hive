@@ -955,6 +955,25 @@ export class HiveStore {
       .all() as ProjectRow[];
   }
 
+  /**
+   * Donne un propriétaire à un projet qui n'en a pas.
+   *
+   * `WHERE ownerId IS NULL` fait partie de la garde, et pas seulement du
+   * confort : la condition est dans la MÊME instruction que l'écriture, donc
+   * deux adoptions simultanées ne peuvent pas toutes les deux réussir. Vérifier
+   * avant puis écrire laisserait entre les deux une fenêtre où le second écrase
+   * le premier — et le second serait alors propriétaire d'un projet qui venait
+   * d'être adopté.
+   *
+   * Rend `true` si l'adoption a eu lieu.
+   */
+  adopterProjet(projectId: string, userId: string): boolean {
+    const info = this.db
+      .prepare('UPDATE projects SET ownerId = ? WHERE id = ? AND ownerId IS NULL')
+      .run(userId, projectId);
+    return info.changes > 0;
+  }
+
   // ─── Membres des projets ────────────────────────────────────────────────────
   addMember(projectId: string, userId: string, role = 'member'): ProjectMember {
     const now = Date.now();
@@ -979,6 +998,20 @@ export class HiveStore {
       .prepare('SELECT 1 FROM project_members WHERE projectId = ? AND userId = ? LIMIT 1')
       .get(projectId, userId);
     return row !== undefined;
+  }
+
+  /**
+   * Retire un membre d'un projet. Rend `true` si quelqu'un a bien été retiré.
+   *
+   * Ne touche PAS à `ownerId` : retirer le propriétaire de la liste des membres
+   * ne le déposséderait pas, ça rendrait seulement l'état incohérent. Le refus
+   * se pose plus haut, là où l'on sait qui est propriétaire.
+   */
+  removeMember(projectId: string, userId: string): boolean {
+    const info = this.db
+      .prepare('DELETE FROM project_members WHERE projectId = ? AND userId = ?')
+      .run(projectId, userId);
+    return info.changes > 0;
   }
 
   listMembers(projectId: string): ProjectMember[] {

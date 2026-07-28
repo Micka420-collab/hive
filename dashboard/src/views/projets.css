@@ -747,3 +747,78 @@
   border-left-color: var(--red, #e5573f);
   background: rgba(229, 87, 63, 0.13);
 }
+
+/* ─── L'équipe d'un projet ─────────────────────────────────────────────────── */
+
+.pj-equipe {
+  gap: 8px;
+}
+
+/* Un projet orphelin n'est pas une anomalie à cacher : c'est l'état normal
+   d'un dépôt importé, et le seul écran d'où on peut en sortir. */
+.pj-orphelin {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-sm);
+}
+
+.pj-orphelin p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-orphelin .btn {
+  align-self: flex-start;
+}
+
+.pj-equipe-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.pj-equipe-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+.pj-equipe-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-equipe-role {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+.pj-equipe-x {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* L'identifiant qu'on donne à la personne qui tient le projet : sans lui,
+   « admettre par identifiant » n'a pas de mode d'emploi. */
+.pj-equipe-moi {
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}

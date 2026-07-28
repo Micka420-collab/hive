@@ -44,7 +44,13 @@ import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { vuePublique } from '../shared/projet-public.js';
-import { peutLireCode, peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
+import {
+  peutAdmettre,
+  peutAdopter,
+  peutLireCode,
+  peutRejoindre,
+  peutVoirMembres,
+} from '../shared/acces-projet.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
@@ -4749,6 +4755,103 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       return reply.send(store.listMembers(project.id));
+    },
+  );
+
+  // ─── Adopter un projet orphelin, et y admettre des ouvrières ───────────────
+  //
+  // LE CUL-DE-SAC QUE CES DEUX ROUTES OUVRENT. Un projet privé n'avait aucun
+  // moyen de gagner un membre : `/join` n'admet que le propriétaire, l'admin et
+  // ceux qui sont déjà membres — correct (on ne s'invite pas chez les autres)
+  // et incomplet, puisque personne ne pouvait inviter non plus. Un dépôt importé
+  // de GitHub est privé ET sans propriétaire : il restait à jamais illisible par
+  // toute la ruche sauf l'administrateur. C'est l'exact contraire de ce pour quoi
+  // Le Rayon a été construit.
+
+  app.post<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/adopter',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      // Refus indistinguable de l'inexistence, comme partout ailleurs : sinon
+      // cette route devient un oracle qui dit quels projets sont orphelins.
+      if (!project || !peutAdopter(project, lecteurDe(req))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // La condition `ownerId IS NULL` vit DANS l'écriture : deux adoptions
+      // simultanées ne peuvent pas réussir toutes les deux.
+      if (!store.adopterProjet(project.id, userId)) {
+        return reply
+          .code(409)
+          .send({ error: 'ce projet vient d’être adopté par quelqu’un d’autre' });
+      }
+      store.addMember(project.id, userId, 'owner');
+      emitEvent('projet_adopte', { projectId: project.id, userId });
+      return reply.send({ adopted: true, projectId: project.id });
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: { userId: string } }>(
+    '/api/projects/:projectId/membres',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['userId'],
+          additionalProperties: false,
+          properties: { userId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      // Le droit d'admettre est celui du PROPRIÉTAIRE, jamais d'un membre :
+      // sinon le premier invité inviterait à son tour, et « privé » ne voudrait
+      // plus rien dire au bout de trois personnes.
+      if (!project || !peutAdmettre(project, lecteurDe(req))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // Le compte doit exister. Admettre un identifiant inventé rangerait une
+      // adhésion fantôme que `listMembers` ne montrerait même pas (sa jointure
+      // sur `users` la ferait disparaître) : une ligne invisible et éternelle.
+      if (!store.getUserById(req.body.userId)) {
+        return reply.code(404).send({ error: 'compte inconnu' });
+      }
+      store.addMember(project.id, req.body.userId);
+      emitEvent('project_member_admitted', {
+        projectId: project.id,
+        userId: req.body.userId,
+        parUserId: (req as AuthRequest).userId!,
+      });
+      return reply.code(201).send({ admitted: true, userId: req.body.userId });
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; userId: string } }>(
+    '/api/projects/:projectId/membres/:userId',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      if (!project || !peutAdmettre(project, lecteurDe(req))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // ON NE RETIRE PAS LE PROPRIÉTAIRE. Le sortir de la liste ne le
+      // déposséderait pas — `ownerId` resterait le sien — ça rendrait seulement
+      // l'état incohérent, et un administrateur distrait pourrait vider un
+      // projet de la personne qui le tient.
+      if (project.ownerId !== null && project.ownerId === req.params.userId) {
+        return reply.code(409).send({ error: 'le propriétaire ne se retire pas de son projet' });
+      }
+      const retire = store.removeMember(project.id, req.params.userId);
+      if (!retire) return reply.code(404).send({ error: 'ce compte n’est pas membre' });
+      emitEvent('project_member_removed', {
+        projectId: project.id,
+        userId: req.params.userId,
+        parUserId: (req as AuthRequest).userId!,
+      });
+      return reply.send({ removed: true, userId: req.params.userId });
     },
   );
 

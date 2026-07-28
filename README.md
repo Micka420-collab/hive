@@ -215,6 +215,15 @@ en un seul fichier auto-suffisant et affiché dans une `<iframe sandbox>` **sans
 une `Content-Security-Policy` qui coupe le réseau (`connect-src 'none'`,
 `form-action 'none'`) et sans aucune navigation possible.
 
+**Faire entrer une ouvrière dans un projet privé** se fait depuis le panneau
+« Équipe » de la vue Projets. Un dépôt importé de GitHub arrive **sans
+propriétaire** — l'import s'authentifie par le jeton de ruche, qui n'est le
+compte de personne : un administrateur l'**adopte** d'abord, puis admet qui il
+veut. On admet par **identifiant de compte**, jamais par courriel : le courriel
+ferait de cette route un oracle « ce courriel a-t-il un compte ici ? »
+interrogeable par tout propriétaire de projet. Chacun lit son propre
+identifiant sur cette même carte, et le donne comme on se passe un billet.
+
 **Partager en lecture** se fait depuis la vue projet et donne une URL à coller :
 
 ```
