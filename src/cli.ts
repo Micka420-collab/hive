@@ -619,7 +619,7 @@ async function cmdDesinstaller(...args: string[]): Promise<void> {
 async function cmdService(...args: string[]): Promise<void> {
   const { CODE } = await import('./codes-sortie.js');
   const svc = await import('./service-reel.js');
-  const { AVERTISSEMENT_LINGER } = await import('./shared/service.js');
+  const { AVERTISSEMENT_LINGER, planifier, rendreGestes } = await import('./shared/service.js');
 
   const sous = args.find((a) => !a.startsWith('--')) ?? 'status';
   const racine = process.cwd();
@@ -679,25 +679,28 @@ async function cmdService(...args: string[]): Promise<void> {
   };
 
   if (sous === 'install') {
-    // Le niveau système n'est jamais choisi à la place de quelqu'un : quand il
-    // est demandé, on dit ce qu'il implique AVANT de le poser.
-    if (niveau === 'systeme') {
-      console.log(
-        '\n⚠ Niveau SYSTÈME demandé. Le service survivra à votre déconnexion,\n' +
-          '  et son installation réclame les droits d’administrateur.\n',
-      );
-    }
+    // ─── LES AVERTISSEMENTS VIENNENT AVANT, PAS APRÈS ────────────────────────
+    //
+    // Le plan porte déjà ce qu'il faut savoir : que le niveau système réclame
+    // l'administrateur, que `systemd --user` s'arrête à la fermeture de
+    // session. Les afficher APRÈS l'installation, c'est prévenir quelqu'un
+    // d'une conséquence qu'il vient de subir.
+    //
+    // On planifie d'abord, on dit, puis on agit. Ça retire aussi une
+    // duplication : ce texte n'existe qu'à un seul endroit — le module pur, où
+    // il est testé. La loupe avait fait survivre un `if (niveau === 'systeme')`
+    // ici, sur une bannière qui redisait ce que le plan disait déjà.
+    const avant = planifier(ctx);
+    if (avant.genre === 'refus') return dire(avant);
+    for (const a of avant.avertissements) console.log(`\n  ⚠ ${a}`);
+
     const r = svc.installer(ctx);
     if ('motif' in r) return dire(r);
 
     console.log(`\n🐝 Service « ${r.plan.nom} »\n`);
     console.log(`  ▸ fichier posé : ${r.plan.fichier.chemin}`);
-    for (const i of r.issues) {
-      console.log(
-        `  ${i.code === 0 ? '✔' : '✘'} ${i.quoi}${i.sortie ? `\n      ${i.sortie}` : ''}`,
-      );
-    }
-    for (const a of r.plan.avertissements) console.log(`\n  ⚠ ${a}`);
+    for (const ligne of rendreGestes(r.issues)) console.log(ligne);
+    for (const i of r.issues) if (i.sortie) console.log(`      ${i.sortie}`);
     console.log('');
     if (!r.abouti) process.exitCode = CODE.ERREUR;
     return;
@@ -706,9 +709,7 @@ async function cmdService(...args: string[]): Promise<void> {
   if (sous === 'uninstall') {
     const r = svc.desinstaller(ctx);
     if ('motif' in r) return dire(r);
-    for (const i of r.issues) {
-      console.log(`  ${i.code === 0 ? '✔' : '·'} ${i.quoi}`);
-    }
+    for (const ligne of rendreGestes(r.issues)) console.log(ligne);
     // L'exigence de l'ADR 0004 : après `uninstall`, aucun fichier ne subsiste.
     console.log(
       `\n  ${r.abouti ? '✔' : '✘'} ${r.plan.fichier.chemin} — ` +

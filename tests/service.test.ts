@@ -31,6 +31,7 @@ import {
   citerSystemd,
   echapperXml,
   planifier,
+  rendreGestes,
   scriptDe,
 } from '../src/shared/service.js';
 import { type Issue, type Systeme, desinstaller, installer, statut } from '../src/service-reel.js';
@@ -392,6 +393,37 @@ describe('LE SERVICE ENTRE DANS L’EMPREINTE', () => {
         );
       }
     });
+  });
+});
+
+describe('LE RENDU DES GESTES — la branche qu’un test ne peut pas exercer', () => {
+  // Lancer un vrai `service uninstall` DÉSINSTALLERAIT le service de qui fait
+  // tourner la suite. La branche « cette commande a échoué » est donc
+  // inatteignable de bout en bout — et la loupe l'a signalée, à juste titre.
+  //
+  // Extraire le rendu est la seule façon de la couvrir sans toucher à la
+  // machine de quelqu'un.
+  it('marque ce qui a abouti, et ce qui n’a pas abouti', () => {
+    expect(rendreGestes([{ code: 0, quoi: 'systemctl --user disable' }])).toEqual([
+      '  ✔ systemctl --user disable',
+    ]);
+    expect(rendreGestes([{ code: 1, quoi: 'systemctl --user disable' }])).toEqual([
+      '  · systemctl --user disable',
+    ]);
+  });
+
+  it('rend une ligne par geste, dans l’ordre', () => {
+    expect(
+      rendreGestes([
+        { code: 0, quoi: 'a' },
+        { code: 5, quoi: 'b' },
+        { code: 0, quoi: 'c' },
+      ]),
+    ).toEqual(['  ✔ a', '  · b', '  ✔ c']);
+  });
+
+  it('aucun geste, aucune ligne', () => {
+    expect(rendreGestes([])).toEqual([]);
   });
 });
 

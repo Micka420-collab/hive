@@ -137,6 +137,14 @@ describe('L’EMPREINTE — module pur', () => {
     });
     expect(win.find((e) => e.cle === 'env')!.chemin).toBe('C:\\Users\\moi\\hive\\.env');
     expect(win.find((e) => e.cle === 'rayons')!.chemin).toBe('C:\\Users\\moi\\hive\\data\\rayons');
+    // Windows range son XML de tâche planifiée DANS l'installation, pas dans le
+    // dossier personnel — contrairement à systemd et à launchd. C'est le seul
+    // des trois pour lequel « supprimer le dossier » emporte aussi le fichier
+    // de service (mais pas son inscription : `hive service uninstall` reste le
+    // bon geste).
+    expect(win.find((e) => e.cle === 'service')!.chemin).toBe(
+      'C:\\Users\\moi\\hive\\data\\hive-ruche.xml',
+    );
   });
 
   it('DEUX choses sortent du dossier d’installation, et pas une de plus', () => {

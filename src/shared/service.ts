@@ -177,12 +177,29 @@ const LIBELLE: Record<Cible, string> = {
   noeud: 'Hive — un nœud',
 };
 
-/** Le nom du service, sans caractère qui demanderait une citation quelque part. */
+/**
+ * Le nom du service, sans caractère qui demanderait une citation quelque part.
+ *
+ * macOS veut un identifiant en domaine inversé ; Linux et Windows prennent le
+ * nom nu. (La loupe a fait survivre un `if (plateforme === 'win32') return
+ * base;` ici : ses deux branches rendaient la même chose. Une variante qui ne
+ * peut pas se distinguer se RETIRE, elle ne se teste pas — § 6.2.)
+ */
 export function nomDe(cible: Cible, plateforme: NodeJS.Platform): string {
-  const base = cible === 'ruche' ? 'hive-ruche' : 'hive-noeud';
   if (plateforme === 'darwin') return `fr.hive.${cible}`;
-  if (plateforme === 'win32') return base;
-  return base;
+  return cible === 'ruche' ? 'hive-ruche' : 'hive-noeud';
+}
+
+/**
+ * Le rendu d'une suite de gestes, pour un humain.
+ *
+ * Pur, et à part, parce que la branche « cette commande a échoué » ne peut pas
+ * s'exercer depuis un test : lancer un vrai `service uninstall` DÉSINSTALLERAIT
+ * le service de qui fait tourner la suite. Extraire le rendu est la seule façon
+ * de le couvrir sans toucher à la machine de quelqu'un.
+ */
+export function rendreGestes(issues: readonly { code: number; quoi: string }[]): string[] {
+  return issues.map((i) => `  ${i.code === 0 ? '✔' : '·'} ${i.quoi}`);
 }
 
 function planLinux(ctx: Contexte): Plan | Refus {
