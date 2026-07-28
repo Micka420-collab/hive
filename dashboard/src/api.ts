@@ -272,6 +272,41 @@ export function fetchGuet(): Promise<VerdictGuet> {
   return api<VerdictGuet>('/api/guet');
 }
 
+/**
+ * Les Gardiennes — le contrôle d'entrée du nectar.
+ *
+ * `GET /api/gardiennes` était servi et n'avait, lui non plus, aucun écran.
+ * C'est pourtant une donnée de DÉCISION directe : savoir quel nœud rend des
+ * diffs vides, ou annonce des fichiers qu'il ne touche pas, c'est savoir sur
+ * qui compter. Sans écran, le seul moyen de l'apprendre était de lire le
+ * journal ligne à ligne.
+ */
+export type VerdictGardienne = 'clean' | 'suspect' | 'hollow';
+
+export interface VueGardiennes {
+  version: number;
+  inspections: number;
+  verdicts: Record<VerdictGardienne, number>;
+  /** Combien ont RÉELLEMENT été refusées (mode strict seulement). */
+  refusees: number;
+  griefs: { code: string; occurrences: number }[];
+  recentes: {
+    id: number;
+    taskId: string;
+    nodeId: string;
+    verdict: VerdictGardienne;
+    score: number;
+    applique: boolean;
+    griefs: { code: string; detail?: string }[];
+    createdAt: number;
+  }[];
+  mode: 'off' | 'consultatif' | 'strict';
+}
+
+export function fetchGardiennes(): Promise<VueGardiennes> {
+  return api<VueGardiennes>('/api/gardiennes');
+}
+
 /** Phéromones : affinité apprise nœud × domaine (30 meilleures traces). */
 export function fetchPheromones(): Promise<{ traces: TraceePheromone[] }> {
   return api<{ traces: TraceePheromone[] }>('/api/pheromones');

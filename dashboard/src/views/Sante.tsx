@@ -2,8 +2,15 @@
 // dans le journal (Ghost in the Hive). Tout est lu via REST, poll léger.
 
 import { useEffect, useState } from 'react';
-import { fetchBalance, fetchGhosts, fetchGuet, fetchPulse, fetchThermo } from '../api';
-import type { NiveauGuet } from '../api';
+import {
+  fetchBalance,
+  fetchGardiennes,
+  fetchGhosts,
+  fetchGuet,
+  fetchPulse,
+  fetchThermo,
+} from '../api';
+import type { NiveauGuet, VerdictGardienne } from '../api';
 import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
 import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
@@ -324,7 +331,145 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
       </section>
 
       <Guetteuses refreshTick={refreshTick} />
+      <Gardiennes refreshTick={refreshTick} snapshot={snapshot} />
     </div>
+  );
+}
+
+/** Ce que chaque verdict veut dire, sans jargon. */
+const VERDICT_GARDIENNE: Record<VerdictGardienne, { fr: string; en: string; icone: string }> = {
+  clean: { fr: 'nette', en: 'clean', icone: '✔' },
+  suspect: { fr: 'douteuse', en: 'doubtful', icone: '⚠' },
+  hollow: { fr: 'creuse', en: 'hollow', icone: '✘' },
+};
+
+/** Les griefs, dits en français plutôt qu'en code. */
+const GRIEF_LABEL: Record<string, { fr: string; en: string }> = {
+  empty_diff: {
+    fr: 'diff vide sur une promesse de modification',
+    en: 'empty diff on a change promise',
+  },
+  surface_missed: {
+    fr: 'aucun des fichiers annoncés n’est touché',
+    en: 'none of the announced files touched',
+  },
+  malformed_diff: { fr: 'diff qui ne nomme aucun fichier', en: 'diff naming no file' },
+  logs_contradict: { fr: 'les logs crient l’échec', en: 'logs shout failure' },
+};
+
+/**
+ * Les Gardiennes — ce que la ruche a laissé entrer, et ce qu'elle a repoussé.
+ *
+ * ─── POURQUOI CE PANNEAU EXISTE ──────────────────────────────────────────────
+ *
+ * `GET /api/gardiennes` était servi par l'orchestrateur, et n'avait aucun
+ * écran. C'est pourtant une donnée de DÉCISION directe : savoir quel nœud rend
+ * des diffs vides, ou annonce des fichiers qu'il ne touche pas, c'est savoir
+ * sur qui compter. Sans écran, le seul moyen de l'apprendre était de lire le
+ * journal ligne à ligne.
+ *
+ * ─── LE MODE EST AFFICHÉ EN PREMIER, ET CE N'EST PAS UN DÉTAIL ───────────────
+ *
+ * En `consultatif` — le défaut — les Gardiennes observent et annotent, mais ne
+ * refusent RIEN. Montrer « 12 productions creuses » sans dire que rien n'a été
+ * bloqué laisserait croire à un travail fait, alors que ces douze-là sont
+ * entrées dans le miel. C'est exactement l'inverse de ce qu'on veut d'un
+ * tableau de bord de décision.
+ */
+function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: StateSnapshot }) {
+  const t = useT();
+  const g = useApiPoll(fetchGardiennes, 30_000, refreshTick);
+  if (g.data === null && g.error !== null) return null;
+  const v = g.data;
+  const nom = (nodeId: string) => snapshot.nodes.find((n) => n.id === nodeId)?.name ?? nodeId;
+
+  return (
+    <section className="card">
+      <header className="panel-head">
+        <h2>{t('Les Gardiennes', 'The Guards')}</h2>
+        {v && (
+          <span className={`ga-mode mode-${v.mode}`}>
+            {v.mode === 'strict'
+              ? t('strict — une production creuse est refusée', 'strict — hollow output is refused')
+              : v.mode === 'off'
+                ? t('désactivées', 'disabled')
+                : t('consultatif — rien n’est refusé', 'advisory — nothing is refused')}
+          </span>
+        )}
+      </header>
+      {!v ? (
+        <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
+      ) : v.inspections === 0 ? (
+        <p className="muted-text">
+          {t(
+            'Rien d’inspecté pour l’instant — les Gardiennes s’expriment dès les premières productions.',
+            'Nothing inspected yet — the Guards speak up from the first outputs.',
+          )}
+        </p>
+      ) : (
+        <>
+          <div className="ga-tuiles">
+            {(['clean', 'suspect', 'hollow'] as const).map((k) => (
+              <div key={k} className={`ga-tuile ${k}`}>
+                <span className="ga-nombre">{v.verdicts[k]}</span>
+                <span className="ga-libelle">
+                  {VERDICT_GARDIENNE[k].icone} {t(VERDICT_GARDIENNE[k].fr, VERDICT_GARDIENNE[k].en)}
+                </span>
+              </div>
+            ))}
+            <div className="ga-tuile refus">
+              <span className="ga-nombre">{v.refusees}</span>
+              <span className="ga-libelle">{t('réellement refusée(s)', 'actually refused')}</span>
+            </div>
+          </div>
+          {/* En consultatif, l'écart entre « creuses » et « refusées » EST
+              l'information : ces productions-là sont entrées dans le miel. */}
+          {v.mode === 'consultatif' && v.verdicts.hollow > v.refusees && (
+            <p className="ga-avertissement">
+              {t(
+                `${v.verdicts.hollow} production(s) creuse(s) sont entrées dans le miel : en mode consultatif, les Gardiennes annotent sans refuser. Passez HIVE_GARDIENNES=strict pour qu’elles agissent.`,
+                `${v.verdicts.hollow} hollow output(s) made it into the honey: in advisory mode the Guards annotate without refusing. Set HIVE_GARDIENNES=strict for them to act.`,
+              )}
+            </p>
+          )}
+          {v.griefs.length > 0 && (
+            <ul className="ga-griefs">
+              {v.griefs.map((x) => (
+                <li key={x.code}>
+                  <span>
+                    {GRIEF_LABEL[x.code]
+                      ? t(GRIEF_LABEL[x.code]!.fr, GRIEF_LABEL[x.code]!.en)
+                      : x.code}
+                  </span>
+                  <strong>{x.occurrences}</strong>
+                </li>
+              ))}
+            </ul>
+          )}
+          {v.recentes.length > 0 && (
+            <ul className="ga-liste">
+              {v.recentes.slice(0, 8).map((r) => (
+                <li key={r.id} className={r.verdict}>
+                  <span className="ga-v">{VERDICT_GARDIENNE[r.verdict].icone}</span>
+                  {/* Le NOM du nœud, pas son identifiant : « 3f2a-… » ne dit à
+                      personne sur qui il hésite à compter. */}
+                  <span className="ga-noeud">{nom(r.nodeId)}</span>
+                  <span className="muted-text">
+                    {r.griefs
+                      .map((x) =>
+                        GRIEF_LABEL[x.code]
+                          ? t(GRIEF_LABEL[x.code]!.fr, GRIEF_LABEL[x.code]!.en)
+                          : x.code,
+                      )
+                      .join(' · ') || t('rien à redire', 'nothing to report')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

@@ -812,3 +812,124 @@
   font-style: italic;
   line-height: 1.5;
 }
+
+/* ─── Les Gardiennes ────────────────────────────────────────────────────────
+ *
+ * Le MODE s'affiche en premier, et ce n'est pas un détail : en « consultatif »
+ * — le défaut — elles annotent sans rien refuser. Montrer « 12 productions
+ * creuses » sans dire que rien n'a été bloqué laisserait croire à un travail
+ * fait, alors que ces douze-là sont entrées dans le miel. */
+
+.ga-mode {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  color: var(--text-2);
+}
+
+.ga-mode.mode-strict {
+  border-color: #4caf7d;
+  color: #6fd39d;
+}
+
+.ga-mode.mode-off {
+  opacity: 0.6;
+}
+
+.ga-tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.ga-tuile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+}
+
+.ga-tuile.hollow {
+  border-color: #e05c5c;
+}
+
+.ga-tuile.suspect {
+  border-color: #d99a2b;
+}
+
+.ga-nombre {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ga-libelle {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* L'écart entre « creuses » et « refusées » EST l'information en consultatif. */
+.ga-avertissement {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-left: 3px solid #d99a2b;
+  background: rgba(217, 154, 43, 0.08);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ga-griefs {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ga-griefs li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.04));
+}
+
+.ga-liste {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.ga-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 11.5px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.03));
+}
+
+.ga-liste li.hollow .ga-v {
+  color: #e05c5c;
+}
+
+.ga-liste li.suspect .ga-v {
+  color: #d99a2b;
+}
+
+.ga-noeud {
+  font-weight: 600;
+  flex: none;
+}
