@@ -125,23 +125,49 @@ jobs:
         if: runner.os == 'Windows'
         run: pwsh -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive"
 
+      # ─── CE PAS EST EN ASCII PUR, ET IL A FALLU UN ÉCHEC POUR L'APPRENDRE ───
+      #
+      # Première version : les assertions ci-dessous cherchaient « Ã » et
+      # « Vérification » écrits tels quels. Le pas a rendu une ParserError —
+      # parce que GitHub écrit le contenu de `run:` dans un `.ps1` TEMPORAIRE,
+      # lui aussi SANS BOM, et le donne à 5.1. Mon « Ã » est devenu « Ãƒ », mon
+      # « â€ » est devenu « Ã¢â‚¬ », le guillemet s'est retrouvé cassé.
+      #
+      # Le défaut que ce pas traque a donc mordu le pas lui-même. C'est la
+      # meilleure démonstration possible qu'il valait la peine d'exister, et la
+      # leçon est plus large qu'`install.ps1` : TOUT bloc `run:` sous
+      # `shell: powershell` subit le même décodage.
+      #
+      # D'où : rien que de l'ASCII dans le `run:`. Les caractères accentués sur
+      # lesquels on veut assener quelque chose sont construits par leur point de
+      # code. Ces commentaires-ci, eux, vivent dans le YAML — que le runner lit
+      # bien en UTF-8 — et ne descendent jamais dans le script temporaire.
       - name: L'installeur une-commande démarre (Windows · PowerShell 5.1)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          # `chcp 65001` : sans ça, la console de 5.1 est en page 850/437 et
-          # afficherait des « ? » même pour un fichier lu correctement. On veut
-          # observer le DÉCODAGE DU FICHIER, pas la limite de la console.
+          # chcp 65001: without it the 5.1 console is on codepage 850/437 and
+          # would print "?" even for a file that was decoded correctly. We want
+          # to observe the FILE decoding, not the console limit.
           chcp 65001 > $null
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
           $sortie = & powershell -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive-51" 2>&1 | Out-String
           Write-Host $sortie
-          if ($LASTEXITCODE -ne 0) { throw "install.ps1 a rendu $LASTEXITCODE sous PowerShell 5.1" }
-          # LA GARDE QUI COMPTE. « Ã » n'apparaît JAMAIS dans du français lu
-          # correctement : c'est la signature d'un UTF-8 relu en ANSI. Sans
-          # cette assertion, le pas passerait au vert en affichant du charabia.
-          if ($sortie -match 'Ã|â€') { throw "mojibake : le fichier est relu en ANSI, le BOM manque" }
-          if ($sortie -notmatch 'Vérification des prérequis') { throw "sortie inattendue sous 5.1" }
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 returned $LASTEXITCODE under Windows PowerShell 5.1" }
+
+          # U+00C3 (A-tilde) NEVER occurs in correctly decoded French. It is the
+          # signature of UTF-8 re-read as ANSI. Without this assertion the step
+          # would stay green while printing garbage.
+          $aTilde = [char]0x00C3
+          if ($sortie.Contains($aTilde)) { throw "mojibake: file re-read as ANSI, the BOM is missing" }
+
+          # And the POSITIVE proof, which is the stronger one: the accented
+          # characters must have survived. U+00E9 is 'e' acute, which the
+          # prerequisites line contains.
+          $eAcute = [char]0x00E9
+          if (-not $sortie.Contains($eAcute)) { throw "no accented character survived: encoding is wrong" }
+          if ($sortie -notmatch 'npm run install:hive') { throw "unexpected output under 5.1" }
 
       - name: Build (typecheck + dashboard)
         run: npm run build
