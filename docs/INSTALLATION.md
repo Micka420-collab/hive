@@ -166,12 +166,65 @@ votre machine.
 
 ## Désinstaller
 
-Hive n'écrit **rien** hors de son dossier : pas de service, pas d'entrée de
-registre, pas de fichier dans `/etc`. Le supprimer suffit.
-
 ```sh
-rm -rf ~/hive
+cd ~/hive && npm run cli -- desinstaller
 ```
+
+Cette commande **ne supprime rien**. Elle montre tout ce que Hive a écrit sur
+votre machine, ce que ça pèse, et ce que vous perdriez à l'effacer. C'est le
+défaut, pas une option : un drapeau qu'on oublie de taper ne doit jamais
+transformer un inventaire en effacement.
+
+```
+🐝 Ce que Hive a écrit — /home/moi/hive
+
+  ✘ la mémoire de la ruche — 320 ko
+       /home/moi/hive/data/hive.db
+       ⚠ les projets, les tâches, le Hive Mind, le grand livre et les comptes.
+
+  ▸ les espaces de travail des tâches — 41 Mo
+       /home/moi/hive/.hive-work
+         · node-key.txt — la clé de ce nœud ; sans elle, il faut un billet
+       ↻ une tâche EN COURS y vit.
+```
+
+`--oui` enlève ce qui se reconstruit (miroirs git, espaces de travail, restes
+de fusion). `--json` rend le tout en machine.
+
+### Ce que la commande ne fera pas à votre place
+
+**`.env` et `data/hive.db` ne sont jamais supprimés**, quel que soit le
+drapeau. `HIVE_TOKEN` perdu déconnecte tous vos nœuds ; `HIVE_JWT_SECRET`
+perdu invalide toutes les sessions ; et la base est la seule copie de la
+mémoire de la ruche. La commande vous donne le `rm -rf` exact, et s'arrête là.
+
+Un outil d'installation n'est pas un outil de destruction —
+[ADR 0004](adr/0004-politique-de-service-et-desinstallation.md).
+
+### Où Hive écrit, exactement
+
+|                               |                                                   |
+| ----------------------------- | ------------------------------------------------- |
+| `<installation>/.env`         | jetons et secrets                                 |
+| `<installation>/data/hive.db` | la base, plus ses `-wal` et `-shm`                |
+| `<installation>/data/rayons/` | les miroirs des dépôts                            |
+| `<installation>/.hive-work/`  | espaces de travail, clé du nœud, `cloudflared`    |
+| `$TMPDIR/hive-merge-*`        | patchs d'une fusion — effacés à la fin de chacune |
+
+Pas de service, pas d'entrée de registre, pas de fichier dans `/etc`, rien
+dans votre dossier personnel. Ce n'est pas une promesse en prose :
+[`tests/empreinte.test.ts`](../tests/empreinte.test.ts) relève les appels
+d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
+
+**Deux nuances, parce qu'elles vous concernent :**
+
+- `$TMPDIR/hive-merge-*` est la seule écriture hors du dossier. Ces
+  répertoires sont effacés à la fin de chaque fusion ; il n'en reste que si un
+  processus a été tué au mauvais moment. `desinstaller` les trouve.
+- si vous avez rejoint une ruche avec `npx github:… join`, le dossier
+  `.hive-work` a été créé **là où vous avez tapé la commande** — pas dans
+  `~/hive`, que vous n'avez peut-être pas. Votre clé de nœud y est. Lancez
+  `desinstaller` depuis ce dossier-là.
 
 Si vous aviez installé le paquet globalement :
 

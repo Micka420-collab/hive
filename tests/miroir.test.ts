@@ -86,6 +86,19 @@ describe('le miroir, sur un vrai dépôt', () => {
     const git = simpleGit({ baseDir: depotAmont });
     await git.addConfig('user.email', 'test@hive.local');
     await git.addConfig('user.name', 'Hive Test');
+    // ─── LA SIGNATURE DE COMMIT, NEUTRALISÉE POUR CE DÉPÔT JETABLE ─────────
+    //
+    // `commit.gpgsign = true` est un réglage GLOBAL courant et recommandé. Il
+    // s'applique aussi aux dépôts que ces tests fabriquent — et le programme de
+    // signature n'a rien à faire là : un contributeur qui signe ses commits ne
+    // pouvait tout simplement PAS lancer cette suite (« cannot exec … »,
+    // onze fichiers rouges).
+    //
+    // On désarme UNIQUEMENT ce réglage, UNIQUEMENT dans le dépôt que le test
+    // vient de créer. Rien de la configuration de la personne n'est touché —
+    // c'est la leçon du § 4.1 : `GIT_CONFIG_NOSYSTEM` avait emporté
+    // `core.symlinks` avec lui.
+    await git.addConfig('commit.gpgsign', 'false');
     mkdirSync(path.join(depotAmont, 'src'), { recursive: true });
     writeFileSync(path.join(depotAmont, 'README.md'), '# Projet\n\nDes abeilles.\n');
     writeFileSync(path.join(depotAmont, 'src', 'index.ts'), 'export const a = 1;\n');

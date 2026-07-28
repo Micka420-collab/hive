@@ -78,6 +78,19 @@ describe('la préparation dans un vrai merge', () => {
     git = simpleGit({ baseDir: repoDir });
     await git.addConfig('user.email', 'test@hive.local');
     await git.addConfig('user.name', 'Hive Test');
+    // ─── LA SIGNATURE DE COMMIT, NEUTRALISÉE POUR CE DÉPÔT JETABLE ─────────
+    //
+    // `commit.gpgsign = true` est un réglage GLOBAL courant et recommandé. Il
+    // s'applique aussi aux dépôts que ces tests fabriquent — et le programme de
+    // signature n'a rien à faire là : un contributeur qui signe ses commits ne
+    // pouvait tout simplement PAS lancer cette suite (« cannot exec … »,
+    // onze fichiers rouges).
+    //
+    // On désarme UNIQUEMENT ce réglage, UNIQUEMENT dans le dépôt que le test
+    // vient de créer. Rien de la configuration de la personne n'est touché —
+    // c'est la leçon du § 4.1 : `GIT_CONFIG_NOSYSTEM` avait emporté
+    // `core.symlinks` avec lui.
+    await git.addConfig('commit.gpgsign', 'false');
     await git.addConfig('core.autocrlf', 'false');
     writeFileSync(path.join(repoDir, 'package.json'), PAQUET);
     writeFileSync(path.join(repoDir, 'package-lock.json'), VERROU);
@@ -138,6 +151,7 @@ describe('la préparation dans un vrai merge', () => {
     const g2 = simpleGit({ baseDir: sansVerrou });
     await g2.addConfig('user.email', 'test@hive.local');
     await g2.addConfig('user.name', 'Hive Test');
+    await g2.addConfig('commit.gpgsign', 'false');
     writeFileSync(path.join(sansVerrou, 'package.json'), PAQUET);
     await g2.add('.');
     await g2.commit('base');
