@@ -37,6 +37,30 @@ const sansCommentaires = (s: string, marque: '#' | '#ps'): string =>
 const SH = lire('install.sh');
 const PS = lire('install.ps1');
 const SH_NU = sansCommentaires(SH, '#');
+
+/**
+ * Cette machine a-t-elle un shell POSIX ?
+ *
+ * Faux sous Windows. J'ai écrit ces tests en lançant `sh install.sh` sans me
+ * poser la question — et la CI Windows a rendu un code de sortie -1 : le
+ * `spawn` lui-même échouait, faute de `sh`.
+ *
+ * C'est la même famille que § 6.3 de `docs/ERREURS.md` — du code dépendant de
+ * la plateforme, écrit depuis une seule d'entre elles. Sauf qu'ici je l'ai
+ * commis dans le fichier qui teste les DEUX installeurs.
+ *
+ * La sonde est au chargement, pas dans un `beforeAll` : `it.runIf(...)`
+ * s'évalue à la COLLECTE. Posée trop tard, elle vaudrait toujours `false` et
+ * désactiverait ces tests PARTOUT, y compris là où ils doivent tourner.
+ */
+const shellPosix = ((): boolean => {
+  try {
+    execFileSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 const PS_NU = sansCommentaires(PS, '#ps');
 
 describe('LES DEUX INSTALLEURS EXISTENT', () => {
@@ -123,6 +147,31 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
   // Pas une lecture : une exécution. C'est la règle n° 1 de `docs/ERREURS.md`,
   // et elle est née d'un `require()` en ESM qui rendait `null` pour toujours
   // sans que trois relectures le voient.
+  //
+  // ─── CE QUI SE VÉRIFIE OÙ ──────────────────────────────────────────────────
+  //
+  // `install.sh` est un script POSIX : il ne s'exécute pas sous Windows, et
+  // c'est normal — Windows a `install.ps1`. La couverture est donc RÉPARTIE,
+  // pas trouée :
+  //   · ici, sur Linux et macOS : `install.sh` lancé pour de vrai ;
+  //   · en CI sous Windows : `install.ps1 -DryRun`, par un pas du workflow ;
+  //   · partout : les gardes sur la source des DEUX scripts, plus haut.
+
+  it('cette machine a-t-elle un shell POSIX ? — la question doit être posée', () => {
+    if (!shellPosix) {
+      console.warn(
+        '⚠ pas de shell POSIX ici : `install.sh` n’est PAS exécuté sur cette ' +
+          'plateforme. Il l’est sur Linux et macOS à chaque CI, et `install.ps1` ' +
+          'est exercé sous Windows par le workflow.',
+      );
+    }
+    // SUR POSIX, LA SONDE DOIT DIRE OUI. Sans cette assertion, une sonde
+    // cassée désactiverait ces tests partout et la suite resterait verte —
+    // c'est déjà arrivé dans ce dépôt, sur les gardes du miroir.
+    if (process.platform !== 'win32') {
+      expect(shellPosix, 'un système POSIX doit avoir `sh`').toBe(true);
+    }
+  });
 
   const lancer = (args: string[], chemin?: string): { code: number; sortie: string } => {
     try {
@@ -138,14 +187,14 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
     }
   };
 
-  it('`--help` sort en 0 et explique les drapeaux', () => {
+  it.runIf(shellPosix)('`--help` sort en 0 et explique les drapeaux', () => {
     const { code, sortie } = lancer(['--help']);
     expect(code).toBe(0);
     expect(sortie).toMatch(/--dir/);
     expect(sortie).toMatch(/--dry-run/);
   });
 
-  it('`--dry-run` N’ÉCRIT RIEN — pas même le dossier de destination', () => {
+  it.runIf(shellPosix)('`--dry-run` N’ÉCRIT RIEN — pas même le dossier de destination', () => {
     // ─── POURQUOI CE TEST FABRIQUE UN FAUX `node` ────────────────────────────
     //
     // Première version : on lançait `install.sh --dry-run` tel quel. Elle
@@ -179,7 +228,7 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
     }
   });
 
-  it('UNE VERSION DE NODE TROP ANCIENNE SORT EN 2, pas en 1', () => {
+  it.runIf(shellPosix)('UNE VERSION DE NODE TROP ANCIENNE SORT EN 2, pas en 1', () => {
     // Le code 2 est `PREREQUIS` dans `src/codes-sortie.ts`. La distinction
     // compte pour un script appelant : « il te manque quelque chose » et « ça
     // a planté » appellent des gestes différents.

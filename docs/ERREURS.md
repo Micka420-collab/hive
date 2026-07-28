@@ -226,6 +226,27 @@ moins.**
 > premier : une ligne qui échouait à tous les coups en ayant l'air de couvrir un
 > cas.
 
+### 6.4 — Un test qui LANCE un script POSIX doit sonder la plateforme
+
+J'ai écrit `tests/installeurs.test.ts` en lançant `sh install.sh` — sans me
+demander si `sh` existe partout. La CI Windows a rendu un code de sortie **-1** :
+le `spawn` lui-même échouait, faute de shell POSIX.
+
+Ce n'est pas un défaut du produit. `install.sh` n'a rien à faire sous Windows,
+qui a `install.ps1`. C'est le TEST qui prétendait tourner partout.
+
+Le plus notable : je l'ai commis dans le fichier qui teste les **deux**
+installeurs — donc en ayant la question des plateformes sous les yeux.
+
+> **Règle** — un test qui exécute un binaire ou un script dépendant de la
+> plateforme sonde sa disponibilité **au chargement du module**, gate avec
+> `it.runIf`, AVERTIT quand il ne peut pas tourner, et EXIGE que la sonde
+> réussisse là où elle le doit. Le motif est celui de `tests/miroir.test.ts`.
+>
+> **Règle** — quand la couverture est RÉPARTIE entre plateformes (ici : `sh`
+> sur POSIX, `.ps1` en CI Windows, gardes sur la source partout), l'écrire dans
+> le fichier. Sinon la prochaine personne verra un trou et non un partage.
+
 ### 6.3 — Une branche par plateforme est invérifiable si elle lit `process.platform`
 
 C'est la cause commune de 6.2 et de plusieurs autres : du code spécifique à une
