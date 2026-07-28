@@ -24,7 +24,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-561%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2142%20passing-2ea44f)
 ![Palier](https://img.shields.io/badge/palier%205-livr%C3%A9-2ea44f)
 
 </div>
@@ -134,6 +134,14 @@ Prérequis : **Node.js ≥ 24**.
 >
 > Sur un Node plus ancien, `hive doctor` vous le dira sous la clé `moteur`, avec
 > la commande qui répare — plutôt que de vous laisser deviner.
+>
+> **Et Windows est réellement exercé.** Ce n'est pas une promesse : l'intégration
+> continue fait tourner la suite entière sur `ubuntu-latest` **et**
+> `windows-latest`, à chaque commit. C'est ce qui a permis de trouver — et de
+> corriger — trois défauts qu'aucune relecture n'aurait vus : `npm ci` qui ne
+> pouvait pas se lancer sur un nœud Windows, un clone qui attendait des
+> identifiants pour toujours, et une borne d'élagage qui supprimait plus de
+> lignes qu'elle n'aurait dû.
 
 ```bash
 npm install
