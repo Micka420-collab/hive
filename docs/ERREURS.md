@@ -93,6 +93,29 @@ de développement — la détection le trouvait toujours.
 > couture d'injection** plutôt que d'écrire une garde dégradée. Et si on pose un
 > pis-aller, l'écrire comme tel et y revenir.
 
+### 2.5 — Un test bloqué par une garde EN AMONT du comportement testé
+
+Le test « `install.sh --dry-run` n'écrit rien » passait. Il n'observait rien :
+la machine tourne sous le plancher de Node, donc le script sortait au contrôle
+de version **avant** d'atteindre le clone. Le chemin `--dry-run` n'était jamais
+parcouru.
+
+Prouvé par mutation : en faisant cloner `--dry-run` de force, le test restait
+**vert**.
+
+C'est le même défaut que 2.4, et je l'ai commis **dans le test censé prévenir
+ce défaut** — le jour même où je l'ai écrit dans ce fichier. La leçon n'est
+donc pas « faire attention » : c'est que **la mutation est le seul juge**.
+
+> **Règle** — quand un script comporte des gardes en amont (version, prérequis,
+> présence d'un binaire), un test du comportement AVAL doit les franchir
+> explicitement : `PATH` détourné vers un faux binaire, variable d'environnement,
+> paramètre. Sinon on teste la garde, pas le comportement.
+>
+> **Règle** — muter systématiquement le comportement visé, pas seulement les
+> lignes qu'on vient d'écrire. Un test vert sur un mutant est un test qui ne
+> sert à rien, quelle que soit sa prose.
+
 ---
 
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème

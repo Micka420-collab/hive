@@ -94,5 +94,24 @@ jobs:
       - name: Tests (vitest, unitaires + e2e)
         run: npm test
 
+      # ─── LES INSTALLEURS, EXERCÉS SUR LES TROIS PLATEFORMES ─────────────────
+      #
+      # `install.sh` et `install.ps1` vivent hors de la compilation, hors du
+      # typage, hors de tout. Rien ne les regarderait — exactement la forme des
+      # défauts que ce dépôt a passé sa journée à sortir.
+      #
+      # `--dry-run` s'arrête AVANT le clone, avant `npm install` et avant
+      # l'installeur : le pas est donc rapide et n'écrit rien. Ce qu'il vérifie
+      # est précisément ce qui casse en premier chez quelqu'un qui découvre le
+      # projet — un script qui ne démarre pas, une syntaxe refusée par le shell
+      # de la plateforme, un chemin mal formé.
+      - name: L'installeur une-commande démarre (POSIX)
+        if: runner.os != 'Windows'
+        run: sh install.sh --dry-run --dir="$RUNNER_TEMP/essai-hive"
+
+      - name: L'installeur une-commande démarre (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive"
+
       - name: Build (typecheck + dashboard)
         run: npm run build
