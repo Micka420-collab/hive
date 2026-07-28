@@ -193,6 +193,63 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **La commande de test d'un merge ne peut plus être n'importe quel binaire**
+  (module pur `src/shared/commande-test.ts`). `POST /api/projects/:id/merge/run`
+  acceptait un `testCommand: string[]` que le hub relayait au premier nœud en
+  ligne, lequel exécutait `spawn(argv[0], argv.slice(1), { shell: false })`.
+  **`shell: false` ne protégeait de rien ici** : ce qu'il empêche, c'est
+  l'interprétation d'une _chaîne_ par un shell — or `argv[0]` **est** le
+  binaire. `["/bin/sh", "-c", "curl … | sh"]` s'exécutait tel quel sur la
+  machine d'un membre, avec ses droits et son `HOME`. Deux aggravations
+  rendaient l'affaire sérieuse plutôt que théorique : **le jeton de ruche n'est
+  pas un secret d'administrateur** (les anciennes invitations `hive1_` le
+  portent en clair, sans expiration ni révocation individuelle — quiconque en a
+  reçu une gardait donc l'exécution de code sur toutes les machines de l'essaim,
+  pour toujours), et **ce chemin ne passe pas par le bac à sable**
+  (`merge-runner.ts` n'appelle pas `envelopper()`, donc `HIVE_ISOLEMENT=exige`
+  — le réglage qu'on pose précisément quand on prête sa machine à des inconnus
+  — n'avait aucun effet). Le binaire est désormais restreint à une **liste de
+  lanceurs de tests** (npm, pnpm, yarn, bun, node, deno, make, cargo, go,
+  pytest, python, mvn, gradle, dotnet, composer, rake, bundle, phpunit, vitest,
+  jest), suffixes Windows compris (`npm.cmd`), plus les **wrappers du dépôt**
+  `./gradlew` et `./mvnw` reconnus à leur nom **exact** — la seule entorse à la
+  règle « pas de chemin », et elle est close par comparaison littérale (un test
+  vérifie que `./gradlew/../../bin/sh` reste refusé). Cela ne rend pas la
+  commande inoffensive et ne le prétend pas : `npm test` exécute ce que le
+  `package.json` du dépôt contient, et c'est exactement ce qu'on lui demande.
+  **La frontière de confiance redevient le dépôt que l'hôte a choisi de
+  connecter, au lieu de « n'importe quel exécutable de la machine du membre ».**
+  La garde est posée **aux deux bouts** : le hub refuse en 400 avec un motif
+  lisible, et le nœud refuse à son tour — c'est celle-là qui compte, un nœud ne
+  devant pas tenir pour acquis que le hub est bien celui qu'il croit sur un
+  transport que la ruche accepte encore en clair. Un test de source relit
+  `merge-runner.ts` et échoue si le jugement cesse de précéder l'exécution, et
+  un autre vérifie qu'aucun shell ni téléchargeur ne s'est glissé dans la liste
+  — l'y ajouter rouvrirait la faille en une ligne sans qu'aucun autre test ne
+  bronche.
+
+- **Les Guetteuses n'écrivent plus au journal à chaque passage — le détecteur
+  ne peut pas servir d'arme.** Régression introduite par la version initiale du
+  module et corrigée avant publication : un événement `guet_leurre` était émis à
+  **chaque** leurre touché. Or le journal est durable et **borné à 5 000
+  entrées**, et cette route n'est couverte par **aucune limitation de débit**
+  (le crochet ne voit que `/api/*`, et un leurre n'en fait par construction pas
+  partie). `for i in $(seq 6000); do curl -s ruche/.env; done` **chassait donc
+  tout l'historique d'audit** — nœuds rejoints, billets révoqués, rôles changés,
+  plafonds posés. Le module écrit pour rendre le reniflage bruyant offrait le
+  levier pour rendre tout le reste silencieux. On écrit désormais par
+  **changement d'état** et non par passage : `Registre.doitAlerter()` ne rend un
+  niveau que lorsqu'il **monte**, et la reprise après retour au calme est bornée
+  à une par fenêtre — au pire **deux lignes par heure** au lieu de six mille.
+  Deux pièges opposés ont été trouvés et fermés en écrivant les tests :
+  l'escalade « reniflage → balayage » était étouffée par la fenêtre (soit
+  exactement l'alerte qui compte), et le réarmement dépendait d'un verdict
+  « calme » **qu'on n'observe jamais** — cette méthode n'étant appelée qu'au
+  moment où un leurre vient d'être touché, une ruche sondée une fois serait
+  devenue sourde pour toujours. Une nouvelle campagne se reconnaît maintenant à
+  ceci que le passage est le seul de sa fenêtre. Le **compte exact reste
+  disponible** sur `GET /api/guet` : on écrit moins, on ne voit pas moins.
+
 - **🐝 Les Guetteuses — rendre une intrusion BRUYANTE** (module pur
   `src/orchestrator/guetteuses.ts`, route `GET /api/guet`, événement
   `guet_leurre`). **Elles ne ferment aucune porte de plus, et ne prétendent pas

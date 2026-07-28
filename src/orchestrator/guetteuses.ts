@@ -207,8 +207,65 @@ export function juger(passages: readonly Passage[], maintenant: number): Verdict
  */
 export class Registre {
   private readonly passages: Passage[] = [];
+  private niveauDit: Niveau = 'calme';
+  private derniereAlerte = 0;
 
   constructor(private readonly maximum = 500) {}
+
+  /**
+   * Faut-il ÉCRIRE une alerte au journal de l'hôte, maintenant ?
+   *
+   * ─── LA FAUTE QUE CETTE MÉTHODE RÉPARE ─────────────────────────────────────
+   *
+   * La première version émettait un événement à CHAQUE leurre touché. Or le
+   * journal est durable (SQLite) et borné à 5 000 entrées : une boucle `curl`
+   * anonyme sur `/.env` y écrivait une ligne par requête et **chassait tout
+   * l'historique** — nœuds rejoints, billets révoqués, rôles changés, plafonds
+   * posés. Un module écrit pour rendre le reniflage bruyant offrait à
+   * l'attaquant le levier pour rendre tout le reste silencieux.
+   *
+   * C'est le retournement classique d'un mécanisme de détection en arme, et il
+   * était d'autant plus facile ici que la limitation de débit ne couvre que
+   * `/api/*` — un leurre, par construction, n'en fait pas partie.
+   *
+   * On n'écrit donc plus par PASSAGE mais par CHANGEMENT D'ÉTAT, et jamais
+   * plus d'une fois par fenêtre. Le compte exact reste disponible en mémoire
+   * pour `GET /api/guet` : ce que l'hôte veut savoir, c'est « on me sonde en
+   * ce moment », pas cinq mille fois « on m'a sondé ».
+   */
+  doitAlerter(maintenant: number): Niveau | null {
+    const vu = this.verdict(maintenant);
+    const niveau = vu.niveau;
+    // RÉARMEMENT. Sans lui, une ruche sondée une fois deviendrait sourde pour
+    // toujours : le niveau déjà dit ne redescendrait jamais, donc plus rien ne
+    // « monterait », donc la campagne du lendemain passerait en silence.
+    //
+    // Une NOUVELLE CAMPAGNE se reconnaît à ceci : ce passage est le seul de la
+    // fenêtre. Rien n'a été vu depuis une heure, ce qui recommence maintenant
+    // est un autre épisode et mérite d'être dit. (Se contenter de réarmer sur
+    // un verdict « calme » ne suffisait pas : cette méthode n'est appelée que
+    // lorsqu'un leurre est touché, et un leurre touché n'est jamais calme.)
+    if (niveau === 'calme' || vu.passages <= 1) this.niveauDit = 'calme';
+    if (niveau === 'calme') return null;
+    const monte =
+      this.niveauDit === 'calme' || (this.niveauDit === 'reniflage' && niveau === 'balayage');
+    if (!monte) return null;
+
+    // UNE MONTÉE PARLE TOUJOURS. Passer de « quelqu'un regarde » à « un outil
+    // déroule sa liste » est l'information qui compte : l'étouffer au nom de la
+    // fenêtre reviendrait à taire la seule alerte qu'on voulait entendre.
+    //
+    // Seule la REPRISE après retour au calme est bornée, pour qu'un attaquant
+    // ne puisse pas cadencer ses passages sur la bordure de fenêtre et refaire
+    // écrire à volonté. Au pire deux lignes par fenêtre, donc.
+    const reprise = this.niveauDit === 'calme';
+    if (reprise && this.derniereAlerte > 0 && maintenant - this.derniereAlerte < FENETRE_MS) {
+      return null;
+    }
+    this.niveauDit = niveau;
+    this.derniereAlerte = maintenant;
+    return niveau;
+  }
 
   /** Enregistre un passage et rend le leurre touché, s'il y en a un. */
   noter(chemin: string, source: string, quand: number): Leurre | null {

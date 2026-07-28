@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
+import { jugerCommandeTest } from '../shared/commande-test.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -98,6 +99,16 @@ function runProc(
  * (git), puis lance éventuellement les tests. Ne commit ni ne push jamais.
  */
 export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
+  // LA GARDE QUI COMPTE. Le hub refuse déjà les commandes hors liste, mais un
+  // nœud ne doit pas tenir pour acquis que le hub est bien celui qu'il croit :
+  // le jeton de ruche est partagé, les anciennes invitations le portent en
+  // clair, et le transport peut être un ws:// de réseau local. On vérifie donc
+  // AVANT toute écriture — `spawn(argv[0])` sans shell exécute quand même le
+  // binaire qu'on lui nomme.
+  if (opts.testCommand && opts.testCommand.length > 0) {
+    const verdict = jugerCommandeTest(opts.testCommand);
+    if (!verdict.ok) throw new Error(`commande de test refusée : ${verdict.motif}`);
+  }
   const git = simpleGit({ baseDir: opts.repoDir });
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];

@@ -41,6 +41,7 @@ import {
   tirerSecret,
 } from '../shared/acces.js';
 import { Registre } from './guetteuses.js';
+import { jugerCommandeTest } from '../shared/commande-test.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -2904,15 +2905,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // jamais. Le renseignement précède l'intrusion ; le voir, c'est gagner le
   // temps de réagir avant que quoi que ce soit de coûteux n'arrive.
   app.setNotFoundHandler((req, reply) => {
-    const leurre = guet.noter(req.url, req.ip, Date.now());
+    const maintenant = Date.now();
+    const leurre = guet.noter(req.url, req.ip, maintenant);
     if (leurre) {
-      // L'événement part au journal de l'hôte, jamais au visiteur : lui dire
-      // qu'il a touché un leurre lui apprendrait à les éviter.
-      emitEvent('guet_leurre', {
-        chemin: leurre.chemin,
-        appat: leurre.appat,
-        intention: leurre.intention,
-      });
+      // ON N'ÉCRIT PAS AU JOURNAL À CHAQUE PASSAGE, et c'est une correction,
+      // pas une économie : le journal est durable et borné à EVENT_RETENTION,
+      // et cette route n'est couverte par AUCUNE limitation de débit (le
+      // crochet ne voit que `/api/*`). Une boucle `curl` anonyme y écrivait
+      // une ligne par requête et chassait tout l'historique d'audit — le
+      // module de détection devenait l'arme.
+      //
+      // `doitAlerter` ne rend un niveau que lorsqu'il MONTE, et au plus une
+      // fois par fenêtre. Le compte exact reste en mémoire, pour /api/guet.
+      const niveau = guet.doitAlerter(maintenant);
+      if (niveau) {
+        emitEvent('guet_leurre', {
+          niveau,
+          chemin: leurre.chemin,
+          appat: leurre.appat,
+          intention: leurre.intention,
+        });
+      }
     }
     // La réponse est EXACTEMENT celle d'un 404 ordinaire. Un leurre qui se
     // signale — par un message, un délai, un en-tête — cesse d'être un leurre.
@@ -3592,6 +3605,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         return reply
           .code(400)
           .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
+      }
+      // Cette commande s'exécutera sur la MACHINE D'UN MEMBRE. Le schéma
+      // Fastify ne borne que la forme (tableau de chaînes) ; c'est ici qu'on
+      // borne le binaire. Refus tôt et explicite : la vraie garde est côté
+      // nœud, celle-ci sert à donner un message lisible plutôt qu'un merge
+      // qui échoue silencieusement à l'autre bout.
+      if (req.body.testCommand) {
+        const verdict = jugerCommandeTest(req.body.testCommand);
+        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
       }
       const tasks = store.listTasks(project.id);
       // Le serveur est la SOURCE DE VÉRITÉ des revues : une tâche rejetée en

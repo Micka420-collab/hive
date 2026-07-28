@@ -208,3 +208,113 @@ describe('le registre', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L'ALERTE NE DOIT PAS DEVENIR L'ARME
+//
+// La première version de ce module écrivait un événement au journal à CHAQUE
+// leurre touché. Le journal est durable et borné (EVENT_RETENTION = 5 000), et
+// cette route n'est couverte par aucune limitation de débit — le crochet ne voit
+// que `/api/*`, et un leurre n'en fait par construction pas partie.
+//
+// Autrement dit : `for i in $(seq 6000); do curl -s ruche/.env; done` chassait
+// TOUT l'historique d'audit — nœuds rejoints, billets révoqués, rôles changés.
+// Le module écrit pour rendre le reniflage bruyant offrait le levier pour rendre
+// tout le reste silencieux. C'est le retournement classique d'un détecteur en
+// arme, et ces tests sont ce qui empêche de le réintroduire.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('l’écriture au journal — par changement d’état, jamais par passage', () => {
+  const marteler = (r: Registre, n: number, t0 = 1000): (string | null)[] => {
+    const dits: (string | null)[] = [];
+    for (let i = 0; i < n; i++) {
+      r.noter('/.env', 'attaquant', t0 + i);
+      dits.push(r.doitAlerter(t0 + i));
+    }
+    return dits;
+  };
+
+  it('UN MARTÈLEMENT N’ÉCRIT PAS 6 000 LIGNES', () => {
+    const r = new Registre();
+    const ecrites = marteler(r, 6000).filter((n) => n !== null);
+    // Deux au grand maximum : « reniflage », puis la montée en « balayage ».
+    expect(ecrites.length).toBeLessThanOrEqual(2);
+    expect(ecrites.length, 'ne rien dire du tout serait l’autre extrême').toBeGreaterThan(0);
+  });
+
+  it('le premier passage parle — l’hôte apprend le jour même', () => {
+    const r = new Registre();
+    r.noter('/.env', 'x', 1000);
+    expect(r.doitAlerter(1000)).toBe('reniflage');
+    // …et pas une deuxième fois pour le même état.
+    r.noter('/.git/config', 'x', 1001);
+    expect(r.doitAlerter(1001)).toBeNull();
+  });
+
+  it('une MONTÉE de niveau parle, même dans la fenêtre', () => {
+    // Passer de « quelqu'un regarde » à « un outil déroule sa liste » est une
+    // information neuve : la taire pour cause de fenêtre serait rater l'alerte
+    // qui compte.
+    const r = new Registre();
+    const dits = marteler(r, SEUIL_BALAYAGE + 5);
+    expect(dits[0]).toBe('reniflage');
+    expect(dits.filter((n) => n === 'balayage')).toHaveLength(1);
+  });
+
+  it('LA CAMPAGNE DU LENDEMAIN EST DITE, ET DITE UNE FOIS', () => {
+    // Le piège inverse de l'inondation : ne parler que de la première campagne
+    // et se taire pour toujours ensuite. C'est ce qui arrivait tant que le
+    // réarmement dépendait d'un verdict « calme » — verdict qu'on n'observe
+    // jamais, puisqu'on ne juge qu'au moment où un leurre vient d'être touché.
+    const r = new Registre();
+    marteler(r, SEUIL_BALAYAGE + 5);
+    const plusTard = 1000 + FENETRE_MS * 3;
+    const dits = marteler(r, 200, plusTard);
+    expect(dits[0], 'la seconde campagne doit se signaler').toBe('reniflage');
+    expect(
+      dits.filter((n) => n === 'balayage'),
+      'une seule ligne pour la montée',
+    ).toHaveLength(1);
+    expect(
+      dits.filter((n) => n !== null),
+      'deux lignes, pas deux cents',
+    ).toHaveLength(2);
+  });
+
+  it('APRÈS RETOUR AU CALME, LA CAMPAGNE SUIVANTE EST DITE', () => {
+    // Sans ce réarmement, une ruche sondée une fois deviendrait sourde pour
+    // toujours — le pire des deux mondes.
+    const r = new Registre();
+    r.noter('/.env', 'x', 1000);
+    expect(r.doitAlerter(1000)).toBe('reniflage');
+    // Rien pendant une fenêtre entière : le verdict redescend, et l'appel de
+    // réarmement se fait sur le chemin normal (une 404 quelconque plus tard).
+    const apres = 1000 + FENETRE_MS + 1;
+    expect(r.doitAlerter(apres)).toBeNull();
+    r.noter('/.env', 'y', apres + 1);
+    expect(r.doitAlerter(apres + 1)).toBe('reniflage');
+  });
+
+  it('une 404 ordinaire ne fait RIEN monter', () => {
+    const r = new Registre();
+    for (let i = 0; i < 1000; i++) r.noter('/page/absente', 'visiteur', 1000 + i);
+    expect(r.doitAlerter(2000)).toBeNull();
+  });
+
+  it('le COMPTE EXACT reste disponible — on écrit moins, on ne voit pas moins', () => {
+    // C'est ce qui rend l'économie acceptable : /api/guet montre toujours la
+    // réalité, seule l'écriture durable est bornée.
+    const r = new Registre();
+    marteler(r, 300);
+    expect(r.verdict(1300).passages).toBe(300);
+  });
+});
+
+describe('le registre (suite)', () => {
+  it('chaque leurre dit ce qu’on cherchait chez vous (invariants de forme)', () => {
+    for (const l of LEURRES) {
+      expect(l.intention.length, l.chemin).toBeGreaterThan(15);
+      expect(l.chemin.startsWith('/'), l.chemin).toBe(true);
+      expect(l.chemin, 'un leurre en majuscules ne matcherait jamais').toBe(l.chemin.toLowerCase());
+    }
+  });
+});
