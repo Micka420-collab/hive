@@ -632,7 +632,7 @@ function ConflictsPanel({
  * L'ouvrière donne donc son identifiant — une chaîne opaque, qu'elle lit sur
  * cette même carte — exactement comme on se passe un billet d'invitation.
  */
-function EquipeProjet({
+export function EquipeProjet({
   project,
   user,
   refreshTick,
@@ -768,7 +768,7 @@ function EquipeProjet({
  * D'où le bandeau qui reste tant qu'on ne l'a pas fermé, et le libellé qui
  * annonce que c'est la seule fois.
  */
-function PartagesProjet({
+export function PartagesProjet({
   project,
   user,
   refreshTick,

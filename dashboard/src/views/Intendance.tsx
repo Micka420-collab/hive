@@ -476,7 +476,7 @@ function LigneServeur({ s, onChanged }: { s: ServeurAdmin; onChanged: () => void
  * déconnecte la machine tout de suite — et c'est écrit à l'écran, parce que
  * les deux gestes n'ont pas les mêmes conséquences.
  */
-function SectionCles({ refreshTick }: { refreshTick: number }) {
+export function SectionCles({ refreshTick }: { refreshTick: number }) {
   const t = useT();
   const [tick, setTick] = useState(0);
   const cles = useApiPoll(fetchCles, 60_000, refreshTick + tick);
