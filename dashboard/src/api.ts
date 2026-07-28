@@ -1436,3 +1436,48 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
     },
   };
 }
+
+// ─── Rejoindre un projet ouvert ─────────────────────────────────────────────
+//
+// ─── LA PORTE QUI N'AVAIT PAS DE POIGNÉE ────────────────────────────────────
+//
+// `GET /api/projects/public`, `POST /api/projects/:id/join` et
+// `GET /api/user/projects` existaient depuis longtemps. Le refus de `join` est
+// soigneusement écrit — il prend la forme EXACTE de l'inexistence, pour qu'une
+// liste d'identifiants ne dessine pas la carte des projets privés de la ruche —
+// et sa garde `peutRejoindre` est un module pur bien testé.
+//
+// **Aucun écran ne les appelait.** Ni la CLI. Sur une plateforme
+// d'orchestration COMMUNAUTAIRE, « découvrir un projet ouvert et le rejoindre »
+// est le parcours qui donne son sens au reste, et il avait un serveur sans
+// porte. C'est le même défaut que `POST /api/projects/user` quelques centaines
+// de lignes plus haut : le défaut n'est dans aucune route, il est dans ce que
+// rien ne fait.
+
+import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
+export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
+
+/**
+ * Le catalogue des projets ouverts. SANS authentification — c'est voulu.
+ *
+ * La réponse est la projection `vuePublique`, jamais la ligne de base : ni
+ * `repoUrl` porteur d'identifiants, ni `ownerId` qui désignerait une cible.
+ */
+export function fetchProjetsOuverts(): Promise<ProjetPublicVue[]> {
+  return api<ProjetPublicVue[]>('/api/projects/public');
+}
+
+/**
+ * Rejoindre un projet ouvert. Exige un COMPTE — le jeton de ruche ne dit pas
+ * qui vous êtes, et on ne peut pas inscrire « le jeton » comme membre.
+ *
+ * Un refus arrive en 404, indistinguable d'un projet qui n'existe pas. C'est
+ * délibéré côté serveur, et l'appelant NE DOIT PAS le retraduire en « vous
+ * n'avez pas le droit » : ce serait reconstruire l'information que le serveur
+ * a tue.
+ */
+export function rejoindreProjet(projectId: string): Promise<{ joined: boolean }> {
+  return apiCompte<{ joined: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/join`, {
+    method: 'POST',
+  });
+}

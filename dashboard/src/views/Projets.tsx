@@ -19,6 +19,7 @@ import {
   fetchMergePlan,
   fetchPartages,
   fetchMergeResult,
+  fetchProjetsOuverts,
   fetchReport,
   importerDepotGithub,
   fetchIssues,
@@ -26,10 +27,12 @@ import {
   prendreIssue,
   reprendreLivraison,
   planBrief,
+  rejoindreProjet,
   retirerMembre,
   revoquerPartage,
   runMerge,
 } from '../api';
+import { ApiError } from '../api';
 import type {
   AuthUser,
   BalanceState,
@@ -41,6 +44,7 @@ import type {
   NewTaskInput,
   PartageCree,
   PlanResponse,
+  ProjetPublicVue,
   SessionConseil,
 } from '../api';
 import { useLang, useT } from '../i18n';
@@ -1097,6 +1101,154 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
 }
 
 /**
+ * LES PROJETS OUVERTS À LA RUCHE — la porte qui n'avait pas de poignée.
+ *
+ * ─── LE DÉFAUT ───────────────────────────────────────────────────────────────
+ *
+ * `GET /api/projects/public` et `POST /api/projects/:id/join` existaient depuis
+ * longtemps. Le refus de `join` est écrit avec soin — il prend la forme EXACTE
+ * de l'inexistence, pour qu'une liste d'identifiants ne dessine pas la carte
+ * des projets privés — et sa garde `peutRejoindre` est un module pur bien
+ * testé.
+ *
+ * **Aucun écran ne les appelait.** Ni la ligne de commande. Sur une plateforme
+ * d'orchestration COMMUNAUTAIRE, « découvrir un projet ouvert et le rejoindre »
+ * est le parcours qui donne son sens à tous les autres, et il avait un serveur
+ * sans porte. C'est exactement le défaut de `POST /api/projects/user` : il
+ * n'était dans aucune route, il était dans ce que rien ne faisait.
+ *
+ * ─── CE QUE CET ÉCRAN REFUSE DE DÉDUIRE ──────────────────────────────────────
+ *
+ * Un refus revient en **404**, indistinguable d'un projet qui n'existe pas.
+ * C'est délibéré côté serveur. L'écran NE DOIT PAS le retraduire en « vous
+ * n'avez pas le droit » : ce serait reconstruire dans le navigateur
+ * l'information que le serveur a tue, et rendre le refus à nouveau lisible pour
+ * qui balaie des identifiants.
+ *
+ * Il dit donc la seule chose vraie — le projet n'est plus disponible — et relit
+ * la liste, qui est la réponse honnête.
+ */
+export function ProjetsOuverts({
+  user,
+  dejaVus,
+  onRejoint,
+}: {
+  user: AuthUser | null;
+  /** Les projets déjà visibles : on ne propose pas de rejoindre les siens. */
+  dejaVus: Set<string>;
+  onRejoint: () => void;
+}) {
+  const t = useT();
+  const [ouverts, setOuverts] = useState<ProjetPublicVue[] | null>(null);
+  const [chargement, setChargement] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState<string | null>(null);
+
+  // Rejoindre exige un COMPTE : le jeton de ruche ne dit pas qui vous êtes, et
+  // on ne peut pas inscrire « le jeton » comme membre. Sans compte, le panneau
+  // se tait plutôt que d'offrir un bouton qui ne peut que refuser.
+  if (!user) return null;
+
+  // `relire` NE TOUCHE PAS au message d'erreur, et c'est nécessaire : un refus
+  // déclenche une relecture, et si la relecture effaçait le message, le refus
+  // serait silencieux. Le bouton, lui, veut bien repartir de zéro — d'où les
+  // deux fonctions plutôt qu'un drapeau.
+  const relire = () => {
+    setChargement(true);
+    fetchProjetsOuverts()
+      .then(setOuverts)
+      .catch((e: unknown) => setErreur(errMsg(e)))
+      .finally(() => setChargement(false));
+  };
+
+  const charger = () => {
+    setErreur(null);
+    relire();
+  };
+
+  const rejoindre = (p: ProjetPublicVue) => {
+    setEnCours(p.id);
+    setErreur(null);
+    rejoindreProjet(p.id)
+      .then(() => onRejoint())
+      .catch((e: unknown) => {
+        // On NE TRADUIT PAS le 404 en « interdit ». Voir l'en-tête. Et on relit :
+        // si le projet a disparu ou s'est refermé, la liste le dira. Laisser la
+        // ligne morte inviterait à recliquer sur ce qui ne peut plus marcher.
+        setErreur(
+          e instanceof ApiError && e.status === 404
+            ? t(
+                'Ce projet n’est plus disponible. La liste a été relue.',
+                'This project is no longer available. The list has been reloaded.',
+              )
+            : errMsg(e),
+        );
+        relire();
+      })
+      .finally(() => setEnCours(null));
+  };
+
+  const aRejoindre = (ouverts ?? []).filter((p) => !dejaVus.has(p.id));
+
+  return (
+    <section className="card pj-ouverts">
+      <div className="pj-sub-head">
+        <h3>{t('Projets ouverts à la ruche', 'Projects open to the hive')}</h3>
+        <button className="btn ghost sm" onClick={charger} disabled={chargement}>
+          {chargement
+            ? t('lecture…', 'reading…')
+            : ouverts
+              ? t('relire', 'reload')
+              : t('voir les projets ouverts', 'show open projects')}
+        </button>
+      </div>
+
+      {erreur && <p className="panel-error">{erreur}</p>}
+
+      {ouverts && aRejoindre.length === 0 && (
+        <p className="pj-sub-vide">
+          {ouverts.length === 0
+            ? t(
+                'Aucun projet ouvert pour l’instant. Un projet devient ouvert quand son propriétaire le rend public.',
+                'No open project yet. A project becomes open when its owner makes it public.',
+              )
+            : t(
+                'Vous êtes déjà dans tous les projets ouverts.',
+                'You are already in every open project.',
+              )}
+        </p>
+      )}
+
+      {aRejoindre.length > 0 && (
+        <ul className="pj-ouverts-liste">
+          {aRejoindre.map((p) => (
+            <li key={p.id}>
+              <span className="pj-ouv-nom">{p.name}</span>
+              {p.description && <span className="pj-ouv-desc">{p.description}</span>}
+              {/* ON LAVE, MÊME SI LA SOURCE LAVE DÉJÀ. `vuePublique` retire les
+                  identifiants côté serveur, et c'est bien — mais « la source
+                  s'en charge » est exactement le raisonnement qui a laissé
+                  passer la même fuite TROIS FOIS (voir
+                  `tests/repourl-affichage.test.ts`). `sansIdentifiants` est
+                  idempotent : une seconde application ne peut rien casser, elle
+                  ne peut qu'enlever un secret qui n'aurait pas dû être là. */}
+              {p.repoUrl && <code className="pj-ouv-depot">{sansIdentifiants(p.repoUrl)}</code>}
+              <button
+                className="btn ghost sm"
+                onClick={() => rejoindre(p)}
+                disabled={enCours !== null}
+              >
+                {enCours === p.id ? '…' : t('Rejoindre', 'Join')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
  * Le connecteur GitHub — connecter un dépôt existant en un clic.
  *
  * ─── CE QUI MANQUAIT ─────────────────────────────────────────────────────────
@@ -1714,6 +1866,15 @@ export default function Projets({
           quelqu'un qui arrive avec du code existant, alors que la Queen Bee
           s'adresse à qui part d'une idée. */}
       <ConnecteurGithub user={user} onImporte={() => setImportTick((n) => n + 1)} />
+
+      {/* Rejoindre vient AVANT la Queen Bee : quelqu'un qui arrive sans projet
+          a plus vite quelque chose à faire en rejoignant l'existant qu'en
+          rédigeant un brief. */}
+      <ProjetsOuverts
+        user={user}
+        dejaVus={new Set(snapshot.projects.map((p) => p.id))}
+        onRejoint={() => setImportTick((n) => n + 1)}
+      />
 
       <QueenBee projects={recents} />
 
