@@ -45,6 +45,8 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { vuePublique } from '../shared/projet-public.js';
 import { peutLireCode, peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
+import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
+import { construireRetouche } from '../shared/retouche.js';
 import {
   TTL_PARTAGE_MAX_MS,
   actePartage,
@@ -4374,6 +4376,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return project;
   };
 
+  /**
+   * S'assure que le miroir du projet existe et est à jour. Rend `false` après
+   * avoir répondu si le code n'est pas consultable.
+   *
+   * Rafraîchi au plus une fois par fenêtre : sans cela, chaque affichage
+   * lancerait un `git fetch`, et deux visiteurs simultanés donneraient deux
+   * `git` concurrents dans le même répertoire.
+   */
+  const assurerMiroir = async (project: Project, reply: FastifyReply): Promise<boolean> => {
+    if (!project.repoUrl) {
+      reply.code(409).send({ error: 'ce projet n’a pas de dépôt (repoUrl)' });
+      return false;
+    }
+    try {
+      await rayons.rafraichir(project.id, project.repoUrl);
+    } catch {
+      // Un amont injoignable n'efface pas ce qu'on a déjà : mieux vaut un code
+      // d'hier que pas de code du tout.
+      if (!rayons.existe(project.id)) {
+        reply.code(409).send({
+          error: 'le dépôt n’a pas pu être copié — vérifiez son URL et son accessibilité',
+        });
+        return false;
+      }
+    }
+    return true;
+  };
+
   /** Traduit un refus du rayon en réponse HTTP, sans inventer de détail. */
   const repondreRayon = (reply: FastifyReply, e: unknown): FastifyReply => {
     if (!(e instanceof RayonIndisponible)) throw e;
@@ -4403,23 +4433,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     async (req, reply) => {
       const project = projetLisible(req, reply);
       if (!project) return reply;
-      if (!project.repoUrl) {
-        return reply.code(409).send({ error: 'ce projet n’a pas de dépôt (repoUrl)' });
-      }
-      try {
-        // Rafraîchi au plus une fois par fenêtre : sans cela, chaque affichage
-        // lancerait un `git fetch`, et deux visiteurs simultanés donneraient
-        // deux `git` concurrents dans le même répertoire.
-        await rayons.rafraichir(project.id, project.repoUrl);
-      } catch {
-        // Un amont injoignable n'efface pas ce qu'on a déjà : mieux vaut un
-        // code d'hier que pas de code du tout.
-        if (!rayons.existe(project.id)) {
-          return reply.code(409).send({
-            error: 'le dépôt n’a pas pu être copié — vérifiez son URL et son accessibilité',
-          });
-        }
-      }
+      if (!(await assurerMiroir(project, reply))) return reply;
       try {
         return reply.send({
           chemin: req.query.chemin ?? '',
@@ -4438,11 +4452,89 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!project) return reply;
       const chemin = req.query.chemin ?? '';
       if (chemin === '') return reply.code(400).send({ error: 'chemin manquant' });
+      // LE MIROIR EST ASSURÉ ICI AUSSI. Il ne l'était pas, et seul l'affichage
+      // de l'arbre le créait : un lien direct vers un fichier — celui qu'on
+      // colle dans une conversation, celui d'un partage en lecture — échouait
+      // en 409 tant que personne n'avait ouvert l'arbre d'abord. Un test l'a
+      // trouvé en lisant un fichier sans passer par la racine.
+      if (!(await assurerMiroir(project, reply))) return reply;
       try {
         return reply.send(await rayons.lire(project.id, chemin));
       } catch (e) {
         return repondreRayon(reply, e);
       }
+    },
+  );
+
+  /**
+   * La Reine retouche un fichier — et sa retouche devient une TÂCHE.
+   *
+   * ─── POURQUOI PAS UNE ÉCRITURE DIRECTE ────────────────────────────────────
+   *
+   * Le Rayon est un MIROIR : un clone superficiel, jetable, reconstruit d'un
+   * `git clone`. Y écrire serait le pire mensonge d'interface possible — on
+   * croit avoir corrigé, le texte reste à l'écran, et le prochain
+   * rafraîchissement l'efface sans rien dire.
+   *
+   * La retouche emprunte donc EXACTEMENT le circuit du reste du travail : une
+   * ouvrière l'applique chez elle, la teste, rend un diff, et ce diff passe par
+   * la revue, les Gardiennes, La Balance et un merge humain. Une seconde voie
+   * d'écriture, plus courte, serait une seconde voie à sécuriser — et celle
+   * qu'on oublierait de sécuriser.
+   *
+   * Le prompt fabriqué contient du CODE VENU DU DÉPÔT : il est emballé en
+   * données non fiables (`shared/retouche.ts`), comme celui de la Couveuse.
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { chemin: string; avant: string; apres: string; note?: string };
+  }>(
+    '/api/projects/:projectId/rayon/retouche',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['chemin', 'avant', 'apres'],
+          additionalProperties: false,
+          properties: {
+            chemin: { type: 'string', minLength: 1, maxLength: LONGUEUR_MAX_CHEMIN },
+            avant: { type: 'string', maxLength: TAILLE_MAX_FICHIER },
+            apres: { type: 'string', maxLength: TAILLE_MAX_FICHIER },
+            note: { type: 'string', maxLength: 1_000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // RETOUCHER N'EST PAS LIRE. Un porteur de lien de partage lit ; il ne
+      // fabrique pas de travail pour l'essaim. On exige donc un COMPTE, et
+      // `projetLisible` n'est pas la bonne garde ici.
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      if (
+        !project ||
+        !peutLireCode(project, lecteurDe(req), store.estMembre(req.params.projectId, userId))
+      ) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+
+      const r = construireRetouche({
+        chemin: req.body.chemin,
+        avant: req.body.avant,
+        apres: req.body.apres,
+        ...(req.body.note ? { note: req.body.note } : {}),
+      });
+      if (!r.ok) return reply.code(400).send({ error: r.motif, refus: r.refus });
+
+      const tache = store.createTask({ projectId: project.id, title: r.titre, prompt: r.prompt });
+      emitEvent('retouche_proposee', {
+        projectId: project.id,
+        taskId: tache.id,
+        chemin: req.body.chemin,
+        parUserId: userId,
+      });
+      return reply.code(201).send({ task: tache });
     },
   );
 
