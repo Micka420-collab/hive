@@ -268,19 +268,33 @@ function MergeReport({
   taskTitles: Map<string, string>;
 }) {
   const t = useT();
-  const tests = !result.testsRun
-    ? t('tests non lancés', 'tests not run')
-    : result.testsPassed === true
-      ? t('✔ tests verts', '✔ tests green')
-      : result.testsPassed === false
-        ? t('✘ tests rouges', '✘ tests red')
-        : t('tests sans verdict', 'tests without a verdict');
+  // L'ENVIRONNEMENT EN ÉCHEC N'EST PAS UN TEST ROUGE. Les tests n'ont alors pas
+  // tourné du tout : afficher « tests non lancés » sans dire pourquoi enverrait
+  // chercher une régression dans du code qui va très bien.
+  const envRate = result.preparedOk === false;
+  const tests = envRate
+    ? t('environnement non préparé — tests non lancés', 'environment not prepared — tests not run')
+    : !result.testsRun
+      ? t('tests non lancés', 'tests not run')
+      : result.testsPassed === true
+        ? t('✔ tests verts', '✔ tests green')
+        : result.testsPassed === false
+          ? t('✘ tests rouges', '✘ tests red')
+          : t('tests sans verdict', 'tests without a verdict');
   return (
     <div className="pj-merge-report">
       <p>
         <strong>{result.applied.length}</strong> {t('diff(s) appliqué(s),', 'diff(s) applied,')}{' '}
         <strong>{result.conflicts.length}</strong> {t('conflit(s)', 'conflict(s)')} — {tests}
       </p>
+      {envRate && (
+        <p className="panel-error">
+          {t(
+            'L’installation des dépendances a échoué sur le nœud : le code n’est pas en cause. Vérifiez son accès réseau, puis le fichier de verrouillage du dépôt.',
+            'Dependency installation failed on the node: the code is not at fault. Check its network access, then the repository lockfile.',
+          )}
+        </p>
+      )}
       {result.applied.length > 0 && (
         <ul className="pj-applied">
           {result.applied.map((id) => (
@@ -320,6 +334,7 @@ function MergePanel({
   const planPoll = useApiPoll(() => fetchMergePlan(project.id), 30_000, refreshTick);
   const plan = planPoll.data;
   const [testCmd, setTestCmd] = useState('');
+  const [prepCmd, setPrepCmd] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [run, setRun] = useState<RunState>({ phase: 'idle' });
   const busyRun = run.phase === 'starting' || run.phase === 'polling';
@@ -327,8 +342,8 @@ function MergePanel({
   const launch = () => {
     setConfirming(false);
     setRun({ phase: 'starting' });
-    const cmd = testCmd.trim() ? testCmd.trim().split(/\s+/) : undefined;
-    runMerge(project.id, cmd)
+    const argv = (s: string) => (s.trim() ? s.trim().split(/\s+/) : undefined);
+    runMerge(project.id, { testCommand: argv(testCmd), prepareCommand: argv(prepCmd) })
       .then((start) => setRun({ phase: 'polling', mergeId: start.mergeId, since: Date.now() }))
       .catch((e: unknown) => setRun({ phase: 'error', message: errMsg(e) }));
   };
@@ -416,18 +431,35 @@ function MergePanel({
           )}
 
           <div className="pj-run">
-            <input
-              className="pj-testcmd"
-              type="text"
-              placeholder={t(
-                'Commande de test (optionnel), ex. npm test',
-                'Test command (optional), e.g. npm test',
-              )}
-              value={testCmd}
-              onChange={(e) => setTestCmd(e.target.value)}
-              disabled={busyRun}
-              aria-label={t('Commande de test', 'Test command')}
-            />
+            {/* La préparation d'abord — à l'écran comme à l'exécution. Sans
+                elle, `npm test` sur un clone frais échoue faute de
+                dépendances, et le verdict se lit « tests cassés ». */}
+            <div className="pj-cmds">
+              <input
+                className="pj-testcmd"
+                type="text"
+                placeholder={t(
+                  'Préparer l’environnement (optionnel), ex. npm ci',
+                  'Prepare the environment (optional), e.g. npm ci',
+                )}
+                value={prepCmd}
+                onChange={(e) => setPrepCmd(e.target.value)}
+                disabled={busyRun}
+                aria-label={t('Préparation de l’environnement', 'Environment preparation')}
+              />
+              <input
+                className="pj-testcmd"
+                type="text"
+                placeholder={t(
+                  'Commande de test (optionnel), ex. npm test',
+                  'Test command (optional), e.g. npm test',
+                )}
+                value={testCmd}
+                onChange={(e) => setTestCmd(e.target.value)}
+                disabled={busyRun}
+                aria-label={t('Commande de test', 'Test command')}
+              />
+            </div>
             {!confirming && !busyRun && (
               <button
                 className="btn primary"

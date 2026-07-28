@@ -581,18 +581,26 @@ export interface MergeRunStart {
 
 /**
  * Déclenche l'exécution réelle du merge sur un nœud (asynchrone).
- * `taskIds` : sélection de revue (Miellerie) — seules ces tâches sont intégrées.
+ *
+ * - `prepareCommand` : prépare l'environnement AVANT les tests (`npm ci`…).
+ *   Sans elle, `npm test` sur un clone frais échoue faute de dépendances.
+ * - `taskIds` : sélection de revue (Miellerie) — seules ces tâches sont
+ *   intégrées.
+ *
+ * Un objet plutôt que des positions : trois options optionnelles à la suite,
+ * c'est un `runMerge(id, undefined, undefined, x)` qui finit par se tromper de
+ * rang un jour.
  */
 export function runMerge(
   projectId: string,
-  testCommand?: string[],
-  taskIds?: string[],
+  opts: { testCommand?: string[]; prepareCommand?: string[]; taskIds?: string[] } = {},
 ): Promise<MergeRunStart> {
   return api<MergeRunStart>(`/api/projects/${projectId}/merge/run`, {
     method: 'POST',
     body: JSON.stringify({
-      ...(testCommand?.length ? { testCommand } : {}),
-      ...(taskIds?.length ? { taskIds } : {}),
+      ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
+      ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
+      ...(opts.taskIds?.length ? { taskIds: opts.taskIds } : {}),
     }),
   });
 }
@@ -604,6 +612,13 @@ export interface MergeRunResult {
   mergedDiff: string;
   testsRun: boolean;
   testsPassed: boolean | null;
+  /**
+   * Verdict de la préparation : absent/`null` si aucune n'a été demandée.
+   *
+   * `false` veut dire que l'environnement ne s'est pas installé — et non que le
+   * code est cassé. C'est pour ça qu'il est distinct de `testsPassed`.
+   */
+  preparedOk?: boolean | null;
   logs: string;
 }
 

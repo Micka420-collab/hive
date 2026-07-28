@@ -42,6 +42,7 @@ import {
 } from '../shared/acces.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
+import { jugerPreparation } from '../shared/preparation.js';
 import { vuePublique } from '../shared/projet-public.js';
 import { peutLireCode, peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
@@ -3722,7 +3723,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // application des diffs dans l'ordre du plan (conflits git réels), tests
   // optionnels. Asynchrone : le résultat revient via merge_result, à lire sur
   // /merge/result. Ne commit ni ne push jamais.
-  app.post<{ Params: { projectId: string }; Body: { testCommand?: string[]; taskIds?: string[] } }>(
+  app.post<{
+    Params: { projectId: string };
+    Body: { testCommand?: string[]; prepareCommand?: string[]; taskIds?: string[] };
+  }>(
     '/api/projects/:projectId/merge/run',
     {
       schema: {
@@ -3736,6 +3740,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           additionalProperties: false,
           properties: {
             testCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+            // La préparation de l'environnement, lancée avant les tests.
+            prepareCommand: {
               type: 'array',
               minItems: 1,
               maxItems: LIMITS.testArgs,
@@ -3768,6 +3779,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // qui échoue silencieusement à l'autre bout.
       if (req.body.testCommand) {
         const verdict = jugerCommandeTest(req.body.testCommand);
+        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+      }
+      // Et la préparation avec, pour la même raison : elle s'exécute là-bas,
+      // et une installation exécute les scripts de ce qu'elle installe.
+      if (req.body.prepareCommand) {
+        const verdict = jugerPreparation(req.body.prepareCommand);
         if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
       }
       const tasks = store.listTasks(project.id);
@@ -3855,6 +3872,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         mergeId,
         repoUrl: project.repoUrl,
         diffs,
+        ...(req.body.prepareCommand ? { prepareCommand: req.body.prepareCommand } : {}),
         ...(req.body.testCommand ? { testCommand: req.body.testCommand } : {}),
       });
       emitEvent('merge_started', {

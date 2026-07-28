@@ -408,6 +408,16 @@
   border-color: var(--amber);
 }
 
+/* Les deux commandes occupent leur propre ligne : côte à côte avec le bouton
+   « Lancer le merge », chacune se réduisait à une fente de 180 px où l'on ne
+   lit plus ce qu'on tape. */
+.pj-cmds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+
 .pj-confirm {
   color: var(--gold);
   font-size: 12px;

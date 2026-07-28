@@ -598,7 +598,7 @@ export default function Miellerie({
         : keptIds.length < doneOfProject.length
           ? keptIds
           : undefined;
-    runMerge(projectId, undefined, taskIds)
+    runMerge(projectId, { taskIds })
       .then((start) => setMerge({ step: 'waiting', mergeId: start.mergeId, since: Date.now() }))
       .catch((e: unknown) => setMerge({ step: 'error', message: readableError(e) }));
   };
