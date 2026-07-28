@@ -17,30 +17,18 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { analyserRustine, appliquerRustine } from '../src/orchestrator/rustine.js';
 
-// ─── POURQUOI UN DÉLAI ÉLARGI POUR TOUT CE FICHIER ───────────────────────────
+// Ces 16 tests lancent de VRAIES commandes git dans un dépôt jetable — c'est
+// tout leur intérêt : comparer notre rustine à `git apply` sur le disque, pas
+// sur une simulation. Le prix, c'est plusieurs processus par test, et sous
+// Windows deux d'entre eux ont dépassé les 5 000 ms par défaut de vitest.
 //
-// Chacun de ces 16 tests lance de VRAIES commandes git dans un dépôt jetable —
-// c'est tout leur intérêt : comparer notre rustine à `git apply` sur le disque,
-// pas sur une simulation. Le prix, c'est plusieurs processus par test.
-//
-// Sous Windows, deux d'entre eux ont dépassé les 5 000 ms par défaut de vitest
-// sur un runner chargé — alors qu'ils étaient passés au run précédent, sur le
-// MÊME code. Ce n'est donc pas un blocage mais de la variance : le lancement de
-// processus y coûte plus cher, et 5 s laissent trop peu de marge.
-//
-// LE DÉLAI EST POSÉ SUR LE FICHIER, pas sur les deux tests qui ont rougi
-// aujourd'hui. Ils font tous exactement le même genre de travail : n'élargir
-// que ceux-là ne ferait que déplacer la bascule sur leurs voisins au prochain
-// runner lent.
-//
-// À ne pas confondre avec les blocages : trois tests du miroir tapaient les
-// 30 000 ms AU MILLIÈME PRÈS, ce qui trahissait une attente sans fin. Ceux-là
-// ont été CORRIGÉS — git y attendait des identifiants — et non rallongés. Un
-// test qui touche exactement son plafond n'est pas lent, il attend.
-vi.setConfig({ testTimeout: 20_000 });
+// J'ai d'abord élargi le délai ICI. Le run suivant l'a déplacé sur trois autres
+// fichiers : le plafond par défaut était le défaut, pas ce fichier. Il est
+// désormais relevé une seule fois, dans `vitest.config.ts`, où le raisonnement
+// complet est écrit.
 
 function gitDisponible(): boolean {
   try {
