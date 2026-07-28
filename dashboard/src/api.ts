@@ -681,6 +681,39 @@ export function setServeurEtat(
   });
 }
 
+// ─── Le Rayon : lire le code du projet ──────────────────────────────────────
+
+export type { Entree as EntreeRayon } from '../../src/shared/rayon';
+import type { Entree as EntreeRayon } from '../../src/shared/rayon';
+
+export interface FichierRayon {
+  chemin: string;
+  contenu: string;
+  langage: string;
+  taille: number;
+  tronque: boolean;
+}
+
+/**
+ * Le contenu d'un dossier du rayon. `chemin` vide = la racine.
+ *
+ * Signé par le COMPTE : le serveur décide seul qui lit quel dépôt, et un jeton
+ * de ruche — partagé avec chaque nœud — ne prouve rien à ce sujet.
+ */
+export function fetchRayon(
+  projectId: string,
+  chemin = '',
+): Promise<{ chemin: string; entrees: EntreeRayon[] }> {
+  const q = chemin === '' ? '' : `?chemin=${encodeURIComponent(chemin)}`;
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/rayon${q}`);
+}
+
+export function fetchFichierRayon(projectId: string, chemin: string): Promise<FichierRayon> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/rayon/fichier?chemin=${encodeURIComponent(chemin)}`,
+  );
+}
+
 /**
  * Le billet de rattachement d'une machine — REMIS UNE SEULE FOIS.
  *
