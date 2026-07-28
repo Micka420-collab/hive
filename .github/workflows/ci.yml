@@ -76,11 +76,25 @@ jobs:
       # autant : c'est exactement ce que le diagnostic `moteur` de
       # `hive doctor` sait maintenant nommer, et il est testé sur les deux
       # plateformes à chaque CI.
+      # On passe par la VARIABLE D'ENVIRONNEMENT, pas par `npm config set`.
+      # Première tentative, refusée net par npm 10.8.2 :
+      #
+      #   npm error `node_gyp` is not a valid npm option
+      #
+      # `npm config set node_gyp …` marchait en npm 6/7 ; depuis, npm rejette
+      # les clés qu'il ne connaît pas. `npm_config_node_gyp` reste lue.
+      #
+      # Et on VÉRIFIE que le fichier est là avant de l'annoncer : un chemin
+      # faux se traduirait plus loin par un échec de compilation, à cinquante
+      # lignes de sa cause.
       - name: node-gyp capable de voir Visual Studio (Windows)
         if: runner.os == 'Windows'
         run: |
           npm install -g node-gyp@11
-          npm config set node_gyp "$(npm prefix -g)/node_modules/node-gyp/bin/node-gyp.js"
+          $gyp = "$(npm prefix -g)/node_modules/node-gyp/bin/node-gyp.js"
+          if (-not (Test-Path $gyp)) { throw "node-gyp introuvable après installation : $gyp" }
+          Write-Host "npm_config_node_gyp = $gyp"
+          Add-Content -Path $env:GITHUB_ENV -Value "npm_config_node_gyp=$gyp"
 
       # `--foreground-scripts` rend VISIBLE ce que font les scripts d'install.
       # Sans lui, l'échec du module natif de `better-sqlite3` — qui est une
