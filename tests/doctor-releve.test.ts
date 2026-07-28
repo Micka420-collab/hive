@@ -31,6 +31,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   baseIntegre,
   emplacements,
+  moteurManquant,
   octetsLibres,
   portLibre,
   portTenuParNous,
@@ -150,8 +151,8 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       expect(r.base.presente, 'pas de base').toBe(false);
       expect(r.base.integre, 'pas de base ⇒ rien à vérifier').toBeNull();
 
-      // Et le jugement tient : onze lignes, aucune exception.
-      expect(diagnostiquer(r)).toHaveLength(11);
+      // Et le jugement tient : douze lignes, aucune exception.
+      expect(diagnostiquer(r)).toHaveLength(12);
     } finally {
       rmSync(nue, { recursive: true, force: true });
     }
@@ -353,7 +354,7 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
         }),
     );
 
-  it('`doctor --json` REND DU JSON VALIDE, onze diagnostics, et un code de sortie', async () => {
+  it('`doctor --json` REND DU JSON VALIDE, douze diagnostics, et un code de sortie', async () => {
     const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-cli-'));
     try {
       const { code, sortie } = await lancer(racine, ['--json']);
@@ -361,7 +362,7 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
         verdict: string;
         diagnostics: { cle: string; gravite: string; reparation: string | null }[];
       };
-      expect(vu.diagnostics, 'les onze de la mission').toHaveLength(11);
+      expect(vu.diagnostics, 'les douze de la mission').toHaveLength(12);
       // Une racine nue n'a ni .env ni jeton : le verdict DOIT être bloquant, et
       // le code de sortie doit le dire à la supervision qui l'écoute.
       expect(vu.verdict).toBe('bloquant');
@@ -388,4 +389,60 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
       rmSync(racine, { recursive: true, force: true });
     }
   }, 90_000);
+});
+
+describe('LE SONDAGE DU MOTEUR — la panne Windows, sondée pour de vrai', () => {
+  // ─── POURQUOI ON IMPORTE AU LIEU DE REGARDER `node_modules/` ────────────────
+  //
+  // Un dossier `better-sqlite3/` présent ne prouve rien : npm le crée AVANT de
+  // lancer `node-gyp`, et le laisse en place quand la compilation échoue.
+  // C'est bien ce qui s'est passé sur la CI Windows — le dossier était là, et
+  // l'`import` mourait quand même. Ce qui casse `hive start`, c'est l'`import` ;
+  // c'est donc l'`import` qu'on fait ici.
+
+  it('sur CETTE machine, les quatre paquets de la ruche complète se chargent', async () => {
+    // Cette suite tourne sur une ruche complète : si l'un des quatre manquait,
+    // la moitié des fichiers de test ne s'importerait pas. Ce test dit donc
+    // « le sondage ne crie pas au loup », et il rougirait le jour où le
+    // sondage se mettrait à rendre `manquants` sur une machine saine.
+    const vu = await moteurManquant();
+    expect(vu.manquants, 'aucun paquet ne devrait manquer ici').toEqual([]);
+    expect(vu.raison).toBeNull();
+  });
+
+  it('UN PAQUET ABSENT EST VU, ET SA RAISON REMONTE', async () => {
+    const vu = await moteurManquant(['@hive/paquet-qui-n-existe-pas']);
+    expect(vu.manquants).toEqual(['@hive/paquet-qui-n-existe-pas']);
+    expect(vu.raison, 'la raison brute doit remonter, pas un texte inventé').toContain(
+      '@hive/paquet-qui-n-existe-pas',
+    );
+    // Une seule ligne : une trace `node-gyp` complète en fait cinquante et
+    // noierait les onze autres diagnostics.
+    expect(vu.raison ?? '').not.toContain('\n');
+  });
+
+  it('la PREMIÈRE raison seulement, mais TOUS les manquants', async () => {
+    const vu = await moteurManquant(['@hive/absent-un', 'fastify', '@hive/absent-deux']);
+    expect(vu.manquants, 'les deux absents, et pas fastify').toEqual([
+      '@hive/absent-un',
+      '@hive/absent-deux',
+    ]);
+    expect(vu.raison).toContain('absent-un');
+    expect(vu.raison, 'la deuxième raison n’écrase pas la première').not.toContain('absent-deux');
+  });
+
+  it('le relevé complet PORTE le moteur, et le verdict le lit', async () => {
+    // La couture qui compte : sans elle, `moteur` resterait un champ que
+    // personne ne remplit — exactement le défaut que ce dépôt collectionne.
+    const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-moteur-'));
+    try {
+      const releve = await relever(racine, { HIVE_PORT: '7799' });
+      expect(releve.moteur.manquants).toEqual([]);
+      const d = diagnostiquer(releve).find((x) => x.cle === 'moteur');
+      expect(d, 'aucun diagnostic « moteur » dans le relevé réel').toBeTruthy();
+      expect(d?.gravite).toBe('ok');
+    } finally {
+      rmSync(racine, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
