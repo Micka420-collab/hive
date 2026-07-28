@@ -370,6 +370,44 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
     }
   });
 
+  it('un emplacement PROTÉGÉ mais ABSENT n’est pas annoncé comme conservé', () => {
+    // ─── LE SCÉNARIO QUE MON PREMIER TEST N'ATTEIGNAIT PAS ───────────────────
+    //
+    // La loupe faisait survivre un mutant sur `issue === 'protege' && chemins
+    // .length > 0` : passé en `||`, la ligne « conservé » s'affiche pour un
+    // emplacement protégé même quand il n'y a RIEN — « ⚠ base — conservé : »
+    // suivi du vide.
+    //
+    // Mon test précédent créait toujours `.env` ET la base : les deux
+    // emplacements protégés avaient un chemin, donc le mutant restait
+    // invisible. C'est le § 2.4 — prétendre couvrir un chemin qu'on
+    // n'emprunte pas. Ici, `.env` existe et la base NON.
+    const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-cli-desinst-'));
+    try {
+      mkdirSync(path.join(bac, '.hive-work'), { recursive: true });
+      writeFileSync(path.join(bac, '.env'), 'HIVE_TOKEN=x\n');
+
+      const r = lancer([bac, '--oui']);
+      expect(r.code, r.sortie).toBe(0);
+
+      const conserves = r.sortie
+        .split('\n')
+        .filter((l) => l.includes('conservé'))
+        .map((l) => l.trim());
+      // Le `.env` est là : il DOIT être annoncé, avec son chemin.
+      expect(conserves.join('\n')).toContain(path.join(bac, '.env'));
+      // La base ne l'est pas : rien ne doit prétendre l'avoir conservée.
+      expect(conserves.join('\n'), 'une base absente annoncée conservée').not.toMatch(
+        /^\s*⚠ base\b/m,
+      );
+      for (const l of conserves) {
+        expect(l, `ligne « conservé » sans chemin : ${l}`).toMatch(/conservé\s*:\s*\S/);
+      }
+    } finally {
+      rmSync(bac, { recursive: true, force: true });
+    }
+  });
+
   it('`--json` rend un objet, pour une supervision', () => {
     const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-cli-desinst-'));
     try {
