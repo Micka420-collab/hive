@@ -264,6 +264,25 @@ export function proposerRetouche(
 }
 
 /**
+ * L'Aperçu — le site du projet, replié en UN document auto-suffisant.
+ *
+ * Ce document s'injecte dans une `<iframe sandbox>` SANS `allow-same-origin`.
+ * Le serveur renvoie le `sandbox` attendu avec le document : le poser en dur
+ * côté client laisserait les deux valeurs diverger sans que personne ne s'en
+ * aperçoive, et c'est exactement l'attribut qu'il ne faut pas se tromper.
+ */
+export interface ApercuProjet {
+  html: string;
+  entree: string;
+  inlines: string[];
+  sandbox: string;
+}
+
+export function fetchApercu(projectId: string): Promise<ApercuProjet> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/apercu`);
+}
+
+/**
  * Les Guetteuses — ce que la ruche a vu passer sur ses leurres.
  *
  * ─── POURQUOI CETTE FONCTION MANQUAIT, ET CE QUE ÇA COÛTAIT ─────────────────

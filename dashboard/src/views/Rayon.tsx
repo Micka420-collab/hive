@@ -30,8 +30,8 @@
 //    faire.
 
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { fetchFichierRayon, fetchRayon, proposerRetouche } from '../api';
-import type { EntreeRayon, FichierRayon } from '../api';
+import { fetchApercu, fetchFichierRayon, fetchRayon, proposerRetouche } from '../api';
+import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import { useT } from '../i18n';
@@ -84,6 +84,19 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
   const [retouche, setRetouche] = useState<{ texte: string; note: string } | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [propose, setPropose] = useState<string | null>(null);
+  const [apercu, setApercu] = useState<ApercuProjet | null>(null);
+  const [apercuErreur, setApercuErreur] = useState<string | null>(null);
+
+  const voirApercu = async () => {
+    if (!projet) return;
+    setApercuErreur(null);
+    try {
+      setApercu(await fetchApercu(projet.id));
+    } catch (e) {
+      // Le refus dit où mettre l'index.html : c'est plus utile qu'un « échec ».
+      setApercuErreur(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const envoyer = async () => {
     if (!projet || !fichier || !retouche) return;
@@ -126,6 +139,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
     setErreur(null);
     setRetouche(null);
     setPropose(null);
+    setApercu(null);
+    setApercuErreur(null);
     if (!projet) return;
     setChargement(true);
     void charger(projet.id, '').finally(() => setChargement(false));
@@ -218,7 +233,45 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
         {projet?.repoUrl && (
           <code className="ry-depot">{sansIdentifiants(projet.repoUrl) ?? '—'}</code>
         )}
+        <button className="btn ghost ry-apercu-btn" onClick={() => void voirApercu()}>
+          👁 {t('Aperçu', 'Preview')}
+        </button>
       </header>
+
+      {apercuErreur && <p className="ry-erreur">⚠ {apercuErreur}</p>}
+      {apercu && (
+        <section className="ry-apercu">
+          <div className="ry-barre">
+            <code>{apercu.entree}</code>
+            <span className="muted-text">
+              {apercu.inlines.length} {t('fichier(s) replié(s)', 'file(s) folded in')} ·{' '}
+              {t('bac à sable, hors ligne', 'sandboxed, offline')}
+            </span>
+            <button className="btn ghost ry-geste" onClick={() => setApercu(null)}>
+              {t('Fermer', 'Close')}
+            </button>
+          </div>
+          {/*
+            LE SANDBOX VIENT DU SERVEUR, ET IL N'A PAS `allow-same-origin`.
+
+            C'est le seul attribut qui compte ici. Sans lui, le cadre a une
+            origine unique et inaccessible : le site prévisualisé ne peut lire
+            ni le `localStorage` du tableau de bord — où vit le jeton de
+            session — ni ses cookies. L'ajouter, ne serait-ce que pour faire
+            marcher une image, rendrait ce cadre capable de voler le compte.
+
+            La valeur vient du serveur plutôt que d'être écrite ici : deux
+            copies d'une même règle de sécurité finissent toujours par diverger,
+            et c'est la copie oubliée qui décide.
+          */}
+          <iframe
+            className="ry-cadre"
+            title={t('Aperçu du projet', 'Project preview')}
+            sandbox={apercu.sandbox}
+            srcDoc={apercu.html}
+          />
+        </section>
+      )}
 
       <div className="ry-corps">
         <nav className="ry-arbre" aria-label={t('Fichiers du projet', 'Project files')}>

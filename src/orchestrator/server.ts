@@ -47,6 +47,7 @@ import { peutLireCode, peutRejoindre, peutVoirMembres } from '../shared/acces-pr
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
+import { MAX_APERCU, SANDBOX_APERCU, assemblerApercu } from '../shared/apercu.js';
 import {
   TTL_PARTAGE_MAX_MS,
   actePartage,
@@ -4463,6 +4464,77 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       } catch (e) {
         return repondreRayon(reply, e);
       }
+    },
+  );
+
+  /**
+   * L'Aperçu — le site du projet, replié en un document auto-suffisant.
+   *
+   * ─── CE QUE CETTE ROUTE NE FAIT PAS, ET C'EST L'ESSENTIEL ─────────────────
+   *
+   * Elle ne SERT PAS une page. Elle rend du JSON contenant un document, que le
+   * tableau de bord injectera dans une `<iframe sandbox>` SANS
+   * `allow-same-origin`.
+   *
+   * La distinction est tout le sujet. Servir directement ce HTML sur une route
+   * de la ruche lui donnerait l'origine de la ruche : trois lignes de
+   * JavaScript dans le site prévisualisé, et le `localStorage` du tableau de
+   * bord — donc le jeton de session — part ailleurs. Le contenu vient d'un
+   * modèle qui a lu le dépôt, et le dépôt peut être public.
+   *
+   * En passant par `srcdoc` dans un cadre sans `allow-same-origin`, le document
+   * obtient une origine unique et inaccessible. Il ne peut rien lire de la
+   * ruche, et ne fait aucune requête vers elle.
+   */
+  app.get<{ Params: { projectId: string }; Querystring: { entree?: string } }>(
+    '/api/projects/:projectId/apercu',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      if (!(await assurerMiroir(project, reply))) return reply;
+
+      // On ne ramasse QUE ce qu'un aperçu peut utiliser, et pas tout le dépôt :
+      // un `node_modules` replié en mémoire ferait tomber le hub.
+      const fichiers = new Map<string, string>();
+      let octets = 0;
+      const ramasser = async (dossier: string, profondeur: number): Promise<void> => {
+        if (profondeur > 4 || octets > MAX_APERCU) return;
+        let entrees;
+        try {
+          entrees = await rayons.lister(project.id, dossier);
+        } catch {
+          return;
+        }
+        for (const e of entrees) {
+          if (octets > MAX_APERCU) return;
+          if (e.type === 'dossier') {
+            await ramasser(e.chemin, profondeur + 1);
+            continue;
+          }
+          if (!/\.(html?|css|m?js)$/i.test(e.nom)) continue;
+          try {
+            const f = await rayons.lire(project.id, e.chemin);
+            fichiers.set(e.chemin, f.contenu);
+            octets += f.contenu.length;
+          } catch {
+            // Un fichier illisible (binaire, trop gros, refusé) n'empêche pas
+            // l'aperçu : la balise restera, et la politique la bloquera.
+          }
+        }
+      };
+      await ramasser('', 0);
+
+      const r = assemblerApercu(fichiers, req.query.entree);
+      if (!r.ok) return reply.code(404).send({ error: r.motif, refus: r.refus });
+      return reply.send({
+        html: r.html,
+        entree: r.entree,
+        inlines: r.inlines,
+        // Le tableau de bord DOIT poser exactement ce sandbox. Le renvoyer
+        // depuis le serveur évite qu'une valeur divergente s'installe côté
+        // client sans que personne ne s'en aperçoive.
+        sandbox: SANDBOX_APERCU,
+      });
     },
   );
 

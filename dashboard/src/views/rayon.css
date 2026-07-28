@@ -246,3 +246,35 @@
   line-height: 1.5;
   color: var(--text-2);
 }
+
+/* ─── L'Aperçu ───────────────────────────────────────────────────────────────
+ *
+ * Le cadre est en ORIGINE OPAQUE (sandbox sans allow-same-origin) : il ne peut
+ * rien lire du tableau de bord. Le fond blanc est délibéré — un site s'affiche
+ * sur le fond qu'il a choisi, pas sur le thème sombre de la ruche, sinon
+ * l'aperçu ment sur ce qu'on verra en vrai. */
+
+.ry-apercu {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+
+.ry-apercu-btn {
+  flex: none;
+  font-size: 11.5px;
+  padding: 3px 10px;
+}
+
+.ry-cadre {
+  flex: 1;
+  min-height: 380px;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
