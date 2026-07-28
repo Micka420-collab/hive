@@ -14,9 +14,11 @@
 // commentaire, c'est-à-dire une règle que le premier remaniement pressé
 // remplacerait par un `copyFileSync` — qui marcherait, sur une base au repos.
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   type Contexte,
@@ -26,7 +28,7 @@ import {
   nomDe,
   planifier,
 } from '../src/shared/sauvegarde.js';
-import { type Base, citerSql, sauvegarder } from '../src/sauvegarde-reelle.js';
+import { type Base, citerSql, contexteReel, sauvegarder } from '../src/sauvegarde-reelle.js';
 
 const ctx = (o: Partial<Contexte> = {}): Contexte => ({
   racine: '/home/moi/hive',
@@ -224,6 +226,128 @@ describe('SAUVEGARDER POUR DE VRAI', () => {
       expect(existsSync(r.fichier), 'on a élagué celle qu’on venait d’écrire').toBe(true);
       // Et le `.part` orphelin a été ramassé.
       expect(r.restes).toEqual(['hive-2026-02-15T00-00-00.000Z.part.db']);
+    } finally {
+      rmSync(bac, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('LE CONTEXTE RÉEL', () => {
+  it('`--vers` absent laisse le module pur choisir le dossier', () => {
+    // La clé ne doit pas être posée à `undefined` : `planifier` distingue
+    // « pas de dossier demandé » de « ce dossier-ci », et un `undefined`
+    // explicite lui ferait composer un chemin depuis rien.
+    const c = contexteReel('/r', '/r/data/hive.db', 7);
+    expect('dossier' in c).toBe(false);
+  });
+
+  it('`--vers` fourni est RENDU ABSOLU', () => {
+    // Une sauvegarde se lance aussi depuis un service, dont le répertoire
+    // courant n'est pas celui de la personne.
+    const c = contexteReel('/r', '/r/data/hive.db', 7, 'ailleurs');
+    expect(c.dossier).toBe(path.resolve('ailleurs'));
+    expect(path.isAbsolute(c.dossier!)).toBe(true);
+  });
+
+  it('l’instant est un PARAMÈTRE, pas une horloge lue au passage', () => {
+    expect(contexteReel('/r', '/r/x.db', 7, undefined, '2020-01-01T00:00:00.000Z').maintenant).toBe(
+      '2020-01-01T00:00:00.000Z',
+    );
+    // Et sans paramètre, c'est bien maintenant — un ISO valide.
+    expect(Number.isNaN(Date.parse(contexteReel('/r', '/r/x.db', 7).maintenant))).toBe(false);
+  });
+});
+
+describe('`hive sauvegarde` LANCÉ POUR DE VRAI', () => {
+  // Le module et sa moitié impure sont éprouvés au-dessus. Ceci vérifie le
+  // CÂBLAGE : que la commande existe, qu'elle lit ses drapeaux, et qu'elle
+  // vise la racine qu'on lui donne.
+  //
+  // `process.execPath`, pas `npx` : sous Windows `npx` est `npx.cmd`, que Node
+  // refuse d'exécuter sans shell (§ 6.2, déjà payé deux fois).
+  const lancer = (args: string[]): { code: number; sortie: string } => {
+    try {
+      return {
+        code: 0,
+        sortie: execFileSync(
+          process.execPath,
+          ['--import', 'tsx', 'src/cli.ts', 'sauvegarde', ...args],
+          {
+            cwd: fileURLToPath(new URL('..', import.meta.url)),
+            encoding: 'utf8',
+            env: { ...process.env, NO_COLOR: '1', HIVE_DB: '', HIVE_WORKDIR: '' },
+          },
+        ),
+      };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: string; stderr?: string };
+      return { code: err.status ?? -1, sortie: `${err.stdout ?? ''}${err.stderr ?? ''}` };
+    }
+  };
+
+  /** Une racine avec une VRAIE base minuscule, pour ne rien simuler ici. */
+  const avecBase = async (): Promise<string> => {
+    const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-cli-sauv-'));
+    mkdirSync(path.join(bac, 'data'), { recursive: true });
+    // Un fichier SQLite valide, écrit par SQLite lui-même — pas un leurre :
+    // la commande ouvre la base pour de bon, un fichier bidon la ferait
+    // échouer pour une raison qui n'a rien à voir avec ce qu'on teste.
+    const { default: Database } = await import('better-sqlite3');
+    const db = new Database(path.join(bac, 'data', 'hive.db'));
+    db.exec('create table t(x); insert into t values (1)');
+    db.close();
+    return bac;
+  };
+
+  const avecSqlite = ((): boolean => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return typeof require('better-sqlite3') === 'function';
+    } catch {
+      return false;
+    }
+  })();
+
+  it.runIf(avecSqlite)('`--vers` DÉCIDE où la sauvegarde atterrit', async () => {
+    const bac = await avecBase();
+    try {
+      const vers = path.join(bac, 'ailleurs');
+      const r = lancer([bac, `--vers=${vers}`]);
+      expect(r.code, r.sortie).toBe(0);
+      const dedans = readdirSync(vers).filter((n) => n.endsWith('.db'));
+      expect(dedans, 'rien n’a été écrit dans le dossier demandé').toHaveLength(1);
+      // Et RIEN dans l'emplacement par défaut.
+      expect(existsSync(path.join(bac, 'data', 'sauvegardes'))).toBe(false);
+    } finally {
+      rmSync(bac, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(avecSqlite)('`--garder=N` EST LU — la borne suit le drapeau', async () => {
+    const bac = await avecBase();
+    try {
+      const vers = path.join(bac, 'sauv');
+      // Quatre sauvegardes d'affilée, borne à 2 : il doit en rester deux.
+      for (let i = 0; i < 4; i++) {
+        const r = lancer([bac, `--vers=${vers}`, '--garder=2']);
+        expect(r.code, r.sortie).toBe(0);
+      }
+      const restants = readdirSync(vers).filter((n) => n.endsWith('.db'));
+      expect(restants, `borne non respectée : ${restants.join(', ')}`).toHaveLength(2);
+    } finally {
+      rmSync(bac, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(avecSqlite)('`--json` rend un objet, pour une supervision', async () => {
+    const bac = await avecBase();
+    try {
+      const r = lancer([bac, `--vers=${path.join(bac, 'sauv')}`, '--json']);
+      expect(r.code, r.sortie).toBe(0);
+      const vu = JSON.parse(r.sortie) as { fichier: string; octets: number };
+      expect(vu.fichier.endsWith('.db')).toBe(true);
+      expect(vu.octets).toBeGreaterThan(0);
+      expect(existsSync(vu.fichier)).toBe(true);
     } finally {
       rmSync(bac, { recursive: true, force: true });
     }

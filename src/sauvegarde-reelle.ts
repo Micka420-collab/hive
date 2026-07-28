@@ -123,7 +123,13 @@ export async function sauvegarder(
     plan,
     fichier: plan.definitif,
     octets: statSync(plan.definitif).size,
-    elaguees: retirer.filter((n) => path.join(plan.dossier, n) !== plan.definitif),
+    // `retirer` ne peut PAS contenir la sauvegarde qu'on vient d'écrire :
+    // `aElaguer` garde les plus récentes, celle-ci est la plus récente, et
+    // `garder` vaut au moins 1 (le plan le refuse sinon). Un filtre ici serait
+    // un mutant équivalent — du code mort qui a l'air d'une précaution. La
+    // vraie protection est la garde de la boucle ci-dessus, qui tiendrait même
+    // si `aElaguer` changeait un jour.
+    elaguees: retirer,
     restes,
   };
 }
