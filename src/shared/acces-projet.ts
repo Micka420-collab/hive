@@ -171,11 +171,32 @@ export function peutAdopter(projet: ProjetAcces, lecteur: Lecteur): boolean {
  * Cette personne est-elle propriétaire de ce projet ?
  *
  * `ownerId` est NULLABLE, et c'est là qu'est le piège : un projet sans
- * propriétaire n'appartient à personne, pas à tout le monde. Comparer sans
- * cette garde ferait du premier venu dont `userId` vaudrait `null` — ou de
- * n'importe quelle chaîne vide qui traînerait — le propriétaire de tous les
- * projets orphelins.
+ * propriétaire n'appartient à personne, pas à tout le monde.
+ *
+ * ─── CE QUE LE `!== null` NE COUVRAIT PAS ────────────────────────────────────
+ *
+ * La version précédente ne testait que `null`, en annonçant en commentaire
+ * qu'elle écartait aussi « n'importe quelle chaîne vide qui traînerait ».
+ * Elle ne l'écartait pas. Or `lecteurDe` (server.ts) rend `userId: ''` sur une
+ * requête NON authentifiée — c'est son `?? ''` — si bien qu'un projet dont
+ * l'`ownerId` serait la chaîne vide aurait appartenu à tout visiteur anonyme.
+ *
+ * Aucune route n'écrit un `ownerId` vide aujourd'hui : les deux voies par
+ * compte imposent l'identifiant du JWT, et le schéma de la voie « jeton de
+ * ruche » refuse le champ (`additionalProperties: false`). Le trou est donc
+ * fermé par une garde qui vit dans un AUTRE fichier, ce qui est exactement le
+ * genre de dépendance qui se perd. On le referme ici, où la décision se prend.
+ *
+ * Deux absences qui se rencontrent ne font pas une correspondance.
+ *
+ * UNE SEULE LIGNE SUFFIT, et il a fallu muter pour s'en assurer : la première
+ * version écartait aussi le lecteur sans identifiant, ce qui semblait prudent
+ * et ne l'était pas — les deux gardes se couvraient mutuellement, aucune ne
+ * pouvait rougir seule. Un propriétaire qui n'est ni `null` ni vide ne peut
+ * pas être égal à une chaîne vide : refuser l'`ownerId` absent referme le cas
+ * en entier.
  */
 function estProprietaire(projet: ProjetAcces, lecteur: Lecteur): boolean {
-  return projet.ownerId !== null && projet.ownerId === lecteur.userId;
+  if (projet.ownerId === null || projet.ownerId === '') return false;
+  return projet.ownerId === lecteur.userId;
 }

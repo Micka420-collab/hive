@@ -98,6 +98,29 @@ describe('le jugement d’une commande de test', () => {
     }
   });
 
+  it('LE WRAPPER S’ÉCRIT AUSSI À LA WINDOWS — antislash et casse', () => {
+    // Trouvé en MUTANT : remplacer la normalisation du wrapper par une
+    // comparaison brute (`WRAPPERS.has(bin)`) ne rougissait aucun test. Les
+    // trois formes déjà couvertes — `./gradlew`, `./mvnw`, `gradlew.bat` —
+    // sont toutes en minuscules et en barres obliques ; la moitié Windows de
+    // la liste n'était éprouvée nulle part, alors que le fichier la déclare
+    // explicitement.
+    //
+    // Le mode d'échec n'a rien de cosmétique. Sans normalisation, `.\gradlew`
+    // ne se retrouve pas parmi les wrappers, retombe sur la règle « pas de
+    // chemin » à cause de son antislash, et se fait refuser : un membre sous
+    // Windows qui écrit la seule forme que son shell accepte verrait sa
+    // commande rejetée. Un « ça marche chez moi », mais à l'envers.
+    for (const bin of ['.\\gradlew', '.\\gradlew.bat', './GRADLEW', 'MVNW', '.\\mvnw.cmd']) {
+      expect(jugerCommandeTest([bin, 'test']), bin).toEqual({ ok: true });
+    }
+    // La normalisation RECONNAÎT les mêmes noms autrement écrits ; elle
+    // n'élargit pas la liste d'un seul nom.
+    for (const bin of ['.\\gradlewx', '..\\gradlew', 'x\\gradlew', '.\\sh']) {
+      expect(jugerCommandeTest([bin, 'test']).ok, bin).toBe(false);
+    }
+  });
+
   it('les suffixes Windows sont admis — le même lanceur, un autre nom de fichier', () => {
     // `npm` est `npm.cmd` sur Windows : refuser ferait de la garde un bug
     // « ça marche chez moi » réservé aux membres sous Linux.
