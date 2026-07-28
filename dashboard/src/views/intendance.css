@@ -142,6 +142,21 @@
   font-style: italic;
 }
 
+/* Le billet est fait pour être SÉLECTIONNÉ et collé dans un terminal : il doit
+   rester lisible en entier, quitte à déborder sur plusieurs lignes. Le tronquer
+   proprement produirait une commande fausse qu'on colle sans s'en apercevoir. */
+.in-billet {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+  user-select: all;
+}
+
 /* L'état, coloré par ce qu'il coûte. */
 .in-etat {
   display: inline-block;

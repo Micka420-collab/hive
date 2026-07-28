@@ -193,6 +193,92 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Le billet d'un serveur provisionné était rangé EN CLAIR dans
+  `serveurs.motif`.** Les instructions du fournisseur manuel contiennent le
+  billet de rattachement — c'est leur raison d'être, l'humain doit pouvoir
+  coller la commande — et elles étaient persistées telles quelles comme motif
+  de transition. Or **un billet porte le secret en clair** : `hive2_…` est un
+  base64url lisible, pas un chiffrement. Toute la précaution prise à côté était
+  donc annulée par cette ligne : la table `billets` ne range qu'une **empreinte
+  PBKDF2** (`secretHash`), pendant que le secret dormait en clair juste à côté
+  dans `serveurs`, durablement, exporté par `GET /api/admin/serveurs`, et sans
+  aucune borne liée à la péremption du billet — un billet à usage unique
+  consommé il y a trois mois y était encore lisible. `motif` est un champ
+  d'**état** : personne ne s'attend à y trouver un identifiant, il s'affiche
+  dans une page d'administration, se copie dans un fil de support, se lit dans
+  une sauvegarde. Ce qui est rangé est désormais **caviardé**
+  (`caviarderBillet`, module pur — le reste des instructions survit, sinon
+  l'administrateur ne saurait plus quoi faire), et le billet est remis par
+  `GET /api/admin/serveurs/:id/billet`, **une seule fois, depuis la mémoire**,
+  sous le droit `gerer_serveurs`. Vivre en mémoire signifie qu'un redémarrage
+  le perd : c'est la bonne propriété pour un secret à usage unique, et le code
+  le disait déjà — « un billet perdu ne se retrouve pas, il se remplace ». Un
+  test existant **affirmait la fuite comme si c'était une fonctionnalité**
+  (il vérifiait que `motif` contenait `npm run join hive2_…`) ; il vérifie
+  maintenant le contraire.
+
+- **Le hub analysait 2 Mo de JSON pour un inconnu, avant de savoir qui il
+  était.** `maxPayload` du serveur WebSocket vaut 2 Mo, et c'est la bonne
+  valeur pour un nœud **authentifié** : il remonte des diffs. C'était la
+  mauvaise pour un inconnu. `parseClientMessage(data.toString())` — une
+  conversion en chaîne **puis** un `JSON.parse` sur 2 Mo — s'exécutait avant la
+  moindre vérification d'identité. Avec le budget existant de 100 messages par
+  seconde et par socket, sur les 5 s de la fenêtre d'authentification, cela
+  faisait **1 Go à analyser par connexion**, sans aucun identifiant et sans
+  borne sur le nombre de connexions. Un message d'authentification tient dans
+  quelques centaines d'octets : au-dessus de 8 Ko avant authentification, la
+  socket est fermée. Le code de fermeture est **4413** (écho du 413 HTTP) et
+  **non 4400** — sans cette distinction, ni un test ni un opérateur qui débogue
+  ne peuvent dire si le hub a refusé la forme du message ou sa taille ; le test
+  s'en est aperçu le premier. La mesure (`octetsDe`) compte aussi les **trames
+  fragmentées** (`Buffer[]`) : n'en regarder que le premier morceau aurait
+  laissé passer, par la fragmentation, exactement ce qu'on borne — et
+  l'attaquant choisit sa fragmentation.
+
+- **`/api/auth/register` rendait gratuitement l'annuaire que `/api/auth/login`
+  se donne tant de mal à cacher.** `login` répond exactement la même chose que
+  le compte existe ou non — son commentaire dit pourquoi : « distinguer les
+  deux offrirait un annuaire des inscrits ». `register`, lui, répondait **409
+  « Email déjà utilisé »**, et sous la seule limite globale (400 requêtes /
+  10 s) cela faisait **2 400 adresses testées par minute et par IP**. Le soin
+  pris sur `login` ne servait donc à rien : il suffisait de frapper à l'autre
+  porte. Un compteur dédié par IP compte désormais les **collisions
+  d'adresse** — jamais les inscriptions réussies, même raisonnement que pour
+  `joinEchec` : un atelier de dix personnes derrière une seule IP publique (le
+  NAT d'un bureau, d'une école) doit pouvoir créer dix comptes, et un test le
+  vérifie. Au-delà de 5 collisions par tranche de 10 minutes, l'IP reçoit un
+  429 avec `retry-after` **y compris sur une adresse libre** — sinon le 429
+  deviendrait lui-même l'oracle (« 429 = prise, 200 = libre »), ce que teste
+  explicitement le fichier. **Ce que ce correctif ne ferme pas, et il faut le
+  dire :** le 409 subsiste, parce que sans lui personne ne comprendrait
+  pourquoi son inscription échoue — une énumération _lente_ reste donc
+  possible. La fermer tout à fait demanderait de confirmer l'adresse par
+  courriel avant de répondre quoi que ce soit ; la ruche n'envoie aucun
+  courriel, et prétendre le contraire serait pire que le trou.
+
+- **N'importe quel compte pouvait s'ajouter à n'importe quel projet, privé
+  compris** (module pur `src/shared/acces-projet.ts`).
+  `POST /api/projects/:id/join` ne vérifiait qu'une seule chose : que
+  l'appelant soit authentifié. Ni la visibilité du projet, ni son propriétaire,
+  ni la moindre invitation. `GET /api/projects/:id/members` avait exactement le
+  même trou : la liste **nominative** des membres d'un projet privé était
+  lisible par tout titulaire d'un compte — **créer un compte suffisait à
+  énumérer qui travaille sur quoi**. La colonne `visibility` et le champ
+  `ownerId` existaient pourtant depuis le début : c'est le cas d'école du
+  contrôle d'accès qui vit dans le modèle de données et jamais dans le chemin
+  d'exécution. Un projet public reste ouvert — c'est ce que le mot veut dire,
+  et le catalogue le montre déjà à des inconnus ; un projet privé ne s'ouvre
+  plus tout seul. **Le refus prend la forme exacte de l'inexistence, à l'octet
+  près** : un « 403 interdit » confirmerait que le projet existe, et répété sur
+  une liste d'identifiants il dessinerait la carte des projets de la ruche —
+  or les identifiants voyagent (une URL collée dans un salon, un journal, un
+  signet). Même raisonnement que pour les billets (ADR 0005), et un test
+  compare les deux réponses caractère par caractère. Le motif, lui, part au
+  journal (`project_join_refused`) : ce que l'appelant ne voit pas, le
+  propriétaire de la ruche le voit. La question « est-elle membre ? » est
+  posée en base de façon fermée (`estMembre`) plutôt qu'en chargeant la liste
+  complète, qui nomme d'autres gens pour répondre sur un seul compte.
+
 - **La commande de test d'un merge passe enfin par le bac à sable** — et un
   test tient désormais la liste de ce qui doit y passer
   (`tests/isolement-couverture.test.ts`). `exec.ts` portait ce commentaire :
@@ -393,6 +479,15 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ruche) avec le jeton légitime en contrôle négatif.
 
 ### Fixed
+
+- **L'intégration continue repasse au vert : un test n'y tournait pas.**
+  `tests/isolement-couverture.test.ts` énumérait les fichiers avec `globSync`
+  de `node:fs` — une fonction qui **n'existe qu'à partir de Node 22**. Le
+  projet annonce Node ≥ 20 et l'intégration continue y tourne : le test passait
+  sur la machine de son auteur et échouait partout ailleurs. Remplacé par un
+  parcours de répertoires à la main (`readdirSync`), et **vérifié sous Node 20**
+  et non plus seulement supposé. Un test qui ne s'exécute que chez celui qui
+  l'a écrit ne garde rien.
 
 - **Injection de prompt par le Hive Mind** (faille adjacente à celle de la
   Couveuse : durcir l'une sans l'autre ne protégeait de rien, les deux blocs

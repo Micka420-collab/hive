@@ -18,10 +18,9 @@
 // peut : il énumère les `spawn` du dépôt et exige, pour chacun, soit une
 // enveloppe, soit une inscription NOMMÉE ci-dessous avec sa raison.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { globSync } from 'node:fs';
 
 const RACINE = fileURLToPath(new URL('../src/', import.meta.url));
 
@@ -58,10 +57,26 @@ function sansCommentaires(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
 }
 
+/**
+ * Tous les `.ts` sous `src/`, à la main.
+ *
+ * `globSync` de `node:fs` n'existe qu'à partir de Node 22 ; le projet annonce
+ * Node ≥ 20 et l'intégration continue y tourne. Un test qui ne s'exécute que
+ * sur la machine de son auteur ne garde rien.
+ */
+function fichiersTs(dossier = '', acc: string[] = []): string[] {
+  for (const entree of readdirSync(RACINE + dossier, { withFileTypes: true })) {
+    const rel = dossier === '' ? entree.name : `${dossier}/${entree.name}`;
+    if (entree.isDirectory()) fichiersTs(rel, acc);
+    else if (rel.endsWith('.ts')) acc.push(rel);
+  }
+  return acc;
+}
+
 /** Les fichiers du dépôt qui appellent réellement `spawn`. */
 function fichiersQuiLancent(): { chemin: string; source: string }[] {
-  return globSync('**/*.ts', { cwd: RACINE })
-    .map((rel) => ({ chemin: rel.replace(/\\/g, '/'), source: readFileSync(RACINE + rel, 'utf8') }))
+  return fichiersTs()
+    .map((rel) => ({ chemin: rel, source: readFileSync(RACINE + rel, 'utf8') }))
     .filter(({ source }) => /\bspawn\s*\(/.test(sansCommentaires(source)));
 }
 

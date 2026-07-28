@@ -43,7 +43,8 @@ import {
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { vuePublique } from '../shared/projet-public.js';
-import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
+import { peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
+import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent, Task } from '../shared/types.js';
@@ -103,6 +104,7 @@ import {
   SERVEURS_MAX,
   joursAvantSuppression,
   transitionsDepuis,
+  caviarderBillet,
 } from './serveurs.js';
 import { composerTableau } from './tableau.js';
 import type { ProjetVu } from './tableau.js';
@@ -233,6 +235,18 @@ const BUDGET_COUVEUSE = 3_000;
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
 const REST_RATE_MAX = 400;
+
+/**
+ * Énumération d'adresses par `/api/auth/register` : combien de COLLISIONS une
+ * même IP peut rencontrer avant qu'on cesse de lui répondre.
+ *
+ * Cinq est large pour quelqu'un qui cherche laquelle de ses adresses il avait
+ * utilisée, et dérisoire pour qui déroule une liste. La fenêtre est longue
+ * exprès : ce qu'on veut casser, c'est le débit d'énumération, pas la
+ * deuxième tentative d'une personne qui s'est trompée.
+ */
+const INSCRIPTION_COLLISIONS_MAX = 5;
+const INSCRIPTION_FENETRE_MS = 10 * 60_000;
 
 /**
  * Limitation DÉDIÉE de `/api/rejoindre`, bien plus serrée que la globale.
@@ -868,6 +882,55 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     h.count += 1;
   }
 
+  // ─── L'annuaire que /api/auth/register donnait gratuitement ───────────────
+  //
+  // `/api/auth/login` se donne beaucoup de mal pour ne PAS dire si une adresse
+  // est inscrite : même message, même code, que le compte existe ou non. Son
+  // commentaire l'explique — « distinguer les deux offrirait un annuaire des
+  // inscrits ».
+  //
+  // `/api/auth/register` rendait ce même annuaire sans effort, avec son 409
+  // « Email déjà utilisé ». Sous la seule limite globale (400 requêtes / 10 s),
+  // cela faisait 2 400 adresses testées par minute et par IP. Le soin pris sur
+  // `login` ne servait donc à rien : il suffisait de frapper à l'autre porte.
+  //
+  // Ce qu'on compte, ce sont les COLLISIONS — jamais les inscriptions réussies.
+  // Même raisonnement que pour `joinEchec` : un atelier de dix personnes
+  // derrière une seule IP publique (le NAT d'un bureau, d'une école) doit
+  // pouvoir créer dix comptes. Une collision, elle, est exactement le signal
+  // qu'on cherche : quelqu'un de légitime en rencontre une, peut-être deux ;
+  // celui qui déroule une liste d'adresses n'en rencontre que ça.
+  //
+  // CE QUE ÇA NE FERME PAS, ET IL FAUT LE DIRE : le 409 subsiste, donc une
+  // énumération LENTE reste possible. La fermer tout à fait demanderait de
+  // confirmer l'adresse par courriel avant de répondre quoi que ce soit — la
+  // ruche n'envoie aucun courriel, et prétendre le contraire serait pire que
+  // le trou lui-même.
+  const collisionsInscription = new Map<string, { count: number; resetAt: number }>();
+
+  /** Cette IP a-t-elle encore droit à une tentative d'inscription ? */
+  function inscriptionAutorisee(ip: string): boolean {
+    const h = collisionsInscription.get(ip);
+    return !h || h.resetAt <= Date.now() || h.count < INSCRIPTION_COLLISIONS_MAX;
+  }
+
+  /** Compte une collision d'adresse pour cette IP. */
+  function collisionInscription(ip: string): void {
+    const now = Date.now();
+    let h = collisionsInscription.get(ip);
+    if (!h || h.resetAt <= now) {
+      h = { count: 0, resetAt: now + INSCRIPTION_FENETRE_MS };
+      collisionsInscription.set(ip, h);
+      // Purge opportuniste : sans elle, la table grandirait d'une entrée par IP
+      // vue, indéfiniment — une fuite mémoire lente sur un hub exposé.
+      if (collisionsInscription.size > 10_000) {
+        for (const [k, v] of collisionsInscription)
+          if (v.resetAt <= now) collisionsInscription.delete(k);
+      }
+    }
+    h.count += 1;
+  }
+
   // Mode d'inscription, lu une fois. `ouverte` par défaut : une ruche qui
   // démarre est vide, et le premier geste est de créer le compte de l'hôte.
   const modeInscription = modeInscriptionDepuisEnv();
@@ -1027,8 +1090,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!force.accepte) return reply.status(400).send({ error: force.motif });
       if (!displayName || displayName.length < 2)
         return reply.status(400).send({ error: 'Nom trop court' });
-      if (store.getUserByEmail(email))
+      // Le 409 qui suit est un annuaire des inscrits : on le rend, parce que
+      // sans lui personne ne comprendrait pourquoi son inscription échoue, mais
+      // on le rend LENTEMENT. Au-delà de quelques collisions dans la fenêtre,
+      // cette IP n'apprend plus rien — pas même sur une adresse libre.
+      if (!inscriptionAutorisee(req.ip)) {
+        return reply
+          .status(429)
+          .header('retry-after', String(Math.ceil(INSCRIPTION_FENETRE_MS / 1000)))
+          .send({ error: 'trop de tentatives d’inscription, réessayez plus tard' });
+      }
+      if (store.getUserByEmail(email)) {
+        collisionInscription(req.ip);
         return reply.status(409).send({ error: 'Email déjà utilisé' });
+      }
 
       const user = store.createUser({
         email,
@@ -2179,6 +2254,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * l'idempotence tient dans `decider`, qui compte ce qui existe déjà : sans
    * elle, chaque re-livraison démarrerait une machine de plus.
    */
+  /**
+   * Les billets de rattachement des serveurs provisionnés — EN MÉMOIRE SEULE.
+   *
+   * Un billet à usage unique, expirant, est exactement le genre de secret
+   * qu'on ne range pas : il vaut un accès à la ruche tant qu'il n'est pas
+   * consommé. Vivre en mémoire signifie qu'un redémarrage du hub le perd, et
+   * c'est la bonne propriété — le code le dit déjà ailleurs : « un billet perdu
+   * ne se retrouve pas, il se remplace ».
+   *
+   * Il est remis UNE FOIS puis oublié : celui qui l'a lu l'a, et il ne traîne
+   * pas dans une réponse d'API qu'on rejoue en rafraîchissant une page.
+   */
+  const billetsServeurs = new Map<string, { billet: string; expire: number }>();
+
   const alignerServeurs = async (
     projectId: string,
     refAbonnement: string,
@@ -2237,6 +2326,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         now,
       });
       const urlRuche = config.publicUrl ?? `ws://${config.host}:${port}/ws`;
+      const billetServeur = encoderBillet({ id: idBillet, secret, label, url: urlRuche });
       const base: Serveur = {
         id,
         projectId,
@@ -2254,11 +2344,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       try {
         const machine = await fournisseurServeurs.demarrer({
           gabarit: GABARIT_DEFAUT,
-          billet: encoderBillet({ id: idBillet, secret, label, url: urlRuche }),
+          billet: billetServeur,
           urlRuche,
         });
-        const r = transiter(base, 'provisionnement', machine.instructions.join(' ⏎ '), now);
+        // LE BILLET NE SE RANGE PAS. Les instructions le contiennent par
+        // construction, et un billet porte le secret EN CLAIR : les écrire
+        // dans `motif` annulait toute la précaution prise à côté (ne ranger
+        // que `secretHash`, une empreinte PBKDF2). L'empreinte dans `billets`,
+        // et le secret juste à côté dans `serveurs`, durablement.
+        // Il est remis à l'administrateur par `GET /api/admin/serveurs/:id/billet`,
+        // une seule fois, depuis la mémoire.
+        const r = transiter(
+          base,
+          'provisionnement',
+          caviarderBillet(machine.instructions, billetServeur).join(' ⏎ '),
+          now,
+        );
         store.setServeur({ ...r.serveur, refMachine: machine.ref });
+        billetsServeurs.set(id, { billet: billetServeur, expire: now + bornerTtl(undefined) });
         emitEvent('server_requested', {
           serverId: id,
           projectId,
@@ -2490,6 +2593,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       retentionJours: RETENTION_JOURS,
       serveursMax: SERVEURS_MAX,
     };
+  });
+
+  /**
+   * Le billet de rattachement d'un serveur — REMIS UNE SEULE FOIS.
+   *
+   * Il était auparavant rangé en clair dans `serveurs.motif`, parce que les
+   * instructions du fournisseur le contiennent par construction. Un billet
+   * porte le secret en clair : l'écrire en base annulait toute la précaution
+   * prise à côté, où seule une empreinte PBKDF2 est rangée.
+   *
+   * Une seule remise, puis oubli : celui qui l'a lu l'a. Le laisser
+   * consultable indéfiniment recréerait exactement ce qu'on vient de retirer,
+   * en mémoire au lieu du disque.
+   */
+  app.get<{ Params: { id: string } }>('/api/admin/serveurs/:id/billet', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const garde = billetsServeurs.get(req.params.id);
+    billetsServeurs.delete(req.params.id);
+    if (!garde || garde.expire <= Date.now()) {
+      // Même réponse que « jamais eu de billet » : un billet périmé et un
+      // billet déjà lu se remplacent tous les deux de la même façon.
+      return reply.code(404).send({
+        error:
+          'aucun billet à remettre pour ce serveur — un billet ne se retrouve pas, ' +
+          'il se remplace : relancez le provisionnement.',
+      });
+    }
+    return reply.send({ billet: garde.billet, commande: `npm run join ${garde.billet}` });
   });
 
   /**
@@ -4097,6 +4228,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const userId = (req as AuthRequest).userId!;
+      // N'IMPORTE QUEL COMPTE POUVAIT S'AJOUTER À N'IMPORTE QUEL PROJET, privé
+      // compris : seule l'authentification était vérifiée. `visibility` et
+      // `ownerId` existaient depuis le début et n'étaient consultés nulle part.
+      //
+      // Le refus prend la forme EXACTE de l'inexistence : un « 403 interdit »
+      // confirmerait que le projet existe, et répété sur une liste
+      // d'identifiants il dessinerait la carte des projets de la ruche. Même
+      // raisonnement que pour les billets (ADR 0005).
+      if (!peutRejoindre(project, userId, store.estMembre(project.id, userId))) {
+        emitEvent('project_join_refused', { projectId: project.id, userId });
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
       store.addMember(project.id, userId);
       emitEvent('project_member_joined', { projectId: project.id, userId });
       return reply.send({ joined: true, projectId: project.id });
@@ -4110,6 +4253,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const userId = (req as AuthRequest).userId!;
+      // La liste NOMME des gens. Sur un projet privé, elle était lisible par
+      // tout titulaire d'un compte : créer un compte suffisait à énumérer qui
+      // travaille sur quoi. Même refus indistinguable qu'au-dessus.
+      if (!peutVoirMembres(project, userId, store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
       return reply.send(store.listMembers(project.id));
     },
   );
@@ -4346,6 +4496,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         }
         if (--budget < 0) {
           ws.close(4429, 'débit de messages excessif');
+          return;
+        }
+        // TANT QU'ON NE SAIT PAS À QUI ON PARLE, ON N'ANALYSE PAS 2 Mo.
+        //
+        // `maxPayload` vaut 2 Mo parce qu'un nœud AUTHENTIFIÉ remonte des
+        // diffs. Appliquer la même largeur à un inconnu offrait une
+        // amplification gratuite : `toString()` puis `JSON.parse` sur 2 Mo,
+        // sans aucun identifiant, 100 fois par seconde pendant les 5 s de la
+        // fenêtre d'authentification — et rien ne borne le nombre de sockets.
+        // Un message d'authentification tient dans quelques centaines d'octets.
+        //
+        // Le code 4413 fait écho au 413 HTTP, et il est DISTINCT du 4400
+        // « message invalide » : sans cette distinction, ni un test ni un
+        // opérateur qui débogue ne peuvent dire si le hub a refusé la forme du
+        // message ou sa taille.
+        if (role === 'unknown' && octetsDe(data) > LIMITS.messageAvantAuth) {
+          ws.close(4413, 'message trop volumineux avant authentification');
           return;
         }
         const msg = parseClientMessage(data.toString());

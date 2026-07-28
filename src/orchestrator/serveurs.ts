@@ -240,6 +240,41 @@ export const FOURNISSEUR_MANUEL: FournisseurServeur = {
   supprimer: () => Promise.resolve(),
 };
 
+/**
+ * Ce qu'on écrit à la place du billet quand on RANGE des instructions.
+ *
+ * ─── LA FUITE QUE CETTE FONCTION FERME ──────────────────────────────────────
+ *
+ * Les instructions du fournisseur manuel contiennent, par construction, le
+ * billet de rattachement — c'est leur raison d'être. Et elles étaient rangées
+ * telles quelles dans `serveurs.motif` :
+ *
+ *     transiter(base, 'provisionnement', machine.instructions.join(' ⏎ '), now)
+ *
+ * Or un billet porte le SECRET EN CLAIR (`hive2_…` est un base64url lisible,
+ * pas un chiffrement). Toute la précaution prise à côté — ne ranger que
+ * `secretHash`, une empreinte PBKDF2, jamais le secret — était donc annulée par
+ * cette ligne : l'empreinte dans `billets`, et le secret en clair juste à côté
+ * dans `serveurs`, durablement, sans borne liée à sa péremption. Un billet à
+ * usage unique consommé il y a trois mois y dormait encore.
+ *
+ * `motif` est un champ d'ÉTAT. Personne ne s'attend à y trouver un
+ * identifiant : il s'affiche dans une page d'administration, se copie dans un
+ * fil de support, se lit dans une sauvegarde.
+ *
+ * Le billet reste évidemment nécessaire à l'humain qui doit coller la
+ * commande : il lui est remis autrement, une seule fois, et jamais rangé.
+ */
+export const BILLET_CAVIARDE = '<billet remis une seule fois — voir la page serveurs>';
+
+/** Remplace le billet par sa mention, pour tout ce qui sera RANGÉ ou affiché. */
+export function caviarderBillet(instructions: readonly string[], billet: string): string[] {
+  // Un billet vide remplacerait chaque chaîne vide de la liste : ce serait
+  // remplacer partout plutôt que nulle part, exactement le mauvais sens.
+  if (billet === '') return [...instructions];
+  return instructions.map((l) => l.split(billet).join(BILLET_CAVIARDE));
+}
+
 /** Les fournisseurs connus. Un seul aujourd'hui, et il est honnête sur ce qu'il fait. */
 export const FOURNISSEURS: readonly FournisseurServeur[] = [FOURNISSEUR_MANUEL];
 
