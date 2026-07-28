@@ -21,9 +21,41 @@ const PROBES: AgentProbe[] = [
   { agent: 'codex', bins: ['codex'], label: 'Codex' },
 ];
 
-/** Variantes d'un binaire à essayer selon la plateforme (Windows : .cmd/.exe). */
-function candidates(bin: string): string[] {
-  if (process.platform === 'win32') return [`${bin}.cmd`, `${bin}.exe`, bin];
+/**
+ * Variantes d'un binaire à essayer, selon la plateforme.
+ *
+ * ─── POURQUOI `.cmd` N'Y EST PAS, ALORS QU'IL Y ÉTAIT ────────────────────────
+ *
+ * La version précédente rendait `[bin.cmd, bin.exe, bin]` sous Windows, et
+ * `.cmd` venait EN PREMIER. C'était une ligne qui ne pouvait pas fonctionner :
+ * la sonde lance `spawn(bin, ['--version'], { shell: false })`, et Node refuse
+ * d'exécuter un `.cmd` ou un `.bat` sans interpréteur de commandes — c'est
+ * documenté, et durci depuis la CVE-2024-27980. Le candidat `.cmd` échouait
+ * donc TOUJOURS, quelle que soit la machine.
+ *
+ * On ne garde pas une variante qui ne peut pas aboutir : elle donne l'illusion
+ * d'une couverture. Restent `.exe`, la seule que `spawn` sait lancer sous
+ * Windows, et le nom nu pour les rares binaires sans extension.
+ *
+ * ─── CE QUE ÇA IMPLIQUE, ET QU'IL FAUT DIRE ──────────────────────────────────
+ *
+ * Un agent installé par npm — c'est le cas de Claude Code — n'expose sous
+ * Windows qu'un shim `claude.cmd`. Il est donc INDÉTECTABLE ici, et le nœud
+ * retombe sur l'adaptateur `shell`, qui est simulé.
+ *
+ * Ce n'est pas silencieux : `hive doctor` affiche « aucun agent détecté » avec
+ * la marche à suivre. Mais ce n'est pas satisfaisant non plus, et le corriger
+ * demande de lancer autre chose que le shim — ce que la contrainte §5.1
+ * (jamais `shell: true`) rend délibérément difficile. C'est écrit ici pour que
+ * la prochaine personne parte de ce constat plutôt que de le redécouvrir.
+ *
+ * La plateforme est un PARAMÈTRE : sans ça, la branche Windows ne serait
+ * vérifiable que sur une machine Windows, c'est-à-dire jamais. C'est exactement
+ * ce qui a laissé la variante `.cmd` en place sans que personne la mette en
+ * doute.
+ */
+export function candidates(bin: string, plateforme: string = process.platform): string[] {
+  if (plateforme === 'win32') return [`${bin}.exe`, bin];
   return [bin];
 }
 
