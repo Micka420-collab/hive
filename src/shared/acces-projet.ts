@@ -125,6 +125,58 @@ export function peutLireCode(projet: ProjetAcces, lecteur: Lecteur, dejaMembre: 
 }
 
 /**
+ * Cette personne peut-elle ENGAGER ce projet — y créer du travail ?
+ *
+ * ─── LA FRONTIÈRE QUE CETTE FONCTION TRACE (ADR 0007) ────────────────────────
+ *
+ * Créer une tâche, découper un brief, lancer un merge, convoquer le Conseil :
+ * ces actes-là ne lisent pas le projet, ils l'ENGAGENT. Ils dépensent du
+ * temps-ouvrière, font tourner du code sur les machines des membres, et
+ * inscrivent du travail que quelqu'un devra relire.
+ *
+ * **`visibility` n'entre PAS dans cette décision, et c'est le point.** Un
+ * projet public est ouvert à la LECTURE — c'est ce que « public » veut dire, et
+ * le catalogue le montre déjà à des inconnus. Il n'est pas pour autant un
+ * chantier où le premier venu ajoute du travail : « on peut regarder » et « on
+ * peut faire faire » sont deux phrases différentes, et les confondre ferait de
+ * chaque projet vitrine une file d'attente ouverte.
+ *
+ * Reste donc le lien réel avec le projet : on en est propriétaire, on en est
+ * membre, ou on administre la ruche.
+ */
+export function peutEngager(projet: ProjetAcces, lecteur: Lecteur, dejaMembre: boolean): boolean {
+  if (lecteur.voitTout) return true;
+  return estProprietaire(projet, lecteur) || dejaMembre;
+}
+
+/**
+ * Ce projet n'appartient-il qu'à la ruche elle-même ?
+ *
+ * ─── POURQUOI CETTE QUESTION EXISTE ──────────────────────────────────────────
+ *
+ * L'ADR 0007 constate que `HIVE_TOKEN` se recopie sur chaque machine membre, et
+ * ouvre pourtant tout l'espace projet. Resserrer d'un bloc casserait deux
+ * usages documentés — la CLI, qui n'a que ce jeton, et le tableau de bord sans
+ * compte.
+ *
+ * La sortie n'est pas un compromis mou, c'est une observation : un projet SANS
+ * PROPRIÉTAIRE n'a personne dont le consentement pourrait être bafoué. Il
+ * n'appartient qu'à la ruche, et le jeton de ruche EST la ruche. C'est très
+ * exactement la voie de la CLI, qui crée des projets orphelins (`createProject`
+ * sans `ownerId`).
+ *
+ * Un projet QUI APPARTIENT à quelqu'un, lui, se ferme au jeton partagé. Et
+ * c'est ce qui donne à l'adoption (`peutAdopter`) son second sens : adopter un
+ * projet n'est plus seulement s'en déclarer responsable, c'est le SOUSTRAIRE au
+ * jeton que tout l'essaim détient. La migration vers la voie (c) de l'ADR se
+ * fait alors projet par projet, par un geste que l'hôte comprend, sans
+ * couper personne du jour au lendemain.
+ */
+export function ouvertAuJetonDeRuche(projet: ProjetAcces): boolean {
+  return projet.ownerId === null || projet.ownerId === '';
+}
+
+/**
  * Cette personne peut-elle ADMETTRE quelqu'un d'autre dans ce projet ?
  *
  * ─── LE CUL-DE-SAC QUE CETTE FONCTION OUVRE ──────────────────────────────────

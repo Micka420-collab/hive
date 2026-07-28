@@ -45,8 +45,10 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { vuePublique } from '../shared/projet-public.js';
 import {
+  ouvertAuJetonDeRuche,
   peutAdmettre,
   peutAdopter,
+  peutEngager,
   peutLireCode,
   peutRejoindre,
   peutVoirMembres,
@@ -1116,6 +1118,75 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.estMembre(projectId, (req as AuthRequest).userId!),
     );
   };
+
+  /** Trois issues, et le refus ne doit pas dire laquelle. */
+  type VerdictEngagement = 'permis' | 'anonyme' | 'absent';
+
+  /**
+   * Un ENGAGEMENT de projet est-il permis à cet appelant ? (ADR 0007, tranché)
+   *
+   * ─── LA DÉCISION, EN UNE PHRASE ────────────────────────────────────────────
+   *
+   * La frontière n'est pas « lire ou écrire », c'est **« ce projet vous
+   * regarde-t-il ? »**. Un acte qui engage un projet exige donc :
+   *
+   *   · un COMPTE qui a affaire au projet — propriétaire, membre, ou
+   *     administrateur de la ruche ; OU
+   *   · que le projet n'ait PAS de propriétaire : il n'appartient alors qu'à la
+   *     ruche, et le jeton de ruche EST la ruche.
+   *
+   * ─── CE QUE ÇA FERME, ET CE QUE ÇA NE CASSE PAS ────────────────────────────
+   *
+   * Ça ferme le fond du constat : une abeille qui a reçu `HIVE_TOKEN` parce
+   * qu'elle prête sa machine ne peut plus créer de tâches ni déclencher de
+   * merge sur le projet de quelqu'un d'autre — donc plus faire tourner du code
+   * sur les machines de l'essaim au nom d'un projet qui ne la regarde pas.
+   *
+   * Ça ne casse ni la CLI ni le tableau de bord sans compte sur leur voie
+   * habituelle : tous deux travaillent sur des projets créés par le jeton,
+   * donc ORPHELINS, donc encore ouverts. Ce qui change de main, ce sont les
+   * projets QUI APPARTIENNENT à un compte — et c'est précisément la frontière
+   * qu'on voulait tracer.
+   *
+   * ─── POURQUOI LES LECTURES GARDENT LEURS DEUX PORTES ───────────────────────
+   *
+   * Parce que « le tableau de bord s'utilise sans compte » est annoncé, et que
+   * resserrer les lectures le retirerait sans prévenir. Les fermer viendra
+   * quand les comptes seront la norme ; d'ici là, `lectureProjetPermise` reste
+   * une ouverture. Le déséquilibre est assumé et écrit : c'est l'écriture qui a
+   * des conséquences.
+   */
+  const engagementProjetPermis = (req: FastifyRequest, projectId: string): VerdictEngagement => {
+    // Qui n'a RIEN de valide n'a pas à apprendre si le projet existe : c'est le
+    // seul cas qui mérite « jeton invalide », et il est indépendant du projet.
+    const compte = authorizedUser(req);
+    if (!compte && !authorized(req)) return 'anonyme';
+
+    const projet = store.getProject(projectId);
+    if (!projet) return 'absent';
+    if (compte) {
+      const moi = (req as AuthRequest).userId!;
+      if (peutEngager(projet, lecteurDe(req), store.estMembre(projectId, moi))) return 'permis';
+    }
+    // La porte du jeton ne s'ouvre que sur un projet que personne ne possède.
+    if (ouvertAuJetonDeRuche(projet) && authorized(req)) return 'permis';
+    return 'absent';
+  };
+
+  /**
+   * Le refus d'un engagement, DE LA FORME EXACTE DE L'INEXISTENCE.
+   *
+   * C'est la convention du dépôt (`peutVoirMembres`, ADR 0005), et elle vaut
+   * ici pour la même raison : un « 403 » poli sur un projet qu'on ne possède
+   * pas confirmerait qu'il existe, et répété sur une liste d'identifiants il
+   * dessinerait la carte des projets de la ruche. Refuser et ne-pas-exister
+   * rendent donc les MÊMES octets.
+   *
+   * Le 401 est réservé à qui n'a présenté aucune identité valide : là, le refus
+   * ne dit rien du projet, il dit que l'appelant n'est personne.
+   */
+  const refuserEngagement = (reply: FastifyReply, verdict: VerdictEngagement): FastifyReply =>
+    verdict === 'anonyme' ? reject(reply) : reply.code(404).send({ error: 'projet inconnu' });
 
   app.get('/api/health', async () => ({ ok: true }));
 
@@ -2849,7 +2920,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       // Un seul conseil à la fois par projet : deux conseils concurrents
@@ -3734,7 +3806,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -3898,7 +3971,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!project.repoUrl) {
@@ -4290,7 +4364,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
