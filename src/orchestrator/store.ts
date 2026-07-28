@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
+import type { Partage } from '../shared/partage.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
@@ -355,6 +356,42 @@ CREATE TABLE IF NOT EXISTS invite_tickets (
   lastUsedAt   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_tickets_expiry ON invite_tickets(expiresAt);
+
+-- Les LIENS DE PARTAGE : montrer un projet à quelqu'un qui n'a pas de compte.
+--
+-- Table NEUVE et LATÉRALE, comme le veut la doctrine : aucune migration,
+-- aucune colonne ajoutée ailleurs, aucun index existant modifié. Elle ne réutilise pas invite_tickets bien que
+-- la forme se ressemble, et c'est délibéré — un billet fait entrer une MACHINE
+-- dans l'essaim, un partage fait LIRE un projet à un humain. Les mêler
+-- rendrait possible, un jour, d'échanger l'un contre l'autre par mégarde.
+--
+-- AUCUN SECRET N'EST RANGÉ ICI : seulement une empreinte PBKDF2 salée
+-- (src/shared/acces.ts), comme pour les billets. Une base volée ne donne aucun
+-- lien utilisable.
+--
+-- « projectId » n'est PAS une clé étrangère déclarée, par cohérence avec le reste
+-- du schéma : la suppression d'un projet est déjà un geste humain qui passe par
+-- le code, et une contrainte ici ferait échouer cette suppression au lieu de la
+-- nettoyer.
+--
+-- BORNE D'ELAGAGE (regle 3), dans le MEME changement : « prunePartages »,
+-- qui supprime les partages MORTS (révoqués ou expirés) passée une période de
+-- grâce. Les partages vivants ne sont jamais élagués — un lien encore valide
+-- qui disparaîtrait deviendrait silencieusement inutilisable chez celui à qui
+-- on l'a envoyé, et personne ne saurait pourquoi.
+CREATE TABLE IF NOT EXISTS partages (
+  id           TEXT PRIMARY KEY,
+  projectId    TEXT NOT NULL,
+  secretHash   TEXT NOT NULL,
+  label        TEXT,
+  creePar      TEXT,
+  creeA        INTEGER NOT NULL,
+  expireA      INTEGER NOT NULL,
+  revoqueA     INTEGER NOT NULL DEFAULT 0,
+  vuA          INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_partages_projet ON partages(projectId);
+CREATE INDEX IF NOT EXISTS idx_partages_expiry ON partages(expireA);
 
 -- Une clé par nœud. « nodeId » est la clé primaire : un nœud a UNE identité, et
 -- rejoindre à nouveau avec un nouveau billet remplace sa clé (rotation) plutôt
@@ -2155,6 +2192,72 @@ export class HiveStore {
         `DELETE FROM invite_tickets
          WHERE createdAt < ?
            AND (revokedAt IS NOT NULL OR expiresAt <= ? OR usesLeft <= 0)`,
+      )
+      .run(seuil, now).changes;
+  }
+
+  // ─── Les liens de partage ──────────────────────────────────────────────────
+
+  creerPartage(p: {
+    id: string;
+    projectId: string;
+    secretHash: string;
+    label: string;
+    creePar: string;
+    expireA: number;
+    now?: number;
+  }): void {
+    const now = p.now ?? Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO partages (id, projectId, secretHash, label, creePar, creeA, expireA, revoqueA, vuA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+      )
+      .run(p.id, p.projectId, p.secretHash, p.label, p.creePar, now, p.expireA);
+  }
+
+  getPartage(id: string): Partage | undefined {
+    return this.db.prepare('SELECT * FROM partages WHERE id = ?').get(id) as Partage | undefined;
+  }
+
+  listPartages(projectId: string): Partage[] {
+    return this.db
+      .prepare('SELECT * FROM partages WHERE projectId = ? ORDER BY creeA DESC')
+      .all(projectId) as Partage[];
+  }
+
+  /** Révoque un lien. Idempotent : re-révoquer n'écrase pas la première date. */
+  revoquerPartage(id: string, now = Date.now()): boolean {
+    return (
+      this.db.prepare('UPDATE partages SET revoqueA = ? WHERE id = ? AND revoqueA = 0').run(now, id)
+        .changes > 0
+    );
+  }
+
+  /** Note qu'un lien vient de servir — pour voir, plus tard, lequel dort. */
+  toucherPartage(id: string, now = Date.now()): void {
+    this.db.prepare('UPDATE partages SET vuA = ? WHERE id = ?').run(now, id);
+  }
+
+  /**
+   * BORNE D'ÉLAGAGE de `partages`, dans le même commit que la table.
+   *
+   * Seuls les partages MORTS — révoqués ou expirés — sont supprimés, et
+   * seulement passée une période de grâce. Un partage vivant qui disparaîtrait
+   * deviendrait silencieusement inutilisable chez celui à qui on l'a envoyé,
+   * sans que personne puisse dire pourquoi.
+   *
+   * La grâce sert à la même chose que pour les billets : que « ce lien a été
+   * révoqué » reste une réponse possible quelque temps, plutôt que « lien
+   * inconnu » — qui laisserait croire à une faute de frappe dans l'URL.
+   */
+  prunePartages(graceMs: number, now = Date.now()): number {
+    const seuil = now - Math.max(0, graceMs);
+    return this.db
+      .prepare(
+        `DELETE FROM partages
+         WHERE creeA < ?
+           AND (revoqueA > 0 OR expireA <= ?)`,
       )
       .run(seuil, now).changes;
   }

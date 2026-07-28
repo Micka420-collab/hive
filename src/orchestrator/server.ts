@@ -45,6 +45,15 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { vuePublique } from '../shared/projet-public.js';
 import { peutLireCode, peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
+import {
+  TTL_PARTAGE_MAX_MS,
+  actePartage,
+  bornerTtlPartage,
+  decoderPartage,
+  encoderPartage,
+  jugerPartage,
+  partageVivant,
+} from '../shared/partage.js';
 import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -4273,18 +4282,77 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // Le refus de la première prend la forme de l'inexistence, comme partout
   // ailleurs : un 403 sur un projet privé confirmerait qu'il existe.
 
-  /** Le projet, si l'appelant a le droit d'en lire le code. Répond et rend `null` sinon. */
+  /**
+   * Le porteur d'un lien de partage a-t-il le droit de faire CET acte sur CE
+   * projet ?
+   *
+   * ─── CE QUI REND CE JETON DIFFÉRENT DES DEUX AUTRES ───────────────────────
+   *
+   * Un lien de partage se colle dans un fil de discussion. Il survit dans
+   * l'historique du navigateur, le presse-papiers, la capture d'écran. Il ne
+   * peut donc jamais être ni le JWT (celui qui le reçoit SERAIT vous), ni le
+   * jeton de ruche (il vaut participation à l'essaim). C'est un troisième
+   * jeton, et il n'ouvre que deux actes de LECTURE, sur UN projet.
+   *
+   * Le secret est vérifié au MÊME COÛT quel que soit le résultat — contre
+   * `empreinteLeurre()` quand le lien n'existe pas. C'est la leçon de l'ADR
+   * 0005, où un identifiant inconnu répondait 9,8 fois plus vite qu'un secret
+   * erroné, et annonçait donc par l'horloge ce que le message taisait.
+   */
+  const partagePermet = (
+    req: FastifyRequest,
+    projectId: string,
+    acte: string,
+  ): { ok: true; partageId: string } | { ok: false } => {
+    if (!actePartage(acte)) return { ok: false };
+    const brut =
+      (req.headers['x-hive-partage'] as string | undefined) ??
+      (req.query as { partage?: string } | undefined)?.partage ??
+      '';
+    if (brut === '') return { ok: false };
+    const decode = decoderPartage(brut);
+    if (!decode) return { ok: false };
+    const range = store.getPartage(decode.id);
+    // Le secret D'ABORD et TOUJOURS, au même coût : sans le leurre, un
+    // identifiant inconnu sortirait sans payer PBKDF2 et l'écart de temps
+    // dirait lesquels existent.
+    const secretOk = empreinteValide(decode.secret, range?.secretHash ?? empreinteLeurre());
+    const verdict = jugerPartage(range, projectId, Date.now());
+    if (!secretOk || !verdict.ok || !range) return { ok: false };
+    return { ok: true, partageId: range.id };
+  };
+
+  /**
+   * Le projet, si l'appelant a le droit d'en lire le code. Répond et rend
+   * `null` sinon.
+   *
+   * DEUX PORTES, jamais confondues : un compte authentifié qui a affaire au
+   * projet, OU un lien de partage valide pour CE projet précisément. Le lien
+   * n'accorde rien de plus que ce que la liste blanche d'actes déclare.
+   */
   const projetLisible = (
     req: FastifyRequest<{ Params: { projectId: string } }>,
     reply: FastifyReply,
+    acte: 'lire_code' | 'voir_avancement' = 'lire_code',
   ): Project | null => {
+    const projectId = req.params.projectId;
+    const parPartage = partagePermet(req, projectId, acte);
+    if (parPartage.ok) {
+      const project = store.getProject(projectId);
+      if (!project) {
+        reply.code(404).send({ error: 'projet inconnu' });
+        return null;
+      }
+      store.toucherPartage(parPartage.partageId);
+      return project;
+    }
     if (!authorizedUser(req)) {
       reply.status(401).send({ error: 'Non authentifié' });
       return null;
     }
-    const project = store.getProject(req.params.projectId);
+    const project = store.getProject(projectId);
     const userId = (req as AuthRequest).userId!;
-    if (!project || !peutLireCode(project, userId, store.estMembre(req.params.projectId, userId))) {
+    if (!project || !peutLireCode(project, userId, store.estMembre(projectId, userId))) {
       reply.code(404).send({ error: 'projet inconnu' });
       return null;
     }
@@ -4360,6 +4428,112 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       } catch (e) {
         return repondreRayon(reply, e);
       }
+    },
+  );
+
+  // ─── Créer, lister et révoquer un lien de partage ──────────────────────────
+  //
+  // Ces trois routes-là, elles, sont réservées à un COMPTE : un porteur de lien
+  // ne fabrique pas d'autres liens. Sans cette asymétrie, le premier partage
+  // deviendrait un droit de partage illimité, et révoquer ne servirait à rien
+  // puisque le destinataire s'en serait refait un.
+
+  app.post<{ Params: { projectId: string }; Body: { label?: string; ttlMs?: number } }>(
+    '/api/projects/:projectId/partages',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            label: { type: 'string', maxLength: LIMITS.name },
+            ttlMs: { type: 'integer', minimum: 1, maximum: TTL_PARTAGE_MAX_MS },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      // Partager, c'est décider qui voit : seuls le propriétaire et les membres
+      // le peuvent, et le refus prend la forme de l'inexistence comme ailleurs.
+      if (!project || !peutLireCode(project, userId, store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const id = `par-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const expireA = Date.now() + bornerTtlPartage(req.body.ttlMs);
+      store.creerPartage({
+        id,
+        projectId: project.id,
+        // JAMAIS LE SECRET, seulement son empreinte : une base volée ne rend
+        // aucun lien utilisable.
+        secretHash: empreinte(secret),
+        label: req.body.label ?? '',
+        creePar: userId,
+        expireA,
+      });
+      emitEvent('partage_cree', { partageId: id, projectId: project.id, expireA });
+      const jeton = encoderPartage({ id, secret });
+      // Le secret n'est rendu QU'ICI, une seule fois. La liste ne le montrera
+      // jamais — c'est ce qui fait qu'un lien perdu se remplace au lieu de se
+      // retrouver.
+      return reply.send({
+        id,
+        jeton,
+        expireA,
+        lien: `${config.publicUrl?.replace(/^ws/, 'http').replace(/\/ws$/, '') ?? ''}/#/rayon/${project.id}?partage=${encodeURIComponent(jeton)}`,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/partages',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      if (!project || !peutLireCode(project, userId, store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const now = Date.now();
+      // `secretHash` NE SORT PAS. C'est une empreinte, pas un secret, mais la
+      // publier donnerait à qui la lit de quoi tenter un cassage hors ligne à
+      // son rythme — et rien, dans cette liste, n'en a le moindre besoin.
+      return reply.send(
+        store.listPartages(project.id).map((p) => ({
+          id: p.id,
+          label: p.label,
+          creeA: p.creeA,
+          expireA: p.expireA,
+          revoqueA: p.revoqueA,
+          vuA: p.vuA,
+          vivant: partageVivant(p, now),
+        })),
+      );
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; partageId: string } }>(
+    '/api/projects/:projectId/partages/:partageId',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      if (!project || !peutLireCode(project, userId, store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const p = store.getPartage(req.params.partageId);
+      // Un lien d'un AUTRE projet ne se révoque pas depuis ici : sans cette
+      // vérification, l'identifiant de route deviendrait une clé universelle.
+      if (!p || p.projectId !== project.id) {
+        return reply.code(404).send({ error: 'lien inconnu' });
+      }
+      const change = store.revoquerPartage(p.id);
+      if (change) emitEvent('partage_revoque', { partageId: p.id, projectId: project.id });
+      // Re-révoquer n'est pas une erreur : un double-clic ne doit pas alarmer.
+      return reply.send({ id: p.id, revoque: true, change });
     },
   );
 
