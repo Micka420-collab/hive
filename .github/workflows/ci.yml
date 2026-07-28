@@ -171,3 +171,66 @@ jobs:
 
       - name: Build (typecheck + dashboard)
         run: npm run build
+
+  # ═══ L'IMAGE, CONSTRUITE POUR DE VRAI ═══════════════════════════════════════
+  #
+  # Un Dockerfile qu'on ne construit jamais est une promesse de plus que rien
+  # n'exerce — exactement la forme de défaut que ce dépôt passe son temps à
+  # sortir. Ce travail-ci la construit à chaque PR.
+  #
+  # Il ne la POUSSE nulle part : GHCR et la signature cosign dépendent de
+  # comptes qui ne sont pas les miens. Construire est ce qui vérifie ; pousser
+  # ne vérifie rien de plus.
+  #
+  # Un seul système : une image Linux se construit sur un runner Linux, et la
+  # dupliquer sur trois plateformes coûterait dix minutes pour zéro information.
+  image:
+    name: L'image se construit, et la ruche y démarre
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: docker build -t hive:ci .
+
+      # ─── ET ELLE DÉMARRE. C'est ce qui distingue une image d'un fichier ────
+      #
+      # `better-sqlite3` est une dépendance OPTIONNELLE : une image où il aurait
+      # échoué à s'installer se construit quand même, et ne meurt qu'au premier
+      # démarrage. Construire sans démarrer laisserait passer précisément la
+      # panne que le choix de `slim` plutôt qu'`alpine` existe pour éviter.
+      - name: La ruche démarre dans l'image, et répond
+        run: |
+          docker run -d --name ruche-ci \
+            -e HIVE_TOKEN=jeton-de-ci-suffisamment-long-pour-passer-les-gardes \
+            -e HIVE_JWT_SECRET=secret-de-ci-suffisamment-long-pour-passer-les-gardes \
+            -p 127.0.0.1:7777:7777 hive:ci
+          # `--retry-connrefused` plutôt qu'un `sleep` : on attend ce qu'on
+          # attend, pas une durée devinée.
+          curl -fsS --retry 30 --retry-delay 1 --retry-connrefused \
+            http://127.0.0.1:7777/api/health
+          echo
+          docker logs ruche-ci | tail -20
+
+      - name: Le module natif est BIEN là — pas seulement optionnel
+        run: |
+          docker run --rm hive:ci node -e "
+            const d = require('better-sqlite3');
+            const db = new d(':memory:');
+            console.log('sqlite', db.prepare('select sqlite_version() v').get().v);
+            db.close();
+          "
+
+      - name: L'image ne tourne PAS en root
+        run: |
+          u=$(docker run --rm hive:ci id -un)
+          echo "utilisateur : $u"
+          test "$u" = node
+
+      - name: Ce que l'image pèse
+        run: docker image inspect hive:ci --format '{{.Size}}' | awk '{printf "%.0f Mo\n", $1/1048576}'
+
+      - name: Arrêter
+        if: always()
+        run: docker rm -f ruche-ci 2>/dev/null || true

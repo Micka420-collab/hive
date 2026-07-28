@@ -164,6 +164,71 @@ votre machine.
 
 ---
 
+## Dans un conteneur
+
+```sh
+cp .env.example .env    # posez-y votre HIVE_TOKEN
+docker compose up -d
+```
+
+L'image est en **Node 24 sur Debian slim**, pas sur Alpine : `better-sqlite3`
+publie des binaires prébuilts pour la glibc, pas pour la musl d'Alpine. Sur
+Alpine, npm devrait le **compiler** — et comme la dépendance est optionnelle,
+un échec de compilation produirait une image « réussie » dont le démarrage
+meurt sur `ERR_MODULE_NOT_FOUND`. C'est la panne que Node 24 a supprimée côté
+poste de travail ; on ne la réintroduit pas ici.
+
+Ce que `docker-compose.yml` décide pour vous, et pourquoi :
+
+- **le port est publié sur `127.0.0.1`**, pas sur toutes les interfaces. Sous
+  Linux, Docker écrit ses règles directement dans netfilter, **en amont de la
+  plupart des pare-feu** : un `ports: - '7777:7777'` ouvre la ruche sur
+  Internet sans que `ufw status` le montre. Pour l'ouvrir vraiment, il y a
+  `hive tunnel` — chiffré et révocable ;
+- **les secrets viennent d'un fichier**, jamais de la ligne de commande : un
+  `docker run -e HIVE_TOKEN=…` se lit dans le `ps` de n'importe quel compte de
+  la machine ;
+- **`restart: unless-stopped`**, pas `always`. Un logiciel qui repart quand on
+  l'a éteint est un logiciel qu'on ne contrôle pas ;
+- **le conteneur ne tourne pas en root**, son système de fichiers est en
+  lecture seule sauf le volume de données, et toutes les capacités sont
+  retirées.
+
+La CI **construit l'image et y démarre la ruche** à chaque PR — un Dockerfile
+qu'on ne construit jamais est une promesse que rien n'exerce.
+
+---
+
+## Sauvegarder la base
+
+```sh
+npm run cli -- sauvegarde --garder=7
+```
+
+**N'utilisez pas `cp`.** La base tourne en mode WAL : les écritures récentes
+vivent dans un fichier `-wal` à côté du fichier principal. Une copie à chaud
+donne une base qui s'ouvre sans erreur, passe `integrity_check`, et à laquelle
+il **manque des lignes**.
+
+Mesuré, sur 5 000 insertions — c'est le test le plus important de
+[`tests/sauvegarde.test.ts`](../tests/sauvegarde.test.ts) :
+
+|                                   | lignes rendues    | `integrity_check` |
+| --------------------------------- | ----------------- | ----------------- |
+| `hive sauvegarde` (`VACUUM INTO`) | **5 000 / 5 000** | `ok`              |
+| `cp hive.db copie.db`             | **4 741 / 5 000** | `ok`              |
+
+Les deux passent le contrôle d'intégrité. C'est bien le problème : la copie
+n'est pas corrompue, elle est **incomplète**, et rien ne le dit.
+
+La commande écrit dans `data/sauvegardes/`, sous un nom `.part` qu'elle renomme
+une fois la copie terminée — un renommage est atomique, donc **ce qui porte un
+nom définitif est toujours complet**, même si le processus meurt au milieu.
+`--garder=N` borne le nombre de copies conservées ; les plus anciennes partent,
+jamais celle qu'on vient d'écrire.
+
+---
+
 ## Faire tourner la ruche en permanence
 
 Une ruche qui tient des semaines doit survivre à un redémarrage. C'est

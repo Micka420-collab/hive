@@ -1,0 +1,69 @@
+# Hive — une ruche qui redémarre toute seule, sur une machine qu'on n'ouvre pas.
+#
+#     docker compose up -d
+#
+# ─── CE QUE CE FICHIER DÉCIDE, ET POURQUOI ──────────────────────────────────
+#
+# Trois choix qui ne sont pas des détails de confort.
+
+services:
+  ruche:
+    build: .
+    image: hive:local
+    # `unless-stopped` et pas `always` : si vous arrêtez la ruche à la main,
+    # elle reste arrêtée, même après un redémarrage de la machine. Un logiciel
+    # qui repart quand on l'a éteint est un logiciel qu'on ne contrôle pas —
+    # c'est la même décision que le `SuccessfulExit=false` du LaunchAgent.
+    restart: unless-stopped
+
+    # ─── LE PORT EST PUBLIÉ SUR LA BOUCLE LOCALE, PAS SUR LE RÉSEAU ─────────
+    #
+    # `127.0.0.1:7777:7777` et non `7777:7777`. La forme courte publie sur
+    # TOUTES les interfaces de l'hôte — et, sous Linux, Docker écrit ses règles
+    # DIRECTEMENT dans netfilter, en amont de la plupart des pare-feu : une
+    # ruche ouverte sur Internet sans que rien ne l'ait annoncé.
+    #
+    # Pour l'ouvrir vraiment, il y a `hive tunnel` : chiffré, révocable, et qui
+    # ne demande pas de toucher à un pare-feu.
+    ports:
+      - '127.0.0.1:7777:7777'
+
+    # Les secrets viennent d'un fichier, jamais de la ligne de commande : un
+    # `docker run -e HIVE_TOKEN=…` se lit dans `ps` de n'importe quel compte de
+    # la machine. C'est la contrainte §5.1 du projet, appliquée ici.
+    env_file:
+      - .env
+
+    volumes:
+      # La mémoire de la ruche. Un volume nommé, pas un montage de dossier :
+      # il survit à `docker compose down`, et ne dépend pas des permissions du
+      # dossier hôte.
+      - hive-donnees:/app/data
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+(process.env.HIVE_PORT||7777)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    # ─── DURCISSEMENT ───────────────────────────────────────────────────────
+    #
+    # Mêmes intentions que l'unité systemd du lot 9 : pas d'élévation possible,
+    # rien d'inscriptible hors de ce qui doit l'être.
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # `VACUUM INTO` et les fusions écrivent dans le dossier temporaire. Le
+      # reste du système de fichiers reste en lecture seule.
+      - /tmp
+    cap_drop:
+      - ALL
+
+volumes:
+  hive-donnees:

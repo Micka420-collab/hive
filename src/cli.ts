@@ -749,6 +749,69 @@ async function cmdService(...args: string[]): Promise<void> {
   process.exitCode = CODE.ERREUR;
 }
 
+/**
+ * `hive sauvegarde` — une copie de la base, complète et cohérente.
+ *
+ * ─── POURQUOI CETTE COMMANDE PLUTÔT QU'UN `cp` ───────────────────────────────
+ *
+ * La base tourne en mode WAL : les écritures récentes vivent dans un fichier
+ * `-wal` À CÔTÉ du fichier principal. Copier le `.db` à chaud donne une base
+ * qui s'ouvre sans erreur, passe `integrity_check`, et à laquelle il MANQUE des
+ * lignes. Mesuré, dans `tests/sauvegarde.test.ts` : sur 5 000 insertions, la
+ * copie brute en rendait 4 741.
+ *
+ * `VACUUM INTO` lit par le moteur, WAL compris. On écrit sous un nom `.part`,
+ * puis on renomme — un renommage est atomique, donc ce qui porte un nom
+ * définitif est toujours complet.
+ */
+async function cmdSauvegarde(...args: string[]): Promise<void> {
+  const { CODE } = await import('./codes-sortie.js');
+  const { contexteReel, sauvegarder } = await import('./sauvegarde-reelle.js');
+  const { contexteReel: ctxEmpreinte } = await import('./desinstallation.js');
+  const { taillelisible } = await import('./desinstallation.js');
+
+  const racine = path.resolve(args.find((a) => !a.startsWith('--')) ?? process.cwd());
+  const brut = args.find((a) => a.startsWith('--garder='))?.slice('--garder='.length);
+  const garder = brut === undefined ? 7 : Number(brut);
+  const vers = args.find((a) => a.startsWith('--vers='))?.slice('--vers='.length);
+
+  // La base est là où l'empreinte dit qu'elle est : une seule vérité sur
+  // l'emplacement, partagée avec `hive desinstaller`.
+  const ctx = contexteReel(
+    racine,
+    ctxEmpreinte(racine).dbPath,
+    garder,
+    vers === undefined ? undefined : path.resolve(vers),
+  );
+
+  const r = await sauvegarder(ctx);
+  if ('motif' in r) {
+    console.error(`\n✘ ${r.motif}\n`);
+    process.exitCode = CODE.PREREQUIS;
+    return;
+  }
+
+  if (args.includes('--json')) {
+    console.log(
+      JSON.stringify(
+        { fichier: r.fichier, octets: r.octets, elaguees: r.elaguees, restes: r.restes },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  console.log(`\n  ✔ ${r.fichier}`);
+  console.log(`    ${taillelisible(r.octets)} — copie complète, WAL compris\n`);
+  if (r.elaguees.length > 0) {
+    console.log(`  ◦ ${r.elaguees.length} plus ancienne(s) retirée(s) — borne : ${garder}\n`);
+  }
+  if (r.restes.length > 0) {
+    console.log(`  ◦ ${r.restes.length} reste(s) d’un processus interrompu, ramassé(s)\n`);
+  }
+}
+
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
 async function cmdGhost(): Promise<void> {
   const report = await api<GhostReport>('/api/ghost');
@@ -1553,6 +1616,7 @@ try {
   else if (cmd === 'doctor') await cmdDoctor(...process.argv.slice(3));
   else if (cmd === 'desinstaller') await cmdDesinstaller(...process.argv.slice(3));
   else if (cmd === 'service') await cmdService(...process.argv.slice(3));
+  else if (cmd === 'sauvegarde') await cmdSauvegarde(...process.argv.slice(3));
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
   else if (cmd === 'pulse') await cmdPulse();
@@ -1575,7 +1639,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }
