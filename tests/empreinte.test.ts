@@ -31,6 +31,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   type Contexte,
@@ -41,6 +42,24 @@ import {
 import { DISQUE, contexteReel, relever, retirer, taillelisible } from '../src/desinstallation.js';
 
 const RACINE = new URL('..', import.meta.url);
+/**
+ * La racine EN CHEMIN DE FICHIER, pas en URL.
+ *
+ * ─── LE § 6.1, RECOMMIS DANS LE FICHIER QUI LE CITE ──────────────────────────
+ *
+ * `new URL('..', import.meta.url).pathname` vaut `/D:/a/hive/` sous Windows —
+ * une barre AVANT la lettre de lecteur. Passé en `cwd` d'un `spawn`, ça échoue
+ * (« expected -1 to be +0 ») ; passé à `readdir`, ça rend une liste VIDE.
+ *
+ * Le second est le pire des deux : le relevé des écritures de `src/` ne voyait
+ * plus aucun fichier, et la garde « os.homedir() n'apparaît nulle part »
+ * bouclait sur zéro élément — donc PASSAIT, en n'ayant rien regardé. C'est le
+ * § 1.2 rejoué : une garde qu'on croit tenue et qui ne tourne nulle part.
+ *
+ * `fileURLToPath` est la seule conversion correcte. `.pathname` ne l'est
+ * jamais, sur aucune plateforme.
+ */
+const RACINE_CHEMIN = fileURLToPath(RACINE);
 
 const ctxPosix: Contexte = {
   racine: '/home/moi/hive',
@@ -325,7 +344,7 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
           process.execPath,
           ['--import', 'tsx', 'src/cli.ts', 'desinstaller', ...args],
           {
-            cwd: new URL('.', RACINE).pathname,
+            cwd: RACINE_CHEMIN,
             encoding: 'utf8',
             env: { ...process.env, NO_COLOR: '1', HIVE_DB: '', HIVE_WORKDIR: '' },
           },
@@ -550,14 +569,31 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     const pile = ['src'];
     while (pile.length > 0) {
       const d = pile.pop()!;
-      for (const nom of DISQUE.lister(new URL(d, RACINE).pathname)) {
+      for (const nom of DISQUE.lister(path.join(RACINE_CHEMIN, d))) {
         const rel = `${d}/${nom}`;
-        const abs = new URL(rel, RACINE).pathname;
+        const abs = path.join(RACINE_CHEMIN, rel);
         if (DISQUE.estDossier(abs)) pile.push(rel);
         else if (nom.endsWith('.ts') && !nom.endsWith('.d.ts')) {
           trouves.push({ chemin: rel, texte: readFileSync(abs, 'utf8') });
         }
       }
+    }
+    // ─── SANS CECI, TOUTE CETTE SECTION EST DU DÉCOR ─────────────────────────
+    //
+    // Sous Windows, un chemin mal converti a rendu ce parcours VIDE. La garde
+    // « la liste des fichiers qui écrivent » a bien rougi — elle comparait à
+    // une liste attendue. Mais celle de `os.homedir()` bouclait sur zéro
+    // élément et PASSAIT, en n'ayant rien regardé.
+    //
+    // Un plancher grossier suffit à rendre ce silence impossible : `src/`
+    // compte des dizaines de modules, il n'en aura jamais moins de vingt sans
+    // que quelqu'un s'en aperçoive autrement.
+    if (trouves.length < 20) {
+      throw new Error(
+        `le relevé de \`src/\` n’a trouvé que ${trouves.length} fichier(s) — ` +
+          'le parcours est cassé, et toutes les gardes qui en dépendent ne ' +
+          'regardent plus rien.',
+      );
     }
     return trouves;
   };
