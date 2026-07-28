@@ -153,7 +153,12 @@ import {
 } from './essaim.js';
 import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essaim.js';
 import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
-import { CORPUS_GARDIENNES, cheminsPromis, replierInspections } from './gardiennes.js';
+import {
+  CORPUS_GARDIENNES,
+  cheminsPromis,
+  fichiersTouches,
+  replierInspections,
+} from './gardiennes.js';
 import type { ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
 import {
   SEUIL_BATISSEUSE,
@@ -4261,6 +4266,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
         success: r.success,
         signature: signatureOf(r.diff),
+        // La SURFACE — le seul signal qui fonctionne sur du code, l'identité
+        // textuelle ne pouvant rien mesurer sur un diff (voir parliament.ts).
+        // `fichiersTouches` est celle des Gardiennes : une deuxième lecture de
+        // diff finirait par ne plus dire la même chose que la première.
+        fichiers: fichiersTouches(r.diff),
       }));
       return tally(ballots);
     },

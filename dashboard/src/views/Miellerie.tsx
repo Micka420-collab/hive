@@ -228,13 +228,120 @@ function DiffPanel({ diff }: { diff: string }) {
 
 // ─── Panneau Consensus (Parlement des Agents) ────────────────────────────────
 
+// ─── CE QUE CET ÉCRAN A LONGTEMPS FAIT CROIRE ────────────────────────────────
+//
+// « Pas de quorum — arbitrage humain » se lisait comme un constat : les agents
+// ont examiné, ils ne sont pas d'accord, tranchez. C'est faux sur du code.
+//
+// Le quorum se mesure par IDENTITÉ TEXTUELLE du diff. Deux agents différents
+// qui font exactement la même correction ne rendent jamais les mêmes octets —
+// un commentaire de plus suffit. Sur du code, `no_quorum` est donc le résultat
+// NORMAL, et il ne veut pas dire « ils ne sont pas d'accord » : il veut dire
+// « on n'a rien pu mesurer ».
+//
+// Le libellé le dit maintenant. Voir `src/orchestrator/parliament.ts`, et la
+// SURFACE plus bas — le signal qui, lui, fonctionne sur du code.
 const outcomeLabel = (t: Translate): Record<Verdict['outcome'], string> => ({
-  elected: t('Consensus atteint', 'Consensus reached'),
-  no_quorum: t('Pas de quorum — arbitrage humain', 'No quorum — human arbitration'),
+  elected: t('Sorties identiques', 'Identical outputs'),
+  no_quorum: t('Sorties toutes différentes', 'All outputs differ'),
   no_ballots: t('Aucun bulletin', 'No ballots'),
 });
 
-function ConsensusPanel({ verdict, error }: { verdict: Verdict | null; error: string | null }) {
+/** Ce que le résultat veut dire — parce que le mot seul induit en erreur. */
+const outcomeSens = (t: Translate): Record<Verdict['outcome'], string> => ({
+  elected: t(
+    'Au moins deux agents ont rendu exactement les mêmes octets. Sur une sortie courte (une décision, une réponse) c’est un signal fort ; sur du code, c’est rare et cela signale souvent des agents identiques.',
+    'At least two agents returned the exact same bytes. On a short output (a decision, an answer) that is a strong signal; on code it is rare and usually means the agents were identical.',
+  ),
+  no_quorum: t(
+    'Attendu sur du code : deux agents qui font la MÊME correction ne rendent pas les mêmes octets. Ce n’est pas un désaccord constaté — regardez la surface ci-dessous.',
+    'Expected on code: two agents making the SAME fix do not return the same bytes. This is not an observed disagreement — look at the surface below.',
+  ),
+  no_ballots: t('Aucun résultat en succès à départager.', 'No successful result to compare.'),
+});
+
+/**
+ * LA SURFACE — le seul accord mesurable sur du code.
+ *
+ * Elle ne dit pas que deux agents ont écrit la même chose : elle dit qu'ils
+ * sont allés au même endroit. C'est faible, et c'est assumé.
+ *
+ * Sa valeur est surtout dans le DÉSACCORD : deux surfaces distinctes veulent
+ * dire que les agents ne s'entendent pas sur l'endroit où le changement va —
+ * une divergence réelle, que l'identité textuelle noyait dans le bruit puisque
+ * tout lui paraissait déjà divergent.
+ *
+ * Rendu SÉPARÉMENT des factions, et jamais fondu dans le verdict : « même
+ * surface » ne doit pas pouvoir se lire comme « consensus ».
+ */
+function SurfacesPanel({ verdict }: { verdict: Verdict }) {
+  const t = useT();
+  if (verdict.surfaces.length === 0 && verdict.sansSurface === 0) return null;
+
+  // « Accord sur le lieu » exige AU MOINS DEUX voix : une surface à une voix
+  // n'est pas un accord avec soi-même, personne n'a confirmé l'endroit.
+  // L'annoncer serait exactement le mensonge rassurant qu'on cherche à éviter.
+  const accord = verdict.surfaces.length === 1 && (verdict.surfaces[0]?.votes ?? 0) > 1;
+  return (
+    <div className="mi-surf">
+      <h5 className="mi-surf-titre">
+        {t('Où le changement a été fait', 'Where the change was made')}
+      </h5>
+      {verdict.surfaces.length > 1 && (
+        <p className="mi-surf-alerte">
+          {t(
+            'Les agents ne sont pas d’accord sur l’ENDROIT. C’est un désaccord réel, et il se voit ici seulement.',
+            'The agents disagree on WHERE. That is a real disagreement, and it is visible only here.',
+          )}
+        </p>
+      )}
+      {accord && (
+        <p className="mi-surf-note">
+          {t(
+            'Même surface, quelle que soit l’écriture — accord sur le lieu, pas sur le code.',
+            'Same surface, whatever the wording — agreement on the place, not on the code.',
+          )}
+        </p>
+      )}
+      <ul className="mi-surf-list">
+        {verdict.surfaces.map((s) => (
+          <li key={s.fichiers.join('\n')} className="mi-surf-row">
+            <span className="mi-surf-votes">{t(`${s.votes} voix`, `${s.votes} vote(s)`)}</span>
+            {s.agentTypes.map((at) => (
+              <span key={at} className="chip mi-chip-static">
+                {at}
+              </span>
+            ))}
+            <code className="mi-surf-fichiers">{s.fichiers.join(' · ')}</code>
+          </li>
+        ))}
+      </ul>
+      {verdict.sansSurface > 0 && (
+        // L'abstention se VOIT. Un zéro silencieux se lirait comme « tout le
+        // monde a été pris en compte ».
+        <p className="mi-surf-note">
+          {t(
+            `${verdict.sansSurface} bulletin(s) sans diff lisible — écarté(s), pas comptés comme d’accord.`,
+            `${verdict.sansSurface} ballot(s) with no readable diff — set aside, not counted as agreeing.`,
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * EXPORTÉ POUR ÊTRE RENDU EN TEST — pas pour être réutilisé ailleurs.
+ * Ce panneau porte une affirmation sur ce que la ruche a MESURÉ ; seul un rendu
+ * réel dit ce qu'un relecteur y lit. Voir `dashboard/tests/surfaces-panneau.test.tsx`.
+ */
+export function ConsensusPanel({
+  verdict,
+  error,
+}: {
+  verdict: Verdict | null;
+  error: string | null;
+}) {
   const t = useT();
   if (error)
     return (
@@ -251,6 +358,8 @@ function ConsensusPanel({ verdict, error }: { verdict: Verdict | null; error: st
   return (
     <div>
       <p className={`mi-cons-outcome ${verdict.outcome}`}>{outcomeLabel(t)[verdict.outcome]}</p>
+      <p className="mi-cons-sens">{outcomeSens(t)[verdict.outcome]}</p>
+      <SurfacesPanel verdict={verdict} />
       {verdict.factions.length > 0 && (
         <>
           <div

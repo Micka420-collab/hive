@@ -392,9 +392,13 @@ async function cmdWaggle(): Promise<void> {
 /** Parlement des Agents : consensus par vote sur les résultats d'une tâche. */
 async function cmdConsensus(taskId: string): Promise<void> {
   const v = await api<Verdict>(`/api/tasks/${taskId}/consensus`);
+  // « pas de consensus » se lisait comme un constat de désaccord. Sur du code
+  // c'est l'inverse : deux agents qui font la MÊME correction ne rendent pas
+  // les mêmes octets, donc `no_quorum` est le résultat normal et ne mesure
+  // rien. Voir parliament.ts.
   const verdict: Record<string, string> = {
-    elected: '✅ consensus atteint',
-    no_quorum: `⚠ pas de consensus (quorum ${v.quorum})`,
+    elected: '✅ sorties identiques',
+    no_quorum: `⚠ sorties toutes différentes (quorum ${v.quorum})`,
     no_ballots: '∅ aucun résultat valide à départager',
   };
   console.log(`🏛  Parlement — ${verdict[v.outcome] ?? v.outcome}\n`);
@@ -405,6 +409,24 @@ async function cmdConsensus(taskId: string): Promise<void> {
         `(${f.diversity} type(s) : ${f.agentTypes.join(', ')})`,
     );
   });
+
+  // La SURFACE : le seul accord mesurable sur du code. Elle ne dit pas que
+  // deux agents ont écrit la même chose, mais qu'ils sont allés au même
+  // endroit — et deux surfaces distinctes sont un désaccord RÉEL.
+  if (v.surfaces.length > 0 || v.sansSurface > 0) {
+    console.log('\n📍 Où le changement a été fait');
+    if (v.surfaces.length > 1) {
+      console.log('   ⚠ les agents ne sont pas d’accord sur l’ENDROIT.');
+    }
+    v.surfaces.forEach((s) => {
+      console.log(`   ${s.votes} voix (${s.agentTypes.join(', ')}) — ${s.fichiers.join(', ')}`);
+    });
+    if (v.sansSurface > 0) {
+      console.log(
+        `   ${v.sansSurface} bulletin(s) sans diff lisible — écarté(s), pas comptés comme d’accord.`,
+      );
+    }
+  }
 }
 
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
