@@ -265,6 +265,26 @@ motif correct était dans un autre fichier de tests, à deux répertoires de là
 > **Règle** — passer l'objet `URL` **tel quel** à `readFileSync`, qui sait le
 > lire. Ne jamais construire un chemin de fichier depuis `.pathname`.
 
+**Recommis dans le fichier qui cite cette règle.** `tests/empreinte.test.ts`
+utilisait `new URL('.', RACINE).pathname` pour deux choses : le `cwd` d'un
+`spawn`, et la racine d'un parcours de `src/`. Sous Windows, le premier a
+échoué (`expected -1 to be +0`), le second a rendu une liste **vide**.
+
+Le second est le pire. Le relevé des écritures ne voyait plus aucun fichier :
+la garde « la liste des fichiers qui écrivent » a rougi — elle comparait à une
+liste attendue — mais celle de `os.homedir()` bouclait sur **zéro élément** et
+**passait**. Une garde de sécurité verte qui n'a rien regardé, exactement le
+§ 1.2.
+
+> **Règle** — `fileURLToPath` est la SEULE conversion correcte d'une `URL` vers
+> un chemin. `.pathname` ne l'est jamais, sur aucune plateforme — il se trouve
+> qu'il fonctionne par accident sous POSIX.
+>
+> **Règle** — une garde qui BOUCLE sur un relevé doit refuser un relevé vide.
+> `expect(vus).toBeGreaterThan(0)`, ou un plancher grossier sur le nombre de
+> fichiers parcourus. Sans ça, casser le parcours désarme la garde en silence
+> — et c'est la plateforme la moins regardée qui le fera.
+
 ### 6.2 — Un `.cmd` ne se lance pas sans interpréteur
 
 Sous Windows, `npm` est `npm.cmd`. Node **refuse** d'exécuter un `.cmd`/`.bat`
