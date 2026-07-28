@@ -21,6 +21,7 @@
 
 import { useState } from 'react';
 import {
+  billetServeur,
   estAdmin,
   fetchMembres,
   fetchServeurs,
@@ -312,6 +313,23 @@ function LigneServeur({ s, onChanged }: { s: ServeurAdmin; onChanged: () => void
   const [erreur, setErreur] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [aConfirmer, setAConfirmer] = useState<EtatServeur | null>(null);
+  // Le billet n'est PAS rangé : il vit en mémoire côté hub et disparaît dès
+  // qu'on l'a lu. On le garde donc ici le temps de la page, et l'écran dit
+  // clairement qu'il faut le copier maintenant.
+  const [billet, setBillet] = useState<string | null>(null);
+  const [billetOccupe, setBilletOccupe] = useState(false);
+
+  const demanderBillet = async () => {
+    setBilletOccupe(true);
+    setErreur(null);
+    try {
+      setBillet((await billetServeur(s.id)).commande);
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBilletOccupe(false);
+    }
+  };
 
   const agir = async (vers: EtatServeur) => {
     setBusy(vers);
@@ -355,6 +373,33 @@ function LigneServeur({ s, onChanged }: { s: ServeurAdmin; onChanged: () => void
             <span className="muted-text">{t('pas encore créée', 'not created yet')}</span>
           )}
           {s.motif && <small className="in-motif">{s.motif}</small>}
+          {/* Le billet ne se range plus : il faut donc un endroit pour aller le
+              chercher, sinon le motif caviardé renvoie l'administrateur vers
+              une page qui ne sait rien lui donner. */}
+          {s.etat === 'provisionnement' &&
+            (billet === null ? (
+              <button
+                className="btn ghost in-geste"
+                disabled={billetOccupe}
+                onClick={() => void demanderBillet()}
+                title={t(
+                  'Le billet n’est remis qu’une seule fois : copiez-le tout de suite.',
+                  'The ticket is handed over only once: copy it right away.',
+                )}
+              >
+                {billetOccupe ? '…' : t('🎟 Voir le billet', '🎟 Show the ticket')}
+              </button>
+            ) : (
+              <>
+                <code className="in-billet">{billet}</code>
+                <small className="in-motif">
+                  {t(
+                    'Copiez-le maintenant : il ne sera plus affiché. Un billet perdu ne se retrouve pas, il se remplace.',
+                    'Copy it now: it will not be shown again. A lost ticket is not recovered, it is replaced.',
+                  )}
+                </small>
+              </>
+            ))}
         </td>
         <td className="in-date">{dateOu(s.majA)}</td>
         <td className="in-gestes">

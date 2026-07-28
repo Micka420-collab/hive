@@ -681,6 +681,18 @@ export function setServeurEtat(
   });
 }
 
+/**
+ * Le billet de rattachement d'une machine — REMIS UNE SEULE FOIS.
+ *
+ * Il était auparavant lisible dans `motif`, en clair, durablement. Il vit
+ * maintenant en mémoire côté hub et disparaît dès qu'on l'a lu : l'appelant
+ * doit donc le GARDER, et l'écran doit le dire. Un second appel rend 404, ce
+ * qui n'est pas une panne — c'est le contrat.
+ */
+export function billetServeur(id: string): Promise<{ billet: string; commande: string }> {
+  return apiCompte(`/api/admin/serveurs/${encodeURIComponent(id)}/billet`);
+}
+
 export interface MembreAdmin {
   id: string;
   email: string;
