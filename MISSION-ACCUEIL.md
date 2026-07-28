@@ -120,7 +120,7 @@ Un seul binaire, **trois intentions**. La première question du TUI est celle-ci
 
   Vérifications
 
-  ✔  Node v22.4.0                                     (≥ 20 requis)
+  ✔  Node v24.8.0                                     (≥ 24 requis)
   ✔  Port 7777 libre
   ✔  Espace disque              2,1 Go
   ✔  Agent de codage            Claude Code
@@ -267,7 +267,7 @@ Exigences :
 
 Une commande, un verdict par ligne, **et pour chaque échec la commande exacte qui répare**. Minimum dix diagnostics :
 
-1. Version de Node ≥ 20.
+1. Version de Node ≥ 24.
 2. `.env` présent, lisible, permissions correctes (**ACL sur Windows**).
 3. Jeton ≥ `MIN_TOKEN_LENGTH` et non trivial.
 4. Port d'écoute libre ou occupé **par notre propre processus** (distinguer les deux).
@@ -338,7 +338,7 @@ Plus un job **`release`** : build → `npm publish --provenance` → image GHCR 
 
 ## 15. STYLE DE CODE DU DÉPÔT (respecte-le)
 
-- **TypeScript strict**, ESM, Node ≥ 20. `npm run lint` (ESLint + Prettier) et `npm run typecheck` verts.
+- **TypeScript strict**, ESM, Node ≥ 24. `npm run lint` (ESLint + Prettier) et `npm run typecheck` verts.
 - **Nommage du domaine en français** (`engendrerJeton`, `avertissements`, `prochainesEtapes`) ; **codes d'événements en anglais snake_case** (`guard_refused`, `pheromone_route`). Ne mélange pas.
 - **Modules purs testables / modules impurs minces.** C'est la ligne de partage de tout le dépôt.
 - **Commentaires qui expliquent le POURQUOI**, avec la conséquence évitée. Regarde l'en-tête de `installer.ts` : c'est le standard, ne descends pas en dessous.
@@ -391,7 +391,7 @@ Plus un job **`release`** : build → `npm publish --provenance` → image GHCR 
 1. **Nom du paquet npm** — `hive` est pris. Propose, tranche, écris l'ADR.
 2. **Domaine des one-liners** — `hive.<domaine>` ou GitHub Pages (`micka420-collab.github.io/hive/install.ps1`) ? Pages est gratuit et déjà déployé ; dis le compromis.
 3. **Publier ou pas l'image nœud** — le nœud a besoin de l'agent de l'hôte. Tranche.
-4. **Node 20 ou 22 comme socle** de l'image conteneur.
+4. **Node 24 comme socle** de l'image conteneur.
 5. **Faut-il un `hive uninstall`** qui retire l'état (`.env`, base) ? Défaut : **non**, trop dangereux. Justifie si tu changes d'avis.
 
 **Règle :** toute question ouverte devient un ADR ou une ligne dans le rapport final. Aucune ne se règle par un choix tacite dans le code.

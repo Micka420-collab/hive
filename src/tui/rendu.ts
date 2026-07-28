@@ -357,7 +357,7 @@ export interface Verification {
 const COLONNE_VALEUR = 30;
 
 /**
- * `  ✔  Node v22.4.0                                     (≥ 20 requis)`
+ * `  ✔  Node v24.8.0                                     (≥ 24 requis)`
  *
  * L'alignement n'est pas cosmétique : c'est ce qui permet de balayer la liste
  * du regard et de repérer la seule ligne qui n'est pas un `✔`.

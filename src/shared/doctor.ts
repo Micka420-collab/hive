@@ -153,8 +153,27 @@ export interface Releve {
   };
 }
 
-/** Version de Node exigée. Sous ce seuil, rien ne sert d'aller plus loin. */
-export const NODE_MINIMUM = 20;
+/**
+ * Version de Node exigée. Sous ce seuil, rien ne sert d'aller plus loin.
+ *
+ * ─── POURQUOI 24, ET PAS 20 ──────────────────────────────────────────────────
+ *
+ * Ce n'est pas une préférence pour le neuf : c'est une panne d'installation en
+ * moins, et la CI l'a mesurée sur le même commit.
+ *
+ * `better-sqlite3` est un module natif. Sous Node 20, `prebuild-install` ne
+ * trouve aucun binaire pour cette ABI et retombe sur `node-gyp` — 42 lignes de
+ * compilation sous Linux, et sous Windows un ÉCHEC : le `node-gyp` embarqué
+ * dans npm 10 ne sait pas lire Visual Studio 2026, et npm 10 ne permet pas de
+ * le remplacer. Sous Node 24, `prebuild-install` trouve le binaire de l'ABI :
+ * zéro compilation, 28 secondes, aucun outillage C++ requis.
+ *
+ * Le plancher à 24 supprime donc une classe entière de pannes d'installation
+ * plutôt que de la diagnostiquer — ce que faisait, faute de mieux, le
+ * diagnostic `moteur` juste au-dessus. Il reste utile : un `--omit=optional`
+ * ou une ABI sans prébuilt le réveilleront.
+ */
+export const NODE_MINIMUM = 24;
 
 /** En dessous, l'espace de travail se remplira avant la fin d'un merge. */
 export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;

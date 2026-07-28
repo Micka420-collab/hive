@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
-  <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen" alt="node">
+  <img src="https://img.shields.io/badge/node-%E2%89%A524-brightgreen" alt="node">
 </p>
 
 A central _Queen_ breaks a project into tasks and distributes them to members' machines (_Nodes_), each running its own coding agents (_worker bees_) in isolated workspaces. Control is centralized; **code and API keys stay on each member's machine.**
@@ -110,22 +110,23 @@ overwriting a live token would cut off every connected node.
 
 ## 🚀 Quick start (demo)
 
-Prerequisite: **Node.js ≥ 20**.
+Prerequisite: **Node.js ≥ 24**.
 
-> **Full hive on Windows — a C++ toolchain is required.**
-> `better-sqlite3` ships no prebuilt binaries: it is **compiled** at install
-> time, on every platform. Linux and macOS have what it needs out of the box;
-> a fresh Windows machine does not. Install
-> [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-> with the **"Desktop development with C++"** workload.
+> **Why 24 and not 20?** Because it removes an install failure, not because it
+> is newer.
 >
-> Without it, `npm install` **still succeeds** — SQLite is an _optional_
-> dependency, and npm drops optional ones silently — and then `hive start`
-> dies with `ERR_MODULE_NOT_FOUND`. That is exactly what `hive doctor` now
-> diagnoses, under the `moteur` key, together with the command that fixes it.
+> `better-sqlite3` is a native module. On Node 20 no prebuilt binary exists for
+> that ABI, so npm has to **compile** it. On a Windows machine without a C++
+> toolchain the build fails — **and `npm install` still succeeds**, because the
+> dependency is declared optional. You end up with a "green" install and a
+> `hive start` that dies with `ERR_MODULE_NOT_FOUND`.
 >
-> A **node** (`hive join`, `hive node`) needs no compiler at all: SQLite is
-> none of its business.
+> On Node 24 the prebuilt binary exists: nothing to compile, no compiler to
+> install, on any platform. Both behaviours were measured side by side in our
+> own CI, on the same commit.
+>
+> On an older Node, `hive doctor` will tell you under the `moteur` key, with the
+> command that fixes it — instead of leaving you to guess.
 
 ```bash
 npm install

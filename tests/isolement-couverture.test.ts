@@ -61,7 +61,7 @@ function sansCommentaires(source: string): string {
  * Tous les `.ts` sous `src/`, à la main.
  *
  * `globSync` de `node:fs` n'existe qu'à partir de Node 22 ; le projet annonce
- * Node ≥ 20 et l'intégration continue y tourne. Un test qui ne s'exécute que
+ * Node ≥ 24 et l'intégration continue y tourne. Un test qui ne s'exécute que
  * sur la machine de son auteur ne garde rien.
  */
 function fichiersTs(dossier = '', acc: string[] = []): string[] {
