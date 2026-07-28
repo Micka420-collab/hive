@@ -247,6 +247,7 @@ describe('résilience', () => {
       await repo.init();
       await repo.addConfig('user.email', 'test@hive.local');
       await repo.addConfig('user.name', 'Hive Test');
+      await repo.addConfig('commit.gpgsign', 'false');
       writeFileSync(path.join(origin, 'README.md'), '# Origine\n');
       await repo.add('.');
       await repo.commit('initial');

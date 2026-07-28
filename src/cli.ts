@@ -488,6 +488,119 @@ async function cmdDoctor(...args: string[]): Promise<void> {
   process.exitCode = codeDeSortie(diags);
 }
 
+/**
+ * `hive desinstaller` — montrer son empreinte avant d'effacer quoi que ce soit.
+ *
+ * ─── POURQUOI LE DÉFAUT EST L'INVENTAIRE, PAS LA SUPPRESSION ─────────────────
+ *
+ * Installer sans pouvoir désinstaller est ce qui fait qu'on n'essaie pas un
+ * outil. Mais un `uninstall` qui efface tout est pire : la base SQLite est la
+ * MÉMOIRE de la ruche — projets, tâches, Hive Mind, grand livre — et `.env`
+ * porte `HIVE_TOKEN`, dont la perte déconnecte tous les nœuds.
+ *
+ * L'ADR 0004 a tranché : `.env` et la base ne sont JAMAIS touchés, quel que
+ * soit le drapeau. Cette commande les affiche, dit ce qu'ils pèsent et ce
+ * qu'on perdrait, et donne la commande exacte — puis s'arrête. Le geste
+ * définitif reste celui d'un humain qui l'a tapé.
+ *
+ * Et il n'y a pas de `--dry-run` : le DÉFAUT est sec. Un drapeau qu'on oublie
+ * de taper ne doit jamais transformer un inventaire en effacement.
+ */
+async function cmdDesinstaller(...args: string[]): Promise<void> {
+  const { contexteReel, relever, retirer, taillelisible } = await import('./desinstallation.js');
+  const { horsDuDossier } = await import('./shared/empreinte.js');
+
+  const racine = path.resolve(args.find((a) => !a.startsWith('--')) ?? process.cwd());
+  const ctx = contexteReel(racine);
+  const trouve = relever(ctx);
+
+  if (args.includes('--json')) {
+    console.log(
+      JSON.stringify(
+        {
+          racine,
+          horsDuDossier: horsDuDossier(ctx).map((e) => e.cle),
+          emplacements: trouve.map((t) => ({
+            cle: t.emplacement.cle,
+            genre: t.emplacement.genre,
+            retirable: t.emplacement.retirable,
+            chemins: t.presents,
+            octets: t.octets,
+            quoi: t.emplacement.quoi,
+            consequence: t.emplacement.consequence,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const PUCE: Record<string, string> = {
+    etat: '  ✘',
+    secret: '  ✘',
+    travail: '  ▸',
+    transitoire: '  ▸',
+  };
+
+  console.log(`\n🐝 Ce que Hive a écrit — ${racine}\n`);
+  let riens = 0;
+  for (const t of trouve) {
+    if (t.presents.length === 0) {
+      riens++;
+      continue;
+    }
+    const taille = t.octets > 0 ? ` — ${taillelisible(t.octets)}` : '';
+    console.log(`${PUCE[t.emplacement.genre] ?? '  ·'} ${t.emplacement.quoi}${taille}`);
+    for (const c of t.presents) console.log(`       ${c}`);
+    for (const c of t.contenu) console.log(`         · ${path.basename(c.chemin)} — ${c.quoi}`);
+    console.log(`       ${t.emplacement.retirable ? '↻' : '⚠'} ${t.emplacement.consequence}\n`);
+  }
+  if (riens > 0) console.log(`  (${riens} emplacement(s) annoncé(s) mais absent(s) ici)\n`);
+
+  // La nuance que la documentation taisait : `.hive-work` est relatif au
+  // RÉPERTOIRE COURANT. Quelqu'un qui a fait `npx … join` depuis ailleurs a
+  // une clé de nœud dans ce dossier-là, et pas de `~/hive` du tout.
+  //
+  // On affiche les chemins TROUVÉS, pas ceux qui étaient annoncés : pour un
+  // emplacement balayé par préfixe, `chemin` est le dossier parent — écrire
+  // « /tmp » ici ferait croire que la ruche revendique tout le dossier
+  // temporaire.
+  const clesDehors = new Set(horsDuDossier(ctx).map((e) => e.cle));
+  const dehors = trouve.filter((t) => clesDehors.has(t.emplacement.cle) && t.presents.length > 0);
+  if (dehors.length > 0) {
+    console.log('  Hors du dossier d’installation :');
+    for (const t of dehors) {
+      for (const c of t.presents) console.log(`    · ${c} — ${t.emplacement.quoi}`);
+    }
+    console.log('');
+  }
+
+  if (!args.includes('--oui')) {
+    console.log('  Rien n’a été supprimé. Pour enlever ce qui est reconstructible :\n');
+    console.log('    npm run cli -- desinstaller --oui\n');
+    console.log('  L’état (✘) n’est jamais retiré par cette commande. Pour vous en');
+    console.log('  séparer, en connaissance de cause :\n');
+    for (const t of trouve) {
+      if (t.emplacement.retirable || t.presents.length === 0) continue;
+      console.log(`    rm -rf ${t.presents.join(' ')}`);
+    }
+    console.log('');
+    return;
+  }
+
+  console.log('  Suppression de ce qui se reconstruit…\n');
+  for (const g of retirer(trouve)) {
+    if (g.issue === 'supprime') {
+      console.log(`  ✔ ${g.cle} — ${taillelisible(g.octets)} libéré(s)`);
+    } else if (g.issue === 'protege' && g.chemins.length > 0) {
+      console.log(`  ⚠ ${g.cle} — conservé : ${g.chemins.join(' ')}`);
+    }
+  }
+  console.log('');
+}
+
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
 async function cmdGhost(): Promise<void> {
   const report = await api<GhostReport>('/api/ghost');
@@ -1290,6 +1403,7 @@ try {
   else if (cmd === 'waggle') await cmdWaggle();
   else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
   else if (cmd === 'doctor') await cmdDoctor(...process.argv.slice(3));
+  else if (cmd === 'desinstaller') await cmdDesinstaller(...process.argv.slice(3));
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
   else if (cmd === 'pulse') await cmdPulse();
@@ -1312,7 +1426,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }

@@ -50,6 +50,29 @@ Rien d'autre. Aucun rouge.
 > **Règle** — après un changement touchant des `skip`/`runIf`, comparer le
 > nombre de tests EXÉCUTÉS, pas seulement le vert.
 
+### 1.4 — Une garde qui ne connaît qu'une des deux API `fs`
+
+La garde de `tests/empreinte.test.ts` relève les appels d'écriture de `src/` et
+les compare à une liste déclarée. Première version : uniquement les noms en
+`…Sync`. Elle a donc affirmé que `src/orchestrator/miroir.ts` **n'écrivait
+pas** — alors qu'il fait `await fs.mkdir(...)`, l'API à promesses, importée en
+`import { promises as fs } from 'node:fs'`.
+
+Ce qui l'a montré : le désaccord entre la garde et l'inventaire fait à la main
+juste avant. Sans cet inventaire, la garde aurait été verte et fausse.
+
+Une garde qui rate une famille entière d'appels est **pire que rien** : elle
+donne la confiance d'un vert là où il n'y a pas de couverture.
+
+> **Règle** — une garde qui relève des appels doit couvrir **toutes** les
+> formes de l'API visée. Pour `fs` : les `…Sync`, et les membres d'un objet
+> `fs`/`fsp`/`promises`. Le préfixe est exigé côté promesses, sinon un `rm(`
+> ou un `cp(` nus attrapent n'importe quelle méthode du dépôt.
+>
+> **Règle** — avant d'écrire une garde automatique, faire l'inventaire À LA
+> MAIN une fois. Le désaccord entre les deux est le seul signal disponible ;
+> sans lui, une garde incomplète est indiscernable d'une garde satisfaite.
+
 ### 1.3 — Un pas vert n'atteste que du code de sortie
 
 Le pas de CI qui lance `install.sh --dry-run` est passé au vert du premier
@@ -441,6 +464,38 @@ donc à des millisecondes différentes. Le cas n'est pas atteignable.
 > **Règle** — juger la GRAVITÉ d'un défaut sur ses appelants, pas sur la forme
 > de la requête. Écrire un test qui fabrique un scénario impossible, c'est de la
 > décoration.
+
+---
+
+## 8 bis. Une chaîne vide n'est pas absente
+
+`env.HIVE_DB ?? '<défaut>'` **garde** `''` : la chaîne vide n'est pas nullish,
+`??` ne la remplace pas. Un `HIVE_DB=` vide — dans un `.env`, dans un
+`docker run -e HIVE_DB`, dans un shell où la variable a été effacée — donnait
+donc `dbPath = ''`, puis `path.dirname('') === '.'`.
+
+Sur `hive doctor`, ça n'aurait affiché qu'un mauvais chemin. Sur
+`hive desinstaller`, la commande **visait `./rayons` relatif au répertoire
+courant** au lieu de l'installation — et `--oui` l'aurait supprimé.
+
+Trouvé par le test de bout en bout, qui passait `HIVE_DB: ''` pour neutraliser
+l'environnement du dépôt : exactement le geste qu'un utilisateur peut faire.
+Aucune relecture ne l'aurait vu, parce que `?? défaut` **a l'air** d'une valeur
+par défaut.
+
+> **Règle** — pour une variable d'environnement, `??` ne suffit pas. Un helper
+> qui rend `undefined` sur vide ou blanc, puis `??`. La règle vaut partout,
+> mais elle est **obligatoire** dès que la valeur sert à supprimer.
+>
+> **Règle** — un test qui neutralise l'environnement doit le faire avec des
+> valeurs qu'un humain peut produire (`''`), pas seulement en retirant la clé.
+> C'est le cas vide qui casse, pas le cas absent.
+
+Le même `??` existe dans `server.ts` et `doctor-releve.ts`. Là, un chemin vide
+fait échouer l'ouverture de SQLite immédiatement : la conséquence est une panne
+visible, pas une suppression au mauvais endroit. **Non corrigés délibérément** —
+changer le comportement du serveur dans un lot sur la désinstallation serait le
+§ 4 de ce fichier.
 
 ---
 

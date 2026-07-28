@@ -75,6 +75,18 @@ describe.skipIf(!AVEC_GIT)('rustine — aller-retour contre git', () => {
     git(['config', 'user.email', 'test@hive.local']);
     git(['config', 'user.name', 'Test']);
     git(['config', 'core.autocrlf', 'false']);
+    // ─── LA SIGNATURE DE COMMIT, NEUTRALISÉE POUR CE DÉPÔT JETABLE ──────────
+    //
+    // `commit.gpgsign = true` est un réglage GLOBAL courant et recommandé. Il
+    // s'applique aussi aux dépôts que ces tests fabriquent, et le programme de
+    // signature n'a rien à faire là : un contributeur qui signe ses commits ne
+    // pouvait tout simplement PAS lancer cette suite (« cannot exec … »).
+    //
+    // On désarme UNIQUEMENT ce réglage, UNIQUEMENT dans le dépôt que le test
+    // vient de créer. Rien de la configuration de la personne n'est touché —
+    // c'est la leçon du § 4.1 : `GIT_CONFIG_NOSYSTEM` avait emporté
+    // `core.symlinks` avec lui.
+    git(['config', 'commit.gpgsign', 'false']);
     ecrire(avant);
     git(['add', '-A']);
     git(['commit', '-q', '-m', 'base']);
