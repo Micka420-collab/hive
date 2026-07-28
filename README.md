@@ -475,6 +475,7 @@ déconnecter les ruches existantes, mais `npm run join` affiche un avertissement
 | `npm run cli`           | CLI : `state`/`mind`/`plan`/`brief`/`project`/`tasks`/`watch`/`merge`/`replay`/`waggle`/`consensus`/`ghost`/`pulse`/`report`/`invite`… |
 | `npm test`              | Tests unitaires + e2e (vitest)                                                                                                         |
 | `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                                                                                                  |
+| `npm run cli -- doctor` | **Le docteur** — 11 causes de panne, et pour chacune la commande exacte qui répare. `--json` pour une supervision.                     |
 | `npm run loupe`         | **La loupe** — le code que la branche ajoute est-il défendu par ses propres tests ? (voir ci-dessous)                                  |
 | `npm run build`         | Typecheck (orchestrateur + dashboard) + build du dashboard                                                                             |
 | `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                                                                                              |

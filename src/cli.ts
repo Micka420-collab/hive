@@ -15,6 +15,7 @@
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
 //   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
+//   npm run cli -- doctor [chemin] [--json]          diagnostic local : 11 causes de panne
 //   npm run cli -- ghost                              anomalies (nœuds/tâches douteux)
 //   npm run cli -- shift                              disponibilité heures creuses (HIVE_SHIFT, local)
 //   npm run cli -- pulse                              signes vitaux de la ruche
@@ -427,6 +428,64 @@ async function cmdConsensus(taskId: string): Promise<void> {
       );
     }
   }
+}
+
+/**
+ * `hive doctor` — un verdict par ligne, et pour chaque échec la commande exacte.
+ *
+ * ─── POURQUOI CETTE COMMANDE NE PARLE PAS À LA RUCHE ─────────────────────────
+ *
+ * Toutes les autres commandes de ce fichier appellent l'API. Celle-ci NON, et
+ * c'est le point : on l'utilise justement quand la ruche ne répond pas. Une
+ * commande de diagnostic qui a besoin de ce qu'elle diagnostique ne sert à rien
+ * le jour où on en a besoin.
+ *
+ * Elle regarde donc le disque, essaie le port, et parle HTTP seulement pour
+ * demander « es-tu une ruche ? » à ce qui occupe déjà le port.
+ */
+async function cmdDoctor(...args: string[]): Promise<void> {
+  const { relever } = await import('./doctor-releve.js');
+  const { codeDeSortie, diagnostiquer, pire } = await import('./shared/doctor.js');
+
+  // Un CHEMIN facultatif : `hive doctor /srv/ma-ruche` examine une autre
+  // installation que celle d'où l'on tape. Utile pour diagnostiquer depuis un
+  // poste d'administration — et c'est ce qui rend la commande testable de bout
+  // en bout, sans dépendre du répertoire courant du processus de test.
+  const chemin = args.find((a) => !a.startsWith('--')) ?? process.cwd();
+  const releve = await relever(chemin);
+  const diags = diagnostiquer(releve);
+
+  // `--json` est OBLIGATOIRE ici (mission §10) : c'est la commande qu'on
+  // branche sur une supervision, et une supervision ne lit pas des puces.
+  if (args.includes('--json')) {
+    console.log(JSON.stringify({ verdict: pire(diags), diagnostics: diags }, null, 2));
+    process.exitCode = codeDeSortie(diags);
+    return;
+  }
+
+  const PUCE: Record<string, string> = {
+    ok: '  ✔',
+    risque: '  ⚠',
+    inconnu: '  ?',
+    bloquant: '  ✘',
+  };
+  console.log('\n🩺 hive doctor\n');
+  for (const d of diags) {
+    console.log(`${PUCE[d.gravite] ?? '  ·'} ${d.cle.padEnd(13)} ${d.constat}`);
+    // La réparation vient JUSTE SOUS le constat, indentée : c'est ce qu'on
+    // copie-colle, et le chercher ailleurs dans la sortie casserait le geste.
+    if (d.reparation) console.log(`       → ${d.reparation}`);
+  }
+
+  const p = pire(diags);
+  const mot: Record<string, string> = {
+    ok: 'tout est en ordre',
+    risque: 'ça tourne, mais lisez les ⚠',
+    inconnu: 'rien de cassé ; quelques points n’ont PAS pu être vérifiés (?)',
+    bloquant: 'la ruche ne peut pas fonctionner en l’état — réparez les ✘, de haut en bas',
+  };
+  console.log(`\n${mot[p] ?? p}\n`);
+  process.exitCode = codeDeSortie(diags);
 }
 
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
@@ -1230,6 +1289,7 @@ try {
   else if (cmd === 'replay') await cmdReplay(a1);
   else if (cmd === 'waggle') await cmdWaggle();
   else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
+  else if (cmd === 'doctor') await cmdDoctor(...process.argv.slice(3));
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
   else if (cmd === 'pulse') await cmdPulse();
@@ -1252,7 +1312,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }
