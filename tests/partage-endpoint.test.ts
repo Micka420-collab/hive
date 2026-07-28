@@ -20,9 +20,10 @@
 // remontrerait le jeton ferait de la fuite d'un écran la fuite de tous les
 // liens.
 
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { simpleGit } from 'simple-git';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
@@ -100,6 +101,24 @@ describe('les liens de partage', () => {
       ownerId: 'quelquun-dautre',
     }).id;
 
+    // Une tâche terminée par un nœud NOMMÉ : c'est lui qu'un lien ne doit pas
+    // voir, et un compte doit continuer de voir.
+    const tache = server.store.createTask({
+      projectId: projetA,
+      title: 'une tâche faite',
+      prompt: 'faire',
+    });
+    server.store.patchTask(tache.id, { status: 'done', assignedNodeId: 'noeud-temoin' });
+    server.store.insertResult({
+      taskId: tache.id,
+      nodeId: 'noeud-temoin',
+      success: true,
+      diff: 'diff --git a/f b/f\n',
+      logs: 'ok',
+      durationMs: 10,
+      subAgents: [],
+    });
+
     const res = await fetch(`${base}/api/projects/${projetA}/partages`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${jetonReine}` },
@@ -130,6 +149,49 @@ describe('les liens de partage', () => {
       );
       expect(res.status).toBe(200);
     });
+
+    it('VOIR L’AVANCEMENT — l’acte déclaré qu’aucune route n’utilisait', async () => {
+      // `ACTES_PARTAGES` annonce `voir_avancement` depuis le premier jour, et
+      // les trois seules routes qui acceptaient un lien demandaient toutes
+      // `lire_code`. Un lien « voir l'avancement » ne montrait donc jamais
+      // d'avancement : on promettait au porteur une chose qu'on ne lui donnait
+      // pas. C'est le genre de trou qu'aucun test de route ne voit, puisque
+      // chaque route se comportait exactement comme demandé.
+      const res = await fetch(`${base}/api/projects/${projetA}/report`, {
+        headers: { 'x-hive-partage': lien },
+      });
+      expect(res.status).toBe(200);
+      const r = (await res.json()) as { name: string; total: number };
+      expect(r.name).toBeTruthy();
+      expect(typeof r.total).toBe('number');
+    });
+
+    it('UN PARTAGE MONTRE L’AVANCEMENT, PAS QUI TRAVAILLE', async () => {
+      // Les identifiants de nœuds nomment les machines de gens qui n'ont pas
+      // consenti à figurer dans un lien qu'on fait circuler. Un compte, lui,
+      // les voit : c'est bien le lien qu'on restreint, pas le rapport.
+      const parLien = (await (
+        await fetch(`${base}/api/projects/${projetA}/report`, {
+          headers: { 'x-hive-partage': lien },
+        })
+      ).json()) as { contributingNodes: string[] };
+      const parCompte = (await (
+        await fetch(`${base}/api/projects/${projetA}/report`, {
+          headers: { authorization: `Bearer ${jetonReine}`, 'x-hive-token': TOKEN },
+        })
+      ).json()) as { contributingNodes: string[] };
+      expect(parLien.contributingNodes).toEqual([]);
+      expect(parCompte.contributingNodes).toEqual(['noeud-temoin']);
+    });
+
+    it('l’avancement d’un AUTRE projet reste fermé', async () => {
+      // Le lien vaut pour UN projet. Sans cette vérification, `voir_avancement`
+      // deviendrait un droit de lecture sur toute la ruche.
+      const res = await fetch(`${base}/api/projects/${projetB}/report`, {
+        headers: { 'x-hive-partage': lien },
+      });
+      expect(res.status).not.toBe(200);
+    });
   });
 
   describe('CE QUE LE LIEN NE PEUT PAS FAIRE', () => {
@@ -142,6 +204,24 @@ describe('les liens de partage', () => {
     it('IL NE FABRIQUE PAS D’AUTRES LIENS', async () => {
       // Sans cette asymétrie, révoquer ne servirait à rien : le destinataire
       // s'en serait refait un.
+      // Une tâche terminée par un nœud NOMMÉ : c'est lui qu'un lien ne doit pas
+      // voir, et un compte doit continuer de voir.
+      const tache = server.store.createTask({
+        projectId: projetA,
+        title: 'une tâche faite',
+        prompt: 'faire',
+      });
+      server.store.patchTask(tache.id, { status: 'done', assignedNodeId: 'noeud-temoin' });
+      server.store.insertResult({
+        taskId: tache.id,
+        nodeId: 'noeud-temoin',
+        success: true,
+        diff: 'diff --git a/f b/f\n',
+        logs: 'ok',
+        durationMs: 10,
+        subAgents: [],
+      });
+
       const res = await fetch(`${base}/api/projects/${projetA}/partages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-hive-partage': lien },
@@ -195,6 +275,24 @@ describe('les liens de partage', () => {
     it('la liste montre le lien SANS SON SECRET', async () => {
       // Une liste qui remontrerait le jeton ferait de la fuite d'un écran la
       // fuite de tous les liens.
+      // Une tâche terminée par un nœud NOMMÉ : c'est lui qu'un lien ne doit pas
+      // voir, et un compte doit continuer de voir.
+      const tache = server.store.createTask({
+        projectId: projetA,
+        title: 'une tâche faite',
+        prompt: 'faire',
+      });
+      server.store.patchTask(tache.id, { status: 'done', assignedNodeId: 'noeud-temoin' });
+      server.store.insertResult({
+        taskId: tache.id,
+        nodeId: 'noeud-temoin',
+        success: true,
+        diff: 'diff --git a/f b/f\n',
+        logs: 'ok',
+        durationMs: 10,
+        subAgents: [],
+      });
+
       const res = await fetch(`${base}/api/projects/${projetA}/partages`, {
         headers: { authorization: `Bearer ${jetonReine}` },
       });
@@ -238,6 +336,24 @@ describe('les liens de partage', () => {
       // Un lien vivant qui disparaîtrait deviendrait silencieusement
       // inutilisable chez celui à qui on l'a envoyé, sans que personne puisse
       // dire pourquoi.
+      // Une tâche terminée par un nœud NOMMÉ : c'est lui qu'un lien ne doit pas
+      // voir, et un compte doit continuer de voir.
+      const tache = server.store.createTask({
+        projectId: projetA,
+        title: 'une tâche faite',
+        prompt: 'faire',
+      });
+      server.store.patchTask(tache.id, { status: 'done', assignedNodeId: 'noeud-temoin' });
+      server.store.insertResult({
+        taskId: tache.id,
+        nodeId: 'noeud-temoin',
+        success: true,
+        diff: 'diff --git a/f b/f\n',
+        logs: 'ok',
+        durationMs: 10,
+        subAgents: [],
+      });
+
       const res = await fetch(`${base}/api/projects/${projetA}/partages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${jetonReine}` },
@@ -249,5 +365,89 @@ describe('les liens de partage', () => {
       // …et il emporte bien les morts.
       expect(server.store.getPartage(lienId)).toBeUndefined();
     });
+  });
+});
+
+// ─── L'ÉCRAN — les deux bouts, parce qu'un seul ne sert à rien ───────────────
+//
+// Le partage a vécu entier côté serveur, testé, documenté… et sans AUCUNE
+// interface : ni pour créer un lien, ni pour en lire un. Une personne à qui on
+// envoyait l'URL arrivait sur la mire de connexion d'une ruche où elle n'a pas
+// de compte. Ces gardes-là existent pour que ça ne se reproduise pas en
+// silence.
+
+describe('le partage, côté écran', () => {
+  const lire = (rel: string): string => {
+    const brut = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+    // On dépouille les commentaires : ils EXPLIQUENT les règles, et une garde
+    // qui lit le fichier brut finit par accuser la phrase qui protège.
+    return brut.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+  };
+
+  it('LE PORTEUR D’UN LIEN A UN ÉCRAN — l’aiguillage est AVANT `App`', () => {
+    // `App` ouvre le flux WebSocket avec le jeton de RUCHE dès son montage et
+    // sonde le pouls : un porteur de lien n'a rien de tout ça, et une branche
+    // à l'intérieur ne l'éviterait pas — les hooks partent avant qu'on ait
+    // fini de choisir quoi afficher.
+    const main = lire('../dashboard/src/main.tsx');
+    expect(main).toContain('savePartage');
+    expect(main).toContain('Partage');
+  });
+
+  it('LE JETON NE RESTE PAS DANS LA BARRE D’ADRESSE', () => {
+    // Il vit après le `#`, donc il ne part dans aucun journal d'accès. Mais une
+    // capture d'écran de la page ne doit pas suffire à refaire le lien.
+    expect(lire('../dashboard/src/main.tsx')).toContain('history.replaceState');
+  });
+
+  /** Le corps d'une fonction exportée de `api.ts`, à la louche mais suffisant. */
+  const corpsDe = (source: string, nom: string): string => {
+    const i = source.indexOf(`export function ${nom}(`);
+    expect(i, nom).toBeGreaterThan(0);
+    const suite = source.slice(i);
+    const fin = suite.indexOf('\n}');
+    return suite.slice(0, fin === -1 ? 400 : fin);
+  };
+
+  it('LES LECTURES PARTAGEABLES PASSENT PAR `apiLecture`, ET RIEN D’AUTRE', () => {
+    // Le serveur a exactement cette forme : `projetLisible()` accepte deux
+    // portes — un compte, ou un lien. Deux familles de fonctions côté client
+    // donneraient deux listes à tenir d'accord, et c'est toujours celle qu'on
+    // oublie qui décide.
+    const api = lire('../dashboard/src/api.ts');
+    for (const nom of ['fetchRayon', 'fetchFichierRayon', 'fetchApercu', 'fetchReport']) {
+      expect(corpsDe(api, nom), nom).toContain('apiLecture');
+    }
+  });
+
+  it('LA RETOUCHE, ELLE, EXIGE UN COMPTE — et doit le rester', () => {
+    // C'est la moitié qui compte. Basculer `proposerRetouche` sur `apiLecture`
+    // par symétrie ferait d'un lien « juste pour montrer » un droit de faire
+    // tourner des agents sur les machines des membres. Le serveur refuserait,
+    // mais on ne veut pas non plus le lui demander.
+    const api = lire('../dashboard/src/api.ts');
+    expect(corpsDe(api, 'proposerRetouche')).not.toContain('apiLecture');
+    expect(corpsDe(api, 'proposerRetouche')).toContain('apiCompte');
+    // Et la création de liens n'est pas non plus une lecture : un porteur de
+    // lien ne fabrique pas d'autres liens.
+    expect(corpsDe(api, 'creerPartage')).toContain('apiCompte');
+    expect(corpsDe(api, 'revoquerPartage')).toContain('apiCompte');
+  });
+
+  it('ON PEUT CRÉER ET RÉVOQUER UN LIEN DEPUIS LA VUE PROJETS', () => {
+    const vue = lire('../dashboard/src/views/Projets.tsx');
+    expect(vue).toContain('creerPartage');
+    expect(vue).toContain('revoquerPartage');
+    // Le jeton n'est rendu QU'UNE FOIS : un écran qui ne l'affiche pas à ce
+    // moment-là le perd pour de bon.
+    expect(vue).toContain('nouveau.lien');
+  });
+
+  it('LE PORTEUR NE SE VOIT PAS PROPOSER DE RETOUCHER', () => {
+    // Le serveur refuse déjà — la retouche exige un compte — mais proposer un
+    // bouton voué au 401 est une promesse qu'on ne tient pas.
+    const rayon = lire('../dashboard/src/views/Rayon.tsx');
+    expect(rayon).toContain('getPartage()');
+    expect(rayon).toContain('parPartage ?');
   });
 });

@@ -224,11 +224,21 @@ ferait de cette route un oracle « ce courriel a-t-il un compte ici ? »
 interrogeable par tout propriétaire de projet. Chacun lit son propre
 identifiant sur cette même carte, et le donne comme on se passe un billet.
 
-**Partager en lecture** se fait depuis la vue projet et donne une URL à coller :
+**Partager en lecture** se fait depuis le panneau « Partage en lecture » de la
+vue Projets, et donne une URL à coller :
 
 ```
-https://<votre-tunnel>/#/partage/hive3_…
+https://<votre-tunnel>/#/rayon/<projet>?partage=hive3_…
 ```
+
+Celui qui l'ouvre n'a **ni compte ni jeton de ruche** : il arrive sur un écran
+dépouillé qui dit ce qu'il est (lecture seule), montre l'avancement et le code,
+et rien d'autre — pas de barre latérale, pas d'essaim, pas de journal, et aucun
+bouton de retouche. Il ne voit pas non plus **qui** travaille : les identifiants
+de nœuds nomment les machines de gens qui n'ont pas consenti à figurer dans un
+lien qu'on fait circuler. Le jeton voyage après le `#` — donc il n'apparaît dans
+aucun journal d'accès — et il est retiré de la barre d'adresse dès qu'il est
+rangé.
 
 Le jeton de partage n'est **pas** le jeton de ruche : il porte deux actes
 seulement (voir l'avancement, lire le code), vaut pour **un** projet, expire

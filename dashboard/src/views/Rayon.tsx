@@ -30,7 +30,7 @@
 //    faire.
 
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { fetchApercu, fetchFichierRayon, fetchRayon, proposerRetouche } from '../api';
+import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -67,6 +67,9 @@ function icone(e: EntreeRayon, ouvert: boolean): string {
 
 export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
   const t = useT();
+  // Lecture par lien de partage : c'est la MÊME source que celle qui décide de
+  // l'en-tête HTTP, donc les deux ne peuvent pas se contredire.
+  const parPartage = getPartage() !== null;
   const projets = snapshot.projects;
   // Le projet du hash s'il existe encore, sinon le premier — jamais `undefined`
   // silencieusement : un lien partagé vers un projet supprimé doit retomber sur
@@ -305,7 +308,12 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
                     teste, et son diff passe par la revue comme tout le reste.
                     Un bouton « enregistrer » promettrait une écriture qui
                     n'arrive jamais — le pire mensonge d'interface possible. */}
-                {!retouche ? (
+                {/* UN PORTEUR DE LIEN LIT, IL NE FABRIQUE PAS DE TRAVAIL pour
+                    l'essaim de quelqu'un d'autre. Le serveur le refuse déjà —
+                    la retouche exige un COMPTE — mais proposer un bouton voué
+                    au 401 est une promesse qu'on ne tient pas. On lit l'état du
+                    partage à la source, pas via une copie qui dériverait. */}
+                {parPartage ? null : !retouche ? (
                   <button
                     className="btn ghost ry-geste"
                     onClick={() => setRetouche({ texte: fichier.contenu, note: '' })}

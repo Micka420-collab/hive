@@ -9,6 +9,37 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🔗 Le partage en lecture A ENFIN UN ÉCRAN — aux deux bouts** (vue
+  `dashboard/src/views/Partage.tsx`, panneau de création dans la vue Projets,
+  aiguillage dans `main.tsx`). Le mécanisme était entier côté serveur — jeton
+  distinct, deux actes, expiration, révocation individuelle, tests — et n'avait
+  **aucune interface** : ni pour créer un lien, ni pour en lire un. Une personne
+  à qui on envoyait l'URL arrivait sur la mire de connexion d'une ruche où elle
+  n'a pas de compte. C'était documenté comme si ça marchait, ce qui est pire que
+  de ne pas l'avoir. **L'acte `voir_avancement` était lui aussi déclaré et
+  inutilisable** : les trois seules routes qui acceptaient un lien demandaient
+  toutes `lire_code`, si bien qu'un lien « voir l'avancement » ne montrait jamais
+  d'avancement. `GET /report` l'accepte désormais — et **rend `contributingNodes`
+  vide** pour un lien : les identifiants de nœuds nomment les machines de gens
+  qui n'ont pas consenti à figurer dans un lien qu'on fait circuler.
+  L'aiguillage est **avant `App`**, pas dedans : `App` ouvre le flux WebSocket
+  avec le jeton de ruche dès son montage et sonde le pouls, ce qu'un porteur de
+  lien ne peut pas faire — et les hooks partent avant qu'une branche interne ait
+  fini de choisir. Le jeton vit dans `sessionStorage` (il meurt avec l'onglet,
+  exactement la durée d'un lien qu'on vous a montré, et il ne contamine pas
+  l'onglet où vous êtes connecté à votre compte) et il est **retiré de la barre
+  d'adresse** après lecture : il voyage après le `#`, donc aucun journal
+  d'accès ne le voit, et une capture d'écran ne doit pas suffire à refaire le
+  lien. Côté client, **un seul helper** (`apiLecture`) porte les lectures
+  partageables, en miroir de `projetLisible()` côté serveur : deux familles de
+  fonctions donneraient deux listes à tenir d'accord, et c'est toujours celle
+  qu'on oublie qui décide. La retouche, elle, reste sur `apiCompte` — un porteur
+  de lien lit, il ne fabrique pas de travail pour l'essaim d'autrui — et le
+  bouton ne lui est même pas proposé. Éprouvé de bout en bout dans un navigateur
+  **sans compte ni jeton de ruche** : avancement visible, code lisible, `.env`
+  absent, aucun nœud nommé, aucune retouche possible (401), puis lien révoqué →
+  refus indistinguable de l'inexistence.
+
 - **👥 Adopter un projet, y admettre des ouvrières** (règles pures
   `peutAdopter` / `peutAdmettre` dans `src/shared/acces-projet.ts`, routes
   `POST /api/projects/:id/adopter` et `…/membres` en POST et DELETE, panneau

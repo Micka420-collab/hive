@@ -29,6 +29,48 @@ export class ApiError extends Error {
   }
 }
 
+// ─── Le lien de partage, côté porteur ───────────────────────────────────────
+//
+// ─── POURQUOI `sessionStorage` ET PAS `localStorage` ────────────────────────
+//
+// Un lien de partage circule : on le colle dans une conversation, on l'ouvre
+// sur un poste qui n'est pas le sien, on le montre à quelqu'un. Le ranger dans
+// `localStorage` le laisserait derrière soi — l'onglet fermé, le suivant qui
+// ouvre le tableau de bord sur cette machine repartirait en lecture du projet
+// de quelqu'un d'autre. `sessionStorage` meurt avec l'onglet, ce qui est
+// exactement la durée de vie d'un lien qu'on vous a montré.
+//
+// Il est AUSSI cloisonné par onglet : une personne peut lire un partage dans
+// un onglet et rester connectée à son propre compte dans l'autre, sans que
+// l'un contamine l'autre.
+
+const PARTAGE_KEY = 'hive.partage';
+
+export function getPartage(): string | null {
+  try {
+    return sessionStorage.getItem(PARTAGE_KEY);
+  } catch {
+    // Navigateur en mode restreint : on lit sans partage plutôt que de tomber.
+    return null;
+  }
+}
+
+export function savePartage(jeton: string): void {
+  try {
+    sessionStorage.setItem(PARTAGE_KEY, jeton);
+  } catch {
+    /* rien à faire : la lecture se fera sans mémoire */
+  }
+}
+
+export function clearPartage(): void {
+  try {
+    sessionStorage.removeItem(PARTAGE_KEY);
+  } catch {
+    /* idem */
+  }
+}
+
 /** fetch authentifié qui lève une ApiError lisible sur réponse non-OK. */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -279,7 +321,7 @@ export interface ApercuProjet {
 }
 
 export function fetchApercu(projectId: string): Promise<ApercuProjet> {
-  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/apercu`);
+  return apiLecture(`/api/projects/${encodeURIComponent(projectId)}/apercu`);
 }
 
 /**
@@ -602,9 +644,15 @@ export function fetchReplay(since = 0): Promise<ReplayResult> {
   return api<ReplayResult>(`/api/replay?since=${since}`);
 }
 
-/** Rapport d'avancement d'un projet. */
+/**
+ * Rapport d'avancement d'un projet.
+ *
+ * Passe par `apiLecture` : c'est l'acte `voir_avancement` du lien de partage,
+ * déclaré depuis toujours et qu'aucune route n'utilisait — un lien « voir
+ * l'avancement » ne montrait donc jamais d'avancement.
+ */
 export function fetchReport(projectId: string): Promise<ProjectReport> {
-  return api<ProjectReport>(`/api/projects/${projectId}/report`);
+  return apiLecture<ProjectReport>(`/api/projects/${projectId}/report`);
 }
 
 /** Honeycomb Merge : plan d'intégration (advisory) d'un projet. */
@@ -776,6 +824,54 @@ export function admettreMembre(
   });
 }
 
+// ─── Les liens de partage en lecture ────────────────────────────────────────
+
+export interface LienPartage {
+  id: string;
+  label: string;
+  creeA: number;
+  expireA: number;
+  revoqueA: number | null;
+  vuA: number | null;
+  /** Ni révoqué ni expiré — le seul champ qui décide de ce qu'on affiche. */
+  vivant: boolean;
+}
+
+/**
+ * Le lien fraîchement créé. `jeton` et `lien` ne sont rendus QU'ICI, une seule
+ * fois : la liste ne les montrera jamais. C'est ce qui fait qu'un lien perdu se
+ * remplace au lieu de se retrouver.
+ */
+export interface PartageCree {
+  id: string;
+  jeton: string;
+  expireA: number;
+  lien: string;
+}
+
+export function creerPartage(
+  projectId: string,
+  opts: { label?: string; ttlMs?: number } = {},
+): Promise<PartageCree> {
+  return apiCompte<PartageCree>(`/api/projects/${projectId}/partages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(opts.label ? { label: opts.label } : {}),
+      ...(opts.ttlMs ? { ttlMs: opts.ttlMs } : {}),
+    }),
+  });
+}
+
+export function fetchPartages(projectId: string): Promise<LienPartage[]> {
+  return apiCompte<LienPartage[]>(`/api/projects/${projectId}/partages`);
+}
+
+export function revoquerPartage(projectId: string, partageId: string): Promise<{ ok: boolean }> {
+  return apiCompte<{ ok: boolean }>(`/api/projects/${projectId}/partages/${partageId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function retirerMembre(
   projectId: string,
   userId: string,
@@ -821,6 +917,32 @@ function apiCompte<T>(path: string, init?: RequestInit): Promise<T> {
   return api<T>(path, {
     ...init,
     headers: { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
+  });
+}
+
+/**
+ * Appel de LECTURE : par le lien de partage s'il y en a un, par le compte sinon.
+ *
+ * ─── POURQUOI UN SEUL HELPER, ET PAS DEUX CHEMINS PARALLÈLES ────────────────
+ *
+ * Le serveur a exactement cette forme : `projetLisible()` accepte deux portes —
+ * un compte qui a affaire au projet, ou un lien valide pour CE projet. Écrire
+ * ici deux familles de fonctions (`fetchRayon` et `fetchRayonPartage`…)
+ * donnerait deux listes à tenir d'accord, et c'est toujours celle qu'on oublie
+ * qui décide. Une seule fonction, qui choisit son en-tête, ne peut pas diverger
+ * d'elle-même.
+ *
+ * Ce helper n'est utilisé QUE par les lectures que le serveur a déclarées
+ * accessibles à un lien. Un appel d'écriture qui passerait par ici recevrait
+ * 401 côté serveur — la retouche, elle, exige un compte, et c'est le point.
+ */
+function apiLecture<T>(path: string, init?: RequestInit): Promise<T> {
+  const jeton = getPartage();
+  return api<T>(path, {
+    ...init,
+    headers: jeton
+      ? { 'x-hive-partage': jeton, ...init?.headers }
+      : { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
   });
 }
 
@@ -900,11 +1022,11 @@ export function fetchRayon(
   chemin = '',
 ): Promise<{ chemin: string; entrees: EntreeRayon[] }> {
   const q = chemin === '' ? '' : `?chemin=${encodeURIComponent(chemin)}`;
-  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/rayon${q}`);
+  return apiLecture(`/api/projects/${encodeURIComponent(projectId)}/rayon${q}`);
 }
 
 export function fetchFichierRayon(projectId: string, chemin: string): Promise<FichierRayon> {
-  return apiCompte(
+  return apiLecture(
     `/api/projects/${encodeURIComponent(projectId)}/rayon/fichier?chemin=${encodeURIComponent(chemin)}`,
   );
 }

@@ -211,8 +211,15 @@ oracle answering "does this email have an account here?" for any project owner.
 Everyone reads their own identifier on that same card, and hands it over the way
 one hands over an invitation ticket.
 
-**Sharing read-only** is done from the project view and yields a URL to paste
-(`https://<your-tunnel>/#/partage/hive3_…`). The share token is **not** the hive
+**Sharing read-only** is done from the "Read-only sharing" panel in the Projects
+view and yields a URL to paste
+(`https://<your-tunnel>/#/rayon/<project>?partage=hive3_…`). Whoever opens it has
+**neither an account nor the hive token**: they land on a stripped-down screen
+that says what it is (read-only), shows progress and code, and nothing else — no
+sidebar, no swarm, no journal, no edit button. They do not see **who** is
+working either: node identifiers name the machines of people who never agreed to
+appear in a link being passed around. The token travels after the `#` — so it
+shows up in no access log — and it is removed from the address bar once stored. The share token is **not** the hive
 token: it carries two acts only (see progress, read code), applies to **one**
 project, expires (7 days by default, 90 at most) and is revoked one at a time
 without touching the others.

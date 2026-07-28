@@ -3560,10 +3560,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // DEUX PORTES. Le jeton de ruche (membres de l'essaim, CLI) — ou un lien
+      // de partage portant `voir_avancement`.
+      //
+      // CET ACTE ÉTAIT DÉCLARÉ ET INUTILISABLE. `ACTES_PARTAGES` l'annonce
+      // depuis le premier jour, et AUCUNE route ne le consultait : les trois
+      // seules qui acceptaient un lien demandaient toutes `lire_code`. Un lien
+      // « voir l'avancement » ne montrait donc jamais d'avancement — on
+      // promettait au porteur une chose qu'on ne lui donnait pas.
+      //
+      // L'ordre compte : le refus d'un appelant sans droit reste `reject`, le
+      // même que le projet existe ou non. Chercher le projet d'abord sert
+      // seulement à juger le lien, jamais à répondre.
       const project = store.getProject(req.params.projectId);
+      const parPartage = project
+        ? partagePermet(req, project.id, 'voir_avancement')
+        : { ok: false as const };
+      if (!parPartage.ok && !authorized(req)) return reject(reply);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
-      return buildProjectReport(project, store.listTasks(project.id));
+      const rapport = buildProjectReport(project, store.listTasks(project.id));
+      if (!parPartage.ok) return rapport;
+      store.toucherPartage(parPartage.partageId);
+      // UN PARTAGE MONTRE L'AVANCEMENT, PAS QUI TRAVAILLE. Les identifiants de
+      // nœuds nomment les machines de gens qui n'ont pas consenti à figurer
+      // dans un lien qu'on fait circuler.
+      return { ...rapport, contributingNodes: [] };
     },
   );
 

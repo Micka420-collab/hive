@@ -8,18 +8,28 @@ import {
   addTasks,
   admettreMembre,
   adopterProjet,
+  creerPartage,
   estAdmin,
   fetchBalance,
   fetchConflicts,
   fetchMembresProjet,
   fetchMergePlan,
+  fetchPartages,
   fetchMergeResult,
   fetchReport,
   planBrief,
   retirerMembre,
+  revoquerPartage,
   runMerge,
 } from '../api';
-import type { AuthUser, BalanceState, MergeRunResult, NewTaskInput, PlanResponse } from '../api';
+import type {
+  AuthUser,
+  BalanceState,
+  MergeRunResult,
+  NewTaskInput,
+  PartageCree,
+  PlanResponse,
+} from '../api';
 import { useLang, useT } from '../i18n';
 import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { BalanceProjet, CarteDevis } from './Balance';
@@ -726,6 +736,174 @@ function EquipeProjet({
   );
 }
 
+/**
+ * Les liens de partage en lecture — montrer sans donner la ruche.
+ *
+ * ─── LA SEULE CHOSE À NE PAS RATER ICI ───────────────────────────────────────
+ *
+ * Le serveur ne rend le jeton QU'UNE FOIS, à la création. La liste ne le montre
+ * jamais — c'est ce qui fait qu'un lien perdu se remplace au lieu de se
+ * retrouver. Un écran qui n'afficherait pas le lien à ce moment-là le
+ * perdrait pour de bon, et la seule issue serait d'en créer un autre sans
+ * comprendre pourquoi.
+ *
+ * D'où le bandeau qui reste tant qu'on ne l'a pas fermé, et le libellé qui
+ * annonce que c'est la seule fois.
+ */
+function PartagesProjet({
+  project,
+  user,
+  refreshTick,
+}: {
+  project: Project;
+  user: AuthUser | null;
+  refreshTick: number;
+}) {
+  const t = useT();
+  const [tick, setTick] = useState(0);
+  const liens = useApiPoll(() => fetchPartages(project.id), 120_000, refreshTick + tick);
+  const [nouveau, setNouveau] = useState<PartageCree | null>(null);
+  const [label, setLabel] = useState('');
+  const [jours, setJours] = useState(7);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [occupe, setOccupe] = useState(false);
+  const [copie, setCopie] = useState(false);
+
+  if (!user) return null;
+
+  const creer = () => {
+    setOccupe(true);
+    setErreur(null);
+    creerPartage(project.id, {
+      ...(label.trim() ? { label: label.trim() } : {}),
+      ttlMs: jours * 24 * 60 * 60 * 1000,
+    })
+      .then((p) => {
+        setNouveau(p);
+        setLabel('');
+        setCopie(false);
+        setTick((n) => n + 1);
+      })
+      .catch((e: unknown) => setErreur(errMsg(e)))
+      .finally(() => setOccupe(false));
+  };
+
+  const revoquer = (id: string) => {
+    setOccupe(true);
+    setErreur(null);
+    revoquerPartage(project.id, id)
+      .then(() => setTick((n) => n + 1))
+      .catch((e: unknown) => setErreur(errMsg(e)))
+      .finally(() => setOccupe(false));
+  };
+
+  return (
+    <div className="pj-sub">
+      <div className="pj-sub-head">
+        <h4>{t('Partage en lecture', 'Read-only sharing')}</h4>
+        {liens.data && <span className="pj-sub-meta">{liens.data.length}</span>}
+      </div>
+
+      {nouveau && (
+        <div className="pj-lien-neuf">
+          <p>
+            {t(
+              'Ce lien ne sera plus affiché. Copiez-le maintenant.',
+              'This link will not be shown again. Copy it now.',
+            )}
+          </p>
+          {/* `readOnly` et non `disabled` : un champ désactivé ne se sélectionne
+              pas, et il faut pouvoir copier à la main si le presse-papier est
+              refusé par le navigateur. */}
+          <input className="pj-testcmd mono" readOnly value={nouveau.lien} aria-label="lien" />
+          <div className="pj-run">
+            <button
+              className="btn"
+              onClick={() => {
+                void navigator.clipboard?.writeText(nouveau.lien).then(() => setCopie(true));
+              }}
+            >
+              {copie ? t('✔ copié', '✔ copied') : t('Copier', 'Copy')}
+            </button>
+            <button className="btn ghost" onClick={() => setNouveau(null)}>
+              {t('J’ai copié', 'Done')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {liens.data && liens.data.length > 0 && (
+        <ul className="pj-liens">
+          {liens.data.map((l) => (
+            <li key={l.id} className={l.vivant ? '' : 'pj-lien-mort'}>
+              <span className="pj-lien-nom">{l.label || t('(sans nom)', '(unnamed)')}</span>
+              <span className="pj-lien-etat">
+                {!l.vivant
+                  ? t('éteint', 'dead')
+                  : l.vuA
+                    ? t('ouvert', 'opened')
+                    : t('jamais ouvert', 'never opened')}
+              </span>
+              {l.vivant && (
+                <button
+                  className="btn ghost pj-equipe-x"
+                  disabled={occupe}
+                  aria-label={t('Révoquer', 'Revoke')}
+                  title={t('Révoquer ce lien', 'Revoke this link')}
+                  onClick={() => revoquer(l.id)}
+                >
+                  ✕
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="pj-run">
+        <input
+          className="pj-testcmd"
+          type="text"
+          placeholder={t(
+            'À qui ? (ex. « client », optionnel)',
+            'For whom? (e.g. “client”, optional)',
+          )}
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          disabled={occupe}
+          aria-label={t('Nom du lien', 'Link label')}
+        />
+        <label className="pj-select-label">
+          <span>{t('jours', 'days')}</span>
+          <select
+            value={jours}
+            onChange={(e) => setJours(Number(e.target.value))}
+            disabled={occupe}
+          >
+            {[1, 7, 30, 90].map((j) => (
+              <option key={j} value={j}>
+                {j}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn" disabled={occupe} onClick={creer}>
+          {t('Créer un lien', 'Create a link')}
+        </button>
+      </div>
+
+      <p className="pj-equipe-moi">
+        {t(
+          'Un lien ouvre DEUX actes : voir l’avancement et lire le code. Il ne donne ni la ruche, ni votre compte, et se révoque un par un.',
+          'A link opens TWO acts: see progress and read code. It grants neither the hive nor your account, and each one is revoked on its own.',
+        )}
+      </p>
+
+      {erreur && <p className="panel-error">{erreur}</p>}
+    </div>
+  );
+}
+
 function ProjectCard({
   project,
   tasks,
@@ -851,6 +1029,11 @@ function ProjectCard({
           après « qu'est-ce que ça fait ». C'est aussi le seul endroit d'où un
           dépôt importé peut sortir de son orphelinat. */}
       <EquipeProjet project={project} user={user} refreshTick={refreshTick} />
+
+      {/* Le partage vient APRÈS l'équipe : admettre quelqu'un dans le projet et
+          lui montrer le projet sont deux gestes différents, et c'est le second
+          qui se donne à des gens qui n'ont pas de compte ici. */}
+      <PartagesProjet project={project} user={user} refreshTick={refreshTick} />
 
       {tasks.length > 0 ? (
         <Honeycomb

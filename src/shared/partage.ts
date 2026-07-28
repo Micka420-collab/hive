@@ -51,6 +51,17 @@ export const PREFIXE_PARTAGE = 'hive3_';
  * prise. Ici, ajouter un acte sans l'inscrire ici le REFUSE — le bon défaut,
  * et la même règle que la matrice des rôles.
  */
+/**
+ * Ce qu'un lien de partage peut faire — la liste CLOSE, et rien d'autre.
+ *
+ * ⚠ LES ACTES NE SE CHOISISSENT PAS UN PAR UN. Tout lien les porte tous : cette
+ * liste borne ce qu'un lien PEUT faire, elle ne décrit pas un réglage par lien.
+ * Nommer l'acte à l'appel garde le sens lisible côté route (« ceci est une
+ * lecture d'avancement ») et permettra de trancher plus tard sans changer les
+ * appelants — mais aujourd'hui, remplacer un nom par l'autre ne change rien, et
+ * aucun test ne peut le voir. Le dire ici évite d'écrire un jour une garde qu'on
+ * croit fine et qui ne l'est pas.
+ */
 export const ACTES_PARTAGES = [
   /** Voir l'avancement : tâches, états, compteurs. */
   'voir_avancement',
