@@ -127,6 +127,12 @@ Prerequisite: **Node.js ≥ 24**.
 >
 > On an older Node, `hive doctor` will tell you under the `moteur` key, with the
 > command that fixes it — instead of leaving you to guess.
+>
+> **And Windows is genuinely exercised.** Not as a promise: CI runs the whole
+> suite on `ubuntu-latest` **and** `windows-latest`, on every commit. That is
+> what surfaced — and fixed — three defects no amount of reading would have
+> caught: `npm ci` unable to launch on a Windows node, a clone waiting forever
+> on credentials, and a pruning bound deleting more rows than it should.
 
 ```bash
 npm install
