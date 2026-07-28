@@ -307,6 +307,27 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
       expect(existsSync(path.join(bac, '.env'))).toBe(true);
       expect(existsSync(path.join(bac, 'data', 'rayons'))).toBe(true);
       expect(existsSync(path.join(bac, '.hive-work'))).toBe(true);
+
+      // ─── LE `rm -rf` SUGGÉRÉ NE VISE QUE L'ÉTAT ────────────────────────────
+      //
+      // La loupe a fait survivre un mutant ici : inverser la condition ferait
+      // suggérer `rm -rf` sur ce qui est RECONSTRUCTIBLE, sous le titre
+      // « l'état n'est jamais retiré par cette commande ». Un mauvais conseil
+      // affiché avec autorité, pas un détail cosmétique.
+      const suggestions = r.sortie
+        .split('\n')
+        .filter((l) => l.trim().startsWith('rm -rf'))
+        .join('\n');
+      expect(suggestions, 'le `.env` devrait être suggéré').toContain(path.join(bac, '.env'));
+      expect(suggestions, '`.hive-work` est reconstructible, pas à suggérer').not.toContain(
+        '.hive-work',
+      );
+      expect(suggestions, 'les rayons sont reconstructibles').not.toContain('rayons');
+
+      // Et un emplacement ABSENT n'est pas affiché avec une liste vide : ici,
+      // il n'y a pas de base — la ligne ne doit pas apparaître.
+      expect(r.sortie, 'un emplacement absent est affiché').not.toMatch(/mémoire de la ruche/);
+      expect(r.sortie).toMatch(/absent\(s\) ici/);
     } finally {
       rmSync(bac, { recursive: true, force: true });
     }
@@ -328,6 +349,22 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
       expect(existsSync(path.join(bac, 'data', 'hive.db')), 'base supprimée').toBe(true);
       expect(existsSync(path.join(bac, 'data', 'rayons')), 'rayons gardés').toBe(false);
       expect(existsSync(path.join(bac, '.hive-work')), '.hive-work gardé').toBe(false);
+
+      // ─── CE QUI RESTE DOIT ÊTRE DIT, AVEC SON CHEMIN ───────────────────────
+      //
+      // Quelqu'un qui désinstalle doit savoir ce qui SUBSISTE, pas seulement ce
+      // qui est parti. Un mutant survivait ici : la ligne « conservé » pouvait
+      // s'afficher pour un emplacement absent, donc avec une liste de chemins
+      // VIDE — « ⚠ env — conservé : » et rien derrière.
+      const conserves = r.sortie
+        .split('\n')
+        .filter((l) => l.includes('conservé'))
+        .map((l) => l.trim());
+      expect(conserves.length, 'rien n’annonce ce qui reste').toBeGreaterThan(0);
+      for (const l of conserves) {
+        expect(l, `ligne « conservé » sans chemin : ${l}`).toMatch(/conservé\s*:\s*\S/);
+      }
+      expect(conserves.join('\n')).toContain(path.join(bac, '.env'));
     } finally {
       rmSync(bac, { recursive: true, force: true });
     }
