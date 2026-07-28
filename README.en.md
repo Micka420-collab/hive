@@ -96,6 +96,26 @@ node lending machine time never starts a server.
 
 ## ⚡ Install (one command)
 
+On a machine with nothing on it yet — **Linux and macOS**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
+```
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 | iex
+```
+
+The script checks Node, fetches Hive, installs dependencies and asks you **at
+most three questions**. It never uses `sudo`, does not install Node on your
+behalf, and writes nothing outside its own directory — `--dry-run` shows you
+everything without creating a thing. Full details:
+**[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
+
+From an already-cloned repository:
+
 ```bash
 npm run setup
 ```

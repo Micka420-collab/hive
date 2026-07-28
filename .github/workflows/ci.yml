@@ -3,7 +3,7 @@ name: CI
 # Intégration continue de Hive : à chaque push sur main et sur chaque PR, on
 # vérifie la qualité (lint + format), le typage, les tests et le build.
 #
-# ─── POURQUOI DEUX SYSTÈMES, ET PAS UN ───────────────────────────────────────
+# ─── POURQUOI TROIS SYSTÈMES, ET PAS UN ──────────────────────────────────────
 #
 # Le dépôt annonce Windows partout : le README, l'installeur, la matrice de
 # distribution (§7.2 de la mission), et jusqu'au code — `hive doctor` rend
@@ -12,13 +12,22 @@ name: CI
 # vérifier qu'en passant `'win32'` en paramètre, c'est-à-dire en se croyant sur
 # parole.
 #
-# C'est le même défaut que partout ailleurs dans ce dépôt, une couche plus
-# haut : une promesse écrite que rien n'exerce. Le critère 7 du definition of
-# done l'exigeait depuis le début — « CI verte sur ubuntu-latest ET
-# windows-latest ».
+# CE QUE L'OUVRIR A COÛTÉ, ET RAPPORTÉ. Neuf allers-retours, et cinq défauts
+# RÉELS qu'aucune relecture n'aurait trouvés : `npm ci` inopérant sur tout nœud
+# Windows (un `.cmd` ne se lance pas sans interpréteur), un clone qui attendait
+# des identifiants POUR TOUJOURS, une borne d'élagage qui gardait ZÉRO ligne au
+# lieu de deux, une variante `.cmd` qui ne pouvait pas aboutir dans la détection
+# d'agent, et sept avis de sécurité dont un réel. Le détail est dans
+# `docs/ERREURS.md`.
 #
-# `fail-fast: false` : si les deux cassent, on veut les DEUX rapports. Arrêter
-# l'autre au premier échec transformerait deux diagnostics en un seul.
+# MACOS EST LA TROISIÈME, et le lot 6 la demandait depuis le début (« CI verte
+# sur les 3 OS »). Ce n'est pas de la symétrie : c'est là que vivent `launchd`
+# — le lot 9 en dépend et s'écrirait à l'aveugle sans elle —, un système de
+# fichiers INSENSIBLE À LA CASSE par défaut, et l'absence de tout moteur de
+# conteneurs sur les runners. Trois différences que rien n'exerce aujourd'hui.
+#
+# `fail-fast: false` : si plusieurs cassent, on veut TOUS les rapports. Arrêter
+# les autres au premier échec transformerait trois diagnostics en un seul.
 
 on:
   push:
@@ -49,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
@@ -84,6 +93,55 @@ jobs:
 
       - name: Tests (vitest, unitaires + e2e)
         run: npm test
+
+      # ─── LES INSTALLEURS, EXERCÉS SUR LES TROIS PLATEFORMES ─────────────────
+      #
+      # `install.sh` et `install.ps1` vivent hors de la compilation, hors du
+      # typage, hors de tout. Rien ne les regarderait — exactement la forme des
+      # défauts que ce dépôt a passé sa journée à sortir.
+      #
+      # `--dry-run` s'arrête AVANT le clone, avant `npm install` et avant
+      # l'installeur : le pas est donc rapide et n'écrit rien. Ce qu'il vérifie
+      # est précisément ce qui casse en premier chez quelqu'un qui découvre le
+      # projet — un script qui ne démarre pas, une syntaxe refusée par le shell
+      # de la plateforme, un chemin mal formé.
+      - name: L'installeur une-commande démarre (POSIX)
+        if: runner.os != 'Windows'
+        run: sh install.sh --dry-run --dir="$RUNNER_TEMP/essai-hive"
+
+      # DEUX POWERSHELL, PARCE QU'IL Y EN A DEUX SUR LA MACHINE DES GENS.
+      #
+      # `pwsh` est PowerShell 7 : moderne, multiplateforme, INSTALLÉ À PART.
+      # `powershell` est Windows PowerShell 5.1 : livré avec l'OS, c'est celui
+      # qu'on obtient en ouvrant « PowerShell » dans le menu Démarrer, et donc
+      # celui qui exécute réellement le script chez la plupart des gens.
+      #
+      # Ils ne lisent pas les fichiers de la même façon. Sans BOM, 5.1 décode en
+      # ANSI et rend « dÃ©tectÃ© » là où 7 rend « détecté » — un écran d'accueil
+      # en mojibake, invisible tant qu'on ne teste que `pwsh`. D'où le BOM en
+      # tête d'`install.ps1`, et d'où CE pas : la seule façon de savoir qu'il
+      # suffit est de lancer 5.1 pour de bon.
+      - name: L'installeur une-commande démarre (Windows · PowerShell 7)
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive"
+
+      - name: L'installeur une-commande démarre (Windows · PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # `chcp 65001` : sans ça, la console de 5.1 est en page 850/437 et
+          # afficherait des « ? » même pour un fichier lu correctement. On veut
+          # observer le DÉCODAGE DU FICHIER, pas la limite de la console.
+          chcp 65001 > $null
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $sortie = & powershell -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive-51" 2>&1 | Out-String
+          Write-Host $sortie
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 a rendu $LASTEXITCODE sous PowerShell 5.1" }
+          # LA GARDE QUI COMPTE. « Ã » n'apparaît JAMAIS dans du français lu
+          # correctement : c'est la signature d'un UTF-8 relu en ANSI. Sans
+          # cette assertion, le pas passerait au vert en affichant du charabia.
+          if ($sortie -match 'Ã|â€') { throw "mojibake : le fichier est relu en ANSI, le BOM manque" }
+          if ($sortie -notmatch 'Vérification des prérequis') { throw "sortie inattendue sous 5.1" }
 
       - name: Build (typecheck + dashboard)
         run: npm run build

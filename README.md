@@ -102,6 +102,25 @@ besoin. Un nœud qui prête du temps-machine ne lance pas de serveur.
 
 ## ⚡ Installation (une commande)
 
+Sur une machine où il n'y a encore rien — **Linux et macOS** :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
+```
+
+**Windows** (PowerShell) :
+
+```powershell
+irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 | iex
+```
+
+Le script vérifie Node, récupère Hive, installe les dépendances et vous pose
+**au plus trois questions**. Il n'utilise **jamais `sudo`**, n'installe pas Node
+à votre place et n'écrit rien hors de son dossier — `--dry-run` vous le montre
+sans rien créer. Détail complet : **[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
+
+Depuis un dépôt déjà cloné :
+
 ```bash
 npm run setup
 ```
