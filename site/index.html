@@ -1223,9 +1223,9 @@
         <span class="floatbee b3">🐝</span>
       </div>
       <div class="badges">
-        <span class="badge" style="color: var(--green)" data-i18n="badge.tests">561 tests ✓</span>
+        <span class="badge" style="color: var(--green)" data-i18n="badge.tests">1 864 tests ✓</span>
         <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
-          >Palier 4 livré</span
+          >Palier 7 livré</span
         >
         <span class="badge" style="color: var(--blue)">TypeScript strict</span>
         <span class="badge" style="color: var(--muted)">Node ≥ 20</span>
@@ -1647,6 +1647,74 @@
             doublement opt-in, jamais une frontière de sécurité.
           </p>
         </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🐝</div>
+          <h3 data-i18n="feat.ry.t">Le Rayon</h3>
+          <p data-i18n="feat.ry">
+            <strong>Le code du projet, lisible par les abeilles</strong> : arbre de fichiers,
+            éditeur coloré, et un miroir tenu par le hub — jamais l'API GitHub, pour que montrer le
+            code ne dépense pas le jeton de l'hôte. Le <code class="tag">.git</code>, les
+            <code class="tag">.env</code> et les clés ne sortent jamais.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">👁</div>
+          <h3 data-i18n="feat.ap.t">L'Aperçu</h3>
+          <p data-i18n="feat.ap">
+            <strong>Voir ce que l'IA construit</strong>, pas seulement son diff : le site est replié
+            en un document autonome et affiché dans un cadre à <strong>origine opaque</strong>,
+            réseau coupé. Le code prévisualisé ne peut lire ni votre session, ni vos cookies.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🔗</div>
+          <h3 data-i18n="feat.pa.t">Partage en lecture</h3>
+          <p data-i18n="feat.pa">
+            Montrez l'avancement et le code à un client <strong>sans lui donner la ruche</strong> :
+            un lien à part, valable pour un seul projet, qui expire et se révoque un par un — là où
+            changer le jeton de ruche déconnecterait tout l'essaim.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🛂</div>
+          <h3 data-i18n="feat.ga.t">Les Gardiennes</h3>
+          <p data-i18n="feat.ga">
+            La ruche ne croit pas l'agent sur parole. Un « succès » à <strong>diff vide</strong>,
+            hors des fichiers promis, ou dont les logs crient l'échec, est repéré à l'entrée — avant
+            de polluer la mémoire, les phéromones et les comptes.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🐣</div>
+          <h3 data-i18n="feat.po.t">Polyéthisme</h3>
+          <p data-i18n="feat.po">
+            Chez l'abeille, le métier vient avec l'expérience. Ici aussi : une
+            <strong>caste se gagne</strong> sur les productions observées — et se perd de la même
+            façon. On encadre une nouvelle venue, on laisse travailler une chevronnée, et on ne
+            confie la relecture qu'à plus expérimenté que soi.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🗣</div>
+          <h3 data-i18n="feat.cs.t">Conseil des Éclaireuses</h3>
+          <p data-i18n="feat.cs">
+            Le protocole d'essaimage des abeilles, appliqué aux idées : des éclaireuses proposent,
+            les autres <strong>vont vérifier</strong> au lieu de croire, et peuvent émettre un
+            signal d'arrêt motivé. Dix instances du même modèle d'accord ne font pas dix avis — le
+            quorum compte les familles distinctes. Le verdict est une proposition, jamais une
+            décision.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">📦</div>
+          <h3 data-i18n="feat.en.t">L'environnement</h3>
+          <p data-i18n="feat.en">
+            <code class="tag">npm test</code> sur un clone frais échoue faute de dépendances : la
+            ruche <strong>prépare avant de tester</strong>. Et elle installe ce que le
+            <strong>dépôt déclare</strong>, jamais ce que la commande nomme — sinon « préparer »
+            deviendrait « exécute ce que je te dis » sur la machine d'un membre.
+          </p>
+        </div>
       </div>
     </section>
 
@@ -1694,10 +1762,10 @@
     <section id="mission" class="section">
       <h2 class="kicker">🎛️ Mission Control</h2>
       <p class="headline tight" data-i18n="mc.headline">
-        10 vues navigables au clavier, interface bilingue FR/EN.
+        11 vues navigables au clavier, interface bilingue FR/EN.
       </p>
       <p class="lede" data-i18n="mc.lede">
-        Sidebar alvéolaire, touches <kbd class="key">1</kbd>–<kbd class="key">9</kbd>, deep-links
+        Sidebar alvéolaire, touches <kbd class="key">1</kbd>–<kbd class="key">0</kbd>, deep-links
         <code class="inline">#/vue/id</code>. Les décisions de revue sont partagées entre tous les
         opérateurs, en temps réel.
       </p>
@@ -1775,10 +1843,20 @@
           </div>
         </div>
         <div class="view-card">
+          <div class="hexico" aria-hidden="true">🍯</div>
+          <div>
+            <div class="t" data-i18n="mc.9.t">9 · Rayon</div>
+            <div class="d" data-i18n="mc.9.d">
+              Le code du projet, en lecture complète : arbre du dépôt, éditeur de la Reine, et
+              aperçu de ce que la ruche construit.
+            </div>
+          </div>
+        </div>
+        <div class="view-card">
           <div class="hexico" aria-hidden="true">🪪</div>
           <div>
-            <div class="t" data-i18n="mc.9.t">9 · Mon espace</div>
-            <div class="d" data-i18n="mc.9.d">
+            <div class="t" data-i18n="mc.10.t">0 · Mon espace</div>
+            <div class="d" data-i18n="mc.10.d">
               Vos projets, votre quota, vos abonnements — et ce qui réclame votre attention, classé
               par urgence.
             </div>
@@ -1787,8 +1865,8 @@
         <div class="view-card">
           <div class="hexico" aria-hidden="true">🖥</div>
           <div>
-            <div class="t" data-i18n="mc.10.t">0 · Intendance</div>
-            <div class="d" data-i18n="mc.10.d">
+            <div class="t" data-i18n="mc.11.t">i · Intendance</div>
+            <div class="d" data-i18n="mc.11.d">
               Administrateurs seulement : les machines démarrées pour les abonnés, et les comptes de
               la ruche.
             </div>
@@ -2084,7 +2162,7 @@
     <section id="roadmap" class="section">
       <h2 class="kicker">🧭 Roadmap</h2>
       <p class="headline" data-i18n="rm.headline">
-        Quatre paliers livrés. La ruche continue de grandir.
+        Sept paliers livrés. La ruche continue de grandir.
       </p>
       <div class="timeline">
         <div class="step">
@@ -2182,12 +2260,29 @@
           </div>
         </div>
         <div class="step">
+          <div class="rail">
+            <div class="hex">7</div>
+            <div class="line"></div>
+          </div>
+          <div class="body">
+            <div class="t">
+              <span data-i18n="rm.7.t">Palier 7 — la transparence</span>
+              <span class="ok" data-i18n="rm.ok7">✅ livré</span>
+            </div>
+            <p data-i18n="rm.7.d">
+              Le Rayon (le code du projet en lecture, éditeur de la Reine compris) · l'Aperçu (voir
+              ce que l'IA construit, pas seulement son diff) · le partage en lecture par tunnel · le
+              polyéthisme et le Conseil des Éclaireuses · la préparation de l'environnement.
+            </p>
+          </div>
+        </div>
+        <div class="step">
           <div class="rail"><div class="hex next">→</div></div>
           <div class="body">
             <div class="t next" data-i18n="rm.next.t">Ensuite</div>
             <p data-i18n="rm.next.d">
-              Isolation durcie (VM/conteneur) · fédération de ruches · comptes utilisateurs (UI sur
-              l'auth JWT existante).
+              Fédération de ruches · un bac à sable qui borne aussi le réseau · des droits par
+              membre, pour que le jeton partagé cesse d'être la seule porte (ADR 0007).
             </p>
           </div>
         </div>
@@ -2224,8 +2319,8 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '561 tests ✓',
-          'badge.tier': 'Tier 4 shipped',
+          'badge.tests': '1,864 tests ✓',
+          'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'The AI agent swarm,<br /><span class="grad">orchestrated as a community.</span>',
           'hero.sub':
@@ -2272,6 +2367,27 @@
           'feat.co.t': 'Brood Chamber',
           'feat.co':
             'A retried task no longer starts blind: the <strong>lessons from previous failures</strong> are injected into the next worker’s context, inside a data block kept separate from instructions.',
+          'feat.ry.t': 'The Comb',
+          'feat.ry':
+            '<strong>The project’s code, readable by the bees</strong>: file tree, syntax-highlighted editor, and a mirror kept by the hub — never the GitHub API, so that showing the code does not spend the host’s token. The <code class="tag">.git</code>, the <code class="tag">.env</code> files and keys are never served.',
+          'feat.ap.t': 'The Preview',
+          'feat.ap':
+            '<strong>See what the AI builds</strong>, not just its diff: the site is folded into a self-contained document and shown in a frame with an <strong>opaque origin</strong>, network cut. The previewed code can read neither your session nor your cookies.',
+          'feat.pa.t': 'Read-only sharing',
+          'feat.pa':
+            'Show progress and code to a client <strong>without handing over the hive</strong>: a separate link, valid for one project only, that expires and is revoked one at a time — where changing the hive token would disconnect the whole swarm.',
+          'feat.ga.t': 'The Guards',
+          'feat.ga':
+            'The hive does not take the agent at its word. A “success” with an <strong>empty diff</strong>, outside the promised files, or whose logs scream failure, is caught at the door — before it pollutes the memory, the pheromones and the books.',
+          'feat.po.t': 'Division of labour',
+          'feat.po':
+            'In a real hive, the trade comes with experience. Here too: a <strong>caste is earned</strong> on observed output — and lost the same way. A newcomer is guided, a seasoned worker is left alone, and review is only ever entrusted to someone more experienced.',
+          'feat.cs.t': 'Council of Scouts',
+          'feat.cs':
+            'The bees’ swarming protocol, applied to ideas: scouts propose, the others <strong>go and check</strong> instead of believing, and may raise a reasoned stop signal. Ten instances of the same model agreeing are not ten opinions — the quorum counts distinct families. The verdict is a proposal, never a decision.',
+          'feat.en.t': 'The environment',
+          'feat.en':
+            '<code class="tag">npm test</code> on a fresh clone fails for want of dependencies: the hive <strong>prepares before it tests</strong>. And it installs what the <strong>repository declares</strong>, never what the command names — otherwise “prepare” would become “run what I tell you” on a member’s machine.',
           'feat.aa.t': 'Agent-agnostic',
           'feat.aa':
             '<code class="tag">claude-code</code> <code class="tag">codex</code> <code class="tag">hermes</code> — or your own AgentAdapter.',
@@ -2284,9 +2400,9 @@
           'archi.p1': '⚡ Real-time over WebSocket',
           'archi.p2': '💾 Persistent state in SQLite — survives restarts',
           'archi.p3': '🔑 API keys never leave the member’s machine',
-          'mc.headline': '10 keyboard-navigable views, bilingual FR/EN interface.',
+          'mc.headline': '11 keyboard-navigable views, bilingual FR/EN interface.',
           'mc.lede':
-            'Honeycomb sidebar, keys <kbd class="key">1</kbd>–<kbd class="key">9</kbd>, deep-links <code class="inline">#/view/id</code>. Review decisions are shared between all operators, in real time.',
+            'Honeycomb sidebar, keys <kbd class="key">1</kbd>–<kbd class="key">0</kbd>, deep-links <code class="inline">#/view/id</code>. Review decisions are shared between all operators, in real time.',
           'mc.1.t': '1 · Hive',
           'mc.1.d': 'Swarm View 2D/3D, KPIs, clickable honeycomb, queue, journal.',
           'mc.2.t': '2 · Queen',
@@ -2304,11 +2420,14 @@
             'Filterable journal + Time-Lapse Replay (sepia “you’re watching the past” mode).',
           'mc.8.t': '8 · Memory',
           'mc.8.d': 'Search the hive’s knowledge (Hive Mind) + OpenAlex library.',
-          'mc.9.t': '9 · My space',
+          'mc.9.t': '9 · Comb',
           'mc.9.d':
-            'Your projects, your quota, your subscriptions — and whatever needs your attention, ranked by urgency.',
-          'mc.10.t': '0 · Stewardship',
+            'The project’s code, read in full: repository tree, the Queen’s editor, and a preview of what the hive is building.',
+          'mc.10.t': '0 · My space',
           'mc.10.d':
+            'Your projects, your quota, your subscriptions — and whatever needs your attention, ranked by urgency.',
+          'mc.11.t': 'i · Stewardship',
+          'mc.11.d':
             'Administrators only: the machines started for subscribers, and the hive’s accounts.',
           'sec.kicker': '🔒 Security',
           'sec.headline': 'Safe by default. Never a merge without human review.',
@@ -2381,7 +2500,7 @@
             '<span class="c"># you (host)</span><br /><span class="p">$ </span>npm run cli -- invite<br /><span class="c"># your friend pastes the command</span><br /><span class="p">$ </span>npm run join -- hive1_eyJ2IjoxLCJ1cmw…<br /><span class="o">🐝 Joining the hive: Micka’s Hive<br />✔ Node started — you’re foraging for the hive.</span>',
           'go.n2':
             'Their Claude Code / Codex is auto-detected. ⚠️ The invite contains the hive token: share it over a private channel.',
-          'rm.headline': 'Four tiers shipped. The hive keeps growing.',
+          'rm.headline': 'Seven tiers shipped. The hive keeps growing.',
           'rm.1.t': 'Tier 1',
           'rm.ok1': '✅ shipped',
           'rm.1.d':
@@ -2406,8 +2525,12 @@
           'rm.ok5': '✅ shipped',
           'rm.5.d':
             'Pheromones (learned-affinity routing) · Thermoregulation (adaptive ventilation) · Brood Chamber (retries learn from their failures).',
+          'rm.7.t': 'Tier 7 — transparency',
+          'rm.ok7': '✅ shipped',
+          'rm.7.d':
+            'The Comb (the project’s code, read in full, the Queen’s editor included) · the Preview (see what the AI builds, not just its diff) · read-only sharing over the tunnel · division of labour and the Council of Scouts · environment preparation.',
           'rm.next.d':
-            'Hardened isolation (VM/container) · hive federation · user accounts (UI on the existing JWT auth).',
+            'Hive federation · a sandbox that bounds the network too · per-member permissions, so the shared token stops being the only door (ADR 0007).',
           'footer.mit': 'MIT License',
           'footer.made': 'Made with 🍯 — every worker counts.',
         };
