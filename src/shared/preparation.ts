@@ -84,6 +84,12 @@ const WRAPPERS: Readonly<Record<string, readonly string[]>> = {
  */
 const DRAPEAUX_DE_SOURCE = [
   '--index-url',
+  // Les FORMES COURTES comptent autant que les longues, et c'est un piège dans
+  // lequel je suis tombé : `--find-links` était banni, `-f` — le même drapeau —
+  // figurait dans les drapeaux à valeur et passait donc tranquillement.
+  // Interdire un nom en laissant son synonyme ouvert ne ferme rien.
+  '-i',
+  '-f',
   '--extra-index-url',
   '--find-links',
   '--registry',
@@ -103,7 +109,23 @@ const DRAPEAUX_DE_SOURCE = [
  * `-r requis.txt` a un argument positionnel qui n'est pas un nom de paquet mais
  * un fichier du dépôt : c'est le seul cas où un mot nu est légitime.
  */
-const DRAPEAUX_A_VALEUR = ['-r', '--requirement', '-f', '--file'];
+const DRAPEAUX_A_VALEUR = ['-r', '--requirement', '--file', '-c', '--constraint'];
+
+/**
+ * Cette valeur désigne-t-elle quelque chose D'AILLEURS ?
+ *
+ * `pip install -r requirements.txt` lit un fichier DU DÉPÔT : c'est le cas
+ * qu'on veut permettre. `pip install -r http://ailleurs/requirements.txt` lit
+ * un fichier servi par un tiers, qui décide alors seul de ce qui s'installe —
+ * exactement ce que `--index-url` fait, par une autre porte.
+ *
+ * La lettre de la règle était respectée (le fichier nomme les paquets, pas la
+ * commande) et son esprit trahi. C'est le même raisonnement que pour les
+ * drapeaux de source, appliqué à leur VALEUR.
+ */
+function vientDAilleurs(valeur: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(valeur) || valeur.startsWith('//');
+}
 
 export type Verdict = { ok: true } | { ok: false; motif: string };
 
@@ -175,9 +197,21 @@ export function jugerPreparation(cmd: readonly string[]): Verdict {
         motif: `« ${nom} » change la source des paquets — c’est alors un tiers qui décide de ce qui s’installe.`,
       };
     }
-    // Un drapeau à valeur consomme le mot suivant, qui n'est donc pas un
-    // nom de paquet : `-r requis.txt` désigne un fichier du dépôt.
-    if (DRAPEAUX_A_VALEUR.includes(nom) && !arg.includes('=')) i++;
+    // Un drapeau à valeur consomme le mot suivant, qui n'est donc pas un nom
+    // de paquet : `-r requis.txt` désigne un fichier du dépôt. Encore
+    // faut-il que ce soit un fichier DU DÉPÔT.
+    if (DRAPEAUX_A_VALEUR.includes(nom)) {
+      const valeur = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : cmd[i + 1];
+      if (valeur !== undefined && vientDAilleurs(valeur)) {
+        return {
+          ok: false,
+          motif:
+            `« ${valeur} » n’est pas un fichier du dépôt. Un manifeste servi par un tiers décide ` +
+            'de ce qui s’installe, tout comme un registre : c’est la même porte, ailleurs.',
+        };
+      }
+      if (!arg.includes('=')) i++;
+    }
   }
 
   return { ok: true };

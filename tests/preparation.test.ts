@@ -90,6 +90,46 @@ describe('LA LIGNE — le dépôt décide, pas la commande', () => {
     }
   });
 
+  it('UNE FORME COURTE VAUT SA FORME LONGUE', () => {
+    // Le piège dans lequel je suis tombé en écrivant ce module : `--find-links`
+    // était banni, et `-f` — le MÊME drapeau — figurait parmi les drapeaux à
+    // valeur, donc passait tranquillement. Interdire un nom en laissant son
+    // synonyme ouvert ne ferme rien du tout.
+    for (const cmd of [
+      ['pip', 'install', '-f', 'http://ailleurs/', '-r', 'r.txt'],
+      ['pip', 'install', '-i', 'http://ailleurs/', '-r', 'r.txt'],
+    ]) {
+      expect(refus(cmd), cmd.join(' ')).toMatch(/source/);
+    }
+  });
+
+  it('UN MANIFESTE SERVI PAR UN TIERS EST UNE SOURCE DÉPLACÉE', () => {
+    // `pip install -r http://ailleurs/requirements.txt` respecte la LETTRE de
+    // la règle — c'est un fichier qui nomme les paquets, pas la commande — et
+    // en trahit l'esprit exactement comme `--index-url` : c'est un tiers qui
+    // décide de ce qui s'installe. La même porte, ailleurs.
+    for (const cmd of [
+      ['pip', 'install', '-r', 'http://ailleurs/requirements.txt'],
+      ['pip', 'install', '--requirement=https://ailleurs/req.txt'],
+      ['pip', 'install', '-c', 'https://ailleurs/contraintes.txt'],
+      ['pip', 'install', '-r', '//ailleurs/req.txt'],
+    ]) {
+      expect(refus(cmd), cmd.join(' ')).toMatch(/dépôt|source/);
+    }
+  });
+
+  it('…mais un fichier du dépôt passe toujours, même en sous-dossier', () => {
+    // Une garde qui refuserait aussi les chemins locaux casserait l'usage le
+    // plus courant de pip, et se ferait désactiver.
+    for (const cmd of [
+      ['pip', 'install', '-r', 'requirements.txt'],
+      ['pip', 'install', '-r', 'ci/requirements-dev.txt'],
+      ['pip', 'install', '--requirement=./requis.txt'],
+    ]) {
+      expect(jugerPreparation(cmd), cmd.join(' ')).toEqual({ ok: true });
+    }
+  });
+
   it('un drapeau à valeur consomme bien son argument', () => {
     // Sans ça, `requirements.txt` après `-r` serait pris pour un nom de paquet
     // et la garde refuserait l'usage le plus courant de pip.

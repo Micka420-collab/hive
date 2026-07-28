@@ -61,6 +61,75 @@ describe('la zone modifiée', () => {
   it('un fichier entièrement remplacé est une zone entière', () => {
     expect(zoneModifiee(['a'], ['b'])).toEqual({ debut: 0, finAvant: 1, finApres: 1 });
   });
+
+  // ─── LA PROPRIÉTÉ QUI REND LES EXEMPLES CI-DESSUS JUSTES ───────────────────
+  //
+  // Tout ce qui précède teste par l'EXEMPLE : telle entrée, tel triplet. C'est
+  // utile et insuffisant — j'ai vérifié qu'un bug réel les traverse tous.
+  //
+  // Si l'on retire la borne qui empêche le préfixe et le suffixe de SE
+  // CHEVAUCHER (`queue < avant.length - debut`), les dix-huit tests de ce
+  // fichier restent verts, et pourtant :
+  //
+  //     zoneModifiee(['a'], ['a', 'a'])  →  null
+  //
+  // … c'est-à-dire « rien n'a bougé » sur une insertion réelle. La retouche
+  // serait alors refusée pour « aucun changement » alors que la Reine vient
+  // d'écrire une ligne — un refus incompréhensible, sur une action qu'elle a
+  // faite exprès.
+  //
+  // La propriété ci-dessous dit ce que la fonction PROMET, et les exemples n'en
+  // sont que des cas : ce qu'on rogne aux deux bouts est réellement commun,
+  // donc les deux fichiers se reconstruisent depuis la zone.
+  describe('LA PROPRIÉTÉ — les deux fichiers se reconstruisent depuis la zone', () => {
+    /** Toutes les suites de longueur ≤ 4 sur {a, b}. Exhaustif, donc reproductible. */
+    const toutes = (): string[][] => {
+      const out: string[][] = [[]];
+      for (let n = 1; n <= 4; n++) {
+        for (let masque = 0; masque < 1 << n; masque++) {
+          out.push(Array.from({ length: n }, (_, i) => ((masque >> i) & 1 ? 'b' : 'a')));
+        }
+      }
+      return out;
+    };
+
+    it('sur les 961 paires de suites courtes, sans exception', () => {
+      const suites = toutes();
+      let zones = 0;
+      for (const avant of suites) {
+        for (const apres of suites) {
+          const z = zoneModifiee(avant, apres);
+          const memes = avant.length === apres.length && avant.every((l, i) => l === apres[i]);
+          if (z === null) {
+            expect(memes, `null sur ${JSON.stringify(avant)} → ${JSON.stringify(apres)}`).toBe(
+              true,
+            );
+            continue;
+          }
+          zones++;
+          const quoi = `${JSON.stringify(avant)} → ${JSON.stringify(apres)}`;
+          // Les bornes se tiennent : une zone à l'envers découperait des
+          // tranches vides et la consigne perdrait la modification.
+          expect(z.debut, quoi).toBeLessThanOrEqual(z.finAvant);
+          expect(z.debut, quoi).toBeLessThanOrEqual(z.finApres);
+          expect(z.finAvant, quoi).toBeLessThanOrEqual(avant.length);
+          expect(z.finApres, quoi).toBeLessThanOrEqual(apres.length);
+          // Et surtout : le préfixe et le suffixe rognés sont RÉELLEMENT
+          // communs, ce qui se prouve en reconstruisant les deux fichiers.
+          const prefixe = avant.slice(0, z.debut);
+          const suffixe = avant.slice(z.finAvant);
+          expect([...prefixe, ...apres.slice(z.debut, z.finApres), ...suffixe], quoi).toEqual(
+            apres,
+          );
+          expect([...prefixe, ...avant.slice(z.debut, z.finAvant), ...suffixe], quoi).toEqual(
+            avant,
+          );
+        }
+      }
+      // Méta : sans zones observées, la boucle ne prouverait rien.
+      expect(zones, 'aucune zone examinée — la propriété serait creuse').toBeGreaterThan(500);
+    });
+  });
 });
 
 describe('construire la consigne', () => {

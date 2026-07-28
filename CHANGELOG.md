@@ -86,6 +86,35 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
+  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
+  pourtant clairement (« refusés même quand la sous-commande est bonne »).
+  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
+  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
+  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
+  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
+  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
+  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
+  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
+  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
+  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
+  y compris en sous-dossier, passe toujours.
+
+### Tests
+
+- **La propriété qui rend les exemples de `zoneModifiee` justes**
+  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
+  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
+  en retirant la borne qui empêche le préfixe et le suffixe communs de se
+  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
+  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
+  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
+  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
+  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
+  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
+  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
+  qu'aléatoire.
+
 - **La ruche fusionnait n'importe quelle pull request du dépôt.**
   `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
   une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
@@ -899,6 +928,35 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
+  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
+  pourtant clairement (« refusés même quand la sous-commande est bonne »).
+  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
+  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
+  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
+  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
+  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
+  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
+  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
+  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
+  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
+  y compris en sous-dossier, passe toujours.
+
+### Tests
+
+- **La propriété qui rend les exemples de `zoneModifiee` justes**
+  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
+  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
+  en retirant la borne qui empêche le préfixe et le suffixe communs de se
+  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
+  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
+  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
+  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
+  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
+  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
+  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
+  qu'aléatoire.
+
 - **La ruche fusionnait n'importe quelle pull request du dépôt.**
   `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
   une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
@@ -1174,6 +1232,35 @@ refonte complète de l'interface en **Mission Control**.
   fichier pour que la prochaine lecture ne refasse pas l'erreur.
 
 ### Fixed
+
+- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
+  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
+  pourtant clairement (« refusés même quand la sous-commande est bonne »).
+  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
+  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
+  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
+  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
+  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
+  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
+  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
+  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
+  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
+  y compris en sous-dossier, passe toujours.
+
+### Tests
+
+- **La propriété qui rend les exemples de `zoneModifiee` justes**
+  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
+  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
+  en retirant la borne qui empêche le préfixe et le suffixe communs de se
+  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
+  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
+  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
+  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
+  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
+  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
+  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
+  qu'aléatoire.
 
 - **La ruche fusionnait n'importe quelle pull request du dépôt.**
   `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
