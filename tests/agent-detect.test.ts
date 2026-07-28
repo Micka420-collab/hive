@@ -17,7 +17,6 @@
 // `.cmd` sous Windows. La ligne avait l'air de couvrir un cas ; elle échouait à
 // tous les coups.
 
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { candidates, detectBestAgent } from '../src/node-client/agent-detect.js';
 
@@ -64,37 +63,66 @@ describe('LE CHOIX DE L’AGENT', () => {
     expect(vu.agent).not.toBe('custom');
   });
 
-  it('LE REPLI `shell` DIT QU’IL EST SIMULÉ — garde sur la source, faute de couture', () => {
+  it('AUCUN AGENT INSTALLÉ ⇒ `shell`, et son libellé dit qu’il est SIMULÉ', async () => {
     // Ce libellé n'est pas décoratif : `hive doctor` s'en sert pour ne PAS
     // compter `shell` comme un agent détecté. Quelqu'un qui n'a rien installé
     // doit l'entendre, sinon son nœud produit des diffs vides sans que personne
     // comprenne pourquoi.
     //
-    // ─── POURQUOI CE TEST LIT LA SOURCE AU LIEU D'APPELER LA FONCTION ─────────
+    // ─── CE CHEMIN N'ÉTAIT ATTEIGNABLE PAR AUCUN TEST ────────────────────────
     //
-    // Ma première version passait `{ PATH: '' }` à `detectBestAgent` en croyant
-    // forcer le repli. Elle a échoué, et l'échec est instructif : `env` ne sert
-    // QU'À lire `HIVE_AGENT_CMD`. La sonde, elle, fait `spawn(bin, …)` sur le
-    // PATH RÉEL du processus, qu'aucun paramètre ne détourne. Sur cette machine
-    // `claude` est installé, donc la détection le trouve — et c'est correct.
+    // `env` ne sert QU'À lire `HIVE_AGENT_CMD` ; la sonde interrogeait le PATH
+    // RÉEL. Sur une machine de développement, `claude` est installé, donc la
+    // détection le trouvait TOUJOURS. Ma première version passait `{ PATH: '' }`
+    // en croyant forcer le repli, et elle a échoué. On s'était rabattu sur une
+    // garde qui lisait la source — un pis-aller, écrit comme tel.
     //
-    // Il manque donc une couture, exactement celle qu'il a fallu ajouter à
-    // `relever()` dans `doctor-releve.ts` pour la même raison. Tant qu'elle
-    // n'existe pas, le chemin de repli n'est pas atteignable depuis un test, et
-    // le prétendre serait pire que de s'en passer. On garde donc la RÈGLE sur
-    // la source — commentaires retirés, sinon la prose ci-dessus la ferait
-    // passer toute seule.
-    // `new URL(...)` est passée TELLE QUELLE à `readFileSync`, qui sait la lire.
-    // Ma première version prenait son `.pathname` : sous Windows il vaut
-    // « /D:/a/hive/… », avec une barre AVANT la lettre de lecteur, et Node le
-    // résolvait depuis le lecteur courant — « D:\D:\a\hive\… », ENOENT.
-    //
-    // J'ai donc introduit une faute de chemin Windows dans un test qui parle de
-    // justesse Windows. Le motif correct était déjà dans `miroir.test.ts` ; je
-    // ne l'ai pas suivi, et seule la CI Windows l'a dit.
-    const nue = readFileSync(new URL('../src/node-client/agent-detect.ts', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '');
-    expect(nue).toMatch(/agent:\s*'shell'[\s\S]{0,60}simulé/);
+    // La sonde est maintenant injectable. Le repli se vérifie pour de vrai.
+    const vu = await detectBestAgent({}, async () => false);
+    expect(vu.agent).toBe('shell');
+    expect(vu.label).toContain('simulé');
+  });
+
+  it('CLAUDE CODE EST PRÉFÉRÉ À CODEX quand les deux sont là', async () => {
+    // L'ordre de préférence est une décision, pas un hasard de boucle : il
+    // décide quel agent reçoit le travail — et le jeton — du membre.
+    const vu = await detectBestAgent({}, async () => true);
+    expect(vu.agent).toBe('claude-code');
+  });
+
+  it('faute de Claude Code, Codex est pris — pas le repli simulé', async () => {
+    const vu = await detectBestAgent({}, async (bin) => bin.startsWith('codex'));
+    expect(vu.agent).toBe('codex');
+  });
+
+  it('LA SONDE VOIT LES VARIANTES DE LA PLATEFORME QU’ON LUI DONNE', async () => {
+    // La couture porte aussi la plateforme : sous Windows la sonde doit être
+    // interrogée sur `claude.exe`, pas seulement sur `claude`. Sans ça, la
+    // branche win32 resterait invérifiable — ce qui l'avait laissée contenir
+    // une variante `.cmd` que `spawn` ne peut pas lancer.
+    const vus: string[] = [];
+    await detectBestAgent(
+      {},
+      async (bin) => {
+        vus.push(bin);
+        return false;
+      },
+      'win32',
+    );
+    expect(vus).toContain('claude.exe');
+    expect(vus).toContain('codex.exe');
+    expect(vus, 'aucune variante .cmd ne doit être sondée').not.toContain('claude.cmd');
+  });
+
+  it('HIVE_AGENT_CMD court-circuite la sonde — elle n’est même pas appelée', async () => {
+    // Un choix explicite du membre ne doit pas déclencher de `spawn` inutile :
+    // sonder coûte jusqu'à 4 secondes par binaire absent.
+    let appels = 0;
+    const vu = await detectBestAgent({ HIVE_AGENT_CMD: 'mon-ia --run' }, async () => {
+      appels += 1;
+      return false;
+    });
+    expect(vu.agent).toBe('custom');
+    expect(appels, 'la sonde ne doit pas tourner quand le membre a choisi').toBe(0);
   });
 });
