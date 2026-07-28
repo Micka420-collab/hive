@@ -23,8 +23,11 @@ import { useState } from 'react';
 import {
   billetServeur,
   estAdmin,
+  fetchCles,
   fetchMembres,
   fetchServeurs,
+  revoquerBillet,
+  revoquerNoeud,
   roleConnu,
   setMembreRole,
   setServeurEtat,
@@ -146,6 +149,11 @@ function Salle({ moiId, refreshTick }: { moiId: string; refreshTick: number }) {
         moiId={moiId}
         onChanged={() => membres.refresh()}
       />
+      {/* Les CLÉS après les COMPTES, et surtout distinctes d'eux : un compte
+          est une personne qui se connecte, une clé est une machine qui
+          butine. Les confondre ferait révoquer l'un en croyant retirer
+          l'autre. */}
+      <SectionCles refreshTick={refreshTick} />
     </div>
   );
 }
@@ -447,6 +455,135 @@ function LigneServeur({ s, onChanged }: { s: ServeurAdmin; onChanged: () => void
 }
 
 // ─── Les membres ─────────────────────────────────────────────────────────────
+
+/**
+ * Les clés de la ruche — les MACHINES, pas les comptes.
+ *
+ * ─── POURQUOI CET ÉCRAN MANQUAIT, ET CE QUE ÇA COÛTAIT ───────────────────────
+ *
+ * Révoquer une clé compromise est l'archétype de la décision d'administration.
+ * Elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+ * pouls, les anomalies, les castes — et pas « qui a une clé de ma ruche ».
+ * Un tableau de bord qui ne permet pas de décider ce qui compte le jour où ça
+ * compte n'est pas un tableau de bord.
+ *
+ * ─── DEUX LISTES, ET IL FAUT LES SÉPARER ─────────────────────────────────────
+ *
+ * Une CLÉ appartient à une machine et vaut participation à l'essaim. Un BILLET
+ * ne vaut rien par lui-même : il sert à OBTENIR une clé, à usage compté et avec
+ * une date. Révoquer un billet ne déconnecte personne ; révoquer une clé
+ * déconnecte la machine tout de suite — et c'est écrit à l'écran, parce que
+ * les deux gestes n'ont pas les mêmes conséquences.
+ */
+function SectionCles({ refreshTick }: { refreshTick: number }) {
+  const t = useT();
+  const [tick, setTick] = useState(0);
+  const cles = useApiPoll(fetchCles, 60_000, refreshTick + tick);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const agir = (id: string, p: Promise<unknown>) => {
+    setBusy(id);
+    setErreur(null);
+    p.then(() => setTick((n) => n + 1))
+      .catch((e: unknown) => setErreur(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(null));
+  };
+
+  const quand = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : t('jamais', 'never'));
+
+  return (
+    <section className="card">
+      <header className="panel-head">
+        <h2>🔑 {t('Les clés de la ruche', 'The hive’s keys')}</h2>
+        {cles.data && (
+          <span className="panel-count">
+            {cles.data.noeuds.filter((n) => !n.revoque).length} {t('active(s)', 'active')}
+          </span>
+        )}
+      </header>
+
+      {cles.error && <p className="panel-error">{cles.error}</p>}
+      {erreur && <p className="panel-error">{erreur}</p>}
+
+      {cles.data && (
+        <>
+          <p className="in-cles-note">
+            {t(
+              'Une clé appartient à une MACHINE. La révoquer déconnecte cette machine immédiatement — c’est le geste à faire le jour où vous croyez une clé sortie.',
+              'A key belongs to a MACHINE. Revoking it disconnects that machine immediately — the gesture for the day you believe a key has leaked.',
+            )}
+          </p>
+          {cles.data.noeuds.length === 0 ? (
+            <p className="empty pad">
+              {t(
+                'Aucune clé par machine : les nœuds connectés utilisent encore le jeton de ruche partagé.',
+                'No per-machine key: connected nodes still use the shared hive token.',
+              )}
+            </p>
+          ) : (
+            <ul className="in-cles">
+              {cles.data.noeuds.map((n) => (
+                <li key={n.nodeId} className={n.revoque ? 'in-cle-morte' : ''}>
+                  <span className="in-cle-nom">{n.label || n.nodeId.slice(0, 12)}</span>
+                  <span className="in-cle-vu">
+                    {t('vue', 'seen')} {quand(n.lastSeenAt)}
+                  </span>
+                  {n.revoque ? (
+                    <span className="in-cle-etat">{t('révoquée', 'revoked')}</span>
+                  ) : (
+                    <button
+                      className="btn ghost"
+                      disabled={busy !== null}
+                      onClick={() => agir(n.nodeId, revoquerNoeud(n.nodeId))}
+                    >
+                      {t('Révoquer', 'Revoke')}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="pj-sub-head in-cles-tete">
+            <h4>{t('Billets d’invitation', 'Invitation tickets')}</h4>
+          </div>
+          <p className="in-cles-note">
+            {t(
+              'Un billet ne vaut rien par lui-même : il sert à obtenir une clé, à usage compté. Le révoquer ne déconnecte personne.',
+              'A ticket is worth nothing on its own: it is used to obtain a key, a counted number of times. Revoking it disconnects nobody.',
+            )}
+          </p>
+          {cles.data.billets.length === 0 ? (
+            <p className="empty pad">{t('Aucun billet émis.', 'No ticket issued.')}</p>
+          ) : (
+            <ul className="in-cles">
+              {cles.data.billets.map((b) => (
+                <li key={b.id} className={b.etat === 'vivant' ? '' : 'in-cle-morte'}>
+                  <span className="in-cle-nom">{b.label || b.id.slice(0, 12)}</span>
+                  <span className="in-cle-vu">
+                    {b.usesLeft}/{b.usesTotal} {t('usage(s)', 'use(s)')}
+                  </span>
+                  {b.etat === 'vivant' ? (
+                    <button
+                      className="btn ghost"
+                      disabled={busy !== null}
+                      onClick={() => agir(b.id, revoquerBillet(b.id))}
+                    >
+                      {t('Révoquer', 'Revoke')}
+                    </button>
+                  ) : (
+                    <span className="in-cle-etat">{b.etat}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 function SectionMembres({
   data,

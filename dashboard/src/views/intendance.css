@@ -302,3 +302,64 @@
     white-space: nowrap;
   }
 }
+
+/* ─── Les clés de la ruche ─────────────────────────────────────────────────── */
+
+.in-cles-note {
+  margin: 0;
+  padding: 0 14px 8px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.in-cles-tete {
+  padding: 8px 14px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+
+.in-cles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 14px 12px;
+  list-style: none;
+}
+
+.in-cles li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+}
+
+/* Révoqué reste visible — savoir qu'on a exclu quelqu'un fait partie du suivi —
+   sans se confondre avec ce qui est encore actif. */
+.in-cle-morte {
+  opacity: 0.55;
+}
+
+.in-cle-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+.in-cle-vu {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.in-cle-etat {
+  font-size: 11px;
+  color: var(--amber);
+  font-family: var(--mono);
+  white-space: nowrap;
+}

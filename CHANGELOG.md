@@ -9,6 +9,20 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
+  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
+  Révoquer une clé compromise est l'archétype de la décision d'administration,
+  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
+  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
+  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
+  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
+  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
+  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
+  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
+  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
+  ne sortent jamais de la liste.
+
 - **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
   routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
   change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
@@ -751,6 +765,20 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
+  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
+  Révoquer une clé compromise est l'archétype de la décision d'administration,
+  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
+  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
+  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
+  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
+  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
+  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
+  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
+  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
+  ne sortent jamais de la liste.
+
 - **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
   routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
   change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
@@ -955,6 +983,20 @@ refonte complète de l'interface en **Mission Control**.
   côté serveur, sans réécrire le prompt persisté.
 
 ### Added
+
+- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
+  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
+  Révoquer une clé compromise est l'archétype de la décision d'administration,
+  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
+  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
+  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
+  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
+  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
+  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
+  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
+  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
+  ne sortent jamais de la liste.
 
 - **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
   routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne

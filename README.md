@@ -159,7 +159,7 @@ ruche, navigable au clavier (touches **1-9**, `0`) via une sidebar alvéolaire :
 | 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                                                    |
 | 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                                            |
 | 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.                                  |
-| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés et les comptes de la ruche.                                                                                  |
+| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés, les comptes de la ruche, et **les clés** : qui a une clé de votre ruche, et de quoi la révoquer.            |
 
 **Mon espace** répond à une seule question : _qu'est-ce qui va me coûter quelque
 chose si je ne fais rien aujourd'hui ?_ Les alertes passent donc avant les

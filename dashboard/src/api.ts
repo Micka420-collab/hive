@@ -1226,6 +1226,56 @@ export function setMembreRole(userId: string, role: Role): Promise<{ userId: str
   });
 }
 
+// ─── Les CLÉS de la ruche — distinctes des comptes ──────────────────────────
+//
+// Ne pas confondre avec `/api/admin/membres`, qui liste les COMPTES. Ici ce
+// sont les clés des MACHINES : une par nœud, plus les billets d'invitation qui
+// servent à en obtenir une.
+//
+// Révoquer une clé compromise est l'archétype de la décision d'administration,
+// et elle n'existait qu'en ligne de commande. Un tableau de bord qui montre le
+// pouls, les anomalies et les castes, mais pas « qui a une clé de ma ruche »,
+// ne permet pas de décider ce qui compte le jour où ça compte.
+
+export interface CleNoeud {
+  nodeId: string;
+  label: string | null;
+  createdAt: number;
+  lastSeenAt: number | null;
+  revoque: boolean;
+}
+
+export type EtatBillet = 'vivant' | 'revoque' | 'expire' | 'epuise';
+
+export interface BilletRuche {
+  id: string;
+  label: string | null;
+  createdAt: number;
+  expiresAt: number;
+  usesLeft: number;
+  usesTotal: number;
+  etat: EtatBillet;
+}
+
+export interface ClesRuche {
+  noeuds: CleNoeud[];
+  billets: BilletRuche[];
+}
+
+export function fetchCles(): Promise<ClesRuche> {
+  return api<ClesRuche>('/api/membres');
+}
+
+/** Exclure une machine. La révocation MORD tout de suite : le nœud est déconnecté. */
+export function revoquerNoeud(nodeId: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/api/membres/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+}
+
+/** Révoquer un billet : il ne sert plus à obtenir de clé, même s'il reste des usages. */
+export function revoquerBillet(billetId: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/api/billets/${encodeURIComponent(billetId)}`, { method: 'DELETE' });
+}
+
 // ─── Mon tableau de bord ────────────────────────────────────────────────────
 // Un seul appel : l'écran doit pouvoir dire d'un bloc « voici ce qui va vous
 // coûter quelque chose si vous ne faites rien ». Enchaîner une requête par
