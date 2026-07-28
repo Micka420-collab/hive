@@ -99,11 +99,18 @@ function probeBin(bin: string, timeoutMs = 4_000): Promise<boolean> {
   });
 }
 
+/**
+ * Comment on constate la présence d'un binaire.
+ *
+ * C'est la COUTURE qui manquait. Voir `detectBestAgent`.
+ */
+export type Sonde = (bin: string) => Promise<boolean>;
+
 /** Résout le premier binaire présent parmi les candidats d'un agent. */
-async function firstPresent(bins: string[]): Promise<boolean> {
+async function firstPresent(bins: string[], sonder: Sonde, plateforme: string): Promise<boolean> {
   for (const bin of bins) {
-    for (const candidate of candidates(bin)) {
-      if (await probeBin(candidate)) return true;
+    for (const candidate of candidates(bin, plateforme)) {
+      if (await sonder(candidate)) return true;
     }
   }
   return false;
@@ -120,6 +127,25 @@ export interface DetectedAgent {
  */
 export async function detectBestAgent(
   env: NodeJS.ProcessEnv = process.env,
+  // ─── LA COUTURE, ET POURQUOI ELLE MANQUAIT ─────────────────────────────────
+  //
+  // `env` ne sert QU'À lire `HIVE_AGENT_CMD`. La sonde, elle, fait
+  // `spawn(bin, …)` sur le PATH RÉEL du processus, qu'aucun paramètre ne
+  // détourne. Conséquence : le chemin de repli — celui qui décide que ce membre
+  // N'A PAS d'agent, et donc que son nœud produira des diffs simulés — n'était
+  // atteignable depuis aucun test. Sur une machine où `claude` est installé, et
+  // c'est le cas de toutes celles où l'on développe, la détection le trouvait
+  // toujours.
+  //
+  // Un test l'avait constaté en échouant : `{ PATH: '' }` ne change rien. On
+  // s'était rabattu sur une garde qui LIT LA SOURCE — un pis-aller assumé, et
+  // écrit comme tel.
+  //
+  // `relever()` porte exactement cette couture, ajoutée pour exactement cette
+  // raison. La voici ici. La décision « aucun agent » se vérifie désormais pour
+  // de vrai, au lieu d'être crue sur parole.
+  sonder: Sonde = probeBin,
+  plateforme: string = process.platform,
 ): Promise<DetectedAgent> {
   // Choix explicite du membre : une commande libre (n'importe quelle IA CLI) via
   // HIVE_AGENT_CMD prime sur la détection automatique.
@@ -127,7 +153,7 @@ export async function detectBestAgent(
     return { agent: 'custom', label: 'commande personnalisée (HIVE_AGENT_CMD)' };
   }
   for (const probe of PROBES) {
-    if (await firstPresent(probe.bins)) {
+    if (await firstPresent(probe.bins, sonder, plateforme)) {
       return { agent: probe.agent, label: probe.label };
     }
   }
@@ -154,11 +180,17 @@ export function agentCredentialEnv(agent: AgentType): string[] {
 }
 
 /** Liste tous les agents détectés (pour information / diagnostic). */
-export async function detectAllAgents(env: NodeJS.ProcessEnv = process.env): Promise<AgentType[]> {
+export async function detectAllAgents(
+  env: NodeJS.ProcessEnv = process.env,
+  // Même couture que `detectBestAgent`, et pour la même raison : sans elle,
+  // « aucun agent » n'est vérifiable sur aucune machine de développement.
+  sonder: Sonde = probeBin,
+  plateforme: string = process.platform,
+): Promise<AgentType[]> {
   const found: AgentType[] = [];
   if ((env.HIVE_AGENT_CMD ?? '').trim()) found.push('custom');
   for (const probe of PROBES) {
-    if (await firstPresent(probe.bins)) found.push(probe.agent);
+    if (await firstPresent(probe.bins, sonder, plateforme)) found.push(probe.agent);
   }
   found.push('shell');
   return found;
