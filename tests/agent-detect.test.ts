@@ -84,13 +84,15 @@ describe('LE CHOIX DE L’AGENT', () => {
     // le prétendre serait pire que de s'en passer. On garde donc la RÈGLE sur
     // la source — commentaires retirés, sinon la prose ci-dessus la ferait
     // passer toute seule.
-    const nue = readFileSync(
-      new URL('../src/node-client/agent-detect.js', import.meta.url).pathname.replace(
-        /\.js$/,
-        '.ts',
-      ),
-      'utf8',
-    )
+    // `new URL(...)` est passée TELLE QUELLE à `readFileSync`, qui sait la lire.
+    // Ma première version prenait son `.pathname` : sous Windows il vaut
+    // « /D:/a/hive/… », avec une barre AVANT la lettre de lecteur, et Node le
+    // résolvait depuis le lecteur courant — « D:\D:\a\hive\… », ENOENT.
+    //
+    // J'ai donc introduit une faute de chemin Windows dans un test qui parle de
+    // justesse Windows. Le motif correct était déjà dans `miroir.test.ts` ; je
+    // ne l'ai pas suivi, et seule la CI Windows l'a dit.
+    const nue = readFileSync(new URL('../src/node-client/agent-detect.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
     expect(nue).toMatch(/agent:\s*'shell'[\s\S]{0,60}simulé/);
