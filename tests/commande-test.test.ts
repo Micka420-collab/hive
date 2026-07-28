@@ -18,6 +18,7 @@
 // ws:// de réseau local. Un nœud qui fait confiance au hub sur ce point prête sa
 // machine à quiconque a récupéré le jeton un jour.
 
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,6 +27,33 @@ import { readFileSync } from 'node:fs';
 import { simpleGit } from 'simple-git';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BINAIRES_DE_TEST, jugerCommandeTest } from '../src/shared/commande-test.js';
+
+/**
+ * Cette machine sait-elle exécuter un script à shebang ?
+ *
+ * Faux sous Windows : Node documente qu'un `.cmd`/`.bat` ne peut pas être lancé
+ * sans interpréteur de commandes, et un `#!/bin/sh` n'y est rien du tout. Or le
+ * test d'enveloppe a besoin de FABRIQUER un faux moteur de conteneurs — ce
+ * qu'on ne sait pas faire sous Windows sans compilateur.
+ *
+ * La sonde est au CHARGEMENT, pas dans `beforeAll` : `it.runIf(...)` s'évalue à
+ * la collecte. Posé trop tard, le drapeau vaudrait toujours `false` et le test
+ * serait silencieusement désactivé PARTOUT — c'est déjà arrivé dans ce dépôt,
+ * sur les gardes anti-évasion du miroir, et la suite restait verte.
+ */
+const scriptsExecutables = ((): boolean => {
+  const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-shebang-'));
+  try {
+    const f = path.join(bac, 'sonde');
+    writeFileSync(f, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    execFileSync(f, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(bac, { recursive: true, force: true });
+  }
+})();
 import { runMerge } from '../src/node-client/merge-runner.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -232,42 +260,69 @@ describe('côté nœud : runMerge refuse, même si le hub a laissé passer', () 
     expect((await git.status()).files).toEqual(avant.files);
   });
 
-  it('LA COMMANDE DE TEST EST ENVELOPPÉE DANS LE BAC À SABLE', async () => {
-    // Ce chemin ne passait par AUCUNE enveloppe : `HIVE_ISOLEMENT=exige`
-    // empêchait un agent de sortir de son bac pendant que les tests d'un merge
-    // tournaient à côté, sur l'hôte nu. On le prouve ici pour de vrai, sans
-    // docker : un faux moteur qui se contente d'imprimer son argv.
-    const faux = path.join(dir, 'faux-moteur.cjs');
-    writeFileSync(faux, 'console.log(JSON.stringify(process.argv.slice(2)));\n');
-    const lanceur = path.join(dir, 'moteur');
-    writeFileSync(lanceur, `#!/bin/sh\nexec node ${JSON.stringify(faux)} "$@"\n`, { mode: 0o755 });
-
-    const r = await runMerge({
-      repoDir,
-      diffs: [],
-      testCommand: ['npm', 'test'],
-      timeoutMs: 30_000,
-      bac: {
-        fournisseur: {
-          nom: 'faux',
-          bin: lanceur,
-          niveau: 'conteneur',
-          installation: 'aucune',
-          garanties: [],
-        },
-        variables: ['ANTHROPIC_API_KEY'],
-      },
-    });
-
-    expect(r.testsRun).toBe(true);
-    // Le vrai binaire lancé est le moteur, pas `npm` : l'enveloppe a bien eu lieu.
-    expect(r.logs, 'le clone doit être le répertoire monté').toContain(`--volume=${repoDir}:`);
-    expect(r.logs, "la commande de test doit être à l'intérieur").toMatch(/"npm","test"/);
-    // Le secret passe par son NOM, jamais par sa valeur : `--env=CLE=valeur`
-    // écrirait le secret dans la table des processus, lisible par `ps`.
-    expect(r.logs).toContain('--env=ANTHROPIC_API_KEY');
-    expect(r.logs).not.toMatch(/--env=ANTHROPIC_API_KEY=/);
+  it('la fabrication d’un faux moteur est-elle possible ici ?', () => {
+    // On ne peut pas vérifier l'enveloppe sans un moteur à envelopper, et sous
+    // Windows on ne sait pas en fabriquer un. Le dire est la seule chose
+    // honnête : un `skip` muet laisserait croire la garantie établie partout.
+    //
+    // L'ENVELOPPE ELLE-MÊME reste vérifiée sur les deux plateformes : c'est
+    // `envelopper()`, un module pur. Ce qui manque sous Windows, c'est la
+    // preuve de bout en bout que `runProc` l'appelle vraiment.
+    if (!scriptsExecutables) {
+      console.warn(
+        '⚠ scripts à shebang inexécutables sur cette plateforme : ' +
+          'la preuve de bout en bout que la commande de test est ENVELOPPÉE ' +
+          'n’est PAS faite ici. Elle l’est sur Linux, à chaque CI.',
+      );
+    }
+    // SUR POSIX, LA SONDE DOIT DIRE OUI. Sans cette assertion, une sonde cassée
+    // désactiverait la preuve partout et la suite resterait verte.
+    if (process.platform !== 'win32') {
+      expect(scriptsExecutables, 'la sonde doit réussir sur un système POSIX').toBe(true);
+    }
   });
+
+  it.runIf(scriptsExecutables)(
+    'LA COMMANDE DE TEST EST ENVELOPPÉE DANS LE BAC À SABLE',
+    async () => {
+      // Ce chemin ne passait par AUCUNE enveloppe : `HIVE_ISOLEMENT=exige`
+      // empêchait un agent de sortir de son bac pendant que les tests d'un merge
+      // tournaient à côté, sur l'hôte nu. On le prouve ici pour de vrai, sans
+      // docker : un faux moteur qui se contente d'imprimer son argv.
+      const faux = path.join(dir, 'faux-moteur.cjs');
+      writeFileSync(faux, 'console.log(JSON.stringify(process.argv.slice(2)));\n');
+      const lanceur = path.join(dir, 'moteur');
+      writeFileSync(lanceur, `#!/bin/sh\nexec node ${JSON.stringify(faux)} "$@"\n`, {
+        mode: 0o755,
+      });
+
+      const r = await runMerge({
+        repoDir,
+        diffs: [],
+        testCommand: ['npm', 'test'],
+        timeoutMs: 30_000,
+        bac: {
+          fournisseur: {
+            nom: 'faux',
+            bin: lanceur,
+            niveau: 'conteneur',
+            installation: 'aucune',
+            garanties: [],
+          },
+          variables: ['ANTHROPIC_API_KEY'],
+        },
+      });
+
+      expect(r.testsRun).toBe(true);
+      // Le vrai binaire lancé est le moteur, pas `npm` : l'enveloppe a bien eu lieu.
+      expect(r.logs, 'le clone doit être le répertoire monté').toContain(`--volume=${repoDir}:`);
+      expect(r.logs, "la commande de test doit être à l'intérieur").toMatch(/"npm","test"/);
+      // Le secret passe par son NOM, jamais par sa valeur : `--env=CLE=valeur`
+      // écrirait le secret dans la table des processus, lisible par `ps`.
+      expect(r.logs).toContain('--env=ANTHROPIC_API_KEY');
+      expect(r.logs).not.toMatch(/--env=ANTHROPIC_API_KEY=/);
+    },
+  );
 
   it('laisse passer un vrai lanceur (la garde ne casse pas le chemin nominal)', async () => {
     const r = await runMerge({

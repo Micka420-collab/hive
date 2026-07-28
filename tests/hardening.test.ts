@@ -154,6 +154,15 @@ describe('durcissement du serveur', () => {
   });
 
   it('limite le débit REST : au-delà du plafond, renvoie 429', async () => {
+    // ─── POURQUOI UN DÉLAI EXPLICITE, ET POURQUOI CELUI-CI ───────────────────
+    //
+    // Ce test tombait à 5 000 ms — le défaut de vitest — sur la CI Windows, et
+    // NULLE PART ailleurs. Ce n'est pas une lenteur inventée : il enchaîne 430 requêtes HTTP séquentielles, et l'établissement de socket est plus coûteux sous Windows. Les tests voisins de ce fichier s'accordent déjà 8 à 10 s.
+    //
+    // 30 secondes n'est pas « une marge confortable », c'est une HYPOTHÈSE
+    // VÉRIFIABLE : si le test passe désormais, le diagnostic « plus lent sous
+    // Windows » était juste. S'il retombe à 30 s, ce n'est plus de la lenteur
+    // mais un blocage, et il faudra le CORRIGER, pas rallonger encore.
     // Le plafond est de 400 requêtes /api par IP et par fenêtre de 10 s.
     // On enchaîne 430 requêtes health : les premières passent, les suivantes 429.
     let ok = 0;
@@ -165,7 +174,7 @@ describe('durcissement du serveur', () => {
     }
     expect(ok).toBeGreaterThanOrEqual(400);
     expect(limited).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   it('refuse un prompt qui dépasse la limite et un lot trop grand', async () => {
     const projectId = await newProject();
