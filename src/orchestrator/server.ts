@@ -1593,6 +1593,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .send({ error: 'dépôt déjà importé', projectId: existant.id, nom: existant.name });
       }
 
+      // SI L'APPEL VIENT D'UN COMPTE, LE PROJET LUI APPARTIENT.
+      //
+      // L'import s'authentifie par le jeton de ruche — il n'a donc personne à
+      // qui attribuer le dépôt, et le rangeait orphelin. Conséquence : la
+      // personne qui venait de connecter SON dépôt ne pouvait ni en lire le
+      // code, ni y admettre quelqu'un, sauf à être administratrice et à
+      // l'adopter d'abord. Le tableau de bord, lui, présente toujours un
+      // compte : autant s'en servir.
+      //
+      // La voie CLI reste possible et reste orpheline (elle n'a que le jeton
+      // de ruche) : c'est exactement le cas que l'adoption rattrape.
+      const parCompte = authorizedUser(req) ? (req as AuthRequest).userId! : null;
       const projet = store.createProject({
         name: depot.fullName,
         repoUrl: depot.cloneUrl,
@@ -1600,11 +1612,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // déjà aplatie et bornée par github.ts ; le Conseil l'emballera ensuite
         // dans son bloc de données non fiables.
         ...(depot.description ? { description: depot.description } : {}),
+        ...(parCompte ? { ownerId: parCompte } : {}),
       });
+      if (parCompte) store.addMember(projet.id, parCompte, 'owner');
       emitEvent('github_imported', {
         projectId: projet.id,
         fullName: depot.fullName,
         prive: depot.prive,
+        ...(parCompte ? { userId: parCompte } : {}),
       });
       return reply.code(201).send({ projet, depot });
     },

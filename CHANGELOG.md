@@ -7,6 +7,28 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
+  en tête de la vue Projets). `GET /api/github/repos` et
+  `POST /api/github/import` vivaient depuis le début sans aucune interface :
+  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
+  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
+  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
+  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
+  merge concurrents sur les mêmes fichiers — et connecte en un clic.
+  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
+  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
+  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
+  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
+  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
+  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
+  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
+  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
+  de ruche — et c'est le cas que l'adoption rattrape.
+
 ### Fixed
 
 - **Un projet créé depuis le tableau de bord n'appartenait à personne** — sur le
@@ -706,6 +728,28 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   contrefaçon (ancien secret public, compte inexistant, secret d'une autre
   ruche) avec le jeton légitime en contrôle négatif.
 
+### Added
+
+- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
+  en tête de la vue Projets). `GET /api/github/repos` et
+  `POST /api/github/import` vivaient depuis le début sans aucune interface :
+  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
+  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
+  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
+  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
+  merge concurrents sur les mêmes fichiers — et connecte en un clic.
+  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
+  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
+  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
+  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
+  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
+  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
+  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
+  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
+  de ruche — et c'est le cas que l'adoption rattrape.
+
 ### Fixed
 
 - **L'intégration continue repasse au vert : un test n'y tournait pas.**
@@ -867,6 +911,28 @@ refonte complète de l'interface en **Mission Control**.
 - Hive Mind : la variante BM25 câblée de bout en bout (protocole → nœud →
   dashboard) remplace la classe FTS5 ; le contexte est joint à l'assignation
   côté serveur, sans réécrire le prompt persisté.
+
+### Added
+
+- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
+  en tête de la vue Projets). `GET /api/github/repos` et
+  `POST /api/github/import` vivaient depuis le début sans aucune interface :
+  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
+  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
+  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
+  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
+  merge concurrents sur les mêmes fichiers — et connecte en un clic.
+  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
+  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
+  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
+  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
+  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
+  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
+  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
+  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
+  de ruche — et c'est le cas que l'adoption rattrape.
 
 ### Fixed
 

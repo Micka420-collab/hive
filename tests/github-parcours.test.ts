@@ -23,11 +23,12 @@
 // regardent pas. `HIVE_GITHUB_API` existe déjà pour GitHub Enterprise : on s'en
 // sert pour pointer sur un serveur local qui répond comme GitHub.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer as creerHttp } from 'node:http';
 import type { Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -215,5 +216,154 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
       const texte = await (await fetch(`${base}${route}`, { headers: hive })).text();
       expect(texte).not.toContain(JETON_GH);
     }
+  });
+});
+
+// ─── CONNECTER DEPUIS LE TABLEAU DE BORD ────────────────────────────────────
+//
+// Jusqu'ici, connecter un dépôt se faisait EN LIGNE DE COMMANDE : les deux
+// routes vivaient sans aucun écran, alors que c'est le tout premier geste de
+// quelqu'un qui arrive avec du code existant.
+//
+// Et l'import s'authentifiant par le jeton de RUCHE, il n'avait personne à qui
+// attribuer le dépôt : le projet naissait orphelin, donc inutilisable par son
+// importateur (il fallait qu'un administrateur l'adopte d'abord). Le tableau de
+// bord, lui, présente toujours un compte — autant s'en servir.
+
+describe('connecter un dépôt depuis un COMPTE', () => {
+  let faux2: Server;
+  let server2: HiveServer;
+  let dir2: string;
+  let base2: string;
+  let jetonMembre2 = '';
+  let idMembre2 = '';
+  let avant2: string | undefined;
+  let avantApi2: string | undefined;
+
+  beforeAll(async () => {
+    faux2 = creerHttp((req, res) => {
+      const u = new URL(req.url ?? '/', 'http://x');
+      const corps =
+        u.pathname === '/user/repos'
+          ? JSON.stringify([DEPOT])
+          : u.pathname === `/repos/${DEPOT.full_name}`
+            ? JSON.stringify(DEPOT)
+            : null;
+      res.writeHead(corps ? 200 : 404, { 'content-type': 'application/json' });
+      res.end(corps ?? '{"message":"Not Found"}');
+    });
+    await new Promise<void>((r) => faux2.listen(0, '127.0.0.1', r));
+    const port2 = (faux2.address() as { port: number }).port;
+
+    avant2 = process.env.HIVE_GITHUB_TOKEN;
+    avantApi2 = process.env.HIVE_GITHUB_API;
+    process.env.HIVE_GITHUB_TOKEN = JETON_GH;
+    process.env.HIVE_GITHUB_API = `http://127.0.0.1:${port2}`;
+
+    dir2 = mkdtempSync(path.join(os.tmpdir(), 'hive-ghc-'));
+    server2 = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir2, 'data', 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    base2 = `http://127.0.0.1:${server2.port}`;
+    // Le premier compte absorbe l'amorçage administrateur : celui qu'on suit
+    // doit être un membre ORDINAIRE, sinon `voir_tous_les_projets` masquerait
+    // le défaut et le test passerait pour de mauvaises raisons.
+    await fetch(`${base2}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@ghc.test',
+        password: 'motdepasse-assez-long-42',
+        displayName: 'Admin',
+      }),
+    });
+    const r = await fetch(`${base2}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'lea@ghc.test',
+        password: 'motdepasse-assez-long-42',
+        displayName: 'Léa',
+      }),
+    });
+    jetonMembre2 = ((await r.json()) as { token: string }).token;
+    const moi = (await (
+      await fetch(`${base2}/api/auth/me`, {
+        headers: { authorization: `Bearer ${jetonMembre2}` },
+      })
+    ).json()) as { id: string; role?: string };
+    idMembre2 = moi.id;
+    expect(moi.role, 'celui qu’on suit ne doit PAS être administrateur').not.toBe('admin');
+  });
+
+  afterAll(async () => {
+    await server2.stop();
+    await new Promise<void>((r) => faux2.close(() => r()));
+    rmSync(dir2, { recursive: true, force: true });
+    if (avant2 === undefined) delete process.env.HIVE_GITHUB_TOKEN;
+    else process.env.HIVE_GITHUB_TOKEN = avant2;
+    if (avantApi2 === undefined) delete process.env.HIVE_GITHUB_API;
+    else process.env.HIVE_GITHUB_API = avantApi2;
+  });
+
+  const commeMembre = () => ({
+    'content-type': 'application/json',
+    'x-hive-token': TOKEN,
+    authorization: `Bearer ${jetonMembre2}`,
+  });
+
+  it('LE DÉPÔT CONNECTÉ APPARTIENT À CELLE QUI L’A CONNECTÉ', async () => {
+    const res = await fetch(`${base2}/api/github/import`, {
+      method: 'POST',
+      headers: commeMembre(),
+      body: JSON.stringify({ fullName: 'micka/ma-ruche' }),
+    });
+    expect(res.status).toBe(201);
+    const { projet } = (await res.json()) as { projet: { id: string; ownerId: string | null } };
+    expect(projet.ownerId).toBe(idMembre2);
+  });
+
+  it('…ET ELLE PEUT S’EN SERVIR TOUT DE SUITE, sans passer par une adoption', async () => {
+    // C'est tout l'objet. Avant, un membre ordinaire recevait 404 sur le dépôt
+    // qu'il venait lui-même de connecter.
+    const id = server2.store.listProjects()[0]!.id;
+    for (const route of [`/api/projects/${id}/rayon`, `/api/projects/${id}/members`]) {
+      const res = await fetch(`${base2}${route}`, { headers: commeMembre() });
+      expect(res.status, route).not.toBe(404);
+    }
+    // Et elle est inscrite comme propriétaire, pas seulement porteuse du champ.
+    const membres = (await (
+      await fetch(`${base2}/api/projects/${id}/members`, { headers: commeMembre() })
+    ).json()) as { userId: string; role: string }[];
+    expect(membres.find((m) => m.userId === idMembre2)?.role).toBe('owner');
+  });
+
+  it('L’ÉCRAN EXISTE — les deux routes ne sont plus réservées à la ligne de commande', () => {
+    const brut = readFileSync(
+      fileURLToPath(new URL('../dashboard/src/views/Projets.tsx', import.meta.url)),
+      'utf8',
+    );
+    const code = brut.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+    expect(code).toContain('fetchDepotsGithub');
+    expect(code).toContain('importerDepotGithub');
+  });
+
+  it('L’ÉCRAN NE DEMANDE JAMAIS LE JETON GITHUB', () => {
+    // Il vit dans l'environnement de l'orchestrateur, en mémoire. Un champ
+    // « collez votre jeton » en ferait une valeur qui traverse le navigateur,
+    // l'historique et le presse-papiers — pour un gain nul, puisque c'est
+    // l'orchestrateur qui appelle GitHub, pas le navigateur.
+    const brut = readFileSync(
+      fileURLToPath(new URL('../dashboard/src/views/Projets.tsx', import.meta.url)),
+      'utf8',
+    );
+    const code = brut.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+    expect(code).not.toMatch(/HIVE_GITHUB_TOKEN|githubToken|jetonGithub/);
   });
 });

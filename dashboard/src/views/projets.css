@@ -880,3 +880,99 @@
   color: var(--faint);
   font-family: var(--mono);
 }
+
+/* ─── Le connecteur GitHub ─────────────────────────────────────────────────── */
+
+/* Replié par défaut : c'est un geste ponctuel, pas un tableau de bord. */
+.pj-gh-repli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+}
+
+.pj-gh-aide {
+  margin: 0;
+  padding: 0 14px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.pj-gh-repli .pj-gh-aide {
+  padding: 0;
+}
+
+.pj-gh-barre {
+  padding: 12px 14px 0;
+}
+
+.pj-gh-erreur {
+  margin: 10px 14px 0;
+  font-size: 12px;
+}
+
+.pj-gh-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 14px;
+  list-style: none;
+}
+
+.pj-gh-liste li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+/* Un dépôt déjà connecté reste visible — savoir qu'il est là fait partie de la
+   réponse — mais il ne doit pas ressembler à une action disponible. */
+.pj-gh-deja {
+  opacity: 0.55;
+}
+
+.pj-gh-nom {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.pj-gh-desc {
+  grid-column: 1;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-gh-tag {
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.pj-gh-etat {
+  font-size: 11px;
+  color: var(--faint);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.pj-gh-vide {
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}

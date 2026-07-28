@@ -12,11 +12,13 @@ import {
   estAdmin,
   fetchBalance,
   fetchConflicts,
+  fetchDepotsGithub,
   fetchMembresProjet,
   fetchMergePlan,
   fetchPartages,
   fetchMergeResult,
   fetchReport,
+  importerDepotGithub,
   planBrief,
   retirerMembre,
   revoquerPartage,
@@ -25,6 +27,7 @@ import {
 import type {
   AuthUser,
   BalanceState,
+  DepotsGithub,
   MergeRunResult,
   NewTaskInput,
   PartageCree,
@@ -905,6 +908,156 @@ function PartagesProjet({
   );
 }
 
+/**
+ * Le connecteur GitHub — connecter un dépôt existant en un clic.
+ *
+ * ─── CE QUI MANQUAIT ─────────────────────────────────────────────────────────
+ *
+ * `GET /api/github/repos` et `POST /api/github/import` vivaient depuis le début
+ * sans aucun écran : connecter un dépôt se faisait en ligne de commande, alors
+ * que c'est le tout PREMIER geste de quelqu'un qui arrive avec du code.
+ *
+ * ─── CE QUE CET ÉCRAN NE FAIT PAS, ET C'EST VOULU ────────────────────────────
+ *
+ * Il ne demande jamais le jeton GitHub. Celui-ci vit dans l'environnement de
+ * l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+ * jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+ * presse-papiers — pour un gain nul, puisque c'est l'orchestrateur qui appelle
+ * GitHub, pas le navigateur.
+ *
+ * Quand le jeton manque, le serveur répond 501 avec la marche à suivre : on
+ * l'affiche telle quelle plutôt que d'inventer un message qui dériverait.
+ */
+function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImporte: () => void }) {
+  const t = useT();
+  const [ouvert, setOuvert] = useState(false);
+  const [filtre, setFiltre] = useState('');
+  const [depots, setDepots] = useState<DepotsGithub | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [occupe, setOccupe] = useState<string | null>(null);
+  const [charge, setCharge] = useState(false);
+
+  const lister = (q: string) => {
+    setCharge(true);
+    setErreur(null);
+    fetchDepotsGithub(q)
+      .then(setDepots)
+      .catch((e: unknown) => setErreur(errMsg(e)))
+      .finally(() => setCharge(false));
+  };
+
+  const importer = (fullName: string) => {
+    setOccupe(fullName);
+    setErreur(null);
+    importerDepotGithub(fullName)
+      .then(() => {
+        onImporte();
+        lister(filtre);
+      })
+      .catch((e: unknown) => setErreur(errMsg(e)))
+      .finally(() => setOccupe(null));
+  };
+
+  if (!ouvert) {
+    return (
+      <section className="card pj-gh-repli">
+        <button
+          className="btn"
+          onClick={() => {
+            setOuvert(true);
+            lister('');
+          }}
+        >
+          🐙 {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
+        </button>
+        <span className="pj-gh-aide">
+          {t(
+            'Vos dépôts, les plus récents d’abord. Le jeton reste sur l’orchestrateur.',
+            'Your repositories, most recent first. The token stays on the orchestrator.',
+          )}
+        </span>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card">
+      <header className="panel-head">
+        <h2>{t('🐙 Connecter un dépôt GitHub', '🐙 Connect a GitHub repository')}</h2>
+        <button className="btn ghost" onClick={() => setOuvert(false)}>
+          {t('Fermer', 'Close')}
+        </button>
+      </header>
+
+      <div className="pj-run pj-gh-barre">
+        <input
+          className="pj-testcmd"
+          type="text"
+          placeholder={t(
+            'Filtrer (nom, description, langage)',
+            'Filter (name, description, language)',
+          )}
+          value={filtre}
+          onChange={(e) => setFiltre(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && lister(filtre)}
+          aria-label={t('Filtrer les dépôts', 'Filter repositories')}
+        />
+        <button className="btn" onClick={() => lister(filtre)} disabled={charge}>
+          {charge ? t('Lecture…', 'Reading…') : t('Chercher', 'Search')}
+        </button>
+      </div>
+
+      {/* Le 501 « GitHub non connecté » porte la marche à suivre complète :
+          on la montre telle quelle. La reformuler ici la ferait diverger de
+          celle du serveur, et c'est celle du serveur qui est juste. */}
+      {erreur && <p className="panel-error pj-gh-erreur">{erreur}</p>}
+
+      {!user && (
+        <p className="pj-gh-aide">
+          {t(
+            'Sans compte connecté, le dépôt sera connecté à la ruche sans propriétaire — un administrateur devra l’adopter pour que quelqu’un puisse s’en servir.',
+            'Without a signed-in account, the repository will be connected with no owner — an administrator will have to adopt it before anyone can use it.',
+          )}
+        </p>
+      )}
+
+      {depots && (
+        <ul className="pj-gh-liste">
+          {depots.depots.length === 0 && (
+            <li className="pj-gh-vide">
+              {t('Aucun dépôt ne correspond.', 'No repository matches.')}
+            </li>
+          )}
+          {depots.depots.map((d) => (
+            <li key={d.fullName} className={d.importe ? 'pj-gh-deja' : ''}>
+              <div className="pj-gh-nom">
+                <strong>{d.fullName}</strong>
+                {d.prive && <span className="pj-vis private">🔒 {t('privé', 'private')}</span>}
+                {d.archive && <span className="pj-gh-tag">{t('archivé', 'archived')}</span>}
+                {d.langage && <span className="pj-gh-tag">{d.langage}</span>}
+              </div>
+              {d.description && <span className="pj-gh-desc">{d.description}</span>}
+              {d.importe ? (
+                <span className="pj-gh-etat">{t('déjà connecté', 'already connected')}</span>
+              ) : (
+                <button
+                  className="btn"
+                  disabled={occupe !== null}
+                  onClick={() => importer(d.fullName)}
+                >
+                  {occupe === d.fullName
+                    ? t('Connexion…', 'Connecting…')
+                    : t('Connecter', 'Connect')}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function ProjectCard({
   project,
   tasks,
@@ -1126,9 +1279,15 @@ export default function Projets({
   // fait N appels identiques. Erreur ou route absente ⇒ `data` reste null et
   // aucune carte n'affiche de bloc Balance — les cartes projet sont intactes.
   const balance = useApiPoll(fetchBalance, 30_000, refreshTick);
+  const [, setImportTick] = useState(0);
 
   return (
     <div className="mc-view pj-view">
+      {/* Connecter un dépôt vient AVANT l'atelier : c'est le premier geste de
+          quelqu'un qui arrive avec du code existant, alors que la Queen Bee
+          s'adresse à qui part d'une idée. */}
+      <ConnecteurGithub user={user} onImporte={() => setImportTick((n) => n + 1)} />
+
       <QueenBee projects={recents} />
 
       {recents.length === 0 ? (

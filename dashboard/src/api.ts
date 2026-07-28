@@ -138,6 +138,58 @@ export function createProject(input: {
   return api<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) });
 }
 
+// ─── Connecter un dépôt GitHub ──────────────────────────────────────────────
+//
+// Ces deux routes vivaient depuis le début sans aucun écran : connecter un
+// dépôt se faisait en ligne de commande, alors que c'est le tout premier geste
+// de quelqu'un qui découvre la ruche.
+//
+// Le jeton GitHub, lui, ne passe JAMAIS par ici. Il vit dans l'environnement de
+// l'orchestrateur (`HIVE_GITHUB_TOKEN`), en mémoire, le temps du processus —
+// le tableau de bord demande « mes dépôts » et reçoit une liste, sans jamais
+// voir de quoi la fabriquer. Un écran qui collecterait le jeton en ferait une
+// valeur qui traverse le navigateur, l'historique et le presse-papiers.
+
+export interface DepotGithub {
+  fullName: string;
+  nom: string;
+  description: string;
+  prive: boolean;
+  cloneUrl: string;
+  htmlUrl: string;
+  langage: string;
+  pousseA: number;
+  archive: boolean;
+  /** Déjà connecté à la ruche : deux projets sur un même dépôt, c'est deux
+   *  plans de merge concurrents sur les mêmes fichiers. */
+  importe: boolean;
+}
+
+export interface DepotsGithub {
+  depots: DepotGithub[];
+  total: number;
+  tronque?: boolean;
+}
+
+export function fetchDepotsGithub(q = ''): Promise<DepotsGithub> {
+  const query = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+  return apiCompte<DepotsGithub>(`/api/github/repos${query}`);
+}
+
+/**
+ * Connecte un dépôt à la ruche.
+ *
+ * Signé par le COMPTE en plus du jeton de ruche : le serveur attribue alors le
+ * projet à l'appelant. Sans compte (la voie CLI), le projet naît orphelin et
+ * doit être adopté — ce qui était le seul comportement possible jusqu'ici.
+ */
+export function importerDepotGithub(fullName: string): Promise<{ projet: Project }> {
+  return apiCompte<{ projet: Project }>('/api/github/import', {
+    method: 'POST',
+    body: JSON.stringify({ fullName }),
+  });
+}
+
 /** Ajoute un lot de tâches (DAG) à un projet. */
 export function addTasks(projectId: string, tasks: NewTaskInput[]): Promise<Task[]> {
   return api<Task[]>(`/api/projects/${projectId}/tasks`, {
