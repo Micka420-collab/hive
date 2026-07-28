@@ -45,8 +45,10 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { vuePublique } from '../shared/projet-public.js';
 import {
+  ouvertAuJetonDeRuche,
   peutAdmettre,
   peutAdopter,
+  peutEngager,
   peutLireCode,
   peutRejoindre,
   peutVoirMembres,
@@ -81,6 +83,7 @@ import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
 import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
 import { corpsPr, depotDepuisUrl, fusionner, livrer, nomBranche } from './livraison.js';
+import { briefDeIssue, motifRefus, recevable } from '../shared/issue.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
   ECHECS_COMPTE,
@@ -1116,6 +1119,75 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.estMembre(projectId, (req as AuthRequest).userId!),
     );
   };
+
+  /** Trois issues, et le refus ne doit pas dire laquelle. */
+  type VerdictEngagement = 'permis' | 'anonyme' | 'absent';
+
+  /**
+   * Un ENGAGEMENT de projet est-il permis à cet appelant ? (ADR 0007, tranché)
+   *
+   * ─── LA DÉCISION, EN UNE PHRASE ────────────────────────────────────────────
+   *
+   * La frontière n'est pas « lire ou écrire », c'est **« ce projet vous
+   * regarde-t-il ? »**. Un acte qui engage un projet exige donc :
+   *
+   *   · un COMPTE qui a affaire au projet — propriétaire, membre, ou
+   *     administrateur de la ruche ; OU
+   *   · que le projet n'ait PAS de propriétaire : il n'appartient alors qu'à la
+   *     ruche, et le jeton de ruche EST la ruche.
+   *
+   * ─── CE QUE ÇA FERME, ET CE QUE ÇA NE CASSE PAS ────────────────────────────
+   *
+   * Ça ferme le fond du constat : une abeille qui a reçu `HIVE_TOKEN` parce
+   * qu'elle prête sa machine ne peut plus créer de tâches ni déclencher de
+   * merge sur le projet de quelqu'un d'autre — donc plus faire tourner du code
+   * sur les machines de l'essaim au nom d'un projet qui ne la regarde pas.
+   *
+   * Ça ne casse ni la CLI ni le tableau de bord sans compte sur leur voie
+   * habituelle : tous deux travaillent sur des projets créés par le jeton,
+   * donc ORPHELINS, donc encore ouverts. Ce qui change de main, ce sont les
+   * projets QUI APPARTIENNENT à un compte — et c'est précisément la frontière
+   * qu'on voulait tracer.
+   *
+   * ─── POURQUOI LES LECTURES GARDENT LEURS DEUX PORTES ───────────────────────
+   *
+   * Parce que « le tableau de bord s'utilise sans compte » est annoncé, et que
+   * resserrer les lectures le retirerait sans prévenir. Les fermer viendra
+   * quand les comptes seront la norme ; d'ici là, `lectureProjetPermise` reste
+   * une ouverture. Le déséquilibre est assumé et écrit : c'est l'écriture qui a
+   * des conséquences.
+   */
+  const engagementProjetPermis = (req: FastifyRequest, projectId: string): VerdictEngagement => {
+    // Qui n'a RIEN de valide n'a pas à apprendre si le projet existe : c'est le
+    // seul cas qui mérite « jeton invalide », et il est indépendant du projet.
+    const compte = authorizedUser(req);
+    if (!compte && !authorized(req)) return 'anonyme';
+
+    const projet = store.getProject(projectId);
+    if (!projet) return 'absent';
+    if (compte) {
+      const moi = (req as AuthRequest).userId!;
+      if (peutEngager(projet, lecteurDe(req), store.estMembre(projectId, moi))) return 'permis';
+    }
+    // La porte du jeton ne s'ouvre que sur un projet que personne ne possède.
+    if (ouvertAuJetonDeRuche(projet) && authorized(req)) return 'permis';
+    return 'absent';
+  };
+
+  /**
+   * Le refus d'un engagement, DE LA FORME EXACTE DE L'INEXISTENCE.
+   *
+   * C'est la convention du dépôt (`peutVoirMembres`, ADR 0005), et elle vaut
+   * ici pour la même raison : un « 403 » poli sur un projet qu'on ne possède
+   * pas confirmerait qu'il existe, et répété sur une liste d'identifiants il
+   * dessinerait la carte des projets de la ruche. Refuser et ne-pas-exister
+   * rendent donc les MÊMES octets.
+   *
+   * Le 401 est réservé à qui n'a présenté aucune identité valide : là, le refus
+   * ne dit rien du projet, il dit que l'appelant n'est personne.
+   */
+  const refuserEngagement = (reply: FastifyReply, verdict: VerdictEngagement): FastifyReply =>
+    verdict === 'anonyme' ? reject(reply) : reply.code(404).send({ error: 'projet inconnu' });
 
   app.get('/api/health', async () => ({ ok: true }));
 
@@ -2849,7 +2921,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       // Un seul conseil à la fois par projet : deux conseils concurrents
@@ -3734,7 +3807,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -3898,7 +3972,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!project.repoUrl) {
@@ -4263,6 +4338,162 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── Les issues comme source de travail ────────────────────────────────────
+  //
+  // La ruche savait importer un dépôt, découper un brief, travailler, et ouvrir
+  // une pull request. Il manquait la PREMIÈRE marche : d'où vient le brief. Une
+  // issue EST un brief — écrit par quelqu'un qui a pris le temps de décrire ce
+  // qu'il veut, et qui attend une réponse.
+  //
+  // Les deux routes sont sous la garde d'ENGAGEMENT (ADR 0007) : lister les
+  // issues d'un projet, c'est déjà consommer le quota GitHub de l'hôte ; en
+  // prendre une, c'est faire travailler l'essaim.
+
+  /** Un seul texte pour ce refus : deux formulations divergeraient un jour. */
+  const SANS_JETON_GITHUB =
+    'HIVE_GITHUB_TOKEN non configuré. Sans jeton, la ruche ne peut pas lire les issues du dépôt.';
+
+  /** Le dépôt `owner/repo` d'un projet, ou `null` s'il n'en a pas. */
+  const depotDeProjet = (repoUrl: string | null): string | null => depotDepuisUrl(repoUrl);
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/issues',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const fullName = depotDeProjet(project.repoUrl);
+      if (!fullName) {
+        return reply.code(400).send({
+          error: 'Ce projet n’est pas rattaché à un dépôt GitHub : il n’a pas d’issues à lire.',
+        });
+      }
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      try {
+        const { listerIssues } = await import('./github.js');
+        const { issues, tronque } = await listerIssues(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+        );
+        return { depot: fullName, issues, tronque };
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; numero: string } }>(
+    '/api/projects/:projectId/issues/:numero',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'numero'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            numero: { type: 'string', pattern: '^[1-9][0-9]{0,9}$' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const fullName = depotDeProjet(project.repoUrl);
+      if (!fullName) {
+        return reply.code(400).send({ error: 'Ce projet n’est pas rattaché à un dépôt GitHub.' });
+      }
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      // ON RELIT L'ISSUE À LA SOURCE, jamais depuis ce que le client envoie.
+      // Le client ne fournit qu'un NUMÉRO : le titre, le corps et l'état
+      // viennent de GitHub à cet instant. Sinon n'importe quel appelant
+      // fabriquerait le « contenu d'une issue » et la ruche le planifierait.
+      const { lireUneIssue } = await import('./github.js');
+      let issue;
+      try {
+        issue = await lireUneIssue(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+          Number(req.params.numero),
+        );
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+
+      const verdict = recevable(issue);
+      if (!verdict.ok) {
+        return reply.code(409).send({ error: motifRefus(verdict.refus), refus: verdict.refus });
+      }
+
+      const brief = briefDeIssue(issue);
+      if (brief === '') {
+        return reply.code(422).send({
+          error:
+            'Cette issue ne tient pas dans un brief. Décrivez la demande en quelques lignes dans une tâche.',
+        });
+      }
+
+      const { briefToDAG, loadQueenBeeConfig } = await import('./queen-bee.js');
+      const beeConfig = loadQueenBeeConfig(process.env);
+      if (!beeConfig.apiKey) {
+        return reply.code(500).send({
+          error: 'QUEEN_BEE_API_KEY non configurée. Définissez cette variable (clé OpenRouter).',
+        });
+      }
+
+      try {
+        const dag = await briefToDAG(brief, beeConfig);
+        const creees = dag.tasks.map((t, i) =>
+          store.createTask({
+            id: t.id ?? `I${issue.numero}-${i + 1}`,
+            projectId: project.id,
+            title: t.title,
+            prompt: t.prompt,
+            dependsOn: t.dependsOn ?? [],
+          }),
+        );
+        for (const t of creees) {
+          emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
+        }
+        emitEvent('issue_prise', {
+          projectId: project.id,
+          numero: issue.numero,
+          titre: issue.titre,
+          taches: creees.length,
+        });
+        scheduler.tick();
+        stateDirty = true;
+        return reply.code(201).send({ issue, taches: creees, devis: devisSansRisque(creees) });
+      } catch (e) {
+        return reply
+          .code(502)
+          .send({ error: e instanceof Error ? e.message : 'découpage impossible' });
+      }
+    },
+  );
+
   // ─── Queen Bee : découpage IA d'un brief en tâches ──────────────────────────
   interface BriefBody {
     brief: string;
@@ -4290,7 +4521,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 

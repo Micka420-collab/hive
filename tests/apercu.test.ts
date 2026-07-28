@@ -147,6 +147,33 @@ describe('ce qu’on refuse d’inliner', () => {
     expect(r.inlines).toEqual([]);
   });
 
+  it('UN INTERDIT NOMMÉ DIRECTEMENT NON PLUS — c’est là que la règle mord', () => {
+    // Trouvé en MUTANT : remplacer l'appel à `cheminDemande` par le chemin
+    // brut ne rougissait aucun test, celui du dessus compris. La raison est
+    // qu'il vise `../../.env` — un chemin qui ne figure de toute façon pas
+    // dans la carte des fichiers, donc la recherche échoue des deux côtés et
+    // la garde n'est jamais consultée.
+    //
+    // Le seul cas où elle décide vraiment, c'est un interdit nommé TEL QUEL,
+    // qui EST dans la carte. Le seul appelant d'aujourd'hui ne peut pas en
+    // fournir — il ne ramasse que .html/.css/.js — mais cette fonction est
+    // pure, exportée, et son contrat dit qu'elle repasse par la règle du
+    // Rayon. Elle n'a pas à parier sur le filtrage de son appelant.
+    const r = assemblerApercu(
+      f({
+        'index.html':
+          '<head><link rel="stylesheet" href=".env"><script src="id_rsa"></script></head>',
+        '.env': 'HIVE_TOKEN=nectar',
+        id_rsa: 'PRIVATE KEY',
+      }),
+    );
+    expect(r.ok, 'l’aperçu doit s’assembler, pas échouer').toBe(true);
+    if (!r.ok) return;
+    expect(r.inlines).toEqual([]);
+    expect(r.html).not.toContain('HIVE_TOKEN');
+    expect(r.html).not.toContain('PRIVATE KEY');
+  });
+
   it('une URL externe reste telle quelle — la politique la bloquera', () => {
     // La retirer en silence donnerait un aperçu qui ment sur ce que la page
     // demande. La laisser visible et bloquée est plus honnête.

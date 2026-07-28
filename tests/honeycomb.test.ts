@@ -73,6 +73,30 @@ describe('conflictingFiles', () => {
   it('ignore des fichiers différents', () => {
     expect(conflictingFiles(diffOn('a.ts', 1, 5), diffOn('b.ts', 1, 5))).toEqual([]);
   });
+
+  it('LE CHEVAUCHEMENT EST SYMÉTRIQUE — l’ordre des deux diffs ne décide de rien', () => {
+    // Trouvé en MUTANT : remplacer `a.start <= b.end` par `a.start <= b.start`
+    // ne rougissait aucun test. Tous les cas de chevauchement couverts font
+    // commencer A avant B ; le cas miroir — celui où le SECOND diff commence
+    // en premier — n'était nulle part.
+    //
+    // La symétrie n'est pas une élégance : `conflictingFiles(a, b)` est
+    // appelée dans un ordre que personne ne choisit (celui des tâches dans le
+    // plan de merge). Un conflit vu dans un sens et pas dans l'autre, c'est un
+    // merge annoncé sans risque qui écrase du travail.
+    const tot = diffOn('src/app.ts', 5, 10); // lignes 5 → 14
+    const tard = diffOn('src/app.ts', 10, 10); // lignes 10 → 19
+    expect(conflictingFiles(tot, tard), 'A avant B').toEqual(['src/app.ts']);
+    expect(conflictingFiles(tard, tot), 'B avant A').toEqual(['src/app.ts']);
+
+    // Et l'INCLUSION, dans les deux sens : une plage entièrement contenue dans
+    // l'autre est le cas où une comparaison de bornes bancale passe le plus
+    // facilement inaperçue.
+    const large = diffOn('src/app.ts', 1, 100);
+    const etroit = diffOn('src/app.ts', 50, 2);
+    expect(conflictingFiles(large, etroit), 'large englobe étroit').toEqual(['src/app.ts']);
+    expect(conflictingFiles(etroit, large), 'étroit dans large').toEqual(['src/app.ts']);
+  });
 });
 
 describe('parsing robuste (revue Palier 3)', () => {
@@ -89,6 +113,43 @@ describe('parsing robuste (revue Palier 3)', () => {
     const mod = diffOn('src/old.ts', 10, 3);
     expect(parseDiff(rename).has('src/old.ts')).toBe(true);
     expect(conflictingFiles(rename, mod)).toEqual(['src/old.ts']);
+  });
+
+  it('N’EST PAS TROMPÉ PAR UNE PAIRE DE COMMENTAIRES SQL — la conscience de section', () => {
+    // En SQL, un commentaire commence par « -- ». Remplacer
+    // `-- table des abeilles` par `-- table des ouvrières` produit dans le
+    // diff la PAIRE `---` / `+++`, en plein milieu d'un hunk. Sans la
+    // conscience de section, le parseur y voit un en-tête de fichier : il
+    // ouvre un fichier fantôme et lui rattache tous les hunks suivants. Le
+    // conflit sur le vrai fichier devient invisible — un merge annoncé propre.
+    //
+    // ─── CE QUE LA MUTATION A APPRIS, ET QUI N'ÉTAIT PAS CE QUE JE CHERCHAIS ──
+    //
+    // Les deux gardes `inHeader` sont MUTUELLEMENT REDONDANTES : retirer celle
+    // du « --- » seule, ou celle du « +++ » seule, ne rougit rien — l'autre
+    // rattrape, parce que `oldPath` n'est jamais relu ailleurs qu'à un `+++`
+    // et que `inHeader` ne redevient vrai qu'à un `diff --git`, qui remet
+    // `oldPath` à null. Aucune des deux ne peut donc être défendue seule.
+    //
+    // Ce qui n'était défendu par RIEN, c'est la paire : retirer les deux
+    // survivait à la suite entière (vérifié). C'est cela que ce test tient.
+    const d =
+      'diff --git a/db/schema.sql b/db/schema.sql\n' +
+      '--- a/db/schema.sql\n' +
+      '+++ b/db/schema.sql\n' +
+      '@@ -10,4 +10,4 @@\n' +
+      ' CREATE TABLE abeilles (\n' +
+      '--- table des abeilles\n' +
+      '+++ table des ouvrières\n' +
+      ' );\n' +
+      '@@ -40,2 +40,2 @@\n' +
+      ' ctx\n';
+    const p = parseDiff(d);
+    expect([...p.keys()], 'un fichier fantôme est apparu').toEqual(['db/schema.sql']);
+    expect(p.get('db/schema.sql')).toEqual([
+      { start: 10, end: 13 },
+      { start: 40, end: 41 },
+    ]);
   });
 
   it("n'est pas trompé par une ligne de contenu commençant par « ++ »", () => {

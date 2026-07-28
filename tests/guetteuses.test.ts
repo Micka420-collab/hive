@@ -294,6 +294,37 @@ describe('l’écriture au journal — par changement d’état, jamais par pass
     expect(r.doitAlerter(apres + 1)).toBe('reniflage');
   });
 
+  it('LA PROMESSE NE DÉPEND PAS DE LA TAILLE DU TAMPON', () => {
+    // Trouvé en MUTANT : retirer la borne anti-cadence de `doitAlerter` ne
+    // rougissait aucun test. J'ai cherché un scénario qui la distingue avec le
+    // tampon par défaut — martèlement serré, une visite par fenêtre, cadence
+    // pile sur la bordure, débordement à 600 passages : aucun ne la voit. Ce
+    // n'est pas qu'elle ne sert à rien, c'est que sa condition passe par le
+    // TAMPON.
+    //
+    // Le réarmement se déclenche sur « ce passage est le seul de la fenêtre ».
+    // Avec un tampon réduit, un passage quitte le registre par ÉVICTION au lieu
+    // de vieillir : la condition devient vraie à chaque coup, chaque coup
+    // redevient une « nouvelle campagne », et le module se remet à écrire une
+    // ligne par passage. C'est très exactement le trou qu'il a été écrit pour
+    // fermer — le journal est borné à 5 000 entrées, et les y chasser efface
+    // nœuds rejoints, billets révoqués et rôles changés.
+    //
+    // Or la taille du tampon est un RÉGLAGE : le constructeur l'expose, et la
+    // baisser pour économiser de la mémoire est une idée qui viendra. La
+    // promesse doit tenir quand même.
+    for (const taille of [1, 2, 5, 500]) {
+      const r = new Registre(taille);
+      let ecrites = 0;
+      for (let i = 0; i < 30; i++) {
+        const t = 1000 + i * 60_000;
+        r.noter('/.env', 'attaquant', t);
+        if (r.doitAlerter(t) !== null) ecrites++;
+      }
+      expect(ecrites, `tampon de ${taille} : ${ecrites} lignes écrites`).toBeLessThanOrEqual(2);
+    }
+  });
+
   it('une 404 ordinaire ne fait RIEN monter', () => {
     const r = new Registre();
     for (let i = 0; i < 1000; i++) r.noter('/page/absente', 'visiteur', 1000 + i);

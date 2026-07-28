@@ -138,10 +138,17 @@ describe('lire un projet avec un COMPTE, sans le jeton de ruche', () => {
     // merge et la balance de n'importe quel projet, y compris privé et dont
     // elle n'est pas membre.
     //
-    // Le jour où l'hôte tranche — resserrer les écritures, donner un compte à
-    // la CLI, ou séparer jeton d'opérateur et clé de nœud — CE TEST ÉCHOUERA.
-    // C'est voulu : il faudra alors le réécrire sciemment, ce qui est
-    // exactement le geste qu'on veut rendre explicite.
+    // ─── L'ADR EST TRANCHÉ, ET CE CONSTAT SURVIT — VOLONTAIREMENT ───────────
+    //
+    // La décision (ADR 0007, accepté) a resserré les ÉCRITURES : un projet qui
+    // appartient à un compte ne s'engage plus par le jeton de ruche. Voir
+    // `tests/engagement-projet.test.ts`.
+    //
+    // Les LECTURES, elles, gardent leurs deux portes, parce que « le tableau de
+    // bord s'utilise sans compte » est annoncé et que le retirer sans prévenir
+    // serait pire que le trou. Ce constat porte donc désormais la MOITIÉ qui
+    // reste ouverte, et c'est lui qui échouera le jour où on la fermera —
+    // exactement le geste qu'on veut rendre explicite plutôt que découvert.
     const autre = server.store.createProject({
       name: 'Projet de quelqu’un d’autre',
       visibility: 'private',

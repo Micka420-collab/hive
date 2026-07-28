@@ -505,6 +505,23 @@ serait la même clé pour toutes les ruches du monde. `npm run install:hive` le
 pose pour vous ; le changer déconnecte tout le monde, ce qui est exactement le
 geste à faire le jour où vous le croyez sorti.
 
+**Ce que `HIVE_TOKEN` ouvre, et ce qu'il n'ouvre plus** (ADR 0007). Puisqu'il se
+recopie sur chaque machine membre, il ne vaut pas preuve de propriété. Un acte
+qui **engage** un projet — créer des tâches, découper un brief, lancer un merge,
+convoquer le Conseil — demande donc soit un **compte ayant affaire au projet**
+(propriétaire, membre, administrateur), soit un projet **sans propriétaire**,
+qui n'appartient qu'à la ruche.
+
+En pratique : la CLI et le tableau de bord sans compte continuent de travailler
+comme avant sur les projets qu'ils créent, puisque ceux-là sont orphelins. Et
+**adopter un projet le soustrait au jeton que tout l'essaim détient** — c'est le
+geste par lequel vous protégez un projet, quand vous le voulez, sans couper
+personne.
+
+Les **lectures** restent ouvertes aux deux portes : le plan de merge, la
+balance, le rapport et les tâches sont visibles de qui détient le jeton. C'est
+assumé et écrit dans l'ADR — c'est l'écriture qui a des conséquences.
+
 </details>
 
 <details>
