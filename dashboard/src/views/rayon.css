@@ -1,0 +1,280 @@
+/* Le Rayon — lire le code du projet.
+ *
+ * Deux colonnes : l'arbre à gauche, la lecture à droite. La règle qui gouverne
+ * toute cette feuille est que CHACUNE défile pour son compte : un arbre qui
+ * pousse la page vers le bas fait perdre le fichier qu'on lisait, et un fichier
+ * de mille lignes ne doit pas faire disparaître l'arbre. */
+
+.ry {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.ry-tete {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ry-choix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.ry-choix select {
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  max-width: 320px;
+}
+
+/* L'URL du dépôt peut être longue et n'est qu'un repère : elle cède la place
+   au reste plutôt que de pousser la barre sur deux lignes. */
+.ry-depot {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46ch;
+}
+
+.ry-corps {
+  display: grid;
+  grid-template-columns: minmax(200px, 300px) 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ry-arbre {
+  overflow: auto;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: var(--bg-2);
+  padding: 6px 0;
+  min-height: 0;
+}
+
+.ry-entree {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 8px;
+  background: none;
+  border: 0;
+  color: var(--text-1);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  /* Un nom de fichier long ne doit pas élargir la colonne : c'est la colonne
+     qui commande, et le nom qui se coupe. */
+  overflow: hidden;
+}
+
+.ry-entree:hover {
+  background: var(--bg-3, rgba(255, 255, 255, 0.05));
+}
+
+.ry-entree.active {
+  background: rgba(255, 176, 32, 0.16);
+  color: var(--accent, #ffb020);
+}
+
+.ry-icone {
+  flex: none;
+  font-size: 12px;
+}
+
+.ry-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La taille est une indication, pas une donnée : elle s'efface la première
+   quand la place manque. */
+.ry-taille {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-3);
+  padding-left: 8px;
+}
+
+.ry-lecture {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+
+.ry-barre {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-2);
+  font-size: 12px;
+}
+
+.ry-barre code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-lecture .code-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* CodeMirror se dimensionne sur son CONTENU, et `styles.css` lui pose en plus
+   un `max-height: 380px` — parfaitement juste dans le tiroir de tâche, où
+   l'éditeur est un encart au milieu d'un panneau qui défile.
+   Ici, l'éditeur EST la page : sans lever le plafond, un fichier de mille
+   lignes se lirait par une meurtrière de 380 pixels au milieu d'un panneau
+   vide. On ne touche pas à la règle globale, qui a ses raisons ailleurs. */
+.ry-lecture .code-editor .cm-editor {
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.ry-invite,
+.ry-erreur {
+  padding: 24px;
+  text-align: center;
+}
+
+/* Un refus doit se VOIR. Un clic sans réaction laisse croire à une panne, et
+   on recharge la page pour rien. */
+.ry-erreur {
+  color: var(--danger, #ff6b6b);
+  font-size: 13px;
+}
+
+.ry-vide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 48px 16px;
+  color: var(--text-2);
+}
+
+/* Sous 900 px, deux colonnes deviennent deux colonnes trop étroites : l'arbre
+   passe au-dessus, plafonné, pour que la lecture garde toute la largeur. */
+@media (max-width: 900px) {
+  .ry-corps {
+    grid-template-columns: 1fr;
+  }
+
+  .ry-arbre {
+    max-height: 34vh;
+  }
+}
+
+/* ─── La retouche ────────────────────────────────────────────────────────────
+ *
+ * Le bouton dit « Proposer », jamais « Enregistrer » : rien ne s'écrit dans le
+ * miroir, la retouche part comme tâche. Le style suit le propos — la barre de
+ * retouche ressemble à un formulaire d'envoi, pas à une barre de sauvegarde. */
+
+.ry-geste {
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  padding: 3px 10px;
+}
+
+.ry-mode {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent, #ffb020);
+  color: var(--accent, #ffb020);
+}
+
+.ry-retouche {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-2);
+  background: var(--bg-2);
+}
+
+.ry-note {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-1, #0d0d0f);
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12.5px;
+}
+
+/* La confirmation dit ce qui va se passer ENSUITE, pas seulement « c'est
+   parti » : sans ça, on attend une modification du fichier qui n'arrivera pas
+   avant la revue. */
+.ry-propose {
+  margin: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+/* ─── L'Aperçu ───────────────────────────────────────────────────────────────
+ *
+ * Le cadre est en ORIGINE OPAQUE (sandbox sans allow-same-origin) : il ne peut
+ * rien lire du tableau de bord. Le fond blanc est délibéré — un site s'affiche
+ * sur le fond qu'il a choisi, pas sur le thème sombre de la ruche, sinon
+ * l'aperçu ment sur ce qu'on verra en vrai. */
+
+.ry-apercu {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+
+.ry-apercu-btn {
+  flex: none;
+  font-size: 11.5px;
+  padding: 3px 10px;
+}
+
+.ry-cadre {
+  flex: 1;
+  min-height: 380px;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}

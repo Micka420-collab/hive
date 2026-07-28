@@ -128,6 +128,16 @@ export interface MergeResultMsg {
   mergedDiff: string;
   testsRun: boolean;
   testsPassed: boolean | null;
+  /**
+   * Verdict de la préparation de l'environnement : `null`/absent si aucune.
+   *
+   * Séparé de `testsPassed` exprès, et ce n'est pas de la coquetterie :
+   * « l'environnement ne s'installe pas » et « les tests échouent » appellent
+   * deux gestes différents, et les confondre enverrait l'hôte chercher une
+   * régression dans du code qui va très bien. Optionnel, parce qu'un nœud d'une
+   * version antérieure n'en envoie pas.
+   */
+  preparedOk?: boolean | null;
   logs: string;
   /**
    * Merge REFUSÉ par le nœud (ex. Night Shift : hors heures de service) : le
@@ -195,6 +205,15 @@ export interface AssignMergeMsg {
   repoUrl: string;
   /** Diffs des tâches, dans l'ordre de merge. */
   diffs: MergeDiffInput[];
+  /**
+   * Préparation optionnelle de l'environnement, avant les tests (`npm ci`…).
+   *
+   * Sans elle, `npm test` sur un clone frais échoue faute de dépendances, et le
+   * verdict qui remonte dit « tests en échec » là où il fallait lire
+   * « environnement absent ». Bornée par `jugerPreparation` aux deux bouts :
+   * elle installe ce que le DÉPÔT déclare, jamais ce que la commande nomme.
+   */
+  prepareCommand?: string[];
   /** Commande de test optionnelle (argv, jamais interprétée par un shell). */
   testCommand?: string[];
 }
@@ -416,6 +435,9 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStrAllowEmpty(m.mergedDiff, LIMITS.diff) &&
         typeof m.testsRun === 'boolean' &&
         (m.testsPassed === null || typeof m.testsPassed === 'boolean') &&
+        (m.preparedOk === undefined ||
+          m.preparedOk === null ||
+          typeof m.preparedOk === 'boolean') &&
         isStrAllowEmpty(m.logs, LIMITS.log) &&
         (m.refused === undefined || isStr(m.refused, LIMITS.name))
       ) {
@@ -429,6 +451,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           testsPassed: m.testsPassed as boolean | null,
           logs: m.logs,
         };
+        if (m.preparedOk !== undefined) msg.preparedOk = m.preparedOk as boolean | null;
         if (typeof m.refused === 'string') msg.refused = m.refused;
         return msg;
       }
@@ -486,6 +509,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         isId(m.mergeId) &&
         isValidRepoUrl(m.repoUrl) &&
         isMergeDiffs(m.diffs) &&
+        (m.prepareCommand === undefined || isArgv(m.prepareCommand)) &&
         (m.testCommand === undefined || isArgv(m.testCommand))
       ) {
         const msg: AssignMergeMsg = {
@@ -494,6 +518,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
           repoUrl: m.repoUrl,
           diffs: m.diffs as MergeDiffInput[],
         };
+        if (m.prepareCommand !== undefined) msg.prepareCommand = m.prepareCommand as string[];
         if (m.testCommand !== undefined) msg.testCommand = m.testCommand as string[];
         return msg;
       }

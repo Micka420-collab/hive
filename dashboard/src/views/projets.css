@@ -408,6 +408,16 @@
   border-color: var(--amber);
 }
 
+/* Les deux commandes occupent leur propre ligne : côte à côte avec le bouton
+   « Lancer le merge », chacune se réduisait à une fente de 180 px où l'on ne
+   lit plus ce qu'on tape. */
+.pj-cmds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+
 .pj-confirm {
   color: var(--gold);
   font-size: 12px;
@@ -736,4 +746,359 @@
 .essaim-pas--halte {
   border-left-color: var(--red, #e5573f);
   background: rgba(229, 87, 63, 0.13);
+}
+
+/* ─── L'équipe d'un projet ─────────────────────────────────────────────────── */
+
+.pj-equipe {
+  gap: 8px;
+}
+
+/* Un projet orphelin n'est pas une anomalie à cacher : c'est l'état normal
+   d'un dépôt importé, et le seul écran d'où on peut en sortir. */
+.pj-orphelin {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-sm);
+}
+
+.pj-orphelin p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-orphelin .btn {
+  align-self: flex-start;
+}
+
+.pj-equipe-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.pj-equipe-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+.pj-equipe-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-equipe-role {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+.pj-equipe-x {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* L'identifiant qu'on donne à la personne qui tient le projet : sans lui,
+   « admettre par identifiant » n'a pas de mode d'emploi. */
+.pj-equipe-moi {
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+
+/* ─── Les liens de partage en lecture ──────────────────────────────────────── */
+
+/* Le lien n'est rendu QU'UNE FOIS. Ce bandeau doit se voir, et ne pas
+   disparaître tout seul : le refermer est un geste, pas un délai. */
+.pj-lien-neuf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--honey);
+  border-radius: var(--r-sm);
+}
+
+.pj-lien-neuf p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gold);
+}
+
+.pj-liens {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.pj-liens li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+/* Un lien éteint reste visible — savoir qu'on a révoqué fait partie du suivi —
+   mais il ne doit pas se confondre avec un lien qui marche. */
+.pj-lien-mort {
+  opacity: 0.55;
+}
+
+.pj-lien-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-lien-etat {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+/* ─── Le connecteur GitHub ─────────────────────────────────────────────────── */
+
+/* Replié par défaut : c'est un geste ponctuel, pas un tableau de bord. */
+.pj-gh-repli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+}
+
+.pj-gh-aide {
+  margin: 0;
+  padding: 0 14px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.pj-gh-repli .pj-gh-aide {
+  padding: 0;
+}
+
+.pj-gh-barre {
+  padding: 12px 14px 0;
+}
+
+.pj-gh-erreur {
+  margin: 10px 14px 0;
+  font-size: 12px;
+}
+
+.pj-gh-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 14px;
+  list-style: none;
+}
+
+.pj-gh-liste li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+/* Un dépôt déjà connecté reste visible — savoir qu'il est là fait partie de la
+   réponse — mais il ne doit pas ressembler à une action disponible. */
+.pj-gh-deja {
+  opacity: 0.55;
+}
+
+.pj-gh-nom {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.pj-gh-desc {
+  grid-column: 1;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-gh-tag {
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.pj-gh-etat {
+  font-size: 11px;
+  color: var(--faint);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.pj-gh-vide {
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ─── Le Conseil des Éclaireuses ───────────────────────────────────────────── */
+
+.pj-cs-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pj-cs-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.pj-cs-question {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-cs-question:hover {
+  color: var(--gold);
+}
+
+.pj-cs-issue {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.pj-cs-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.pj-cs-resume {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.pj-cs-danses {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pj-cs-danses li {
+  padding: 7px 9px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border-2);
+}
+
+/* La retenue se distingue, les autres restent lisibles : c'est dans les
+   perdantes que vivent les objections, et elles valent le détour. */
+.pj-cs-retenue {
+  border-left-color: var(--honey);
+}
+
+.pj-cs-contestee {
+  border-left-color: var(--amber);
+}
+
+.pj-cs-titre {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+
+.pj-cs-marque {
+  color: var(--honey);
+}
+
+.pj-cs-chiffres {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pj-cs-arrets {
+  color: var(--amber);
+}
+
+.pj-cs-corps {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-cs-objection {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+.pj-cs-sources {
+  margin: 3px 0 0;
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
 }

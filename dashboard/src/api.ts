@@ -29,6 +29,48 @@ export class ApiError extends Error {
   }
 }
 
+// ─── Le lien de partage, côté porteur ───────────────────────────────────────
+//
+// ─── POURQUOI `sessionStorage` ET PAS `localStorage` ────────────────────────
+//
+// Un lien de partage circule : on le colle dans une conversation, on l'ouvre
+// sur un poste qui n'est pas le sien, on le montre à quelqu'un. Le ranger dans
+// `localStorage` le laisserait derrière soi — l'onglet fermé, le suivant qui
+// ouvre le tableau de bord sur cette machine repartirait en lecture du projet
+// de quelqu'un d'autre. `sessionStorage` meurt avec l'onglet, ce qui est
+// exactement la durée de vie d'un lien qu'on vous a montré.
+//
+// Il est AUSSI cloisonné par onglet : une personne peut lire un partage dans
+// un onglet et rester connectée à son propre compte dans l'autre, sans que
+// l'un contamine l'autre.
+
+const PARTAGE_KEY = 'hive.partage';
+
+export function getPartage(): string | null {
+  try {
+    return sessionStorage.getItem(PARTAGE_KEY);
+  } catch {
+    // Navigateur en mode restreint : on lit sans partage plutôt que de tomber.
+    return null;
+  }
+}
+
+export function savePartage(jeton: string): void {
+  try {
+    sessionStorage.setItem(PARTAGE_KEY, jeton);
+  } catch {
+    /* rien à faire : la lecture se fera sans mémoire */
+  }
+}
+
+export function clearPartage(): void {
+  try {
+    sessionStorage.removeItem(PARTAGE_KEY);
+  } catch {
+    /* idem */
+  }
+}
+
 /** fetch authentifié qui lève une ApiError lisible sur réponse non-OK. */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -58,13 +100,158 @@ export interface NewTaskInput {
   dependsOn?: string[];
 }
 
-/** Crée un projet. */
+/**
+ * Crée un projet — ATTRIBUÉ À SON CRÉATEUR quand il y a un compte.
+ *
+ * ─── LE DÉFAUT QUE CETTE FONCTION FERMAIT MAL ────────────────────────────────
+ *
+ * `POST /api/projects` s'authentifie par le JETON DE RUCHE. Il n'a donc
+ * personne à qui attribuer le projet, et `createProject` range par défaut
+ * `visibility: 'private'`, `ownerId: null`. Autrement dit : TOUT projet créé
+ * depuis le bouton « + Projet » naissait privé et orphelin.
+ *
+ * Une fois le contrôle d'accès posé, la conséquence est absurde — la personne
+ * qui vient de créer le projet ne peut ni en lire le code, ni y admettre
+ * quelqu'un, ni le partager, sauf si elle est administratrice. C'est le
+ * parcours le PLUS courant du produit.
+ *
+ * `POST /api/projects/user` existait pour ça depuis le début : il attribue le
+ * projet au compte appelant et l'inscrit comme membre `owner`. Personne ne
+ * l'appelait. Le défaut n'était donc dans aucune route — il était dans ce
+ * qu'aucune ne faisait, exactement comme pour l'adoption.
+ *
+ * Sans compte, on retombe sur l'ancienne porte : le tableau de bord s'utilise
+ * sans compte, et un projet orphelin reste adoptable par un administrateur.
+ */
 export function createProject(input: {
   name: string;
   repoUrl?: string;
   description?: string;
+  visibility?: 'public' | 'private';
 }): Promise<Project> {
+  if (getJwt()) {
+    return apiCompte<Project>('/api/projects/user', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
   return api<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) });
+}
+
+// ─── Le Conseil des Éclaireuses ─────────────────────────────────────────────
+//
+// Le Conseil ne change RIEN : son verdict est une PROPOSITION À UN HUMAIN. Un
+// mécanisme dont la sortie EST une proposition à un humain, et que cet humain
+// ne peut lire qu'en ligne de commande, est le cas le plus net de « mécanisme
+// sans écran » — plus net encore que Les Guetteuses, dont la sortie était au
+// moins une alerte.
+
+/** Ce que devient un conseil. `quorum` est le seul cas qui recommande. */
+export type IssueConseil = 'quorum' | 'depart' | 'sans_quorum' | 'epuise' | 'vide';
+
+export interface DanseConseil {
+  id: string;
+  titre: string;
+  corps: string;
+  /** AFFICHÉES, jamais suivies par la ruche. */
+  sources: string[];
+  eclaireuse: string;
+  famille: string;
+  qualite: number;
+  intensite: number;
+  soutiens: string[];
+  arrets: string[];
+  familles: string[];
+  quorum: boolean;
+  autoSoutienIgnore: boolean;
+  raisons: { type: 'soutien' | 'arret'; raison?: string; eclaireuse: string }[];
+}
+
+export interface SessionConseil {
+  id: string;
+  question: string;
+  projectId: string;
+  etat: string;
+  tour: number;
+  issue: IssueConseil;
+  motif?: string;
+  createdAt: number;
+  closedAt?: number | null;
+  enVol: number;
+  danses: DanseConseil[];
+  /** L'identifiant de la danse retenue, ou `null` si rien n'a convergé. */
+  retenue: string | null;
+}
+
+export interface ConseilResume {
+  id: string;
+  question: string;
+  projectId: string;
+  etat: string;
+  tour: number;
+  issue: IssueConseil | null;
+  createdAt: number;
+  closedAt?: number | null;
+}
+
+export function fetchConseils(): Promise<{ conseils: ConseilResume[] }> {
+  return api<{ conseils: ConseilResume[] }>('/api/conseils');
+}
+
+export function fetchConseil(sessionId: string): Promise<SessionConseil> {
+  return api<SessionConseil>(`/api/conseil/${encodeURIComponent(sessionId)}`);
+}
+
+// ─── Connecter un dépôt GitHub ──────────────────────────────────────────────
+//
+// Ces deux routes vivaient depuis le début sans aucun écran : connecter un
+// dépôt se faisait en ligne de commande, alors que c'est le tout premier geste
+// de quelqu'un qui découvre la ruche.
+//
+// Le jeton GitHub, lui, ne passe JAMAIS par ici. Il vit dans l'environnement de
+// l'orchestrateur (`HIVE_GITHUB_TOKEN`), en mémoire, le temps du processus —
+// le tableau de bord demande « mes dépôts » et reçoit une liste, sans jamais
+// voir de quoi la fabriquer. Un écran qui collecterait le jeton en ferait une
+// valeur qui traverse le navigateur, l'historique et le presse-papiers.
+
+export interface DepotGithub {
+  fullName: string;
+  nom: string;
+  description: string;
+  prive: boolean;
+  cloneUrl: string;
+  htmlUrl: string;
+  langage: string;
+  pousseA: number;
+  archive: boolean;
+  /** Déjà connecté à la ruche : deux projets sur un même dépôt, c'est deux
+   *  plans de merge concurrents sur les mêmes fichiers. */
+  importe: boolean;
+}
+
+export interface DepotsGithub {
+  depots: DepotGithub[];
+  total: number;
+  tronque?: boolean;
+}
+
+export function fetchDepotsGithub(q = ''): Promise<DepotsGithub> {
+  const query = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+  return apiCompte<DepotsGithub>(`/api/github/repos${query}`);
+}
+
+/**
+ * Connecte un dépôt à la ruche.
+ *
+ * Signé par le COMPTE en plus du jeton de ruche : le serveur attribue alors le
+ * projet à l'appelant. Sans compte (la voie CLI), le projet naît orphelin et
+ * doit être adopté — ce qui était le seul comportement possible jusqu'ici.
+ */
+export function importerDepotGithub(fullName: string): Promise<{ projet: Project }> {
+  return apiCompte<{ projet: Project }>('/api/github/import', {
+    method: 'POST',
+    body: JSON.stringify({ fullName }),
+  });
 }
 
 /** Ajoute un lot de tâches (DAG) à un projet. */
@@ -246,9 +433,145 @@ export function fetchThermo(): Promise<ThermoState> {
   return api<ThermoState>('/api/thermo');
 }
 
+/**
+ * Proposer une retouche : la modification part comme TÂCHE, jamais comme
+ * écriture dans le miroir.
+ *
+ * Le Rayon est un clone jetable. Écrire dedans ferait croire à une correction
+ * qui disparaîtrait au prochain rafraîchissement, sans rien dire.
+ */
+export function proposerRetouche(
+  projectId: string,
+  corps: { chemin: string; avant: string; apres: string; note?: string },
+): Promise<{ task: { id: string; title: string } }> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/rayon/retouche`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+}
+
+/**
+ * L'Aperçu — le site du projet, replié en UN document auto-suffisant.
+ *
+ * Ce document s'injecte dans une `<iframe sandbox>` SANS `allow-same-origin`.
+ * Le serveur renvoie le `sandbox` attendu avec le document : le poser en dur
+ * côté client laisserait les deux valeurs diverger sans que personne ne s'en
+ * aperçoive, et c'est exactement l'attribut qu'il ne faut pas se tromper.
+ */
+export interface ApercuProjet {
+  html: string;
+  entree: string;
+  inlines: string[];
+  sandbox: string;
+}
+
+export function fetchApercu(projectId: string): Promise<ApercuProjet> {
+  return apiLecture(`/api/projects/${encodeURIComponent(projectId)}/apercu`);
+}
+
+/**
+ * Les Guetteuses — ce que la ruche a vu passer sur ses leurres.
+ *
+ * ─── POURQUOI CETTE FONCTION MANQUAIT, ET CE QUE ÇA COÛTAIT ─────────────────
+ *
+ * `GET /api/guet` existait côté serveur, et AUCUN écran ne l'appelait. Un
+ * mécanisme de détection sans écran est pire qu'une absence de détection : on
+ * croit surveillé ce qui ne l'est pas. Le seul signal qui sortait était une
+ * ligne brute au journal — sans niveau, sans conseil, sans la liste de ce
+ * qu'on avait cherché chez vous.
+ */
+export type NiveauGuet = 'calme' | 'reniflage' | 'balayage';
+
+export interface VerdictGuet {
+  niveau: NiveauGuet;
+  passages: number;
+  sources: number;
+  appats: string[];
+  conseil: string;
+  derniers: { source: string; chemin: string; appat: string; quand: number }[];
+}
+
+export function fetchGuet(): Promise<VerdictGuet> {
+  return api<VerdictGuet>('/api/guet');
+}
+
+/**
+ * Les Gardiennes — le contrôle d'entrée du nectar.
+ *
+ * `GET /api/gardiennes` était servi et n'avait, lui non plus, aucun écran.
+ * C'est pourtant une donnée de DÉCISION directe : savoir quel nœud rend des
+ * diffs vides, ou annonce des fichiers qu'il ne touche pas, c'est savoir sur
+ * qui compter. Sans écran, le seul moyen de l'apprendre était de lire le
+ * journal ligne à ligne.
+ */
+export type VerdictGardienne = 'clean' | 'suspect' | 'hollow';
+
+export interface VueGardiennes {
+  version: number;
+  inspections: number;
+  verdicts: Record<VerdictGardienne, number>;
+  /** Combien ont RÉELLEMENT été refusées (mode strict seulement). */
+  refusees: number;
+  griefs: { code: string; occurrences: number }[];
+  recentes: {
+    id: number;
+    taskId: string;
+    nodeId: string;
+    verdict: VerdictGardienne;
+    score: number;
+    applique: boolean;
+    griefs: { code: string; detail?: string }[];
+    createdAt: number;
+  }[];
+  mode: 'off' | 'consultatif' | 'strict';
+}
+
+export function fetchGardiennes(): Promise<VueGardiennes> {
+  return api<VueGardiennes>('/api/gardiennes');
+}
+
 /** Phéromones : affinité apprise nœud × domaine (30 meilleures traces). */
 export function fetchPheromones(): Promise<{ traces: TraceePheromone[] }> {
   return api<{ traces: TraceePheromone[] }>('/api/pheromones');
+}
+
+/** Caste d'une ouvrière : nourrice (encadrée) → bâtisseuse → butineuse (relit). */
+export type Caste = 'nourrice' | 'batisseuse' | 'butineuse';
+
+export interface OuvrierePolyethisme {
+  nodeId: string;
+  name: string;
+  agentType: string;
+  caste: Caste;
+  /** Productions observées : le dénominateur de tout le reste. */
+  productions: number;
+  /** Jugées creuses par les Gardiennes — le grief le plus lourd. */
+  creuses: number;
+  /** Jugées suspectes : signal réel, mais heuristique. */
+  suspectes: number;
+  /** Entre 0 et 1, déjà arrondie au centième côté serveur. */
+  fiabilite: number;
+}
+
+/**
+ * Le polyéthisme — chaque ouvrière au travail que son expérience permet.
+ *
+ * `mode` est celui qui S'APPLIQUE, `modeDemande` celui qu'on a réglé : les deux
+ * diffèrent quand les Gardiennes sont éteintes, puisque sans source de qualité
+ * aucune caste ne peut se gagner. Afficher le seul mode demandé laisserait
+ * croire à un encadrement qui ne tourne pas.
+ */
+export interface VuePolyethisme {
+  mode: 'off' | 'consignes' | 'strict';
+  modeDemande: 'off' | 'consignes' | 'strict';
+  /** Taille du corpus d'inspections sur lequel les castes sont calculées. */
+  fenetre: number;
+  seuils: { batisseuse: number; butineuse: number };
+  noeuds: OuvrierePolyethisme[];
+}
+
+export function fetchPolyethisme(): Promise<VuePolyethisme> {
+  return api<VuePolyethisme>('/api/polyethisme');
 }
 
 /**
@@ -466,9 +789,15 @@ export function fetchReplay(since = 0): Promise<ReplayResult> {
   return api<ReplayResult>(`/api/replay?since=${since}`);
 }
 
-/** Rapport d'avancement d'un projet. */
+/**
+ * Rapport d'avancement d'un projet.
+ *
+ * Passe par `apiLecture` : c'est l'acte `voir_avancement` du lien de partage,
+ * déclaré depuis toujours et qu'aucune route n'utilisait — un lien « voir
+ * l'avancement » ne montrait donc jamais d'avancement.
+ */
 export function fetchReport(projectId: string): Promise<ProjectReport> {
-  return api<ProjectReport>(`/api/projects/${projectId}/report`);
+  return apiLecture<ProjectReport>(`/api/projects/${projectId}/report`);
 }
 
 /** Honeycomb Merge : plan d'intégration (advisory) d'un projet. */
@@ -484,18 +813,26 @@ export interface MergeRunStart {
 
 /**
  * Déclenche l'exécution réelle du merge sur un nœud (asynchrone).
- * `taskIds` : sélection de revue (Miellerie) — seules ces tâches sont intégrées.
+ *
+ * - `prepareCommand` : prépare l'environnement AVANT les tests (`npm ci`…).
+ *   Sans elle, `npm test` sur un clone frais échoue faute de dépendances.
+ * - `taskIds` : sélection de revue (Miellerie) — seules ces tâches sont
+ *   intégrées.
+ *
+ * Un objet plutôt que des positions : trois options optionnelles à la suite,
+ * c'est un `runMerge(id, undefined, undefined, x)` qui finit par se tromper de
+ * rang un jour.
  */
 export function runMerge(
   projectId: string,
-  testCommand?: string[],
-  taskIds?: string[],
+  opts: { testCommand?: string[]; prepareCommand?: string[]; taskIds?: string[] } = {},
 ): Promise<MergeRunStart> {
   return api<MergeRunStart>(`/api/projects/${projectId}/merge/run`, {
     method: 'POST',
     body: JSON.stringify({
-      ...(testCommand?.length ? { testCommand } : {}),
-      ...(taskIds?.length ? { taskIds } : {}),
+      ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
+      ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
+      ...(opts.taskIds?.length ? { taskIds: opts.taskIds } : {}),
     }),
   });
 }
@@ -507,6 +844,13 @@ export interface MergeRunResult {
   mergedDiff: string;
   testsRun: boolean;
   testsPassed: boolean | null;
+  /**
+   * Verdict de la préparation : absent/`null` si aucune n'a été demandée.
+   *
+   * `false` veut dire que l'environnement ne s'est pas installé — et non que le
+   * code est cassé. C'est pour ça qu'il est distinct de `testsPassed`.
+   */
+  preparedOk?: boolean | null;
   logs: string;
 }
 
@@ -591,6 +935,98 @@ export function estAdmin(user: AuthUser | null): boolean {
   return user?.role === 'admin';
 }
 
+/** Une adhésion à un projet. `displayName` vient de la jointure sur les comptes. */
+export interface MembreProjet {
+  projectId: string;
+  userId: string;
+  role: string;
+  joinedAt: number;
+  displayName?: string;
+}
+
+export function fetchMembresProjet(projectId: string): Promise<MembreProjet[]> {
+  return apiCompte<MembreProjet[]>(`/api/projects/${projectId}/members`);
+}
+
+/**
+ * Se déclarer propriétaire d'un projet ORPHELIN.
+ *
+ * Un dépôt importé depuis GitHub n'a pas de propriétaire : l'import
+ * s'authentifie par le jeton de ruche, qui n'est le compte de personne. Sans
+ * adoption, il n'a personne pour y admettre des ouvrières.
+ */
+export function adopterProjet(projectId: string): Promise<{ adopted: boolean }> {
+  return apiCompte<{ adopted: boolean }>(`/api/projects/${projectId}/adopter`, { method: 'POST' });
+}
+
+export function admettreMembre(
+  projectId: string,
+  userId: string,
+): Promise<{ admitted: boolean; userId: string }> {
+  return apiCompte<{ admitted: boolean; userId: string }>(`/api/projects/${projectId}/membres`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+// ─── Les liens de partage en lecture ────────────────────────────────────────
+
+export interface LienPartage {
+  id: string;
+  label: string;
+  creeA: number;
+  expireA: number;
+  revoqueA: number | null;
+  vuA: number | null;
+  /** Ni révoqué ni expiré — le seul champ qui décide de ce qu'on affiche. */
+  vivant: boolean;
+}
+
+/**
+ * Le lien fraîchement créé. `jeton` et `lien` ne sont rendus QU'ICI, une seule
+ * fois : la liste ne les montrera jamais. C'est ce qui fait qu'un lien perdu se
+ * remplace au lieu de se retrouver.
+ */
+export interface PartageCree {
+  id: string;
+  jeton: string;
+  expireA: number;
+  lien: string;
+}
+
+export function creerPartage(
+  projectId: string,
+  opts: { label?: string; ttlMs?: number } = {},
+): Promise<PartageCree> {
+  return apiCompte<PartageCree>(`/api/projects/${projectId}/partages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(opts.label ? { label: opts.label } : {}),
+      ...(opts.ttlMs ? { ttlMs: opts.ttlMs } : {}),
+    }),
+  });
+}
+
+export function fetchPartages(projectId: string): Promise<LienPartage[]> {
+  return apiCompte<LienPartage[]>(`/api/projects/${projectId}/partages`);
+}
+
+export function revoquerPartage(projectId: string, partageId: string): Promise<{ ok: boolean }> {
+  return apiCompte<{ ok: boolean }>(`/api/projects/${projectId}/partages/${partageId}`, {
+    method: 'DELETE',
+  });
+}
+
+export function retirerMembre(
+  projectId: string,
+  userId: string,
+): Promise<{ removed: boolean; userId: string }> {
+  return apiCompte<{ removed: boolean; userId: string }>(
+    `/api/projects/${projectId}/membres/${userId}`,
+    { method: 'DELETE' },
+  );
+}
+
 export function authRegister(
   email: string,
   password: string,
@@ -626,6 +1062,32 @@ function apiCompte<T>(path: string, init?: RequestInit): Promise<T> {
   return api<T>(path, {
     ...init,
     headers: { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
+  });
+}
+
+/**
+ * Appel de LECTURE : par le lien de partage s'il y en a un, par le compte sinon.
+ *
+ * ─── POURQUOI UN SEUL HELPER, ET PAS DEUX CHEMINS PARALLÈLES ────────────────
+ *
+ * Le serveur a exactement cette forme : `projetLisible()` accepte deux portes —
+ * un compte qui a affaire au projet, ou un lien valide pour CE projet. Écrire
+ * ici deux familles de fonctions (`fetchRayon` et `fetchRayonPartage`…)
+ * donnerait deux listes à tenir d'accord, et c'est toujours celle qu'on oublie
+ * qui décide. Une seule fonction, qui choisit son en-tête, ne peut pas diverger
+ * d'elle-même.
+ *
+ * Ce helper n'est utilisé QUE par les lectures que le serveur a déclarées
+ * accessibles à un lien. Un appel d'écriture qui passerait par ici recevrait
+ * 401 côté serveur — la retouche, elle, exige un compte, et c'est le point.
+ */
+function apiLecture<T>(path: string, init?: RequestInit): Promise<T> {
+  const jeton = getPartage();
+  return api<T>(path, {
+    ...init,
+    headers: jeton
+      ? { 'x-hive-partage': jeton, ...init?.headers }
+      : { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
   });
 }
 
@@ -681,6 +1143,39 @@ export function setServeurEtat(
   });
 }
 
+// ─── Le Rayon : lire le code du projet ──────────────────────────────────────
+
+export type { Entree as EntreeRayon } from '../../src/shared/rayon';
+import type { Entree as EntreeRayon } from '../../src/shared/rayon';
+
+export interface FichierRayon {
+  chemin: string;
+  contenu: string;
+  langage: string;
+  taille: number;
+  tronque: boolean;
+}
+
+/**
+ * Le contenu d'un dossier du rayon. `chemin` vide = la racine.
+ *
+ * Signé par le COMPTE : le serveur décide seul qui lit quel dépôt, et un jeton
+ * de ruche — partagé avec chaque nœud — ne prouve rien à ce sujet.
+ */
+export function fetchRayon(
+  projectId: string,
+  chemin = '',
+): Promise<{ chemin: string; entrees: EntreeRayon[] }> {
+  const q = chemin === '' ? '' : `?chemin=${encodeURIComponent(chemin)}`;
+  return apiLecture(`/api/projects/${encodeURIComponent(projectId)}/rayon${q}`);
+}
+
+export function fetchFichierRayon(projectId: string, chemin: string): Promise<FichierRayon> {
+  return apiLecture(
+    `/api/projects/${encodeURIComponent(projectId)}/rayon/fichier?chemin=${encodeURIComponent(chemin)}`,
+  );
+}
+
 /**
  * Le billet de rattachement d'une machine — REMIS UNE SEULE FOIS.
  *
@@ -729,6 +1224,56 @@ export function setMembreRole(userId: string, role: Role): Promise<{ userId: str
     method: 'PUT',
     body: JSON.stringify({ role }),
   });
+}
+
+// ─── Les CLÉS de la ruche — distinctes des comptes ──────────────────────────
+//
+// Ne pas confondre avec `/api/admin/membres`, qui liste les COMPTES. Ici ce
+// sont les clés des MACHINES : une par nœud, plus les billets d'invitation qui
+// servent à en obtenir une.
+//
+// Révoquer une clé compromise est l'archétype de la décision d'administration,
+// et elle n'existait qu'en ligne de commande. Un tableau de bord qui montre le
+// pouls, les anomalies et les castes, mais pas « qui a une clé de ma ruche »,
+// ne permet pas de décider ce qui compte le jour où ça compte.
+
+export interface CleNoeud {
+  nodeId: string;
+  label: string | null;
+  createdAt: number;
+  lastSeenAt: number | null;
+  revoque: boolean;
+}
+
+export type EtatBillet = 'vivant' | 'revoque' | 'expire' | 'epuise';
+
+export interface BilletRuche {
+  id: string;
+  label: string | null;
+  createdAt: number;
+  expiresAt: number;
+  usesLeft: number;
+  usesTotal: number;
+  etat: EtatBillet;
+}
+
+export interface ClesRuche {
+  noeuds: CleNoeud[];
+  billets: BilletRuche[];
+}
+
+export function fetchCles(): Promise<ClesRuche> {
+  return api<ClesRuche>('/api/membres');
+}
+
+/** Exclure une machine. La révocation MORD tout de suite : le nœud est déconnecté. */
+export function revoquerNoeud(nodeId: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/api/membres/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+}
+
+/** Révoquer un billet : il ne sert plus à obtenir de clé, même s'il reste des usages. */
+export function revoquerBillet(billetId: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/api/billets/${encodeURIComponent(billetId)}`, { method: 'DELETE' });
 }
 
 // ─── Mon tableau de bord ────────────────────────────────────────────────────

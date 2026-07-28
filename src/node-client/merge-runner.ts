@@ -4,8 +4,14 @@
 // dépôt git local (un clone jetable à la base d'intégration). Chaque diff est
 // d'abord vérifié (`git apply --check`) : s'il ne s'applique pas proprement sur
 // l'état accumulé, c'est un CONFLIT réel (pas seulement l'heuristique de lignes) —
-// on l'écarte et on continue. En l'absence de conflit, une commande de test
-// optionnelle est lancée (`spawn`, shell:false — contrainte §5.1).
+// on l'écarte et on continue. En l'absence de conflit, l'environnement est
+// préparé si on l'a demandé (`npm ci`…), puis une commande de test optionnelle
+// est lancée (`spawn`, shell:false — contrainte §5.1).
+//
+// L'ORDRE COMPTE, et pas seulement pour que les tests trouvent leurs
+// dépendances : le diff cumulé est calculé AVANT la préparation, sinon les
+// `node_modules` que celle-ci installe se retrouveraient dans ce qu'on soumet à
+// la revue humaine.
 //
 // Sûr par construction : ne fait NI commit NI push (jamais de merge auto sur main).
 // Le résultat (diff cumulé + verdict tests) remonte pour revue humaine.
@@ -16,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { jugerCommandeTest } from '../shared/commande-test.js';
+import { jugerPreparation } from '../shared/preparation.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -30,6 +37,16 @@ export interface MergeRunOptions {
   repoDir: string;
   /** Diffs des tâches, dans l'ordre de merge. */
   diffs: MergeDiff[];
+  /**
+   * Préparation de l'environnement, lancée AVANT les tests.
+   *
+   * `npm test` sur un clone frais échoue faute de `node_modules`, et le verdict
+   * qui remonte dit alors « tests en échec » là où il fallait lire
+   * « environnement absent ». C'est cette confusion-là que la préparation
+   * supprime — et si elle échoue, les tests ne sont PAS lancés : un verdict de
+   * test sans dépendances ne vaut rien et se lirait comme une régression.
+   */
+  prepareCommand?: string[];
   /** Commande de test à lancer si aucun conflit (argv, jamais interprétée par un shell). */
   testCommand?: string[];
   /**
@@ -45,6 +62,15 @@ export interface MergeRunOptions {
   bac?: { fournisseur: Fournisseur; variables: readonly string[] };
   /** Délai max de la commande de test (défaut 5 min). */
   timeoutMs?: number;
+  /**
+   * Délai max de la préparation (défaut 10 min).
+   *
+   * Plus large que celui des tests, et pour une raison bête : une installation
+   * complète télécharge, et une machine de membre n'est pas une machine
+   * d'intégration continue. Trop court, la garde qui protège devient la panne
+   * qu'on ne comprend pas.
+   */
+  prepareTimeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -59,6 +85,14 @@ export interface MergeRunResult {
   testsRun: boolean;
   /** Résultat des tests (null si non lancés). */
   testsPassed: boolean | null;
+  /**
+   * Verdict de la préparation : `null` si aucune n'a été demandée ou lancée.
+   *
+   * Distinct de `testsPassed` exprès. « L'environnement ne s'installe pas » et
+   * « les tests échouent » demandent deux gestes différents de l'hôte, et les
+   * confondre en un seul booléen l'enverrait corriger du code qui va bien.
+   */
+  preparedOk: boolean | null;
   logs: string;
 }
 
@@ -138,6 +172,13 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     const verdict = jugerCommandeTest(opts.testCommand);
     if (!verdict.ok) throw new Error(`commande de test refusée : ${verdict.motif}`);
   }
+  // Même raisonnement pour la préparation, et il porte plus loin : une
+  // installation exécute les scripts du dépôt, et `pip install <ce que le hub
+  // nomme>` exécuterait ceux d'un paquet que PERSONNE n'a choisi de connecter.
+  if (opts.prepareCommand && opts.prepareCommand.length > 0) {
+    const verdict = jugerPreparation(opts.prepareCommand);
+    if (!verdict.ok) throw new Error(`préparation refusée : ${verdict.motif}`);
+  }
   const git = simpleGit({ baseDir: opts.repoDir });
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];
@@ -171,22 +212,53 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
 
     let testsRun = false;
     let testsPassed: boolean | null = null;
-    if (opts.testCommand && opts.testCommand.length > 0 && conflicts.length === 0) {
-      testsRun = true;
+    let preparedOk: boolean | null = null;
+    if (conflicts.length === 0 && (opts.prepareCommand?.length || opts.testCommand?.length)) {
       // Environnement épuré : le hub n'accède à AUCUN secret local du nœud.
       const env = buildSandboxEnv(opts.repoDir);
       try {
-        const { code, output } = await runProc(
-          opts.testCommand,
-          opts.repoDir,
-          env,
-          opts.timeoutMs ?? 5 * 60_000,
-          opts.signal,
-          opts.bac,
-        );
-        testsPassed = code === 0;
-        logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);
-        logs.push(output.slice(0, 4000));
+        // LA PRÉPARATION D'ABORD — c'est tout l'intérêt : sans elle, `npm test`
+        // sur un clone frais échoue faute de `node_modules`.
+        if (opts.prepareCommand && opts.prepareCommand.length > 0) {
+          const { code, output } = await runProc(
+            opts.prepareCommand,
+            opts.repoDir,
+            env,
+            opts.prepareTimeoutMs ?? 10 * 60_000,
+            opts.signal,
+            opts.bac,
+          );
+          preparedOk = code === 0;
+          logs.push(
+            `environnement : ${preparedOk ? '✔ préparé' : `✘ préparation en échec (code ${code})`}`,
+          );
+          logs.push(output.slice(0, 4000));
+        }
+
+        // ET SI ELLE ÉCHOUE, ON NE TESTE PAS. Une installation qui n'aboutit
+        // pas — hors ligne, registre injoignable, lockfile désaccordé — donne
+        // ensuite un `npm test` qui échoue pour une raison qui n'a rien à voir
+        // avec le code. Remonter ça comme « tests en échec » enverrait l'hôte
+        // chercher une régression qui n'existe pas. On le dit à la place.
+        if (preparedOk === false) {
+          logs.push(
+            'tests : non lancés — l’environnement n’a pas pu être préparé. Le code n’est PAS ' +
+              'en cause : vérifiez le réseau de ce nœud, puis le lockfile du dépôt.',
+          );
+        } else if (opts.testCommand && opts.testCommand.length > 0) {
+          testsRun = true;
+          const { code, output } = await runProc(
+            opts.testCommand,
+            opts.repoDir,
+            env,
+            opts.timeoutMs ?? 5 * 60_000,
+            opts.signal,
+            opts.bac,
+          );
+          testsPassed = code === 0;
+          logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);
+          logs.push(output.slice(0, 4000));
+        }
       } finally {
         rmSync(`${opts.repoDir}.tmp`, {
           recursive: true,
@@ -197,7 +269,15 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       }
     }
 
-    return { applied, conflicts, mergedDiff, testsRun, testsPassed, logs: logs.join('\n') };
+    return {
+      applied,
+      conflicts,
+      mergedDiff,
+      testsRun,
+      testsPassed,
+      preparedOk,
+      logs: logs.join('\n'),
+    };
   } finally {
     rmSync(patchDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }

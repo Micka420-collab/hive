@@ -1,0 +1,92 @@
+/* La vue du porteur de lien (préfixe pa-) — volontairement dépouillée : il n'a
+   ni sidebar, ni topbar de ruche, parce qu'il n'a ni compte ni essaim. */
+
+.pa-vue {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 18px;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.pa-tete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pa-tete-gauche {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pa-marque {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+/* Le bandeau qui dit CE QUE C'EST. Sans lui, on croit avoir un compte. */
+.pa-badge {
+  padding: 2px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pa-avancement {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.pa-barre {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+}
+
+.pa-barre .pbar {
+  flex: 1;
+  height: 9px;
+  margin: 0;
+}
+
+.pa-pct {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--gold);
+  min-width: 40px;
+  text-align: right;
+}
+
+.pa-note {
+  margin: 0;
+  padding: 0 14px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* Le Rayon prend tout le reste : c'est ce qu'on est venu voir. */
+.pa-vue > .ry-vue {
+  flex: 1;
+  min-height: 0;
+}
+
+.pa-vide {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  height: 100vh;
+}

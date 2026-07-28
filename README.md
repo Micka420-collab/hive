@@ -38,6 +38,8 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 | 🎛️ **Mission Control**  | 10 vues navigables (sidebar alvéolaire, touches 1-9 et 0, deep-links `#/vue/id`), **interface bilingue FR/EN** (bascule topbar) : Ruche, Reine, Miellerie, Projets, Essaim, Santé, Chronique, Mémoire, Mon espace, Intendance (admins).                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 👑 **La Reine répond**  | Chat multilingue avec la ruche (`POST /api/chat`, CLI `ask`) : avancement réel, santé, classement, aide au brief avec bonnes pratiques. IA optionnelle, repli hors-ligne garanti.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | 🍯 **Miellerie**        | Centre de revue des productions IA : diff par fichier, logs, consensus du Parlement, approbation au clavier (j/k/a/x), merge Honeycomb en un geste.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 🐝 **Le Rayon**         | **Le code du projet, lisible par les abeilles** : arbre de fichiers, éditeur coloré (16 langages), **aperçu du site produit** dans une origine opaque, **retouche → tâche** pour la Reine, et un **lien de partage en lecture** qui ne donne pas la ruche. Miroir local du hub, jamais l'API GitHub — montrer le code ne dépense pas le jeton de l'hôte.                                                                                                                                                                                                                                                                                                                               |
+| 📦 **L'environnement**  | Le merge prépare avant de tester (`npm ci`, `pip install -r`…). **Ce que le DÉPÔT déclare, jamais ce que la commande nomme** : pas de paquet nommé par le hub, pas de source déplacée. Installation en échec ≠ tests rouges — les tests ne tournent pas et le rapport le dit.                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 🧠 **Queen Bee**        | Décrivez un projet en une phrase → un **DAG de tâches** est généré (heuristique ou IA).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 🧬 **Hive Mind**        | Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans les suivantes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 🛡️ **Sting Detector**   | Repère les tâches concurrentes qui toucheraient le même fichier et **sérialise** pour éviter les conflits.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -51,7 +53,7 @@ Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines
 | ⚖️ **La Balance**       | Le pèse-ruche : **peser** (utile / reprise / échec / rebuté), **prévoir** (devis d'un DAG) et **borner** — plafond par projet, doublement opt-in : `HIVE_BALANCE=strict` **et** un plafond posé à la main. `/api/balance`.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | 🛂 **Les Gardiennes**   | Contrôle d'entrée du nectar : un « succès » à **diff vide**, **hors des fichiers promis**, **non applicable** ou aux **logs qui crient l'échec** n'entre pas sur parole. `HIVE_GARDIENNES=off\|consultatif\|strict` (défaut : annoter, ne rien refuser). `/api/gardiennes`, `guard_refused`.                                                                                                                                                                                                                                                                                                                                                                                           |
 | 🐝 **Plein Essaim**     | L'autonomie RÉELLE : la ruche décide (`deciderPas`), agit, et se cadence toute seule. **Deux interrupteurs en série** — le niveau, choisi par l'utilisateur, et `HIVE_RUNNER=off\|on`, choisi par l'hôte qui paie le temps-machine (défaut : `off`). Un cycle par projet et par minute, recul exponentiel puis pause après 5 échecs, et le gros bouton rouge arrête AVANT l'effet. Elle **délibère**, **planifie**, **corrige**, **livre** (pull request sur le dépôt, uniquement pour une production APPROUVÉE par un humain) et **fusionne** (niveau `plein` ET dépôt inscrit ; les protections de branche du propriétaire restent la dernière barrière). `essaim_cycle` au Journal. |
-| 🐙 **Connecter GitHub** | `npm run cli -- github` liste vos dépôts (plus récents d'abord, archivés en queue, déjà-connectés marqués) et en connecte un **par son numéro**. Le jeton vit en mémoire, **jamais en base**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🐙 **Connecter GitHub** | **En un clic depuis la vue Projets** (panneau « Connecter un dépôt GitHub ») ou en ligne de commande (`npm run cli -- github`). Les dépôts arrivent les plus récents d'abord, privé/archivé/langage marqués, déjà-connectés signalés. Le dépôt connecté **appartient à qui l'a connecté** ; le jeton GitHub reste sur l'orchestrateur, **jamais en base et jamais dans le navigateur**.                                                                                                                                                                                                                                                                                                |
 | 🤝 **Inviter un ami**   | Un **billet** à coller : éphémère, à usage compté, **révocable**. Il ne donne aucun pouvoir sur la ruche — il sert à obtenir une **clé propre à la machine**, donc on peut exclure **une** personne sans éjecter l'essaim. `tunnel` ouvre un accès distant chiffré sans ouvrir de port.                                                                                                                                                                                                                                                                                                                                                                                                |
 | 🔒 **Sûr par défaut**   | Zéro `shell: true`, token constant-time, CORS strict, sandbox par tâche, clés jamais exfiltrées. **Jamais de merge sans revue humaine.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 🧩 **Agent-agnostique** | `shell` (simulé), `claude-code`, `codex`, `hermes-agent`, `custom` — ou votre propre `AgentAdapter`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -145,18 +147,19 @@ simulé, aucun processus lancé, token par défaut toléré (uniquement dans ce 
 Le dashboard (servi sur `:7777`) est une application complète de gestion de la
 ruche, navigable au clavier (touches **1-9**, `0`) via une sidebar alvéolaire :
 
-| Vue               | Ce qu'on y fait                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                             |
-| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                               |
-| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb. |
-| ⬡ **Projets**     | Rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting.                                                      |
-| 🕺 **Essaim**     | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                               |
-| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                 |
-| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                         |
-| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                 |
-| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.       |
-| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés et les comptes de la ruche.                                                       |
+| Vue               | Ce qu'on y fait                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.                                                                                        |
+| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief.                                                                          |
+| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, consensus du Parlement, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb.                            |
+| ⬡ **Projets**     | Connecter un dépôt GitHub, rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting, équipe, partage en lecture, Conseil des Éclaireuses. |
+| 🐝 **Rayon**      | **Le code du projet, lisible** : arbre de fichiers, éditeur coloré, aperçu du site produit, et retouche → tâche pour la Reine.                                                    |
+| 🕺 **Essaim**     | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                                                          |
+| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                                            |
+| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                                                    |
+| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                                            |
+| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.                                  |
+| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés, les comptes de la ruche, et **les clés** : qui a une clé de votre ruche, et de quoi la révoquer.            |
 
 **Mon espace** répond à une seule question : _qu'est-ce qui va me coûter quelque
 chose si je ne fais rien aujourd'hui ?_ Les alertes passent donc avant les
@@ -174,6 +177,97 @@ Les décisions de revue sont **partagées entre tous les opérateurs** (stockée
 côté orchestrateur, synchronisées en temps réel via WebSocket ; repli
 localStorage hors-ligne). « Couler le miel » n'intègre que les productions
 **approuvées** — le merge reste toujours un geste humain explicite.
+
+## 🐝 Le Rayon — voir le code, voir l'IA travailler
+
+Ce que les membres voyaient jusqu'ici, c'étaient des **tâches** : des titres,
+des états, des diffs. Jamais le code. On travaillait sur un projet sans pouvoir
+l'ouvrir — comme aider à réparer un moteur sans avoir le droit de soulever le
+capot. Le Rayon ouvre le capot.
+
+| Ce qu'on y trouve      | Pour qui                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| **Arbre + éditeur**    | Toute abeille qui a accès au projet. Coloration pour 16 langages, fichiers bornés à 512 Ko.      |
+| **L'Aperçu**           | Le site que l'IA vient d'écrire, **rendu** — pas seulement son diff.                             |
+| **La retouche**        | La Reine seulement. Corriger une ligne à l'écran crée une **tâche**, jamais une écriture.        |
+| **Le lien de partage** | Montrer l'avancement et le code **sans donner la ruche** : jeton distinct, expirable, révocable. |
+
+**Le hub tient son propre miroir** : un clone superficiel en lecture seule par
+projet (`data/rayons/<id>`), rafraîchi au plus une fois par minute. Passer par
+l'API GitHub aurait exigé le **jeton de l'hôte** — montrer le code à une abeille
+dépenserait pour elle un droit qui n'est pas le sien. **`.git` n'est jamais
+servi** : il contient `config`, donc l'URL distante, donc les identifiants du
+dépôt privé ; ni `.env`, `.npmrc`, `id_rsa` et les extensions de clés.
+
+**La retouche ne s'enregistre pas — elle se propose.** Le miroir est une copie
+jetable : y écrire donnerait l'illusion d'avoir corrigé quelque chose, jusqu'au
+prochain rafraîchissement qui effacerait tout en silence. Une modification
+devient donc une **tâche** avec le contexte du fichier, qui passe par la revue
+comme n'importe quelle production. Un porteur de lien de partage **lit** ; il ne
+fabrique pas de travail pour l'essaim de quelqu'un d'autre.
+
+**L'Aperçu s'exécute dans une origine opaque.** Prévisualiser un site que l'agent
+vient d'écrire, c'est exécuter dans votre navigateur du HTML et du JavaScript que
+personne n'a relus : servi en même origine que le tableau de bord, trois lignes
+suffiraient à envoyer votre jeton de session ailleurs. Le document est donc replié
+en un seul fichier auto-suffisant et affiché dans une `<iframe sandbox>` **sans
+`allow-same-origin`** — le cadre ne lit ni le `localStorage`, ni les cookies — avec
+une `Content-Security-Policy` qui coupe le réseau (`connect-src 'none'`,
+`form-action 'none'`) et sans aucune navigation possible.
+
+**Faire entrer une ouvrière dans un projet privé** se fait depuis le panneau
+« Équipe » de la vue Projets. Un dépôt importé de GitHub arrive **sans
+propriétaire** — l'import s'authentifie par le jeton de ruche, qui n'est le
+compte de personne : un administrateur l'**adopte** d'abord, puis admet qui il
+veut. On admet par **identifiant de compte**, jamais par courriel : le courriel
+ferait de cette route un oracle « ce courriel a-t-il un compte ici ? »
+interrogeable par tout propriétaire de projet. Chacun lit son propre
+identifiant sur cette même carte, et le donne comme on se passe un billet.
+
+**Partager en lecture** se fait depuis le panneau « Partage en lecture » de la
+vue Projets, et donne une URL à coller :
+
+```
+https://<votre-tunnel>/#/rayon/<projet>?partage=hive3_…
+```
+
+Celui qui l'ouvre n'a **ni compte ni jeton de ruche** : il arrive sur un écran
+dépouillé qui dit ce qu'il est (lecture seule), montre l'avancement et le code,
+et rien d'autre — pas de barre latérale, pas d'essaim, pas de journal, et aucun
+bouton de retouche. Il ne voit pas non plus **qui** travaille : les identifiants
+de nœuds nomment les machines de gens qui n'ont pas consenti à figurer dans un
+lien qu'on fait circuler. Le jeton voyage après le `#` — donc il n'apparaît dans
+aucun journal d'accès — et il est retiré de la barre d'adresse dès qu'il est
+rangé.
+
+Le jeton de partage n'est **pas** le jeton de ruche : il porte deux actes
+seulement (voir l'avancement, lire le code), vaut pour **un** projet, expire
+(7 jours par défaut, 90 au plus) et se révoque un par un sans toucher aux
+autres.
+
+## 📦 L'environnement — l'agent installe ce dont il a besoin
+
+`npm test` sur un clone frais échoue faute de `node_modules`. Le merge accepte
+donc une **préparation** avant les tests :
+
+```bash
+npm run cli -- merge-run <projectId> -- --preparer npm ci --tester npm test
+# ou les deux champs du panneau « Plan de merge » dans ⬡ Projets
+```
+
+**La préparation installe ce que le DÉPÔT déclare, jamais ce que la COMMANDE
+nomme.** `npm ci` lit le `package-lock.json` du dépôt ; `npm install lodash`
+laisse le hub choisir ce qui s'exécute sur la machine d'un membre. Sont donc
+refusés : les binaires qui n'installent rien (`sh`, `curl`, `make`), les
+sous-commandes qui ne sont pas des installations (`npm run deploy`), les
+arguments qui nomment un paquet, et les drapeaux qui déplacent la **source**
+(`--index-url`, `--registry`, `--userconfig`…). La préparation passe par le bac
+à sable du nœud, comme les tests.
+
+Si l'installation échoue — machine hors ligne, registre injoignable, lockfile
+désaccordé — **les tests ne sont pas lancés** et le rapport le dit : « environnement
+non préparé ». Un `✘ tests rouges` vous aurait envoyé chercher une régression
+dans du code qui va très bien.
 
 ## 👑 La Reine répond — parler à la ruche
 

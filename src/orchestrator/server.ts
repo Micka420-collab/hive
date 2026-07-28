@@ -42,12 +42,32 @@ import {
 } from '../shared/acces.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
+import { jugerPreparation } from '../shared/preparation.js';
 import { vuePublique } from '../shared/projet-public.js';
-import { peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
+import {
+  peutAdmettre,
+  peutAdopter,
+  peutLireCode,
+  peutRejoindre,
+  peutVoirMembres,
+} from '../shared/acces-projet.js';
+import { Miroir, RayonIndisponible } from './miroir.js';
+import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
+import { construireRetouche } from '../shared/retouche.js';
+import { MAX_APERCU, SANDBOX_APERCU, assemblerApercu } from '../shared/apercu.js';
+import {
+  TTL_PARTAGE_MAX_MS,
+  actePartage,
+  bornerTtlPartage,
+  decoderPartage,
+  encoderPartage,
+  jugerPartage,
+  partageVivant,
+} from '../shared/partage.js';
 import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
-import type { HiveEvent, Task } from '../shared/types.js';
+import type { HiveEvent, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
@@ -445,6 +465,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
+
+  /**
+   * Le Rayon — miroir en lecture seule du code des projets.
+   *
+   * Rangé À CÔTÉ de la base, jamais dedans : ce sont des dépôts git, pas des
+   * lignes, et les mêler ferait d'une sauvegarde de la base une sauvegarde de
+   * tout le code de tous les projets. Le miroir se reconstruit d'un `git
+   * clone` ; la base, non.
+   */
+  const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'));
 
   // Les guetteuses observent en mémoire : une table qui grossirait à chaque
   // requête d'un scanner offrirait à l'attaquant de quoi remplir le disque de
@@ -1051,6 +1081,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return true;
   };
 
+  /**
+   * Une LECTURE de projet est-elle permise à cet appelant ?
+   *
+   * ─── L'INCOHÉRENCE QUE CE HELPER SUPPRIME ──────────────────────────────────
+   *
+   * Onze routes de l'espace projet se gardent par le seul JETON DE RUCHE, sans
+   * aucune règle par projet, là où Le Rayon, les membres et les partages se
+   * gardent par COMPTE. Conséquence visible tout de suite : un compte qui
+   * appelle l'API sans le jeton de ruche reçoit 401 sur le rapport de SON
+   * PROPRE projet. Le tableau de bord ne s'en aperçoit pas — il envoie les deux
+   * en-têtes — mais toute autre intégration s'y cogne.
+   *
+   * Ce helper AJOUTE la porte du compte, il n'en retire aucune : ce qui passait
+   * hier passe encore. C'est délibérément une ouverture et non un
+   * resserrement — resserrer casserait la CLI (qui n'a que le jeton de ruche)
+   * et le mode « tableau de bord sans compte », tous deux documentés.
+   *
+   * ⚠ CE HELPER NE RÉSOUT PAS le fond du problème, et il ne faut pas le croire.
+   * Le README dit que `HIVE_TOKEN` SE RECOPIE SUR CHAQUE MACHINE MEMBRE : tant
+   * que la porte du jeton reste ouverte sur ces routes, toute abeille de
+   * l'essaim lit le plan de merge, la balance et les tâches de n'importe quel
+   * projet. Trancher cela change le contrat du produit — c'est une décision
+   * d'hôte, pas un correctif qu'on glisse dans un lot.
+   */
+  const lectureProjetPermise = (req: FastifyRequest, projectId: string): boolean => {
+    if (authorized(req)) return true;
+    if (!authorizedUser(req)) return false;
+    const projet = store.getProject(projectId);
+    if (!projet) return false;
+    return peutLireCode(
+      projet,
+      lecteurDe(req),
+      store.estMembre(projectId, (req as AuthRequest).userId!),
+    );
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
 
   app.get('/api/state', async (req, reply) => {
@@ -1563,6 +1629,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .send({ error: 'dépôt déjà importé', projectId: existant.id, nom: existant.name });
       }
 
+      // SI L'APPEL VIENT D'UN COMPTE, LE PROJET LUI APPARTIENT.
+      //
+      // L'import s'authentifie par le jeton de ruche — il n'a donc personne à
+      // qui attribuer le dépôt, et le rangeait orphelin. Conséquence : la
+      // personne qui venait de connecter SON dépôt ne pouvait ni en lire le
+      // code, ni y admettre quelqu'un, sauf à être administratrice et à
+      // l'adopter d'abord. Le tableau de bord, lui, présente toujours un
+      // compte : autant s'en servir.
+      //
+      // La voie CLI reste possible et reste orpheline (elle n'a que le jeton
+      // de ruche) : c'est exactement le cas que l'adoption rattrape.
+      const parCompte = authorizedUser(req) ? (req as AuthRequest).userId! : null;
       const projet = store.createProject({
         name: depot.fullName,
         repoUrl: depot.cloneUrl,
@@ -1570,11 +1648,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // déjà aplatie et bornée par github.ts ; le Conseil l'emballera ensuite
         // dans son bloc de données non fiables.
         ...(depot.description ? { description: depot.description } : {}),
+        ...(parCompte ? { ownerId: parCompte } : {}),
       });
+      if (parCompte) store.addMember(projet.id, parCompte, 'owner');
       emitEvent('github_imported', {
         projectId: projet.id,
         fullName: depot.fullName,
         prive: depot.prive,
+        ...(parCompte ? { userId: parCompte } : {}),
       });
       return reply.code(201).send({ projet, depot });
     },
@@ -1667,6 +1748,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }),
           },
         );
+        // LA LIVRAISON SE RANGE, comme sur la voie autonome. Elle ne le faisait
+        // pas ici : le trajet manuel n'émettait qu'un événement, et le numéro
+        // de PR n'existait donc nulle part où on puisse le retrouver. Deux
+        // conséquences, et la seconde est la grave : on ne pouvait pas rouvrir
+        // « où en est ma livraison ? », et surtout RIEN ne permettait de
+        // vérifier qu'une PR venait bien de la ruche au moment de la fusionner.
+        store.setLivraison({
+          taskId: task.id,
+          projectId: task.projectId,
+          depot,
+          pr: resultat.pr,
+          branche: nomBranche(task.id),
+          etat: 'ouverte',
+        });
         // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
         emitEvent('delivery_opened', {
           taskId: task.id,
@@ -1714,6 +1809,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!jetonGithub) return sansJeton(reply);
       const depot = depotDepuisUrl(store.getProject(req.body.projectId)?.repoUrl ?? null);
       if (!depot) return reply.code(404).send({ error: 'projet sans dépôt GitHub' });
+
+      // ON NE FUSIONNE QUE CE QUE LA RUCHE A OUVERT.
+      //
+      // Cette route disait déjà « fusionne une pull request ouverte par la
+      // ruche » — et ne le vérifiait pas : n'importe quel numéro passait. Elle
+      // fusionnait donc, avec le jeton GitHub de l'hôte, N'IMPORTE QUELLE PR du
+      // dépôt : celle qu'un humain relit encore, celle d'un contributeur
+      // extérieur. Le geste est réputé humain, mais le jeton qui l'autorise se
+      // recopie sur chaque machine membre (cf. ADR 0007).
+      //
+      // La table des livraisons est la source de vérité : la ruche y range ce
+      // qu'elle ouvre, sur les DEUX voies désormais. Ce qui n'y est pas ne
+      // vient pas d'elle, et ne se fusionne pas d'ici — on ne prétend pas
+      // empêcher de fusionner sur GitHub, on refuse seulement de le faire à sa
+      // place sur une PR qu'on n'a pas écrite.
+      const nôtre = store
+        .listLivraisons(req.body.projectId)
+        .some((l) => l.pr === req.body.pr && l.depot === depot);
+      if (!nôtre) {
+        return reply.code(409).send({
+          error: 'cette pull request n’a pas été ouverte par la ruche',
+          conseil:
+            'La ruche ne fusionne que ce qu’elle a livré. Pour les autres pull requests, ' +
+            'passez par GitHub — c’est votre dépôt, pas le sien.',
+        });
+      }
+
       try {
         const r = await fusionner(
           { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -1721,6 +1843,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           req.body.pr,
           req.body.methode ?? 'squash',
         );
+        // La table suit l'état réel : une livraison fusionnée qui resterait
+        // « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+        // seconde fusion de la même PR.
+        for (const l of store.listLivraisons(req.body.projectId)) {
+          if (l.pr === req.body.pr && l.depot === depot) {
+            store.setLivraison({
+              taskId: l.taskId,
+              projectId: l.projectId,
+              depot: l.depot,
+              pr: l.pr,
+              branche: l.branche,
+              etat: r.fusionnee ? 'fusionnee' : l.etat,
+            });
+          }
+        }
         emitEvent('delivery_merged', {
           projectId: req.body.projectId,
           pr: req.body.pr,
@@ -1850,7 +1987,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/essaim',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -2406,7 +2543,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/abonnement',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -3243,7 +3380,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const balance = scheduler.balance;
@@ -3530,10 +3667,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // DEUX PORTES. Le jeton de ruche (membres de l'essaim, CLI) — ou un lien
+      // de partage portant `voir_avancement`.
+      //
+      // CET ACTE ÉTAIT DÉCLARÉ ET INUTILISABLE. `ACTES_PARTAGES` l'annonce
+      // depuis le premier jour, et AUCUNE route ne le consultait : les trois
+      // seules qui acceptaient un lien demandaient toutes `lire_code`. Un lien
+      // « voir l'avancement » ne montrait donc jamais d'avancement — on
+      // promettait au porteur une chose qu'on ne lui donnait pas.
+      //
+      // L'ordre compte : le refus d'un appelant sans droit reste `reject`, le
+      // même que le projet existe ou non. Chercher le projet d'abord sert
+      // seulement à juger le lien, jamais à répondre.
       const project = store.getProject(req.params.projectId);
+      const parPartage = project
+        ? partagePermet(req, project.id, 'voir_avancement')
+        : { ok: false as const };
+      if (!parPartage.ok && !authorized(req)) return reject(reply);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
-      return buildProjectReport(project, store.listTasks(project.id));
+      const rapport = buildProjectReport(project, store.listTasks(project.id));
+      if (!parPartage.ok) return rapport;
+      store.toucherPartage(parPartage.partageId);
+      // UN PARTAGE MONTRE L'AVANCEMENT, PAS QUI TRAVAILLE. Les identifiants de
+      // nœuds nomment les machines de gens qui n'ont pas consenti à figurer
+      // dans un lien qu'on fait circuler.
+      return { ...rapport, contributingNodes: [] };
     },
   );
 
@@ -3656,7 +3814,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       return { conflicts: detectConflicts(store.listTasks(project.id)) };
@@ -3678,7 +3836,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const tasks = store.listTasks(project.id);
@@ -3699,7 +3857,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // application des diffs dans l'ordre du plan (conflits git réels), tests
   // optionnels. Asynchrone : le résultat revient via merge_result, à lire sur
   // /merge/result. Ne commit ni ne push jamais.
-  app.post<{ Params: { projectId: string }; Body: { testCommand?: string[]; taskIds?: string[] } }>(
+  app.post<{
+    Params: { projectId: string };
+    Body: { testCommand?: string[]; prepareCommand?: string[]; taskIds?: string[] };
+  }>(
     '/api/projects/:projectId/merge/run',
     {
       schema: {
@@ -3713,6 +3874,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           additionalProperties: false,
           properties: {
             testCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+            // La préparation de l'environnement, lancée avant les tests.
+            prepareCommand: {
               type: 'array',
               minItems: 1,
               maxItems: LIMITS.testArgs,
@@ -3745,6 +3913,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // qui échoue silencieusement à l'autre bout.
       if (req.body.testCommand) {
         const verdict = jugerCommandeTest(req.body.testCommand);
+        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+      }
+      // Et la préparation avec, pour la même raison : elle s'exécute là-bas,
+      // et une installation exécute les scripts de ce qu'elle installe.
+      if (req.body.prepareCommand) {
+        const verdict = jugerPreparation(req.body.prepareCommand);
         if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
       }
       const tasks = store.listTasks(project.id);
@@ -3832,6 +4006,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         mergeId,
         repoUrl: project.repoUrl,
         diffs,
+        ...(req.body.prepareCommand ? { prepareCommand: req.body.prepareCommand } : {}),
         ...(req.body.testCommand ? { testCommand: req.body.testCommand } : {}),
       });
       emitEvent('merge_started', {
@@ -3857,7 +4032,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -4236,13 +4411,460 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // confirmerait que le projet existe, et répété sur une liste
       // d'identifiants il dessinerait la carte des projets de la ruche. Même
       // raisonnement que pour les billets (ADR 0005).
-      if (!peutRejoindre(project, userId, store.estMembre(project.id, userId))) {
+      if (!peutRejoindre(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         emitEvent('project_join_refused', { projectId: project.id, userId });
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       store.addMember(project.id, userId);
       emitEvent('project_member_joined', { projectId: project.id, userId });
       return reply.send({ joined: true, projectId: project.id });
+    },
+  );
+
+  // ─── Le Rayon : lire le code du projet ─────────────────────────────────────
+  //
+  // Ce que les abeilles voyaient jusqu'ici, c'étaient des TÂCHES : des titres,
+  // des états, des diffs. Jamais le code lui-même. On travaillait sur un projet
+  // sans pouvoir l'ouvrir — comme aider à réparer un moteur sans avoir le droit
+  // de soulever le capot.
+  //
+  // DEUX GARDES, ET LES DEUX DOIVENT PASSER :
+  //   1. `peutLireCode` — cette personne a-t-elle affaire à ce dépôt ?
+  //   2. `shared/rayon.ts` — ce chemin-là se sert-il, quel que soit le lecteur ?
+  //      (`.git` porte l'URL distante avec ses identifiants ; les `.env` et les
+  //      clés privées ne sortent pas d'un partage en lecture.)
+  //
+  // Le refus de la première prend la forme de l'inexistence, comme partout
+  // ailleurs : un 403 sur un projet privé confirmerait qu'il existe.
+
+  /**
+   * Le lecteur, avec son rôle.
+   *
+   * Le rôle est LU ICI et pas déduit ailleurs : c'est `voir_tous_les_projets`
+   * de la matrice qui décide, et la matrice est la seule source. Un projet
+   * importé depuis GitHub n'a pas de propriétaire — la route d'import
+   * s'authentifie par le jeton de ruche, pas par un compte — et sans cette
+   * lecture du rôle, il n'était lisible par PERSONNE.
+   */
+  const lecteurDe = (req: FastifyRequest): { userId: string; voitTout: boolean } => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const moi = roleDe(req);
+    return { userId, voitTout: moi !== null && peut(moi.role, 'voir_tous_les_projets') };
+  };
+
+  /**
+   * Le porteur d'un lien de partage a-t-il le droit de faire CET acte sur CE
+   * projet ?
+   *
+   * ─── CE QUI REND CE JETON DIFFÉRENT DES DEUX AUTRES ───────────────────────
+   *
+   * Un lien de partage se colle dans un fil de discussion. Il survit dans
+   * l'historique du navigateur, le presse-papiers, la capture d'écran. Il ne
+   * peut donc jamais être ni le JWT (celui qui le reçoit SERAIT vous), ni le
+   * jeton de ruche (il vaut participation à l'essaim). C'est un troisième
+   * jeton, et il n'ouvre que deux actes de LECTURE, sur UN projet.
+   *
+   * Le secret est vérifié au MÊME COÛT quel que soit le résultat — contre
+   * `empreinteLeurre()` quand le lien n'existe pas. C'est la leçon de l'ADR
+   * 0005, où un identifiant inconnu répondait 9,8 fois plus vite qu'un secret
+   * erroné, et annonçait donc par l'horloge ce que le message taisait.
+   */
+  const partagePermet = (
+    req: FastifyRequest,
+    projectId: string,
+    acte: string,
+  ): { ok: true; partageId: string } | { ok: false } => {
+    if (!actePartage(acte)) return { ok: false };
+    const brut =
+      (req.headers['x-hive-partage'] as string | undefined) ??
+      (req.query as { partage?: string } | undefined)?.partage ??
+      '';
+    if (brut === '') return { ok: false };
+    const decode = decoderPartage(brut);
+    if (!decode) return { ok: false };
+    const range = store.getPartage(decode.id);
+    // Le secret D'ABORD et TOUJOURS, au même coût : sans le leurre, un
+    // identifiant inconnu sortirait sans payer PBKDF2 et l'écart de temps
+    // dirait lesquels existent.
+    const secretOk = empreinteValide(decode.secret, range?.secretHash ?? empreinteLeurre());
+    const verdict = jugerPartage(range, projectId, Date.now());
+    if (!secretOk || !verdict.ok || !range) return { ok: false };
+    return { ok: true, partageId: range.id };
+  };
+
+  /**
+   * Le projet, si l'appelant a le droit d'en lire le code. Répond et rend
+   * `null` sinon.
+   *
+   * DEUX PORTES, jamais confondues : un compte authentifié qui a affaire au
+   * projet, OU un lien de partage valide pour CE projet précisément. Le lien
+   * n'accorde rien de plus que ce que la liste blanche d'actes déclare.
+   */
+  const projetLisible = (
+    req: FastifyRequest<{ Params: { projectId: string } }>,
+    reply: FastifyReply,
+    acte: 'lire_code' | 'voir_avancement' = 'lire_code',
+  ): Project | null => {
+    const projectId = req.params.projectId;
+    const parPartage = partagePermet(req, projectId, acte);
+    if (parPartage.ok) {
+      const project = store.getProject(projectId);
+      if (!project) {
+        reply.code(404).send({ error: 'projet inconnu' });
+        return null;
+      }
+      store.toucherPartage(parPartage.partageId);
+      return project;
+    }
+    if (!authorizedUser(req)) {
+      reply.status(401).send({ error: 'Non authentifié' });
+      return null;
+    }
+    const project = store.getProject(projectId);
+    const userId = (req as AuthRequest).userId!;
+    if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(projectId, userId))) {
+      reply.code(404).send({ error: 'projet inconnu' });
+      return null;
+    }
+    return project;
+  };
+
+  /**
+   * S'assure que le miroir du projet existe et est à jour. Rend `false` après
+   * avoir répondu si le code n'est pas consultable.
+   *
+   * Rafraîchi au plus une fois par fenêtre : sans cela, chaque affichage
+   * lancerait un `git fetch`, et deux visiteurs simultanés donneraient deux
+   * `git` concurrents dans le même répertoire.
+   */
+  const assurerMiroir = async (project: Project, reply: FastifyReply): Promise<boolean> => {
+    if (!project.repoUrl) {
+      reply.code(409).send({ error: 'ce projet n’a pas de dépôt (repoUrl)' });
+      return false;
+    }
+    try {
+      await rayons.rafraichir(project.id, project.repoUrl);
+    } catch {
+      // Un amont injoignable n'efface pas ce qu'on a déjà : mieux vaut un code
+      // d'hier que pas de code du tout.
+      if (!rayons.existe(project.id)) {
+        reply.code(409).send({
+          error: 'le dépôt n’a pas pu être copié — vérifiez son URL et son accessibilité',
+        });
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /** Traduit un refus du rayon en réponse HTTP, sans inventer de détail. */
+  const repondreRayon = (reply: FastifyReply, e: unknown): FastifyReply => {
+    if (!(e instanceof RayonIndisponible)) throw e;
+    const codes: Record<string, number> = {
+      refuse: 403,
+      introuvable: 404,
+      miroir_absent: 409,
+      pas_de_depot: 409,
+      binaire: 415,
+      trop_gros: 413,
+    };
+    const messages: Record<string, string> = {
+      refuse: 'ce chemin ne se sert pas',
+      introuvable: 'fichier introuvable',
+      miroir_absent: 'le code n’a pas encore été copié — réessayez dans un instant',
+      pas_de_depot: 'ce projet n’a pas de dépôt (repoUrl)',
+      binaire: 'fichier binaire — rien à afficher dans un éditeur',
+      trop_gros: 'fichier trop volumineux pour être affiché',
+    };
+    return reply
+      .code(codes[e.motif] ?? 400)
+      .send({ error: messages[e.motif] ?? 'lecture impossible', motif: e.motif });
+  };
+
+  app.get<{ Params: { projectId: string }; Querystring: { chemin?: string } }>(
+    '/api/projects/:projectId/rayon',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      if (!(await assurerMiroir(project, reply))) return reply;
+      try {
+        return reply.send({
+          chemin: req.query.chemin ?? '',
+          entrees: await rayons.lister(project.id, req.query.chemin ?? ''),
+        });
+      } catch (e) {
+        return repondreRayon(reply, e);
+      }
+    },
+  );
+
+  app.get<{ Params: { projectId: string }; Querystring: { chemin?: string } }>(
+    '/api/projects/:projectId/rayon/fichier',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const chemin = req.query.chemin ?? '';
+      if (chemin === '') return reply.code(400).send({ error: 'chemin manquant' });
+      // LE MIROIR EST ASSURÉ ICI AUSSI. Il ne l'était pas, et seul l'affichage
+      // de l'arbre le créait : un lien direct vers un fichier — celui qu'on
+      // colle dans une conversation, celui d'un partage en lecture — échouait
+      // en 409 tant que personne n'avait ouvert l'arbre d'abord. Un test l'a
+      // trouvé en lisant un fichier sans passer par la racine.
+      if (!(await assurerMiroir(project, reply))) return reply;
+      try {
+        return reply.send(await rayons.lire(project.id, chemin));
+      } catch (e) {
+        return repondreRayon(reply, e);
+      }
+    },
+  );
+
+  /**
+   * L'Aperçu — le site du projet, replié en un document auto-suffisant.
+   *
+   * ─── CE QUE CETTE ROUTE NE FAIT PAS, ET C'EST L'ESSENTIEL ─────────────────
+   *
+   * Elle ne SERT PAS une page. Elle rend du JSON contenant un document, que le
+   * tableau de bord injectera dans une `<iframe sandbox>` SANS
+   * `allow-same-origin`.
+   *
+   * La distinction est tout le sujet. Servir directement ce HTML sur une route
+   * de la ruche lui donnerait l'origine de la ruche : trois lignes de
+   * JavaScript dans le site prévisualisé, et le `localStorage` du tableau de
+   * bord — donc le jeton de session — part ailleurs. Le contenu vient d'un
+   * modèle qui a lu le dépôt, et le dépôt peut être public.
+   *
+   * En passant par `srcdoc` dans un cadre sans `allow-same-origin`, le document
+   * obtient une origine unique et inaccessible. Il ne peut rien lire de la
+   * ruche, et ne fait aucune requête vers elle.
+   */
+  app.get<{ Params: { projectId: string }; Querystring: { entree?: string } }>(
+    '/api/projects/:projectId/apercu',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      if (!(await assurerMiroir(project, reply))) return reply;
+
+      // On ne ramasse QUE ce qu'un aperçu peut utiliser, et pas tout le dépôt :
+      // un `node_modules` replié en mémoire ferait tomber le hub.
+      const fichiers = new Map<string, string>();
+      let octets = 0;
+      const ramasser = async (dossier: string, profondeur: number): Promise<void> => {
+        if (profondeur > 4 || octets > MAX_APERCU) return;
+        let entrees;
+        try {
+          entrees = await rayons.lister(project.id, dossier);
+        } catch {
+          return;
+        }
+        for (const e of entrees) {
+          if (octets > MAX_APERCU) return;
+          if (e.type === 'dossier') {
+            await ramasser(e.chemin, profondeur + 1);
+            continue;
+          }
+          if (!/\.(html?|css|m?js)$/i.test(e.nom)) continue;
+          try {
+            const f = await rayons.lire(project.id, e.chemin);
+            fichiers.set(e.chemin, f.contenu);
+            octets += f.contenu.length;
+          } catch {
+            // Un fichier illisible (binaire, trop gros, refusé) n'empêche pas
+            // l'aperçu : la balise restera, et la politique la bloquera.
+          }
+        }
+      };
+      await ramasser('', 0);
+
+      const r = assemblerApercu(fichiers, req.query.entree);
+      if (!r.ok) return reply.code(404).send({ error: r.motif, refus: r.refus });
+      return reply.send({
+        html: r.html,
+        entree: r.entree,
+        inlines: r.inlines,
+        // Le tableau de bord DOIT poser exactement ce sandbox. Le renvoyer
+        // depuis le serveur évite qu'une valeur divergente s'installe côté
+        // client sans que personne ne s'en aperçoive.
+        sandbox: SANDBOX_APERCU,
+      });
+    },
+  );
+
+  /**
+   * La Reine retouche un fichier — et sa retouche devient une TÂCHE.
+   *
+   * ─── POURQUOI PAS UNE ÉCRITURE DIRECTE ────────────────────────────────────
+   *
+   * Le Rayon est un MIROIR : un clone superficiel, jetable, reconstruit d'un
+   * `git clone`. Y écrire serait le pire mensonge d'interface possible — on
+   * croit avoir corrigé, le texte reste à l'écran, et le prochain
+   * rafraîchissement l'efface sans rien dire.
+   *
+   * La retouche emprunte donc EXACTEMENT le circuit du reste du travail : une
+   * ouvrière l'applique chez elle, la teste, rend un diff, et ce diff passe par
+   * la revue, les Gardiennes, La Balance et un merge humain. Une seconde voie
+   * d'écriture, plus courte, serait une seconde voie à sécuriser — et celle
+   * qu'on oublierait de sécuriser.
+   *
+   * Le prompt fabriqué contient du CODE VENU DU DÉPÔT : il est emballé en
+   * données non fiables (`shared/retouche.ts`), comme celui de la Couveuse.
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { chemin: string; avant: string; apres: string; note?: string };
+  }>(
+    '/api/projects/:projectId/rayon/retouche',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['chemin', 'avant', 'apres'],
+          additionalProperties: false,
+          properties: {
+            chemin: { type: 'string', minLength: 1, maxLength: LONGUEUR_MAX_CHEMIN },
+            avant: { type: 'string', maxLength: TAILLE_MAX_FICHIER },
+            apres: { type: 'string', maxLength: TAILLE_MAX_FICHIER },
+            note: { type: 'string', maxLength: 1_000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // RETOUCHER N'EST PAS LIRE. Un porteur de lien de partage lit ; il ne
+      // fabrique pas de travail pour l'essaim. On exige donc un COMPTE, et
+      // `projetLisible` n'est pas la bonne garde ici.
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      if (
+        !project ||
+        !peutLireCode(project, lecteurDe(req), store.estMembre(req.params.projectId, userId))
+      ) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+
+      const r = construireRetouche({
+        chemin: req.body.chemin,
+        avant: req.body.avant,
+        apres: req.body.apres,
+        ...(req.body.note ? { note: req.body.note } : {}),
+      });
+      if (!r.ok) return reply.code(400).send({ error: r.motif, refus: r.refus });
+
+      const tache = store.createTask({ projectId: project.id, title: r.titre, prompt: r.prompt });
+      emitEvent('retouche_proposee', {
+        projectId: project.id,
+        taskId: tache.id,
+        chemin: req.body.chemin,
+        parUserId: userId,
+      });
+      return reply.code(201).send({ task: tache });
+    },
+  );
+
+  // ─── Créer, lister et révoquer un lien de partage ──────────────────────────
+  //
+  // Ces trois routes-là, elles, sont réservées à un COMPTE : un porteur de lien
+  // ne fabrique pas d'autres liens. Sans cette asymétrie, le premier partage
+  // deviendrait un droit de partage illimité, et révoquer ne servirait à rien
+  // puisque le destinataire s'en serait refait un.
+
+  app.post<{ Params: { projectId: string }; Body: { label?: string; ttlMs?: number } }>(
+    '/api/projects/:projectId/partages',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            label: { type: 'string', maxLength: LIMITS.name },
+            ttlMs: { type: 'integer', minimum: 1, maximum: TTL_PARTAGE_MAX_MS },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      // Partager, c'est décider qui voit : seuls le propriétaire et les membres
+      // le peuvent, et le refus prend la forme de l'inexistence comme ailleurs.
+      if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const id = `par-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const expireA = Date.now() + bornerTtlPartage(req.body.ttlMs);
+      store.creerPartage({
+        id,
+        projectId: project.id,
+        // JAMAIS LE SECRET, seulement son empreinte : une base volée ne rend
+        // aucun lien utilisable.
+        secretHash: empreinte(secret),
+        label: req.body.label ?? '',
+        creePar: userId,
+        expireA,
+      });
+      emitEvent('partage_cree', { partageId: id, projectId: project.id, expireA });
+      const jeton = encoderPartage({ id, secret });
+      // Le secret n'est rendu QU'ICI, une seule fois. La liste ne le montrera
+      // jamais — c'est ce qui fait qu'un lien perdu se remplace au lieu de se
+      // retrouver.
+      return reply.send({
+        id,
+        jeton,
+        expireA,
+        lien: `${config.publicUrl?.replace(/^ws/, 'http').replace(/\/ws$/, '') ?? ''}/#/rayon/${project.id}?partage=${encodeURIComponent(jeton)}`,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/partages',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const now = Date.now();
+      // `secretHash` NE SORT PAS. C'est une empreinte, pas un secret, mais la
+      // publier donnerait à qui la lit de quoi tenter un cassage hors ligne à
+      // son rythme — et rien, dans cette liste, n'en a le moindre besoin.
+      return reply.send(
+        store.listPartages(project.id).map((p) => ({
+          id: p.id,
+          label: p.label,
+          creeA: p.creeA,
+          expireA: p.expireA,
+          revoqueA: p.revoqueA,
+          vuA: p.vuA,
+          vivant: partageVivant(p, now),
+        })),
+      );
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; partageId: string } }>(
+    '/api/projects/:projectId/partages/:partageId',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      if (!project || !peutLireCode(project, lecteurDe(req), store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const p = store.getPartage(req.params.partageId);
+      // Un lien d'un AUTRE projet ne se révoque pas depuis ici : sans cette
+      // vérification, l'identifiant de route deviendrait une clé universelle.
+      if (!p || p.projectId !== project.id) {
+        return reply.code(404).send({ error: 'lien inconnu' });
+      }
+      const change = store.revoquerPartage(p.id);
+      if (change) emitEvent('partage_revoque', { partageId: p.id, projectId: project.id });
+      // Re-révoquer n'est pas une erreur : un double-clic ne doit pas alarmer.
+      return reply.send({ id: p.id, revoque: true, change });
     },
   );
 
@@ -4257,10 +4879,107 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // La liste NOMME des gens. Sur un projet privé, elle était lisible par
       // tout titulaire d'un compte : créer un compte suffisait à énumérer qui
       // travaille sur quoi. Même refus indistinguable qu'au-dessus.
-      if (!peutVoirMembres(project, userId, store.estMembre(project.id, userId))) {
+      if (!peutVoirMembres(project, lecteurDe(req), store.estMembre(project.id, userId))) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
       return reply.send(store.listMembers(project.id));
+    },
+  );
+
+  // ─── Adopter un projet orphelin, et y admettre des ouvrières ───────────────
+  //
+  // LE CUL-DE-SAC QUE CES DEUX ROUTES OUVRENT. Un projet privé n'avait aucun
+  // moyen de gagner un membre : `/join` n'admet que le propriétaire, l'admin et
+  // ceux qui sont déjà membres — correct (on ne s'invite pas chez les autres)
+  // et incomplet, puisque personne ne pouvait inviter non plus. Un dépôt importé
+  // de GitHub est privé ET sans propriétaire : il restait à jamais illisible par
+  // toute la ruche sauf l'administrateur. C'est l'exact contraire de ce pour quoi
+  // Le Rayon a été construit.
+
+  app.post<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/adopter',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const userId = (req as AuthRequest).userId!;
+      const project = store.getProject(req.params.projectId);
+      // Refus indistinguable de l'inexistence, comme partout ailleurs : sinon
+      // cette route devient un oracle qui dit quels projets sont orphelins.
+      if (!project || !peutAdopter(project, lecteurDe(req))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // La condition `ownerId IS NULL` vit DANS l'écriture : deux adoptions
+      // simultanées ne peuvent pas réussir toutes les deux.
+      if (!store.adopterProjet(project.id, userId)) {
+        return reply
+          .code(409)
+          .send({ error: 'ce projet vient d’être adopté par quelqu’un d’autre' });
+      }
+      store.addMember(project.id, userId, 'owner');
+      emitEvent('projet_adopte', { projectId: project.id, userId });
+      return reply.send({ adopted: true, projectId: project.id });
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: { userId: string } }>(
+    '/api/projects/:projectId/membres',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['userId'],
+          additionalProperties: false,
+          properties: { userId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      // Le droit d'admettre est celui du PROPRIÉTAIRE, jamais d'un membre :
+      // sinon le premier invité inviterait à son tour, et « privé » ne voudrait
+      // plus rien dire au bout de trois personnes.
+      if (!project || !peutAdmettre(project, lecteurDe(req))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // Le compte doit exister. Admettre un identifiant inventé rangerait une
+      // adhésion fantôme que `listMembers` ne montrerait même pas (sa jointure
+      // sur `users` la ferait disparaître) : une ligne invisible et éternelle.
+      if (!store.getUserById(req.body.userId)) {
+        return reply.code(404).send({ error: 'compte inconnu' });
+      }
+      store.addMember(project.id, req.body.userId);
+      emitEvent('project_member_admitted', {
+        projectId: project.id,
+        userId: req.body.userId,
+        parUserId: (req as AuthRequest).userId!,
+      });
+      return reply.code(201).send({ admitted: true, userId: req.body.userId });
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; userId: string } }>(
+    '/api/projects/:projectId/membres/:userId',
+    async (req, reply) => {
+      if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+      const project = store.getProject(req.params.projectId);
+      if (!project || !peutAdmettre(project, lecteurDe(req))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // ON NE RETIRE PAS LE PROPRIÉTAIRE. Le sortir de la liste ne le
+      // déposséderait pas — `ownerId` resterait le sien — ça rendrait seulement
+      // l'état incohérent, et un administrateur distrait pourrait vider un
+      // projet de la personne qui le tient.
+      if (project.ownerId !== null && project.ownerId === req.params.userId) {
+        return reply.code(409).send({ error: 'le propriétaire ne se retire pas de son projet' });
+      }
+      const retire = store.removeMember(project.id, req.params.userId);
+      if (!retire) return reply.code(404).send({ error: 'ce compte n’est pas membre' });
+      emitEvent('project_member_removed', {
+        projectId: project.id,
+        userId: req.params.userId,
+        parUserId: (req as AuthRequest).userId!,
+      });
+      return reply.send({ removed: true, userId: req.params.userId });
     },
   );
 

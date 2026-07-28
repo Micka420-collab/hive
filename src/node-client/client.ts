@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
+import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
@@ -416,23 +417,28 @@ export class HiveNodeClient {
     // pas cloner un dépôt pour rien et pour rendre le refus lisible à l'hôte —
     // un « échec du merge » générique ne lui dirait pas qu'on vient de lui
     // demander de lancer un binaire arbitraire.
-    if (msg.testCommand) {
-      const verdict = jugerCommandeTest(msg.testCommand);
-      if (!verdict.ok) {
-        this.send({
-          type: 'merge_result',
-          mergeId: msg.mergeId,
-          applied: [],
-          conflicts: [],
-          mergedDiff: '',
-          testsRun: false,
-          testsPassed: null,
-          logs: `[nœud] commande de test refusée : ${verdict.motif}`,
-          refused: 'commande de test refusée',
-        });
-        this.log(`✘ merge ${msg.mergeId.slice(0, 8)}… : ${verdict.motif}`);
-        return;
-      }
+    //
+    // La préparation est jugée ici AUSSI, et pour la même raison : elle
+    // s'exécute sur cette machine, et une installation exécute les scripts de
+    // ce qu'elle installe.
+    const refus = [
+      msg.testCommand ? { quoi: 'commande de test', v: jugerCommandeTest(msg.testCommand) } : null,
+      msg.prepareCommand ? { quoi: 'préparation', v: jugerPreparation(msg.prepareCommand) } : null,
+    ].find((c) => c && !c.v.ok);
+    if (refus && !refus.v.ok) {
+      this.send({
+        type: 'merge_result',
+        mergeId: msg.mergeId,
+        applied: [],
+        conflicts: [],
+        mergedDiff: '',
+        testsRun: false,
+        testsPassed: null,
+        logs: `[nœud] ${refus.quoi} refusée : ${refus.v.motif}`,
+        refused: `${refus.quoi} refusée`,
+      });
+      this.log(`✘ merge ${msg.mergeId.slice(0, 8)}… : ${refus.v.motif}`);
+      return;
     }
     this.activeMerges.add(msg.mergeId);
     // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
@@ -452,6 +458,7 @@ export class HiveNodeClient {
       const result = await runMerge({
         repoDir: dir,
         diffs: msg.diffs,
+        ...(msg.prepareCommand ? { prepareCommand: msg.prepareCommand } : {}),
         ...(msg.testCommand ? { testCommand: msg.testCommand } : {}),
         // Le bac à sable du nœud suit le merge : la commande de test exécute du
         // code du dépôt, au même titre qu'un agent.
@@ -465,6 +472,7 @@ export class HiveNodeClient {
         mergedDiff: result.mergedDiff.slice(0, LIMITS.diff),
         testsRun: result.testsRun,
         testsPassed: result.testsPassed,
+        preparedOk: result.preparedOk,
         logs: result.logs.slice(0, LIMITS.log),
       });
       this.log(

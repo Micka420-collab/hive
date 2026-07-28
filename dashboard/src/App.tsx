@@ -46,6 +46,7 @@ const Chronique = lazy(() => import('./views/Chronique'));
 const Memoire = lazy(() => import('./views/Memoire'));
 const Reine = lazy(() => import('./views/Reine'));
 const MonEspace = lazy(() => import('./views/MonEspace'));
+const Rayon = lazy(() => import('./views/Rayon'));
 const Intendance = lazy(() => import('./views/Intendance'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
@@ -69,13 +70,14 @@ const NAV: NavItem[] = [
   { id: 'sante', label: 'Santé', labelEn: 'Health', icon: '💓', key: '6' },
   { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', icon: '📜', key: '7' },
   { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', icon: '🧠', key: '8' },
-  { id: 'monespace', label: 'Mon espace', labelEn: 'My space', icon: '🪪', key: '9' },
+  { id: 'rayon', label: 'Rayon', labelEn: 'Comb', icon: '🍯', key: '9' },
+  { id: 'monespace', label: 'Mon espace', labelEn: 'My space', icon: '🪪', key: '0' },
   {
     id: 'intendance',
     label: 'Intendance',
     labelEn: 'Stewardship',
     icon: '🖥',
-    key: '0',
+    key: 'i',
     admin: true,
   },
 ];
@@ -246,8 +248,10 @@ export function App() {
     }
   };
 
-  // Raccourcis 1-8 : changement de vue sans souris (hors saisie et dialogues).
-  // e.code Digit/Numpad : indépendant de la disposition clavier (AZERTY…).
+  // Raccourcis de vue sans souris (hors saisie et dialogues) : 1-9 et 0 pour
+  // les cases ordinaires, « i » pour l'Intendance — les chiffres étaient pris.
+  // e.code Digit/Numpad : indépendant de la disposition clavier (AZERTY…) ;
+  // une lettre, elle, ne matche que par `e.key`, ce que le `||` couvre déjà.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || inInput() || modalOpen()) return;
@@ -424,6 +428,7 @@ export function App() {
           {route.view === 'chronique' && <Chronique {...viewProps} />}
           {route.view === 'memoire' && <Memoire {...viewProps} />}
           {route.view === 'reine' && <Reine {...viewProps} />}
+          {route.view === 'rayon' && <Rayon {...viewProps} />}
           {route.view === 'monespace' && <MonEspace {...viewProps} />}
           {route.view === 'intendance' && <Intendance {...viewProps} />}
         </Suspense>

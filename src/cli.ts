@@ -43,6 +43,7 @@ import {
   minutesUntilOpen,
   nightShiftFromEnv,
 } from './shared/night-shift.js';
+import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 
 try {
@@ -288,6 +289,11 @@ async function cmdMerge(projectId: string): Promise<void> {
   console.log(
     '  Exécuter réellement : npm run cli -- merge-run ' + projectId + ' [-- cmd de test]',
   );
+  console.log(
+    '  Avec préparation    : npm run cli -- merge-run ' +
+      projectId +
+      ' -- --preparer npm ci --tester npm test',
+  );
 }
 
 interface MergeResult {
@@ -296,11 +302,13 @@ interface MergeResult {
   conflicts: { taskId: string; reason: string }[];
   testsRun: boolean;
   testsPassed: boolean | null;
+  preparedOk?: boolean | null;
 }
 
 /** Déclenche l'exécution réelle du merge sur un nœud, puis attend le résultat. */
-async function cmdMergeRun(projectId: string, testCmd: string[]): Promise<void> {
-  const body = testCmd.length ? { testCommand: testCmd } : {};
+async function cmdMergeRun(projectId: string, queue: string[]): Promise<void> {
+  const body = decouperMergeArgv(queue);
+  if (body.prepareCommand) console.log(`  préparation : ${body.prepareCommand.join(' ')}`);
   const run = await api<{ mergeId: string; nodeId: string; order: string[] }>(
     `/api/projects/${projectId}/merge/run`,
     { method: 'POST', body: JSON.stringify(body) },
@@ -316,11 +324,15 @@ async function cmdMergeRun(projectId: string, testCmd: string[]): Promise<void> 
     if (result && result.mergeId === run.mergeId) {
       const verdict = result.conflicts.length
         ? `⚠ ${result.conflicts.length} conflit(s)`
-        : result.testsRun
-          ? result.testsPassed
-            ? '✔ tests OK'
-            : '✘ tests échoués'
-          : '✔ appliqué (sans tests)';
+        : // L'environnement en échec n'est pas un test rouge : les tests n'ont
+          // pas tourné, et le code n'est pas en cause.
+          result.preparedOk === false
+          ? '⚠ environnement non préparé — tests non lancés'
+          : result.testsRun
+            ? result.testsPassed
+              ? '✔ tests OK'
+              : '✘ tests échoués'
+            : '✔ appliqué (sans tests)';
       console.log(`  ${verdict} — ${result.applied.length} diff(s) appliqué(s)`);
       for (const c of result.conflicts) console.log(`  ⚠ ${c.taskId} : ${c.reason}`);
       return;
