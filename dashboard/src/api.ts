@@ -100,12 +100,41 @@ export interface NewTaskInput {
   dependsOn?: string[];
 }
 
-/** Crée un projet. */
+/**
+ * Crée un projet — ATTRIBUÉ À SON CRÉATEUR quand il y a un compte.
+ *
+ * ─── LE DÉFAUT QUE CETTE FONCTION FERMAIT MAL ────────────────────────────────
+ *
+ * `POST /api/projects` s'authentifie par le JETON DE RUCHE. Il n'a donc
+ * personne à qui attribuer le projet, et `createProject` range par défaut
+ * `visibility: 'private'`, `ownerId: null`. Autrement dit : TOUT projet créé
+ * depuis le bouton « + Projet » naissait privé et orphelin.
+ *
+ * Une fois le contrôle d'accès posé, la conséquence est absurde — la personne
+ * qui vient de créer le projet ne peut ni en lire le code, ni y admettre
+ * quelqu'un, ni le partager, sauf si elle est administratrice. C'est le
+ * parcours le PLUS courant du produit.
+ *
+ * `POST /api/projects/user` existait pour ça depuis le début : il attribue le
+ * projet au compte appelant et l'inscrit comme membre `owner`. Personne ne
+ * l'appelait. Le défaut n'était donc dans aucune route — il était dans ce
+ * qu'aucune ne faisait, exactement comme pour l'adoption.
+ *
+ * Sans compte, on retombe sur l'ancienne porte : le tableau de bord s'utilise
+ * sans compte, et un projet orphelin reste adoptable par un administrateur.
+ */
 export function createProject(input: {
   name: string;
   repoUrl?: string;
   description?: string;
+  visibility?: 'public' | 'private';
 }): Promise<Project> {
+  if (getJwt()) {
+    return apiCompte<Project>('/api/projects/user', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
   return api<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) });
 }
 

@@ -9,6 +9,23 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Un projet créé depuis le tableau de bord n'appartenait à personne** — sur le
+  parcours le PLUS courant du produit. `POST /api/projects` s'authentifie par le
+  jeton de RUCHE : il n'a personne à qui attribuer le projet, et le magasin range
+  par défaut `visibility: 'private'`, `ownerId: null`. Une fois le contrôle
+  d'accès posé, la conséquence devient absurde — la personne qui vient de créer
+  son projet ne peut ni en lire le code, ni y admettre quelqu'un, ni le partager,
+  sauf à être administratrice. `POST /api/projects/user` existait depuis le début
+  pour ça : il attribue le projet au compte appelant et l'inscrit comme membre
+  `owner`. **Personne ne l'appelait.** Le défaut n'était donc dans aucune route,
+  il était dans ce qu'aucune ne faisait — exactement le motif de l'adoption. La
+  porte « jeton de ruche » reste ouverte (le tableau de bord s'utilise sans
+  compte) et produit toujours un orphelin, ce qui est précisément le cas que
+  l'adoption rattrape. Vérifié au navigateur avec un compte SIMPLE MEMBRE, pas
+  administrateur — sinon `voir_tous_les_projets` masquerait le défaut : elle crée
+  son projet, lit son code (200), le partage (200), et l'écran d'équipe la montre
+  « owner ».
+
 - **Le jeton du dépôt s'affichait encore sur la carte projet** (troisième
   endroit, troisième découverte séparée). Un `repoUrl` porte un secret
   POTENTIEL : la façon de donner ses identifiants à `git clone` sans

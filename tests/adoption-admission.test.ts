@@ -27,9 +27,10 @@
 //   invité invite à son tour, et « privé » ne veut plus rien dire au bout de
 //   trois personnes.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -245,5 +246,122 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
       });
       expect(res.status, `${methode} ${url}`).toBe(401);
     }
+  });
+});
+
+// ─── CRÉER UN PROJET : À QUI APPARTIENT-IL ? ─────────────────────────────────
+//
+// Le parcours le PLUS courant du produit, et il produisait un orphelin.
+//
+// `POST /api/projects` s'authentifie par le jeton de RUCHE : il n'a personne à
+// qui attribuer le projet, et le magasin range par défaut `private` +
+// `ownerId: null`. Une fois le contrôle d'accès posé, la personne qui venait de
+// créer son projet ne pouvait plus ni en lire le code, ni y admettre quelqu'un,
+// ni le partager — sauf à être administratrice.
+//
+// `POST /api/projects/user` existait depuis le début pour ça, et personne ne
+// l'appelait. Encore une fois : le défaut n'est dans aucune route, il est dans
+// ce qu'aucune ne fait.
+
+describe('créer un projet, et pouvoir s’en servir', () => {
+  let server: HiveServer;
+  let dir: string;
+  let base: string;
+  let jetonAdmin = '';
+  let jetonOuvriere = '';
+
+  const inscrire = async (email: string): Promise<string> => {
+    const res = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: email }),
+    });
+    return ((await res.json()) as { token?: string }).token ?? '';
+  };
+
+  const auth = (jeton: string) => ({
+    'content-type': 'application/json',
+    authorization: `Bearer ${jeton}`,
+  });
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-creation-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+    jetonAdmin = await inscrire('reine2@ruche.test');
+    jetonOuvriere = await inscrire('ouvriere2@ruche.test');
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('CRÉÉ PAR UN COMPTE, LE PROJET LUI APPARTIENT', async () => {
+    const res = await fetch(`${base}/api/projects/user`, {
+      method: 'POST',
+      headers: auth(jetonOuvriere),
+      body: JSON.stringify({ name: 'Mon projet à moi' }),
+    });
+    expect(res.status).toBe(201);
+    const projet = (await res.json()) as { id: string; ownerId: string | null };
+    expect(projet.ownerId).not.toBeNull();
+
+    // ET C'EST TOUT L'OBJET : la créatrice peut s'en servir tout de suite.
+    // Le Rayon ne rend plus 404 (pas de dépôt joignable ici, donc pas 200 —
+    // ce qui compte est que le refus d'ACCÈS ait disparu).
+    const rayon = await fetch(`${base}/api/projects/${projet.id}/rayon`, {
+      headers: auth(jetonOuvriere),
+    });
+    expect(rayon.status).not.toBe(404);
+
+    // Et elle peut y admettre quelqu'un, sans passer par un administrateur.
+    const moiAdmin = (await (
+      await fetch(`${base}/api/auth/me`, { headers: auth(jetonAdmin) })
+    ).json()) as { id: string };
+    const admission = await fetch(`${base}/api/projects/${projet.id}/membres`, {
+      method: 'POST',
+      headers: auth(jetonOuvriere),
+      body: JSON.stringify({ userId: moiAdmin.id }),
+    });
+    expect(admission.status).toBe(201);
+  });
+
+  it('LA VOIE « JETON DE RUCHE » RESTE ORPHELINE — et c’est pour ça qu’on adopte', async () => {
+    // Le tableau de bord s'utilise sans compte : cette porte-là ne disparaît
+    // pas. Elle produit un projet que personne ne tient, ce qui est exactement
+    // le cas que l'adoption existe pour rattraper.
+    const res = await fetch(`${base}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify({ name: 'Projet sans compte' }),
+    });
+    expect(res.status).toBe(201);
+    const projet = (await res.json()) as { ownerId: string | null };
+    expect(projet.ownerId).toBeNull();
+  });
+
+  it('L’ÉCRAN APPELLE BIEN LA ROUTE QUI ATTRIBUE', () => {
+    // Sans cette garde, le correctif se défait au premier « simplifions les
+    // deux chemins de création » — et le défaut revient sans bruit, sur le
+    // parcours le plus courant du produit.
+    const brut = readFileSync(
+      fileURLToPath(new URL('../dashboard/src/api.ts', import.meta.url)),
+      'utf8',
+    );
+    const code = brut.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+    const i = code.indexOf('export function createProject(');
+    expect(i).toBeGreaterThan(0);
+    const corps = code.slice(i, i + 600);
+    expect(corps).toContain('/api/projects/user');
+    expect(corps).toContain('getJwt()');
   });
 });
