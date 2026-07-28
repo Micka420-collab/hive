@@ -41,6 +41,7 @@ import type {
 } from '../api';
 import { useT } from '../i18n';
 import type { Translate } from '../i18n';
+import { GesteIrreversible } from '../ui';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './intendance.css';
@@ -475,7 +476,7 @@ function LigneServeur({ s, onChanged }: { s: ServeurAdmin; onChanged: () => void
  * déconnecte la machine tout de suite — et c'est écrit à l'écran, parce que
  * les deux gestes n'ont pas les mêmes conséquences.
  */
-function SectionCles({ refreshTick }: { refreshTick: number }) {
+export function SectionCles({ refreshTick }: { refreshTick: number }) {
   const t = useT();
   const [tick, setTick] = useState(0);
   const cles = useApiPoll(fetchCles, 60_000, refreshTick + tick);
@@ -523,25 +524,37 @@ function SectionCles({ refreshTick }: { refreshTick: number }) {
             </p>
           ) : (
             <ul className="in-cles">
-              {cles.data.noeuds.map((n) => (
-                <li key={n.nodeId} className={n.revoque ? 'in-cle-morte' : ''}>
-                  <span className="in-cle-nom">{n.label || n.nodeId.slice(0, 12)}</span>
-                  <span className="in-cle-vu">
-                    {t('vue', 'seen')} {quand(n.lastSeenAt)}
-                  </span>
-                  {n.revoque ? (
-                    <span className="in-cle-etat">{t('révoquée', 'revoked')}</span>
-                  ) : (
-                    <button
-                      className="btn ghost"
-                      disabled={busy !== null}
-                      onClick={() => agir(n.nodeId, revoquerNoeud(n.nodeId))}
-                    >
-                      {t('Révoquer', 'Revoke')}
-                    </button>
-                  )}
-                </li>
-              ))}
+              {cles.data.noeuds.map((n) => {
+                // La question nomme la machine : cette liste se relit toute
+                // seule chaque minute, et la ligne visée peut avoir glissé.
+                const nom = (n.label || n.nodeId.slice(0, 12)).slice(0, 40);
+                return (
+                  <li key={n.nodeId} className={n.revoque ? 'in-cle-morte' : ''}>
+                    <span className="in-cle-nom">{n.label || n.nodeId.slice(0, 12)}</span>
+                    <span className="in-cle-vu">
+                      {t('vue', 'seen')} {quand(n.lastSeenAt)}
+                    </span>
+                    {n.revoque ? (
+                      <span className="in-cle-etat">{t('révoquée', 'revoked')}</span>
+                    ) : (
+                      // Ce bouton-ci COUPE une machine. Celui des billets, juste
+                      // en dessous et jusqu'ici identique, ne déconnecte
+                      // personne. Le panneau l'écrivait déjà ; les commandes le
+                      // démentaient.
+                      <GesteIrreversible
+                        libelle={t('Révoquer', 'Revoke')}
+                        question={t(
+                          `Déconnecter ${nom} maintenant ? Sa clé ne vaudra plus rien.`,
+                          `Disconnect ${nom} now? Its key will be worthless.`,
+                        )}
+                        confirmer={t('Déconnecter', 'Disconnect')}
+                        disabled={busy !== null}
+                        onConfirmer={() => agir(n.nodeId, revoquerNoeud(n.nodeId))}
+                      />
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
 
@@ -565,6 +578,12 @@ function SectionCles({ refreshTick }: { refreshTick: number }) {
                     {b.usesLeft}/{b.usesTotal} {t('usage(s)', 'use(s)')}
                   </span>
                   {b.etat === 'vivant' ? (
+                    // CE BOUTON RESTE NU, ET C'EST VOULU. Révoquer un billet ne
+                    // coupe personne — le panneau l'écrit juste au-dessus. Lui
+                    // coller la garde du bouton d'à côté apprendrait à cliquer
+                    // à travers les gardes, et la prochaine — celle qui coupe
+                    // une machine — se ferait traverser aussi. Une garde
+                    // partout est une garde nulle part.
                     <button
                       className="btn ghost"
                       disabled={busy !== null}

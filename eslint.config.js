@@ -16,4 +16,13 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Les outils de `scripts/` tournent dans Node, en JavaScript nu. Sans cette
+    // déclaration, `no-undef` — que typescript-eslint désactive pour les .ts —
+    // accuse `process` et `console` d'être inventés.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+    },
+  },
 );

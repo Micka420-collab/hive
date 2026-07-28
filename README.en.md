@@ -447,8 +447,44 @@ working, but `npm run join` prints a warning. Issue a ticket as soon as you can.
 | `npm run cli`           | CLI: `state`/`mind`/`plan`/`brief`/`project`/`tasks`/`watch`/`merge`/`replay`/`waggle`/`consensus`/`ghost`/`pulse`/`report`/`invite`… |
 | `npm test`              | Unit + e2e tests (vitest)                                                                                                             |
 | `npm run lint`          | ESLint + Prettier (zero errors required)                                                                                              |
+| `npm run loupe`         | **The magnifying glass** — is the code this branch adds defended by its own tests? (see below)                                        |
 | `npm run build`         | Typecheck (orchestrator + dashboard) + dashboard build                                                                                |
 | `npm run dev:dashboard` | Dashboard in dev mode (Vite, proxy to :7777)                                                                                          |
+
+### 🔎 The magnifying glass — what we look at before merging
+
+`typecheck`, `lint`, `test` and `build` all answer the same question: **"does it
+work?"**. None answers the one that matters when merging:
+
+> **is the code I just wrote defended by my own tests?**
+
+A green suite stays green when you add code nothing checks. That is the most
+common and the quietest failure mode: a guard ships, it is correct, and nobody
+notices the day someone removes it.
+
+The magnifying glass takes the lines the branch **adds** to `src/` and
+`dashboard/src/`, derives safe mutations from them (`&&`→`||`, `===`→`!==`, …)
+and checks that the suite **goes red** on each one. A surviving mutation points
+at new code nothing defends.
+
+```bash
+npm run loupe                      # after the gate, never instead of it
+LOUPE_BASE=origin/main npm run loupe
+LOUPE_MAX=30 npm run loupe         # 12 by default; beyond that it samples
+```
+
+Faced with a survivor you must **choose** — never ignore:
+
+- write the missing test; **or**
+- establish that the mutant is **equivalent** (no input tells the two versions
+  apart) and **say so in writing**.
+
+What it does not do, and this must be said: it runs **after** the gate and
+assumes everything green; it **samples** (and reports what it left out — silent
+truncation would read as "everything is covered"); and it only mutates
+**operators**, because a mutation breaking the syntax would fail the whole suite
+and pass for a killed mutant. The glass would then lie in the reassuring
+direction, the worse of the two.
 
 ## 🌐 Multi-machine deployment
 

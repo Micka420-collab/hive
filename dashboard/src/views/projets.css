@@ -1102,3 +1102,84 @@
   color: var(--faint);
   overflow-wrap: anywhere;
 }
+
+/* ─── Les issues et les livraisons ────────────────────────────────────────── */
+
+.pj-sub-vide,
+.pj-sub-note {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.pj-iss-liste,
+.pj-liv-liste {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pj-iss-liste li,
+.pj-liv-liste li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.pj-iss-titre,
+.pj-liv-pr {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.pj-iss-titre:hover,
+.pj-liv-pr:hover {
+  text-decoration: underline;
+}
+
+/* Le titre prend la place restante : c'est lui qu'on lit, l'état se range à
+   droite et garde une largeur stable d'une ligne à l'autre. */
+.pj-liv-titre {
+  flex: 1 1 auto;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.pj-iss-etiq {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.pj-liv-etat {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pj-iss-pris,
+.pj-liv-repris {
+  font-size: 11px;
+  color: var(--green);
+}
+
+/* L'ÉTAT SE VOIT AVANT DE SE LIRE. Une liste de livraisons où tout est de la
+   même couleur oblige à lire chaque ligne pour trouver celle qui réclame
+   quelque chose — et on finit par ne plus la lire du tout. */
+.pj-liv-ci_rouge .pj-liv-etat,
+.pj-liv-en_conflit .pj-liv-etat {
+  color: var(--red, #e06c75);
+}
+
+.pj-liv-changements_demandes .pj-liv-etat {
+  color: var(--amber);
+}
+
+.pj-liv-approuvee .pj-liv-etat,
+.pj-liv-fusionnee .pj-liv-etat {
+  color: var(--green);
+}

@@ -475,8 +475,45 @@ déconnecter les ruches existantes, mais `npm run join` affiche un avertissement
 | `npm run cli`           | CLI : `state`/`mind`/`plan`/`brief`/`project`/`tasks`/`watch`/`merge`/`replay`/`waggle`/`consensus`/`ghost`/`pulse`/`report`/`invite`… |
 | `npm test`              | Tests unitaires + e2e (vitest)                                                                                                         |
 | `npm run lint`          | ESLint + Prettier (zéro erreur exigé)                                                                                                  |
+| `npm run loupe`         | **La loupe** — le code que la branche ajoute est-il défendu par ses propres tests ? (voir ci-dessous)                                  |
 | `npm run build`         | Typecheck (orchestrateur + dashboard) + build du dashboard                                                                             |
 | `npm run dev:dashboard` | Dashboard en dev (Vite, proxy vers :7777)                                                                                              |
+
+### 🔎 La loupe — ce qu'on regarde avant de fusionner
+
+`typecheck`, `lint`, `test` et `build` répondent tous à la même question :
+**« est-ce que ça marche ? »**. Aucun ne répond à celle qui compte au moment de
+fusionner :
+
+> **le code que je viens d'écrire est-il défendu par mes propres tests ?**
+
+Une suite verte le reste quand on ajoute du code que rien ne vérifie. C'est le
+mode d'échec le plus courant et le plus discret : on livre une garde, elle est
+juste, et personne ne s'aperçoit le jour où quelqu'un la retire.
+
+La loupe prend les lignes que la branche **ajoute** à `src/` et
+`dashboard/src/`, en tire des mutations sûres (`&&`→`||`, `===`→`!==`, …) et
+vérifie que la suite **rougit** sur chacune. Une mutation qui survit désigne du
+code neuf que rien ne défend.
+
+```bash
+npm run loupe                      # après la barrière, jamais à sa place
+LOUPE_BASE=origin/main npm run loupe
+LOUPE_MAX=30 npm run loupe         # 12 par défaut ; au-delà, elle échantillonne
+```
+
+Devant un survivant, il faut **choisir** — jamais ignorer :
+
+- écrire le test qui manque ; **ou**
+- constater que le mutant est **équivalent** (aucune entrée ne distingue les
+  deux versions) et **le dire par écrit**.
+
+Ce qu'elle ne fait pas, et il faut le dire : elle vient **après** la barrière et
+suppose tout vert ; elle **échantillonne** (et annonce ce qu'elle a laissé de
+côté — une troncature silencieuse se lirait comme « tout est couvert ») ; et
+elle ne mute que des **opérateurs**, parce qu'une mutation qui casserait la
+syntaxe ferait échouer toute la suite et passerait pour un mutant tué. La loupe
+mentirait alors dans le sens rassurant, le pire des deux.
 
 ## 🌐 Déploiement multi-machines
 
