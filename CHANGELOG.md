@@ -66,6 +66,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **La ruche fusionnait n'importe quelle pull request du dépôt.**
+  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
+  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
+  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
+  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
+  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
+  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
+  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
+  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
+  contentait d'émettre un événement, si bien que le numéro de PR n'existait
+  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
+  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
+  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
+  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
+  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
+  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
+
 - **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
   l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
   projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
@@ -841,6 +859,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **La ruche fusionnait n'importe quelle pull request du dépôt.**
+  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
+  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
+  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
+  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
+  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
+  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
+  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
+  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
+  contentait d'émettre un événement, si bien que le numéro de PR n'existait
+  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
+  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
+  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
+  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
+  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
+  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
+
 - **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
   l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
   projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
@@ -1078,6 +1114,24 @@ refonte complète de l'interface en **Mission Control**.
   de ruche — et c'est le cas que l'adoption rattrape.
 
 ### Fixed
+
+- **La ruche fusionnait n'importe quelle pull request du dépôt.**
+  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
+  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
+  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
+  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
+  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
+  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
+  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
+  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
+  contentait d'émettre un événement, si bien que le numéro de PR n'existait
+  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
+  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
+  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
+  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
+  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
+  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
 
 - **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
   l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par

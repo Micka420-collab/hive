@@ -1748,6 +1748,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }),
           },
         );
+        // LA LIVRAISON SE RANGE, comme sur la voie autonome. Elle ne le faisait
+        // pas ici : le trajet manuel n'émettait qu'un événement, et le numéro
+        // de PR n'existait donc nulle part où on puisse le retrouver. Deux
+        // conséquences, et la seconde est la grave : on ne pouvait pas rouvrir
+        // « où en est ma livraison ? », et surtout RIEN ne permettait de
+        // vérifier qu'une PR venait bien de la ruche au moment de la fusionner.
+        store.setLivraison({
+          taskId: task.id,
+          projectId: task.projectId,
+          depot,
+          pr: resultat.pr,
+          branche: nomBranche(task.id),
+          etat: 'ouverte',
+        });
         // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
         emitEvent('delivery_opened', {
           taskId: task.id,
@@ -1795,6 +1809,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!jetonGithub) return sansJeton(reply);
       const depot = depotDepuisUrl(store.getProject(req.body.projectId)?.repoUrl ?? null);
       if (!depot) return reply.code(404).send({ error: 'projet sans dépôt GitHub' });
+
+      // ON NE FUSIONNE QUE CE QUE LA RUCHE A OUVERT.
+      //
+      // Cette route disait déjà « fusionne une pull request ouverte par la
+      // ruche » — et ne le vérifiait pas : n'importe quel numéro passait. Elle
+      // fusionnait donc, avec le jeton GitHub de l'hôte, N'IMPORTE QUELLE PR du
+      // dépôt : celle qu'un humain relit encore, celle d'un contributeur
+      // extérieur. Le geste est réputé humain, mais le jeton qui l'autorise se
+      // recopie sur chaque machine membre (cf. ADR 0007).
+      //
+      // La table des livraisons est la source de vérité : la ruche y range ce
+      // qu'elle ouvre, sur les DEUX voies désormais. Ce qui n'y est pas ne
+      // vient pas d'elle, et ne se fusionne pas d'ici — on ne prétend pas
+      // empêcher de fusionner sur GitHub, on refuse seulement de le faire à sa
+      // place sur une PR qu'on n'a pas écrite.
+      const nôtre = store
+        .listLivraisons(req.body.projectId)
+        .some((l) => l.pr === req.body.pr && l.depot === depot);
+      if (!nôtre) {
+        return reply.code(409).send({
+          error: 'cette pull request n’a pas été ouverte par la ruche',
+          conseil:
+            'La ruche ne fusionne que ce qu’elle a livré. Pour les autres pull requests, ' +
+            'passez par GitHub — c’est votre dépôt, pas le sien.',
+        });
+      }
+
       try {
         const r = await fusionner(
           { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -1802,6 +1843,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           req.body.pr,
           req.body.methode ?? 'squash',
         );
+        // La table suit l'état réel : une livraison fusionnée qui resterait
+        // « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+        // seconde fusion de la même PR.
+        for (const l of store.listLivraisons(req.body.projectId)) {
+          if (l.pr === req.body.pr && l.depot === depot) {
+            store.setLivraison({
+              taskId: l.taskId,
+              projectId: l.projectId,
+              depot: l.depot,
+              pr: l.pr,
+              branche: l.branche,
+              etat: r.fusionnee ? 'fusionnee' : l.etat,
+            });
+          }
+        }
         emitEvent('delivery_merged', {
           projectId: req.body.projectId,
           pr: req.body.pr,
