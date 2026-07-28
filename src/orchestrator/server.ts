@@ -43,11 +43,12 @@ import {
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { vuePublique } from '../shared/projet-public.js';
-import { peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
+import { peutLireCode, peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
+import { Miroir, RayonIndisponible } from './miroir.js';
 import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
-import type { HiveEvent, Task } from '../shared/types.js';
+import type { HiveEvent, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
@@ -445,6 +446,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
+
+  /**
+   * Le Rayon — miroir en lecture seule du code des projets.
+   *
+   * Rangé À CÔTÉ de la base, jamais dedans : ce sont des dépôts git, pas des
+   * lignes, et les mêler ferait d'une sauvegarde de la base une sauvegarde de
+   * tout le code de tous les projets. Le miroir se reconstruit d'un `git
+   * clone` ; la base, non.
+   */
+  const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'));
 
   // Les guetteuses observent en mémoire : une table qui grossirait à chaque
   // requête d'un scanner offrirait à l'attaquant de quoi remplir le disque de
@@ -4243,6 +4254,112 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.addMember(project.id, userId);
       emitEvent('project_member_joined', { projectId: project.id, userId });
       return reply.send({ joined: true, projectId: project.id });
+    },
+  );
+
+  // ─── Le Rayon : lire le code du projet ─────────────────────────────────────
+  //
+  // Ce que les abeilles voyaient jusqu'ici, c'étaient des TÂCHES : des titres,
+  // des états, des diffs. Jamais le code lui-même. On travaillait sur un projet
+  // sans pouvoir l'ouvrir — comme aider à réparer un moteur sans avoir le droit
+  // de soulever le capot.
+  //
+  // DEUX GARDES, ET LES DEUX DOIVENT PASSER :
+  //   1. `peutLireCode` — cette personne a-t-elle affaire à ce dépôt ?
+  //   2. `shared/rayon.ts` — ce chemin-là se sert-il, quel que soit le lecteur ?
+  //      (`.git` porte l'URL distante avec ses identifiants ; les `.env` et les
+  //      clés privées ne sortent pas d'un partage en lecture.)
+  //
+  // Le refus de la première prend la forme de l'inexistence, comme partout
+  // ailleurs : un 403 sur un projet privé confirmerait qu'il existe.
+
+  /** Le projet, si l'appelant a le droit d'en lire le code. Répond et rend `null` sinon. */
+  const projetLisible = (
+    req: FastifyRequest<{ Params: { projectId: string } }>,
+    reply: FastifyReply,
+  ): Project | null => {
+    if (!authorizedUser(req)) {
+      reply.status(401).send({ error: 'Non authentifié' });
+      return null;
+    }
+    const project = store.getProject(req.params.projectId);
+    const userId = (req as AuthRequest).userId!;
+    if (!project || !peutLireCode(project, userId, store.estMembre(req.params.projectId, userId))) {
+      reply.code(404).send({ error: 'projet inconnu' });
+      return null;
+    }
+    return project;
+  };
+
+  /** Traduit un refus du rayon en réponse HTTP, sans inventer de détail. */
+  const repondreRayon = (reply: FastifyReply, e: unknown): FastifyReply => {
+    if (!(e instanceof RayonIndisponible)) throw e;
+    const codes: Record<string, number> = {
+      refuse: 403,
+      introuvable: 404,
+      miroir_absent: 409,
+      pas_de_depot: 409,
+      binaire: 415,
+      trop_gros: 413,
+    };
+    const messages: Record<string, string> = {
+      refuse: 'ce chemin ne se sert pas',
+      introuvable: 'fichier introuvable',
+      miroir_absent: 'le code n’a pas encore été copié — réessayez dans un instant',
+      pas_de_depot: 'ce projet n’a pas de dépôt (repoUrl)',
+      binaire: 'fichier binaire — rien à afficher dans un éditeur',
+      trop_gros: 'fichier trop volumineux pour être affiché',
+    };
+    return reply
+      .code(codes[e.motif] ?? 400)
+      .send({ error: messages[e.motif] ?? 'lecture impossible', motif: e.motif });
+  };
+
+  app.get<{ Params: { projectId: string }; Querystring: { chemin?: string } }>(
+    '/api/projects/:projectId/rayon',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      if (!project.repoUrl) {
+        return reply.code(409).send({ error: 'ce projet n’a pas de dépôt (repoUrl)' });
+      }
+      try {
+        // Rafraîchi au plus une fois par fenêtre : sans cela, chaque affichage
+        // lancerait un `git fetch`, et deux visiteurs simultanés donneraient
+        // deux `git` concurrents dans le même répertoire.
+        await rayons.rafraichir(project.id, project.repoUrl);
+      } catch {
+        // Un amont injoignable n'efface pas ce qu'on a déjà : mieux vaut un
+        // code d'hier que pas de code du tout.
+        if (!rayons.existe(project.id)) {
+          return reply.code(409).send({
+            error: 'le dépôt n’a pas pu être copié — vérifiez son URL et son accessibilité',
+          });
+        }
+      }
+      try {
+        return reply.send({
+          chemin: req.query.chemin ?? '',
+          entrees: await rayons.lister(project.id, req.query.chemin ?? ''),
+        });
+      } catch (e) {
+        return repondreRayon(reply, e);
+      }
+    },
+  );
+
+  app.get<{ Params: { projectId: string }; Querystring: { chemin?: string } }>(
+    '/api/projects/:projectId/rayon/fichier',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const chemin = req.query.chemin ?? '';
+      if (chemin === '') return reply.code(400).send({ error: 'chemin manquant' });
+      try {
+        return reply.send(await rayons.lire(project.id, chemin));
+      } catch (e) {
+        return repondreRayon(reply, e);
+      }
     },
   );
 

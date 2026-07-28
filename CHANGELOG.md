@@ -9,6 +9,40 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🍯 Le Rayon — les abeilles voient enfin le code** (module pur
+  `src/shared/rayon.ts`, miroir `src/orchestrator/miroir.ts`, routes
+  `GET /api/projects/:id/rayon` et `.../rayon/fichier`). Ce que les membres
+  voyaient jusqu'ici, c'étaient des **tâches** : des titres, des états, des
+  diffs. Jamais le code. On travaillait sur un projet sans pouvoir l'ouvrir —
+  comme aider à réparer un moteur sans avoir le droit de soulever le capot.
+  **Le hub tient désormais son propre miroir**, un clone superficiel en lecture
+  seule par projet (`data/rayons/<id>`), rafraîchi au plus une fois par minute
+  et déduplique les rafraîchissements concurrents — deux `git` dans le même
+  répertoire ne donnent pas deux dépôts à jour, ils donnent un dépôt corrompu.
+  Le choix du miroir plutôt que de l'API GitHub est délibéré : l'API exigerait
+  le **jeton de l'hôte** (montrer le code à une abeille dépenserait pour elle
+  un droit qui n'est pas le sien), ne marcherait que sur GitHub, et son quota
+  s'épuiserait à trois personnes parcourant un arbre de fichiers. **Deux gardes
+  indépendantes, et les deux doivent passer** : `peutLireCode` (public = tout
+  compte, privé = membres et propriétaire, refus **indistinguable de
+  l'inexistence**) et la liste de ce qui ne se sert jamais — **`.git` en
+  premier**, puisqu'il contient `config`, donc l'URL distante, donc les
+  identifiants du dépôt privé ; puis les `.env`, `.npmrc`, `id_rsa` et les
+  extensions de clés. Sans la seconde, un membre parfaitement légitime repartait
+  avec le jeton GitHub de l'hôte. Sept contournements sont fermés **nommément,
+  chacun avec son test** : `..` mêlé à des segments valides, séparateurs
+  Windows, chemins absolus (POSIX, lettre de lecteur, UNC), **octet nul**
+  (`fichier.txt\0.png` — les couches C tronquent là où JavaScript ne le fait
+  pas, donc ce qui est ouvert n'est pas ce qui a été vérifié), **liens
+  symboliques** (éprouvés sur de vrais liens vers `/etc` dans un vrai dépôt —
+  aucune règle pure ne peut les voir, seul le disque sait où ils mènent), et
+  **le bug de préfixe** : `'/srv/rayon-mechant'.startsWith('/srv/rayon')` est
+  vrai, et c'est l'erreur qu'on introduit précisément en croyant refermer la
+  faille. Binaires refusés plutôt que déversés dans un éditeur, fichiers bornés
+  à 512 Ko, tri « dossiers d'abord » avec `localeCompare` français — trier à
+  l'octet mettrait `Élan` en toute fin d'une liste qu'on ne pourrait plus
+  parcourir.
+
 - **🛂 Les Gardiennes — le contrôle d'entrée du nectar** (module pur
   `src/orchestrator/gardiennes.ts`). Jusqu'ici la ruche croyait l'agent sur
   parole : un `success: true` accompagné d'un **diff vide** fabriquait un

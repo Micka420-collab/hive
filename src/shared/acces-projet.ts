@@ -62,3 +62,23 @@ export function peutVoirMembres(projet: ProjetAcces, userId: string, dejaMembre:
   if (projet.visibility === 'public') return true;
   return projet.ownerId === userId || dejaMembre;
 }
+
+/**
+ * Cette personne peut-elle LIRE LE CODE du projet ?
+ *
+ * Une fonction distincte, et non un alias, bien que la règle soit aujourd'hui
+ * la même que pour les membres. Les deux actes n'ont pas la même gravité — le
+ * code EST ce que le projet vaut, la liste des membres dit seulement qui y
+ * travaille — et le jour où l'un se resserre, on ne veut pas découvrir qu'on a
+ * resserré l'autre par accident. Nommer par l'ACTE plutôt que par la route est
+ * déjà la règle du fichier des rôles ; elle vaut ici aussi.
+ *
+ * ⚠ Cette fonction dit qui a le droit de lire LE DÉPÔT. Elle ne dit rien de ce
+ * qui, DANS le dépôt, ne se sert jamais — `.git`, les `.env`, les clés
+ * privées : c'est `shared/rayon.ts` qui tient cette liste-là, et les DEUX
+ * gardes doivent passer.
+ */
+export function peutLireCode(projet: ProjetAcces, userId: string, dejaMembre: boolean): boolean {
+  if (projet.visibility === 'public') return true;
+  return projet.ownerId === userId || dejaMembre;
+}
