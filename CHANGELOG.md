@@ -193,6 +193,29 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **N'importe quel compte pouvait s'ajouter à n'importe quel projet, privé
+  compris** (module pur `src/shared/acces-projet.ts`).
+  `POST /api/projects/:id/join` ne vérifiait qu'une seule chose : que
+  l'appelant soit authentifié. Ni la visibilité du projet, ni son propriétaire,
+  ni la moindre invitation. `GET /api/projects/:id/members` avait exactement le
+  même trou : la liste **nominative** des membres d'un projet privé était
+  lisible par tout titulaire d'un compte — **créer un compte suffisait à
+  énumérer qui travaille sur quoi**. La colonne `visibility` et le champ
+  `ownerId` existaient pourtant depuis le début : c'est le cas d'école du
+  contrôle d'accès qui vit dans le modèle de données et jamais dans le chemin
+  d'exécution. Un projet public reste ouvert — c'est ce que le mot veut dire,
+  et le catalogue le montre déjà à des inconnus ; un projet privé ne s'ouvre
+  plus tout seul. **Le refus prend la forme exacte de l'inexistence, à l'octet
+  près** : un « 403 interdit » confirmerait que le projet existe, et répété sur
+  une liste d'identifiants il dessinerait la carte des projets de la ruche —
+  or les identifiants voyagent (une URL collée dans un salon, un journal, un
+  signet). Même raisonnement que pour les billets (ADR 0005), et un test
+  compare les deux réponses caractère par caractère. Le motif, lui, part au
+  journal (`project_join_refused`) : ce que l'appelant ne voit pas, le
+  propriétaire de la ruche le voit. La question « est-elle membre ? » est
+  posée en base de façon fermée (`estMembre`) plutôt qu'en chargeant la liste
+  complète, qui nomme d'autres gens pour répondre sur un seul compte.
+
 - **La commande de test d'un merge passe enfin par le bac à sable** — et un
   test tient désormais la liste de ce qui doit y passer
   (`tests/isolement-couverture.test.ts`). `exec.ts` portait ce commentaire :
@@ -393,6 +416,15 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ruche) avec le jeton légitime en contrôle négatif.
 
 ### Fixed
+
+- **L'intégration continue repasse au vert : un test n'y tournait pas.**
+  `tests/isolement-couverture.test.ts` énumérait les fichiers avec `globSync`
+  de `node:fs` — une fonction qui **n'existe qu'à partir de Node 22**. Le
+  projet annonce Node ≥ 20 et l'intégration continue y tourne : le test passait
+  sur la machine de son auteur et échouait partout ailleurs. Remplacé par un
+  parcours de répertoires à la main (`readdirSync`), et **vérifié sous Node 20**
+  et non plus seulement supposé. Un test qui ne s'exécute que chez celui qui
+  l'a écrit ne garde rien.
 
 - **Injection de prompt par le Hive Mind** (faille adjacente à celle de la
   Couveuse : durcir l'une sans l'autre ne protégeait de rien, les deux blocs

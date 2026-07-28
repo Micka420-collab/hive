@@ -929,6 +929,21 @@ export class HiveStore {
     return { projectId, userId, role, joinedAt: now };
   }
 
+  /**
+   * Cette personne est-elle membre de ce projet ?
+   *
+   * Une question fermée plutôt qu'un `listMembers().some(…)` : la liste
+   * complète nomme d'autres gens, et on ne la charge pas pour répondre à une
+   * question qui ne concerne qu'un seul compte. La clé primaire du couple
+   * (projectId, userId) rend la réponse immédiate.
+   */
+  estMembre(projectId: string, userId: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM project_members WHERE projectId = ? AND userId = ? LIMIT 1')
+      .get(projectId, userId);
+    return row !== undefined;
+  }
+
   listMembers(projectId: string): ProjectMember[] {
     const rows = this.db
       .prepare(

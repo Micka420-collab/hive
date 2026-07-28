@@ -43,6 +43,7 @@ import {
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { vuePublique } from '../shared/projet-public.js';
+import { peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -4097,6 +4098,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const userId = (req as AuthRequest).userId!;
+      // N'IMPORTE QUEL COMPTE POUVAIT S'AJOUTER À N'IMPORTE QUEL PROJET, privé
+      // compris : seule l'authentification était vérifiée. `visibility` et
+      // `ownerId` existaient depuis le début et n'étaient consultés nulle part.
+      //
+      // Le refus prend la forme EXACTE de l'inexistence : un « 403 interdit »
+      // confirmerait que le projet existe, et répété sur une liste
+      // d'identifiants il dessinerait la carte des projets de la ruche. Même
+      // raisonnement que pour les billets (ADR 0005).
+      if (!peutRejoindre(project, userId, store.estMembre(project.id, userId))) {
+        emitEvent('project_join_refused', { projectId: project.id, userId });
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
       store.addMember(project.id, userId);
       emitEvent('project_member_joined', { projectId: project.id, userId });
       return reply.send({ joined: true, projectId: project.id });
@@ -4110,6 +4123,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const userId = (req as AuthRequest).userId!;
+      // La liste NOMME des gens. Sur un projet privé, elle était lisible par
+      // tout titulaire d'un compte : créer un compte suffisait à énumérer qui
+      // travaille sur quoi. Même refus indistinguable qu'au-dessus.
+      if (!peutVoirMembres(project, userId, store.estMembre(project.id, userId))) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
       return reply.send(store.listMembers(project.id));
     },
   );
