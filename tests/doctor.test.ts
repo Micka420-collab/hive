@@ -31,7 +31,12 @@ import type { Diagnostic, Releve } from '../src/shared/doctor.js';
 
 /** Une ruche en parfait état. Chaque test n'en dérange qu'un point. */
 const SAINE: Releve = {
-  nodeMajeur: 22,
+  // Au-dessus du plancher, pas dessus : le SEUIL EXACT a son propre test.
+  // Ce 22 valait « sain » quand le plancher était 20 ; passé à 24, il est
+  // devenu bloquant et trois tests l'ont dit. Un fixture qui cesse de
+  // représenter ce qu'il prétend est un piège silencieux — celui-ci n'a pas
+  // été silencieux.
+  nodeMajeur: 26,
   fichierEnv: { present: true, lisible: true, permissions: 0o600 },
   jeton: { present: true, longueur: 48, trivial: false },
   port: { numero: 7777, libre: true, parNous: null },
@@ -166,7 +171,7 @@ describe('1. LA VERSION DE NODE', () => {
   it('AU SEUIL EXACT, ça passe — et c’est la version que fait tourner la CI', () => {
     // Oubli attrapé par la loupe : je testais `NODE_MINIMUM - 1` et une version
     // large, jamais le seuil lui-même. Avec `>` au lieu de `>=`, une ruche sur
-    // Node 20 pile — le minimum documenté, et ce que fait tourner notre propre
+    // le plancher pile — le minimum documenté, et ce que fait tourner notre propre
     // CI — se serait entendu dire d'aller mettre Node à jour.
     //
     // La même borne était testée pour l'espace disque et pas ici. Une

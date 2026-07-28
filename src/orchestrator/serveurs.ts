@@ -227,7 +227,7 @@ export const FOURNISSEUR_MANUEL: FournisseurServeur = {
       ref: '',
       instructions: [
         `Louez un VPS (${gabarit}) chez l’hébergeur de votre choix.`,
-        'Installez Node 20 puis clonez Hive :',
+        'Installez Node 24 puis clonez Hive :',
         '  git clone https://github.com/Micka420-collab/hive && cd hive && npm run setup',
         'Installez podman pour que les agents tournent en bac à sable :',
         '  https://podman.io/docs/installation',

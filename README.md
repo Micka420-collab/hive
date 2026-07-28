@@ -16,13 +16,13 @@
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="version">
   <a href="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml"><img src="https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
-  <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen" alt="node">
+  <img src="https://img.shields.io/badge/node-%E2%89%A524-brightgreen" alt="node">
 </p>
 
 Une _Queen_ centrale découpe un projet en tâches et les distribue aux machines des membres (_Nodes_), qui exécutent chacune leurs agents de codage (_ouvrières_) dans des espaces de travail isolés. Le contrôle est centralisé ; **le code et les clés restent chez chaque membre.**
 
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
-![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a)
+![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Tests](https://img.shields.io/badge/tests-561%20passing-2ea44f)
 ![Palier](https://img.shields.io/badge/palier%205-livr%C3%A9-2ea44f)
@@ -116,23 +116,24 @@ réécrite** — écraser un jeton en service couperait tous les nœuds connect�
 
 ## 🚀 Démarrage rapide (démo)
 
-Prérequis : **Node.js ≥ 20**.
+Prérequis : **Node.js ≥ 24**.
 
-> **Ruche complète sous Windows — un outillage C++ est nécessaire.**
-> `better-sqlite3` ne publie aucun binaire prébuilt : il se **compile** à
-> l'installation, sur toutes les plateformes. Linux et macOS ont ce qu'il faut
-> d'origine ; une machine Windows neuve, non. Installez
-> [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-> avec la charge de travail **« Desktop development with C++ »**.
+> **Pourquoi 24, et pas 20 ?** Parce que ça retire une panne d'installation, pas
+> parce que c'est plus récent.
 >
-> Sans lui, `npm install` **réussit quand même** — SQLite est une dépendance
-> _optionnelle_, et npm abandonne les optionnelles en silence — puis
-> `hive start` meurt sur `ERR_MODULE_NOT_FOUND`. C'est précisément ce que
-> `hive doctor` diagnostique désormais, sous la clé `moteur`, avec la commande
-> qui répare.
+> `better-sqlite3` est un module natif. Sous Node 20, aucun binaire prébuilt
+> n'existe pour cette ABI : npm doit le **compiler**. Sur une machine Windows
+> sans outillage C++, la compilation échoue — **et `npm install` réussit quand
+> même**, parce que la dépendance est déclarée optionnelle. On se retrouve avec
+> une installation « verte » et un `hive start` qui meurt sur
+> `ERR_MODULE_NOT_FOUND`.
 >
-> Un **nœud** (`hive join`, `hive node`) n'a besoin d'aucun compilateur :
-> SQLite ne le concerne pas.
+> Sous Node 24, le binaire prébuilt existe : rien à compiler, aucun compilateur
+> à installer, sur aucun système. Les deux comportements ont été mesurés côte à
+> côte dans notre propre CI, sur le même commit.
+>
+> Sur un Node plus ancien, `hive doctor` vous le dira sous la clé `moteur`, avec
+> la commande qui répare — plutôt que de vous laisser deviner.
 
 ```bash
 npm install

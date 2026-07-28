@@ -26,65 +26,38 @@ on:
   pull_request:
     branches: [main]
 
+# ─── LA VERSION DE NODE, DÉCLARÉE UNE SEULE FOIS ─────────────────────────────
+#
+# `NODE_MINIMUM` vaut 24 dans `src/shared/doctor.ts`, et la CI doit tourner sur
+# le plancher qu'elle exige — sans quoi elle vérifierait une configuration que
+# personne n'installe.
+#
+# Le 24 n'est pas une préférence pour le neuf. Il retire une panne :
+# `better-sqlite3` est un module natif, et sous Node 20 aucun binaire prébuilt
+# n'existe pour cette ABI. Il faut compiler — 42 lignes de `node-gyp` sous
+# Linux, et sous Windows un échec net, le `node-gyp` d'npm 10 ne sachant pas
+# lire Visual Studio 2026. Sous Node 24, `prebuild-install` trouve le binaire :
+# zéro compilation, 28 secondes, aucun outillage C++ nécessaire. Les deux
+# comportements ont été mesurés sur le MÊME commit, dans le run 210.
+env:
+  NODE: '24'
+
 jobs:
   qualite:
-    name: ${{ matrix.os }} · Node ${{ matrix.node }} · Lint · Typecheck · Tests · Build
+    name: ${{ matrix.os }} · Node 24 · Lint · Typecheck · Tests · Build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # ─── POURQUOI LES DEUX JAMBES NE TOURNENT PAS SUR LE MÊME NODE ─────────
-        #
-        # Ce n'est pas un caprice, c'est un empilement qu'on ne contrôle pas, et
-        # il a fallu trois runs pour le voir en entier.
-        #
-        # `better-sqlite3` ne publie AUCUN binaire prébuilt — pour aucune
-        # plateforme. `prebuild-install` le dit sur les deux systèmes :
-        #
-        #   No prebuilt binaries found (target=20.20.2 runtime=node arch=x64 …)
-        #
-        # Il se COMPILE donc partout. Linux passe : gcc et python3 sont là.
-        # Sous Windows, le runner a bien Visual Studio — 18 Enterprise — et la
-        # compilation échouait quand même :
-        #
-        #   gyp ERR! find VS Failure details: RangeError [ERR_CHILD_PROCESS_STDIO_MAXB
-        #   gyp ERR! find VS unknown version "undefined" found at
-        #                    "C:\Program Files\Microsoft Visual Studio\18\Enterprise"
-        #
-        # Le compilateur EST là. C'est `node-gyp` 10.1.0 — celui que npm 10
-        # embarque avec Node 20 — dont le sondage PowerShell dépasse son propre
-        # `maxBuffer` : il ne peut pas lire la réponse, et conclut qu'il n'y a
-        # pas de compilateur.
-        #
-        # ET ON NE PEUT PAS LE REMPLACER. Les deux voies documentées sont
-        # mortes en npm 10, essayées l'une après l'autre :
-        #
-        #   npm config set node_gyp …  →  npm error `node_gyp` is not a valid npm option
-        #   npm_config_node_gyp=…      →  variable bien posée, npm l'ignore :
-        #                                 « gyp info using node-gyp@10.1.0 »
-        #
-        # Le composant cassé est donc la VERSION DE NPM, pas la machine. npm 11
-        # (Node 24) embarque node-gyp 11, qui sait lire Visual Studio 2026.
-        #
-        # Chaque jambe garde donc le rôle qu'elle peut vraiment tenir :
-        include:
-          # Le PLANCHER documenté (`NODE_MINIMUM = 20`), vérifié là où rien ne
-          # l'empêche. C'est la version que le README exige.
-          - os: ubuntu-latest
-            node: '20'
-          # Windows sert à exercer les chemins win32 — séparateurs, ACL, liens
-          # symboliques, `spawn`. Pour ça il faut que SQLite se charge, donc un
-          # npm dont le node-gyp voit le compilateur installé.
-          - os: windows-latest
-            node: '24'
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
-      - name: Installer Node.js ${{ matrix.node }}
+      - name: Installer Node.js ${{ env.NODE }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ env.NODE }}
           cache: npm
 
       # `--foreground-scripts` rend VISIBLE ce que font les scripts d'install.

@@ -44,7 +44,7 @@ import {
 const TTY = { isTTY: true, columns: 100 };
 
 const VERIFS: Verification[] = [
-  { etat: 'fait', libelle: 'Node v22.4.0', note: '(≥ 20 requis)' },
+  { etat: 'fait', libelle: 'Node v24.8.0', note: '(≥ 24 requis)' },
   { etat: 'fait', libelle: 'Port 7777 libre' },
   { etat: 'fait', libelle: 'Espace disque', valeur: '2,1 Go' },
   { etat: 'fait', libelle: 'Agent de codage', valeur: 'Claude Code' },
@@ -316,10 +316,10 @@ describe('les blocs', () => {
 
   it('une vérification aligne son constat et pousse sa note à droite', () => {
     const ligne = ligneVerification(
-      { etat: 'fait', libelle: 'Node v22.4.0', note: '(≥ 20 requis)' },
+      { etat: 'fait', libelle: 'Node v24.8.0', note: '(≥ 24 requis)' },
       capacites({ NO_COLOR: '1' }, TTY),
     );
-    expect(ligne).toMatch(/^ {2}\+ {2}Node v22\.4\.0 {2,}\(≥ 20 requis\)$/);
+    expect(ligne).toMatch(/^ {2}\+ {2}Node v24\.8\.0 {2,}\(≥ 24 requis\)$/);
   });
 
   it('la forme linéaire est lisible sans terminal', () => {
