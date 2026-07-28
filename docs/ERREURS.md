@@ -50,6 +50,39 @@ Rien d'autre. Aucun rouge.
 > **Règle** — après un changement touchant des `skip`/`runIf`, comparer le
 > nombre de tests EXÉCUTÉS, pas seulement le vert.
 
+### 1.3 — Un pas vert n'atteste que du code de sortie
+
+Le pas de CI qui lance `install.sh --dry-run` est passé au vert du premier
+coup. Il affichait ceci :
+
+```
+    cd …/essai-hive && npm run install:hive --dry-run
+```
+
+C'est la ligne « voilà ce qui se passerait sans `--dry-run` ». Elle est
+**fausse deux fois**. Le vrai appel est `npm run install:hive -- --dry-run` :
+sans le `--`, npm garde le drapeau POUR LUI — et `--dry-run` en est un vrai,
+côté npm. La commande copiée depuis cet écran ne lançait donc pas l'installeur
+du tout. Et elle contenait `--dry-run`, le drapeau dont la phrase dit
+précisément qu'on s'en passe.
+
+Le script sortait en 0, donc la CI était verte, donc personne ne regardait.
+Ce qui l'a trouvé : **lire le journal d'un run réussi.**
+
+En creusant, un troisième défaut sous les deux premiers — `--dry-run` était
+ajouté à la liste transmise à l'installeur alors que le script s'arrête avant
+lui. La branche « aucun argument à transmettre » était donc **inatteignable**,
+et le test que j'écrivais pour elle a rougi en la révélant.
+
+> **Règle** — un pas de CI dont la sortie est destinée à un humain doit être
+> LU au moins une fois, run vert compris. Le code de sortie ne dit rien du
+> contenu.
+>
+> **Règle** — toute ligne qui annonce une commande doit être **dérivée** de
+> l'appel réel, jamais écrite pour lui ressembler. À défaut, un test compare
+> les deux (`installeurs.test.ts`, « la commande qu'il affiche est celle qu'il
+> lancerait »).
+
 ---
 
 ## 2. Un test peut passer pour la mauvaise raison
@@ -285,6 +318,36 @@ return false;` **avant** de chercher `sh`.
 > composer un chemin. `path.delimiter` et `path.join`, y compris dans les tests
 > — surtout dans les tests, puisque ce sont eux qui tournent sur les trois
 > plateformes.
+
+### 6.6 — Il y a DEUX PowerShell, et ils ne lisent pas le même fichier
+
+`install.ps1` porte `#Requires -Version 5.1`. La CI ne lançait que `pwsh`,
+c'est-à-dire PowerShell **7** — celui qu'il faut installer à part. Windows
+PowerShell **5.1**, `powershell.exe`, est celui qui est livré avec l'OS et
+qu'on obtient en cliquant « PowerShell » dans le menu Démarrer : c'est lui qui
+exécute le script chez la plupart des gens, et il n'avait jamais tourné.
+
+Les deux ne décodent pas les fichiers pareil. Sans BOM, **5.1 lit en page
+ANSI** : `détecté` devient `dÃ©tectÃ©`, `—` devient `â€"`, l'abeille
+disparaît. L'écran d'accueil du projet — la toute première chose que voit
+quelqu'un — en charabia, sous l'interpréteur majoritaire, avec une CI verte.
+
+Mesuré avant d'être corrigé : relire les octets du fichier en `cp1252` a rendu
+le charabia exact, depuis Linux, sans Windows sous la main. Le BOM UTF-8 met
+les deux versions d'accord.
+
+> **Règle** — quand un fichier déclare une version minimale d'interpréteur,
+> **c'est cette version-là** qu'il faut lancer en CI, pas seulement la plus
+> récente. Ici : un pas `shell: powershell` (5.1) à côté du pas `pwsh` (7).
+>
+> **Règle** — un `.ps1` commence par un BOM UTF-8 ; un `.sh` n'en a **jamais**
+> (le BOM passerait avant le `#!` et casserait le shebang). Les deux sont des
+> gardes de `tests/installeurs.test.ts` : trois octets invisibles que le
+> premier éditeur venu peut ôter sans le dire.
+>
+> **Règle** — un pas de CI qui vérifie un ENCODAGE doit refuser le charabia
+> explicitement (`if ($sortie -match 'Ã|â€') { throw }`). Sans ça il reste
+> vert en affichant n'importe quoi — voir § 1.3.
 
 ---
 

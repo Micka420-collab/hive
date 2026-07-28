@@ -59,15 +59,27 @@ echec()   { printf '  %s✘%s %s\n' "$ROUGE" "$ZERO" "$*" >&2; }
 # ─── Options ────────────────────────────────────────────────────────────────
 #
 # Tout ce qui n'est pas reconnu ici est TRANSMIS à l'installeur : c'est lui qui
-# porte `--dry-run`, `--non-interactive` et le reste. Les dupliquer ferait deux
+# porte `--non-interactive`, `--json` et le reste. Les dupliquer ferait deux
 # vérités à tenir à jour.
+#
+# Les quatre drapeaux reconnus ci-dessous sont ceux qui pilotent CE script-ci —
+# où cloner, quoi cloner, montrer sans écrire, l'aide. Eux sont consommés.
 POUR_INSTALLEUR=''
 SEC=0
 for arg in "$@"; do
   case "$arg" in
     --dir=*)  DOSSIER="${arg#--dir=}" ;;
     --ref=*)  REF="${arg#--ref=}" ;;
-    --dry-run) SEC=1; POUR_INSTALLEUR="$POUR_INSTALLEUR $arg" ;;
+    # `--dry-run` est CONSOMMÉ ICI, il n'est pas transmis. Il l'était, et ça
+    # produisait une contradiction : le script s'arrête AVANT l'installeur en
+    # mode sec, donc le drapeau n'était jamais transmis à personne — mais il
+    # apparaissait dans la commande affichée, qui annonçait « sans --dry-run,
+    # la suite serait : npm run install:hive -- --dry-run ». Une suggestion qui
+    # contient exactement le drapeau dont elle dit se passer.
+    #
+    # (`install.ps1` avait raison depuis le début : `-DryRun` y est un `switch`
+    #  déclaré, donc séparé de `$Reste` par PowerShell lui-même.)
+    --dry-run) SEC=1 ;;
     -h|--help)
       dire "Hive — installation en une commande"
       dire ""
@@ -202,7 +214,20 @@ if [ "$SEC" = 1 ]; then
   alerte "--dry-run : l'installeur n'est pas lancé."
   dire ""
   dire "Sans --dry-run, la suite serait :"
-  dire "    cd $DOSSIER && npm run install:hive$POUR_INSTALLEUR"
+  # LE `--` N'EST PAS DÉCORATIF, et cette ligne l'a longtemps oublié. Elle
+  # affichait `npm run install:hive --dry-run` alors que le vrai appel, en bas,
+  # est `npm run install:hive -- --dry-run`. Sans le séparateur, npm garde le
+  # drapeau POUR LUI — et `--dry-run` en est un vrai, côté npm : la commande
+  # copiée-collée depuis cet écran ne lançait donc PAS l'installeur.
+  #
+  # Une ligne qui dit « voilà ce qui va se passer » doit dire vrai, sinon elle
+  # est pire que son absence. Le test `installeurs.test.ts` la compare
+  # désormais à l'appel réel.
+  if [ -n "$POUR_INSTALLEUR" ]; then
+    dire "    cd $DOSSIER && npm run install:hive --$POUR_INSTALLEUR"
+  else
+    dire "    cd $DOSSIER && npm run install:hive"
+  fi
   dire ""
   exit 0
 fi

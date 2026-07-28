@@ -76,6 +76,42 @@ describe('LES DEUX INSTALLEURS EXISTENT', () => {
   });
 });
 
+describe('`install.ps1` COMMENCE PAR UN BOM UTF-8', () => {
+  // ─── UNE GARDE POUR TROIS OCTETS QUI NE SE VOIENT PAS ──────────────────────
+  //
+  // Windows PowerShell 5.1 — `powershell.exe`, celui qui est livré avec l'OS et
+  // que `#Requires -Version 5.1` prétend servir — décode un fichier SANS BOM
+  // avec la page ANSI. « détecté » devient « dÃ©tectÃ© », « — » devient
+  // « â€” », l'abeille disparaît. PowerShell 7 suppose UTF-8, donc la CI
+  // passait au vert sans que rien ne se voie : le pas ne lançait que `pwsh`.
+  //
+  // Mesuré, pas supposé : `install.ps1` relu en cp1252 rend bien du charabia.
+  // La CI le vérifie maintenant en lançant 5.1 POUR DE VRAI, et refuse une
+  // sortie contenant « Ã » — signature d'un UTF-8 relu en ANSI.
+  //
+  // Cette garde-ci existe parce qu'un BOM est INVISIBLE. Aucune relecture ne
+  // remarque sa disparition, et le premier éditeur qui réenregistre le fichier
+  // « sans rien changer » peut l'ôter.
+
+  it('ses trois premiers octets sont EF BB BF', () => {
+    const octets = readFileSync(new URL('install.ps1', RACINE));
+    expect(
+      [...octets.subarray(0, 3)],
+      'BOM UTF-8 absent : PowerShell 5.1 lira ce fichier en ANSI et affichera du mojibake',
+    ).toEqual([0xef, 0xbb, 0xbf]);
+  });
+
+  it('…et install.sh, lui, n’en a PAS', () => {
+    // Symétrie inverse, et elle compte : un BOM en tête d'un script `sh` est
+    // envoyé à l'interpréteur AVANT le `#!`. Le noyau ne reconnaît plus le
+    // shebang, et l'on obtient un « command not found » sur la première ligne.
+    const octets = readFileSync(new URL('install.sh', RACINE));
+    expect([...octets.subarray(0, 3)], 'un BOM casserait le shebang').not.toEqual([
+      0xef, 0xbb, 0xbf,
+    ]);
+  });
+});
+
 describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en quatre endroits', () => {
   // ─── LE PIÈGE QUE CETTE GARDE FERME ────────────────────────────────────────
   //
@@ -233,6 +269,66 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
     } finally {
       rmSync(bac, { recursive: true, force: true });
     }
+  });
+
+  it.runIf(shellPosix)('LA COMMANDE QU’IL AFFICHE EST CELLE QU’IL LANCERAIT', () => {
+    // ─── LE DÉFAUT QUE CE TEST FERME, TROUVÉ EN LISANT UN JOURNAL DE CI ──────
+    //
+    // `--dry-run` finit par « sans --dry-run, la suite serait : … ». Cette
+    // ligne affichait :
+    //
+    //     cd … && npm run install:hive --dry-run
+    //
+    // alors que l'appel réel, vingt lignes plus bas, est :
+    //
+    //     npm run install:hive -- --dry-run
+    //
+    // Le `--` manquait. Sans lui, npm GARDE le drapeau pour lui — et npm a son
+    // propre `--dry-run` : la commande copiée depuis cet écran ne lançait donc
+    // pas l'installeur du tout. Une ligne qui dit « voilà ce qui va se passer »
+    // et qui se trompe est pire que pas de ligne.
+    //
+    // Aucune relecture ne l'a vu, parce qu'à l'œil les deux formes se
+    // ressemblent. Ce qui l'a rendu visible, c'est la SORTIE RÉELLE d'un
+    // `--dry-run` en CI. D'où ce test : il compare l'affichage à l'appel.
+    const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-inst-'));
+    const faux = path.join(bac, 'bin');
+    try {
+      mkdirSync(faux, { recursive: true });
+      writeFileSync(path.join(faux, 'node'), `#!/bin/sh\necho ${NODE_MINIMUM}\n`, { mode: 0o755 });
+      const chemin = [faux, process.env.PATH ?? ''].join(path.delimiter);
+
+      // AVEC un argument à transmettre : le `--` doit être là, et séparer.
+      const avec = lancer(
+        ['--dry-run', `--dir=${path.join(bac, 'r1')}`, '--non-interactive'],
+        chemin,
+      );
+      expect(avec.code, avec.sortie).toBe(0);
+      expect(avec.sortie, 'le `--` qui sépare npm de l’installeur manque').toMatch(
+        /npm run install:hive -- .*--non-interactive/,
+      );
+
+      // SANS argument : pas de `--` pendu dans le vide.
+      const sans = lancer(['--dry-run', `--dir=${path.join(bac, 'r2')}`], chemin);
+      expect(sans.code, sans.sortie).toBe(0);
+      expect(sans.sortie).toMatch(/npm run install:hive\s*$/m);
+      expect(sans.sortie, '`--` affiché sans rien à séparer').not.toMatch(
+        /npm run install:hive --\s*$/m,
+      );
+    } finally {
+      rmSync(bac, { recursive: true, force: true });
+    }
+  });
+
+  it('install.ps1 AUSSI n’affiche le `--` que s’il sépare quelque chose', () => {
+    // Le pendant du test précédent, en garde de source : `install.ps1` ne
+    // s'exécute pas ici (voir la sonde), mais son défaut était SYMÉTRIQUE — un
+    // `--` toujours présent, pendu dans le vide quand `$Reste` est vide. Les
+    // deux sortaient de la même faute : une ligne d'affichage écrite pour
+    // RESSEMBLER à la commande réelle au lieu d'en être dérivée.
+    expect(PS_NU, 'la branche « sans arguments » manque').toMatch(
+      /if\s*\(\s*\$Reste\s*\)[\s\S]*?npm run install:hive --[\s\S]*?else[\s\S]*?npm run install:hive['"]/,
+    );
   });
 
   it.runIf(shellPosix)('UNE VERSION DE NODE TROP ANCIENNE SORT EN 2, pas en 1', () => {

@@ -109,9 +109,39 @@ jobs:
         if: runner.os != 'Windows'
         run: sh install.sh --dry-run --dir="$RUNNER_TEMP/essai-hive"
 
-      - name: L'installeur une-commande démarre (Windows)
+      # DEUX POWERSHELL, PARCE QU'IL Y EN A DEUX SUR LA MACHINE DES GENS.
+      #
+      # `pwsh` est PowerShell 7 : moderne, multiplateforme, INSTALLÉ À PART.
+      # `powershell` est Windows PowerShell 5.1 : livré avec l'OS, c'est celui
+      # qu'on obtient en ouvrant « PowerShell » dans le menu Démarrer, et donc
+      # celui qui exécute réellement le script chez la plupart des gens.
+      #
+      # Ils ne lisent pas les fichiers de la même façon. Sans BOM, 5.1 décode en
+      # ANSI et rend « dÃ©tectÃ© » là où 7 rend « détecté » — un écran d'accueil
+      # en mojibake, invisible tant qu'on ne teste que `pwsh`. D'où le BOM en
+      # tête d'`install.ps1`, et d'où CE pas : la seule façon de savoir qu'il
+      # suffit est de lancer 5.1 pour de bon.
+      - name: L'installeur une-commande démarre (Windows · PowerShell 7)
         if: runner.os == 'Windows'
         run: pwsh -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive"
+
+      - name: L'installeur une-commande démarre (Windows · PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # `chcp 65001` : sans ça, la console de 5.1 est en page 850/437 et
+          # afficherait des « ? » même pour un fichier lu correctement. On veut
+          # observer le DÉCODAGE DU FICHIER, pas la limite de la console.
+          chcp 65001 > $null
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $sortie = & powershell -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive-51" 2>&1 | Out-String
+          Write-Host $sortie
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 a rendu $LASTEXITCODE sous PowerShell 5.1" }
+          # LA GARDE QUI COMPTE. « Ã » n'apparaît JAMAIS dans du français lu
+          # correctement : c'est la signature d'un UTF-8 relu en ANSI. Sans
+          # cette assertion, le pas passerait au vert en affichant du charabia.
+          if ($sortie -match 'Ã|â€') { throw "mojibake : le fichier est relu en ANSI, le BOM manque" }
+          if ($sortie -notmatch 'Vérification des prérequis') { throw "sortie inattendue sous 5.1" }
 
       - name: Build (typecheck + dashboard)
         run: npm run build

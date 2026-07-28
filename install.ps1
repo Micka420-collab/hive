@@ -1,4 +1,4 @@
-# Hive — installation en une commande (Windows).
+﻿# Hive — installation en une commande (Windows).
 #
 #   irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 | iex
 #
@@ -30,6 +30,20 @@
 #     c'est `npm.cmd`, et tout ne sait pas le lancer. PowerShell, lui, le
 #     résout correctement — c'est pour ça que ce script peut l'écrire ainsi
 #     alors que le code Node du projet, non.
+#
+# ─── CE FICHIER COMMENCE PAR UN BOM UTF-8, ET CE N'EST PAS UN ACCIDENT ───────
+#
+# Windows PowerShell 5.1 — celui que TOUT LE MONDE a, `powershell.exe`, celui
+# que `#Requires -Version 5.1` juste en dessous prétend servir — lit un fichier
+# SANS BOM avec la page de codes ANSI, pas en UTF-8. « détecté » y devient
+# « dÃ©tectÃ© », « — » devient « â€” », et l'abeille disparaît. PowerShell 7,
+# lui, suppose UTF-8 : c'est pour ça que la CI passait au vert sans que rien
+# ne se voie.
+#
+# Le BOM est ce qui met les deux d'accord. Un pas de CI le vérifie sous
+# `powershell` (5.1) ET sous `pwsh` (7), et `tests/installeurs.test.ts` exige
+# ses trois octets — un BOM est invisible, et le premier éditeur venu l'ôte
+# sans le dire.
 #
 # Codes de sortie — les MÊMES que `src/codes-sortie.ts` :
 #   0 succès · 1 erreur · 2 prérequis manquant · 3 réponse manquante
@@ -110,7 +124,7 @@ if ($majeur -lt $NODE_MIN) {
   Dire ''
   exit $CODE_PREREQUIS
 }
-Ok "Node $majeur (>= $NODE_MIN exige)"
+Ok "Node $majeur (≥ $NODE_MIN exigé)"
 
 # ─── 2. Récupérer Hive — sans jamais écraser un travail en cours ────────────
 
@@ -175,7 +189,16 @@ if ($DryRun) {
   Alerte "--dry-run : l'installeur n'est pas lancé."
   Dire ''
   Dire '  Sans -DryRun, la suite serait :'
-  Dire "    cd $Dir; npm run install:hive -- $($Reste -join ' ')"
+  # Le `--` ne s'affiche QUE s'il sépare quelque chose : sans arguments, cette
+  # ligne rendait « npm run install:hive -- » avec un séparateur pendu dans le
+  # vide. C'est le défaut symétrique de celui d'`install.sh`, qui lui OUBLIAIT
+  # le `--`. Les deux sont sortis du même endroit : une ligne écrite pour
+  # ressembler à la commande réelle au lieu d'être dérivée d'elle.
+  if ($Reste) {
+    Dire "    cd $Dir; npm run install:hive -- $($Reste -join ' ')"
+  } else {
+    Dire "    cd $Dir; npm run install:hive"
+  }
   Dire ''
   exit 0
 }
