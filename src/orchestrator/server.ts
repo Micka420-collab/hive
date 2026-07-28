@@ -40,6 +40,7 @@ import {
   motifDicible,
   tirerSecret,
 } from '../shared/acces.js';
+import { Registre } from './guetteuses.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -428,6 +429,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
+
+  // Les guetteuses observent en mémoire : une table qui grossirait à chaque
+  // requête d'un scanner offrirait à l'attaquant de quoi remplir le disque de
+  // sa victime.
+  const guet = new Registre();
 
   const nodeSockets = new Map<string, WebSocket>();
   const dashboardSockets = new Set<WebSocket>();
@@ -2890,6 +2896,38 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   // Hive Pulse : signes vitaux agrégés (débit, latence p50/p95, taux de succès,
   // nœuds actifs) par repli du journal. Lecture seule ; pagination interne bornée.
+  // ─── Les Guetteuses ────────────────────────────────────────────────────────
+  //
+  // Elles ne ferment aucune porte : elles rendent le reniflage BRUYANT. Sans
+  // elles, quelqu'un peut passer une nuit à chercher un `.env` ou un
+  // `/phpmyadmin` sur une ruche exposée sans que son propriétaire l'apprenne
+  // jamais. Le renseignement précède l'intrusion ; le voir, c'est gagner le
+  // temps de réagir avant que quoi que ce soit de coûteux n'arrive.
+  app.setNotFoundHandler((req, reply) => {
+    const leurre = guet.noter(req.url, req.ip, Date.now());
+    if (leurre) {
+      // L'événement part au journal de l'hôte, jamais au visiteur : lui dire
+      // qu'il a touché un leurre lui apprendrait à les éviter.
+      emitEvent('guet_leurre', {
+        chemin: leurre.chemin,
+        appat: leurre.appat,
+        intention: leurre.intention,
+      });
+    }
+    // La réponse est EXACTEMENT celle d'un 404 ordinaire. Un leurre qui se
+    // signale — par un message, un délai, un en-tête — cesse d'être un leurre.
+    return reply.code(404).send({ error: 'introuvable' });
+  });
+
+  /**
+   * Ce que les guetteuses ont vu. Réservé à l'hôte : c'est un renseignement
+   * sur qui s'intéresse à sa ruche.
+   */
+  app.get('/api/guet', async (req, reply) => {
+    if (!authorized(req)) return reply.status(401).send({ error: 'Non autorisé' });
+    return reply.send({ ...guet.verdict(Date.now()), derniers: guet.derniers() });
+  });
+
   app.get('/api/pulse', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     const events: HiveEvent[] = [];

@@ -193,6 +193,32 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **🐝 Les Guetteuses — rendre une intrusion BRUYANTE** (module pur
+  `src/orchestrator/guetteuses.ts`, route `GET /api/guet`, événement
+  `guet_leurre`). **Elles ne ferment aucune porte de plus, et ne prétendent pas
+  le faire** : il n'existe pas de sécurité inviolable, et un projet qui le
+  prétendrait rendrait le pire service à ses utilisateurs — on baisse la garde
+  devant ce qu'on croit imprenable. Ce qui manquait est ailleurs : quelqu'un
+  pouvait passer une nuit à sonder une ruche exposée — chercher un `.env`, un
+  `/phpmyadmin`, une sauvegarde oubliée — **sans que son propriétaire
+  l'apprenne jamais**. Le renseignement précède l'intrusion ; le voir, c'est
+  gagner le temps de révoquer un billet ou de couper une écoute publique avant
+  que quoi que ce soit de coûteux n'arrive. Seize chemins-leurres qu'**aucun**
+  client légitime ne demande (ni le dashboard, ni la CLI, ni un nœud), la
+  normalisation des contournements usuels (`//.env`, `/./.env`, `%2E`, casse,
+  antislash), et trois niveaux — calme, reniflage, balayage — chacun avec la
+  marche à suivre. **L'invariant qui décide de tout est le zéro faux positif** :
+  une alerte qui se trompe est une alerte qu'on apprend à ignorer, donc pire
+  que rien puisqu'elle donne l'illusion d'une surveillance. Un test relit les
+  routes réellement déclarées par `server.ts` et vérifie qu'**aucun leurre n'en
+  croise une**. La réponse servie est **exactement** le 404 ordinaire : un
+  leurre qui se signale cesse d'être un leurre. Le registre vit en mémoire et
+  est **borné** — une table qui grossirait à chaque requête d'un scanner lui
+  offrirait de quoi remplir le disque de sa victime. Et rien n'est **bloqué**
+  automatiquement : derrière un reverse proxy, toutes les requêtes viennent de
+  la même adresse, et un blocage y couperait tout le monde sur la foi d'un seul
+  visiteur curieux.
+
 - **Un billet refusé dit pourquoi — et l'oracle temporel qui traînait est
   fermé** (`docs/adr/0005`). « Billet refusé » sans raison était le cas d'échec
   le plus fréquent du chemin « rejoindre » et le plus vexant : quelqu'un colle
