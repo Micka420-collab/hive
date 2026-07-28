@@ -5826,8 +5826,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           case 'task_update':
             scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
             break;
-          case 'task_result':
-            scheduler.handleTaskResult(nodeId, {
+          case 'task_result': {
+            // ─── LE HUB SAVAIT DIRE NON, ET NE LE DISAIT JAMAIS ──────────────
+            //
+            // `handleTaskResult` rend `false` quand il écarte le résultat —
+            // tâche inconnue, ou assignation périmée (réaffectée, annulée, déjà
+            // close). Il journalise (`result_ignored`), donc un humain peut le
+            // voir. LE NŒUD, LUI, N'APPRENAIT RIEN : il avait fait tourner son
+            // agent, remonté un diff, et repartait convaincu d'avoir livré.
+            //
+            // `ErrorMsg` existe dans le protocole depuis toujours, le client le
+            // parse et le journalise (`erreur du hub : …`). Il n'était émis
+            // NULLE PART. Le hub avait une bouche et ne s'en servait pas.
+            //
+            // Ce que le message dit ne révèle rien : le nœud connaît déjà le
+            // `taskId` qu'il vient d'envoyer.
+            const pris = scheduler.handleTaskResult(nodeId, {
               taskId: msg.taskId,
               success: msg.success,
               diff: msg.diff,
@@ -5835,7 +5849,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               durationMs: msg.durationMs,
               subAgents: msg.subAgents,
             });
+            if (!pris) {
+              send(ws, {
+                type: 'error',
+                message: `résultat de ${msg.taskId} écarté : tâche inconnue ou assignation périmée`,
+              });
+            }
             break;
+          }
           case 'task_reject':
             // Refus d'assignation (saturation, ou agent en panne → infra) :
             // requeue sans brûler de tentative ; le token-failover gère l'infra.
@@ -5858,17 +5879,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               break;
             }
             const pending = pendingMerges.get(msg.mergeId);
-            if (pending) {
-              mergeResults.set(pending.projectId, msg);
-              pendingMerges.delete(msg.mergeId);
-              emitEvent('merge_completed', {
-                projectId: pending.projectId,
-                mergeId: msg.mergeId,
-                applied: msg.applied.length,
-                conflicts: msg.conflicts.length,
-                testsPassed: msg.testsPassed,
+            if (!pending) {
+              // ─── LE TRAVAIL QUI DISPARAISSAIT SANS UN MOT ──────────────────
+              //
+              // Un merge que le hub ne connaît plus était ignoré ICI, en
+              // silence : pas de réponse au nœud, PAS MÊME UN ÉVÉNEMENT. Or ce
+              // nœud vient de faire tourner un vrai merge sur le dépôt de
+              // quelqu'un — il a pu appliquer des diffs, lancer des tests,
+              // pousser des commits.
+              //
+              // Le cas arrive tout seul : le hub déclare orphelin un merge dont
+              // le nœud s'est tu trop longtemps (`failMerge`), le nœud finit
+              // quand même, et son résultat tombe dans le vide. De son côté :
+              // « merge terminé ». Du côté humain : rien, jamais.
+              //
+              // Deux destinataires, parce qu'ils ont chacun besoin de le
+              // savoir : le nœud, pour cesser de croire son travail pris en
+              // compte ; le journal, pour qu'un humain puisse relier « j'ai vu
+              // le merge tourner » à « la ruche n'en a pas voulu ».
+              send(ws, {
+                type: 'error',
+                message: `merge ${msg.mergeId} inconnu du hub (expiré ou déjà clos) — résultat ignoré`,
               });
+              emitEvent('merge_result_ignored', { mergeId: msg.mergeId, nodeId });
+              break;
             }
+            mergeResults.set(pending.projectId, msg);
+            pendingMerges.delete(msg.mergeId);
+            emitEvent('merge_completed', {
+              projectId: pending.projectId,
+              mergeId: msg.mergeId,
+              applied: msg.applied.length,
+              conflicts: msg.conflicts.length,
+              testsPassed: msg.testsPassed,
+            });
             break;
           }
           default:
