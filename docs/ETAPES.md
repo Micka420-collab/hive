@@ -21,7 +21,7 @@
 | 4   | Relançable **n fois** sans effet de bord                                 | ✅   | `tests/installer.test.ts` (27 tests) : « préserve chaque valeur existante », « complète les clés absentes sans toucher aux autres ».                         |
 | 5   | Fonctionne **sans TTY** (CI, ssh, pipe)                                  | ✅   | `tests/tui-terminal.test.ts`.                                                                                                                                |
 | 6   | `NO_COLOR=1`, `TERM=dumb`, 80 colonnes                                   | ✅   | `tests/tui-rendu.test.ts` + `tests/reglages-documentes.test.ts`, sur un module pur.                                                                          |
-| 7   | **CI verte sur `ubuntu-latest` ET `windows-latest`**                     | ✅   | Atteint. macOS reste à ouvrir (lot 6 en demande 3).                                                                                                          |
+| 7   | **CI verte sur `ubuntu-latest` ET `windows-latest`**                     | ✅   | Atteint. macOS ouverte à son tour (lot 6 en demande 3) — en cours de vérification.                                                                           |
 | 8   | `hive doctor` diagnostique **10 causes** + quoi faire                    | ✅   | **12** diagnostics, un test par cas, panne **et** sain.                                                                                                      |
 | 9   | Déploiement **sans écran** : `--non-interactive` + env + codes de sortie | 🟡   | Drapeaux et codes existent (`src/args.ts`, `src/codes-sortie.ts`). **`examples/` ne contient que `projet-exemple.json`** — le script de bout en bout manque. |
 | 10  | README **FR et EN** + `CHANGELOG.md` à jour                              | ✅   | Les trois existent et sont tenus.                                                                                                                            |
@@ -41,7 +41,7 @@ premiers sont la porte d'entrée du projet.
 | 3   | Chemin B (billet) branché sur `join.ts`                              | ✅   | Un ami rejoint sans éditer un fichier.                                                     |
 | 4   | Mode non-interactif, drapeaux, codes de sortie, `--dry-run`          | 🟡   | Implémenté et testé (`tests/args.test.ts`) ; pas de script reproductible dans `examples/`. |
 | 5   | `hive doctor` + `--json`                                             | ✅   | 12 diagnostics.                                                                            |
-| 6   | ACL Windows, chemins, **matrice CI 3 OS**                            | 🟡   | Windows fait et vert. **macOS absent.**                                                    |
+| 6   | ACL Windows, chemins, **matrice CI 3 OS**                            | 🟡   | Windows fait et vert. macOS ajoutée — verdict en attente.                                  |
 | 7   | Paquet npm + `bin` + provenance                                      | 🚫   | **Bloqué** — compte npm de l'utilisateur.                                                  |
 | 8   | `install.ps1`, `install.sh`, empreintes, Release                     | ⛔   | **Rien n'existe.**                                                                         |
 | 9   | Service (systemd user / tâche planifiée / launchd) + désinstallation | ⛔   | **Rien n'existe.**                                                                         |

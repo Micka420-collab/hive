@@ -3,7 +3,7 @@ name: CI
 # Intégration continue de Hive : à chaque push sur main et sur chaque PR, on
 # vérifie la qualité (lint + format), le typage, les tests et le build.
 #
-# ─── POURQUOI DEUX SYSTÈMES, ET PAS UN ───────────────────────────────────────
+# ─── POURQUOI TROIS SYSTÈMES, ET PAS UN ──────────────────────────────────────
 #
 # Le dépôt annonce Windows partout : le README, l'installeur, la matrice de
 # distribution (§7.2 de la mission), et jusqu'au code — `hive doctor` rend
@@ -12,13 +12,22 @@ name: CI
 # vérifier qu'en passant `'win32'` en paramètre, c'est-à-dire en se croyant sur
 # parole.
 #
-# C'est le même défaut que partout ailleurs dans ce dépôt, une couche plus
-# haut : une promesse écrite que rien n'exerce. Le critère 7 du definition of
-# done l'exigeait depuis le début — « CI verte sur ubuntu-latest ET
-# windows-latest ».
+# CE QUE L'OUVRIR A COÛTÉ, ET RAPPORTÉ. Neuf allers-retours, et cinq défauts
+# RÉELS qu'aucune relecture n'aurait trouvés : `npm ci` inopérant sur tout nœud
+# Windows (un `.cmd` ne se lance pas sans interpréteur), un clone qui attendait
+# des identifiants POUR TOUJOURS, une borne d'élagage qui gardait ZÉRO ligne au
+# lieu de deux, une variante `.cmd` qui ne pouvait pas aboutir dans la détection
+# d'agent, et sept avis de sécurité dont un réel. Le détail est dans
+# `docs/ERREURS.md`.
 #
-# `fail-fast: false` : si les deux cassent, on veut les DEUX rapports. Arrêter
-# l'autre au premier échec transformerait deux diagnostics en un seul.
+# MACOS EST LA TROISIÈME, et le lot 6 la demandait depuis le début (« CI verte
+# sur les 3 OS »). Ce n'est pas de la symétrie : c'est là que vivent `launchd`
+# — le lot 9 en dépend et s'écrirait à l'aveugle sans elle —, un système de
+# fichiers INSENSIBLE À LA CASSE par défaut, et l'absence de tout moteur de
+# conteneurs sur les runners. Trois différences que rien n'exerce aujourd'hui.
+#
+# `fail-fast: false` : si plusieurs cassent, on veut TOUS les rapports. Arrêter
+# les autres au premier échec transformerait trois diagnostics en un seul.
 
 on:
   push:
@@ -49,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
