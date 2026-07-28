@@ -120,6 +120,60 @@ describe('calculerPheromones', () => {
     expect(traces[0]?.score).toBe(7.07);
   });
 
+  it('UNE HORLOGE EN RETARD N’AMPLIFIE PAS UN DÉPÔT', () => {
+    // Trouvé en MUTANT : retirer le `Math.max(0, …)` de l'âge ne rougissait
+    // aucun test. Un âge NÉGATIF traverse `exp(−ln2 · âge / demi-vie)` en
+    // AMPLIFIANT le dépôt au lieu de l'évaporer : un résultat « du futur »
+    // pèserait plus lourd que le travail réellement fait, et gagnerait un
+    // départage qu'il n'a pas mérité.
+    //
+    // Le cas n'a rien de tordu : `now` est un PARAMÈTRE, calculé une fois par
+    // tour de Scheduler. Un résultat inséré pendant ce tour porte un
+    // `createdAt` postérieur au `now` du tour.
+    const now = 100 * JOUR_MS;
+    const frais = calculerPheromones(
+      taches,
+      [{ taskId: 't-api-1', nodeId: 'n1', success: true, createdAt: now }],
+      now,
+    );
+    const duFutur = calculerPheromones(
+      taches,
+      [{ taskId: 't-api-1', nodeId: 'n1', success: true, createdAt: now + 30 * JOUR_MS }],
+      now,
+    );
+    expect(frais[0]?.score).toBe(10);
+    expect(duFutur[0]?.score, 'un dépôt du futur pèse plus qu’un dépôt frais').toBe(10);
+  });
+
+  it('L’ORDRE DE SORTIE NE DÉPEND PAS DE L’ORDRE D’ENTRÉE', () => {
+    // Trouvé en MUTANT : retirer le départage par nodeId puis domaine ne
+    // rougissait rien. `Array.sort` étant stable, l'ordre d'insertion tenait
+    // lieu de départage — donc l'ordre des RÉSULTATS décidait de l'ordre des
+    // traces, et deux appels sur le même corpus lu dans un autre ordre
+    // rendaient deux classements différents.
+    //
+    // La fonction est annoncée déterministe et son résultat s'affiche ; un
+    // tableau qui se réordonne tout seul entre deux rafraîchissements se lit
+    // comme un changement réel alors que rien n'a bougé.
+    const now = 1_000_000;
+    const depots = [
+      { taskId: 't-ui-1', nodeId: 'n2', success: true, createdAt: now },
+      { taskId: 't-api-1', nodeId: 'n1', success: true, createdAt: now },
+      { taskId: 't-api-1', nodeId: 'n3', success: true, createdAt: now },
+    ];
+    const cle = (l: TraceePheromone[]) => l.map((t) => `${t.nodeId}|${t.domaine}|${t.score}`);
+    const attendu = cle(calculerPheromones(taches, depots, now));
+    // Les trois scores sont ÉGAUX : c'est le seul cas où le départage décide.
+    expect(new Set(attendu.map((k) => k.split('|')[2])).size, 'scores à égalité').toBe(1);
+    for (const permutation of [
+      [depots[1]!, depots[2]!, depots[0]!],
+      [depots[2]!, depots[0]!, depots[1]!],
+      [...depots].reverse(),
+    ]) {
+      expect(cle(calculerPheromones(taches, permutation, now))).toEqual(attendu);
+    }
+  });
+
   it('ignore un résultat dont la tâche est inconnue (purgée)', () => {
     const traces = calculerPheromones(
       taches,
