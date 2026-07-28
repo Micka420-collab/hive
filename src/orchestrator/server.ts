@@ -241,6 +241,36 @@ export const MAX_LIVRAISONS_LUES = 20;
 const GARDIENNES_RETENTION = 5_000;
 
 /**
+ * Grâce avant d'effacer un BILLET MORT (révoqué, expiré ou épuisé).
+ *
+ * ─── POURQUOI UNE GRÂCE, ET POURQUOI CELLE-CI ────────────────────────────────
+ *
+ * Un billet mort n'ouvre plus rien : `pruneAcces` ne touche jamais un billet
+ * vivant, et un billet ABSENT est refusé exactement comme un billet révoqué —
+ * l'effacer ne peut donc pas rouvrir un accès. Un test le vérifie plutôt que de
+ * le supposer, parce que c'est le seul point où cet élagage pourrait nuire.
+ *
+ * La grâce ne sert donc pas à la sûreté, elle sert à RÉPONDRE : un mois durant,
+ * l'hôte qui liste ses billets voit encore « révoqué le 3 » plutôt qu'un trou.
+ * Passé ce délai, la question ne se pose plus et la ligne ne mérite plus de
+ * place — surtout que c'est un identifiant mort qui dort sur le disque.
+ */
+const ACCES_GRACE_MS = 30 * 24 * 60 * 60 * 1_000;
+
+/** Même raisonnement pour les liens de partage éteints (voir `ACCES_GRACE_MS`). */
+const PARTAGES_GRACE_MS = 30 * 24 * 60 * 60 * 1_000;
+
+/**
+ * Machines SUPPRIMÉES qu'on garde en mémoire.
+ *
+ * `pruneServeurs` ne touche jamais une ligne dans un autre état : élaguer une
+ * machine encore allumée perdrait la seule trace de ce qu'on paie, et plus
+ * personne ne saurait l'éteindre. Ce qui reste ici, ce sont des machines déjà
+ * effacées — assez pour relire l'historique récent d'une facture, pas plus.
+ */
+const SERVEURS_SUPPRIMES_CONSERVES = 200;
+
+/**
  * Mémoïsation de /api/pheromones : le repli est identique d'une seconde à
  * l'autre (corpus de 500 résultats, demi-vie de 7 jours). Sans ce TTL, N
  * dashboards en polling déclenchaient N calculs concurrents sur le même tick.
@@ -5956,6 +5986,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
       store.pruneTachesIssue();
       store.pruneConseils(CONSEILS_CONSERVES);
+      // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
+      //
+      // `pruneAcces`, `prunePartages` et `pruneServeurs` existaient, documentés
+      // avec soin, et n'étaient appelés QUE par des tests — pour le troisième,
+      // par personne. Trois tables grandissaient donc sans borne, dont deux qui
+      // gardaient des IDENTIFIANTS MORTS sur disque pour toujours.
+      //
+      // C'est exactement ce que le commentaire ci-dessus promettait déjà : « la
+      // borne est CÂBLÉE, pas seulement écrite ». Elle l'est maintenant, et un
+      // test tient la règle pour toutes les bornes à venir.
+      //
+      // Les trois ne suppriment que des lignes DÉJÀ MORTES — billet révoqué,
+      // lien éteint, machine effacée. Aucune ne peut rouvrir quoi que ce soit,
+      // et c'est vérifié plutôt que supposé.
+      store.pruneAcces(ACCES_GRACE_MS);
+      store.prunePartages(PARTAGES_GRACE_MS);
+      store.pruneServeurs(SERVEURS_SUPPRIMES_CONSERVES);
       // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
       // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
       scruterConseils();
