@@ -346,8 +346,34 @@ les deux versions d'accord.
 > premier éditeur venu peut ôter sans le dire.
 >
 > **Règle** — un pas de CI qui vérifie un ENCODAGE doit refuser le charabia
-> explicitement (`if ($sortie -match 'Ã|â€') { throw }`). Sans ça il reste
-> vert en affichant n'importe quoi — voir § 1.3.
+> explicitement. Sans ça il reste vert en affichant n'importe quoi — voir
+> § 1.3.
+
+### 6.7 — La garde s'est fait mordre par ce qu'elle gardait
+
+Le pas de CI du § 6.6 cherchait le charabia en écrivant `'Ã|â€'` et
+`'Vérification des prérequis'` tels quels. **Il a rendu une `ParserError`.**
+
+Parce que GitHub Actions écrit le contenu d'un bloc `run:` dans un fichier
+`.ps1` **temporaire — lui aussi sans BOM** — avant de le donner à
+`powershell.exe`. Mon `Ã` y est devenu `Ãƒ`, mon `â€` est devenu `Ã¢â‚¬`, le
+guillemet s'est retrouvé cassé, et l'analyseur a refusé le script.
+
+Le défaut que ce pas traque a donc mordu le pas lui-même, au premier essai.
+C'était la meilleure démonstration possible qu'il valait la peine d'exister —
+et la leçon est plus large qu'`install.ps1` : **tout** bloc `run:` sous
+`shell: powershell` subit le même décodage. Un fichier commité peut porter un
+BOM ; un bloc `run:` ne le peut pas.
+
+> **Règle** — le corps d'un `run:` sous `shell: powershell` s'écrit en **ASCII
+> pur**. Les caractères accentués sur lesquels on veut assener quelque chose se
+> construisent par point de code (`[char]0x00C3`), jamais en littéral. La prose
+> française va dans un commentaire **YAML**, hors du `run:` — le runner lit le
+> workflow en UTF-8, c'est seulement le script extrait qui perd l'information.
+>
+> **Règle** — préférer la preuve **positive** à la preuve négative. « Aucun
+> `Ã` » peut être vrai d'une sortie vide ; « un `é` a survécu » ne peut pas.
+> Les deux assertions cohabitent, mais c'est la seconde qui porte.
 
 ---
 
