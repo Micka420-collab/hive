@@ -18,6 +18,33 @@ import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+/**
+ * Cette machine sait-elle créer un lien symbolique ?
+ *
+ * Faux sous Windows sans mode développeur : `symlinkSync` y lève EPERM.
+ *
+ * ─── POURQUOI LA QUESTION SE POSE ICI, AU CHARGEMENT DU MODULE ───────────────
+ *
+ * `it.runIf(...)` est évalué à la COLLECTE, avant que `beforeAll` n'ait tourné.
+ * Ma première version posait ce drapeau dans `beforeAll` : il valait donc
+ * toujours `false` à la collecte, et les trois tests d'évasion par lien étaient
+ * silencieusement désactivés SUR TOUTES LES PLATEFORMES, Linux compris.
+ *
+ * Une garde de sécurité qu'on croit tenue et qui ne tourne nulle part est pire
+ * que pas de garde du tout. La sonde se fait donc ici, une fois, au chargement.
+ */
+const liensPossibles = ((): boolean => {
+  const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-lien-'));
+  try {
+    symlinkSync(bac, path.join(bac, 'essai'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(bac, { recursive: true, force: true });
+  }
+})();
 import { Miroir, RayonIndisponible } from '../src/orchestrator/miroir.js';
 import { TAILLE_MAX_FICHIER } from '../src/shared/rayon.js';
 
@@ -56,8 +83,19 @@ describe('le miroir, sur un vrai dépôt', () => {
     // Une image : du binaire, avec un octet nul dès le début.
     writeFileSync(path.join(depotAmont, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x00, 0x47]));
     // LES LIENS SYMBOLIQUES — le cœur de ce fichier.
-    symlinkSync('/etc', path.join(depotAmont, 'evasion'));
-    symlinkSync('/etc/hostname', path.join(depotAmont, 'src', 'vole.txt'));
+    //
+    // Sous Windows, en créer un demande le mode développeur ou des droits
+    // d'administration. Sans eux, `symlinkSync` lève EPERM, le lien n'existe
+    // pas, et les tests qui suivent verraient « introuvable » là où ils
+    // attendent « refuse » — un ROUGE QUI NE VEUT RIEN DIRE, parce qu'il
+    // n'aurait rien exercé du tout.
+    //
+    // On constate donc la capacité, et on la RAPPORTE. Le test qui ne peut pas
+    // tourner le dit ; il ne se déclare pas vert.
+    if (liensPossibles) {
+      symlinkSync('/etc', path.join(depotAmont, 'evasion'));
+      symlinkSync('/etc/hostname', path.join(depotAmont, 'src', 'vole.txt'));
+    }
     await git.add('.');
     await git.commit('base');
 
@@ -97,17 +135,40 @@ describe('le miroir, sur un vrai dépôt', () => {
   });
 
   describe('LES LIENS SYMBOLIQUES — ce que la règle pure ne peut pas voir', () => {
-    it('un lien vers un DOSSIER hors du rayon ne se liste pas', async () => {
+    it('CETTE MACHINE SAIT-ELLE EN CRÉER ? — la question doit être posée', () => {
+      // On ne peut pas vérifier une garde contre les liens symboliques sur une
+      // machine qui n'en crée pas. Le dire est la seule chose honnête : un
+      // `skip` muet laisserait croire que la garantie est établie partout.
+      //
+      // Sous Windows sans mode développeur, `symlinkSync` lève EPERM. La garde
+      // du miroir, elle, reste en place — c'est sa VÉRIFICATION qui manque.
+      if (!liensPossibles) {
+        console.warn(
+          '⚠ liens symboliques indisponibles sur cette plateforme : ' +
+            'la garde du miroir contre l’évasion par lien N’EST PAS vérifiée ici. ' +
+            'Elle l’est sur Linux, à chaque CI.',
+        );
+      }
+      // SUR LINUX, LA SONDE DOIT DIRE OUI. Sans cette assertion, une sonde
+      // cassée désactiverait les trois tests d'évasion partout — et la suite
+      // resterait verte. C'est exactement ce qui est arrivé à ma première
+      // version, et rien ne l'aurait dit.
+      if (process.platform !== 'win32') {
+        expect(liensPossibles, 'la sonde doit réussir sur un système POSIX').toBe(true);
+      }
+    });
+
+    it.runIf(liensPossibles)('un lien vers un DOSSIER hors du rayon ne se liste pas', async () => {
       // `evasion → /etc` est un chemin relatif irréprochable. Seul le disque
       // sait où il mène.
       expect(await motif(miroir.lister(PROJET, 'evasion'))).toBe('refuse');
     });
 
-    it('UN LIEN VERS UN FICHIER HORS DU RAYON NE SE LIT PAS', async () => {
+    it.runIf(liensPossibles)('UN LIEN VERS UN FICHIER HORS DU RAYON NE SE LIT PAS', async () => {
       expect(await motif(miroir.lire(PROJET, 'src/vole.txt'))).toBe('refuse');
     });
 
-    it('et on ne peut pas non plus le traverser', async () => {
+    it.runIf(liensPossibles)('et on ne peut pas non plus le traverser', async () => {
       expect(await motif(miroir.lire(PROJET, 'evasion/hostname'))).toBe('refuse');
       expect(await motif(miroir.lire(PROJET, 'evasion/passwd'))).toBe('refuse');
     });

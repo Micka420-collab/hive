@@ -44,8 +44,18 @@ jobs:
           node-version: '20'
           cache: npm
 
+      # `--foreground-scripts` rend VISIBLE ce que font les scripts d'install.
+      # Sans lui, l'échec du module natif de `better-sqlite3` — qui est une
+      # dépendance OPTIONNELLE, donc silencieusement abandonnée — n'apparaît
+      # nulle part, et on hérite de 68 fichiers de test qui échouent à l'import
+      # sans qu'aucune ligne du journal n'explique pourquoi.
       - name: Installer les dépendances
-        run: npm ci
+        run: npm ci --foreground-scripts
+
+      # Et on DIT ce qui a atterri. Un `npm ci` vert avec Fastify et SQLite
+      # absents est le pire des deux : tout a l'air d'aller.
+      - name: Ce que les dépendances optionnelles ont donné
+        run: node scripts/deps-optionnelles.mjs
 
       - name: Lint (ESLint + Prettier)
         run: npm run lint

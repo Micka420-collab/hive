@@ -96,6 +96,28 @@ function envGit(): NodeJS.ProcessEnv {
 }
 
 /**
+ * LE MIROIR MONTRE LE CODE TEL QU'IL EST DANS LE DÉPÔT.
+ *
+ * Sous Windows, `core.autocrlf` vaut `true` par défaut : git réécrit les fins
+ * de ligne à la sortie. Le miroir servirait alors un code que le dépôt ne
+ * contient pas — un octet de plus par ligne.
+ *
+ * Ce n'est pas cosmétique. L'Aperçu inline feuilles et scripts en comparant des
+ * CHAÎNES ; la lecture de diff travaille ligne à ligne ; et une empreinte
+ * calculée sur ce contenu changerait selon le système de l'hôte. **Deux ruches
+ * sur le même dépôt ne verraient pas le même code.**
+ *
+ * Découvert en ouvrant la CI Windows : le test du miroir a rendu
+ * « export const a = 1;\r\n » là où le dépôt contient « \n ».
+ *
+ * Passé en `-c` plutôt qu'en variable d'environnement : `simple-git` bloque
+ * `GIT_CONFIG_COUNT` par défaut (`allowUnsafeConfigEnvCount`), et cette
+ * protection-là est bonne — on ne la désactive pas pour un réglage qu'une
+ * option porte très bien.
+ */
+const CONFIG_GIT = ['core.autocrlf=false'];
+
+/**
  * Le miroir des dépôts, un répertoire par projet.
  *
  * Les rafraîchissements en vol sont mémorisés : deux requêtes simultanées sur
@@ -154,14 +176,16 @@ export class Miroir {
       // `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
       // préserver, et un `pull` qui tomberait sur un rebase amont resterait
       // bloqué sur un conflit que personne n'est là pour résoudre.
-      const git = simpleGit({ baseDir: dir }).env(envGit());
+      const git = simpleGit({ baseDir: dir, config: CONFIG_GIT }).env(envGit());
       await git.fetch(['--depth', '1', 'origin']);
       const tete = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim() || 'HEAD';
       await git.raw(['reset', '--hard', `origin/${tete}`]);
       return;
     }
     await fs.mkdir(path.dirname(dir), { recursive: true });
-    await simpleGit().env(envGit()).clone(repoUrl, dir, ['--depth', '1', '--no-tags']);
+    await simpleGit({ config: CONFIG_GIT })
+      .env(envGit())
+      .clone(repoUrl, dir, ['--depth', '1', '--no-tags']);
   }
 
   /**
