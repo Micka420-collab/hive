@@ -161,6 +161,7 @@ export function contexteReel(racine: string, env: NodeJS.ProcessEnv = process.en
     dbPath: dit(env.HIVE_DB) ?? path.join(racine, 'data', 'hive.db'),
     workdir: dit(env.HIVE_WORKDIR) ?? path.join(racine, '.hive-work'),
     tmpdir: os.tmpdir(),
+    home: os.homedir(),
     plateforme: process.platform,
   };
 }
