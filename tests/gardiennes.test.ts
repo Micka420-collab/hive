@@ -275,6 +275,24 @@ describe('Gardiennes : les logs qui crient', () => {
     expect(lignesQuiCrient(vertes.join('\n'))).toEqual([]);
   });
 
+  it('LE CONTRE-MOTIF SERT VRAIMENT — « échoué » et « 0 erreur » sur la MÊME ligne', () => {
+    // Trouvé en MUTANT : retirer `!MOTIF_ANODIN.test(…)` ne rougissait aucun
+    // test. La raison est instructive — aucune ligne de la liste ci-dessus ne
+    // déclenche le motif d'échec DUR, donc aucune n'atteignait jamais le
+    // contre-motif. On testait la porte de secours sans jamais y passer.
+    //
+    // Ces deux lignes-ci, si : elles portent le vocabulaire de l'échec ET son
+    // démenti chiffré. Vérifié en retirant le contre-motif — ce sont
+    // exactement celles-là, et elles seules, qui changent de camp.
+    for (const verte of ['compilation failed: 0 errors', 'build failed with 0 errors']) {
+      expect(lignesQuiCrient(verte), verte).toEqual([]);
+    }
+    // …et le démenti doit être CHIFFRÉ à zéro : sinon la ligne crie.
+    for (const rouge of ['compilation failed: 3 errors', 'build failed with 12 errors']) {
+      expect(lignesQuiCrient(rouge), rouge).toEqual([rouge]);
+    }
+  });
+
   it('les séquences ANSI ne cachent pas une ligne d’erreur (nettoyage partagé avec la Couveuse)', () => {
     expect(lignesQuiCrient('[31mnpm ERR! boom[0m')).toEqual(['npm ERR! boom']);
   });
