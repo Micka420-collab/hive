@@ -38,23 +38,168 @@ REF="${HIVE_REF:-main}"
 CODE_ERREUR=1
 CODE_PREREQUIS=2
 
-# ─── Affichage : lisible partout, y compris sans couleur ni TTY ──────────────
+# ═══ LA CHARTE, TENUE ICI AUSSI ══════════════════════════════════════════════
 #
-# `NO_COLOR` est respecté (norme informelle, https://no-color.org), et l'absence
-# de TTY suffit à couper les couleurs : un journal de CI plein de séquences ANSI
-# est plus dur à lire qu'un journal nu.
+# La marque de Hive est ÉCRITE, dans `src/tui/rendu.ts`, et `tui-rendu.test.ts`
+# l'exerce. Les deux installeurs en étaient les seules pièces qui ne la
+# respectaient pas : ils peignaient en vert, jaune et rouge.
+#
+# Trois accents, c'est-à-dire aucun. La charte (§6.1) le dit sans détour :
+# « deux accents, c'est zéro accent — plus rien ne ressort ». Un seul ton
+# ressort donc, l'AMBRE ; le reste est neutre, le secondaire est atténué, et
+# c'est le SYMBOLE qui porte le sens — pas la couleur.
+#
+# Ce que ça change pour de vrai : cette sortie reste lisible SANS couleur du
+# tout. Dans un `less`, dans un journal de CI, ou pour quelqu'un qui ne
+# distingue pas le rouge du vert — c'est-à-dire environ un homme sur douze.
+#
+# `NO_COLOR` (https://no-color.org) et l'absence de TTY coupent tout.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-  GRAS=$(printf '\033[1m'); ZERO=$(printf '\033[0m')
-  VERT=$(printf '\033[32m'); ROUGE=$(printf '\033[31m'); JAUNE=$(printf '\033[33m')
+  # 256 couleurs quand le terminal l'annonce, 16 sinon. L'ambre 214 est la
+  # MÊME que celle du module pur — c'est une marque, pas une préférence.
+  case "${TERM:-}" in
+    *256color* | *truecolor* | alacritty | kitty* | wezterm*) AMBRE=$(printf '\033[38;5;214m') ;;
+    *) AMBRE=$(printf '\033[33m') ;;
+  esac
+  ATTENUE=$(printf '\033[2m'); ZERO=$(printf '\033[0m')
 else
-  GRAS=''; ZERO=''; VERT=''; ROUGE=''; JAUNE=''
+  AMBRE=''; ATTENUE=''; ZERO=''
 fi
 
+# ─── L'alphabet, et son repli ────────────────────────────────────────────────
+#
+# Chaque repli ASCII fait EXACTEMENT une colonne, sans quoi les lignes
+# cesseraient d'être alignées entre elles au premier repli.
+#
+# On considère l'UTF-8 sûr dès que la locale l'annonce. `LC_ALL` d'abord, comme
+# le veut POSIX, puis `LC_CTYPE`, puis `LANG` : c'est l'ordre de précédence
+# réel, et le prendre à l'envers ferait dessiner des cadres dans un terminal
+# qui ne sait pas les rendre.
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+  *UTF-8* | *utf8* | *UTF8* | *utf-8*) UNICODE=1 ;;
+  *) UNICODE=0 ;;
+esac
+
+if [ "$UNICODE" = 1 ]; then
+  S_FAIT='✔'; S_CURSEUR='▸'; S_AVENIR='◦'; S_ALERTE='⚠'; S_ECHEC='✘'
+  B_HG='╭'; B_HD='╮'; B_BG='╰'; B_BD='╯'; B_H='─'; B_V='│'
+  HEXAGONE='⬡'; TIRET='—'
+else
+  S_FAIT='+'; S_CURSEUR='>'; S_AVENIR='.'; S_ALERTE='!'; S_ECHEC='x'
+  B_HG='+'; B_HD='+'; B_BG='+'; B_BD='+'; B_H='-'; B_V='|'
+  HEXAGONE='<>'; TIRET='-'
+fi
+
+# Mêmes seuils que le module pur : 76 colonnes de contenu au plus, et pas de
+# cadre en dessous de 60 — ils y coûteraient plus de place qu'ils n'en donnent.
+LARGEUR=76
+if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+  COLONNES=$(tput cols 2>/dev/null || echo 80)
+  [ "$COLONNES" -lt 78 ] 2>/dev/null && LARGEUR=$((COLONNES - 2))
+fi
+[ "$LARGEUR" -lt 20 ] 2>/dev/null && LARGEUR=20
+if [ "$LARGEUR" -ge 60 ]; then CADRES=1; else CADRES=0; fi
+
 dire()    { printf '%s\n' "$*"; }
-etape()   { printf '%s▸%s %s\n' "$GRAS" "$ZERO" "$*"; }
-ok()      { printf '  %s✔%s %s\n' "$VERT" "$ZERO" "$*"; }
-alerte()  { printf '  %s▲%s %s\n' "$JAUNE" "$ZERO" "$*"; }
-echec()   { printf '  %s✘%s %s\n' "$ROUGE" "$ZERO" "$*" >&2; }
+accent()  { printf '%s%s%s\n' "$AMBRE" "$*" "$ZERO"; }
+discret() { printf '%s%s%s\n' "$ATTENUE" "$*" "$ZERO"; }
+
+etape()   { printf '\n'; printf '  %s%s%s %s\n' "$AMBRE" "$S_CURSEUR" "$ZERO" "$*"; }
+ok()      { printf '    %s %s\n' "$S_FAIT" "$*"; }
+attente() { printf '    %s%s %s%s\n' "$ATTENUE" "$S_AVENIR" "$*" "$ZERO"; }
+alerte()  { printf '    %s%s %s%s\n' "$ATTENUE" "$S_ALERTE" "$*" "$ZERO"; }
+echec()   { printf '    %s %s\n' "$S_ECHEC" "$*" >&2; }
+
+# ─── Le cadre, et la marque ──────────────────────────────────────────────────
+#
+# `barre` répète un caractère sans boucle visible : `printf` avec une largeur
+# puis substitution. Rien d'astucieux — juste ce qui marche en `sh` nu, sans
+# `seq`, sans `{1..n}`, sans bashisme.
+barre() {
+  n=$1
+  ligne=$(printf "%${n}s" '')
+  printf '%s' "$(printf '%s' "$ligne" | sed "s/ /$B_H/g")"
+}
+
+# ─── COMBIEN DE COLONNES, PAS COMBIEN D'OCTETS ───────────────────────────────
+#
+# `printf '%-*s'` complète en OCTETS. `⬡` en pèse trois pour une seule colonne :
+# la bordure droite du cadre se retrouvait deux colonnes trop à gauche, et
+# seulement sur la ligne du titre — donc un cadre de travers, visible d'un coup
+# d'œil et invisible à la relecture du code.
+#
+# (Le repli ASCII n'avait pas le défaut — `<>` fait deux octets pour deux
+#  colonnes. C'est exactement pourquoi il ne se voyait que sur une ligne.)
+#
+# On compte les octets qui NE SONT PAS des continuations UTF-8 (0x80–0xBF) :
+# c'est exactement le nombre de caractères, et ça ne dépend pas de la locale.
+#
+# `wc -m` aurait été le geste évident. Il est LOCALE-DÉPENDANT : sur une
+# machine où `fr_FR.UTF-8` n'est pas générée — un conteneur minimal, une image
+# Docker nue, exactement les machines que ce script vise — il recompte des
+# octets et le cadre repart de travers. Mesuré ici avant d'être corrigé.
+nb_colonnes() {
+  printf '%s' "$1" | LC_ALL=C tr -d '\200-\277' | LC_ALL=C wc -c | tr -d ' '
+}
+
+# Une ligne de cadre, complétée à la bonne largeur.
+#
+# Une ligne TROP LONGUE sort du cadre plutôt que de le crever : mieux vaut une
+# ligne qui déborde proprement qu'une bordure de travers, qui donne
+# l'impression d'un logiciel mal fini. Rien de ce qui va dans un cadre n'est
+# censé être long — les chemins, eux, s'affichent hors cadre.
+cadre_ligne() {
+  interieur=$((LARGEUR - 4))
+  manque=$((interieur - $(nb_colonnes "$1")))
+  if [ "$manque" -lt 0 ]; then
+    dire "  $1"
+    return
+  fi
+  printf '%s %s%s %s\n' "$B_V" "$1" "$(printf "%${manque}s" '')" "$B_V"
+}
+
+# Un cadre autour de lignes déjà composées. Rien n'en dépasse.
+cadre() {
+  if [ "$CADRES" = 0 ]; then
+    for l in "$@"; do dire "$l"; done
+    return
+  fi
+  interieur=$((LARGEUR - 4))
+  discret "$B_HG$(barre $((interieur + 2)))$B_HD"
+  for l in "$@"; do cadre_ligne "$l"; done
+  discret "$B_BG$(barre $((interieur + 2)))$B_BD"
+}
+
+# La marque : l'hexagone, le nom espacé, le sous-titre, le marqueur à droite.
+# Quatre lignes au plus, affichées UNE SEULE FOIS, en haut.
+banniere() {
+  titre="$HEXAGONE  H I V E"
+  sous="Orchestration communautaire d'agents IA"
+  marqueur='installation'
+
+  dire ''
+  if [ "$CADRES" = 0 ]; then
+    accent "$titre  $TIRET  $sous"
+    dire ''
+    return
+  fi
+  interieur=$((LARGEUR - 4))
+  # Le marqueur dit « installation » plutôt qu'un numéro de version : à cet
+  # instant le dépôt n'est pas encore là pour en donner un, et inventer une
+  # version serait mentir sur la seule ligne que tout le monde lit.
+  espace=$((interieur - $(nb_colonnes "$sous") - $(nb_colonnes "$marqueur")))
+  [ "$espace" -lt 2 ] && espace=2
+  remplissage=$(printf "%${espace}s" '')
+  comble=$((interieur - $(nb_colonnes "$titre")))
+  [ "$comble" -lt 0 ] && comble=0
+
+  discret "$B_HG$(barre $((interieur + 2)))$B_HD"
+  printf '%s %s%s%s%s %s\n' \
+    "$B_V" "$AMBRE" "$titre" "$ZERO" "$(printf "%${comble}s" '')" "$B_V"
+  cadre_ligne "$sous$remplissage$marqueur"
+  discret "$B_BG$(barre $((interieur + 2)))$B_BD"
+  dire ''
+}
 
 # ─── Options ────────────────────────────────────────────────────────────────
 #
@@ -95,9 +240,7 @@ for arg in "$@"; do
   esac
 done
 
-dire ""
-dire "${GRAS}🐝 Hive${ZERO} — installation"
-dire ""
+banniere
 
 # ─── 1. Les prérequis, et la commande exacte s'ils manquent ─────────────────
 
@@ -106,14 +249,14 @@ etape "Vérification des prérequis"
 manque() {
   echec "$1 est introuvable."
   dire ""
-  dire "  Pour l'installer :"
+  dire "      Pour l'installer :"
   case "$(uname -s)" in
-    Darwin) dire "    brew install $2" ;;
+    Darwin) accent "        brew install $2" ;;
     *)
-      if [ -f /etc/debian_version ]; then dire "    sudo apt install -y $2"
-      elif [ -f /etc/alpine-release ]; then dire "    sudo apk add $2"
-      elif [ -f /etc/fedora-release ]; then dire "    sudo dnf install -y $2"
-      else dire "    (via le gestionnaire de paquets de votre système : $2)"
+      if [ -f /etc/debian_version ]; then accent "        sudo apt install -y $2"
+      elif [ -f /etc/alpine-release ]; then accent "        sudo apk add $2"
+      elif [ -f /etc/fedora-release ]; then accent "        sudo dnf install -y $2"
+      else dire "      (via le gestionnaire de paquets de votre système : $2)"
       fi
       ;;
   esac
@@ -126,12 +269,12 @@ command -v git >/dev/null 2>&1 || manque "git" "git"
 if ! command -v node >/dev/null 2>&1; then
   echec "Node.js est introuvable."
   dire ""
-  dire "  Hive exige ${GRAS}Node ${NODE_MIN} ou plus${ZERO}. Le plus simple :"
+  dire "      Hive exige Node ${NODE_MIN} ou plus. Le plus simple :"
   dire ""
-  dire "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-  dire "    nvm install $NODE_MIN"
+  accent "        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
+  accent "        nvm install $NODE_MIN"
   dire ""
-  dire "  (ou ${GRAS}brew install node${ZERO} sur macOS, ou nodejs via votre gestionnaire de paquets)"
+  dire "      (ou brew install node sur macOS, ou nodejs via votre gestionnaire de paquets)"
   dire ""
   exit $CODE_PREREQUIS
 fi
@@ -141,12 +284,12 @@ MAJEUR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 if [ "$MAJEUR" -lt "$NODE_MIN" ] 2>/dev/null; then
   echec "Node $MAJEUR détecté — Hive exige $NODE_MIN ou plus."
   dire ""
-  dire "  Sous cette version, le module natif SQLite doit être COMPILÉ, ce qui"
-  dire "  échoue sur toute machine sans outillage C++ — en silence, parce que la"
-  dire "  dépendance est optionnelle. À partir de Node $NODE_MIN, un binaire prébuilt"
-  dire "  existe : rien à compiler, aucun compilateur à installer."
+  dire "      Sous cette version, le module natif SQLite doit être COMPILÉ, ce qui"
+  dire "      échoue sur toute machine sans outillage C++ — en silence, parce que la"
+  dire "      dépendance est optionnelle. À partir de Node $NODE_MIN, un binaire"
+  dire "      prébuilt existe : rien à compiler, aucun compilateur à installer."
   dire ""
-  dire "    nvm install $NODE_MIN && nvm use $NODE_MIN"
+  accent "        nvm install $NODE_MIN && nvm use $NODE_MIN"
   dire ""
   exit $CODE_PREREQUIS
 fi
@@ -172,13 +315,13 @@ if [ -d "$DOSSIER/.git" ]; then
     #  Une règle écrite qui ne décrit pas le câblage : corrigée à la source.)
     (cd "$DOSSIER" && git fetch --depth 1 origin "$REF" -q && git checkout -q FETCH_HEAD) || {
       echec "mise à jour impossible — le dossier contient peut-être des modifications locales."
-      dire "  Réglez-les, ou installez ailleurs : --dir=/autre/chemin"
+      dire "      Réglez-les, ou installez ailleurs : --dir=/autre/chemin"
       exit $CODE_ERREUR
     }
   fi
 elif [ -e "$DOSSIER" ]; then
   echec "$DOSSIER existe et n'est pas une installation Hive."
-  dire "  Choisissez un autre emplacement : --dir=/autre/chemin"
+  dire "      Choisissez un autre emplacement : --dir=/autre/chemin"
   exit $CODE_ERREUR
 else
   if [ "$SEC" = 0 ]; then
@@ -212,8 +355,6 @@ etape "Configuration"
 dire ""
 if [ "$SEC" = 1 ]; then
   alerte "--dry-run : l'installeur n'est pas lancé."
-  dire ""
-  dire "Sans --dry-run, la suite serait :"
   # LE `--` N'EST PAS DÉCORATIF, et cette ligne l'a longtemps oublié. Elle
   # affichait `npm run install:hive --dry-run` alors que le vrai appel, en bas,
   # est `npm run install:hive -- --dry-run`. Sans le séparateur, npm garde le
@@ -224,10 +365,24 @@ if [ "$SEC" = 1 ]; then
   # est pire que son absence. Le test `installeurs.test.ts` la compare
   # désormais à l'appel réel.
   if [ -n "$POUR_INSTALLEUR" ]; then
-    dire "    cd $DOSSIER && npm run install:hive --$POUR_INSTALLEUR"
+    SUITE="cd $DOSSIER && npm run install:hive --$POUR_INSTALLEUR"
   else
-    dire "    cd $DOSSIER && npm run install:hive"
+    SUITE="cd $DOSSIER && npm run install:hive"
   fi
+
+  # ─── LA CARTE DE FIN ────────────────────────────────────────────────────────
+  #
+  # Un `--dry-run` se termine sur ce que la personne doit RETENIR, pas sur la
+  # dernière ligne de journal qui traîne. Le cadre est là pour ça : il sépare
+  # le compte-rendu de la suite à donner.
+  dire ""
+  cadre "Rien n'a été écrit — pas même le dossier de destination."
+  dire ""
+  # LA COMMANDE VIT HORS DU CADRE, et c'est un choix : on la copie-colle. Une
+  # bordure collée à gauche partirait avec elle.
+  dire "  Sans --dry-run, la suite serait :"
+  dire ""
+  accent "    $SUITE"
   dire ""
   exit 0
 fi

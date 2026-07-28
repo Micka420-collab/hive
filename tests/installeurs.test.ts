@@ -24,6 +24,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NODE_MINIMUM } from '../src/shared/doctor.js';
+import {
+  type Capacites,
+  LARGEUR_MAX,
+  LARGEUR_MIN_CADRES,
+  banniere,
+  cadre,
+  symbole,
+  teinter,
+} from '../src/tui/rendu.js';
 
 const RACINE = new URL('..', import.meta.url);
 const lire = (f: string): string => readFileSync(new URL(f, RACINE), 'utf8');
@@ -73,6 +82,147 @@ describe('LES DEUX INSTALLEURS EXISTENT', () => {
   it('à la racine, là où les one-liners du README les cherchent', () => {
     expect(existsSync(new URL('install.sh', RACINE))).toBe(true);
     expect(existsSync(new URL('install.ps1', RACINE))).toBe(true);
+  });
+});
+
+describe('LA CHARTE VISUELLE EST LA MÊME PARTOUT', () => {
+  // ─── POURQUOI CETTE SECTION EXISTE ─────────────────────────────────────────
+  //
+  // La marque de Hive est ÉCRITE, dans `src/tui/rendu.ts` : un hexagone, un
+  // seul accent, un alphabet de cinq symboles, un repli ASCII où chacun fait
+  // exactement une colonne. Les deux installeurs ne peuvent pas importer ce
+  // module — l'un est du `sh`, l'autre du PowerShell — donc ils le RECOPIENT.
+  //
+  // Trois copies d'une même vérité divergent le jour où l'une bouge. Ces
+  // gardes-ci comparent les installeurs au COMPORTEMENT du module pur, pas à
+  // une liste écrite une seconde fois dans le test : si `rendu.ts` change de
+  // symbole, ce sont les installeurs qui rougissent, et c'est bien ce qu'on
+  // veut.
+
+  /** Un terminal capable, tel que le module pur le décrit. */
+  const capable: Capacites = {
+    couleur: 256,
+    unicode: true,
+    cadres: true,
+    interactif: false,
+    largeur: LARGEUR_MAX,
+  };
+  const pauvre: Capacites = { ...capable, couleur: 0, unicode: false };
+
+  it('les cinq symboles, et leur repli, sont ceux du module pur', () => {
+    for (const [etat, ou] of [
+      ['fait', 'S_FAIT'],
+      ['curseur', 'S_CURSEUR'],
+      ['avenir', 'S_AVENIR'],
+      ['alerte', 'S_ALERTE'],
+      ['echec', 'S_ECHEC'],
+    ] as const) {
+      const unicode = symbole(etat, capable);
+      const ascii = symbole(etat, pauvre);
+      expect(SH, `install.sh : ${ou} devrait valoir « ${unicode} »`).toContain(
+        `${ou}='${unicode}'`,
+      );
+      expect(SH, `install.sh : repli de ${ou} devrait valoir « ${ascii} »`).toContain(
+        `${ou}='${ascii}'`,
+      );
+      const cle = ou.replace('S_', '').toLowerCase();
+      const clePs = {
+        fait: 'fait',
+        curseur: 'curseur',
+        avenir: 'avenir',
+        alerte: 'alerte',
+        echec: 'echec',
+      }[cle as 'fait' | 'curseur' | 'avenir' | 'alerte' | 'echec'];
+      expect(PS, `install.ps1 : ${clePs} devrait valoir « ${unicode} »`).toContain(
+        `${clePs} = '${unicode}'`,
+      );
+      expect(PS, `install.ps1 : repli de ${clePs}`).toContain(`${clePs} = '${ascii}'`);
+    }
+  });
+
+  it('les bordures de cadre sont celles du module pur', () => {
+    // On demande un cadre au module et on en extrait les caractères, plutôt
+    // que de les réécrire ici : une troisième copie serait une troisième
+    // vérité à tenir.
+    const [hautU] = cadre(['x'], capable);
+    const [hautA] = cadre(['x'], pauvre);
+    for (const [nom, u, a] of [
+      ['B_HG', hautU![0]!, hautA![0]!],
+      ['B_H', hautU![1]!, hautA![1]!],
+    ] as const) {
+      expect(SH, `install.sh : ${nom}`).toContain(`${nom}='${u}'`);
+      expect(SH, `install.sh : repli de ${nom}`).toContain(`${nom}='${a}'`);
+    }
+    expect(PS).toContain(`hg = '${hautU![0]!}'`);
+    expect(PS).toContain(`h = '${hautU![1]!}'`);
+  });
+
+  it('LA BANNIÈRE EST LA MÊME MARQUE — hexagone, nom espacé, sous-titre', () => {
+    const officielle = banniere('0.0.0', capable).join('\n');
+    // On ne compare pas les lignes caractère par caractère : la bannière du
+    // module porte un numéro de version, celle des installeurs porte
+    // « installation » — à cet instant, le dépôt n'est pas encore là pour en
+    // donner un. Ce qui doit coïncider, c'est la MARQUE.
+    for (const morceau of ['⬡', 'H I V E', "Orchestration communautaire d'agents IA"]) {
+      expect(officielle, `le module pur ne rend plus « ${morceau} »`).toContain(morceau);
+      expect(SH, `install.sh a perdu « ${morceau} »`).toContain(morceau);
+      expect(PS, `install.ps1 a perdu « ${morceau} »`).toContain(morceau);
+    }
+    // Et le repli ASCII de l'hexagone, qui doit tenir en deux colonnes.
+    const replié = banniere('0.0.0', pauvre).join('\n');
+    expect(replié).toContain('<>');
+    expect(SH).toContain("HEXAGONE='<>'");
+    expect(PS).toContain("HEXAGONE = '<>'");
+  });
+
+  it('UN SEUL ACCENT, ET C’EST L’AMBRE — la charte §6.1', () => {
+    // « Deux accents, c'est zéro accent — plus rien ne ressort. »
+    //
+    // Les installeurs peignaient en vert, jaune, rouge et blanc. C'est la
+    // faute la plus facile à commettre et la plus difficile à voir : chaque
+    // couleur prise isolément semble justifiée.
+    const ambre256 = teinter('X', 'accent', capable);
+    const ambre16 = teinter('X', 'accent', { ...capable, couleur: 16 });
+    expect(ambre256, 'le module pur a changé d’ambre').toContain('38;5;214');
+    expect(ambre16).toContain('[33m');
+
+    expect(SH, 'install.sh n’utilise plus l’ambre 256 du module').toContain('38;5;214');
+    expect(PS, 'install.ps1 n’utilise plus l’ambre 256 du module').toContain('38;5;214');
+
+    // AUCUNE autre couleur. On regarde la source NUE : un `#` de commentaire
+    // qui parlerait de vert ne doit pas faire rougir.
+    for (const [nom, nu] of [
+      ['install.sh', SH_NU],
+      ['install.ps1', PS_NU],
+    ] as const) {
+      expect(nu, `${nom} : rouge ANSI`).not.toMatch(/\\033\[31m|\[31m/);
+      expect(nu, `${nom} : vert ANSI`).not.toMatch(/\\033\[32m|\[32m/);
+    }
+    expect(PS_NU, 'install.ps1 : couleur de console interdite').not.toMatch(
+      /-ForegroundColor\s+(Green|Red|Yellow|White|Cyan|Magenta|Blue)/,
+    );
+  });
+
+  it('les deux seuils de largeur sont ceux du module pur', () => {
+    expect(SH, 'install.sh : LARGEUR').toContain(`LARGEUR=${LARGEUR_MAX}`);
+    expect(SH, 'install.sh : seuil des cadres').toContain(`-ge ${LARGEUR_MIN_CADRES}`);
+    expect(PS, 'install.ps1 : LARGEUR_MAX').toContain(`$LARGEUR_MAX = ${LARGEUR_MAX}`);
+    expect(PS, 'install.ps1 : seuil des cadres').toContain(
+      `$LARGEUR_MIN_CADRES = ${LARGEUR_MIN_CADRES}`,
+    );
+  });
+
+  it('`install.ps1` POSE L’ENCODAGE DE LA CONSOLE — sans quoi tout sort en « ? »', () => {
+    // Une console PowerShell 5.1 démarre en page de codes 850 ou 437. Le plus
+    // beau des cadres y sort en « ????? » : un dessin invisible et une
+    // impression de logiciel cassé, ce qui est pire que pas de dessin du tout.
+    //
+    // C'est le pendant du BOM : l'un fait que PowerShell LIT bien ce fichier,
+    // l'autre fait que la console AFFICHE bien ce qu'il écrit.
+    expect(PS_NU).toMatch(/\[Console\]::OutputEncoding\s*=\s*\[System\.Text\.Encoding\]::UTF8/);
+    // Et si le système refuse, on retombe sur l'alphabet ASCII plutôt que
+    // d'écrire des caractères que la console ne sait pas rendre.
+    expect(PS_NU).toMatch(/\$Unicode\s*=\s*\$false/);
   });
 });
 
