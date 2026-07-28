@@ -315,10 +315,16 @@ describe('LE MIROIR NE PEUT PAS ATTENDRE INDÉFINIMENT DES IDENTIFIANTS', () => 
     expect(sourceNue).toMatch(/GIT_TERMINAL_PROMPT:\s*'0'/);
   });
 
-  it('LA CONFIGURATION MACHINE EST IGNORÉE — c’est là que vit l’assistant Windows', () => {
-    // Et ça vaut plus qu'un correctif Windows : un `url.<base>.insteadOf` posé
-    // dans la configuration système redirigerait nos clones vers un autre hôte.
-    expect(sourceNue).toMatch(/GIT_CONFIG_NOSYSTEM:\s*'1'/);
+  it('LA CONFIGURATION MACHINE N’EST PAS COUPÉE EN BLOC', () => {
+    // Ma première correction posait `GIT_CONFIG_NOSYSTEM=1`. Elle supprimait
+    // l'assistant d'identifiants, et avec lui TOUT le reste de la configuration
+    // machine — dont `core.symlinks=true`, que Git for Windows y règle. Le
+    // clone aplatissait les liens, et les trois gardes contre l'évasion par
+    // lien ne vérifiaient plus rien.
+    //
+    // Ce test empêche d'y revenir : on met le composant fautif en
+    // non-interactif, on ne coupe pas la configuration entière.
+    expect(sourceNue).not.toMatch(/GIT_CONFIG_NOSYSTEM/);
   });
 
   it('et l’assistant lui-même est mis en non-interactif', () => {

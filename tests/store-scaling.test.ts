@@ -192,6 +192,12 @@ describe('index et plans de requête', () => {
   });
 
   it('listReviewsFor ne lit QUE les tâches citées, même avec un corpus de revues bien plus large', () => {
+    // Délai explicite : ce test tombait à 5 000 ms sur la CI WINDOWS, et nulle
+    // part ailleurs. Ce n'est pas un blocage — il construit un corpus volumineux avant de mesurer le plan de requête ; sous Windows l'écriture SQLite est plus coûteuse, et il a été mesuré à 8,6 s.
+    //
+    // La distinction compte, et elle a déjà servi ici : trois autres tests
+    // tapaient les 30 000 ms AU MILLIÈME PRÈS, ce qui trahissait une attente
+    // sans fin et non de la lenteur. On les a corrigés, pas rallongés.
     const projet = store.createProject({ name: 'P' });
     const ids: string[] = [];
     for (let i = 0; i < 1_200; i++) {
@@ -210,7 +216,7 @@ describe('index et plans de requête', () => {
     // Ids inconnus : simplement absents, jamais une exception.
     expect(store.listReviewsFor(['inexistante'])).toEqual({});
     expect(store.listReviewsFor([])).toEqual({});
-  });
+  }, 20_000);
 
   it('la porte n’ajoute AUCUNE lecture par tick : les plafonds sont mémoïsés', () => {
     // Le chemin du tick ne doit gagner ni un SELECT non borné, ni une lecture
@@ -537,5 +543,55 @@ describe('lectures ciblées et élagage', () => {
     }
     expect(store.pruneResults(5_000)).toBe(0);
     expect(store.resultsForTask('t0')[0]?.diff).toBe('d');
+  });
+});
+
+describe('LES BORNES D’ÉLAGAGE NE JETTENT PAS AU HASARD', () => {
+  let dir: string;
+  let store: HiveStore;
+  let projectId: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-elagage-'));
+    store = new HiveStore(path.join(dir, 'hive.db'));
+    projectId = store.createProject({ name: 'p', description: '' }).id;
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  });
+
+  // ─── CE QUE CE BLOC RATTRAPE ───────────────────────────────────────────────
+  //
+  // Trier sur un HORODATAGE SEUL ne définit aucun ordre entre lignes de même
+  // milliseconde : SQLite est libre de les rendre dans n'importe quel ordre.
+  // Trois bornes le faisaient, et la CI l'a prouvé — sur un runner rapide,
+  // trois conseils ouverts d'affilée ont partagé le même `createdAt` et
+  // l'élagage a supprimé la mauvaise session.
+  //
+  // Ces tests fabriquent l'égalité EXPRÈS, au lieu d'espérer la rencontrer.
+
+  it('LIVRAISONS : le quota est exact même à horodatage identique', () => {
+    // Le cas le plus grave, et ce n'était PAS de l'imprévisibilité : la version
+    // précédente prenait un seuil puis supprimait `WHERE creeA <= seuil`. Avec
+    // cinq livraisons de même `creeA`, le `<=` les emportait TOUTES — garder 2
+    // en gardait 0. De la perte de données, pas un ordre discutable.
+    const MEME_INSTANT = 1_700_000_000_000;
+    for (let i = 0; i < 5; i++) {
+      const t = store.createTask({ projectId, title: `t${i}`, prompt: `p${i}` });
+      // `now` fixe : c'est LUI qui écrit `creeA`, et l'égalité est le sujet.
+      store.setLivraison({
+        taskId: t.id,
+        projectId,
+        depot: 'micka/hive',
+        pr: 100 + i,
+        branche: `b${i}`,
+        etat: 'ouverte',
+        now: MEME_INSTANT,
+      });
+    }
+    expect(store.pruneLivraisons(2)).toBe(3);
+    expect(store.listLivraisons(projectId).length, 'le quota doit être EXACT').toBe(2);
   });
 });

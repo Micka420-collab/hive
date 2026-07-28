@@ -159,6 +159,12 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
   });
 
   it('SUR WINDOWS, les permissions ne sont pas inventées', async () => {
+    // Délai explicite : ce test tombait à 5 000 ms sur la CI WINDOWS, et nulle
+    // part ailleurs. Ce n'est pas un blocage — `relever()` sonde des ports et interroge le disque ; sous Windows ses voisins immédiats de ce fichier mettent 3,0 à 3,4 s. Le défaut de vitest est 5 s — la marge n'y suffisait pas.
+    //
+    // La distinction compte, et elle a déjà servi ici : trois autres tests
+    // tapaient les 30 000 ms AU MILLIÈME PRÈS, ce qui trahissait une attente
+    // sans fin et non de la lenteur. On les a corrigés, pas rallongés.
     // `statSync().mode` rend une valeur PLAUSIBLE et FAUSSE sur Windows.
     // La rendre ferait dire « .env est privé » sans rien avoir vérifié.
     const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-win-'));
@@ -173,7 +179,7 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
     } finally {
       rmSync(racine, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it('UN .env TROP OUVERT REMONTE JUSQU’AU VERDICT', async () => {
     // De bout en bout : le relevé mesure 0644, le module pur en fait un risque,

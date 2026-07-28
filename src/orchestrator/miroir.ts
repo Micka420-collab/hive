@@ -96,26 +96,28 @@ function envGit(): NodeJS.ProcessEnv {
     //
     // Le commentaire ci-dessus a raison sur le fond, et son câblage ne couvrait
     // que POSIX. `GIT_TERMINAL_PROMPT` gouverne l'invite du TERMINAL. Sous
-    // Windows, la configuration SYSTÈME de Git inscrit
-    // `credential.helper=manager` — Git Credential Manager — qui ne lit pas
-    // cette variable et attend sur sa propre interface, indéfiniment.
+    // Windows, la configuration système inscrit `credential.helper=manager` —
+    // Git Credential Manager — qui ne lit pas cette variable et attend sur sa
+    // propre interface, indéfiniment.
     //
-    // Ça s'est vu au millième près sur la CI Windows : trois tests lisant un
-    // dépôt inatteignable ont bloqué à 30 008, 30 019 et 30 009 ms. Le plafond,
-    // pas une lenteur.
+    // Ça s'est vu au millième près : trois tests lisant un dépôt inatteignable
+    // ont bloqué à 30 008, 30 019 et 30 009 ms sur la CI Windows. Le plafond,
+    // pas une lenteur. `GCM_INTERACTIVE=Never` le fait échouer au lieu
+    // d'attendre, et les trois blocages ont disparu.
     //
-    // `GIT_CONFIG_NOSYSTEM` fait ignorer à git la configuration machine — donc
-    // l'assistant qui y est inscrit. Et c'est PLUS qu'un correctif Windows : un
-    // miroir n'a aucune raison d'hériter des réglages d'une machine qu'il ne
-    // choisit pas. Un `url.<base>.insteadOf` posé là redirigerait nos clones
-    // vers un autre hôte sans que rien ne le dise.
+    // ─── ET CE QUE J'AI ESSAYÉ AVANT, QUI ÉTAIT TROP BRUTAL ───────────────────
     //
-    // On ne passe PAS par une configuration `credential.helper=` : simple-git la
-    // bloque, et il a raison — un assistant peut désigner n'importe quel
-    // binaire. On coupe la source plutôt que de désactiver la garde.
-    GIT_CONFIG_NOSYSTEM: '1',
-    // Ceinture et bretelles : GCM lit aussi son propre environnement, et
-    // certaines versions ne regardent que celui-ci.
+    // `GIT_CONFIG_NOSYSTEM=1` supprimait bien l'assistant… et tout le reste de
+    // la configuration machine avec lui, dont `core.symlinks=true` que Git for
+    // Windows y règle. Le clone aplatissait alors les liens symboliques, et les
+    // trois gardes du miroir contre l'évasion par lien ne vérifiaient plus
+    // rien. C'est l'assertion posée pour ça — « le clone a APLATI le lien
+    // symbolique » — qui l'a dit, et c'est exactement ce qu'on lui demandait.
+    //
+    // On ne coupe donc PAS la configuration machine : on met le seul composant
+    // fautif en non-interactif. Et pas via `credential.helper=` en
+    // configuration : simple-git le bloque, à raison — un assistant peut
+    // désigner n'importe quel binaire.
     GCM_INTERACTIVE: 'Never',
   };
 }
