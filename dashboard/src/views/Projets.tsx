@@ -1248,8 +1248,13 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
  * affiché une liste que personne ne regardait.
  *
  * Les issues se demandent donc, elles ne se surveillent pas.
+ *
+ * EXPORTÉ POUR ÊTRE RENDU EN TEST — pas pour être réutilisé ailleurs. Ce
+ * panneau porte une machine à états (`enCours`) qu'aucune lecture du source ne
+ * peut exercer : seul un rendu réel dit si le bouton se verrouille pendant que
+ * la ruche travaille. Voir `dashboard/tests/panneaux-depot.test.tsx`.
  */
-function IssuesProjet({ project }: { project: Project }) {
+export function IssuesProjet({ project }: { project: Project }) {
   const t = useT();
   const [issues, setIssues] = useState<IssueVue[] | null>(null);
   const [depot, setDepot] = useState('');
@@ -1365,8 +1370,10 @@ function IssuesProjet({ project }: { project: Project }) {
  * Même règle que les issues : la lecture coûte le quota de l'hôte, donc elle se
  * demande. Et REPRENDRE fait travailler l'essaim — c'est un geste, jamais un
  * effet de bord d'un rafraîchissement.
+ *
+ * EXPORTÉ POUR ÊTRE RENDU EN TEST — même raison que `IssuesProjet`.
  */
-function LivraisonsProjet({ project }: { project: Project }) {
+export function LivraisonsProjet({ project }: { project: Project }) {
   const t = useT();
   const [livraisons, setLivraisons] = useState<LivraisonVue[] | null>(null);
   const [chargement, setChargement] = useState(false);

@@ -32,6 +32,7 @@
     "dev:dashboard": "vite dashboard",
     "test": "vitest run",
     "lint": "eslint . && prettier --check .",
+    "loupe": "node scripts/loupe.mjs",
     "format": "prettier --write .",
     "build:node": "tsc -p tsconfig.build.json",
     "prepare": "npm run build:node"
@@ -65,6 +66,7 @@
     "codemirror": "^6.0.2",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
+    "happy-dom": "^20.11.1",
     "prettier": "^3.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
