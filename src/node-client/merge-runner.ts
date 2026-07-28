@@ -23,6 +23,7 @@ import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
+import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -113,6 +114,7 @@ function runProc(
 ): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
+    let output = '';
     // ISOLEMENT — même enveloppe que les adaptateurs de tâches. Ce chemin n'y
     // passait pas, et c'était le trou le plus embarrassant : la commande de
     // test d'un merge exécute du code fourni par le dépôt, exactement comme un
@@ -121,13 +123,30 @@ function runProc(
     // `cwdHote` est le clone : c'est lui qu'on monte, et c'est aussi lui que
     // git relira après. L'enveloppe ne déplace rien, elle restreint ce que le
     // processus voit.
-    const lance = bac
-      ? envelopper(bin ?? '', args, {
-          fournisseur: bac.fournisseur,
-          cwdHote: cwd,
-          variables: bac.variables,
-        })
-      : { bin: bin ?? '', args };
+    // SOUS BAC À SABLE, ON NE TOUCHE À RIEN : l'enveloppe lance `docker` (un
+    // vrai binaire partout) et la commande s'exécute DANS le conteneur, donc
+    // sous Linux. Y appliquer une résolution Windows viserait la mauvaise
+    // plateforme — c'est l'hôte qui est Windows, pas l'invité.
+    let lance: { bin: string; args: string[] };
+    if (bac) {
+      lance = envelopper(bin ?? '', args, {
+        fournisseur: bac.fournisseur,
+        cwdHote: cwd,
+        variables: bac.variables,
+      });
+    } else {
+      try {
+        lance = resoudreLanceur(bin ?? '', args);
+      } catch (e) {
+        // Un refus MOTIVÉ vaut mieux qu'un `spawn ENOENT` : c'est la même
+        // panne, mais celle-ci se lit.
+        if (e instanceof LanceurIndisponible) {
+          resolve({ code: 1, output: `${output}\n[hive] ${e.motif}` });
+          return;
+        }
+        throw e;
+      }
+    }
     const child = spawn(lance.bin, lance.args, {
       cwd,
       env,
@@ -135,7 +154,6 @@ function runProc(
       windowsHide: true,
       signal,
     });
-    let output = '';
     const cap = (c: Buffer): void => {
       if (output.length < OUTPUT_CAP) output += c.toString();
     };

@@ -149,9 +149,12 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
   });
 
   it('LE PROJET IMPORTÉ EST LISIBLE PAR L’ADMINISTRATEUR', async () => {
-    // LE test de ce fichier. Un projet importé est privé ET sans propriétaire :
-    // sans que le rôle soit consulté, il n'était lisible par personne, et la
-    // fonctionnalité entière était morte sans qu'aucun test ne le dise.
+    // Ce test a bloqué à 30 000 ms EXACTEMENT sur la première CI Windows — pas
+    // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
+    // lenteur, mais une attente sans fin : git y attendait des identifiants via
+    // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
+    // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
+    // qu'un délai rallongé n'aurait fait que retarder le même blocage.
     const id = server.store.listProjects()[0]!.id;
     for (const route of [
       `/api/projects/${id}/rayon`,
@@ -330,8 +333,12 @@ describe('connecter un dépôt depuis un COMPTE', () => {
   });
 
   it('…ET ELLE PEUT S’EN SERVIR TOUT DE SUITE, sans passer par une adoption', async () => {
-    // C'est tout l'objet. Avant, un membre ordinaire recevait 404 sur le dépôt
-    // qu'il venait lui-même de connecter.
+    // Ce test a bloqué à 30 000 ms EXACTEMENT sur la première CI Windows — pas
+    // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
+    // lenteur, mais une attente sans fin : git y attendait des identifiants via
+    // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
+    // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
+    // qu'un délai rallongé n'aurait fait que retarder le même blocage.
     const id = server2.store.listProjects()[0]!.id;
     for (const route of [`/api/projects/${id}/rayon`, `/api/projects/${id}/members`]) {
       const res = await fetch(`${base2}${route}`, { headers: commeMembre() });

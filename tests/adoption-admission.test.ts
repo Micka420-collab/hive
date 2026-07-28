@@ -141,6 +141,12 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('LE PROPRIÉTAIRE ADMET UNE OUVRIÈRE, QUI LIT ALORS LE CODE', async () => {
+    // Ce test a bloqué à 30 000 ms EXACTEMENT sur la première CI Windows — pas
+    // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
+    // lenteur, mais une attente sans fin : git y attendait des identifiants via
+    // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
+    // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
+    // qu'un délai rallongé n'aurait fait que retarder le même blocage.
     const res = await fetch(`${base}/api/projects/${orphelin}/membres`, {
       method: 'POST',
       headers: auth(jetonAdmin),

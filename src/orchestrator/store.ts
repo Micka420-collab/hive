@@ -1776,7 +1776,7 @@ export class HiveStore {
     return this.db
       .prepare(
         `DELETE FROM serveurs WHERE etat = 'supprime' AND id NOT IN (
-           SELECT id FROM serveurs WHERE etat = 'supprime' ORDER BY majA DESC LIMIT ?
+           SELECT id FROM serveurs WHERE etat = 'supprime' ORDER BY majA DESC, id DESC LIMIT ?
          )`,
       )
       .run(maxKeep).changes;
@@ -2521,11 +2521,21 @@ export class HiveStore {
    * temps-ouvrière — pour un conseil qui n'existe plus.
    */
   pruneConseils(maxSessions: number): number {
+    // ─── LE DÉPARTAGE, SANS LEQUEL LA BORNE JETTE AU HASARD ───────────────────
+    //
+    // Trier sur un HORODATAGE SEUL ne définit aucun ordre entre lignes de même
+    // milliseconde : SQLite est libre de les rendre dans n'importe quel ordre.
+    // La borne supprime alors une ligne imprévisible.
+    //
+    // Ce n'est pas théorique : sur un runner rapide, trois conseils ouverts
+    // d'affilée ont partagé le même `createdAt`, et la CI a supprimé la
+    // mauvaise session. Le dépôt connaissait déjà le remède — `results` et
+    // `memories` trient par `… DESC, id DESC` — il manquait ici.
     const garder = Math.max(0, maxSessions);
     const aJeter = this.db
       .prepare(
         `SELECT id FROM conseil_sessions WHERE etat = 'clos'
-         ORDER BY createdAt DESC LIMIT -1 OFFSET ?`,
+         ORDER BY createdAt DESC, id DESC LIMIT -1 OFFSET ?`,
       )
       .all(garder) as { id: string }[];
 
@@ -2616,11 +2626,23 @@ export class HiveStore {
     // Orphelines d'abord, et hors du quota : une tâche supprimée ne reviendra
     // pas, sa livraison n'a plus rien à protéger.
     this.db.prepare('DELETE FROM livraisons WHERE taskId NOT IN (SELECT id FROM tasks)').run();
-    const seuil = this.db
-      .prepare('SELECT creeA FROM livraisons ORDER BY creeA DESC LIMIT 1 OFFSET ?')
-      .get(garder) as { creeA: number } | undefined;
-    if (!seuil) return 0;
-    return this.db.prepare('DELETE FROM livraisons WHERE creeA <= ?').run(seuil.creeA).changes;
+    // ─── POURQUOI PAS UN SEUIL ───────────────────────────────────────────────
+    //
+    // La version précédente prenait le `creeA` de la (garder+1)-ième ligne puis
+    // supprimait `WHERE creeA <= seuil`. Deux livraisons créées dans la même
+    // milliseconde partagent ce `creeA` : le `<=` les emportait TOUTES, et le
+    // quota n'était plus respecté — garder 100 pouvait n'en garder que 97.
+    //
+    // Ce n'était pas de l'imprévisibilité, c'était de la perte de données. On
+    // désigne donc les lignes à GARDER, avec un départage, et on supprime le
+    // reste : le compte est exact quel que soit l'horodatage.
+    return this.db
+      .prepare(
+        `DELETE FROM livraisons WHERE taskId NOT IN (
+           SELECT taskId FROM livraisons ORDER BY creeA DESC, taskId DESC LIMIT ?
+         )`,
+      )
+      .run(garder).changes;
   }
 
   // ─── Plans de verdict : un conseil clos n'est nourri qu'UNE fois ───────────

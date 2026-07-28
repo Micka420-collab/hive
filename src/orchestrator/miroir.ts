@@ -92,6 +92,33 @@ function envGit(): NodeJS.ProcessEnv {
     SYSTEMDRIVE: process.env.SYSTEMDRIVE,
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
+    // ─── LA PORTE QUE `GIT_TERMINAL_PROMPT=0` NE FERME PAS ────────────────────
+    //
+    // Le commentaire ci-dessus a raison sur le fond, et son câblage ne couvrait
+    // que POSIX. `GIT_TERMINAL_PROMPT` gouverne l'invite du TERMINAL. Sous
+    // Windows, la configuration système inscrit `credential.helper=manager` —
+    // Git Credential Manager — qui ne lit pas cette variable et attend sur sa
+    // propre interface, indéfiniment.
+    //
+    // Ça s'est vu au millième près : trois tests lisant un dépôt inatteignable
+    // ont bloqué à 30 008, 30 019 et 30 009 ms sur la CI Windows. Le plafond,
+    // pas une lenteur. `GCM_INTERACTIVE=Never` le fait échouer au lieu
+    // d'attendre, et les trois blocages ont disparu.
+    //
+    // ─── ET CE QUE J'AI ESSAYÉ AVANT, QUI ÉTAIT TROP BRUTAL ───────────────────
+    //
+    // `GIT_CONFIG_NOSYSTEM=1` supprimait bien l'assistant… et tout le reste de
+    // la configuration machine avec lui, dont `core.symlinks=true` que Git for
+    // Windows y règle. Le clone aplatissait alors les liens symboliques, et les
+    // trois gardes du miroir contre l'évasion par lien ne vérifiaient plus
+    // rien. C'est l'assertion posée pour ça — « le clone a APLATI le lien
+    // symbolique » — qui l'a dit, et c'est exactement ce qu'on lui demandait.
+    //
+    // On ne coupe donc PAS la configuration machine : on met le seul composant
+    // fautif en non-interactif. Et pas via `credential.helper=` en
+    // configuration : simple-git le bloque, à raison — un assistant peut
+    // désigner n'importe quel binaire.
+    GCM_INTERACTIVE: 'Never',
   };
 }
 
