@@ -1,11 +1,12 @@
 // Éléments d'UI partagés : libellés/icônes de statut, badge, barre de
-// progression, et hooks d'accessibilité pour les overlays (dialog).
+// progression, hooks d'accessibilité pour les overlays (dialog), et le geste
+// irréversible.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
 import type { BandeThermo, Domaine } from './api';
-import { useLang } from './i18n';
+import { useLang, useT } from './i18n';
 import type { Translate, UiLang } from './i18n';
 
 /**
@@ -192,4 +193,109 @@ export function formatDuree(ms: number): string {
   const h = Math.floor(min / 60);
   const restMin = min % 60;
   return restMin === 0 || h >= 10 ? `${h} h` : `${h} h ${restMin} min`;
+}
+
+// ─── Le geste qui coupe ──────────────────────────────────────────────────────
+//
+// ─── CE QUI CLOCHAIT ─────────────────────────────────────────────────────────
+//
+// Quatre gestes du tableau de bord sont IRRÉVERSIBLES et partaient d'un clic
+// unique : retirer un membre d'un projet, éteindre un lien de partage,
+// révoquer la clé d'une machine. Deux d'entre eux étaient un simple « ✕ » dans
+// une ligne de liste.
+//
+// Deux choses rendaient cela pire qu'une simple absence de garde.
+//
+// **Les listes se rafraîchissent toutes seules.** `useApiPoll` les relit toutes
+// les 60 à 120 secondes ; la ligne qu'on visait peut donc BOUGER entre le
+// moment où l'œil la choisit et celui où le doigt clique. Une confirmation qui
+// demanderait « êtes-vous sûr ? » ne rattraperait pas ça : elle confirmerait la
+// mauvaise ligne aussi volontiers que la bonne.
+//
+// C'est pourquoi `question` NOMME sa cible. « Retirer Léa du projet ? » attrape
+// une ligne qui a glissé ; « Êtes-vous sûr ? » ne le fait pas.
+//
+// **Et « Révoquer » ne voulait pas dire la même chose deux fois.** Dans le
+// panneau des clés, deux listes se suivent avec des boutons identiques : l'un
+// déconnecte une machine sur-le-champ, l'autre — le billet — « ne déconnecte
+// personne », comme l'écrit le panneau lui-même. Le texte disait la différence,
+// les commandes la démentaient.
+//
+// ─── POURQUOI L'ANNULATION EST AVANT LA CONFIRMATION ─────────────────────────
+//
+// L'armement remplace le bouton par cette rangée, à la même place. Un
+// double-clic, ou un clic impatient, retomberait donc à quelques pixels du
+// premier. Deux choses éloignent la confirmation de cet endroit-là : la
+// question, qui est une phrase entière, puis « Annuler ». Ce qui reste près du
+// point de départ ne fait donc RIEN — et c'est le point.
+//
+// ─── CE QU'ON NE FAIT PAS ────────────────────────────────────────────────────
+//
+// On ne met pas de garde sur les gestes anodins. Révoquer un billet ne coupe
+// personne : lui coller une confirmation apprendrait à cliquer à travers les
+// confirmations, et la prochaine — celle qui compte — se ferait traverser
+// aussi. Une garde partout est une garde nulle part.
+//
+// On ne pose pas non plus de minuterie de désarmement : l'état armé ne
+// RESSEMBLE pas à l'état au repos (une question, deux boutons), donc personne
+// ne peut le prendre pour l'autre en revenant plus tard.
+
+export function GesteIrreversible({
+  libelle,
+  ariaLabel,
+  question,
+  confirmer,
+  onConfirmer,
+  disabled = false,
+}: {
+  /** Ce que montre le bouton au repos — « ✕ » ou un verbe. */
+  libelle: string;
+  /** Obligatoire quand `libelle` est une icône : « ✕ » ne se lit pas. */
+  ariaLabel?: string;
+  /** La question, qui doit NOMMER sa cible et dire ce qui se perd. */
+  question: string;
+  /** Le verbe de la confirmation — jamais « OK », qui ne dit rien. */
+  confirmer: string;
+  onConfirmer: () => void;
+  disabled?: boolean;
+}) {
+  const t = useT();
+  const [arme, setArme] = useState(false);
+
+  if (!arme) {
+    return (
+      <button
+        className="btn ghost geste-irr-armer"
+        aria-label={ariaLabel}
+        title={question}
+        disabled={disabled}
+        onClick={() => setArme(true)}
+      >
+        {libelle}
+      </button>
+    );
+  }
+
+  return (
+    <span className="geste-irr" role="group" aria-label={question}>
+      <span className="geste-irr-q">{question}</span>
+      <button
+        className="btn ghost geste-irr-non"
+        disabled={disabled}
+        onClick={() => setArme(false)}
+      >
+        {t('Annuler', 'Cancel')}
+      </button>
+      <button
+        className="btn geste-irr-oui"
+        disabled={disabled}
+        onClick={() => {
+          setArme(false);
+          onConfirmer();
+        }}
+      >
+        {confirmer}
+      </button>
+    </span>
+  );
 }

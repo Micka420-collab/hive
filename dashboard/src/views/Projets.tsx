@@ -44,7 +44,7 @@ import type {
   SessionConseil,
 } from '../api';
 import { useLang, useT } from '../i18n';
-import { ProgressBar, STATUS_ICON, statusLabel } from '../ui';
+import { GesteIrreversible, ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { Honeycomb, useApiPoll } from './shared';
@@ -694,23 +694,27 @@ function EquipeProjet({
 
       {membres.data && membres.data.length > 0 && (
         <ul className="pj-equipe-liste">
-          {membres.data.map((m) => (
-            <li key={m.userId}>
-              <span className="pj-equipe-nom">{m.displayName ?? m.userId.slice(0, 8)}</span>
-              <span className="pj-equipe-role">{m.role}</span>
-              {jePeuxAdmettre && m.role !== 'owner' && (
-                <button
-                  className="btn ghost pj-equipe-x"
-                  disabled={occupe}
-                  aria-label={t('Retirer', 'Remove')}
-                  title={t('Retirer du projet', 'Remove from project')}
-                  onClick={() => agir(retirerMembre(project.id, m.userId))}
-                >
-                  ✕
-                </button>
-              )}
-            </li>
-          ))}
+          {membres.data.map((m) => {
+            // La question NOMME la personne : cette liste se relit toute seule
+            // toutes les deux minutes, et la ligne visée peut avoir glissé.
+            const nom = (m.displayName ?? m.userId.slice(0, 8)).slice(0, 40);
+            return (
+              <li key={m.userId}>
+                <span className="pj-equipe-nom">{m.displayName ?? m.userId.slice(0, 8)}</span>
+                <span className="pj-equipe-role">{m.role}</span>
+                {jePeuxAdmettre && m.role !== 'owner' && (
+                  <GesteIrreversible
+                    libelle="✕"
+                    ariaLabel={t('Retirer du projet', 'Remove from project')}
+                    question={t(`Retirer ${nom} du projet ?`, `Remove ${nom} from the project?`)}
+                    confirmer={t('Retirer', 'Remove')}
+                    disabled={occupe}
+                    onConfirmer={() => agir(retirerMembre(project.id, m.userId))}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -848,29 +852,34 @@ function PartagesProjet({
 
       {liens.data && liens.data.length > 0 && (
         <ul className="pj-liens">
-          {liens.data.map((l) => (
-            <li key={l.id} className={l.vivant ? '' : 'pj-lien-mort'}>
-              <span className="pj-lien-nom">{l.label || t('(sans nom)', '(unnamed)')}</span>
-              <span className="pj-lien-etat">
-                {!l.vivant
-                  ? t('éteint', 'dead')
-                  : l.vuA
-                    ? t('ouvert', 'opened')
-                    : t('jamais ouvert', 'never opened')}
-              </span>
-              {l.vivant && (
-                <button
-                  className="btn ghost pj-equipe-x"
-                  disabled={occupe}
-                  aria-label={t('Révoquer', 'Revoke')}
-                  title={t('Révoquer ce lien', 'Revoke this link')}
-                  onClick={() => revoquer(l.id)}
-                >
-                  ✕
-                </button>
-              )}
-            </li>
-          ))}
+          {liens.data.map((l) => {
+            const nom = (l.label || t('(sans nom)', '(unnamed)')).slice(0, 40);
+            return (
+              <li key={l.id} className={l.vivant ? '' : 'pj-lien-mort'}>
+                <span className="pj-lien-nom">{l.label || t('(sans nom)', '(unnamed)')}</span>
+                <span className="pj-lien-etat">
+                  {!l.vivant
+                    ? t('éteint', 'dead')
+                    : l.vuA
+                      ? t('ouvert', 'opened')
+                      : t('jamais ouvert', 'never opened')}
+                </span>
+                {l.vivant && (
+                  <GesteIrreversible
+                    libelle="✕"
+                    ariaLabel={t('Révoquer ce lien', 'Revoke this link')}
+                    question={t(
+                      `Éteindre « ${nom} » ? Le lien ne se rallume pas.`,
+                      `Kill “${nom}”? The link does not come back.`,
+                    )}
+                    confirmer={t('Éteindre', 'Kill')}
+                    disabled={occupe}
+                    onConfirmer={() => revoquer(l.id)}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 

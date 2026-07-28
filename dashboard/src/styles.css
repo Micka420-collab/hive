@@ -1941,3 +1941,48 @@ button.mc-cell:focus-visible {
   text-overflow: ellipsis;
   max-width: 160px;
 }
+
+/* ─── Le geste qui coupe ────────────────────────────────────────────────── */
+/* Ce qui est irréversible se distingue de ce qui ne l'est pas. Dans le panneau
+   des clés, deux boutons « Révoquer » se suivaient à l'identique : l'un coupe
+   une machine, l'autre ne déconnecte personne. */
+
+.btn.geste-irr-armer {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.btn.geste-irr-armer:hover:not(:disabled) {
+  background: rgba(229, 87, 63, 0.12);
+}
+
+.geste-irr {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+}
+
+.geste-irr-q {
+  color: var(--gold);
+  /* Le nom de la cible vient de données d'utilisateur : il ne doit pas
+     pouvoir pousser les boutons hors de l'écran. */
+  max-width: 42ch;
+  overflow-wrap: anywhere;
+}
+
+.geste-irr .btn {
+  font-size: 11.5px;
+  padding: 4px 10px;
+}
+
+.btn.geste-irr-oui {
+  border-color: var(--red);
+  color: var(--red);
+  background: transparent;
+}
+
+.btn.geste-irr-oui:hover:not(:disabled) {
+  background: rgba(229, 87, 63, 0.12);
+}
