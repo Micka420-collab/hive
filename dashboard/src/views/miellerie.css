@@ -664,3 +664,71 @@
   font-style: normal;
   font-size: 11.5px;
 }
+
+/* ─── La surface — où le changement a été fait ──────────────────────────── */
+/* Rendue SÉPARÉMENT des factions, et jamais fondue dans le verdict : « même
+   surface » ne doit pas pouvoir se lire comme « consensus ». */
+
+.mi-cons-sens {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.mi-surf {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+.mi-surf-titre {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Le désaccord sur l'ENDROIT est la seule divergence que cet écran mesure
+   vraiment : il se voit, il ne se devine pas. */
+.mi-surf-alerte {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.mi-surf-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mi-surf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mi-surf-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.mi-surf-votes {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mi-surf-fichiers {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--honey);
+  overflow-wrap: anywhere;
+}
