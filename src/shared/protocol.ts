@@ -7,6 +7,21 @@ import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 export const LIMITS = {
   /** Taille max d'un message WS — alignée sur maxPayload du serveur ws. */
   message: 2 * 1024 * 1024,
+  /**
+   * Taille max d'un message WS **avant authentification**.
+   *
+   * 2 Mo est la bonne limite pour un nœud authentifié : il remonte des diffs.
+   * C'était la mauvaise pour un inconnu. Le hub appelait `parseClientMessage`
+   * — donc `toString()` puis `JSON.parse` sur 2 Mo — AVANT de savoir à qui il
+   * parlait. Sans le moindre identifiant, à 100 messages par seconde et par
+   * socket pendant les 5 s de la fenêtre d'authentification, cela faisait
+   * 1 Go à analyser par connexion, et rien ne borne le nombre de connexions.
+   *
+   * Un message d'authentification est minuscule : un identifiant, un jeton, un
+   * nom, un type d'agent. 8 Ko laissent une marge confortable et ferment
+   * l'amplification.
+   */
+  messageAvantAuth: 8 * 1024,
   name: 120,
   token: 256,
   id: 64,
@@ -495,6 +510,26 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
  * transport `ext::` de git (exécution de commande arbitraire = RCE) et les URL
  * commençant par « - » (injection d'argument dans git clone).
  */
+/**
+ * Taille en octets d'une trame WebSocket, sans la convertir en chaîne.
+ *
+ * `ws` livre trois formes selon la configuration et la fragmentation :
+ * `Buffer`, `ArrayBuffer`, ou `Buffer[]` quand la trame arrive en morceaux.
+ * N'en traiter que la première laisserait passer, par la voie des trames
+ * fragmentées, exactement ce qu'on cherche à borner — et un attaquant choisit
+ * sa fragmentation.
+ *
+ * On mesure sans `toString()` : convertir 2 Mo en chaîne est déjà une partie
+ * du coût qu'on refuse de payer pour un inconnu.
+ */
+export function octetsDe(data: unknown): number {
+  if (Array.isArray(data)) return data.reduce((n: number, part) => n + octetsDe(part), 0);
+  if (data instanceof ArrayBuffer) return data.byteLength;
+  if (ArrayBuffer.isView(data)) return data.byteLength;
+  if (typeof data === 'string') return Buffer.byteLength(data);
+  return 0;
+}
+
 export function isValidRepoUrl(v: unknown): v is string {
   if (typeof v !== 'string' || v.length === 0 || v.length > 500) return false;
   if (v.startsWith('-')) return false;

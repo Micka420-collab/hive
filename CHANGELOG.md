@@ -193,6 +193,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Le hub analysait 2 Mo de JSON pour un inconnu, avant de savoir qui il
+  était.** `maxPayload` du serveur WebSocket vaut 2 Mo, et c'est la bonne
+  valeur pour un nœud **authentifié** : il remonte des diffs. C'était la
+  mauvaise pour un inconnu. `parseClientMessage(data.toString())` — une
+  conversion en chaîne **puis** un `JSON.parse` sur 2 Mo — s'exécutait avant la
+  moindre vérification d'identité. Avec le budget existant de 100 messages par
+  seconde et par socket, sur les 5 s de la fenêtre d'authentification, cela
+  faisait **1 Go à analyser par connexion**, sans aucun identifiant et sans
+  borne sur le nombre de connexions. Un message d'authentification tient dans
+  quelques centaines d'octets : au-dessus de 8 Ko avant authentification, la
+  socket est fermée. Le code de fermeture est **4413** (écho du 413 HTTP) et
+  **non 4400** — sans cette distinction, ni un test ni un opérateur qui débogue
+  ne peuvent dire si le hub a refusé la forme du message ou sa taille ; le test
+  s'en est aperçu le premier. La mesure (`octetsDe`) compte aussi les **trames
+  fragmentées** (`Buffer[]`) : n'en regarder que le premier morceau aurait
+  laissé passer, par la fragmentation, exactement ce qu'on borne — et
+  l'attaquant choisit sa fragmentation.
+
 - **`/api/auth/register` rendait gratuitement l'annuaire que `/api/auth/login`
   se donne tant de mal à cacher.** `login` répond exactement la même chose que
   le compte existe ou non — son commentaire dit pourquoi : « distinguer les

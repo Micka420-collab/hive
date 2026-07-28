@@ -44,7 +44,7 @@ import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { vuePublique } from '../shared/projet-public.js';
 import { peutRejoindre, peutVoirMembres } from '../shared/acces-projet.js';
-import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
+import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent, Task } from '../shared/types.js';
@@ -4439,6 +4439,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         }
         if (--budget < 0) {
           ws.close(4429, 'débit de messages excessif');
+          return;
+        }
+        // TANT QU'ON NE SAIT PAS À QUI ON PARLE, ON N'ANALYSE PAS 2 Mo.
+        //
+        // `maxPayload` vaut 2 Mo parce qu'un nœud AUTHENTIFIÉ remonte des
+        // diffs. Appliquer la même largeur à un inconnu offrait une
+        // amplification gratuite : `toString()` puis `JSON.parse` sur 2 Mo,
+        // sans aucun identifiant, 100 fois par seconde pendant les 5 s de la
+        // fenêtre d'authentification — et rien ne borne le nombre de sockets.
+        // Un message d'authentification tient dans quelques centaines d'octets.
+        //
+        // Le code 4413 fait écho au 413 HTTP, et il est DISTINCT du 4400
+        // « message invalide » : sans cette distinction, ni un test ni un
+        // opérateur qui débogue ne peuvent dire si le hub a refusé la forme du
+        // message ou sa taille.
+        if (role === 'unknown' && octetsDe(data) > LIMITS.messageAvantAuth) {
+          ws.close(4413, 'message trop volumineux avant authentification');
           return;
         }
         const msg = parseClientMessage(data.toString());
