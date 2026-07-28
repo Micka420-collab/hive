@@ -236,6 +236,18 @@ const REST_RATE_WINDOW_MS = 10_000;
 const REST_RATE_MAX = 400;
 
 /**
+ * Énumération d'adresses par `/api/auth/register` : combien de COLLISIONS une
+ * même IP peut rencontrer avant qu'on cesse de lui répondre.
+ *
+ * Cinq est large pour quelqu'un qui cherche laquelle de ses adresses il avait
+ * utilisée, et dérisoire pour qui déroule une liste. La fenêtre est longue
+ * exprès : ce qu'on veut casser, c'est le débit d'énumération, pas la
+ * deuxième tentative d'une personne qui s'est trompée.
+ */
+const INSCRIPTION_COLLISIONS_MAX = 5;
+const INSCRIPTION_FENETRE_MS = 10 * 60_000;
+
+/**
  * Limitation DÉDIÉE de `/api/rejoindre`, bien plus serrée que la globale.
  *
  * Cette route est publique par construction (celui qui la frappe n'a pas encore
@@ -869,6 +881,55 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     h.count += 1;
   }
 
+  // ─── L'annuaire que /api/auth/register donnait gratuitement ───────────────
+  //
+  // `/api/auth/login` se donne beaucoup de mal pour ne PAS dire si une adresse
+  // est inscrite : même message, même code, que le compte existe ou non. Son
+  // commentaire l'explique — « distinguer les deux offrirait un annuaire des
+  // inscrits ».
+  //
+  // `/api/auth/register` rendait ce même annuaire sans effort, avec son 409
+  // « Email déjà utilisé ». Sous la seule limite globale (400 requêtes / 10 s),
+  // cela faisait 2 400 adresses testées par minute et par IP. Le soin pris sur
+  // `login` ne servait donc à rien : il suffisait de frapper à l'autre porte.
+  //
+  // Ce qu'on compte, ce sont les COLLISIONS — jamais les inscriptions réussies.
+  // Même raisonnement que pour `joinEchec` : un atelier de dix personnes
+  // derrière une seule IP publique (le NAT d'un bureau, d'une école) doit
+  // pouvoir créer dix comptes. Une collision, elle, est exactement le signal
+  // qu'on cherche : quelqu'un de légitime en rencontre une, peut-être deux ;
+  // celui qui déroule une liste d'adresses n'en rencontre que ça.
+  //
+  // CE QUE ÇA NE FERME PAS, ET IL FAUT LE DIRE : le 409 subsiste, donc une
+  // énumération LENTE reste possible. La fermer tout à fait demanderait de
+  // confirmer l'adresse par courriel avant de répondre quoi que ce soit — la
+  // ruche n'envoie aucun courriel, et prétendre le contraire serait pire que
+  // le trou lui-même.
+  const collisionsInscription = new Map<string, { count: number; resetAt: number }>();
+
+  /** Cette IP a-t-elle encore droit à une tentative d'inscription ? */
+  function inscriptionAutorisee(ip: string): boolean {
+    const h = collisionsInscription.get(ip);
+    return !h || h.resetAt <= Date.now() || h.count < INSCRIPTION_COLLISIONS_MAX;
+  }
+
+  /** Compte une collision d'adresse pour cette IP. */
+  function collisionInscription(ip: string): void {
+    const now = Date.now();
+    let h = collisionsInscription.get(ip);
+    if (!h || h.resetAt <= now) {
+      h = { count: 0, resetAt: now + INSCRIPTION_FENETRE_MS };
+      collisionsInscription.set(ip, h);
+      // Purge opportuniste : sans elle, la table grandirait d'une entrée par IP
+      // vue, indéfiniment — une fuite mémoire lente sur un hub exposé.
+      if (collisionsInscription.size > 10_000) {
+        for (const [k, v] of collisionsInscription)
+          if (v.resetAt <= now) collisionsInscription.delete(k);
+      }
+    }
+    h.count += 1;
+  }
+
   // Mode d'inscription, lu une fois. `ouverte` par défaut : une ruche qui
   // démarre est vide, et le premier geste est de créer le compte de l'hôte.
   const modeInscription = modeInscriptionDepuisEnv();
@@ -1028,8 +1089,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!force.accepte) return reply.status(400).send({ error: force.motif });
       if (!displayName || displayName.length < 2)
         return reply.status(400).send({ error: 'Nom trop court' });
-      if (store.getUserByEmail(email))
+      // Le 409 qui suit est un annuaire des inscrits : on le rend, parce que
+      // sans lui personne ne comprendrait pourquoi son inscription échoue, mais
+      // on le rend LENTEMENT. Au-delà de quelques collisions dans la fenêtre,
+      // cette IP n'apprend plus rien — pas même sur une adresse libre.
+      if (!inscriptionAutorisee(req.ip)) {
+        return reply
+          .status(429)
+          .header('retry-after', String(Math.ceil(INSCRIPTION_FENETRE_MS / 1000)))
+          .send({ error: 'trop de tentatives d’inscription, réessayez plus tard' });
+      }
+      if (store.getUserByEmail(email)) {
+        collisionInscription(req.ip);
         return reply.status(409).send({ error: 'Email déjà utilisé' });
+      }
 
       const user = store.createUser({
         email,

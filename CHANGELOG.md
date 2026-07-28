@@ -193,6 +193,27 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **`/api/auth/register` rendait gratuitement l'annuaire que `/api/auth/login`
+  se donne tant de mal à cacher.** `login` répond exactement la même chose que
+  le compte existe ou non — son commentaire dit pourquoi : « distinguer les
+  deux offrirait un annuaire des inscrits ». `register`, lui, répondait **409
+  « Email déjà utilisé »**, et sous la seule limite globale (400 requêtes /
+  10 s) cela faisait **2 400 adresses testées par minute et par IP**. Le soin
+  pris sur `login` ne servait donc à rien : il suffisait de frapper à l'autre
+  porte. Un compteur dédié par IP compte désormais les **collisions
+  d'adresse** — jamais les inscriptions réussies, même raisonnement que pour
+  `joinEchec` : un atelier de dix personnes derrière une seule IP publique (le
+  NAT d'un bureau, d'une école) doit pouvoir créer dix comptes, et un test le
+  vérifie. Au-delà de 5 collisions par tranche de 10 minutes, l'IP reçoit un
+  429 avec `retry-after` **y compris sur une adresse libre** — sinon le 429
+  deviendrait lui-même l'oracle (« 429 = prise, 200 = libre »), ce que teste
+  explicitement le fichier. **Ce que ce correctif ne ferme pas, et il faut le
+  dire :** le 409 subsiste, parce que sans lui personne ne comprendrait
+  pourquoi son inscription échoue — une énumération _lente_ reste donc
+  possible. La fermer tout à fait demanderait de confirmer l'adresse par
+  courriel avant de répondre quoi que ce soit ; la ruche n'envoie aucun
+  courriel, et prétendre le contraire serait pire que le trou.
+
 - **N'importe quel compte pouvait s'ajouter à n'importe quel projet, privé
   compris** (module pur `src/shared/acces-projet.ts`).
   `POST /api/projects/:id/join` ne vérifiait qu'une seule chose : que
