@@ -118,6 +118,22 @@ réécrite** — écraser un jeton en service couperait tous les nœuds connect�
 
 Prérequis : **Node.js ≥ 20**.
 
+> **Ruche complète sous Windows — un outillage C++ est nécessaire.**
+> `better-sqlite3` ne publie aucun binaire prébuilt : il se **compile** à
+> l'installation, sur toutes les plateformes. Linux et macOS ont ce qu'il faut
+> d'origine ; une machine Windows neuve, non. Installez
+> [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+> avec la charge de travail **« Desktop development with C++ »**.
+>
+> Sans lui, `npm install` **réussit quand même** — SQLite est une dépendance
+> _optionnelle_, et npm abandonne les optionnelles en silence — puis
+> `hive start` meurt sur `ERR_MODULE_NOT_FOUND`. C'est précisément ce que
+> `hive doctor` diagnostique désormais, sous la clé `moteur`, avec la commande
+> qui répare.
+>
+> Un **nœud** (`hive join`, `hive node`) n'a besoin d'aucun compilateur :
+> SQLite ne le concerne pas.
+
 ```bash
 npm install
 npm run demo

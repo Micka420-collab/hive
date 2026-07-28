@@ -13,7 +13,7 @@
 // garantie peut être établie, et sans lui la moitié du module pur ne sert à
 // rien : on aurait fermé la porte d'entrée en laissant la fenêtre ouverte.
 
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import { lstatSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
@@ -62,6 +62,7 @@ describe('le miroir, sur un vrai dépôt', () => {
   let racineTests: string;
   let depotAmont: string;
   let racineMiroirs: string;
+  let dehors: string;
   let miroir: Miroir;
   const PROJET = 'projet-de-test';
 
@@ -69,6 +70,8 @@ describe('le miroir, sur un vrai dépôt', () => {
     racineTests = mkdtempSync(path.join(os.tmpdir(), 'hive-miroir-'));
     depotAmont = path.join(racineTests, 'amont');
     racineMiroirs = path.join(racineTests, 'rayons');
+    // Hors du rayon, et réel : c'est ce que les liens d'évasion viseront.
+    dehors = path.join(racineTests, 'dehors');
 
     // Un dépôt amont réel, avec exactement ce qu'on veut éprouver.
     await simpleGit().raw(['init', depotAmont]);
@@ -92,9 +95,23 @@ describe('le miroir, sur un vrai dépôt', () => {
     //
     // On constate donc la capacité, et on la RAPPORTE. Le test qui ne peut pas
     // tourner le dit ; il ne se déclare pas vert.
+    //
+    // LA CIBLE EST UN DOSSIER QU'ON FABRIQUE, PAS `/etc`.
+    //
+    // La première version pointait sur `/etc` et `/etc/hostname`. Sous
+    // Windows, `/etc` n'existe pas : les liens y étaient PENDANTS, la lecture
+    // rendait « introuvable » là où le test attendait « refuse », et les trois
+    // tests d'évasion rougissaient sans avoir rien éprouvé du tout. Un rouge
+    // qui ne parle pas du code sous test est aussi trompeur qu'un vert.
+    //
+    // `dehors/` est hors du rayon sur toute plateforme, et il EXISTE, parce
+    // que c'est nous qui l'écrivons. La cible ne dépend plus de la machine.
     if (liensPossibles) {
-      symlinkSync('/etc', path.join(depotAmont, 'evasion'));
-      symlinkSync('/etc/hostname', path.join(depotAmont, 'src', 'vole.txt'));
+      mkdirSync(dehors, { recursive: true });
+      writeFileSync(path.join(dehors, 'hostname'), 'la-machine-de-la-victime\n');
+      writeFileSync(path.join(dehors, 'passwd'), 'racine:x:0:0::/racine:/bin/sh\n');
+      symlinkSync(dehors, path.join(depotAmont, 'evasion'));
+      symlinkSync(path.join(dehors, 'hostname'), path.join(depotAmont, 'src', 'vole.txt'));
     }
     await git.add('.');
     await git.commit('base');
@@ -155,6 +172,26 @@ describe('le miroir, sur un vrai dépôt', () => {
       // version, et rien ne l'aurait dit.
       if (process.platform !== 'win32') {
         expect(liensPossibles, 'la sonde doit réussir sur un système POSIX').toBe(true);
+      }
+
+      // ET LE LIEN A-T-IL SURVÉCU AU CLONE ? — la question qui manquait.
+      //
+      // Savoir créer un lien ne suffit pas : c'est GIT qui le porte jusqu'au
+      // miroir. Git for Windows sait le désactiver (`core.symlinks=false`),
+      // et il écrit alors un fichier texte contenant le chemin cible à la
+      // place du lien. Les trois tests d'évasion tourneraient sur un fixture
+      // qui n'a plus rien d'un lien, et leur vert ne vaudrait rien.
+      //
+      // On CONSTATE donc l'état réel du miroir, ici, une fois. Si le lien a
+      // été aplati, ce test le dit en nommant la cause — plutôt que de laisser
+      // trois autres échouer sans expliquer pourquoi.
+      if (liensPossibles) {
+        const dansLeMiroir = lstatSync(path.join(racineMiroirs, PROJET, 'evasion'));
+        expect(
+          dansLeMiroir.isSymbolicLink(),
+          'le clone a APLATI le lien symbolique (git `core.symlinks=false` ?) : ' +
+            'les tests d’évasion qui suivent n’éprouveraient plus rien',
+        ).toBe(true);
       }
     });
 

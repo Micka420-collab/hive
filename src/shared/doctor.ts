@@ -35,7 +35,7 @@
 //
 // Famille de `balance.ts`, `thermo.ts`, `gardiennes.ts` : aucune I/O, aucune
 // horloge, aucun aléa. Le relevé des faits est ailleurs (`doctor-releve.ts`),
-// et c'est ce qui rend les onze diagnostics testables un par un, y compris
+// et c'est ce qui rend les douze diagnostics testables un par un, y compris
 // leurs cas « je ne sais pas » — qu'aucun test ne pourrait fabriquer si le
 // module allait lire le disque lui-même.
 
@@ -94,6 +94,35 @@ export interface Releve {
     /** `true` = c'est NOTRE ruche ; `false` = un autre programme ; `null` = indéterminable. */
     parNous: boolean | null;
   };
+  /**
+   * Les paquets dont SEULE la ruche complète a besoin — et qui peuvent manquer
+   * sans que quoi que ce soit l'ait signalé.
+   *
+   * ─── POURQUOI CE RELEVÉ EXISTE ─────────────────────────────────────────────
+   *
+   * `fastify`, `@fastify/cors`, `@fastify/static` et `better-sqlite3` sont
+   * déclarés OPTIONNELS, délibérément : un membre qui fait tourner un NŒUD n'a
+   * besoin d'aucun des quatre. Mais « optionnel » a une conséquence que
+   * personne ne voit passer — **si leur installation échoue, npm continue en
+   * silence et sort en 0.**
+   *
+   * `better-sqlite3` ne publie AUCUN binaire prébuilt : chaque installation le
+   * COMPILE. Sur une machine Windows sans outillage C++ — c'est-à-dire une
+   * machine Windows neuve — la compilation échoue, npm dit « added 247
+   * packages », et `hive start` meurt sur `ERR_MODULE_NOT_FOUND`.
+   *
+   * Le docteur savait déjà que ça arrivait : `baseIntegre()` importe le module
+   * PARESSEUSEMENT, en toutes lettres « pour que le docteur puisse tourner là
+   * où le module natif n'a pas été compilé — c'est même un cas de panne
+   * fréquent ». Il était donc conçu pour SURVIVRE à cette panne, et il n'en
+   * disait rien. Le champ qui suit est ce qui manquait.
+   */
+  moteur: {
+    /** Paquets de la ruche complète qui ne se chargent pas. Vide = tout est là. */
+    manquants: string[];
+    /** Pourquoi le premier d'entre eux ne se charge pas ; `null` s'ils sont tous là. */
+    raison: string | null;
+  };
   base: {
     presente: boolean;
     /** `PRAGMA integrity_check` ; `null` si on n'a pas pu l'ouvrir. */
@@ -133,15 +162,20 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les onze diagnostics, dans l'ordre où ils se réparent.
+ * Les douze diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
  * en bas répare dans le bon sens.
+ *
+ * `moteur` vient en DEUXIÈME pour la même raison : sans lui, la ruche ne
+ * démarre pas du tout, et régler un CORS trop ouvert sur un programme qui ne
+ * s'exécutera jamais est du temps perdu.
  */
 export function diagnostiquer(r: Releve): Diagnostic[] {
   return [
     nodeVersion(r),
+    moteur(r),
     fichierEnv(r),
     jeton(r),
     port(r),
@@ -177,7 +211,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les onze ───────────────────────────────────────────────────────────────
+// ─── Les douze ──────────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (r.nodeMajeur >= NODE_MINIMUM) {
@@ -193,6 +227,62 @@ function nodeVersion(r: Releve): Diagnostic {
     gravite: 'bloquant',
     constat: `Node ${r.nodeMajeur} — la ruche exige ${NODE_MINIMUM} ou plus`,
     reparation: `nvm install ${NODE_MINIMUM} && nvm use ${NODE_MINIMUM}`,
+  };
+}
+
+/**
+ * Les paquets sans lesquels `hive start` ne démarre pas.
+ *
+ * Exporté parce que le relevé les sonde et que le verdict les compte : deux
+ * listes séparées finiraient par diverger, et le jour où elles divergent, le
+ * docteur cherche un paquet que personne n'installe.
+ */
+export const RUCHE_COMPLETE = [
+  'fastify',
+  '@fastify/cors',
+  '@fastify/static',
+  'better-sqlite3',
+] as const;
+
+function moteur(r: Releve): Diagnostic {
+  const manquants = r.moteur.manquants;
+  if (manquants.length === 0) {
+    return {
+      cle: 'moteur',
+      gravite: 'ok',
+      constat: 'paquets de la ruche complète tous chargeables',
+      reparation: null,
+    };
+  }
+  // LES QUATRE D'UN COUP est la signature d'un `--omit=optional` assumé — le
+  // README le documente comme une installation de NŒUD. Une compilation ratée,
+  // elle, n'en emporte qu'un. Ce ne sont pas les mêmes gestes, donc ce ne sont
+  // pas les mêmes phrases.
+  if (manquants.length === RUCHE_COMPLETE.length) {
+    return {
+      cle: 'moteur',
+      gravite: 'bloquant',
+      constat: 'aucun paquet de la ruche complète — installation de nœud (`--omit=optional`)',
+      reparation:
+        'npm install --include=optional   (rien à faire si cette machine ne doit faire tourner qu’un nœud : `hive node`)',
+    };
+  }
+  const pluriel = manquants.length > 1 ? 's' : '';
+  return {
+    cle: 'moteur',
+    gravite: 'bloquant',
+    constat:
+      `${manquants.join(', ')} introuvable${pluriel} — la ruche ne démarrera pas` +
+      (r.moteur.raison === null ? '' : ` (${r.moteur.raison})`),
+    // `better-sqlite3` ne publie AUCUN binaire prébuilt : il se COMPILE à
+    // chaque installation. C'est pourquoi la réparation parle d'outillage C++
+    // et pas de réseau — et pourquoi `--foreground-scripts` est le premier
+    // geste : sans lui, npm avale l'erreur de compilation et sort en 0.
+    reparation:
+      'npm install --include=optional --foreground-scripts   ' +
+      '(la vraie erreur s’affiche alors ; il manque presque toujours l’outillage C++ : ' +
+      'sous Windows « Visual Studio Build Tools » + charge de travail « Desktop development with C++ », ' +
+      'sous Debian/Ubuntu « build-essential » et « python3 »)',
   };
 }
 
@@ -303,6 +393,26 @@ function port(r: Releve): Diagnostic {
 }
 
 function base(r: Releve): Diagnostic {
+  // SANS LE MOTEUR, CE DIAGNOSTIC N'A RIEN À DIRE — et surtout pas « ok ».
+  //
+  // C'était le mensonge le plus coûteux du docteur. Sur une machine Windows
+  // neuve, où `better-sqlite3` n'a pas pu se compiler, il n'y a pas de base ;
+  // la branche du dessous concluait donc « aucune base — elle sera créée au
+  // premier démarrage », en vert. Or elle ne sera JAMAIS créée : il n'y aura
+  // pas de premier démarrage. Le docteur rassurait précisément la personne
+  // qu'il devait alerter.
+  //
+  // L'autre branche mentait aussi, plus discrètement : sans le moteur,
+  // `integre` vaut `null`, et le verdict lisait « fichier verrouillé ? » en
+  // proposant d'arrêter une ruche qui ne tourne pas.
+  if (r.moteur.manquants.includes('better-sqlite3')) {
+    return {
+      cle: 'base',
+      gravite: 'inconnu',
+      constat: 'rien à dire de la base : le moteur SQLite ne se charge pas',
+      reparation: 'réparez `moteur` d’abord — ce diagnostic redeviendra lisible ensuite',
+    };
+  }
   if (!r.base.presente) {
     // Pas une panne : une ruche neuve n'a pas encore de base.
     return {

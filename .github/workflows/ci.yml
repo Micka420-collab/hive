@@ -44,6 +44,58 @@ jobs:
           node-version: '20'
           cache: npm
 
+      # ─── POURQUOI CETTE ÉTAPE N'EXISTE QUE SOUS WINDOWS ──────────────────────
+      #
+      # `better-sqlite3` ne publie AUCUN binaire prébuilt — pour aucune
+      # plateforme. `prebuild-install` le dit sur les deux systèmes :
+      #
+      #   prebuild-install warn install No prebuilt binaries found (target=20.20.2 …)
+      #
+      # Chaque installation le COMPILE donc. Sous Linux ça passe sans rien
+      # demander : gcc et python3 sont déjà là. Sous Windows, le runner a
+      # POURTANT Visual Studio — 18 Enterprise, installé — et la compilation
+      # échouait quand même :
+      #
+      #   gyp ERR! find VS Failure details: RangeError [ERR_CHILD_PROCESS_STDIO_MAXB
+      #   gyp ERR! find VS unknown version "undefined" found at
+      #                    "C:\Program Files\Microsoft Visual Studio\18\Enterprise"
+      #
+      # Ce n'est pas un outillage manquant : c'est `node-gyp` 10.1.0 — la
+      # version que npm 10 embarque avec Node 20 — dont le sondage PowerShell
+      # dépasse son propre `maxBuffer`. Il n'arrive pas à lire la réponse, en
+      # conclut qu'il n'y a pas de compilateur, et abandonne. node-gyp 11
+      # corrige les deux points.
+      #
+      # ON NE CONTOURNE DONC RIEN : on donne à npm un outil capable de voir ce
+      # qui est DÉJÀ sur la machine. La CI Windows exerce ensuite la ruche
+      # complète pour de vrai — c'était tout l'intérêt d'ajouter cette
+      # plateforme.
+      #
+      # L'AUTRE cas — une machine Windows NEUVE, sans outillage C++, où la
+      # compilation échoue pour de bon — n'est pas mis sous le tapis pour
+      # autant : c'est exactement ce que le diagnostic `moteur` de
+      # `hive doctor` sait maintenant nommer, et il est testé sur les deux
+      # plateformes à chaque CI.
+      # On passe par la VARIABLE D'ENVIRONNEMENT, pas par `npm config set`.
+      # Première tentative, refusée net par npm 10.8.2 :
+      #
+      #   npm error `node_gyp` is not a valid npm option
+      #
+      # `npm config set node_gyp …` marchait en npm 6/7 ; depuis, npm rejette
+      # les clés qu'il ne connaît pas. `npm_config_node_gyp` reste lue.
+      #
+      # Et on VÉRIFIE que le fichier est là avant de l'annoncer : un chemin
+      # faux se traduirait plus loin par un échec de compilation, à cinquante
+      # lignes de sa cause.
+      - name: node-gyp capable de voir Visual Studio (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          npm install -g node-gyp@11
+          $gyp = "$(npm prefix -g)/node_modules/node-gyp/bin/node-gyp.js"
+          if (-not (Test-Path $gyp)) { throw "node-gyp introuvable après installation : $gyp" }
+          Write-Host "npm_config_node_gyp = $gyp"
+          Add-Content -Path $env:GITHUB_ENV -Value "npm_config_node_gyp=$gyp"
+
       # `--foreground-scripts` rend VISIBLE ce que font les scripts d'install.
       # Sans lui, l'échec du module natif de `better-sqlite3` — qui est une
       # dépendance OPTIONNELLE, donc silencieusement abandonnée — n'apparaît

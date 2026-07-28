@@ -17,6 +17,7 @@
 // La seconde est la raison d'être du module. Les cas `null` sont donc testés
 // un par un, et pas seulement les cas de panne.
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   codeDeSortie,
@@ -24,6 +25,7 @@ import {
   ESPACE_MINIMUM_OCTETS,
   NODE_MINIMUM,
   pire,
+  RUCHE_COMPLETE,
 } from '../src/shared/doctor.js';
 import type { Diagnostic, Releve } from '../src/shared/doctor.js';
 
@@ -33,6 +35,7 @@ const SAINE: Releve = {
   fichierEnv: { present: true, lisible: true, permissions: 0o600 },
   jeton: { present: true, longueur: 48, trivial: false },
   port: { numero: 7777, libre: true, parNous: null },
+  moteur: { manquants: [], raison: null },
   base: { presente: true, integre: true, inscriptible: true },
   dashboardConstruit: true,
   agent: 'claude-code',
@@ -57,13 +60,17 @@ function diag(r: Releve, cle: string): Diagnostic {
 describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
   it('TOUT ÉCHEC PORTE SA RÉPARATION — aucun diagnostic ne se contente de nommer', () => {
     // On balaie une ruche entièrement cassée : chaque verdict qui n'est pas
-    // `ok` doit dire quoi taper. C'est une garde sur la RÈGLE, pas sur onze
-    // endroits — le douzième diagnostic qu'on ajoutera y passera aussi.
+    // `ok` doit dire quoi taper. C'est une garde sur la RÈGLE, pas sur douze
+    // endroits — le treizième diagnostic qu'on ajoutera y passera aussi.
+    //
+    // Elle a tenu : `moteur` est arrivé après coup et s'y est plié sans qu'une
+    // ligne de ce test change, à part le compte.
     const cassee: Releve = {
       nodeMajeur: 18,
       fichierEnv: { present: false, lisible: false, permissions: null },
       jeton: { present: false, longueur: 0, trivial: false },
       port: { numero: 7777, libre: false, parNous: false },
+      moteur: { manquants: ['better-sqlite3'], raison: 'Cannot find module' },
       base: { presente: true, integre: false, inscriptible: true },
       dashboardConstruit: false,
       agent: null,
@@ -73,7 +80,7 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       espace: { octetsLibres: 0, inscriptible: true },
     };
     const diags = diagnostiquer(cassee);
-    expect(diags.length, 'les onze diagnostics de la mission').toBe(11);
+    expect(diags.length, 'les douze diagnostics de la mission').toBe(12);
 
     for (const d of diags) {
       expect(d.gravite, `${d.cle} devrait signaler quelque chose`).not.toBe('ok');
@@ -351,6 +358,113 @@ describe('11. L’ESPACE DE TRAVAIL', () => {
   });
 });
 
+describe('12. LE MOTEUR — la panne que le docteur savait possible et taisait', () => {
+  // ─── CE QUE CE BLOC RATTRAPE ───────────────────────────────────────────────
+  //
+  // `better-sqlite3` ne publie AUCUN binaire prébuilt : chaque installation le
+  // compile. Sur une machine Windows neuve — pas d'outillage C++ — la
+  // compilation échoue, npm sort en 0 parce que le paquet est OPTIONNEL, et
+  // `hive start` meurt sur `ERR_MODULE_NOT_FOUND`.
+  //
+  // Le docteur connaissait ce cas : `baseIntegre()` importe paresseusement, et
+  // son commentaire dit « c'est même un cas de panne fréquent ». Il était donc
+  // bâti pour SURVIVRE à cette panne — sans jamais la nommer.
+
+  const sansSqlite = avec({
+    moteur: { manquants: ['better-sqlite3'], raison: "Cannot find package 'better-sqlite3'" },
+  });
+
+  it('tout se charge : rien à signaler', () => {
+    expect(diag(SAINE, 'moteur').gravite).toBe('ok');
+    expect(diag(SAINE, 'moteur').reparation).toBeNull();
+  });
+
+  it('LE MODULE NATIF MANQUANT EST BLOQUANT, ET LA RAISON EST CITÉE', () => {
+    const d = diag(sansSqlite, 'moteur');
+    expect(d.gravite).toBe('bloquant');
+    expect(d.constat).toContain('better-sqlite3');
+    // La raison brute compte : « introuvable » sans le message d'origine
+    // renvoie la personne deviner. C'est la première ligne, pas les cinquante.
+    expect(d.constat).toContain("Cannot find package 'better-sqlite3'");
+    expect(d.reparation).toContain('--foreground-scripts');
+  });
+
+  it('les QUATRE d’un coup se lisent « installation de nœud », pas « compilation ratée »', () => {
+    // Distinction utile : `--omit=optional` est un choix documenté par le
+    // README, et son geste de réparation n'est pas celui d'un `node-gyp` qui
+    // a échoué. Confondre les deux enverrait installer Visual Studio à
+    // quelqu'un qui n'en a aucun besoin.
+    const nœud = avec({
+      moteur: { manquants: [...RUCHE_COMPLETE], raison: 'Cannot find package' },
+    });
+    const d = diag(nœud, 'moteur');
+    expect(d.gravite).toBe('bloquant');
+    expect(d.constat).toContain('nœud');
+    expect(d.reparation).toContain('--include=optional');
+    expect(d.reparation, 'ne parle PAS d’outillage C++ ici').not.toContain('Visual Studio');
+  });
+
+  it('SANS LE MOTEUR, LA BASE NE SE LIT PLUS « ok » — le mensonge le plus coûteux', () => {
+    // C'était le comportement AVANT : machine Windows neuve, pas de base
+    // (puisque la ruche n'a jamais démarré), donc `presente: false`, donc
+    //
+    //     ✔ base   aucune base — elle sera créée au premier démarrage
+    //
+    // en VERT. Or elle ne sera jamais créée : il n'y aura pas de premier
+    // démarrage. Le docteur rassurait exactement la personne qu'il devait
+    // alerter, et c'est le pire des deux mensonges possibles — celui qui ne
+    // se corrige jamais, parce que personne ne va vérifier ce qui a l'air
+    // d'aller.
+    const neuve = avec({
+      moteur: { manquants: ['better-sqlite3'], raison: 'Cannot find package' },
+      base: { presente: false, integre: null, inscriptible: true },
+    });
+    const d = diag(neuve, 'base');
+    expect(d.gravite, 'un « ok » ici est un mensonge').not.toBe('ok');
+    expect(d.gravite).toBe('inconnu');
+    expect(d.constat).not.toContain('sera créée');
+    expect(d.reparation).toContain('moteur');
+  });
+
+  it('sans le moteur, une base PRÉSENTE n’accuse plus un verrou imaginaire', () => {
+    // L'autre branche mentait plus discrètement : `integre` vaut `null` faute
+    // de moteur, et le verdict lisait « fichier verrouillé ? » en proposant
+    // d'arrêter une ruche qui ne tourne pas.
+    const d = diag(
+      avec({
+        moteur: { manquants: ['better-sqlite3'], raison: 'Cannot find package' },
+        base: { presente: true, integre: null, inscriptible: true },
+      }),
+      'base',
+    );
+    expect(d.constat).not.toContain('verrouillé');
+    expect(d.reparation).not.toContain('arrêtez la ruche');
+  });
+
+  it('le moteur présent laisse la base parler normalement', () => {
+    // La garde ne doit pas AVALER le diagnostic qu'elle protège : sans ce
+    // test, remplacer le corps de `base()` par le seul cas « moteur absent »
+    // passerait inaperçu.
+    expect(
+      diag(avec({ base: { presente: false, integre: null, inscriptible: true } }), 'base').constat,
+    ).toContain('sera créée');
+    expect(
+      diag(avec({ base: { presente: true, integre: false, inscriptible: true } }), 'base').gravite,
+    ).toBe('bloquant');
+  });
+
+  it('un AUTRE paquet manquant que SQLite ne muselle pas la base', () => {
+    // La garde vise `better-sqlite3` nommément, pas « quelque chose manque » :
+    // sans SQLite on ne peut rien dire de la base, mais sans `@fastify/static`
+    // la base reste parfaitement lisible.
+    const d = diag(
+      avec({ moteur: { manquants: ['@fastify/static'], raison: 'Cannot find package' } }),
+      'base',
+    );
+    expect(d.gravite).toBe('ok');
+  });
+});
+
 describe('LE VERDICT D’ENSEMBLE, ET LE CODE DE SORTIE', () => {
   it('le pire l’emporte, dans le bon ordre', () => {
     expect(pire(diagnostiquer(SAINE))).toBe('ok');
@@ -387,6 +501,10 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
   it('les clés sont STABLES — c’est ce qu’une supervision surveille, pas le texte', () => {
     expect(diagnostiquer(SAINE).map((d) => d.cle)).toEqual([
       'node_version',
+      // `moteur` est DEUXIÈME, et cet ordre est une information : sans lui la
+      // ruche ne démarre pas, donc régler un CORS trop ouvert plus bas dans la
+      // liste serait du temps perdu.
+      'moteur',
       'env_present',
       'jeton',
       'port',
@@ -398,5 +516,27 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
       'reglages',
       'espace',
     ]);
+  });
+});
+
+describe('LA LISTE DE LA RUCHE COMPLÈTE N’EXISTE QU’UNE FOIS', () => {
+  it('le script de CI et le docteur sondent EXACTEMENT les mêmes paquets', () => {
+    // `RUCHE_COMPLETE` porte son propre avertissement : « deux listes séparées
+    // finiraient par diverger, et le jour où elles divergent, le docteur
+    // cherche un paquet que personne n'installe ».
+    //
+    // Or `scripts/deps-optionnelles.mjs` en tient une deuxième — il tourne
+    // dans la CI, avant que quoi que ce soit ne soit construit, et ne peut pas
+    // importer le module TypeScript. L'avertissement était donc écrit et rien
+    // ne l'appliquait : le défaut que ce dépôt collectionne, dans le
+    // commentaire qui le dénonce.
+    //
+    // Ce test est ce qui l'applique. Ajouter un paquet d'un seul côté le rougit.
+    const script = readFileSync('scripts/deps-optionnelles.mjs', 'utf8');
+    const bloc = /const OPTIONNELLES = \[([^\]]*)\]/.exec(script);
+    expect(bloc, 'le tableau OPTIONNELLES a été renommé ou reformaté').toBeTruthy();
+
+    const duScript = [...(bloc?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(duScript, 'la liste du script de CI').toEqual([...RUCHE_COMPLETE]);
   });
 });

@@ -112,6 +112,21 @@ overwriting a live token would cut off every connected node.
 
 Prerequisite: **Node.js ≥ 20**.
 
+> **Full hive on Windows — a C++ toolchain is required.**
+> `better-sqlite3` ships no prebuilt binaries: it is **compiled** at install
+> time, on every platform. Linux and macOS have what it needs out of the box;
+> a fresh Windows machine does not. Install
+> [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+> with the **"Desktop development with C++"** workload.
+>
+> Without it, `npm install` **still succeeds** — SQLite is an _optional_
+> dependency, and npm drops optional ones silently — and then `hive start`
+> dies with `ERR_MODULE_NOT_FOUND`. That is exactly what `hive doctor` now
+> diagnoses, under the `moteur` key, together with the command that fixes it.
+>
+> A **node** (`hive join`, `hive node`) needs no compiler at all: SQLite is
+> none of its business.
+
 ```bash
 npm install
 npm run demo

@@ -32,6 +32,7 @@ import { createServer as creerServeurTcp } from 'node:net';
 import path from 'node:path';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
+import { RUCHE_COMPLETE } from './shared/doctor.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
 import { FOURNISSEURS } from './node-client/isolement.js';
 
@@ -240,6 +241,40 @@ export async function baseIntegre(chemin: string): Promise<boolean | null> {
   }
 }
 
+/**
+ * Lesquels des paquets de la ruche complète ne se chargent pas, et pourquoi.
+ *
+ * ─── POURQUOI ON IMPORTE VRAIMENT AU LIEU DE REGARDER `node_modules/` ────────
+ *
+ * Un dossier `better-sqlite3/` présent ne prouve rien : npm le crée AVANT de
+ * lancer la compilation, et il le laisse en place quand `node-gyp` échoue.
+ * Ce qui casse `hive start`, c'est l'`import` — donc c'est l'`import` qu'on
+ * fait ici. La seule question à laquelle il faut répondre est « est-ce que ce
+ * paquet se charge sur cette machine », et un seul geste y répond.
+ *
+ * L'échec est ATTENDU et sans conséquence : on ne fait qu'importer, et le
+ * catch ne laisse rien passer. C'est la même paresse que `baseIntegre()`, pour
+ * la même raison — le docteur doit tourner là où le module natif manque.
+ */
+export async function moteurManquant(
+  paquets: readonly string[] = RUCHE_COMPLETE,
+): Promise<{ manquants: string[]; raison: string | null }> {
+  const manquants: string[] = [];
+  let raison: string | null = null;
+  for (const nom of paquets) {
+    try {
+      await import(nom);
+    } catch (e) {
+      manquants.push(nom);
+      // La PREMIÈRE raison seulement, et sa première ligne : une trace
+      // `node-gyp` complète fait cinquante lignes et noierait les onze autres
+      // diagnostics. Le geste qui donne le détail est dans `reparation`.
+      raison ??= e instanceof Error ? (e.message.split('\n')[0] ?? null) : String(e);
+    }
+  }
+  return { manquants, raison };
+}
+
 /** Place libre sur un chemin, ou `null` si le système ne répond pas. */
 export function octetsLibres(chemin: string): number | null {
   try {
@@ -296,6 +331,7 @@ export async function relever(
 
   const basePresente = existsSync(lieux.base);
   const jeton = env.HIVE_TOKEN ?? '';
+  const moteur = await moteurManquant();
 
   return {
     nodeMajeur: Number(process.versions.node.split('.')[0] ?? 0),
@@ -318,6 +354,7 @@ export async function relever(
       trivial: jeton === DEFAULT_TOKEN,
     },
     port: { numero: port, libre, parNous },
+    moteur,
     base: {
       presente: basePresente,
       integre: basePresente ? await baseIntegre(lieux.base) : null,
