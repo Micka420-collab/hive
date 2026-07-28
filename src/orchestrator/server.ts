@@ -42,6 +42,7 @@ import {
 } from '../shared/acces.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
+import { vuePublique } from '../shared/projet-public.js';
 import { isValidRepoUrl, LIMITS, parseClientMessage } from '../shared/protocol.js';
 import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -4034,9 +4035,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   // ─── Marketplace ───────────────────────────────────────────────────────────
   // Projets publics — accessible sans authentification.
+  // La SEULE route de la ruche qui ne demande aucune authentification — c'est
+  // voulu, c'est un catalogue. Elle renvoyait la ligne entière de la base :
+  // `repoUrl` compris, alors qu'un dépôt privé se clone en écrivant ses
+  // identifiants DANS l'URL (`https://user:ghp_…@github.com/…`), et `ownerId`
+  // compris, qui désigne une cible nommée sans rien apprendre au visiteur.
+  // La projection est explicite et testée : cf. src/shared/projet-public.ts.
   app.get('/api/projects/public', async (_req, reply) => {
-    const projects = store.listPublicProjects();
-    return reply.send(projects);
+    return reply.send(store.listPublicProjects().map(vuePublique));
   });
 
   // Créer un projet (via JWT utilisateur). Accepte visibility + ownerId.

@@ -10,6 +10,7 @@
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { assertRealExecutionAllowed, runCommand } from './exec.js';
+import { texteNonOption } from './prompt-argv.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CUSTOM_TIMEOUT_MS = 15 * 60_000;
@@ -32,9 +33,14 @@ export function createCustomAdapter(
   return {
     name: 'custom',
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
+      // Ici la commande est celle de l'opérateur : on ne peut pas supposer
+      // qu'elle comprend le terminateur `--`, et lui en injecter un casserait
+      // des commandes légitimes. On neutralise donc le prompt lui-même, ce qui
+      // ne suppose rien de la CLI. Cf. src/adapters/prompt-argv.ts.
+      const prompt = texteNonOption(task.prompt);
       const argv = rest.includes(PROMPT_PLACEHOLDER)
-        ? rest.map((a) => (a === PROMPT_PLACEHOLDER ? task.prompt : a))
-        : [...rest, task.prompt];
+        ? rest.map((a) => (a === PROMPT_PLACEHOLDER ? prompt : a))
+        : [...rest, prompt];
       ctx.onProgress({ log: `commande libre : ${bin}` });
       const result = await runCommand(bin, argv, ctx, CUSTOM_TIMEOUT_MS);
       return { ...result, subAgents: [] };

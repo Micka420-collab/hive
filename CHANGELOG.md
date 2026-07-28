@@ -193,6 +193,48 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Le prompt d'une tâche ne peut plus devenir une option de l'agent** (module
+  `src/adapters/prompt-argv.ts`). L'adaptateur claude-code lançait
+  `claude -p <prompt> --output-format stream-json --verbose` : un prompt
+  commençant par un tiret n'était alors plus un prompt, mais une option.
+  **Vérifié sur le binaire réel** — `claude -p '--version' …` imprimait
+  `2.1.220 (Claude Code)` et sortait, sans jamais voir de prompt ; avec `--`
+  posé au bon endroit, la même chaîne redevient du texte et la session démarre.
+  Ce n'est **pas** « de l'exécution de code là où il n'y en avait pas » — un
+  nœud accepte déjà d'exécuter l'agent sur des prompts venus du hub, et le dire
+  serait exagérer. Ce que l'injection ajoutait, c'est le contrôle des
+  **options** de l'agent, donc de quoi désarmer les garde-fous que le membre a
+  posés sur **sa** machine (permissions, répertoires autorisés, configuration
+  MCP) : il croyait prêter un agent bridé, il prêtait l'agent que le hub
+  configure. Et le prompt n'est pas toujours écrit par un humain — le
+  planificateur, la Reine et le runner d'essaim en fabriquent, il suffit qu'un
+  modèle produise une ligne qui commence par un tiret. `claude` et `codex`
+  posent désormais le terminateur POSIX `--` devant le prompt (options
+  d'abord) ; l'adaptateur `custom`, dont la commande appartient à l'opérateur
+  et peut ne pas comprendre `--`, neutralise le **texte** au lieu de la
+  commande — un prompt qui commence par un tiret reçoit une espace de tête,
+  invisible pour du langage naturel et impossible à lire comme une option.
+  **Une liste Markdown (« - corriger le bug ») reste donc parfaitement
+  légitime** : c'est le cas qu'un simple refus aurait cassé.
+
+- **La route anonyme `GET /api/projects/public` ne publie plus la ligne entière
+  de la base** (module `src/shared/projet-public.ts`). C'est la seule route de
+  la ruche qui ne demande aucune authentification — c'est voulu, c'est un
+  catalogue — et elle renvoyait `SELECT * FROM projects`. Deux colonnes n'y
+  avaient rien à faire : **`repoUrl`**, alors qu'un dépôt privé se clone en
+  écrivant ses identifiants dans l'URL
+  (`https://user:ghp_…@github.com/org/depot.git`, que `isValidRepoUrl`
+  acceptait sans rien dire) — un jeton GitHub partait donc à quiconque savait
+  faire un `curl` — et **`ownerId`**, qui désigne une cible nommée sans rien
+  apprendre d'utile au visiteur. La réponse est maintenant une **projection
+  explicite**, construite champ par champ, avec l'URL du dépôt **lavée de ses
+  identifiants** (et un chemin local jamais publié : il décrit l'arborescence
+  de la machine de l'hôte). Le correctif qui compte n'est pas le filtre mais le
+  **test associé** : il relit `types.ts` et échoue si un champ de `Project`
+  n'est ni publié ni explicitement retenu **avec sa raison écrite**. Sans lui,
+  la prochaine colonne ajoutée à la table serait publiée le jour de son ajout —
+  c'est très exactement ainsi que cette fuite était née.
+
 - **La commande de test d'un merge ne peut plus être n'importe quel binaire**
   (module pur `src/shared/commande-test.ts`). `POST /api/projects/:id/merge/run`
   acceptait un `testCommand: string[]` que le hub relayait au premier nœud en

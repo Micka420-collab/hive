@@ -23,9 +23,17 @@ export function createClaudeCodeAdapter(
       ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();
       // --verbose est requis par Claude Code pour stream-json en mode -p.
+      //
+      // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :
+      // il était auparavant collé après `-p`, où un prompt commençant par un
+      // tiret était lu comme une OPTION. Vérifié sur le binaire réel —
+      // `claude -p '--version' …` imprimait la version sans jamais voir de
+      // prompt. Le hub pouvait ainsi choisir les options de l'agent sur la
+      // machine du membre, donc désarmer les garde-fous que celui-ci y a posés.
+      // Tout ce qui suit `--` est du texte. Cf. src/adapters/prompt-argv.ts.
       const result = await runCommandStreaming(
         'claude',
-        ['-p', task.prompt, '--output-format', 'stream-json', '--verbose'],
+        ['-p', '--output-format', 'stream-json', '--verbose', '--', task.prompt],
         ctx,
         (line) => {
           const subAgents = tracker.feed(line);

@@ -14,7 +14,10 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
     name: 'codex',
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       ctx.onProgress({ log: 'codex exec démarré' });
-      const result = await runCommand('codex', ['exec', task.prompt], ctx, CODEX_TIMEOUT_MS);
+      // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
+      // lu comme une option de `codex exec` (cf. src/adapters/prompt-argv.ts,
+      // où l'injection est démontrée sur le binaire claude).
+      const result = await runCommand('codex', ['exec', '--', task.prompt], ctx, CODEX_TIMEOUT_MS);
       return { ...result, subAgents: [] };
     },
   };
