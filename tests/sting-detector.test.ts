@@ -106,6 +106,33 @@ describe('detectConflicts', () => {
     expect(conflicts).toHaveLength(0);
   });
 
+  it('UNE DÉPENDANCE TRANSITIVE PROTÈGE AUTANT QU’UNE DIRECTE', () => {
+    // Trouvé en MUTANT : retirer la propagation de `reachableDeps` ne
+    // rougissait rien. Le test voisin ne couvre qu'une dépendance DIRECTE ;
+    // c→b→a, où seules a et c se touchent, n'était nulle part.
+    //
+    // Et c'est le cas fréquent : un DAG produit par la Queen Bee enchaîne
+    // volontiers trois étapes dont la première et la dernière touchent le même
+    // fichier. Sans transitivité, la ruche annoncerait un conflit entre deux
+    // tâches qui ne peuvent PAS tourner ensemble — un faux positif qui
+    // sérialise du travail déjà sérialisé.
+    const conflicts = detectConflicts([
+      task('a', 'modifier src/auth.ts'),
+      task('b', 'préparer la migration', ['a']),
+      task('c', 'ajouter un test à src/auth.ts', ['b']),
+    ]);
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it('UNE TÂCHE EN ÉCHEC NE CONCURRENCE PLUS PERSONNE', () => {
+    // Trouvé en MUTANT : le test voisin couvre `done`, pas `failed`. Or les
+    // deux sont terminales — une tâche en échec ne tourne pas, et la signaler
+    // en conflit est un faux positif. C'est exactement ce que ce module existe
+    // pour ne pas faire : le Sting Detector ne vaut que par sa précision.
+    const echouee = { ...task('a', 'modifier src/auth.ts'), status: 'failed' as const };
+    expect(detectConflicts([echouee, task('b', 'toucher src/auth.ts')])).toHaveLength(0);
+  });
+
   it('ignore les tâches terminées et les projets distincts', () => {
     const done = { ...task('a', 'src/auth.ts'), status: 'done' as const };
     const other = { ...task('c', 'src/auth.ts'), projectId: 'p2' };

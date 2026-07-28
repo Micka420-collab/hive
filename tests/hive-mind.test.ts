@@ -63,6 +63,26 @@ describe('récupération (moteur pur)', () => {
     expect(rankMemories('jwt', [])).toHaveLength(0);
   });
 
+  it('À SCORE ÉGAL, LE PLUS RÉCENT GAGNE', () => {
+    // Trouvé en MUTANT : retirer le départage par date ne rougissait rien.
+    // `Array.sort` étant stable, l'ordre du CORPUS tenait lieu de départage —
+    // donc la mémoire dépendait de l'ordre dans lequel le magasin rend ses
+    // lignes, et non de leur âge.
+    //
+    // La règle compte : deux souvenirs de même pertinence ne se valent pas.
+    // Le plus récent décrit la version actuelle du projet ; le plus ancien
+    // peut décrire un état que le dépôt a quitté depuis. Injecter le vieux,
+    // c'est enseigner à l'ouvrière quelque chose de faux.
+    const ancien = mem(1, 'ancien', 'Authentification JWT', 'sessions bcrypt cookies');
+    const recent = mem(9, 'recent', 'Authentification JWT', 'sessions bcrypt cookies');
+    // Corpus donné du plus ANCIEN au plus récent : sans départage, l'ordre
+    // d'entrée survivrait tel quel et le vieux passerait en tête.
+    const ranked = rankMemories('authentification jwt sessions', [ancien, recent]);
+    expect(ranked).toHaveLength(2);
+    expect(ranked[0]?.score, 'les deux souvenirs doivent être à égalité').toBe(ranked[1]?.score);
+    expect(ranked[0]?.memory.taskId, 'le plus récent doit passer devant').toBe('recent');
+  });
+
   it('résume une tâche et assemble un contexte injectable', () => {
     const s = summarizeTask('Auth', 'Implémenter le login', 'créé auth.ts, 12 tests verts');
     expect(s).toContain('Implémenter le login');
