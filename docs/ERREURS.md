@@ -216,6 +216,49 @@ serait passé **grâce** à l'explication — exactement le défaut d'origine.
 > de test lit plusieurs fichiers, ils passent **tous** par le même filtre — un
 > seul nu et deux habillés est un piège qui attend.
 
+### 2.3 bis — Le test passait grâce au message d'erreur qu'il ne visait pas
+
+Un test de la contre-expertise devait prouver qu'une objection ne peut pas
+fabriquer de faux retours à la ligne. Il donnait un texte contenant U+2028,
+attendait **une** objection, et en trouvait bien une. Vert.
+
+La loupe a refusé de le croire : en retirant `champSurUneLigne`, il restait vert.
+
+Ce qu'il mesurait vraiment : le texte ne contenait ni « valide » ni « conteste »,
+donc le verdict était **illisible**, donc la fonction rendait son message
+« verdict illisible » — une CONSTANTE, sans U+2028. L'objection comptée était
+celle-là. La ligne visée n'était même pas capturée.
+
+Et sous ce test faible, un vrai défaut. En JavaScript, `.` ne traverse pas
+U+2028 : avec `/^\s*[-*]\s+(.+)$/`, une objection contenant ce caractère ne
+capturait **rien du tout**. Elle était perdue en silence — dans le seul module
+du dépôt dont la raison d'être est de ne pas perdre d'objection.
+
+En creusant encore, la cause commune : `champSurUneLigne`, le nettoyeur PARTAGÉ
+du dépôt, ne connaissait que `\r`, `\n` et la tabulation. U+2028 (LINE
+SEPARATOR) et U+2029 (PARAGRAPH SEPARATOR) le traversaient intacts, alors que ce
+sont des retours à la ligne pour un terminal, un navigateur et la plupart des
+rendus. Une fonction qui promet « sur une seule ligne » et laisse passer un
+séparateur de ligne ne tient pas sa promesse — et le Cerveau, la Couveuse et la
+contre-expertise s'appuyaient tous les trois dessus.
+
+> **Règle** — quand un test attend UN élément, vérifier **lequel**. Un compte
+> juste obtenu par le mauvais élément est un test qui ne gardera jamais rien.
+> Ici, `toHaveLength(1)` était satisfait par un message d'erreur.
+>
+> **Règle** — un mutant qui refuse de mourir n'est pas une bizarrerie à
+> contourner : c'est une question à laquelle il faut répondre. Les trois
+> défauts ci-dessus sont sortis d'un seul mutant survivant.
+>
+> **Règle** — une garde sur les « retours à la ligne » couvre TOUS les
+> séparateurs de ligne Unicode, pas seulement ceux du clavier :
+> `\r \n \t \v \f U+0085 U+2028 U+2029`.
+
+**Ce qui le garde** : huit tests dans `tests/security-invariants.test.ts`, un
+par séparateur. Le mutant décisif est le retour à l'état d'avant — la classe
+ramenée à `[\r\n\t]` fait tomber **exactement cinq** tests, soit les cinq
+caractères ajoutés.
+
 ### 2.4 — Prétendre tester un chemin inatteignable
 
 Un test passait `{ PATH: '' }` à `detectBestAgent` en croyant forcer le repli.

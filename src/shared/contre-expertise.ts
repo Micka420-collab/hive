@@ -181,6 +181,84 @@ export function agreger(avis: readonly Avis[]): Verdict {
   };
 }
 
+/**
+ * Ce qu'un relecteur a écrit, transformé en avis.
+ *
+ * ─── LA RÉPONSE D'UN RELECTEUR EST UNE DONNÉE, ELLE AUSSI ────────────────────
+ *
+ * On a pris soin de faire passer la production par `blocDonnees` avant de la
+ * montrer au relecteur. Sa réponse mérite la même méfiance, pour une raison
+ * différente : elle ne sert pas de prompt, mais elle sera AFFICHÉE à un humain
+ * et rangée dans un événement. Une objection de 40 000 caractères, ou qui
+ * contient des retours à la ligne fabriquant de faux champs, abîme la lecture
+ * de la Chronique. D'où `champSurUneLigne` sur chaque ligne retenue.
+ *
+ * ─── LE DÉFAUT PAR DÉFAUT ────────────────────────────────────────────────────
+ *
+ * Un modèle ne répond pas toujours dans le format demandé. La question est
+ * alors : que vaut un verdict illisible ?
+ *
+ * Le rendre « valide » serait cohérent avec l'idée que la contre-expertise ne
+ * bloque rien — et ce serait le pire choix possible. « Relu, rien à signaler »
+ * est exactement le mensonge rassurant que ce module refuse ailleurs : celui
+ * que personne ne va vérifier. Un verdict qu'on n'a pas su lire devient donc
+ * une CONTESTATION, dont l'unique objection est qu'on n'a pas su le lire.
+ * L'humain regardera — c'est tout ce qu'on demande.
+ */
+/** Au-delà, ce n'est plus une liste d'objections, c'est un déversement. */
+const OBJECTIONS_MAX = 20;
+
+export function lireAvis(nodeId: string, agentType: string, texte: string): Avis {
+  const objections: string[] = [];
+  for (const ligne of texte.split(/\r?\n/)) {
+    // `[\s\S]` et non `.` : en JavaScript, `.` ne traverse PAS U+2028 ni
+    // U+2029. Avec `(.+)$`, une objection contenant un de ces séparateurs ne
+    // capturait rien du tout — l'objection était SILENCIEUSEMENT PERDUE, alors
+    // que tout ce module existe pour ne pas perdre d'objection. Elle est
+    // maintenant capturée, puis neutralisée par `champSurUneLigne`.
+    const m = /^\s*(?:[-*•]|\d+[.)])\s+([\s\S]+)$/.exec(ligne);
+    if (!m) continue;
+    const t = champSurUneLigne(m[1]!, 300).trim();
+    if (t !== '' && objections.length < OBJECTIONS_MAX) objections.push(t);
+  }
+
+  // `conteste` l'emporte sur `valide` quand les deux apparaissent : entre deux
+  // lectures possibles, on garde celle qui fait REGARDER. L'inverse ferait
+  // disparaître une objection sur une coquille de rédaction.
+  // ─── POURQUOI `NFD` SEUL SUFFIT, ET POURQUOI IL EST NÉCESSAIRE ─────────────
+  //
+  // Un relecteur qui écrit « validé » ou « contesté » dit la même chose que
+  // celui qui les écrit nus : le format demandé est une consigne, pas une
+  // garantie. Il faut donc que « validé » satisfasse `/\bvalide\b/` — et sans
+  // rien, ce n'est pas le cas : « validé » ne CONTIENT pas « valide », son
+  // dernier « e » ayant été remplacé par « é ».
+  //
+  // `NFD` décompose « é » en « e » + U+0301. La chaîne devient « valide » suivi
+  // d'une marque combinante — et comme `\b` est ASCII en JavaScript, cette
+  // marque n'est pas un caractère de mot : la frontière tombe juste après
+  // « valide », et la recherche aboutit.
+  //
+  // J'avais ajouté par-dessus un retrait explicite des marques combinantes. La
+  // loupe l'a tué sans faire rougir un seul test, et la mesure a dit pourquoi :
+  // il ne servirait que pour un accent à L'INTÉRIEUR du mot, or ni « valid » ni
+  // « contest » n'en portent dans aucune forme française. Une ligne qu'aucun
+  // test ne peut tuer est du décor — elle est partie.
+  const nu = texte.normalize('NFD').toLowerCase();
+  if (/\bconteste\b/.test(nu)) return { nodeId, agentType, valide: false, objections };
+  if (/\bvalide\b/.test(nu)) return { nodeId, agentType, valide: true, objections };
+
+  return {
+    nodeId,
+    agentType,
+    valide: false,
+    objections: [
+      'Verdict illisible : le relecteur n’a écrit ni « valide » ni « conteste ». ' +
+        'Compté comme contesté — un avis qu’on n’a pas su lire ne vaut pas un feu vert.',
+      ...objections,
+    ],
+  };
+}
+
 const DIFF_MAX = 6_000;
 const LOGS_MAX = 1_500;
 

@@ -9,6 +9,17 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🗣️ La contre-expertise sait LIRE un verdict** (`lireAvis`). Un relecteur
+  répond en texte libre ; cette fonction en tire un avis exploitable par
+  `agreger`. Le choix qui la porte : **un verdict illisible vaut « contesté »**,
+  jamais « validé ». Compter le silence comme un feu vert produirait « relu,
+  rien à signaler » sur un travail que personne n'a jugé — le mensonge
+  rassurant que ce module refuse partout ailleurs. De même, « conteste »
+  l'emporte sur « valide » quand les deux apparaissent : entre deux lectures
+  possibles, on garde celle qui fait REGARDER. La réponse du relecteur est
+  traitée comme une DONNÉE (neutralisée, bornée à 20 objections) — elle finit
+  dans un événement lu par un humain.
+
 - **🧠 Le Cerveau — le savoir qui survit à la fenêtre de contexte**
   (`src/shared/cerveau.ts`, `src/cerveau-reel.ts`, dossier `<données>/cerveau`).
   Une ruche qui travaille des MOIS referme une boucle : sa production
@@ -188,6 +199,23 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   vaut 0 précisément dans le cas à rattraper ; et la vérification qui décide est
   celle qui suit le `done`, une boucle shell sortant avec 0 même quand toutes ses
   tentatives ont échoué. Journal § 1.5.
+
+- **🔒 `champSurUneLigne` laissait passer U+2028 et U+2029.** Le nettoyeur
+  PARTAGÉ du dépôt — celui sur lequel s'appuient le Cerveau, la Couveuse et la
+  contre-expertise — ne connaissait que `\r`, `\n` et la tabulation. U+2028
+  (LINE SEPARATOR) et U+2029 (PARAGRAPH SEPARATOR) le traversaient intacts,
+  alors que ce sont des retours à la ligne pour un terminal, un navigateur et la
+  plupart des rendus : une fonction qui promet « sur une seule ligne » ne tenait
+  pas sa promesse, et c'est précisément le genre de caractère qu'on emploie
+  parce qu'une garde naïve ne le voit pas. La classe couvre désormais
+  `\r \n \t \v \f U+0085 U+2028 U+2029`, avec un test par séparateur.
+  Journal § 2.3 bis.
+
+- **🔎 Une objection de relecture contenant U+2028 était SILENCIEUSEMENT
+  PERDUE.** En JavaScript, `.` ne traverse pas ce caractère : avec
+  `/^\s*[-*]\s+(.+)$/`, la ligne n'était pas capturée du tout — dans le seul
+  module dont la raison d'être est de ne pas perdre d'objection. Corrigé en
+  `[\s\S]`, la neutralisation prenant le relais.
 
 - **⏱️ Le plafond de délai avait un jumeau, et il était resté à 10 s.**
   `testTimeout` avait été porté à 20 s après analyse — mais `hookTimeout` est un
