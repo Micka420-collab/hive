@@ -253,6 +253,26 @@ export function empreinte(ctx: Contexte): Emplacement[] {
         'l’historique de la ruche. `hive sauvegarde` en garde un nombre borné et ' +
         'élague les plus anciennes lui-même ; ce dossier ne grossit pas sans fin.',
     },
+    {
+      cle: 'cerveau',
+      chemin: p.join(donnees, 'cerveau'),
+      quoi: 'le savoir du projet — invariants, leçons, décisions',
+      genre: 'etat',
+      // ─── LE MOINS REMPLAÇABLE DE TOUT CE QUI EST ICI ────────────────────
+      //
+      // La base se reconstruit depuis un dépôt. Les rayons se reclonent. Les
+      // espaces de travail se refont. Le cerveau, non : c'est ce que des mois
+      // d'essais et d'erreurs ont produit, et il n'existe nulle part ailleurs.
+      //
+      // Il est en markdown et VERSIONNÉ, donc un dépôt qui le suit en garde
+      // une copie — mais un dossier de notes non commité, lui, ne se retrouve
+      // pas. `--oui` n'y touche donc jamais.
+      retirable: false,
+      consequence:
+        'ce que le projet a appris. Les épisodes se ré-accumuleraient avec le ' +
+        'temps ; les RÈGLES qu’ils ont produites, non — il faudrait refaire les ' +
+        'erreurs qui les ont fait écrire.',
+    },
     ...emplacementService(ctx, p),
     {
       cle: 'fusions',

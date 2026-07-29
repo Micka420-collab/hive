@@ -71,13 +71,19 @@ const ctxPosix: Contexte = {
 };
 
 describe('L’EMPREINTE — module pur', () => {
-  it('nomme les sept endroits où la ruche peut écrire', () => {
+  it('nomme les huit endroits où la ruche peut écrire', () => {
+    // Cette liste est un ENGAGEMENT, pas un reflet : elle rougit dès qu'un
+    // emplacement s'ajoute, et c'est tout son intérêt. Le `cerveau` l'a fait
+    // rougir en arrivant — donc son inscription a été un geste conscient, pas
+    // une dérive. Un dossier où la ruche écrit sans que cette liste le sache
+    // est un dossier que `hive desinstaller` ne montrerait jamais.
     expect(empreinte(ctxPosix).map((e) => e.cle)).toEqual([
       'env',
       'base',
       'rayons',
       'travail',
       'sauvegardes',
+      'cerveau',
       'service',
       'fusions',
     ]);
@@ -165,9 +171,15 @@ describe('L’EMPREINTE — module pur', () => {
     // Quelqu'un qui pose sa base sur un autre disque ne doit pas lire « rien
     // hors du dossier » : c'est faux POUR LUI, et c'est justement le cas où il
     // faut le dire.
+    // Le `cerveau` suit la base : il vit à côté d'elle, dans le dossier de
+    // données. Déplacer `HIVE_DB` déplace donc AUSSI le savoir du projet —
+    // c'est cohérent (les deux sont l'état de la ruche), et c'est exactement
+    // le genre de conséquence indirecte qu'il faut afficher plutôt que de
+    // laisser découvrir.
     const ailleurs = horsDuDossier({ ...ctxPosix, dbPath: '/var/lib/hive/hive.db' });
     expect(ailleurs.map((e) => e.cle).sort()).toEqual([
       'base',
+      'cerveau',
       'fusions',
       'rayons',
       'sauvegardes',
@@ -578,6 +590,13 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
    * `hive desinstaller`, donc dans la documentation.
    */
   const AUTORISES: Record<string, string> = {
+    'src/cerveau-reel.ts':
+      '<données>/cerveau — les notes du savoir, en markdown. Le seul écrit de ' +
+      'Hive qu’un humain est censé ouvrir et corriger à la main, d’où le format ' +
+      'et non une table. Identifiants en liste blanche `[a-z0-9-]` puis contrôle ' +
+      'de confinement, donc aucune écriture possible hors du dossier. Déclaré ' +
+      'dans `empreinte()` sous la clé « cerveau », et NON retirable : c’est ce ' +
+      'que des mois d’erreurs ont produit, et ça n’existe nulle part ailleurs.',
     'src/cli.ts': '.hive-work/bin — le binaire cloudflared téléchargé',
     'src/desinstallation.ts': 'c’est LUI qui supprime, sur ordre explicite',
     'src/installer-main.ts': '<racine>/.env, écrit en 600 par écriture atomique',
