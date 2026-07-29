@@ -31,6 +31,16 @@
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { lireIssue, pourChoisir as pourChoisirIssues } from '../shared/issue.js';
 import type { IssueGithub } from '../shared/issue.js';
+import {
+  estIdWorkflow,
+  estRefPlausible,
+  jugerWorkflow,
+  lireRun,
+  lireWorkflow,
+  pourAfficher as pourAfficherRuns,
+  pourChoisir as pourChoisirWorkflows,
+} from '../shared/workflow.js';
+import type { RunWorkflow, Workflow } from '../shared/workflow.js';
 
 /** Base de l'API. Surchargée par HIVE_GITHUB_API (GitHub Enterprise). */
 export const API_DEFAUT = 'https://api.github.com';
@@ -352,4 +362,183 @@ export async function lireUnDepot(opts: OptionsGithub, fullName: string): Promis
   if (!d)
     throw new ErreurGithub('réponse illisible', 502, 'GitHub a répondu quelque chose d’inattendu.');
   return d;
+}
+
+// ─── LES WORKFLOWS ───────────────────────────────────────────────────────────
+//
+// Lister, lancer, relire. La frontière est écrite dans `shared/workflow.ts` et
+// elle mérite d'être rappelée ici, parce que c'est en lisant CE fichier qu'on
+// croira, un jour, pouvoir passer un nom de fichier :
+//
+//   POST /repos/{o}/{r}/actions/workflows/{id_OU_nom_de_fichier}/dispatches
+//
+// Ce segment accepte les deux. Accepter le nom laisserait un appelant écrire
+// un morceau d'URL de l'API GitHub — avec le jeton de l'hôte, qui ouvre TOUS
+// ses dépôts. On n'y met donc qu'un entier vérifié présent dans la liste que
+// l'API vient de rendre.
+
+/**
+ * Les workflows déclarés par un dépôt.
+ *
+ * Pagination bornée, comme les dépôts et les issues : un monorepo à 400
+ * workflows ne doit ni figer l'orchestrateur, ni rendre une liste que personne
+ * ne parcourra.
+ */
+export async function listerWorkflows(
+  opts: OptionsGithub,
+  fullName: string,
+): Promise<{ workflows: Workflow[]; tronque: boolean }> {
+  if (!estFullName(fullName)) {
+    throw new ErreurGithub(
+      'nom de dépôt invalide',
+      400,
+      'Attendu : owner/repo — par exemple Micka420-collab/hive.',
+    );
+  }
+  const f = opts.fetcheur ?? fetch;
+  const base = (opts.api ?? API_DEFAUT).replace(/\/+$/, '');
+  const workflows: Workflow[] = [];
+  let tronque = false;
+
+  for (let page = 1; page <= PAGES_MAX; page++) {
+    const url = `${base}/repos/${fullName}/actions/workflows?per_page=${PAR_PAGE}&page=${page}`;
+    const rep = await f(url, { headers: entetes(opts.jeton) });
+    if (!rep.ok) throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
+
+    const brut: unknown = await rep.json();
+    // ⚠ CET ENDPOINT NE REND PAS UN TABLEAU. Il rend
+    // `{ total_count, workflows: [...] }` — contrairement à `/user/repos` et
+    // `/issues` juste au-dessus. Traiter la réponse comme un tableau rendrait
+    // une liste VIDE sans erreur, et « ce dépôt n'a aucun workflow » est un
+    // mensonge parfaitement crédible.
+    const lot =
+      typeof brut === 'object' &&
+      brut !== null &&
+      Array.isArray((brut as Record<string, unknown>).workflows)
+        ? ((brut as Record<string, unknown>).workflows as unknown[])
+        : null;
+    if (!lot) break;
+    for (const item of lot) {
+      const w = lireWorkflow(item);
+      if (w) workflows.push(w);
+    }
+    if (lot.length < PAR_PAGE) break;
+    if (page === PAGES_MAX) tronque = true;
+  }
+  return { workflows: pourChoisirWorkflows(workflows), tronque };
+}
+
+/**
+ * Lance un workflow — par son ID, et seulement s'il est DÉCLARÉ.
+ *
+ * La liste est relue ici, à chaque appel, et n'est jamais prise de l'appelant :
+ * c'est la même règle que `lireUneIssue`, qui relit l'issue plutôt que de
+ * croire un objet fourni par le client. Un appelant qui fournirait la liste
+ * fournirait aussi l'autorisation.
+ *
+ * ⚠ Un dispatch réussi rend **204 sans corps** : GitHub ne dit PAS quel run il
+ * vient de créer. Le run n'existe d'ailleurs pas encore au retour de l'appel.
+ * D'où le contrat de cette fonction : elle rend ce qu'elle a lancé, pas un
+ * identifiant de run — c'est `lireRuns` qui le trouvera ensuite.
+ */
+export async function lancerWorkflow(
+  opts: OptionsGithub,
+  fullName: string,
+  id: number,
+  ref: string,
+): Promise<{ workflow: Workflow; ref: string }> {
+  if (!estRefPlausible(ref)) {
+    throw new ErreurGithub(
+      'référence git invalide',
+      400,
+      'Attendu : un nom de branche ou de tag — par exemple `main` ou `v1.2.0`.',
+    );
+  }
+
+  const { workflows } = await listerWorkflows(opts, fullName);
+  const verdict = jugerWorkflow(workflows, id);
+  if (!verdict.ok) throw new ErreurGithub('workflow refusé', 400, verdict.motif);
+
+  const f = opts.fetcheur ?? fetch;
+  const base = (opts.api ?? API_DEFAUT).replace(/\/+$/, '');
+  const rep = await f(
+    `${base}/repos/${fullName}/actions/workflows/${verdict.workflow.id}/dispatches`,
+    {
+      method: 'POST',
+      headers: { ...entetes(opts.jeton), 'content-type': 'application/json' },
+      body: JSON.stringify({ ref }),
+    },
+  );
+  if (!rep.ok) {
+    // 422 sur CE endpoint a une cause quasi unique, et elle est PERMANENTE :
+    // le workflow ne déclare pas `workflow_dispatch:`. Le message générique
+    // (« réessayez ») serait un mauvais conseil — réessayer ne changera rien,
+    // et rien dans la liste des workflows ne permet de le savoir d'avance :
+    // l'API ne dit pas quels déclencheurs un workflow porte.
+    if (rep.status === 422) {
+      throw new ErreurGithub(
+        'ce workflow ne se lance pas à la demande',
+        422,
+        `« ${verdict.workflow.nom} » (${verdict.workflow.chemin}) ne déclare pas « workflow_dispatch ». ` +
+          'Ajoutez-le à ses `on:` dans le dépôt, sur la branche par défaut — GitHub ne lit ce déclencheur que là.',
+      );
+    }
+    throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
+  }
+  return { workflow: verdict.workflow, ref };
+}
+
+/**
+ * Les runs récents d'un dépôt, ou d'un seul workflow.
+ *
+ * UNE SEULE PAGE, et c'est délibéré : on regarde « ce qui vient de se passer »,
+ * pas l'historique. Un dépôt actif produit des dizaines de milliers de runs ;
+ * en paginer trois pages coûterait trois appels pour une information que
+ * personne ne lit au-delà des dix premières lignes.
+ */
+export async function lireRuns(
+  opts: OptionsGithub,
+  fullName: string,
+  o: { workflowId?: number; limite?: number } = {},
+): Promise<RunWorkflow[]> {
+  if (!estFullName(fullName)) {
+    throw new ErreurGithub(
+      'nom de dépôt invalide',
+      400,
+      'Attendu : owner/repo — par exemple Micka420-collab/hive.',
+    );
+  }
+  if (o.workflowId !== undefined && !estIdWorkflow(o.workflowId)) {
+    throw new ErreurGithub(
+      'identifiant de workflow invalide',
+      400,
+      'Un identifiant de workflow est un entier > 0 — jamais un nom de fichier.',
+    );
+  }
+  const limite = Math.max(1, Math.min(PAR_PAGE, o.limite ?? 20));
+  const f = opts.fetcheur ?? fetch;
+  const base = (opts.api ?? API_DEFAUT).replace(/\/+$/, '');
+  // L'id est un entier vérifié : il ne peut pas porter de segment d'URL.
+  const chemin =
+    o.workflowId === undefined
+      ? `${base}/repos/${fullName}/actions/runs?per_page=${limite}`
+      : `${base}/repos/${fullName}/actions/workflows/${o.workflowId}/runs?per_page=${limite}`;
+
+  const rep = await f(chemin, { headers: entetes(opts.jeton) });
+  if (!rep.ok) throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
+
+  const brut: unknown = await rep.json();
+  // Même forme enveloppée que les workflows : `{ total_count, workflow_runs }`.
+  const lot =
+    typeof brut === 'object' &&
+    brut !== null &&
+    Array.isArray((brut as Record<string, unknown>).workflow_runs)
+      ? ((brut as Record<string, unknown>).workflow_runs as unknown[])
+      : [];
+  const runs: RunWorkflow[] = [];
+  for (const item of lot) {
+    const r = lireRun(item);
+    if (r) runs.push(r);
+  }
+  return pourAfficherRuns(runs);
 }

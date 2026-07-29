@@ -7,6 +7,25 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **⚙️ La ruche sait parler aux GitHub Actions** (`src/shared/workflow.ts`,
+  `github.ts`). `listerWorkflows`, `lancerWorkflow` (workflow_dispatch) et
+  `lireRuns`, 27 tests, `Fetcheur` injecté — aucun test ne touche le réseau.
+  **La frontière est celle des Chantiers, et l'API GitHub y tend un piège** :
+  `POST /repos/{o}/{r}/actions/workflows/{id_OU_nom_de_fichier}/dispatches`
+  accepte les deux formes. Passer le nom de fichier laisserait un appelant
+  écrire un morceau d'URL de l'API, et le premier `../..` la transformerait en
+  n'importe quel endpoint, avec le jeton de l'hôte — qui ouvre TOUS ses dépôts.
+  La ruche n'y met qu'un **entier vérifié présent dans la liste que l'API vient
+  de rendre**, exactement comme `jugerChantier` choisit dans le bloc `scripts`
+  du `package.json`. Deux pièges de moins au passage : `/actions/workflows` rend
+  `{ total_count, workflows }` et non un tableau (le lire comme un tableau
+  donnerait une liste vide **sans erreur**), et un 422 sur le dispatch signifie
+  « ce workflow ne déclare pas `workflow_dispatch` » — une cause permanente, où
+  « réessayez » serait un mauvais conseil. Loupe : 15 mutants, 15 morts.
+  ⚠️ **Pièce DÉBRANCHÉE** : elle sait faire, rien ne l'appelle encore.
+
 ### Changed
 
 - **🔬 Le déroulé de l'accueil devient testable** (`src/installer-assistant.ts`).
