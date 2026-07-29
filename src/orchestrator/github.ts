@@ -122,6 +122,72 @@ export function estFullName(v: string): boolean {
 }
 
 /**
+ * `owner/repo` déduit de l'URL de clonage d'un projet, ou `null`.
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE ──────────────────────────────────────────
+ *
+ * Un projet Hive ne garde qu'un `repoUrl` — c'est ce que l'humain a collé, et
+ * c'est ce qui sert à cloner. L'API GitHub, elle, ne connaît que `owner/repo`.
+ * Le pont entre les deux est exactement le genre d'endroit où l'on écrit un
+ * `split('/')` en passant, et où les cas particuliers s'accumulent en silence.
+ *
+ * Ils sont donc énumérés ici, et testés :
+ *
+ *   · `https://github.com/o/r.git`  et sans `.git`
+ *   · `git@github.com:o/r.git`      (SSH, deux-points au lieu d'une barre)
+ *   · une barre finale, une URL de navigateur (`/o/r/tree/main`)
+ *   · un CHEMIN LOCAL — le cas des tests et des démos — qui rend `null`, parce
+ *     qu'un dossier sur un disque n'a pas de dépôt GitHub.
+ *
+ * L'hôte n'est PAS vérifié : `HIVE_GITHUB_API` existe pour GitHub Enterprise,
+ * et exiger `github.com` fermerait la porte aux installations d'entreprise —
+ * précisément celles qui ont des workflows.
+ */
+export function fullNameDepuisUrl(repoUrl: string): string | null {
+  const brut = repoUrl.trim();
+  if (brut === '') return null;
+
+  // ─── `new URL` NORMALISE, ET C'EST UN PIÈGE ────────────────────────────────
+  //
+  // Trouvé par un test, pas par relecture. `new URL('https://github.com/../../
+  // etc/passwd').pathname` rend `/etc/passwd` : les `..` sont RÉSOLUS, et le
+  // chemin qu'on lit n'est plus celui qu'on nous a donné. La fonction rendait
+  // donc `etc/passwd` — un `owner/repo` parfaitement bien formé, désignant un
+  // dépôt que personne n'a nommé.
+  //
+  // Ce n'était pas une traversée de chemin (les segments finaux sont propres,
+  // et l'appel aurait fini en 404). C'était pire à sa façon : une fonction qui
+  // INVENTE un nom plausible à partir d'une entrée qui n'en contenait pas.
+  //
+  // On refuse donc avant de parser. Une URL de dépôt ne contient jamais `..` ;
+  // celle qui en contient n'est pas une URL qu'on doit deviner.
+  if (brut.includes('..')) return null;
+
+  // SSH abrégé : `git@hote:owner/repo.git`. Ce n'est pas une URL au sens de
+  // `new URL`, d'où le traitement séparé plutôt qu'un `try` optimiste.
+  const ssh = /^[\w.-]+@[\w.-]+:(.+)$/.exec(brut);
+  const chemin = ssh
+    ? ssh[1]!
+    : /^(https?|git|ssh):\/\//.test(brut)
+      ? (() => {
+          try {
+            return new URL(brut).pathname;
+          } catch {
+            return '';
+          }
+        })()
+      : ''; // chemin local, ou n'importe quoi d'autre : pas un dépôt GitHub
+
+  const morceaux = chemin
+    .replace(/\.git$/i, '')
+    .split('/')
+    .filter((x) => x !== '');
+  if (morceaux.length < 2) return null;
+  const nom = `${morceaux[0]}/${morceaux[1]}`;
+  return estFullName(nom) ? nom : null;
+}
+
+/**
  * Trie les dépôts pour un humain qui choisit : le plus récemment poussé en
  * tête, les archivés en queue.
  *
