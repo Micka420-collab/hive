@@ -108,6 +108,14 @@ The Brain therefore files knowledge by **kind**, and the order is a priority:
 | **map**       | A way in: where to start.                                  | never   |
 | **episode**   | A raw observation. Raw material.                           | **yes** |
 
+**And the hive feeds it itself.** Every accepted failure becomes an episode:
+the fault is reduced to its signature, and the same fault **increments a single
+note** rather than scattering fifty. Once a pattern reaches three recurrences,
+Hive **proposes** consolidation — it never writes the rule. Writing a rule means
+understanding _why_, and a false rule costs more than no rule at all: it gets
+**followed**, and passed to every later task. The hive gathers the material; a
+human writes the law.
+
 Four mechanisms make it work:
 
 - **Consolidation.** An episode recurring **three times** becomes a lesson

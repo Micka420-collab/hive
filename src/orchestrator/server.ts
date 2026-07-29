@@ -174,7 +174,9 @@ import type { Caste, ModePolyethisme } from './polyethisme.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
-import { dossierDe, pourLaTache } from '../cerveau-reel.js';
+import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
+import { aConsolider } from '../shared/cerveau.js';
+import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
@@ -599,6 +601,53 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   /**
+   * Verse un échec au Cerveau, et signale quand un motif devient mûr.
+   *
+   * ─── CE QUE LA RUCHE S'AUTORISE À ÉCRIRE, ET CE QU'ELLE NE S'AUTORISE PAS ──
+   *
+   * Elle écrit des ÉPISODES : « cette panne-ci a eu lieu, voilà à quoi elle
+   * ressemble, c'est la N-ième fois ». Elle n'écrit JAMAIS de règle.
+   *
+   * Ce n'est pas une limite technique, c'est le cœur du sujet. Rédiger une
+   * règle demande de comprendre POURQUOI, et une règle fausse coûte plus cher
+   * que pas de règle du tout — parce qu'elle est SUIVIE, et transmise à chaque
+   * tâche suivante par le budget de contexte. Une ruche qui se raconterait ses
+   * propres généralisations dériverait plus vite que celle qui n'apprend rien.
+   *
+   * Quand un motif atteint le seuil, on émet donc `cerveau_consolidation` :
+   * une PROPOSITION, visible à la Chronique, que quelqu'un transforme en règle
+   * s'il la comprend. La ruche accumule la matière ; l'humain écrit la loi.
+   */
+  const noterEchec = (taskId: string, logs: string): void => {
+    const task = store.getTask(taskId);
+    if (!task) return;
+    const ecrit = enregistrerEpisode(dossierCerveau, {
+      signature: signatureEchec(logs),
+      titre: task.title,
+      detail: champSurUneLigne(logs, 800),
+    });
+    if (ecrit === null) return; // Échec sans log exploitable : rien à apprendre.
+
+    emitEvent('cerveau_episode', {
+      taskId,
+      note: ecrit.id,
+      recurrences: ecrit.recurrences,
+      nouveau: ecrit.nouveau,
+    });
+
+    // Le seuil vient du module pur, et la somme des récurrences aussi : on ne
+    // le recalcule pas ici, sous peine d'avoir deux définitions du « mûr ».
+    for (const c of aConsolider(lire(dossierCerveau))) {
+      if (!c.episodes.some((e) => e.id === ecrit.id)) continue;
+      emitEvent('cerveau_consolidation', {
+        note: ecrit.id,
+        recurrences: c.recurrences,
+        titre: task.title,
+      });
+    }
+  };
+
+  /**
    * Contexte joint à `assign_task` : leçons de la Couveuse (tâche déjà échouée)
    * puis souvenirs du Hive Mind, dans le budget total LIMITS.hiveContext.
    * PARTAGÉ par les deux chemins de livraison — l'assignation initiale ET la
@@ -611,10 +660,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     task: Task,
     /** Octets déjà pris par le cadre du polyéthisme, qui passe en premier. */
     dejaPris = 0,
-    /**
-     * Posé quand les invariants du Cerveau ne tenaient pas dans le budget.
-     * L'ouvrière part alors SANS eux — c'est un fait qui doit se voir.
-     */
+    // `refusCerveau` est posé quand les invariants du Cerveau ne tenaient pas
+    // dans le budget : l'ouvrière part alors SANS eux, et c'est un fait qui
+    // doit se voir. L'appelant le journalise.
   ): { hiveContext: string; echecs: number; refusCerveau?: string } => {
     // ─── LE CERVEAU — ce que le PROJET a appris, pas cette tâche-ci ──────────
     //
@@ -5914,6 +5962,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 message: `résultat de ${msg.taskId} écarté : tâche inconnue ou assignation périmée`,
               });
             }
+            // ─── LA RUCHE ÉCRIT DANS SON CERVEAU ────────────────────────────
+            //
+            // C'est ici que la boucle se referme : jusqu'à présent la ruche
+            // LISAIT son cerveau sans jamais l'alimenter, et le savoir ne
+            // pouvait venir que d'un humain.
+            //
+            // Seulement sur un échec PRIS EN COMPTE. Un résultat écarté (tâche
+            // inconnue, assignation périmée) ne dit rien du projet — l'ajouter
+            // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
+            // lieu deux fois, et le seuil de consolidation deviendrait faux.
+            if (pris && !msg.success) {
+              noterEchec(msg.taskId, msg.logs ?? '');
+            }
             break;
           }
           case 'task_reject':
@@ -6156,9 +6217,39 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }, 250);
   flushTimer.unref();
 
+  // ─── LA BORNE DU CERVEAU S'APPLIQUE VRAIMENT ────────────────────────────────
+  //
+  // Règle du dépôt : tout ce qui s'accumule ship sa borne dans le MÊME commit.
+  // `aElaguer` existait depuis trois PR et n'avait aucun appelant — c'est-à-dire
+  // qu'elle était une borne ÉCRITE, pas une borne TENUE. Ce dépôt a déjà payé
+  // pour trois bornes exactement dans cet état.
+  //
+  // Une heure, pas chaque tick : élaguer relit tout le dossier, et une panne
+  // qui se répète n'a pas besoin d'être oubliée à la seconde près. `unref` pour
+  // que ce minuteur n'empêche jamais le processus de s'arrêter.
+  const elagageTimer = setInterval(
+    () => {
+      try {
+        const r = elaguer(dossierCerveau);
+        if (r.retires.length > 0) {
+          emitEvent('cerveau_elagage', { retires: r.retires.length, restants: r.restants });
+        }
+      } catch (err) {
+        // Un cerveau illisible ne doit pas tuer la ruche : elle sait déjà
+        // travailler sans savoir, elle le faisait il y a trois PR.
+        console.error(
+          `[hive] élagage du cerveau impossible : ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    },
+    60 * 60 * 1_000,
+  );
+  elagageTimer.unref();
+
   const stop = async (): Promise<void> => {
     clearInterval(tickTimer);
     clearInterval(flushTimer);
+    clearInterval(elagageTimer);
     for (const client of wss.clients) client.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await app.close();

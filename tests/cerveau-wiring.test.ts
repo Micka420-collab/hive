@@ -209,6 +209,128 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     },
   );
 
+  it(
+    'LA BOUCLE SE REFERME : un échec écrit par la ruche revient dans une tâche SUIVANTE',
+    { timeout: 30_000 },
+    async () => {
+      // ─── L'ASSERTION QUI DÉCIDE DU LOT 12 ────────────────────────────────
+      //
+      // Tout le reste peut être vert pendant que la ruche LIT un cerveau que
+      // seul un humain remplit. Ce test exige l'autre moitié : la ruche
+      // observe une panne, l'écrit, et la retrouve la fois d'après. C'est ça,
+      // « s'améliorer en se corrigeant ».
+      const srv = await demarrer({});
+      const recues = await brancherNoeud(srv, 'ouvriere-boucle');
+      const t1 = creerTache(srv, 'compiler le module natif', 'Première tâche');
+      const a1 = await attendre(recues);
+      expect(a1.task?.id).toBe(t1);
+
+      // Le nœud rapporte un échec avec un log reconnaissable.
+      const ws = sockets[sockets.length - 1] as WebSocket;
+      ws.send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: t1,
+          success: false,
+          diff: '',
+          logs: 'Error: MODULE_INTROUVABLE_SIGNATURE_UNIQUE lors de la compilation',
+          durationMs: 10,
+          // `isSubAgents` fait partie de la validation : sans ce champ, le
+          // message entier est REJETÉ avant d'atteindre le handler, et la
+          // ruche paraîtrait simplement ne rien apprendre.
+          subAgents: [],
+        }),
+      );
+
+      // La ruche doit avoir écrit un épisode — on l'attend au journal plutôt
+      // que par un délai deviné (§ 3.2 : on attend ce qu'on attend).
+      const fin = Date.now() + 10_000;
+      let episodes = 0;
+      while (Date.now() < fin) {
+        episodes = srv.store.listEvents(0, 500).filter((e) => e.type === 'cerveau_episode').length;
+        if (episodes > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(episodes, 'la ruche n’a rien écrit dans son cerveau').toBeGreaterThan(0);
+
+      // Une tâche SUIVANTE, sur le même sujet, doit recevoir cet épisode.
+      recues.length = 0;
+      creerTache(srv, 'compiler le module natif encore', 'Deuxième tâche');
+      const a2 = await attendre(recues, 15_000);
+      expect(a2.hiveContext, 'aucun contexte joint à la seconde tâche').toBeTruthy();
+      expect(
+        a2.hiveContext,
+        'l’épisode écrit par la ruche ne revient pas dans le contexte suivant',
+      ).toContain('MODULE_INTROUVABLE_SIGNATURE_UNIQUE');
+    },
+  );
+
+  it('UNE RÉUSSITE N’ÉCRIT AUCUN ÉPISODE', { timeout: 20_000 }, async () => {
+    // Le cerveau garde ce qui a MAL tourné. Y verser aussi les réussites
+    // noierait le signal — et gonflerait des compteurs de récurrence sur des
+    // pannes qui n'ont jamais eu lieu, donc fausserait le seuil.
+    const srv = await demarrer({});
+    const recues = await brancherNoeud(srv, 'ouvriere-six');
+    const t = creerTache(srv, 'une tâche qui réussit');
+    await attendre(recues);
+
+    const ws = sockets[sockets.length - 1] as WebSocket;
+    ws.send(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: t,
+        success: true,
+        diff: 'diff --git a/x b/x',
+        logs: 'Error: ce mot ne doit PAS suffire à écrire un épisode',
+        durationMs: 10,
+        subAgents: [],
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 800));
+    expect(
+      srv.store.listEvents(0, 500).filter((e) => e.type === 'cerveau_episode'),
+      'une réussite ne doit rien verser au cerveau',
+    ).toEqual([]);
+  });
+
+  it('À LA TROISIÈME RÉCURRENCE, LA CONSOLIDATION EST PROPOSÉE', { timeout: 40_000 }, async () => {
+    // La proposition, jamais la rédaction : l'événement dit « ce motif est
+    // mûr », et un humain écrit la règle s'il la comprend.
+    const srv = await demarrer({});
+    const recues = await brancherNoeud(srv, 'ouvriere-sept');
+    const ws = sockets[sockets.length - 1] as WebSocket;
+    const vues = new Set<string>();
+
+    creerTache(srv, 'compiler quelque chose de récalcitrant');
+
+    // La tâche est re-tentée : chaque assignation reçoit le MÊME échec, donc
+    // la même signature, donc la même note incrémentée.
+    const fin = Date.now() + 30_000;
+    while (Date.now() < fin) {
+      const a = recues.shift();
+      if (a?.task?.id !== undefined && !vues.has(`${a.task.id}:${vues.size}`)) {
+        vues.add(`${a.task.id}:${vues.size}`);
+        ws.send(
+          JSON.stringify({
+            type: 'task_result',
+            taskId: a.task.id,
+            success: false,
+            diff: '',
+            logs: 'Error: PANNE_RECURRENTE dans le module',
+            durationMs: 5,
+            subAgents: [],
+          }),
+        );
+      }
+      if (srv.store.listEvents(0, 500).some((e) => e.type === 'cerveau_consolidation')) break;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+
+    const props = srv.store.listEvents(0, 500).filter((e) => e.type === 'cerveau_consolidation');
+    expect(props.length, 'aucune consolidation proposée après trois échecs').toBeGreaterThan(0);
+    expect(JSON.stringify(props[0]?.payload)).toMatch(/recurrences/);
+  });
+
   it('LE CONTEXTE RESTE DANS LE BUDGET DU PROTOCOLE', { timeout: 20_000 }, async () => {
     // Un `assign_task` trop gros est REJETÉ par le nœud : un cerveau bavard
     // supprimerait la tâche au lieu de l'informer. C'est la même garde que le
