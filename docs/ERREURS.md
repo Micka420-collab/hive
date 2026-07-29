@@ -267,10 +267,27 @@ est parfait :
 - donc la CLI attend sa réponse pour toujours ;
 - donc `execFileSync` attend la CLI pour toujours.
 
-**Ce qui rend ce cas cher, c'est qu'il ne rougit pas.** La suite ne finit
-jamais : pas d'assertion fausse, pas de message, juste un test qui tourne
-jusqu'au délai de l'outil — ou jusqu'à celui de la CI, dix minutes plus tard,
-sans rien dire d'utile. Un rouge se lit ; un blocage se devine.
+**Ce qui rend ce cas cher, c'est qu'il ne rougit pas** — il pend. Pas
+d'assertion fausse, pas de message : un test qui tourne jusqu'au délai de
+l'outil, ou jusqu'à celui de la CI dix minutes plus tard, sans rien dire
+d'utile. Un rouge se lit ; un blocage se devine.
+
+**Sa signature, mesurée sur le run qui a fini par rendre la main :**
+
+```
+× SANS ARGUMENT, elle montre les quatre modes …   301233ms
+× MONTER SANS ACCORD N’ÉCRIT RIEN et le dit       301248ms
+× AVEC `--oui`, LE NIVEAU EST RÉELLEMENT POSÉ     301246ms
+× REDESCENDRE NE DEMANDE RIEN                     301260ms
+× un mode inconnu est refusé, sans rien écrire    301262ms
+AssertionError: expected 'Erreur : fetch failed\n' …
+```
+
+Cinq tests groupés à **301,2 s, à trente millisecondes près**, tous sur
+`fetch failed`. C'est exactement le discriminant du § 3.2 : _un test qui
+touche son plafond au millième près ATTEND ; un test lent finit avant._ Cinq
+plafonds simultanés désignent une ressource bloquée partagée, jamais de la
+lenteur — et `fetch failed` nomme laquelle : le serveur du processus de test.
 
 > **Règle** — dès qu'un test lance un sous-processus qui PARLE au processus de
 > test (serveur en mémoire, socket locale, port ouvert par le test), le
