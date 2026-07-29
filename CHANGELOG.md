@@ -9,6 +9,20 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **📏 Le critère 1 est mesuré DE BOUT EN BOUT** (`docs/ETAPES.md`). La première
+  tentative s'était arrêtée au prérequis — ce conteneur porte Node 22,
+  `install.sh` exige 24, et il avait raison de refuser. Avec un Node 24 fourni
+  par `npx node@24`, la commande a été lancée pour de vrai dans un dossier
+  vide : **23,3 s au total, dont ≈ 20 s de `npm install`** (hors critère), donc
+  **≈ 3,3 s** pour les prérequis, le clone et l'installeur. Code de sortie 0,
+  `.env` en 0600. **Et la ruche installée est vivante** — ce qu'un code de
+  sortie ne prouve pas : `better-sqlite3` et `fastify` se chargent dans le
+  clone, et `hive doctor` rend 10 ✔ sur douze. Le doctor soulève un vrai
+  constat au passage, écrit dans le carnet plutôt que tu : `install.sh` **ne
+  construit pas le dashboard**, donc après « une commande » la ruche tourne et
+  n'a pas d'écran. C'est documenté dans les prochaines étapes de l'installeur,
+  et « ruche qui tourne » n'est pas « ruche qu'on peut regarder ».
+
 - **🏗️ Les Chantiers ont un écran** (`dashboard/src/views/Chantiers.tsx`,
   touche `h`). Tout le mécanisme existait — un nœud clone et lance ce que le
   `package.json` déclare, l'API GitHub lance ce que le dépôt a marqué
