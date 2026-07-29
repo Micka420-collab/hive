@@ -3,7 +3,7 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
-import { agentCredentialEnv } from './agent-detect.js';
+import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
@@ -15,7 +15,6 @@ try {
 }
 
 const maxConcurrency = Number.parseInt(process.env.HIVE_MAX_CONCURRENCY ?? '2', 10);
-const agentType = (process.env.HIVE_AGENT ?? 'shell') as AgentType;
 
 // L'agent réel doit retrouver sa config/clé API dans la sandbox ; on fusionne
 // avec un éventuel HIVE_KEEP_ENV explicite. Le shell simulé ne reçoit rien.
@@ -35,6 +34,45 @@ for (const l of bac.lignes) console.log(l);
 if (bac.refuse) {
   console.error('✘ Ce nœud ne démarre pas.\n');
   process.exit(1);
+}
+
+// ─── QUEL AGENT, ET POURQUOI CE N'EST PLUS « shell » PAR DÉFAUT ─────────────
+//
+// Cette ligne disait : `const agentType = process.env.HIVE_AGENT ?? 'shell'`.
+//
+// Conséquence mesurée : sur la machine de celui qui INSTALLE la ruche — donc
+// le cas de tout le monde au premier essai — `npm run node` tournait en
+// SIMULÉ. L'installeur n'écrit pas `HIVE_AGENT` dans `.env` ; rien ne venait
+// donc jamais le mettre à autre chose, et un Claude Code parfaitement
+// installé n'était jamais utilisé. La ruche avait l'air de travailler et
+// rendait de faux diffs.
+//
+// Le plus révélateur : `join.ts` — le chemin de l'AMI qu'on invite — détecte
+// automatiquement depuis toujours. L'invité avait donc un vrai agent, et
+// l'hôte un simulacre. Exactement l'inverse de ce qu'on attend.
+//
+// La détection vient APRÈS le bac à sable : un nœud que l'isolement refuse
+// n'a pas à sonder quoi que ce soit, et l'humain lit d'abord ce qui l'arrête.
+//
+// `HIVE_AGENT` garde le dernier mot : le forcer à `shell` reste la façon
+// d'avoir un nœud de test qui n'exécute rien pour de vrai.
+const forceAgent = (process.env.HIVE_AGENT ?? '').trim() as AgentType | '';
+const detecte = forceAgent ? { agent: forceAgent, label: forceAgent } : await detectBestAgent();
+const agentType: AgentType = detecte.agent;
+const tousAgents = await detectAllAgents();
+
+console.log(`   Agents détectés : ${tousAgents.join(', ')}`);
+console.log(`   Agent utilisé   : ${detecte.label}`);
+if (agentType === 'shell') {
+  // Le dire ICI, et pas seulement dans `hive doctor` : personne ne lance le
+  // docteur avant de voir sa ruche « travailler ». Un simulacre silencieux
+  // coûte une soirée à qui croit que ça tourne.
+  console.log(
+    tousAgents.some((a) => a !== 'shell')
+      ? '   ℹ Agent « shell simulé » forcé par HIVE_AGENT alors qu’un agent réel est disponible.'
+      : '   ℹ Aucun agent IA détecté : mode « shell simulé » — les diffs produits sont FAUX.\n' +
+          '     Installez Claude Code (`npm i -g @anthropic-ai/claude-code`), puis relancez.',
+  );
 }
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
