@@ -174,6 +174,7 @@ import type { Caste, ModePolyethisme } from './polyethisme.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
+import { dossierDe, pourLaTache } from '../cerveau-reel.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
@@ -308,6 +309,15 @@ const MERGE_TIMEOUT_MS = 10 * 60_000;
  * revient à la mémoire Hive Mind.
  */
 const BUDGET_COUVEUSE = 3_000;
+/**
+ * Ce que le Cerveau peut prendre du contexte d'une ouvrière.
+ *
+ * Il se sert EN PREMIER — voir `construireHiveContext` — mais il ne se sert
+ * pas sans limite : un cerveau bien rempli affamerait la Couveuse et Hive
+ * Mind, et une ouvrière qui connaît toutes les règles du projet sans savoir
+ * pourquoi SA tâche a échoué deux fois n'est pas mieux lotie.
+ */
+const BUDGET_CERVEAU = 3_000;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -532,6 +542,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * clone` ; la base, non.
    */
   const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'));
+  // Le dossier du savoir, à côté de la base — le même chemin que
+  // `empreinte.ts` annonce sous la clé « cerveau », et que `hive desinstaller`
+  // affiche. Résolu UNE fois : le contenu, lui, est relu à chaque tâche.
+  const dossierCerveau = dossierDe(config.dbPath);
 
   // Les guetteuses observent en mémoire : une table qui grossirait à chaque
   // requête d'un scanner offrirait à l'attaquant de quoi remplir le disque de
@@ -597,7 +611,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     task: Task,
     /** Octets déjà pris par le cadre du polyéthisme, qui passe en premier. */
     dejaPris = 0,
-  ): { hiveContext: string; echecs: number } => {
+    /**
+     * Posé quand les invariants du Cerveau ne tenaient pas dans le budget.
+     * L'ouvrière part alors SANS eux — c'est un fait qui doit se voir.
+     */
+  ): { hiveContext: string; echecs: number; refusCerveau?: string } => {
+    // ─── LE CERVEAU — ce que le PROJET a appris, pas cette tâche-ci ──────────
+    //
+    // Invariants, leçons consolidées et décisions, choisis sous budget par le
+    // module pur. `pourLaTache` lit le dossier à chaque appel : quelques
+    // centaines de fichiers, donc c'est instantané, et surtout ça veut dire
+    // qu'une note corrigée à la main dans Obsidian vaut pour la tâche
+    // SUIVANTE, sans redémarrer la ruche.
+    const { bloc: savoir, selection } = pourLaTache(
+      dossierCerveau,
+      `${task.title} ${task.prompt}`,
+      Math.max(0, Math.min(BUDGET_CERVEAU, LIMITS.hiveContext - (dejaPris ? dejaPris + 2 : 0))),
+    );
+    const refus = selection.refus;
+
     // Couveuse : les leçons des échecs précédents viennent EN TÊTE (le plus
     // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
     // results ne garde que son id.
@@ -615,14 +647,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           )
         : '';
     // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
-    // RESTANT après la Couveuse (« \n\n » de jonction compris).
+    // RESTANT après le Cerveau et la Couveuse (« \n\n » de jonction compris).
     const souvenirs = buildHiveContext(
       store.searchMemories(`${task.title} ${task.prompt}`, 3),
-      LIMITS.hiveContext - (lecons ? lecons.length + 2 : 0) - (dejaPris ? dejaPris + 2 : 0),
+      LIMITS.hiveContext -
+        (savoir ? savoir.length + 2 : 0) -
+        (lecons ? lecons.length + 2 : 0) -
+        (dejaPris ? dejaPris + 2 : 0),
     );
     return {
-      hiveContext: [lecons, souvenirs].filter(Boolean).join('\n\n'),
+      // ─── L'ORDRE EST UNE DÉCISION, PAS UNE HABITUDE ────────────────────────
+      //
+      // Le Cerveau passe AVANT la Couveuse, alors que la règle jusqu'ici était
+      // « le plus spécifique d'abord ». Ce n'est pas une entorse, c'est un
+      // autre axe : la Couveuse est classée par PERTINENCE, le Cerveau porte
+      // des INVARIANTS. Une contrainte de sûreté ne se fait pas déloger par
+      // une leçon d'échec, si pertinente soit-elle.
+      //
+      // C'est aussi pour ça qu'il se sert en premier sur le budget : servi en
+      // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
+      // échoué — c'est-à-dire exactement les jours où ses invariants comptent
+      // le plus.
+      hiveContext: [savoir, lecons, souvenirs].filter(Boolean).join('\n\n'),
       echecs: lecons ? echecs.length : 0,
+      // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
+      // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
+      // l'appelant journalise. Rendre '' sans le dire serait la panne
+      // silencieuse que `selectionner` existe pour éviter.
+      ...(refus === undefined ? {} : { refusCerveau: refus }),
     };
   };
 
@@ -818,7 +870,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // premier : une consigne tronquée à moitié est pire qu'absente, alors
         // qu'un souvenir en moins n'est qu'un souvenir en moins.
         const cadre = construireCadre(task, nodeId);
-        const { hiveContext, echecs } = construireHiveContext(task, cadre.length);
+        const { hiveContext, echecs, refusCerveau } = construireHiveContext(task, cadre.length);
+        // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
+        // donc cette ouvrière travaille sans les contraintes de sûreté du
+        // projet. C'est précisément le genre de fait qu'un `''` silencieux
+        // ferait disparaître — on le journalise, il apparaît à la Chronique.
+        if (refusCerveau !== undefined) {
+          emitEvent('cerveau_refus', { taskId: task.id, nodeId, motif: refusCerveau });
+        }
         // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
         // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
         if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
