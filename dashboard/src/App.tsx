@@ -49,6 +49,7 @@ const MonEspace = lazy(() => import('./views/MonEspace'));
 const Rayon = lazy(() => import('./views/Rayon'));
 const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
+const Chantiers = lazy(() => import('./views/Chantiers'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
 
@@ -73,6 +74,7 @@ const NAV: NavItem[] = [
   { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', icon: '🧠', key: '8' },
   { id: 'rayon', label: 'Rayon', labelEn: 'Comb', icon: '🍯', key: '9' },
   { id: 'monespace', label: 'Mon espace', labelEn: 'My space', icon: '🪪', key: '0' },
+  { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', icon: '🏗', key: 'h' },
   {
     id: 'intendance',
     label: 'Intendance',
@@ -441,6 +443,7 @@ export function App() {
           {route.view === 'monespace' && <MonEspace {...viewProps} />}
           {route.view === 'intendance' && <Intendance {...viewProps} />}
           {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+          {route.view === 'chantiers' && <Chantiers {...viewProps} />}
         </Suspense>
       </div>
 

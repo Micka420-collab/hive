@@ -1497,3 +1497,74 @@ export type CerveauGraphe = Graphe & { dossier: string };
 export function fetchCerveau(): Promise<CerveauGraphe> {
   return apiCompte<CerveauGraphe>('/api/admin/cerveau');
 }
+
+// ─── Les Chantiers et les workflows ─────────────────────────────────────────
+//
+// Les types viennent des modules partagés, pas d'une redéclaration : un
+// `Chantier` recopié ici dériverait du serveur au premier champ ajouté, et
+// c'est l'écart qui ne se voit qu'à l'écran.
+
+export type { Chantier, Nature } from '../../src/shared/chantier.js';
+export type { RunWorkflow, Workflow } from '../../src/shared/workflow.js';
+
+import type { Chantier } from '../../src/shared/chantier.js';
+import type { RunWorkflow, Workflow } from '../../src/shared/workflow.js';
+
+/** Ce qu'un nœud a rapporté du dernier chantier lancé. */
+export interface VerdictChantier {
+  nom: string;
+  code: number | null;
+  sortie: string;
+  ok: boolean;
+  refused?: string;
+}
+
+export function fetchChantiers(projectId: string): Promise<{ chantiers: Chantier[] }> {
+  return api<{ chantiers: Chantier[] }>(`/api/projects/${encodeURIComponent(projectId)}/chantiers`);
+}
+
+export function fetchVerdictChantier(
+  projectId: string,
+): Promise<{ resultat: VerdictChantier | null }> {
+  return api<{ resultat: VerdictChantier | null }>(
+    `/api/projects/${encodeURIComponent(projectId)}/chantiers/result`,
+  );
+}
+
+export function lancerChantier(
+  projectId: string,
+  nom: string,
+): Promise<{ chantierId: string; nodeId: string; nom: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/chantiers/${encodeURIComponent(nom)}/run`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
+export function fetchWorkflows(
+  projectId: string,
+): Promise<{ workflows: Workflow[]; tronque: boolean }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/workflows`);
+}
+
+export function fetchRuns(projectId: string): Promise<{ runs: RunWorkflow[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/workflows/runs`);
+}
+
+/**
+ * Lance un workflow. L'identifiant est un NOMBRE — jamais un nom de fichier.
+ *
+ * Le typage porte la règle : `POST …/actions/workflows/{id_ou_nom}/dispatches`
+ * accepte les deux côté GitHub, et accepter le nom laisserait écrire un
+ * morceau d'URL de son API. Ici, on ne peut pas s'y tromper.
+ */
+export function lancerWorkflowGithub(
+  projectId: string,
+  workflowId: number,
+  ref: string,
+): Promise<{ workflow: Workflow; ref: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/workflows/${String(workflowId)}/run`, {
+    method: 'POST',
+    body: JSON.stringify({ ref }),
+  });
+}

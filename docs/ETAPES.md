@@ -31,9 +31,11 @@
 > un nœud clone et lance ce que le `package.json` déclare, et l'API GitHub lance
 > ce que le dépôt a marqué `workflow_dispatch`.
 >
-> Reste à faire, et c'est dit plutôt que laissé découvrir : **rien de tout cela
-> n'a d'écran**. Le dashboard ne montre ni les chantiers ni les workflows ; ce
-> sont des routes, utilisables à la main ou par un script.
+> **Et il a un écran** : `Les Chantiers` (touche `h`), qui liste ce que le dépôt
+> déclare, dit ce qui est lançable et **pourquoi le reste ne l'est pas**, montre
+> la commande avant de la lancer, et affiche le verdict du nœud comme les runs
+> GitHub. Un mécanisme sans écran n'existe pas — c'est le constat qu'ont déjà
+> valu Le Partage, Les Guetteuses et le polyéthisme.
 
 ### Le piège de la pièce 3, et pourquoi il vaut d'être écrit
 

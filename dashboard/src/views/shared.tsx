@@ -29,7 +29,8 @@ export type ViewId =
   | 'monespace'
   | 'rayon'
   | 'intendance'
-  | 'cerveau';
+  | 'cerveau'
+  | 'chantiers';
 
 export interface ViewProps {
   snapshot: StateSnapshot;
