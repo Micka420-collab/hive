@@ -162,6 +162,22 @@ const NOM_MAX = 100;
  */
 const NOM_VALIDE = /^[A-Za-z0-9][A-Za-z0-9:_.-]*$/;
 
+/**
+ * Ce nom a-t-il la FORME d'un nom de script ?
+ *
+ * Volontairement séparé de `jugerChantier`, qui répond à une autre question :
+ * « ce dépôt le déclare-t-il ? ». Le protocole a besoin de la première SANS la
+ * seconde — il valide un message avant que quiconque ait cloné quoi que ce
+ * soit — et le nœud pose ensuite la seconde, sur le `package.json` du clone
+ * qu'il vient de faire.
+ *
+ * Les deux sont ici, dans le même module, pour qu'elles ne puissent pas
+ * diverger. Une regex recopiée dans le protocole aurait vécu sa propre vie.
+ */
+export function nomDeChantierValide(v: unknown): v is string {
+  return typeof v === 'string' && v.length <= NOM_MAX && NOM_VALIDE.test(v);
+}
+
 export type Verdict = { readonly ok: true } | { readonly ok: false; readonly motif: string };
 
 /**

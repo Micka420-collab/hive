@@ -5,21 +5,22 @@
 // Consentement (§5.3) : rien ne s'exécute tant que le membre n'a pas lancé
 // ce client lui-même.
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
+import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
-import type { AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
+import type { AssignChantierMsg, AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
-import { runMerge } from './merge-runner.js';
-import { cloneRepo, prepareWorkspace } from './workspace.js';
+import { runMerge, runProc } from './merge-runner.js';
+import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
 
@@ -67,6 +68,7 @@ export class HiveNodeClient {
   private readonly active = new Map<string, AbortController>();
   /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
   private readonly activeMerges = new Set<string>();
+  private readonly activeChantiers = new Set<string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
@@ -189,6 +191,9 @@ export class HiveNodeClient {
         break;
       case 'assign_merge':
         void this.runMergeJob(msg);
+        break;
+      case 'assign_chantier':
+        void this.runChantierJob(msg);
         break;
       case 'cancel_task':
         this.active.get(msg.taskId)?.abort();
@@ -493,6 +498,163 @@ export class HiveNodeClient {
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {
       this.activeMerges.delete(msg.mergeId);
+      rmSync(dir, rmOpts);
+    }
+  }
+
+  /**
+   * Un CHANTIER : cloner le dépôt, et lancer un travail qu'il DÉCLARE.
+   *
+   * ─── LA GARDE QUI COMPTE EST ICI, PAS DANS LE HUB ──────────────────────────
+   *
+   * Le hub a déjà jugé, et son verdict ne suffit pas. Un nœud ne doit pas tenir
+   * pour acquis que le hub est bien celui qu'il croit : le jeton de ruche est
+   * partagé, les anciennes invitations le portent en clair, et le transport
+   * peut être un `ws://` de réseau local. C'est le raisonnement exact qui a
+   * fait naître la double garde de `runMerge`, et il vaut à l'identique.
+   *
+   * Ce qui change tout, ici : le message ne porte AUCUNE commande. Il porte un
+   * NOM, et c'est le `package.json` DU CLONE — donc le dépôt lui-même — qui dit
+   * ce que ce nom exécute. Un hub compromis ne peut donc désigner que ce que le
+   * dépôt déclare déjà. C'est une frontière plus solide que n'importe quelle
+   * liste de binaires autorisés, parce qu'elle ne repose sur rien qu'on puisse
+   * fournir.
+   */
+  private async runChantierJob(msg: AssignChantierMsg): Promise<void> {
+    // Anti-doublon : un hub qui réémet le même id ne doit pas lancer deux
+    // travaux concurrents dans le même répertoire (course rmSync/clone).
+    if (this.activeChantiers.has(msg.chantierId)) return;
+
+    const refuser = (raison: string, sortie = ''): void => {
+      this.send({
+        type: 'chantier_result',
+        chantierId: msg.chantierId,
+        nom: msg.nom,
+        code: null,
+        sortie,
+        ok: false,
+        refused: raison,
+      });
+      this.log(`✘ chantier « ${msg.nom} » : ${raison}`);
+    };
+
+    // Night Shift : un chantier est du travail au même titre qu'un merge.
+    const offShift = this.offShiftReject();
+    if (offShift) {
+      refuser(offShift.reason, `[nœud] ${offShift.reason} : chantier refusé (Night Shift)`);
+      return;
+    }
+    // La préparation s'exécute ICI : une installation exécute les scripts de ce
+    // qu'elle installe, et la juger en amont évite de cloner pour rien.
+    if (msg.prepareCommand) {
+      const v = jugerPreparation(msg.prepareCommand);
+      if (!v.ok) {
+        refuser('préparation refusée', `[nœud] préparation refusée : ${v.motif}`);
+        return;
+      }
+    }
+
+    this.activeChantiers.add(msg.chantierId);
+    // chantierId est validé (ID_PATTERN) par le protocole → sûr en chemin.
+    const dir = path.join(
+      this.workRoot,
+      'chantiers',
+      this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId,
+    );
+    const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
+    this.log(`chantier « ${msg.nom} » : clone puis lancement`);
+    try {
+      rmSync(dir, rmOpts);
+      mkdirSync(path.dirname(dir), { recursive: true });
+      await cloneRepo(dir, msg.repoUrl);
+
+      // ─── LE DÉPÔT DÉCIDE ────────────────────────────────────────────────
+      let scripts: Record<string, string> = {};
+      try {
+        const brut: unknown = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        const bloc =
+          typeof brut === 'object' && brut !== null
+            ? (brut as Record<string, unknown>).scripts
+            : null;
+        if (typeof bloc === 'object' && bloc !== null) {
+          for (const [k, v] of Object.entries(bloc)) {
+            if (typeof v === 'string') scripts[k] = v;
+          }
+        }
+      } catch {
+        // Pas de `package.json`, ou illisible : aucun script n'est déclaré.
+        // `jugerChantier` le dira mieux que nous, avec le bon message.
+        scripts = {};
+      }
+
+      const verdict = jugerChantier(scripts, msg.nom);
+      if (!verdict.ok) {
+        refuser('chantier non déclaré', `[nœud] ${verdict.motif}`);
+        return;
+      }
+
+      const env = buildSandboxEnv(dir);
+      if (msg.prepareCommand && msg.prepareCommand.length > 0) {
+        const prep = await runProc(
+          msg.prepareCommand,
+          dir,
+          env,
+          10 * 60_000,
+          undefined,
+          this.opts.bac ? this.opts.bac : undefined,
+        );
+        // ET SI ELLE ÉCHOUE, ON NE LANCE PAS. Un `npm run test` sur un clone
+        // sans `node_modules` échoue pour une raison qui n'a rien à voir avec
+        // le code, et le remonter comme un échec de chantier enverrait l'hôte
+        // chercher une régression qui n'existe pas.
+        if (prep.code !== 0) {
+          this.send({
+            type: 'chantier_result',
+            chantierId: msg.chantierId,
+            nom: msg.nom,
+            code: prep.code,
+            sortie:
+              `[nœud] l’environnement n’a pas pu être préparé (code ${prep.code}). Le code du ` +
+              `dépôt n’est PAS en cause : vérifiez le réseau de ce nœud, puis son lockfile.\n` +
+              prep.output.slice(0, LIMITS.log / 2),
+            ok: false,
+            refused: 'préparation en échec',
+          });
+          this.log(`✘ chantier « ${msg.nom} » : préparation en échec`);
+          return;
+        }
+      }
+
+      const { code, output } = await runProc(
+        argvDe(msg.nom),
+        dir,
+        env,
+        15 * 60_000,
+        undefined,
+        this.opts.bac ? this.opts.bac : undefined,
+      );
+      this.send({
+        type: 'chantier_result',
+        chantierId: msg.chantierId,
+        nom: msg.nom,
+        code,
+        sortie: output.slice(0, LIMITS.log),
+        ok: code === 0,
+      });
+      this.log(`chantier « ${msg.nom} » : code ${String(code)}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.send({
+        type: 'chantier_result',
+        chantierId: msg.chantierId,
+        nom: msg.nom,
+        code: null,
+        sortie: `[nœud] échec du chantier : ${message}`,
+        ok: false,
+      });
+      this.log(`✘ chantier « ${msg.nom} » : ${message}`);
+    } finally {
+      this.activeChantiers.delete(msg.chantierId);
       rmSync(dir, rmOpts);
     }
   }

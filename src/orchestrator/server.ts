@@ -53,6 +53,7 @@ import {
   peutRejoindre,
   peutVoirMembres,
 } from '../shared/acces-projet.js';
+import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
@@ -67,7 +68,7 @@ import {
   partageVivant,
 } from '../shared/partage.js';
 import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
-import type { MergeResultMsg, ServerMessage } from '../shared/protocol.js';
+import type { ChantierResultMsg, MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { HiveEvent, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
@@ -582,6 +583,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // cours (routage mergeId→projet, nœud, âge — pour détecter les orphelins).
   const mergeResults = new Map<string, MergeResultMsg>();
   const pendingMerges = new Map<string, { projectId: string; nodeId: string; startedAt: number }>();
+  /** Chantiers partis vers un nœud et pas encore rendus. */
+  const pendingChantiers = new Map<
+    string,
+    { projectId: string; nodeId: string; nom: string; startedAt: number }
+  >();
+  /** Le dernier chantier rendu, par projet — ce que l'écran relit. */
+  const chantierResults = new Map<string, ChantierResultMsg>();
   // Diffusion d'état "sale" : regroupée toutes les 250 ms pour éviter le spam.
   let stateDirty = false;
   // Phéromones : cache de domaines (borné) et mémoïsation à TTL court du repli
@@ -4467,6 +4475,156 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── LES CHANTIERS ─────────────────────────────────────────────────────────
+  //
+  // Lancer, sur un nœud, un travail que le dépôt DÉCLARE : `npm test`,
+  // `npm run lint`, `npm run typecheck`. Deux règles, et elles se lisent dans
+  // le code ci-dessous plutôt que dans un commentaire :
+  //
+  //   1. La liste vient du `package.json` du MIROIR — le dépôt connecté, pas
+  //      la ruche. On choisit dans une liste qu'on n'a pas écrite.
+  //   2. La route n'expose PAS `intentionHumaine`. Une requête HTTP ne peut
+  //      pas prouver qu'un humain est derrière, et `jugerChantier` réserve les
+  //      travaux SORTANTS (publier, déployer, démarrer) à une intention
+  //      humaine explicite. Les exposer ici reviendrait à laisser n'importe
+  //      quel appelant cocher « c'est un humain qui le demande ».
+
+  /** Les scripts déclarés par le miroir d'un projet, ou `{}` s'il n'y en a pas. */
+  const scriptsDuMiroir = async (project: Project): Promise<Record<string, string>> => {
+    try {
+      const fichier = await rayons.lire(project.id, 'package.json');
+      const brut: unknown = JSON.parse(fichier.contenu);
+      const bloc =
+        typeof brut === 'object' && brut !== null
+          ? (brut as Record<string, unknown>).scripts
+          : null;
+      if (typeof bloc !== 'object' || bloc === null) return {};
+      const scripts: Record<string, string> = {};
+      for (const [k, v] of Object.entries(bloc)) {
+        if (typeof v === 'string') scripts[k] = v;
+      }
+      return scripts;
+    } catch {
+      // Pas de `package.json`, illisible, ou miroir absent : aucun chantier.
+      // Rendre `{}` plutôt que lever laisse `jugerChantier` produire le bon
+      // message — « ce dépôt n'en déclare aucun » — au lieu d'un 500.
+      return {};
+    }
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/chantiers',
+    async (req, reply) => {
+      // MÊME PORTE QUE `merge/result` : `lectureProjetPermise`, qui accepte le
+      // jeton de ruche. `projetLisible` exige un COMPTE, ce qui fermerait cette
+      // liste à la CLI et à un script — or lire les chantiers d'un projet est
+      // exactement ce qu'un script fait avant d'en lancer un.
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!(await assurerMiroir(project, reply))) return reply;
+      return reply.send({ chantiers: chantiersDe(await scriptsDuMiroir(project)) });
+    },
+  );
+
+  app.post<{ Params: { projectId: string; nom: string }; Body: { prepareCommand?: string[] } }>(
+    '/api/projects/:projectId/chantiers/:nom/run',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'nom'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            nom: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            prepareCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!project.repoUrl) {
+        return reply.code(400).send({ error: 'le projet doit avoir un dépôt (repoUrl)' });
+      }
+      // La préparation s'exécute sur la machine d'un membre, et une
+      // installation exécute les scripts de ce qu'elle installe.
+      if (req.body?.prepareCommand) {
+        const v = jugerPreparation(req.body.prepareCommand);
+        if (!v.ok) return reply.code(400).send({ error: v.motif });
+      }
+      if (!(await assurerMiroir(project, reply))) return reply;
+
+      // LE DÉPÔT DÉCIDE. `intentionHumaine` n'est volontairement pas passée.
+      const verdict = jugerChantier(await scriptsDuMiroir(project), req.params.nom);
+      if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+
+      const node = store
+        .listNodes()
+        .find(
+          (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
+        );
+      const ws = node ? nodeSockets.get(node.id) : undefined;
+      if (!node || !ws) {
+        return reply
+          .code(503)
+          .send({ error: 'aucun nœud en ligne et de service pour lancer ce chantier' });
+      }
+
+      const chantierId = randomUUID();
+      pendingChantiers.set(chantierId, {
+        projectId: project.id,
+        nodeId: node.id,
+        nom: req.params.nom,
+        startedAt: Date.now(),
+      });
+      // LE MESSAGE NE PORTE AUCUNE COMMANDE — seulement un nom. Le nœud relira
+      // le `package.json` de SON clone et composera l'argv lui-même. C'est ce
+      // qui fait qu'un hub compromis ne peut désigner que ce que le dépôt
+      // déclare déjà.
+      send(ws, {
+        type: 'assign_chantier',
+        chantierId,
+        repoUrl: project.repoUrl,
+        nom: req.params.nom,
+        ...(req.body?.prepareCommand ? { prepareCommand: req.body.prepareCommand } : {}),
+      });
+      emitEvent('chantier_started', {
+        projectId: project.id,
+        chantierId,
+        nodeId: node.id,
+        nom: req.params.nom,
+        // La commande est AFFICHÉE à l'humain : elle vient du dépôt, donc c'est
+        // une donnée. `chantiersDe` l'a déjà mise sur une ligne.
+        argv: argvDe(req.params.nom).join(' '),
+      });
+      return reply.code(202).send({ chantierId, nodeId: node.id, nom: req.params.nom });
+    },
+  );
+
+  /** Dernier chantier rendu pour ce projet (null tant qu'aucun n'a abouti). */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/chantiers/result',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      return reply.send({ resultat: chantierResults.get(req.params.projectId) ?? null });
+    },
+  );
+
   // Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti).
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/merge/result',
@@ -6254,6 +6412,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               applied: msg.applied.length,
               conflicts: msg.conflicts.length,
               testsPassed: msg.testsPassed,
+            });
+            break;
+          }
+          case 'chantier_result': {
+            const pending = pendingChantiers.get(msg.chantierId);
+            if (!pending) {
+              // MÊME LEÇON QUE LE MERGE, et elle a coûté un vrai travail perdu
+              // en silence : un nœud vient de cloner un dépôt et d'y lancer une
+              // commande. Si le hub ne connaît plus ce chantier, il le DIT — au
+              // nœud, qui cesse de croire son travail pris en compte, et au
+              // journal, pour qu'un humain puisse relier ce qu'il a vu tourner
+              // à ce que la ruche en a fait.
+              send(ws, {
+                type: 'error',
+                message: `chantier ${msg.chantierId} inconnu du hub (expiré ou déjà clos) — résultat ignoré`,
+              });
+              emitEvent('chantier_result_ignored', { chantierId: msg.chantierId, nodeId });
+              break;
+            }
+            pendingChantiers.delete(msg.chantierId);
+            chantierResults.set(pending.projectId, msg);
+            emitEvent(msg.ok ? 'chantier_completed' : 'chantier_failed', {
+              projectId: pending.projectId,
+              chantierId: msg.chantierId,
+              nom: msg.nom,
+              code: msg.code,
+              ...(msg.refused ? { refused: msg.refused } : {}),
             });
             break;
           }

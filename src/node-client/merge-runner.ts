@@ -103,8 +103,14 @@ const OUTPUT_CAP = 512 * 1024;
  * Lance une commande (argv) dans un cwd, sans shell, sortie plafonnée, timeout dur.
  * L'environnement est ÉPURÉ (aucun secret du nœud transmis à l'enfant — cf. revue
  * sécurité Palier 3) : seuls PATH/variables système + un TEMP dédié passent.
+ *
+ * EXPORTÉ pour les Chantiers (lot 14), qui lancent une commande déclarée par le
+ * dépôt dans un clone frais — même besoin exactement, y compris la résolution
+ * de `npm` en `npm.cmd` sous Windows et l'enveloppe de bac à sable. En écrire
+ * une seconde version aurait fait deux endroits où oublier l'isolement, et le
+ * premier oubli de ce genre est déjà raconté trois lignes plus bas.
  */
-function runProc(
+export function runProc(
   cmd: string[],
   cwd: string,
   env: NodeJS.ProcessEnv,

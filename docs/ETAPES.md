@@ -16,15 +16,20 @@
 | pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                                                      |
 | ------------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1. La décision** — quels travaux, et lesquels sans humain  | ✅   | `src/shared/chantier.ts` + 23 tests. La ruche choisit dans ce que le dépôt déclare et n'invente jamais une commande ; ce qui SORT de la machine (publier, déployer, démarrer) exige un humain. Loupe : 10 mutants, et le survivant a révélé un vrai trou — `build:publish` passait pour de la vérification, donc automatisable.                          |
-| **2. L'exécution locale** — lancer un chantier sur un nœud   | 🟡   | **PAS ENCORE BRANCHÉ**, et on sait maintenant POURQUOI ce n'est pas une simple réutilisation — voir sous le tableau. Le chemin voisin existe (`POST /api/projects/:id/merge/run` relaie une commande à un nœud, `lanceur.ts` résout `npm` sous Windows) mais ne se recycle pas tel quel.                                                                 |
+| **2. L'exécution locale** — lancer un chantier sur un nœud   | ✅   | `POST /api/projects/:id/chantiers/:nom/run` + `assign_chantier`/`chantier_result` + `runChantierJob`. **19 tests**, dont deux qui montent un `HiveNodeClient` RÉEL clonant un dépôt git et lançant `npm run` (codes 0 et 1 vérifiés), et trois qui font parler un **faux hub hostile**. Loupe : **17 mutants, 17 morts**.                                |
 | **3. GitHub Actions** — lister, lancer, lire l'état d'un run | ✅   | `listerWorkflows`, `lancerWorkflow` (workflow_dispatch) et `lireRuns` dans `github.ts`, décision pure dans `src/shared/workflow.ts`, **27 tests**, `Fetcheur` injecté — aucun test ne touche le réseau. Loupe : **15 mutants, 15 morts**. La frontière est celle des Chantiers : on ne lance qu'un workflow que l'API DÉCLARE, **par son id numérique**. |
 | **4. La liberté d'améliorer l'environnement**                | ✅   | Elle existe déjà et s'appelle `preparation.ts` : le dépôt déclare, la ruche installe. Ouvrir une porte plus large réintroduirait les deux failles fermées par `commande-test.ts` et `preparation.ts` — ce n'est pas une prudence de principe, c'est de l'expérience.                                                                                     |
 
-> **Dit d'avance plutôt que laissé découvrir** : les pièces 1 et 3 décident et
-> savent parler à GitHub ; **rien ne les appelle encore côté produit**. C'est
-> exactement l'état dans lequel le Cerveau et la contre-expertise sont restés
-> deux PR chacun. La pièce 2 est le prochain lot, et rien ne passe ✅ tant qu'un
-> test ne montre pas un chantier réellement lancé sur un nœud.
+> **La règle a été tenue** : « rien ne passe ✅ tant qu'un test ne montre pas un
+> chantier réellement lancé sur un nœud ». Deux tests montent un vrai
+> `HiveNodeClient`, qui clone un vrai dépôt git et lance vraiment `npm run` —
+> codes de sortie 0 et 1 tous deux vérifiés, parce qu'un nœud qui rapporterait
+> toujours « ça marche » passerait avec le seul cas heureux.
+>
+> **Reste débranchée : la pièce 3.** Les workflows GitHub savent lister, lancer
+> et relire ; rien ne les appelle encore côté produit. C'est l'état dans lequel
+> le Cerveau et la contre-expertise sont restés deux PR chacun — dit ici plutôt
+> que laissé découvrir.
 
 ### Le piège de la pièce 3, et pourquoi il vaut d'être écrit
 
@@ -54,7 +59,7 @@ Deux autres surprises, trouvées en écrivant les tests :
   (« réessayez ») serait faux, et rien dans la liste ne permet de le savoir
   d'avance — l'API ne dit pas quels déclencheurs un workflow porte.
 
-### Ce que la pièce 2 a heurté, et qu'il faut savoir avant de la reprendre
+### La pièce 2, et la décision qui la porte
 
 L'idée évidente est de recycler `assign_merge` avec une liste de diffs vide :
 un chantier, c'est cloner le dépôt et lancer une commande, soit exactement un
@@ -63,9 +68,36 @@ merge sans rien à appliquer. **Ça ne marche pas, et c'est volontaire** :
 diff est un merge malformé, et relâcher cette validation pour faire passer un
 chantier abîmerait la garde du merge pour le confort d'un autre usage.
 
-La pièce 2 est donc un vrai changement de protocole aux DEUX bouts —
-`assign_chantier` / `chantier_result`, leur validation, le handler côté nœud,
-la route, et un test qui monte un nœud réel. C'est un lot, pas un ajout.
+D'où deux messages neufs — et une décision qui change tout :
+
+> **LE MESSAGE NE PORTE PAS DE COMMANDE. IL PORTE UN NOM.**
+
+`assign_merge` transporte un `testCommand`. `assign_chantier`, lui, transporte
+le NOM d'un script, et le nœud relit le `package.json` du clone qu'il vient de
+faire, vérifie que le nom y figure, puis compose l'argv lui-même.
+
+La raison est celle qui a fait naître `jugerCommandeTest` : **un nœud ne doit
+pas tenir pour acquis que le hub est bien celui qu'il croit** — le jeton de
+ruche est partagé, les anciennes invitations le portent en clair, et le
+transport peut être un `ws://` de réseau local. Un hub compromis qui envoie une
+commande la fait exécuter ; un hub compromis qui envoie un nom ne peut désigner
+que ce que le dépôt déclare déjà.
+
+C'est une frontière plus solide qu'une liste de binaires autorisés, parce
+qu'elle ne repose sur rien que l'attaquant puisse fournir.
+
+**Et la loupe a montré que rien ne la testait.** La retirer laissait 15 tests
+verts, pour une raison structurelle : le hub refuse déjà tout ce qui est
+mauvais, si bien qu'un nœud branché sur un VRAI hub ne voit jamais passer une
+demande hostile. Il a donc fallu un **faux hub** qui envoie ce qu'un vrai
+refuserait — la seule façon d'exercer une garde que le reste du système rend
+inatteignable. Trois tests la tiennent désormais, dont un qui vérifie qu'elle
+n'est pas un mur : ce que le dépôt déclare vraiment passe.
+
+Ce que la route n'expose PAS, et c'est délibéré : `intentionHumaine`. Une
+requête HTTP ne peut pas prouver qu'un humain est derrière, et `jugerChantier`
+réserve les travaux sortants à une intention humaine explicite. L'exposer
+laisserait n'importe quel appelant cocher la case.
 
 Deuxième chose à savoir : `jugerCommandeTest` ne borne que le BINAIRE, et
 l'assume (« qui contrôle le dépôt contrôle déjà ce que `npm test` exécute »).
