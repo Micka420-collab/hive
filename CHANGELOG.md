@@ -9,6 +9,91 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🧠 Le Cerveau — le savoir qui survit à la fenêtre de contexte**
+  (`src/shared/cerveau.ts`, `src/cerveau-reel.ts`, dossier `<données>/cerveau`).
+  Une ruche qui travaille des MOIS referme une boucle : sa production
+  d'aujourd'hui devient son contexte de demain. Hive Mind gardait des
+  ÉPISODES — « la tâche 47 a réussi, voici ses logs » — et cette masse grossit
+  sans fin, le bruit croissant plus vite que le signal. Un agent qui reprend un
+  projet au troisième mois n'a pas besoin des mille épisodes : il a besoin des
+  **vingt règles** qu'ils ont produites. Le savoir est donc rangé par GENRE
+  (invariant, leçon, décision, carte, épisode) et l'ordre EST une priorité :
+  **les invariants passent toujours**, et s'ils ne tiennent pas dans le budget
+  la ruche **refuse** au lieu de tronquer — un contexte amputé d'une contrainte
+  de sûreté mais qui a l'air complet est pire qu'une erreur, parce que personne
+  ne va vérifier. Ce qui n'entre pas est listé, jamais tu (`cerveau_refus`). Les
+  notes sont des **fichiers markdown** (en-tête YAML, `[[wikilinks]]`, ouvrables
+  dans Obsidian) : un savoir en fichiers se versionne, donc se révise en revue
+  et **revient en arrière** — `git revert` est le seul mécanisme d'oubli qui ait
+  jamais marché. La méthode n'est pas une théorie : `docs/ERREURS.md` est
+  exactement ça, tenu à la main depuis des semaines, et il a attrapé de vraies
+  régressions.
+
+- **🧠 La ruche alimente son propre cerveau.** Chaque échec pris en compte
+  devient un épisode ; la panne est réduite à sa signature (`signatureEchec`,
+  réutilisée d'`essaim.ts` plutôt que redoublée) et **la même panne incrémente
+  une seule note** au lieu d'en semer cinquante — le dossier reste lisible par
+  un humain, ce qui est toute la raison d'être du format. À **trois
+  récurrences**, Hive **propose** la consolidation (`cerveau_consolidation`) et
+  **ne rédige jamais la règle** : écrire une règle demande de comprendre
+  POURQUOI, et une règle fausse coûte plus cher que pas de règle du tout —
+  parce qu'elle est SUIVIE, et transmise à chaque tâche par le budget de
+  contexte. La ruche accumule la matière ; l'humain écrit la loi. L'élagage
+  tourne à l'heure et ne touche QUE les épisodes : élaguer une leçon
+  reviendrait à jeter le résultat du travail pour garder la matière première.
+
+- **⚖️ La contre-expertise — une IA relue par une AUTRE**
+  (`src/shared/contre-expertise.ts`). Trois mécanismes confrontaient déjà des
+  productions, et aucun ne faisait ça : Drone Wars prend le PREMIER résultat
+  (vitesse), le Parlement compte les résultats IDENTIQUES (accord), le Conseil
+  délibère sur une DIRECTION (cadrage). L'accord n'est pas la critique — deux
+  modèles peuvent tomber d'accord parce qu'ils se trompent pareil, et c'est même
+  le cas le plus probable quand ils partagent une famille d'entraînement. Une
+  critique ne vaut donc que si elle vient d'un modèle **différent** : faire
+  relire `claude-code` par `claude-code`, c'est lui demander de trouver ses
+  propres angles morts. Faute d'un second modèle en ligne, Hive **refuse**
+  plutôt que de dégrader — « relu » sur un travail auto-relu est un mensonge
+  dans le sens rassurant. Un relecteur par modèle (la diversité devient
+  structurelle), le `shell` simulé écarté (il fabriquerait un verdict crédible
+  sans rien exécuter), et **une seule objection suffit à contester** : c'est
+  pour entendre l'autre voix qu'on a changé de modèle, un vote majoritaire la
+  noierait. À chaque production, l'événement `contre_expertise` nomme le modèle
+  capable de relire — **ou dit pourquoi c'est impossible**, parce que tu,
+  « aucun second modèle » se confondrait avec « on a relu et rien trouvé ».
+
+- **🎚️ `hive mode` — basculer l'autonomie sans quitter le clavier.** L'échelle
+  existait (`off` / `propose` / `gouverne` / `plein`) et la route pour la
+  changer aussi, mais rien en ligne de commande ne permettait de la LIRE ni de
+  la POSER : il fallait fabriquer un `curl`. **Seule la MONTÉE se confirme** —
+  descendre retire des droits à la ruche, c'est toujours sûr, et demander
+  « êtes-vous sûr ? » pour reprendre la main est le meilleur moyen d'apprendre
+  à taper « oui » sans lire, donc de rendre la confirmation inutile le jour où
+  elle compte. Chaque palier annonce aussi **ce qu'il ne fait pas** :
+  « gouverne » sans « ne fusionne jamais » se lirait comme un blanc-seing.
+  Codes de sortie distincts (3 = accord manquant, 1 = mot inconnu) pour qu'un
+  script distingue les deux.
+
+- **🐳 Image, compose et sauvegarde** (`Dockerfile`, `docker-compose.yml`,
+  `hive sauvegarde`). L'image est en `node:24-bookworm-slim` et **surtout pas
+  Alpine** : `better-sqlite3` n'y a pas de binaire prébuilt, la compilation
+  échouerait, et comme la dépendance est OPTIONNELLE l'image serait « réussie »
+  avec un démarrage mort. La sauvegarde passe par **`VACUUM INTO`, jamais une
+  copie de fichier** — mesuré avant d'écrire une ligne, sur 5 000 insertions en
+  mode WAL : `VACUUM INTO` rend 5 000/5 000 lignes, `cp` en rend 4 741, et la
+  copie passe `integrity_check`. 259 lignes disparues en silence dans un
+  fichier qui a l'air valide, c'est la pire forme de sauvegarde : celle qu'on
+  croit avoir. Écriture sous un nom `.part`, publication par renommage
+  atomique, élagage APRÈS publication.
+
+- **🧹 `hive desinstaller` et `hive service`.** L'inventaire de tout ce que Hive
+  écrit vit dans un module pur (`src/shared/empreinte.ts`) et un test garde que
+  **tout fichier de `src/` qui écrit y figure** — un dossier oublié serait un
+  dossier que la désinstallation ne montrerait jamais. `.env`, la base, les
+  sauvegardes et le cerveau ne sont **jamais** retirables : « un outil
+  d'installation n'est pas un outil de destruction ». Le service s'installe en
+  systemd user, LaunchAgent ou tâche planifiée, avec un plan pur vérifiable
+  pour les trois plateformes depuis n'importe laquelle.
+
 - **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
   `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
   Révoquer une clé compromise est l'archétype de la décision d'administration,
