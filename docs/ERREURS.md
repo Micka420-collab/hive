@@ -819,6 +819,33 @@ liste attendue — mais celle de `os.homedir()` bouclait sur **zéro élément**
 > fichiers parcourus. Sans ça, casser le parcours désarme la garde en silence
 > — et c'est la plateforme la moins regardée qui le fera.
 
+**Une TROISIÈME fois, et cette fois la règle était déjà écrite deux fois
+au-dessus.** `tests/deploiement-sans-ecran.test.ts` composait le chemin du
+script avec
+`path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', …)`. Vert
+sur Linux et macOS, rouge sur Windows :
+
+```
+sh -n D:\D:\a\hive\hive\examples\deploiement-sans-ecran.sh
+```
+
+Ce qui rend cette récurrence-là instructive, c'est **ce qui l'a laissée
+passer** : trois lignes plus bas, le même fichier fait
+`readFileSync(new URL('../examples/…', import.meta.url))` — et c'est CORRECT,
+parce que `fs` accepte une URL `file:` et la convertit lui-même. Les deux
+formes se ressemblent, cohabitent dans le même fichier, et une seule est juste.
+
+> **Règle** — la présence d'un `new URL(…, import.meta.url)` correct à côté ne
+> valide pas celui qu'on écrit. Dès qu'un chemin doit devenir une CHAÎNE — un
+> argument de `spawn`, un `cwd`, une base de `path.resolve` —, c'est
+> `fileURLToPath`, sans exception. Passer l'`URL` telle quelle ne marche que
+> pour les fonctions de `fs`, qui l'acceptent explicitement.
+>
+> **Et la leçon de fond** : un journal qu'on a écrit ne dispense pas de le
+> relire. Cette entrée existait, elle était juste, elle nommait exactement la
+> ligne fautive — et elle a été recommise par son propre auteur, dans une
+> session où il l'avait déjà citée.
+
 ### 6.2 — Un `.cmd` ne se lance pas sans interpréteur
 
 Sous Windows, `npm` est `npm.cmd`. Node **refuse** d'exécuter un `.cmd`/`.bat`
