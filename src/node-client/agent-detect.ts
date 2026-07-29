@@ -63,6 +63,30 @@ export function candidates(bin: string, plateforme: string = process.platform): 
 }
 
 /**
+ * Ce qu'il faut dire à l'humain sur l'agent retenu — ou `null` s'il n'y a
+ * rien à signaler.
+ *
+ * ─── POURQUOI C'EST UNE FONCTION, ET PAS TROIS LIGNES DANS `main.ts` ─────────
+ *
+ * Ça y était, et la loupe a montré les deux comparaisons SANS TEST : on
+ * pouvait inverser `=== 'shell'` en `!==` sans qu'une seule assertion bouge.
+ * Les tests lisaient la SOURCE et constataient que les phrases existaient ;
+ * aucun ne vérifiait laquelle est choisie.
+ *
+ * Ce n'est pas un détail cosmétique. Les deux cas demandent à l'humain des
+ * gestes opposés — « installez un agent » contre « vous en avez un, c'est
+ * vous qui l'avez désactivé ». Se tromper de phrase envoie quelqu'un
+ * réinstaller ce qu'il a déjà.
+ */
+export function messageAgent(agent: AgentType, tous: readonly AgentType[]): string | null {
+  if (agent !== 'shell') return null;
+  return tous.some((a) => a !== 'shell')
+    ? '   ℹ Agent « shell simulé » forcé par HIVE_AGENT alors qu’un agent réel est disponible.'
+    : '   ℹ Aucun agent IA détecté : mode « shell simulé » — les diffs produits sont FAUX.\n' +
+        '     Installez Claude Code (`npm i -g @anthropic-ai/claude-code`), puis relancez.';
+}
+
+/**
  * Les variables qu'une SONDE ne doit jamais recevoir.
  *
  * ─── LE DANGER, ÉNONCÉ SANS DÉTOUR ───────────────────────────────────────────

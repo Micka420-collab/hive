@@ -3,7 +3,12 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
-import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
+import {
+  agentCredentialEnv,
+  detectAllAgents,
+  detectBestAgent,
+  messageAgent,
+} from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
@@ -63,17 +68,14 @@ const tousAgents = await detectAllAgents();
 
 console.log(`   Agents détectés : ${tousAgents.join(', ')}`);
 console.log(`   Agent utilisé   : ${detecte.label}`);
-if (agentType === 'shell') {
-  // Le dire ICI, et pas seulement dans `hive doctor` : personne ne lance le
-  // docteur avant de voir sa ruche « travailler ». Un simulacre silencieux
-  // coûte une soirée à qui croit que ça tourne.
-  console.log(
-    tousAgents.some((a) => a !== 'shell')
-      ? '   ℹ Agent « shell simulé » forcé par HIVE_AGENT alors qu’un agent réel est disponible.'
-      : '   ℹ Aucun agent IA détecté : mode « shell simulé » — les diffs produits sont FAUX.\n' +
-          '     Installez Claude Code (`npm i -g @anthropic-ai/claude-code`), puis relancez.',
-  );
-}
+// Le dire ICI, et pas seulement dans `hive doctor` : personne ne lance le
+// docteur avant de voir sa ruche « travailler ». Un simulacre silencieux
+// coûte une soirée à qui croit que ça tourne.
+//
+// Le CHOIX de la phrase vit dans `messageAgent`, pur et éprouvé : la loupe a
+// montré qu'ici, inversé, rien ne rougissait.
+const aDire = messageAgent(agentType, tousAgents);
+if (aDire) console.log(aDire);
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
 

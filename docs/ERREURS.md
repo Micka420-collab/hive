@@ -876,6 +876,24 @@ les tests : c'est là qu'on écrit vite, en croyant que « ce n'est qu'un test �
 > résolution de `PATH` à faire, et c'est plus rapide (ici : 4,0 s → 1,8 s).
 > `node --import tsx <fichier.ts>` remplace `npx tsx <fichier.ts>`.
 
+**La même leçon, appliquée à `npm` en 6.2, a mis des mois à atteindre l'agent.**
+`agent-detect.ts` portait ce commentaire, écrit en toute lucidité :
+
+> « Un agent installé par npm — c'est le cas de Claude Code — n'expose sous
+> Windows qu'un shim `claude.cmd`. Il est donc INDÉTECTABLE ici […] le corriger
+> demande de lancer autre chose que le shim, ce que la contrainte §5.1 rend
+> délibérément difficile. »
+
+Le remède était pourtant écrit trois sections plus haut, et déjà appliqué à
+`npm` : viser le script réel du paquet et lancer Node dessus. Le constat était
+juste, complet, et **il s'est substitué à la correction**.
+
+> **Règle** — un commentaire qui documente un défaut comme non corrigé est une
+> dette qui se lit comme une décision. Écrire « c'est difficile » à l'endroit
+> exact où l'on connaît déjà le remède, c'est refermer la question. Quand on
+> décrit un défaut sans le corriger, dire **ce qu'il faudrait faire**, pas
+> seulement pourquoi c'est pénible.
+
 ### 6.3 — Une branche par plateforme est invérifiable si elle lit `process.platform`
 
 C'est la cause commune de 6.2 et de plusieurs autres : du code spécifique à une
@@ -1243,17 +1261,79 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 ## 9. Outils : ce qui ne marche pas comme on croit
 
-| geste                               | ce qui se passe vraiment                                                          |
-| ----------------------------------- | --------------------------------------------------------------------------------- |
-| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)           |
-| `npm ci` + dépendance optionnelle   | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                |
-| `for … done` en shell               | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5) |
-| `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                                |
-| `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                         |
-| `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                        |
-| `sleep` en avant-plan               | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`     |
-| `pkill` en fin de chaîne `&&`       | fait échouer la chaîne (code 144) — l'isoler                                      |
-| réf distante après reset sur `main` | prend du retard : **pousser la branche** après chaque repositionnement            |
+| geste                                  | ce qui se passe vraiment                                                                                                                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm ci --omit=dev`                    | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)                                                                                                                    |
+| `npm ci` + dépendance optionnelle      | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                                                                                                                         |
+| `for … done` en shell                  | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5)                                                                                                          |
+| `npm config set node_gyp …`            | **refusé** par npm 10 : « not a valid npm option »                                                                                                                                         |
+| `npm_config_node_gyp=…`                | posé, visible dans l'environnement, **ignoré** par npm 10                                                                                                                                  |
+| `npm run loupe` avant `git commit`     | ne voit **pas** les fichiers non suivis — commiter d'abord                                                                                                                                 |
+| `sleep` en avant-plan                  | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`                                                                                                              |
+| `pkill` en fin de chaîne `&&`          | fait échouer la chaîne (code 144) — l'isoler                                                                                                                                               |
+| réf distante après reset sur `main`    | prend du retard : **pousser la branche** après chaque repositionnement                                                                                                                     |
+| `better-sqlite3` après bascule de Node | 424 tests rouges d'un coup sur `new Database()` : binaire compilé pour l'ancienne ABI (`NODE_MODULE_VERSION 127` ≠ `137`). `npm rebuild better-sqlite3` — **ce n'est pas le diff** (§ 5.2) |
+
+---
+
+## 9 bis. Deux chemins pour le même geste : le mieux soigné n'est pas le plus emprunté
+
+Le nœud peut démarrer par **deux** portes, et les deux choisissent l'agent de
+codage. Une seule le faisait bien.
+
+| Fichier   | Qui l'emprunte               | Comment il choisissait l'agent      |
+| --------- | ---------------------------- | ----------------------------------- |
+| `join.ts` | **l'ami** qu'on invite       | détection automatique               |
+| `main.ts` | **soi-même**, `npm run node` | `process.env.HIVE_AGENT ?? 'shell'` |
+
+L'installeur n'écrit jamais `HIVE_AGENT`, et `.env.example` le posait à
+`shell`. Sur la machine de celui qui installe la ruche — donc au premier essai
+de tout le monde — un Claude Code parfaitement installé n'était **jamais
+employé**. Le nœud tournait en simulé, avait l'air de travailler, et rendait de
+faux diffs.
+
+**L'invité avait un vrai agent, l'hôte un simulacre.** Le chemin de la
+démonstration était soigné ; celui du quotidien pourrissait, parce que le
+premier se raconte et que le second se suppose.
+
+Personne ne pouvait le voir, et c'est ce qui compte ici : les deux fichiers se
+ressemblent, aucun test ne les comparait, et **rien ne rougissait**. La suite
+restait verte parce que `shell` est un adaptateur légitime — le défaut n'était
+pas une panne, c'était un **défaut par défaut**.
+
+> **Règle** — quand deux chemins font le même geste, les tester séparément ne
+> suffit pas : il faut une garde qui les CONFRONTE. Le chemin par défaut mérite
+> plus de méfiance que l'autre, pas moins — c'est celui que personne ne pense à
+> regarder, parce que c'est celui qu'on croit connaître.
+
+> **Règle** — un repli silencieux vers un mode SIMULÉ est un mensonge à retardement.
+> Un simulateur doit s'annoncer à chaque démarrage, pas seulement dans un
+> diagnostic qu'il faut penser à lancer. Personne ne lance `doctor` avant de
+> voir sa ruche « travailler ».
+
+### 9bis.1 — Une protection par l'ORDRE des lignes ne se transporte pas
+
+Corriger ce qui précède a failli ouvrir une faille. `join.ts` se gardait d'un
+vrai danger — et l'écrivait :
+
+> « on ne met PAS le token dans l'environnement avant, sinon un binaire homonyme
+> malveillant (`claude.cmd` déposé en tête de PATH) l'hériterait »
+
+Cette protection ne tenait qu'à **l'ordre des instructions** : sonder avant de
+lire le secret. Or `main.ts` charge `.env` à sa première ligne. Y ajouter la
+même détection aurait offert le jeton de la ruche — et la clé d'abonnement de
+l'humain — au premier binaire hostile posé en tête de `PATH`.
+
+Le geste correct n'est pas de reproduire l'ordre dans le second fichier : c'est
+de déplacer la protection **dans la sonde**, qui ne transmet plus aucun secret.
+
+> **Règle** — une invariante maintenue par la discipline de l'appelant est une
+> invariante qu'un futur appelant cassera sans le savoir. La déplacer dans
+> l'appelé, où elle ne dépend de personne.
+
+> **Règle** — une liste de refus a le droit d'être incomplète, jamais d'être
+> oubliée. Lui adjoindre une garde qui relit le dépôt et exige que tout nouveau
+> secret y entre.
 
 ---
 

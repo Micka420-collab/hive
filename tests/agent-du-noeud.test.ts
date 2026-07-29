@@ -33,7 +33,7 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SECRETS_JAMAIS_SONDES, envSonde } from '../src/node-client/agent-detect.js';
+import { SECRETS_JAMAIS_SONDES, envSonde, messageAgent } from '../src/node-client/agent-detect.js';
 
 const SOURCE = readFileSync(new URL('../src/node-client/main.ts', import.meta.url), 'utf8');
 
@@ -69,8 +69,11 @@ describe('LE NŒUD QU’ON LANCE CHEZ SOI (`npm run node`)', () => {
   it('DIT à l’humain qu’il tourne en simulé, sans attendre `hive doctor`', () => {
     // Personne ne lance le docteur avant de voir sa ruche « travailler ». Un
     // simulacre silencieux coûte une soirée à qui croit que ça tourne.
-    expect(NU).toMatch(/simulé/);
-    expect(NU, 'le mot qui compte : les diffs ne sont pas réels').toMatch(/FAUX/);
+    //
+    // Cette garde constate que main.ts APPELLE le message ; c'est le
+    // `describe` suivant qui éprouve LEQUEL est choisi — et c'est la loupe
+    // qui a montré que la différence comptait.
+    expect(NU).toMatch(/messageAgent\(/);
   });
 
   it('SONDE APRÈS le bac à sable, pas avant', () => {
@@ -83,6 +86,45 @@ describe('LE NŒUD QU’ON LANCE CHEZ SOI (`npm run node`)', () => {
     const sonde = NU.indexOf('await detectBestAgent');
     expect(bac, 'le refus du bac doit être dans la source').toBeGreaterThan(-1);
     expect(sonde, 'la détection doit venir après le refus du bac').toBeGreaterThan(bac);
+  });
+});
+
+describe('CE QU’ON DIT À L’HUMAIN — et pourquoi la nuance compte', () => {
+  // ─── CE QUE LA LOUPE A TROUVÉ ICI ────────────────────────────────────────
+  //
+  // Ces deux cas vivaient dans `main.ts` sous forme de `=== 'shell'` et
+  // `!== 'shell'`. La loupe a inversé les deux : rien n'a rougi. Les tests
+  // lisaient la source et constataient que les phrases EXISTAIENT ; aucun ne
+  // vérifiait laquelle sort.
+  //
+  // Se tromper de phrase n'est pas cosmétique : les deux demandent des gestes
+  // OPPOSÉS. Envoyer « installez Claude Code » à quelqu'un qui l'a déjà le
+  // fait réinstaller pour rien, et cherche la panne là où il n'y en a pas.
+
+  it('UN VRAI AGENT NE MÉRITE AUCUN AVERTISSEMENT', () => {
+    expect(messageAgent('claude-code', ['claude-code', 'shell'])).toBeNull();
+    expect(messageAgent('codex', ['codex', 'shell'])).toBeNull();
+    expect(messageAgent('custom', ['custom', 'shell'])).toBeNull();
+  });
+
+  it('AUCUN AGENT INSTALLÉ → on dit d’en installer un, et que les diffs sont FAUX', () => {
+    const m = messageAgent('shell', ['shell']);
+    expect(m).toMatch(/Aucun agent/);
+    expect(m, 'le mot qui compte : ce que la ruche produit n’est pas réel').toMatch(/FAUX/);
+    expect(m, 'et la commande exacte, pas « installez un agent »').toMatch(
+      /@anthropic-ai\/claude-code/,
+    );
+  });
+
+  it('UN AGENT DISPONIBLE MAIS ÉCARTÉ À LA MAIN → on nomme HIVE_AGENT', () => {
+    // ─── LA DISTINCTION QUE LA LOUPE A RÉVÉLÉE NON DÉFENDUE ────────────────
+    //
+    // Ici l'humain n'a rien à installer : il a un agent, et c'est SON réglage
+    // qui l'écarte. Lui dire « installez Claude Code » l'enverrait réinstaller
+    // ce qu'il a déjà, et chercher une panne là où il n'y a qu'un choix.
+    const m = messageAgent('shell', ['claude-code', 'shell']);
+    expect(m).toMatch(/HIVE_AGENT/);
+    expect(m, 'surtout PAS le message d’installation').not.toMatch(/Aucun agent/);
   });
 });
 
