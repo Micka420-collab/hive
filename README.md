@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2590%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2605%20passing-2ea44f)
 ![Licence](https://img.shields.io/badge/licence-MIT-green)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -228,17 +228,18 @@ Le détail — et les autres limites assumées, écrites plutôt que tues — es
 
 ## 🛠️ Commandes
 
-| Commande                    | Effet                                                               |
-| --------------------------- | ------------------------------------------------------------------- |
-| `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                    |
-| `npm run dev`               | Orchestrateur seul                                                  |
-| `npm run node`              | Un nœud membre                                                      |
-| `npm run cli -- doctor`     | **Le docteur** — 12 causes de panne, et la commande qui répare      |
-| `npm run cli -- sauvegarde` | Sauvegarde SQLite par `VACUUM INTO`                                 |
-| `npm run cli -- service`    | Installer la ruche en service (systemd · launchd · tâche planifiée) |
-| `npm test`                  | 2 310 tests (vitest)                                                |
-| `npm run lint`              | ESLint + Prettier — zéro erreur exigé                               |
-| `npm run loupe`             | **La loupe** — le code neuf est-il défendu par ses tests ?          |
+| Commande                    | Effet                                                                        |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                             |
+| `npm run dev`               | Orchestrateur seul                                                           |
+| `npm run node`              | Un nœud membre                                                               |
+| `npm run cli -- doctor`     | **Le docteur** — 12 causes de panne, et la commande qui répare               |
+| `npm run cli -- sauvegarde` | Sauvegarde SQLite par `VACUUM INTO`                                          |
+| `npm run cli -- service`    | Installer la ruche en service (systemd · launchd · tâche planifiée)          |
+| `npm test`                  | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit |
+| `npm run fusionner`         | Porte la branche sur `main` en **avance rapide** — sans commit de fusion     |
+| `npm run lint`              | ESLint + Prettier — zéro erreur exigé                                        |
+| `npm run loupe`             | **La loupe** — le code neuf est-il défendu par ses tests ?                   |
 
 ### La loupe
 

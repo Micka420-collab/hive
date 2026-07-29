@@ -1337,6 +1337,97 @@ de déplacer la protection **dans la sonde**, qui ne transmet plus aucun secret.
 
 ---
 
+## 9 ter. Un document que rien ne vérifie ment plus longtemps que du code
+
+Un README ne casse jamais. Il ne fait pas rougir la CI, personne ne le relit en
+entier, et il continue d'affirmer des choses longtemps après qu'elles ont cessé
+d'être vraies.
+
+Trois dérives **mesurées** dans ce dépôt, le même jour :
+
+| Ce qu'il affirmait                      | La réalité                                 |
+| --------------------------------------- | ------------------------------------------ |
+| badge « 2310 tests »                    | 2590                                       |
+| tableau des commandes : « 2 310 tests » | le MÊME chiffre, recopié, périmé lui aussi |
+| « `shell` — simulé, **par défaut** »    | exact, et c'était le défaut (§ 9 bis)      |
+
+Le deuxième est le plus instructif : **j'ai corrigé le badge sans voir la
+seconde copie**, à onze lignes de distance. Un chiffre écrit deux fois dérive
+toujours, et celui qu'on ne regarde pas est celui qui reste faux.
+
+Et le troisième s'est doublé d'une dérive entre langues : j'ai corrigé le README
+français, l'anglais a gardé l'affirmation démentie, et **rien ne me l'aurait
+dit**. Deux documents qui font la même promesse dérivent, et le second dérive en
+silence parce qu'on ne relit que le premier.
+
+> **Règle** — une duplication qu'on peut SUPPRIMER ne se garde pas synchronisée.
+> Le compte de tests a été retiré du tableau des commandes ; il ne vit plus que
+> dans le badge. On ne met une garde que sur ce qu'on ne peut pas effacer — ici,
+> les deux READMEs, qui sont deux fichiers.
+
+> **Règle** — quand deux documents font la même promesse, les CONFRONTER l'un à
+> l'autre, pas les relire chacun de son côté. `tests/readme.test.ts` compare les
+> deux listes d'adaptateurs, les deux badges, les deux tables de documents.
+
+> **Règle** — ne garder d'un document que ce qui est VÉRIFIABLE : des liens qui
+> résolvent, des noms qui existent, deux copies qui coïncident. Prétendre
+> vérifier la prose donnerait une fausse assurance, ce qui est pire que rien.
+
+### 9ter.1 — La sonde qui confondait « absent » et « qui refuse »
+
+Première version de cette garde : appeler `getAdapter(nom)` et regarder s'il
+jette. Elle a accusé les **quatre** vrais adaptateurs d'être inexistants.
+
+Ils existent. Ils **refusent de se construire** sans un `HIVE_TOKEN` solide —
+une garde de sécurité, et une bonne. Ma sonde confondait deux échecs que tout
+sépare : « cet adaptateur n'existe pas » et « cet adaptateur refuse de
+travailler dans ces conditions ».
+
+Le pire n'est pas le faux positif du jour : c'est qu'elle aurait laissé passer
+un adaptateur **supprimé** le jour où le jeton de test aurait été faible — elle
+aurait alors accusé tout le monde, donc plus personne.
+
+> **Règle** — une sonde qui teste « est-ce que ça jette ? » teste la présence
+> d'une exception, pas la présence de la chose. Lire le comportement (ici les
+> `case` du `switch`), pas la réaction à une question mal posée.
+
+### 9ter.2 — Un mutant qui ne mute pas se lit comme un survivant
+
+En éprouvant cette garde, la première mutation est passée au vert : la garde
+semblait ne pas voir la dérive qu'elle existe pour attraper.
+
+Elle la voyait. **La mutation n'avait rien muté** : elle remplaçait une ligne
+de tableau par une chaîne écrite à la main, et `prettier` avait réaligné les
+colonnes depuis. La chaîne ne correspondait plus, le fichier était intact.
+
+> **Règle** — après avoir muté, VÉRIFIER que le fichier a changé (`git diff
+--stat`) avant de conclure quoi que ce soit sur le vert. Un mutant qui échoue
+> à s'appliquer ment dans le sens rassurant — le pire des deux.
+
+---
+
+## 9 quater. Fusionner par l'API fabrique un commit que personne n'a écrit
+
+Les huit fusions de #80 à #87 portent toutes le committer `noreply@github.com`.
+Ce n'est pas une négligence : **c'est GitHub qui fabrique le commit de fusion**,
+côté serveur, quand on fusionne par l'API. L'auteur du code n'y est pour rien,
+et il ne peut pas le corriger — un historique publié ne se réécrit qu'au prix
+d'un `push --force` sur la branche par défaut.
+
+Le rappel de contrôle signalait donc, à chaque livraison, un commit que je
+n'avais pas écrit et que je ne pouvais pas amender sans un geste destructeur.
+
+La sortie n'est pas de corriger le commit : c'est de **ne pas en fabriquer**.
+Quand la branche descend directement de `main`, l'avance rapide déplace la
+référence sans rien créer.
+
+> **Règle** — quand un contrôle se déclenche systématiquement sur un artefact
+> qu'on ne contrôle pas, ne pas chercher à corriger l'artefact : chercher à ne
+> plus le produire. `scripts/fusionner.sh` — et il REFUSE plutôt que de forcer :
+> base qui a bougé, arbre sale, committer inattendu.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait
