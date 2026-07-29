@@ -383,6 +383,17 @@ export interface ServerConfig {
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
   /**
+   * Espacement minimum entre deux re-livraisons d'une MÊME tâche muette.
+   *
+   * Paramétrable pour une seule raison : un test qui veut observer plusieurs
+   * re-livraisons ne peut pas attendre quinze secondes par tour. Le rendre
+   * réglable est préférable à laisser un test EXIGER le martèlement — c'est
+   * exactement ce qui était arrivé : une assertion attendait quatre livraisons
+   * en quinze secondes, donc elle encodait le défaut comme un comportement
+   * attendu, et corriger le défaut l'a fait rougir.
+   */
+  relivraisonMinMs?: number;
+  /**
    * HIVE_BALANCE : off | observation | strict. Défaut `observation` — la ruche
    * pèse ce qu'elle dépense sans jamais rien bloquer. Optionnel ici (et non
    * requis comme le reste) pour que tout appelant existant de `createServer`
@@ -6292,6 +6303,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    */
   const contextesRelivres = new Map<string, string>();
 
+  /**
+   * Quand chaque tâche muette a été re-servie pour la dernière fois.
+   *
+   * ─── LE DÉFAUT QUE CETTE CARTE FERME ───────────────────────────────────────
+   *
+   * Le filet ne gardait aucune trace de ses tentatives. Une tâche assignée dont
+   * le nœud ne répond jamais restait « muette depuis plus de 5 s » pour
+   * toujours, donc elle repartait À CHAQUE TICK — indéfiniment. Le filet cessait
+   * d'être un filet pour devenir un robinet.
+   *
+   * ─── POURQUOI PAS `updatedAt` ──────────────────────────────────────────────
+   *
+   * Le geste qui vient à l'esprit est de rafraîchir `updatedAt` en re-servant :
+   * la tâche redeviendrait muette 5 s plus tard, et l'espacement serait gratuit.
+   * Il est faux. `updatedAt` veut dire « la tâche a CHANGÉ », et une
+   * re-livraison ne la change pas — c'est le même travail, renvoyé. Le teindre
+   * ferait passer une tâche gelée pour fraîche auprès de tout ce qui lit ce
+   * champ, à commencer par le filet lui-même : il ne saurait plus depuis quand
+   * elle se tait.
+   *
+   * Une carte en mémoire dit exactement ce qu'on veut dire — « voilà quand JE
+   * l'ai renvoyée » — sans rien affirmer sur la tâche.
+   */
+  const derniereRelivraison = new Map<string, number>();
+
+  /**
+   * Un renvoi au plus toutes les 15 s pour une même tâche.
+   *
+   * Le filet existe pour un `assign_task` PERDU EN VOL, cas rare que la première
+   * reprise suffit à rattraper. Au-delà, ce n'est plus un message perdu, c'est
+   * un nœud qui ne répond pas — et le marteler ne le réveillera pas. Quinze
+   * secondes laissent sept reprises dans les deux premières minutes, ce qui est
+   * généreux pour un message perdu, puis la cadence devient supportable.
+   */
+  const RELIVRAISON_MIN_MS = config.relivraisonMinMs ?? 15_000;
+
   const tickTimer = setInterval(() => {
     // Une exception ici (ex. SQLite verrouillé) ne doit pas arrêter la boucle
     // ni abattre le process : on journalise et on retentera au prochain tick.
@@ -6302,7 +6349,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Pour une course, TOUS les drones en vol sont re-servis (un assign_task
       // perdu vers un drone non-primaire n'est visible nulle part ailleurs).
       const muettes = scheduler.staleAssignedTasks(5_000);
+      const maintenant = Date.now();
       for (const task of muettes) {
+        // Espacement AVANT tout le reste : la sortie la moins chère est celle
+        // qui ne calcule rien. Le contexte mémoïsé plus bas est déjà une
+        // économie, mais ne rien envoyer coûte encore moins que l'envoyer vite.
+        const dernier = derniereRelivraison.get(task.id);
+        if (dernier !== undefined && maintenant - dernier < RELIVRAISON_MIN_MS) continue;
         const race = scheduler.getRace(task.id);
         const targets = race
           ? race.drones.filter((d) => d.status === 'running').map((d) => d.nodeId)
@@ -6329,6 +6382,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           hiveContext = construireHiveContext(task).hiveContext;
           contextesRelivres.set(task.id, hiveContext);
         }
+        derniereRelivraison.set(task.id, maintenant);
         for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
@@ -6344,10 +6398,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // La mémoïsation est bornée par les tâches ENCORE muettes : dès qu'une
       // tâche rend un résultat (ou est réassignée), son contexte est oublié —
       // et sera donc recalculé, à jour, si elle redevenait muette.
-      if (contextesRelivres.size > 0) {
+      if (contextesRelivres.size > 0 || derniereRelivraison.size > 0) {
         const encoreMuettes = new Set(muettes.map((t) => t.id));
         for (const taskId of contextesRelivres.keys()) {
           if (!encoreMuettes.has(taskId)) contextesRelivres.delete(taskId);
+        }
+        // Même borne pour la carte des tentatives : une tâche qui a fini de se
+        // taire oublie son historique de renvois, et repart donc à zéro si elle
+        // redevenait muette. C'est aussi ce qui empêche ces deux cartes de
+        // grandir sans fin dans un processus qui tourne des mois.
+        for (const taskId of derniereRelivraison.keys()) {
+          if (!encoreMuettes.has(taskId)) derniereRelivraison.delete(taskId);
         }
       }
       // Borne la croissance du journal, de la mémoire Hive Mind, des résultats

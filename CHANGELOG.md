@@ -7,7 +7,77 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **🚪 Les deux portes d'entrée ne parlaient pas de la même machine.** Sortie de
+  la mesure des critères 1 et 2, la dernière ligne ⛔ du carnet d'étapes. Le
+  plancher de Node était écrit **six fois** ; `src/installer.ts` déclarait `20`
+  sous un commentaire affirmant « telle que le `package.json` la déclare »,
+  alors que le paquet, `NODE_MINIMUM`, `install.sh` et `install.ps1` disent tous 24. Sur une machine en Node 22 : `sh install.sh` refuse avec le code 2,
+  `npm run install:hive` répond « ✔ Node v22.22.2 (20 minimum) » et invite à
+  démarrer — une installation « réussie » là où `better-sqlite3` n'a pas de
+  binaire prébuilt, c'est-à-dire **la panne de l'image morte atteinte par
+  l'autre porte**. La garde existante s'intitulait « en quatre endroits » et en
+  comptait quatre sur six ; `NODE_MIN` vaut désormais `NODE_MINIMUM`, et la
+  commande de secours affichée — « nvm install 20 », la commande exacte pour
+  rester bloqué — suit la même source. Journal § 1.6 et § 2.6.
+
+- **🖥️ Le CORS proposé interdisait l'adresse que l'écran suivant annonce.**
+  L'assistant posait `HIVE_CORS_ORIGIN=http://localhost:7777` (le dashboard
+  compilé) pendant que l'installeur écrit deux écrans plus loin
+  « `npm run dev:dashboard` (puis `http://localhost:5173`) ». Répondre « Poser
+  ces réglages » ouvrait donc Mission Control sur un écran **vide, sans message
+  d'erreur** — un navigateur bloqué par CORS ne dit rien. Les deux écrans
+  avaient raison séparément ; c'est leur désaccord qui était le défaut, et aucun
+  test ne le voyait puisqu'aucun ne les regardait ensemble. Les deux origines
+  sont désormais listées, elles viennent d'une constante unique, et un test
+  confronte l'adresse annoncée à celles qui sont autorisées. Journal § 2.7.
+
+- **⏎ L'accueil promet trois décisions et en posait quatre.** La quatrième —
+  « Ne rien changer / Poser ces réglages » — arrivait sur un `.env` que
+  l'installeur venait lui-même de créer, avec « Ne rien changer » pour défaut :
+  valider au ⏎ **jetait le choix d'exposition fait à l'écran précédent**. Elle
+  disparaît sur un fichier neuf dont le plan n'ouvre rien, et reste entière dès
+  que la machine devient joignable. Le nouveau `planOuvre` regarde le PLAN et
+  non l'étiquette du choix, parce qu'un tunnel Cloudflare et un reverse proxy
+  laissent `HIVE_HOST` sur `127.0.0.1` **et rendent pourtant la ruche joignable
+  depuis Internet**.
+
 ### Added
+
+- **📏 Les critères 1 et 2 sont MESURÉS, pas affirmés** (`docs/ETAPES.md`).
+  **3 décisions** sur le chemin par défaut et **≈ 2,5 s** hors téléchargement
+  npm, contre 60 s de budget — chiffres relevés sous un vrai pseudo-terminal,
+  avec la commande reproductible et les réglages du banc écrits à côté. La note
+  qu'ils remplacent disait « l'installeur a `--timings`, personne ne l'a
+  mesuré » : **`--timings` n'existe pas**. Une note qui invente l'outil de sa
+  propre mesure est le meilleur indice qu'elle n'a jamais été faite.
+
+- **🏗️ Les Chantiers — la ruche sait quels travaux le dépôt DÉCLARE** (`src/shared/chantier.ts`).
+  Une ouvrière produit un diff, il part en revue, et personne ne demande au
+  PROJET ce qu'il en pense — alors qu'il le dit lui-même, dans ses propres
+  commandes. Ce module lit les scripts déclarés, les classe, et rend l'argv à
+  lancer. Deux règles le portent : **la ruche choisit dans ce que le dépôt
+  déclare et n'invente jamais une commande** (même frontière que
+  `preparation.ts` et `commande-test.ts`, établie en fermant de vraies failles),
+  et **ce qui sort de la machine exige un humain** — publier, déployer,
+  démarrer un service sont irréversibles et visibles de l'extérieur, donc même
+  famille que « jamais de fusion sans revue humaine ». ⚠️ **Cette pièce est
+  DÉBRANCHÉE** : elle décide, rien ne l'appelle encore. `docs/ETAPES.md` ouvre
+  le lot 14 avec son état réel plutôt que de le laisser découvrir.
+
+- **🕸️ Le filet de re-livraison espace ses tentatives.** La ruche re-sert
+  `assign_task` aux tâches assignées restées muettes plus de cinq secondes —
+  un filet pour un message perdu en vol. Il ne gardait aucune trace de ses
+  tentatives : une tâche muette repartait **à chaque tick**. Le cas qui compte
+  n'est pas le nœud mort (le moissonneur désassigne sa tâche, la boucle
+  s'arrête seule) mais le nœud **vivant et bloqué** — il bat normalement, ne
+  rend jamais compte de sa tâche, n'est donc jamais moissonné, et c'est lui que
+  le filet arrosait sans fin. Un renvoi au plus toutes les **15 s** par tâche
+  désormais, mémorisé en RAM plutôt qu'en rafraîchissant `updatedAt` : ce champ
+  veut dire « la tâche a changé », or une re-livraison ne la change pas, et le
+  teindre ferait passer une tâche gelée pour fraîche auprès du filet lui-même.
+  Journal § 6bis.2.
 
 - **🗣️ La contre-expertise PART enfin : un modèle reçoit vraiment le travail
   d'un autre à juger.** Le module décidait qui devait relire depuis deux PR, et

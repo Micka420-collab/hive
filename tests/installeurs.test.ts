@@ -23,6 +23,7 @@ import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { NODE_MIN, messagePrerequisNode, nodeSuffisant } from '../src/installer.js';
 import { NODE_MINIMUM } from '../src/shared/doctor.js';
 import {
   type Capacites,
@@ -262,10 +263,10 @@ describe('`install.ps1` COMMENCE PAR UN BOM UTF-8', () => {
   });
 });
 
-describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en quatre endroits', () => {
+describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en SIX endroits', () => {
   // ─── LE PIÈGE QUE CETTE GARDE FERME ────────────────────────────────────────
   //
-  // La version minimale de Node est écrite QUATRE fois : `NODE_MINIMUM` dans
+  // La version minimale de Node est écrite plusieurs fois : `NODE_MINIMUM` dans
   // le module pur, `engines.node` dans le paquet, et une constante dans chacun
   // des deux installeurs. Ces derniers ne sont ni typés ni compilés : rien ne
   // les relierait aux trois autres.
@@ -275,6 +276,59 @@ describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en quatre endroits', 
   // installeur laisse passer une version que la ruche refusera ensuite — et
   // la personne se retrouve avec une installation « réussie » qui ne démarre
   // pas.
+  //
+  // ─── ET LE PIÈGE QU'ELLE A LAISSÉ PASSER ───────────────────────────────────
+  //
+  // Ce bloc s'intitulait « en quatre endroits ». Il y en avait SIX. Les deux
+  // oubliés vivaient dans `src/` — donc typés, donc compilés, donc réputés
+  // sûrs : `NODE_MIN` dans `src/installer.ts`, qui valait **20** sous un
+  // commentaire affirmant « telle que le `package.json` la déclare » ; et la
+  // ligne « nvm install 20 » que l'installeur affiche à qui est bloqué,
+  // c'est-à-dire la commande exacte pour le rester.
+  //
+  // Le prix, mesuré en lançant les DEUX chemins sur la même machine (Node 22) :
+  //
+  //   · `sh install.sh`        → refus, code 2, « Hive exige 24 ou plus »
+  //   · `npm run install:hive` → « ✔ Node v22.22.2 (20 minimum) », .env écrit,
+  //                               « Lancer la ruche : npm run dev »
+  //
+  // Une installation « réussie » sur une machine où `better-sqlite3` n'a pas de
+  // binaire prébuilt : la panne de l'image morte, atteinte par l'autre porte.
+  //
+  // Une garde qui compte les copies doit les compter TOUTES — et la seule
+  // manière de ne pas se tromper est que les copies de `src/` soient IMPORTÉES,
+  // pas relues. C'est maintenant le cas : `NODE_MIN` vaut `NODE_MINIMUM`.
+
+  it('`NODE_MIN` de l’installeur EST `NODE_MINIMUM` — le cinquième endroit', () => {
+    expect(NODE_MIN).toBe(NODE_MINIMUM);
+    // L'assertion qui compte vraiment : le COMPORTEMENT. Les tests existants
+    // s'écrivaient tous en fonction de `NODE_MIN` lui-même
+    // (`nodeSuffisant(\`v${NODE_MIN}.0.0\`)`), donc restaient verts pour 20
+    // comme pour 24 — un miroir, pas une garde.
+    expect(nodeSuffisant(`v${NODE_MINIMUM - 1}.99.0`), 'accepte une version trop vieille').toBe(
+      false,
+    );
+    expect(nodeSuffisant(`v${NODE_MINIMUM}.0.0`)).toBe(true);
+  });
+
+  it('LA COMMANDE DE SECOURS N’ENVOIE PAS VERS UNE VERSION PÉRIMÉE', () => {
+    // Le sixième endroit, et le SEUL que la personne bloquée copie. Il disait
+    // « nvm install 20 » : suivre l'installeur à la lettre laissait bloqué.
+    //
+    // La première version de ce test relisait la source de `installer-main.ts`
+    // — et rougissait sur la mention « nvm install 20 » écrite dans le
+    // commentaire qui racontait le défaut. Un test qui rougit sur un
+    // commentaire est un test qu'on apprend à contourner. Le message est donc
+    // sorti dans le module pur, et c'est LUI qu'on lit.
+    const message = messagePrerequisNode('v20.11.0').join('\n');
+    for (const m of message.matchAll(/nvm install (\d+)/g)) {
+      expect(Number(m[1]), `« ${m[0]} » ne suit plus NODE_MINIMUM`).toBe(NODE_MINIMUM);
+    }
+    expect(message).toContain(`nvm install ${NODE_MINIMUM}`);
+    // Et il nomme la version qu'on a, sinon « trop vieux » ne dit pas
+    // laquelle il faut changer.
+    expect(message).toContain('v20.11.0');
+  });
 
   it('install.sh exige la MÊME version que `NODE_MINIMUM`', () => {
     const m = /NODE_MIN=(\d+)/.exec(SH_NU);

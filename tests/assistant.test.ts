@@ -17,14 +17,18 @@
 //      se charge et paraît fonctionner pendant que le WebSocket échoue EN
 //      SILENCE : aucun nœud ne se connecte, et rien n'explique pourquoi.
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   EXPOSITIONS,
+  PORT_DASHBOARD_DEV,
   fusionner,
   planExposition,
+  planOuvre,
   planProjet,
   type ReponsesExposition,
 } from '../src/assistant.js';
+import { prochainesEtapes } from '../src/installer.js';
 import { LIMITS } from '../src/shared/protocol.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../src/shared/types.js';
 
@@ -67,8 +71,43 @@ describe('la mise en ligne — ce qui est posé', () => {
     const plan = planExposition(BASE);
     expect(plan.reglages.find((r) => r.cle === 'HIVE_HOST')?.valeur).toBe('127.0.0.1');
     const cors = plan.reglages.find((r) => r.cle === 'HIVE_CORS_ORIGIN')?.valeur;
-    expect(cors).toBe('http://localhost:7777');
+    expect(cors).toBe(`http://localhost:7777,http://localhost:${PORT_DASHBOARD_DEV}`);
     expect(cors).not.toContain('*');
+  });
+
+  it('LE CORS LOCAL LISTE L’ADRESSE QUE L’INSTALLEUR AFFICHE DEUX ÉCRANS PLUS LOIN', () => {
+    // ─── LE DÉFAUT QUE CE TEST FERME ───────────────────────────────────────
+    //
+    // Trouvé en LANÇANT l'installeur sous un vrai pty, pas en le relisant.
+    //
+    // Le plan « locale » ne listait que `http://localhost:7777` — l'origine du
+    // dashboard COMPILÉ. Deux écrans plus loin, le même programme écrit
+    // « npm run dev:dashboard (puis http://localhost:5173) ». Qui répondait
+    // « Poser ces réglages » sortait donc avec un CORS qui INTERDIT l'adresse
+    // que l'écran suivant lui donne — et un navigateur bloqué par CORS
+    // n'affiche rien du tout, pas même une erreur lisible.
+    //
+    // Les deux écrans avaient raison séparément ; c'est leur désaccord qui
+    // était le défaut. Aucun test ne pouvait le voir puisqu'aucun ne les
+    // regardait ENSEMBLE — c'est ce que fait celui-ci.
+    const cors = planExposition(BASE).reglages.find((r) => r.cle === 'HIVE_CORS_ORIGIN')?.valeur;
+    const origines = (cors ?? '').split(',').map((s) => s.trim());
+
+    const ligne = prochainesEtapes(null).find((e) => e.includes('Mission Control')) ?? '';
+    const affichee = /(https?:\/\/[^\s)]+)/.exec(ligne)?.[1];
+    expect(affichee, 'l’installeur doit annoncer une adresse de dashboard').toBeTruthy();
+    expect(origines, `« ${affichee} » est annoncée mais pas autorisée`).toContain(affichee);
+  });
+
+  it('…et la constante du dashboard est bien CELLE DE VITE', () => {
+    // Le troisième endroit où 5173 est écrit : la configuration de Vite. Elle
+    // n'est ni typée ni importable d'ici — seule une lecture du fichier peut
+    // la relier au reste, et sans ce lien la correction ci-dessus se
+    // contenterait d'aligner deux copies sur une troisième qui a bougé.
+    const vite = readFileSync(new URL('../dashboard/vite.config.ts', import.meta.url), 'utf8');
+    const m = /port:\s*(\d+)/.exec(vite);
+    expect(m, 'aucun `port:` dans dashboard/vite.config.ts').toBeTruthy();
+    expect(Number(m?.[1])).toBe(PORT_DASHBOARD_DEV);
   });
 
   it('AUCUN MODE NE POSE JAMAIS UN CORS EN « * »', () => {
@@ -114,6 +153,75 @@ describe('la mise en ligne — ce qui est posé', () => {
     expect(nginx!.commande).toContain('proxy_set_header Upgrade $http_upgrade;');
     expect(nginx!.commande).toContain('proxy_set_header Connection "upgrade";');
     expect(nginx!.commande).toContain('proxy_http_version 1.1;');
+  });
+});
+
+describe('CE QUI PERMET DE SE TAIRE, ET CE QUI OBLIGE À DEMANDER', () => {
+  // ─── POURQUOI CE PRÉDICAT EXISTE ─────────────────────────────────────────
+  //
+  // Mesuré en lançant l'installeur : il posait QUATRE questions là où l'accueil
+  // en promet trois, et la quatrième — « Ne rien changer / Poser ces
+  // réglages » — arrivait sur un `.env` qu'il venait lui-même de créer, avec
+  // « Ne rien changer » pour défaut. Valider au ⏎ jetait donc le choix fait à
+  // l'écran d'avant.
+  //
+  // Supprimer la question purement et simplement aurait été l'erreur inverse :
+  // sur « mon réseau local », elle précède l'ouverture d'une machine.
+  //
+  // `planOuvre` est ce qui départage, et il regarde le PLAN plutôt que
+  // l'étiquette du choix — parce que l'étiquette ment sur les deux cas qui
+  // comptent.
+
+  it('« RIEN QUE CETTE MACHINE » N’OUVRE RIEN', () => {
+    expect(planOuvre(planExposition(BASE))).toBe(false);
+  });
+
+  it('« MON RÉSEAU LOCAL » OUVRE — c’est 0.0.0.0', () => {
+    expect(planOuvre(planExposition({ ...BASE, exposition: 'reseau_local' }))).toBe(true);
+  });
+
+  it('UN TUNNEL OUVRE, MÊME EN ÉCOUTANT SUR 127.0.0.1', () => {
+    // ─── LE CAS QUI DICTE LA FORME DU PRÉDICAT ─────────────────────────────
+    //
+    // C'est le piège de toute la question. Un tunnel Cloudflare — et un
+    // reverse proxy — laissent `HIVE_HOST` sur la boucle locale : c'est
+    // exactement leur intérêt, aucun port n'est ouvert. Et pourtant la ruche
+    // devient joignable DEPUIS INTERNET.
+    //
+    // Un prédicat qui ne regarderait que `HIVE_HOST` les déclarerait donc
+    // inoffensifs, et l'installeur publierait une ruche sur Internet sans
+    // demander à personne. Ce sont les ÉTAPES — pose un cloudflared, pose un
+    // Caddy — qui trahissent l'ouverture.
+    for (const exposition of ['tunnel', 'proxy'] as const) {
+      const plan = planExposition({ ...BASE, exposition, domaine: 'ruche.exemple.fr' });
+      expect(plan.reglages.find((r) => r.cle === 'HIVE_HOST')?.valeur, exposition).toBe(
+        '127.0.0.1',
+      );
+      expect(planOuvre(plan), `${exposition} : joignable depuis Internet`).toBe(true);
+    }
+  });
+
+  it('UN REFUS N’OUVRE RIEN — il n’y a rien à confirmer', () => {
+    // Un plan refusé ne pose aucun réglage. Le déclarer « ouvrant » ferait
+    // demander confirmation pour écrire zéro ligne.
+    const refuse = planExposition({ ...BASE, exposition: 'tunnel', domaine: '' });
+    expect(refuse.refus).not.toBeNull();
+    expect(planOuvre(refuse)).toBe(false);
+  });
+
+  it('AUCUNE EXPOSITION N’ÉCHAPPE AU PRÉDICAT', () => {
+    // Le jour où une cinquième façon d'être joignable arrive, elle sera
+    // classée — et si personne n'y pense, ce test dira laquelle manque.
+    const attendu: Record<string, boolean> = {
+      locale: false,
+      reseau_local: true,
+      tunnel: true,
+      proxy: true,
+    };
+    for (const exposition of EXPOSITIONS) {
+      const plan = planExposition({ ...BASE, exposition, domaine: 'ruche.exemple.fr' });
+      expect(planOuvre(plan), exposition).toBe(attendu[exposition]);
+    }
   });
 
   it('Caddy est proposé en premier, parce qu’il est plus court et plus sûr', () => {

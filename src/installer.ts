@@ -24,7 +24,9 @@
 // la génération de configuration est testable sans toucher au disque.
 
 import { randomBytes } from 'node:crypto';
+import { PORT_DASHBOARD_DEV } from './assistant.js';
 import { LONGUEUR_MIN_SECRET_JWT, SECRET_JWT_INTERDIT } from './orchestrator/auth.js';
+import { NODE_MINIMUM } from './shared/doctor.js';
 import { MIN_TOKEN_LENGTH } from './shared/types.js';
 
 /** Longueur du jeton engendré. Confortablement au-delà du minimum exigé. */
@@ -265,20 +267,74 @@ export function completerEnv(contenu: string, reglages: readonly Reglage[]): str
   return `${corps}\n\n# ─── Complété par « npm run install:hive » ───\n${lignes.join('\n')}`;
 }
 
-/** Version de Node exigée, telle que le `package.json` la déclare. */
-export const NODE_MIN = 20;
+/**
+ * Version de Node exigée. **Le même nombre que partout ailleurs, et pas une
+ * copie de plus.**
+ *
+ * ─── LA DIVERGENCE QUE CETTE LIGNE FERME ─────────────────────────────────────
+ *
+ * Ce nombre valait `20`, en dur, sous un commentaire qui affirmait « telle que
+ * le `package.json` la déclare » — alors que le paquet déclare 24, comme
+ * `NODE_MINIMUM`, comme `install.sh`, comme `install.ps1`. Un commentaire qui
+ * ment sur la ligne qu'il décrit.
+ *
+ * Ce n'était pas cosmétique, et ça s'est vu en LANÇANT les deux chemins
+ * d'installation sur la même machine (Node 22) :
+ *
+ *   · `sh install.sh`         → refus, code 2, « Hive exige 24 ou plus »
+ *   · `npm run install:hive`  → « ✔ Node v22.22.2 (20 minimum) », .env écrit,
+ *                                puis « Lancer la ruche : npm run dev »
+ *
+ * Le second chemin délivrait donc une installation « réussie » sur une machine
+ * où `better-sqlite3` n'a pas de binaire prébuilt — c'est-à-dire exactement la
+ * panne qui a fait naître l'image morte : une dépendance optionnelle écartée en
+ * silence, et une ruche qui ne démarre pas sans que rien n'ait rougi.
+ *
+ * La garde `tests/installeurs.test.ts` existait déjà et s'intitulait « LE
+ * PLANCHER DE NODE N'EXISTE QU'UNE FOIS — en quatre endroits ». Il y en avait
+ * cinq. Une garde qui compte les copies doit les compter TOUTES.
+ */
+export const NODE_MIN = NODE_MINIMUM;
 
-/** `true` si la version courante suffit. Prend « v20.11.0 » comme « 20.11.0 ». */
+/** `true` si la version courante suffit. Prend « v24.11.0 » comme « 24.11.0 ». */
 export function nodeSuffisant(version: string): boolean {
   const majeure = Number(version.replace(/^v/, '').split('.')[0]);
   return Number.isFinite(majeure) && majeure >= NODE_MIN;
+}
+
+/**
+ * Ce qu'on dit à quelqu'un dont le Node est trop vieux.
+ *
+ * ─── POURQUOI CE TEXTE VIT DANS LE MODULE PUR ────────────────────────────────
+ *
+ * Il vivait au milieu du `main()` de l'installeur, avec sa commande de secours
+ * écrite en dur : « nvm install 20 », alors que le plancher est 24. C'est LA
+ * ligne que la personne bloquée copie — donc la commande exacte pour rester
+ * bloquée — et c'était le seul endroit du plancher que rien ne pouvait
+ * atteindre, puisque `installer-main.ts` LANCE l'installeur dès qu'on l'importe.
+ *
+ * Le sortir d'ici n'est pas un rangement : c'est ce qui rend la ligne
+ * vérifiable. Une garde a bien fini par la voir, en RELISANT la source — et
+ * elle rougissait alors sur le mot « nvm install 20 » écrit dans un
+ * commentaire. Un test qui rougit sur un commentaire est un test qu'on
+ * apprendra à contourner.
+ */
+export function messagePrerequisNode(version: string): string[] {
+  return [
+    `Node ${version} — la ruche exige ${NODE_MIN} ou plus.`,
+    'Installez une version récente depuis https://nodejs.org, puis relancez.',
+    `(Sur macOS/Linux, « nvm install ${NODE_MIN} » suffit si vous avez nvm.)`,
+  ];
 }
 
 /** Les prochaines étapes, dans l'ordre où elles servent. */
 export function prochainesEtapes(agent: string | null): string[] {
   return [
     'Lancer la ruche          :  npm run dev',
-    'Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://localhost:5173)',
+    // L'adresse vient de la MÊME constante que l'origine CORS proposée par
+    // l'assistant. Écrite deux fois, elle a divergé une fois — et un écran
+    // envoyait alors vers une adresse que l'autre venait d'interdire.
+    `Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://localhost:${PORT_DASHBOARD_DEV})`,
     agent
       ? `Brancher votre agent     :  npm run node        (${agent} détecté)`
       : 'Brancher un agent        :  npm run node        (aucun agent détecté — le mode simulé prendra le relais)',
