@@ -24,6 +24,7 @@ import {
   dossierDe,
   ecrire,
   elaguer,
+  enregistrerEpisode,
   estConfine,
   lire,
   pourLaTache,
@@ -198,6 +199,63 @@ describe('CE QUE LA RUCHE A EN TÊTE POUR UNE TÂCHE', () => {
 
   it('un cerveau vide ne fabrique pas de bloc décoratif', () => {
     expect(pourLaTache(path.join(bac(), 'vide'), 'quoi que ce soit').bloc).toBe('');
+  });
+});
+
+describe('LA RUCHE ÉCRIT SES ÉPISODES', () => {
+  it('LA MÊME PANNE INCRÉMENTE UNE SEULE NOTE', () => {
+    // C'est le mécanisme qui rend le dossier lisible par un humain : une
+    // tâche qui échoue cinquante fois de la même façon ne pose pas cinquante
+    // fichiers. Et c'est aussi ce qui fait du compteur le signal de
+    // consolidation.
+    const d = path.join(bac(), 'cerveau');
+    const echec = {
+      signature: 'erreur: module <chemin> introuvable',
+      titre: 'Compiler',
+      detail: 'log',
+    };
+
+    const a = enregistrerEpisode(d, echec, '2026-07-01T00:00:00.000Z');
+    expect(a?.recurrences).toBe(1);
+    expect(a?.nouveau, 'la première fois est nouvelle').toBe(true);
+
+    const b = enregistrerEpisode(d, echec, '2026-07-02T00:00:00.000Z');
+    expect(b?.recurrences).toBe(2);
+    expect(b?.nouveau, 'la deuxième ne l’est plus').toBe(false);
+    expect(b?.id, 'même panne, même note').toBe(a?.id);
+
+    expect(lire(d), 'une seule note pour deux occurrences').toHaveLength(1);
+    // La date de PREMIÈRE observation est gardée : elle dit depuis quand le
+    // projet traîne cette panne.
+    expect(lire(d)[0]?.creee).toBe('2026-07-01T00:00:00.000Z');
+    expect(lire(d)[0]?.serviLe, 'mais le dernier passage est à jour').toBe(
+      '2026-07-02T00:00:00.000Z',
+    );
+  });
+
+  it('UNE PANNE DIFFÉRENTE EST UNE AUTRE NOTE', () => {
+    const d = path.join(bac(), 'cerveau');
+    enregistrerEpisode(d, { signature: 'panne A', titre: 'T', detail: 'x' });
+    enregistrerEpisode(d, { signature: 'panne B', titre: 'T', detail: 'x' });
+    expect(lire(d)).toHaveLength(2);
+  });
+
+  it('un échec SANS log exploitable n’écrit rien', () => {
+    // Une note vide occuperait du budget de contexte pour raconter qu'il ne
+    // s'est rien passé.
+    const d = path.join(bac(), 'cerveau');
+    expect(enregistrerEpisode(d, { signature: '   ', titre: 'T', detail: 'x' })).toBeNull();
+    expect(lire(d)).toEqual([]);
+  });
+
+  it('un épisode écrit par la ruche N’EST JAMAIS une règle', () => {
+    // La ruche accumule la matière ; elle n'écrit pas la loi. Une règle fausse
+    // coûte plus cher que pas de règle, parce qu'elle est SUIVIE.
+    const d = path.join(bac(), 'cerveau');
+    enregistrerEpisode(d, { signature: 'une panne', titre: 'T', detail: 'x' });
+    const n = lire(d)[0];
+    expect(n?.genre).toBe('episode');
+    expect(n?.regle, 'la ruche ne rédige pas de règle').toBeUndefined();
   });
 });
 

@@ -110,6 +110,14 @@ Le Cerveau range donc le savoir par **genre**, et l'ordre est une priorité :
 | **carte**     | Une porte d'entrée : par où commencer.                         | jamais     |
 | **épisode**   | Une observation brute. Matière première.                       | **oui**    |
 
+**Et la ruche l'alimente elle-même.** Chaque échec pris en compte devient un
+épisode : la panne est réduite à sa signature, et la même panne **incrémente une
+seule note** plutôt que d'en semer cinquante. Quand un motif atteint trois
+récurrences, Hive **propose** la consolidation — elle ne rédige jamais la règle.
+Écrire une règle demande de comprendre _pourquoi_, et une règle fausse coûte
+plus cher que pas de règle du tout : elle est **suivie**, et transmise à chaque
+tâche suivante. La ruche accumule la matière ; l'humain écrit la loi.
+
 Quatre mécanismes le font fonctionner :
 
 - **La consolidation.** Un épisode qui se répète **trois fois** devient une

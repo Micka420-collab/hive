@@ -23,6 +23,7 @@
 // pas une note, et on passe. Deviner l'intention d'un fichier mal formé, sur
 // un dossier qui porte des règles de sûreté, serait la pire des options.
 
+import { createHash } from 'node:crypto';
 import {
   type Stats,
   lstatSync,
@@ -45,6 +46,7 @@ import {
   rendre,
   selectionner,
 } from './shared/cerveau.js';
+import { champSurUneLigne } from './shared/donnees-non-fiables.js';
 
 /** Où vit le cerveau. Doit correspondre à l'emplacement `cerveau` de `empreinte.ts`. */
 export function dossierDe(dbPath: string): string {
@@ -174,6 +176,80 @@ export function pourLaTache(
 ): { readonly bloc: string; readonly selection: Selection } {
   const selection = selectionner(lire(dossier), tache, budget);
   return { bloc: contexte(selection, budget), selection };
+}
+
+/**
+ * L'identifiant d'un épisode, dérivé de la signature de l'échec.
+ *
+ * ─── POURQUOI UN CONDENSAT, ET PAS LA SIGNATURE ELLE-MÊME ────────────────────
+ *
+ * `nomFichier` n'accepte que `[a-z0-9-]`. Une signature d'échec contient des
+ * espaces, des deux-points, des chevrons — impossible d'en faire un nom de
+ * fichier sans la mutiler, et deux signatures différentes mutilées peuvent
+ * devenir identiques. Un condensat est stable, court, et déjà en `[0-9a-f]`.
+ *
+ * ─── ET SURTOUT : LA MÊME PANNE ÉCRIT LA MÊME NOTE ───────────────────────────
+ *
+ * C'est le cœur du regroupement. Une tâche qui échoue cinquante fois de la
+ * même façon ne pose pas cinquante notes : elle en incrémente une. Le dossier
+ * reste lisible par un humain — c'est toute la raison d'être du format — et le
+ * compteur de récurrences devient directement le signal de consolidation.
+ */
+export function idEpisode(signatureEchec: string): string {
+  const condensat = createHash('sha256').update(signatureEchec, 'utf8').digest('hex').slice(0, 16);
+  return `ep-${condensat}`;
+}
+
+export interface EpisodeEnregistre {
+  readonly id: string;
+  readonly recurrences: number;
+  /** Vrai la toute première fois que cette panne est vue. */
+  readonly nouveau: boolean;
+}
+
+/**
+ * Enregistre qu'une panne vient d'avoir lieu.
+ *
+ * Rend `null` si la signature est vide — un échec sans log exploitable ne dit
+ * rien, et une note vide occuperait du budget de contexte pour raconter qu'il
+ * ne s'est rien passé.
+ *
+ * ─── LA RUCHE ÉCRIT DES ÉPISODES, JAMAIS DES RÈGLES ──────────────────────────
+ *
+ * Le genre est `episode`, toujours, et il n'y a pas de `regle`. C'est délibéré
+ * et ce n'est pas une limite technique : rédiger une règle demande de
+ * comprendre POURQUOI, et une règle fausse coûte plus cher que pas de règle —
+ * parce qu'elle est SUIVIE. La ruche accumule donc la matière et signale
+ * quand elle est mûre ; l'écriture de la règle reste un geste délibéré.
+ */
+export function enregistrerEpisode(
+  dossier: string,
+  echec: { readonly signature: string; readonly titre: string; readonly detail: string },
+  maintenant: string = new Date().toISOString(),
+): EpisodeEnregistre | null {
+  const sig = echec.signature.trim();
+  if (sig === '') return null;
+
+  const id = idEpisode(sig);
+  const existante = lire(dossier).find((n) => n.id === id);
+  const note: Note = {
+    id,
+    genre: 'episode',
+    titre: champSurUneLigne(echec.titre, 200),
+    corps: existante?.corps ?? echec.detail,
+    etiquettes: [],
+    // La date de PREMIÈRE observation est conservée : elle dit depuis combien
+    // de temps le projet traîne cette panne, ce qu'une date de dernière vue
+    // effacerait.
+    creee: existante?.creee ?? maintenant,
+    recurrences: (existante?.recurrences ?? 0) + 1,
+    // Une panne qui revient AUJOURD'HUI est du savoir vivant : elle ne doit
+    // pas être élaguée pour cause d'ancienneté.
+    serviLe: maintenant,
+  };
+  return ecrire(dossier, note) === null
+    ? null
+    : { id, recurrences: note.recurrences, nouveau: existante === undefined };
 }
 
 export interface Elagage {

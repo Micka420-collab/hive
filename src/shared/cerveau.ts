@@ -351,12 +351,25 @@ export function aConsolider(
     else liste.push(e);
   }
   const mur = Math.max(2, Math.floor(seuil));
+  // ─── ON SOMME LES RÉCURRENCES, ON NE COMPTE PAS LES NOTES ──────────────────
+  //
+  // Les deux reviennent au même tant qu'une occurrence = une note. Mais la
+  // ruche, elle, ne pose pas une note par échec : elle dérive l'identifiant de
+  // la SIGNATURE de l'échec, donc la même panne réécrit la même note en
+  // incrémentant `recurrences`. Sans cette somme, un échec survenu cinquante
+  // fois resterait une note unique — donc jamais consolidé, précisément dans
+  // le cas où il le mérite le plus.
+  //
+  // La somme couvre les deux formes : N notes à 1 comme une note à N.
+  const total = (liste: readonly Note[]): number =>
+    liste.reduce((s, e) => s + Math.max(1, e.recurrences), 0);
+
   return [...paquets.entries()]
-    .filter(([, liste]) => liste.length >= mur)
+    .filter(([, liste]) => total(liste) >= mur)
     .map(([sig, liste]) => ({
       signature: sig,
       episodes: liste,
-      recurrences: liste.length,
+      recurrences: total(liste),
     }))
     .sort((a, b) => b.recurrences - a.recurrences || a.signature.localeCompare(b.signature));
 }

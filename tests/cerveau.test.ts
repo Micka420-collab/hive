@@ -201,6 +201,21 @@ describe('LA CONSOLIDATION — d’un épisode répété à une règle', () => {
     expect(SEUIL_CONSOLIDATION).toBe(3);
   });
 
+  it('UNE SEULE NOTE À TROIS RÉCURRENCES VAUT TROIS NOTES', () => {
+    // La ruche ne pose pas une note par échec : elle dérive l'identifiant de
+    // la SIGNATURE de la panne, donc la même panne réécrit la même note en
+    // incrémentant `recurrences`. Si la consolidation comptait les NOTES, un
+    // échec survenu cinquante fois resterait une note unique — donc jamais
+    // consolidé, exactement dans le cas où il le mérite le plus.
+    const seule = note({ id: 'ep', genre: 'episode', titre: 'panne native', recurrences: 3 });
+    const r = aConsolider([seule]);
+    expect(r, 'une note à 3 doit suffire').toHaveLength(1);
+    expect(r[0]?.recurrences).toBe(3);
+
+    // Et deux ne suffisent toujours pas, quelle que soit la forme.
+    expect(aConsolider([note({ id: 'ep', genre: 'episode', recurrences: 2 })])).toEqual([]);
+  });
+
   it('ne consolide QUE des épisodes — une leçon n’est pas de la matière première', () => {
     const l = (id: string): Note =>
       note({ id, genre: 'lecon', titre: 'même titre', corps: 'idem' });
