@@ -47,6 +47,46 @@
 // Les délais posés SUR CERTAINS TESTS restent en place et ne sont pas
 // redondants : ils documentent lesquels ont été MESURÉS lents, et ils
 // tiendraient encore si quelqu'un rabaissait ce plafond global un jour.
+//
+// ─── 3. …ET LE MÊME PLAFOND POUR LES HOOKS, QUI AVAIT ÉTÉ OUBLIÉ ─────────────
+//
+// `testTimeout` et `hookTimeout` sont DEUX réglages distincts chez vitest.
+// Élargir le premier laisse le second à ses 10 000 ms par défaut — et c'est
+// ce qui s'est passé ici pendant tout ce temps.
+//
+// L'oubli est particulièrement mal placé, parce que le raisonnement du § 2
+// ci-dessus décrit ce que font les HOOKS, pas les corps de test : c'est
+// `beforeEach` qui monte le serveur, et `afterEach` qui l'arrête et efface
+// l'arborescence. Les tests recevaient 20 s pour interroger un serveur déjà
+// prêt, pendant que le hook chargé de le construire n'en avait que 10.
+//
+// La facture est tombée sous Windows, sur `main` :
+//
+//     tests/billet-motifs.test.ts:48     beforeEach  Hook timed out in 10000ms
+//     tests/tableau-endpoint.test.ts:45  afterEach   Hook timed out in 10000ms
+//
+// Mesuré ici, sous Linux, cinq cycles complets `createServer` → `stop` →
+// `rmSync` :
+//
+//     démarrage          189, 89, 68, 62, 64 ms
+//     arrêt + effacement   9,  8,  7, 10, 11 ms
+//
+// Un cycle coûte donc moins de 200 ms là où rien ne le gêne. Les deux
+// réglages sont désormais alignés : le même plafond pour le même travail.
+//
+// ─── LE DÉCLENCHEUR D'ESCALADE, ÉCRIT AVANT D'EN AVOIR BESOIN ────────────────
+//
+// Le § 3.1 du journal interdit de relever un plafond pour faire taire un
+// symptôme — je l'ai fait trois fois, et la panne s'est déplacée sur les
+// voisins à chaque fois. Ceci n'en est pas : c'est la PREMIÈRE fois que les
+// hooks reçoivent le traitement que les tests avaient déjà, et l'écart entre
+// les deux réglages n'a jamais été une décision.
+//
+// Mais la règle vaut pour la suite, alors elle est posée ici : **si un hook
+// expire de nouveau à 20 000 ms, ce n'est plus de la lenteur.** 20 s pour une
+// opération mesurée à 200 ms, c'est cent fois le coût — à ce niveau on
+// n'attend plus un disque, on attend quelque chose qui ne viendra pas. Le
+// geste sera alors de trouver CE QUI bloque, pas de passer à 30.
 
 import { defineConfig } from 'vitest/config';
 
@@ -56,5 +96,10 @@ export default defineConfig({
       HIVE_JWT_SECRET: 'secret-de-session-des-tests-pas-un-secret-reel',
     },
     testTimeout: 20_000,
+    // Le MÊME plafond que ci-dessus : c'est le hook qui monte le serveur et
+    // efface l'arborescence, donc le travail lourd est ici. Les laisser
+    // diverger, c'est donner 20 s pour interroger un serveur et 10 pour le
+    // construire.
+    hookTimeout: 20_000,
   },
 });

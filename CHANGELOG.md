@@ -189,6 +189,21 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   celle qui suit le `done`, une boucle shell sortant avec 0 même quand toutes ses
   tentatives ont échoué. Journal § 1.5.
 
+- **⏱️ Le plafond de délai avait un jumeau, et il était resté à 10 s.**
+  `testTimeout` avait été porté à 20 s après analyse — mais `hookTimeout` est un
+  réglage **distinct** chez vitest, et relever le premier laisse le second à son
+  défaut. Deux hooks ont donc expiré sous Windows sur `main`
+  (`tests/billet-motifs.test.ts:48`, `tests/tableau-endpoint.test.ts:45`) à
+  10 000 ms et non 20 000. L'oubli était mal placé : le raisonnement qui
+  justifiait les 20 s décrit ce que font les **hooks** — c'est `beforeEach` qui
+  monte un vrai serveur sur une vraie base SQLite, et `afterEach` qui l'arrête
+  et efface l'arborescence. On donnait le plafond large à l'interrogation d'un
+  serveur déjà prêt, et le plafond serré à sa construction. Mesuré ici, un cycle
+  complet coûte **moins de 200 ms**. Les deux plafonds sont alignés, et
+  `tests/reglages-vitest.test.ts` interdit désormais qu'ils divergent — un
+  réglage ABSENT n'a pas de valeur fausse à relire, il applique son défaut en
+  silence. Journal § 3.2 bis.
+
 - **📓 Le CHANGELOG se répétait trois fois — 286 lignes, un cinquième du
   fichier.** Un bloc de 144 lignes figurait à l'identique sous `[Unreleased]`,
   une seconde fois plus bas, et une troisième **dans la section `[0.2.0]`** —

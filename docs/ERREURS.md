@@ -284,6 +284,58 @@ net et il a servi :
 > « si ça retombe au plafond, c'est un blocage à corriger, pas un délai à
 > rallonger ».
 
+### 3.2 bis — Le plafond qu'on a relevé, et son jumeau qu'on a oublié
+
+Suite directe des deux entrées ci-dessus. Le plafond global avait été porté à
+20 s, avec l'analyse écrite dans `vitest.config.ts`. Deux hooks ont quand même
+expiré sous Windows, sur `main` :
+
+    tests/billet-motifs.test.ts:48     beforeEach  Hook timed out in 10000ms
+    tests/tableau-endpoint.test.ts:45  afterEach   Hook timed out in 10000ms
+
+**10 000, pas 20 000.** `testTimeout` et `hookTimeout` sont deux réglages
+distincts chez vitest : relever le premier laisse le second à son défaut.
+
+L'oubli est mal placé, et c'est ce qui le rend intéressant. Le raisonnement qui
+justifiait les 20 s — « cette suite monte de vrais serveurs, écrit de vraies
+bases » — décrit ce que font les **hooks**, pas les corps de test. C'est
+`beforeEach` qui appelle `createServer`, et `afterEach` qui l'arrête puis efface
+l'arborescence. On donnait donc le plafond large à l'interrogation d'un serveur
+déjà prêt, et le plafond serré à sa construction.
+
+Mesuré ici, cinq cycles complets `createServer` → `stop` → `rmSync` :
+
+| étape               | durées observées (Linux) |
+| ------------------- | ------------------------ |
+| démarrage           | 189, 89, 68, 62, 64 ms   |
+| arrêt et effacement | 9, 8, 7, 10, 11 ms       |
+
+Moins de 200 ms là où rien ne gêne. Les deux plafonds sont désormais alignés.
+
+**Pourquoi aucune relecture ne pouvait le voir** : `hookTimeout` n'avait pas une
+valeur fausse, il était ABSENT. Un réglage manquant n'offre rien à relire — il
+applique son défaut en silence, et le défaut n'est écrit nulle part dans le
+dépôt. C'est la même forme que le § 1.4 : ce qui n'est pas là ne se relit pas.
+
+> **Règle** — quand un réglage est relevé après analyse, chercher **son
+> jumeau**. Les outils exposent souvent la même idée sous deux clés
+> (`testTimeout`/`hookTimeout`, lecture/écriture, connexion/requête), et n'en
+> relever qu'une laisse la moitié du problème intacte.
+>
+> **Règle** — un défaut d'outil qui compte doit être ÉCRIT, même quand il
+> convient. Une valeur explicite se relit, se compare et se garde ; un défaut
+> implicite ne fait rien de tout cela.
+
+**Ce qui le garde** : `tests/reglages-vitest.test.ts` exige que les deux clés
+soient écrites, que le hook ait au moins le plafond du test, et qu'aucun des
+deux ne dépasse la minute. Le mutant qui compte est le premier : remis dans
+l'état d'AVANT — `hookTimeout` simplement retiré — les trois tests tombent.
+
+Et le déclencheur d'escalade est posé d'avance, parce que le § 3.1 interdit de
+recommencer : **si un hook expire de nouveau à 20 000 ms, ce n'est plus de la
+lenteur.** Cent fois un coût mesuré à 200 ms, ce n'est plus un disque qu'on
+attend. Le geste sera de trouver ce qui bloque, pas de passer à 30.
+
 ### 3.3 — Attendre, oui, mais attendre la BONNE erreur
 
 Le pas de CI qui attend la ruche dans le conteneur ne faisait **pas** de
