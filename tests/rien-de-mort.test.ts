@@ -34,6 +34,12 @@
 //   convention React. Les vues, elles, s'exportent par défaut et sont atteintes
 //   par CHEMIN (`React.lazy(() => import('./views/Ruche'))`) : leur nom
 //   n'apparaît nulle part, et les inclure ne produirait que du bruit.
+//
+//   CETTE LACUNE-LÀ EST COMBLÉE, PLUS BAS, PAR UNE SECONDE GARDE. Elle a été
+//   écrite le jour où une vue entière — Les Chantiers — a failli être livrée
+//   sans être montée : le fichier compile, la feuille de style est jolie, et
+//   `#/chantiers` renvoie sur la Ruche. Exactement la panne que ce fichier
+//   décrit, sur l'objet que ce fichier avait décidé de ne pas regarder.
 // · Elle lit du texte, pas un graphe de modules. Un composant cité seulement
 //   dans un commentaire lui semblerait vivant. Une garde imparfaite qui rougit
 //   sur le geste réel vaut mieux qu'une garde parfaite qu'on n'écrit pas —
@@ -122,5 +128,106 @@ describe('LA RÈGLE : un composant que rien ne monte n’a pas été livré', ()
     // problème ait bougé.
     const restants = tous.filter((f) => /HiveMindPanel|TaskTable/.test(f));
     expect(restants, 'ces deux-là étaient montés nulle part').toEqual([]);
+  });
+});
+
+describe('LA MÊME RÈGLE, APPLIQUÉE AUX VUES', () => {
+  // ─── POURQUOI UNE SECONDE GARDE, ET PAS UN ÉLARGISSEMENT DE LA PREMIÈRE ────
+  //
+  // Les vues ne s'exportent pas par leur nom : `App.tsx` les atteint par chemin,
+  // `lazy(() => import('./views/Ruche'))`. Leur identifiant n'existe donc dans
+  // aucun autre fichier, et la garde ci-dessus ne peut structurellement pas les
+  // voir. Elle le dit d'ailleurs elle-même, en en-tête.
+  //
+  // Or une vue non montée est le PIRE cas de la règle : c'est un écran entier —
+  // composant, feuille de style, appels réseau, traductions — que personne ne
+  // peut atteindre. `#/chantiers` renvoie silencieusement sur la Ruche, et rien
+  // ne distingue « la vue n'existe pas » de « la vue est vide ».
+  //
+  // Trois choses doivent tenir ENSEMBLE pour qu'une vue existe, et les trois
+  // sont vérifiées : le `lazy(import)`, l'entrée de navigation, et le rendu
+  // conditionnel. Il en manque une, et la vue est inatteignable — ou pire,
+  // atteignable par l'URL mais invisible dans la barre.
+
+  // LES DEUX MONTEURS, et pas seulement `App`. `main.tsx` monte `Partage`
+  // — l'écran du porteur de lien, qui n'a ni compte ni barre de navigation.
+  // Ne lire que `App.tsx` l'aurait déclaré orphelin, et la garde aurait été
+  // désactivée le jour même pour cause de faux positif.
+  const APP =
+    readFileSync(`${RACINE}dashboard/src/App.tsx`, 'utf8') +
+    readFileSync(`${RACINE}dashboard/src/main.tsx`, 'utf8');
+
+  /**
+   * Les VUES présentes sur le disque.
+   *
+   * ─── CE QUI DISTINGUE UNE VUE D'UN MODULE DE COMPOSANTS ───────────────────
+   *
+   * L'`export default`, et rien d'autre. `views/` contient les deux :
+   * `Balance.tsx` y vit avec 922 lignes et n'est PAS une vue — il exporte
+   * `BalanceProjet`, `CarteBalance` et `CarteDevis`, que `Projets` et `Santé`
+   * montent chez eux. La première garde de ce fichier le couvre déjà, par ses
+   * exports nommés.
+   *
+   * Ce critère m'a été enseigné par une fausse accusation : la première
+   * version listait tous les `.tsx` à majuscule et a déclaré la Balance
+   * orpheline. J'ai failli l'écrire dans une liste de tolérance, avec une
+   * phrase soignée sur les 922 lignes que personne ne peut ouvrir. C'était
+   * faux, et ça aurait figé un mensonge dans le dépôt sous couvert de rigueur.
+   * **Une garde qui accuse doit d'abord savoir de quoi elle parle.**
+   */
+  const vues = readdirSync(`${RACINE}dashboard/src/views`)
+    .filter((f) => /^[A-Z]\w*\.tsx$/.test(f))
+    .filter((f) =>
+      /^export default function/m.test(readFileSync(`${RACINE}dashboard/src/views/${f}`, 'utf8')),
+    )
+    .map((f) => f.replace(/\.tsx$/, ''));
+
+  it('il y a bien des vues à surveiller', () => {
+    // Sans ce garde-fou, un `views/` renommé rendrait les trois tests suivants
+    // vides — donc verts — et la garde s'éteindrait sans un mot.
+    expect(vues.length).toBeGreaterThan(8);
+  });
+
+  it('CHAQUE VUE EST IMPORTÉE', () => {
+    // DEUX FORMES D'IMPORT, et la seconde n'est pas un détail : la Ruche est
+    // importée STATIQUEMENT parce qu'elle est la première peinture, et la
+    // découper en chunk paresseux ajouterait un aller-retour réseau devant le
+    // tout premier écran. N'accepter que `lazy` l'aurait déclarée orpheline.
+    const manquantes = vues.filter(
+      (v) => !APP.includes(`import('./views/${v}')`) && !APP.includes(`from './views/${v}'`),
+    );
+    expect(
+      manquantes,
+      'Vue(s) présente(s) sur le disque et jamais importée(s) : un écran entier ' +
+        'que personne ne peut atteindre.',
+    ).toEqual([]);
+  });
+
+  it('CHAQUE VUE EST RENDUE PAR UNE ROUTE', () => {
+    // Importer ne suffit pas : sans la ligne `route.view === '…' && <Vue …>`,
+    // le chunk est chargé et jamais affiché.
+    const manquantes = vues.filter((v) => !new RegExp(`<${v}\\s`).test(APP));
+    expect(manquantes, 'Vue(s) importée(s) mais jamais rendue(s).').toEqual([]);
+  });
+
+  it('CHAQUE VUE A SA CASE DANS LA BARRE — sinon elle n’existe que pour qui connaît l’URL', () => {
+    // `Partage` est la seule exception LÉGITIME, et elle porte sa raison : elle
+    // s'ouvre par un lien de partage, pour quelqu'un qui n'a pas de compte et
+    // ne voit aucune barre.
+    const SANS_CASE = new Set([
+      // Le porteur de lien n'a ni compte ni barre : cet écran s'ouvre par une
+      // URL de partage, et c'est tout son objet. C'est la SEULE exception, et
+      // elle porte sa raison.
+      'Partage',
+    ]);
+    const bloc = APP.slice(APP.indexOf('const NAV: NavItem[] = ['), APP.indexOf('\n];'));
+    const manquantes = vues.filter(
+      (v) => !SANS_CASE.has(v) && !bloc.includes(`'${v.toLowerCase()}'`),
+    );
+    expect(
+      manquantes,
+      'Vue(s) rendue(s) mais absente(s) de la barre de navigation : atteignable ' +
+        'seulement par quelqu’un qui devine l’URL.',
+    ).toEqual([]);
   });
 });

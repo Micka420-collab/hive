@@ -9,6 +9,31 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🏗️ Les Chantiers ont un écran** (`dashboard/src/views/Chantiers.tsx`,
+  touche `h`). Tout le mécanisme existait — un nœud clone et lance ce que le
+  `package.json` déclare, l'API GitHub lance ce que le dépôt a marqué
+  `workflow_dispatch` — et **personne ne pouvait s'en servir** : c'étaient des
+  routes, atteignables au `curl` avec un identifiant de projet copié depuis
+  l'URL. L'écran liste ce que le dépôt déclare, montre **la commande avant de
+  la lancer**, dit ce qui est lançable et **pourquoi le reste ne l'est pas**
+  (« sort de la machine — demande un humain » plutôt qu'un bouton grisé muet),
+  et sépare GitHub des chantiers locaux : un dépôt sans jeton GitHub est un cas
+  normal et ne doit pas faire disparaître la moitié de l'écran qui fonctionne.
+
+- **🕳️ Une garde pour les vues orphelines** (`tests/rien-de-mort.test.ts`).
+  Le fichier disait lui-même ne pas couvrir les vues — elles sont atteintes par
+  CHEMIN, leur nom n'apparaît nulle part. C'est la pire forme de la règle qu'il
+  défend : un écran entier, avec sa feuille de style et ses traductions, que
+  `#/…` renvoie silencieusement sur la Ruche. Les trois conditions sont
+  désormais vérifiées ensemble — importée, rendue, listée dans la barre.
+  **Elle m'a d'abord fait accuser à tort** : sa première version listait tous
+  les `.tsx` à majuscule de `views/` et a déclaré `Balance.tsx` orpheline. Ce
+  n'est pas une vue mais un module de composants, monté par `Projets` et
+  `Santé`. J'allais l'inscrire dans une liste de tolérance avec une phrase
+  soignée sur ses 922 lignes inaccessibles ; le discriminant est
+  l'`export default`, et une garde qui accuse doit d'abord savoir de quoi elle
+  parle.
+
 - **⚙️ Les workflows GitHub sont BRANCHÉS** — trois routes (`/workflows`,
   `/workflows/runs`, `/workflows/:id/run`) appellent enfin le client livré à la
   version précédente. **La décision qui autorise la route de lancement à

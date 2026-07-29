@@ -1,0 +1,244 @@
+/* Les Chantiers (préfixe ch-).
+
+   La charte du projet tient en une règle : UN SEUL accent, l'ambre. Ici, deux
+   états sortent du gris — réussi et échoué — et ils le font par un LISERÉ à
+   gauche, pas par une couleur de texte. C'est lisible sans distinguer le vert
+   du rouge, ce qui concerne environ un homme sur douze. */
+
+.mc-chantiers {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.ch-tete {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ch-tete h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+}
+
+.ch-sous {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 0.85rem;
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+.ch-projet {
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.ch-bloc {
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--bg-2);
+}
+
+.ch-bloc h3 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  color: var(--text-2);
+}
+
+.ch-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.ch-nom {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ch-nom code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-3);
+  /* La commande vient du dépôt : elle peut être longue, et ne doit pas
+     pousser le bouton hors de l'écran. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60ch;
+}
+
+.ch-lancer {
+  background: var(--amber);
+  color: #1a1205;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ch-lancer:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.ch-refus {
+  color: var(--text-3);
+  font-size: 0.8rem;
+  font-style: italic;
+  text-align: right;
+}
+
+.ch-vide,
+.ch-erreur {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.ch-erreur {
+  color: var(--text-1);
+  border-left: 3px solid var(--amber);
+  padding-left: 10px;
+}
+
+.ch-verdict {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border-2);
+  background: rgb(255 255 255 / 3%);
+  border-radius: 0 8px 8px 0;
+}
+
+/* C'est le LISERÉ qui porte l'état, pas la couleur du texte. */
+.ch-v-ok {
+  border-left-color: var(--gold);
+}
+
+.ch-v-echec {
+  border-left-color: var(--amber);
+}
+
+.ch-refuse {
+  margin: 6px 0 0;
+  color: var(--text-3);
+  font-size: 0.82rem;
+}
+
+.ch-sortie {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: rgb(0 0 0 / 25%);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  /* Bornée : une sortie de test fait des milliers de lignes, et un écran qui
+     défile à l'infini cache tout le reste de la vue. */
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ch-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  color: var(--text-2);
+}
+
+.ch-ref input {
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-family: var(--mono);
+  width: 18ch;
+}
+
+.ch-runs {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ch-run {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border-2);
+  font-size: 0.82rem;
+}
+
+.ch-t-ok {
+  border-left-color: var(--gold);
+}
+
+.ch-t-echec {
+  border-left-color: var(--amber);
+}
+
+.ch-t-attente {
+  border-left-color: var(--text-3);
+}
+
+.ch-run-branche,
+.ch-run-etat {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--text-3);
+}
+
+.ch-run-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .ch-item {
+    align-items: stretch;
+  }
+
+  .ch-nom code {
+    max-width: 100%;
+  }
+}
