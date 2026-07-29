@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2310%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2590%20passing-2ea44f)
 ![Licence](https://img.shields.io/badge/licence-MIT-green)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -187,13 +187,23 @@ autre. Le gros bouton rouge arrête **avant** l'effet, jamais après.
 
 Toute IA de codage se branche via l'interface `AgentAdapter` :
 
-| Adaptateur     | Ce qu'il lance                              |
-| -------------- | ------------------------------------------- |
-| `shell`        | Simulé, par défaut — aucun processus lancé. |
-| `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé. |
-| `codex`        | `codex exec "<prompt>"`                     |
-| `hermes-agent` | `hermes agent run --prompt "<prompt>"`      |
-| `custom`       | Le vôtre.                                   |
+| Adaptateur     | Ce qu'il lance                                           |
+| -------------- | -------------------------------------------------------- |
+| `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.              |
+| `codex`        | `codex exec "<prompt>"`                                  |
+| `hermes-agent` | `hermes agent run --prompt "<prompt>"`                   |
+| `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                          |
+| `shell`        | **Simulé** — aucun processus lancé, les diffs sont faux. |
+
+**Le nœud détecte ce qui est installé sur votre machine et s'en sert** : rien à
+régler. Il n'emploie `shell` que s'il ne trouve aucun agent — et il le dit
+alors au démarrage, parce qu'un simulateur silencieux est un mensonge à
+retardement. `HIVE_AGENT` force le choix si vous en voulez un autre.
+
+**Votre abonnement suffit** : le nœud lance le binaire `claude`, qui
+s'authentifie tout seul. Aucune clé d'API, d'Anthropic ou d'ailleurs, n'est
+requise pour faire travailler la ruche — voir
+**[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
 
 Le **polyéthisme** confie à chaque ouvrière le travail que son expérience
 permet, et le **Conseil des Éclaireuses** fait vérifier une direction par
@@ -253,6 +263,7 @@ le pire des deux.
 | Fichier                                                    | Ce qu'on y trouve                                        |
 | ---------------------------------------------------------- | -------------------------------------------------------- |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**           | Installer, désinstaller, service, conteneur, sauvegardes |
+| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**       | Tourner seul sous Windows avec son abonnement Claude     |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**     | Chaque partie en détail, avec ses arbitrages             |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                     | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                       | L'état réel du projet face à ses propres promesses       |

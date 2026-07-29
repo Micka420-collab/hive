@@ -407,3 +407,19 @@ périmètre (comptes de l'utilisateur).
   existence du fichier injectée. **Non vérifié sur un vrai Windows** : la
   logique l'est (loupe 7/7), le `spawn` final ne l'est pas — aucune machine
   Windows ici, et la CI n'y installe pas Claude Code.
+- ~~`npm run node` employait **`shell` par défaut**, donc un simulacre~~ —
+  **CORRIGÉ**, et c'était le plus grave des deux : indépendant de Windows, il
+  touchait **la machine de celui qui installe la ruche**, donc le premier essai
+  de tout le monde. L'installeur n'écrit pas `HIVE_AGENT`, `.env.example` le
+  posait à `shell` : un Claude Code installé et détectable n'était **jamais
+  employé**, et la ruche rendait de faux diffs en ayant l'air de travailler.
+  `join.ts` — le chemin de l'**ami** — détectait, lui, depuis toujours :
+  l'invité avait un vrai agent, l'hôte un simulacre. Mesuré avant/après en
+  lançant réellement le nœud, sur les trois cas (aucun agent, agent présent,
+  agent forcé). Voir § 9 bis du journal des erreurs.
+- La sonde de détection **ne transmet plus aucun secret** au binaire qu'elle
+  éprouve. `join.ts` s'en gardait par l'ORDRE des lignes — une protection qui ne
+  se transporte pas : `main.ts` charge `.env` en premier, et y sonder aurait
+  offert le jeton de la ruche et la clé d'abonnement au premier `claude.cmd`
+  hostile posé en tête de `PATH`. La garde vit désormais dans la sonde, avec un
+  test qui relit le dépôt pour exiger que tout nouveau secret y entre.

@@ -39,17 +39,18 @@ const PROBES: AgentProbe[] = [
  * d'une couverture. Restent `.exe`, la seule que `spawn` sait lancer sous
  * Windows, et le nom nu pour les rares binaires sans extension.
  *
- * ─── CE QUE ÇA IMPLIQUE, ET QU'IL FAUT DIRE ──────────────────────────────────
+ * ─── CE QUE ÇA IMPLIQUAIT, ET QUI EST MAINTENANT TRAITÉ AILLEURS ─────────────
  *
  * Un agent installé par npm — c'est le cas de Claude Code — n'expose sous
- * Windows qu'un shim `claude.cmd`. Il est donc INDÉTECTABLE ici, et le nœud
- * retombe sur l'adaptateur `shell`, qui est simulé.
+ * Windows qu'un shim `claude.cmd`. Il reste donc introuvable PAR CETTE
+ * FONCTION, et c'est voulu : `candidates` ne rend que ce que `spawn` sait
+ * lancer.
  *
- * Ce n'est pas silencieux : `hive doctor` affiche « aucun agent détecté » avec
- * la marche à suivre. Mais ce n'est pas satisfaisant non plus, et le corriger
- * demande de lancer autre chose que le shim — ce que la contrainte §5.1
- * (jamais `shell: true`) rend délibérément difficile. C'est écrit ici pour que
- * la prochaine personne parte de ce constat plutôt que de le redécouvrir.
+ * Ce constat s'arrêtait autrefois là, sur un « c'est difficile à corriger ».
+ * Il ne s'arrête plus : `firstPresent` vise le script réel du paquet npm et
+ * lance Node dessus (voir `shared/agent-windows.ts`). C'est plus strict que
+ * `shell: true`, pas moins — on sait quel fichier on exécute au lieu de
+ * déléguer la résolution à `cmd.exe`.
  *
  * La plateforme est un PARAMÈTRE : sans ça, la branche Windows ne serait
  * vérifiable que sur une machine Windows, c'est-à-dire jamais. C'est exactement
@@ -59,6 +60,87 @@ const PROBES: AgentProbe[] = [
 export function candidates(bin: string, plateforme: string = process.platform): string[] {
   if (plateforme === 'win32') return [`${bin}.exe`, bin];
   return [bin];
+}
+
+/**
+ * Ce qu'il faut dire à l'humain sur l'agent retenu — ou `null` s'il n'y a
+ * rien à signaler.
+ *
+ * ─── POURQUOI C'EST UNE FONCTION, ET PAS TROIS LIGNES DANS `main.ts` ─────────
+ *
+ * Ça y était, et la loupe a montré les deux comparaisons SANS TEST : on
+ * pouvait inverser `=== 'shell'` en `!==` sans qu'une seule assertion bouge.
+ * Les tests lisaient la SOURCE et constataient que les phrases existaient ;
+ * aucun ne vérifiait laquelle est choisie.
+ *
+ * Ce n'est pas un détail cosmétique. Les deux cas demandent à l'humain des
+ * gestes opposés — « installez un agent » contre « vous en avez un, c'est
+ * vous qui l'avez désactivé ». Se tromper de phrase envoie quelqu'un
+ * réinstaller ce qu'il a déjà.
+ */
+export function messageAgent(agent: AgentType, tous: readonly AgentType[]): string | null {
+  if (agent !== 'shell') return null;
+  return tous.some((a) => a !== 'shell')
+    ? '   ℹ Agent « shell simulé » forcé par HIVE_AGENT alors qu’un agent réel est disponible.'
+    : '   ℹ Aucun agent IA détecté : mode « shell simulé » — les diffs produits sont FAUX.\n' +
+        '     Installez Claude Code (`npm i -g @anthropic-ai/claude-code`), puis relancez.';
+}
+
+/**
+ * Les variables qu'une SONDE ne doit jamais recevoir.
+ *
+ * ─── LE DANGER, ÉNONCÉ SANS DÉTOUR ───────────────────────────────────────────
+ *
+ * Sonder, c'est lancer un binaire dont on ne sait encore RIEN — c'est même
+ * toute la question qu'on lui pose. `join.ts` le disait déjà en toutes
+ * lettres : « on ne met PAS le token dans l'environnement avant, sinon un
+ * binaire homonyme malveillant (claude.cmd déposé en tête de PATH) en
+ * hériterait ».
+ *
+ * `join.ts` s'en protégeait par l'ORDRE : il sondait avant d'avoir lu le
+ * secret. Une protection par l'ordre tient tant que personne ne réordonne —
+ * et `main.ts` charge `.env` dès sa première ligne, donc y sonder exposerait
+ * le jeton. La protection doit donc vivre DANS la sonde, pas dans la prudence
+ * de ses appelants.
+ *
+ * ─── POURQUOI UNE LISTE DE REFUS, ET NON D'AUTORISATION ──────────────────────
+ *
+ * Une liste d'autorisation serait plus sûre en théorie et cassante en
+ * pratique : `claude --version` a besoin du PATH, et sous Windows aussi de
+ * `SystemRoot`, `PATHEXT`, `ProgramFiles`… en oublier un ferait échouer la
+ * sonde, donc conclure « aucun agent », donc retomber en simulé — le défaut
+ * même qu'on répare. On nomme donc ce qui doit partir, et un test garde la
+ * liste contre la dérive : elle a le droit d'être incomplète, pas d'être
+ * oubliée le jour où l'on ajoute un secret.
+ */
+export const SECRETS_JAMAIS_SONDES: readonly string[] = [
+  // Les secrets de la ruche elle-même.
+  'HIVE_TOKEN',
+  'HIVE_JWT_SECRET',
+  'HIVE_INVITE',
+  'HIVE_GITHUB_TOKEN',
+  'HIVE_WEBHOOK_SECRET',
+  'GITHUB_TOKEN',
+  // Les identifiants de l'humain. Un `claude.cmd` hostile veut EXACTEMENT ça :
+  // l'abonnement de celui qui l'exécute. Une sonde n'en a aucun besoin —
+  // `--version` s'affiche sans authentification.
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'OPENAI_API_KEY',
+  'QUEEN_BEE_API_KEY',
+  'OPENROUTER_API_KEY',
+];
+
+/**
+ * L'environnement qu'une sonde a le droit d'hériter : tout, sauf les secrets.
+ *
+ * Pur, et donc vérifiable — c'est ce qui permet de prouver que le jeton ne
+ * passe pas, au lieu de l'affirmer.
+ */
+export function envSonde(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const propre: NodeJS.ProcessEnv = { ...env };
+  for (const cle of SECRETS_JAMAIS_SONDES) delete propre[cle];
+  return propre;
 }
 
 /**
@@ -85,6 +167,8 @@ function probeBin(argv: readonly string[], timeoutMs = 4_000): Promise<boolean> 
         shell: false,
         windowsHide: true,
         stdio: 'ignore',
+        // Un binaire qu'on n'a pas encore identifié n'hérite d'aucun secret.
+        env: envSonde(process.env),
       });
     } catch {
       finish(false);
