@@ -32,15 +32,32 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CODE, SENS } from '../src/codes-sortie.js';
 
-const SCRIPT = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
-  '..',
-  'examples',
-  'deploiement-sans-ecran.sh',
-);
+/**
+ * Le chemin du script — par `fileURLToPath`, JAMAIS par `.pathname`.
+ *
+ * ─── UNE ERREUR DÉJÀ ÉCRITE DANS LE JOURNAL, ET REFAITE QUAND MÊME ───────────
+ *
+ * La première version faisait
+ * `path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', …)`.
+ * Verte sur Linux et macOS, ROUGE sur Windows, avec cette ligne :
+ *
+ *     sh -n D:\D:\a\hive\hive\examples\deploiement-sans-ecran.sh
+ *
+ * **La lettre de lecteur est DOUBLÉE.** `.pathname` rend `/D:/a/hive/…` — avec
+ * une barre oblique en tête — et `path.resolve` la lit comme la racine du
+ * lecteur courant, qu'il préfixe. C'est le § 6.1 du journal des erreurs, mot
+ * pour mot, écrit bien avant ce fichier.
+ *
+ * Ce qui l'a laissée passer : le `readFileSync(new URL(…))` juste en dessous
+ * est CORRECT — `fs` accepte une URL `file:` et la convertit lui-même. Les deux
+ * formes se ressemblent, une seule est juste, et seule la CI Windows sait le
+ * dire. Un journal qu'on a écrit ne dispense pas de le relire.
+ */
+const SCRIPT = fileURLToPath(new URL('../examples/deploiement-sans-ecran.sh', import.meta.url));
 
 const SOURCE = readFileSync(
   new URL('../examples/deploiement-sans-ecran.sh', import.meta.url),
