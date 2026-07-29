@@ -17,6 +17,7 @@
 // `.cmd` sous Windows. La ligne avait l'air de couvrir un cas ; elle échouait à
 // tous les coups.
 
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { candidates, detectBestAgent } from '../src/node-client/agent-detect.js';
 
@@ -91,7 +92,7 @@ describe('LE CHOIX DE L’AGENT', () => {
   });
 
   it('faute de Claude Code, Codex est pris — pas le repli simulé', async () => {
-    const vu = await detectBestAgent({}, async (bin) => bin.startsWith('codex'));
+    const vu = await detectBestAgent({}, async (argv) => (argv[0] ?? '').startsWith('codex'));
     expect(vu.agent).toBe('codex');
   });
 
@@ -103,8 +104,8 @@ describe('LE CHOIX DE L’AGENT', () => {
     const vus: string[] = [];
     await detectBestAgent(
       {},
-      async (bin) => {
-        vus.push(bin);
+      async (argv) => {
+        vus.push(argv.join(' '));
         return false;
       },
       'win32',
@@ -112,6 +113,39 @@ describe('LE CHOIX DE L’AGENT', () => {
     expect(vus).toContain('claude.exe');
     expect(vus).toContain('codex.exe');
     expect(vus, 'aucune variante .cmd ne doit être sondée').not.toContain('claude.cmd');
+  });
+
+  it('SOUS WINDOWS, UN AGENT INSTALLÉ PAR NPM EST ENFIN TROUVÉ', async () => {
+    // ─── LE DÉFAUT QUE CE TEST FERME ───────────────────────────────────────
+    //
+    // npm n'expose sous Windows qu'un shim `claude.cmd`, que `spawn` sans shell
+    // ne peut pas lancer. La sonde échouait donc TOUJOURS, et le nœud retombait
+    // sur l'adaptateur `shell` — qui est SIMULÉ. La ruche avait l'air de
+    // tourner et produisait de faux diffs.
+    //
+    // La loupe a montré que RIEN ne testait le correctif : le retirer laissait
+    // trente tests verts. C'est ce test-là qui manquait — pas un test de plus
+    // sur `argvAgent`, mais la preuve que la DÉTECTION s'en sert.
+    const APPDATA = 'C:\\Users\\moi\\AppData\\Roaming';
+    const CLI = path.win32.join(
+      APPDATA,
+      'npm',
+      'node_modules',
+      '@anthropic-ai',
+      'claude-code',
+      'cli.js',
+    );
+    // Une machine où AUCUN exécutable ne répond — seul le script est là.
+    const sonde = async (argv: readonly string[]): Promise<boolean> =>
+      argv[0] === 'node' && argv[1] === CLI;
+
+    const trouve = await detectBestAgent({ APPDATA }, sonde, 'win32', (c) => c === CLI);
+    expect(trouve.agent, 'un vrai agent, pas le repli simulé').toBe('claude-code');
+
+    // ET LA MOITIÉ QUI GARDE LA PROMESSE : si le script n'est pas là, on
+    // retombe exactement où on était. Le correctif ne fabrique pas d'agent.
+    const absent = await detectBestAgent({ APPDATA }, sonde, 'win32', () => false);
+    expect(absent.agent).toBe('shell');
   });
 
   it('HIVE_AGENT_CMD court-circuite la sonde — elle n’est même pas appelée', async () => {
