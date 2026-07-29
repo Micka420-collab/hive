@@ -13,18 +13,67 @@
 
 ## Lot 14 — Les Chantiers : lancer les travaux DÉCLARÉS du dépôt
 
-| pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. La décision** — quels travaux, et lesquels sans humain  | ✅   | `src/shared/chantier.ts` + 23 tests. La ruche choisit dans ce que le dépôt déclare et n'invente jamais une commande ; ce qui SORT de la machine (publier, déployer, démarrer) exige un humain. Loupe : 10 mutants, et le survivant a révélé un vrai trou — `build:publish` passait pour de la vérification, donc automatisable. |
-| **2. L'exécution locale** — lancer un chantier sur un nœud   | 🟡   | **PAS ENCORE BRANCHÉ.** Le chemin existe (`POST /api/projects/:id/merge/run` relaie déjà une commande à un nœud, `lanceur.ts` sait résoudre `npm` sous Windows) ; il reste à y raccorder `chantier.ts` et à faire remonter le résultat.                                                                                         |
-| **3. GitHub Actions** — lister, lancer, lire l'état d'un run | ⛔   | `src/orchestrator/github.ts` ne connaît pas les workflows du tout. À ajouter : `listerWorkflows`, `lancerWorkflow` (workflow_dispatch), `lireRuns` — même frontière, on ne lance qu'un workflow que l'API DÉCLARE, par son id, jamais un chemin arbitraire.                                                                     |
-| **4. La liberté d'améliorer l'environnement**                | ✅   | Elle existe déjà et s'appelle `preparation.ts` : le dépôt déclare, la ruche installe. Ouvrir une porte plus large réintroduirait les deux failles fermées par `commande-test.ts` et `preparation.ts` — ce n'est pas une prudence de principe, c'est de l'expérience.                                                            |
+| pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. La décision** — quels travaux, et lesquels sans humain  | ✅   | `src/shared/chantier.ts` + 23 tests. La ruche choisit dans ce que le dépôt déclare et n'invente jamais une commande ; ce qui SORT de la machine (publier, déployer, démarrer) exige un humain. Loupe : 10 mutants, et le survivant a révélé un vrai trou — `build:publish` passait pour de la vérification, donc automatisable.                          |
+| **2. L'exécution locale** — lancer un chantier sur un nœud   | 🟡   | **PAS ENCORE BRANCHÉ**, et on sait maintenant POURQUOI ce n'est pas une simple réutilisation — voir sous le tableau. Le chemin voisin existe (`POST /api/projects/:id/merge/run` relaie une commande à un nœud, `lanceur.ts` résout `npm` sous Windows) mais ne se recycle pas tel quel.                                                                 |
+| **3. GitHub Actions** — lister, lancer, lire l'état d'un run | ✅   | `listerWorkflows`, `lancerWorkflow` (workflow_dispatch) et `lireRuns` dans `github.ts`, décision pure dans `src/shared/workflow.ts`, **27 tests**, `Fetcheur` injecté — aucun test ne touche le réseau. Loupe : **15 mutants, 15 morts**. La frontière est celle des Chantiers : on ne lance qu'un workflow que l'API DÉCLARE, **par son id numérique**. |
+| **4. La liberté d'améliorer l'environnement**                | ✅   | Elle existe déjà et s'appelle `preparation.ts` : le dépôt déclare, la ruche installe. Ouvrir une porte plus large réintroduirait les deux failles fermées par `commande-test.ts` et `preparation.ts` — ce n'est pas une prudence de principe, c'est de l'expérience.                                                                                     |
 
-> **Dit d'avance plutôt que laissé découvrir** : la pièce 1 est complète et
-> DÉBRANCHÉE. C'est exactement l'état dans lequel le Cerveau et la
-> contre-expertise sont restés deux PR chacun. La pièce 2 est le prochain lot,
-> et rien ici ne passe ✅ tant qu'un test ne montre pas un chantier réellement
-> lancé sur un nœud.
+> **Dit d'avance plutôt que laissé découvrir** : les pièces 1 et 3 décident et
+> savent parler à GitHub ; **rien ne les appelle encore côté produit**. C'est
+> exactement l'état dans lequel le Cerveau et la contre-expertise sont restés
+> deux PR chacun. La pièce 2 est le prochain lot, et rien ne passe ✅ tant qu'un
+> test ne montre pas un chantier réellement lancé sur un nœud.
+
+### Le piège de la pièce 3, et pourquoi il vaut d'être écrit
+
+L'endpoint de lancement d'un workflow est :
+
+```
+POST /repos/{owner}/{repo}/actions/workflows/{id_OU_nom_de_fichier}/dispatches
+```
+
+**Ce segment accepte les deux.** Passer un nom de fichier — la forme naturelle,
+celle qu'on a sous les yeux dans le dépôt — laisserait un appelant écrire un
+morceau d'URL de l'API GitHub, et le premier `../..` la transformerait en
+« n'importe quel endpoint, avec le jeton de l'hôte ». Ce jeton ouvre TOUS ses
+dépôts. La ruche n'y met donc qu'un **entier**, vérifié présent dans la liste
+que l'API vient de rendre — même forme que `jugerChantier` avec le bloc
+`scripts` du `package.json`.
+
+Deux autres surprises, trouvées en écrivant les tests :
+
+- **`/actions/workflows` ne rend pas un tableau** mais
+  `{ total_count, workflows: [...] }`, contrairement à `/user/repos` et
+  `/issues` juste à côté. Copier la boucle des dépôts donnerait une liste
+  **vide sans erreur** — et « ce dépôt n'a aucun workflow » est un mensonge
+  parfaitement crédible.
+- **Un 422 sur le dispatch a une cause quasi unique et PERMANENTE** : le
+  workflow ne déclare pas `workflow_dispatch:`. Le conseil générique
+  (« réessayez ») serait faux, et rien dans la liste ne permet de le savoir
+  d'avance — l'API ne dit pas quels déclencheurs un workflow porte.
+
+### Ce que la pièce 2 a heurté, et qu'il faut savoir avant de la reprendre
+
+L'idée évidente est de recycler `assign_merge` avec une liste de diffs vide :
+un chantier, c'est cloner le dépôt et lancer une commande, soit exactement un
+merge sans rien à appliquer. **Ça ne marche pas, et c'est volontaire** :
+`isMergeDiffs` (dans `shared/protocol.ts`) refuse une liste vide. Un merge sans
+diff est un merge malformé, et relâcher cette validation pour faire passer un
+chantier abîmerait la garde du merge pour le confort d'un autre usage.
+
+La pièce 2 est donc un vrai changement de protocole aux DEUX bouts —
+`assign_chantier` / `chantier_result`, leur validation, le handler côté nœud,
+la route, et un test qui monte un nœud réel. C'est un lot, pas un ajout.
+
+Deuxième chose à savoir : `jugerCommandeTest` ne borne que le BINAIRE, et
+l'assume (« qui contrôle le dépôt contrôle déjà ce que `npm test` exécute »).
+`npm run publish` y passerait donc. Ce n'est pas un trou : `merge/run` est
+appelé par un humain — depuis `cli.ts` ou le dashboard, vérifié — qui a tapé sa
+commande. La route des chantiers, elle, est faite pour être appelée PAR LA
+RUCHE, et c'est précisément ce qui justifie que `jugerChantier` y soit plus
+strict. La différence est dans l'appelant, pas dans la commande.
 
 ---
 
