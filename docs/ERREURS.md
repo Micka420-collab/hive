@@ -354,6 +354,42 @@ du même fichier. J'ai perdu un correctif écrit dix minutes plus tôt.
 > **Règle** — avant de muter, `cp <fichier> <scratchpad>/x.bak`. Restaurer
 > **depuis la copie**, jamais par `git checkout`.
 
+### 5.2 — Une loupe interrompue laisse sa mutation dans le fichier
+
+La loupe mute `src/` **en place** et restaure à la fin. Un `LOUPE_MAX=45` a été
+tué en cours de route par un redémarrage du processus : la restauration n'a
+jamais eu lieu, et `src/shared/cerveau.ts` est resté avec une ligne inversée
+que **je n'avais pas écrite** :
+
+```ts
+...(unTexte(champs.get('serviLe')) !== undefined ? {} : { serviLe: … })
+```
+
+`serviLe` disparaissait donc à chaque lecture de note.
+
+**Ce qui rend ce cas dangereux, c'est la façon dont il se présente.** Le test
+d'aller-retour a rougi, et le rapport disait « 7 clés au lieu de 8 » — la
+signature exacte d'un défaut que je viens d'introduire. J'ai commencé à
+chercher ce que j'avais cassé dans MON code. Un `git diff HEAD` a montré la
+vérité en trois lignes.
+
+Deux conséquences, et la seconde est pire :
+
+- sans le test d'aller-retour, la mutation partait **dans le commit**, et un
+  outil de vérification aurait introduit le seul défaut que rien ne défendait ;
+- l'outil qui cherche du code non couvert peut donc, s'il meurt au mauvais
+  moment, **en fabriquer**.
+
+> **Règle** — après toute loupe qui ne s'est pas terminée proprement (tuée,
+> interrompue, session redémarrée), `git diff HEAD -- src/ dashboard/` AVANT
+> de conclure quoi que ce soit sur un test rouge. Un échec juste après une
+> loupe est un leftover jusqu'à preuve du contraire.
+>
+> **Règle** — et l'inverse est vrai aussi : ce jour-là, le test d'aller-retour
+> a fait exactement son travail. Un test qui rougit sur une mutation qu'on n'a
+> pas voulue est la démonstration qu'il rougirait sur celle qu'on aurait pu
+> écrire par erreur.
+
 ---
 
 ## 6. Windows n'est pas Linux avec des barres inverses

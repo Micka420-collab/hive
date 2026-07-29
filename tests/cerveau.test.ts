@@ -84,10 +84,59 @@ describe('LIRE ET ÉCRIRE UNE NOTE', () => {
     expect(relu?.titre).not.toContain('\n');
   });
 
+  it('un champ ABSENT vaut liste vide, pas une liste d’un rien', () => {
+    // Le dossier est édité à la main : beaucoup de notes n'auront pas
+    // d'étiquettes du tout, ou une clé laissée vide. Les deux doivent donner
+    // `[]`. Sans ça, `pertinence()` itère sur `[undefined]` et une note
+    // proprement écrite se met à scorer sur du vide.
+    const sans = analyser('x', '---\ngenre: lecon\ntitre: t\n---\ncorps');
+    expect(sans?.etiquettes, 'clé absente').toEqual([]);
+    const vide = analyser('x', '---\ngenre: lecon\ntitre: t\netiquettes:\n---\ncorps');
+    expect(vide?.etiquettes, 'clé présente mais vide').toEqual([]);
+    const crochets = analyser('x', '---\ngenre: lecon\ntitre: t\netiquettes: []\n---\ncorps');
+    expect(crochets?.etiquettes, 'crochets vides').toEqual([]);
+  });
+
+  it('un champ qui devait être UN TEXTE et qui est une LISTE est écarté', () => {
+    // `titre: [a, b]` est du YAML valide que rien n'interdit d'écrire à la
+    // main. Sans garde de type, le titre deviendrait un tableau, et tout ce
+    // qui appelle `.length` ou `champSurUneLigne` dessus partirait en vrille
+    // bien plus loin, sur une note dont personne ne soupçonnerait la forme.
+    // On retombe donc sur l'identifiant, qui est toujours un texte.
+    const n = analyser('mon-id', '---\ngenre: lecon\ntitre: [a, b]\n---\ncorps');
+    expect(n?.titre).toBe('mon-id');
+  });
+
+  it('UN COMPTE DE RÉCURRENCES ABERRANT RETOMBE À 1', () => {
+    // `recurrences` sert à classer : une note qui annonce `Infinity` ou un
+    // nombre négatif passerait devant toutes les autres, ou derrière, pour
+    // toujours. Le champ est lu d'un fichier que quelqu'un édite à la main —
+    // ou qu'un agent écrit.
+    const lire = (v: string): number | undefined =>
+      analyser('x', `---\ngenre: lecon\ntitre: t\nrecurrences: ${v}\n---\ncorps`)?.recurrences;
+    expect(lire('Infinity'), 'infini').toBe(1);
+    expect(lire('-5'), 'négatif').toBe(1);
+    expect(lire('pas-un-nombre'), 'pas un nombre').toBe(1);
+    expect(lire('0'), 'zéro').toBe(1);
+    expect(lire('3'), 'une valeur honnête passe').toBe(3);
+  });
+
+  it('UNE LISTE MAL FERMÉE N’EST PAS UNE LISTE', () => {
+    // `etiquettes: [a, b` — sans le crochet fermant, ce n'est pas une liste
+    // YAML, et la lire comme telle découperait le texte n'importe où. On la
+    // traite pour ce qu'elle est : une valeur textuelle.
+    const n = analyser('x', '---\ngenre: lecon\ntitre: t\netiquettes: [a, b\n---\ncorps');
+    expect(n?.etiquettes).toEqual(['[a, b']);
+  });
+
   it('les `[[liens]]` sont relevés, alias compris', () => {
     expect(liensDe('voir [[a]] et [[b|le b]] et encore [[a]]')).toEqual(['a', 'b']);
     expect(liensDe('rien du tout')).toEqual([]);
-    expect(liensDe('[[]] vide'), 'un lien vide n’est pas un lien').toEqual([]);
+    // `[[   ]]` MATCHE le motif — le groupe capture les espaces — puis `trim`
+    // le vide. C'est le seul chemin par lequel un identifiant vide arrive, et
+    // il faut donc l'écarter explicitement : un lien vide dans le graphe
+    // ferait un lien mort permanent que personne ne pourrait réparer.
+    expect(liensDe('[[   ]] espaces'), 'un lien d’espaces n’est pas un lien').toEqual([]);
   });
 });
 
@@ -125,6 +174,17 @@ describe('LA CONSOLIDATION — d’un épisode répété à une règle', () => {
     const a = signature('La tâche 47 a échoué : timeout après 3012 ms sur le port 7777');
     const b = signature('La tâche 903 a échoué : timeout après 5210 ms sur le port 8080');
     expect(a).toBe(b);
+  });
+
+  it('UN MOT DE QUATRE LETTRES COMPTE — la borne est inclusive', () => {
+    // `java`, `code`, `test`, `HTTP`, `SQL…` : le vocabulaire d'un dépôt est
+    // plein de mots de quatre lettres, et ce sont souvent les plus porteurs.
+    // Les exclure viderait la signature de la moitié de son signal — sans
+    // rien casser de visible, ce qui est le pire cas.
+    expect(signature('java code')).toBe('code java');
+    expect(signature('les mots de trois lettres partent'), 'trois lettres, non').not.toContain(
+      'les',
+    );
   });
 
   it('DEUX FOIS NE FAIT PAS UNE RÈGLE, TROIS OUI', () => {
@@ -190,6 +250,25 @@ describe('LA SÉLECTION — ce qu’on met dans la tête d’une ouvrière', () 
     expect(s.cout).toBeLessThanOrEqual(500);
   });
 
+  it('UNE NOTE QUI TIENT EXACTEMENT DANS LE BUDGET EST RETENUE', () => {
+    // La borne est inclusive, et il faut un test pour le dire : la version
+    // stricte écarterait une note qui rentre pile — sans erreur, sans trace,
+    // et personne ne remarquerait jamais la note manquante. La loupe a
+    // signalé ce `<=` en le mutant en `<` sans faire rougir quoi que ce soit.
+    const n = note({ id: 'pile', titre: 'i', corps: 'x'.repeat(9) });
+    expect(cout(n), 'coût attendu pour que le test dise ce qu’il croit dire').toBe(10);
+
+    const juste = selectionner([n], 'rien', 10);
+    expect(
+      juste.retenues.map((x) => x.id),
+      'budget exact → retenue',
+    ).toEqual(['pile']);
+
+    const unDeTrop = selectionner([n], 'rien', 9);
+    expect(unDeTrop.retenues, 'un caractère de moins → écartée').toEqual([]);
+    expect(unDeTrop.ecartees).toHaveLength(1);
+  });
+
   it('la pertinence préfère une étiquette posée à la main à un mot croisé par hasard', () => {
     const etiquetee = note({
       id: 'e',
@@ -230,6 +309,28 @@ describe('LE SAVOIR EST DU TEXTE ÉCRIT PAR DES AGENTS', () => {
     // Le délimiteur de fermeture glissé dans le corps ne referme pas le bloc.
     const fermetures = texte.split('HIVE_DATA>>>').length - 1;
     expect(fermetures, 'le bloc ne doit avoir qu’une seule fermeture réelle').toBe(1);
+  });
+
+  it('LA RÈGLE ARRIVE JUSQU’À L’OUVRIÈRE — c’est tout l’objet du module', () => {
+    // Trou trouvé par la loupe : rien ne vérifiait que la `regle` d'une leçon
+    // entre dans le contexte. Un mutant qui l'inversait survivait — donc on
+    // pouvait retirer la seule chose qui distingue une leçon d'une anecdote
+    // sans qu'un test bronche. Une leçon dont la règle n'est pas transmise ne
+    // sert à rien : elle consomme du budget pour raconter une histoire.
+    const lecon = note({
+      id: 'lecon-prepare',
+      genre: 'lecon',
+      titre: 'npm ci lance prepare',
+      regle: 'NEUTRALISER-PREPARE-DANS-TOUTE-IMAGE',
+      corps: 'Vu trois fois.',
+    });
+    const texte = contexte(selectionner([lecon], 'npm prepare image', 10_000));
+    expect(texte, 'la règle doit être transmise').toContain('NEUTRALISER-PREPARE-DANS-TOUTE-IMAGE');
+
+    // Et une note SANS règle ne fabrique pas un champ `regle` fantôme.
+    const sans = note({ id: 'ep', genre: 'episode', titre: 'un fait', corps: 'brut' });
+    const texteSans = contexte(selectionner([sans], 'un fait', 10_000));
+    expect(texteSans).not.toContain('regle');
   });
 
   it('un refus ne produit AUCUN contexte — pas un contexte partiel', () => {

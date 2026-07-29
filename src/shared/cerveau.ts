@@ -150,10 +150,17 @@ function lireEntete(lignes: readonly string[]): Map<string, string | string[]> {
   const champs = new Map<string, string | string[]>();
   for (const ligne of lignes) {
     const i = ligne.indexOf(':');
-    if (i <= 0) continue;
-    const cle = ligne.slice(0, i).trim();
-    const brut = ligne.slice(i + 1).trim();
+    // Une seule garde, et c'est délibéré. Il y en avait deux — `i <= 0` ici,
+    // puis `cle === ''` deux lignes plus bas — et la seconde couvrait déjà la
+    // première : `i < 0` (pas de `:`) comme `i === 0` (la ligne COMMENCE par
+    // `:`) donnent une clé vide. La loupe l'a signalé en mutant `<=` en `<`
+    // sans faire rougir un seul test, et elle avait raison : aucune entrée ne
+    // distinguait les deux versions. Une garde qu'aucune entrée ne peut
+    // solliciter n'est pas une précaution, c'est du bruit qui se relit comme
+    // une intention.
+    const cle = i < 0 ? '' : ligne.slice(0, i).trim();
     if (cle === '') continue;
+    const brut = ligne.slice(i + 1).trim();
     if (brut.startsWith('[') && brut.endsWith(']')) {
       const dedans = brut.slice(1, -1).trim();
       champs.set(
@@ -220,6 +227,21 @@ export function analyser(id: string, texte: string): Note | null {
     corps,
     etiquettes: uneListe(champs.get('etiquettes')),
     creee: unTexte(champs.get('creee')) ?? '',
+    // Attention en lisant ce qui suit : SEULE la comparaison est équivalente.
+    // Le `&&`, lui, ne l'est pas du tout — le muter en `||` laisse passer
+    // `Infinity` et les négatifs, et un test le prouve (« UN COMPTE DE
+    // RÉCURRENCES ABERRANT RETOMBE À 1 »). Deux mutants sur la même ligne,
+    // deux verdicts opposés : c'est exactement pourquoi on les examine un par
+    // un plutôt que de déclarer la ligne « couverte ».
+    //
+    // MUTANT ÉQUIVALENT ASSUMÉ — `>= 1` muté en `> 1` survit, et c'est
+    // normal : la seule valeur qui distingue les deux conditions est
+    // exactement `1`, et les deux branches rendent alors `1`
+    // (`Math.floor(1)` d'un côté, le repli de l'autre). Aucune entrée ne peut
+    // les séparer, donc aucun test ne le pourrait — en écrire un qui prétende
+    // le contraire serait du décor. Écrit ici parce que la loupe le signalera
+    // à chaque passage, et qu'un survivant sans explication se lit comme un
+    // oubli.
     recurrences: Number.isFinite(recurrences) && recurrences >= 1 ? Math.floor(recurrences) : 1,
     ...(unTexte(champs.get('serviLe')) === undefined
       ? {}
