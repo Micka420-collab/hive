@@ -398,8 +398,12 @@ périmètre (comptes de l'utilisateur).
   l'ordre entre deux lignes de même milliseconde est indéfini. **Rien ne se
   perd** — c'est un rang d'affichage. Les trois bornes qui SUPPRIMENT ont été
   départagées, et c'était la seule classe dangereuse.
-- Un agent installé par npm reste **indétectable sous Windows** (`claude.cmd`,
-  que `spawn` ne peut pas lancer sans interpréteur). `hive doctor` le dit sous
-  la clé `agent`, donc ce n'est pas silencieux — mais ce n'est pas satisfaisant.
-  Corriger demanderait de lancer autre chose que le shim, ce que la contrainte
-  §5.1 rend délibérément difficile.
+- ~~Un agent installé par npm reste **indétectable sous Windows**~~ —
+  **CORRIGÉ**, et la correction n'a pas demandé d'assouplir la §5.1 : elle vise
+  le script réel du paquet et lance Node, exactement comme `lanceur.ts` le fait
+  pour `npm`. C'est plus strict que `shell: true`, pas moins — on sait quel
+  fichier on exécute au lieu de déléguer la résolution à `cmd.exe`.
+  `src/shared/agent-windows.ts`, pur, plateforme et environnement en paramètres,
+  existence du fichier injectée. **Non vérifié sur un vrai Windows** : la
+  logique l'est (loupe 7/7), le `spawn` final ne l'est pas — aucune machine
+  Windows ici, et la CI n'y installe pas Claude Code.

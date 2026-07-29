@@ -2,6 +2,8 @@
 // Règle absolue (§5.1) : spawn(bin, argv, { shell: false }) — jamais shell:true.
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { argvAgent } from '../shared/agent-windows.js';
 import { envelopper } from '../node-client/isolement.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
@@ -52,13 +54,26 @@ export function runCommand(
   // `cwd` reste celui de l'hôte : c'est lui qu'on monte, et c'est aussi lui
   // que `collectDiff()` relira après coup. L'enveloppe ne déplace rien, elle
   // restreint ce que le processus voit.
+  // ─── LE SHIM WINDOWS, RÉSOLU ICI AUSSI ─────────────────────────────────────
+  //
+  // Détecter l'agent ne suffit pas : c'est ici qu'on le LANCE. Sur une machine
+  // Windows où Claude Code vient de npm, `spawn('claude')` échoue en ENOENT —
+  // seul un `claude.cmd` existe, et `spawn` sans shell ne sait pas l'exécuter.
+  //
+  // On vise donc son script réel et on lance Node, exactement comme
+  // `lanceur.ts` le fait pour `npm`. Hors Windows, et quand rien n'est
+  // déductible, `argvAgent` rend `[bin]` — le comportement d'avant, à
+  // l'identique.
+  const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
+  const argsReels = [...avant, ...args];
+
   const lance = ctx.bac
-    ? envelopper(bin, args, {
+    ? envelopper(binReel, argsReels, {
         fournisseur: ctx.bac.fournisseur,
         cwdHote: ctx.cwd,
         variables: ctx.bac.variables,
       })
-    : { bin, args };
+    : { bin: binReel, args: argsReels };
 
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {
@@ -123,13 +138,26 @@ export function runCommandStreaming(
 ): Promise<AdapterResult> {
   // Même enveloppe que `runCommand` : sans elle, l'isolement sauterait dès
   // qu'un agent parle en flux, c'est-à-dire pour le plus courant d'entre eux.
+  // ─── LE SHIM WINDOWS, RÉSOLU ICI AUSSI ─────────────────────────────────────
+  //
+  // Détecter l'agent ne suffit pas : c'est ici qu'on le LANCE. Sur une machine
+  // Windows où Claude Code vient de npm, `spawn('claude')` échoue en ENOENT —
+  // seul un `claude.cmd` existe, et `spawn` sans shell ne sait pas l'exécuter.
+  //
+  // On vise donc son script réel et on lance Node, exactement comme
+  // `lanceur.ts` le fait pour `npm`. Hors Windows, et quand rien n'est
+  // déductible, `argvAgent` rend `[bin]` — le comportement d'avant, à
+  // l'identique.
+  const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
+  const argsReels = [...avant, ...args];
+
   const lance = ctx.bac
-    ? envelopper(bin, args, {
+    ? envelopper(binReel, argsReels, {
         fournisseur: ctx.bac.fournisseur,
         cwdHote: ctx.cwd,
         variables: ctx.bac.variables,
       })
-    : { bin, args };
+    : { bin: binReel, args: argsReels };
 
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {

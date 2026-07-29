@@ -7,6 +7,29 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **🪟 Sur Windows, la ruche se servait d'un agent SIMULÉ sans le dire vraiment.**
+  Un Claude Code installé par npm n'y expose qu'un shim `claude.cmd`, que
+  `spawn(…, { shell: false })` ne peut pas lancer — durci depuis la
+  CVE-2024-27980. La sonde échouait donc **toujours**, le nœud retombait sur
+  l'adaptateur `shell`, et la ruche avait l'air de tourner en produisant de faux
+  diffs. `hive doctor` l'affichait, mais rien n'empêchait de passer à côté.
+  La correction ne touche pas à la contrainte §5.1 : elle **vise le script réel
+  du paquet et lance Node**, exactement comme `lanceur.ts` le fait déjà pour
+  `npm`. C'est plus strict que `shell: true`, pas moins — on sait quel fichier
+  on exécute au lieu de déléguer la résolution à `cmd.exe`. Résolue aux DEUX
+  endroits, parce que détecter ne suffit pas : `agent-detect.ts` pour trouver,
+  `adapters/exec.ts` pour lancer. **Non régressif par construction** : hors
+  Windows, et sur Windows quand rien n'est déductible, l'argv rendu est `[bin]`
+  — le comportement d'avant, à l'identique. Loupe : 7 mutants, dont un
+  ÉQUIVALENT retiré plutôt que gardé (un `split('/')` que `path.win32.join`
+  rendait inutile — une précaution qui ne change rien se fait passer pour de la
+  rigueur), et un survivant qui a révélé que **rien ne testait le correctif** :
+  le retirer laissait trente tests verts.
+  ⚠️ **Non vérifié sur un vrai Windows** : la logique l'est, le `spawn` final
+  ne l'est pas.
+
 ### Added
 
 - **📜 Le déploiement sans écran a son exemple, et il est EXERCÉ**

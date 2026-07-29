@@ -6,6 +6,8 @@
 // d'interprétation shell. On ne fait que constater la présence du binaire.
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { argvAgent } from '../shared/agent-windows.js';
 
 export type AgentType = 'claude-code' | 'codex' | 'custom' | 'shell';
 
@@ -68,7 +70,7 @@ export function candidates(bin: string, plateforme: string = process.platform): 
  * Un environnement cassé retombe ainsi sur le shell simulé (sûr) plutôt que
  * d'envoyer du travail — et le token — à un binaire douteux.
  */
-function probeBin(bin: string, timeoutMs = 4_000): Promise<boolean> {
+function probeBin(argv: readonly string[], timeoutMs = 4_000): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (found: boolean): void => {
@@ -78,7 +80,12 @@ function probeBin(bin: string, timeoutMs = 4_000): Promise<boolean> {
     };
     let child;
     try {
-      child = spawn(bin, ['--version'], { shell: false, windowsHide: true, stdio: 'ignore' });
+      const [bin, ...avant] = argv;
+      child = spawn(bin ?? '', [...avant, '--version'], {
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+      });
     } catch {
       finish(false);
       return;
@@ -104,14 +111,31 @@ function probeBin(bin: string, timeoutMs = 4_000): Promise<boolean> {
  *
  * C'est la COUTURE qui manquait. Voir `detectBestAgent`.
  */
-export type Sonde = (bin: string) => Promise<boolean>;
+export type Sonde = (argv: readonly string[]) => Promise<boolean>;
 
 /** Résout le premier binaire présent parmi les candidats d'un agent. */
-async function firstPresent(bins: string[], sonder: Sonde, plateforme: string): Promise<boolean> {
+async function firstPresent(
+  bins: string[],
+  sonder: Sonde,
+  plateforme: string,
+  env: NodeJS.ProcessEnv,
+  existe: (chemin: string) => boolean,
+): Promise<boolean> {
   for (const bin of bins) {
     for (const candidate of candidates(bin, plateforme)) {
-      if (await sonder(candidate)) return true;
+      if (await sonder([candidate])) return true;
     }
+    // ─── LE SHIM `.cmd`, CONTOURNÉ PAR LE HAUT ─────────────────────────────
+    //
+    // Si aucun exécutable ne répond, l'agent peut quand même être là : installé
+    // par npm, il n'expose sous Windows qu'un `claude.cmd` que `spawn` ne sait
+    // pas lancer. On vise alors son script réel et on lance Node — voir
+    // `shared/agent-windows.ts`.
+    //
+    // En DERNIER, jamais en premier : quand un vrai binaire existe, c'est lui
+    // qui a raison. On n'ajoute un chemin que là où il n'y en avait aucun.
+    const parNode = argvAgent(bin, env, plateforme, existe);
+    if (parNode.length > 1 && (await sonder(parNode))) return true;
   }
   return false;
 }
@@ -146,6 +170,7 @@ export async function detectBestAgent(
   // de vrai, au lieu d'être crue sur parole.
   sonder: Sonde = probeBin,
   plateforme: string = process.platform,
+  existe: (chemin: string) => boolean = existsSync,
 ): Promise<DetectedAgent> {
   // Choix explicite du membre : une commande libre (n'importe quelle IA CLI) via
   // HIVE_AGENT_CMD prime sur la détection automatique.
@@ -153,7 +178,7 @@ export async function detectBestAgent(
     return { agent: 'custom', label: 'commande personnalisée (HIVE_AGENT_CMD)' };
   }
   for (const probe of PROBES) {
-    if (await firstPresent(probe.bins, sonder, plateforme)) {
+    if (await firstPresent(probe.bins, sonder, plateforme, env, existe)) {
       return { agent: probe.agent, label: probe.label };
     }
   }
@@ -186,11 +211,12 @@ export async function detectAllAgents(
   // « aucun agent » n'est vérifiable sur aucune machine de développement.
   sonder: Sonde = probeBin,
   plateforme: string = process.platform,
+  existe: (chemin: string) => boolean = existsSync,
 ): Promise<AgentType[]> {
   const found: AgentType[] = [];
   if ((env.HIVE_AGENT_CMD ?? '').trim()) found.push('custom');
   for (const probe of PROBES) {
-    if (await firstPresent(probe.bins, sonder, plateforme)) found.push(probe.agent);
+    if (await firstPresent(probe.bins, sonder, plateforme, env, existe)) found.push(probe.agent);
   }
   found.push('shell');
   return found;
