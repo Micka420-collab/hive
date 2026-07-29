@@ -171,6 +171,37 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **🐳 L'image pouvait naître morte : `npm ci` sort avec 0 quand une dépendance
+  OPTIONNELLE a échoué.** Les quatre paquets nécessaires au démarrage — Fastify,
+  ses deux greffons, `better-sqlite3` — sont optionnels à dessein : un nœud
+  membre, qui ne fait que prêter du temps-machine, n'en a pas l'usage. Mais
+  « optionnel » veut dire, pour npm : _si l'installation échoue, je continue_.
+  `better-sqlite3` télécharge un binaire prébuilt ; quand ce téléchargement rate,
+  npm avertit, retire le paquet, **et réussit**. Constaté sur deux constructions
+  du **même Dockerfile et du même lock** à quatre minutes d'écart — la seconde a
+  produit une image verte dont la ruche est morte au démarrage sur
+  « better-sqlite3 est absent », alors que le commit ne touchait que deux
+  fichiers Markdown. La couche qui installe **charge désormais les quatre
+  paquets, ouvre une base en mémoire et y relit une ligne** avant de se déclarer
+  bonne, et une reprise borne l'aléa réseau. Deux points portent le correctif :
+  la reprise s'appuie sur la vérification et **non sur le code de sortie**, qui
+  vaut 0 précisément dans le cas à rattraper ; et la vérification qui décide est
+  celle qui suit le `done`, une boucle shell sortant avec 0 même quand toutes ses
+  tentatives ont échoué. Journal § 1.5.
+
+- **📓 Le CHANGELOG se répétait trois fois — 286 lignes, un cinquième du
+  fichier.** Un bloc de 144 lignes figurait à l'identique sous `[Unreleased]`,
+  une seconde fois plus bas, et une troisième **dans la section `[0.2.0]`** —
+  c'est-à-dire dans de l'histoire déjà publiée. Le défaut est apparu à 25 lignes
+  et a grossi à chaque livraison pendant huit commits (25 → 46 → 60 → 79 → 97 →
+  117 → 146) sans que personne le voie : une duplication est **invisible dans un
+  diff**, qui montre la ligne ajoutée mais jamais qu'elle existe déjà trois
+  écrans plus bas. Les copies sont retirées sans perdre une seule ligne unique,
+  et le contenu qui les suivait retrouve l'en-tête que la duplication lui avait
+  pris. `tests/documents-qui-grossissent.test.ts` garde désormais les cinq
+  documents qui ne font que grandir — il rougit sur le fichier tel qu'il était
+  **à la première apparition du défaut**, pas seulement à la huitième.
+
 - **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
   et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
   pourtant clairement (« refusés même quand la sous-commande est bonne »).
@@ -934,150 +965,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   contrefaçon (ancien secret public, compte inexistant, secret d'une autre
   ruche) avec le jeton légitime en contrôle négatif.
 
-### Added
-
-- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
-  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
-  Révoquer une clé compromise est l'archétype de la décision d'administration,
-  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
-  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
-  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
-  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
-  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
-  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
-  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
-  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
-  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
-  ne sortent jamais de la liste.
-
-- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
-  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
-  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
-  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
-  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
-  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
-  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
-  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
-  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
-  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
-  est l'information la plus chère du conseil, et elle ne vit que dans une
-  perdante. La **diversité des familles** est affichée à côté du nombre de
-  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
-  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
-  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
-  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
-  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
-  maintenant : le détail annonce donc son verdict **provisoire** tant que le
-  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
-  détail.
-
-- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
-  en tête de la vue Projets). `GET /api/github/repos` et
-  `POST /api/github/import` vivaient depuis le début sans aucune interface :
-  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
-  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
-  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
-  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
-  merge concurrents sur les mêmes fichiers — et connecte en un clic.
-  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
-  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
-  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
-  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
-  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
-  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
-  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
-  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
-  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
-  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
-  de ruche — et c'est le cas que l'adoption rattrape.
-
-### Tests
-
-- **La boucle complète d'une caste, du travail réel au cadre injecté**
-  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
-  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
-  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
-  parcourait était celui du milieu : un nœud rend une production → les
-  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
-  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
-  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
-  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
-  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
-  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
-  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
-  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
-  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
-  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
-  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
-  fichier pour que la prochaine lecture ne refasse pas l'erreur.
-
 ### Fixed
-
-- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
-  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
-  pourtant clairement (« refusés même quand la sous-commande est bonne »).
-  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
-  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
-  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
-  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
-  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
-  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
-  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
-  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
-  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
-  y compris en sous-dossier, passe toujours.
-
-### Tests
-
-- **La propriété qui rend les exemples de `zoneModifiee` justes**
-  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
-  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
-  en retirant la borne qui empêche le préfixe et le suffixe communs de se
-  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
-  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
-  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
-  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
-  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
-  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
-  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
-  qu'aléatoire.
-
-- **La ruche fusionnait n'importe quelle pull request du dépôt.**
-  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
-  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
-  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
-  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
-  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
-  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
-  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
-  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
-  contentait d'émettre un événement, si bien que le numéro de PR n'existait
-  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
-  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
-  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
-  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
-  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
-  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
-  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
-
-- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
-  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
-  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
-  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
-  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
-  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
-  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
-  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
-  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
-  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
-  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
-  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
-  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
-  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
-  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
-  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
-  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
-  conscient et non une découverte.
 
 - **L'intégration continue repasse au vert : un test n'y tournait pas.**
   `tests/isolement-couverture.test.ts` énumérait les fichiers avec `globSync`
@@ -1239,150 +1127,7 @@ refonte complète de l'interface en **Mission Control**.
   dashboard) remplace la classe FTS5 ; le contexte est joint à l'assignation
   côté serveur, sans réécrire le prompt persisté.
 
-### Added
-
-- **🔑 Les clés de la ruche ont un écran** (panneau dans l'Intendance, routes
-  `GET /api/membres`, `DELETE /api/membres/:nodeId`, `DELETE /api/billets/:id`).
-  Révoquer une clé compromise est l'archétype de la décision d'administration,
-  et elle n'existait qu'en ligne de commande : le tableau de bord montrait le
-  pouls, les anomalies, les castes et les comptes — mais pas « qui a une clé de
-  ma ruche ». **Les deux gestes sont séparés et leurs conséquences écrites**,
-  parce qu'ils n'ont rien d'interchangeable : une CLÉ appartient à une machine
-  et la révoquer la déconnecte tout de suite ; un BILLET ne vaut rien par
-  lui-même — il sert à obtenir une clé, à usage compté — et le révoquer ne
-  déconnecte personne. Confondre les deux, c'est croire avoir exclu quelqu'un en
-  révoquant le billet par lequel il est entré ; un test fait les deux gestes à
-  la suite sur la même ruche pour que cette confusion soit rouge. Les empreintes
-  ne sortent jamais de la liste.
-
-- **🗣 Le Conseil des Éclaireuses a un écran** (panneau dans la carte projet,
-  routes `GET /api/conseils` et `GET /api/conseil/:sessionId`). Le Conseil ne
-  change RIEN : sa sortie **EST une proposition à un humain**, exactement comme
-  la Miellerie propose un merge sans jamais le faire. Il a pourtant vécu sans
-  aucune interface — l'humain devait ouvrir un terminal pour lire ce qu'on avait
-  délibéré pour lui. C'est le cas le plus net de « mécanisme sans écran » du
-  dépôt, plus net que Les Guetteuses, dont la sortie était au moins une alerte.
-  **On montre les propositions ÉCARTÉES, pas seulement la retenue** : trois des
-  quatre pièges que le protocole évite ne se voient que là. Le **signal d'arrêt**
-  motivé — une piste qu'une éclaireuse est allée vérifier et a jugée mauvaise —
-  est l'information la plus chère du conseil, et elle ne vit que dans une
-  perdante. La **diversité des familles** est affichée à côté du nombre de
-  soutiens, parce que dix instances du même modèle qui s'accordent ne font pas
-  dix avis. Et une issue sans recommandation (`vide`, `sans_quorum`, `epuise`,
-  `depart`) se **dit** : « personne n'a rien trouvé » est un résultat, un écran
-  vide ressemblerait à une panne. Enfin, la liste rend l'issue RANGÉE (nulle tant
-  qu'on délibère) alors que le détail RECALCULE ce que le protocole dirait
-  maintenant : le détail annonce donc son verdict **provisoire** tant que le
-  conseil est ouvert, sinon le résumé aurait l'air de contredire son propre
-  détail.
-
-- **🐙 Le connecteur GitHub a un écran** (panneau « Connecter un dépôt GitHub »
-  en tête de la vue Projets). `GET /api/github/repos` et
-  `POST /api/github/import` vivaient depuis le début sans aucune interface :
-  connecter un dépôt se faisait en ligne de commande, alors que c'est le tout
-  PREMIER geste de quelqu'un qui arrive avec du code existant. Le panneau liste
-  les dépôts (plus récents d'abord), marque privé / archivé / langage, signale
-  ceux **déjà connectés** — deux projets sur un même dépôt, c'est deux plans de
-  merge concurrents sur les mêmes fichiers — et connecte en un clic.
-  **L'écran ne demande jamais le jeton GitHub** : il vit dans l'environnement de
-  l'orchestrateur, en mémoire, le temps du processus. Un champ « collez votre
-  jeton » en ferait une valeur qui traverse le navigateur, l'historique et le
-  presse-papiers, pour un gain nul — c'est l'orchestrateur qui appelle GitHub,
-  pas le navigateur. Quand le jeton manque, le 501 du serveur porte déjà la
-  marche à suivre : on l'affiche telle quelle plutôt que d'en inventer une qui
-  dériverait. **Et le dépôt connecté appartient désormais à qui l'a connecté** :
-  l'import s'authentifiant par le jeton de ruche, il rangeait le projet
-  orphelin, donc inutilisable par son importateur jusqu'à ce qu'un
-  administrateur l'adopte. La voie CLI reste orpheline — elle n'a que le jeton
-  de ruche — et c'est le cas que l'adoption rattrape.
-
 ### Tests
-
-- **La boucle complète d'une caste, du travail réel au cadre injecté**
-  (`tests/caste-boucle.test.ts`). Le module pur était éprouvé (à antécédents
-  donnés, quelle caste) et le câblage aussi (à caste donnée, quel cadre) — mais
-  les deux **semaient les inspections à la main**. Le maillon qu'aucun ne
-  parcourait était celui du milieu : un nœud rend une production → les
-  Gardiennes l'inspectent à la RÉCEPTION → l'inspection se range → le corpus
-  borné la relit → la caste change → la tâche SUIVANTE reçoit un autre cadre.
-  Cinq maillons, chacun testé, et rien ne vérifiait qu'ils étaient attachés. Le
-  test fait le trajet sur un vrai nœud WebSocket, sans rien semer. Il verrouille
-  surtout **« pas de cliquet »** — une caste se perd exactement comme elle se
-  gagne (doctrine, règle 3) — sur le CORPUS RÉEL, borné et relu à l'envers, là
-  où un cliquet se cacherait sans qu'on le voie ; la règle n'était vérifiée que
-  sur des antécédents fabriqués. Au passage, le test a d'abord accusé les
-  Gardiennes de ne pas mordre sur un diff vide : c'était **le test qui avait
-  tort**, les Gardiennes ne crient au diff vide que si un diff POUVAIT exister
-  (dépôt connecté, promesse nommée, zéro octet rendu) — c'est écrit dans le
-  fichier pour que la prochaine lecture ne refasse pas l'erreur.
-
-### Fixed
-
-- **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
-  et par la valeur d'un autre.** Deux trous dans une règle que le module énonce
-  pourtant clairement (« refusés même quand la sous-commande est bonne »).
-  D'abord `--find-links` était banni pendant que **`-f`, le même drapeau**,
-  figurait parmi les drapeaux à valeur et passait tranquillement : interdire un
-  nom en laissant son synonyme ouvert ne ferme rien. Ensuite
-  `pip install -r http://ailleurs/requirements.txt` était accepté — la LETTRE de
-  la règle est respectée (c'est un fichier qui nomme les paquets, pas la
-  commande) et son esprit trahi exactement comme avec `--index-url` : c'est un
-  tiers qui décide de ce qui s'installe. La même porte, ailleurs. Les formes
-  courtes `-i` et `-f` rejoignent les drapeaux de source, et la valeur d'un
-  `-r`/`--requirement`/`-c` doit désigner un fichier DU DÉPÔT — un chemin local,
-  y compris en sous-dossier, passe toujours.
-
-### Tests
-
-- **La propriété qui rend les exemples de `zoneModifiee` justes**
-  (`tests/retouche.test.ts`). Les dix-huit tests de ce module testaient par
-  l'EXEMPLE — telle entrée, tel triplet — et **un bug réel les traversait tous** :
-  en retirant la borne qui empêche le préfixe et le suffixe communs de se
-  chevaucher, tout restait vert alors que `zoneModifiee(['a'], ['a','a'])`
-  rendait `null`, c'est-à-dire « rien n'a bougé » sur une insertion réelle (la
-  retouche aurait été refusée pour « aucun changement » à quelqu'un qui venait
-  d'écrire une ligne). La propriété ajoutée dit ce que la fonction PROMET — ce
-  qu'on rogne aux deux bouts est réellement commun, donc les DEUX fichiers se
-  reconstruisent depuis la zone — et se vérifie sur les 961 paires de suites de
-  longueur ≤ 4 : exhaustif sur les petits cas, donc reproductible, plutôt
-  qu'aléatoire.
-
-- **La ruche fusionnait n'importe quelle pull request du dépôt.**
-  `POST /api/livraison/fusion` disait, dans son propre commentaire, « fusionne
-  une pull request ouverte par la ruche » — et acceptait n'importe quel numéro.
-  Elle fusionnait donc, **avec le jeton GitHub de l'hôte**, la PR qu'un humain
-  était en train de relire, ou celle d'un contributeur extérieur. Le geste est
-  réputé humain, mais le jeton qui l'autorise se recopie sur chaque machine
-  membre (ADR 0007). Le défaut n'était visible dans aucune des deux routes : il
-  tenait à une **troisième chose, que ni l'une ni l'autre ne faisait**. La voie
-  autonome range ses livraisons dans la table `livraisons` ; la voie MANUELLE se
-  contentait d'émettre un événement, si bien que le numéro de PR n'existait
-  nulle part où le retrouver — ni pour rouvrir « où en est ma livraison ? », ni
-  pour vérifier quoi que ce soit à son sujet. Les deux moitiés sont réparées :
-  la livraison manuelle range comme l'autonome, la fusion **ne fusionne que ce
-  que la ruche a ouvert**, et l'état suit la fusion (une livraison fusionnée qui
-  resterait « ouverte » ferait mentir l'écran et rouvrirait la porte à une
-  seconde fusion). Le refus nomme l'alternative : les autres pull requests se
-  fusionnent sur GitHub — c'est votre dépôt, pas le sien.
-
-- **Un compte recevait 401 sur le rapport de son PROPRE projet.** Onze routes de
-  l'espace projet se gardent par le seul jeton de ruche, sans aucune règle par
-  projet, là où Le Rayon, les membres et les partages se gardent par COMPTE. Le
-  tableau de bord ne s'en apercevait pas — il envoie les deux en-têtes — mais
-  toute autre intégration s'y cognait. Six lectures (`merge`, `merge/result`,
-  `conflicts`, `balance`, `essaim`, `abonnement`) acceptent désormais AUSSI un
-  compte ayant affaire au projet. **C'est une ouverture stricte** : aucune porte
-  existante n'est retirée, la CLI et le mode « tableau de bord sans compte »
-  continuent de marcher à l'identique. ⚠ **Cela ne résout pas le fond**, et
-  `docs/adr/0007-portee-du-jeton-de-ruche.md` l'écrit : le README annonce que
-  `HIVE_TOKEN` se recopie sur chaque machine membre, donc toute abeille de
-  l'essaim lit encore le plan de merge et la balance de n'importe quel projet —
-  et peut **déclencher un merge**, ce qui fait exécuter la commande de test du
-  dépôt sur la machine d'un autre membre. Resserrer change le contrat du produit
-  (la CLI n'a que le jeton de ruche) : c'est une décision d'hôte, posée dans
-  l'ADR avec ses trois voies et leurs coûts. Un test **constate** l'état actuel
-  et **échouera** le jour où quelqu'un tranchera — pour que ce soit un geste
-  conscient et non une découverte.
 
 - Compilation TypeScript stricte (`tsc --noEmit` propre), ESLint + Prettier
   zéro erreur, 253 tests vitest verts.
