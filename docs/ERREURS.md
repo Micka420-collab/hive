@@ -106,6 +106,67 @@ et le test que j'écrivais pour elle a rougi en la révélant.
 > les deux (`installeurs.test.ts`, « la commande qu'il affiche est celle qu'il
 > lancerait »).
 
+### 1.5 — Un `npm ci` vert peut avoir installé MOINS que le lock
+
+Deux constructions de l'image, **même `Dockerfile`, même `package-lock.json`**,
+à quatre minutes d'intervalle :
+
+    a8f8909  06:05  image construite, ruche démarrée        vert
+    a3ceec0  06:10  image construite, ruche morte au boot   rouge
+
+    etat : Exited (2)
+    ✘ L'orchestrateur ne peut pas démarrer : better-sqlite3 est absent.
+
+Le second commit ne touche **que deux fichiers Markdown**. Aucune ligne de code
+ne sépare ces deux images : la différence est venue du réseau.
+
+Les quatre dépendances dont la ruche a besoin pour démarrer — Fastify, ses deux
+greffons, `better-sqlite3` — sont déclarées **optionnelles**, et c'est délibéré :
+un nœud membre, qui ne fait que prêter du temps-machine, n'en a pas l'usage.
+Mais « optionnel » veut dire, pour npm : **si l'installation échoue, je
+continue**. `better-sqlite3` porte un script qui télécharge un binaire prébuilt ;
+quand ce téléchargement rate, `prebuild-install` se rabat sur une compilation,
+qui réclame python3/make/g++ — absents de `slim`, et absents exprès. npm affiche
+un avertissement, retire le paquet, **et sort avec 0**.
+
+C'est la panne du § 4.3 atteinte par une cause que personne n'a écrite. Là-bas,
+un drapeau de trop la provoquait, et le corriger suffisait. Ici, le fichier est
+juste, et l'aléa suffit — donc aucune relecture de code ne l'aurait trouvée.
+
+Ce qui rend la reprise particulière : **elle ne peut pas s'appuyer sur le code de
+sortie**, puisqu'il vaut 0 précisément dans le cas qu'on veut rattraper. Elle
+s'appuie donc sur une vérification. Mesuré au shell avant d'écrire la boucle :
+
+| tentatives nécessaires | tentatives consommées | code de sortie de la boucle |
+| ---------------------- | --------------------- | --------------------------- |
+| 1                      | 1                     | 0                           |
+| 3                      | 3                     | 0                           |
+| plus que 3             | 3 (plafond)           | **0**                       |
+
+La dernière ligne est celle qui compte : **une boucle `for … done` sort avec 0
+même quand toutes ses tentatives ont échoué.** Une vérification placée à
+l'intérieur ne fait donc rougir personne — c'est celle qui suit le `done`, en
+`&&`, qui décide. Et elle doit vivre dans la **même couche** que l'installation :
+séparée, Docker mettrait en cache une couche cassée et ne la revérifierait
+jamais.
+
+> **Règle** — `npm ci` vert ne prouve pas que le lock est installé. Une
+> dépendance optionnelle absente est un succès pour npm et une panne pour le
+> programme. Tout artefact qui embarque une dépendance optionnelle **nécessaire**
+> doit la CHARGER à la construction, dans la couche qui l'installe.
+>
+> **Règle** — une vérification ne vaut que par ce qu'elle peut faire échouer.
+> Avant de l'écrire, demander : _où est-elle branchée, et qu'est-ce qui rougit si
+> elle échoue ?_
+
+**Ce qui le garde** : trois tests dans `tests/conteneur.test.ts`. Et la loupe a
+pris le premier en défaut avant qu'il ne serve : il cherchait les `require` dans
+la couche entière, or la sonde de la boucle cite les mêmes paquets — retirer
+`@fastify/static` de la vérification finale laissait les 24 tests verts. Ce
+n'était pas qu'un test faible, c'était le trou lui-même : un paquet vérifié
+seulement dans la boucle épuise les trois tentatives, puis passe. La garde
+n'interroge donc plus que ce qui suit le `done`.
+
 ---
 
 ## 2. Un test peut passer pour la mauvaise raison
@@ -761,15 +822,17 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 ## 9. Outils : ce qui ne marche pas comme on croit
 
-| geste                               | ce qui se passe vraiment                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)        |
-| `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                             |
-| `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                      |
-| `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                     |
-| `sleep` en avant-plan               | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-connrefused` |
-| `pkill` en fin de chaîne `&&`       | fait échouer la chaîne (code 144) — l'isoler                                   |
-| réf distante après reset sur `main` | prend du retard : **pousser la branche** après chaque repositionnement         |
+| geste                               | ce qui se passe vraiment                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)           |
+| `npm ci` + dépendance optionnelle   | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                |
+| `for … done` en shell               | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5) |
+| `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                                |
+| `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                         |
+| `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                        |
+| `sleep` en avant-plan               | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`     |
+| `pkill` en fin de chaîne `&&`       | fait échouer la chaîne (code 144) — l'isoler                                      |
+| réf distante après reset sur `main` | prend du retard : **pousser la branche** après chaque repositionnement            |
 
 ---
 

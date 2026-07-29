@@ -96,8 +96,50 @@ COPY package.json package-lock.json ./
 #
 # On retire donc UNIQUEMENT le script fautif. C'est cohérent avec ce qu'est cet
 # étage : il ne compile rien, il reçoit `dist/` de l'étage 1.
+#
+# ─── UN `npm ci` VERT NE PROUVE PAS QUE LES PAQUETS SONT LÀ ──────────────────
+#
+# Les quatre dépendances dont la ruche a besoin pour démarrer — Fastify, ses
+# deux greffons, et `better-sqlite3` — sont déclarées OPTIONNELLES. C'est
+# délibéré : un nœud membre, qui ne fait que prêter du temps-machine, n'en a
+# aucun usage, et c'est pour lui qu'elles sont optionnelles.
+#
+# Seulement « optionnel » veut dire, pour npm : SI L'INSTALLATION ÉCHOUE, JE
+# CONTINUE. `better-sqlite3` porte un script d'installation qui télécharge un
+# binaire prébuilt ; quand ce téléchargement échoue, `prebuild-install` se
+# rabat sur une compilation, laquelle réclame python3/make/g++ — absents de
+# `slim`, et absents EXPRÈS. npm affiche alors un avertissement, retire le
+# paquet du dossier, et SORT AVEC 0.
+#
+# Mesuré sur ce dépôt, deux constructions du MÊME Dockerfile et du MÊME lock,
+# à quatre minutes d'intervalle :
+#
+#     a8f8909  06:05  image construite, ruche démarrée        vert
+#     a3ceec0  06:10  image construite, ruche morte au boot   rouge
+#
+#     etat : Exited (2)
+#     ✘ L'orchestrateur ne peut pas démarrer : better-sqlite3 est absent.
+#
+# Le second commit ne touche que deux fichiers Markdown : aucune différence de
+# code ne sépare ces deux images. C'est un aléa réseau — et il est SILENCIEUX.
+#
+# D'où la boucle ci-dessous, dont il faut noter le pivot : elle reprend sur la
+# VÉRIFICATION, pas sur le code de sortie. Reprendre sur le code de sortie ne
+# rattraperait rien, puisqu'il vaut 0 précisément dans le cas qu'on veut
+# rattraper. C'est la même leçon qu'`--retry-connrefused` en CI : encore
+# faut-il reprendre sur la BONNE panne.
+#
+# Et la vérification finale ne se contente pas de résoudre les modules : elle
+# OUVRE une base et y compte une ligne. Un `require` qui aboutit prouve que le
+# dossier existe ; il ne prouve pas que le binaire natif se charge et répond.
 RUN npm pkg delete scripts.prepare \
-  && npm ci --omit=dev --no-fund --no-audit \
+  && for essai in 1 2 3; do \
+       npm ci --omit=dev --no-fund --no-audit || true; \
+       if node -e "require('better-sqlite3'); require('fastify'); require('@fastify/cors'); require('@fastify/static')"; then break; fi; \
+       echo "npm a ecarte en silence une dependance optionnelle (essai $essai sur 3)"; \
+       sleep 3; \
+     done \
+  && node -e "const D = require('better-sqlite3'); const d = new D(':memory:'); d.exec('CREATE TABLE sonde (x INTEGER)'); d.prepare('INSERT INTO sonde VALUES (?)').run(1); if (d.prepare('SELECT count(*) AS n FROM sonde').get().n !== 1) throw new Error('SQLite repond faux'); d.close(); require('fastify'); require('@fastify/cors'); require('@fastify/static');" \
   && npm cache clean --force
 
 COPY --from=construction /app/dist ./dist
