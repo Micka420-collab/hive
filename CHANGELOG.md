@@ -298,6 +298,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   pris. `tests/documents-qui-grossissent.test.ts` garde désormais les cinq
   documents qui ne font que grandir — il rougit sur le fichier tel qu'il était
   **à la première apparition du défaut**, pas seulement à la huitième.
+  **La cause est élucidée depuis** : l'entrée était insérée avant `### Fixed`,
+  motif présent **trois fois** dans le fichier, avec un `str.replace` sans
+  compte — or Python remplace TOUTES les occurrences par défaut. Les trois
+  points d'insertion des hunks correspondent exactement aux trois `### Fixed`.
+  Journal § 6bis.1.
 
 - **La préparation laissait déplacer la source par la forme COURTE d'un drapeau,
   et par la valeur d'un autre.** Deux trous dans une règle que le module énonce

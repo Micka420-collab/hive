@@ -892,6 +892,63 @@ Chacun invisible sous `pwsh`, chacun fatal chez l'utilisateur.
 
 ---
 
+## 6 bis. Un remplacement de texte sans compte touche TOUTES les occurrences
+
+### 6bis.1 — 286 lignes de CHANGELOG en triple, et la cause tient en un argument
+
+Le défaut visible est raconté au § 2.3 ter du point de vue de la garde. Voici sa
+CAUSE, trouvée après coup — la garde attrapait la rechute sans expliquer d'où
+elle venait.
+
+Le commit fondateur (`7a40c6f`) montre **trois hunks** pour une seule entrée de
+CHANGELOG : 66 lignes insérées, soit exactement trois fois vingt-deux.
+
+    @@ -7,6   +7,28   @@
+    @@ -706,6 +728,28 @@
+    @@ -868,6 +912,28 @@
+
+L'entrée était posée **avant `### Fixed`**. Or `### Fixed` figurait trois fois
+dans le fichier — aux lignes 10, 709 et 871, qui sont précisément les trois
+points d'insertion une fois retiré le contexte des hunks. La correspondance est
+exacte, elle ne laisse pas de place au doute.
+
+Reproduit en deux lignes :
+
+```python
+texte.replace(ancre, bloc + ancre)      # → 3 copies
+texte.replace(ancre, bloc + ancre, 1)   # → 1 copie
+```
+
+**En Python, `str.replace` remplace TOUTES les occurrences par défaut.** Il faut
+un troisième argument pour n'en prendre qu'une. Rien dans l'appel ne signale ce
+choix : la version fautive et la version juste se ressemblent à un caractère
+près, et la fautive est la plus courte.
+
+La croissance monotone sur huit livraisons s'explique alors toute seule : chaque
+nouvelle entrée était insérée devant les trois `### Fixed`, donc les trois copies
+grandissaient ensemble, à l'identique. 25 → 46 → 60 → 79 → 97 → 117 → 146.
+
+**Pourquoi ça a échappé huit fois** : le diff d'un tel commit est parfaitement
+lisible. Il montre trois hunks, chacun ajoutant du texte correct, au bon format,
+au bon endroit d'une section qui existe. Rien n'y est faux LOCALEMENT. Ce qui est
+faux est global — et un diff ne montre jamais le global.
+
+> **Règle** — un remplacement de texte ancré est borné à UNE occurrence, toujours
+> (`, 1` en Python, `replace_all: false` dans l'outil d'édition). Le défaut du
+> langage va dans le mauvais sens : il faut écrire quelque chose pour être
+> prudent, et ne rien écrire pour tout casser.
+>
+> **Règle** — avant d'ancrer une insertion sur un motif, COMPTER ses occurrences.
+> Un ancrage sur un motif présent trois fois n'est pas une insertion, c'est une
+> diffusion. Les titres de section (`### Fixed`, `### Added`) sont les pires
+> ancres possibles : ils se répètent par nature.
+
+**Ce qui le garde** : `tests/documents-qui-grossissent.test.ts` rougit sur toute
+répétition d'au moins huit lignes dans les cinq documents qui ne font que
+grandir. La règle ci-dessus empêche ; la garde rattrape.
+
+---
+
 ## 7. Ordre indéfini : lire, ce n'est rien ; supprimer, c'est grave
 
 `ORDER BY createdAt DESC` sans départage unique ne définit **aucun** ordre entre
