@@ -159,6 +159,20 @@ Autonomy is a ladder, not a switch, and it changes with one command:
 | `gouverne` | It acts, but **every integration goes through a human**. |
 | `plein`    | It ships and merges — on an explicitly enrolled repo.    |
 
+It changes with one command, and the command **says what it implies before
+doing it**:
+
+```bash
+npm run cli -- mode                      # the four modes, and where each project stands
+npm run cli -- mode gouverne             # announces what it widens, writes nothing
+npm run cli -- mode gouverne <project> --oui
+```
+
+**Only going up asks for confirmation.** Going down removes rights from the
+hive — always safe, and asking "are you sure?" to take back control is the
+surest way to teach people to type "yes" without reading, which makes the
+prompt useless on the day it matters.
+
 **Two switches in series**, deliberately: the _level_ is chosen by the user,
 `HIVE_RUNNER=off|on` by the host paying for machine time (default: `off`).
 Nobody alone triggers spending on someone else's machine. The big red button

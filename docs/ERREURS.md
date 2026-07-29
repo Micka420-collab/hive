@@ -252,6 +252,32 @@ une durée devinée. Tout était juste sauf le prédicat.
 > presque jamais « refusé » : c'est « accepté puis coupé ». Et le seul moyen de
 > le savoir est de regarder le code de sortie, pas de relire l'intention.
 
+### 3.3 bis — `execFileSync` vers un serveur hébergé DANS LE MÊME processus
+
+Les tests de CLI de ce dépôt lancent `src/cli.ts` avec `execFileSync`, et ils
+ont raison : ils travaillent sur des fichiers, sans serveur.
+
+`tests/mode-cli.test.ts` avait besoin d'une ruche VIVANTE, montée par
+`createServer` dans le processus de test. Avec `execFileSync`, l'interblocage
+est parfait :
+
+- `execFileSync` bloque le fil **synchroniquement** ;
+- donc la boucle d'événements ne tourne plus ;
+- donc le serveur ne peut pas répondre à la requête HTTP de la CLI ;
+- donc la CLI attend sa réponse pour toujours ;
+- donc `execFileSync` attend la CLI pour toujours.
+
+**Ce qui rend ce cas cher, c'est qu'il ne rougit pas.** La suite ne finit
+jamais : pas d'assertion fausse, pas de message, juste un test qui tourne
+jusqu'au délai de l'outil — ou jusqu'à celui de la CI, dix minutes plus tard,
+sans rien dire d'utile. Un rouge se lit ; un blocage se devine.
+
+> **Règle** — dès qu'un test lance un sous-processus qui PARLE au processus de
+> test (serveur en mémoire, socket locale, port ouvert par le test), le
+> lancement doit être **asynchrone** (`promisify(execFile)`), jamais `…Sync`.
+> Le discriminant est simple : « ce que je lance a-t-il besoin que je continue
+> à tourner ? »
+
 ### 3.4 — Un diagnostic placé en aval de ce qu'il diagnostique n'existe pas
 
 Le même pas finissait par `docker logs ruche-ci | tail -20`, mis là exprès pour
