@@ -474,3 +474,15 @@ export function etapeLineaire(v: Verification, caps: Capacites): string {
   const morceaux = [v.libelle, v.valeur, v.note].filter((m): m is string => !!m && m !== '');
   return tronquer(`[${marque}] ${morceaux.join(' — ')}`, caps.largeur, caps.unicode);
 }
+
+/**
+ * Une ligne de constat, rendue selon qu'on a un terminal ou un tuyau.
+ *
+ * Le choix entre les deux formes ci-dessus est une décision de RENDU, et il
+ * vivait recopié dans l'installeur. Deux copies d'une même règle finissent par
+ * diverger — c'est la leçon que ce dépôt vient de payer six fois sur le
+ * plancher de Node.
+ */
+export function constat(v: Verification, caps: Capacites): string {
+  return caps.cadres ? ligneVerification(v, caps) : etapeLineaire(v, caps);
+}

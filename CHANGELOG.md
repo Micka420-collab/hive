@@ -7,6 +7,20 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **🔬 Le déroulé de l'accueil devient testable** (`src/installer-assistant.ts`).
+  Il vivait dans `installer-main.ts`, **qui appelle `main()` à l'import** :
+  aucun test ne pouvait l'atteindre sans sonder des ports, écrire un `.env` et
+  poser des questions au vide. C'est exactement pour ça qu'une quatrième
+  décision avait pu s'y installer sans que rien ne rougisse. Le point d'entrée
+  ne change pas — il lance toujours l'installeur à l'import, et c'est son rôle ;
+  ce qu'il enchaînait devient un module ordinaire, avec l'écriture du `.env`
+  **injectée**. `tests/installer-assistant.test.ts` joue désormais le déroulé
+  réel avec un faux clavier et **compte les arrêts** au lieu de les mesurer une
+  fois à la main. Loupe : 8 mutants, 8 morts — dont l'état exact d'avant la
+  mesure. Journal § 2.8.
+
 ### Fixed
 
 - **🚪 Les deux portes d'entrée ne parlaient pas de la même machine.** Sortie de

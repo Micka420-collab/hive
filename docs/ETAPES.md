@@ -139,16 +139,37 @@ lente passerait encore.
    **désaccord** qui était le défaut, et aucun test ne pouvait le voir puisque
    aucun ne les regardait ensemble.
 
-### Ce qui reste sans garde, et qu'il faut dire
+### Le câblage était sans garde. Il ne l'est plus.
 
-Le **câblage** de la troisième décision — `!neuf || planOuvre(plan)` dans
-`src/installer-main.ts` — n'est tenu par aucun test. `planOuvre` l'est (loupe :
-10 mutants, 10 morts), la constante du dashboard aussi, le message de prérequis
-aussi ; le fil qui les relie ne l'est pas, parce que `installer-main.ts` LANCE
-l'installeur dès qu'on l'importe et qu'aucun test ne peut donc l'importer. Les
-quatre chemins du tableau ci-dessus ont été vérifiés **à la main**, sous pty,
-avec la commande écrite plus haut. C'est une mesure, pas une garde — et le jour
-où quelqu'un touche à cette ligne, rien ne rougira.
+Cette section disait, quelques heures durant :
+
+> Le câblage de la troisième décision — `!neuf || planOuvre(plan)` — n'est tenu
+> par aucun test […] et le jour où quelqu'un touche à cette ligne, rien ne
+> rougira.
+
+C'était vrai, et c'était la bonne façon de le dire — mais une dette écrite
+reste une dette. La cause n'était pas la difficulté : c'était que le déroulé
+vivait dans `installer-main.ts`, **qui appelle `main()` à l'import**. Aucun test
+ne pouvait l'atteindre sans sonder des ports, écrire un `.env` et poser des
+questions au vide. C'est exactement pour ça qu'une quatrième décision avait pu
+s'y installer sans que rien ne rougisse.
+
+Le déroulé vit désormais dans `src/installer-assistant.ts`, avec l'écriture du
+`.env` **injectée**. Le point d'entrée n'a pas changé — il lance toujours
+l'installeur à l'import, et c'est très bien pour un point d'entrée. Ce qui a
+changé, c'est qu'un test peut jouer le déroulé RÉEL avec un faux clavier :
+`tests/installer-assistant.test.ts`, 8 tests, qui **compte les arrêts** au lieu
+de les mesurer une fois à la main.
+
+Loupe sur ce câblage : **8 mutants, 8 morts** — dont « la confirmation revient
+toujours », qui est l'état exact du code avant la mesure, et qui fait rougir
+3 tests.
+
+Ce que le test ne couvre toujours pas : les deux décisions que
+`installer-main.ts` pose lui-même (le chemin d'entrée, la confirmation
+d'écriture sur un `.env` existant), et l'enchaînement complet. Ils restent
+vérifiés à la main, sous pty, avec la commande écrite plus haut — et le tableau
+des quatre chemins a été rejoué après l'extraction, à l'identique.
 
 ---
 
