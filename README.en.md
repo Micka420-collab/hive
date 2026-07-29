@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2310%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2590%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -182,13 +182,23 @@ stops **before** the effect, never after.
 
 Any coding AI plugs in through the `AgentAdapter` interface:
 
-| Adapter        | What it runs                                      |
-| -------------- | ------------------------------------------------- |
-| `shell`        | Simulated, the default — no process spawned.      |
-| `claude-code`  | `claude -p "<prompt>"` in the isolated workspace. |
-| `codex`        | `codex exec "<prompt>"`                           |
-| `hermes-agent` | `hermes agent run --prompt "<prompt>"`            |
-| `custom`       | Yours.                                            |
+| Adapter        | What it runs                                            |
+| -------------- | ------------------------------------------------------- |
+| `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.       |
+| `codex`        | `codex exec "<prompt>"`                                 |
+| `hermes-agent` | `hermes agent run --prompt "<prompt>"`                  |
+| `custom`       | Yours, via `HIVE_AGENT_CMD`.                            |
+| `shell`        | **Simulated** — no process spawned, the diffs are fake. |
+
+**The node detects what is installed on your machine and uses it** — nothing to
+configure. It falls back to `shell` only when it finds no agent, and it says so
+on startup, because a silent simulator is a delayed lie. `HIVE_AGENT` forces the
+choice if you want a different one.
+
+**Your subscription is enough**: the node runs the `claude` binary, which
+authenticates itself. No API key — Anthropic's or anyone else's — is required to
+put the hive to work. See **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**
+(in French).
 
 **Polyethism** gives each worker the job its experience allows, and the
 **Scouts' Council** has several agents verify a direction before committing to
@@ -244,13 +254,14 @@ two.
 
 ## 📚 Documentation
 
-| File                                             | What's in it                                           |
-| ------------------------------------------------ | ------------------------------------------------------ |
-| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**   | Each part in detail, with its trade-offs               |
-| **[docs/INSTALLATION.md](docs/INSTALLATION.md)** | Install, uninstall, service, container, backups (FR)   |
-| **[docs/ERREURS.md](docs/ERREURS.md)**           | The error journal — by lesson, with the rules (FR)     |
-| **[docs/ETAPES.md](docs/ETAPES.md)**             | The project's real state against its own promises (FR) |
-| **[CHANGELOG.md](CHANGELOG.md)**                 | What changed, version by version                       |
+| File                                                 | What's in it                                            |
+| ---------------------------------------------------- | ------------------------------------------------------- |
+| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**       | Each part in detail, with its trade-offs                |
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**     | Install, uninstall, service, container, backups (FR)    |
+| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)** | Running solo on Windows with a Claude subscription (FR) |
+| **[docs/ERREURS.md](docs/ERREURS.md)**               | The error journal — by lesson, with the rules (FR)      |
+| **[docs/ETAPES.md](docs/ETAPES.md)**                 | The project's real state against its own promises (FR)  |
+| **[CHANGELOG.md](CHANGELOG.md)**                     | What changed, version by version                        |
 
 Most of the deep documentation is in French, as is the codebase's commentary.
 `docs/FEATURES.en.md` is the English reference.
