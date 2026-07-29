@@ -359,3 +359,140 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     ).toBeLessThanOrEqual(LIMITS.hiveContext);
   });
 });
+
+// ─── LA CONTRE-EXPERTISE, VUE DEPUIS LA RUCHE ────────────────────────────────
+//
+// Le module pur est verrouillé dans `contre-expertise.test.ts`. Ici, la seule
+// question qui reste : la ruche s'en sert-elle vraiment quand une production
+// arrive, et DIT-elle ce qu'elle a décidé ?
+
+describe('la contre-expertise est annoncée à chaque production', () => {
+  let server: HiveServer | null = null;
+  let dir: string | null = null;
+  const sockets: WebSocket[] = [];
+
+  afterEach(async () => {
+    for (const ws of sockets.splice(0)) ws.close();
+    await server?.stop();
+    server = null;
+    if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    dir = null;
+  });
+
+  async function ruche(): Promise<HiveServer> {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-ce-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60,
+    });
+    return server;
+  }
+
+  async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<Assignation[]> {
+    const recues: Assignation[] = [];
+    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
+    sockets.push(ws);
+    ws.on('message', (data) => {
+      const m = JSON.parse(data.toString()) as Assignation;
+      if (m.type === 'assign_task') recues.push(m);
+    });
+    await new Promise<void>((r, j) => {
+      ws.once('open', () => r());
+      ws.once('error', j);
+    });
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        token: TOKEN,
+        name: nodeId,
+        ownerName: 'test',
+        agentType,
+        maxConcurrency: 1,
+        nodeId,
+      }),
+    );
+    return recues;
+  }
+
+  const attendreEvt = async (srv: HiveServer, type: string, ms = 8_000): Promise<unknown> => {
+    const fin = Date.now() + ms;
+    while (Date.now() < fin) {
+      const e = srv.store.listEvents(0, 500).find((x) => x.type === type);
+      if (e) return e.payload;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return undefined;
+  };
+
+  it('UN SECOND MODÈLE EN LIGNE ⇒ la ruche le nomme', { timeout: 40_000 }, async () => {
+    const srv = await ruche();
+    const recues = await noeud(srv, 'producteur', 'claude-code');
+    await noeud(srv, 'relecteur', 'codex');
+
+    const projet = srv.store.createProject({ name: 'P' });
+    const t = srv.store.createTask({ projectId: projet.id, title: 'T', prompt: 'p' });
+    srv.store.patchTask(t.id, { status: 'ready' });
+
+    const fin = Date.now() + 8_000;
+    while (recues.length === 0 && Date.now() < fin) await new Promise((r) => setTimeout(r, 40));
+    expect(recues.length, 'aucune assignation').toBeGreaterThan(0);
+    const idTache = recues[0]?.task?.id as string;
+
+    const ws = sockets[0] as WebSocket;
+    ws.send(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: idTache,
+        success: true,
+        diff: 'diff --git a/x b/x\n+const a = 1;',
+        logs: 'ok',
+        durationMs: 5,
+        subAgents: [],
+      }),
+    );
+
+    const p = (await attendreEvt(srv, 'contre_expertise')) as
+      { possible?: boolean; modeles?: string[] } | undefined;
+    expect(p, 'aucun événement contre_expertise').toBeDefined();
+    expect(p?.possible).toBe(true);
+    expect(p?.modeles, 'le modèle relecteur doit être nommé').toEqual(['codex']);
+  });
+
+  it('SEUL SUR SON MODÈLE ⇒ un REFUS VISIBLE, pas un silence', { timeout: 40_000 }, async () => {
+    // Le cas qui compte : tu, « aucun second modèle » se confondrait avec
+    // « on a relu et rien trouvé ». Deux situations opposées, un même écran.
+    const srv = await ruche();
+    const recues = await noeud(srv, 'seul', 'claude-code');
+
+    const projet = srv.store.createProject({ name: 'P' });
+    const t = srv.store.createTask({ projectId: projet.id, title: 'T', prompt: 'p' });
+    srv.store.patchTask(t.id, { status: 'ready' });
+
+    const fin = Date.now() + 8_000;
+    while (recues.length === 0 && Date.now() < fin) await new Promise((r) => setTimeout(r, 40));
+    const idTache = recues[0]?.task?.id as string;
+
+    (sockets[0] as WebSocket).send(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: idTache,
+        success: true,
+        diff: 'diff --git a/y b/y\n+const b = 2;',
+        logs: 'ok',
+        durationMs: 5,
+        subAgents: [],
+      }),
+    );
+
+    const p = (await attendreEvt(srv, 'contre_expertise')) as
+      { possible?: boolean; motif?: string } | undefined;
+    expect(p, 'le refus doit être journalisé, pas tu').toBeDefined();
+    expect(p?.possible).toBe(false);
+    expect(p?.motif).toMatch(/angles morts/);
+  });
+});

@@ -176,6 +176,7 @@ import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
 import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
 import { aConsolider } from '../shared/cerveau.js';
+import { choisirCritiques } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
@@ -618,6 +619,68 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * une PROPOSITION, visible à la Chronique, que quelqu'un transforme en règle
    * s'il la comprend. La ruche accumule la matière ; l'humain écrit la loi.
    */
+  /**
+   * Dit si cette production PEUT être relue par un autre modèle, et par lequel.
+   *
+   * ─── CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS ─────────────────
+   *
+   * Elle DÉCIDE et elle ANNONCE. Elle ne lance pas la relecture.
+   *
+   * Lancer demanderait de confier un prompt à un nœud PRÉCIS, et ce chemin
+   * n'existe aujourd'hui qu'à l'intérieur de `scheduler.startRace` — lié à une
+   * tâche existante et à une course. Le poser proprement est une pièce
+   * d'orchestration à part entière, pas un ajout de trois lignes ici.
+   *
+   * Ce qui est livré est tout de même utile seul : au moment où une production
+   * entre en revue, le journal dit « codex peut la relire » ou « aucun second
+   * modèle en ligne ». C'est exactement l'information qui manque au relecteur
+   * humain devant la Miellerie — et sans elle, personne ne sait qu'il existe
+   * un avis à demander.
+   *
+   * Le REFUS est journalisé lui aussi. « Aucun second modèle » est une
+   * information : tue, elle se confondrait avec « personne n'a rien trouvé ».
+   */
+  const signalerContreExpertise = (
+    taskId: string,
+    nodeId: string,
+    diff: string,
+    logs: string,
+  ): void => {
+    const task = store.getTask(taskId);
+    const producteur = store.getNode(nodeId);
+    if (!task || !producteur) return;
+
+    const choix = choisirCritiques(
+      {
+        taskId,
+        titre: task.title,
+        nodeId,
+        agentType: producteur.agentType,
+        diff,
+        logs,
+      },
+      store.listNodes().map((n) => ({
+        nodeId: n.id,
+        nom: n.name,
+        agentType: n.agentType,
+        enLigne: n.status === 'online',
+      })),
+    );
+
+    emitEvent(
+      'contre_expertise',
+      choix.genre === 'choix'
+        ? {
+            taskId,
+            possible: true,
+            producteur: producteur.agentType,
+            modeles: choix.modeles,
+            relecteurs: choix.relecteurs.map((r) => r.nom),
+          }
+        : { taskId, possible: false, producteur: producteur.agentType, motif: choix.motif },
+    );
+  };
+
   const noterEchec = (taskId: string, logs: string): void => {
     const task = store.getTask(taskId);
     if (!task) return;
@@ -5974,6 +6037,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
             if (pris && !msg.success) {
               noterEchec(msg.taskId, msg.logs ?? '');
+            }
+            // Une production qui part en revue : la ruche dit s'il existe un
+            // SECOND MODÈLE capable de la relire. Voir `signalerContreExpertise`.
+            if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
+              signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');
             }
             break;
           }
