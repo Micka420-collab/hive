@@ -140,7 +140,7 @@ strict. La différence est dans l'appelant, pas dans la commande.
 
 | #   | Critère                                                                  | État | Ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | --- | ------------------------------------------------------------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Machine nue → ruche qui tourne en **une commande**, **≤ 3 décisions**    | 🟡   | **« ≤ 3 décisions » est MESURÉ : 3.** Et il en fallait **4** avant cette mesure — voir sous le tableau. « Machine nue en une commande » reste non mesuré de bout en bout : `install.sh` a été lancé pour de vrai et s'est **arrêté au prérequis**, ce conteneur portant Node 22. Ce n'est pas un échec du script, c'est lui qui fait son travail.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 1   | Machine nue → ruche qui tourne en **une commande**, **≤ 3 décisions**    | ✅   | **Mesuré de bout en bout** : `sh install.sh` sur une machine en Node 24, dans un dossier vide → **23,3 s, code 0**, `.env` en 0600, et `hive doctor` rend 10 ✔. Décisions : **3** en interactif, **0** avec `--non-interactive`. Détail et réserves sous le tableau.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 2   | **< 60 s** hors téléchargement npm                                       | ✅   | **Mesuré : ≈ 2,5 s**, contre 60 s de budget. Détail et réglages du banc sous le tableau. (La note d'avant citait un drapeau `--timings` : **il n'existe pas** — l'installeur ne déclare que `--yes`, `--dry-run`, `--non-interactive`, `--json`, `--help`. Une note qui invente l'outil de sa propre mesure est le meilleur indice qu'elle n'a jamais été faite.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 3   | **0 nouvelle dépendance runtime** — TUI en ANSI à la main                | ✅   | `tests/paquet.test.ts` : `dependencies` = `['simple-git', 'ws']`, point.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 4   | Relançable **n fois** sans effet de bord                                 | ✅   | `tests/installer.test.ts` (27 tests) : « préserve chaque valeur existante », « complète les clés absentes sans toucher aux autres ».                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -151,8 +151,10 @@ strict. La différence est dans l'appelant, pas dans la commande.
 | 9   | Déploiement **sans écran** : `--non-interactive` + env + codes de sortie | 🟡   | Drapeaux et codes existent (`src/args.ts`, `src/codes-sortie.ts`). **`examples/` ne contient que `projet-exemple.json`** — le script de bout en bout manque.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 10  | README **FR et EN** + `CHANGELOG.md` à jour                              | ✅   | Les trois existent et sont tenus. **Cette ligne a été FAUSSE un temps** : elle affichait ✅ pendant que six fonctionnalités livrées (Cerveau, contre-expertise, `hive mode`, image, sauvegarde, désinstallation) manquaient au CHANGELOG. Un fichier d'état qui se coche lui-même est le premier à dériver — corrigé, et noté ici pour que la prochaine relecture s'en méfie. **Puis fausse une SECONDE fois, autrement** : le CHANGELOG était bien « à jour », et un cinquième de son contenu y figurait **trois fois** — dont une copie tombée dans la section `[0.2.0]`, déjà publiée. « À jour » ne veut pas dire « juste ». Le défaut a grossi huit livraisons durant sans qu'aucune relecture le voie, parce qu'une duplication est invisible dans un diff. Ce n'est plus une ligne d'état qui garde ce critère, c'est `tests/documents-qui-grossissent.test.ts`. |
 
-**2 critères sur 10 ne sont pas tenus** (1 et 9, partiellement) — et le premier
-est la porte d'entrée du projet.
+**1 critère sur 10 n'est pas tenu** (le 9, partiellement : les drapeaux et les
+codes de sortie existent, le script d'exemple de bout en bout manque). Le
+critère 1 a été mesuré de bout en bout ; ce qu'il reste à lui reprocher est
+écrit sous le tableau plutôt que caché derrière son ✅.
 
 ---
 
@@ -221,6 +223,55 @@ Trois exécutions chacune, mêmes conditions :
 **≈ 2,5 s** hors npm. Même en COMPTANT npm, on reste à ≈ 25 s : le critère
 tient dans les deux lectures, avec une marge telle qu'une machine dix fois plus
 lente passerait encore.
+
+### Le critère 1, mesuré de bout en bout — enfin
+
+La première tentative s'était arrêtée au prérequis : ce conteneur porte Node 22
+et `install.sh` exige 24. Ce n'était pas un échec du script, c'était lui qui
+faisait son travail — mais ça laissait la ligne non mesurée.
+
+`npx node@24` fournit un binaire Node 24. Avec lui en tête de `PATH`, la
+commande a été lancée pour de vrai, dans un dossier vide :
+
+```sh
+PATH="$N24:$PATH" HIVE_DIR=/tmp/vierge sh install.sh --non-interactive --json
+```
+
+| ce qui a été mesuré                           | résultat                       |
+| --------------------------------------------- | ------------------------------ |
+| durée totale, une seule commande              | **23 313 ms**                  |
+| dont `npm install` (283 paquets)              | ≈ 20 000 ms — **hors critère** |
+| **le reste** (prérequis + clone + installeur) | **≈ 3,3 s**                    |
+| code de sortie                                | **0**                          |
+| `.env`                                        | créé, 8 clés, permissions 600  |
+| décisions posées                              | **0** (`--non-interactive`)    |
+
+**Et la ruche installée est VIVANTE**, ce qui est la moitié du critère qu'un
+code de sortie ne prouve pas : `better-sqlite3` et `fastify` se chargent dans
+le clone — c'est-à-dire que la panne de l'image morte ne s'y produit pas — et
+`hive doctor` rend **10 ✔** sur douze diagnostics.
+
+#### Les deux points que le doctor soulève, et qu'il faut dire
+
+```
+⚠ dashboard   tableau de bord non construit — la ruche tourne, mais sans écran
+? websocket   ruche éteinte — le WebSocket n'a pas pu être essayé
+```
+
+Le second est normal : on n'a pas démarré la ruche. **Le premier est un vrai
+constat.** `install.sh` ne construit pas le dashboard ; après « une commande »,
+la ruche tourne et n'a pas d'écran. Le `npm run build:dashboard` coûte ≈ 1 s,
+et l'installeur le donne dans ses prochaines étapes — c'est donc documenté, pas
+caché. Reste que « ruche qui tourne » et « ruche qu'on peut regarder » ne sont
+pas la même chose, et que le doctor a raison de le signaler. **Changer ça est
+une décision sur le produit, pas sur la mesure** : elle n'est pas prise ici.
+
+#### Ce que ce banc n'est pas
+
+Ce conteneur avait déjà `git`, `npm`, et un Node 24 fourni par `npx`. Ce n'est
+donc pas « une VM Windows 11 vierge » — le carnet le disait déjà, et ça reste
+vrai. Ce qui a changé : la commande a été **lancée**, du début à la fin, et son
+résultat vérifié autrement que par son code de sortie.
 
 ### Ce que la mesure a trouvé, et que personne ne cherchait
 
