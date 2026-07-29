@@ -13,12 +13,12 @@
 
 ## Lot 14 — Les Chantiers : lancer les travaux DÉCLARÉS du dépôt
 
-| pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. La décision** — quels travaux, et lesquels sans humain  | ✅   | `src/shared/chantier.ts` + 23 tests. La ruche choisit dans ce que le dépôt déclare et n'invente jamais une commande ; ce qui SORT de la machine (publier, déployer, démarrer) exige un humain. Loupe : 10 mutants, et le survivant a révélé un vrai trou — `build:publish` passait pour de la vérification, donc automatisable.                          |
-| **2. L'exécution locale** — lancer un chantier sur un nœud   | ✅   | `POST /api/projects/:id/chantiers/:nom/run` + `assign_chantier`/`chantier_result` + `runChantierJob`. **19 tests**, dont deux qui montent un `HiveNodeClient` RÉEL clonant un dépôt git et lançant `npm run` (codes 0 et 1 vérifiés), et trois qui font parler un **faux hub hostile**. Loupe : **17 mutants, 17 morts**.                                |
-| **3. GitHub Actions** — lister, lancer, lire l'état d'un run | ✅   | `listerWorkflows`, `lancerWorkflow` (workflow_dispatch) et `lireRuns` dans `github.ts`, décision pure dans `src/shared/workflow.ts`, **27 tests**, `Fetcheur` injecté — aucun test ne touche le réseau. Loupe : **15 mutants, 15 morts**. La frontière est celle des Chantiers : on ne lance qu'un workflow que l'API DÉCLARE, **par son id numérique**. |
-| **4. La liberté d'améliorer l'environnement**                | ✅   | Elle existe déjà et s'appelle `preparation.ts` : le dépôt déclare, la ruche installe. Ouvrir une porte plus large réintroduirait les deux failles fermées par `commande-test.ts` et `preparation.ts` — ce n'est pas une prudence de principe, c'est de l'expérience.                                                                                     |
+| pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. La décision** — quels travaux, et lesquels sans humain  | ✅   | `src/shared/chantier.ts` + 23 tests. La ruche choisit dans ce que le dépôt déclare et n'invente jamais une commande ; ce qui SORT de la machine (publier, déployer, démarrer) exige un humain. Loupe : 10 mutants, et le survivant a révélé un vrai trou — `build:publish` passait pour de la vérification, donc automatisable. |
+| **2. L'exécution locale** — lancer un chantier sur un nœud   | ✅   | `POST /api/projects/:id/chantiers/:nom/run` + `assign_chantier`/`chantier_result` + `runChantierJob`. **19 tests**, dont deux qui montent un `HiveNodeClient` RÉEL clonant un dépôt git et lançant `npm run` (codes 0 et 1 vérifiés), et trois qui font parler un **faux hub hostile**. Loupe : **17 mutants, 17 morts**.       |
+| **3. GitHub Actions** — lister, lancer, lire l'état d'un run | ✅   | `listerWorkflows`, `lancerWorkflow` (workflow_dispatch), `lireRuns` — **et les trois routes qui les appellent**. 37 tests, `Fetcheur` injecté, loupe 15 + 8 mutants tous morts. Frontière : un workflow que l'API DÉCLARE, **par son id numérique**, jamais un nom de fichier.                                                  |
+| **4. La liberté d'améliorer l'environnement**                | ✅   | Elle existe déjà et s'appelle `preparation.ts` : le dépôt déclare, la ruche installe. Ouvrir une porte plus large réintroduirait les deux failles fermées par `commande-test.ts` et `preparation.ts` — ce n'est pas une prudence de principe, c'est de l'expérience.                                                            |
 
 > **La règle a été tenue** : « rien ne passe ✅ tant qu'un test ne montre pas un
 > chantier réellement lancé sur un nœud ». Deux tests montent un vrai
@@ -26,10 +26,14 @@
 > codes de sortie 0 et 1 tous deux vérifiés, parce qu'un nœud qui rapporterait
 > toujours « ça marche » passerait avec le seul cas heureux.
 >
-> **Reste débranchée : la pièce 3.** Les workflows GitHub savent lister, lancer
-> et relire ; rien ne les appelle encore côté produit. C'est l'état dans lequel
-> le Cerveau et la contre-expertise sont restés deux PR chacun — dit ici plutôt
-> que laissé découvrir.
+> **Les quatre pièces sont branchées.** Le lot 14 répond à la demande d'origine
+> — « lancer des actions de workflow en local ET sur GitHub » — des deux côtés :
+> un nœud clone et lance ce que le `package.json` déclare, et l'API GitHub lance
+> ce que le dépôt a marqué `workflow_dispatch`.
+>
+> Reste à faire, et c'est dit plutôt que laissé découvrir : **rien de tout cela
+> n'a d'écran**. Le dashboard ne montre ni les chantiers ni les workflows ; ce
+> sont des routes, utilisables à la main ou par un script.
 
 ### Le piège de la pièce 3, et pourquoi il vaut d'être écrit
 
@@ -93,6 +97,27 @@ demande hostile. Il a donc fallu un **faux hub** qui envoie ce qu'un vrai
 refuserait — la seule façon d'exercer une garde que le reste du système rend
 inatteignable. Trois tests la tiennent désormais, dont un qui vérifie qu'elle
 n'est pas un mur : ce que le dépôt déclare vraiment passe.
+
+### Lancer un workflow, est-ce « sortant » ?
+
+La question s'est posée en branchant la pièce 3, et elle méritait mieux qu'un
+réflexe. Un chantier sortant — publier, déployer, démarrer — n'est pas lançable
+par la route locale. Un workflow tourne dehors, peut déployer, consomme des
+minutes : la même règle devrait s'appliquer.
+
+**Ce qui le distingue tient en une ligne de YAML : `on: workflow_dispatch:`.**
+
+C'est le propriétaire du dépôt qui l'écrit, dans le dépôt, sur sa branche par
+défaut. Ce n'est pas une CAPACITÉ que la ruche découvre en lisant un nom — c'est
+une PERMISSION que le dépôt déclare, lisible par une machine, et **GitHub la
+fait respecter lui-même** : un workflow qui ne la porte pas répond 422, quoi
+qu'on demande.
+
+C'est la forme la plus forte de « la ruche exécute ce que le DÉPÔT déclare »
+qu'on puisse trouver — plus forte qu'un nom de script, qui n'est qu'une
+convention. La route existe donc, et la ruche ne choisit toujours pas
+librement : seulement dans la liste que l'API vient de rendre, par identifiant
+numérique.
 
 Ce que la route n'expose PAS, et c'est délibéré : `intentionHumaine`. Une
 requête HTTP ne peut pas prouver qu'un humain est derrière, et `jugerChantier`

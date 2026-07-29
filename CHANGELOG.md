@@ -9,6 +9,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **⚙️ Les workflows GitHub sont BRANCHÉS** — trois routes (`/workflows`,
+  `/workflows/runs`, `/workflows/:id/run`) appellent enfin le client livré à la
+  version précédente. **La décision qui autorise la route de lancement à
+  exister** : un chantier sortant n'est pas lançable, faute de pouvoir prouver
+  qu'un humain est derrière ; un workflow, lui, porte `on: workflow_dispatch:` —
+  écrit par le propriétaire du dépôt, dans le dépôt. Ce n'est pas une capacité
+  que la ruche découvre, c'est **une permission que le dépôt déclare**, et
+  GitHub la fait respecter lui-même (422 sinon). C'est la forme la plus forte de
+  « la ruche exécute ce que le dépôt déclare ». Nouveau `fullNameDepuisUrl` pour
+  passer du `repoUrl` d'un projet au `owner/repo` de l'API — et **un test y a
+  trouvé un défaut réel** : `new URL('https://github.com/../../etc/passwd')
+.pathname` rend `/etc/passwd`, les `..` étant RÉSOLUS. La fonction rendait
+  donc `etc/passwd`, un `owner/repo` parfaitement bien formé désignant un dépôt
+  que personne n'a nommé. Loupe : 8 mutants — dont un survivant qui a révélé une
+  garde **en double** avec `lireRuns`, retirée plutôt que verrouillée : une
+  garde qu'on peut supprimer sans rien changer n'est pas une garde, c'est un
+  endroit de plus où la règle peut diverger.
+
 - **🏗️ Les Chantiers sont BRANCHÉS : la ruche lance vraiment les travaux que le
   dépôt déclare.** `POST /api/projects/:id/chantiers/:nom/run` lit le
   `package.json` du miroir, juge, et relaie à un nœud, qui clone et lance.

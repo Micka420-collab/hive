@@ -82,7 +82,16 @@ import {
 } from './conseil-runner.js';
 import type { DependancesConseil, ResultatOuvriere } from './conseil-runner.js';
 import { evaluerConseil } from './conseil.js';
-import { ErreurGithub, filtrer, lireUnDepot, listerDepots } from './github.js';
+import {
+  ErreurGithub,
+  filtrer,
+  fullNameDepuisUrl,
+  lancerWorkflow,
+  lireRuns,
+  listerDepots,
+  listerWorkflows,
+  lireUnDepot,
+} from './github.js';
 import {
   corpsPr,
   depotDepuisUrl,
@@ -4613,6 +4622,159 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         argv: argvDe(req.params.nom).join(' '),
       });
       return reply.code(202).send({ chantierId, nodeId: node.id, nom: req.params.nom });
+    },
+  );
+
+  // ─── LES WORKFLOWS GITHUB ──────────────────────────────────────────────────
+  //
+  // Le pendant distant des Chantiers : là-bas, c'est GitHub qui exécute, et on
+  // lui demande par son API.
+  //
+  // ─── LA DÉCISION QUI AUTORISE CETTE ROUTE À EXISTER ────────────────────────
+  //
+  // Un chantier SORTANT (publier, déployer, démarrer) n'est pas lançable par la
+  // route locale : elle ne peut pas prouver qu'un humain est derrière. On
+  // pourrait croire que lancer un workflow tombe sous la même règle — il tourne
+  // à l'extérieur, il peut déployer, il consomme des minutes.
+  //
+  // Ce qui le distingue tient en une ligne de YAML : `on: workflow_dispatch:`.
+  //
+  // C'est le propriétaire du dépôt qui l'écrit, dans le dépôt, sur sa branche
+  // par défaut. Ce n'est pas une CAPACITÉ que la ruche découvre — c'est une
+  // PERMISSION que le dépôt déclare, lisible par une machine, et GitHub la fait
+  // respecter lui-même : un workflow qui ne la porte pas répond 422, quoi qu'on
+  // demande. C'est la forme la plus forte de « la ruche exécute ce que le dépôt
+  // déclare » qu'on puisse trouver.
+  //
+  // Et la ruche ne choisit toujours pas librement : seulement dans la liste que
+  // l'API vient de rendre, par identifiant numérique — jamais par un nom de
+  // fichier, qui serait un morceau d'URL (voir `shared/workflow.ts`).
+
+  /** Le `owner/repo` d'un projet, ou une réponse d'erreur déjà envoyée. */
+  const depotGithubDe = (project: Project, reply: FastifyReply): string | null => {
+    const fullName = project.repoUrl ? fullNameDepuisUrl(project.repoUrl) : null;
+    if (!fullName) {
+      reply.code(400).send({
+        error: 'ce projet n’a pas de dépôt GitHub',
+        detail:
+          'Les workflows demandent un dépôt hébergé sur GitHub. Ce projet pointe ' +
+          'vers autre chose (un chemin local, ou une URL que la ruche ne sait pas lire).',
+      });
+      return null;
+    }
+    return fullName;
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/workflows',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!jetonGithub) return sansJeton(reply);
+      const fullName = depotGithubDe(project, reply);
+      if (!fullName) return reply;
+      try {
+        const { workflows, tronque } = await listerWorkflows(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+        );
+        return reply.send({ workflows, tronque });
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  app.get<{ Params: { projectId: string }; Querystring: { workflowId?: string } }>(
+    '/api/projects/:projectId/workflows/runs',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!jetonGithub) return sansJeton(reply);
+      const fullName = depotGithubDe(project, reply);
+      if (!fullName) return reply;
+      // `workflowId` arrive en chaîne (querystring). `Number` et non
+      // `parseInt` : « 12abc » deviendrait 12 avec `parseInt`, et 12 n'est pas
+      // ce qui a été demandé.
+      //
+      // LA VÉRIFICATION VIT DANS `lireRuns`, PAS ICI. Elle y était en double,
+      // et la loupe l'a montré : couper la copie de cette route ne faisait
+      // rougir personne, parce que `lireRuns` refuse déjà un identifiant qui
+      // n'en est pas un. Une garde qu'on peut retirer sans rien changer n'est
+      // pas une garde — c'est un endroit de plus où la règle peut diverger.
+      const brut = req.query.workflowId;
+      const id = brut === undefined ? undefined : Number(brut);
+      try {
+        return reply.send({
+          runs: await lireRuns(
+            { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+            fullName,
+            id === undefined ? {} : { workflowId: id },
+          ),
+        });
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; workflowId: string }; Body: { ref?: string } }>(
+    '/api/projects/:projectId/workflows/:workflowId/run',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { ref: { type: 'string', minLength: 1, maxLength: 255 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!jetonGithub) return sansJeton(reply);
+      const fullName = depotGithubDe(project, reply);
+      if (!fullName) return reply;
+
+      const id = Number(req.params.workflowId);
+      if (!Number.isSafeInteger(id)) {
+        return reply.code(400).send({
+          error: 'identifiant de workflow invalide',
+          detail:
+            'Un workflow se désigne par son identifiant NUMÉRIQUE, jamais par un ' +
+            'nom de fichier : ce segment d’URL accepte les deux côté GitHub, et ' +
+            'accepter le nom laisserait écrire un morceau d’URL de son API.',
+        });
+      }
+      // La branche par défaut de la ruche est `main` ; le dépôt peut en avoir
+      // une autre, d'où le réglage. Un défaut DOCUMENTÉ vaut mieux qu'une
+      // devinette silencieuse.
+      const ref = req.body?.ref ?? 'main';
+      try {
+        const lance = await lancerWorkflow(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+          id,
+          ref,
+        );
+        emitEvent('workflow_lance', {
+          projectId: project.id,
+          workflowId: lance.workflow.id,
+          nom: lance.workflow.nom,
+          chemin: lance.workflow.chemin,
+          ref: lance.ref,
+        });
+        // 202 comme les chantiers : GitHub rend 204 SANS CORPS et le run
+        // n'existe pas encore au retour de l'appel. On ne peut donc pas rendre
+        // d'identifiant de run — c'est `/workflows/runs` qui le trouvera.
+        return reply.code(202).send({ workflow: lance.workflow, ref: lance.ref });
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
     },
   );
 
