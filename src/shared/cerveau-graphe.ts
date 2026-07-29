@@ -183,3 +183,102 @@ export function graphe(notes: readonly Note[], maintenant: number): Graphe {
     total: noeuds.length,
   };
 }
+
+// ═══ EXPLORER LE GRAPHE ══════════════════════════════════════════════════════
+
+/** Ce que l'utilisateur a demandé à voir. */
+export interface Criteres {
+  /** Texte libre : cherche dans le titre ET dans l'identifiant. */
+  readonly texte?: string;
+  /** Genres retenus. Vide ou absent = tous. */
+  readonly genres?: readonly Genre[];
+  /** Ne garder que les notes qui n'ont JAMAIS servi. */
+  readonly dormantes?: boolean;
+}
+
+/**
+ * Réduit une chaîne à sa forme comparable : sans accents, sans casse.
+ *
+ * ─── POURQUOI LE RETRAIT DES ACCENTS EST NÉCESSAIRE ICI ──────────────────────
+ *
+ * Ailleurs dans le dépôt, `normalize('NFD')` suffit à faire matcher « validé »
+ * contre `/\bvalide\b/`, parce que `\b` est ASCII et tombe juste après le
+ * « e ». Ici c'est une recherche de SOUS-CHAÎNE : « decision » ne se trouve pas
+ * dans « décision » décomposé, puisqu'une marque combinante s'intercale entre
+ * le « e » et le « c ». Il faut donc bel et bien la retirer.
+ *
+ * La nuance a coûté un mutant survivant une fois ; elle est écrite pour ne pas
+ * la reperdre.
+ */
+function comparable(texte: string): string {
+  return texte
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toLowerCase();
+}
+
+/**
+ * Le sous-graphe qui répond aux critères.
+ *
+ * ─── LA RÈGLE QUI EMPÊCHE LE FILTRE DE MENTIR ────────────────────────────────
+ *
+ * Une arête ne survit que si SES DEUX BOUTS survivent. Garder une arête dont
+ * une extrémité a été filtrée reviendrait à tracer un trait vers rien —
+ * exactement le mensonge qu'on refuse déjà pour les liens morts, et il serait
+ * même pire ici : l'utilisateur vient de masquer cette note lui-même, il
+ * croirait donc à un lien vers autre chose.
+ *
+ * Le graphe rendu se DÉCRIT LUI-MÊME : `total`, `parGenre` et `servies`
+ * comptent ce qui est visible, pas ce qui existait avant. Un objet dont les
+ * compteurs parlent d'autre chose que son contenu est un piège pour l'appelant
+ * — c'est à l'écran de garder le graphe entier à côté s'il veut afficher les
+ * deux.
+ */
+export function filtrer(g: Graphe, criteres: Criteres): Graphe {
+  const texte = comparable((criteres.texte ?? '').trim());
+  const genres = criteres.genres ?? [];
+  const parGenreVoulu = new Set<Genre>(genres);
+
+  const gardes = g.noeuds.filter((n) => {
+    // Une recherche VIDE ne filtre rien — le cas contraire ferait croire à un
+    // cerveau vide au chargement, tant qu'on n'a pas tapé.
+    //
+    // Pas de garde `texte !== ''` : `includes('')` vaut TOUJOURS vrai, donc
+    // elle ne pourrait rien changer. La loupe l'a tuée sans faire rougir un
+    // seul test, et la mesure a confirmé — une ligne qu'aucun test ne peut
+    // tuer est du décor. Le comportement reste épinglé par son test.
+    if (!comparable(`${n.titre} ${n.id}`).includes(texte)) return false;
+    // Une liste de genres VIDE veut dire « tous ». Traduire « aucun genre
+    // coché » par « aucune note » donnerait un écran noir à qui vient de
+    // décocher la dernière case, sans lui dire pourquoi.
+    if (parGenreVoulu.size > 0 && !parGenreVoulu.has(n.genre)) return false;
+    if (criteres.dormantes === true && n.serviIlYaJours !== null) return false;
+    return true;
+  });
+
+  const visibles = new Set(gardes.map((n) => n.id));
+  const parGenre = Object.fromEntries(GENRES.map((x) => [x, 0])) as Record<Genre, number>;
+  for (const n of gardes) parGenre[n.genre] += 1;
+
+  return {
+    noeuds: gardes,
+    aretes: g.aretes.filter((a) => visibles.has(a.de) && visibles.has(a.vers)),
+    // Les liens morts des seules notes visibles : afficher ceux d'une note
+    // masquée enverrait réparer quelque chose qu'on ne voit pas.
+    liensMorts: g.liensMorts.filter((l) => visibles.has(l.de)),
+    orphelines: g.orphelines.filter((id) => visibles.has(id)),
+    parGenre,
+    servies: gardes.filter((n) => n.serviIlYaJours !== null).length,
+    total: gardes.length,
+  };
+}
+
+/** Les voisins immédiats d'une note, dans un ordre stable. */
+export function voisins(g: Graphe, id: string): string[] {
+  const v = new Set<string>();
+  for (const a of g.aretes) {
+    if (a.de === id) v.add(a.vers);
+    else if (a.vers === id) v.add(a.de);
+  }
+  return [...v].sort((a, b) => a.localeCompare(b));
+}

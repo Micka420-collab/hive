@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Genre, Note } from '../src/shared/cerveau.js';
-import { graphe } from '../src/shared/cerveau-graphe.js';
+import { filtrer, graphe, voisins } from '../src/shared/cerveau-graphe.js';
 
 const JOUR = 86_400_000;
 const MAINTENANT = 1_700_000_000_000;
@@ -188,5 +188,110 @@ describe('LE CAS VIDE', () => {
     expect(g.noeuds).toEqual([]);
     expect(g.aretes).toEqual([]);
     expect(g.servies).toBe(0);
+  });
+});
+
+describe('EXPLORER : filtrer sans mentir', () => {
+  const monde = () =>
+    graphe(
+      [
+        note('inv-a', {
+          genre: 'invariant',
+          titre: 'Décision de sûreté',
+          serviLe: iso(MAINTENANT),
+          corps: '[[lec-b]]',
+        }),
+        note('lec-b', { genre: 'lecon', titre: 'Muter avant le test', corps: '[[ep-c]]' }),
+        note('ep-c', { genre: 'episode', titre: 'fetch failed', corps: 'voir [[fantome]]' }),
+      ],
+      MAINTENANT,
+    );
+
+  it('UNE ARÊTE NE SURVIT QUE SI SES DEUX BOUTS SURVIVENT', () => {
+    // ─── LE MENSONGE QUE CETTE RÈGLE EMPÊCHE ───────────────────────────────
+    //
+    // Garder une arête dont une extrémité est masquée trace un trait vers
+    // rien. C'est le mensonge des liens morts, en pire : l'utilisateur vient
+    // de masquer cette note lui-même, il croirait donc à un lien vers autre
+    // chose.
+    const f = filtrer(monde(), { genres: ['lecon', 'episode'] });
+    expect(f.noeuds.map((n) => n.id)).toEqual(['ep-c', 'lec-b']);
+    // L'arête inv-a → lec-b disparaît avec inv-a ; lec-b → ep-c reste.
+    expect(f.aretes).toHaveLength(1);
+    expect(f.aretes[0]?.de, 'c’est lec-b qui cite ep-c').toBe('lec-b');
+    expect(f.aretes[0]?.vers).toBe('ep-c');
+  });
+
+  it('LE GRAPHE FILTRÉ SE DÉCRIT LUI-MÊME', () => {
+    // Des compteurs qui parleraient du graphe d'AVANT seraient un piège pour
+    // l'appelant : il afficherait « 3 notes » sur un écran qui en montre une.
+    const f = filtrer(monde(), { genres: ['invariant'] });
+    expect(f.total).toBe(1);
+    expect(f.parGenre.invariant).toBe(1);
+    expect(f.parGenre.lecon).toBe(0);
+    expect(f.servies).toBe(1);
+  });
+
+  it('LA RECHERCHE IGNORE LES ACCENTS — « decision » trouve « Décision »', () => {
+    // Une recherche française où « décision » ne se trouve pas en tapant
+    // « decision » est cassée. Et ici `normalize('NFD')` seul NE SUFFIT PAS :
+    // c'est une recherche de sous-chaîne, la marque combinante s'intercale
+    // entre le « e » et le « c ».
+    expect(filtrer(monde(), { texte: 'decision' }).noeuds.map((n) => n.id)).toEqual(['inv-a']);
+    expect(filtrer(monde(), { texte: 'DÉCISION' }).noeuds.map((n) => n.id)).toEqual(['inv-a']);
+  });
+
+  it('la recherche regarde aussi l’identifiant', () => {
+    // C'est par l'id qu'on retrouve une note vue dans un événement.
+    expect(filtrer(monde(), { texte: 'ep-c' }).noeuds.map((n) => n.id)).toEqual(['ep-c']);
+  });
+
+  it('UNE RECHERCHE VIDE NE FILTRE RIEN', () => {
+    // Sinon l'écran s'ouvre sur un cerveau vide et l'utilisateur croit qu'il
+    // n'a rien — alors qu'il n'a simplement pas encore tapé.
+    expect(filtrer(monde(), { texte: '   ' }).total).toBe(3);
+    expect(filtrer(monde(), {}).total).toBe(3);
+  });
+
+  it('AUCUN GENRE COCHÉ VEUT DIRE « TOUS », pas « aucun »', () => {
+    // Traduire « la dernière case vient d'être décochée » par un écran noir
+    // sans explication est le pire des deux comportements possibles.
+    expect(filtrer(monde(), { genres: [] }).total).toBe(3);
+  });
+
+  it('les DORMANTES sont celles qui n’ont jamais servi', () => {
+    const f = filtrer(monde(), { dormantes: true });
+    expect(f.noeuds.map((n) => n.id)).toEqual(['ep-c', 'lec-b']);
+    expect(f.servies).toBe(0);
+  });
+
+  it('les liens morts affichés sont ceux des notes VISIBLES', () => {
+    // Montrer le lien mort d'une note masquée enverrait réparer quelque chose
+    // qu'on ne voit pas.
+    expect(filtrer(monde(), { genres: ['episode'] }).liensMorts).toEqual([
+      { de: 'ep-c', vers: 'fantome' },
+    ]);
+    expect(filtrer(monde(), { genres: ['invariant'] }).liensMorts).toEqual([]);
+  });
+
+  it('les critères se COMBINENT', () => {
+    expect(filtrer(monde(), { texte: 'fetch', genres: ['episode'], dormantes: true }).total).toBe(
+      1,
+    );
+    expect(filtrer(monde(), { texte: 'fetch', genres: ['invariant'] }).total).toBe(0);
+  });
+});
+
+describe('LES VOISINS D’UNE NOTE', () => {
+  it('sont rendus dans les DEUX sens, et dans un ordre stable', () => {
+    // Un voisinage qui dépend du sens du lien ferait dire « aucun voisin » à
+    // une note pourtant citée par trois autres.
+    const g = graphe(
+      [note('a', { corps: '[[b]]' }), note('b'), note('c', { corps: '[[b]]' })],
+      MAINTENANT,
+    );
+    expect(voisins(g, 'b')).toEqual(['a', 'c']);
+    expect(voisins(g, 'a')).toEqual(['b']);
+    expect(voisins(g, 'inconnue')).toEqual([]);
   });
 });

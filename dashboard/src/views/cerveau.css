@@ -1,37 +1,113 @@
 /* Vue « Le Cerveau » — le graphe du savoir.
  *
- * Fond très sombre volontairement : les points colorés et les halos qui
- * respirent ne se lisent que sur du noir. C'est la même raison qui fait qu'un
- * graphe Obsidian n'est pas beau sur fond blanc. */
+ * ─── LES PARTIS PRIS ───────────────────────────────────────────────────────
+ *
+ * FOND TRÈS SOMBRE. Les points colorés et les halos ne se lisent que sur du
+ * noir — c'est la même raison qui fait qu'un graphe Obsidian n'est pas beau
+ * sur fond blanc. Ce n'est pas une préférence, c'est du contraste.
+ *
+ * UNE SEULE COULEUR VIVE À LA FOIS. Les genres portent les cinq teintes ; tout
+ * le reste de l'écran est gris-bleu. Un panneau coloré à côté d'un graphe
+ * coloré, et on ne sait plus où regarder.
+ *
+ * LES CHIFFRES AVANT LES MOTS. Dans les tuiles, le nombre est gros et le
+ * libellé petit : on vient chercher « combien », la légende ne fait que
+ * confirmer.
+ */
 
 .cerveau {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.7rem;
   height: 100%;
   min-height: 0;
+  --ce-fond: #0b1218;
+  --ce-carte: #101a24;
+  --ce-bord: #1e2b38;
+  --ce-bord-clair: #2a3d4f;
+  --ce-texte-doux: #8fa1b3;
 }
 
-.cerveau-tete h2 {
+/* ─── En-tête ─────────────────────────────────────────────────────────────── */
+
+.cerveau-tete {
   display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cerveau-titre h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
 }
 
-.cerveau-compte {
-  font-family: ui-monospace, monospace;
-  font-size: 0.74rem;
-  font-weight: 400;
-  color: var(--muted, #8fa1b3);
-}
-
-.cerveau-sous {
+.cerveau-titre p {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;
-  color: var(--muted, #8fa1b3);
-  max-width: 76ch;
+  color: var(--ce-texte-doux);
+  max-width: 62ch;
+}
+
+.cerveau-tuiles {
+  display: flex;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cerveau-tuile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  min-width: 74px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 9px;
+  background: var(--ce-carte);
+  border: 1px solid var(--ce-bord);
+  font: inherit;
+  color: inherit;
+}
+
+.cerveau-tuile b {
+  font-family: ui-monospace, monospace;
+  font-size: 1.15rem;
+  line-height: 1.1;
+  font-weight: 600;
+}
+
+.cerveau-tuile span {
+  font-size: 0.68rem;
+  color: var(--ce-texte-doux);
+  white-space: nowrap;
+}
+
+.cerveau-tuile.cliquable {
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.cerveau-tuile.cliquable:hover {
+  border-color: var(--ce-bord-clair);
+}
+
+.cerveau-tuile.on {
+  border-color: #ffd166;
+  background: #241f14;
+}
+
+.cerveau-tuile.on b {
+  color: #ffd166;
+}
+
+.cerveau-tuile.alerte b {
+  color: #ff8f8f;
 }
 
 .cerveau-erreur {
@@ -43,85 +119,323 @@
   font-size: 0.8rem;
 }
 
-/* ─── La scène ─────────────────────────────────────────────────────────────── */
+/* ─── Barre d'outils ──────────────────────────────────────────────────────── */
+
+.cerveau-barre {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cerveau-recherche {
+  flex: 0 1 220px;
+  padding: 0.4rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--ce-bord);
+  background: var(--ce-carte);
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.cerveau-recherche:focus-visible {
+  outline: 2px solid #6bc5ff;
+  outline-offset: 1px;
+}
+
+.cerveau-genres {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.cerveau-puce {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--ce-bord);
+  background: var(--ce-carte);
+  color: var(--ce-texte-doux);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.cerveau-puce:hover {
+  border-color: var(--ce-bord-clair);
+}
+
+.cerveau-puce i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Une puce ÉTEINTE garde sa pastille de couleur : c'est la légende, et elle
+ * doit rester lisible même quand le filtre ne la retient pas. */
+.cerveau-puce:not(.on) i {
+  opacity: 0.55;
+}
+
+.cerveau-puce b {
+  font-family: ui-monospace, monospace;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.cerveau-modes {
+  display: inline-flex;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ce-bord);
+  margin-left: auto;
+}
+
+.cerveau-modes button {
+  padding: 0.35rem 0.7rem;
+  background: var(--ce-carte);
+  border: 0;
+  color: var(--ce-texte-doux);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.cerveau-modes button.on {
+  background: #1c2a38;
+  color: #e8f0f8;
+}
+
+.cerveau-recentrer {
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--ce-bord);
+  background: var(--ce-carte);
+  color: var(--ce-texte-doux);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.cerveau-recentrer:hover {
+  border-color: var(--ce-bord-clair);
+}
+
+/* ─── La scène ────────────────────────────────────────────────────────────── */
 
 .cerveau-scene {
   display: grid;
-  grid-template-columns: 1fr minmax(200px, 260px);
-  gap: 0.75rem;
+  grid-template-columns: 1fr minmax(212px, 274px);
+  gap: 0.7rem;
   flex: 1;
   min-height: 0;
+}
+
+.cerveau-toile-boite,
+.cerveau-liste-boite {
+  position: relative;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid var(--ce-bord);
+  overflow: hidden;
+}
+
+.cerveau-toile-boite {
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 42%, #16232f 0%, var(--ce-fond) 72%), var(--ce-fond);
 }
 
 .cerveau-toile {
   width: 100%;
   height: 100%;
-  min-height: 420px;
+  min-height: 430px;
   display: block;
-  border-radius: 10px;
-  background: radial-gradient(ellipse at 50% 45%, #131f2b 0%, #0b1219 70%);
-  border: 1px solid #1e2b38;
-  cursor: crosshair;
+  cursor: grab;
 }
+
+.cerveau-toile:active {
+  cursor: grabbing;
+}
+
+/* ─── L'infobulle ─────────────────────────────────────────────────────────── */
+
+.cerveau-bulle {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+  max-width: 260px;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(8, 14, 20, 0.96);
+  border: 1px solid var(--ce-bord-clair);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.cerveau-bulle b {
+  display: block;
+  margin-bottom: 0.1rem;
+}
+
+.cerveau-bulle span {
+  color: var(--ce-texte-doux);
+  font-size: 0.68rem;
+}
+
+.cerveau-rien {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--ce-texte-doux);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.cerveau-rien.statique {
+  position: static;
+  padding: 3rem 1rem;
+}
+
+/* ─── Le tableau ──────────────────────────────────────────────────────────── */
+
+.cerveau-liste-boite {
+  background: var(--ce-fond);
+  overflow: auto;
+}
+
+.cerveau-liste {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.cerveau-liste caption {
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  color: var(--ce-texte-doux);
+  font-size: 0.72rem;
+}
+
+.cerveau-liste th,
+.cerveau-liste td {
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--ce-bord);
+}
+
+.cerveau-liste thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ce-carte);
+  color: var(--ce-texte-doux);
+  font-weight: 500;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  z-index: 1;
+}
+
+.cerveau-liste tbody th {
+  font-weight: 500;
+}
+
+.cerveau-liste tbody tr {
+  cursor: pointer;
+}
+
+.cerveau-liste tbody tr:hover {
+  background: #131f2b;
+}
+
+.cerveau-liste tbody tr.on {
+  background: #1c2a38;
+}
+
+.cerveau-liste td i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+}
+
+/* Une note qui dort se voit dans le tableau aussi — l'information ne doit pas
+ * n'exister que dans le graphe. */
+.cerveau-liste td.dort {
+  color: #7d8fa3;
+  font-style: italic;
+}
+
+/* ─── Panneau latéral ─────────────────────────────────────────────────────── */
 
 .cerveau-cote {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.55rem;
   overflow-y: auto;
   min-height: 0;
 }
 
-/* ─── Légende ──────────────────────────────────────────────────────────────── */
-
-.cerveau-legende {
-  list-style: none;
+.cerveau-invite {
   margin: 0;
-  padding: 0.5rem 0.6rem;
-  border-radius: 8px;
-  background: #101a24;
-  border: 1px solid #1e2b38;
-  font-size: 0.78rem;
+  padding: 0.7rem;
+  border-radius: 10px;
+  border: 1px dashed var(--ce-bord);
+  color: var(--ce-texte-doux);
+  font-size: 0.75rem;
+  line-height: 1.45;
 }
-
-.cerveau-legende li {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.14rem 0;
-}
-
-.cerveau-legende i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.cerveau-legende b {
-  margin-left: auto;
-  font-family: ui-monospace, monospace;
-  color: var(--muted, #8fa1b3);
-  font-weight: 500;
-}
-
-/* ─── Fiche d'une note ─────────────────────────────────────────────────────── */
 
 .cerveau-fiche {
-  padding: 0.6rem;
-  border-radius: 8px;
-  background: #101a24;
-  border: 1px solid #26384a;
+  position: relative;
+  padding: 0.7rem;
+  border-radius: 10px;
+  background: var(--ce-carte);
+  border: 1px solid var(--ce-bord-clair);
+}
+
+.cerveau-fermer {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ce-texte-doux);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cerveau-fermer:hover {
+  background: #1c2a38;
+  color: #e8f0f8;
+}
+
+.cerveau-genre {
+  font-size: 0.67rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
 }
 
 .cerveau-fiche h3 {
-  margin: 0 0 0.2rem;
-  font-size: 0.85rem;
-  line-height: 1.25;
+  margin: 0.15rem 2rem 0.2rem 0;
+  font-size: 0.88rem;
+  line-height: 1.3;
 }
 
 .cerveau-fiche code {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   color: #6f8296;
   word-break: break-all;
 }
@@ -129,13 +443,13 @@
 .cerveau-fiche dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.1rem 0.5rem;
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
+  gap: 0.12rem 0.5rem;
+  margin: 0.55rem 0 0;
+  font-size: 0.74rem;
 }
 
 .cerveau-fiche dt {
-  color: var(--muted, #8fa1b3);
+  color: var(--ce-texte-doux);
 }
 
 .cerveau-fiche dd {
@@ -144,14 +458,58 @@
   text-align: right;
 }
 
-/* ─── Alertes de santé ─────────────────────────────────────────────────────── */
+.cerveau-fiche h4 {
+  margin: 0.7rem 0 0.3rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ce-texte-doux);
+}
+
+.cerveau-voisins {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.cerveau-voisins button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.74rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cerveau-voisins button:hover {
+  background: #1c2a38;
+}
+
+.cerveau-voisins i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* ─── Alertes de santé ────────────────────────────────────────────────────── */
 
 .cerveau-alerte {
   padding: 0.55rem 0.6rem;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #2a1a1a;
   border: 1px solid #4a2b2b;
-  font-size: 0.74rem;
+  font-size: 0.73rem;
 }
 
 .cerveau-alerte.douce {
@@ -166,15 +524,15 @@
 
 .cerveau-alerte p {
   margin: 0 0 0.35rem;
-  color: var(--muted, #8fa1b3);
-  line-height: 1.35;
+  color: var(--ce-texte-doux);
+  line-height: 1.4;
 }
 
 .cerveau-alerte ul {
   margin: 0;
   padding-left: 1rem;
   font-family: ui-monospace, monospace;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
 }
 
 .cerveau-alerte em {
@@ -182,7 +540,7 @@
   font-style: normal;
 }
 
-/* ─── Cerveau vide : un état normal, pas une panne ─────────────────────────── */
+/* ─── Cerveau vide : un état normal, pas une panne ───────────────────────── */
 
 .cerveau-vide {
   flex: 1;
@@ -192,9 +550,9 @@
   justify-content: center;
   gap: 0.4rem;
   text-align: center;
-  border-radius: 10px;
-  background: radial-gradient(ellipse at 50% 45%, #131f2b 0%, #0b1219 70%);
-  border: 1px dashed #26384a;
+  border-radius: 12px;
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, #16232f 0%, var(--ce-fond) 72%);
+  border: 1px dashed var(--ce-bord-clair);
   min-height: 380px;
 }
 
@@ -204,7 +562,7 @@
 }
 
 .cerveau-vide-detail {
-  color: var(--muted, #8fa1b3);
+  color: var(--ce-texte-doux);
   font-size: 0.78rem !important;
   max-width: 46ch;
 }
@@ -215,17 +573,27 @@
   color: #6f8296;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 980px) {
   .cerveau-scene {
     grid-template-columns: 1fr;
   }
+
+  .cerveau-modes {
+    margin-left: 0;
+  }
 }
 
-/* Mouvement réduit : la simulation continue (c'est la vue), mais on n'ajoute
- * pas de transition par-dessus. Le halo qui respire reste la seule animation,
- * et elle porte une information — la retirer effacerait la mesure d'usage. */
+/* ─── Mouvement réduit ────────────────────────────────────────────────────── *
+ *
+ * La simulation se fige d'elle-même une fois posée (voir `Cerveau.tsx`), et le
+ * halo cesse de respirer. RIEN N'EST PERDU pour autant : « a servi récemment »
+ * reste dit par la couleur du halo et par le point creux. Une information qui
+ * ne passerait que par l'animation disparaîtrait pour qui demande moins de
+ * mouvement — ce serait un écran qui ment à une partie de ses lecteurs.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .cerveau-toile {
+  .cerveau-tuile.cliquable,
+  .cerveau-puce {
     transition: none;
   }
 }

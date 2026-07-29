@@ -26,6 +26,25 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   jamais la fusion** — « jamais de fusion sans revue humaine » reste la règle, et
   une contre-expertise qui déciderait remplacerait la revue au lieu de l'armer.
 
+- **🔍 Le Cerveau s'EXPLORE : recherche, filtres, et une vue liste qui porte
+  l'accessibilité.** L'onglet montrait le graphe ; on ne pouvait ni y chercher,
+  ni s'y concentrer, ni le lire autrement qu'en pixels. Il gagne une
+  **recherche** (insensible aux accents — « decision » trouve « Décision »,
+  et sur le titre comme sur l'identifiant), des **filtres par genre**, un
+  filtre **« dorment »** sur les notes jamais servies, et le **zoom, le
+  déplacement et le glisser** d'une note. Cliquer une note l'isole avec son
+  voisinage, et le panneau liste ses voisins, cliquables à leur tour.
+  Le filtrage vient de `filtrer()`, pur et testé, qui tient une règle : **une
+  arête ne survit que si ses deux bouts survivent** — garder un trait vers une
+  note qu'on vient de masquer serait le mensonge des liens morts, en pire.
+  Surtout, la **vue liste** n'est pas un repli dégradé : c'est un vrai tableau,
+  navigable au clavier et lisible par un lecteur d'écran, portant les mêmes
+  faits que le graphe. Le dépôt tient déjà `NO_COLOR`, `TERM=dumb` et l'absence
+  de TTY — un écran qui n'existerait qu'en pixels serait le seul endroit où
+  cette exigence s'arrête. Enfin, sous `prefers-reduced-motion` la simulation
+  se fige une fois posée et le halo cesse de respirer, **sans rien perdre** :
+  « a servi récemment » reste dit par la couleur et par le point creux.
+
 - **🧠 Un onglet pour VOIR le Cerveau** (`#/cerveau`, administrateurs seulement).
   Le Cerveau grossissait tout seul — chaque échec y dépose un épisode — et
   personne ne le voyait : un dossier de markdown se lit note par note, et une
