@@ -22,16 +22,9 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { analyser, nonInteractif, type Forme } from './args.js';
-import {
-  EXPOSITIONS,
-  fusionner,
-  planExposition,
-  planOuvre,
-  planProjet,
-  type Exposition,
-  type ReglagePropose,
-} from './assistant.js';
+import { type ReglagePropose } from './assistant.js';
 import { CODE } from './codes-sortie.js';
+import { assistant } from './installer-assistant.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
 import { decider, modeDepuisEnv, trouverFournisseur } from './node-client/isolement.js';
 import {
@@ -48,13 +41,11 @@ import {
 } from './installer.js';
 import {
   banniere,
+  constat,
   encadreJeton,
   espacer,
-  etapeLineaire,
-  ligneVerification,
   recapEcritures,
   titreSection,
-  type Capacites,
   type Verification,
 } from './tui/rendu.js';
 import { Interrompu, ReponseManquante, creerTerminal } from './tui/terminal.js';
@@ -110,11 +101,6 @@ function ecrireAtomique(chemin: string, contenu: string, mode: number): void {
   }
 }
 
-/** Une ligne de constat, rendue selon que l'on a un terminal ou un tuyau. */
-function constat(v: Verification, caps: Capacites): string {
-  return caps.cadres ? ligneVerification(v, caps) : etapeLineaire(v, caps);
-}
-
 /**
  * Le port est-il libre ?
  *
@@ -141,14 +127,6 @@ async function espaceLibreGo(): Promise<number | null> {
     return null;
   }
 }
-
-/** Les quatre façons d'être joignable, dans l'ordre du §8. */
-const OFFRES_EXPOSITION: Record<Exposition, { libelle: string; aide: string }> = {
-  locale: { libelle: 'Rien que cette machine', aide: 'le plus sûr — défaut' },
-  reseau_local: { libelle: 'Mon réseau local', aide: 'mes amis à la maison' },
-  tunnel: { libelle: 'Internet, par un tunnel Cloudflare', aide: 'aucun port ouvert' },
-  proxy: { libelle: 'Internet, derrière mon reverse proxy', aide: 'Caddy ou nginx' },
-};
 
 /** Les trois intentions du §5. Un seul programme, trois chemins. */
 const CHEMINS = [
@@ -394,8 +372,13 @@ async function main(): Promise<void> {
   // Il ne tourne qu'en interactif. Hors terminal, poser des questions n'a pas
   // de sens et deviner des réponses en aurait encore moins : `npm run setup`
   // scripté s'arrête ici, exactement comme avant.
+  //
+  // Le déroulé vit dans `installer-assistant.ts` — pas par goût du rangement :
+  // ce fichier-ci LANCE l'installeur dès qu'on l'importe, donc rien de ce qu'il
+  // contient n'est atteignable par un test. C'est exactement pour ça qu'une
+  // quatrième décision a pu s'y installer sans que rien ne rougisse.
   if (caps.interactif && !simulation) {
-    await assistant(t, bloc, caps, reglages, neuf);
+    await assistant({ t, bloc, caps, reglages, neuf, scribe: ecrireReglages });
   }
 
   bloc(
@@ -408,131 +391,6 @@ async function main(): Promise<void> {
     fait.code = process.exitCode ?? CODE.SUCCES;
     process.stdout.write(`${JSON.stringify(fait, null, 2)}\n`);
   }
-}
-
-/**
- * L'assistant — deux questions, et ce qu'elles impliquent.
- *
- * Il ne LANCE rien : poser un tunnel ou un reverse proxy touche à des comptes,
- * du DNS et des ports. Ce sont des gestes qui se font les yeux ouverts, pas
- * dans le dos de quelqu'un qui voulait installer une ruche. Il compose les
- * commandes exactes et les affiche.
- */
-async function assistant(
-  t: ReturnType<typeof creerTerminal>,
-  bloc: (...morceaux: string[][]) => void,
-  caps: Capacites,
-  reglages: readonly { cle: string; valeur: string }[],
-  /** Le `.env` vient-il d'être créé par CETTE exécution ? */
-  neuf: boolean,
-): Promise<void> {
-  const existant = new Map(reglages.map((r) => [r.cle, r.valeur]));
-  const port = Number(existant.get('HIVE_PORT') ?? PORT_DEFAUT) || PORT_DEFAUT;
-  const jeton = existant.get('HIVE_TOKEN') ?? '';
-
-  bloc(titreSection('Qui pourra joindre votre ruche ?', caps));
-  const choix = await t.choisir(
-    EXPOSITIONS.map((e) => OFFRES_EXPOSITION[e]),
-    { quoi: 'l’exposition réseau', defautNonInteractif: 0 },
-  );
-  const exposition = EXPOSITIONS[choix]!;
-
-  const domaine =
-    exposition === 'tunnel' || exposition === 'proxy'
-      ? await t.demander('  Votre domaine (ex. ruche.mondomaine.fr) :', {
-          quoi: 'le domaine',
-          obligatoire: true,
-        })
-      : undefined;
-
-  const plan = planExposition({ exposition, port, jeton, domaine });
-
-  // UN REFUS NE POSE RIEN. Le dire et s'arrêter là vaut mieux qu'écrire une
-  // configuration dont on sait déjà qu'elle est dangereuse ou inopérante.
-  if (plan.refus) {
-    bloc([constat({ etat: 'echec', libelle: plan.refus }, caps)]);
-  } else {
-    const fusion = fusionner(existant, plan.reglages);
-    const aEcrire: ReglagePropose[] = [...fusion.ajouts, ...fusion.changements];
-
-    if (aEcrire.length > 0) {
-      // Ajouter et REMPLACER ne se confondent pas : remplacer efface une
-      // décision antérieure, et ça se dit avant, pas après.
-      bloc(
-        recapEcritures(
-          [
-            ...fusion.ajouts.map((r) => `${r.cle}=${r.valeur}   (${r.pourquoi})`),
-            ...fusion.changements.map(
-              (r) => `${r.cle} : ${r.ancienne}  →  ${r.valeur}   (${r.pourquoi})`,
-            ),
-          ],
-          caps,
-        ),
-      );
-      // ─── QUAND LE RÉCAPITULATIF INFORME AU LIEU DE DEMANDER ────────────────
-      //
-      // MÊME RÈGLE QU'À L'ÉCRAN PRÉCÉDENT, appliquée jusqu'au bout : sur un
-      // fichier qu'on vient de créer, il n'y a aucune décision antérieure à
-      // écraser — « la question serait une friction sans contrepartie ». Elle
-      // était pire que ça : sa réponse par défaut, « Ne rien changer », JETAIT
-      // le choix fait deux secondes plus tôt.
-      //
-      // La confirmation reste, entière, dès que le plan OUVRE la machine —
-      // réseau local, tunnel, reverse proxy. Rendre une ruche joignable n'est
-      // pas une friction : c'est le dernier arrêt avant la porte, et il se
-      // franchit les yeux ouverts.
-      //
-      // Le récapitulatif, lui, s'affiche dans les deux cas : rien n'est jamais
-      // écrit sans être nommé d'abord.
-      const demanderConfirmation = !neuf || planOuvre(plan);
-      const suite = demanderConfirmation
-        ? await t.choisir(
-            [{ libelle: 'Ne rien changer', aide: 'défaut' }, { libelle: 'Poser ces réglages' }],
-            { quoi: 'la confirmation des réglages réseau', defautNonInteractif: 0 },
-          )
-        : 1;
-      if (suite === 1) {
-        ecrireReglages(aEcrire);
-        bloc([constat({ etat: 'fait', libelle: '.env mis à jour' }, caps)]);
-      } else {
-        bloc([constat({ etat: 'avenir', libelle: 'Rien écrit.' }, caps)]);
-      }
-    }
-
-    for (const a of plan.avertissements) {
-      bloc([constat({ etat: 'alerte', libelle: a }, caps)]);
-    }
-    if (plan.etapes.length > 0) {
-      bloc(titreSection('Ce qu’il reste à faire, une fois pour toutes', caps));
-      for (const e of plan.etapes) {
-        bloc([
-          `  ${e.titre}`,
-          '',
-          ...e.commande.split('\n').map((l) => `      ${l}`),
-          '',
-          `     ${e.pourquoi}`,
-        ]);
-      }
-    }
-  }
-
-  // ─── Le premier projet ──────────────────────────────────────────────────
-  bloc(titreSection('Votre premier projet', caps));
-  const nom = await t.demander('  Son nom (⏎ pour passer) :', { quoi: 'le nom du projet' });
-  if (nom === '') return;
-
-  const depot = await t.demander('  Son dépôt git (⏎ pour aucun) :', { quoi: 'le dépôt' });
-  const projet = planProjet(nom, depot === '' ? undefined : depot);
-  if (projet.refus) {
-    bloc([constat({ etat: 'echec', libelle: projet.refus }, caps)]);
-    return;
-  }
-  for (const a of projet.avertissements) bloc([constat({ etat: 'alerte', libelle: a }, caps)]);
-  bloc([
-    '  Une fois la ruche démarrée (« npm run dev »), créez-le avec :',
-    '',
-    `      ${projet.commande}`,
-  ]);
 }
 
 /**

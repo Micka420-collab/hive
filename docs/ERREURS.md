@@ -280,6 +280,34 @@ source contient.
 > réponse est qu'elle est enfermée dans un fichier qui s'exécute à l'import — et
 > **l'extraire dans le module pur coûte moins cher que le filtre, et vaut plus.**
 
+### 2.8 — Un fichier qui s'exécute à l'import est un angle mort, pas un détail
+
+`installer-main.ts` appelle `main()` à l'import. Conséquence directe : **rien de
+ce qu'il contient n'est atteignable par un test** — l'importer sonderait des
+ports, écrirait un `.env` et poserait des questions au vide.
+
+Ce n'est pas resté théorique. Le déroulé de l'assistant y vivait, et c'est là
+qu'une **quatrième décision** s'est installée sur un accueil qui en promet
+trois, avec un défaut qui jetait la réponse à la troisième. Elle y est restée
+jusqu'à ce que quelqu'un lance le programme avec un pseudo-terminal et compte
+les arrêts à la main.
+
+La tentation, à ce stade, est de rendre le point d'entrée importable — un garde
+`if (argv[1] === import.meta.url)`. C'est le geste risqué : si la résolution
+diffère (lien symbolique, enveloppe, chemin compilé), `main()` ne s'exécute
+plus **en silence**, et c'est la porte d'entrée du projet qui devient un
+no-op.
+
+Le geste juste est l'inverse : **sortir le DÉROULÉ, laisser le lanceur**. Le
+point d'entrée continue de s'exécuter à l'import — c'est son rôle — et ce qu'il
+enchaînait devient un module ordinaire, avec ses effets injectés.
+
+> **Règle** — un fichier qui s'exécute à l'import ne doit contenir QUE
+> l'enchaînement : lire les arguments, appeler, écrire le code de sortie. Toute
+> logique qui s'y trouve est hors de portée des tests **par construction**, et
+> personne ne s'en apercevra avant qu'un défaut y ait vécu des mois. Quand on en
+> découvre une, on l'extrait — on ne rend pas le lanceur importable.
+
 ### 2.3 bis — Le test passait grâce au message d'erreur qu'il ne visait pas
 
 Un test de la contre-expertise devait prouver qu'une objection ne peut pas
