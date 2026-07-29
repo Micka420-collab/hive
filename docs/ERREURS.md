@@ -259,6 +259,48 @@ par séparateur. Le mutant décisif est le retour à l'état d'avant — la clas
 ramenée à `[\r\n\t]` fait tomber **exactement cinq** tests, soit les cinq
 caractères ajoutés.
 
+### 2.3 ter — Un filet de sécurité rendait le test vert sans le code testé
+
+Trois tests devaient prouver la seule chose qui décide du lot 13 : **une
+critique produite par un modèle atteint-elle vraiment l'autre ?** Ils montaient
+deux nœuds, faisaient produire le premier, et attendaient que le second reçoive
+la tâche de relecture. Verts du premier coup.
+
+La loupe a coupé l'envoi — `envoyerTache` remplacé par un `void`. **Toujours
+verts, les treize.**
+
+La cause n'était ni dans le code ni dans l'assertion, mais dans le PLAFOND
+D'ATTENTE. La ruche a un filet : `staleAssignedTasks(5_000)` re-livre toute
+tâche assignée restée muette plus de cinq secondes — « message perdu en vol ».
+La relecture était bien créée et posée sur le bon nœud ; sans dispatch, elle
+partait quand même, cinq secondes plus tard, par le filet. Et le test attendait
+huit secondes.
+
+Mesuré, la même relecture sur la même ruche :
+
+| chemin              | latence de la 1re livraison |
+| ------------------- | --------------------------- |
+| dispatch direct     | **7 ms**                    |
+| filet de rattrapage | **5 060 ms**                |
+
+Le plafond est passé à 3 s : quatre cents fois la latence réelle, et bien en
+deçà du filet. Les trois tests tombent maintenant quand l'envoi est coupé.
+
+> **Règle** — un test qui attend « jusqu'à ce que ça arrive » ne prouve rien
+> tant qu'on n'a pas cherché **par quel autre chemin ça pourrait arriver**. Un
+> système qui a des filets de reprise en a toujours un.
+>
+> **Règle** — quand un plafond d'attente sépare deux chemins possibles, il se
+> CHOISIT par la mesure des deux, et le rapport s'écrit à côté. Un plafond qui
+> ne discrimine pas ne mesure rien.
+
+**Ce que ça a révélé au passage** : une tâche assignée jamais acquittée reçoit
+environ **118 `assign_task` en douze secondes** — le filet re-livre à chaque
+tick sans rafraîchir `updatedAt`, donc la tâche reste éternellement « muette
+depuis plus de 5 s ». Comportement PRÉ-EXISTANT, vérifié sur une tâche
+ordinaire sans rapport avec la contre-expertise. Noté comme dette plutôt que
+corrigé au passage : ce n'est pas le sujet de ce changement.
+
 ### 2.4 — Prétendre tester un chemin inatteignable
 
 Un test passait `{ PATH: '' }` à `detectBestAgent` en croyant forcer le repli.

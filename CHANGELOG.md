@@ -9,6 +9,23 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🗣️ La contre-expertise PART enfin : un modèle reçoit vraiment le travail
+  d'un autre à juger.** Le module décidait qui devait relire depuis deux PR, et
+  personne ne lançait la relecture — le lot restait 🟡 avec un module complet et
+  débranché. Désormais, quand une production entre en revue, la ruche crée une
+  **vraie tâche** de relecture, la pose sur le nœud du modèle retenu et lui
+  envoie `consigneDeCritique()` ; au retour, l'avis est lu, agrégé, et publié en
+  `contre_expertise_verdict` avec ses objections. Une **table latérale**
+  (`contre_expertises`) fait double emploi à dessein : elle marque la tâche
+  comme relecture — sans quoi le résultat repartirait en contre-expertise et
+  serait relu à son tour, **à l'infini**, chaque tour coûtant un vrai appel de
+  modèle — et elle corrèle l'avis à la production jugée. Le geste d'envoi n'est
+  pas réinventé : le corps de `onAssign` devient `envoyerTache`, une seule porte
+  de sortie vers les ouvrières, donc un seul endroit où vivent le bac à sable,
+  le cadre du polyéthisme et le contexte du Cerveau. **Le verdict ne bloque
+  jamais la fusion** — « jamais de fusion sans revue humaine » reste la règle, et
+  une contre-expertise qui déciderait remplacerait la revue au lieu de l'armer.
+
 - **🧠 Un onglet pour VOIR le Cerveau** (`#/cerveau`, administrateurs seulement).
   Le Cerveau grossissait tout seul — chaque échec y dépose un épisode — et
   personne ne le voyait : un dossier de markdown se lit note par note, et une
