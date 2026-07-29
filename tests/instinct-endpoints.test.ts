@@ -31,6 +31,15 @@ describe('endpoints de l’instinct de ruche', () => {
       dbPath: path.join(dir, 'hive.db'),
       simulation: false,
       tickMs: 80,
+      // ─── POURQUOI CE TEST DÉBRIDE L'ESPACEMENT ───────────────────────────
+      //
+      // Il prouve que le contexte d'une tâche muette est MÉMOÏSÉ : beaucoup de
+      // re-livraisons, au plus deux calculs. Il lui faut donc beaucoup de
+      // re-livraisons — or le filet en espace désormais quinze secondes.
+      //
+      // Le régler ici est préférable à baisser l'assertion : sans plusieurs
+      // livraisons, « au plus deux calculs » serait vrai sans rien prouver.
+      relivraisonMinMs: 0,
     });
     base = `http://127.0.0.1:${server.port}`;
   });

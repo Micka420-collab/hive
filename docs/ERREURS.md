@@ -294,12 +294,11 @@ deçà du filet. Les trois tests tombent maintenant quand l'envoi est coupé.
 > CHOISIT par la mesure des deux, et le rapport s'écrit à côté. Un plafond qui
 > ne discrimine pas ne mesure rien.
 
-**Ce que ça a révélé au passage** : une tâche assignée jamais acquittée reçoit
-environ **118 `assign_task` en douze secondes** — le filet re-livre à chaque
-tick sans rafraîchir `updatedAt`, donc la tâche reste éternellement « muette
-depuis plus de 5 s ». Comportement PRÉ-EXISTANT, vérifié sur une tâche
-ordinaire sans rapport avec la contre-expertise. Noté comme dette plutôt que
-corrigé au passage : ce n'est pas le sujet de ce changement.
+**Ce que ça a révélé au passage** : une tâche assignée jamais acquittée est
+re-servie à chaque tick, le filet ne gardant aucune trace de ses tentatives.
+Comportement PRÉ-EXISTANT, vérifié sur une tâche ordinaire sans rapport avec la
+contre-expertise. Corrigé depuis — et il a fallu DEUX rectifications pour
+décrire ce défaut correctement : voir le § 6bis.2, qui les raconte.
 
 ### 2.4 — Prétendre tester un chemin inatteignable
 
@@ -946,6 +945,54 @@ faux est global — et un diff ne montre jamais le global.
 **Ce qui le garde** : `tests/documents-qui-grossissent.test.ts` rougit sur toute
 répétition d'au moins huit lignes dans les cinq documents qui ne font que
 grandir. La règle ci-dessus empêche ; la garde rattrape.
+
+### 6bis.2 — Un filet de reprise qui n'a pas de mémoire devient un robinet
+
+La ruche re-sert `assign_task` aux tâches assignées restées muettes plus de cinq
+secondes : un filet pour un message PERDU EN VOL. Il ne gardait aucune trace de
+ses tentatives, donc une tâche muette repartait à CHAQUE TICK.
+
+**Ce qui rend cette entrée intéressante, c'est qu'il m'a fallu trois descriptions
+pour arriver à la bonne.**
+
+**Version 1 — « 118 renvois en douze secondes ».** Le compte était exact. Il
+venait d'une sonde montée à `tickMs: 60`, alors que la production est à
+**2 000 ms** : trente-trois fois le rythme réel. Un nombre mesuré sur un banc
+porte les réglages de ce banc.
+
+**Version 2 — « indéfiniment ».** Faux aussi, et de façon plus intéressante. Le
+test montrait la tâche finissant en `ready`, pas en `assigned` : le _reaper_
+l'avait désassignée. Le nœud du banc ne battait jamais, donc il mourait de
+timeout, donc sa tâche revenait dans la file et la boucle s'arrêtait seule. Le
+test observait le reaper, pas le filet.
+
+**Version 3, la bonne.** Le cas qui compte est l'inverse : un nœud bien VIVANT,
+qui bat normalement, mais bloqué sur une tâche dont il ne rend jamais compte.
+Celui-là n'est jamais moissonné, sa tâche reste assignée, et c'est lui que le
+filet arrosait sans fin. Le test monte donc un nœud qui envoie ses battements et
+se tait sur sa tâche.
+
+> **Règle** — un chiffre mesuré sur un banc porte les RÉGLAGES de ce banc.
+>
+> **Règle** — avant d'écrire qu'une boucle est sans fin, chercher CE QUI
+> l'arrête. Un système qui a des filets de reprise a presque toujours aussi un
+> moissonneur, et le banc peut n'exercer que le second.
+>
+> **Règle** — un test qui reproduit « le composant ne répond pas » doit choisir
+> lequel des deux silences il monte : le nœud MORT (que le reaper traite) ou le
+> nœud VIVANT ET BLOQUÉ (que personne ne traite). Ce n'est pas le même défaut.
+
+**Le correctif** : une carte en mémoire `derniereRelivraison`, et un renvoi au
+plus toutes les quinze secondes par tâche. Pas de rafraîchissement d'`updatedAt`
+— le geste qui vient à l'esprit et qui est faux : `updatedAt` veut dire « la
+tâche a CHANGÉ », or une re-livraison ne la change pas. Le teindre ferait passer
+une tâche gelée pour fraîche auprès de tout ce qui lit ce champ, à commencer par
+le filet lui-même, qui ne saurait plus depuis quand elle se tait.
+
+**Ce qui le garde** : `tests/filet-relivraison.test.ts`, deux tests. L'un exige
+l'espacement, l'autre exige que le filet SERVE encore — sans le second, un filet
+débranché satisferait le premier. Quatre mutants joués, dont le retour à l'état
+d'avant : tous rouges.
 
 ---
 

@@ -9,6 +9,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🕸️ Le filet de re-livraison espace ses tentatives.** La ruche re-sert
+  `assign_task` aux tâches assignées restées muettes plus de cinq secondes —
+  un filet pour un message perdu en vol. Il ne gardait aucune trace de ses
+  tentatives : une tâche muette repartait **à chaque tick**. Le cas qui compte
+  n'est pas le nœud mort (le moissonneur désassigne sa tâche, la boucle
+  s'arrête seule) mais le nœud **vivant et bloqué** — il bat normalement, ne
+  rend jamais compte de sa tâche, n'est donc jamais moissonné, et c'est lui que
+  le filet arrosait sans fin. Un renvoi au plus toutes les **15 s** par tâche
+  désormais, mémorisé en RAM plutôt qu'en rafraîchissant `updatedAt` : ce champ
+  veut dire « la tâche a changé », or une re-livraison ne la change pas, et le
+  teindre ferait passer une tâche gelée pour fraîche auprès du filet lui-même.
+  Journal § 6bis.2.
+
 - **🗣️ La contre-expertise PART enfin : un modèle reçoit vraiment le travail
   d'un autre à juger.** Le module décidait qui devait relire depuis deux PR, et
   personne ne lançait la relecture — le lot restait 🟡 avec un module complet et
