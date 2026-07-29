@@ -1,6 +1,7 @@
 // Protocole WebSocket typé entre nœuds, dashboard et orchestrateur.
 // Chaque message entrant est validé champ par champ — jamais de confiance aveugle.
 
+import { nomDeChantierValide } from './chantier.js';
 import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
@@ -119,6 +120,28 @@ export interface MergeConflictReport {
   reason: string;
 }
 
+/**
+ * Résultat d'un chantier exécuté par un nœud (lot 14).
+ *
+ * `refused` distingue « le chantier a tourné et a échoué » de « le nœud n'a pas
+ * voulu le lancer » — deux choses qu'un code de sortie non nul confondrait, et
+ * qui appellent deux gestes opposés : corriger le code, ou corriger la demande.
+ */
+export interface ChantierResultMsg {
+  type: 'chantier_result';
+  chantierId: string;
+  /** Le nom relayé, pour que le hub retrouve de quoi il s'agit. */
+  nom: string;
+  /** Code de sortie du processus. `null` s'il n'a jamais démarré. */
+  code: number | null;
+  /** Sortie standard et d'erreur, bornée. C'est une DONNÉE : elle vient du dépôt. */
+  sortie: string;
+  /** Vrai seulement si le chantier a tourné ET rendu 0. */
+  ok: boolean;
+  /** Non vide quand le nœud a REFUSÉ — hors service, nom non déclaré, sortant. */
+  refused?: string;
+}
+
 /** Résultat d'un merge exécuté par un nœud (Honeycomb Merge, Palier 3). */
 export interface MergeResultMsg {
   type: 'merge_result';
@@ -153,7 +176,8 @@ export type ClientMessage =
   | TaskResultMsg
   | TaskRejectMsg
   | SubscribeMsg
-  | MergeResultMsg;
+  | MergeResultMsg
+  | ChantierResultMsg;
 
 // ─── Messages orchestrateur → client ─────────────────────────────────────────
 export interface RegisteredMsg {
@@ -218,8 +242,46 @@ export interface AssignMergeMsg {
   testCommand?: string[];
 }
 
+/**
+ * Demande de CHANTIER envoyée à un nœud (lot 14) — lancer un travail que le
+ * dépôt DÉCLARE.
+ *
+ * ─── POURQUOI CE MESSAGE PORTE UN NOM ET PAS UNE COMMANDE ────────────────────
+ *
+ * C'est toute la différence avec `assign_merge`, qui porte un `testCommand`.
+ * Ici le hub n'envoie **aucune commande** : il envoie le NOM d'un script, et le
+ * nœud relit lui-même le `package.json` du clone qu'il vient de faire, vérifie
+ * que le nom y figure, puis compose l'argv.
+ *
+ * La raison est la même que celle qui a fait naître `jugerCommandeTest` : un
+ * nœud ne doit pas tenir pour acquis que le hub est bien celui qu'il croit. Le
+ * jeton de ruche est partagé, les anciennes invitations le portent en clair, et
+ * le transport peut être un `ws://` de réseau local. Un hub compromis qui
+ * enverrait une commande la ferait exécuter ; un hub compromis qui envoie un
+ * nom ne peut désigner que ce que le dépôt déclare déjà.
+ *
+ * **Le hub propose un nom. Le dépôt décide de ce que ce nom exécute.**
+ */
+export interface AssignChantierMsg {
+  type: 'assign_chantier';
+  chantierId: string;
+  /** Dépôt à cloner. */
+  repoUrl: string;
+  /** Le NOM du script — jamais une commande. Voir ci-dessus. */
+  nom: string;
+  /** Préparation optionnelle (`npm ci`…), bornée par `jugerPreparation`. */
+  prepareCommand?: string[];
+}
+
 export type ServerMessage =
-  RegisteredMsg | AssignTaskMsg | CancelTaskMsg | StateMsg | EventMsg | ErrorMsg | AssignMergeMsg;
+  | RegisteredMsg
+  | AssignTaskMsg
+  | CancelTaskMsg
+  | StateMsg
+  | EventMsg
+  | ErrorMsg
+  | AssignMergeMsg
+  | AssignChantierMsg;
 
 const SERVER_MESSAGE_TYPES = new Set([
   'registered',
@@ -229,6 +291,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'event',
   'error',
   'assign_merge',
+  'assign_chantier',
 ]);
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -457,6 +520,28 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       }
       return null;
     }
+    case 'chantier_result': {
+      if (
+        isId(m.chantierId) &&
+        nomDeChantierValide(m.nom) &&
+        (m.code === null || (typeof m.code === 'number' && Number.isSafeInteger(m.code))) &&
+        isStrAllowEmpty(m.sortie, LIMITS.log) &&
+        typeof m.ok === 'boolean' &&
+        (m.refused === undefined || isStr(m.refused, LIMITS.name))
+      ) {
+        const msg: ChantierResultMsg = {
+          type: 'chantier_result',
+          chantierId: m.chantierId,
+          nom: m.nom,
+          code: m.code as number | null,
+          sortie: m.sortie,
+          ok: m.ok,
+        };
+        if (typeof m.refused === 'string') msg.refused = m.refused;
+        return msg;
+      }
+      return null;
+    }
     default:
       return null;
   }
@@ -520,6 +605,30 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
         if (m.prepareCommand !== undefined) msg.prepareCommand = m.prepareCommand as string[];
         if (m.testCommand !== undefined) msg.testCommand = m.testCommand as string[];
+        return msg;
+      }
+      return null;
+    }
+    case 'assign_chantier': {
+      // Aussi sensible qu'un merge : déclenche un clone puis un `npm run` sur
+      // la machine d'un membre. Validé champ par champ.
+      //
+      // `nom` n'est validé QUE dans sa forme ici. Savoir si le dépôt le
+      // déclare demande le `package.json`, que personne n'a encore à cet
+      // instant — c'est le nœud qui posera cette question, après son clone.
+      if (
+        isId(m.chantierId) &&
+        isValidRepoUrl(m.repoUrl) &&
+        nomDeChantierValide(m.nom) &&
+        (m.prepareCommand === undefined || isArgv(m.prepareCommand))
+      ) {
+        const msg: AssignChantierMsg = {
+          type: 'assign_chantier',
+          chantierId: m.chantierId,
+          repoUrl: m.repoUrl,
+          nom: m.nom,
+        };
+        if (m.prepareCommand !== undefined) msg.prepareCommand = m.prepareCommand as string[];
         return msg;
       }
       return null;

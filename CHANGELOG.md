@@ -9,6 +9,28 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🏗️ Les Chantiers sont BRANCHÉS : la ruche lance vraiment les travaux que le
+  dépôt déclare.** `POST /api/projects/:id/chantiers/:nom/run` lit le
+  `package.json` du miroir, juge, et relaie à un nœud, qui clone et lance.
+  **La décision qui porte tout le lot** : `assign_merge` transporte une
+  commande ; **`assign_chantier` transporte un NOM**. Le nœud relit le
+  `package.json` du clone qu'il vient de faire, vérifie que le nom y figure,
+  puis compose l'argv lui-même. C'est le raisonnement qui a fait naître
+  `jugerCommandeTest` — un nœud ne doit pas tenir pour acquis que le hub est
+  celui qu'il croit, le jeton de ruche étant partagé et le transport pouvant
+  être un `ws://` de réseau local. **Un hub compromis qui envoie une commande la
+  fait exécuter ; un hub compromis qui envoie un nom ne peut désigner que ce que
+  le dépôt déclare déjà.** 19 tests, dont deux qui montent un `HiveNodeClient`
+  réel clonant un vrai dépôt git et lançant `npm run` — codes 0 **et 1**
+  vérifiés, parce qu'un nœud qui rapporterait toujours « ça marche » passerait
+  avec le seul cas heureux. Loupe : 17 mutants, 17 morts — et trois de ses
+  survivants ont révélé que **rien ne testait la garde du nœud** : le hub refuse
+  déjà tout ce qui est mauvais, donc un nœud branché sur un vrai hub ne voit
+  jamais passer de demande hostile. Il a fallu un **faux hub** pour l'exercer.
+  La route n'expose délibérément pas `intentionHumaine` : une requête HTTP ne
+  peut pas prouver qu'un humain est derrière, et l'exposer laisserait n'importe
+  quel appelant cocher la case — publier et déployer restent hors de portée.
+
 - **⚙️ La ruche sait parler aux GitHub Actions** (`src/shared/workflow.ts`,
   `github.ts`). `listerWorkflows`, `lancerWorkflow` (workflow_dispatch) et
   `lireRuns`, 27 tests, `Fetcheur` injecté — aucun test ne touche le réseau.
