@@ -9,6 +9,23 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **📜 Le déploiement sans écran a son exemple, et il est EXERCÉ**
+  (`examples/deploiement-sans-ecran.sh`). Le critère 9 demandait
+  `--non-interactive`, les secrets par l'environnement et des codes de sortie
+  exploitables ; les trois existaient, et le carnet disait depuis des lots que
+  « le script de bout en bout manque ». Ce qu'il démontre : **chaque code est
+  traité séparément**. Un `|| exit 1` transformerait sept situations distinctes
+  en une seule, et la seule réponse qui resterait à l'appelant serait
+  « relancer et espérer » — alors que 4 (port occupé) se règle en changeant un
+  réglage, 2 (prérequis) demande d'installer Node, et 5 (refus de sécurité) ne
+  se réessaie **jamais**. Il vérifie aussi que la ruche peut DÉMARRER, pas
+  seulement que l'installeur n'a pas échoué : `better-sqlite3` et `fastify`
+  doivent se charger — la leçon de l'image qui naissait morte. Le test lance le
+  vrai script par `sh`, contre un faux `install:hive` qui rend le code voulu.
+  Loupe : 7 mutants, 7 morts. **Un exemple que rien ne lance a l'air d'une
+  preuve sans en être une** — il pourrit comme la vitrine, et personne ne le
+  voit, parce qu'on ne relit pas un exemple : on le copie.
+
 - **📏 Le critère 1 est mesuré DE BOUT EN BOUT** (`docs/ETAPES.md`). La première
   tentative s'était arrêtée au prérequis — ce conteneur porte Node 22,
   `install.sh` exige 24, et il avait raison de refuser. Avec un Node 24 fourni
