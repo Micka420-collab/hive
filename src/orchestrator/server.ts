@@ -176,6 +176,7 @@ import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
 import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
 import { aConsolider } from '../shared/cerveau.js';
+import { graphe } from '../shared/cerveau-graphe.js';
 import { choisirCritiques } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext } from './hive-mind.js';
@@ -2961,6 +2962,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
     return moi;
   };
+
+  /**
+   * Le Cerveau, vu comme un graphe.
+   *
+   * ─── POURQUOI CETTE ROUTE EST EN LECTURE SEULE, ET ADMINISTRATIVE ──────────
+   *
+   * Le Cerveau est le savoir de TOUTE la ruche : il n'appartient à aucun
+   * projet, donc aucune permission par projet ne le couvre. `voir_tous_les_
+   * projets` est la seule qui dise « cette personne voit l'ensemble », et c'est
+   * exactement le périmètre.
+   *
+   * Aucune écriture ici, volontairement. Promouvoir un épisode en leçon demande
+   * de comprendre POURQUOI, et ce geste-là se fait dans Obsidian, à la main,
+   * avec un commit qu'on peut relire et annuler. Un bouton « promouvoir » sur
+   * un écran ferait écrire une règle en un clic — or une règle fausse coûte
+   * plus cher que pas de règle, parce qu'elle est SUIVIE.
+   *
+   * Le corps des notes n'est jamais renvoyé : la vue montre la FORME du savoir
+   * (qui cite qui, ce qui sert, ce qui dort), pas son contenu. Ça borne aussi
+   * la réponse, qu'un cerveau de mille notes ferait exploser autrement.
+   */
+  app.get('/api/admin/cerveau', async (req, reply) => {
+    if (!exige(req, reply, 'voir_tous_les_projets')) return reply;
+    // Un dossier absent est l'état NORMAL d'une ruche neuve : `lire` rend une
+    // liste vide, et le graphe vide se dessine très bien. Pas de 404 — « pas
+    // encore de savoir » n'est pas une erreur.
+    return { ...graphe(lire(dossierCerveau), Date.now()), dossier: dossierCerveau };
+  });
 
   app.get('/api/admin/membres', async (req, reply) => {
     if (!exige(req, reply, 'gerer_membres')) return reply;

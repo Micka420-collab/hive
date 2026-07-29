@@ -9,6 +9,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🧠 Un onglet pour VOIR le Cerveau** (`#/cerveau`, administrateurs seulement).
+  Le Cerveau grossissait tout seul — chaque échec y dépose un épisode — et
+  personne ne le voyait : un dossier de markdown se lit note par note, et une
+  note à la fois ne dit rien de la FORME de l'ensemble. L'onglet le montre en
+  **graphe vivant**, à la manière d'Obsidian : les notes se repoussent, les
+  liens les rapprochent, et une note qui apparaît **grandit** depuis zéro au
+  lieu de surgir. L'usage est rendu visible sans un chiffre de plus à lire —
+  un halo **respire** sur ce qui a servi récemment, et un point **creux** n'a
+  jamais servi. Trois choix portent la vue : un lien mort n'est **pas** dessiné
+  (le tracer vers le vide inventerait une note inexistante — il est listé à
+  part, pour être réparé), un lien réciproque est **une seule** arête (deux
+  colleraient les notes sans raison visible), et l'ordre est **total** (sinon
+  le graphe saute à chaque rafraîchissement alors que rien n'a bougé). La
+  physique est écrite à la main — répulsion, ressort, rappel au centre — parce
+  que le critère « 0 nouvelle dépendance » vaut aussi pour le tableau de bord.
+  Aucune écriture : promouvoir un épisode en leçon demande de comprendre
+  POURQUOI, et ce geste reste dans Obsidian, avec un commit qu'on peut annuler.
+
 - **🗣️ La contre-expertise sait LIRE un verdict** (`lireAvis`). Un relecteur
   répond en texte libre ; cette fonction en tire un avis exploitable par
   `agreger`. Le choix qui la porte : **un verdict illisible vaut « contesté »**,
