@@ -764,6 +764,108 @@ async function cmdService(...args: string[]): Promise<void> {
  * puis on renomme — un renommage est atomique, donc ce qui porte un nom
  * définitif est toujours complet.
  */
+/**
+ * `hive mode` — voir et changer ce que la ruche s'autorise, sans quitter le
+ * clavier.
+ *
+ * ─── CE QUE CETTE COMMANDE EXISTE POUR CORRIGER ─────────────────────────────
+ *
+ * L'échelle d'autonomie existait, la route pour la changer aussi. Mais rien en
+ * ligne de commande ne permettait de la LIRE ni de la POSER : il fallait
+ * fabriquer un `curl` à la main. Un réglage qui gouverne ce qu'une IA fait
+ * sans demander ne peut pas être le seul que l'outil ne sait pas montrer.
+ */
+async function cmdMode(...args: string[]): Promise<void> {
+  const { CODE } = await import('./codes-sortie.js');
+  const { PALIERS, basculer, estMode, palierDe } = await import('./shared/mode.js');
+
+  const mots = args.filter((a) => !a.startsWith('--'));
+  const accorde = args.includes('--oui');
+  // `/api/state` ne porte PAS le niveau : il vit dans sa propre table et se lit
+  // par projet. On liste donc, puis on demande — un appel par projet, ce qui
+  // est le bon compromis pour une CLI, et zéro octet imposé aux tableaux de
+  // bord qui reçoivent l'instantané en continu.
+  const bruts = await api<{ projects: { id: string; name: string }[] }>('/api/state').then(
+    (s) => s.projects ?? [],
+  );
+  const projets = await Promise.all(
+    bruts.map(async (p) => ({
+      ...p,
+      autonomie: await api<{ niveau: string }>(`/api/projects/${p.id}/essaim`)
+        .then((e) => e.niveau)
+        .catch(() => 'off'),
+    })),
+  );
+
+  // ─── SANS ARGUMENT : ON MONTRE, ON NE CHANGE RIEN ─────────────────────────
+  if (mots.length === 0) {
+    console.log('\n🎚️  Les quatre modes\n');
+    for (const p of PALIERS) {
+      console.log(`  ${p.mode.padEnd(9)} ${p.nom}`);
+      console.log(`  ${' '.repeat(9)} fait      : ${p.fait}`);
+      console.log(`  ${' '.repeat(9)} ne fait pas : ${p.neFaitPas}\n`);
+    }
+    if (projets.length === 0) {
+      console.log('  Aucun projet pour l’instant.\n');
+    } else {
+      console.log('  Où en sont vos projets :\n');
+      for (const pr of projets) {
+        console.log(`    ${pr.name}  →  ${pr.autonomie ?? 'off'}   (${pr.id})`);
+      }
+      console.log('\n  Changer :  npm run cli -- mode <mode> [projectId]\n');
+    }
+    return;
+  }
+
+  const demande = mots[0] ?? '';
+  const projetId = mots[1] ?? projets[0]?.id;
+  if (projetId === undefined) {
+    console.error('✘ Aucun projet. Créez-en un d’abord : npm run cli -- project "<nom>"');
+    process.exitCode = CODE.ERREUR;
+    return;
+  }
+  const projet = projets.find((p) => p.id === projetId);
+  if (!projet) {
+    console.error(`✘ Projet inconnu : ${projetId}`);
+    process.exitCode = CODE.ERREUR;
+    return;
+  }
+
+  const actuel = estMode(projet.autonomie ?? 'off') ? (projet.autonomie as never) : 'off';
+  const d = basculer(actuel, demande, accorde);
+  if (d.genre === 'refus') {
+    console.error(`✘ ${d.motif}`);
+    process.exitCode = CODE.ERREUR;
+    return;
+  }
+  if (d.confirmation !== undefined) {
+    // On DIT ce que ça implique, puis on s'arrête. La confirmation est un
+    // second geste, jamais une question à laquelle on répond par réflexe.
+    console.log(`\n⚠  ${d.confirmation}\n`);
+    console.log(`   Pour confirmer :  npm run cli -- mode ${d.vers} ${projetId} --oui\n`);
+    // Le code dit ce qui manque : une RÉPONSE, pas une erreur d'usage. Un
+    // script qui automatise la bascule peut donc distinguer « mot inconnu »
+    // de « il faut confirmer ».
+    process.exitCode = CODE.REPONSE_MANQUANTE;
+    return;
+  }
+
+  await api(`/api/projects/${projetId}/essaim`, {
+    method: 'POST',
+    body: JSON.stringify({ niveau: d.vers }),
+  });
+  const p = palierDe(d.vers);
+  console.log(`\n✔ ${projet.name} → ${p.nom} (${d.vers})`);
+  console.log(`   fait        : ${p.fait}`);
+  console.log(`   ne fait pas : ${p.neFaitPas}\n`);
+  if (d.vers !== 'off') {
+    console.log(
+      '   Rappel : `HIVE_RUNNER=on` est le SECOND interrupteur, côté hôte.\n' +
+        '   Sans lui, aucun cycle ne part — c’est celui qui paie le temps-machine qui décide.\n',
+    );
+  }
+}
+
 async function cmdSauvegarde(...args: string[]): Promise<void> {
   const { CODE } = await import('./codes-sortie.js');
   const { contexteReel, sauvegarder } = await import('./sauvegarde-reelle.js');
@@ -1617,6 +1719,7 @@ try {
   else if (cmd === 'desinstaller') await cmdDesinstaller(...process.argv.slice(3));
   else if (cmd === 'service') await cmdService(...process.argv.slice(3));
   else if (cmd === 'sauvegarde') await cmdSauvegarde(...process.argv.slice(3));
+  else if (cmd === 'mode') await cmdMode(...process.argv.slice(3));
   else if (cmd === 'ghost') await cmdGhost();
   else if (cmd === 'shift') cmdShift();
   else if (cmd === 'pulse') await cmdPulse();
@@ -1639,7 +1742,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId]>',
     );
     process.exitCode = 1;
   }

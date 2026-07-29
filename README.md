@@ -164,6 +164,20 @@ commande :
 | `gouverne` | Elle agit, mais **toute intégration passe par un humain**. |
 | `plein`    | Elle livre et fusionne — dépôt explicitement inscrit.      |
 
+Ça se change en une commande, et la commande **dit ce qu'elle implique avant
+de le faire** :
+
+```bash
+npm run cli -- mode                      # les quatre modes, et où en est chaque projet
+npm run cli -- mode gouverne             # annonce ce que ça élargit, n'écrit rien
+npm run cli -- mode gouverne <projet> --oui
+```
+
+**Seule la montée se confirme.** Redescendre retire des droits à la ruche —
+c'est toujours sûr, et demander « êtes-vous sûr ? » pour reprendre la main est
+le meilleur moyen d'apprendre à taper « oui » sans lire, donc de rendre la
+confirmation inutile le jour où elle compte.
+
 **Deux interrupteurs en série**, et c'est délibéré : le _niveau_ est choisi par
 l'utilisateur, `HIVE_RUNNER=off|on` par l'hôte qui paie le temps-machine
 (défaut : `off`). Personne ne déclenche seul de la dépense sur la machine d'un
