@@ -34,6 +34,49 @@ const nu = (s: string): string => s.replace(/^\s*#.*$/gm, '');
 const DOCKERFILE_NU = nu(DOCKERFILE);
 const COMPOSE_NU = nu(COMPOSE);
 
+/**
+ * L'unique couche de l'étage qui SERT, continuations recollées.
+ *
+ * Un `RUN` étalé sur quinze lignes par des `\` reste UNE couche : c'est cette
+ * unité-là qu'il faut examiner, pas les lignes du fichier. Docker met en cache
+ * la couche entière ou rien — d'où l'intérêt d'y trouver l'installation ET sa
+ * vérification.
+ */
+const coucheQuiSert = (): string => {
+  const lignes = DOCKERFILE_NU.replace(/\\\r?\n\s*/g, ' ')
+    .split(/\r?\n/)
+    .filter((l) => /npm ci/.test(l) && l.includes('--omit=dev'));
+  expect(lignes.length, 'l’étage qui sert doit avoir exactement un `npm ci --omit=dev`').toBe(1);
+  return lignes[0]!;
+};
+
+/**
+ * La seule partie de cette couche qui puisse faire ROUGIR la construction :
+ * ce qui suit le `done` de la boucle de reprise.
+ *
+ * ─── POURQUOI CE DÉCOUPAGE EXISTE ────────────────────────────────────────────
+ *
+ * La première version de ces gardes cherchait les `require` dans la couche
+ * ENTIÈRE. La loupe l'a prise en défaut : en retirant `@fastify/static` de la
+ * vérification finale, les 24 tests restaient verts — la sonde de la boucle,
+ * qui mentionne les mêmes paquets, suffisait à les satisfaire.
+ *
+ * Et ce n'était pas qu'un test faible, c'était un vrai trou : un paquet
+ * vérifié seulement dans la boucle fait échouer la sonde, donc épuiser les
+ * trois tentatives… puis la boucle sort avec 0, la vérification finale ne
+ * regarde pas ce paquet, et l'image part verte sans lui.
+ *
+ * On ne regarde donc que ce qui décide.
+ */
+const verificationFinale = (): string => {
+  const couche = coucheQuiSert();
+  const i = couche.search(/done\s*&&\s*node -e/);
+  expect(i, 'la vérification ne suit plus le `done` : plus rien ne fait rougir').toBeGreaterThan(
+    -1,
+  );
+  return couche.slice(i);
+};
+
 describe('LES TROIS FICHIERS EXISTENT', () => {
   it('à la racine, là où `docker build .` et `docker compose up` les cherchent', () => {
     for (const f of ['Dockerfile', '.dockerignore', 'docker-compose.yml']) {
@@ -173,6 +216,71 @@ describe('LA BASE DE L’IMAGE', () => {
       '--ignore-scripts',
     );
     expect(sert[0]).toMatch(/npm pkg delete scripts\.prepare/);
+  });
+
+  it('LA COUCHE QUI INSTALLE VÉRIFIE CE QU’ELLE A INSTALLÉ', () => {
+    // ─── LE PIÈGE QUE CETTE GARDE FERME ──────────────────────────────────────
+    //
+    // Les quatre dépendances nécessaires au démarrage sont OPTIONNELLES — un
+    // nœud membre, qui ne fait que prêter du temps-machine, n'en a pas l'usage.
+    // Seulement « optionnel » veut dire, pour npm : SI L'INSTALLATION ÉCHOUE,
+    // JE CONTINUE. `better-sqlite3` télécharge un binaire prébuilt ; quand ce
+    // téléchargement rate, npm avertit, retire le paquet, et SORT AVEC 0.
+    //
+    // Mesuré sur ce dépôt : deux constructions du MÊME Dockerfile et du MÊME
+    // lock, à quatre minutes d'écart.
+    //
+    //     a8f8909  06:05  image construite, ruche démarrée        vert
+    //     a3ceec0  06:10  image construite, ruche morte au boot   rouge
+    //
+    // Aucune ligne de code ne sépare ces deux images : le second commit ne
+    // touche que deux fichiers Markdown. Le test d'à côté garde le cas
+    // `--ignore-scripts`, qui est l'autre cause de la MÊME panne ; celui-ci
+    // garde le cas où personne n'a rien écrit de faux et où le réseau a suffi.
+    //
+    // La vérification doit vivre DANS LA MÊME COUCHE que l'installation.
+    // Séparée, Docker pourrait garder en cache une couche d'installation
+    // cassée et ne plus jamais la revérifier : une couche mise en cache serait
+    // alors une couche jamais vérifiée.
+    // On interroge la VÉRIFICATION FINALE, pas la couche entière : la sonde de
+    // la boucle cite les mêmes paquets et rendrait cette garde inopérante.
+    // C'est la loupe qui l'a montré — voir `verificationFinale`.
+    const verif = verificationFinale();
+    for (const paquet of ['better-sqlite3', 'fastify', '@fastify/cors', '@fastify/static']) {
+      expect(verif, `${paquet} n’est pas vérifié là où ça fait rougir`).toContain(
+        `require('${paquet}')`,
+      );
+    }
+  });
+
+  it('…et elle OUVRE une base — résoudre le module ne prouve pas que le natif répond', () => {
+    // Un `require` qui aboutit prouve que le dossier est là. Il ne prouve pas
+    // que le `.node` se charge, ni que SQLite répond : la panne d'un binaire
+    // natif ne se voit qu'à l'usage.
+    const verif = verificationFinale();
+    expect(verif, 'aucune base n’est ouverte à la construction').toContain(':memory:');
+    expect(verif).toContain('CREATE TABLE');
+    expect(verif, 'ouvrir sans relire ne prouve pas que la base répond').toMatch(
+      /SELECT count\(\*\)/,
+    );
+  });
+
+  it('LA REPRISE S’APPUIE SUR LA VÉRIFICATION, PAS SUR LE CODE DE SORTIE', () => {
+    // Reprendre sur le code de sortie ne rattraperait rien : il vaut 0
+    // précisément dans le cas qu'on veut rattraper. C'est la même leçon
+    // qu'`--retry-connrefused` en CI — encore faut-il reprendre sur la BONNE
+    // panne.
+    //
+    // Et la boucle sort TOUJOURS avec 0, même quand ses trois tentatives
+    // échouent — mesuré au shell, pas supposé. C'est donc la vérification
+    // finale, chaînée en `&&` APRÈS le `done`, qui fait rougir la
+    // construction. Une vérification placée dans la boucle laisserait passer
+    // une image cassée.
+    const couche = coucheQuiSert();
+    expect(couche, 'aucune reprise : un aléa réseau suffit à casser l’image').toMatch(/for essai/);
+    expect(couche, 'la vérification qui fait rougir doit suivre le `done`').toMatch(
+      /done\s*&&\s*node -e/,
+    );
   });
 
   it('installe depuis le LOCK, pas depuis une résolution du jour', () => {

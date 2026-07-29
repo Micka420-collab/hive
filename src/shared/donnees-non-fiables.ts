@@ -53,13 +53,32 @@ export function neutraliserDelimiteur(texte: string): string {
 }
 
 /**
- * Prépare un champ libre pour un bloc de données : une seule ligne (retours à
- * la ligne et tabulations → espace), marqueur neutralisé, longueur bornée.
+ * Tout ce qui commence une nouvelle ligne quelque part.
+ *
+ * ─── POURQUOI CETTE LISTE EST PLUS LONGUE QUE `\r\n` ─────────────────────────
+ *
+ * La première version ne connaissait que `\r`, `\n` et la tabulation. Elle
+ * laissait donc passer U+2028 (LINE SEPARATOR) et U+2029 (PARAGRAPH SEPARATOR),
+ * qui sont des retours à la ligne pour un terminal, pour un navigateur et pour
+ * la plupart des rendus — mais pas pour cette expression régulière. Une
+ * fonction qui promet « sur une seule ligne » et laisse passer un séparateur de
+ * ligne ne tient pas sa promesse, et c'est le genre de trou qu'on utilise
+ * précisément parce qu'une garde naïve ne le voit pas.
+ *
+ * Trouvé par la loupe, en creusant pourquoi un mutant de la contre-expertise
+ * refusait de mourir. S'y ajoutent la tabulation verticale, le saut de page et
+ * U+0085 (NEL), pour la même raison : ce sont des sauts de ligne ailleurs.
+ */
+const SEPARATEURS_DE_LIGNE = /[\r\n\t\v\f\u0085\u2028\u2029]+/gu;
+
+/**
+ * Prépare un champ libre pour un bloc de données : une seule ligne (tout ce qui
+ * sépare des lignes → espace), marqueur neutralisé, longueur bornée.
  * Sert aussi hors bloc (réponses composées), où une ligne est tout aussi
  * souhaitable : un `\n` dans un nom déclaré par un tiers casse la mise en forme.
  */
 export function champSurUneLigne(texte: string, max: number): string {
-  return neutraliserDelimiteur(texte.replace(/[\r\n\t]+/g, ' ')).slice(0, max);
+  return neutraliserDelimiteur(texte.replace(SEPARATEURS_DE_LIGNE, ' ')).slice(0, max);
 }
 
 /**

@@ -29,7 +29,7 @@ const TOKEN = 'jeton-cerveau-suffisamment-long';
 interface Assignation {
   type: string;
   hiveContext?: string;
-  task?: { id: string };
+  task?: { id: string; prompt?: string };
 }
 
 describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
@@ -495,4 +495,179 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     expect(p?.possible).toBe(false);
     expect(p?.motif).toMatch(/angles morts/);
   });
+
+  // ═══ LE LOT 13 SE JOUE ICI ════════════════════════════════════════════════
+  //
+  // Tout le reste de la contre-expertise peut être vert sans que la critique
+  // parte : c'était l'état exact du lot pendant deux PR — un module qui DÉCIDE
+  // qui doit relire, et personne pour lancer la relecture.
+  //
+  // Ces trois tests demandent la seule chose qui tranche : est-ce qu'un modèle
+  // reçoit VRAIMENT le travail d'un autre à juger, et est-ce que son verdict
+  // revient ?
+
+  /** Fait produire un diff au nœud `claude-code`, et rend l'id de la tâche. */
+  async function produire(srv: HiveServer, recues: Assignation[], diff: string): Promise<string> {
+    const projet = srv.store.createProject({ name: 'P' });
+    const t = srv.store.createTask({
+      projectId: projet.id,
+      title: 'Ajouter une garde',
+      prompt: 'p',
+    });
+    srv.store.patchTask(t.id, { status: 'ready' });
+
+    const fin = Date.now() + 8_000;
+    while (recues.length === 0 && Date.now() < fin) await new Promise((r) => setTimeout(r, 40));
+    expect(recues.length, 'le producteur n’a rien reçu').toBeGreaterThan(0);
+    const idTache = recues[0]?.task?.id as string;
+
+    (sockets[0] as WebSocket).send(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: idTache,
+        success: true,
+        diff,
+        logs: 'ok',
+        durationMs: 5,
+        subAgents: [],
+      }),
+    );
+    return idTache;
+  }
+
+  /**
+   * Attend une assignation, avec un PLAFOND QUI DISCRIMINE.
+   *
+   * ─── POURQUOI 3 SECONDES, ET PAS 8 ─────────────────────────────────────────
+   *
+   * La ruche a un filet : `staleAssignedTasks(5_000)` re-livre toute tâche
+   * assignée restée muette plus de 5 s — « message perdu en vol ». Ce filet
+   * rattrape donc AUSSI une relecture que le dispatch n'aurait jamais envoyée.
+   *
+   * Première version de ces tests : plafond à 8 s. Ils passaient TOUS, y
+   * compris en coupant l'envoi — la loupe l'a montré. Ils ne prouvaient pas
+   * que la critique partait, seulement qu'elle finissait par arriver.
+   *
+   * Mesuré, la même relecture, sur la même ruche :
+   *
+   *     dispatch direct        7 ms
+   *     filet de rattrapage    5 060 ms
+   *
+   * 3 secondes se posent entre les deux : plus de quatre cents fois la latence
+   * réelle, et bien en deçà du filet. Un plafond qui ne discrimine pas ne
+   * mesure rien.
+   */
+  const attendreAssignation = async (
+    recues: Assignation[],
+    ms = 3_000,
+  ): Promise<Assignation | undefined> => {
+    const fin = Date.now() + ms;
+    while (Date.now() < fin) {
+      if (recues.length > 0) return recues[0];
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return undefined;
+  };
+
+  it('LA CRITIQUE ATTEINT VRAIMENT L’AUTRE MODÈLE', { timeout: 40_000 }, async () => {
+    // L'assertion qui décide du lot 13. Sans elle, « contre-expertise » ne
+    // désigne qu'un événement qui NOMME un relecteur sans jamais le solliciter.
+    const srv = await ruche();
+    const produits = await noeud(srv, 'producteur', 'claude-code');
+    const relus = await noeud(srv, 'relecteur', 'codex');
+
+    await produire(srv, produits, 'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;');
+
+    const a = await attendreAssignation(relus);
+    expect(
+      a,
+      'rien en 3 s : la critique n’est pas partie du dispatch. Si elle arrive plus tard, ' +
+        'c’est le filet `staleAssignedTasks` qui la rattrape — ce n’est pas la même chose.',
+    ).toBeDefined();
+
+    const prompt = a?.task?.prompt ?? '';
+    expect(prompt, 'ce n’est pas une consigne de critique').toMatch(/CONTRE-EXPERTISE/);
+    expect(prompt, 'le relecteur doit savoir QUEL modèle il juge').toContain('claude-code');
+    expect(prompt, 'le diff jugé doit être là').toContain('auth.ts');
+    // Et il y arrive comme une DONNÉE : un diff hostile ne devient pas une
+    // consigne du seul fait qu'il traverse la ruche.
+    expect(prompt, 'la production doit être encapsulée').toContain('HIVE_DATA');
+  });
+
+  it('LE VERDICT REVIENT, avec ses objections', { timeout: 40_000 }, async () => {
+    const srv = await ruche();
+    const produits = await noeud(srv, 'producteur', 'claude-code');
+    const relus = await noeud(srv, 'relecteur', 'codex');
+
+    const idProduction = await produire(srv, produits, 'diff --git a/x b/x\n+const a = 1;');
+    const a = await attendreAssignation(relus);
+    expect(a, 'aucune relecture lancée').toBeDefined();
+
+    // Le relecteur rend son avis, en texte libre — comme un vrai modèle.
+    (sockets[1] as WebSocket).send(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: a?.task?.id,
+        success: true,
+        diff: '',
+        logs: 'conteste\n- le cas du jeton vide n’est pas traité',
+        durationMs: 5,
+        subAgents: [],
+      }),
+    );
+
+    const v = (await attendreEvt(srv, 'contre_expertise_verdict')) as
+      | { taskId?: string; conteste?: boolean; objections?: string[]; relecteur?: string }
+      | undefined;
+    expect(v, 'le verdict n’est jamais remonté').toBeDefined();
+    expect(v?.taskId, 'le verdict doit désigner la PRODUCTION, pas la relecture').toBe(
+      idProduction,
+    );
+    expect(v?.conteste).toBe(true);
+    expect(v?.relecteur).toBe('codex');
+    expect(v?.objections?.join(' ')).toMatch(/jeton vide/);
+  });
+
+  it(
+    'UNE RELECTURE N’EST PAS RELUE — sinon c’est une régression infinie',
+    { timeout: 40_000 },
+    async () => {
+      // Chaque tour coûterait un vrai appel de modèle. C'est la table latérale
+      // qui coupe : une tâche y figure si et seulement si elle a été créée POUR
+      // relire quelque chose.
+      const srv = await ruche();
+      const produits = await noeud(srv, 'producteur', 'claude-code');
+      const relus = await noeud(srv, 'relecteur', 'codex');
+
+      await produire(srv, produits, 'diff --git a/x b/x\n+const a = 1;');
+      const a = await attendreAssignation(relus);
+      expect(a, 'aucune relecture lancée').toBeDefined();
+      expect(
+        srv.store.relectureDe(a?.task?.id as string),
+        'la relecture doit être inscrite',
+      ).not.toBeNull();
+
+      // Le relecteur rend un avis AVEC un diff non vide : c'est le cas piège,
+      // celui qui ressemble le plus à une production ordinaire.
+      (sockets[1] as WebSocket).send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: a?.task?.id,
+          success: true,
+          diff: 'diff --git a/note.md b/note.md\n+une remarque',
+          logs: 'valide',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+
+      await attendreEvt(srv, 'contre_expertise_verdict');
+      // Laisser à une éventuelle seconde vague le temps de partir.
+      await new Promise((r) => setTimeout(r, 600));
+      expect(
+        relus.length,
+        `le relecteur a reçu ${relus.length} tâches : la relecture a été relue`,
+      ).toBe(1);
+    },
+  );
 });

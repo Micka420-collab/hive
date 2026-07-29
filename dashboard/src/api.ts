@@ -5,6 +5,7 @@
 import { t as tNow } from './i18n';
 import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
+import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 
 const TOKEN_KEY = 'hive.token';
 export const DEFAULT_TOKEN = 'change-me';
@@ -1480,4 +1481,19 @@ export function rejoindreProjet(projectId: string): Promise<{ joined: boolean }>
   return apiCompte<{ joined: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/join`, {
     method: 'POST',
   });
+}
+
+// ─── Le Cerveau, vu comme un graphe ─────────────────────────────────────────
+//
+// Les types sont RÉUTILISÉS depuis le module partagé plutôt que recopiés ici :
+// un graphe redéclaré côté navigateur dérive du serveur au premier champ
+// ajouté, et c'est le genre d'écart qui ne se voit qu'à l'écran.
+
+export type { Graphe, NoeudGraphe, AreteGraphe } from '../../src/shared/cerveau-graphe.js';
+
+/** Le graphe, plus le dossier d'où il sort (utile quand il est vide). */
+export type CerveauGraphe = Graphe & { dossier: string };
+
+export function fetchCerveau(): Promise<CerveauGraphe> {
+  return apiCompte<CerveauGraphe>('/api/admin/cerveau');
 }

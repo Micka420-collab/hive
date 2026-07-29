@@ -19,6 +19,7 @@ import {
   agreger,
   choisirCritiques,
   consigneDeCritique,
+  lireAvis,
 } from '../src/shared/contre-expertise.js';
 
 const production = (o: Partial<Production> = {}): Production => ({
@@ -160,6 +161,87 @@ describe('CE QU’ON DEMANDE AU RELECTEUR', () => {
   it('un diff énorme ne fait pas déborder le budget', () => {
     const c = consigneDeCritique(production({ diff: 'x'.repeat(50_000) }), 4_000);
     expect(c.length).toBeLessThanOrEqual(4_000);
+  });
+});
+
+describe('LIRE CE QUE LE RELECTEUR A ÉCRIT', () => {
+  it('UN VERDICT ILLISIBLE VAUT « CONTESTÉ », jamais « validé »', () => {
+    // ─── LE CHOIX QUI PORTE CETTE FONCTION ─────────────────────────────────
+    //
+    // Un modèle ne répond pas toujours dans le format demandé. Compter le
+    // silence comme un feu vert produirait « relu, rien à signaler » sur un
+    // travail que personne n'a jugé — le mensonge rassurant que ce module
+    // refuse partout ailleurs. On contesta donc, et on dit pourquoi.
+    const a = lireAvis('n1', 'codex', 'Je ne sais pas trop quoi en penser.');
+    expect(a.valide).toBe(false);
+    expect(a.objections[0]).toMatch(/illisible/i);
+  });
+
+  it('« conteste » l’emporte sur « valide » quand les DEUX apparaissent', () => {
+    // Entre deux lectures possibles, on garde celle qui fait REGARDER.
+    // L'inverse ferait disparaître une objection sur une coquille de rédaction.
+    const a = lireAvis(
+      'n1',
+      'codex',
+      'La forme est valide mais je conteste le fond.\n- le cas vide',
+    );
+    expect(a.valide).toBe(false);
+    expect(a.objections).toContain('le cas vide');
+  });
+
+  it('les accents ne changent pas le verdict', () => {
+    // « contesté » et « validé » disent la même chose que leurs formes nues :
+    // le format demandé est une consigne, pas une garantie.
+    expect(lireAvis('n', 'codex', 'Contesté.').valide).toBe(false);
+    expect(lireAvis('n', 'codex', 'Validé.').valide).toBe(true);
+  });
+
+  it('les objections sont ramassées quelle que soit la puce', () => {
+    const a = lireAvis(
+      'n1',
+      'codex',
+      ['valide', '- tiret', '* étoile', '• point', '1. numérotée', '2) parenthèse'].join('\n'),
+    );
+    expect(a.objections).toEqual(['tiret', 'étoile', 'point', 'numérotée', 'parenthèse']);
+  });
+
+  it('UNE OBJECTION NE PEUT PAS FABRIQUER DE FAUX CHAMPS', () => {
+    // ─── CE TEST PASSAIT POUR LA MAUVAISE RAISON ─────────────────────────
+    //
+    // Première version : un texte sans verdict, contenant une objection avec
+    // U+2028. Il attendait UNE objection et en trouvait bien une — sauf que
+    // c'était le message « verdict illisible », une constante sans U+2028. La
+    // ligne à objection, elle, n'était même pas capturée.
+    //
+    // La loupe l'a montré : retirer `champSurUneLigne` laissait le test vert.
+    // Et en creusant, un vrai défaut dessous — `.` ne traverse pas U+2028 en
+    // JavaScript, donc `(.+)$` ne capturait RIEN et l'objection était perdue
+    // en silence. Le verdict est désormais explicite pour que le message
+    // « illisible » ne masque plus rien.
+    const a = lireAvis('n1', 'codex', 'conteste\n- premi\u2028seconde');
+    expect(a.valide).toBe(false);
+    expect(a.objections, 'l’objection a été perdue au lieu d’être neutralisée').toHaveLength(1);
+    expect(a.objections[0], 'U+2028 traverse encore').not.toMatch(/[\n\r\u2028\u2029]/u);
+    expect(a.objections[0], 'les deux moitiés doivent survivre').toMatch(/premi.*seconde/);
+  });
+
+  it('un déversement de mille objections est BORNÉ', () => {
+    const texte = ['conteste', ...Array.from({ length: 1_000 }, (_, i) => `- objection ${i}`)].join(
+      '\n',
+    );
+    expect(lireAvis('n1', 'codex', texte).objections.length).toBeLessThanOrEqual(20);
+  });
+
+  it('un avis lu se replie comme les autres', () => {
+    // La sortie de `lireAvis` doit entrer telle quelle dans `agreger` — sinon
+    // les deux moitiés du module ne se parlent pas.
+    const v = agreger([
+      lireAvis('n1', 'codex', 'valide'),
+      lireAvis('n2', 'hermes-agent', 'conteste\n- la garde a sauté'),
+    ]);
+    expect(v.conteste).toBe(true);
+    expect(v.modeles).toBe(2);
+    expect(v.objections).toEqual(['la garde a sauté']);
   });
 });
 

@@ -176,7 +176,13 @@ import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
 import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
 import { aConsolider } from '../shared/cerveau.js';
-import { choisirCritiques } from '../shared/contre-expertise.js';
+import { graphe } from '../shared/cerveau-graphe.js';
+import {
+  agreger,
+  choisirCritiques,
+  consigneDeCritique,
+  lireAvis,
+} from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
@@ -650,15 +656,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const producteur = store.getNode(nodeId);
     if (!task || !producteur) return;
 
+    const production = {
+      taskId,
+      titre: task.title,
+      nodeId,
+      agentType: producteur.agentType,
+      diff,
+      logs,
+    };
+
     const choix = choisirCritiques(
-      {
-        taskId,
-        titre: task.title,
-        nodeId,
-        agentType: producteur.agentType,
-        diff,
-        logs,
-      },
+      production,
       store.listNodes().map((n) => ({
         nodeId: n.id,
         nom: n.name,
@@ -667,18 +675,97 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       })),
     );
 
-    emitEvent(
-      'contre_expertise',
-      choix.genre === 'choix'
-        ? {
-            taskId,
-            possible: true,
-            producteur: producteur.agentType,
-            modeles: choix.modeles,
-            relecteurs: choix.relecteurs.map((r) => r.nom),
-          }
-        : { taskId, possible: false, producteur: producteur.agentType, motif: choix.motif },
-    );
+    if (choix.genre === 'refus') {
+      // « Aucun second modèle en ligne » est une INFORMATION. Tue, elle se
+      // confondrait avec « on a relu et rien trouvé » — deux situations
+      // opposées derrière le même écran vide, et la mauvaise est celle qui
+      // rassure.
+      emitEvent('contre_expertise', {
+        taskId,
+        possible: false,
+        producteur: producteur.agentType,
+        motif: choix.motif,
+      });
+      return;
+    }
+
+    // ─── LE LANCEMENT ────────────────────────────────────────────────────────
+    //
+    // Une tâche de relecture est une VRAIE tâche : elle passe par le même
+    // canal `assign_task` que le reste, donc par le même bac à sable, le même
+    // protocole, le même chemin de résultat. Inventer un second canal aurait
+    // dupliqué toutes ces gardes, et c'est en dupliquant les gardes qu'on
+    // finit par en oublier une.
+    //
+    // Elle est posée directement en `assigned` sur un nœud PRÉCIS, sans passer
+    // par la file : le planificateur choisit le nœud le moins chargé, or ici
+    // l'identité du nœud est TOUT le propos — un autre modèle, pas n'importe
+    // lequel. C'est exactement ce que fait `scheduler.startRace`, et on
+    // réutilise son geste plutôt que d'en écrire un autre.
+    const lancees: string[] = [];
+    for (const relecteur of choix.relecteurs) {
+      const relecture = store.createTask({
+        projectId: task.projectId,
+        title: `Contre-expertise — ${champSurUneLigne(task.title, 120)}`,
+        prompt: consigneDeCritique(production),
+      });
+      // Le lien AVANT l'assignation : si le résultat revenait entre les deux,
+      // il serait traité comme une production ordinaire et repartirait en
+      // contre-expertise. La fenêtre est étroite ; elle n'a pas à exister.
+      store.inscrireRelecture({
+        relectureTaskId: relecture.id,
+        productionTaskId: taskId,
+        relecteurNodeId: relecteur.nodeId,
+        relecteurAgent: relecteur.agentType,
+        producteurAgent: producteur.agentType,
+      });
+      const assignee = store.patchTask(relecture.id, {
+        status: 'assigned',
+        assignedNodeId: relecteur.nodeId,
+      });
+      if (assignee) {
+        envoyerTache(relecteur.nodeId, assignee);
+        lancees.push(relecture.id);
+      }
+    }
+
+    emitEvent('contre_expertise', {
+      taskId,
+      possible: true,
+      producteur: producteur.agentType,
+      modeles: choix.modeles,
+      relecteurs: choix.relecteurs.map((r) => r.nom),
+      relectures: lancees,
+    });
+  };
+
+  /**
+   * Un verdict revient — on le lit, on l'agrège, on le journalise.
+   *
+   * ─── CE QUE CE VERDICT NE FAIT PAS, ET NE FERA PAS ───────────────────────
+   *
+   * Il ne bloque aucune fusion. La règle du dépôt reste « jamais de fusion sans
+   * revue humaine », et une contre-expertise qui DÉCIDERAIT remplacerait la
+   * revue au lieu de l'armer. Ce qu'on veut, c'est qu'un humain lise des
+   * objections qu'il n'aurait pas trouvées seul — pas qu'une seconde IA ait le
+   * dernier mot sur la première.
+   *
+   * Il n'y a donc aucun chemin d'ici vers la livraison, et c'est délibéré.
+   */
+  const noterVerdict = (
+    relectureTaskId: string,
+    lien: NonNullable<ReturnType<typeof store.relectureDe>>,
+    texte: string,
+  ): void => {
+    const verdict = agreger([lireAvis(lien.relecteurNodeId, lien.relecteurAgent, texte)]);
+    emitEvent('contre_expertise_verdict', {
+      taskId: lien.productionTaskId,
+      relecture: relectureTaskId,
+      relecteur: lien.relecteurAgent,
+      producteur: lien.producteurAgent,
+      conteste: verdict.conteste,
+      objections: verdict.objections,
+    });
   };
 
   const noterEchec = (taskId: string, logs: string): void => {
@@ -961,6 +1048,50 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     });
   };
 
+  /**
+   * Envoie une tâche à un nœud PRÉCIS.
+   *
+   * ─── POURQUOI CE GESTE EST NOMMÉ PLUTÔT QU'ANONYME ─────────────────────────
+   *
+   * Il était le corps de `onAssign`, donc atteignable seulement par le
+   * planificateur. La contre-expertise a besoin du MÊME geste : confier un
+   * prompt à un nœud choisi pour son modèle, pas pour sa disponibilité.
+   *
+   * L'extraire plutôt que le recopier garde une seule porte de sortie vers les
+   * ouvrières — donc un seul endroit où vivent le cadre du polyéthisme, le
+   * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
+   * qu'on oublie de garder.
+   */
+  const envoyerTache = (nodeId: string, task: Task): void => {
+    const ws = nodeSockets.get(nodeId);
+    // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
+    if (ws) {
+      const project = store.getProject(task.projectId);
+      // Le cadre du polyéthisme vient EN TÊTE et se taille son budget en
+      // premier : une consigne tronquée à moitié est pire qu'absente, alors
+      // qu'un souvenir en moins n'est qu'un souvenir en moins.
+      const cadre = construireCadre(task, nodeId);
+      const { hiveContext, echecs, refusCerveau } = construireHiveContext(task, cadre.length);
+      // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
+      // donc cette ouvrière travaille sans les contraintes de sûreté du
+      // projet. C'est précisément le genre de fait qu'un `''` silencieux
+      // ferait disparaître — on le journalise, il apparaît à la Chronique.
+      if (refusCerveau !== undefined) {
+        emitEvent('cerveau_refus', { taskId: task.id, nodeId, motif: refusCerveau });
+      }
+      // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
+      // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
+      if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
+      const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
+      send(ws, {
+        type: 'assign_task',
+        task,
+        repoUrl: project?.repoUrl ?? null,
+        ...(contexte ? { hiveContext: contexte } : {}),
+      });
+    }
+  };
+
   const scheduler = new Scheduler(store, {
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
@@ -972,35 +1103,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const ws = nodeSockets.get(nodeId);
       if (ws) send(ws, { type: 'cancel_task', taskId, reason });
     },
-    onAssign: (nodeId, task) => {
-      const ws = nodeSockets.get(nodeId);
-      // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
-      if (ws) {
-        const project = store.getProject(task.projectId);
-        // Le cadre du polyéthisme vient EN TÊTE et se taille son budget en
-        // premier : une consigne tronquée à moitié est pire qu'absente, alors
-        // qu'un souvenir en moins n'est qu'un souvenir en moins.
-        const cadre = construireCadre(task, nodeId);
-        const { hiveContext, echecs, refusCerveau } = construireHiveContext(task, cadre.length);
-        // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
-        // donc cette ouvrière travaille sans les contraintes de sûreté du
-        // projet. C'est précisément le genre de fait qu'un `''` silencieux
-        // ferait disparaître — on le journalise, il apparaît à la Chronique.
-        if (refusCerveau !== undefined) {
-          emitEvent('cerveau_refus', { taskId: task.id, nodeId, motif: refusCerveau });
-        }
-        // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
-        // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
-        if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
-        const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
-        send(ws, {
-          type: 'assign_task',
-          task,
-          repoUrl: project?.repoUrl ?? null,
-          ...(contexte ? { hiveContext: contexte } : {}),
-        });
-      }
-    },
+    onAssign: (nodeId, task) => envoyerTache(nodeId, task),
     onEvent: (event) => {
       broadcastEvent({ type: 'event', event });
       stateDirty = true;
@@ -2961,6 +3064,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
     return moi;
   };
+
+  /**
+   * Le Cerveau, vu comme un graphe.
+   *
+   * ─── POURQUOI CETTE ROUTE EST EN LECTURE SEULE, ET ADMINISTRATIVE ──────────
+   *
+   * Le Cerveau est le savoir de TOUTE la ruche : il n'appartient à aucun
+   * projet, donc aucune permission par projet ne le couvre. `voir_tous_les_
+   * projets` est la seule qui dise « cette personne voit l'ensemble », et c'est
+   * exactement le périmètre.
+   *
+   * Aucune écriture ici, volontairement. Promouvoir un épisode en leçon demande
+   * de comprendre POURQUOI, et ce geste-là se fait dans Obsidian, à la main,
+   * avec un commit qu'on peut relire et annuler. Un bouton « promouvoir » sur
+   * un écran ferait écrire une règle en un clic — or une règle fausse coûte
+   * plus cher que pas de règle, parce qu'elle est SUIVIE.
+   *
+   * Le corps des notes n'est jamais renvoyé : la vue montre la FORME du savoir
+   * (qui cite qui, ce qui sert, ce qui dort), pas son contenu. Ça borne aussi
+   * la réponse, qu'un cerveau de mille notes ferait exploser autrement.
+   */
+  app.get('/api/admin/cerveau', async (req, reply) => {
+    if (!exige(req, reply, 'voir_tous_les_projets')) return reply;
+    // Un dossier absent est l'état NORMAL d'une ruche neuve : `lire` rend une
+    // liste vide, et le graphe vide se dessine très bien. Pas de 404 — « pas
+    // encore de savoir » n'est pas une erreur.
+    return { ...graphe(lire(dossierCerveau), Date.now()), dossier: dossierCerveau };
+  });
 
   app.get('/api/admin/membres', async (req, reply) => {
     if (!exige(req, reply, 'gerer_membres')) return reply;
@@ -6038,9 +6169,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (pris && !msg.success) {
               noterEchec(msg.taskId, msg.logs ?? '');
             }
-            // Une production qui part en revue : la ruche dit s'il existe un
-            // SECOND MODÈLE capable de la relire. Voir `signalerContreExpertise`.
-            if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
+            // ─── UNE RELECTURE N'EST PAS UNE PRODUCTION ─────────────────────
+            //
+            // Sans cette question, le résultat d'une relecture repartirait
+            // en contre-expertise et serait relu à son tour. À l'infini —
+            // et chaque tour coûte un vrai appel de modèle.
+            //
+            // C'est la table latérale qui tranche : une tâche y figure si et
+            // seulement si elle a été créée POUR relire quelque chose.
+            const lienRelecture = pris ? store.relectureDe(msg.taskId) : null;
+            if (lienRelecture) {
+              // Le texte du relecteur est une DONNÉE : `lireAvis` le neutralise
+              // et le borne avant qu'il n'atteigne un événement lu par un
+              // humain. Un verdict illisible compte comme CONTESTÉ.
+              noterVerdict(msg.taskId, lienRelecture, `${msg.logs ?? ''}\n${msg.diff ?? ''}`);
+            } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
               signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');
             }
             break;
@@ -6217,6 +6360,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneLivraisons(LIVRAISONS_RETENTION);
       // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
       store.pruneTachesIssue();
+      // Idem pour le lien relecture→production. Câblé ICI, dans le même
+      // changement que la table — c'est la règle 3, et les trois bornes
+      // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
+      // remettre à plus tard.
+      store.pruneContreExpertises();
       store.pruneConseils(CONSEILS_CONSERVES);
       // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
       //

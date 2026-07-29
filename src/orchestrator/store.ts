@@ -346,6 +346,33 @@ CREATE TABLE IF NOT EXISTS taches_issue (
 );
 CREATE INDEX IF NOT EXISTS idx_taches_issue_projet ON taches_issue(projectId, numero);
 
+-- ─── La contre-expertise : quelle tâche RELIT quelle production ─────────────
+-- Table LATÉRALE, et elle fait DEUX choses à dessein — c'est le même fait, vu
+-- des deux bouts :
+--
+--   · elle MARQUE une tâche comme relecture. Sans cette marque, le résultat
+--     d'une relecture repartirait dans « signalerContreExpertise » comme une
+--     production ordinaire, et serait relu à son tour. À l'infini.
+--   · elle CORRÈLE l'avis à la production jugée quand il revient. Sans elle,
+--     un verdict arriverait sans qu'on sache de quoi il parle.
+--
+-- Une colonne de plus sur « tasks » aurait fait les deux aussi, et aurait été
+-- vide sur l'écrasante majorité des lignes — sans compter qu'ajouter une
+-- colonne demande une migration, ce que ce dépôt s'interdit.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : « pruneContreExpertises »,
+-- référentielle comme celle des issues — un lien dont la relecture ou la
+-- production a disparu ne désigne plus rien.
+CREATE TABLE IF NOT EXISTS contre_expertises (
+  relectureTaskId  TEXT PRIMARY KEY,
+  productionTaskId TEXT NOT NULL,
+  relecteurNodeId  TEXT NOT NULL,
+  relecteurAgent   TEXT NOT NULL,
+  producteurAgent  TEXT NOT NULL,
+  creeA            INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contre_expertises_prod ON contre_expertises(productionTaskId);
+
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
 -- Deux tables, une par nature, et surtout PAS une seule : un billet est une
 -- invitation éphémère qu'on distribue, une clé de nœud est une identité durable
@@ -2146,6 +2173,89 @@ export class HiveStore {
   pruneTachesIssue(): number {
     return this.db
       .prepare('DELETE FROM taches_issue WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
+  }
+
+  // ─── La contre-expertise ───────────────────────────────────────────────────
+
+  /** Inscrit une tâche de relecture et ce qu'elle juge. */
+  inscrireRelecture(lien: {
+    relectureTaskId: string;
+    productionTaskId: string;
+    relecteurNodeId: string;
+    relecteurAgent: string;
+    producteurAgent: string;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO contre_expertises
+           (relectureTaskId, productionTaskId, relecteurNodeId, relecteurAgent, producteurAgent, creeA)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        lien.relectureTaskId,
+        lien.productionTaskId,
+        lien.relecteurNodeId,
+        lien.relecteurAgent,
+        lien.producteurAgent,
+        lien.now ?? Date.now(),
+      );
+  }
+
+  /**
+   * Cette tâche est-elle une RELECTURE ? `null` si c'est une production.
+   *
+   * C'est la question qui coupe la régression infinie : le résultat d'une
+   * relecture ne doit jamais repartir en contre-expertise.
+   */
+  relectureDe(relectureTaskId: string): {
+    productionTaskId: string;
+    relecteurNodeId: string;
+    relecteurAgent: string;
+    producteurAgent: string;
+  } | null {
+    const l = this.db
+      .prepare(
+        `SELECT productionTaskId, relecteurNodeId, relecteurAgent, producteurAgent
+           FROM contre_expertises WHERE relectureTaskId = ?`,
+      )
+      .get(relectureTaskId) as
+      | {
+          productionTaskId: string;
+          relecteurNodeId: string;
+          relecteurAgent: string;
+          producteurAgent: string;
+        }
+      | undefined;
+    return l ?? null;
+  }
+
+  /** Les relectures lancées sur une production (pour agréger les avis). */
+  relecturesDeProduction(productionTaskId: string): string[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT relectureTaskId FROM contre_expertises WHERE productionTaskId = ? ORDER BY relectureTaskId',
+        )
+        .all(productionTaskId) as { relectureTaskId: string }[]
+    ).map((r) => r.relectureTaskId);
+  }
+
+  /**
+   * Élague les liens dont l'une des deux tâches n'existe plus.
+   *
+   * Même borne RÉFÉRENTIELLE que `pruneTachesIssue`, et pour la même raison :
+   * les tâches ont déjà leur propre élagage, et un second réglage temporel à
+   * accorder au premier serait un désaccord en puissance.
+   */
+  pruneContreExpertises(): number {
+    return this.db
+      .prepare(
+        `DELETE FROM contre_expertises
+          WHERE relectureTaskId NOT IN (SELECT id FROM tasks)
+             OR productionTaskId NOT IN (SELECT id FROM tasks)`,
+      )
       .run().changes;
   }
 

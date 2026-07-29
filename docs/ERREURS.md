@@ -106,6 +106,67 @@ et le test que j'écrivais pour elle a rougi en la révélant.
 > les deux (`installeurs.test.ts`, « la commande qu'il affiche est celle qu'il
 > lancerait »).
 
+### 1.5 — Un `npm ci` vert peut avoir installé MOINS que le lock
+
+Deux constructions de l'image, **même `Dockerfile`, même `package-lock.json`**,
+à quatre minutes d'intervalle :
+
+    a8f8909  06:05  image construite, ruche démarrée        vert
+    a3ceec0  06:10  image construite, ruche morte au boot   rouge
+
+    etat : Exited (2)
+    ✘ L'orchestrateur ne peut pas démarrer : better-sqlite3 est absent.
+
+Le second commit ne touche **que deux fichiers Markdown**. Aucune ligne de code
+ne sépare ces deux images : la différence est venue du réseau.
+
+Les quatre dépendances dont la ruche a besoin pour démarrer — Fastify, ses deux
+greffons, `better-sqlite3` — sont déclarées **optionnelles**, et c'est délibéré :
+un nœud membre, qui ne fait que prêter du temps-machine, n'en a pas l'usage.
+Mais « optionnel » veut dire, pour npm : **si l'installation échoue, je
+continue**. `better-sqlite3` porte un script qui télécharge un binaire prébuilt ;
+quand ce téléchargement rate, `prebuild-install` se rabat sur une compilation,
+qui réclame python3/make/g++ — absents de `slim`, et absents exprès. npm affiche
+un avertissement, retire le paquet, **et sort avec 0**.
+
+C'est la panne du § 4.3 atteinte par une cause que personne n'a écrite. Là-bas,
+un drapeau de trop la provoquait, et le corriger suffisait. Ici, le fichier est
+juste, et l'aléa suffit — donc aucune relecture de code ne l'aurait trouvée.
+
+Ce qui rend la reprise particulière : **elle ne peut pas s'appuyer sur le code de
+sortie**, puisqu'il vaut 0 précisément dans le cas qu'on veut rattraper. Elle
+s'appuie donc sur une vérification. Mesuré au shell avant d'écrire la boucle :
+
+| tentatives nécessaires | tentatives consommées | code de sortie de la boucle |
+| ---------------------- | --------------------- | --------------------------- |
+| 1                      | 1                     | 0                           |
+| 3                      | 3                     | 0                           |
+| plus que 3             | 3 (plafond)           | **0**                       |
+
+La dernière ligne est celle qui compte : **une boucle `for … done` sort avec 0
+même quand toutes ses tentatives ont échoué.** Une vérification placée à
+l'intérieur ne fait donc rougir personne — c'est celle qui suit le `done`, en
+`&&`, qui décide. Et elle doit vivre dans la **même couche** que l'installation :
+séparée, Docker mettrait en cache une couche cassée et ne la revérifierait
+jamais.
+
+> **Règle** — `npm ci` vert ne prouve pas que le lock est installé. Une
+> dépendance optionnelle absente est un succès pour npm et une panne pour le
+> programme. Tout artefact qui embarque une dépendance optionnelle **nécessaire**
+> doit la CHARGER à la construction, dans la couche qui l'installe.
+>
+> **Règle** — une vérification ne vaut que par ce qu'elle peut faire échouer.
+> Avant de l'écrire, demander : _où est-elle branchée, et qu'est-ce qui rougit si
+> elle échoue ?_
+
+**Ce qui le garde** : trois tests dans `tests/conteneur.test.ts`. Et la loupe a
+pris le premier en défaut avant qu'il ne serve : il cherchait les `require` dans
+la couche entière, or la sonde de la boucle cite les mêmes paquets — retirer
+`@fastify/static` de la vérification finale laissait les 24 tests verts. Ce
+n'était pas qu'un test faible, c'était le trou lui-même : un paquet vérifié
+seulement dans la boucle épuise les trois tentatives, puis passe. La garde
+n'interroge donc plus que ce qui suit le `done`.
+
 ---
 
 ## 2. Un test peut passer pour la mauvaise raison
@@ -154,6 +215,91 @@ serait passé **grâce** à l'explication — exactement le défaut d'origine.
 > commentaire, et le même retrait les couvre tous les deux. Et quand un fichier
 > de test lit plusieurs fichiers, ils passent **tous** par le même filtre — un
 > seul nu et deux habillés est un piège qui attend.
+
+### 2.3 bis — Le test passait grâce au message d'erreur qu'il ne visait pas
+
+Un test de la contre-expertise devait prouver qu'une objection ne peut pas
+fabriquer de faux retours à la ligne. Il donnait un texte contenant U+2028,
+attendait **une** objection, et en trouvait bien une. Vert.
+
+La loupe a refusé de le croire : en retirant `champSurUneLigne`, il restait vert.
+
+Ce qu'il mesurait vraiment : le texte ne contenait ni « valide » ni « conteste »,
+donc le verdict était **illisible**, donc la fonction rendait son message
+« verdict illisible » — une CONSTANTE, sans U+2028. L'objection comptée était
+celle-là. La ligne visée n'était même pas capturée.
+
+Et sous ce test faible, un vrai défaut. En JavaScript, `.` ne traverse pas
+U+2028 : avec `/^\s*[-*]\s+(.+)$/`, une objection contenant ce caractère ne
+capturait **rien du tout**. Elle était perdue en silence — dans le seul module
+du dépôt dont la raison d'être est de ne pas perdre d'objection.
+
+En creusant encore, la cause commune : `champSurUneLigne`, le nettoyeur PARTAGÉ
+du dépôt, ne connaissait que `\r`, `\n` et la tabulation. U+2028 (LINE
+SEPARATOR) et U+2029 (PARAGRAPH SEPARATOR) le traversaient intacts, alors que ce
+sont des retours à la ligne pour un terminal, un navigateur et la plupart des
+rendus. Une fonction qui promet « sur une seule ligne » et laisse passer un
+séparateur de ligne ne tient pas sa promesse — et le Cerveau, la Couveuse et la
+contre-expertise s'appuyaient tous les trois dessus.
+
+> **Règle** — quand un test attend UN élément, vérifier **lequel**. Un compte
+> juste obtenu par le mauvais élément est un test qui ne gardera jamais rien.
+> Ici, `toHaveLength(1)` était satisfait par un message d'erreur.
+>
+> **Règle** — un mutant qui refuse de mourir n'est pas une bizarrerie à
+> contourner : c'est une question à laquelle il faut répondre. Les trois
+> défauts ci-dessus sont sortis d'un seul mutant survivant.
+>
+> **Règle** — une garde sur les « retours à la ligne » couvre TOUS les
+> séparateurs de ligne Unicode, pas seulement ceux du clavier :
+> `\r \n \t \v \f U+0085 U+2028 U+2029`.
+
+**Ce qui le garde** : huit tests dans `tests/security-invariants.test.ts`, un
+par séparateur. Le mutant décisif est le retour à l'état d'avant — la classe
+ramenée à `[\r\n\t]` fait tomber **exactement cinq** tests, soit les cinq
+caractères ajoutés.
+
+### 2.3 ter — Un filet de sécurité rendait le test vert sans le code testé
+
+Trois tests devaient prouver la seule chose qui décide du lot 13 : **une
+critique produite par un modèle atteint-elle vraiment l'autre ?** Ils montaient
+deux nœuds, faisaient produire le premier, et attendaient que le second reçoive
+la tâche de relecture. Verts du premier coup.
+
+La loupe a coupé l'envoi — `envoyerTache` remplacé par un `void`. **Toujours
+verts, les treize.**
+
+La cause n'était ni dans le code ni dans l'assertion, mais dans le PLAFOND
+D'ATTENTE. La ruche a un filet : `staleAssignedTasks(5_000)` re-livre toute
+tâche assignée restée muette plus de cinq secondes — « message perdu en vol ».
+La relecture était bien créée et posée sur le bon nœud ; sans dispatch, elle
+partait quand même, cinq secondes plus tard, par le filet. Et le test attendait
+huit secondes.
+
+Mesuré, la même relecture sur la même ruche :
+
+| chemin              | latence de la 1re livraison |
+| ------------------- | --------------------------- |
+| dispatch direct     | **7 ms**                    |
+| filet de rattrapage | **5 060 ms**                |
+
+Le plafond est passé à 3 s : quatre cents fois la latence réelle, et bien en
+deçà du filet. Les trois tests tombent maintenant quand l'envoi est coupé.
+
+> **Règle** — un test qui attend « jusqu'à ce que ça arrive » ne prouve rien
+> tant qu'on n'a pas cherché **par quel autre chemin ça pourrait arriver**. Un
+> système qui a des filets de reprise en a toujours un.
+>
+> **Règle** — quand un plafond d'attente sépare deux chemins possibles, il se
+> CHOISIT par la mesure des deux, et le rapport s'écrit à côté. Un plafond qui
+> ne discrimine pas ne mesure rien.
+
+**Ce que ça a révélé au passage** : une tâche assignée jamais acquittée reçoit
+environ **118 `assign_task` en douze secondes** — le filet re-livre à chaque
+tick sans rafraîchir `updatedAt`, donc la tâche reste éternellement « muette
+depuis plus de 5 s ». Comportement PRÉ-EXISTANT, vérifié sur une tâche
+ordinaire sans rapport avec la contre-expertise. Noté comme dette plutôt que
+corrigé au passage : ce n'est pas le sujet de ce changement.
 
 ### 2.4 — Prétendre tester un chemin inatteignable
 
@@ -222,6 +368,58 @@ net et il a servi :
 > test lent finit avant. Écrire l'hypothèse dans le code avant de la vérifier :
 > « si ça retombe au plafond, c'est un blocage à corriger, pas un délai à
 > rallonger ».
+
+### 3.2 bis — Le plafond qu'on a relevé, et son jumeau qu'on a oublié
+
+Suite directe des deux entrées ci-dessus. Le plafond global avait été porté à
+20 s, avec l'analyse écrite dans `vitest.config.ts`. Deux hooks ont quand même
+expiré sous Windows, sur `main` :
+
+    tests/billet-motifs.test.ts:48     beforeEach  Hook timed out in 10000ms
+    tests/tableau-endpoint.test.ts:45  afterEach   Hook timed out in 10000ms
+
+**10 000, pas 20 000.** `testTimeout` et `hookTimeout` sont deux réglages
+distincts chez vitest : relever le premier laisse le second à son défaut.
+
+L'oubli est mal placé, et c'est ce qui le rend intéressant. Le raisonnement qui
+justifiait les 20 s — « cette suite monte de vrais serveurs, écrit de vraies
+bases » — décrit ce que font les **hooks**, pas les corps de test. C'est
+`beforeEach` qui appelle `createServer`, et `afterEach` qui l'arrête puis efface
+l'arborescence. On donnait donc le plafond large à l'interrogation d'un serveur
+déjà prêt, et le plafond serré à sa construction.
+
+Mesuré ici, cinq cycles complets `createServer` → `stop` → `rmSync` :
+
+| étape               | durées observées (Linux) |
+| ------------------- | ------------------------ |
+| démarrage           | 189, 89, 68, 62, 64 ms   |
+| arrêt et effacement | 9, 8, 7, 10, 11 ms       |
+
+Moins de 200 ms là où rien ne gêne. Les deux plafonds sont désormais alignés.
+
+**Pourquoi aucune relecture ne pouvait le voir** : `hookTimeout` n'avait pas une
+valeur fausse, il était ABSENT. Un réglage manquant n'offre rien à relire — il
+applique son défaut en silence, et le défaut n'est écrit nulle part dans le
+dépôt. C'est la même forme que le § 1.4 : ce qui n'est pas là ne se relit pas.
+
+> **Règle** — quand un réglage est relevé après analyse, chercher **son
+> jumeau**. Les outils exposent souvent la même idée sous deux clés
+> (`testTimeout`/`hookTimeout`, lecture/écriture, connexion/requête), et n'en
+> relever qu'une laisse la moitié du problème intacte.
+>
+> **Règle** — un défaut d'outil qui compte doit être ÉCRIT, même quand il
+> convient. Une valeur explicite se relit, se compare et se garde ; un défaut
+> implicite ne fait rien de tout cela.
+
+**Ce qui le garde** : `tests/reglages-vitest.test.ts` exige que les deux clés
+soient écrites, que le hook ait au moins le plafond du test, et qu'aucun des
+deux ne dépasse la minute. Le mutant qui compte est le premier : remis dans
+l'état d'AVANT — `hookTimeout` simplement retiré — les trois tests tombent.
+
+Et le déclencheur d'escalade est posé d'avance, parce que le § 3.1 interdit de
+recommencer : **si un hook expire de nouveau à 20 000 ms, ce n'est plus de la
+lenteur.** Cent fois un coût mesuré à 200 ms, ce n'est plus un disque qu'on
+attend. Le geste sera de trouver ce qui bloque, pas de passer à 30.
 
 ### 3.3 — Attendre, oui, mais attendre la BONNE erreur
 
@@ -694,6 +892,63 @@ Chacun invisible sous `pwsh`, chacun fatal chez l'utilisateur.
 
 ---
 
+## 6 bis. Un remplacement de texte sans compte touche TOUTES les occurrences
+
+### 6bis.1 — 286 lignes de CHANGELOG en triple, et la cause tient en un argument
+
+Le défaut visible est raconté au § 2.3 ter du point de vue de la garde. Voici sa
+CAUSE, trouvée après coup — la garde attrapait la rechute sans expliquer d'où
+elle venait.
+
+Le commit fondateur (`7a40c6f`) montre **trois hunks** pour une seule entrée de
+CHANGELOG : 66 lignes insérées, soit exactement trois fois vingt-deux.
+
+    @@ -7,6   +7,28   @@
+    @@ -706,6 +728,28 @@
+    @@ -868,6 +912,28 @@
+
+L'entrée était posée **avant `### Fixed`**. Or `### Fixed` figurait trois fois
+dans le fichier — aux lignes 10, 709 et 871, qui sont précisément les trois
+points d'insertion une fois retiré le contexte des hunks. La correspondance est
+exacte, elle ne laisse pas de place au doute.
+
+Reproduit en deux lignes :
+
+```python
+texte.replace(ancre, bloc + ancre)      # → 3 copies
+texte.replace(ancre, bloc + ancre, 1)   # → 1 copie
+```
+
+**En Python, `str.replace` remplace TOUTES les occurrences par défaut.** Il faut
+un troisième argument pour n'en prendre qu'une. Rien dans l'appel ne signale ce
+choix : la version fautive et la version juste se ressemblent à un caractère
+près, et la fautive est la plus courte.
+
+La croissance monotone sur huit livraisons s'explique alors toute seule : chaque
+nouvelle entrée était insérée devant les trois `### Fixed`, donc les trois copies
+grandissaient ensemble, à l'identique. 25 → 46 → 60 → 79 → 97 → 117 → 146.
+
+**Pourquoi ça a échappé huit fois** : le diff d'un tel commit est parfaitement
+lisible. Il montre trois hunks, chacun ajoutant du texte correct, au bon format,
+au bon endroit d'une section qui existe. Rien n'y est faux LOCALEMENT. Ce qui est
+faux est global — et un diff ne montre jamais le global.
+
+> **Règle** — un remplacement de texte ancré est borné à UNE occurrence, toujours
+> (`, 1` en Python, `replace_all: false` dans l'outil d'édition). Le défaut du
+> langage va dans le mauvais sens : il faut écrire quelque chose pour être
+> prudent, et ne rien écrire pour tout casser.
+>
+> **Règle** — avant d'ancrer une insertion sur un motif, COMPTER ses occurrences.
+> Un ancrage sur un motif présent trois fois n'est pas une insertion, c'est une
+> diffusion. Les titres de section (`### Fixed`, `### Added`) sont les pires
+> ancres possibles : ils se répètent par nature.
+
+**Ce qui le garde** : `tests/documents-qui-grossissent.test.ts` rougit sur toute
+répétition d'au moins huit lignes dans les cinq documents qui ne font que
+grandir. La règle ci-dessus empêche ; la garde rattrape.
+
+---
+
 ## 7. Ordre indéfini : lire, ce n'est rien ; supprimer, c'est grave
 
 `ORDER BY createdAt DESC` sans départage unique ne définit **aucun** ordre entre
@@ -761,15 +1016,17 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 ## 9. Outils : ce qui ne marche pas comme on croit
 
-| geste                               | ce qui se passe vraiment                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)        |
-| `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                             |
-| `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                      |
-| `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                     |
-| `sleep` en avant-plan               | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-connrefused` |
-| `pkill` en fin de chaîne `&&`       | fait échouer la chaîne (code 144) — l'isoler                                   |
-| réf distante après reset sur `main` | prend du retard : **pousser la branche** après chaque repositionnement         |
+| geste                               | ce qui se passe vraiment                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)           |
+| `npm ci` + dépendance optionnelle   | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                |
+| `for … done` en shell               | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5) |
+| `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                                |
+| `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                         |
+| `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                        |
+| `sleep` en avant-plan               | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`     |
+| `pkill` en fin de chaîne `&&`       | fait échouer la chaîne (code 144) — l'isoler                                      |
+| réf distante après reset sur `main` | prend du retard : **pousser la branche** après chaque repositionnement            |
 
 ---
 

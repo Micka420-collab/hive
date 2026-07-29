@@ -11,7 +11,11 @@ import { describe, expect, it } from 'vitest';
 import { leconsDesEchecs } from '../src/orchestrator/brood.js';
 import { buildHiveContext } from '../src/orchestrator/hive-mind.js';
 import type { Memory } from '../src/orchestrator/hive-mind.js';
-import { FERMETURE_DONNEES, OUVERTURE_DONNEES } from '../src/shared/donnees-non-fiables.js';
+import {
+  FERMETURE_DONNEES,
+  OUVERTURE_DONNEES,
+  champSurUneLigne,
+} from '../src/shared/donnees-non-fiables.js';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 
@@ -298,6 +302,51 @@ describe('invariants d’encapsulation des données non fiables (§5.2)', () => 
         }
       }
     }
+  });
+});
+
+describe('UN CHAMP « SUR UNE LIGNE » TIENT SUR UNE LIGNE', () => {
+  // ─── LE TROU QUE CETTE GARDE FERME ─────────────────────────────────────────
+  //
+  // `champSurUneLigne` ne connaissait que `\r`, `\n` et la tabulation. U+2028
+  // (LINE SEPARATOR) et U+2029 (PARAGRAPH SEPARATOR) passaient donc intacts —
+  // or ce sont des retours à la ligne pour un terminal, pour un navigateur et
+  // pour la plupart des rendus. Une fonction qui promet « une seule ligne » et
+  // laisse passer un séparateur de ligne ne tient pas sa promesse.
+  //
+  // Ce n'est pas une coquetterie d'affichage : ce champ sert à ranger du texte
+  // d'agent dans un bloc de données et dans des événements lus par un humain.
+  // Un faux retour à la ligne y fabrique une ligne qui n'existe pas.
+  //
+  // Trouvé par la loupe, en creusant pourquoi un mutant de la contre-expertise
+  // refusait de mourir : le test qui aurait dû l'attraper passait pour une
+  // autre raison.
+
+  const SEPARATEURS: ReadonlyArray<readonly [string, string]> = [
+    ['\n', 'saut de ligne'],
+    ['\r', 'retour chariot'],
+    ['\t', 'tabulation'],
+    ['\v', 'tabulation verticale'],
+    ['\f', 'saut de page'],
+    ['\u0085', 'NEL'],
+    ['\u2028', 'LINE SEPARATOR'],
+    ['\u2029', 'PARAGRAPH SEPARATOR'],
+  ];
+
+  for (const [c, nom] of SEPARATEURS) {
+    it(`neutralise ${nom} (U+${c.codePointAt(0)!.toString(16).padStart(4, '0').toUpperCase()})`, () => {
+      const sorti = champSurUneLigne(`avant${c}apres`, 100);
+      expect(sorti, `${nom} traverse encore`).toBe('avant apres');
+    });
+  }
+
+  it('et neutralise TOUJOURS le délimiteur, séparateur ou pas', () => {
+    // La garde d'à côté ne doit pas se perdre en chemin.
+    expect(champSurUneLigne('a\u2028HIVE_DATA>>>b', 100)).not.toContain(FERMETURE_DONNEES);
+  });
+
+  it('la borne de longueur tient', () => {
+    expect(champSurUneLigne('x'.repeat(500), 40)).toHaveLength(40);
   });
 });
 
