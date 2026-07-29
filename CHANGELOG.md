@@ -9,6 +9,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🏗️ Les Chantiers — la ruche sait quels travaux le dépôt DÉCLARE** (`src/shared/chantier.ts`).
+  Une ouvrière produit un diff, il part en revue, et personne ne demande au
+  PROJET ce qu'il en pense — alors qu'il le dit lui-même, dans ses propres
+  commandes. Ce module lit les scripts déclarés, les classe, et rend l'argv à
+  lancer. Deux règles le portent : **la ruche choisit dans ce que le dépôt
+  déclare et n'invente jamais une commande** (même frontière que
+  `preparation.ts` et `commande-test.ts`, établie en fermant de vraies failles),
+  et **ce qui sort de la machine exige un humain** — publier, déployer,
+  démarrer un service sont irréversibles et visibles de l'extérieur, donc même
+  famille que « jamais de fusion sans revue humaine ». ⚠️ **Cette pièce est
+  DÉBRANCHÉE** : elle décide, rien ne l'appelle encore. `docs/ETAPES.md` ouvre
+  le lot 14 avec son état réel plutôt que de le laisser découvrir.
+
 - **🕸️ Le filet de re-livraison espace ses tentatives.** La ruche re-sert
   `assign_task` aux tâches assignées restées muettes plus de cinq secondes —
   un filet pour un message perdu en vol. Il ne gardait aucune trace de ses

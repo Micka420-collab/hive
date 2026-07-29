@@ -11,6 +11,23 @@
 
 ---
 
+## Lot 14 — Les Chantiers : lancer les travaux DÉCLARÉS du dépôt
+
+| pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. La décision** — quels travaux, et lesquels sans humain  | ✅   | `src/shared/chantier.ts` + 23 tests. La ruche choisit dans ce que le dépôt déclare et n'invente jamais une commande ; ce qui SORT de la machine (publier, déployer, démarrer) exige un humain. Loupe : 10 mutants, et le survivant a révélé un vrai trou — `build:publish` passait pour de la vérification, donc automatisable. |
+| **2. L'exécution locale** — lancer un chantier sur un nœud   | 🟡   | **PAS ENCORE BRANCHÉ.** Le chemin existe (`POST /api/projects/:id/merge/run` relaie déjà une commande à un nœud, `lanceur.ts` sait résoudre `npm` sous Windows) ; il reste à y raccorder `chantier.ts` et à faire remonter le résultat.                                                                                         |
+| **3. GitHub Actions** — lister, lancer, lire l'état d'un run | ⛔   | `src/orchestrator/github.ts` ne connaît pas les workflows du tout. À ajouter : `listerWorkflows`, `lancerWorkflow` (workflow_dispatch), `lireRuns` — même frontière, on ne lance qu'un workflow que l'API DÉCLARE, par son id, jamais un chemin arbitraire.                                                                     |
+| **4. La liberté d'améliorer l'environnement**                | ✅   | Elle existe déjà et s'appelle `preparation.ts` : le dépôt déclare, la ruche installe. Ouvrir une porte plus large réintroduirait les deux failles fermées par `commande-test.ts` et `preparation.ts` — ce n'est pas une prudence de principe, c'est de l'expérience.                                                            |
+
+> **Dit d'avance plutôt que laissé découvrir** : la pièce 1 est complète et
+> DÉBRANCHÉE. C'est exactement l'état dans lequel le Cerveau et la
+> contre-expertise sont restés deux PR chacun. La pièce 2 est le prochain lot,
+> et rien ici ne passe ✅ tant qu'un test ne montre pas un chantier réellement
+> lancé sur un nœud.
+
+---
+
 ## Les 10 critères mesurables
 
 | #   | Critère                                                                  | État | Ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
