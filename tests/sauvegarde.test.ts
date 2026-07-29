@@ -93,6 +93,27 @@ describe('LE PLAN', () => {
     expect(p.definitif).not.toContain('/');
   });
 
+  it('UN CHEMIN WINDOWS JUGÉ EN POSIX EST REFUSÉ — le piège qui a rougi la CI', () => {
+    // Ce test ne défend pas une fonctionnalité : il pose un PIÈGE sous forme
+    // d'explication. Le paramètre `plateforme` doit dire la vérité dès qu'un
+    // vrai chemin de la machine entre dans `planifier`.
+    //
+    // Deux tests de ce fichier passaient un chemin de `mkdtempSync` avec
+    // `plateforme: 'linux'` figé. Vert sur Linux et macOS, rouge sur Windows —
+    // parce que là, et seulement là, `mkdtempSync` rend `D:\a\_temp\…` :
+    //
+    //     path.posix.isAbsolute('D:\\a\\_temp\\x')  →  false
+    //     path.win32.isAbsolute('D:\\a\\_temp\\x')  →  true
+    //     path.win32.isAbsolute('/tmp/x')           →  true  ← l'asymétrie
+    //
+    // La dernière ligne est la raison pour laquelle on ne peut pas simuler la
+    // panne à l'envers depuis Linux : un chemin POSIX est absolu pour les deux
+    // juges. Seule la branche Windows de la matrice rend ce défaut.
+    const r = planifier(ctx({ plateforme: 'linux', dbPath: 'D:\\a\\_temp\\hive\\hive.db' }));
+    expect(r.genre).toBe('refus');
+    if (r.genre === 'refus') expect(r.motif).toMatch(/absolus/);
+  });
+
   it('un chemin de base RELATIF est refusé', () => {
     // Une sauvegarde se lance aussi depuis un service ou une tâche planifiée,
     // dont le répertoire courant n'est pas celui de la personne.
@@ -167,6 +188,37 @@ describe('LA CITATION SQL — `VACUUM INTO` n’accepte pas de paramètre lié',
 });
 
 describe('SAUVEGARDER POUR DE VRAI', () => {
+  /**
+   * Le contexte des tests QUI TOUCHENT LE DISQUE.
+   *
+   * ─── LA FRONTIÈRE DU « PLATEFORME EN PARAMÈTRE » ───────────────────────────
+   *
+   * Le `ctx` du haut de ce fichier fige `plateforme: 'linux'`, et c'est
+   * exactement ce qu'il faut pour les tests PURS : c'est ce qui permet de
+   * vérifier le comportement win32 depuis une machine Linux (§ 6.3 de
+   * `docs/ERREURS.md`).
+   *
+   * Mais dès qu'un test écrit sur le VRAI disque, ce paramètre doit dire la
+   * VÉRITÉ. Ces deux tests-ci prennent leur chemin de `mkdtempSync` : sous
+   * Windows c'est `D:\a\_temp\…`, et `planifier` le jugeait avec
+   * `path.posix.isAbsolute` — qui répond `false`. La sauvegarde était donc
+   * refusée pour « chemin relatif », sur un chemin absolu.
+   *
+   * Mesuré :
+   *
+   *     path.posix.isAbsolute('D:\\a\\_temp\\x')  →  false   ← le refus
+   *     path.win32.isAbsolute('D:\\a\\_temp\\x')  →  true
+   *     path.posix.isAbsolute('/tmp/x')           →  true
+   *     path.win32.isAbsolute('/tmp/x')           →  true    ← l'asymétrie
+   *
+   * La dernière ligne explique pourquoi ce défaut n'est visible QUE sous
+   * Windows : un chemin POSIX est absolu pour les deux juges, donc mentir sur
+   * la plateforme depuis Linux ne casse rien. On ne peut pas simuler cette
+   * panne à l'envers — seule la branche Windows de la matrice la rend.
+   */
+  const ctxDisque = (o: Partial<Contexte> = {}): Contexte =>
+    ctx({ ...o, plateforme: process.platform });
+
   /** Une base simulée : elle écrit un fichier, comme `VACUUM INTO` le ferait. */
   const bidon = (contenu = 'base'): ((p: string) => Promise<Base>) => {
     return () =>
@@ -179,7 +231,7 @@ describe('SAUVEGARDER POUR DE VRAI', () => {
   it('publie sous un nom DÉFINITIF, et le temporaire ne survit pas', () => {
     const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-sauv-'));
     try {
-      const c = ctx({ dbPath: path.join(bac, 'hive.db'), dossier: path.join(bac, 'sauv') });
+      const c = ctxDisque({ dbPath: path.join(bac, 'hive.db'), dossier: path.join(bac, 'sauv') });
       return sauvegarder(c, bidon()).then((r) => {
         expect('fichier' in r, 'refus inattendu').toBe(true);
         if ('fichier' in r) {
@@ -212,7 +264,7 @@ describe('SAUVEGARDER POUR DE VRAI', () => {
       }
 
       const r = await sauvegarder(
-        ctx({ dbPath: path.join(bac, 'hive.db'), dossier, garder: 2 }),
+        ctxDisque({ dbPath: path.join(bac, 'hive.db'), dossier, garder: 2 }),
         bidon(),
       );
       if (!('fichier' in r)) throw new Error('refus inattendu');

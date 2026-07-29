@@ -123,6 +123,58 @@ describe('LA BASE DE L’IMAGE', () => {
     );
   });
 
+  it('AUCUN `npm ci` NE DÉCLENCHE `prepare` — le défaut qui a rougi la première construction', () => {
+    // ─── CE QUE CE TEST GARDE ─────────────────────────────────────────────
+    //
+    // `package.json` porte « prepare: npm run build:node », et npm lance
+    // `prepare` à CHAQUE `npm ci` — y compris avec `--omit=dev`. Les deux
+    // étages de l'image tombaient dessus, chacun à sa façon :
+    //
+    //   étage 1 : `prepare` s'exécute alors que seuls les deux manifestes ont
+    //             été copiés → error TS5058, `tsconfig.build.json` absent.
+    //   étage 2 : `--omit=dev` a retiré TypeScript, et `prepare` appelle
+    //             `tsc` → sh: 1: tsc: not found, npm error code 127.
+    //
+    // Rien dans le Dockerfile ne le laissait voir : la ligne fautive est dans
+    // `package.json`, à deux fichiers de là.
+    const logiques = DOCKERFILE_NU.replace(/\\\r?\n\s*/g, ' ')
+      .split(/\r?\n/)
+      .filter((l) => /npm ci/.test(l));
+
+    expect(logiques.length, 'plus aucun `npm ci` : ce test garde le vide').toBeGreaterThan(0);
+
+    for (const ligne of logiques) {
+      const neutralise =
+        ligne.includes('--ignore-scripts') || /npm pkg delete scripts\.prepare/.test(ligne);
+      expect(neutralise, `« ${ligne.trim()} » laisserait tourner \`prepare\``).toBe(true);
+    }
+  });
+
+  it('…mais l’étage QUI SERT ne se neutralise pas au `--ignore-scripts`', () => {
+    // Le correctif d'une ligne est un piège : `--ignore-scripts` tuerait aussi
+    // le script d'installation de `better-sqlite3`, celui qui télécharge le
+    // binaire prébuilt. Mesuré sur les deux vrais manifestes de ce dépôt :
+    //
+    //   tel quel                        npm ci → 127        (tsc: not found)
+    //   --ignore-scripts                npm ci → 0          binaire ABSENT
+    //   npm pkg delete scripts.prepare  npm ci → 0          binaire présent
+    //
+    // La ligne du milieu construit une image verte qui meurt au démarrage sur
+    // un module natif introuvable — la panne exacte que le choix de `slim`
+    // plutôt qu'`alpine` évite vingt lignes plus haut. Une image qui échoue à
+    // se construire est un problème ; une image qui se construit et ne démarre
+    // pas est un piège.
+    const sert = DOCKERFILE_NU.replace(/\\\r?\n\s*/g, ' ')
+      .split(/\r?\n/)
+      .filter((l) => /npm ci/.test(l) && l.includes('--omit=dev'));
+
+    expect(sert.length, 'l’étage qui sert doit installer sans les dépendances de dev').toBe(1);
+    expect(sert[0], '`--ignore-scripts` ici priverait la ruche de son module natif').not.toContain(
+      '--ignore-scripts',
+    );
+    expect(sert[0]).toMatch(/npm pkg delete scripts\.prepare/);
+  });
+
   it('installe depuis le LOCK, pas depuis une résolution du jour', () => {
     // `npm install` dans une image donne une image qu'on ne peut pas
     // reproduire : deux constructions du même commit peuvent différer.
@@ -207,7 +259,14 @@ describe('LA SONDE DE SANTÉ INTERROGE LA RUCHE, PAS LE PORT', () => {
 });
 
 describe('LA CI CONSTRUIT L’IMAGE — sans quoi rien de tout ceci n’est vérifié', () => {
-  const CI = lire('.github/workflows/ci.yml');
+  // Commentaires retirés, comme pour le Dockerfile et le compose. La règle est
+  // au § 2.3 du journal, et je l'avais appliquée à deux fichiers sur trois :
+  // les commentaires de ce travail-ci CITENT `--retry-connrefused` et
+  // `docker logs` pour expliquer pourquoi ils n'y sont plus / y sont. Sans ce
+  // retrait, une garde échoue sur sa propre prose — ou pire, passe grâce à
+  // elle. En YAML comme en shell, une ligne qui commence par `#` est un
+  // commentaire : le même retrait vaut pour les deux.
+  const CI = nu(lire('.github/workflows/ci.yml'));
 
   it('un travail construit l’image à chaque PR', () => {
     expect(CI).toMatch(/docker build/);
@@ -225,9 +284,38 @@ describe('LA CI CONSTRUIT L’IMAGE — sans quoi rien de tout ceci n’est vér
     );
   });
 
-  it('elle n’attend pas avec un `sleep` deviné', () => {
-    // `--retry-connrefused` attend CE QU'ON ATTEND. Un `sleep 10` est soit trop
-    // court un jour de lenteur, soit dix secondes perdues à chaque run.
-    expect(CI).toMatch(/--retry-connrefused/);
+  it('elle n’attend pas avec un `sleep` deviné — et elle attend la BONNE erreur', () => {
+    // Un `sleep 10` est soit trop court un jour de lenteur, soit dix secondes
+    // perdues à chaque run. On attend donc ce qu'on attend.
+    //
+    // Encore faut-il attendre la bonne panne. `--retry-connrefused` ne reprend
+    // QUE « connection refused » (7). Or Docker publie le port de l'hôte dès le
+    // `run` : `docker-proxy` écoute avant la ruche, la connexion aboutit, puis
+    // elle est coupée — `curl: (56) Recv failure: Connection reset by peer`.
+    // Mesuré sur un port qui accepte puis coupe :
+    //
+    //     --retry-connrefused   1 tentative, aucune reprise
+    //     --retry-all-errors    4 tentatives (1 + 3 reprises)
+    //
+    // La boucle d'attente ne bouclait pas, et l'image échouait en 0,2 s.
+    expect(CI, 'un `sleep` deviné ne garde rien').not.toMatch(/^\s*sleep \d+\s*$/m);
+    expect(CI).toMatch(/--retry-all-errors/);
+    expect(CI, '`--retry-connrefused` ne reprend pas une connexion COUPÉE').not.toMatch(
+      /--retry-connrefused/,
+    );
+  });
+
+  it('LE JOURNAL DU CONTENEUR SORT MÊME QUAND LE DÉMARRAGE ÉCHOUE', () => {
+    // `docker logs` était la dernière ligne du pas qui attend la ruche. Sous
+    // `bash -e`, l'échec de `curl` l'emportait : la seule fois où ce journal
+    // servait était la seule fois où il ne s'affichait pas. La première panne
+    // réelle du démarrage n'a donc rien diagnostiqué du tout.
+    //
+    // Un diagnostic placé en aval de ce qu'il diagnostique n'existe pas.
+    const pas = CI.split(/^\s{6}- name:/m).find((p) => /docker logs/.test(p));
+    expect(pas, 'plus aucun pas ne montre le journal du conteneur').toBeDefined();
+    expect(pas, 'sans `if: always()` le journal disparaît quand il devient utile').toMatch(
+      /if:\s*always\(\)/,
+    );
   });
 });

@@ -138,6 +138,23 @@ passait grâce à sa propre documentation.
 > d'abord** :
 > `.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')`
 
+**Récurrence, sur un fichier de CI cette fois** — et dans l'autre sens, ce qui
+la rend plus instructive. `tests/conteneur.test.ts` lit trois fichiers ; j'avais
+posé le retrait des commentaires sur le Dockerfile et le compose, **pas** sur
+`ci.yml`. Les nouvelles gardes ont donc échoué sur ma propre prose : le
+commentaire qui explique _pourquoi `--retry-connrefused` n'est plus là_ contient
+`--retry-connrefused`.
+
+Un échec est le cas heureux. Le même oubli, sur une garde formulée en positif,
+serait passé **grâce** à l'explication — exactement le défaut d'origine.
+
+> **Règle** — le retrait des commentaires vaut pour **tout** format lu comme du
+> texte, pas seulement pour les sources du langage : YAML, Dockerfile, shell,
+> `.ini`. En YAML comme en shell, une ligne commençant par `#` est un
+> commentaire, et le même retrait les couvre tous les deux. Et quand un fichier
+> de test lit plusieurs fichiers, ils passent **tous** par le même filtre — un
+> seul nu et deux habillés est un piège qui attend.
+
 ### 2.4 — Prétendre tester un chemin inatteignable
 
 Un test passait `{ PATH: '' }` à `detectBestAgent` en croyant forcer le repli.
@@ -206,6 +223,50 @@ net et il a servi :
 > « si ça retombe au plafond, c'est un blocage à corriger, pas un délai à
 > rallonger ».
 
+### 3.3 — Attendre, oui, mais attendre la BONNE erreur
+
+Le pas de CI qui attend la ruche dans le conteneur ne faisait **pas** de
+`sleep` deviné : il bouclait avec `curl --retry 30 --retry-connrefused`. C'est
+la bonne intention, et elle n'a servi à rien — le pas a échoué **en 0,2 s**.
+
+    curl: (56) Recv failure: Connection reset by peer
+
+Docker publie le port de l'hôte dès le `docker run` : `docker-proxy` écoute
+**avant** que la ruche ne soit prête. La connexion aboutit donc, puis elle est
+coupée. Ce n'est pas « connection refused » (7), le seul cas que
+`--retry-connrefused` reprend. Mesuré sur un port qui accepte puis coupe,
+c'est-à-dire dans ces conditions exactes :
+
+| drapeau               | tentatives             |
+| --------------------- | ---------------------- |
+| `--retry-connrefused` | **1 — aucune reprise** |
+| `--retry-all-errors`  | 4 (1 + 3 reprises)     |
+
+La boucle d'attente ne bouclait pas. Elle en avait toute l'apparence : le
+nombre de reprises, le délai, le commentaire qui explique qu'on n'attend pas
+une durée devinée. Tout était juste sauf le prédicat.
+
+> **Règle** — une boucle d'attente se choisit sur **la panne qu'on va
+> réellement rencontrer**, pas sur celle qu'on imagine. Devant un port
+> intermédiaire — Docker, un proxy, un tunnel — la panne d'attente n'est
+> presque jamais « refusé » : c'est « accepté puis coupé ». Et le seul moyen de
+> le savoir est de regarder le code de sortie, pas de relire l'intention.
+
+### 3.4 — Un diagnostic placé en aval de ce qu'il diagnostique n'existe pas
+
+Le même pas finissait par `docker logs ruche-ci | tail -20`, mis là exprès pour
+qu'on sache ce que la ruche avait dit. Sous `bash -e`, l'échec de `curl`
+l'emportait avec lui.
+
+**La seule fois où ce journal servait à quelque chose était donc la seule fois
+où il ne s'affichait pas.** La première panne réelle du démarrage n'a rien
+diagnostiqué : il a fallu deviner depuis le seul code de sortie de `curl`.
+
+> **Règle** — tout ce qui sert à COMPRENDRE une panne se met dans un pas
+> séparé en `if: always()`, jamais à la suite de ce qui peut échouer. La
+> question à se poser en écrivant un diagnostic : « celui-ci tourne-t-il encore
+> le jour où j'en ai besoin ? »
+
 ---
 
 ## 4. Un correctif trop large casse ce qu'il ne visait pas
@@ -236,6 +297,50 @@ source du problème plutôt que la protection.
 > **Règle** — quand un outil refuse quelque chose « pour votre bien », d'abord
 > comprendre pourquoi, puis chercher la voie que la garde laisse ouverte.
 
+### 4.3 — `--ignore-scripts` visait `prepare` et aurait emporté le binaire natif
+
+Même forme que 4.1, sur un autre outil, et avec une aggravation.
+
+La première construction de l'image est morte à l'étage qui SERT :
+
+    > hive@0.2.0 prepare
+    > npm run build:node
+    sh: 1: tsc: not found
+    npm error code 127
+
+npm lance `prepare` à **chaque `npm ci`, y compris avec `--omit=dev`** — et le
+`prepare` de ce dépôt appelle `tsc`, qui est justement ce que `--omit=dev`
+vient de retirer. L'étage se coupait la branche sur laquelle il était assis.
+
+Le correctif qui vient à l'esprit est un drapeau : `--ignore-scripts`. Il est
+juste sur le symptôme et faux sur le reste — il neutralise AUSSI le script
+d'installation de `better-sqlite3`, celui qui télécharge le binaire prébuilt.
+Mesuré sur les deux vrais manifestes du dépôt, avant de choisir :
+
+| approche                         | `npm ci` | binaire natif |
+| -------------------------------- | -------- | ------------- |
+| tel quel                         | **127**  | —             |
+| `--ignore-scripts`               | 0        | **absent**    |
+| `npm pkg delete scripts.prepare` | 0        | présent       |
+
+**L'aggravation est là.** Le défaut de départ est une construction ROUGE : elle
+s'arrête, elle se lit, elle se corrige. Le correctif d'une ligne rend la
+construction VERTE et déplace la panne au démarrage, sur un module natif
+introuvable — c'est-à-dire exactement la panne que le choix de `slim` plutôt
+qu'`alpine` évite vingt lignes plus haut dans le même fichier. J'aurais
+réintroduit par le correctif ce que le fichier documente avoir évité.
+
+> **Règle** — un correctif qui fait passer un rouge au vert n'a rien prouvé
+> tant qu'on n'a pas demandé **ce qu'il éteint d'autre**. Et se méfier
+> particulièrement de celui qui transforme un échec bruyant en succès
+> apparent : une image qui refuse de se construire est un problème, une image
+> qui se construit et ne démarre pas est un piège.
+
+**Ce qui le garde** : deux tests dans `tests/conteneur.test.ts` — l'un exige
+que tout `npm ci` neutralise `prepare`, l'autre exige que l'étage qui sert le
+fasse **sans** `--ignore-scripts`. Les deux mutants ont été joués : chacun
+rougit le sien.
+
 ---
 
 ## 5. Gestes destructeurs
@@ -248,6 +353,42 @@ du même fichier. J'ai perdu un correctif écrit dix minutes plus tôt.
 
 > **Règle** — avant de muter, `cp <fichier> <scratchpad>/x.bak`. Restaurer
 > **depuis la copie**, jamais par `git checkout`.
+
+### 5.2 — Une loupe interrompue laisse sa mutation dans le fichier
+
+La loupe mute `src/` **en place** et restaure à la fin. Un `LOUPE_MAX=45` a été
+tué en cours de route par un redémarrage du processus : la restauration n'a
+jamais eu lieu, et `src/shared/cerveau.ts` est resté avec une ligne inversée
+que **je n'avais pas écrite** :
+
+```ts
+...(unTexte(champs.get('serviLe')) !== undefined ? {} : { serviLe: … })
+```
+
+`serviLe` disparaissait donc à chaque lecture de note.
+
+**Ce qui rend ce cas dangereux, c'est la façon dont il se présente.** Le test
+d'aller-retour a rougi, et le rapport disait « 7 clés au lieu de 8 » — la
+signature exacte d'un défaut que je viens d'introduire. J'ai commencé à
+chercher ce que j'avais cassé dans MON code. Un `git diff HEAD` a montré la
+vérité en trois lignes.
+
+Deux conséquences, et la seconde est pire :
+
+- sans le test d'aller-retour, la mutation partait **dans le commit**, et un
+  outil de vérification aurait introduit le seul défaut que rien ne défendait ;
+- l'outil qui cherche du code non couvert peut donc, s'il meurt au mauvais
+  moment, **en fabriquer**.
+
+> **Règle** — après toute loupe qui ne s'est pas terminée proprement (tuée,
+> interrompue, session redémarrée), `git diff HEAD -- src/ dashboard/` AVANT
+> de conclure quoi que ce soit sur un test rouge. Un échec juste après une
+> loupe est un leftover jusqu'à preuve du contraire.
+>
+> **Règle** — et l'inverse est vrai aussi : ce jour-là, le test d'aller-retour
+> a fait exactement son travail. Un test qui rougit sur une mutation qu'on n'a
+> pas voulue est la démonstration qu'il rougirait sur celle qu'on aurait pu
+> écrire par erreur.
 
 ---
 
@@ -324,6 +465,36 @@ plateforme, lisible seulement sur cette plateforme, donc jamais éprouvé.
 > (`decider(bin, plateforme)`, `candidates(bin, plateforme)`), avec
 > `process.platform` par défaut. La branche win32 se vérifie alors depuis Linux,
 > à chaque CI.
+
+**La frontière de cette règle** — ajoutée après qu'elle m'a coûté deux tests
+rouges sous Windows. Le paramètre rend la branche win32 vérifiable **tant que
+le test reste pur**. Dès qu'un test écrit sur le VRAI disque, le paramètre doit
+dire la VÉRITÉ.
+
+`tests/sauvegarde.test.ts` avait un helper `ctx()` figeant `plateforme:
+'linux'` — correct, et précieux, pour les tests de `planifier`. Deux tests plus
+bas s'en servaient en y passant un chemin de `mkdtempSync`. Sous Windows,
+c'est `D:\a\_temp\…`, jugé par `path.posix.isAbsolute` :
+
+    path.posix.isAbsolute('D:\\a\\_temp\\x')  →  false   ← le refus
+    path.win32.isAbsolute('D:\\a\\_temp\\x')  →  true
+    path.posix.isAbsolute('/tmp/x')           →  true
+    path.win32.isAbsolute('/tmp/x')           →  true    ← l'asymétrie
+
+La sauvegarde était refusée pour « chemin relatif » sur un chemin absolu.
+
+La dernière ligne du tableau est celle qui compte : un chemin POSIX est absolu
+pour les **deux** juges. Mentir sur la plateforme depuis Linux ne casse donc
+rien, et **la panne ne se simule pas à l'envers**. Aucune garde sur la source
+ne l'aurait vue non plus — la ligne fautive est syntaxiquement identique à
+celle, correcte, du test pur d'à côté. Seule la branche Windows de la matrice
+rend ce défaut, et c'est là que la matrice à trois OS paie son coût.
+
+> **Règle** — un test qui touche le vrai disque prend `process.platform`, sans
+> exception. Les deux moitiés ne partagent pas le même helper : dans
+> `tests/empreinte.test.ts` (où je l'avais fait juste) il y a `ctxPosix` d'un
+> côté et un contexte réel de l'autre. Un seul helper avec un défaut commode
+> est le piège.
 
 ### 6.4 — Un test qui LANCE un script POSIX doit sonder la plateforme
 
@@ -549,6 +720,7 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 | geste                               | ce qui se passe vraiment                                                       |
 | ----------------------------------- | ------------------------------------------------------------------------------ |
+| `npm ci --omit=dev`                 | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)        |
 | `npm config set node_gyp …`         | **refusé** par npm 10 : « not a valid npm option »                             |
 | `npm_config_node_gyp=…`             | posé, visible dans l'environnement, **ignoré** par npm 10                      |
 | `npm run loupe` avant `git commit`  | ne voit **pas** les fichiers non suivis — commiter d'abord                     |

@@ -34,7 +34,24 @@ COPY package.json package-lock.json ./
 # `npm ci` et pas `npm install` : il installe EXACTEMENT le lock, et échoue si
 # le lock ne correspond pas au manifeste. Dans une image, une résolution qui
 # dérive au fil des constructions est une image qu'on ne peut pas reproduire.
-RUN npm ci --no-fund --no-audit
+#
+# ─── `--ignore-scripts`, ET POURQUOI IL EST OBLIGATOIRE ICI ──────────────────
+#
+# `package.json` porte un script `prepare` (« npm run build:node »), et npm
+# lance `prepare` À CHAQUE `npm ci`. À cette ligne, seuls les DEUX MANIFESTES
+# ont été copiés : ni les sources, ni `tsconfig.build.json` n'existent encore.
+# `tsc` s'exécuterait donc dans un répertoire quasi vide.
+#
+# Mesuré, dans un dossier ne contenant que les deux manifestes :
+#
+#     error TS5058: The specified path does not exist: 'tsconfig.build.json'
+#
+# Rien de natif n'est requis pour compiler du TypeScript — les `.d.ts` sont
+# posés par la copie des paquets, pas par leurs scripts d'installation. Cet
+# étage peut donc s'en passer entièrement. Le binaire natif de
+# `better-sqlite3`, lui, est l'affaire de l'étage 2, qui NE met pas
+# `--ignore-scripts` (voir plus bas).
+RUN npm ci --no-fund --no-audit --ignore-scripts
 
 COPY . .
 RUN npm run build
@@ -56,7 +73,32 @@ COPY package.json package-lock.json ./
 # `--omit=dev` retire TypeScript et Vite. Les dépendances OPTIONNELLES, elles,
 # sont gardées : `better-sqlite3` et Fastify en sont, et sans eux la ruche ne
 # démarre pas. C'est `--omit=optional` qu'il ne faut pas écrire ici.
-RUN npm ci --omit=dev --no-fund --no-audit && npm cache clean --force
+#
+# ─── POURQUOI ON RETIRE `prepare` AU LIEU DE METTRE `--ignore-scripts` ──────
+#
+# npm lance `prepare` sur `npm ci` MÊME AVEC `--omit=dev`. Le script `prepare`
+# de ce dépôt appelle `tsc` — qui est justement une dépendance de
+# développement, donc absente ici. L'étage se coupait la branche sur laquelle
+# il était assis :
+#
+#     > hive@0.2.0 prepare
+#     > npm run build:node
+#     sh: 1: tsc: not found
+#     npm error code 127
+#
+# `--ignore-scripts` corrigerait ce symptôme et en créerait un pire : il
+# neutraliserait AUSSI le script d'installation de `better-sqlite3`, qui est
+# celui qui télécharge le binaire prébuilt. On obtiendrait une image dont la
+# construction réussit et dont le démarrage meurt sur un module natif absent —
+# exactement la panne que le choix de `slim` plutôt qu'`alpine` évite plus
+# haut. Une image qui échoue à se construire est un problème ; une image qui se
+# construit et ne démarre pas est un piège.
+#
+# On retire donc UNIQUEMENT le script fautif. C'est cohérent avec ce qu'est cet
+# étage : il ne compile rien, il reçoit `dist/` de l'étage 1.
+RUN npm pkg delete scripts.prepare \
+  && npm ci --omit=dev --no-fund --no-audit \
+  && npm cache clean --force
 
 COPY --from=construction /app/dist ./dist
 COPY --from=construction /app/dashboard/dist ./dashboard/dist

@@ -206,12 +206,39 @@ jobs:
             -e HIVE_TOKEN=jeton-de-ci-suffisamment-long-pour-passer-les-gardes \
             -e HIVE_JWT_SECRET=secret-de-ci-suffisamment-long-pour-passer-les-gardes \
             -p 127.0.0.1:7777:7777 hive:ci
-          # `--retry-connrefused` plutôt qu'un `sleep` : on attend ce qu'on
-          # attend, pas une durée devinée.
-          curl -fsS --retry 30 --retry-delay 1 --retry-connrefused \
+          # ─── `--retry-all-errors`, ET PAS `--retry-connrefused` ───────────
+          #
+          # On attend toujours ce qu'on attend plutôt qu'une durée devinée —
+          # mais il faut attendre la BONNE erreur. Docker publie le port de
+          # l'hôte dès le `run` : `docker-proxy` écoute AVANT que la ruche ne
+          # soit prête. La connexion aboutit donc, puis elle est COUPÉE.
+          #
+          #     curl: (56) Recv failure: Connection reset by peer
+          #
+          # Ce n'est PAS « connection refused » (7), le seul cas que
+          # `--retry-connrefused` reprend. Mesuré sur un port qui accepte puis
+          # coupe, c'est-à-dire dans les conditions exactes ci-dessus :
+          #
+          #     --retry-connrefused   1 tentative, aucune reprise
+          #     --retry-all-errors    4 tentatives (1 + 3 reprises)
+          #
+          # D'où l'échec en 0,2 s : la boucle d'attente ne bouclait pas.
+          curl -fsS --retry 30 --retry-delay 1 --retry-all-errors \
             http://127.0.0.1:7777/api/health
           echo
-          docker logs ruche-ci | tail -20
+
+      # ─── LE JOURNAL SORT MÊME — SURTOUT — QUAND ÇA ÉCHOUE ─────────────────
+      #
+      # `docker logs` était la dernière ligne du pas ci-dessus. Sous `bash -e`,
+      # l'échec de `curl` l'emportait avec lui : la seule fois où ce journal
+      # servait à quelque chose était la seule fois où il ne s'affichait pas.
+      # Un diagnostic placé en aval de ce qu'il diagnostique n'existe pas.
+      - name: Ce que le conteneur a dit
+        if: always()
+        run: |
+          docker ps -a --filter name=ruche-ci \
+            --format 'etat : {{.Status}}  ({{.Image}})'
+          docker logs ruche-ci 2>&1 | tail -40 || echo '(aucun journal)'
 
       - name: Le module natif est BIEN là — pas seulement optionnel
         run: |
