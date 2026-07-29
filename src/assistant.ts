@@ -35,6 +35,35 @@ import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from './shared/types.js';
 export const EXPOSITIONS = ['locale', 'reseau_local', 'tunnel', 'proxy'] as const;
 export type Exposition = (typeof EXPOSITIONS)[number];
 
+/**
+ * Le port du dashboard EN DÉVELOPPEMENT — celui de Vite.
+ *
+ * ─── LE DÉFAUT QUE CETTE CONSTANTE FERME ─────────────────────────────────────
+ *
+ * Trouvé en LANÇANT l'installeur, pas en le relisant. Le plan « locale » ne
+ * listait qu'une origine : `http://localhost:7777`, celle par laquelle
+ * l'orchestrateur sert le dashboard COMPILÉ. Deux écrans plus loin, le même
+ * installeur écrit :
+ *
+ *     Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://localhost:5173)
+ *
+ * Quiconque répondait « Poser ces réglages » — la réponse affirmative, celle
+ * qu'on choisit quand on fait confiance au programme — sortait avec un
+ * `HIVE_CORS_ORIGIN` qui EXCLUT l'adresse que l'écran suivant lui donne. Le
+ * dashboard s'ouvrait sur un mur, et le navigateur ne dit pas « CORS » à
+ * l'utilisateur : il dit rien du tout, l'écran reste vide.
+ *
+ * Les deux écrans avaient chacun raison séparément. C'est leur DÉSACCORD qui
+ * était le défaut, et aucun test ne pouvait le voir puisqu'aucun ne les
+ * regardait ensemble.
+ *
+ * Les deux origines sont donc listées : `localhost` sur cette machine dans les
+ * deux cas, jamais « * ». (Les branches « tunnel » et « proxy » gardent leur
+ * seule origine publique : là, le dashboard est servi PAR le domaine, et le
+ * serveur de développement n'a rien à y faire.)
+ */
+export const PORT_DASHBOARD_DEV = 5173;
+
 /** Une ligne de `.env` que l'assistant propose de poser. */
 export interface ReglagePropose {
   cle: string;
@@ -133,8 +162,13 @@ export function planExposition(r: ReponsesExposition): PlanExposition {
         },
         {
           cle: 'HIVE_CORS_ORIGIN',
-          valeur: `http://localhost:${r.port}`,
-          pourquoi: 'l’origine exacte du dashboard, jamais « * »',
+          // Les DEUX adresses par lesquelles le dashboard est atteint : celle
+          // que sert l'orchestrateur (dashboard compilé) et celle du serveur
+          // de développement, que l'installeur affiche lui-même à l'écran
+          // suivant. En lister une seule condamnait l'autre — voir
+          // `PORT_DASHBOARD_DEV`.
+          valeur: `http://localhost:${r.port},http://localhost:${PORT_DASHBOARD_DEV}`,
+          pourquoi: 'les origines exactes du dashboard, jamais « * »',
         },
       ],
     };
@@ -257,6 +291,46 @@ export function planExposition(r: ReponsesExposition): PlanExposition {
     ],
     avertissements: ['Le certificat TLS est la responsabilité du proxy. Hive n’en pose aucun.'],
   };
+}
+
+/**
+ * Ce plan rend-il la ruche joignable par quelqu'un d'autre ?
+ *
+ * ─── POURQUOI CETTE QUESTION EXISTE, ET POURQUOI ELLE N'EST PAS UN LIBELLÉ ───
+ *
+ * L'installeur demandait confirmation avant de poser les réglages réseau, y
+ * compris sur un `.env` qu'il venait de créer lui-même trois secondes plus tôt,
+ * et y compris pour le choix « rien que cette machine ». Deux conséquences,
+ * mesurées en le lançant :
+ *
+ *   · c'était une QUATRIÈME décision, sur un accueil qui en promet trois ;
+ *   · sa réponse par défaut était « Ne rien changer », donc valider au ⏎
+ *     JETAIT le choix fait à l'écran précédent, sans le dire autrement que par
+ *     un « Rien écrit. » que personne ne relie aux deux lignes du dessus.
+ *
+ * Mais une confirmation n'est pas une friction quand elle précède un geste qui
+ * OUVRE la machine. Il fallait donc trancher sur ce qui compte — la joignabilité
+ * — et non sur l'étiquette du choix.
+ *
+ * D'où ce prédicat, et d'où le fait qu'il regarde le PLAN :
+ *
+ *   · `locale`       → 127.0.0.1, aucune étape       → n'ouvre RIEN
+ *   · `reseau_local` → 0.0.0.0                       → ouvre
+ *   · `tunnel`       → 127.0.0.1 **et un cloudflared** → ouvre
+ *   · `proxy`        → 127.0.0.1 **et un reverse proxy** → ouvre
+ *
+ * Les deux derniers sont la raison d'être de la forme du test. Un tunnel écoute
+ * sur la BOUCLE LOCALE et rend pourtant la ruche joignable depuis Internet : un
+ * prédicat qui ne regarderait que `HIVE_HOST` les déclarerait inoffensifs, et
+ * l'installeur ouvrirait une ruche sur Internet sans demander.
+ */
+export function planOuvre(plan: PlanExposition): boolean {
+  if (plan.refus !== null) return false;
+  const hote = plan.reglages.find((r) => r.cle === 'HIVE_HOST')?.valeur;
+  // Une étape à suivre, ici, c'est toujours « posez ce qui vous rendra
+  // joignable » — cloudflared, Caddy, nginx. Le plan « locale » est le seul
+  // qui n'en a aucune, et c'est exactement ce qui le distingue.
+  return (hote !== undefined && hote !== '127.0.0.1') || plan.etapes.length > 0;
 }
 
 // ─── Le premier projet ───────────────────────────────────────────────────────

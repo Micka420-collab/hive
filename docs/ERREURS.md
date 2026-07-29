@@ -169,6 +169,49 @@ n'interroge donc plus que ce qui suit le `done`.
 
 ---
 
+### 1.6 — « Mesurer », ça veut dire LANCER. Repoussé cinq lots, ça a rendu trois défauts
+
+Le critère « ≤ 3 décisions, < 60 s » était la dernière ligne ⛔ du carnet. Elle
+y était depuis cinq lots, avec une note qui expliquait comment la lever :
+« l'installeur a `--timings`, personne ne l'a mesuré ». **`--timings` n'existe
+pas.** L'installeur ne déclare que `--yes`, `--dry-run`, `--non-interactive`,
+`--json`, `--help`. Une note qui invente l'outil de sa propre mesure est le
+meilleur indice possible qu'elle n'a jamais été faite.
+
+La mesure a fini par être faite — un pseudo-terminal, six `⏎`, un chronomètre.
+Le chiffre attendu était l'accessoire ; ce qui est sorti, ce sont trois défauts
+que **relire ne pouvait pas trouver** :
+
+1. **Les deux portes d'entrée du projet ne parlaient pas de la même machine.**
+   Sur ce conteneur (Node 22) : `sh install.sh` refuse avec le code 2, « Hive
+   exige 24 ou plus » ; `npm run install:hive` répond « ✔ Node v22.22.2
+   (20 minimum) », écrit le `.env` et invite à démarrer. Le second délivrait une
+   installation « réussie » sur une machine où `better-sqlite3` n'a pas de
+   binaire prébuilt — la panne de l'image morte (§ 1.5), atteinte par l'autre
+   porte.
+2. **La commande de secours affichée envoyait vers la version périmée** :
+   « nvm install 20 », donnée à la seule personne qui la copiera, et qui la
+   laissera exactement où elle était.
+3. **L'installeur posait QUATRE questions là où il en promet trois** — et la
+   quatrième avait pour défaut de jeter la réponse à la troisième.
+
+Aucun des trois n'était visible dans un diff. Tous les trois sautent aux yeux
+en dix secondes d'exécution.
+
+> **Règle** — une ligne d'état qui dit « à mesurer » ne se lève pas en relisant
+> le code : elle se lève en **lançant le programme comme un utilisateur le
+> lance**, et en écrivant le chiffre AVEC les réglages du banc. Et quand la note
+> qui explique comment mesurer cite un outil, **vérifier d'abord que l'outil
+> existe** — s'il n'existe pas, personne n'a jamais mesuré, et tout ce que la
+> ligne affirme est à reprendre de zéro.
+
+> **Corollaire** — pour mesurer une interface interactive, il faut un **vrai
+> pseudo-terminal** (`script -qec "…" /dev/null`). Un tuyau met `caps.interactif`
+> à faux : le programme ne pose aucune question, et on mesure zéro décision en
+> croyant en mesurer trois.
+
+---
+
 ## 2. Un test peut passer pour la mauvaise raison
 
 ### 2.1 — Un comptage qui compense
@@ -215,6 +258,27 @@ serait passé **grâce** à l'explication — exactement le défaut d'origine.
 > commentaire, et le même retrait les couvre tous les deux. Et quand un fichier
 > de test lit plusieurs fichiers, ils passent **tous** par le même filtre — un
 > seul nu et deux habillés est un piège qui attend.
+
+**Le même défaut vu par l'autre bout : la garde qui ROUGIT sur son propre
+commentaire.** J'ai écrit une garde qui relit `installer-main.ts` pour vérifier
+qu'aucun `nvm install <version périmée>` n'y traîne. Elle a rougi
+immédiatement — sur le commentaire que je venais d'écrire juste au-dessus du
+correctif, et qui racontait le défaut en citant « nvm install 20 ».
+
+Un échec est le cas heureux, comme ci-dessus. Mais il enseigne quelque chose de
+plus : **un test qui rougit sur un commentaire est un test qu'on apprendra à
+contourner** — on éditera la prose pour faire taire l'assertion, et le jour où
+elle rougira pour la vraie raison, le réflexe sera le même.
+
+La sortie n'était donc pas de filtrer mieux : c'était de **sortir le texte de la
+zone illisible**. Le message de prérequis vit maintenant dans le module pur
+(`messagePrerequisNode`), et la garde lit ce que le programme DIT, pas ce que sa
+source contient.
+
+> **Règle** — quand une garde doit relire une source, se demander d'abord
+> pourquoi cette valeur n'est pas atteignable autrement. Neuf fois sur dix, la
+> réponse est qu'elle est enfermée dans un fichier qui s'exécute à l'import — et
+> **l'extraire dans le module pur coûte moins cher que le filtre, et vaut plus.**
 
 ### 2.3 bis — Le test passait grâce au message d'erreur qu'il ne visait pas
 
@@ -335,6 +399,67 @@ donc pas « faire attention » : c'est que **la mutation est le seul juge**.
 > sert à rien, quelle que soit sa prose.
 
 ---
+
+### 2.6 — Une assertion écrite en fonction de la constante qu'elle devrait vérifier est un MIROIR
+
+`src/installer.ts` déclarait `export const NODE_MIN = 20;` — sous un
+commentaire affirmant « telle que le `package.json` la déclare », alors que le
+paquet dit 24, comme `NODE_MINIMUM`, `install.sh` et `install.ps1`. La valeur
+était fausse depuis des mois. Quatre tests la couvraient :
+
+```ts
+expect(nodeSuffisant(`v${NODE_MIN}.0.0`)).toBe(true);
+expect(nodeSuffisant(`v${NODE_MIN + 4}.11.1`)).toBe(true);
+expect(nodeSuffisant(`v${NODE_MIN - 2}.9.0`)).toBe(false);
+```
+
+Ils sont verts pour `NODE_MIN = 20`. Ils sont verts pour 24. Ils sont verts
+pour 3. Ils ne vérifient pas le plancher : ils vérifient que la comparaison est
+une comparaison — ce qui est vrai par construction. **Un test écrit en fonction
+de la valeur qu'il devrait contrôler ne peut pas la contredire.**
+
+Et la garde qui aurait dû attraper la divergence s'intitulait « LE PLANCHER DE
+NODE N'EXISTE QU'UNE FOIS — **en quatre endroits** ». Il y en avait **six**. Les
+deux oubliés vivaient dans `src/` : typés, compilés, donc réputés sûrs — alors
+que le typage ne dit rien d'un nombre. La garde surveillait consciencieusement
+les deux scripts shell, précisément parce qu'ils sont hors de la compilation,
+et laissait passer ce qui était sous son nez.
+
+> **Règle** — une assertion sur une constante se formule avec une **valeur
+> écrite en toutes lettres**, ou avec l'autre source de vérité, jamais avec
+> la constante elle-même. `expect(NODE_MIN).toBe(NODE_MINIMUM)` vaut ; pas
+> `nodeSuffisant(\`v${NODE_MIN}.0.0\`)`.
+
+> **Règle** — une garde qui ÉNUMÈRE des copies doit les compter juste, et son
+> titre porte le compte pour qu'il se relise. Mieux : faire que les copies
+> n'existent pas. Celles qui vivent dans le même langage doivent être
+> **importées**, pas relues — `NODE_MIN` vaut désormais `NODE_MINIMUM`, et il
+> ne reste à surveiller que ce qui est vraiment hors d'atteinte du compilateur.
+
+### 2.7 — Un défaut peut n'appartenir à AUCUN des deux fichiers
+
+L'assistant proposait `HIVE_CORS_ORIGIN=http://localhost:7777` — l'origine par
+laquelle l'orchestrateur sert le dashboard compilé. C'est juste. Deux écrans
+plus loin, le même programme écrit « `npm run dev:dashboard` (puis
+`http://localhost:5173`) ». C'est juste aussi.
+
+Ensemble, c'est une panne : qui répondait « Poser ces réglages » — la réponse
+affirmative, celle qu'on choisit quand on fait confiance au programme — sortait
+avec un CORS qui **interdit l'adresse que l'écran suivant lui donne**. Et un
+navigateur bloqué par CORS ne dit rien à l'utilisateur : Mission Control reste
+vide, sans message.
+
+Les deux fichiers avaient chacun raison. Aucun test ne pouvait voir le défaut,
+parce qu'aucun ne les regardait **ensemble** — `assistant.test.ts` vérifiait
+l'origine proposée, `installer.test.ts` vérifiait les prochaines étapes, et le
+désaccord vivait entre les deux.
+
+> **Règle** — quand deux modules produisent des textes que le même humain lira
+> à la suite (une valeur posée puis l'adresse à ouvrir, un code d'erreur puis
+> sa réparation), écrire une assertion qui les **confronte** : extraire
+> l'adresse annoncée par l'un et vérifier qu'elle figure dans ce que l'autre
+> autorise. Une valeur partagée devient alors une constante commune, et le test
+> la relie à sa troisième source hors du langage (ici `dashboard/vite.config.ts`).
 
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 

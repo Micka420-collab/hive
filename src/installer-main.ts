@@ -26,6 +26,7 @@ import {
   EXPOSITIONS,
   fusionner,
   planExposition,
+  planOuvre,
   planProjet,
   type Exposition,
   type ReglagePropose,
@@ -40,6 +41,7 @@ import {
   completerEnv,
   composerReglages,
   lireEnv,
+  messagePrerequisNode,
   nodeSuffisant,
   prochainesEtapes,
   rendreEnv,
@@ -206,8 +208,12 @@ async function main(): Promise<void> {
         caps,
       ),
       '',
-      '  Installez une version récente depuis https://nodejs.org, puis relancez.',
-      '  (Sur macOS/Linux, « nvm install 20 » suffit si vous avez nvm.)',
+      // Le texte vit dans le module pur : c'était le dernier endroit où le
+      // plancher de Node était écrit en dur, et le seul que la personne
+      // bloquée COPIE. Voir `messagePrerequisNode`.
+      ...messagePrerequisNode(process.version)
+        .slice(1)
+        .map((l) => `  ${l}`),
     ]);
     process.exitCode = CODE.PREREQUIS;
     return;
@@ -389,7 +395,7 @@ async function main(): Promise<void> {
   // de sens et deviner des réponses en aurait encore moins : `npm run setup`
   // scripté s'arrête ici, exactement comme avant.
   if (caps.interactif && !simulation) {
-    await assistant(t, bloc, caps, reglages);
+    await assistant(t, bloc, caps, reglages, neuf);
   }
 
   bloc(
@@ -417,6 +423,8 @@ async function assistant(
   bloc: (...morceaux: string[][]) => void,
   caps: Capacites,
   reglages: readonly { cle: string; valeur: string }[],
+  /** Le `.env` vient-il d'être créé par CETTE exécution ? */
+  neuf: boolean,
 ): Promise<void> {
   const existant = new Map(reglages.map((r) => [r.cle, r.valeur]));
   const port = Number(existant.get('HIVE_PORT') ?? PORT_DEFAUT) || PORT_DEFAUT;
@@ -461,10 +469,28 @@ async function assistant(
           caps,
         ),
       );
-      const suite = await t.choisir(
-        [{ libelle: 'Ne rien changer', aide: 'défaut' }, { libelle: 'Poser ces réglages' }],
-        { quoi: 'la confirmation des réglages réseau', defautNonInteractif: 0 },
-      );
+      // ─── QUAND LE RÉCAPITULATIF INFORME AU LIEU DE DEMANDER ────────────────
+      //
+      // MÊME RÈGLE QU'À L'ÉCRAN PRÉCÉDENT, appliquée jusqu'au bout : sur un
+      // fichier qu'on vient de créer, il n'y a aucune décision antérieure à
+      // écraser — « la question serait une friction sans contrepartie ». Elle
+      // était pire que ça : sa réponse par défaut, « Ne rien changer », JETAIT
+      // le choix fait deux secondes plus tôt.
+      //
+      // La confirmation reste, entière, dès que le plan OUVRE la machine —
+      // réseau local, tunnel, reverse proxy. Rendre une ruche joignable n'est
+      // pas une friction : c'est le dernier arrêt avant la porte, et il se
+      // franchit les yeux ouverts.
+      //
+      // Le récapitulatif, lui, s'affiche dans les deux cas : rien n'est jamais
+      // écrit sans être nommé d'abord.
+      const demanderConfirmation = !neuf || planOuvre(plan);
+      const suite = demanderConfirmation
+        ? await t.choisir(
+            [{ libelle: 'Ne rien changer', aide: 'défaut' }, { libelle: 'Poser ces réglages' }],
+            { quoi: 'la confirmation des réglages réseau', defautNonInteractif: 0 },
+          )
+        : 1;
       if (suite === 1) {
         ecrireReglages(aEcrire);
         bloc([constat({ etat: 'fait', libelle: '.env mis à jour' }, caps)]);
