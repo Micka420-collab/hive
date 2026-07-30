@@ -361,10 +361,21 @@ if [ "$SEC" = 0 ]; then
     echo "  d'installation — sans échouer pour autant."
     echo ""
     echo "  Si npm a signalé « allow-scripts » plus haut, c'est lui qui a bloqué"
-    echo "  la récupération du binaire natif. Autorisez-le, puis réinstallez :"
+    echo "  la récupération du binaire natif. Autorisez-le, puis REFAITES LE"
+    echo "  BINAIRE :"
     echo ""
     echo "    npm approve-scripts --allow-scripts-pending"
-    echo "    npm install --no-fund --no-audit"
+    echo "    npm rebuild better-sqlite3"
+    echo ""
+    # `rebuild`, et surtout pas `install` : mesuré chez un utilisateur, le
+    # paquet ÉTAIT présent et c'est son binaire qui ne correspondait pas à l'ABI
+    # du Node utilisé (« compilé pour NODE_MODULE_VERSION 137, exige 147 »).
+    # `npm install` voit un paquet déjà installé à la bonne version, ne touche à
+    # rien, et rend 0 : la panne reste entière.
+    echo "  Le même message apparaît si le Node de la machine a CHANGÉ depuis"
+    echo "  l'installation : le binaire reste celui de l'ancienne ABI."
+    echo "  « npm install » n'y suffit pas — il voit un paquet déjà présent à la"
+    echo "  bonne version et ne refait rien. Seul « rebuild » le refait."
     echo ""
     echo "  On s'arrête ICI plutôt que d'écrire une configuration pour une ruche"
     echo "  qui ne démarrera pas."

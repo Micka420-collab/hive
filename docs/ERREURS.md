@@ -269,6 +269,55 @@ pouvait le montrer, parce que le défaut ne vivait pas dans le code.
 identiques au caractère près, qu'aucune ne tuyaute dans `iex`, et que **la CI
 porte les mêmes drapeaux que la doc**.
 
+### 1.8 — Un remède appliqué à UN seul endroit, et le mauvais remède ensuite
+
+Deux temps, le même essai, sur la machine d'un utilisateur.
+
+**Premier temps.** L'installation Windows réussit, avec ceci au passage :
+
+```
+npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install…)
+```
+
+npm ≥ 11.17 bloque les scripts d'installation par défaut. Le binaire natif
+n'arrive donc pas — et `npm install` **sort avec 0**, parce que la dépendance est
+optionnelle. L'installeur affichait « ✔ dépendances installées » pour une ruche
+qui ne pouvait pas démarrer.
+
+Ce qui rend ce défaut instructif : **le remède était déjà écrit.**
+`examples/deploiement-sans-ecran.sh` chargeait déjà les deux modules, avec son
+commentaire — « un code 0 dit que l'installeur n'a pas échoué, pas que la ruche
+peut démarrer ». La leçon était apprise, écrite, appliquée — **à un seul
+endroit, celui que personne ne traverse en installant.**
+
+> **Règle** — quand on applique une leçon, chercher TOUS les endroits qui font la
+> même promesse, et le garder par une assertion qui les CONFRONTE. Un remède
+> posé sur un seul chemin donne le sentiment d'avoir traité le problème, ce qui
+> est pire que de le savoir ouvert.
+
+**Second temps, et c'est ma faute directe.** Le message que je venais d'écrire
+conseillait `npm install`. Mesuré chez le même utilisateur, ça ne réparait rien :
+
+```
+Error: le module better_sqlite3.node a été compilé pour NODE_MODULE_VERSION 137.
+Cette version de Node exige 147.
+```
+
+Le paquet **était là**, à la bonne version. C'est son binaire natif qui ne
+correspondait pas à l'ABI du Node utilisé. **`npm install` ne touche pas à un
+paquet déjà installé à la bonne version** : il rend 0, et la panne reste
+entière. Seul `npm rebuild <paquet>` refait le binaire.
+
+> **Règle** — un diagnostic juste avec un remède faux est plus coûteux qu'un
+> silence : il consomme la confiance de celui qui le suit, et il l'occupe. Une
+> commande de réparation doit être ÉPROUVÉE sur la panne qu'elle prétend régler,
+> pas déduite de sa vraisemblance.
+
+> **Règle** — `npm install` répare une ABSENCE, jamais une INCOMPATIBILITÉ. Deux
+> causes mènent au même message (`allow-scripts` a bloqué la récupération ; le
+> Node de la machine a changé), et `rebuild` est la seule commande qui les règle
+> toutes les deux.
+
 ---
 
 ## 2. Un test peut passer pour la mauvaise raison
@@ -1320,18 +1369,20 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 ## 9. Outils : ce qui ne marche pas comme on croit
 
-| geste                                  | ce qui se passe vraiment                                                                                                                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `npm ci --omit=dev`                    | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)                                                                                                                    |
-| `npm ci` + dépendance optionnelle      | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                                                                                                                         |
-| `for … done` en shell                  | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5)                                                                                                          |
-| `npm config set node_gyp …`            | **refusé** par npm 10 : « not a valid npm option »                                                                                                                                         |
-| `npm_config_node_gyp=…`                | posé, visible dans l'environnement, **ignoré** par npm 10                                                                                                                                  |
-| `npm run loupe` avant `git commit`     | ne voit **pas** les fichiers non suivis — commiter d'abord                                                                                                                                 |
-| `sleep` en avant-plan                  | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`                                                                                                              |
-| `pkill` en fin de chaîne `&&`          | fait échouer la chaîne (code 144) — l'isoler                                                                                                                                               |
-| réf distante après reset sur `main`    | prend du retard : **pousser la branche** après chaque repositionnement                                                                                                                     |
-| `better-sqlite3` après bascule de Node | 424 tests rouges d'un coup sur `new Database()` : binaire compilé pour l'ancienne ABI (`NODE_MODULE_VERSION 127` ≠ `137`). `npm rebuild better-sqlite3` — **ce n'est pas le diff** (§ 5.2) |
+| geste                                  | ce qui se passe vraiment                                                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm ci --omit=dev`                    | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)                                                                                                                          |
+| `npm ci` + dépendance optionnelle      | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                                                                                                                               |
+| `for … done` en shell                  | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5)                                                                                                                |
+| `npm config set node_gyp …`            | **refusé** par npm 10 : « not a valid npm option »                                                                                                                                               |
+| `npm_config_node_gyp=…`                | posé, visible dans l'environnement, **ignoré** par npm 10                                                                                                                                        |
+| `npm run loupe` avant `git commit`     | ne voit **pas** les fichiers non suivis — commiter d'abord                                                                                                                                       |
+| `sleep` en avant-plan                  | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`                                                                                                                    |
+| `pkill` en fin de chaîne `&&`          | fait échouer la chaîne (code 144) — l'isoler                                                                                                                                                     |
+| réf distante après reset sur `main`    | prend du retard : **pousser la branche** après chaque repositionnement                                                                                                                           |
+| `better-sqlite3` après bascule de Node | 424 tests rouges d'un coup sur `new Database()` : binaire compilé pour l'ancienne ABI (`NODE_MODULE_VERSION 127` ≠ `137`). `npm rebuild better-sqlite3` — **ce n'est pas le diff** (§ 5.2)       |
+| `npm install` sur un paquet déjà là    | **ne refait pas son binaire natif** : il voit la bonne version, ne touche à rien, rend 0. Sur une ABI qui ne correspond pas, seul `npm rebuild <pkg>` répare (§ 1.8)                             |
+| npm ≥ 11.17 (`allow-scripts`)          | **bloque les scripts d'installation par défaut** : `prebuild-install` ne tourne pas, le binaire natif n'arrive pas, et `npm install` sort quand même avec **0** si la dépendance est optionnelle |
 
 ---
 
