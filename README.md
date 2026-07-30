@@ -262,15 +262,16 @@ le pire des deux.
 
 ## 📚 Documentation
 
-| Fichier                                                    | Ce qu'on y trouve                                        |
-| ---------------------------------------------------------- | -------------------------------------------------------- |
-| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**           | Installer, désinstaller, service, conteneur, sauvegardes |
-| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**       | Tourner seul sous Windows avec son abonnement Claude     |
-| **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**     | Chaque partie en détail, avec ses arbitrages             |
-| **[docs/ERREURS.md](docs/ERREURS.md)**                     | Le journal des erreurs — par leçon, avec les règles      |
-| **[docs/ETAPES.md](docs/ETAPES.md)**                       | L'état réel du projet face à ses propres promesses       |
-| **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)** | Quotas, abonnements, ce qui est facturé                  |
-| **[CHANGELOG.md](CHANGELOG.md)**                           | Ce qui a changé, version par version                     |
+| Fichier                                                      | Ce qu'on y trouve                                        |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Installer, désinstaller, service, conteneur, sauvegardes |
+| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Tourner seul sous Windows avec son abonnement Claude     |
+| **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
+| **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
+| **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
+| **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
+| **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |
+| **[CHANGELOG.md](CHANGELOG.md)**                             | Ce qui a changé, version par version                     |
 
 **[docs/ETAPES.md](docs/ETAPES.md)** mérite un mot : il tient l'état honnête du
 projet, y compris ce qui **n'est pas** tenu. Une ligne n'y passe au vert que si
