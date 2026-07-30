@@ -230,6 +230,7 @@ Le détail — et les autres limites assumées, écrites plutôt que tues — es
 
 | Commande                    | Effet                                                                        |
 | --------------------------- | ---------------------------------------------------------------------------- |
+| `npm run ruche`             | **Tout en une commande** — Reine + ouvrière + écran                          |
 | `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                             |
 | `npm run dev`               | Orchestrateur seul                                                           |
 | `npm run node`              | Un nœud membre                                                               |
