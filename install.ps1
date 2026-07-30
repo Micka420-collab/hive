@@ -342,6 +342,40 @@ if ($majeur -lt $NODE_MIN) {
 }
 Ok "Node $majeur (≥ $NODE_MIN exigé)"
 
+# ─── LA POLITIQUE D'EXÉCUTION, QUI MORD APRÈS L'INSTALLATION ─────────────────
+#
+# Ce script tourne avec `-ExecutionPolicy Bypass` : elle ne le gêne pas. Mais le
+# SHELL de l'utilisateur, lui, garde la sienne — et sous Windows `npm` est
+# `npm.ps1`. Sur une machine en `Restricted` (le défaut de Windows client),
+# la toute première commande qu'on lui dit de taper échoue :
+#
+#     npm : Impossible de charger le fichier C:\Program Files\nodejs\npm.ps1,
+#           car l'exécution de scripts est désactivée sur ce système.
+#
+# Mesuré chez un utilisateur, juste après une installation PARFAITEMENT réussie.
+# C'est le pire moment pour buter : tout a marché, l'écran final donne cinq
+# commandes, et aucune ne fonctionne. On avertit donc AVANT, tant qu'on a encore
+# son attention — et on n'y touche pas à sa place, changer la politique
+# d'exécution d'une machine n'est pas à nous.
+$politique = Get-ExecutionPolicy
+if ($politique -in @('Restricted', 'AllSigned')) {
+  Alerte "Politique d'exécution « $politique » — npm sera inutilisable dans PowerShell"
+  Dire ''
+  Dire '      Sous Windows, « npm » est un script PowerShell (npm.ps1). Cette'
+  Dire '      politique le bloque : les commandes affichées à la fin de cette'
+  Dire '      installation échoueront, alors que l''installation, elle, aura'
+  Dire '      réussi.'
+  Dire ''
+  Dire '      Le réglage habituel d''un poste de développement, à votre seul'
+  Dire '      compte — il ne touche pas la machine :'
+  Dire ''
+  Ecrire '        Set-ExecutionPolicy -Scope CurrentUser RemoteSigned' 'accent'
+  Dire ''
+  Dire '      Ou, sans rien changer durablement : « npm.cmd » à la place de'
+  Dire '      « npm ». Un .cmd n''est pas soumis à cette politique.'
+  Dire ''
+}
+
 # ─── 2. Récupérer Hive — sans jamais écraser un travail en cours ────────────
 
 Etape "Récupération de Hive dans $Dir"
@@ -389,8 +423,51 @@ if ($DryRun) {
   Push-Location $Dir
   npm install --no-fund --no-audit
   if ($LASTEXITCODE -ne 0) { Echec 'npm install a échoué.'; Pop-Location; exit $CODE_ERREUR }
+
+  # ─── « INSTALLÉES » NE VEUT PAS DIRE « CHARGEABLES » ───────────────────────
+  #
+  # C'est la leçon de l'image qui naissait morte (§ 1.5 du journal), et elle a
+  # mordu ici alors qu'elle était déjà appliquée dans
+  # `examples/deploiement-sans-ecran.sh` : le remède existait, à un endroit que
+  # personne ne traverse en installant.
+  #
+  # Mesuré sur la machine d'un utilisateur, avec npm 11.17 :
+  #
+  #     npm warn allow-scripts 2 packages have install scripts not yet covered:
+  #     npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install…)
+  #
+  # npm a BLOQUÉ le script d'installation. `npm install` sort donc avec 0, on
+  # affiche « dépendances installées », et le binaire natif n'est pas là. La
+  # ruche mourra au démarrage, très loin d'ici, sur un message que rien ne relie
+  # à ce moment-ci.
+  #
+  # `better-sqlite3` et `fastify` sont des dépendances OPTIONNELLES : npm a le
+  # droit de les écarter sans échouer. C'est précisément pour ça qu'il faut les
+  # charger pour de bon au lieu de croire un code de sortie.
+  $null = node -e "require('better-sqlite3'); require('fastify')" 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    Echec 'Les dépendances sont installées mais la ruche ne peut pas démarrer.'
+    Dire ''
+    Dire '      « better-sqlite3 » ou « fastify » ne se charge pas. Les deux sont'
+    Dire '      OPTIONNELLES : npm a pu les écarter — ou refuser leur script'
+    Dire '      d''installation — sans échouer pour autant.'
+    Dire ''
+    Dire '      Si npm a signalé « allow-scripts » plus haut, c''est lui qui a'
+    Dire '      bloqué la récupération du binaire natif. Autorisez-le, puis'
+    Dire '      réinstallez :'
+    Dire ''
+    Ecrire '        npm approve-scripts --allow-scripts-pending' 'accent'
+    Ecrire '        npm install --no-fund --no-audit' 'accent'
+    Dire ''
+    Dire '      On s''arrête ICI plutôt que d''écrire une configuration pour une'
+    Dire '      ruche qui ne démarrera pas.'
+    Dire ''
+    exit $CODE_PREREQUIS
+  }
+
   Pop-Location
-  Ok 'dépendances installées'
+  Ok 'dépendances installées, et chargeables'
 }
 
 # ─── 4. La main à l'installeur de Hive ──────────────────────────────────────
