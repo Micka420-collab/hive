@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  BLOCS_HIVE,
   CADENCE_SPINNER_MS,
   LARGEUR_MAX,
   LARGEUR_MIN_CADRES,
@@ -479,26 +480,72 @@ describe('LA BARRE DE PROGRESSION', () => {
   });
 });
 
-describe('LE RAYON DE MIEL DE LA BANNIÈRE', () => {
+describe('LA MARQUE EN LETTRES DE BLOCS', () => {
   const base = { unicode: true, cadres: true, interactif: true, largeur: 76 };
 
-  it('n’apparaît QU’EN 24 bits', () => {
-    // Sans dégradé, une frise d'hexagones n'est plus un ornement : c'est une
-    // ligne de bruit au-dessus des prérequis, qui sont la seule chose à lire.
-    const avec = banniere('9.9.9', { ...base, couleur: 16777216 });
-    const sans = banniere('9.9.9', { ...base, couleur: 256 });
-    expect(avec.join('\n')).toMatch(/⬢/);
-    expect(sans.join('\n'), '256 couleurs ne doit pas porter la frise').not.toMatch(/⬢/);
-    expect(avec.length, 'la frise ajoute une ligne, et une seule').toBe(sans.length + 1);
+  it('n’apparaît QU’EN 24 bits — ailleurs, le titre d’une ligne', () => {
+    // Sans dégradé, trois lignes de blocs pleins ne sont pas une marque : c'est
+    // un mur d'ambre au-dessus des prérequis, qui sont la seule chose à lire.
+    const riche = banniere('9.9.9', { ...base, couleur: 16777216 }).join('\n');
+    const plate = banniere('9.9.9', { ...base, couleur: 256 }).join('\n');
+    expect(riche).toMatch(/█/);
+    expect(plate, '256 couleurs garde le titre court').toMatch(/H I V E/);
+    expect(plate).not.toMatch(/█/);
   });
 
-  it('la bannière reste dans sa largeur, frise comprise', () => {
+  it('LES TROIS LIGNES ONT LA MÊME LARGEUR', () => {
+    // ─── CE QUI CASSE UN DESSIN DE LETTRES ─────────────────────────────────
+    //
+    // Une ligne plus courte que les autres décale la lettre suivante, et le mot
+    // cesse d'être lisible — sans qu'aucune assertion de largeur totale ne
+    // bouge, puisque le cadre complète les blancs de lui-même.
+    //
+    // On éprouve donc le DESSIN, pas la sortie. Ma première version lisait la
+    // bannière rendue et faisait `trimEnd()` : elle mangeait le blanc de padding
+    // du « E » et accusait un dessin juste.
+    expect(BLOCS_HIVE).toHaveLength(3);
+    expect(new Set(BLOCS_HIVE.map((l) => [...l].length)).size, 'lignes désalignées').toBe(1);
+  });
+
+  it('ELLE S’EFFACE quand la largeur ne suffit pas', () => {
+    // Une marque coupée est pire qu'une marque absente : elle donne un mot faux.
+    // Le repli est le titre d'une ligne, qui n'a jamais démérité.
+    //
+    // La borne réelle est BASSE — le dessin fait 22 colonnes — et c'est ce que
+    // ma première version avait supposé de travers en essayant 60. La supposer
+    // sans la calculer, c'est écrire un test qui ne prouve rien.
+    const besoin = Math.max(...BLOCS_HIVE.map((l) => [...l].length));
+    const trop = besoin + 3; // + les deux bordures et la marge du cadre
+    const etroit = banniere('9.9.9', { ...base, couleur: 16777216, largeur: trop }).join('\n');
+    expect(etroit, `à ${String(trop)} colonnes la marque ne tient pas`).not.toMatch(/█/);
+    // ─── DÉNUDER AVANT DE CHERCHER UN MOT ──────────────────────────────────
+    //
+    // Le titre de repli passe par `degrade`, qui insère un échappement AVANT
+    // CHAQUE lettre : la sous-chaîne littérale « H I V E » n'existe plus dans la
+    // sortie colorée. Ma première assertion la cherchait telle quelle et
+    // rougissait sur un rendu parfaitement juste.
+    expect(etroit.replace(ECHAPPEMENT, '')).toMatch(/H I V E/);
+  });
+
+  it('LA BANNIÈRE RESTE COURTE — la charte la plafonne', () => {
+    // ─── CE QUE MES PROPRES TESTS ONT TROUVÉ ─────────────────────────────────
+    //
+    // Une frise d'hexagones cohabitait ici. La marque l'a rendue INATTEIGNABLE
+    // — elle tient dès 26 colonnes, et sous 60 les cadres sont abandonnés : il
+    // ne restait aucune largeur où la frise pouvait s'afficher. Elle a donc été
+    // RETIRÉE, pas gardée « au cas où » (§ 6.2).
+    const vu = banniere('9.9.9', { ...base, couleur: 16777216 });
+    expect(vu.join('\n'), 'la frise ne doit pas revenir').not.toMatch(/⬢/);
+    expect(vu.length, 'cadre compris, la bannière reste courte').toBeLessThanOrEqual(6);
+  });
+
+  it('la bannière tient dans sa largeur, dans les quatre niveaux de couleur', () => {
     for (const couleur of [0, 16, 256, 16777216] as const) {
-      for (const largeur of [60, 66, 76]) {
+      for (const largeur of [60, 68, 76]) {
         for (const ligne of banniere('1.2.3', { ...base, couleur, largeur })) {
           expect(
             largeurVisible(ligne),
-            `couleur ${couleur}, largeur ${largeur}`,
+            `couleur ${couleur}, largeur ${largeur} : « ${ligne} »`,
           ).toBeLessThanOrEqual(largeur);
         }
       }

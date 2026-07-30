@@ -458,10 +458,21 @@ export function banniere(version: string, caps: Capacites): string[] {
   const interieur = caps.largeur - 4;
   const marque = `v${version}`;
   const espace = Math.max(2, interieur - largeurVisible(sous) - largeurVisible(marque));
+  // ─── LA FRISE D'HEXAGONES A ÉTÉ RETIRÉE, ET C'EST UNE LEÇON ──────────────
+  //
+  // Une première version dessinait une frise `⬢⬡⬢⬡…` au-dessus du titre. La
+  // marque en blocs l'a rendue INATTEIGNABLE : elle tient dès 26 colonnes, et
+  // sous 60 les cadres sont abandonnés — il n'existe donc aucune largeur où la
+  // frise pouvait encore s'afficher.
+  //
+  // Mes propres tests l'ont montré en rougissant. La règle du § 6.2 vaut ici
+  // mot pour mot : « on ne garde pas une variante qui ne peut pas aboutir, elle
+  // donne l'illusion d'une couverture ». Trente lignes d'ornement mort, testées,
+  // auraient fait croire à un repli qui n'existait plus.
+  const blocs = marqueBlocs(interieur, caps);
   return cadre(
     [
-      ...rayon(interieur, caps),
-      degrade(titre, caps),
+      ...(blocs.length > 0 ? blocs : [degrade(titre, caps)]),
       `${sous}${' '.repeat(espace)}${teinter(marque, 'discret', caps)}`,
     ],
     caps,
@@ -469,25 +480,58 @@ export function banniere(version: string, caps: Capacites): string[] {
 }
 
 /**
- * Le rayon de miel : une frise d'hexagones, en dégradé.
+ * La marque en lettres de blocs — trois lignes, dessinées au demi-pixel.
  *
- * ─── UN ORNEMENT QUI S'EFFACE DE LUI-MÊME ───────────────────────────────────
+ * ─── POURQUOI TROIS LIGNES ET PAS CINQ ──────────────────────────────────────
  *
- * Il n'apparaît QUE si trois conditions tiennent : Unicode sûr, cadres dessinés,
- * et 24 bits. Sans dégradé, une frise d'hexagones n'est plus un ornement — c'est
- * une ligne de bruit en haut de l'écran, qui vole l'attention à la seule chose
- * qui compte à cet instant : les prérequis en dessous.
+ * Les demi-blocs `▀▄█` permettent deux rangées de pixels par ligne de texte :
+ * une capitale lisible tient donc en trois lignes là où un dessin en `#` en
+ * demanderait cinq. La charte plafonne la bannière à quatre lignes (§6.1) — et
+ * cette limite est juste : l'écran suivant, celui des prérequis, est ce que la
+ * personne est venue lire.
  *
- * On rend un tableau vide plutôt qu'une ligne vide : `banniere` l'étale, et une
- * ligne vide de plus dans un cadre se verrait comme un défaut d'alignement.
+ * ─── QUAND ELLE N'APPARAÎT PAS ──────────────────────────────────────────────
+ *
+ * Elle demande les mêmes trois conditions que la frise, PLUS de la largeur :
+ * sous 68 colonnes la marque déborderait, et une marque coupée est pire qu'une
+ * marque absente. Le repli est le titre d'une ligne, qui n'a jamais démérité.
  */
-function rayon(largeur: number, caps: Capacites): string[] {
+export const BLOCS_HIVE: readonly string[] = [
+  '█  █  ███  █   █  ████',
+  '████   █    █ █   ███ ',
+  '█  █  ███    █    ████',
+];
+
+function marqueBlocs(largeur: number, caps: Capacites): string[] {
   if (!caps.unicode || !caps.cadres || caps.couleur < 16777216) return [];
-  const motif = [...'⬢⬡'];
-  const combien = Math.max(0, Math.min(largeur, Math.floor(largeur / 2)));
-  if (combien < 4) return [];
-  const frise = Array.from({ length: combien }, (_, i) => motif[i % 2]!).join(' ');
-  return [degrade(tronquer(frise, largeur, true), caps)];
+  const besoin = Math.max(...BLOCS_HIVE.map((l) => [...l].length));
+  if (largeur < besoin) return [];
+  // Le dégradé descend d'une ligne à l'autre : chaque ligne part d'un point
+  // différent de la rampe, sinon les trois seraient identiques et le relief
+  // disparaîtrait.
+  return BLOCS_HIVE.map((ligne, i) => {
+    const depart = i / (BLOCS_HIVE.length * 2);
+    return degradeDepuis(ligne, depart, caps);
+  });
+}
+
+/**
+ * Comme `degrade`, mais en partant d'un point donné de la rampe.
+ *
+ * Sert au relief de la marque : trois lignes qui parcourent la même rampe
+ * depuis le même début se ressemblent trop pour qu'on voie qu'elles forment un
+ * bloc.
+ */
+export function degradeDepuis(texte: string, depart: number, caps: Capacites): string {
+  if (caps.couleur === 0 || texte === '') return texte;
+  if (caps.couleur < 16777216) return teinter(texte, 'accent', caps);
+  const points = [...texte];
+  const dernier = Math.max(1, points.length - 1);
+  let sortie = '';
+  for (const [i, c] of points.entries()) {
+    sortie += c === ' ' ? c : `${rvb(miel(depart + (1 - depart) * (i / dernier)))}${c}`;
+  }
+  return `${sortie}${REPRISE}`;
 }
 
 /** Le titre d'une section — discret, parce que c'est le contenu qui compte. */
