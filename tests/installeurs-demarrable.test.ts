@@ -105,6 +105,28 @@ describe('LES TROIS SCRIPTS VÉRIFIENT QUE LA RUCHE PEUT DÉMARRER', () => {
       );
     },
   );
+
+  it.each(['install.sh', 'install.ps1'] as const)('%s ne conseille RIEN qui ne fasse rien', (f) => {
+    // ─── DEUX COMMANDES, DONT UNE INUTILE ──────────────────────────────────
+    //
+    // Ce message en listait deux. La trace d'un utilisateur montre la première
+    // ne rien faire :
+    //
+    //     PS> npm approve-scripts --allow-scripts-pending
+    //     2 packages have install scripts not yet covered by allowScripts: …
+    //     Run `npm approve-scripts <pkg>` to allow…
+    //
+    // `--allow-scripts-pending` LISTE, il n'autorise pas. Et la ligne suivante
+    // de la même trace montre `npm rebuild better-sqlite3` réussissant SEUL,
+    // verrou toujours en place.
+    //
+    // Une commande qui ne fait rien dans une liste de réparation est pire
+    // qu'absente : c'est une occasion de croire qu'on a essayé.
+    const source = nu(lire(f));
+    expect(source, `${f} conseille une commande qui ne fait que lister`).not.toMatch(
+      /allow-scripts-pending/,
+    );
+  });
 });
 
 describe('CE QUE L’INSTALLEUR WINDOWS DIT DE LA POLITIQUE D’EXÉCUTION', () => {

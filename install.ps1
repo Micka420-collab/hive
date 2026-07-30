@@ -453,12 +453,30 @@ if ($DryRun) {
     Dire '      OPTIONNELLES : npm a pu les écarter — ou refuser leur script'
     Dire '      d''installation — sans échouer pour autant.'
     Dire ''
-    Dire '      Si npm a signalé « allow-scripts » plus haut, c''est lui qui a'
-    Dire '      bloqué la récupération du binaire natif. Autorisez-le, puis'
-    Dire '      REFAITES LE BINAIRE :'
+    Dire '      Une seule commande, et c''est la bonne dans tous les cas :'
     Dire ''
-    Ecrire '        npm approve-scripts --allow-scripts-pending' 'accent'
     Ecrire '        npm rebuild better-sqlite3' 'accent'
+    Dire ''
+    # ─── UNE COMMANDE, PARCE QU'ELLE A SUFFI ─────────────────────────────────
+    #
+    # Ce message en a listé deux, dont une inutile. Mesuré chez un utilisateur :
+    #
+    #     PS> npm approve-scripts --allow-scripts-pending
+    #     2 packages have install scripts not yet covered by allowScripts: …
+    #     Run `npm approve-scripts <pkg>` to allow…
+    #
+    # `--allow-scripts-pending` ne fait que LISTER — il n'autorise rien. Il
+    # faudrait `npm approve-scripts better-sqlite3`. Et surtout : la ligne
+    # suivante de la même trace montre que `npm rebuild better-sqlite3` a réussi
+    # SEUL, verrou toujours en place, parce que `rebuild` compile au lieu
+    # d'attendre le script d'installation.
+    #
+    # On ne donne donc qu'une commande. Deux, dont une qui ne fait rien, c'est
+    # deux occasions de croire qu'on a essayé.
+    Dire '      Elle règle les deux causes qui donnent ce message : le verrou'
+    Dire '      « allow-scripts » de npm, qui a empêché la récupération du binaire,'
+    Dire '      et un Node qui a CHANGÉ depuis l''installation — le binaire reste'
+    Dire '      alors celui de l''ancienne ABI.'
     Dire ''
     # ─── `rebuild`, ET SURTOUT PAS `install` ─────────────────────────────────
     #
@@ -477,10 +495,9 @@ if ($DryRun) {
     #   · le verrou `allow-scripts` a empêché `prebuild-install` de chercher le
     #     binaire correspondant à ce Node ;
     #   · le Node de la machine a changé depuis l'installation.
-    Dire '      Le même message apparaît si le Node de la machine a CHANGÉ depuis'
-    Dire '      l''installation : le binaire reste celui de l''ancienne ABI.'
-    Dire '      « npm install » n''y suffit pas — il voit un paquet déjà présent'
-    Dire '      à la bonne version et ne refait rien. Seul « rebuild » le refait.'
+    Dire '      « npm install » n''y suffirait PAS : il voit un paquet déjà présent'
+    Dire '      à la bonne version, ne touche à rien, et rend 0. Seul « rebuild »'
+    Dire '      refait le binaire.'
     Dire ''
     Dire '      On s''arrête ICI plutôt que d''écrire une configuration pour une'
     Dire '      ruche qui ne démarrera pas.'

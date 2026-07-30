@@ -318,6 +318,28 @@ entière. Seul `npm rebuild <paquet>` refait le binaire.
 > Node de la machine a changé), et `rebuild` est la seule commande qui les règle
 > toutes les deux.
 
+**Troisième temps, deux corrections plus tard.** Le message corrigé listait deux
+commandes. La trace montre la première ne rien faire :
+
+```
+PS> npm approve-scripts --allow-scripts-pending
+2 packages have install scripts not yet covered by allowScripts: …
+Run `npm approve-scripts <pkg>` to allow…
+```
+
+`--allow-scripts-pending` **liste**, il n'autorise rien — il faudrait
+`npm approve-scripts better-sqlite3`. Et la ligne suivante de la même trace
+montre `npm rebuild better-sqlite3` réussissant **seul**, verrou toujours en
+place : `rebuild` compile au lieu d'attendre le script d'installation.
+
+> **Règle** — une commande qui ne fait rien, dans une liste de réparation, est
+> pire qu'absente : c'est une occasion de plus de croire qu'on a essayé. Ne
+> donner que le geste dont on a VU l'effet, et un seul quand un seul suffit.
+
+Trois versions de ce message pour arriver à une commande juste. Ce qui a tranché
+chaque fois n'est pas un raisonnement : c'est la trace brute d'une machine
+réelle.
+
 ---
 
 ## 2. Un test peut passer pour la mauvaise raison
