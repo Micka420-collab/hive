@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
 
-export type AgentType = 'claude-code' | 'codex' | 'custom' | 'shell';
+export type AgentType = 'claude-code' | 'codex' | 'grok' | 'custom' | 'shell';
 
 interface AgentProbe {
   agent: Exclude<AgentType, 'shell'>;
@@ -21,6 +21,8 @@ interface AgentProbe {
 const PROBES: AgentProbe[] = [
   { agent: 'claude-code', bins: ['claude'], label: 'Claude Code' },
   { agent: 'codex', bins: ['codex'], label: 'Codex' },
+  // `grok-build` : binaire Rust natif, donc aucun shim `.cmd` à contourner.
+  { agent: 'grok', bins: ['grok'], label: 'Grok Build' },
 ];
 
 /**
@@ -127,6 +129,7 @@ export const SECRETS_JAMAIS_SONDES: readonly string[] = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'OPENAI_API_KEY',
+  'XAI_API_KEY',
   'QUEEN_BEE_API_KEY',
   'OPENROUTER_API_KEY',
 ];
@@ -284,6 +287,12 @@ export function agentCredentialEnv(agent: AgentType): string[] {
   }
   if (agent === 'codex') {
     return [...configDirs, 'OPENAI_API_KEY', 'OPENAI_BASE_URL'];
+  }
+  if (agent === 'grok') {
+    // `XAI_API_KEY` pour l'authentification sans navigateur ; `GROK_HOME` parce
+    // que la session ouverte au navigateur est rangée là (défaut `~/.grok`), et
+    // sans elle l'agent redemanderait une connexion qu'aucun nœud ne peut faire.
+    return [...configDirs, 'XAI_API_KEY', 'GROK_HOME'];
   }
   return configDirs;
 }
