@@ -340,7 +340,39 @@ if [ "$SEC" = 0 ]; then
   # `--no-fund --no-audit` : deux pages de bruit sur une première installation.
   # `npm audit` reste lançable à la main, et la CI le fait.
   npm install --no-fund --no-audit
-  ok "dépendances installées"
+
+  # ─── « INSTALLÉES » NE VEUT PAS DIRE « CHARGEABLES » ─────────────────────
+  #
+  # Leçon de l'image qui naissait morte (§ 1.5), et elle a mordu pour de vrai
+  # sur la machine d'un utilisateur — alors que le remède était DÉJÀ écrit dans
+  # `examples/deploiement-sans-ecran.sh`. Il vivait à un endroit que personne
+  # ne traverse en installant.
+  #
+  # `better-sqlite3` et `fastify` sont OPTIONNELLES : npm a le droit de les
+  # écarter, ou de refuser leur script d'installation (npm ≥ 11.17 le fait par
+  # défaut, cf. « allow-scripts »), et de sortir avec 0 quand même. Croire le
+  # code de sortie, c'est écrire une configuration pour une ruche morte.
+  if ! node -e "require('better-sqlite3'); require('fastify')" 2>/dev/null; then
+    echo ""
+    echo "✘ Les dépendances sont installées mais la ruche ne peut pas démarrer."
+    echo ""
+    echo "  « better-sqlite3 » ou « fastify » ne se charge pas. Les deux sont"
+    echo "  OPTIONNELLES : npm a pu les écarter — ou refuser leur script"
+    echo "  d'installation — sans échouer pour autant."
+    echo ""
+    echo "  Si npm a signalé « allow-scripts » plus haut, c'est lui qui a bloqué"
+    echo "  la récupération du binaire natif. Autorisez-le, puis réinstallez :"
+    echo ""
+    echo "    npm approve-scripts --allow-scripts-pending"
+    echo "    npm install --no-fund --no-audit"
+    echo ""
+    echo "  On s'arrête ICI plutôt que d'écrire une configuration pour une ruche"
+    echo "  qui ne démarrera pas."
+    echo ""
+    exit 2
+  fi
+
+  ok "dépendances installées, et chargeables"
 else
   alerte "--dry-run : npm install non lancé"
 fi
