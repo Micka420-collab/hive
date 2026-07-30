@@ -254,14 +254,15 @@ two.
 
 ## 📚 Documentation
 
-| File                                                 | What's in it                                            |
-| ---------------------------------------------------- | ------------------------------------------------------- |
-| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**       | Each part in detail, with its trade-offs                |
-| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**     | Install, uninstall, service, container, backups (FR)    |
-| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)** | Running solo on Windows with a Claude subscription (FR) |
-| **[docs/ERREURS.md](docs/ERREURS.md)**               | The error journal — by lesson, with the rules (FR)      |
-| **[docs/ETAPES.md](docs/ETAPES.md)**                 | The project's real state against its own promises (FR)  |
-| **[CHANGELOG.md](CHANGELOG.md)**                     | What changed, version by version                        |
+| File                                                         | What's in it                                            |
+| ------------------------------------------------------------ | ------------------------------------------------------- |
+| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                |
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)    |
+| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Running solo on Windows with a Claude subscription (FR) |
+| **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protecting `main`: the exact settings, and why (FR)     |
+| **[docs/ERREURS.md](docs/ERREURS.md)**                       | The error journal — by lesson, with the rules (FR)      |
+| **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)  |
+| **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                        |
 
 Most of the deep documentation is in French, as is the codebase's commentary.
 `docs/FEATURES.en.md` is the English reference.
