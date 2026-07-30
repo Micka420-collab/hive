@@ -210,6 +210,65 @@ en dix secondes d'exécution.
 > à faux : le programme ne pose aucune question, et on mesure zéro décision en
 > croyant en mesurer trois.
 
+### 1.7 — La CI exerçait le script ; jamais la phrase qui dit comment l'appeler
+
+Quatre documents — README, README anglais, `docs/INSTALLATION.md`, et l'en-tête
+d'`install.ps1` lui-même — annonçaient la commande d'installation Windows :
+
+```powershell
+irm https://…/install.ps1 | iex
+```
+
+**Elle ne pouvait marcher sur aucune machine.** Un utilisateur l'a lancée et a
+renvoyé la trace :
+
+```
+iex : Au caractère Ligne:53 : 1
++ [CmdletBinding()]
+Attribut inattendu « CmdletBinding ».
++ param(
+Jeton inattendu « param » dans l'expression ou l'instruction.
+```
+
+`iex` évalue une **expression** ; `param()` et `[CmdletBinding()]` ne sont
+valides qu'au début d'un **script**. Le `ParserError` tombe à la ligne du
+`param`, systématiquement, partout.
+
+Un second défaut, indépendant, que corriger le premier n'aurait pas réglé :
+`install.ps1` appelle `exit` **sept fois**. Dans un `iex`, `exit` s'évalue au
+niveau de la SESSION — il ferme la fenêtre. Les sept codes de sortie, qui sont
+toute l'interface de ce script (critère 9 : un déploiement sans écran doit
+pouvoir les aiguiller), deviendraient inobservables. Lancé comme un fichier,
+`exit` termine le script et pose `$LASTEXITCODE`.
+
+**Et pendant tout ce temps la CI était verte.** Elle lançait `install.ps1` par
+`-File`, sous PowerShell 5.1 **et** 7, avec des assertions sur l'encodage, le
+mojibake, le BOM. Trois pas soignés — sur le script.
+
+> Le script était juste. La phrase qui disait comment l'appeler ne l'était pas,
+> et rien ne regardait l'écart entre les deux.
+
+Les deux étaient cohérents avec eux-mêmes et incohérents entre eux. C'est la
+même forme que le shim `.cmd` (§ 6.2) et que le nœud qui simulait (§ 9 bis) : un
+chemin que personne n'exécute et que tout le monde croit. Aucune suite verte ne
+pouvait le montrer, parce que le défaut ne vivait pas dans le code.
+
+> **Règle** — une commande écrite dans un README est une INTERFACE. Elle doit
+> être exécutée par quelque chose, au caractère près, drapeaux compris. Exercer
+> une invocation VOISINE ne prouve rien sur celle qu'on annonce — c'est
+> exactement ce qui a laissé `| iex` vivre dans quatre documents.
+
+> **Règle** — quand un script déclare `param()` ou appelle `exit`, il est fait
+> pour être lancé comme un FICHIER. `irm | iex` ne convient qu'à un script sans
+> paramètres et sans code de sortie à observer. Télécharger puis lancer
+> (`-OutFile` puis `-NoProfile -ExecutionPolicy Bypass -File`) préserve les deux
+> — et `-ExecutionPolicy Bypass` n'est pas une négligence : un `.ps1` sur le
+> disque y est soumis, là où `iex` la contournait par construction.
+
+`tests/commande-annoncee.test.ts` exige désormais que les quatre copies soient
+identiques au caractère près, qu'aucune ne tuyaute dans `iex`, et que **la CI
+porte les mêmes drapeaux que la doc**.
+
 ---
 
 ## 2. Un test peut passer pour la mauvaise raison

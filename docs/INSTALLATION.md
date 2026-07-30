@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 **Windows** (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
 ```
 
 Le script vérifie Node, récupère Hive dans `~/hive`, installe les dépendances,

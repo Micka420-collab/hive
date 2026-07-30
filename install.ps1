@@ -1,6 +1,37 @@
 ﻿# Hive — installation en une commande (Windows).
 #
-#   irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
+#
+# ─── POURQUOI PAS `irm … | iex`, QUI ÉTAIT ÉCRIT ICI ─────────────────────────
+#
+# Parce que ça ne pouvait pas marcher. Sur AUCUNE machine. Signalé par un
+# utilisateur, avec la trace exacte :
+#
+#     iex : Au caractère Ligne:53 : 1
+#     + [CmdletBinding()]
+#     Attribut inattendu « CmdletBinding ».
+#     + param(
+#     Jeton inattendu « param » dans l'expression ou l'instruction.
+#
+# `iex` évalue une EXPRESSION. `param()` et `[CmdletBinding()]` ne sont valides
+# qu'au début d'un SCRIPT — ou d'un scriptblock. Un script à paramètres tuyauté
+# dans `iex` échoue toujours, dès la ligne du `param`.
+#
+# Et il y a un second défaut, indépendant, que corriger le premier n'aurait pas
+# réglé : ce script appelle `exit` sept fois. Dans un `iex`, `exit` s'évalue au
+# niveau de la SESSION — il ferme la fenêtre de l'utilisateur. Les sept codes de
+# sortie, qui sont toute l'interface de ce script (critère 9 : un déploiement
+# sans écran doit pouvoir les aiguiller), deviendraient inobservables.
+#
+# Lancé comme un FICHIER, `exit` termine le script et pose `$LASTEXITCODE`. La
+# session survit, et le code reste lisible. C'est aussi, exactement, ce que la
+# CI exerce depuis toujours — elle testait `-File` pendant que la doc annonçait
+# `iex`. Le script était juste ; la phrase qui disait comment l'appeler, non.
+#
+# `-ExecutionPolicy Bypass` est nécessaire : un `.ps1` sur le disque est soumis à
+# la politique d'exécution, qu'un `iex` contournait par construction. `-NoProfile`
+# évite qu'un profil utilisateur ne change le décor sous les pieds de
+# l'installeur.
 #
 # ─── CE QUE CE SCRIPT FAIT, ET CE QU'IL NE FAIT PAS ──────────────────────────
 #

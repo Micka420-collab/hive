@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2605%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2615%20passing-2ea44f)
 ![Licence](https://img.shields.io/badge/licence-MIT-green)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -49,7 +49,7 @@ Sur une machine où il n'y a encore rien :
 curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
 ```
 
 Le script vérifie Node, récupère Hive, installe les dépendances et pose **au

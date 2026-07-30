@@ -121,9 +121,28 @@ jobs:
       # en mojibake, invisible tant qu'on ne teste que `pwsh`. D'où le BOM en
       # tête d'`install.ps1`, et d'où CE pas : la seule façon de savoir qu'il
       # suffit est de lancer 5.1 pour de bon.
+      # ─── ON EXERCE L'INVOCATION ANNONCÉE, PAS UNE INVOCATION VOISINE ────────
+      #
+      # Ce pas lançait `-NoProfile -File`. Il était vert, et il l'a toujours été.
+      # Pendant ce temps le README, son homologue anglais, `docs/INSTALLATION.md`
+      # et l'en-tête d'`install.ps1` annonçaient tous les quatre :
+      #
+      #     irm https://…/install.ps1 | iex
+      #
+      # Qui ne pouvait marcher sur AUCUNE machine — `iex` évalue une expression,
+      # et `param()` n'est valide qu'au début d'un script. Un utilisateur l'a
+      # signalé, avec la trace du `ParserError`.
+      #
+      # La CI exerçait donc le SCRIPT, jamais la PHRASE qui dit comment
+      # l'appeler. Les deux étaient cohérents avec eux-mêmes et incohérents
+      # entre eux, et rien ne regardait l'écart.
+      #
+      # Les drapeaux ci-dessous sont désormais ceux de la commande annoncée, et
+      # `tests/commande-annoncee.test.ts` exige qu'ils le restent — sans quoi la
+      # doc pourrait redériver sans que ce pas s'en aperçoive.
       - name: L'installeur une-commande démarre (Windows · PowerShell 7)
         if: runner.os == 'Windows'
-        run: pwsh -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive"
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive"
 
       # ─── CE PAS EST EN ASCII PUR, ET IL A FALLU UN ÉCHEC POUR L'APPRENDRE ───
       #
@@ -152,7 +171,10 @@ jobs:
           chcp 65001 > $null
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-          $sortie = & powershell -NoProfile -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive-51" 2>&1 | Out-String
+          # The EXACT flags the README tells people to type. A step that
+          # exercises a neighbouring invocation proves nothing about the one
+          # that is advertised - that is how `| iex` survived in four documents.
+          $sortie = & powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -DryRun -Dir "$env:RUNNER_TEMP\essai-hive-51" 2>&1 | Out-String
           Write-Host $sortie
           if ($LASTEXITCODE -ne 0) { throw "install.ps1 returned $LASTEXITCODE under Windows PowerShell 5.1" }
 
