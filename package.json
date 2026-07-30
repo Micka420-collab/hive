@@ -34,6 +34,7 @@
     "lint": "eslint . && prettier --check .",
     "loupe": "node scripts/loupe.mjs",
     "fusionner": "sh scripts/fusionner.sh",
+    "ruche": "node --import tsx scripts/ruche.mjs",
     "format": "prettier --write .",
     "build:node": "tsc -p tsconfig.build.json",
     "prepare": "npm run build:node"

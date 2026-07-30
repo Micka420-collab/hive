@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2643%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2665%20passing-2ea44f)
 ![Licence](https://img.shields.io/badge/licence-MIT-green)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -230,6 +230,7 @@ Le détail — et les autres limites assumées, écrites plutôt que tues — es
 
 | Commande                    | Effet                                                                        |
 | --------------------------- | ---------------------------------------------------------------------------- |
+| `npm run ruche`             | **Tout en une commande** — Reine + ouvrière + écran                          |
 | `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                             |
 | `npm run dev`               | Orchestrateur seul                                                           |
 | `npm run node`              | Un nœud membre                                                               |
