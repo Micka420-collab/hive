@@ -58,7 +58,62 @@ const ATTENUE = '\x1b[2m';
 const REPRISE = '\x1b[0m';
 
 /** Combien de couleurs le terminal sait afficher. 0 = aucune. */
-export type NiveauCouleur = 0 | 16 | 256;
+export type NiveauCouleur = 0 | 16 | 256 | 16777216;
+
+/**
+ * Le miel, du plus sombre au plus clair — la seule rampe du produit.
+ *
+ * ─── POURQUOI UNE RAMPE, ALORS QUE LA CHARTE INTERDIT DEUX ACCENTS ──────────
+ *
+ * Elle l'interdit à l'écran D'ÉTAT, et elle a raison : deux accents en
+ * concurrence sur des lignes qu'on lit pour décider, c'est zéro accent. Cette
+ * règle est intacte — `teinter` n'a pas changé, et les lignes de vérification
+ * restent en ambre unique ou sans couleur.
+ *
+ * Une rampe n'est pas un second accent : c'est le MÊME ambre, décliné. Elle ne
+ * sert qu'aux surfaces décoratives — la marque, les barres de progression —
+ * où il n'y a rien à lire, donc rien à hiérarchiser.
+ *
+ * Les valeurs vont du brun-miel au jaune pâle. Elles ne traversent aucune
+ * autre teinte : un dégradé qui virerait au rouge ou au vert introduirait la
+ * couleur d'une ALERTE dans un ornement, et c'est exactement le genre de
+ * signal qu'on ne prête pas.
+ */
+const RAMPE_MIEL: readonly (readonly [number, number, number])[] = [
+  [120, 63, 4],
+  [166, 92, 8],
+  [204, 122, 10],
+  [230, 154, 20],
+  [245, 184, 56],
+  [252, 211, 108],
+];
+
+/** Un octet de couleur d'avant-plan en 24 bits. */
+function rvb(c: readonly [number, number, number]): string {
+  return `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`;
+}
+
+/**
+ * La couleur de la rampe à la position `t` ∈ [0, 1], interpolée.
+ *
+ * Interpoler plutôt que choisir le palier le plus proche : sur une bannière de
+ * dix caractères, six paliers se verraient comme six marches. Le dégradé doit
+ * être une transition, pas un escalier.
+ */
+function miel(t: number): readonly [number, number, number] {
+  const borne = Math.min(1, Math.max(0, t));
+  const pas = borne * (RAMPE_MIEL.length - 1);
+  const bas = Math.floor(pas);
+  const haut = Math.min(RAMPE_MIEL.length - 1, bas + 1);
+  const f = pas - bas;
+  const a = RAMPE_MIEL[bas]!;
+  const b = RAMPE_MIEL[haut]!;
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * f),
+    Math.round(a[1] + (b[1] - a[1]) * f),
+    Math.round(a[2] + (b[2] - a[2]) * f),
+  ];
+}
 
 /** Le ton d'un fragment de texte. Il n'y en a que trois, délibérément. */
 export type Ton = 'accent' | 'discret' | 'neutre';
@@ -174,11 +229,20 @@ function niveauCouleur(env: Record<string, string | undefined>): NiveauCouleur {
   const force = (env.FORCE_COLOR ?? '').trim();
   if (force === '0') return 0;
   if (force === '1') return 16;
-  if (force === '2' || force === '3') return 256;
+  if (force === '2') return 256;
+
+  if (force === '3') return 16777216;
 
   const term = (env.TERM ?? '').toLowerCase();
   const colorterm = (env.COLORTERM ?? '').toLowerCase();
-  if (colorterm.includes('truecolor') || colorterm.includes('24bit')) return 256;
+  // ─── 24 BITS : ANNONCÉ, JAMAIS DEVINÉ ─────────────────────────────────────
+  //
+  // `COLORTERM` est la SEULE annonce fiable de la couleur vraie. On ne la
+  // déduit ni de `TERM`, ni de `WT_SESSION` : un terminal qui ne la sait pas
+  // et à qui l'on envoie `\x1b[38;2;…m` n'affiche pas un ambre approximatif,
+  // il affiche la séquence en clair au milieu du texte. Le repli à 256 est
+  // exactement la même prudence que le repli de 256 vers 16 juste en dessous.
+  if (colorterm.includes('truecolor') || colorterm.includes('24bit')) return 16777216;
   if (term.includes('256color')) return 256;
   // Windows Terminal et le terminal intégré de VS Code savent tous les deux.
   if ((env.WT_SESSION ?? '') !== '') return 256;
@@ -249,7 +313,72 @@ function completer(texte: string, largeur: number): string {
 export function teinter(texte: string, ton: Ton, caps: Capacites): string {
   if (caps.couleur === 0 || ton === 'neutre' || texte === '') return texte;
   if (ton === 'discret') return `${ATTENUE}${texte}${REPRISE}`;
-  return `${caps.couleur === 256 ? AMBRE_256 : AMBRE_16}${texte}${REPRISE}`;
+  return `${caps.couleur >= 256 ? AMBRE_256 : AMBRE_16}${texte}${REPRISE}`;
+}
+
+/**
+ * Le même texte, traversé par la rampe de miel — un caractère, une nuance.
+ *
+ * ─── CE QU'ELLE FAIT QUAND LE TERMINAL NE SAIT PAS ──────────────────────────
+ *
+ * Un dégradé sans 24 bits n'est pas un dégradé approximatif : c'est un
+ * clignotement de couleurs fausses. On ne l'imite donc pas. En dessous de
+ * 16 777 216, on rend exactement ce que `teinter(…, 'accent')` rendrait —
+ * l'ambre plat, qui a toujours bien marché. La beauté est un bonus des
+ * terminaux modernes, jamais une condition de lisibilité.
+ *
+ * Les espaces ne sont pas teintés : peindre un blanc coûte huit octets
+ * d'échappement pour rien, et sur une ligne qu'un cadre doit mesurer, chaque
+ * séquence inutile est une occasion de se tromper de largeur.
+ */
+export function degrade(texte: string, caps: Capacites): string {
+  if (caps.couleur === 0 || texte === '') return texte;
+  if (caps.couleur < 16777216) return teinter(texte, 'accent', caps);
+
+  const points = [...texte];
+  const dernier = Math.max(1, points.length - 1);
+  let sortie = '';
+  for (const [i, c] of points.entries()) {
+    sortie += c === ' ' ? c : `${rvb(miel(i / dernier))}${c}`;
+  }
+  return `${sortie}${REPRISE}`;
+}
+
+/**
+ * Une barre de progression, au huitième de colonne près.
+ *
+ * ─── POURQUOI LES SOUS-CARACTÈRES ───────────────────────────────────────────
+ *
+ * Une barre en blocs pleins avance par sauts d'une colonne entière : sur
+ * quarante colonnes, elle ne bouge qu'un pas sur 2,5 % de progrès, et paraît
+ * bloquée entre deux. Les huit paliers de `▏▎▍▌▋▊▉█` la rendent continue —
+ * c'est le seul « effet » ici qui apporte de l'INFORMATION et pas du décor.
+ *
+ * `ratio` est borné, jamais cru : une division par zéro chez l'appelant ne
+ * doit pas produire une barre de largeur négative, qui casserait le cadre.
+ */
+const HUITIEMES = [...'▏▎▍▌▋▊▉█'];
+
+export function barreProgression(ratio: number, largeur: number, caps: Capacites): string {
+  const cases = Math.max(1, Math.floor(largeur));
+  const borne = Math.min(1, Math.max(0, Number.isFinite(ratio) ? ratio : 0));
+
+  if (!caps.unicode) {
+    // ASCII : pas de sous-caractère possible, donc on assume le pas entier et
+    // on encadre pour que le vide se distingue du plein sans couleur.
+    const pleins = Math.round(borne * cases);
+    return `[${'#'.repeat(pleins)}${'-'.repeat(cases - pleins)}]`;
+  }
+
+  const total = borne * cases;
+  const pleins = Math.floor(total);
+  const reste = total - pleins;
+  // Le palier partiel n'apparaît que s'il reste de la place : sinon la barre
+  // ferait une colonne de trop et déborderait du cadre qui la contient.
+  const partiel = pleins < cases && reste > 0 ? HUITIEMES[Math.floor(reste * 8)]! : '';
+  const rempli = '█'.repeat(pleins) + partiel;
+  const vide = '░'.repeat(Math.max(0, cases - pleins - (partiel ? 1 : 0)));
+  return `${degrade(rempli, caps)}${teinter(vide, 'discret', caps)}`;
 }
 
 /** Le symbole d'un état, dans l'alphabet que le terminal sait afficher. */
@@ -331,11 +460,34 @@ export function banniere(version: string, caps: Capacites): string[] {
   const espace = Math.max(2, interieur - largeurVisible(sous) - largeurVisible(marque));
   return cadre(
     [
-      teinter(titre, 'accent', caps),
+      ...rayon(interieur, caps),
+      degrade(titre, caps),
       `${sous}${' '.repeat(espace)}${teinter(marque, 'discret', caps)}`,
     ],
     caps,
   );
+}
+
+/**
+ * Le rayon de miel : une frise d'hexagones, en dégradé.
+ *
+ * ─── UN ORNEMENT QUI S'EFFACE DE LUI-MÊME ───────────────────────────────────
+ *
+ * Il n'apparaît QUE si trois conditions tiennent : Unicode sûr, cadres dessinés,
+ * et 24 bits. Sans dégradé, une frise d'hexagones n'est plus un ornement — c'est
+ * une ligne de bruit en haut de l'écran, qui vole l'attention à la seule chose
+ * qui compte à cet instant : les prérequis en dessous.
+ *
+ * On rend un tableau vide plutôt qu'une ligne vide : `banniere` l'étale, et une
+ * ligne vide de plus dans un cadre se verrait comme un défaut d'alignement.
+ */
+function rayon(largeur: number, caps: Capacites): string[] {
+  if (!caps.unicode || !caps.cadres || caps.couleur < 16777216) return [];
+  const motif = [...'⬢⬡'];
+  const combien = Math.max(0, Math.min(largeur, Math.floor(largeur / 2)));
+  if (combien < 4) return [];
+  const frise = Array.from({ length: combien }, (_, i) => motif[i % 2]!).join(' ');
+  return [degrade(tronquer(frise, largeur, true), caps)];
 }
 
 /** Le titre d'une section — discret, parce que c'est le contenu qui compte. */
