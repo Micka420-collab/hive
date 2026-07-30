@@ -77,7 +77,55 @@ describe('LES TROIS SCRIPTS VÉRIFIENT QUE LA RUCHE PEUT DÉMARRER', () => {
     // Un diagnostic sans commande à taper laisse l'utilisateur exactement où il
     // était. Ici la cause la plus fréquente est le verrou `allow-scripts` de
     // npm, et sa levée a un nom.
-    expect(nu(lire(f)), `${f} devrait nommer la commande de réparation`).toMatch(/npm install/);
+    expect(nu(lire(f)), `${f} devrait nommer la commande de réparation`).toMatch(
+      /npm (install|rebuild|approve-scripts)/,
+    );
+  });
+
+  it.each(['install.sh', 'install.ps1'] as const)(
+    '%s conseille `rebuild`, PAS `install` seul',
+    (f) => {
+      // ─── LE MAUVAIS CONSEIL, MESURÉ ────────────────────────────────────────
+      //
+      // La première version de ce message disait « npm install ». Chez un
+      // utilisateur, ça ne réparait rien :
+      //
+      //     Error: le module better_sqlite3.node a été compilé pour
+      //     NODE_MODULE_VERSION 137. Cette version de Node exige 147.
+      //
+      // Le paquet ÉTAIT là, à la bonne version ; c'est son binaire natif qui ne
+      // correspondait pas à l'ABI du Node utilisé. `npm install` ne touche pas à
+      // un paquet déjà installé à la bonne version : il rend 0, et la panne
+      // reste entière. C'est le pire genre de conseil — il consomme la
+      // confiance de celui qui le suit.
+      //
+      // Seul `rebuild` refait le binaire.
+      expect(nu(lire(f)), `${f} doit conseiller npm rebuild better-sqlite3`).toMatch(
+        /npm rebuild better-sqlite3/,
+      );
+    },
+  );
+
+  it.each(['install.sh', 'install.ps1'] as const)('%s ne conseille RIEN qui ne fasse rien', (f) => {
+    // ─── DEUX COMMANDES, DONT UNE INUTILE ──────────────────────────────────
+    //
+    // Ce message en listait deux. La trace d'un utilisateur montre la première
+    // ne rien faire :
+    //
+    //     PS> npm approve-scripts --allow-scripts-pending
+    //     2 packages have install scripts not yet covered by allowScripts: …
+    //     Run `npm approve-scripts <pkg>` to allow…
+    //
+    // `--allow-scripts-pending` LISTE, il n'autorise pas. Et la ligne suivante
+    // de la même trace montre `npm rebuild better-sqlite3` réussissant SEUL,
+    // verrou toujours en place.
+    //
+    // Une commande qui ne fait rien dans une liste de réparation est pire
+    // qu'absente : c'est une occasion de croire qu'on a essayé.
+    const source = nu(lire(f));
+    expect(source, `${f} conseille une commande qui ne fait que lister`).not.toMatch(
+      /allow-scripts-pending/,
+    );
   });
 });
 

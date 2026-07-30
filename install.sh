@@ -360,11 +360,26 @@ if [ "$SEC" = 0 ]; then
     echo "  OPTIONNELLES : npm a pu les écarter — ou refuser leur script"
     echo "  d'installation — sans échouer pour autant."
     echo ""
-    echo "  Si npm a signalé « allow-scripts » plus haut, c'est lui qui a bloqué"
-    echo "  la récupération du binaire natif. Autorisez-le, puis réinstallez :"
+    echo "  Une seule commande, et c'est la bonne dans tous les cas :"
     echo ""
-    echo "    npm approve-scripts --allow-scripts-pending"
-    echo "    npm install --no-fund --no-audit"
+    echo "    npm rebuild better-sqlite3"
+    echo ""
+    # UNE commande, parce qu'elle a suffi. Ce message en listait deux, dont
+    # `npm approve-scripts --allow-scripts-pending` — qui ne fait que LISTER,
+    # sans rien autoriser. La trace d'un utilisateur montre `npm rebuild
+    # better-sqlite3` réussissant SEUL, verrou toujours en place : `rebuild`
+    # compile au lieu d'attendre le script d'installation.
+    #
+    # Deux commandes, dont une qui ne fait rien, c'est deux occasions de croire
+    # qu'on a essayé.
+    echo "  Elle règle les deux causes qui donnent ce message : le verrou"
+    echo "  « allow-scripts » de npm, qui a empêché la récupération du binaire, et"
+    echo "  un Node qui a CHANGÉ depuis l'installation — le binaire reste alors"
+    echo "  celui de l'ancienne ABI."
+    echo ""
+    echo "  « npm install » n'y suffirait PAS : il voit un paquet déjà présent à"
+    echo "  la bonne version, ne touche à rien, et rend 0. Seul « rebuild » refait"
+    echo "  le binaire."
     echo ""
     echo "  On s'arrête ICI plutôt que d'écrire une configuration pour une ruche"
     echo "  qui ne démarrera pas."

@@ -23,8 +23,10 @@ import {
   SPINNER_UNICODE,
   aideTouches,
   banniere,
+  barreProgression,
   cadre,
   capacites,
+  degrade,
   encadreJeton,
   espacer,
   etapeLineaire,
@@ -130,15 +132,33 @@ describe('les capacités du terminal (§6.4)', () => {
     expect(capacites({ TERM: 'xterm' }, TTY).couleur).toBe(16);
     expect(capacites({}, TTY).couleur).toBe(16);
     expect(capacites({ TERM: 'xterm-256color' }, TTY).couleur).toBe(256);
-    expect(capacites({ COLORTERM: 'truecolor' }, TTY).couleur).toBe(256);
     expect(capacites({ WT_SESSION: 'x' }, TTY).couleur).toBe(256);
     expect(capacites({ TERM_PROGRAM: 'vscode' }, TTY).couleur).toBe(256);
+  });
+
+  it('LE 24 BITS EST ANNONCÉ, JAMAIS DEVINÉ', () => {
+    // ─── LA MÊME PRUDENCE QU'UN CRAN PLUS BAS ──────────────────────────────
+    //
+    // `COLORTERM` est la seule annonce fiable de la couleur vraie. Un terminal
+    // qui ne la sait pas et à qui l'on envoie `\x1b[38;2;…m` n'affiche pas un
+    // ambre approximatif : il affiche la séquence en clair au milieu du texte.
+    //
+    // C'est exactement le raisonnement qui fait replier 256 → 16 sur ConHost.
+    // On ne déduit donc PAS le 24 bits de `TERM`, ni de Windows Terminal, ni de
+    // VS Code — même si ces deux-là le savent souvent.
+    expect(capacites({ COLORTERM: 'truecolor' }, TTY).couleur).toBe(16777216);
+    expect(capacites({ COLORTERM: '24bit' }, TTY).couleur).toBe(16777216);
+    expect(capacites({ TERM: 'xterm-256color' }, TTY).couleur, 'TERM ne suffit pas').toBe(256);
+    expect(capacites({ WT_SESSION: 'x' }, TTY).couleur, 'WT_SESSION ne suffit pas').toBe(256);
   });
 
   it('FORCE_COLOR a le dernier mot dans les deux sens', () => {
     expect(capacites({ FORCE_COLOR: '0', TERM: 'xterm-256color' }, TTY).couleur).toBe(0);
     expect(capacites({ FORCE_COLOR: '1' }, TTY).couleur).toBe(16);
-    expect(capacites({ FORCE_COLOR: '3' }, TTY).couleur).toBe(256);
+    expect(capacites({ FORCE_COLOR: '2' }, TTY).couleur).toBe(256);
+    // `3` est la convention pour « 24 bits » — et elle DOIT primer sur un
+    // COLORTERM absent, sinon on ne pourrait jamais forcer le dégradé.
+    expect(capacites({ FORCE_COLOR: '3' }, TTY).couleur).toBe(16777216);
   });
 });
 
@@ -350,5 +370,138 @@ describe('les blocs', () => {
       etroit,
     )[0]!;
     expect(largeurVisible(ligne)).toBeLessThanOrEqual(etroit.largeur);
+  });
+});
+
+// ═══ LES ORNEMENTS, ET SURTOUT LEUR DISPARITION ══════════════════════════════
+//
+// Un « bel effet » est une promesse faite au terminal qui sait l'afficher. Sur
+// tous les autres, c'est une dette : une séquence en clair au milieu du texte,
+// une frise qui vole l'attention aux prérequis, une barre qui déborde du cadre.
+//
+// Ce bloc éprouve donc l'inverse de ce qu'on a écrit : non pas que le dégradé
+// est joli, mais qu'il S'EFFACE partout où il ne peut pas l'être.
+
+/**
+ * L'octet d'échappement, CONSTRUIT et non écrit.
+ *
+ * `no-control-regex` interdit de poser `\x1b` littéralement dans un motif, et
+ * cette règle est utile : elle protège d'un octet de contrôle glissé par
+ * inadvertance. On ne la désactive donc pas — on la contourne proprement, en
+ * fabriquant le caractère par son point de code.
+ */
+const ESC = String.fromCharCode(27);
+const ECHAPPEMENT = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
+const VINGT_QUATRE_BITS = new RegExp(`${ESC}\\[38;2;\\d+;\\d+;\\d+m`, 'g');
+
+describe('LE DÉGRADÉ DE MIEL', () => {
+  const VRAI = {
+    couleur: 16777216 as const,
+    unicode: true,
+    cadres: true,
+    interactif: true,
+    largeur: 76,
+  };
+  const C256 = { ...VRAI, couleur: 256 as const };
+  const NOIR = { ...VRAI, couleur: 0 as const };
+
+  it('EN 24 BITS : une nuance par caractère', () => {
+    const vu = degrade('HIVE', VRAI);
+    // Quatre lettres, quatre couleurs distinctes, et une remise à zéro.
+    const couleurs = [...vu.matchAll(VINGT_QUATRE_BITS)].map((m) => m[0]);
+    expect(couleurs).toHaveLength(4);
+    expect(new Set(couleurs).size, 'un dégradé qui répète n’est pas un dégradé').toBe(4);
+    expect(vu.endsWith('\x1b[0m')).toBe(true);
+  });
+
+  it('SOUS 24 BITS : l’ambre plat, pas un dégradé approximatif', () => {
+    // Imiter un dégradé sans les couleurs pour le faire, c'est un clignotement
+    // de teintes fausses. On rend exactement ce que `teinter` rendrait.
+    expect(degrade('HIVE', C256)).toBe(teinter('HIVE', 'accent', C256));
+    expect(degrade('HIVE', C256)).not.toMatch(/38;2;/);
+  });
+
+  it('SANS COULEUR : aucun octet d’échappement', () => {
+    expect(degrade('HIVE', NOIR)).toBe('HIVE');
+  });
+
+  it('les espaces ne sont pas peints', () => {
+    // Huit octets d'échappement pour un blanc, c'est huit occasions de se
+    // tromper de largeur dans le cadre qui mesure la ligne.
+    const vu = degrade('A B', VRAI);
+    expect([...vu.matchAll(/38;2;/g)]).toHaveLength(2);
+  });
+});
+
+describe('LA BARRE DE PROGRESSION', () => {
+  const VRAI = {
+    couleur: 16777216 as const,
+    unicode: true,
+    cadres: true,
+    interactif: true,
+    largeur: 76,
+  };
+  const ASCII = { ...VRAI, unicode: false, couleur: 0 as const };
+
+  const nu = (s: string): string => s.replace(ECHAPPEMENT, '');
+
+  it('NE DÉBORDE JAMAIS de la largeur demandée', () => {
+    // ─── L'ASSERTION QUI PORTE LE BLOC ─────────────────────────────────────
+    //
+    // Une barre qui fait une colonne de trop casse le cadre qui la contient, et
+    // le défaut n'apparaît qu'à un ratio particulier — donc jamais au premier
+    // essai. On balaie.
+    for (let i = 0; i <= 100; i++) {
+      const vu = nu(barreProgression(i / 100, 20, VRAI));
+      expect([...vu], `ratio ${i}%`).toHaveLength(20);
+    }
+  });
+
+  it('BORNE ce qu’on lui donne, au lieu de le croire', () => {
+    // Une division par zéro chez l'appelant ne doit pas produire une barre de
+    // largeur négative — `repeat(-1)` jette.
+    for (const r of [-1, 0, 1, 2, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect([...nu(barreProgression(r, 10, VRAI))], `ratio ${String(r)}`).toHaveLength(10);
+    }
+  });
+
+  it('progresse par HUITIÈMES, pas par colonnes entières', () => {
+    // Sur vingt colonnes, une barre en blocs pleins ne bouge qu'un pas sur 5 %
+    // de progrès et paraît bloquée entre deux. Deux ratios proches doivent
+    // donner deux images différentes.
+    expect(nu(barreProgression(0.11, 20, VRAI))).not.toBe(nu(barreProgression(0.13, 20, VRAI)));
+  });
+
+  it('EN ASCII : encadrée, pour que le vide se distingue sans couleur', () => {
+    const vu = barreProgression(0.5, 10, ASCII);
+    expect(vu).toBe('[#####-----]');
+    expect(vu, 'aucun échappement quand la couleur est coupée').not.toContain(ESC);
+  });
+});
+
+describe('LE RAYON DE MIEL DE LA BANNIÈRE', () => {
+  const base = { unicode: true, cadres: true, interactif: true, largeur: 76 };
+
+  it('n’apparaît QU’EN 24 bits', () => {
+    // Sans dégradé, une frise d'hexagones n'est plus un ornement : c'est une
+    // ligne de bruit au-dessus des prérequis, qui sont la seule chose à lire.
+    const avec = banniere('9.9.9', { ...base, couleur: 16777216 });
+    const sans = banniere('9.9.9', { ...base, couleur: 256 });
+    expect(avec.join('\n')).toMatch(/⬢/);
+    expect(sans.join('\n'), '256 couleurs ne doit pas porter la frise').not.toMatch(/⬢/);
+    expect(avec.length, 'la frise ajoute une ligne, et une seule').toBe(sans.length + 1);
+  });
+
+  it('la bannière reste dans sa largeur, frise comprise', () => {
+    for (const couleur of [0, 16, 256, 16777216] as const) {
+      for (const largeur of [60, 66, 76]) {
+        for (const ligne of banniere('1.2.3', { ...base, couleur, largeur })) {
+          expect(
+            largeurVisible(ligne),
+            `couleur ${couleur}, largeur ${largeur}`,
+          ).toBeLessThanOrEqual(largeur);
+        }
+      }
+    }
   });
 });

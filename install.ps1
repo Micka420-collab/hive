@@ -453,12 +453,51 @@ if ($DryRun) {
     Dire '      OPTIONNELLES : npm a pu les écarter — ou refuser leur script'
     Dire '      d''installation — sans échouer pour autant.'
     Dire ''
-    Dire '      Si npm a signalé « allow-scripts » plus haut, c''est lui qui a'
-    Dire '      bloqué la récupération du binaire natif. Autorisez-le, puis'
-    Dire '      réinstallez :'
+    Dire '      Une seule commande, et c''est la bonne dans tous les cas :'
     Dire ''
-    Ecrire '        npm approve-scripts --allow-scripts-pending' 'accent'
-    Ecrire '        npm install --no-fund --no-audit' 'accent'
+    Ecrire '        npm rebuild better-sqlite3' 'accent'
+    Dire ''
+    # ─── UNE COMMANDE, PARCE QU'ELLE A SUFFI ─────────────────────────────────
+    #
+    # Ce message en a listé deux, dont une inutile. Mesuré chez un utilisateur :
+    #
+    #     PS> npm approve-scripts --allow-scripts-pending
+    #     2 packages have install scripts not yet covered by allowScripts: …
+    #     Run `npm approve-scripts <pkg>` to allow…
+    #
+    # `--allow-scripts-pending` ne fait que LISTER — il n'autorise rien. Il
+    # faudrait `npm approve-scripts better-sqlite3`. Et surtout : la ligne
+    # suivante de la même trace montre que `npm rebuild better-sqlite3` a réussi
+    # SEUL, verrou toujours en place, parce que `rebuild` compile au lieu
+    # d'attendre le script d'installation.
+    #
+    # On ne donne donc qu'une commande. Deux, dont une qui ne fait rien, c'est
+    # deux occasions de croire qu'on a essayé.
+    Dire '      Elle règle les deux causes qui donnent ce message : le verrou'
+    Dire '      « allow-scripts » de npm, qui a empêché la récupération du binaire,'
+    Dire '      et un Node qui a CHANGÉ depuis l''installation — le binaire reste'
+    Dire '      alors celui de l''ancienne ABI.'
+    Dire ''
+    # ─── `rebuild`, ET SURTOUT PAS `install` ─────────────────────────────────
+    #
+    # Première version de ce message : « npm install ». Mesuré chez un
+    # utilisateur, c'était le mauvais conseil — et pour une raison qui compte :
+    #
+    #     Error: le module better_sqlite3.node a été compilé pour
+    #     NODE_MODULE_VERSION 137. Cette version de Node exige 147.
+    #
+    # Le paquet ÉTAIT là. Son binaire natif ne correspondait pas à l'ABI du Node
+    # utilisé. `npm install` voit un paquet déjà installé à la bonne version et
+    # ne touche à rien : il rend 0, et la panne reste entière. Seul `rebuild`
+    # refait le binaire.
+    #
+    # Deux causes mènent au même message, et la même commande les règle :
+    #   · le verrou `allow-scripts` a empêché `prebuild-install` de chercher le
+    #     binaire correspondant à ce Node ;
+    #   · le Node de la machine a changé depuis l'installation.
+    Dire '      « npm install » n''y suffirait PAS : il voit un paquet déjà présent'
+    Dire '      à la bonne version, ne touche à rien, et rend 0. Seul « rebuild »'
+    Dire '      refait le binaire.'
     Dire ''
     Dire '      On s''arrête ICI plutôt que d''écrire une configuration pour une'
     Dire '      ruche qui ne démarrera pas.'
