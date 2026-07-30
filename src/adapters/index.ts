@@ -6,6 +6,7 @@ import type { SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createCodexAdapter } from './codex.js';
 import { createCustomAdapter } from './custom.js';
+import { createGrokAdapter } from './grok.js';
 import { createHermesAgentAdapter } from './hermes-agent.js';
 import { createShellAdapter } from './shell.js';
 
@@ -74,11 +75,13 @@ export function getAdapter(name: string): AgentAdapter {
       return createCodexAdapter();
     case 'custom':
       return createCustomAdapter();
+    case 'grok':
+      return createGrokAdapter();
     case 'hermes-agent':
       return createHermesAgentAdapter();
     default:
       throw new Error(
-        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex, custom, hermes-agent)`,
+        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex, grok, custom, hermes-agent)`,
       );
   }
 }

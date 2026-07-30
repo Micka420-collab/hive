@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2665%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2669%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -186,6 +186,7 @@ Any coding AI plugs in through the `AgentAdapter` interface:
 | -------------- | ------------------------------------------------------- |
 | `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.       |
 | `codex`        | `codex exec "<prompt>"`                                 |
+| `grok`         | `grok -p "<prompt>"` — xAI’s CLI agent, Apache 2.0.     |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                  |
 | `custom`       | Yours, via `HIVE_AGENT_CMD`.                            |
 | `shell`        | **Simulated** — no process spawned, the diffs are fake. |

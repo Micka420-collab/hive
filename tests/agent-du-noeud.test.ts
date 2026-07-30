@@ -33,7 +33,13 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SECRETS_JAMAIS_SONDES, envSonde, messageAgent } from '../src/node-client/agent-detect.js';
+import {
+  SECRETS_JAMAIS_SONDES,
+  agentCredentialEnv,
+  envSonde,
+  messageAgent,
+} from '../src/node-client/agent-detect.js';
+import { PAQUETS_AGENTS, argvAgent } from '../src/shared/agent-windows.js';
 
 const SOURCE = readFileSync(new URL('../src/node-client/main.ts', import.meta.url), 'utf8');
 
@@ -204,5 +210,49 @@ describe('CE QU’UNE SONDE A LE DROIT D’EMPORTER', () => {
       [],
     );
     expect(lus.size, 'la garde ne prouve rien si elle ne trouve aucun secret').toBeGreaterThan(0);
+  });
+});
+
+describe('GROK BUILD — l’agent de xAI, branché comme les autres', () => {
+  // ─── CE QUE CET AGENT A DE PARTICULIER, ET CE QU'IL N'A PAS ────────────────
+  //
+  // `grok-build` est un binaire Rust sous Apache 2.0 : même forme que Claude
+  // Code et Codex du point de vue de la ruche. Il n'y a donc RIEN de spécial à
+  // faire — et c'est le résultat qu'on garde ici.
+  //
+  // En particulier : aucun shim `.cmd` à contourner, contrairement à Claude Code
+  // installé par npm. Ajouter `grok` dans `PAQUETS_AGENTS` serait faux et
+  // viserait un `cli.js` qui n'existe pas.
+
+  it('EST UN TYPE D’AGENT, donc détectable et sélectionnable', () => {
+    expect(messageAgent('grok', ['grok', 'shell']), 'un vrai agent ne s’avertit pas').toBeNull();
+  });
+
+  it('SES IDENTIFIANTS TRAVERSENT LE BAC À SABLE', () => {
+    // Sans `GROK_HOME`, la session ouverte au navigateur est invisible depuis le
+    // bac, et l'agent redemanderait une connexion qu'aucun nœud ne peut faire.
+    const vus = agentCredentialEnv('grok');
+    expect(vus, 'la clé d’API').toContain('XAI_API_KEY');
+    expect(vus, 'le dossier où vit la session du navigateur').toContain('GROK_HOME');
+    expect(vus, 'et les dossiers de configuration habituels').toContain('HOME');
+  });
+
+  it('SA CLÉ NE PASSE JAMAIS PAR UNE SONDE', () => {
+    // C'est la garde § 9bis.1 appliquée au nouvel agent : `grok --version`
+    // répond sans authentification, donc une sonde n'a aucun besoin de la clé —
+    // et un binaire homonyme hostile ne demande rien d'autre.
+    expect(envSonde({ XAI_API_KEY: 'xai-secret', PATH: '/usr/bin' }).XAI_API_KEY).toBeUndefined();
+    expect(SECRETS_JAMAIS_SONDES).toContain('XAI_API_KEY');
+  });
+
+  it('N’EST PAS TRAITÉ COMME UN PAQUET NPM', () => {
+    // ─── LE PIÈGE ÉVITÉ ─────────────────────────────────────────────────────
+    //
+    // `PAQUETS_AGENTS` sert à retrouver le `cli.js` d'un agent installé par npm,
+    // sous Windows, quand son shim `.cmd` n'est pas lançable. `grok` est un
+    // binaire natif : y ajouter une entrée viserait un fichier inexistant, et la
+    // détection échouerait là où elle marchait.
+    expect(Object.keys(PAQUETS_AGENTS), 'seul Claude Code vient de npm').toEqual(['claude']);
+    expect(argvAgent('grok', { APPDATA: 'C:\\x' }, 'win32', () => true)).toEqual(['grok']);
   });
 });
