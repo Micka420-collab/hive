@@ -14,6 +14,75 @@
 
 ## 1. Ce qui n'est pas EXÉCUTÉ n'est pas vérifié
 
+### 1.0 — Toute la vitrine était morte, et quarante-cinq tests étaient verts
+
+C'est l'entrée la plus coûteuse du journal, parce qu'elle réunit tout le reste
+en un seul fait mesuré. À un mois de la sortie, la page publique du projet
+portait ceci dans son dictionnaire anglais :
+
+```js
+'mc.12.d':
+'mc.13.t': 'h · Works',
+```
+
+`mc.12.d` avait perdu sa valeur — mangée par une retouche, sa vraie valeur
+échouée vingt lignes plus bas en orpheline. L'analyseur lisait donc
+`'mc.12.d': 'mc.13.t'`, puis butait sur le `:` suivant :
+
+```
+Uncaught SyntaxError: Unexpected token ':'
+```
+
+**Un script qui ne s'analyse pas ne s'exécute pas du tout.** Pas « en partie »,
+pas « sauf l'anglais » : rien, depuis la première ligne. En ligne, cela voulait
+dire le basculement FR/EN mort, le bouton « copier » mort, le journal de
+l'essaim vide, le décalage des ancres jamais appliqué. Sur la page que les
+visiteurs voient en premier.
+
+**Et quarante-cinq tests de vitrine étaient verts.** Mesuré, pas supposé — en
+remettant la corruption puis en relançant les deux suites sur le même fichier :
+
+```
+tests/vitrine-executee.test.ts   6 échecs sur 7
+tests/site.test.ts + fraicheur   45 passés sur 45
+```
+
+Il y avait même, parmi eux, une garde nommée « chaque clé du HTML a une
+traduction anglaise ». Elle passait : sa régulière trouvait bien `'mc.12.d':`
+dans le fichier. **Elle cherchait une CLÉ ; il manquait une VALEUR.** Tous ces
+tests lisaient le HTML comme du texte ; aucun ne l'exécutait.
+
+Le remède n'est pas un test de plus au même endroit, c'est un test d'une autre
+NATURE — `tests/vitrine-executee.test.ts` :
+
+1. il **compile** chaque `<script>` que le navigateur exécuterait (`new Function`,
+   déterministe, sans navigateur — c'est la ligne qui aurait mordu) ;
+2. il **évalue** le dictionnaire au lieu de le lire, ce qui rend une clé sans
+   valeur impossible à confondre avec une traduction ;
+3. il **monte la page et clique**, parce qu'un script qui s'analyse peut encore
+   ne rien faire.
+
+Deux détails valent d'être notés, parce qu'ils ont failli coûter le test
+lui-même. Le bloc `type="application/ld+json"` n'est PAS exécuté par le
+navigateur : le compiler échouerait à tous les coups, et on aurait désarmé la
+garde entière pour la faire passer. Et la première version affirmait « au
+départ la page est en français » — elle a rougi aussitôt, parce que la page suit
+la langue du navigateur et que `happy-dom` démarre en anglais, comme Chromium :
+l'assertion aurait été fausse chez la moitié des visiteurs réels.
+
+> **Règle** — un fichier livré qui contient du code EXÉCUTABLE se fait exécuter
+> par au moins un test. Une vitrine, un gabarit, un script d'installation : la
+> question n'est pas « le texte est-il correct ? » mais « qu'est-ce qui se passe
+> quand ça tourne ? ».
+>
+> **Règle** — une garde qui cherche par régulière ne prouve QUE la présence
+> d'un motif. Pour prouver la validité d'une structure, il faut l'ANALYSER :
+> `new Function`, `JSON.parse`, un vrai analyseur. La régulière voit la clé, pas
+> la valeur.
+>
+> **Règle** — le nombre de tests verts ne mesure rien s'ils partagent tous le
+> même angle mort. Quarante-cinq lectures ne valent pas une exécution.
+
 ### 1.1 — `require()` dans un module ESM : silencieux pour toujours
 
 `baseIntegre()` appelait `require('better-sqlite3')` dans un fichier ESM.
