@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2688%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2722%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -57,6 +57,12 @@ writes nothing outside its own folder — `--dry-run` shows all of it without
 creating anything.
 
 From an existing clone: `npm run setup`. In a container: `docker compose up`.
+
+> **From a GitHub ZIP archive**, one step a clone does for you is missing: open a
+> terminal in the extracted folder and run `npm install --no-fund --no-audit`
+> **once**. Without it, `npm run ruche` and `npm run cli` stop — but they now
+> tell you so, with the command to type. A real user's transcript is what earned
+> that: before, they died on `Cannot find package 'tsx'`.
 
 > **Node ≥ 24 is required**, and it is to remove a failure, not to chase a
 > version: under Node 20 `better-sqlite3` has no prebuilt binary and must be

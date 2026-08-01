@@ -35,8 +35,13 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const RACINE = new URL('..', import.meta.url).pathname;
+// `fileURLToPath`, jamais `.pathname` : ce dernier rend `/D:/dépôt/` sous
+// Windows, et tout ce qui s'y concatène pointe alors dans le vide. C'est le
+// § 6.1 du journal, déjà recommis trois fois — et la loupe, qui existe pour
+// débusquer ce genre de chose, le portait elle-même.
+const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const BASE = process.env.LOUPE_BASE ?? 'origin/main';
 
 /** Au-delà, on échantillonne — et on le dit. */

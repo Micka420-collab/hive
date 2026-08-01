@@ -33,17 +33,34 @@ import { setTimeout as differer } from 'node:timers';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { exigerAmorce } from './amorce.mjs';
 
 // `fileURLToPath`, jamais `.pathname` : sous Windows ce dernier rend `/D:/…`,
 // que `path.resolve` préfixe de la racine du lecteur. C'est le § 6.1 du
 // journal, et il a été recommis trois fois.
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 
-// Ce fichier est lancé par `node --import tsx`, ce qui lui permet d'importer le
-// module pur en TypeScript directement. C'est la forme que le § 6.2 du journal
-// impose déjà pour tout lancement de Node dans ce dépôt : `node --import tsx`
-// et jamais `npx tsx`, qui est `npx.cmd` sous Windows.
-import { largeurEtiquettes, pieces, prefixe, voeuDepuisArgv } from '../src/shared/demarrage.ts';
+// ─── L'AMORCE PASSE AVANT TOUT LE RESTE ──────────────────────────────────────
+//
+// Ce fichier était lancé par `node --import tsx scripts/ruche.mjs`. Le drapeau
+// `--import` est résolu par Node AVANT la première instruction du fichier :
+// sur une copie sans dépendances, Node mourait sur
+//
+//     Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'tsx' imported from …
+//
+// et le contrôle soigné qui vit quelques lignes plus bas — celui qui dit
+// exactement ce qui manque — n'a jamais pu s'afficher une seule fois. Le garde
+// était derrière la porte qu'il gardait.
+//
+// D'où l'ordre d'aujourd'hui : du Node nu jusqu'ici, l'amorce, puis seulement
+// le chargeur TypeScript, demandé à la main.
+exigerAmorce(RACINE);
+
+const { register } = await import('tsx/esm/api');
+register();
+
+const { largeurEtiquettes, pieces, prefixe, voeuDepuisArgv } =
+  await import('../src/shared/demarrage.ts');
 
 const liste = pieces(process.execPath, voeuDepuisArgv(process.argv.slice(2)));
 

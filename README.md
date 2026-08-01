@@ -7,7 +7,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2688%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-2722%20passing-2ea44f)
 ![Licence](https://img.shields.io/badge/licence-MIT-green)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -59,6 +59,13 @@ rien créer.
 
 Depuis un dépôt déjà cloné : `npm run setup`. En conteneur :
 `docker compose up`. Détail complet dans **[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
+
+> **Depuis une archive ZIP de GitHub**, il manque l'étape que le clone fait pour
+> vous : ouvrez un terminal dans le dossier décompressé et lancez
+> `npm install --no-fund --no-audit` **une fois**. Sans ça, `npm run ruche` et
+> `npm run cli` s'arrêtent — mais ils vous le disent maintenant, avec la
+> commande à taper. C'est une trace d'utilisateur réel qui l'a obtenu :
+> auparavant, ils mouraient sur `Cannot find package 'tsx'`.
 
 > **Node ≥ 24 est exigé**, et c'est pour retirer une panne, pas pour être à la
 > mode : sous Node 20, `better-sqlite3` n'a pas de binaire prébuilt et doit se

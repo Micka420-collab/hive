@@ -11,6 +11,38 @@
 
 ---
 
+## Lot 15 — L'amorce : la ruche dit ce qui manque, au lieu de mourir en silence
+
+Ce lot n'était pas au plan. Il vient d'une trace collée par la personne qui
+utilise la ruche, sur sa machine, le 1er août :
+
+```
+PS C:\Users\micki\Desktop\hive-main> npm run ruche
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'tsx' imported from
+C:\Users\micki\Desktop\hive-main\
+
+PS C:\Users\micki\Desktop\hive-main> npm run cli -- doctor
+'tsx' n'est pas reconnu en tant que commande interne ou externe
+```
+
+| pièce                                                  | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                            |
+| ------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. L'amorce** — dire ce qui manque, sans rien exiger | ✅   | `scripts/amorce.mjs`, JavaScript nu, zéro dépendance. `verdict()` est PUR : les trois cas deviennent des assertions sur une machine où tout est justement installé. 29 tests dans `tests/amorce.test.mjs`.                                                     |
+| **2. La porte unique** — un seul chemin, pas six       | ✅   | `scripts/lancer.mjs`. `ruche`, `cli`, `node`, `join`, `demo`, `install:hive` y passent tous. Un test relit `package.json` et refuse qu'un script reprenne `--import tsx` ou appelle le binaire `tsx`.                                                          |
+| **3. La preuve sur une copie cassée**                  | ✅   | `tsx` réellement retiré de `node_modules`, puis `npm run cli -- doctor` relancé : message nommant la cause et la commande, code de sortie **2**. C'est la seule vérification qui compte ici — le défaut était précisément un message qu'on croyait s'afficher. |
+| **4. Ce qui ARRÊTE et ce qui AVERTIT**                 | ✅   | Dépendance absente → arrêt (plus rien ne peut tourner). Node trop ancien → **avertissement seulement**, parce que `hive doctor` tourne encore et nomme cette cause parmi douze autres. Bloquer là aurait refait le défaut d'un cran plus haut.                 |
+
+> **Ce que ce lot corrige n'est pas un message, c'est une illusion de
+> couverture.** Le contrôle existait dans `scripts/ruche.mjs` depuis sa première
+> version, sous un commentaire qui disait « Ce qui manque se dit AVANT de lancer
+> quoi que ce soit ». Il n'a jamais pu s'afficher une seule fois : `--import tsx`
+> est résolu par Node avant la première instruction du fichier. Rien ne
+> distingue à l'œil un garde qui tourne d'un garde inatteignable — d'où le test
+> qui relit `package.json` plutôt qu'une relecture attentive de plus. Voir
+> § 3.5 du journal des erreurs.
+
+---
+
 ## Lot 14 — Les Chantiers : lancer les travaux DÉCLARÉS du dépôt
 
 | pièce                                                        | état | ce qui le vérifie, ou ce qui manque                                                                                                                                                                                                                                                                                             |
@@ -393,11 +425,22 @@ périmètre (comptes de l'utilisateur).
 
 ## Dette connue, assumée, non bloquante
 
-- Cinq lectures trient sur un horodatage seul (`listPartages`,
-  `listLivraisons`, billets d'invitation, clés de nœud, sessions de conseil) :
-  l'ordre entre deux lignes de même milliseconde est indéfini. **Rien ne se
-  perd** — c'est un rang d'affichage. Les trois bornes qui SUPPRIMENT ont été
-  départagées, et c'était la seule classe dangereuse.
+- Quatre lectures trient sur un horodatage seul (`listPartages`,
+  `listLivraisons`, billets d'invitation, clés de nœud) : l'ordre entre deux
+  lignes de même milliseconde est indéfini. **Rien ne se perd** — c'est un rang
+  d'affichage.
+- ~~« Les trois bornes qui SUPPRIMENT ont été départagées, et c'était la seule
+  classe dangereuse »~~ — **cette ligne était fausse deux fois**, et la CI macOS
+  l'a montré. Il y en avait une **quatrième**, `pruneConseils`, jamais recensée.
+  Et son départage, écrit ensuite en recopiant `results` et `memories`, portait
+  sur `id` — un `randomUUID` ici, un entier auto-incrémenté là-bas. L'ordre est
+  devenu **total sans devenir chronologique** : la borne jetait proprement
+  n'importe laquelle des trois sessions. Corrigé par `rowid` (le compteur
+  d'insertion de SQLite : monotone, ni migration ni colonne), et fixé par
+  `tests/elagage-ordre.test.ts`, qui **force** la collision d'horodatage et
+  choisit des identifiants dont l'ordre alphabétique contredit l'ordre
+  d'insertion — il rougit à tous les coups, plus une fois sur vingt sur un seul
+  système. Voir § 7.1 du journal.
 - ~~Un agent installé par npm reste **indétectable sous Windows**~~ —
   **CORRIGÉ**, et la correction n'a pas demandé d'assouplir la §5.1 : elle vise
   le script réel du paquet et lance Node, exactement comme `lanceur.ts` le fait

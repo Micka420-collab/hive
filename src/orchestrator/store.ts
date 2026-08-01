@@ -2491,13 +2491,15 @@ export class HiveStore {
   /** Sessions encore vivantes. Bornée : le chemin du tick la relit à chaque passe. */
   sessionsOuvertes(limit = 20): SessionRangee[] {
     return this.db
-      .prepare("SELECT * FROM conseil_sessions WHERE etat != 'clos' ORDER BY createdAt LIMIT ?")
+      .prepare(
+        "SELECT * FROM conseil_sessions WHERE etat != 'clos' ORDER BY createdAt, rowid LIMIT ?",
+      )
       .all(Math.max(1, Math.min(limit, 100))) as SessionRangee[];
   }
 
   listSessions(limit = 50): SessionRangee[] {
     return this.db
-      .prepare('SELECT * FROM conseil_sessions ORDER BY createdAt DESC LIMIT ?')
+      .prepare('SELECT * FROM conseil_sessions ORDER BY createdAt DESC, rowid DESC LIMIT ?')
       .all(Math.max(1, Math.min(limit, 200))) as SessionRangee[];
   }
 
@@ -2639,13 +2641,26 @@ export class HiveStore {
     //
     // Ce n'est pas théorique : sur un runner rapide, trois conseils ouverts
     // d'affilée ont partagé le même `createdAt`, et la CI a supprimé la
-    // mauvaise session. Le dépôt connaissait déjà le remède — `results` et
-    // `memories` trient par `… DESC, id DESC` — il manquait ici.
+    // mauvaise session.
+    //
+    // ─── ET POURQUOI CE N'EST PAS `id DESC` ───────────────────────────────────
+    //
+    // Ça l'a été, en recopiant `results` et `memories` qui trient par
+    // `… DESC, id DESC`. LA FORME A ÉTÉ COPIÉE, PAS SA PROPRIÉTÉ : là-bas `id`
+    // est un `INTEGER PRIMARY KEY AUTOINCREMENT`, donc croissant avec le temps.
+    // Ici c'est `conseil-<randomUUID>`. L'ordre devenait TOTAL — plus de
+    // départage indéfini — mais toujours SANS RAPPORT avec l'ancienneté : la
+    // borne jetait proprement n'importe laquelle. Le rouge de macOS a survécu à
+    // sa propre correction, ce qui est la façon la plus coûteuse d'apprendre.
+    //
+    // `rowid` est le compteur d'insertion implicite de SQLite : monotone, déjà
+    // là sur toute table qui n'est pas `WITHOUT ROWID`, et il ne demande ni
+    // migration ni colonne — la règle 2 de la doctrine tient.
     const garder = Math.max(0, maxSessions);
     const aJeter = this.db
       .prepare(
         `SELECT id FROM conseil_sessions WHERE etat = 'clos'
-         ORDER BY createdAt DESC, id DESC LIMIT -1 OFFSET ?`,
+         ORDER BY createdAt DESC, rowid DESC LIMIT -1 OFFSET ?`,
       )
       .all(garder) as { id: string }[];
 

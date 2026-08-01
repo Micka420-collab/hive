@@ -790,6 +790,68 @@ diagnostiqué : il a fallu deviner depuis le seul code de sortie de `curl`.
 > question à se poser en écrivant un diagnostic : « celui-ci tourne-t-il encore
 > le jour où j'en ai besoin ? »
 
+### 3.5 — Le garde était derrière la porte qu'il gardait
+
+Même famille que 3.4, mais côté produit, et mesuré sur la machine d'un
+utilisateur, pas en CI.
+
+`scripts/ruche.mjs` portait, dès sa première version, un contrôle de ce qui
+manque, sous un commentaire qui disait « Ce qui manque se dit **AVANT** de
+lancer quoi que ce soit ». Il n'a jamais pu s'afficher **une seule fois**.
+
+La cause tient dans la ligne qui le lançait :
+
+```
+"ruche": "node --import tsx scripts/ruche.mjs"
+```
+
+`--import` est résolu par Node **avant la première instruction du fichier**. Sur
+une copie où les dépendances manquent — une archive ZIP de GitHub, le cas le
+plus fréquent — Node meurt à la résolution :
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'tsx' imported from
+C:\Users\micki\Desktop\hive-main\
+```
+
+Et `npm run cli -- doctor`, l'outil dont le métier **entier** est de dire ce qui
+manque, tombait sur le même piège par une autre porte (`"cli": "tsx src/cli.ts"`,
+donc le binaire) :
+
+```
+'tsx' n'est pas reconnu en tant que commande interne ou externe
+```
+
+Deux messages qui ne nomment ni le dépôt, ni `npm install`, ni le geste à faire.
+
+Ce qui rend le défaut coûteux, c'est qu'il **imite la couverture** : le contrôle
+existe, il est bien écrit, il est commenté, et sa lecture rassure. Rien ne
+distingue à l'œil un garde qui tourne d'un garde qu'on ne peut pas atteindre.
+
+Le remède est structurel, pas cosmétique : une **amorce** en JavaScript nu, sans
+la moindre dépendance (`scripts/amorce.mjs`), et une **porte unique**
+(`scripts/lancer.mjs`) que tous les points d'entrée humains traversent. `tsx`
+n'y est plus chargé que par un `await import()`, donc **après** le garde. Un test
+relit `package.json` et refuse qu'un script reprenne `--import tsx` ou appelle le
+binaire.
+
+Corollaire tranché au passage : l'amorce **arrête** sur une dépendance absente —
+plus rien ne peut tourner, s'arrêter ne coûte aucun diagnostic — mais se contente
+d'**avertir** sur un Node trop ancien, parce que `hive doctor` tourne encore et
+nomme cette cause parmi douze autres. Bloquer là aurait refait le même défaut
+d'un cran plus haut : un garde qui interdit l'entrée à son propre médecin.
+
+> **Règle** — un contrôle de prérequis ne doit dépendre d'**aucun** des
+> prérequis qu'il contrôle. En pratique : rien qu'il vérifie ne doit apparaître
+> dans un `import` statique, dans un drapeau de ligne de commande (`--import`,
+> `--require`, `--loader`), ni dans le nom du binaire lancé — tous sont résolus
+> avant la première instruction.
+>
+> **Règle** — la question à poser d'un message d'erreur soigné : « **quelle
+> commande, exactement, le fait apparaître ?** » S'il n'y en a pas, c'est du
+> décor. Le seul moyen de le savoir est de casser le prérequis pour de vrai et
+> de regarder la sortie.
+
 ---
 
 ## 4. Un correctif trop large casse ce qu'il ne visait pas
@@ -1340,6 +1402,43 @@ supprimait `WHERE creeA <= seuil`. Cinq livraisons du même instant partagent ce
 >
 > **Règle** — un test de borne d'élagage **fabrique l'égalité d'horodatage
 > exprès** (paramètre `now` fixe). L'espérer par hasard, c'est ne pas la tester.
+
+### 7.1 — La FORME du départage recopiée, pas sa PROPRIÉTÉ
+
+Le carnet affirmait « les trois bornes qui SUPPRIMENT ont été départagées, et
+c'était la seule classe dangereuse ». Une quatrième existait, `pruneConseils`, et
+la CI macOS l'a trouvée : trois conseils ouverts d'affilée y ont partagé le même
+`createdAt`, et la borne a supprimé la mauvaise session.
+
+Le correctif écrit alors a recopié l'idiome de la règle ci-dessus —
+`ORDER BY createdAt DESC, id DESC` — depuis `results` et `memories`. **Il ne
+marchait pas.** Là-bas, `id` est un `INTEGER PRIMARY KEY AUTOINCREMENT` : il
+croît avec le temps. Ici, c'est `conseil-<randomUUID>`.
+
+L'ordre est donc devenu **total** — plus rien d'indéfini, la règle paraissait
+satisfaite — et resté **sans aucun rapport avec l'ancienneté**. La borne jetait
+proprement n'importe laquelle des trois. Le rouge a survécu à sa propre
+correction, ce qui est la façon la plus coûteuse d'apprendre : on croit la dette
+payée.
+
+Le vrai départage était sous la main : **`rowid`**, le compteur d'insertion
+implicite de SQLite. Monotone, présent sur toute table qui n'est pas
+`WITHOUT ROWID`, il ne demande ni migration ni colonne — la règle 2 de la
+doctrine tient.
+
+Et le test qui l'a fixé ne dépend plus d'une horloge : `tests/elagage-ordre.test.ts`
+force la collision **et** choisit des identifiants dont l'ordre alphabétique
+contredit l'ordre d'insertion. Il rougit à tous les coups, sur les trois
+systèmes.
+
+> **Règle** — un départage n'est bon que si la colonne choisie est **monotone
+> dans le temps**. « Total » et « chronologique » sont deux propriétés
+> différentes ; seule la seconde répond à « garder les plus récentes ». Avant de
+> recopier `, id DESC`, aller lire le type de `id`.
+>
+> **Règle** — un test qui a rougi une fois sur vingt doit être **remplacé par
+> celui qui rougit à tous les coups**, pas seulement voir sa cause corrigée.
+> Sans quoi rien ne dira que la correction s'est trompée de propriété.
 
 ---
 
