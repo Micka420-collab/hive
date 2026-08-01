@@ -1,5 +1,18 @@
 // @vitest-environment happy-dom
 //
+/// <reference lib="dom" />
+//
+// ─── POURQUOI CETTE DIRECTIVE, ET POURQUOI ICI SEULEMENT ─────────────────────
+//
+// `tsconfig.json` déclare `lib: ["ES2024"]` et `types: ["node"]`, sans `dom` —
+// et c'est VOULU : `src/` tourne dans Node, et un `document` qui compile
+// tranquillement dans un fichier de serveur est une panne qu'on découvre en
+// production. Ajouter `dom` à la racine pour arranger CE fichier ouvrirait la
+// porte partout ailleurs.
+//
+// La directive n'ajoute les types du navigateur qu'ici, où ils décrivent la
+// réalité : ce test monte une page.
+//
 // LA VITRINE, EXÉCUTÉE — le test que quarante-cinq autres ne faisaient pas.
 //
 // ─── LE DÉFAUT QUI A MOTIVÉ CE FICHIER ───────────────────────────────────────

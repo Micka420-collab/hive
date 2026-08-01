@@ -278,6 +278,37 @@ export function largeurVisible(texte: string): number {
 }
 
 /**
+ * Toutes les commandes de terminal, retirées d'un texte venu du DEHORS.
+ *
+ * ─── POURQUOI `tronquer` NE SUFFISAIT PAS ────────────────────────────────────
+ *
+ * `ECHAPPEMENTS` ne connaît que les séquences SGR — celles qui se terminent par
+ * `m`, donc les couleurs. C'est le bon périmètre pour ce qu'il fait : mesurer et
+ * couper du texte que nous avons nous-mêmes teinté.
+ *
+ * Mais une NOTE d'installation vient de `npm`, de `git`, d'un chemin de disque.
+ * Un test l'a montré en rougissant : `\x1b[2J` — efface l'écran — traversait
+ * `tronquer` intact, parce qu'il finit par `J` et non par `m`. Une sortie de
+ * commande pouvait donc effacer tout ce qui la précédait, déplacer le curseur,
+ * ou renommer la fenêtre du terminal par une séquence OSC.
+ *
+ * On retire donc :
+ *  · les séquences CSI complètes, quelle que soit leur lettre finale ;
+ *  · les séquences OSC, terminateur BEL ou ST — c'est celle qui renomme la
+ *    fenêtre, la plus discrète des trois ;
+ *  · tout autre échappement d'un caractère ;
+ *  · les caractères de commande C0 restants, `\r` compris : un retour chariot
+ *    seul réécrit la ligne par-dessus elle-même.
+ */
+const COMMANDES_TERMINAL =
+  // eslint-disable-next-line no-control-regex
+  /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b.|[\x00-\x1f\x7f]/g;
+
+export function nettoyer(texte: string): string {
+  return texte.replace(COMMANDES_TERMINAL, '');
+}
+
+/**
  * Coupe un texte à `max` colonnes, en marquant la coupe.
  *
  * Rien de ce qui vient de l'extérieur n'est affiché sans passer par ici : un
@@ -285,6 +316,8 @@ export function largeurVisible(texte: string): number {
  * pouvoir crever un cadre. `acces.ts` borne déjà ces libellés à 120
  * caractères sans caractère de contrôle ; cette coupe-ci est la seconde
  * ceinture, celle qui protège la MISE EN PAGE plutôt que la sécurité.
+ *
+ * Pour un texte dont on ne maîtrise PAS l'origine, `nettoyer` d'abord.
  */
 export function tronquer(texte: string, max: number, unicode = true): string {
   if (max <= 0) return '';
@@ -681,4 +714,198 @@ export function etapeLineaire(v: Verification, caps: Capacites): string {
  */
 export function constat(v: Verification, caps: Capacites): string {
   return caps.cadres ? ligneVerification(v, caps) : etapeLineaire(v, caps);
+}
+
+// ─── LE RAIL ─────────────────────────────────────────────────────────────────
+//
+// L'identité de l'installeur, et la seule chose qui la porte.
+//
+// ─── CE QU'UN RAIL RÉSOUT, ET QU'UNE LISTE DE ✔ NE RÉSOUT PAS ────────────────
+//
+// Une suite de lignes cochées répond à « est-ce que ça a marché ? ». Elle ne
+// répond jamais à « où en suis-je, et combien reste-t-il ? » — deux questions
+// que se pose quiconque regarde une installation avancer. Le rail y répond par
+// sa FORME : une colonne continue, des perles hexagonales pleines derrière soi
+// et creuses devant, et une ligne de conduite entre les deux qui ne se rompt
+// jamais.
+//
+// ─── DEUX ALPHABETS, DEUX SENS, ET SURTOUT PAS TROIS ─────────────────────────
+//
+// · L'HEXAGONE est une ÉTAPE de l'installation. C'est la marque de la ruche.
+// · `✔ ✘ ⚠` — l'alphabet qui existait déjà — reste ce qu'il était : une
+//   VÉRIFICATION à l'intérieur d'une étape.
+//
+// On n'invente pas un troisième vocabulaire pour dire ce que le premier disait
+// déjà : c'est le § 9 bis du journal, celui des deux chemins pour un même geste
+// dont le moins fréquenté finit par mentir.
+
+/** Les perles du rail. Chacune fait EXACTEMENT une colonne — sinon tout glisse. */
+const PERLES_UNICODE: Record<Etat, string> = {
+  fait: '⬢',
+  curseur: '⬡',
+  avenir: '⬡',
+  alerte: '⬢',
+  echec: '✘',
+};
+
+/**
+ * Le repli ASCII des perles.
+ *
+ * Sans couleur ni Unicode, `⬢` plein et `⬡` creux deviendraient indiscernables :
+ * on change donc de FORME, pas seulement de teinte. `#` se lit « rempli » et
+ * `.` se lit « vide » dans tous les terminaux du monde depuis quarante ans.
+ */
+const PERLES_ASCII: Record<Etat, string> = {
+  fait: '#',
+  curseur: '>',
+  avenir: '.',
+  alerte: '#',
+  echec: 'x',
+};
+
+/** Un pas de l'installation, tel que l'appelant le décrit. */
+export interface Pas {
+  readonly nom: string;
+  readonly etat: Etat;
+  /** Durée écoulée, en millisecondes. Affichée seulement si la place existe. */
+  readonly duree?: number;
+  /** Une ligne de détail, portée par le rail sous le pas. */
+  readonly note?: string;
+}
+
+/**
+ * Une durée, en français, à la précision que l'œil peut lire.
+ *
+ * ─── POURQUOI PAS TOUJOURS LA MÊME UNITÉ ────────────────────────────────────
+ *
+ * `0,412 s` demande de compter les décimales ; `12,138 s` ne dit rien de plus
+ * que `12 s` ; et `128,4 s` oblige à diviser de tête. La précision utile décroît
+ * quand la durée croît — un chiffre après la virgule sous dix secondes, aucun
+ * au-delà, et des minutes dès qu'il y en a.
+ *
+ * La virgule est décimale : c'est un installeur en français.
+ */
+export function dureeCourte(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const s = ms / 1000;
+  if (s < 10) return `${s.toFixed(1).replace('.', ',')} s`;
+  if (s < 60) return `${String(Math.round(s))} s`;
+  const min = Math.floor(s / 60);
+  const reste = Math.round(s - min * 60);
+  return reste === 0 ? `${String(min)} min` : `${String(min)} min ${String(reste)} s`;
+}
+
+/**
+ * Une ligne dont les deux bouts sont séparés par une fuite de points.
+ *
+ * ─── ET CE QU'ELLE FAIT QUAND ÇA NE TIENT PAS ────────────────────────────────
+ *
+ * Elle ABANDONNE la partie droite, entière. Deux mauvaises solutions ont été
+ * écartées : tronquer la droite (`12,1 …`) donne un chiffre faux, ce qui est
+ * pire que pas de chiffre ; et laisser déborder casse l'alignement de toutes
+ * les lignes suivantes, donc l'effet même que le rail existe pour produire.
+ *
+ * Il faut au moins deux points de fuite pour que la fuite se lise comme une
+ * fuite et non comme une faute de frappe.
+ */
+export function ligneAFuite(
+  gauche: string,
+  droite: string,
+  largeur: number,
+  caps: Capacites,
+): string {
+  if (droite === '') return gauche;
+  const point = caps.unicode ? '·' : '.';
+  const manque = largeur - largeurVisible(gauche) - largeurVisible(droite) - 2;
+  if (manque < 2) return gauche;
+  return `${gauche} ${teinter(point.repeat(manque), 'discret', caps)} ${droite}`;
+}
+
+/**
+ * Un pas et, s'il en porte une, sa note — rail compris.
+ *
+ * Rendu séparément du rail entier parce que l'installeur RÉAFFICHE le pas en
+ * cours à chaque tour de spinner : redessiner toute la colonne à chaque image
+ * ferait clignoter ce qui n'a pas bougé.
+ */
+export function railPas(pas: Pas, caps: Capacites): string[] {
+  const perle = (caps.unicode ? PERLES_UNICODE : PERLES_ASCII)[pas.etat];
+  const barre = caps.unicode ? '│' : '|';
+
+  // ─── LE PAS EN COURS EST LA CHOSE LA PLUS CLAIRE DE L'ÉCRAN ───────────────
+  //
+  // Le pas FAIT s'allume en ambre, ce qui reste à faire s'efface, et le pas EN
+  // COURS porte le dégradé — mais À PARTIR DU MILIEU de la rampe.
+  //
+  // La première version partait de zéro, c'est-à-dire du brun le plus sombre :
+  // la ligne active était alors la MOINS visible de la colonne, exactement
+  // l'inverse de ce qu'elle doit être. Ça ne se voyait pas dans les tests, qui
+  // vérifient des largeurs et des glyphes ; ça s'est vu en le regardant tourner.
+  const teteBrute = `${perle}  ${pas.nom}`;
+  const tete =
+    pas.etat === 'avenir'
+      ? teinter(teteBrute, 'discret', caps)
+      : pas.etat === 'curseur'
+        ? degradeDepuis(teteBrute, 0.5, caps)
+        : teinter(teteBrute, 'accent', caps);
+
+  const chrono = pas.duree === undefined ? '' : teinter(dureeCourte(pas.duree), 'discret', caps);
+  const lignes = [`  ${ligneAFuite(tete, chrono, caps.largeur - 2, caps)}`];
+
+  if (pas.note !== undefined && pas.note !== '') {
+    // ─── LA NOTE VIENT DU DEHORS ────────────────────────────────────────────
+    //
+    // C'est une sortie de `npm`, un message de `git`, un chemin de disque.
+    // `nettoyer` AVANT `tronquer`, et dans cet ordre : le second ne connaît que
+    // les séquences de couleur, et laissait passer `\x1b[2J` — efface l'écran —
+    // parce qu'elle finit par `J`. Un test l'a montré en rougissant.
+    const place = caps.largeur - 7;
+    const propre = tronquer(nettoyer(pas.note), place, caps.unicode);
+    lignes.push(`  ${teinter(barre, 'discret', caps)}  ${teinter(propre, 'discret', caps)}`);
+  }
+  return lignes;
+}
+
+/**
+ * La colonne entière : les pas, reliés, sans rupture.
+ *
+ * ─── POURQUOI LA LIAISON N'EST PAS UNE LIGNE VIDE ────────────────────────────
+ *
+ * Séparer les pas par du blanc rendrait une liste espacée. Ce qui fait le rail,
+ * c'est que le trait CONTINUE entre deux perles : l'œil suit une colonne et pas
+ * une énumération. C'est un caractère par ligne, et c'est tout l'effet.
+ */
+export function rail(pas: readonly Pas[], caps: Capacites): string[] {
+  const barre = caps.unicode ? '│' : '|';
+  const lignes: string[] = [];
+  for (const [i, p] of pas.entries()) {
+    if (i > 0) lignes.push(`  ${teinter(barre, 'discret', caps)}`);
+    lignes.push(...railPas(p, caps));
+  }
+  return lignes;
+}
+
+/**
+ * Le panneau de fin : ce qu'il reste à taper, encadré.
+ *
+ * ─── POURQUOI UN CADRE ICI, ET NULLE PART AILLEURS ───────────────────────────
+ *
+ * Une installation qui se termine laisse la personne devant une question :
+ * « et maintenant ? ». La réponse ne doit pas se chercher dans le défilement.
+ * Le cadre est le seul endroit de l'écran qui survit au coup d'œil — donc le
+ * seul endroit où mettre les deux commandes qui suivent.
+ *
+ * Sous `LARGEUR_MIN_CADRES`, `cadre` abandonne ses bordures de lui-même : le
+ * titre reste, les commandes restent, et rien ne déborde.
+ */
+export function panneau(titre: string, lignes: readonly string[], caps: Capacites): string[] {
+  const hexagone = caps.unicode ? '⬢' : '#';
+  return cadre(
+    [
+      degrade(`${hexagone}  ${titre}`, caps),
+      ...(lignes.length > 0 ? [''] : []),
+      ...lignes.map((l) => `   ${teinter(l, 'accent', caps)}`),
+    ],
+    caps,
+  );
 }
