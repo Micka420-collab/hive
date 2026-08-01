@@ -66,7 +66,17 @@ describe('le bandeau ne ment pas sur le nombre de tests', () => {
   const declares = (): number => {
     let n = 0;
     for (const f of readdirSync(DOSSIER_TESTS)) {
-      if (!f.endsWith('.test.ts')) continue;
+      // ─── `.mjs` AUSSI, ET C'EST UNE LEÇON FRAÎCHE ─────────────────────────
+      //
+      // Ce compteur n'a longtemps lu que `.test.ts`, parce qu'il n'existait que
+      // ça. Le jour où `tests/amorce.test.mjs` est arrivé — trente et un tests
+      // écrits en JavaScript nu, parce qu'ils éprouvent le code qui doit tourner
+      // là où `tsx` n'existe pas — ils sont devenus INVISIBLES à la garde de
+      // vantardise, qui a donc continué à valider un chiffre vieilli.
+      //
+      // Une garde dont le périmètre est figé par le dépôt d'hier se met à mentir
+      // le jour où le dépôt change de forme, et rien ne le dit.
+      if (!f.endsWith('.test.ts') && !f.endsWith('.test.mjs')) continue;
       // Les commentaires D'ABORD : un `it(` mis en commentaire pendant une
       // enquête gonflerait le compte et rendrait la garde complaisante.
       const src = readFileSync(new URL(f, import.meta.url), 'utf8')
@@ -97,6 +107,34 @@ describe('le bandeau ne ment pas sur le nombre de tests', () => {
     // le nombre. Une traduction oubliée fige l'ancien chiffre pour les seuls
     // anglophones — c'est-à-dire pour la moitié des visiteurs, sans témoin.
     expect(chiffre(enAnglais('badge.tests'))).toBe(chiffre(enFrancais('badge.tests')));
+  });
+});
+
+describe('LA VITRINE N’EXIGE PAS UN AUTRE NODE QUE LA RUCHE', () => {
+  it('le bandeau annonce la version MINIMALE de `engines.node`', () => {
+    // ─── UN CHIFFRE QUE PERSONNE NE RELISAIT ────────────────────────────────
+    //
+    // La vitrine a annoncé « Node ≥ 20 » pendant que `package.json` exigeait 24,
+    // que le README expliquait sur six lignes POURQUOI Node 20 casse
+    // `better-sqlite3`, et que `hive doctor` refusait la version. Quatre
+    // endroits énonçaient la même exigence ; le seul que le visiteur lit en
+    // premier était le seul à se tromper.
+    //
+    // C'est le § 9 ter du journal : un document que rien ne vérifie ment plus
+    // longtemps que du code — et celui-ci mentait DANS LE SENS DANGEREUX, en
+    // invitant à installer sous une version qui produit une ruche morte-née.
+    const paquet = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { engines: { node: string } };
+    const exige = /(\d+)/.exec(paquet.engines.node)?.[1];
+    expect(exige, 'engines.node est illisible').toBeTruthy();
+
+    const annonce = /Node\s*(?:≥|&ge;|>=)\s*(\d+)/.exec(vitrine)?.[1];
+    expect(annonce, 'aucun bandeau « Node ≥ N » dans la vitrine').toBeTruthy();
+    expect(
+      annonce,
+      `la vitrine annonce Node ≥ ${String(annonce)} alors que la ruche exige ${String(exige)}`,
+    ).toBe(exige);
   });
 });
 
