@@ -1038,6 +1038,45 @@ formes se ressemblent, cohabitent dans le même fichier, et une seule est juste.
 > ligne fautive — et elle a été recommise par son propre auteur, dans une
 > session où il l'avait déjà citée.
 
+#### 6.1 ter — Le même défaut dans l'autre sens : `import()` d'un chemin absolu
+
+`scripts/lancer.mjs`, écrit dans la même session que l'entrée ci-dessus,
+finissait par :
+
+```js
+await import(cible); // cible = path.resolve(RACINE, 'src/cli.ts')
+```
+
+Sous Linux et macOS, `cible` commence par `/` et Node l'accepte. Sous Windows,
+c'est `C:\Users\…\src\cli.ts`, et `import()` prend un **spécificateur**, pas un
+chemin :
+
+```
+ERR_UNSUPPORTED_ESM_URL_SCHEME — Only URLs with a scheme in: file, data, and
+node are supported by the default ESM loader. Received protocol 'c:'
+```
+
+Deux systèmes sur trois auraient donc été **verts** pendant que la porte
+d'entrée du dépôt serait morte chez tous les utilisateurs de Windows — dont
+celui qui avait signalé la panne d'origine. `fileURLToPath` était déjà employé
+correctement trois lignes plus haut : c'est la conversion **inverse** qui
+manquait, `pathToFileURL`.
+
+Ce qui manquait surtout, c'est un test qui LANCE. Les assertions écrites
+d'abord relisaient le texte de `package.json` et des scripts ; aucune ne
+traversait la porte. `tests/amorce.test.mjs` lance désormais un vrai processus
+sur un point d'entrée minuscule (`tests/fixtures/echo-argv.ts`) et compare ce
+qu'il imprime — sur les trois systèmes de la CI.
+
+> **Règle** — un chemin ne devient jamais un spécificateur de module par
+> concaténation, dans aucun sens : `fileURLToPath` pour aller de l'URL au
+> chemin, `pathToFileURL(...).href` pour revenir. La règle est symétrique parce
+> que le défaut l'est.
+>
+> **Règle** — un lanceur se teste en le LANÇANT. Relire son texte ne distingue
+> pas les deux formes ci-dessus, et sur deux systèmes sur trois elles se
+> comportent à l'identique.
+
 ### 6.2 — Un `.cmd` ne se lance pas sans interpréteur
 
 Sous Windows, `npm` est `npm.cmd`. Node **refuse** d'exécuter un `.cmd`/`.bat`
@@ -1634,6 +1673,44 @@ colonnes depuis. La chaîne ne correspondait plus, le fichier était intact.
 > **Règle** — après avoir muté, VÉRIFIER que le fichier a changé (`git diff
 --stat`) avant de conclure quoi que ce soit sur le vert. Un mutant qui échoue
 > à s'appliquer ment dans le sens rassurant — le pire des deux.
+
+### 9ter.3 — La loupe ne regardait pas là où le code neuf était
+
+Elle ne prenait le diff que de `src` et `dashboard/src`. Le jour où
+`scripts/amorce.mjs` est arrivé — le code qui décide si la ruche démarre du
+tout, donc le plus exposé du dépôt —, elle a répondu :
+
+```
+LOUPE : aucune ligne mutable ajoutée par cette branche.
+```
+
+sur un diff qui en ajoutait deux cents. Elle le disait honnêtement (« rien à
+conclure — ce n'est PAS un feu vert »), et c'est bien la seule raison pour
+laquelle le silence ne s'est pas lu comme une approbation.
+
+Une fois `scripts/` inclus, elle a rendu **six mutants et deux survivants**, l'un
+et l'autre réels.
+
+> **Règle** — le périmètre d'un outil de vérification se relit chaque fois que
+> le dépôt gagne un genre de fichier. Un outil qui existe pour débusquer le code
+> que rien ne défend ne peut pas avoir d'angle mort sur le chemin que tout le
+> monde emprunte en premier.
+
+### 9ter.4 — Un mutant dont le sort dépend de la machine ne mesure rien
+
+Des deux survivants ci-dessus, l'un — `if (v !== null) return`, qui rend le
+garde muet — a **survécu ici et serait mort en CI**. Ce n'était pas un hasard :
+la fonction lisait `process.version` et l'état du disque, la machine tournait en
+Node 22, la CI en Node 24, et le mutant tombait du bon côté ici.
+
+Un verdict de loupe qui change avec la version de Node de celui qui la lance
+n'est pas un verdict. La correction n'est pas dans le test, elle est dans la
+forme : les deux effets — écrire, sortir — sont passés en paramètres, et les
+trois cas deviennent des assertions qui tiennent partout.
+
+> **Règle** — quand un mutant survit, regarder d'abord **de quoi son sort
+> dépend**. S'il dépend de l'environnement plutôt que du code, écrire un test de
+> plus ne réglera rien : c'est la frontière pur/impur qu'il faut déplacer.
 
 ---
 

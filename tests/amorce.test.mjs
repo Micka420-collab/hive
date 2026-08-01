@@ -29,7 +29,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { NODE_MINIMAL, majeure, verdict } from '../scripts/amorce.mjs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { NODE_MINIMAL, annoncer, majeure, verdict } from '../scripts/amorce.mjs';
 
 /** Relu depuis une URL, jamais depuis un chemin recomposé (§ 6.1 du journal). */
 const lire = (chemin) => readFileSync(new URL(chemin, import.meta.url), 'utf8');
@@ -79,6 +81,57 @@ describe('CE QUI ARRÊTE, ET CE QUI SE CONTENTE D’AVERTIR', () => {
     expect(v.arret).toBe(true);
     expect(v.message, 'la version').toContain('v20.11.0');
     expect(v.message, 'et les dépendances').toContain('les dépendances ne sont pas');
+  });
+});
+
+describe('CE QU’ON FAIT DU VERDICT — écrire, et s’arrêter ou non', () => {
+  // ─── LE BLOC QUE LA LOUPE A RÉCLAMÉ ────────────────────────────────────────
+  //
+  // Ces trois lignes n'étaient éprouvées par rien, et le mutant qui rend le
+  // garde MUET — `if (v !== null) return` — a survécu sur une machine en
+  // Node 22 tout en mourant en CI sous Node 24. Un mutant dont le sort dépend
+  // de la version de Node de la machine ne mesure rien : d'où les deux effets
+  // passés en paramètres, et ces trois cas qui tiennent partout.
+
+  /** Un bloc-notes à la place du vrai processus. */
+  function espion() {
+    const dit = [];
+    const sorties = [];
+    return { dit, sorties, ecrire: (t) => dit.push(t), sortir: (c) => sorties.push(c) };
+  }
+
+  it('RIEN À DIRE : le garde se tait ET ne sort pas', () => {
+    const e = espion();
+    annoncer(null, e.ecrire, e.sortir);
+    expect(e.dit).toEqual([]);
+    expect(e.sorties).toEqual([]);
+  });
+
+  it('AVERTISSEMENT : ça s’écrit, et surtout ça N’ARRÊTE PAS', () => {
+    const e = espion();
+    annoncer({ arret: false, message: 'Node est trop ancien' }, e.ecrire, e.sortir);
+    expect(e.dit.join('')).toContain('Node est trop ancien');
+    expect(e.sorties, 'un avertissement qui arrête n’est pas un avertissement').toEqual([]);
+  });
+
+  it('BLOCAGE : ça s’écrit, PUIS ça sort en 2', () => {
+    // Le 2 est le code « prérequis absent » de `install.sh` et `install.ps1`,
+    // distinct du 1 qui veut dire « ça a planté ». Un script d'intégration qui
+    // les confond ne peut plus distinguer les deux.
+    const e = espion();
+    annoncer({ arret: true, message: 'dépendances absentes' }, e.ecrire, e.sortir);
+    expect(e.dit.join('')).toContain('dépendances absentes');
+    expect(e.sorties).toEqual([2]);
+  });
+
+  it('le message est écrit AVANT la sortie, sinon personne ne le lit', () => {
+    const ordre = [];
+    annoncer(
+      { arret: true, message: 'x' },
+      () => ordre.push('écrit'),
+      () => ordre.push('sorti'),
+    );
+    expect(ordre).toEqual(['écrit', 'sorti']);
   });
 });
 
@@ -243,4 +296,86 @@ describe('LA PORTE UNIQUE — aucun point d’entrée humain ne contourne l’am
       );
     });
   }
+});
+
+describe('LA PORTE, TRAVERSÉE POUR DE VRAI', () => {
+  // ─── POURQUOI CE BLOC LANCE AU LIEU DE LIRE ────────────────────────────────
+  //
+  // Tout ce qui précède relit du texte. Ça suffit à empêcher un script de
+  // revenir au binaire `tsx`, et ça ne dit RIEN de ce que le lanceur fait une
+  // fois lancé. Deux défauts vivent exactement là :
+  //
+  // 1. L'argv. `src/cli.ts` lit `process.argv.slice(2)` ; sans réécriture il y
+  //    trouverait `['src/cli.ts', 'doctor']`, et la commande tapée serait
+  //    toujours avalée par le nom du fichier.
+  //
+  // 2. LE CHEMIN ABSOLU SOUS WINDOWS. `import()` prend un spécificateur, pas un
+  //    chemin : `C:\…\cli.ts` est lu comme une URL de schéma `c:` et refusé.
+  //
+  //        ERR_UNSUPPORTED_ESM_URL_SCHEME — Received protocol 'c:'
+  //
+  //    Sous Linux et macOS, un chemin absolu commence par `/` et passe. Deux
+  //    systèmes sur trois seraient donc VERTS pendant que la ruche serait morte
+  //    chez tous les utilisateurs de Windows — c'est-à-dire celui qui a signalé
+  //    la panne d'origine. Aucune relecture ne distingue les deux cas ; seul un
+  //    lancement le fait, et la CI en fait un sur les trois systèmes.
+
+  const RACINE = fileURLToPath(new URL('..', import.meta.url));
+
+  /** Lance le lanceur pour de bon, et rend ce qu'il a imprimé sur stdout. */
+  function lancer(args) {
+    return execFileSync(process.execPath, ['scripts/lancer.mjs', ...args], {
+      cwd: RACINE,
+      encoding: 'utf8',
+      // stderr séparé : l'amorce peut y écrire un avertissement de version, et
+      // il n'a rien à faire dans ce qu'on compare.
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  }
+
+  it('CHARGE UN `.ts` ET LUI DONNE L’ARGV QUE `tsx` LUI AURAIT DONNÉ', () => {
+    const sortie = lancer(['tests/fixtures/echo-argv.ts', 'doctor', '--json']);
+    expect(JSON.parse(sortie.trim())).toEqual(['doctor', '--json']);
+  });
+
+  it('IL IMPORTE UNE URL, PAS UN CHEMIN — la seule garde visible depuis Linux', () => {
+    // Le test précédent ne peut PAS attraper le défaut Windows : sous Linux et
+    // macOS, un chemin absolu commence par `/` et `import()` l'accepte. Il n'y
+    // rougirait jamais, et le lancement sous Windows n'a lieu qu'en CI.
+    //
+    // Cette assertion-ci n'est donc pas un doublon : c'est ce qui reste quand la
+    // seule machine où le défaut existe n'est pas celle qui exécute le test.
+    const source = lire('../scripts/lancer.mjs');
+    expect(source, 'la conversion chemin → URL doit être explicite').toContain(
+      'await import(pathToFileURL(cible).href)',
+    );
+  });
+
+  it('sans argument, il n’y a pas de commande à taper', () => {
+    // Le mutant `entree !== undefined` faisait passer un `undefined` à
+    // `path.resolve`, qui jette un TypeError laconique bien plus loin.
+    let code = 0;
+    let err = '';
+    try {
+      lancer([]);
+    } catch (e) {
+      code = e.status;
+      err = String(e.stderr);
+    }
+    expect(code, 'un usage manquant s’arrête').toBe(2);
+    expect(err).toContain('usage');
+  });
+
+  it('un point d’entrée qui n’existe pas est NOMMÉ, pas deviné', () => {
+    let code = 0;
+    let err = '';
+    try {
+      lancer(['src/ce-fichier-n-existe-pas.ts']);
+    } catch (e) {
+      code = e.status;
+      err = String(e.stderr);
+    }
+    expect(code).toBe(2);
+    expect(err).toContain('ce-fichier-n-existe-pas.ts');
+  });
 });

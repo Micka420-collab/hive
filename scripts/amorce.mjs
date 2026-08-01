@@ -186,15 +186,34 @@ export function etatReel(racine) {
 }
 
 /**
- * Le garde : dit ce qui manque, s'arrête si rien ne peut tourner, et se tait
- * quand la porte est ouverte.
+ * Ce qu'on FAIT du verdict — écrire, et s'arrêter ou non.
+ *
+ * ─── POURQUOI L'ÉCRITURE ET LA SORTIE SONT DES PARAMÈTRES ────────────────────
+ *
+ * Parce que sans ça, ce bloc n'est éprouvable que sur une machine dont le Node
+ * et le `node_modules` sont dans l'état voulu. La loupe l'a montré noir sur
+ * blanc : le mutant `if (v !== null) return` — qui rend le garde muet — a
+ * SURVÉCU sur une machine en Node 22, et serait mort en CI sous Node 24. Un
+ * mutant dont le sort dépend de la version de Node de la machine ne mesure
+ * rien.
+ *
+ * Avec les deux effets injectés, les trois cas — rien à dire, avertir sans
+ * arrêter, arrêter — deviennent des assertions, partout, tout le temps.
  *
  * Code 2 — le même que `install.sh` et `install.ps1` pour « prérequis absent »,
  * distinct de 1 qui veut dire « ça a planté ».
  */
-export function exigerAmorce(racine) {
-  const v = verdict(etatReel(racine));
+export function annoncer(v, ecrire, sortir) {
   if (v === null) return;
-  process.stderr.write(`${v.message}\n`);
-  if (v.arret) process.exit(2);
+  ecrire(`${v.message}\n`);
+  if (v.arret) sortir(2);
+}
+
+/** Le garde, branché sur le vrai processus. La seule ligne impure du fichier. */
+export function exigerAmorce(racine) {
+  annoncer(
+    verdict(etatReel(racine)),
+    (texte) => process.stderr.write(texte),
+    (code) => process.exit(code),
+  );
 }

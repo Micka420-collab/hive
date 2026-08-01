@@ -62,11 +62,35 @@ const ECHANGES = [
   [' !== ', ' === '],
 ];
 
-/** Les lignes AJOUTÉES par la branche, fichier par fichier. */
+/**
+ * Les lignes AJOUTÉES par la branche, fichier par fichier.
+ *
+ * ─── POURQUOI `scripts/` EN FAIT PARTIE ──────────────────────────────────────
+ *
+ * La loupe n'a longtemps regardé que `src` et `dashboard/src`. Le jour où
+ * `scripts/amorce.mjs` est arrivé — le code qui décide si la ruche démarre du
+ * tout, donc le plus exposé du dépôt —, elle a répondu « aucune ligne mutable
+ * ajoutée par cette branche » sur un diff qui en ajoutait deux cents.
+ *
+ * Un outil qui existe pour débusquer le code que rien ne défend ne peut pas
+ * avoir d'angle mort sur le chemin que TOUT LE MONDE emprunte en premier.
+ *
+ * `scripts/loupe.mjs` reste dehors, et c'est le seul : muter le juge pendant
+ * qu'il juge rend un verdict dont on ne saurait pas ce qu'il mesure.
+ */
 function lignesAjoutees() {
   const diff = execFileSync(
     'git',
-    ['diff', '-U0', `${BASE}...HEAD`, '--', 'src', 'dashboard/src'],
+    [
+      'diff',
+      '-U0',
+      `${BASE}...HEAD`,
+      '--',
+      'src',
+      'dashboard/src',
+      'scripts',
+      ':(exclude)scripts/loupe.mjs',
+    ],
     {
       cwd: RACINE,
       encoding: 'utf8',

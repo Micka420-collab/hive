@@ -33,7 +33,7 @@
 
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exigerAmorce } from './amorce.mjs';
 
 // `fileURLToPath`, jamais `.pathname` : sous Windows ce dernier rend `/D:/…`,
@@ -74,4 +74,20 @@ process.argv = [process.argv[0], cible, ...reste];
 const { register } = await import('tsx/esm/api');
 register();
 
-await import(cible);
+// ─── `pathToFileURL`, ET SURTOUT PAS LE CHEMIN NU ────────────────────────────
+//
+// `import()` prend un SPÉCIFICATEUR, pas un chemin. Sous Windows, `cible` vaut
+// `C:\Users\…\src\cli.ts` : Node y lit un schéma d'URL `c:` et refuse.
+//
+//     Only URLs with a scheme in: file, data, and node are supported by the
+//     default ESM loader. Received protocol 'c:'
+//
+// Sous Linux et macOS, un chemin absolu commence par `/` et passe — donc une CI
+// à deux systèmes sur trois resterait verte pendant que la ruche serait morte
+// chez tout le monde sous Windows. C'est le § 6.1 du journal sous une troisième
+// forme : la conversion chemin ↔ URL ne s'improvise jamais.
+//
+// `tests/amorce.test.mjs` LANCE ce fichier dans un vrai processus, ce qui est la
+// seule façon de voir ça : aucune relecture ne distingue les deux, et sur deux
+// systèmes sur trois elles se comportent pareil.
+await import(pathToFileURL(cible).href);
