@@ -336,7 +336,12 @@ export function App() {
     <div className="app mc-app">
       <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
-          <span className="brand-logo">🐝</span>
+          <span className="brand-logo" aria-hidden="true">
+            🐝
+          </span>
+          {/* Le nom écrit, et pas seulement l'abeille : sur la barre large du
+              design, le logo seul laissait un vide que rien n'expliquait. */}
+          <span className="mc-sidebar-word">Hive</span>
         </div>
         <ul className="mc-nav">
           {NAV.filter((item) => !item.admin || estAdmin(user)).map((item) => (
@@ -386,9 +391,15 @@ export function App() {
             </div>
           </div>
           <div className="topbar-actions">
-            <button className="btn primary" onClick={() => setShowNewProject(true)}>
-              {t('+ Projet', '+ Project')}
-            </button>
+            {/* « + Projet » n'a de sens que LÀ OÙ on gère les projets. Posé dans
+                l'en-tête commun, il suivait les treize vues et proposait de
+                créer un projet depuis la Santé ou le Rayon — une action sans
+                rapport avec ce qu'on regarde. */}
+            {route.view === 'projets' && (
+              <button className="btn primary" onClick={() => setShowNewProject(true)}>
+                {t('+ Projet', '+ Project')}
+              </button>
+            )}
             <button
               className="btn ghost mc-lang"
               onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}

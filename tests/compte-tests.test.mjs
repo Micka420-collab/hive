@@ -155,13 +155,15 @@ describe('LE VERDICT', () => {
 });
 
 describe('LES CIBLES SONT BIEN CELLES DU DÉPÔT', () => {
-  it('les quatre annonces publiques sont là', () => {
+  it('les six annonces publiques sont là', () => {
     // Une liste vide rendrait tous les verdicts verts sans rien avoir regardé.
     expect(CIBLES.map((c) => c.nom)).toEqual([
       'README.md',
       'README.en.md',
       'site/index.html (FR)',
       'site/index.html (EN)',
+      'site/presentation/index.html (FR)',
+      'site/presentation/index.html (EN)',
     ]);
   });
 
@@ -208,6 +210,12 @@ describe('LE GESTE COMPLET', () => {
       `<span data-i18n="badge.tests"\n  >${fr} tests ✓</span>\n'badge.tests': '${en} tests ✓',\n`,
       'utf8',
     );
+    mkdirSync(path.join(dir, 'site', 'presentation'), { recursive: true });
+    writeFileSync(
+      path.join(dir, 'site', 'presentation', 'index.html'),
+      `<span data-i18n="badge.tests"\n  >${fr} tests</span>\n'badge.tests': '${en} tests',\n`,
+      'utf8',
+    );
     writeFileSync(path.join(dir, 'rapport.json'), JSON.stringify(rapport), 'utf8');
     return dir;
   }
@@ -239,7 +247,7 @@ describe('LE GESTE COMPLET', () => {
     expect(r.code, 'un appel sans rapport a été traité comme un succès').toBe(2);
     expect(r.sortie).toContain('usage');
     expect(r.annonces, 'il a touché aux README sans savoir à quoi les comparer').toEqual([
-      1, 1, 1, 1,
+      1, 1, 1, 1, 1, 1,
     ]);
     rmSync(dir, { recursive: true, force: true });
   });
@@ -256,7 +264,7 @@ describe('LE GESTE COMPLET', () => {
     const dir = racineJetable(1, { numTotalTests: 42 });
     const r = lancer(dir, ['rapport.json']);
     expect(r.code, 'un badge périmé est passé').toBe(1);
-    expect(r.annonces, 'il a corrigé sans qu’on le lui demande').toEqual([1, 1, 1, 1]);
+    expect(r.annonces, 'il a corrigé sans qu’on le lui demande').toEqual([1, 1, 1, 1, 1, 1]);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -264,7 +272,7 @@ describe('LE GESTE COMPLET', () => {
     const dir = racineJetable(1, { numTotalTests: 42 });
     const r = lancer(dir, ['rapport.json', '--corriger']);
     expect(r.code).toBe(0);
-    expect(r.annonces).toEqual([42, 42, 42, 42]);
+    expect(r.annonces).toEqual([42, 42, 42, 42, 42, 42]);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -283,7 +291,7 @@ describe('LE GESTE COMPLET', () => {
     const dir = racineJetable(1, { rien: 'du tout' });
     const r = lancer(dir, ['rapport.json', '--corriger']);
     expect(r.code, 'il a conclu sur un compte inconnu').toBe(1);
-    expect(r.annonces, 'il a écrit un chiffre qu’il n’avait pas').toEqual([1, 1, 1, 1]);
+    expect(r.annonces, 'il a écrit un chiffre qu’il n’avait pas').toEqual([1, 1, 1, 1, 1, 1]);
     rmSync(dir, { recursive: true, force: true });
   });
 });

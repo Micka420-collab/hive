@@ -61,7 +61,7 @@
 /* Chaud = de l'argent part en ce moment, ou une machine est en échec. */
 .in-tuile.chaud {
   border-color: var(--amber);
-  background: rgba(229, 142, 38, 0.09);
+  background: rgba(224, 138, 20, 0.12);
 }
 
 .in-tuile-valeur {
@@ -90,7 +90,7 @@
   padding: 10px 12px;
   border-radius: var(--r-sm);
   border: 1px solid var(--amber);
-  background: rgba(229, 142, 38, 0.1);
+  background: rgba(224, 138, 20, 0.13);
   color: var(--gold);
   font-size: 12.5px;
   line-height: 1.5;
@@ -226,7 +226,7 @@
 }
 
 .in-geste.danger:hover:not(:disabled) {
-  background: rgba(229, 87, 63, 0.12);
+  background: rgba(168, 64, 42, 0.1);
 }
 
 .in-ligne-suite td {

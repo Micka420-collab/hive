@@ -57,7 +57,7 @@
 
 .me-tuile.chaud {
   border-color: var(--amber);
-  background: rgba(229, 142, 38, 0.09);
+  background: rgba(224, 138, 20, 0.12);
 }
 
 .me-tuile-valeur {
@@ -326,12 +326,12 @@
 .me-jauge span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--amber), var(--honey));
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
   transition: width 0.3s;
 }
 
 .me-jauge.haute span {
-  background: var(--amber);
+  background: var(--miel-2);
 }
 
 .me-jauge.pleine span {

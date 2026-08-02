@@ -117,7 +117,7 @@
 /* Badge ⚔ : le nœud a un drone en vol dans une course (Drone Wars). */
 .es-race-badge {
   margin-right: 6px;
-  color: var(--accent, #f5b942);
+  color: var(--accent, #9d5605);
   animation: es-race-pulse 1.6s ease-in-out infinite;
 }
 
@@ -225,7 +225,7 @@
 
 .es-podium-slot.es-rank-1 {
   border-color: var(--honey);
-  background: linear-gradient(180deg, #33290f, var(--panel-2));
+  background: linear-gradient(180deg, #fdf3dc, var(--panel-2));
   padding-bottom: 24px;
 }
 
@@ -330,7 +330,7 @@
 
 .es-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--amber), var(--gold));
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
   border-radius: 4px;
   transition: width 0.4s ease;
 }
@@ -444,7 +444,7 @@
   width: 3px;
   border-radius: 2px;
   background: var(--text);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 0 0 1px rgba(27, 23, 18, 0.3);
   transform: translateX(-50%);
   transition: left 0.4s ease;
 }
@@ -695,7 +695,7 @@
   width: 140px;
   height: 124px;
   clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
-  background: linear-gradient(180deg, var(--amber), var(--honey));
+  background: linear-gradient(180deg, var(--miel), var(--miel-2));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -749,13 +749,13 @@
 }
 
 .gu-verdict.ton-chaud {
-  border-color: #d99a2b;
-  background: rgba(217, 154, 43, 0.08);
+  border-color: #b8770f;
+  background: rgba(184, 119, 15, 0.09);
 }
 
 .gu-verdict.ton-brulant {
-  border-color: #e05c5c;
-  background: rgba(224, 92, 92, 0.1);
+  border-color: #a8402a;
+  background: rgba(168, 64, 42, 0.09);
 }
 
 .gu-icone {
@@ -796,7 +796,7 @@
   font-size: 11.5px;
   padding: 3px 8px;
   border-radius: 5px;
-  background: var(--bg-3, rgba(255, 255, 255, 0.03));
+  background: var(--bg-3, rgba(27, 23, 18, 0.04));
 }
 
 .gu-liste code {
@@ -829,8 +829,8 @@
 }
 
 .ga-mode.mode-strict {
-  border-color: #4caf7d;
-  color: #6fd39d;
+  border-color: #235e52;
+  color: #1f6b52;
 }
 
 .ga-mode.mode-off {
@@ -853,11 +853,11 @@
 }
 
 .ga-tuile.hollow {
-  border-color: #e05c5c;
+  border-color: #a8402a;
 }
 
 .ga-tuile.suspect {
-  border-color: #d99a2b;
+  border-color: #b8770f;
 }
 
 .ga-nombre {
@@ -875,8 +875,8 @@
 .ga-avertissement {
   margin: 10px 0 0;
   padding: 9px 12px;
-  border-left: 3px solid #d99a2b;
-  background: rgba(217, 154, 43, 0.08);
+  border-left: 3px solid #b8770f;
+  background: rgba(184, 119, 15, 0.09);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -897,7 +897,7 @@
   font-size: 11.5px;
   padding: 3px 9px;
   border-radius: 999px;
-  background: var(--bg-3, rgba(255, 255, 255, 0.04));
+  background: var(--bg-3, rgba(27, 23, 18, 0.05));
 }
 
 .ga-liste {
@@ -918,15 +918,15 @@
   font-size: 11.5px;
   padding: 4px 8px;
   border-radius: 5px;
-  background: var(--bg-3, rgba(255, 255, 255, 0.03));
+  background: var(--bg-3, rgba(27, 23, 18, 0.04));
 }
 
 .ga-liste li.hollow .ga-v {
-  color: #e05c5c;
+  color: #a8402a;
 }
 
 .ga-liste li.suspect .ga-v {
-  color: #d99a2b;
+  color: #b8770f;
 }
 
 .ga-noeud {

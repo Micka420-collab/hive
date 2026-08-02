@@ -51,10 +51,10 @@ import './cerveau.css';
 /** Une couleur par genre — l'ordre des genres EST leur priorité. */
 const COULEUR: Record<string, string> = {
   invariant: '#ff6b6b',
-  lecon: '#ffd166',
-  decision: '#6bc5ff',
+  lecon: '#f6c445',
+  decision: '#6bb8e8',
   carte: '#c48cff',
-  episode: '#7d8fa3',
+  episode: '#a2957d',
 };
 
 const LIBELLE: Record<string, { fr: string; en: string }> = {
@@ -274,7 +274,7 @@ export default function Cerveau(_props: ViewProps) {
         if (!p || !q) continue;
         const touche = actif === null || a.de === actif || a.vers === actif;
         ctx.globalAlpha = (touche ? 0.4 : 0.06) * Math.min(p.naissance, q.naissance);
-        ctx.strokeStyle = a.reciproque ? '#ffd166' : '#48607a';
+        ctx.strokeStyle = a.reciproque ? '#f6c445' : '#4a3c26';
         ctx.lineWidth = (a.reciproque ? 1.7 : 1.1) / vue.current.zoom;
         ctx.beginPath();
         ctx.moveTo(p.x, p.y);
@@ -310,7 +310,7 @@ export default function Cerveau(_props: ViewProps) {
         if (p.n.serviIlYaJours === null) {
           ctx.beginPath();
           ctx.arc(p.x, p.y, Math.max(1, r - 2.6), 0, Math.PI * 2);
-          ctx.fillStyle = '#0d1620';
+          ctx.fillStyle = '#14100b';
           ctx.fill();
         }
 
@@ -380,7 +380,7 @@ export default function Cerveau(_props: ViewProps) {
         ctx.lineWidth = 3 / vue.current.zoom;
         ctx.strokeStyle = 'rgba(6,12,18,0.94)';
         ctx.strokeText(mot, x, y);
-        ctx.fillStyle = '#e8f0f8';
+        ctx.fillStyle = '#f4eee0';
         ctx.fillText(mot, x, y);
       }
       ctx.restore();

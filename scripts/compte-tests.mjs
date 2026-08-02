@@ -76,6 +76,21 @@ export const CIBLES = [
     motif: /('badge\.tests': ')([\d  ,]+)( tests ✓')/,
     separateur: ',',
   },
+  // La présentation imprimable annonce le même compte, dans ses deux langues.
+  // Elle le porte SANS la coche de la vitrine : les motifs s'arrêtent donc à
+  // « tests », et ne peuvent pas mordre sur le fichier d'au-dessus.
+  {
+    nom: 'site/presentation/index.html (FR)',
+    fichier: 'site/presentation/index.html',
+    motif: /(data-i18n="badge\.tests"\s*>)([\d  ,]+)( tests<)/,
+    separateur: ' ',
+  },
+  {
+    nom: 'site/presentation/index.html (EN)',
+    fichier: 'site/presentation/index.html',
+    motif: /('badge\.tests': ')([\d  ,]+)( tests')/,
+    separateur: ',',
+  },
 ];
 
 /**

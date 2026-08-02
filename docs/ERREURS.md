@@ -1947,22 +1947,59 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 ## 9. Outils : ce qui ne marche pas comme on croit
 
-| geste                                  | ce qui se passe vraiment                                                                                                                                                                         |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `npm ci --omit=dev`                    | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)                                                                                                                          |
-| `npm ci` + dépendance optionnelle      | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                                                                                                                               |
-| `for … done` en shell                  | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5)                                                                                                                |
-| `npm config set node_gyp …`            | **refusé** par npm 10 : « not a valid npm option »                                                                                                                                               |
-| `npm_config_node_gyp=…`                | posé, visible dans l'environnement, **ignoré** par npm 10                                                                                                                                        |
-| `npm run loupe` avant `git commit`     | ne voit **pas** les fichiers non suivis — commiter d'abord                                                                                                                                       |
-| `sleep` en avant-plan                  | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`                                                                                                                    |
-| `pkill` en fin de chaîne `&&`          | fait échouer la chaîne (code 144) — l'isoler                                                                                                                                                     |
-| réf distante après reset sur `main`    | prend du retard : **pousser la branche** après chaque repositionnement                                                                                                                           |
-| `better-sqlite3` après bascule de Node | 424 tests rouges d'un coup sur `new Database()` : binaire compilé pour l'ancienne ABI (`NODE_MODULE_VERSION 127` ≠ `137`). `npm rebuild better-sqlite3` — **ce n'est pas le diff** (§ 5.2)       |
-| `npm install` sur un paquet déjà là    | **ne refait pas son binaire natif** : il voit la bonne version, ne touche à rien, rend 0. Sur une ABI qui ne correspond pas, seul `npm rebuild <pkg>` répare (§ 1.8)                             |
-| npm ≥ 11.17 (`allow-scripts`)          | **bloque les scripts d'installation par défaut** : `prebuild-install` ne tourne pas, le binaire natif n'arrive pas, et `npm install` sort quand même avec **0** si la dépendance est optionnelle |
+| geste                                   | ce qui se passe vraiment                                                                                                                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm ci --omit=dev`                     | lance quand même `prepare` — donc `tsc`, qu'il vient de retirer (§ 4.3)                                                                                                                              |
+| `npm ci` + dépendance optionnelle       | **sort avec 0** même si le paquet a échoué et a été retiré (§ 1.5)                                                                                                                                   |
+| `for … done` en shell                   | **sort avec 0** même si toutes les tentatives ont échoué — vérifier après (§ 1.5)                                                                                                                    |
+| `npm config set node_gyp …`             | **refusé** par npm 10 : « not a valid npm option »                                                                                                                                                   |
+| `npm_config_node_gyp=…`                 | posé, visible dans l'environnement, **ignoré** par npm 10                                                                                                                                            |
+| `npm run loupe` avant `git commit`      | ne voit **pas** les fichiers non suivis — commiter d'abord                                                                                                                                           |
+| `sleep` en avant-plan                   | **bloqué** ici — utiliser `curl --retry N --retry-delay 1 --retry-all-errors`                                                                                                                        |
+| `pkill` en fin de chaîne `&&`           | fait échouer la chaîne (code 144) — l'isoler                                                                                                                                                         |
+| réf distante après reset sur `main`     | prend du retard : **pousser la branche** après chaque repositionnement                                                                                                                               |
+| `better-sqlite3` après bascule de Node  | 424 tests rouges d'un coup sur `new Database()` : binaire compilé pour l'ancienne ABI (`NODE_MODULE_VERSION 127` ≠ `137`). `npm rebuild better-sqlite3` — **ce n'est pas le diff** (§ 5.2)           |
+| `npm install` sur un paquet déjà là     | **ne refait pas son binaire natif** : il voit la bonne version, ne touche à rien, rend 0. Sur une ABI qui ne correspond pas, seul `npm rebuild <pkg>` répare (§ 1.8)                                 |
+| npm ≥ 11.17 (`allow-scripts`)           | **bloque les scripts d'installation par défaut** : `prebuild-install` ne tourne pas, le binaire natif n'arrive pas, et `npm install` sort quand même avec **0** si la dépendance est optionnelle     |
+| `chrome --screenshot --window-size=L,H` | rend une image de **L×H**, mais le viewport de la page est plus petit : le chrome du navigateur est dans l'IMAGE et pas dans la mise en page. Le bandeau du bas n'appartient à personne (§ 9 sexies) |
 
 ---
+
+## 9 sexies. Une capture d'écran n'est pas une mesure
+
+Le tableau de bord venait de passer sur fond crème. Sur mes captures, la barre
+latérale s'arrêtait **85 px avant le bas** de l'image — un bandeau vide, très
+visible sur la crème là où le sombre l'avait toujours caché.
+
+J'ai voulu savoir si c'était réel. J'ai donc capturé une seconde fois, en
+1400×1200 : l'écart valait **90 px**. Constant. J'en ai conclu :
+
+> « Mesuré à deux hauteurs : l'écart est constant, **donc réel**, pas un
+> artefact de capture. »
+
+Et je l'ai écrit dans une pull request, comme un défaut à traiter.
+
+**Le raisonnement est retourné.** Un décalage qui ne bouge pas quand on change
+l'échelle, c'est la signature d'un **offset d'instrument** — pas celle d'un
+défaut de mise en page, qui aurait suivi la fenêtre. La constance désignait
+l'artefact ; j'y ai lu le contraire.
+
+La vraie mesure, prise dans le navigateur par le protocole de débogage :
+
+```
+fenêtre demandée 1400×900   →  innerHeight 760   ·  barre 0 → 760  ·  manque 0
+fenêtre demandée 1400×1200  →  innerHeight 1060  ·  barre 0 → 1060 ·  manque 0
+```
+
+`--window-size` décrit la FENÊTRE, chrome compris. Le viewport est plus petit,
+et l'image contient la différence. Le bandeau du bas n'était pas la page : il
+n'appartenait à rien du tout. **Il n'y avait aucun défaut.**
+
+> **Règle** — une capture répond à « est-ce que ça a l'air juste ? », jamais à
+> « quelle taille ça fait ». Un chiffre se prend dans le DOM
+> (`getBoundingClientRect`, `innerHeight`), pas au pixel sur une image. Et quand
+> deux échelles donnent le même écart, la première hypothèse est l'instrument,
+> pas le sujet.
 
 ## 9 bis. Deux chemins pour le même geste : le mieux soigné n'est pas le plus emprunté
 

@@ -32,6 +32,30 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🖨 Une présentation d'une page, faite pour le papier**
+  (`site/presentation/`). L'essentiel de Hive — installation par matériel, les
+  trois étapes, la sécurité et sa limite, les tarifs, le tableau de bord — dans
+  une feuille qu'on imprime ou qu'on enregistre en PDF. `@page` ne pose qu'une
+  **marge** : la pagination se fait sur le papier réel du lecteur, A4 ici,
+  Letter ailleurs — épingler 21 × 29,7 cm couperait la moitié du monde d'un
+  demi-pouce. La page hérite des gardes communes du site (bilinguisme, fontes
+  auto-hébergées, ressources livrées) parce qu'elle est entrée dans `PAGES` ;
+  deux gardes qui décrivaient un ORGANE que toutes les pages n'ont pas — un
+  formulaire d'issue, un en-tête collant — ont été filtrées sur la présence de
+  l'organe plutôt qu'exigées partout, avec un test qui vérifie que ces listes
+  ne sont pas vides (une garde qui se vide passe au vert sans rien regarder).
+  Et surtout : **les commandes imprimées sont confrontées à celles de la
+  vitrine**. Un document part sur papier, c'est-à-dire dans une main où plus
+  aucune correction ne le rattrape — une URL d'installeur qui change laisserait
+  traîner un PDF qui fait exécuter la mauvaise commande.
+
+- **💛 La vitrine dit enfin ce que ça coûte** (section `#tarifs`). Trois
+  offres — ruche auto-hébergée à 0 €, Queen hébergée à 49 €/mois, Rush dès
+  79 € — reprises de `docs/MODELE-ECONOMIQUE.md`, seule source de vérité du
+  dépôt, avec la mention que ce document porte lui-même : **modèle proposé,
+  aucun paiement encaissé aujourd'hui**. Annoncer un prix sans dire qu'il n'est
+  pas encore encaissable serait vendre du vent.
+
 - **📜 Le déploiement sans écran a son exemple, et il est EXERCÉ**
   (`examples/deploiement-sans-ecran.sh`). Le critère 9 demandait
   `--non-interactive`, les secrets par l'environnement et des codes de sortie
@@ -146,6 +170,36 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ⚠️ **Pièce DÉBRANCHÉE** : elle sait faire, rien ne l'appelle encore.
 
 ### Changed
+
+- **🍯 Mission Control passe au papier de cire.** Le tableau de bord était le
+  dernier écran resté sur l'identité sombre (`#130f09`) que la vitrine avait
+  quittée : ouvrir la ruche depuis le site, c'était changer de produit. Les
+  noms de jetons ne bougent pas — plusieurs centaines d'emplois les désignent —
+  seules les **valeurs** portent le changement, comme lors de la refonte de la
+  vitrine. La vraie difficulté était ailleurs : `--honey`, `--amber` et `--gold`
+  étaient des accents CLAIRS qui **portaient du texte** sur fond noir ; repris
+  tels quels sur une crème ils tombent à 2,4:1. Ils deviennent donc trois bruns
+  de miel, tous **≥ 4,5:1 sur chacune des quatre surfaces**, et le miel vif
+  passe dans `--miel`, qui remplit sans jamais porter de texte — deux rôles que
+  le fond noir permettait de confondre. La barre de navigation garde l'encre du
+  design (c'est de ce seul contraste que vient le côté « produit tech
+  premium ») et **s'élargit à 214 px** : treize vues aux noms proches — Ruche,
+  Rayon, Reine — se lisaient à la devinette sous une icône de 10 px. La vue
+  « Cerveau » **reste sombre** — son propre fichier explique pourquoi, des
+  points colorés ne se lisent pas sur du blanc — mais passe du bleu-nuit à
+  l'encre de la ruche. Les fontes sont celles de la vitrine, lues depuis
+  `site/fonts` par Vite : rien n'est dupliqué, rien n'est demandé à Google.
+
+- **🔗 Les liens du site n'étaient plus lisibles depuis la refonte.**
+  `a { color: var(--gold) }` posait le miel vif sur la crème : **2,4:1**, un
+  lien qu'on devine plutôt qu'on ne le lit. Le design écrit ses liens en miel
+  foncé (4,8:1), et c'est ce qu'on suit — sur la vitrine comme sur Rush. Au
+  passage : la vitrine **préchargeait encore Space Grotesk**, que plus aucune
+  règle ne demandait depuis la refonte — 22 ko en priorité haute, pour rien.
+
+- **🎨 La page Rush rejoint l'identité claire.** Elle était restée en sombre et
+  en Space Grotesk : cliquer « Voir les offres » depuis la vitrine changeait de
+  site. Mêmes jetons, mêmes fontes, mêmes liens que la vitrine.
 
 - **🔬 Le déroulé de l'accueil devient testable** (`src/installer-assistant.ts`).
   Il vivait dans `installer-main.ts`, **qui appelle `main()` à l'import** :

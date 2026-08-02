@@ -107,7 +107,7 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 8px 14px;
-  background: linear-gradient(90deg, rgba(229, 142, 38, 0.22), rgba(246, 185, 59, 0.08));
+  background: linear-gradient(90deg, rgba(224, 138, 20, 0.3), rgba(246, 196, 69, 0.16));
   border-bottom: 1px solid var(--border-2);
   color: var(--gold);
   font-weight: 600;

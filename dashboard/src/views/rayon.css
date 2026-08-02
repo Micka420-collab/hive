@@ -84,12 +84,12 @@
 }
 
 .ry-entree:hover {
-  background: var(--bg-3, rgba(255, 255, 255, 0.05));
+  background: var(--bg-3, rgba(27, 23, 18, 0.05));
 }
 
 .ry-entree.active {
-  background: rgba(255, 176, 32, 0.16);
-  color: var(--accent, #ffb020);
+  background: rgba(246, 196, 69, 0.4);
+  color: var(--accent, #9d5605);
 }
 
 .ry-icone {
@@ -167,7 +167,7 @@
 /* Un refus doit se VOIR. Un clic sans réaction laisse croire à une panne, et
    on recharge la page pour rien. */
 .ry-erreur {
-  color: var(--danger, #ff6b6b);
+  color: var(--danger, #a8402a);
   font-size: 13px;
 }
 
@@ -211,8 +211,8 @@
   font-size: 11px;
   padding: 2px 9px;
   border-radius: 999px;
-  border: 1px solid var(--accent, #ffb020);
-  color: var(--accent, #ffb020);
+  border: 1px solid var(--accent, #9d5605);
+  color: var(--accent, #9d5605);
 }
 
 .ry-retouche {
@@ -227,7 +227,7 @@
 .ry-note {
   flex: 1;
   min-width: 0;
-  background: var(--bg-1, #0d0d0f);
+  background: var(--bg-1, #fffdf8);
   color: var(--text-1);
   border: 1px solid var(--border-2);
   border-radius: 6px;
@@ -276,5 +276,5 @@
   min-height: 380px;
   width: 100%;
   border: 0;
-  background: #fff;
+  background: var(--panel);
 }

@@ -36,11 +36,15 @@
     <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
          va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
          Voir site/fonts/LICENSE.txt (SIL OFL 1.1) pour l'origine des fichiers. -->
+    <!-- On précharge la fonte de TITRE, celle du premier écran. Space Grotesk
+         était encore préchargée ici alors que plus aucune règle ne la
+         demandait depuis la refonte : 22 ko téléchargés en priorité haute,
+         pour rien, avant le reste de la page. -->
     <link
       rel="preload"
       as="font"
       type="font/woff2"
-      href="fonts/space-grotesk-latin-400-600-700.woff2"
+      href="fonts/bricolage-grotesque-latin-400-700.woff2"
       crossorigin
     />
     <link
@@ -184,11 +188,15 @@
         -webkit-font-smoothing: antialiased;
       }
       a {
-        color: var(--gold);
+        /* Le miel vif (`--gold`) posé sur la crème du fond, c'est 2,4:1 — un
+           lien qu'on devine plutôt qu'on ne le lit. Le design écrit ses liens
+           en miel FONCÉ (`--orange`, 4,8:1), et c'est ce qu'on suit ici. Le
+           miel vif garde ses emplois sur fond d'encre, où il porte. */
+        color: var(--orange);
         text-decoration: none;
       }
       a:hover {
-        color: var(--gold-2);
+        color: var(--text);
       }
       :focus-visible {
         outline: 2px solid var(--gold);
@@ -1297,6 +1305,182 @@
         color: var(--red);
       }
 
+      /* ── TARIFS ────────────────────────────────────────────────────────────
+         Trois offres, dont UNE en encre pleine. Le design ne distingue pas le
+         plan mis en avant par une bordure colorée mais par une INVERSION : la
+         carte passe en encre, le texte en crème. Sur une page claire c'est le
+         seul contraste qui tient sans crier, et il survit à l'impression en
+         noir et blanc — ce qu'un liseré miel ne fait pas.
+
+         Les chiffres viennent de `docs/MODELE-ECONOMIQUE.md`, pas d'une
+         maquette : ce document est la source, et il porte lui-même la mention
+         « modèle proposé, aucun paiement encaissé aujourd'hui ». La page la
+         répète (`.tarifs-note`) — annoncer un prix sans dire qu'il n'est pas
+         encore encaissable serait vendre du vent. */
+      .plans {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 262px), 1fr));
+        gap: 16px;
+        align-items: start;
+      }
+      .plan {
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-radius: 18px;
+        padding: clamp(21px, 3.6vw, 28px) clamp(19px, 3.4vw, 26px) clamp(23px, 3.8vw, 28px);
+        display: flex;
+        flex-direction: column;
+        transition:
+          transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+          box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .plan:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--ombre);
+      }
+      /* Le plan mis en avant : encre pleine, et TOUTES ses couleurs de texte
+         redéfinies d'un coup. Les redéclarer carte par carte laisserait tôt ou
+         tard un gris sombre sur fond sombre. */
+      .plan.encre {
+        background: var(--encre);
+        border-color: var(--encre);
+        box-shadow: 0 24px 50px -24px rgba(27, 23, 18, 0.5);
+        color: var(--panel);
+      }
+      .plan-tete {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .plan h3 {
+        margin: 0;
+        font-family: var(--titre);
+        font-size: clamp(20px, 4vw, 23px);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .plan .etiquette {
+        flex: none;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #f1e7d3;
+        color: var(--orange);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .plan.encre .etiquette {
+        background: var(--gold);
+        color: var(--encre);
+      }
+      .plan .prix {
+        margin: 16px 0 0;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .plan .prix b {
+        font-family: var(--titre);
+        font-size: clamp(34px, 7vw, 42px);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1;
+      }
+      .plan .prix span {
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .plan.encre .prix span {
+        color: #b5a991;
+      }
+      .plan .pitch {
+        margin: 9px 0 0;
+        font-size: 15px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .plan.encre .pitch {
+        color: #b5a991;
+      }
+      .plan ul {
+        margin: 20px 0 0;
+        padding: 18px 0 0;
+        border-top: 1px solid #ede4d2;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 11px;
+      }
+      .plan.encre ul {
+        border-top-color: rgba(246, 196, 69, 0.2);
+      }
+      .plan li {
+        display: flex;
+        gap: 11px;
+        align-items: flex-start;
+        font-size: 14.5px;
+        line-height: 1.45;
+        color: var(--blue);
+      }
+      .plan.encre li {
+        color: #e3d9c4;
+      }
+      /* L'alvéole en guise de puce : le même hexagone que le logo, à 9 px.
+         `aria-hidden` n'est pas nécessaire — c'est une bordure CSS, aucun
+         lecteur d'écran n'a jamais à l'énoncer. */
+      .plan li::before {
+        content: '';
+        flex: none;
+        margin-top: 5px;
+        width: 9px;
+        height: 10px;
+        background: var(--green);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+      }
+      .plan.encre li::before {
+        background: var(--gold);
+      }
+      /* Le bouton se colle en bas : trois cartes de hauteurs différentes
+         alignent quand même leurs actions. */
+      .plan .cta {
+        margin-top: auto;
+        padding-top: 22px;
+      }
+      .plan .cta a {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 13px 16px;
+        border-radius: 10px;
+        background: var(--encre);
+        color: var(--bg);
+        font-size: 14.5px;
+        font-weight: 700;
+        text-align: center;
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .plan .cta a:hover {
+        transform: translateY(-2px);
+        color: var(--bg);
+      }
+      .plan.encre .cta a {
+        background: var(--gold);
+        color: var(--encre);
+      }
+      .plan.encre .cta a:hover {
+        color: var(--encre);
+      }
+      .tarifs-note {
+        margin: 22px 0 0;
+        font-size: 13.5px;
+        color: var(--dim);
+        max-width: 720px;
+      }
+
       /* Get started */
       .term-grid {
         display: grid;
@@ -1730,6 +1914,7 @@
         <a href="#archi">Architecture</a>
         <a href="#mission">Mission Control</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
+        <a href="#tarifs" data-i18n="nav.pricing">Tarifs</a>
         <a href="#communaute" data-i18n="nav.community">Communauté</a>
         <a href="#raccourcis" data-i18n="nav.shortcuts">Raccourcis</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
@@ -1836,7 +2021,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--green)" data-i18n="badge.tests"
-              >2 923 tests ✓</span
+              >2 933 tests ✓</span
             >
             <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -2728,6 +2913,87 @@
       </p>
     </section>
 
+    <!-- ══ TARIFS ══════════════════════════════════════════════════════════
+         Placée APRÈS la sécurité, et pas avant : on ne demande pas d'argent à
+         quelqu'un à qui on n'a pas encore dit ce qui reste sur sa machine.
+         Les trois cartes reprennent la maquette ; les montants viennent de
+         `docs/MODELE-ECONOMIQUE.md` §5, seule source de vérité du dépôt. -->
+    <section id="tarifs" class="section">
+      <h2 class="kicker" data-i18n="pr.kicker">💛 Tarifs</h2>
+      <p class="headline" data-i18n="pr.headline">
+        Le logiciel est gratuit. Vous payez l'hébergement si vous voulez.
+      </p>
+      <div class="plans">
+        <article class="plan">
+          <div class="plan-tete">
+            <h3 data-i18n="pr.1.n">Sur vos machines</h3>
+            <span class="etiquette" data-i18n="pr.1.tag">Gratuit</span>
+          </div>
+          <p class="prix"><b>0 €</b><span data-i18n="pr.1.u">pour toujours</span></p>
+          <p class="pitch" data-i18n="pr.1.p">
+            Tout le logiciel, installé chez vous. Votre abonnement IA existant suffit.
+          </p>
+          <ul>
+            <li data-i18n="pr.1.f1">Projets et ordinateurs illimités</li>
+            <li data-i18n="pr.1.f2">Toutes les fonctions, sans exception</li>
+            <li data-i18n="pr.1.f3">Aucune clé d'API à fournir</li>
+            <li data-i18n="pr.1.f4">Licence MIT</li>
+          </ul>
+          <p class="cta"><a href="#demarrer" data-i18n="pr.1.cta">Installer</a></p>
+        </article>
+
+        <article class="plan encre">
+          <div class="plan-tete">
+            <h3 data-i18n="pr.2.n">Queen hébergée</h3>
+            <span class="etiquette" data-i18n="pr.2.tag">Populaire</span>
+          </div>
+          <p class="prix"><b>49 €</b><span data-i18n="pr.2.u">/ mois</span></p>
+          <p class="pitch" data-i18n="pr.2.p">
+            On garde l'orchestrateur allumé, vous gardez le code. Vos nœuds restent les vôtres.
+          </p>
+          <ul>
+            <li data-i18n="pr.2.f1">Orchestrateur géré et surveillé</li>
+            <li data-i18n="pr.2.f2">Sauvegardes de la base de la ruche</li>
+            <li data-i18n="pr.2.f3">Invitations et jetons de membre</li>
+            <li data-i18n="pr.2.f4">Vos clés d'API restent chez vous</li>
+          </ul>
+          <p class="cta"><a href="rush/" data-i18n="pr.2.cta">En savoir plus</a></p>
+        </article>
+
+        <article class="plan">
+          <div class="plan-tete">
+            <h3 data-i18n="pr.3.n">Rush</h3>
+            <span class="etiquette" data-i18n="pr.3.tag">Sur devis</span>
+          </div>
+          <p class="prix">
+            <b data-i18n="pr.3.v">dès 79 €</b><span data-i18n="pr.3.u">par objectif</span>
+          </p>
+          <p class="pitch" data-i18n="pr.3.p">
+            Pas de machine à prêter ? Vous achetez un plafond d'heures-ouvrières, exécuté sur nos
+            nœuds, sur votre dépôt.
+          </p>
+          <ul>
+            <li data-i18n="pr.3.f1">Un devis fondé sur l'historique réel</li>
+            <li data-i18n="pr.3.f2">Un plafond d'heures, jamais dépassé</li>
+            <li data-i18n="pr.3.f3">Des pull requests sur votre dépôt</li>
+            <li data-i18n="pr.3.f4">Éclaireuse, Essaim ou Colonie</li>
+          </ul>
+          <p class="cta"><a href="rush/" data-i18n="pr.3.cta">Voir les offres</a></p>
+        </article>
+      </div>
+      <p class="tarifs-note" data-i18n="pr.note">
+        Les deux offres payantes sont un <strong>modèle proposé</strong> : aucun paiement n'est
+        encaissé aujourd'hui. Le détail du calcul, hypothèses de coût comprises, est public dans
+        <a
+          href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
+          target="_blank"
+          rel="noopener"
+          >docs/MODELE-ECONOMIQUE.md</a
+        >. La ruche auto-hébergée, elle, restera gratuite : aucune fonction du noyau n'est retenue
+        derrière un mur.
+      </p>
+    </section>
+
     <section id="communaute" class="section">
       <h2 class="kicker" data-i18n="co.kicker">🤝 La communauté</h2>
       <p class="headline" data-i18n="co.headline">
@@ -3077,6 +3343,7 @@
 
     <footer>
       <div class="links">
+        <a href="presentation/" data-i18n="footer.presentation">Présentation à imprimer</a>
         <a href="https://github.com/Micka420-collab/hive" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/Micka420-collab/hive#readme" target="_blank" rel="noopener"
           >Documentation</a
@@ -3105,7 +3372,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,923 tests ✓',
+          'badge.tests': '2,933 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -3261,6 +3528,41 @@
           'nav.community': 'Community',
           'nav.shortcuts': 'Shortcuts',
           'nav.rush': 'Rush',
+          'nav.pricing': 'Pricing',
+          'pr.kicker': '💛 Pricing',
+          'pr.headline': 'The software is free. You pay for hosting only if you want to.',
+          'pr.1.n': 'On your machines',
+          'pr.1.tag': 'Free',
+          'pr.1.u': 'forever',
+          'pr.1.p':
+            'The whole software, installed at your place. Your existing AI subscription is enough.',
+          'pr.1.f1': 'Unlimited projects and computers',
+          'pr.1.f2': 'Every feature, no exception',
+          'pr.1.f3': 'No API key to hand over',
+          'pr.1.f4': 'MIT licence',
+          'pr.1.cta': 'Install',
+          'pr.2.n': 'Hosted Queen',
+          'pr.2.tag': 'Popular',
+          'pr.2.u': '/ month',
+          'pr.2.p': 'We keep the orchestrator running, you keep the code. Your nodes stay yours.',
+          'pr.2.f1': 'Managed, monitored orchestrator',
+          'pr.2.f2': 'Backups of the hive database',
+          'pr.2.f3': 'Invitations and member tokens',
+          'pr.2.f4': 'Your API keys stay with you',
+          'pr.2.cta': 'Learn more',
+          'pr.3.n': 'Rush',
+          'pr.3.tag': 'On quote',
+          'pr.3.v': 'from €79',
+          'pr.3.u': 'per goal',
+          'pr.3.p':
+            'No machine to lend? You buy a cap of worker-hours, run on our nodes, on your repository.',
+          'pr.3.f1': 'A quote based on real history',
+          'pr.3.f2': 'An hour cap, never exceeded',
+          'pr.3.f3': 'Pull requests on your repository',
+          'pr.3.f4': 'Scout, Swarm or Colony',
+          'pr.3.cta': 'See the offers',
+          'pr.note':
+            'Both paid offers are a <strong>proposed model</strong>: no payment is taken today. The full computation, cost assumptions included, is public in <a href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md" target="_blank" rel="noopener">docs/MODELE-ECONOMIQUE.md</a>. The self-hosted hive itself will stay free: no core feature is held behind a wall.',
           'co.cloud.lien': 'See the offers and the economic model →',
           'co.kicker': '\u{1F91D} The community',
           'co.headline': 'Propose a project. The hive discusses it. Members take it on.',
@@ -3347,6 +3649,7 @@
             'The Comb (the project’s code, read in full, the Queen’s editor included) · the Preview (see what the AI builds, not just its diff) · read-only sharing over the tunnel · division of labour and the Council of Scouts · environment preparation.',
           'rm.next.d':
             'Hive federation · a sandbox that bounds the network too · per-member permissions, so the shared token stops being the only door (ADR 0007).',
+          'footer.presentation': 'Printable one-pager',
           'footer.mit': 'MIT License',
           'footer.made': 'Made with 🍯 — every worker counts.',
         };

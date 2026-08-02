@@ -95,8 +95,8 @@
 }
 
 .ch-lancer {
-  background: var(--amber);
-  color: #1a1205;
+  background: var(--miel-2);
+  color: var(--encre);
   border: none;
   border-radius: 6px;
   padding: 6px 14px;
@@ -135,7 +135,7 @@
   margin-top: 14px;
   padding: 10px 12px;
   border-left: 3px solid var(--border-2);
-  background: rgb(255 255 255 / 3%);
+  background: rgb(27 23 18 / 4%);
   border-radius: 0 8px 8px 0;
 }
 
@@ -157,7 +157,7 @@
 .ch-sortie {
   margin: 8px 0 0;
   padding: 8px 10px;
-  background: rgb(0 0 0 / 25%);
+  background: rgb(27 23 18 / 6%);
   border-radius: 6px;
   font-family: var(--mono);
   font-size: 0.76rem;
