@@ -578,6 +578,34 @@
         h1 {
           font-size: 30px;
         }
+        /* Les quatre commandes de la barre — retour, FR, EN, imprimer —
+           faisaient 20 à 34 px de haut. La barre n'est pas le document : elle
+           disparaît à l'impression, elle n'a donc aucune raison d'emprunter la
+           densité d'une feuille A4. */
+        .barre a,
+        .barre button {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 44px;
+        }
+        /* LE CORPS RESTE DENSE, ET C'EST VOULU. À 11 px sur papier on lit très
+           bien ; sur un téléphone, non. Mais ce document EST une feuille — la
+           grossir romprait la mise en page d'une page A4, qui est sa raison
+           d'être. On relève donc seulement ce qui se lit vraiment en continu,
+           et on laisse les étiquettes à leur densité d'impression. */
+        .entete .sous,
+        .cmds .cmd .quoi,
+        .cmds .cmd code,
+        .note {
+          font-size: 12.5px;
+        }
+        /* Un titre de section à 11 px annonçait un corps de texte à 13 : la
+           hiérarchie s'inversait. Sur papier la densité le rattrape, sur un
+           téléphone non. */
+        h2.kicker {
+          font-size: 13px;
+        }
       }
 
       @media print {
@@ -635,7 +663,7 @@
 
       <div class="jetons">
         <span class="jeton" data-i18n="jeton.mit">Gratuit · MIT</span>
-        <span class="jeton" data-i18n="badge.tests">2 960 tests</span>
+        <span class="jeton" data-i18n="badge.tests">2 972 tests</span>
         <span class="jeton" data-i18n="jeton.machines">Sur vos machines</span>
         <span class="jeton vert" data-i18n="jeton.cle">Aucune clé d'API</span>
       </div>
@@ -801,7 +829,7 @@
           chapo:
             'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result to approve. Nothing is merged without your say-so — your code and your keys stay on your machines.',
           'jeton.mit': 'Free · MIT',
-          'badge.tests': '2,960 tests',
+          'badge.tests': '2,972 tests',
           'jeton.machines': 'On your machines',
           'jeton.cle': 'No API key',
           'inst.titre': 'Install — pick your hardware',

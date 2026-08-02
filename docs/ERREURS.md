@@ -2470,6 +2470,75 @@ c'est en général la seconde qui a tort.
 
 ---
 
+## 2 septies. Une garde trop large accuse le juste — deux fois dans la journée
+
+Le même piège, deux fois, à quelques heures d'écart. Il vaut d'être nommé.
+
+**Premier tour.** « Tout `var(--x)` doit viser un jeton déclaré. » La garde a
+rougi sur `--h-entete`, que le script publie à l'exécution et que le CSS lit en
+`var(--h-entete, 72px)`. Du code parfaitement correct.
+
+**Second tour.** « Aucune `min-width` figée au-delà de 280 px. » La garde a rougi
+sur `table { min-width: 560px }` dans la page Rush — un tableau de chiffres qui
+défile dans un cadre à `overflow-x: auto`, deux règles plus haut. Du code
+parfaitement correct, et le bon motif.
+
+Dans les deux cas la formulation fautive est la même : **une interdiction sèche
+là où la propriété réelle est conditionnelle.**
+
+| ce que j'avais écrit              | ce qui est vrai                                  |
+| --------------------------------- | ------------------------------------------------ |
+| aucun `var()` sur un jeton absent | aucun `var()` **sans repli** sur un jeton absent |
+| aucune `min-width` au-delà de 280 | aucune **qui ne dise où elle défile**            |
+
+**Pourquoi ça compte plus qu'un test à réécrire.** Une garde qui accuse du code
+correct ne survit pas trois semaines : on l'assouplit sans regarder, ou on la
+supprime. Le coût ne se paie pas le jour où on l'écrit — il se paie le jour où
+quelqu'un la désactive, et emporte au passage les vrais cas qu'elle tenait.
+
+Le geste qui les a trouvées toutes les deux est le même : **lancer la garde
+neuve sur le dépôt tel quel avant de croire qu'elle a raison.** Un rouge au
+premier essai n'est pas forcément un défaut trouvé ; c'est une question posée à
+la règle qu'on vient d'écrire.
+
+### 2septies.1 — Et une garde trop lâche à côté, sur le même lot
+
+Symétrique, trouvé par la loupe. La règle voulait vérifier que `nav.main a`
+figure bien parmi les cibles portées à 44 px. Elle cherchait `nav.main a` **dans
+toute la requête média**.
+
+Or le sélecteur y apparaît trois fois : le défilement par à-coups, le
+rembourrage, et la règle des 44 px. Retiré de la troisième, il survivait dans
+les deux autres — garde verte, dix liens de navigation revenus à 21 px de haut.
+
+C'est mot pour mot le piège du § 2 quater (un repère textuel que le commentaire
+contient aussi), sur un autre matériau. La correction est la même : **chercher
+dans la RÈGLE qui porte la propriété**, jamais dans le fichier.
+
+---
+
+## 9 septies. Un test qui lit du texte ne doit pas mettre sept secondes
+
+Les deux gardes de grille prenaient **7 s par page, 21 s au total**, pour lire
+du CSS. Deux causes, cumulées :
+
+1. `describe.each(PAGES)` **et** une boucle sur `PAGES` à l'intérieur : neuf
+   passages là où trois suffisaient. Le `each` fournit déjà la page — la boucle
+   était un reste de la version écrite avant lui.
+2. La regex `([^{}]+)\{([^{}]*)\}` balayait la page ENTIÈRE, script compris.
+   Un fichier de 200 ko dont la moitié est du JavaScript plein d'accolades fait
+   exploser le retour arrière sur un préfixe libre.
+
+Corrigé en isolant d'abord `<style>` — la garde ne parle que de CSS, elle n'a
+aucune raison de lire le script — et en laissant `each` faire son travail.
+**22 s → 0,45 s**, même propriété tenue.
+
+La leçon générale : un test lent n'est pas seulement lent, il est _suspect_. Ces
+sept secondes disaient que la garde lisait bien plus large que ce qu'elle
+prétendait vérifier — et c'était vrai.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait

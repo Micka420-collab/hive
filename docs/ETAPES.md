@@ -866,6 +866,51 @@ active. Journal § 2 ter.
 
 ---
 
+## Le téléphone, mesuré à cinq largeurs
+
+Trois défauts, aucun visible à l'écran. C'est le point commun : ils ne se
+trouvent qu'en lisant des BOÎTES — `getBoundingClientRect`, `scrollWidth`,
+`getComputedStyle` — à 320, 360, 390, 414 et 430 px de large.
+
+**1. Un plancher de grille poussait la page hors cadre.**
+`repeat(auto-fit, minmax(320px, 1fr))` : à 320 px moins les marges, la colonne
+ne peut pas rétrécir. Le document débordait de 18 px. **Neuf grilles** avaient
+le même plancher, sur les trois pages ; deux seulement employaient déjà le bon
+idiome, `minmax(min(100%, …), 1fr)` — qui vaut exactement la même chose tant
+qu'il y a la place, et cède quand il n'y en a plus.
+
+**2. Les cibles tactiles étaient à moitié trop petites.**
+Mesuré : les dix liens de navigation à **21 px de haut**, le bouton GitHub 36,
+le bouton « copier » 38, les onglets de l'aperçu 28, les liens de pied de page
+22, le champ d'adresse 35, les dépliants du Rush 25. Apple, Google et le WCAG
+2.5.5 demandent 44. Vingt-et-un pixels, c'est la hauteur d'une ligne de texte :
+le doigt qui vise « Sécurité » touche « Tarifs ».
+
+**3. L'en-tête mangeait 22 % du premier écran.**
+177 px sur **trois rangs** à 320 et 360 px de large. La maquette, elle, tient en
+65 px — mais en repliant toute sa navigation derrière un bouton. On ne la suit
+pas jusque-là (un menu replié demande un geste de plus), on lui prend seulement
+la contrainte : un rang pour la marque et ses commandes. Le mot « GitHub » y
+suffisait — et le compteur d'étoiles le RALLONGEAIT encore à l'arrivée. Le
+libellé est découpé en trois nœuds pour que le mot puisse tomber au CSS sans que
+le lien perde son nom accessible. **177 px → 121 px.**
+
+Ce qui reste petit et ne bougera pas : l'intérieur de l'aperçu (10–12 px) et les
+étiquettes du dessin de l'essaim (9–10 px). Ce sont des MINIATURES — un modèle
+réduit d'écran se lit comme une photographie. Les agrandir ne les rendrait pas
+lisibles, ça les ferait déborder de leur cadre.
+
+**Onze mutations, onze rouges** — dont un survivant corrigé en cours de route :
+la garde qui cherchait `nav.main a` dans toute la requête média restait verte
+alors que le sélecteur avait été retiré de la règle des 44 px, parce qu'il
+figure aussi dans deux règles voisines. Voir § 2septies.1 du journal.
+
+Deux erreurs de ma part, consignées : une garde neuve accusant du code correct
+(§ 2 septies) et deux tests à 7 s qui lisaient bien plus large qu'ils ne le
+prétendaient (§ 9 septies).
+
+---
+
 ## La vraie échelle de la maquette — mesurée, pas approchée
 
 La demande était de reprendre le design de la maquette pour de bon. Ma première
