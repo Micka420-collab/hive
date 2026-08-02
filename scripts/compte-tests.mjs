@@ -102,8 +102,22 @@ export function verdict(reel, badges) {
 
 export const READMES = ['README.md', 'README.en.md'];
 
-/** Le geste impur : lire, décider, écrire ou refuser. */
-function principal(argv, racine, ecrire, sortir) {
+/**
+ * Le geste impur : lire, décider, écrire ou refuser.
+ *
+ * ─── POURQUOI IL EST EXPORTÉ ─────────────────────────────────────────────────
+ *
+ * Première version : `principal` était privée, et les fonctions pures
+ * au-dessus étaient testées seules. La loupe a rendu **trois survivants**, tous
+ * ici — l'absence d'argument, la porte de `--corriger`, et la garde du point
+ * d'entrée. Trois branches que rien n'exerçait, dans la seule partie du fichier
+ * qui ÉCRIT dans des fichiers.
+ *
+ * Ses quatre effets sont déjà des paramètres (racine, écriture, sortie). Il n'y
+ * avait donc rien à découper : il suffisait de l'exposer. « Impur » ne veut pas
+ * dire « intestable » — ça veut dire « dont les effets se passent en argument ».
+ */
+export function principal(argv, racine, ecrire, sortir) {
   const corriger = argv.includes('--corriger');
   const chemin = argv.find((a) => !a.startsWith('--'));
   if (chemin === undefined) {
