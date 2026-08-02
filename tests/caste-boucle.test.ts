@@ -50,7 +50,25 @@ const diffDe = (n: number): string =>
     '',
   ].join('\n');
 
-describe('de la production réelle à la caste, puis au cadre', () => {
+// ─── LE SEUL FICHIER OÙ L'ORDRE EST LE SUJET ─────────────────────────────────
+//
+// `shuffle: false` déclare à vitest que cette suite est une TRAJECTOIRE, pas
+// quatre vérifications indépendantes : une nourrice monte bâtisseuse sur ses
+// productions, puis reperd la caste sur des productions creuses. Chaque test
+// est un instant de cette courbe ; les jouer dans le désordre, c'est demander
+// à la caste de descendre avant d'être montée.
+//
+// C'EST UNE PORTE DÉROBÉE, ET ELLE DOIT LE RESTER. Partout ailleurs, un test
+// qui dépendait de son voisin a été rendu autonome — c'est le geste par
+// défaut, et il n'a presque rien coûté. Ici il coûterait de reconstruire un
+// corpus de SEUIL_BATISSEUSE tours à chaque test, sur un fichier qui budgète
+// déjà 90 s, pour vérifier trois fois la même montée.
+//
+// `tests/ordre-declare.test.ts` tient la liste des suites autorisées à cette
+// exemption, et rougit dès qu'une nouvelle apparaît sans être justifiée. Sans
+// ce garde-fou, `shuffle: false` deviendrait la manière commode de faire taire
+// un couplage accidentel — exactement ce que ce lot vient de corriger.
+describe('de la production réelle à la caste, puis au cadre', { shuffle: false }, () => {
   let server: HiveServer;
   let dir: string;
   let ws: WebSocket;
