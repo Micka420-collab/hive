@@ -1396,3 +1396,89 @@ describe('site vitrine — la lisibilité du panneau de l’essaim', () => {
     }
   });
 });
+
+// ─── LA SECTION QUE LA PAGE N'AVAIT PAS ──────────────────────────────────────
+//
+// « Comment ça marche » est la section CENTRALE de la maquette, et la seule que
+// cette page n'avait pas du tout. Elle listait vingt-trois fonctions à quelqu'un
+// qui ne savait pas encore ce que la ruche FAIT : elle répondait « avec quoi ? »
+// avant d'avoir répondu « comment ? ».
+//
+// Les valeurs sont relevées au DOM de la maquette rendue, pas approchées :
+// trois colonnes (374,656 px à 1440), rayon 16 px, remplissage 30/28.
+describe('site vitrine — comment ça marche', () => {
+  const section = /<section id="etapes"[\s\S]*?<\/section>/.exec(vitrine)?.[0] ?? '';
+  const etapes = [...section.matchAll(/<article class="etape">([\s\S]*?)<\/article>/g)].map(
+    (m) => m[1] ?? '',
+  );
+
+  it('LA SECTION EXISTE, ET ELLE PRÉCÈDE LA LISTE DES FONCTIONS', () => {
+    // L'ordre EST le propos : on dit ce que ça fait avant de dire avec quoi.
+    expect(section, 'section « comment ça marche » introuvable').not.toBe('');
+    const iEtapes = vitrine.indexOf('<section id="etapes"');
+    const iFeat = vitrine.indexOf('<section id="features"');
+    expect(iFeat, 'section des fonctions introuvable').toBeGreaterThan(-1);
+    expect(iEtapes, 'les étapes passent APRÈS la liste des fonctions').toBeLessThan(iFeat);
+  });
+
+  it('IL Y A TROIS ÉTAPES, NUMÉROTÉES DANS L’ORDRE', () => {
+    expect(etapes.length, 'la maquette en compte trois').toBe(3);
+    const nums = etapes.map((e) => /class="etape-n"[^>]*>([^<]+)</.exec(e)?.[1]?.trim());
+    expect(nums, 'numérotation désordonnée').toEqual(['01', '02', '03']);
+  });
+
+  it('CHAQUE ÉTAPE A SON TITRE ET SA PHRASE, dans les deux langues', () => {
+    const dico = dictionnaireEn(vitrine);
+    for (const [i, e] of etapes.entries()) {
+      expect(e, `étape ${i + 1} sans titre`).toMatch(/<h3[^>]*>/);
+      const cles = [...e.matchAll(/data-i18n="(et\.[\w.]+)"/g)].map((m) => m[1] ?? '');
+      expect(cles.length, `étape ${i + 1} : titre ou phrase non traduisible`).toBe(2);
+      for (const c of cles) {
+        expect(dico, `${c} sans traduction anglaise`).toContain(`'${c}'`);
+      }
+    }
+  });
+
+  it('LA TROISIÈME ÉTAPE PORTE LA PROMESSE QUI TIENT TOUT LE RESTE', () => {
+    // « Rien ne passe sans votre accord » n'est pas de la copie : c'est la
+    // propriété que la sécurité, la Miellerie et les Gardiennes garantissent
+    // plus bas. Si la phrase disparaît, la page promet moins que le produit.
+    const troisieme = etapes[2] ?? '';
+    expect(troisieme).toMatch(/sans votre accord/);
+    expect(dictionnaireEn(vitrine)).toMatch(/without your say-so/);
+  });
+});
+
+describe('site vitrine — la bande d’appel', () => {
+  const bande = /<section class="appel">[\s\S]*?<\/section>/.exec(vitrine)?.[0] ?? '';
+
+  it('ELLE EXISTE, ET ELLE EST LA DERNIÈRE CHOSE AVANT LE PIED DE PAGE', () => {
+    // La page se terminait sur une frise de paliers livrés — de l'histoire, pas
+    // une invitation. La maquette met là son seul appel à l'action.
+    expect(bande, 'bande d’appel introuvable').not.toBe('');
+    const iBande = vitrine.indexOf('<section class="appel">');
+    const iPied = vitrine.indexOf('<footer>');
+    expect(iBande).toBeLessThan(iPied);
+    const entre = vitrine.slice(iBande + bande.length, iPied);
+    expect(entre, 'une section s’est glissée entre l’appel et le pied').not.toMatch(/<section/);
+  });
+
+  it('ELLE A SON PROPRE APLAT, sans quoi ce serait une section de plus', () => {
+    const regle = /\.appel \{([^}]*)\}/.exec(vitrine)?.[1] ?? '';
+    expect(regle, 'règle .appel introuvable').not.toBe('');
+    expect(regle, 'la bande est au ton du corps : elle ne se détache plus').toMatch(
+      /background:\s*var\(--chip\)/,
+    );
+  });
+
+  it('ELLE MÈNE QUELQUE PART', () => {
+    const liens = [...bande.matchAll(/href="([^"]+)"/g)].map((m) => m[1] ?? '');
+    expect(liens.length, 'un appel à l’action sans action').toBeGreaterThanOrEqual(2);
+    const sections = new Set(
+      [...vitrine.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1] ?? ''),
+    );
+    for (const h of liens.filter((x) => x.startsWith('#'))) {
+      expect(sections.has(h.slice(1)), `ancre morte dans la bande d’appel : ${h}`).toBe(true);
+    }
+  });
+});

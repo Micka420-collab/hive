@@ -934,6 +934,45 @@ active. Journal § 2 ter.
 
 ---
 
+## « Comment ça marche » — la section que la page n’avait pas
+
+L'archive du redesign contenait la SOURCE de la maquette (`Hive.dc.html`), pas
+seulement son bundle. Elle a rendu visible ce qu'aucune lecture du rendu ne
+m'avait montré : **la page listait vingt-trois fonctions à quelqu'un qui ne
+savait pas encore ce que la ruche fait.** Elle répondait « avec quoi ? » avant
+d'avoir répondu « comment ? ».
+
+Trois étapes, reprises au mot près, et la troisième porte la promesse que tout
+le reste garantit : _« Chaque résultat s'arrête devant vous. Vous lisez, vous
+validez ou vous refusez. Rien ne passe sans votre accord. »_
+
+Valeurs relevées au DOM de la maquette, et obtenues à l'identique après coup :
+grille **374,656 px × 3** à 1440, rayon **16 px**, remplissage **30/28**, fond
+`--panel`, liseré `--border-2`.
+
+**Et la bande d'appel finale**, sur son propre aplat (`--chip`, mesuré à
+rgb(239,231,215)). La page se terminait sur une frise de paliers livrés — de
+l'histoire, pas une invitation. La maquette met là son seul appel à l'action, et
+c'est le moment où quelqu'un qui a tout lu a fait défiler très loin du haut.
+
+Sept mutations, sept rouges.
+
+### Ce qui reste entre cette page et la maquette
+
+Deux écarts, tous deux SOUSTRACTIFS — c'est-à-dire qu'ils demandent de retirer,
+pas d'ajouter, et que ce n'est pas à moi de trancher :
+
+1. **La navigation.** La maquette a **trois liens** (Comment ça marche,
+   Sécurité, Tarifs) plus un bouton « Ouvrir la ruche », et un menu replié sur
+   téléphone. Cette page en a dix.
+2. **La longueur.** La maquette tient en **7 sections et 3 865 px** ; cette page
+   en fait 13 et ~11 400. Les six sections que la maquette n'a pas —
+   architecture, Mission Control, communauté, raccourcis, roadmap, et la liste
+   des fonctions — ont toutes été demandées et construites. Les retirer est une
+   décision de produit.
+
+---
+
 ## Le panneau de l’essaim : six étiquettes sur dix étaient illisibles
 
 C'est la première image de la page — la preuve visuelle que la ruche fait

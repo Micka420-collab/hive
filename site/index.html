@@ -1839,6 +1839,41 @@
         font-size: 14px;
       }
 
+      /* ── LA BANDE D'APPEL ───────────────────────────────────────────────────
+         Son aplat est ce qui la fait exister : posée au ton du corps, elle
+         serait une section de plus qu'on survole. `--chip` la détache sans
+         crier — c'est exactement ce que fait la maquette, mesuré à
+         rgb(239,231,215). */
+      .appel {
+        background: var(--chip);
+        border-top: 1px solid var(--border);
+      }
+      .appel-dedans {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: clamp(48px, 7vw, 88px) clamp(18px, 4vw, 40px);
+        text-align: center;
+      }
+      .appel .headline {
+        margin: 0 auto;
+        max-width: 20ch;
+      }
+      .appel-p {
+        margin: 18px auto 0;
+        max-width: 62ch;
+        font-size: clamp(15px, 3vw, 18.5px);
+        line-height: 1.55;
+        color: var(--blue);
+        text-wrap: pretty;
+      }
+      .appel-actions {
+        margin-top: 28px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+      }
+
       /* ── LE PIED DE PAGE ────────────────────────────────────────────────────
          Relevé dans la maquette rendue : marque + promesse à gauche, trois
          colonnes nommées à droite, barre du bas séparée. Ses valeurs, lues au
@@ -2075,6 +2110,50 @@
         to {
           transform: rotate(360deg);
         }
+      }
+
+      /* ── LES TROIS ÉTAPES ───────────────────────────────────────────────────
+         Valeurs relevées au DOM de la maquette : trois colonnes de 375 px,
+         cartes à 16 px de rayon, remplissage 30 px / 28 px, fond `--panel`,
+         liseré `--border-2`. Le numéro est en chasse fixe, discret : c'est un
+         REPÈRE de lecture, pas un titre — le titre, c'est la phrase. */
+      .etapes {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+        gap: 18px;
+      }
+      .etape {
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-radius: 16px;
+        padding: 30px 28px;
+        transition:
+          transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+          box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .etape:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--ombre);
+      }
+      .etape-n {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--orange);
+      }
+      .etape h3 {
+        margin: 12px 0 0;
+        font-size: clamp(19px, 3.6vw, 24px);
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1.15;
+      }
+      .etape p {
+        margin: 10px 0 0;
+        font-size: 15.5px;
+        line-height: 1.55;
+        color: var(--blue);
+        text-wrap: pretty;
       }
 
       /* ── VINGT-TROIS CARTES, ET PERSONNE POUR LES LIRE ──────────────────────
@@ -2666,7 +2745,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >2 990 tests ✓</span
+              >2 997 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -3123,6 +3202,46 @@
       <p class="sr-only" data-i18n="agents.liste">
         Agents pris en charge : Claude Code, Codex, Grok, Hermes, ou le vôtre par HIVE_AGENT_CMD.
       </p>
+    </section>
+
+    <!-- ══ COMMENT ÇA MARCHE ═══════════════════════════════════════════════
+         La section CENTRALE de la maquette, et la seule que cette page n'avait
+         pas du tout. Elle listait vingt-trois fonctions à quelqu'un qui ne
+         savait pas encore ce que la ruche FAIT — c'est-à-dire qu'elle répondait
+         « avec quoi ? » avant d'avoir répondu « comment ? ».
+
+         Trois étapes, et la troisième est la promesse : rien ne passe sans
+         vous. Les textes sont ceux de la maquette, au mot près ; les valeurs
+         aussi (rayon 16 px, remplissage 30/28, trois colonnes de 375 px). -->
+    <section id="etapes" class="section">
+      <p class="kicker" data-i18n="et.kicker">Comment ça marche</p>
+      <h2 class="headline" data-i18n="et.headline">Trois étapes, et vous gardez la main.</h2>
+      <div class="etapes">
+        <article class="etape">
+          <span class="etape-n" aria-hidden="true">01</span>
+          <h3 data-i18n="et.etape1.t">Vous décrivez le projet</h3>
+          <p data-i18n="et.etape1.p">
+            Quelques phrases suffisent. Hive vous propose une liste de tâches ordonnées — vous la
+            corrigez avant de lancer.
+          </p>
+        </article>
+        <article class="etape">
+          <span class="etape-n" aria-hidden="true">02</span>
+          <h3 data-i18n="et.etape2.t">Les IA travaillent en parallèle</h3>
+          <p data-i18n="et.etape2.p">
+            Chaque tâche part sur l’ordinateur d’un membre, qui fait tourner son IA dans un dossier
+            isolé. Vous voyez l’avancement en direct.
+          </p>
+        </article>
+        <article class="etape">
+          <span class="etape-n" aria-hidden="true">03</span>
+          <h3 data-i18n="et.etape3.t">Vous validez, puis ça fusionne</h3>
+          <p data-i18n="et.etape3.p">
+            Chaque résultat s’arrête devant vous. Vous lisez, vous validez ou vous refusez. Rien ne
+            passe sans votre accord.
+          </p>
+        </article>
+      </div>
     </section>
 
     <section id="features" class="section">
@@ -4311,6 +4430,35 @@
       </div>
     </section>
 
+    <!-- ══ LA BANDE D'APPEL ═════════════════════════════════════════════════
+         La maquette la pose juste avant le pied de page, sur son propre aplat
+         (`--chip`, relevé à rgb(239,231,215)), 416 px de haut. C'est la seule
+         section de sa page qui ne fait qu'une chose : redonner la commande à
+         quelqu'un qui vient de tout lire et qui a fait défiler loin du haut.
+
+         Sans elle, la page se terminait sur une frise de paliers livrés — de
+         l'histoire, pas une invitation. -->
+    <section class="appel">
+      <div class="appel-dedans">
+        <h2 class="headline" data-i18n="ap.headline">Essayez en une commande.</h2>
+        <p class="appel-p" data-i18n="ap.p">
+          Le script installe tout et pose trois questions au maximum. Ajoutez
+          <code class="inline">--dry-run</code> pour voir ce qu'il ferait sans rien créer.
+        </p>
+        <div class="appel-actions">
+          <a class="btn primary" href="#demarrer" data-i18n="ap.cta1">Voir les commandes</a>
+          <a
+            class="btn ghost"
+            href="https://github.com/Micka420-collab/hive/blob/main/docs/INSTALLATION.md"
+            target="_blank"
+            rel="noopener"
+            data-i18n="ap.cta2"
+            >Guide d'installation</a
+          >
+        </div>
+      </div>
+    </section>
+
     <!-- ══ LE PIED DE PAGE ══════════════════════════════════════════════════
          Il n'y avait ici que quatre liens en ligne. La maquette en fait un
          PLAN : la marque et sa promesse d'un côté, trois colonnes nommées de
@@ -4424,7 +4572,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,990 tests ✓',
+          'badge.tests': '2,997 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -4458,6 +4606,17 @@
           'svg.auth': 'JWT auth',
           'svg.integration': 'Integration',
           'svg.e2e': 'E2E tests',
+          'et.kicker': 'How it works',
+          'et.headline': 'Three steps, and you stay in charge.',
+          'et.etape1.t': 'You describe the project',
+          'et.etape1.p':
+            'A few sentences are enough. Hive proposes an ordered list of tasks — you correct it before launching.',
+          'et.etape2.t': 'The AIs work in parallel',
+          'et.etape2.p':
+            'Each task goes to a member’s computer, which runs its AI in an isolated folder. You watch progress live.',
+          'et.etape3.t': 'You approve, then it merges',
+          'et.etape3.p':
+            'Every result stops in front of you. You read it, you approve or refuse. Nothing passes without your say-so.',
           'feat.kicker': 'At a glance',
           'feat.lede':
             'Twenty-three features, sorted into four families. Read the four promises; unfold the one that concerns you.',
@@ -4780,6 +4939,11 @@
             'The Comb (the project’s code, read in full, the Queen’s editor included) · the Preview (see what the AI builds, not just its diff) · read-only sharing over the tunnel · division of labour and the Council of Scouts · environment preparation.',
           'rm.next.d':
             'Hive federation · a sandbox that bounds the network too · per-member permissions, so the shared token stops being the only door (ADR 0007).',
+          'ap.headline': 'Try it in one command.',
+          'ap.p':
+            'The script installs everything and asks three questions at most. Add <code class="inline">--dry-run</code> to see what it would do without creating anything.',
+          'ap.cta1': 'See the commands',
+          'ap.cta2': 'Installation guide',
           'f.promesse':
             'Put several AIs to work on your project, at the same time. Open source, MIT licence, on your own machines.',
           'f.produit': 'The product',
