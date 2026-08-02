@@ -779,6 +779,44 @@ tête, là où l'ordre promis la met en queue. Alors seulement le tri porte.
 > le tri. La question à se poser : « si j'enlève le tri, qu'est-ce qui change ? »
 > — si la réponse est « rien », le test ne vaut rien, quelle que soit sa prose.
 
+### 2.12 — Un test « ça ne part pas » est vert quand RIEN ne part
+
+Six tests devaient prouver qu'une production non contre-visitée ne quitte pas la
+ruche. Trois disaient « ça ne part pas », trois disaient « ça part ». Les trois
+premiers sont passés du premier coup.
+
+Ils ne testaient rien. La ruche répondait « inerte — 0 ouvrière de caste
+gouvernante, 2 requises » : **aucune production ne partait, jamais, pour une
+raison sans aucun rapport avec la porte**. Un montage incomplet se lit
+exactement comme une garde qui fonctionne.
+
+Ce sont les trois cas « ça DOIT partir » qui l'ont dit, en tombant tous les
+trois. Sans eux, j'aurais livré une porte dont je n'aurais rien su — et elle
+aurait pu être inversée, absente, ou inatteignable.
+
+> **Règle** — un test qui affirme une ABSENCE (rien n'est envoyé, rien n'est
+> écrit, rien ne part) ne vaut que s'il est accompagné du cas où la chose
+> ARRIVE, sur le même montage. Le cas positif ne prouve pas la fonctionnalité :
+> il prouve que le montage est capable de produire l'effet, donc que l'absence
+> mesurée par les autres veut dire quelque chose.
+
+### 2.13 — Un test qui écrit dans le store court-circuite le chemin qu'il croit tester
+
+La même série écrivait la contre-visite par `store.enregistrerContreVisite`,
+directement. Elle éprouvait donc parfaitement la LECTURE — la porte lit bien la
+table — et pas du tout l'ÉCRITURE : rien ne prouvait que la contre-expertise
+range son verdict.
+
+La mutation l'a dit sans ambiguïté : retirer l'enregistrement du chemin réel a
+laissé les six tests verts. Une ruche livrée ainsi aurait eu une porte qui se
+referme sur tout, puisque la table serait restée vide.
+
+> **Règle** — quand un test pose lui-même l'état qu'il va lire, il teste un
+> lecteur, pas un circuit. Le circuit se prouve à l'autre bout : quelque part,
+> un test doit produire cet état **par le vrai chemin**. Ici, l'assertion est
+> allée dans le test qui fait déjà l'aller-retour complet, plutôt que d'en
+> fabriquer un second.
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois

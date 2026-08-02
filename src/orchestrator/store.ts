@@ -374,6 +374,34 @@ CREATE TABLE IF NOT EXISTS contre_expertises (
 );
 CREATE INDEX IF NOT EXISTS idx_contre_expertises_prod ON contre_expertises(productionTaskId);
 
+-- ─── Ce qu'une contre-visite a DÉCIDÉ ───────────────────────────────────────
+-- « contre_expertises » dit QUI relit QUOI. Elle ne dit pas ce qui en est
+-- revenu, et c'est ce qui manquait pour que HIVE_POLYETHISME=strict fasse
+-- quelque chose : le verdict vivait dans un événement, donc dans le passé,
+-- alors que la décision de livrer se prend plus tard, sur un autre tick.
+--
+-- (Aucune apostrophe inversée dans ce bloc, et ce n'est pas un oubli : tout ce
+-- schéma vit dans un littéral gabarit. Une seule le refermerait, et l'erreur
+-- qu'on récolte alors parle de modules TypeScript, pas de SQL.)
+--
+-- Table LATÉRALE, et pas une colonne de plus sur « contre_expertises »
+-- (règle 2 : aucune migration). Elle est aussi clé par PRODUCTION, pas par
+-- relecture : ce qui compte au moment de livrer, c'est « cette production
+-- a-t-elle été contre-visitée », pas « laquelle des trois relectures a
+-- répondu ».
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : « pruneContreVisites »,
+-- référentielle comme ses voisines. Elle est VRAIE dès le premier jour — la
+-- table « tasks » a son élagueur depuis le lot 17.
+CREATE TABLE IF NOT EXISTS contre_visites (
+  productionTaskId TEXT PRIMARY KEY,
+  suite            TEXT NOT NULL CHECK (suite IN ('appliquer', 'ameliorer', 'refaire')),
+  raison           TEXT NOT NULL DEFAULT '',
+  visiteurNodeId   TEXT NOT NULL,
+  visiteurAgent    TEXT NOT NULL,
+  renduA           INTEGER NOT NULL
+);
+
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
 -- Deux tables, une par nature, et surtout PAS une seule : un billet est une
 -- invitation éphémère qu'on distribue, une clé de nœud est une identité durable
@@ -2386,6 +2414,74 @@ export class HiveStore {
    * `pruneTasks` (lot 17) l'a rendue vraie. Voir la docstring de
    * `pruneTachesIssue` pour la mesure, et `docs/ETAPES.md` lot 17.
    */
+  /**
+   * Range ce qu'une contre-visite a décidé d'une production.
+   *
+   * `INSERT OR REPLACE` : plusieurs relectures peuvent revenir sur la même
+   * production, et c'est la DERNIÈRE qui vaut. Ce n'est pas un vote — la règle
+   * du module est déjà « une objection trouvée par un seul modèle reste une
+   * objection », et le tri se fait en amont, dans `agreger`.
+   */
+  enregistrerContreVisite(v: {
+    productionTaskId: string;
+    suite: 'appliquer' | 'ameliorer' | 'refaire';
+    raison: string;
+    visiteurNodeId: string;
+    visiteurAgent: string;
+    now?: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO contre_visites
+           (productionTaskId, suite, raison, visiteurNodeId, visiteurAgent, renduA)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        v.productionTaskId,
+        v.suite,
+        v.raison.slice(0, 400),
+        v.visiteurNodeId,
+        v.visiteurAgent,
+        v.now ?? Date.now(),
+      );
+  }
+
+  /** Ce qu'une contre-visite a décidé, ou `null` si aucune n'est revenue. */
+  contreVisiteDe(productionTaskId: string): {
+    suite: 'appliquer' | 'ameliorer' | 'refaire';
+    raison: string;
+    visiteurNodeId: string;
+    visiteurAgent: string;
+  } | null {
+    const r = this.db
+      .prepare(
+        `SELECT suite, raison, visiteurNodeId, visiteurAgent
+           FROM contre_visites WHERE productionTaskId = ?`,
+      )
+      .get(productionTaskId) as
+      | {
+          suite: 'appliquer' | 'ameliorer' | 'refaire';
+          raison: string;
+          visiteurNodeId: string;
+          visiteurAgent: string;
+        }
+      | undefined;
+    return r ?? null;
+  }
+
+  /**
+   * Élague les décisions dont la production n'existe plus.
+   *
+   * Même borne RÉFÉRENTIELLE que ses deux voisines — mais celle-ci naît VRAIE :
+   * `pruneTasks` existe depuis le lot 17, donc des productions disparaissent
+   * pour de bon et cette borne a quelque chose à faire dès le premier jour.
+   */
+  pruneContreVisites(): number {
+    return this.db
+      .prepare('DELETE FROM contre_visites WHERE productionTaskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
+  }
+
   pruneContreExpertises(): number {
     return this.db
       .prepare(

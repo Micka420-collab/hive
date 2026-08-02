@@ -626,6 +626,21 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     expect(v?.conteste).toBe(true);
     expect(v?.relecteur).toBe('codex');
     expect(v?.objections?.join(' ')).toMatch(/jeton vide/);
+
+    // ─── ET IL EST RANGÉ, PAS SEULEMENT ÉMIS ────────────────────────────────
+    //
+    // Un événement vit dans le passé. La décision de livrer se prend plus tard,
+    // sur un autre tick : sans cette trace en base, `HIVE_POLYETHISME=strict`
+    // n'aurait rien à consulter et la porte de `aLivrer` se refermerait sur
+    // toutes les productions — y compris celles qu'une relectrice a validées.
+    //
+    // C'est la mutation qui a exigé ce test : retirer l'enregistrement laissait
+    // `tests/polyethisme-livraison.test.ts` entièrement vert, parce qu'il écrit
+    // la contre-visite par le store et jamais par le vrai chemin.
+    const range = srv.store.contreVisiteDe(idProduction);
+    expect(range, 'le verdict n’a pas été rangé : la porte n’aura rien à lire').not.toBeNull();
+    expect(range?.suite, 'un verdict contesté ne peut pas valoir « appliquer »').toBe('ameliorer');
+    expect(range?.visiteurAgent).toBe('codex');
   });
 
   it(

@@ -170,16 +170,18 @@ import {
   fichiersTouches,
   replierInspections,
 } from './gardiennes.js';
-import type { ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
+import type { LigneGardienne, ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
 import {
   SEUIL_BATISSEUSE,
   SEUIL_BUTINEUSE,
   VIERGE,
   castesDepuisInspections,
   consignes,
+  exigeContreVisite,
   fiabilite,
   modeEffectif,
   replierAntecedents,
+  trancher,
 } from './polyethisme.js';
 import type { Caste, ModePolyethisme } from './polyethisme.js';
 import { askConcierge } from './concierge.js';
@@ -808,6 +810,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     texte: string,
   ): void => {
     const verdict = agreger([lireAvis(lien.relecteurNodeId, lien.relecteurAgent, texte)]);
+
+    // ─── CE QUE LA CONTRE-VISITE A DÉCIDÉ, RANGÉ ─────────────────────────────
+    //
+    // Le verdict ne vivait que dans un événement — c'est-à-dire dans le passé.
+    // La décision de livrer, elle, se prend plus tard, sur un autre tick : sans
+    // cette trace, `HIVE_POLYETHISME=strict` n'avait rien à consulter, et les
+    // deux fonctions qui savent trancher n'avaient aucun appelant.
+    //
+    // La traduction est volontairement grossière, et c'est assumé : le module
+    // de contre-expertise ne rend qu'un booléen — contesté ou non. Un troisième
+    // état (`refaire`) demanderait au relecteur une gradation qu'on ne lui
+    // demande pas, et l'inventer ici en lisant entre les lignes serait une
+    // décision prise sur rien.
+    store.enregistrerContreVisite({
+      productionTaskId: lien.productionTaskId,
+      suite: verdict.conteste ? 'ameliorer' : 'appliquer',
+      raison: verdict.objections[0] ?? '',
+      visiteurNodeId: lien.relecteurNodeId,
+      visiteurAgent: lien.relecteurAgent,
+    });
+
     emitEvent('contre_expertise_verdict', {
       taskId: lien.productionTaskId,
       relecture: relectureTaskId,
@@ -2351,9 +2374,84 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * L'ordre est celui de la création : la ruche livre dans l'ordre où elle a
    * travaillé, et deux relevés successifs rendent la même file.
    */
+  /**
+   * La contre-visite autorise-t-elle la livraison de cette production ?
+   *
+   * ─── LA PROMESSE QUI N'EN ÉTAIT PAS UNE ────────────────────────────────────
+   *
+   * Le cadre envoyé à chaque jeune ouvrière dit, mot pour mot : « TA PRODUCTION
+   * SERA RELUE par une ouvrière plus expérimentée avant d'être appliquée ».
+   * `exigeContreVisite` et `trancher` savaient depuis toujours quoi en faire —
+   * et n'avaient AUCUN appelant. La phrase était donc fausse, et c'est la pire
+   * espèce de fausseté : celle qui rassure celui qu'elle vise.
+   *
+   * ─── CE QUE CETTE PORTE NE FAIT PAS ────────────────────────────────────────
+   *
+   * Elle ne remplace la revue humaine par rien. `aLivrer` exige déjà
+   * `approved`, et cette condition-ci s'AJOUTE : la ruche peut refuser de
+   * livrer ce qu'un humain a approuvé, jamais l'inverse. La règle du dépôt —
+   * « jamais de fusion sans revue humaine » — n'est pas touchée.
+   *
+   * `attendre` n'est pas un échec. C'est l'état d'une production que la ruche
+   * ne peut pas juger seule, et qui reste donc où elle était : devant l'humain.
+   *
+   * ─── ET ELLE NE MORD QU'EN `strict` ────────────────────────────────────────
+   *
+   * En `consignes` — le défaut — le polyéthisme guide sans contraindre, et
+   * `modeEffectif` le dit. Faire mordre la porte partout changerait le
+   * comportement de toutes les ruches installées, sur une décision que
+   * personne n'a prise.
+   */
+  const contreVisiteAutorise = (
+    task: Task,
+    inspections: readonly LigneGardienne[],
+  ): { ok: boolean; motif: string } => {
+    if (polyethismeEnVigueur() !== 'strict') return { ok: true, motif: 'polyéthisme non strict' };
+
+    // `casteDe` plutôt qu'une seconde carte : elle est mémoïsée avec le TTL des
+    // Gardiennes, et surtout elle tient LA règle qui compte — un nœud sans
+    // antécédent est une NOURRICE. Recalculer ici rendrait `undefined` pour ce
+    // même nœud, et l'inconnu deviendrait le cas permissif.
+    const auteur = task.assignedNodeId === null ? null : casteDe(task.assignedNodeId);
+    if (auteur === null) {
+      // Une production sans nœud ne peut pas être jugée par une règle qui parle
+      // de castes. Fermé par défaut : elle reste devant l'humain.
+      return { ok: false, motif: 'production sans nœud : caste indéterminable' };
+    }
+
+    const resultats = store.resultsForTask(task.id);
+    const dernier = resultats[resultats.length - 1];
+    // `listInspections` rend de la plus récente à la plus ancienne : le premier
+    // trouvé est donc le dernier verdict rendu sur cette tâche.
+    const inspection = inspections.find((i) => i.taskId === task.id);
+    const exigee = exigeContreVisite({
+      caste: auteur,
+      // On n'arrive ici QUE si les Gardiennes inspectent (`modeEffectif` rend
+      // `off` sinon). Une tâche sans inspection est donc une tâche qu'elles
+      // n'ont pas eu à juger, pas une ruche sans garde — `clean` est le bon
+      // défaut, et la porte se referme alors sur la seule caste.
+      verdict: inspection?.verdict ?? 'clean',
+      chemins: fichiersTouches(dernier?.diff ?? ''),
+    });
+
+    const cv = store.contreVisiteDe(task.id);
+    const verdict = trancher({
+      exigee,
+      casteAuteur: auteur,
+      ...(cv === null ? {} : { casteVisiteur: casteDe(cv.visiteurNodeId) }),
+      contreVisite:
+        cv === null ? null : { suite: cv.suite, raison: cv.raison, mieux: '', force: 0 },
+    });
+    return { ok: verdict.issue === 'appliquer', motif: verdict.motif };
+  };
+
   const aLivrer = (projectId: string): Task[] => {
     if (!depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)) return [];
     const revues = store.listReviews();
+    // UNE seule lecture pour toutes les tâches du projet : `listInspections`
+    // rend jusqu'à 2 000 lignes, et l'appeler par tâche referait ce travail
+    // autant de fois qu'il y a de productions à livrer.
+    const inspections = store.listInspections();
     return store
       .listTasks(projectId)
       .filter((t) => revues[t.id] === 'approved' && !store.getLivraison(t.id))
@@ -2362,6 +2460,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const dernier = resultats[resultats.length - 1];
         return Boolean(dernier?.success && dernier.diff);
       })
+      .filter((t) => contreVisiteAutorise(t, inspections).ok)
       .sort((a, b) => a.createdAt - b.createdAt);
   };
 
@@ -6861,6 +6960,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
       // remettre à plus tard.
       store.pruneContreExpertises();
+      // Et ce que la contre-visite a DÉCIDÉ : même borne référentielle, câblée
+      // dans le même changement que la table (règle 3). Elle naît vraie —
+      // `pruneTasks`, juste au-dessus, fait vraiment disparaître des tâches.
+      store.pruneContreVisites();
       store.pruneConseils(CONSEILS_CONSERVES);
       // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
       //

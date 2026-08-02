@@ -29,6 +29,60 @@ l'avertissement en tête de ce carnet.
 
 ---
 
+## Lot 18 — `HIVE_POLYETHISME=strict` fait enfin quelque chose
+
+**Arbitrage rendu par l'utilisateur le 2 août : câbler la contre-visite.**
+
+Le cadre envoyé à chaque nourrice disait, mot pour mot : « TA PRODUCTION SERA
+RELUE par une ouvrière plus expérimentée avant d'être appliquée. »
+`exigeContreVisite` et `trancher` savaient depuis toujours quoi en faire, et
+n'avaient **aucun appelant**. La phrase était donc fausse — de la pire espèce :
+celle qui rassure celui qu'elle vise.
+
+### Où la porte s'est posée, et pourquoi là
+
+Pas sur le verdict. `noterVerdict` dit explicitement qu'il ne bloque aucune
+fusion, et c'est juste : « une contre-expertise qui DÉCIDERAIT remplacerait la
+revue au lieu de l'armer ».
+
+La porte est sur **`aLivrer`**, qui exige déjà `approved` — une revue humaine.
+La contre-visite s'y **ajoute** : la ruche peut refuser de livrer ce qu'un
+humain a approuvé, jamais l'inverse. `attendre` n'est pas un échec, c'est
+l'état d'une production que la ruche ne peut pas juger seule et qui reste donc
+où elle était : devant l'humain.
+
+Elle ne mord qu'en `strict`. En `consignes` — le défaut — le polyéthisme guide
+sans contraindre. Faire mordre partout changerait le comportement de toutes les
+ruches installées, sur une décision que personne n'a prise.
+
+### La table qui manquait
+
+Le verdict ne vivait que dans un événement, c'est-à-dire dans le passé, alors
+que la décision de livrer se prend plus tard, sur un autre tick. `contre_visites`
+est LATÉRALE (règle 2 : aucune migration), clé par **production** et non par
+relecture — ce qui compte au moment de livrer, c'est « cette production
+a-t-elle été contre-visitée ». Sa borne référentielle est câblée dans le même
+changement, et elle naît vraie : `pruneTasks` fait vraiment disparaître des
+tâches depuis le lot 17.
+
+### Ce qui tient
+
+**Six mutations, six rouges** : porte retirée, porte qui mord en `consignes`,
+contre-visite absente valant `appliquer`, `ameliorer` qui passe, caste de la
+relectrice ignorée, verdict non rangé.
+
+Le dernier a **survécu au premier tour**, et la leçon vaut d'être écrite : mes
+six tests écrivaient la contre-visite **par le store**, jamais par le vrai
+chemin. Rien ne prouvait que la contre-expertise la range. L'assertion manquante
+est allée dans `cerveau-wiring.test.ts`, qui fait déjà l'aller-retour complet.
+
+Et trois de mes tests ont d'abord été verts **pour la mauvaise raison** : la
+ruche répondait « inerte — 0 ouvrière de caste gouvernante, 2 requises », donc
+rien ne partait jamais. Mes trois cas « ne doit pas partir » passaient sans rien
+tester. Ce sont les trois cas « DOIT partir », en face, qui l'ont dit.
+
+---
+
 ## Lot 17 — la table `tasks` a enfin sa borne, et l'instantané sa fenêtre
 
 Deux défauts, la même racine : **rien ne bornait les tâches**, ni sur disque ni
