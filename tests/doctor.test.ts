@@ -28,6 +28,7 @@ import {
   RUCHE_COMPLETE,
 } from '../src/shared/doctor.js';
 import type { Diagnostic, Releve } from '../src/shared/doctor.js';
+import { LONGUEUR_MIN_SECRET_JWT, secretJwtDepuisEnv } from '../src/orchestrator/auth.js';
 
 /** Une ruche en parfait état. Chaque test n'en dérange qu'un point. */
 const SAINE: Releve = {
@@ -38,6 +39,7 @@ const SAINE: Releve = {
   // été silencieux.
   nodeMajeur: 26,
   fichierEnv: { present: true, lisible: true, permissions: 0o600 },
+  secretSession: { utilisable: true, longueur: 64, publie: false, simulation: false },
   jeton: { present: true, longueur: 48, trivial: false },
   port: { numero: 7777, libre: true, parNous: null },
   moteur: { manquants: [], raison: null },
@@ -74,6 +76,7 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       nodeMajeur: 18,
       fichierEnv: { present: false, lisible: false, permissions: null },
       jeton: { present: false, longueur: 0, trivial: false },
+      secretSession: { utilisable: false, longueur: 0, publie: false, simulation: false },
       port: { numero: 7777, libre: false, parNous: false },
       moteur: { manquants: ['better-sqlite3'], raison: 'Cannot find module' },
       base: { presente: true, integre: false, inscriptible: true },
@@ -85,7 +88,17 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       espace: { octetsLibres: 0, inscriptible: true },
     };
     const diags = diagnostiquer(cassee);
-    expect(diags.length, 'les douze diagnostics de la mission').toBe(12);
+    // ─── DOUZE, PUIS TREIZE ─────────────────────────────────────────────────
+    //
+    // Le treizième est `secret_session`. Il est arrivé parce qu'un nouveau venu
+    // pouvait suivre le docteur À LA LETTRE, ne plus voir aucun ✘ réparable,
+    // taper `npm run ruche`, et voir la Reine mourir à la seconde sur une garde
+    // qu'aucun des douze n'exerçait.
+    //
+    // Ce compte est délibérément écrit en dur : ajouter un contrôle DOIT faire
+    // rougir ce test, pour qu'on écrive aussi sa place dans l'ordre — l'ordre
+    // est une information, pas une présentation.
+    expect(diags.length, 'les treize diagnostics de la mission').toBe(13);
 
     for (const d of diags) {
       expect(d.gravite, `${d.cle} devrait signaler quelque chose`).not.toBe('ok');
@@ -512,6 +525,10 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
       'moteur',
       'env_present',
       'jeton',
+      // Juste après le jeton : les deux secrets se posent dans le même fichier
+      // et dans le même geste. Réparer l'un sans l'autre ne fait pas démarrer
+      // la ruche.
+      'secret_session',
       'port',
       'base',
       'dashboard',
@@ -543,5 +560,74 @@ describe('LA LISTE DE LA RUCHE COMPLÈTE N’EXISTE QU’UNE FOIS', () => {
 
     const duScript = [...(bloc?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
     expect(duScript, 'la liste du script de CI').toEqual([...RUCHE_COMPLETE]);
+  });
+});
+
+describe('LE TREIZIÈME CONTRÔLE — celui qui manquait au nouveau venu', () => {
+  // ─── LE PARCOURS EXACT QUI ÉCHOUAIT ────────────────────────────────────────
+  //
+  //   1. `cp .env.example .env`            ← conseillé par le docteur
+  //   2. la commande qui engendre HIVE_TOKEN ← conseillée par le docteur
+  //   3. `hive doctor`                     → plus AUCUN ✘ réparable
+  //   4. `npm run ruche`                   → la Reine meurt à la seconde
+  //
+  // Un docteur qui déclare la ruche saine à l'instant où elle ne peut pas
+  // démarrer est pire qu'un docteur absent : il fait chercher ailleurs.
+
+  it('SECRET ABSENT : bloquant, et la commande est donnée', () => {
+    const d = diag(
+      avec({ secretSession: { utilisable: false, longueur: 0, publie: false, simulation: false } }),
+      'secret_session',
+    );
+    expect(d.gravite).toBe('bloquant');
+    expect(d.constat).toContain('absent');
+    expect(d.reparation, 'un échec sans réparation ne sert à rien').toContain('randomBytes');
+    expect(d.reparation).toContain('HIVE_JWT_SECRET');
+  });
+
+  it('LE SECRET PUBLIÉ EST TRAITÉ À PART — il est pire qu’absent', () => {
+    // Absent, la ruche refuse de démarrer et personne n'est en danger. Publié,
+    // elle démarrerait très bien avec une clé que le dépôt entier connaît : se
+    // forger la session de l'administrateur devient un exercice de cinq lignes.
+    const d = diag(
+      avec({ secretSession: { utilisable: false, longueur: 21, publie: true, simulation: false } }),
+      'secret_session',
+    );
+    expect(d.gravite).toBe('bloquant');
+    expect(d.constat).toContain('public');
+  });
+
+  it('trop court : le constat DIT le minimum, il ne dit pas « invalide »', () => {
+    const d = diag(
+      avec({
+        secretSession: { utilisable: false, longueur: 12, publie: false, simulation: false },
+      }),
+      'secret_session',
+    );
+    expect(d.gravite).toBe('bloquant');
+    expect(d.constat).toContain('12');
+    expect(d.constat).toContain(String(LONGUEUR_MIN_SECRET_JWT));
+  });
+
+  it('EN SIMULATION, IL NE SE PLAINT PAS', () => {
+    // `npm run demo` doit marcher sans configuration : la Reine tire son secret
+    // au démarrage. Un docteur qui se plaint de ce qui va bien finit par n'être
+    // plus lu — et c'est ainsi qu'on rate le vrai ✘ à côté.
+    const d = diag(
+      avec({ secretSession: { utilisable: false, longueur: 0, publie: false, simulation: true } }),
+      'secret_session',
+    );
+    expect(d.gravite).toBe('ok');
+  });
+
+  it('LA RÈGLE EST CELLE DU SERVEUR, pas une règle approchante', () => {
+    // Le seuil vient de `auth.ts`, pas d'un nombre recopié ici : deux règles
+    // qui se ressemblent divergent le jour où l'une bouge, et le docteur
+    // donnerait alors un avis sur un autre programme que celui qui va tourner.
+    const juste = 'x'.repeat(LONGUEUR_MIN_SECRET_JWT);
+    expect(secretJwtDepuisEnv({ HIVE_JWT_SECRET: juste })).not.toBe('');
+    expect(secretJwtDepuisEnv({ HIVE_JWT_SECRET: 'x'.repeat(LONGUEUR_MIN_SECRET_JWT - 1) })).toBe(
+      '',
+    );
   });
 });

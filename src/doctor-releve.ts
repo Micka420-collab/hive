@@ -36,6 +36,7 @@ import { RUCHE_COMPLETE } from './shared/doctor.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
 import { FOURNISSEURS } from './node-client/isolement.js';
 import { envSonde } from './node-client/agent-detect.js';
+import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
 
 /** Où la ruche range ses affaires, vu depuis la racine du dépôt. */
 export interface Emplacements {
@@ -357,6 +358,17 @@ export async function relever(
       present: jeton !== '',
       longueur: jeton.length,
       trivial: jeton === DEFAULT_TOKEN,
+    },
+    // Le secret de session, relevé avec la MÊME fonction que la garde du
+    // serveur : `secretJwtDepuisEnv` rend la chaîne vide dès qu'il est
+    // inutilisable. Réécrire la règle ici la ferait diverger le jour où l'une
+    // des deux bouge — et un docteur qui applique une règle approchante donne
+    // un avis sur un autre programme que celui qui va tourner.
+    secretSession: {
+      utilisable: secretJwtDepuisEnv(process.env) !== '',
+      longueur: (process.env.HIVE_JWT_SECRET ?? '').trim().length,
+      publie: (process.env.HIVE_JWT_SECRET ?? '').trim() === SECRET_JWT_INTERDIT,
+      simulation: (process.env.HIVE_SIMULATION ?? '') === '1',
     },
     port: { numero: port, libre, parNous },
     moteur,

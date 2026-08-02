@@ -39,6 +39,7 @@
 // leurs cas « je ne sais pas » — qu'aucun test ne pourrait fabriquer si le
 // module allait lire le disque lui-même.
 
+import { LONGUEUR_MIN_SECRET_JWT } from '../orchestrator/auth.js';
 import { MIN_TOKEN_LENGTH } from './types.js';
 
 /**
@@ -87,6 +88,29 @@ export interface Releve {
     longueur: number;
     /** Vaut la valeur d'exemple livrée avec le dépôt. */
     trivial: boolean;
+  };
+  /**
+   * Le secret de session — celui qui signe les jetons d'administration.
+   *
+   * ─── POURQUOI IL MANQUAIT AU RELEVÉ, ET CE QUE ÇA COÛTAIT ──────────────────
+   *
+   * Un nouveau venu suivait le docteur À LA LETTRE : `cp .env.example .env`,
+   * puis la commande qui engendre HIVE_TOKEN. Le docteur ne laissait plus AUCUN
+   * ✘ réparable. Il tapait alors `npm run ruche` — « tout en une commande » —
+   * et la Reine mourait à la seconde, sur une garde qu'aucun des douze
+   * contrôles n'exerçait.
+   *
+   * Un docteur qui déclare la ruche saine à l'instant où elle ne peut pas
+   * démarrer est pire qu'un docteur absent : il fait chercher ailleurs.
+   */
+  secretSession: {
+    /** Utilisable au sens de `secretJwtDepuisEnv` : présent, long, et pas celui publié. */
+    utilisable: boolean;
+    longueur: number;
+    /** Vaut le secret publié dans `.env.example`. */
+    publie: boolean;
+    /** En simulation, la Reine s'en tire un au démarrage : la garde ne mord pas. */
+    simulation: boolean;
   };
   port: {
     numero: number;
@@ -181,7 +205,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les douze diagnostics, dans l'ordre où ils se réparent.
+ * Les treize diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -197,6 +221,9 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     moteur(r),
     fichierEnv(r),
     jeton(r),
+    // Juste après le jeton : les deux secrets se posent dans le même fichier,
+    // dans le même geste, et rien ne sert de réparer l'un sans l'autre.
+    secretSession(r),
     port(r),
     base(r),
     dashboard(r),
@@ -343,6 +370,56 @@ function fichierEnv(r: Releve): Diagnostic {
         reparation: 'chmod 600 .env',
       }
     : { cle: 'env_present', gravite: 'ok', constat: '.env présent et privé', reparation: null };
+}
+
+/**
+ * Le secret de session, treizième contrôle — et le plus tardif de tous.
+ *
+ * Il applique EXACTEMENT la règle de `createServer` : absent, plus court que
+ * `LONGUEUR_MIN_SECRET_JWT`, ou égal à la valeur publiée. Pas une règle
+ * approchante — la même, sinon le docteur redevient un avis sur un autre
+ * programme que celui qui va tourner.
+ */
+function secretSession(r: Releve): Diagnostic {
+  const REPARATION =
+    "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\" puis reportez-le dans .env (HIVE_JWT_SECRET)";
+
+  if (r.secretSession.simulation) {
+    // `HIVE_SIMULATION=1` : la Reine tire un secret au démarrage. Réclamer un
+    // secret ici ferait rougir une démo qui marche — et un docteur qui se
+    // plaint de ce qui va bien finit par n'être plus lu.
+    return {
+      cle: 'secret_session',
+      gravite: 'ok',
+      constat: 'HIVE_JWT_SECRET inutile en simulation — tiré au démarrage',
+      reparation: null,
+    };
+  }
+  if (r.secretSession.publie) {
+    return {
+      cle: 'secret_session',
+      gravite: 'bloquant',
+      constat: 'HIVE_JWT_SECRET est encore le secret d’exemple — il est public',
+      reparation: REPARATION,
+    };
+  }
+  if (!r.secretSession.utilisable) {
+    return {
+      cle: 'secret_session',
+      gravite: 'bloquant',
+      constat:
+        r.secretSession.longueur === 0
+          ? 'HIVE_JWT_SECRET absent — la Reine refusera de démarrer'
+          : `HIVE_JWT_SECRET fait ${String(r.secretSession.longueur)} caractères — ${String(LONGUEUR_MIN_SECRET_JWT)} au minimum`,
+      reparation: REPARATION,
+    };
+  }
+  return {
+    cle: 'secret_session',
+    gravite: 'ok',
+    constat: 'HIVE_JWT_SECRET solide',
+    reparation: null,
+  };
 }
 
 function jeton(r: Releve): Diagnostic {

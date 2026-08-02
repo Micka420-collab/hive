@@ -152,7 +152,8 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       expect(r.base.integre, 'pas de base ⇒ rien à vérifier').toBeNull();
 
       // Et le jugement tient : douze lignes, aucune exception.
-      expect(diagnostiquer(r)).toHaveLength(12);
+      // Treize depuis que `secret_session` est arrivé — voir tests/doctor.test.ts.
+      expect(diagnostiquer(r)).toHaveLength(13);
     } finally {
       rmSync(nue, { recursive: true, force: true });
     }
@@ -368,7 +369,7 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
         verdict: string;
         diagnostics: { cle: string; gravite: string; reparation: string | null }[];
       };
-      expect(vu.diagnostics, 'les douze de la mission').toHaveLength(12);
+      expect(vu.diagnostics, 'les treize de la mission').toHaveLength(13);
       // Une racine nue n'a ni .env ni jeton : le verdict DOIT être bloquant, et
       // le code de sortie doit le dire à la supervision qui l'écoute.
       expect(vu.verdict).toBe('bloquant');

@@ -498,8 +498,12 @@ async function cmdDoctor(...args: string[]): Promise<void> {
     bloquant: '  ✘',
   };
   console.log('\n🩺 hive doctor\n');
+  const largeurCle = Math.max(...diags.map((d) => d.cle.length));
   for (const d of diags) {
-    console.log(`${PUCE[d.gravite] ?? '  ·'} ${d.cle.padEnd(13)} ${d.constat}`);
+    // La largeur suit la clé la PLUS LONGUE, calculée — pas un 13 écrit à la
+    // main qui se décale au treizième contrôle. `secret_session` en fait 14, et
+    // la colonne des constats s'est désalignée à la seconde où il est arrivé.
+    console.log(`${PUCE[d.gravite] ?? '  ·'} ${d.cle.padEnd(largeurCle)} ${d.constat}`);
     // La réparation vient JUSTE SOUS le constat, indentée : c'est ce qu'on
     // copie-colle, et le chercher ailleurs dans la sortie casserait le geste.
     if (d.reparation) console.log(`       → ${d.reparation}`);
