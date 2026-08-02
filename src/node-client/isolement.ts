@@ -39,6 +39,7 @@
 // niveau) ; la seule impureté est la SONDE, qui lance `--version`.
 
 import { spawn } from 'node:child_process';
+import { envSonde } from './agent-detect.js';
 
 /** Les trois positions de l'interrupteur. */
 export const MODES = ['off', 'auto', 'exige'] as const;
@@ -341,7 +342,23 @@ export function sonder(bin: string, timeoutMs = 4_000): Promise<boolean> {
     };
     let enfant;
     try {
-      enfant = spawn(bin, ['--version'], { shell: false, windowsHide: true, stdio: 'ignore' });
+      // ─── LE MÊME SOIN QUE LA SONDE D'AGENT, ET POUR LA MÊME RAISON ────────
+      //
+      // `main.ts` charge `.env` AVANT de préparer le bac. Sans `env`, l'enfant
+      // hérite de tout `process.env` : HIVE_TOKEN, HIVE_JWT_SECRET et la clé
+      // d'API partaient à un binaire nommé `docker`, `podman` ou `bwrap` trouvé
+      // dans le PATH — c'est-à-dire à n'importe quel homonyme déposé en tête
+      // de PATH.
+      //
+      // La garde existait déjà, pure et testée, pour la sonde d'agent ; elle
+      // n'avait simplement pas été portée ici. C'est le § 9 bis du journal :
+      // deux chemins pour un même geste, dont l'un est soigné et l'autre non.
+      enfant = spawn(bin, ['--version'], {
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+        env: envSonde(process.env),
+      });
     } catch {
       finir(false);
       return;

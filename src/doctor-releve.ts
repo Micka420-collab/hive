@@ -35,6 +35,7 @@ import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
 import { FOURNISSEURS } from './node-client/isolement.js';
+import { envSonde } from './node-client/agent-detect.js';
 
 /** Où la ruche range ses affaires, vu depuis la racine du dépôt. */
 export interface Emplacements {
@@ -292,7 +293,11 @@ export async function isolementDisponible(): Promise<string | null> {
     new Promise((resolve) => {
       // `shell: false` par défaut avec `execFile`, et l'argument est une
       // constante : rien d'interpolé, rien à détourner.
-      execFile(bin, ['--version'], { timeout: 3_000 }, (err) => resolve(!err));
+      // Aucun secret ne part au binaire qu'on éprouve — même garde que la
+      // sonde d'agent, portée ici aussi.
+      execFile(bin, ['--version'], { timeout: 3_000, env: envSonde(process.env) }, (err) =>
+        resolve(!err),
+      );
     });
   for (const f of FOURNISSEURS) {
     if (await essaye(f.bin)) return f.nom;

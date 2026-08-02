@@ -46,6 +46,7 @@ import {
 } from './shared/night-shift.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
+import { envSonde } from './node-client/agent-detect.js';
 
 try {
   process.loadEnvFile('.env');
@@ -1273,6 +1274,9 @@ function versionCloudflared(): Promise<string | null> {
     const p = spawn('cloudflared', ['--version'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
+      // Un binaire trouvé dans le PATH n'hérite d'aucun secret de la ruche —
+      // la même garde que la sonde d'agent, portée ici aussi.
+      env: envSonde(process.env),
     });
     let sortie = '';
     p.stdout?.on('data', (b: Buffer) => (sortie += b.toString()));

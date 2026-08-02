@@ -31,7 +31,7 @@
 // ne tient pas : elle doit vivre DANS la sonde. C'est ce que le second
 // `describe` vérifie.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   SECRETS_JAMAIS_SONDES,
@@ -254,5 +254,61 @@ describe('GROK BUILD — l’agent de xAI, branché comme les autres', () => {
     // détection échouerait là où elle marchait.
     expect(Object.keys(PAQUETS_AGENTS), 'seul Claude Code vient de npm').toEqual(['claude']);
     expect(argvAgent('grok', { APPDATA: 'C:\\x' }, 'win32', () => true)).toEqual(['grok']);
+  });
+});
+
+describe('AUCUNE SONDE NE LIVRE DE SECRET AU BINAIRE QU’ELLE ÉPROUVE', () => {
+  // ─── LA GARDE EXISTAIT, ELLE N'AVAIT PAS ÉTÉ PORTÉE ────────────────────────
+  //
+  // `envSonde` est pure, exportée et testée depuis longtemps — pour la sonde
+  // d'agent. Les QUATRE autres sondes du dépôt lançaient `bin --version` sans
+  // option `env`, donc en héritant de tout `process.env`.
+  //
+  // Or `main.ts` charge `.env` AVANT de préparer le bac à sable. HIVE_TOKEN,
+  // HIVE_JWT_SECRET et la clé d'API partaient donc à un binaire nommé `docker`,
+  // `podman`, `bwrap` ou `cloudflared` trouvé dans le PATH — c'est-à-dire à
+  // n'importe quel homonyme déposé en tête de PATH.
+  //
+  // C'est le § 9 bis du journal : deux chemins pour un même geste, dont l'un
+  // est soigné et l'autre non. Cette garde-ci relit le dépôt pour que le
+  // prochain chemin naisse soigné.
+
+  const RACINE = new URL('../src/', import.meta.url);
+
+  /** Tous les `.ts` de `src/`, récursivement. */
+  function sources(dossier: URL): URL[] {
+    const out: URL[] = [];
+    for (const e of readdirSync(dossier, { withFileTypes: true })) {
+      const u = new URL(e.name + (e.isDirectory() ? '/' : ''), dossier);
+      if (e.isDirectory()) out.push(...sources(u));
+      else if (e.name.endsWith('.ts')) out.push(u);
+    }
+    return out;
+  }
+
+  it('toute sonde `--version` passe un `env` explicite', () => {
+    const fautives: string[] = [];
+    for (const f of sources(RACINE)) {
+      const src = readFileSync(f, 'utf8');
+      // Le nom du fichier où la garde est DÉFINIE : il contient l'exemple de
+      // référence, on ne le juge pas sur sa propre définition.
+      if (f.pathname.endsWith('agent-detect.ts')) continue;
+      for (const m of src.matchAll(/(spawn|spawnSync|execFile|execFileSync)\([\s\S]{0,400}?\)/g)) {
+        const appel = m[0];
+        if (!appel.includes("'--version'")) continue;
+        if (!/\benv:/.test(appel)) {
+          fautives.push(`${f.pathname.split('/src/')[1] ?? f.pathname} : ${appel.slice(0, 70)}…`);
+        }
+      }
+    }
+    expect(fautives, 'sonde(s) qui héritent de tout process.env').toEqual([]);
+  });
+
+  it('et il y a bien des sondes à juger — sinon la garde est creuse', () => {
+    let n = 0;
+    for (const f of sources(RACINE)) {
+      if (readFileSync(f, 'utf8').includes("'--version'")) n++;
+    }
+    expect(n, 'aucune sonde trouvée : la garde ne garde rien').toBeGreaterThan(2);
   });
 });

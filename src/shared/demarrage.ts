@@ -131,11 +131,35 @@ export function pieces(noeud: string, voeu: Voeu = {}): Piece[] {
  */
 export function voeuDepuisArgv(argv: readonly string[]): Voeu {
   const a = new Set(argv);
-  // `--sans-ecran` d'abord : c'est le cas d'un serveur, et le plus demandé.
-  if (a.has('--sans-ecran')) return { hub: true, noeud: true };
-  if (a.has('--sans-noeud')) return { hub: true, ecran: true };
+
+  // ─── SOUSTRACTIFS, ET DONC CUMULABLES ──────────────────────────────────────
+  //
+  // La première version était un aiguillage à retours successifs :
+  //
+  //     if (a.has('--sans-ecran')) return { hub: true, noeud: true };
+  //     if (a.has('--sans-noeud')) return { hub: true, ecran: true };
+  //
+  // `--sans-ecran --sans-noeud` — les deux drapeaux documentés côte à côte, la
+  // combinaison naturelle pour « la Reine SEULE » — rendait au PREMIER testé.
+  // L'ouvrière démarrait quand même : celle qui exécute du code avec votre
+  // agent, sur votre machine, alors qu'on venait de demander qu'elle ne
+  // démarre pas.
+  //
+  // Le commentaire deux lignes plus haut disait pourtant déjà la règle : « les
+  // drapeaux servent à en RETIRER ». Il décrivait une intention, le code
+  // faisait un aiguillage. On part donc de tout, et on éteint.
+  const v = { hub: true, noeud: true, ecran: true };
+  if (a.has('--sans-ecran')) v.ecran = false;
+  if (a.has('--sans-noeud')) v.noeud = false;
+  // `--ecran-seul` reste un cas à part : il ne retire pas une pièce, il en
+  // désigne une. C'est le seul drapeau ADDITIF, et il le dit dans son nom.
   if (a.has('--ecran-seul')) return { ecran: true };
-  return {};
+  // Aucun drapeau : on rend le vœu VIDE, que `pieces` lit comme « tout ». Rendre
+  // `{hub:true,noeud:true,ecran:true}` serait équivalent aujourd'hui et
+  // masquerait demain la distinction entre « je n'ai rien demandé » et « j'ai
+  // demandé les trois ».
+  if (v.hub && v.noeud && v.ecran) return {};
+  return v;
 }
 
 /**

@@ -23,6 +23,7 @@
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { envSonde } from './agent-detect.js';
 
 /** Fournisseurs connus, dans l'ordre de préférence. */
 export interface Fournisseur {
@@ -102,7 +103,22 @@ function binairePresent(bin: string): Promise<boolean> {
     // `spawn` sans shell : jamais d'interpolation dans une commande.
     // `shell: false` EXPLICITE : verrouillé par tests/security-invariants.test.ts
     // (§5.1). Un shell ici ferait interpréter le nom du binaire par l'interpréteur.
-    const p = spawn(bin, ['--version'], { stdio: 'ignore', shell: false });
+    // ─── LE MÊME SOIN QUE LA SONDE D'AGENT, ET POUR LA MÊME RAISON ────────
+    //
+    // `main.ts` charge `.env` AVANT de préparer le bac. Sans `env`, l'enfant
+    // hérite de tout `process.env` : HIVE_TOKEN, HIVE_JWT_SECRET et la clé
+    // d'API partaient à un binaire nommé `docker`, `podman` ou `bwrap`
+    // trouvé dans le PATH — c'est-à-dire à n'importe quel homonyme déposé
+    // en tête de PATH.
+    //
+    // La garde existait déjà, pure et testée, pour la sonde d'agent ; elle
+    // n'avait simplement pas été portée ici. C'est le § 9 bis du journal :
+    // deux chemins pour un même geste, dont l'un est soigné et l'autre non.
+    const p = spawn(bin, ['--version'], {
+      stdio: 'ignore',
+      shell: false,
+      env: envSonde(process.env),
+    });
     p.on('error', () => resolve(false));
     p.on('close', (code) => resolve(code === 0 || code === 1));
     setTimeout(() => {

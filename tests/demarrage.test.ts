@@ -154,3 +154,55 @@ describe('LE PRÉFIXAGE DE LA SORTIE', () => {
     expect(largeurEtiquettes([])).toBe(0);
   });
 });
+
+describe('LES DRAPEAUX SE CUMULENT — ils retirent, ils n’aiguillent pas', () => {
+  // ─── LE DÉFAUT QUE L'AUDIT A TROUVÉ ────────────────────────────────────────
+  //
+  // `voeuDepuisArgv` était un aiguillage à retours successifs. Les deux
+  // drapeaux documentés côte à côte dans l'en-tête de `scripts/ruche.mjs` —
+  // la combinaison naturelle pour « la Reine SEULE » — rendaient au PREMIER
+  // testé, et l'OUVRIÈRE démarrait quand même.
+  //
+  // Ce n'est pas un détail d'ergonomie : l'ouvrière est la pièce qui exécute du
+  // code avec votre agent, sur votre machine. Elle démarrait alors qu'on venait
+  // d'écrire, explicitement, qu'elle ne devait pas.
+
+  it('« --sans-ecran --sans-noeud » ne laisse QUE la Reine', () => {
+    const liste = pieces('/usr/bin/node', voeuDepuisArgv(['--sans-ecran', '--sans-noeud']));
+    expect(liste.map((p) => p.nom)).toEqual(['reine']);
+  });
+
+  it('l’ordre des drapeaux ne change rien', () => {
+    // C'était toute la faute : le premier testé gagnait.
+    const a = pieces('/usr/bin/node', voeuDepuisArgv(['--sans-noeud', '--sans-ecran']));
+    const b = pieces('/usr/bin/node', voeuDepuisArgv(['--sans-ecran', '--sans-noeud']));
+    expect(a.map((p) => p.nom)).toEqual(b.map((p) => p.nom));
+  });
+
+  it('chacun seul retire bien SA pièce, et elle seule', () => {
+    expect(pieces('/n', voeuDepuisArgv(['--sans-ecran'])).map((p) => p.nom)).toEqual([
+      'reine',
+      'ouvrière',
+    ]);
+    expect(pieces('/n', voeuDepuisArgv(['--sans-noeud'])).map((p) => p.nom)).toEqual([
+      'reine',
+      'écran',
+    ]);
+  });
+
+  it('sans drapeau, les trois pièces démarrent', () => {
+    expect(pieces('/n', voeuDepuisArgv([])).map((p) => p.nom)).toEqual([
+      'reine',
+      'ouvrière',
+      'écran',
+    ]);
+  });
+
+  it('« --ecran-seul » reste le seul drapeau qui DÉSIGNE au lieu de retirer', () => {
+    // Il ne se cumule pas avec les autres, et son nom le dit.
+    expect(pieces('/n', voeuDepuisArgv(['--ecran-seul'])).map((p) => p.nom)).toEqual(['écran']);
+    expect(
+      pieces('/n', voeuDepuisArgv(['--sans-noeud', '--ecran-seul'])).map((p) => p.nom),
+    ).toEqual(['écran']);
+  });
+});
