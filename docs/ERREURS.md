@@ -2672,6 +2672,39 @@ exige plus de deux mots — un synonyme unique retomberait dans le même piège.
 
 ---
 
+## 9 decies. Une réserve qu’on répète sans la chiffrer devient une excuse
+
+J'ai écrit et répété toute la journée, dans le carnet et dans mes réponses :
+
+> « La loupe échantillonne : 8 mutations sur 16 au dernier passage. Un vert de
+> la loupe n'est pas une preuve d'absence de survivants. »
+
+C'était **vrai, et honnête**. Le problème est ailleurs : je l'énonçais sans
+jamais dire ce qu'il en coûterait de la lever, et le ton laissait entendre que
+c'était hors d'atteinte. J'ai même écrit à l'utilisateur que le balayage complet
+demanderait « quelques heures de calcul ».
+
+Chiffré pour de bon : **le diff du jour — 1 782 lignes ajoutées dans `src/` et
+`scripts/` — donne 41 mutations possibles.** Pas des centaines. Le balayage
+exhaustif a pris **une quarantaine de minutes**, dont je n'avais rien d'autre à
+faire que d'attendre. Résultat : **41 examinées, 41 tuées, aucun survivant.**
+
+**La leçon.** Une réserve honnête a un coût connu. Tant qu'on ne le chiffre pas,
+elle protège celui qui l'écrit au lieu d'informer celui qui la lit — et elle se
+recopie de rapport en rapport sans que personne ne pense à la lever.
+
+La règle qui en découle : **quand on écrit une limite, on écrit à côté ce qu'il
+faudrait pour la franchir.** Si le prix se révèle petit, on n'écrit pas la
+limite : on la franchit et on rapporte le résultat.
+
+Le corollaire désagréable est que j'avais l'information sous la main. Le plafond
+de la loupe est `LOUPE_MAX`, une variable d'environnement, et la loupe ANNONCE
+elle-même le total à chaque passage — « 41 mutation(s) possible(s) sur le diff,
+21 examinée(s), 20 laissée(s) de côté ». Le nombre que je disais ne pas
+connaître était imprimé dans la sortie que je lisais.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait

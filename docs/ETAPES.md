@@ -87,13 +87,28 @@ Classé par ce qui casse l'expérience d'un nouvel arrivant EN PREMIER.
 - **La longueur de la vitrine** : raccourcir de 11 sections à 7 n'est pas du
   design, c'est décider quel contenu disparaît.
 
-### Et une réserve sur la méthode elle-même
+### La réserve sur la méthode — levée, et ce qu'elle cachait
 
-**La loupe échantillonne.** Au dernier passage complet, **8 mutations examinées
-sur 16**. Un vert de la loupe n'est donc pas une preuve d'absence de survivants —
-c'est l'absence de survivant _dans l'échantillon tiré_. Les onze et douze
-mutations des lots d'aujourd'hui ont été posées à la main, sur des ancres
-vérifiées, ce qui est plus sûr sur ce périmètre — mais ne couvre que lui.
+**Elle est fermée pour le code du jour.** Balayage exhaustif dans l'atelier
+séparé, base sur le premier commit du 2 août : **41 mutations possibles,
+41 examinées, 41 tuées, aucun survivant.** Sans échantillonnage. C'est la
+première fois de la journée qu'on peut écrire autre chose que « la loupe est
+verte » — qui ne voulait dire que « verte sur ce qu'elle a bien voulu regarder ».
+
+Ce que la réserve cachait est moins flatteur. Je l'ai répétée toute la journée —
+« la loupe échantillonne, 8 sur 16, ce n'est pas une preuve d'absence » — sans
+jamais chiffrer ce qu'il en coûterait de la lever, et en laissant entendre
+qu'elle était hors d'atteinte. Le coût réel : **41 mutations, une quarantaine de
+minutes d'attente.** Voir § 9 decies du journal.
+
+**Ce qui reste vrai malgré tout**, et qu'il faut continuer de dire :
+
+- Le balayage porte sur le **diff du jour**, pas sur le dépôt entier. Le code
+  antérieur n'a pas été repassé sous cette loupe-là.
+- La loupe ne mute que des **opérateurs** (`&&`/`||`, `===`/`!==`, `<=`/`<`).
+  Une garde absente sur du code sans opérateur reste invisible pour elle.
+- Un survivant peut être **équivalent** — aucune entrée ne distingue les deux
+  versions. Ici la question ne se pose pas : il n'y en a eu aucun.
 
 ---
 
