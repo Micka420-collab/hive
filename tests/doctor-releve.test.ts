@@ -38,6 +38,8 @@ import {
   relever,
 } from '../src/doctor-releve.js';
 import { diagnostiquer } from '../src/shared/doctor.js';
+import { SECRET_JWT_INTERDIT } from '../src/orchestrator/auth.js';
+import { readFileSync } from 'node:fs';
 
 let dir: string;
 
@@ -452,4 +454,88 @@ describe('LE SONDAGE DU MOTEUR — la panne Windows, sondée pour de vrai', () =
       rmSync(racine, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe('LE SECRET DE SESSION EST RELEVÉ DEPUIS L’ENVIRONNEMENT INJECTÉ', () => {
+  // ─── CE QUE LA LOUPE A TROUVÉ, ET QUI VALAIT MIEUX QU'UN TEST MANQUANT ─────
+  //
+  // Trois mutants ont survécu d'affilée sur ces quatre lignes : inverser
+  // `!== ''`, `=== SECRET_JWT_INTERDIT` et `=== '1'` ne faisait rougir
+  // personne.
+  //
+  // La cause n'était pas l'absence de test : c'était que le code lisait
+  // `process.env` alors que TOUT ce fichier reçoit son environnement en
+  // PARAMÈTRE, précisément pour être éprouvable. La couture existait, mes
+  // quatre lignes passaient à côté. Aucun test n'aurait pu atteindre ces
+  // branches, quel qu'en soit l'auteur.
+  //
+  // On corrige donc la couture, et ces assertions deviennent possibles.
+
+  const racine = (): string => mkdtempSync(path.join(os.tmpdir(), 'hive-secret-'));
+
+  it('UN SECRET SOLIDE est relevé comme utilisable', async () => {
+    const r = await relever(racine(), { HIVE_PORT: '0', HIVE_JWT_SECRET: 'x'.repeat(48) }, 'linux');
+    expect(r.secretSession.utilisable).toBe(true);
+    expect(r.secretSession.longueur).toBe(48);
+    expect(r.secretSession.publie).toBe(false);
+  });
+
+  it('UN SECRET ABSENT n’est pas utilisable, et sa longueur est nulle', async () => {
+    const r = await relever(racine(), { HIVE_PORT: '0' }, 'linux');
+    expect(r.secretSession.utilisable).toBe(false);
+    expect(r.secretSession.longueur).toBe(0);
+  });
+
+  it('LE SECRET PUBLIÉ est reconnu POUR CE QU’IL EST', async () => {
+    // Pas seulement « inutilisable » : le message qu'on affiche n'est pas le
+    // même, et c'est le seul cas où la ruche démarrerait très bien avec une
+    // clé que le dépôt entier connaît.
+    const r = await relever(
+      racine(),
+      { HIVE_PORT: '0', HIVE_JWT_SECRET: SECRET_JWT_INTERDIT },
+      'linux',
+    );
+    expect(r.secretSession.publie).toBe(true);
+    expect(r.secretSession.utilisable).toBe(false);
+  });
+
+  it('UN SECRET TROP COURT est inutilisable SANS être « publié »', async () => {
+    const r = await relever(racine(), { HIVE_PORT: '0', HIVE_JWT_SECRET: 'court' }, 'linux');
+    expect(r.secretSession.utilisable).toBe(false);
+    expect(r.secretSession.publie, 'court n’est pas publié').toBe(false);
+    expect(r.secretSession.longueur).toBe(5);
+  });
+
+  it('HIVE_SIMULATION=1 EST RELEVÉ, et rien d’autre ne l’active', async () => {
+    const avec = await relever(racine(), { HIVE_PORT: '0', HIVE_SIMULATION: '1' }, 'linux');
+    expect(avec.secretSession.simulation).toBe(true);
+    // « true », « oui », « on » ne comptent pas : la ruche ne lit que « 1 », et
+    // un relevé plus permissif que la garde donnerait un avis sur un autre
+    // programme que celui qui tourne.
+    for (const valeur of ['0', 'true', 'oui', '']) {
+      const sans = await relever(racine(), { HIVE_PORT: '0', HIVE_SIMULATION: valeur }, 'linux');
+      expect(sans.secretSession.simulation, `« ${valeur} » ne doit pas activer la simulation`).toBe(
+        false,
+      );
+    }
+  });
+
+  it('L’ENVIRONNEMENT DU PROCESSUS N’EST PAS CONSULTÉ', () => {
+    // La garde de fond : c'est ce contournement-là qui a rendu les trois
+    // mutants invisibles. Une relecture attentive ne l'avait pas vu ; une
+    // expression régulière le voit.
+    //
+    // Les COMMENTAIRES sont retirés d'abord : celui qui explique ce piège nomme
+    // forcément `process.env`, et une garde qui rougit sur sa propre
+    // explication finit par faire supprimer l'explication.
+    const src = readFileSync(new URL('../src/doctor-releve.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const bloc = /secretSession: \{[\s\S]*?\n {4}\},/.exec(src);
+    expect(bloc, 'bloc secretSession introuvable').toBeTruthy();
+    expect(
+      (bloc as RegExpExecArray)[0],
+      'le relevé doit lire `env`, le paramètre — jamais `process.env`',
+    ).not.toContain('process.env');
+  });
 });

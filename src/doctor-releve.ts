@@ -365,10 +365,21 @@ export async function relever(
     // des deux bouge — et un docteur qui applique une règle approchante donne
     // un avis sur un autre programme que celui qui va tourner.
     secretSession: {
-      utilisable: secretJwtDepuisEnv(process.env) !== '',
-      longueur: (process.env.HIVE_JWT_SECRET ?? '').trim().length,
-      publie: (process.env.HIVE_JWT_SECRET ?? '').trim() === SECRET_JWT_INTERDIT,
-      simulation: (process.env.HIVE_SIMULATION ?? '') === '1',
+      // ─── `env`, ET SURTOUT PAS `process.env` ────────────────────────────────
+      //
+      // La première version de ces quatre lignes lisait `process.env`. Elles
+      // marchaient — et elles étaient INÉPROUVABLES : tout ce fichier reçoit son
+      // environnement en PARAMÈTRE pour que les tests puissent le composer, et
+      // ces quatre-là passaient à côté de la couture.
+      //
+      // La loupe l'a montré en faisant survivre trois mutants d'affilée ici :
+      // inverser `!== ''`, `=== SECRET_JWT_INTERDIT` et `=== '1'` ne faisait
+      // rougir personne, parce qu'aucun test ne pouvait atteindre ces branches.
+      // Ce n'était pas un test manquant, c'était une couture contournée.
+      utilisable: secretJwtDepuisEnv(env) !== '',
+      longueur: (env.HIVE_JWT_SECRET ?? '').trim().length,
+      publie: (env.HIVE_JWT_SECRET ?? '').trim() === SECRET_JWT_INTERDIT,
+      simulation: (env.HIVE_SIMULATION ?? '') === '1',
     },
     port: { numero: port, libre, parNous },
     moteur,

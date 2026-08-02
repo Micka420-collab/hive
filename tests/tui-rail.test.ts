@@ -36,6 +36,9 @@ import {
 // eslint-disable-next-line no-control-regex
 const ECHAPPEMENTS = /\x1b\[[0-9;]*m/g;
 
+/** L'atténuation ANSI — ce que `teinter(..., 'discret')` pose. */
+const ATTENUE = '\x1b[2m';
+
 /** Les quatre terminaux que l'on sait rencontrer, et le cinquième qu'on subit. */
 const TERMINAUX: ReadonlyArray<readonly [string, Capacites]> = [
   ['truecolor 100 colonnes', capacites({ COLORTERM: 'truecolor' }, { isTTY: true, columns: 100 })],
@@ -126,6 +129,66 @@ describe('LE RAIL NE SE ROMPT PAS', () => {
     // elle aussi par un trait teinté. Le test rougissait sur du code juste.
     const traits = lignes.filter((l) => l.replace(ECHAPPEMENTS, '').trim() === '│');
     expect(traits.length, 'un trait entre chaque paire de pas').toBe(PAS.length - 1);
+  });
+
+  it('AVEC COULEUR, LES TROIS TRAITEMENTS SONT DISTINCTS', () => {
+    // ─── DEUX MUTANTS ONT SURVÉCU ICI ──────────────────────────────────────
+    //
+    // Inverser `pas.etat === 'avenir'` ne faisait rougir personne : le test
+    // voisin ne regarde que les PERLES, en `NO_COLOR`. La teinte — ce qui fait
+    // qu'on voit où on en est d'un coup d'œil — n'était éprouvée par rien.
+    //
+    // Trois traitements, trois rôles : ce qui reste à faire s'efface, ce qui
+    // est fait s'allume d'un ambre plat, et le pas EN COURS porte le dégradé.
+    const teinte = (etat: Pas['etat']): string =>
+      railPas({ nom: 'Prérequis', etat }, caps)[0] ?? '';
+    const codes = (l: string): string[] => [...l.matchAll(ECHAPPEMENTS)].map((m) => m[0]);
+
+    const avenir = teinte('avenir');
+    const curseur = teinte('curseur');
+    const fait = teinte('fait');
+
+    expect(avenir, 'ce qui reste à faire s’efface').toContain(ATTENUE);
+    expect(fait, 'ce qui est fait ne s’efface pas').not.toContain(ATTENUE);
+    // Le dégradé pose une couleur PAR CARACTÈRE : c'est ce qui le distingue
+    // d'un aplat, et on le compte plutôt que de le décrire.
+    expect(
+      codes(curseur).length,
+      'le pas en cours doit porter un dégradé, pas un aplat',
+    ).toBeGreaterThan(codes(fait).length);
+  });
+
+  it('LE PAS EN COURS EST PLUS CLAIR QUE CE QUI L’ENTOURE', () => {
+    // ─── LA LEÇON QUE LE CODE PORTE DÉJÀ EN COMMENTAIRE ────────────────────
+    //
+    // La première version partait de zéro sur la rampe, c'est-à-dire du brun le
+    // plus sombre : la ligne active était la MOINS visible de la colonne,
+    // exactement l'inverse de ce qu'elle doit être. Ça ne s'est pas vu dans les
+    // tests — qui vérifiaient largeurs et glyphes — mais en le regardant
+    // tourner.
+    //
+    // Un commentaire qui raconte un défaut corrigé ne l'empêche pas de revenir.
+    // Celui-ci le fait : on lit la LUMINANCE du premier caractère coloré.
+    const premier = (etat: Pas['etat']): number => {
+      const l = railPas({ nom: 'Prérequis', etat }, caps)[0] ?? '';
+      // eslint-disable-next-line no-control-regex
+      const m = /\x1b\[38;2;(\d+);(\d+);(\d+)m/.exec(l);
+      if (m === null) return 0;
+      return 0.2126 * Number(m[1]) + 0.7152 * Number(m[2]) + 0.0722 * Number(m[3]);
+    };
+    expect(
+      premier('curseur'),
+      'le pas en cours doit partir du MILIEU de la rampe, pas de son brun',
+    ).toBeGreaterThan(100);
+  });
+
+  it('LE CHRONO N’APPARAÎT QUE QUAND IL Y A UNE DURÉE', () => {
+    // Un mutant survivait sur `pas.duree === undefined` : un pas sans durée
+    // affichait « 0 s » — un chrono qui ment vaut moins que pas de chrono.
+    const sans = railPas({ nom: 'Prérequis', etat: 'fait' }, caps)[0] ?? '';
+    const avec = railPas({ nom: 'Prérequis', etat: 'fait', duree: 2_400 }, caps)[0] ?? '';
+    expect(sans.replace(ECHAPPEMENTS, ''), 'aucun chiffre sans durée').not.toMatch(/\d/);
+    expect(avec.replace(ECHAPPEMENTS, '')).toContain('2,4 s');
   });
 
   it('LES QUATRE ÉTATS SE DISTINGUENT SANS COULEUR', () => {

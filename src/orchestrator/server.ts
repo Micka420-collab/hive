@@ -2858,9 +2858,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * d'abord perdrait la seule trace de ce qu'on paie encore.
    */
   const balayerRetention = async (now: number): Promise<void> => {
-    const echues = aSupprimer(serveursDe(), now);
-    if (echues.length === 0) return;
-    for (const s of echues) {
+    // Pas de retour anticipé sur une liste vide : la boucle ne fait déjà rien.
+    // Le garde qui s'y trouvait était une micro-optimisation, et il ajoutait une
+    // BRANCHE que rien ne pouvait éprouver — la loupe l'a fait survivre. Une
+    // ligne qu'aucun test ne peut atteindre ne se justifie pas par sa vitesse.
+    for (const s of aSupprimer(serveursDe(), now)) {
       try {
         if (s.refMachine) await fournisseurServeurs.supprimer(s.refMachine);
       } catch (e) {
