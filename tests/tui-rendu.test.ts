@@ -27,8 +27,10 @@ import {
   barreProgression,
   cadre,
   capacites,
+  constatEnroule,
   degrade,
   encadreJeton,
+  enrouler,
   espacer,
   etapeLineaire,
   imageSpinner,
@@ -45,6 +47,10 @@ import {
 } from '../src/tui/rendu.js';
 
 const TTY = { isTTY: true, columns: 100 };
+
+/** Un vrai terminal (cadres, couleur) et un tuyau (ni l'un ni l'autre). */
+const ECRAN = capacites({ TERM: 'xterm-256color' }, TTY);
+const TUYAU = capacites({ NO_COLOR: '1' }, { isTTY: false, columns: undefined });
 
 const VERIFS: Verification[] = [
   { etat: 'fait', libelle: 'Node v24.8.0', note: '(≥ 24 requis)' },
@@ -266,6 +272,84 @@ describe('mesurer et couper', () => {
 
   it('couper RETIRE toujours le style — c’est ce qu’on veut d’un texte du dehors', () => {
     expect(tronquer('\x1b[41mrouge et long', 6)).not.toContain('\x1b');
+  });
+});
+
+describe('ENROULER PLUTÔT QUE COUPER — la moitié qui dit quoi faire', () => {
+  // Mesuré sur un `.env` issu du `cp .env.example .env` que le docteur
+  // conseille : les deux avertissements de sécurité de l'installeur font 178 et
+  // 281 caractères, la largeur vaut 76. On coupait donc 102 et 205 caractères,
+  // et à chaque fois la fin — c'est-à-dire la phrase qui dit quoi faire.
+  const ALERTE =
+    'Votre HIVE_JWT_SECRET est vide, trop court, ou porte encore l’ancienne valeur publiée ' +
+    'avec le code : n’importe qui pourrait se fabriquer la session de votre administrateur. ' +
+    'Remplacez-le dans .env par au moins 24 caractères tirés au hasard — la ruche refusera ' +
+    'de démarrer autrement.';
+
+  it('AUCUN MOT NE SE PERD — c’est toute la raison d’être de cette fonction', () => {
+    const lignes = enrouler(ALERTE, 40);
+    expect(lignes.join(' ')).toBe(ALERTE.replace(/\s+/g, ' '));
+  });
+
+  it('et aucune ligne ne déborde', () => {
+    for (const largeur of [12, 40, 76]) {
+      for (const l of enrouler(ALERTE, largeur)) {
+        expect(largeurVisible(l), `« ${l} »`).toBeLessThanOrEqual(largeur);
+      }
+    }
+  });
+
+  it('UN MOT PLUS LONG QUE LA LIGNE EST DÉBITÉ, PAS JETÉ', () => {
+    // Une URL de 200 caractères dans une fenêtre étroite doit rester lisible en
+    // entier : la repousser à la ligne suivante ne ferait que déplacer le
+    // débordement, et la couper ferait disparaître le chemin qu'on donne.
+    const url = `https://exemple.test/${'a'.repeat(60)}`;
+    const lignes = enrouler(`voir ${url} pour la suite`, 20);
+    expect(lignes.join('')).toContain(url);
+    for (const l of lignes) expect(largeurVisible(l)).toBeLessThanOrEqual(20);
+  });
+
+  it('les retours à la ligne écrits à la main sont des respirations, pas du bruit', () => {
+    expect(enrouler('premier\nsecond', 40)).toEqual(['premier', 'second']);
+  });
+
+  it('une largeur nulle ou négative ne rend rien — et ne boucle pas', () => {
+    expect(enrouler('quoi que ce soit', 0)).toEqual([]);
+    expect(enrouler('quoi que ce soit', -5)).toEqual([]);
+  });
+
+  it('LE CONSTAT ENROULÉ N’ANNONCE QU’UNE SEULE ALERTE', () => {
+    // Une marque par ligne ferait lire quatre alertes là où il n'y en a qu'une.
+    const lignes = constatEnroule({ etat: 'alerte', libelle: ALERTE }, TUYAU);
+    expect(lignes.length).toBeGreaterThan(1);
+    expect(lignes.filter((l) => l.includes('ATTENTION'))).toHaveLength(1);
+    expect(lignes[0]?.startsWith('[ATTENTION] ')).toBe(true);
+  });
+
+  it('…et les lignes de suite sont alignées sous le libellé', () => {
+    const lignes = constatEnroule({ etat: 'alerte', libelle: ALERTE }, TUYAU);
+    const marge = '[ATTENTION] '.length;
+    for (const l of lignes.slice(1)) {
+      expect(l.startsWith(' '.repeat(marge))).toBe(true);
+      expect(l[marge]).not.toBe(' ');
+    }
+  });
+
+  it('LE TEXTE SURVIT ENTIER AU RENDU — la garde qui compte', () => {
+    // C'est l'assertion qui aurait rougi avant ce lot : la fin du message,
+    // celle qui donne le geste, n'atteignait jamais personne.
+    // Les lignes de suite portent leur marge d'alignement : on la neutralise
+    // avant de chercher la phrase, sinon c'est la mise en page qu'on teste.
+    const rendu = constatEnroule({ etat: 'alerte', libelle: ALERTE }, TUYAU)
+      .join(' ')
+      .replace(/\s+/g, ' ');
+    expect(rendu).toContain('la ruche refusera de démarrer autrement.');
+  });
+
+  it('sous cadres aussi, et sans jamais déborder de la largeur', () => {
+    const lignes = constatEnroule({ etat: 'alerte', libelle: ALERTE }, ECRAN);
+    expect(lignes.join(' ').replace(/\s+/g, ' ')).toContain('démarrer autrement.');
+    for (const l of lignes) expect(largeurVisible(l)).toBeLessThanOrEqual(ECRAN.largeur);
   });
 });
 

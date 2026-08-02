@@ -795,3 +795,43 @@ l'identique, avec la commande que le script affiche.
 
 **La CI ne mélangeait pas.** Rien de tout ceci n'y était visible, et rien ne
 l'aurait rendu visible tout seul.
+
+---
+
+## Le premier contact — marché pour de vrai, sur un clone vierge
+
+Le conteneur tourne sous Node 22 et la ruche exige 24 : le parcours d'un nouveau
+venu n'avait donc jamais été **observé**, seulement raisonné. Node 24 posé à
+côté, il l'a été — clone dans un dossier vide, `npm install`, installeur,
+démarrage, `doctor`.
+
+**Ce qui marche déjà, et qu'il fallait vérifier plutôt que supposer :**
+
+| étape                                    | ce qu'on voit                                                |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `npm install`                            | 19 s, 285 paquets, aucune faille                             |
+| `npm install --omit=dev`                 | refus NOMMÉ : « il manque tsx », avec la commande qui répare |
+| `npm run install:hive`                   | `.env` créé en 0600, deux secrets tirés, le jeton encadré    |
+| `npm run dev`                            | la Reine répond `{"ok":true}` sur `/api/health`              |
+| ouvrir l'adresse annoncée sans dashboard | la route dit `npm run build:dashboard`                       |
+
+**Les deux frottements trouvés, et corrigés :**
+
+**1. Le remède du docteur désarmait l'installeur.** `cp .env.example .env`
+plante `change-me` dans les deux secrets ; l'installeur ne complète que les clés
+ABSENTES, répond « vos valeurs sont intactes » et laisse les marque-places. Le
+premier conseil du docteur fermait la porte de secours. Il nomme désormais
+`npm run install:hive` — mesuré : un clone vierge passe de trois ✘ à zéro en
+**une commande**, contre trois commandes et deux modifications à la main.
+
+**2. Les avertissements de sécurité perdaient leur moitié utile.** 178 et 281
+caractères pour une largeur de 76 : 102 et 205 caractères coupés, et à chaque
+fois la phrase qui dit quoi faire. `enrouler` et `constatEnroule` répartissent
+au lieu de couper, les lignes de suite alignées sous le libellé.
+
+`tests/premier-contact.test.ts` tient le maillon : ce que l'installeur ÉCRIT
+satisfait ce que le docteur EXIGE. Deux constantes qui divergeraient rougissent
+le jour même, plutôt qu'au premier clone de quelqu'un d'autre.
+
+**Ce que ça ne dit pas** : tout ceci est mesuré sous Linux. Le mur Node 22 du
+conteneur est levé, pas celui de Windows et macOS.

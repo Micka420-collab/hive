@@ -42,6 +42,7 @@ import {
 import {
   banniere,
   constat,
+  constatEnroule,
   encadreJeton,
   espacer,
   panneau,
@@ -376,8 +377,15 @@ async function main(): Promise<void> {
     if (jeton !== '') bloc(encadreJeton(jeton, caps));
   }
 
+  // ─── LES AVERTISSEMENTS S'ENROULENT, ILS NE SE COUPENT PLUS ───────────────
+  //
+  // `constat` coupe à la largeur du terminal. Les deux avertissements de
+  // sécurité font 178 et 281 caractères pour une largeur de 76 : 102 et 205
+  // caractères perdus, et à chaque fois la moitié qui DIT QUOI FAIRE. On
+  // alertait quelqu'un sur le secret qui protège sa ruche en lui coupant la
+  // parole au milieu.
   for (const a of avertissements(reglages)) {
-    bloc([constat({ etat: 'alerte', libelle: a }, caps)]);
+    bloc(constatEnroule({ etat: 'alerte', libelle: a }, caps));
   }
 
   // ─── 4. L'assistant : la mise en ligne, puis le premier projet ────────────

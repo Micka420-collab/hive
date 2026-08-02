@@ -393,7 +393,9 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
       const lignes = sortie.split('\n');
       const i = lignes.findIndex((l) => l.includes('env_present'));
       expect(i, 'le diagnostic .env doit apparaître').toBeGreaterThan(-1);
-      expect(lignes[i + 1], 'sa réparation vient à la ligne suivante').toContain('.env.example');
+      expect(lignes[i + 1], 'sa réparation vient à la ligne suivante').toContain(
+        'npm run install:hive',
+      );
     } finally {
       rmSync(racine, { recursive: true, force: true });
     }

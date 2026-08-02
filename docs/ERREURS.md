@@ -866,6 +866,78 @@ faire taire un couplage accidentel en deux mots. Elle se déclare donc dans
 > lance à chaque PR. **La CI ne mélangeait pas : rien de tout ceci n'y était
 > visible.**
 
+### 2.15 — Le remède qui désarme l'outil fait pour réparer
+
+Sur un clone vierge (Node 24, mesuré), le docteur disait :
+
+```
+✘ env_present    aucun fichier .env
+     → cp .env.example .env
+```
+
+Ce geste plante `HIVE_TOKEN=change-me` et `HIVE_JWT_SECRET=change-me` — les
+valeurs **publiées avec le code**. Or l'installeur ne complète que les clés
+**absentes** ; sa prudence est juste, il ne peut pas distinguer une valeur
+choisie d'une valeur recopiée. Lancé ensuite, il répondait donc :
+
+```
+[OK] .env complété — vos valeurs sont intactes
+```
+
+et laissait les deux marque-places. **Le premier remède du docteur était le
+geste qui fermait la porte de secours.** Restaient deux modifications à la main
+dans un fichier de quatre cents lignes, là où une commande suffit.
+
+Les deux modules étaient justes, chacun testé chez lui. Le défaut vivait
+**entre eux** — la forme exacte du § 1, mais entre deux CONSEILS plutôt qu'entre
+deux fonctions.
+
+> **Règle** — un remède se mesure à l'état qu'il produit, pas à sa
+> vraisemblance. `tests/premier-contact.test.ts` fait tourner ce que l'installeur
+> ÉCRIT dans ce que le docteur EXIGE : deux constantes qui divergeraient
+> rougissent le jour même. Et il fixe le piège lui-même — `change-me` survit à
+> l'installeur — pour que le changer redevienne une décision, pas une dérive.
+
+### 2.16 — Une mutation dont l'ancre ne colle pas se lit comme une ligne défendue
+
+En passant `constatEnroule` à la loupe, une mutation sur six a « survécu ». Le
+code n'y était pour rien : mon `replace` cherchait la ligne avec **quatre**
+espaces d'indentation là où le fichier en a deux. La substitution n'a rien fait,
+la suite est restée verte — et un test qui n'a jamais été éprouvé s'est présenté
+comme un test qui tient.
+
+C'est le mode d'échec le plus vicieux de la loupe : il ment dans le sens
+rassurant, et il ressemble exactement à ce qu'on espère voir.
+
+> **Règle** — une mutation s'ASSERTE avant de se juger : `assert old in s` dans
+> le script, sinon « survivant » veut dire « jamais appliqué ». Le vert d'une
+> mutation ratée n'est pas une information, c'est du bruit qu'on prend pour une
+> preuve.
+
+### 2.17 — On coupe un chemin, on n'ampute pas une phrase
+
+Le module de rendu **coupe** tout ce qui dépasse — bon geste pour un nom de
+machine ou un chemin de disque, dont on reconnaît le début.
+
+Les deux avertissements de sécurité de l'installeur font 178 et 281 caractères ;
+`LARGEUR_MAX` vaut 76. On en perdait donc **102 et 205** — et à chaque fois la
+fin, c'est-à-dire la seule moitié qui dit quoi faire :
+
+```
+[ATTENTION] Votre HIVE_TOKEN fait 9 caractères : c'est trop court pour pr…
+```
+
+« Remplacez-le dans .env par au moins 16 caractères — la ruche refusera de
+démarrer autrement » n'a jamais atteint personne, sur aucun terminal, à aucune
+largeur : le texte dépasse la borne de trois fois. On alertait quelqu'un sur le
+secret qui protège sa ruche **en lui coupant la parole au milieu**.
+
+> **Règle** — couper convient à un identifiant, jamais à une phrase. `enrouler`
+> répartit sans rien perdre, `constatEnroule` aligne les lignes de suite sous le
+> libellé (une marque par ligne ferait lire quatre alertes là où il y en a une),
+> et un mot plus long que la ligne est **débité, pas jeté** : repousser une URL
+> de 200 caractères ne ferait que déplacer le débordement.
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois
