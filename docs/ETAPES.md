@@ -835,3 +835,31 @@ le jour même, plutôt qu'au premier clone de quelqu'un d'autre.
 
 **Ce que ça ne dit pas** : tout ceci est mesuré sous Linux. Le mur Node 22 du
 conteneur est levé, pas celui de Windows et macOS.
+
+---
+
+## La vitrine montre enfin le tableau de bord
+
+La section « Mission Control » **listait** treize vues et n'en **montrait**
+aucune. On y décrivait une sidebar alvéolaire, des touches 1-0, un rayon
+cliquable — et le lecteur devait imaginer. C'est le seul endroit du site où
+montrer coûte moins cher que dire.
+
+Les cinq écrans qu'on ouvre le plus — Tâches, Ordinateurs, Activité, À relire,
+l'Atelier — sont désormais reproduits en HTML, pas en captures : ils suivent les
+jetons de la vitrine, se traduisent comme le reste, restent nets à tout zoom et
+ne périment pas au premier changement de thème. Les chiffres sont illustratifs,
+**et la légende le dit** — annoncer des mesures qu'aucune ruche n'a produites
+serait la première promesse fausse du site.
+
+Aucun catalogue d'écrans dans le script : il apparie par `data-ecran`, comme les
+puces de système. Ajouter un sixième écran dans le HTML suffit.
+
+**Deux défauts trouvés en le construisant, et le premier est instructif.**
+Quatre écrans portaient `hidden` et la garde était verte — mais la page les
+affichait tous les cinq, parce que `display: grid` bat le `display: none` que le
+navigateur attache à `hidden`. Une garde qui lit la structure ne voit pas la
+présentation qui la défait ; c'est la capture qui l'a montré. Le second :
+`.apercu-rail b` désignait déjà la marque « Hive » en or, si bien que les
+libellés ajoutés ensuite passaient en or sur fond or — invisibles sur l'entrée
+active. Journal § 2 ter.

@@ -1233,6 +1233,160 @@
       }
 
       /* Mission Control */
+      /* ─── L'APERÇU DU TABLEAU DE BORD ────────────────────────────────────
+         La section listait treize vues et n'en MONTRAIT aucune. Une page qui
+         vend un tableau de bord sans jamais l'ouvrir demande un acte de foi :
+         on décrit une sidebar alvéolaire, des touches 1-0, un rayon cliquable,
+         et le lecteur doit imaginer. C'est le seul endroit du site où montrer
+         coûte moins cher que dire.
+
+         Reproduction en HTML, pas une capture : elle suit les jetons de la
+         vitrine, se traduit comme le reste, reste nette à tout zoom et ne
+         périme pas au premier changement de thème. Les chiffres sont
+         ILLUSTRATIFS et la légende le dit — annoncer des mesures qu'aucune
+         ruche n'a produites serait la première promesse fausse du site. */
+      .apercu {
+        border: 1px solid var(--border-2);
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--panel);
+        box-shadow: var(--ombre);
+        margin: 20px 0 10px;
+      }
+      .apercu-onglets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 12px;
+        background: var(--panel-2);
+        border-bottom: 1px solid var(--border);
+      }
+      .apercu-onglet {
+        font: 600 12px/1 var(--texte);
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        padding: 7px 12px;
+        cursor: pointer;
+      }
+      .apercu-onglet:hover {
+        color: var(--text);
+      }
+      .apercu-onglet[aria-selected='true'] {
+        color: var(--encre);
+        background: var(--gold);
+        border-color: var(--gold-2);
+      }
+      /* La fenêtre : encre à gauche, papier à droite — le contraste dont vit
+         l'identité du tableau de bord. */
+      .apercu-fenetre {
+        display: grid;
+        grid-template-columns: 148px 1fr;
+        min-height: 268px;
+      }
+      .apercu-rail {
+        background: var(--encre);
+        padding: 12px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .apercu-marque {
+        font: 700 12px/1 var(--titre);
+        color: var(--gold);
+        padding: 4px 8px 10px;
+      }
+      .apercu-rail span {
+        font: 500 11px/1.1 var(--texte);
+        color: var(--dim);
+        padding: 7px 8px;
+        border-radius: 6px;
+      }
+      .apercu-rail i {
+        font-style: normal;
+        margin-right: 6px;
+      }
+      .apercu-rail b {
+        font-weight: 500;
+      }
+      .apercu-rail span[data-vif] {
+        color: var(--encre);
+        background: var(--gold);
+      }
+      .apercu-corps {
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+      /* ─── `display` BAT `hidden`, ET C'EST PIÉGEUX ──────────────────────
+         Le navigateur cache un élément `hidden` par `display: none` dans SA
+         feuille de style — la moins prioritaire de toutes. La règle
+         `display: grid` juste au-dessus est écrite par nous : elle gagne, et
+         les cinq écrans s'empilaient dans la fenêtre alors que quatre
+         portaient bien l'attribut.
+         Le plus instructif : la garde qui compte les écrans ouverts était
+         VERTE. Elle lit le HTML, où `hidden` est là ; elle ne peut pas voir
+         une règle CSS qui le défait. D'où la seconde garde, qui exige que
+         cette règle-ci existe. */
+      .apercu-corps[hidden] {
+        display: none;
+      }
+      .apercu-ligne {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        background: var(--chip);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 9px 11px;
+        font: 500 12px/1.35 var(--texte);
+        color: var(--text);
+      }
+      .apercu-ligne b {
+        display: block;
+        font-weight: 600;
+      }
+      .apercu-ligne small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .apercu-etat {
+        font: 600 10px/1 var(--mono);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        border-radius: 999px;
+        padding: 5px 9px;
+        white-space: nowrap;
+        border: 1px solid var(--border-2);
+        color: var(--muted);
+      }
+      .apercu-etat[data-ton='ok'] {
+        color: var(--green);
+      }
+      .apercu-etat[data-ton='vif'] {
+        color: var(--orange);
+      }
+      .apercu-legende {
+        font: 400 12px/1.5 var(--texte);
+        color: var(--muted);
+        margin: 0 0 6px;
+      }
+      @media (max-width: 640px) {
+        .apercu-fenetre {
+          grid-template-columns: 1fr;
+        }
+        .apercu-rail {
+          flex-direction: row;
+          overflow-x: auto;
+        }
+        .apercu-rail b {
+          display: none;
+        }
+      }
       .views {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -2021,7 +2175,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--green)" data-i18n="badge.tests"
-              >2 933 tests ✓</span
+              >2 941 tests ✓</span
             >
             <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -2718,6 +2872,203 @@
         <code class="inline">#/vue/id</code>. Les décisions de revue sont partagées entre tous les
         opérateurs, en temps réel.
       </p>
+      <p class="apercu-legende" data-i18n="ap.legende">
+        Les cinq écrans qu'on ouvre le plus, tels qu'ils se présentent. Les chiffres sont un exemple
+        : ce sont vos ouvrières qui les remplissent.
+      </p>
+      <div class="apercu">
+        <div class="apercu-onglets" role="tablist" aria-label="Écrans du tableau de bord">
+          <button
+            class="apercu-onglet"
+            type="button"
+            role="tab"
+            data-ecran="taches"
+            aria-selected="true"
+            data-i18n="ap.taches.nom"
+          >
+            Tâches
+          </button>
+          <button
+            class="apercu-onglet"
+            type="button"
+            role="tab"
+            data-ecran="ordinateurs"
+            aria-selected="false"
+            data-i18n="ap.ordinateurs.nom"
+          >
+            Ordinateurs
+          </button>
+          <button
+            class="apercu-onglet"
+            type="button"
+            role="tab"
+            data-ecran="activite"
+            aria-selected="false"
+            data-i18n="ap.activite.nom"
+          >
+            Activité
+          </button>
+          <button
+            class="apercu-onglet"
+            type="button"
+            role="tab"
+            data-ecran="relire"
+            aria-selected="false"
+            data-i18n="ap.relire.nom"
+          >
+            À relire
+          </button>
+          <button
+            class="apercu-onglet"
+            type="button"
+            role="tab"
+            data-ecran="atelier"
+            aria-selected="false"
+            data-i18n="ap.atelier.nom"
+          >
+            L'Atelier
+          </button>
+        </div>
+        <div class="apercu-fenetre">
+          <div class="apercu-rail" aria-hidden="true">
+            <b class="apercu-marque">Hive</b>
+            <span data-vif data-ecran-rail="taches"
+              ><i aria-hidden="true">🧩</i><b data-i18n="ap.taches.nom">Tâches</b></span
+            >
+            <span data-ecran-rail="ordinateurs"
+              ><i aria-hidden="true">💻</i><b data-i18n="ap.ordinateurs.nom">Ordinateurs</b></span
+            >
+            <span data-ecran-rail="activite"
+              ><i aria-hidden="true">📈</i><b data-i18n="ap.activite.nom">Activité</b></span
+            >
+            <span data-ecran-rail="relire"
+              ><i aria-hidden="true">🍯</i><b data-i18n="ap.relire.nom">À relire</b></span
+            >
+            <span data-ecran-rail="atelier"
+              ><i aria-hidden="true">⬡</i><b data-i18n="ap.atelier.nom">L'Atelier</b></span
+            >
+          </div>
+          <div class="apercu-corps" data-ecran-corps="taches">
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.taches.0.t">Écrire les tests de la borne d'élagage</b
+                ><small data-i18n="ap.taches.0.d">Portable de Léa · 2 min</small></span
+              >
+              <span class="apercu-etat" data-ton="vif" data-i18n="ap.taches.0.e">en cours</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.taches.1.t">Corriger la garde du secret de session</b
+                ><small data-i18n="ap.taches.1.d">Tour de Tom · 41 s</small></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.taches.1.e">terminée</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.taches.2.t">Découper l'issue #128 en quatre tâches</b
+                ><small data-i18n="ap.taches.2.d">en attente d'une ouvrière</small></span
+              >
+              <span class="apercu-etat" data-i18n="ap.taches.2.e">prête</span>
+            </div>
+          </div>
+          <div class="apercu-corps" data-ecran-corps="ordinateurs" hidden>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.ordinateurs.0.t">Portable de Léa</b
+                ><small data-i18n="ap.ordinateurs.0.d"
+                  >claude-code · 2 tâches à la fois</small
+                ></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.ordinateurs.0.e">en ligne</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.ordinateurs.1.t">Tour de Tom</b
+                ><small data-i18n="ap.ordinateurs.1.d"
+                  >claude-code · bac à sable podman</small
+                ></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.ordinateurs.1.e">en ligne</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.ordinateurs.2.t">Fixe de l'atelier</b
+                ><small data-i18n="ap.ordinateurs.2.d">vue il y a 6 min</small></span
+              >
+              <span class="apercu-etat" data-i18n="ap.ordinateurs.2.e">hors ligne</span>
+            </div>
+          </div>
+          <div class="apercu-corps" data-ecran-corps="activite" hidden>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.activite.0.t">Nectar rapporté</b
+                ><small data-i18n="ap.activite.0.d">sur la dernière heure</small></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.activite.0.e">18 tâches</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.activite.1.t">Latence médiane</b
+                ><small data-i18n="ap.activite.1.d">de l'assignation au résultat</small></span
+              >
+              <span class="apercu-etat" data-i18n="ap.activite.1.e">34 s</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.activite.2.t">Productions refusées</b
+                ><small data-i18n="ap.activite.2.d">diff vide ou promesse non tenue</small></span
+              >
+              <span class="apercu-etat" data-ton="vif" data-i18n="ap.activite.2.e">2</span>
+            </div>
+          </div>
+          <div class="apercu-corps" data-ecran-corps="relire" hidden>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.relire.0.t">src/orchestrator/store.ts</b
+                ><small data-i18n="ap.relire.0.d">+64 −12 · Portable de Léa</small></span
+              >
+              <span class="apercu-etat" data-ton="vif" data-i18n="ap.relire.0.e">à approuver</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.relire.1.t">tests/bornes-cablees.test.ts</b
+                ><small data-i18n="ap.relire.1.d">+31 −0 · Tour de Tom</small></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.relire.1.e">approuvée</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.relire.2.t">docs/ERREURS.md</b
+                ><small data-i18n="ap.relire.2.d">+18 −2 · Portable de Léa</small></span
+              >
+              <span class="apercu-etat" data-i18n="ap.relire.2.e">refusée</span>
+            </div>
+          </div>
+          <div class="apercu-corps" data-ecran-corps="atelier" hidden>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.atelier.0.t">« Ajouter la reprise après échec »</b
+                ><small data-i18n="ap.atelier.0.d">brief écrit par vous</small></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.atelier.0.e">découpé</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.atelier.1.t">1. Poser la table des reprises</b
+                ><small data-i18n="ap.atelier.1.d">aucune dépendance</small></span
+              >
+              <span class="apercu-etat" data-ton="ok" data-i18n="ap.atelier.1.e">prête</span>
+            </div>
+            <div class="apercu-ligne">
+              <span
+                ><b data-i18n="ap.atelier.2.t">2. Brancher le filet sur la table</b
+                ><small data-i18n="ap.atelier.2.d">attend la tâche 1</small></span
+              >
+              <span class="apercu-etat" data-i18n="ap.atelier.2.e">en attente</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="views">
         <div class="view-card">
           <div class="hexico hot" aria-hidden="true">🐝</div>
@@ -3372,7 +3723,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,933 tests ✓',
+          'badge.tests': '2,941 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -3477,6 +3828,58 @@
           'archi.p1': '⚡ Real-time over WebSocket',
           'archi.p2': '💾 Persistent state in SQLite — survives restarts',
           'archi.p3': '🔑 API keys never leave the member’s machine',
+          'ap.legende':
+            'The five screens you open most, exactly as they look. The figures are an example — your worker bees are the ones who fill them in.',
+          'ap.taches.nom': 'Tasks',
+          'ap.taches.0.t': 'Write the tests for the pruning bound',
+          'ap.taches.0.d': 'Léa’s laptop · 2 min',
+          'ap.taches.0.e': 'running',
+          'ap.taches.1.t': 'Fix the session-secret guard',
+          'ap.taches.1.d': 'Tom’s tower · 41 s',
+          'ap.taches.1.e': 'done',
+          'ap.taches.2.t': 'Split issue #128 into four tasks',
+          'ap.taches.2.d': 'waiting for a worker bee',
+          'ap.taches.2.e': 'ready',
+          'ap.ordinateurs.nom': 'Computers',
+          'ap.ordinateurs.0.t': 'Léa’s laptop',
+          'ap.ordinateurs.0.d': 'claude-code · 2 tasks at a time',
+          'ap.ordinateurs.0.e': 'online',
+          'ap.ordinateurs.1.t': 'Tom’s tower',
+          'ap.ordinateurs.1.d': 'claude-code · podman sandbox',
+          'ap.ordinateurs.1.e': 'online',
+          'ap.ordinateurs.2.t': 'Workshop desktop',
+          'ap.ordinateurs.2.d': 'last seen 6 min ago',
+          'ap.ordinateurs.2.e': 'offline',
+          'ap.activite.nom': 'Activity',
+          'ap.activite.0.t': 'Nectar brought in',
+          'ap.activite.0.d': 'over the last hour',
+          'ap.activite.0.e': '18 tasks',
+          'ap.activite.1.t': 'Median latency',
+          'ap.activite.1.d': 'from assignment to result',
+          'ap.activite.1.e': '34 s',
+          'ap.activite.2.t': 'Refused productions',
+          'ap.activite.2.d': 'empty diff or promise not kept',
+          'ap.activite.2.e': '2',
+          'ap.relire.nom': 'To review',
+          'ap.relire.0.t': 'src/orchestrator/store.ts',
+          'ap.relire.0.d': '+64 −12 · Léa’s laptop',
+          'ap.relire.0.e': 'to approve',
+          'ap.relire.1.t': 'tests/bornes-cablees.test.ts',
+          'ap.relire.1.d': '+31 −0 · Tom’s tower',
+          'ap.relire.1.e': 'approved',
+          'ap.relire.2.t': 'docs/ERREURS.md',
+          'ap.relire.2.d': '+18 −2 · Léa’s laptop',
+          'ap.relire.2.e': 'refused',
+          'ap.atelier.nom': 'The Workshop',
+          'ap.atelier.0.t': '“Add recovery after failure”',
+          'ap.atelier.0.d': 'brief written by you',
+          'ap.atelier.0.e': 'split',
+          'ap.atelier.1.t': '1. Lay down the retries table',
+          'ap.atelier.1.d': 'no dependency',
+          'ap.atelier.1.e': 'ready',
+          'ap.atelier.2.t': '2. Wire the net onto the table',
+          'ap.atelier.2.d': 'waits for task 1',
+          'ap.atelier.2.e': 'waiting',
           'mc.headline': '13 keyboard-navigable views, bilingual FR/EN interface.',
           'mc.lede':
             'Honeycomb sidebar, keys <kbd class="key">1</kbd>–<kbd class="key">0</kbd>, deep-links <code class="inline">#/view/id</code>. Review decisions are shared between all operators, in real time.',
@@ -3847,6 +4250,36 @@
            Le libellé de la note voyage dans `data-install-note`, que la bascule
            FR/EN réécrit comme n'importe quel autre attribut traduit. C'est
            pourquoi on RELIT l'attribut à chaque clic au lieu de le mémoriser. */
+
+        /* ─── L'APERÇU : CHANGER D'ÉCRAN ──────────────────────────────────
+           Aucun catalogue d'écrans ici. Le script lit `data-ecran` sur les
+           onglets et apparie par la valeur : ajouter un sixième écran dans le
+           HTML suffit, et une faute de frappe ne fabrique pas un onglet mort —
+           elle rend un onglet qui n'apparie rien, ce que le test voit.
+           C'est la leçon des puces de système, quinze lignes plus haut. */
+        var onglets = [].slice.call(document.querySelectorAll('.apercu-onglet'));
+        var corps = [].slice.call(document.querySelectorAll('[data-ecran-corps]'));
+        var railEcrans = [].slice.call(document.querySelectorAll('[data-ecran-rail]'));
+
+        function montrerEcran(cle) {
+          onglets.forEach(function (o) {
+            o.setAttribute('aria-selected', String(o.getAttribute('data-ecran') === cle));
+          });
+          corps.forEach(function (c) {
+            c.hidden = c.getAttribute('data-ecran-corps') !== cle;
+          });
+          railEcrans.forEach(function (r) {
+            if (r.getAttribute('data-ecran-rail') === cle) r.setAttribute('data-vif', '');
+            else r.removeAttribute('data-vif');
+          });
+        }
+
+        onglets.forEach(function (o) {
+          o.addEventListener('click', function () {
+            montrerEcran(o.getAttribute('data-ecran'));
+          });
+        });
+
         var barreCmd = document.getElementById('install-cmd');
         var barreNote = document.getElementById('install-note');
         var puces = [].slice.call(document.querySelectorAll('.chip-os'));

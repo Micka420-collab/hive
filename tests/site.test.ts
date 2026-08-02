@@ -420,6 +420,93 @@ describe.each(PAGES_FORMULAIRE)('page $nom — les formulaires', ({ html }) => {
 //
 // La vitrine reste la source : chaque commande imprimée doit se retrouver, au
 // caractère près, dans une de ses puces de système.
+describe('site vitrine — l’aperçu du tableau de bord', () => {
+  const page = PAGES.find((p) => p.nom === 'vitrine');
+  const vitrine = page?.html ?? '';
+
+  it('LE RELEVÉ TROUVE LA VITRINE — sans elle, tout ce fichier serait vert et vide', () => {
+    expect(page, 'la page « vitrine » a disparu de PAGES').toBeDefined();
+    expect(vitrine.length).toBeGreaterThan(1000);
+  });
+
+  /** Les écrans déclarés par les onglets. */
+  const ecrans = [...vitrine.matchAll(/data-ecran="([a-z]+)"/g)].map((m) => m[1]!);
+
+  it('IL Y A BIEN DES ÉCRANS — sinon tout ce qui suit est creux', () => {
+    // La garde qui empêche les suivantes d'être vertes sur du vide. Ce piège a
+    // déjà été pris deux fois dans ce dépôt.
+    expect(ecrans.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(ecrans).size, 'deux onglets ne peuvent pas désigner le même écran').toBe(
+      ecrans.length,
+    );
+  });
+
+  it('CHAQUE ONGLET OUVRE UN CORPS QUI EXISTE', () => {
+    // Un onglet sans corps est un bouton mort : il se surligne et ne montre
+    // rien. C'est exactement la panne que le script ne peut pas voir tout seul.
+    const corps = new Set([...vitrine.matchAll(/data-ecran-corps="([a-z]+)"/g)].map((m) => m[1]!));
+    const orphelins = ecrans.filter((e) => !corps.has(e));
+    expect(orphelins, 'onglets sans écran').toEqual([]);
+  });
+
+  it('…ET UNE ENTRÉE DE BARRE LATÉRALE, sinon la barre ment sur la vue ouverte', () => {
+    const rail = new Set([...vitrine.matchAll(/data-ecran-rail="([a-z]+)"/g)].map((m) => m[1]!));
+    expect(
+      ecrans.filter((e) => !rail.has(e)),
+      'écrans absents de la barre',
+    ).toEqual([]);
+  });
+
+  it('UN SEUL ÉCRAN EST OUVERT AU CHARGEMENT', () => {
+    // Deux corps visibles empileraient deux tableaux de bord l'un sous l'autre.
+    const visibles = [...vitrine.matchAll(/data-ecran-corps="[a-z]+"(\s*hidden)?/g)].filter(
+      (m) => !m[1],
+    );
+    expect(visibles).toHaveLength(1);
+    const choisis = [...vitrine.matchAll(/aria-selected="true"/g)];
+    expect(choisis).toHaveLength(1);
+  });
+
+  it('…ET `hidden` EST RÉELLEMENT HONORÉ — la garde ci-dessus ne peut pas le voir', () => {
+    // Le test du dessus lit le HTML : l'attribut `hidden` y est, il est donc
+    // vert. Mais `display: grid` sur `.apercu-corps` bat le `display: none`
+    // que le navigateur attache à `hidden` — sa feuille de style est la moins
+    // prioritaire de toutes. Les cinq écrans s'empilaient, et aucun test ne
+    // pouvait le dire.
+    //
+    // Une garde qui lit la structure ne voit pas la présentation qui la
+    // défait. Celle-ci exige la règle qui rétablit l'ordre.
+    expect(vitrine, 'sans cette règle, les cinq écrans s’empilent').toMatch(
+      /\.apercu-corps\[hidden\]\s*\{[^}]*display:\s*none/,
+    );
+  });
+
+  it('L’APERÇU N’INVENTE AUCUN ÉCRAN : le script ne connaît pas leurs noms', () => {
+    // Même règle que pour les puces de système. Une liste d'écrans recopiée
+    // dans le script divergerait du HTML sans que rien ne rougisse.
+    const scripts = [...vitrine.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(
+      (m) => m[1] ?? '',
+    );
+    expect(
+      scripts.some((s) => s.trim() !== ''),
+      'aucun script lu : le relevé est cassé',
+    ).toBe(true);
+    for (const e of ecrans) {
+      for (const s of scripts) {
+        expect(s, `le script nomme l’écran « ${e} »`).not.toContain(`'${e}'`);
+      }
+    }
+  });
+
+  it('LES CHIFFRES SONT ANNONCÉS COMME UN EXEMPLE', () => {
+    // Un tableau de bord d'illustration qui passerait pour une mesure serait la
+    // première promesse fausse du site.
+    const legende = /data-i18n="ap\.legende">([\s\S]*?)</.exec(vitrine)?.[1] ?? '';
+    expect(legende.length, 'aucune légende').toBeGreaterThan(20);
+    expect(legende.toLowerCase()).toMatch(/exemple/);
+  });
+});
+
 describe('présentation — les commandes viennent de la vitrine', () => {
   /** Un texte de commande, espaces normalisés — le HTML plie les longues lignes. */
   const normalise = (s: string): string => s.replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();

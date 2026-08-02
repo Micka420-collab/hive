@@ -1965,6 +1965,41 @@ changer le comportement du serveur dans un lot sur la désinstallation serait le
 
 ---
 
+## 2 ter. Une garde qui lit la STRUCTURE ne voit pas la PRÉSENTATION qui la défait
+
+L'aperçu du tableau de bord montre cinq écrans, un seul à la fois : quatre
+portent l'attribut `hidden`. La garde comptait donc les corps sans `hidden` et
+exigeait qu'il n'y en ait qu'un. Elle était **verte**.
+
+La page, elle, affichait les cinq empilés.
+
+`hidden` est caché par un `display: none` écrit dans la feuille de style du
+NAVIGATEUR — la moins prioritaire de toutes. La règle juste au-dessus,
+
+```css
+.apercu-corps {
+  display: grid;
+}
+```
+
+est écrite par nous : elle gagne, et l'attribut ne fait plus rien. Le HTML
+disait vrai, le rendu disait le contraire, et un test qui lit le HTML ne peut
+pas arbitrer entre les deux.
+
+C'est la capture d'écran qui l'a vu — et c'est exactement ce à quoi une capture
+sert (§ 9 sexies) : répondre à « est-ce que ça a l'air juste ? ».
+
+> **Règle** — quand une garde s'appuie sur un attribut dont l'effet est du CSS
+> (`hidden`, `disabled` visuellement, `aria-*` stylé), elle doit aussi exiger la
+> RÈGLE qui rend cet attribut effectif. Sinon elle certifie une intention, pas
+> un résultat.
+
+Corollaire de la même journée : un sélecteur d'élément nu dans un bloc scopé
+attrape tout ce qu'on écrira plus tard. `.apercu-rail b` désignait la marque
+« Hive », en or ; les libellés ajoutés ensuite étaient des `b` eux aussi — donc
+or sur fond or pour l'entrée active, **invisible**. Aucun test ne pouvait le
+dire ; la capture, si.
+
 ## 9 sexies. Une capture d'écran n'est pas une mesure
 
 Le tableau de bord venait de passer sur fond crème. Sur mes captures, la barre
