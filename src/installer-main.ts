@@ -44,6 +44,8 @@ import {
   constat,
   encadreJeton,
   espacer,
+  panneau,
+  railPas,
   recapEcritures,
   titreSection,
   type Verification,
@@ -200,6 +202,7 @@ async function main(): Promise<void> {
   // Les trois sondes lancent des binaires ; les faire en parallèle plutôt
   // qu'à la queue leu leu économise plusieurs secondes sur une machine où
   // aucun n'est installé (chaque sonde a son propre délai d'attente).
+  const departSondes = Date.now();
   const [libre, go, agentDetecte, fournisseur] = await Promise.all([
     portLibre(PORT_DEFAUT),
     espaceLibreGo(),
@@ -230,10 +233,20 @@ async function main(): Promise<void> {
     },
   ];
 
-  bloc(
-    titreSection('Vérifications', caps),
-    verifs.map((v) => constat(v, caps)),
-  );
+  // ─── LE RAIL, ICI AUSSI ────────────────────────────────────────────────────
+  //
+  // Les deux scripts d'installation portent une colonne continue depuis leur
+  // première ligne ; celui-ci se contentait d'un intertitre atténué. Trois
+  // fichiers pour un même accueil, trois présentations : c'est le § 9 bis, et
+  // c'est le chemin le mieux testé qui était le plus pauvre.
+  //
+  // Le chrono n'est pas une coquetterie : les quatre sondes lancent de vrais
+  // binaires, et sur une machine où aucun n'est installé elles prennent
+  // plusieurs secondes. Sans durée affichée, l'écran a l'air figé.
+  bloc([
+    ...railPas({ nom: 'Vérifications', etat: 'fait', duree: Date.now() - departSondes }, caps),
+    ...verifs.map((v) => constat(v, caps)),
+  ]);
 
   // Un port occupé n'empêche pas d'écrire un `.env`, mais un script doit
   // pouvoir le savoir sans lire la sortie. Le code est posé ici et n'annule
@@ -249,7 +262,8 @@ async function main(): Promise<void> {
   // Hors terminal, le défaut est « ouvrir ma propre ruche » : c'est ce que
   // faisait l'installeur avant, et c'est ce qu'un `npm run setup` scripté
   // attend. Documenté, donc — pas deviné.
-  if (caps.interactif) bloc(titreSection('Que voulez-vous faire ?', caps));
+  // Un pas EN COURS : c'est exactement ce qu'il est — on attend une réponse.
+  if (caps.interactif) bloc(railPas({ nom: 'Que voulez-vous faire ?', etat: 'curseur' }, caps));
   const chemin = await t.choisir(CHEMINS, {
     quoi: 'le chemin d’entrée (--role queen | node | serveur)',
     defautNonInteractif: 0,
@@ -381,11 +395,14 @@ async function main(): Promise<void> {
     await assistant({ t, bloc, caps, reglages, neuf, scribe: ecrireReglages });
   }
 
-  bloc(
-    titreSection('Et maintenant', caps),
-    prochainesEtapes(agent).map((e) => `  ${e}`),
-    ['  Votre code et vos clés d’API restent sur cette machine.'],
-  );
+  // ─── LA RÉPONSE À « ET MAINTENANT ? » NE SE CHERCHE PAS DANS LE DÉFILEMENT ──
+  //
+  // Une installation qui se termine laisse la personne devant une question. Un
+  // intertitre atténué se perd dans la remontée d'écran ; un cadre est le seul
+  // endroit qui survit au coup d'œil.
+  bloc(panneau('Et maintenant', prochainesEtapes(agent), caps), [
+    '  Votre code et vos clés d’API restent sur cette machine.',
+  ]);
 
   if (json) {
     fait.code = process.exitCode ?? CODE.SUCCES;
