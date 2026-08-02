@@ -2616,6 +2616,62 @@ commentaire qui porte un chiffre doit porter le chiffre relevé, ou aucun.
 
 ---
 
+## 2 nonies. Assombrir un fond sans retourner son texte
+
+Six étiquettes sur dix du panneau de l'essaim étaient illisibles, dont trois à
+**1,24:1 et 1,62:1** — c'est-à-dire invisibles. Le seuil WCAG AA est 4,5:1.
+
+La cause n'a rien de subtil : les alvéoles « en cours » et « attribuée » ont été
+remplies d'encre à un moment, et le texte est resté sur `var(--text)` et
+`var(--muted)` — les jetons prévus pour le fond clair.
+
+**Ce qui rend ce défaut durable, c'est qu'aucun de mes instruments ne le voit.**
+Le HTML est valide. La page se rend. Une capture d'écran montre bien quelque
+chose à cet endroit — on distingue la forme, on croit lire. Il faut CALCULER le
+rapport de luminance entre deux couleurs pour que le défaut existe.
+
+C'est un cousin du § 2 quinquies (un `var()` qui ne résout pas se voit juste à
+l'écran) : dans les deux cas, la page a l'air correcte et le fichier est faux.
+La famille de défauts est la même — **ceux qui ne produisent aucun symptôme
+observable sans mesure.** On ne les trouve qu'en décidant à l'avance ce qu'on
+va mesurer.
+
+La garde qui en découle ne mesure pas des couleurs — un test ne rend pas de
+pixels. Elle lit la STRUCTURE : dans un groupe dont le polygone est sombre,
+aucun texte ne peut porter une couleur de fond clair. C'est une règle sur le
+code, pas sur le rendu, et c'est pour ça qu'elle tient.
+
+### 2nonies.1 — Déclarer un jeton crée des doublons rétroactifs
+
+En ajoutant `--creme: #f4eee0` et `--creme-2: #b5a991`, j'ai fait rougir une
+garde qui existait depuis longtemps : « aucun littéral ne double un jeton ».
+Trois `color: #f4eee0` / `#b5a991` écrits en dur ailleurs dans la page étaient
+jusque-là de simples valeurs ; ils sont devenus des doublons **au moment où le
+jeton est né**.
+
+La garde avait raison, et le vert est revenu en les branchant sur les jetons —
+ce qui est une amélioration, pas une concession. À retenir : **déclarer un
+jeton, c'est aussi s'engager à ce qu'il soit le SEUL endroit où sa valeur
+figure.** Une garde de cohérence peut rougir sur du code qu'on n'a pas touché.
+
+---
+
+## 2 decies. Une légende qui traduit n’explique rien
+
+Première version de la légende du panneau : `done → done`, `ready → ready`,
+`assigned → assigned`. En français elle disait quelque chose (« done → faite ») ;
+en anglais elle rendait chaque mot par lui-même.
+
+Le piège est qu'une légende PARAÎT complète dès qu'elle a une entrée par état.
+Le compte est bon, le tableau est plein, et il n'apprend rien.
+
+Une légende utile ne traduit pas le libellé, elle dit **ce que l'état signifie
+pour celui qui regarde** : « une IA travaille dessus », « confiée, pas encore
+commencée ». Le test refuse maintenant une glose identique au libellé, et en
+exige plus de deux mots — un synonyme unique retomberait dans le même piège.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait

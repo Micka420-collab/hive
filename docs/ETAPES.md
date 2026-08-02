@@ -934,6 +934,59 @@ active. Journal § 2 ter.
 
 ---
 
+## Le panneau de l’essaim : six étiquettes sur dix étaient illisibles
+
+C'est la première image de la page — la preuve visuelle que la ruche fait
+quelque chose. Contrastes mesurés dans le DOM, avant :
+
+| étiquette               | mesuré     | seuil AA |
+| ----------------------- | ---------- | -------- |
+| « Intégration »         | **1,24:1** | 4,5:1    |
+| « API factu. »          | 1,62:1     | 4,5:1    |
+| « Auth JWT »            | 1,62:1     | 4,5:1    |
+| « running »             | 2,33:1     | 4,5:1    |
+| « assigned »            | 3,03:1     | 4,5:1    |
+| « ready » · « pending » | 3,84:1     | 4,5:1    |
+
+À 1,24 le texte n'est pas « peu lisible », il est **invisible**. La cause est
+mécanique : quelqu'un a assombri le remplissage des alvéoles sans retourner la
+couleur du texte, resté sur les jetons prévus pour le fond clair. Rien ne
+pouvait sonner — le HTML est valide, la page se rend, et une capture montre bien
+« quelque chose » à cet endroit.
+
+Après : **le pire vaut 4,75:1**, et les états passent de 9 à 11 px.
+
+**Et une légende, parce que cinq couleurs racontaient un cycle de vie que rien
+n'expliquait.** Une image dont il faut deviner le code n'est pas une
+démonstration, c'est une décoration. La légende dit ce que l'état signifie pour
+le visiteur — « une IA travaille dessus », pas « running → running ». Un test
+refuse une glose qui traduit un mot par lui-même.
+
+Au passage, une garde qui existait déjà a attrapé ma propre faute : en déclarant
+les jetons `--creme` et `--creme-2`, j'ai transformé trois littéraux existants
+en doublons. Elle avait raison ; ils sont branchés sur les jetons.
+
+Six mutations, six rouges.
+
+## « En bref » : le jargon quitte la carte fermée
+
+Les quatre familles marchaient, mais chaque carte fermée portait encore une
+ligne de chasse fixe : « Queen Bee · Sting Detector · Drone Wars ·
+Phéromones… » — le vocabulaire interne de la ruche servi à quelqu'un qui n'en
+connaît pas un mot. La section s'ouvrait donc sur du jargon au lieu d'une
+promesse.
+
+Les noms passent **en tête du volet** : celui qui déplie sait déjà ce que la
+famille fait, et la liste devient un sommaire au lieu d'une énigme. La garde
+« ce qu'une famille annonce est exactement ce qu'elle contient » ne change pas
+de propriété — seulement d'endroit où elle la cherche.
+
+Le numéro devient une **alvéole** — la forme de la marque, celle des puces de
+tarif et de la légende de l'essaim. Un chiffre nu se lisait comme une note de
+bas de page.
+
+---
+
 ## Le pied de page : un plan, pas une rangée de liens
 
 Il y avait quatre liens en ligne, sans titre. La maquette en fait un PLAN : la

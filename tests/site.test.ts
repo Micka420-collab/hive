@@ -1129,7 +1129,11 @@ describe('site vitrine — les familles de fonctions', () => {
           .trim();
       return {
         titre: texte(/<b[^>]*>([\s\S]*?)<\/b>/.exec(resume)?.[1] ?? ''),
-        annonces: texte(/class="fam-liste"[^>]*>([\s\S]*?)<\/span/.exec(resume)?.[1] ?? '')
+        // La liste des noms a quitté le résumé pour la tête du volet — elle y
+        // ouvrait la section sur du jargon. La PROPRIÉTÉ ne change pas : ce qui
+        // est annoncé doit être ce qui est contenu. On la cherche donc dans le
+        // bloc entier, pas dans le seul résumé.
+        annonces: texte(/class="fam-liste"[^>]*>([\s\S]*?)<\/span/.exec(bloc)?.[1] ?? '')
           .split('·')
           .map((t) => t.trim())
           .filter(Boolean),
@@ -1296,5 +1300,99 @@ describe('site vitrine — le plan du pied de page', () => {
     // L'en-tête la masque sous 360 px. Cette garde existait déjà ; la refonte
     // du pied de page a déplacé la chaîne, elle doit continuer de la trouver.
     expect(pied, 'la version a disparu du pied de page').toMatch(/v0\.2\.0/);
+  });
+});
+
+// ─── DU TEXTE SOMBRE SUR UNE ALVÉOLE SOMBRE ──────────────────────────────────
+//
+// Le panneau de l'essaim est la première image de la page — la preuve visuelle
+// que la ruche fait quelque chose. Six de ses dix étiquettes étaient
+// ILLISIBLES, mesuré au contraste dans le DOM :
+//
+//   « Integration » 1,24:1  ·  « Billing API » 1,62:1  ·  « JWT auth » 1,62:1
+//   « running » 2,33:1  ·  « assigned » 3,03:1  ·  « ready » 3,84:1
+//
+// (Le seuil WCAG AA est 4,5:1. À 1,24 le texte n'est pas « peu lisible », il
+// est invisible.)
+//
+// La cause est mécanique : quelqu'un a assombri le remplissage des alvéoles
+// sans retourner la couleur du texte, resté sur les jetons prévus pour le fond
+// clair. Rien ne pouvait sonner — le HTML est valide, la page se rend, et une
+// capture d'écran montre bien « quelque chose » à cet endroit.
+//
+// La garde lit donc la STRUCTURE : dans un groupe dont le polygone est sombre,
+// aucun texte ne peut porter une couleur de fond clair.
+describe('site vitrine — la lisibilité du panneau de l’essaim', () => {
+  const panneau = /<div class="swarm-panel">[\s\S]*?<\/svg>/.exec(vitrine)?.[0] ?? '';
+  const groupes = [
+    ...panneau.matchAll(/<g transform="translate\([^)]*\)"[^>]*>([\s\S]*?)<\/g>/g),
+  ].map((m) => m[1] ?? '');
+  /** Les remplissages sombres employés par les alvéoles occupées. */
+  const SOMBRES = ['#4a3a12', '#33290f', 'var(--encre)'];
+  /** Les couleurs de texte prévues pour un FOND CLAIR — interdites sur sombre. */
+  const CLAIRES = ['var(--text)', 'var(--muted)', 'var(--encre)', 'var(--blue)'];
+
+  it('LE PANNEAU EXISTE, ET SES ALVÉOLES SOMBRES AUSSI', () => {
+    expect(panneau, 'panneau de l’essaim introuvable').not.toBe('');
+    expect(groupes.length, 'plus aucun groupe dans le dessin').toBeGreaterThan(6);
+    const sombres = groupes.filter((g) => SOMBRES.some((f) => g.includes(`fill="${f}"`)));
+    // Un nombre EXACT ici serait une garde sur le dessin, pas sur sa
+    // lisibilité : ajouter une alvéole occupée la ferait rougir pour rien.
+    // Ce qu'il faut tenir, c'est qu'il en reste — sans quoi la garde suivante
+    // passerait en vert en n'ayant rien examiné.
+    expect(
+      sombres.length,
+      'plus aucune alvéole sombre — la garde suivante ne garderait plus rien',
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it('AUCUN TEXTE DE FOND CLAIR SUR UNE ALVÉOLE SOMBRE', () => {
+    for (const g of groupes) {
+      const fond = /<polygon[^>]*fill="([^"]+)"/.exec(g)?.[1] ?? '';
+      if (!SOMBRES.includes(fond)) continue;
+      const textes = [...g.matchAll(/<text[\s\S]*?fill="([^"]+)"[\s\S]*?>([^<]*)</g)];
+      expect(textes.length, `alvéole ${fond} sans étiquette`).toBeGreaterThan(0);
+      for (const t of textes) {
+        expect(
+          CLAIRES.includes(t[1] ?? ''),
+          `« ${(t[2] ?? '').trim()} » en ${t[1]} sur ${fond} : du texte sombre sur du sombre`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('AUCUNE ÉTIQUETTE NE DESCEND SOUS 11 px', () => {
+    // Les états étaient à 9 px. Quelle que soit la couleur, neuf pixels dans un
+    // dessin de 900 px de large ne se lisent pas.
+    const tailles = [...panneau.matchAll(/font-size="(\d+(?:\.\d+)?)"/g)].map((m) => Number(m[1]));
+    expect(tailles.length, 'plus aucune taille déclarée').toBeGreaterThan(8);
+    const petites = tailles.filter((t) => t < 10);
+    expect(petites, `étiquette(s) trop petite(s) : ${petites.join(', ')}px`).toEqual([]);
+  });
+
+  it('LA LÉGENDE EXPLIQUE CHAQUE ÉTAT DU DESSIN', () => {
+    // Cinq couleurs d'alvéole racontaient un cycle de vie que rien n'expliquait.
+    // Une image dont il faut deviner le code est une décoration, pas une preuve.
+    const legende = /<div class="swarm-legende">[\s\S]*?<\/div>\s*<ul/.exec(vitrine)?.[0] ?? '';
+    expect(legende, 'la légende a disparu').not.toBe('');
+    const etats = [...panneau.matchAll(/>\s*(done|running|assigned|ready|pending)\b/g)].map(
+      (m) => m[1] ?? '',
+    );
+    expect(new Set(etats).size, 'le dessin n’emploie plus ses cinq états').toBe(5);
+    for (const e of new Set(etats)) {
+      expect(legende, `état non légendé : ${e}`).toContain(`<code>${e}</code>`);
+    }
+  });
+
+  it('LA LÉGENDE EXPLIQUE, elle ne se contente pas de traduire', () => {
+    // Première version : « done → done », « ready → ready ». Un mot rendu par
+    // lui-même n'apprend rien à personne.
+    const dico = dictionnaireEn(vitrine);
+    for (const e of ['done', 'running', 'assigned', 'ready', 'pending']) {
+      const val = new RegExp(`'leg\\.${e}':\\s*'([^']*)'`).exec(dico)?.[1] ?? '';
+      expect(val, `leg.${e} sans traduction`).not.toBe('');
+      expect(val.trim().toLowerCase(), `leg.${e} se traduit par lui-même`).not.toBe(e);
+      expect(val.split(/\s+/).length, `leg.${e} n’explique rien : « ${val} »`).toBeGreaterThan(2);
+    }
   });
 });

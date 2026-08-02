@@ -150,6 +150,11 @@
         --muted: #7c7263;
         --dim: #9a8f7c;
         --encre: #1b1712;
+        /* Les deux tons de texte SUR ENCRE. Ils manquaient : le panneau de
+           l'essaim écrivait ses alvéoles sombres avec les couleurs prévues pour
+           le fond clair, mesuré à 1,24:1 et 1,62:1 — du texte invisible. */
+        --creme: #f4eee0;
+        --creme-2: #b5a991;
         /* Le miel : l'accent, et le seul. */
         --gold: #f6c445;
         --gold-2: #e08a14;
@@ -666,7 +671,7 @@
       .barre-install code {
         flex: 1;
         min-width: 0;
-        color: #f4eee0;
+        color: var(--creme);
         font-family: var(--mono);
         font-size: clamp(11px, 2.7vw, 13.5px);
         white-space: nowrap;
@@ -1017,6 +1022,31 @@
         border-radius: 50%;
         background: var(--green);
         box-shadow: 0 0 8px var(--green);
+      }
+      .swarm-legende {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        padding: 0 clamp(14px, 2vw, 20px) 14px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .swarm-legende .leg {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .swarm-legende i {
+        width: 11px;
+        height: 12px;
+        flex: none;
+        border: 1.5px solid;
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+      }
+      .swarm-legende code {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--blue);
       }
       .swarm-panel svg {
         width: 100%;
@@ -1594,7 +1624,7 @@
         color: var(--muted);
       }
       .plan.encre .prix span {
-        color: #b5a991;
+        color: var(--creme-2);
       }
       .plan .pitch {
         margin: 9px 0 0;
@@ -1603,7 +1633,7 @@
         color: var(--muted);
       }
       .plan.encre .pitch {
-        color: #b5a991;
+        color: var(--creme-2);
       }
       .plan ul {
         margin: 20px 0 0;
@@ -2091,6 +2121,16 @@
       .famille summary:hover {
         background: var(--chip);
       }
+      .famille {
+        transition:
+          border-color 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+          box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .famille:hover,
+      .famille[open] {
+        border-color: var(--gold-2);
+        box-shadow: var(--ombre);
+      }
       .famille summary:focus-visible {
         outline: 2px solid var(--gold);
         outline-offset: -2px;
@@ -2098,13 +2138,39 @@
       /* Le numéro : c'est lui qui dit « il y en a quatre, et vous en êtes à la
          deuxième ». Sans lui, quatre volets repliés se lisent comme une liste
          sans fin. */
+      /* Le numéro tient dans une alvéole : la forme de la marque, celle des
+         puces de tarif et de la légende de l'essaim. Un chiffre nu se lisait
+         comme une note de bas de page. */
       .fam-n {
         flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 38px;
+        background: var(--gold);
+        color: var(--encre);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
         font-family: var(--mono);
         font-size: 13px;
-        font-weight: 600;
-        color: var(--orange);
-        padding-top: 3px;
+        font-weight: 700;
+      }
+      /* Les noms des fonctions ne sont plus sur la carte FERMÉE. Ils y
+         tenaient une ligne de chasse fixe par famille — « Queen Bee · Sting
+         Detector · Drone Wars · Phéromones… » — c'est-à-dire le vocabulaire
+         interne de la ruche servi à quelqu'un qui n'en connaît pas un mot.
+         Ils ouvraient donc la section sur du jargon au lieu d'une promesse.
+
+         Ils sont maintenant en TÊTE DU VOLET : celui qui déplie sait déjà ce
+         que la famille fait, et la liste devient un sommaire au lieu d'être
+         une énigme. */
+      .fam-noms {
+        margin: 0;
+        padding: 16px 22px 0;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.7;
+        color: var(--dim);
       }
       .fam-txt {
         flex: 1;
@@ -2600,7 +2666,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >2 985 tests ✓</span
+              >2 990 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -2757,7 +2823,7 @@
               text-anchor="middle"
               fill="var(--encre)"
               font-weight="700"
-              font-size="13"
+              font-size="12"
               data-i18n="svg.schema"
             >
               Schéma
@@ -2766,7 +2832,7 @@
               y="14"
               text-anchor="middle"
               fill="var(--encre)"
-              font-size="9"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               done
@@ -2784,7 +2850,7 @@
               text-anchor="middle"
               fill="var(--encre)"
               font-weight="700"
-              font-size="13"
+              font-size="12"
               data-i18n="svg.mockups"
             >
               Maquettes
@@ -2793,7 +2859,7 @@
               y="14"
               text-anchor="middle"
               fill="var(--encre)"
-              font-size="9"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               done
@@ -2810,9 +2876,9 @@
             <text
               y="-2"
               text-anchor="middle"
-              fill="var(--text)"
+              fill="var(--creme)"
               font-weight="700"
-              font-size="13"
+              font-size="12"
               data-i18n="svg.billing"
             >
               API factu.
@@ -2820,8 +2886,8 @@
             <text
               y="14"
               text-anchor="middle"
-              fill="var(--muted)"
-              font-size="9"
+              fill="var(--creme-2)"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               running ↻2
@@ -2838,9 +2904,9 @@
             <text
               y="-2"
               text-anchor="middle"
-              fill="var(--text)"
+              fill="var(--creme)"
               font-weight="700"
-              font-size="13"
+              font-size="12"
               data-i18n="svg.auth"
             >
               Auth JWT
@@ -2848,8 +2914,8 @@
             <text
               y="14"
               text-anchor="middle"
-              fill="var(--muted)"
-              font-size="9"
+              fill="var(--creme-2)"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               running
@@ -2862,14 +2928,14 @@
               stroke="var(--gold-2)"
               stroke-width="1.5"
             ></polygon>
-            <text y="-2" text-anchor="middle" fill="var(--text)" font-weight="700" font-size="13">
+            <text y="-2" text-anchor="middle" fill="var(--text)" font-weight="700" font-size="12">
               CI
             </text>
             <text
               y="14"
               text-anchor="middle"
-              fill="var(--muted)"
-              font-size="9"
+              fill="var(--blue)"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               ready
@@ -2885,9 +2951,9 @@
             <text
               y="-2"
               text-anchor="middle"
-              fill="var(--text)"
+              fill="var(--creme)"
               font-weight="700"
-              font-size="13"
+              font-size="12"
               data-i18n="svg.integration"
             >
               Intégration
@@ -2895,8 +2961,8 @@
             <text
               y="14"
               text-anchor="middle"
-              fill="var(--muted)"
-              font-size="9"
+              fill="var(--creme-2)"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               assigned
@@ -2914,7 +2980,7 @@
               text-anchor="middle"
               fill="var(--text)"
               font-weight="700"
-              font-size="13"
+              font-size="12"
               data-i18n="svg.e2e"
             >
               Tests e2e
@@ -2922,8 +2988,8 @@
             <text
               y="14"
               text-anchor="middle"
-              fill="var(--muted)"
-              font-size="9"
+              fill="var(--blue)"
+              font-size="11"
               font-family="JetBrains Mono,monospace"
             >
               pending
@@ -2943,7 +3009,7 @@
               stroke="var(--gold)"
               stroke-width="2"
             ></polygon>
-            <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="13">
+            <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="12">
               ruche-alpha
             </text>
             <text
@@ -2972,7 +3038,7 @@
               stroke="var(--gold)"
               stroke-width="2"
             ></polygon>
-            <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="13">
+            <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="12">
               ruche-beta ⚔
             </text>
             <text
@@ -2987,6 +3053,42 @@
             <circle cx="0" cy="-26" r="4" fill="var(--gold)" class="anim-agent d3"></circle>
           </g>
         </svg>
+        <!-- ══ LA LÉGENDE ═══════════════════════════════════════════════════
+             Cinq couleurs d'alvéole racontaient un cycle de vie que RIEN
+             n'expliquait. Une image dont il faut deviner le code n'est pas une
+             démonstration, c'est une décoration : le visiteur voit qu'il se
+             passe quelque chose sans jamais savoir quoi.
+
+             La pastille reprend l'hexagone et son liseré, exactement comme dans
+             le dessin — une légende dont les puces ne ressemblent pas à ce
+             qu'elles légendent oblige à faire la traduction soi-même. -->
+        <div class="swarm-legende">
+          <span class="leg">
+            <i style="background: var(--gold); border-color: var(--gold-2)"></i>
+            <code>done</code>
+            <span data-i18n="leg.done">une ouvrière l’a finie</span>
+          </span>
+          <span class="leg">
+            <i style="background: #4a3a12; border-color: var(--gold)"></i>
+            <code>running</code>
+            <span data-i18n="leg.running">une IA travaille dessus</span>
+          </span>
+          <span class="leg">
+            <i style="background: #33290f; border-color: var(--orange)"></i>
+            <code>assigned</code>
+            <span data-i18n="leg.assigned">confiée, pas encore commencée</span>
+          </span>
+          <span class="leg">
+            <i style="background: var(--chip); border-color: var(--gold-2)"></i>
+            <code>ready</code>
+            <span data-i18n="leg.ready">prête à partir</span>
+          </span>
+          <span class="leg">
+            <i style="background: var(--panel); border-color: var(--border-2)"></i>
+            <code>pending</code>
+            <span data-i18n="leg.pending">attend qu’une autre finisse</span>
+          </span>
+        </div>
         <ul class="journal" id="journal" aria-live="off"></ul>
       </div>
     </section>
@@ -3042,13 +3144,15 @@
                 >La ruche découpe le projet, choisit qui fait quoi, et s’arrange pour que deux
                 ouvrières ne se marchent jamais dessus.</span
               >
-              <span class="fam-liste" data-i18n="fam.rep.l"
-                >Queen Bee · Sting Detector · Drone Wars · Phéromones · Thermorégulation ·
-                Agent-agnostique</span
-              >
             </span>
             <span class="fam-nb" aria-hidden="true">6</span>
           </summary>
+          <p class="fam-noms">
+            <span class="fam-liste" data-i18n="fam.rep.l"
+              >Queen Bee · Sting Detector · Drone Wars · Phéromones · Thermorégulation ·
+              Agent-agnostique</span
+            >
+          </p>
           <div class="cards">
             <div class="card">
               <div class="ico" aria-hidden="true">🧠</div>
@@ -3111,13 +3215,14 @@
                 >Rien n’est fusionné sans vous — et la ruche se méfie aussi de ses propres agents,
                 qui savent très bien annoncer un succès qu’ils n’ont pas obtenu.</span
               >
-              <span class="fam-liste" data-i18n="fam.main.l"
-                >Miellerie · Les Gardiennes · Polyéthisme · Conseil des Éclaireuses · La
-                Dérive</span
-              >
             </span>
             <span class="fam-nb" aria-hidden="true">5</span>
           </summary>
+          <p class="fam-noms">
+            <span class="fam-liste" data-i18n="fam.main.l"
+              >Miellerie · Les Gardiennes · Polyéthisme · Conseil des Éclaireuses · La Dérive</span
+            >
+          </p>
           <div class="cards">
             <div class="card">
               <div class="ico" aria-hidden="true">🍯</div>
@@ -3180,13 +3285,15 @@
                 >Le travail en cours, le code produit, les heures dépensées — à l’écran, et
                 montrables à un client sans lui donner les clés de la ruche.</span
               >
-              <span class="fam-liste" data-i18n="fam.voir.l"
-                >Swarm View 2D/3D · Le Rayon · L'Aperçu · Partage en lecture · La Balance · La Reine
-                répond</span
-              >
             </span>
             <span class="fam-nb" aria-hidden="true">6</span>
           </summary>
+          <p class="fam-noms">
+            <span class="fam-liste" data-i18n="fam.voir.l"
+              >Swarm View 2D/3D · Le Rayon · L'Aperçu · Partage en lecture · La Balance · La Reine
+              répond</span
+            >
+          </p>
           <div class="cards">
             <div class="card">
               <div class="ico" aria-hidden="true">🐝</div>
@@ -3254,13 +3361,15 @@
                 >Une ruche qui tourne des semaines apprend de ses réussites, se répare après ses
                 échecs, et surveille sa propre exposition.</span
               >
-              <span class="fam-liste" data-i18n="fam.durer.l"
-                >Hive Mind · Couveuse · L'environnement · Les Chantiers · L'Atelier lot 1 · Les
-                Guetteuses</span
-              >
             </span>
             <span class="fam-nb" aria-hidden="true">6</span>
           </summary>
+          <p class="fam-noms">
+            <span class="fam-liste" data-i18n="fam.durer.l"
+              >Hive Mind · Couveuse · L'environnement · Les Chantiers · L'Atelier lot 1 · Les
+              Guetteuses</span
+            >
+          </p>
           <div class="cards">
             <div class="card">
               <div class="ico" aria-hidden="true">🧬</div>
@@ -4315,7 +4424,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,985 tests ✓',
+          'badge.tests': '2,990 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -4337,6 +4446,11 @@
             'Supported agents: Claude Code, Codex, Grok, Hermes, or your own via HIVE_AGENT_CMD.',
           'swarm.title': '🐝 Swarm View — the swarm, live',
           'swarm.online': 'online',
+          'leg.done': 'a worker finished it',
+          'leg.running': 'an AI is working on it',
+          'leg.assigned': 'handed out, not started yet',
+          'leg.ready': 'ready to go',
+          'leg.pending': 'waiting on another one',
           'swarm.alt': 'Swarm View: two member nodes linked to a DAG of hexagonal tasks',
           'svg.schema': 'DB schema',
           'svg.mockups': 'Mockups',
