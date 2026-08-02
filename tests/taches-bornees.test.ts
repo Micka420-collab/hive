@@ -49,6 +49,17 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // ─── FERMER LA BASE AVANT D'EFFACER SON DOSSIER ──────────────────────────
+  //
+  // Sans cette ligne, les 19 tests de ce fichier passaient ici et tombaient en
+  // CI Windows : `EPERM, Permission denied` sur `rmSync`. Windows refuse de
+  // supprimer un fichier dont un handle est encore ouvert ; Linux l'accepte, et
+  // le laisse donc passer.
+  //
+  // Ce n'est pas une bizarrerie de plateforme à contourner par `maxRetries` :
+  // c'est une base laissée ouverte par le test, et Windows a raison de le dire.
+  // Toutes les autres suites du dépôt ferment leur store — celle-ci l'oubliait.
+  store.close();
   rmSync(dossier, { recursive: true, force: true });
 });
 

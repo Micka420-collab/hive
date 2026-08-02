@@ -1321,6 +1321,38 @@ qu'il imprime — sur les trois systèmes de la CI.
 > pas les deux formes ci-dessus, et sur deux systèmes sur trois elles se
 > comportent à l'identique.
 
+### 6.1 bis — Un handle ouvert ne se voit PAS sous Linux
+
+Dix-neuf tests du lot 17 sont passés ici et sont tombés en CI Windows, tous sur
+la même ligne — et aucun sur une assertion :
+
+```
+Error: EPERM, Permission denied: C:\Users\RUNNER~1\AppData\Local\Temp\taches-bornees-yTKhvb
+  ❯ tests/taches-bornees.test.ts:52:3
+      rmSync(dossier, { recursive: true, force: true });
+```
+
+Le `afterEach` effaçait le dossier de la base **sans fermer la base**. Windows
+refuse de supprimer un fichier dont un handle est encore ouvert ; Linux
+l'accepte sans un mot, et laisse donc passer une fuite bien réelle.
+
+La tentation est de mettre `maxRetries` et de passer à autre chose. Ce serait
+traiter le symptôme : le défaut n'est pas dans `rmSync`, il est dans un test qui
+ouvre une base et ne la referme jamais. **Windows a raison.** Toutes les autres
+suites du dépôt appellent `store.close()` — celle-ci l'avait oublié, et rien
+sous Linux ne pouvait le dire.
+
+> **Règle** — une suite qui ouvre une ressource système (base sur disque,
+> serveur, fichier) la ferme dans le même `afterEach` qui nettoie, et AVANT le
+> nettoyage. Le test qui l'oublie est vert sur la plateforme la plus permissive
+> de la matrice, ce qui veut dire : vert chez soi, rouge chez les autres.
+
+> **Règle** — un balayage vaut mieux qu'une correction. Après celle-ci, j'ai
+> cherché toutes les suites qui créent un store SUR DISQUE, effacent leur
+> dossier, et n'appellent jamais `close()`. Il n'y en avait pas d'autre — mais
+> la question se pose en dix secondes, et elle ferme la classe entière au lieu
+> d'un cas.
+
 ### 6.2 — Un `.cmd` ne se lance pas sans interpréteur
 
 Sous Windows, `npm` est `npm.cmd`. Node **refuse** d'exécuter un `.cmd`/`.bat`
