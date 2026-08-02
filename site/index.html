@@ -1809,26 +1809,98 @@
         font-size: 14px;
       }
 
-      /* Footer */
+      /* ── LE PIED DE PAGE ────────────────────────────────────────────────────
+         Relevé dans la maquette rendue : marque + promesse à gauche, trois
+         colonnes nommées à droite, barre du bas séparée. Ses valeurs, lues au
+         DOM :
+
+           nom de la marque    18px / 700 / Bricolage / −0,03em
+           promesse            14px / 400 / Instrument Sans
+           titre de colonne    12,5px / 700 / Bricolage / CAPITALES / +0,08em
+           lien                14,5px / 400 / Instrument Sans
+           barre du bas        13px / 400
+
+         Le fond passe sur `--panel` : la dernière section de la page est au ton
+         du corps, et sans changement de plan le pied de page s'y fondrait —
+         c'est-à-dire qu'on ne verrait pas que la page est finie. */
       footer {
         border-top: 1px solid var(--border);
         margin-top: 40px;
-        padding: 34px 28px;
-        text-align: center;
+        background: var(--panel);
       }
-      footer .links {
+      .pied {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: clamp(40px, 6vw, 62px) clamp(18px, 4vw, 40px) clamp(30px, 4vw, 44px);
+        display: grid;
+        /* La marque prend ce qu'il lui faut, le plan prend le reste. Sur un
+           écran étroit les deux passent l'un sous l'autre sans règle de plus. */
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+        gap: clamp(30px, 5vw, 56px);
+        align-items: start;
+      }
+      .pied-nom {
         display: flex;
-        gap: 20px;
-        justify-content: center;
-        flex-wrap: wrap;
-        font-size: 14px;
-        margin-bottom: 14px;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--titre);
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
       }
-      footer .version {
-        margin-top: 6px;
+      .pied-promesse {
+        margin: 12px 0 0;
+        max-width: 34ch;
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--muted);
+        text-wrap: pretty;
+      }
+      .pied-plan {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+        gap: clamp(24px, 4vw, 40px);
+      }
+      .pied-col {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 11px;
+      }
+      .pied-t {
+        margin: 0 0 3px;
+        font-family: var(--titre);
+        font-size: 12.5px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text);
+      }
+      /* Les liens du pied de page sont en encre douce, pas en miel : trente
+         liens orange feraient un tapis de couleur là où la page se termine. Le
+         miel revient au survol, qui est le moment où on vise. */
+      .pied-col a {
+        font-size: 14.5px;
+        color: var(--muted);
+      }
+      .pied-col a:hover {
+        color: var(--orange);
+      }
+      .pied-bas {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 18px clamp(18px, 4vw, 40px) 26px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--dim);
+      }
+      .pied-bas .mono {
         font-family: var(--mono);
         font-size: 12.5px;
-        color: var(--dim);
       }
       footer .made {
         font-size: 13px;
@@ -2319,7 +2391,18 @@
         /* Les quatre liens de pied de page faisaient 22 px, et le champ où l'on
            colle l'adresse de sa ruche 35. Un champ trop bas se rate au doigt et
            donne l'impression que la page ne répond pas. */
-        footer .links a {
+        /* Les liens du plan gardent leurs 44 px de haut, mais l'écart entre
+           eux tombe de 11 à 6 px : quinze cibles de 44 px espacées de 11
+           faisaient un pied de page de 921 px, soit un écran entier de liens.
+           Six pixels séparent encore deux cibles — largement de quoi ne pas
+           les confondre — et le pied retombe à 871 px. Cinquante pixels, pas
+           davantage : j'avais écrit 130 avant de mesurer, et c'était faux. Le
+           reste de la hauteur, ce sont les cibles elles-mêmes, et celles-là ne
+           se négocient pas. */
+        .pied-col {
+          gap: 6px;
+        }
+        .pied-col a {
           display: inline-flex;
           align-items: center;
           min-height: 44px;
@@ -2517,7 +2600,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >2 978 tests ✓</span
+              >2 985 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -4119,26 +4202,104 @@
       </div>
     </section>
 
+    <!-- ══ LE PIED DE PAGE ══════════════════════════════════════════════════
+         Il n'y avait ici que quatre liens en ligne. La maquette en fait un
+         PLAN : la marque et sa promesse d'un côté, trois colonnes nommées de
+         l'autre, et une barre du bas pour ce qui n'est ni l'un ni l'autre.
+
+         La différence n'est pas décorative. Un pied de page est ce qu'on lit
+         quand la page n'a pas répondu à la question qu'on se posait — quatre
+         liens sans titre obligent à tous les essayer ; trois colonnes nommées
+         disent en un coup d'œil de quel côté chercher.
+
+         CHAQUE DESTINATION A ÉTÉ VÉRIFIÉE AVANT D'ÊTRE ÉCRITE. Un lien mort en
+         pied de page est le plus discret des défauts : personne ne le signale,
+         et il reste des années. Un test relit ce pied de page et exige que tout
+         chemin interne existe dans le dépôt. C'est pour ça qu'on n'y trouve ni
+         « Contribuer » ni « Sécurité » : CONTRIBUTING.md et SECURITY.md
+         n'existent pas encore, et un lien vers une page absente vaut moins que
+         pas de lien du tout. -->
     <footer>
-      <div class="links">
-        <a href="presentation/" data-i18n="footer.presentation">Présentation à imprimer</a>
-        <a href="https://github.com/Micka420-collab/hive" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/Micka420-collab/hive#readme" target="_blank" rel="noopener"
-          >Documentation</a
-        >
-        <a
-          href="https://github.com/Micka420-collab/hive/blob/main/LICENSE"
-          target="_blank"
-          rel="noopener"
-          data-i18n="footer.mit"
-          >Licence MIT</a
+      <div class="pied">
+        <div class="pied-marque">
+          <div class="pied-nom">
+            <span class="bee" aria-hidden="true">🐝</span>
+            <span>Hive</span>
+          </div>
+          <p class="pied-promesse" data-i18n="f.promesse">
+            Faites coder plusieurs IA sur votre projet, en même temps. Open source, licence MIT, sur
+            vos machines.
+          </p>
+        </div>
+        <nav class="pied-plan" aria-label="Plan du site">
+          <div class="pied-col">
+            <p class="pied-t" data-i18n="f.produit">Le produit</p>
+            <a href="#features" data-i18n="f.fonctions">Fonctionnalités</a>
+            <a href="#archi" data-i18n="f.archi">Architecture</a>
+            <a href="#mission" data-i18n="f.mc">Mission Control</a>
+            <a href="#securite" data-i18n="f.secu">Sécurité</a>
+            <a href="#tarifs" data-i18n="f.tarifs">Tarifs</a>
+          </div>
+          <div class="pied-col">
+            <p class="pied-t" data-i18n="f.commencer">Commencer</p>
+            <a href="#demarrer" data-i18n="f.demarrer">Démarrer</a>
+            <a
+              href="https://github.com/Micka420-collab/hive/blob/main/docs/INSTALLATION.md"
+              target="_blank"
+              rel="noopener"
+              data-i18n="f.install"
+              >Installation</a
+            >
+            <a href="#raccourcis" data-i18n="f.raccourcis">Raccourcis</a>
+            <a href="presentation/" data-i18n="f.presentation">Présentation à imprimer</a>
+            <a href="rush/" data-i18n="f.rush">Rush</a>
+          </div>
+          <div class="pied-col">
+            <p class="pied-t" data-i18n="f.projet">Le projet</p>
+            <a
+              href="https://github.com/Micka420-collab/hive"
+              target="_blank"
+              rel="noopener"
+              data-i18n="f.source"
+              >Code source</a
+            >
+            <a
+              href="https://github.com/Micka420-collab/hive/blob/main/CHANGELOG.md"
+              target="_blank"
+              rel="noopener"
+              data-i18n="f.changelog"
+              >Journal des versions</a
+            >
+            <a
+              href="https://github.com/Micka420-collab/hive/issues/new?template=proposer-un-projet.yml"
+              target="_blank"
+              rel="noopener"
+              data-i18n="f.proposer"
+              >Proposer un projet</a
+            >
+            <a
+              href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
+              target="_blank"
+              rel="noopener"
+              data-i18n="f.modele"
+              >Modèle économique</a
+            >
+            <a
+              href="https://github.com/Micka420-collab/hive/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener"
+              data-i18n="footer.mit"
+              >Licence MIT</a
+            >
+          </div>
+        </nav>
+      </div>
+      <div class="pied-bas">
+        <span class="mono">© 2026 Hive · v0.2.0 · MIT</span>
+        <span class="pied-made" data-i18n="footer.made"
+          >Fait avec 🍯 — chaque ouvrière compte.</span
         >
       </div>
-      <div class="made" data-i18n="footer.made">Fait avec 🍯 — chaque ouvrière compte.</div>
-      <!-- La version ne vivait QUE dans l'en-tête. La masquer sur un petit
-           écran l'aurait donc perdue tout court — d'où ce second emplacement,
-           qui est de toute façon celui où l'on va la chercher. -->
-      <div class="version mono">v0.2.0 · MIT</div>
     </footer>
 
     <script>
@@ -4154,7 +4315,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,978 tests ✓',
+          'badge.tests': '2,985 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -4505,7 +4666,25 @@
             'The Comb (the project’s code, read in full, the Queen’s editor included) · the Preview (see what the AI builds, not just its diff) · read-only sharing over the tunnel · division of labour and the Council of Scouts · environment preparation.',
           'rm.next.d':
             'Hive federation · a sandbox that bounds the network too · per-member permissions, so the shared token stops being the only door (ADR 0007).',
-          'footer.presentation': 'Printable one-pager',
+          'f.promesse':
+            'Put several AIs to work on your project, at the same time. Open source, MIT licence, on your own machines.',
+          'f.produit': 'The product',
+          'f.fonctions': 'Features',
+          'f.archi': 'Architecture',
+          'f.mc': 'Mission Control',
+          'f.secu': 'Security',
+          'f.tarifs': 'Pricing',
+          'f.commencer': 'Get started',
+          'f.demarrer': 'Get started',
+          'f.install': 'Installation',
+          'f.raccourcis': 'Shortcuts',
+          'f.presentation': 'Printable one-pager',
+          'f.rush': 'Rush',
+          'f.projet': 'The project',
+          'f.source': 'Source code',
+          'f.changelog': 'Changelog',
+          'f.proposer': 'Propose a project',
+          'f.modele': 'Economic model',
           'footer.mit': 'MIT License',
           'footer.made': 'Made with 🍯 — every worker counts.',
         };
