@@ -866,6 +866,61 @@ active. Journal § 2 ter.
 
 ---
 
+## La vraie échelle de la maquette — mesurée, pas approchée
+
+La demande était de reprendre le design de la maquette pour de bon. Ma première
+comparaison a failli conclure qu'il n'y avait rien à faire.
+
+**La palette et les fontes étaient déjà exactes.** Les treize couleurs
+dominantes de la maquette, extraites du fichier, correspondent au code
+hexadécimal près aux jetons de `:root`. Mêmes trois familles. Sur ce seul
+critère, le travail semblait fait.
+
+Il ne l'était pas. En rendant la maquette dans Chromium et en lisant son DOM —
+pas en regardant une capture, cf. § 9 sexies du journal :
+
+|                  | maquette                            | vitrine (avant)            |
+| ---------------- | ----------------------------------- | -------------------------- |
+| `h1`             | 64 px / **600**                     | 64 px / **700**            |
+| titre de section | **48 px** / 600 / −0,025em          | 40 px / 700 / −0,035em     |
+| surtitre         | Instrument Sans, capitales, +0,11em | JetBrains Mono + émoji     |
+| balise du titre  | `<h2>` sur la phrase                | `<h2>` sur **l'étiquette** |
+
+Aucune couleur ne diffère, et pourtant les deux pages ne se ressemblent pas :
+l'une parle en phrases, l'autre étiquette des rubriques.
+
+**Le défaut de composition en cachait un de structure.** Le surtitre portait le
+`<h2>` et la phrase un `<p>` : la liste des titres du document énumérait
+« Sécurité », « Tarifs », « Démarrer » — jamais ce que la section dit. Un
+lecteur d'écran lisait une table des matières de brochure. Corriger le design
+et corriger l'accessibilité était ici le même geste.
+
+Après correction, les valeurs calculées de `h1` et des titres de section sont
+**identiques à celles de la maquette**, chiffre pour chiffre, et la géométrie du
+haut de page l'était déjà (colonne de 550 px, gouttière de 60 px, quatre lignes
+de titre à 1440 px comme à 1100).
+
+**Douze mutations, douze gardes rouges.** Chaque garde nouvelle a été éprouvée
+en cassant ce qu'elle protège : titre remis en gras, surtitre repassé en chasse
+fixe, émoji rendu à une rubrique, section privée de son titre, jeton fantôme.
+Une treizième ancre s'est révélée non unique et a été refaite — un mutant qui ne
+mute rien se lit comme un survivant (§ 9ter.2).
+
+**Une garde nouvelle a trouvé un défaut réel dès sa première exécution :**
+`font-family: var(--sans)` alors que le jeton s'appelle `--texte`. La page était
+juste à l'écran — un `var()` non résolu retombe sur l'héritage, qui donnait ici
+la bonne fonte. Ni le navigateur, ni une capture, ni une relecture de diff ne
+pouvaient le voir. Détail dans le journal, § 2 quinquies.
+
+**Ce qui n'a PAS été fait, et pourquoi.** La maquette tient en 7 sections et
+3 865 px ; la vitrine en 11 sections et 11 200 px. Raccourcir la page de deux
+tiers n'est pas une correction de design, c'est décider quel contenu disparaît —
+architecture, Mission Control, communauté, raccourcis, roadmap. C'est une
+décision de produit, elle est posée plus bas dans « Ce qui demande un arbitrage
+humain ».
+
+---
+
 ## Plus sobre, et une vraie version téléphone
 
 Deux demandes en une, et la seconde a commencé par un faux diagnostic.

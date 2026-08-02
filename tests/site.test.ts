@@ -810,3 +810,156 @@ describe('site vitrine — les raccourcis', () => {
     }
   });
 });
+
+// ─── L'ÉCHELLE TYPOGRAPHIQUE DE LA MAQUETTE ──────────────────────────────────
+//
+// Les chiffres ci-dessous ne sont pas des goûts : ils ont été RELEVÉS dans le
+// DOM de la maquette rendue (`getComputedStyle` à 1440 px), pas lus sur une
+// capture. La palette et les fontes de cette page étaient déjà exactement
+// celles du design ; tout l'écart tenait dans l'usage — la graisse des titres,
+// leur taille, et la forme du surtitre.
+//
+//   surtitre   12,5px / 700 / Instrument Sans / +1,375px (0,11em) / capitales
+//   titre      44–56px / 600 / Bricolage / −0,025em
+//   h1         64px / 600
+//
+// Ce que ces tests tiennent, c'est le RETOUR EN ARRIÈRE : un `font-weight: 700`
+// remis sur un titre, un surtitre repassé en chasse fixe, un émoji rajouté.
+// Chacun de ces gestes est invisible dans une revue de diff HTML et change la
+// page entière.
+describe('site vitrine — l’échelle relevée dans la maquette', () => {
+  const regle = (selecteur: string): string => {
+    const m = new RegExp(`(?:^|\\n)\\s*${selecteur}\\s*\\{([^}]*)\\}`).exec(vitrine);
+    return m?.[1] ?? '';
+  };
+
+  it('LE SURTITRE N’EST PAS UN TITRE — la structure du document dit vrai', () => {
+    // Il portait `<h2>`. Un lecteur d'écran annonçait donc « Sécurité » là où
+    // le titre de la section est « Sûr par défaut. Jamais de merge sans revue
+    // humaine. » — le plan du document énumérait des étiquettes au lieu des
+    // sections. La maquette met un `<span>` sur le surtitre et le `<h2>` sur
+    // la phrase ; c'est aussi ce que dit HTML.
+    expect(vitrine, 'le surtitre est redevenu un titre de section').not.toMatch(
+      /<h[1-6][^>]*class="kicker"/,
+    );
+    const titres = [...vitrine.matchAll(/<h2[^>]*class="([^"]*)"/g)].map((m) => m[1]);
+    expect(titres.length, 'plus aucun h2 dans la page').toBeGreaterThan(4);
+    for (const c of titres) {
+      expect(c, `un h2 qui n’est pas un titre de section : class="${c}"`).toMatch(/\bheadline\b/);
+    }
+  });
+
+  it('CHAQUE SECTION A SON TITRE, et il est unique', () => {
+    // Un `<h2>` par section, ni zéro ni deux : la garde ci-dessus laisserait
+    // passer une section qui aurait perdu son titre au passage.
+    const sections = [
+      ...vitrine.matchAll(/<section id="[^"]+" class="section">[\s\S]*?<\/section>/g),
+    ];
+    expect(sections.length, 'aucune section trouvée').toBeGreaterThan(6);
+    for (const [bloc] of sections) {
+      const id = /<section id="([^"]+)"/.exec(bloc)?.[1] ?? '?';
+      expect((bloc.match(/<h2\b/g) ?? []).length, `section #${id} : compte de h2`).toBe(1);
+    }
+  });
+
+  it('LE SURTITRE EST EN CAPITALES PAR LE CSS, jamais dans le texte', () => {
+    // Une chaîne écrite EN CAPITALES se copie en capitales, se traduit mal, et
+    // se fait épeler lettre par lettre par certains lecteurs d'écran.
+    const k = regle('\\.kicker');
+    expect(k, 'règle .kicker introuvable').not.toBe('');
+    expect(k, 'le surtitre n’est plus en capitales').toMatch(/text-transform:\s*uppercase/);
+    for (const m of vitrine.matchAll(/<p class="kicker"[^>]*>([^<]+)</g)) {
+      const texte = (m[1] ?? '').trim();
+      expect(texte, `surtitre écrit en capitales : ${texte}`).not.toBe(texte.toUpperCase());
+    }
+  });
+
+  it('LE SURTITRE EST EN INSTRUMENT SANS ESPACÉ, pas en chasse fixe', () => {
+    // Il était en JetBrains Mono à +0,02em. La maquette l'écrit dans la fonte
+    // de texte, à +0,11em : c'est ce qui fait un surtitre plutôt qu'une clef
+    // de code.
+    const k = regle('\\.kicker');
+    expect(k, 'surtitre revenu en chasse fixe').not.toMatch(/font-family:\s*var\(--mono\)/);
+    expect(k).toMatch(/font-family:\s*var\(--texte\)/);
+    expect(k, 'graisse du surtitre').toMatch(/font-weight:\s*700/);
+    const ls = /letter-spacing:\s*([\d.]+)em/.exec(k)?.[1];
+    expect(ls, 'espacement du surtitre absent ou non exprimé en em').toBeDefined();
+    expect(Number(ls), 'le surtitre n’est plus espacé').toBeGreaterThanOrEqual(0.1);
+  });
+
+  it('AUCUN ÉMOJI DANS LES SURTITRES', () => {
+    // « ✨ En bref », « 🔒 Sécurité »… La maquette n'en pose aucun : un émoji
+    // devant chaque section fait une table des matières décorée, pas une page.
+    const surtitres = [...vitrine.matchAll(/<p class="kicker"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    expect(surtitres.length, 'aucun surtitre trouvé').toBeGreaterThan(6);
+    for (const t of surtitres) {
+      expect(t, `émoji dans un surtitre : ${t}`).not.toMatch(/\p{Extended_Pictographic}/u);
+    }
+    // Et dans le dictionnaire anglais, où ils se recopiaient à l'identique.
+    for (const [, cle, val] of dictionnaireEn(vitrine).matchAll(/'([\w.]*kicker)':\s*'([^']*)'/g)) {
+      expect(val, `émoji dans ${cle}`).not.toMatch(/\p{Extended_Pictographic}/u);
+    }
+  });
+
+  it('LES TITRES SONT EN DEMI-GRAS, pas en gras', () => {
+    // 600, mesuré dans la maquette. À 700 le même texte fait une affiche : le
+    // reste de la page doit alors crier pour se faire entendre, et de proche
+    // en proche la sobriété est perdue.
+    expect(/font-weight:\s*600/.test(regle('\\.headline')), '.headline n’est plus en 600').toBe(
+      true,
+    );
+    expect(/font-weight:\s*600/.test(regle('h1')), 'h1 n’est plus en 600').toBe(true);
+  });
+
+  it('LES TITRES DE SECTION MONTENT JUSQU’À 48 px', () => {
+    // Ils plafonnaient à 40. C'est la borne HAUTE du clamp qui compte : c'est
+    // elle qu'on voit sur un écran d'ordinateur.
+    const h = regle('\\.headline');
+    const clamp = /font-size:\s*clamp\(([^)]*)\)/.exec(h)?.[1] ?? '';
+    expect(clamp, 'la taille du titre n’est plus un clamp').not.toBe('');
+    const maxi = Number(/([\d.]+)px\s*\)?\s*$/.exec(clamp.trim())?.[1]);
+    expect(maxi, `borne haute du titre : ${clamp}`).toBeGreaterThanOrEqual(48);
+  });
+
+  it('LES TITRES SONT SERRÉS À −0,025em, pas davantage', () => {
+    // Trop serré (−0,035em), Bricolage colle ses lettres à 48 px. La maquette
+    // s'arrête à −0,025em.
+    const ls = /letter-spacing:\s*(-?[\d.]+)em/.exec(regle('\\.headline'))?.[1];
+    expect(ls, 'serrage du titre absent').toBeDefined();
+    expect(Number(ls), 'titre trop serré').toBeGreaterThanOrEqual(-0.028);
+    expect(Number(ls), 'titre pas serré du tout').toBeLessThanOrEqual(-0.02);
+  });
+});
+
+// ─── LES JETONS QU'ON CROIT DÉCLARÉS ─────────────────────────────────────────
+//
+// Écrit après m'être fait prendre : j'ai posé `font-family: var(--sans)` alors
+// que le jeton s'appelle `--texte`. Un `var()` qui ne résout pas rend la
+// déclaration invalide À L'EXÉCUTION — la propriété retombe alors sur
+// l'héritage, qui donnait ici… exactement la bonne fonte. La page était juste
+// à l'écran et fausse dans le fichier, et rien n'aurait sonné : ni le
+// navigateur, ni une capture, ni une revue de diff.
+//
+// LA GARDE NE VISE QUE LES `var()` SANS REPLI. Sa première version les
+// interdisait tous, et elle a immédiatement accusé `--h-entete` — un jeton que
+// le script publie à l'exécution et que le CSS lit en `var(--h-entete, 72px)`.
+// Celui-là est correct par construction : le repli EST la valeur quand le
+// script ne tourne pas. C'est l'absence de repli, sur un jeton jamais déclaré,
+// qui laisse la propriété disparaître en silence.
+describe.each(PAGES)('page $nom — les jetons CSS', ({ html }) => {
+  it('AUCUN var(--x) SANS REPLI NE VISE UN JETON QUI N’EXISTE PAS', () => {
+    const declares = new Set(
+      [...html.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => (m[1] ?? '').toLowerCase()),
+    );
+    // `var(--x)` ou `var(--x )` — mais pas `var(--x, …)`, qui porte son repli.
+    const sansRepli = [...html.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)].map((m) =>
+      (m[1] ?? '').toLowerCase(),
+    );
+    expect(sansRepli.length, 'aucun var() dans la page').toBeGreaterThan(20);
+    const fantomes = [...new Set(sansRepli)].filter((j) => !declares.has(j));
+    expect(
+      fantomes,
+      `jetons utilisés sans repli et jamais déclarés : ${fantomes.join(', ')}`,
+    ).toEqual([]);
+  });
+});

@@ -2375,6 +2375,101 @@ chaque retour ; on empêche le retour.
 
 ---
 
+## 2 quinquies. Un `var()` qui ne résout pas se voit juste à l'écran
+
+J'ai écrit `font-family: var(--sans)` dans `site/index.html`. Le jeton s'appelle
+`--texte` ; `--sans` n'existe nulle part.
+
+La page était **correcte à l'écran**. C'est tout le problème.
+
+Un `var()` dont le jeton n'existe pas ne tombe pas sur une valeur par défaut :
+il rend la déclaration **invalide au moment du calcul**, et la propriété est
+alors traitée comme `unset`. Pour `font-family`, `unset` vaut `inherit` — et
+l'élément héritait justement de `--texte`, la bonne fonte. Le rendu était donc
+exact, par accident, et le resterait jusqu'au jour où quelqu'un poserait une
+autre fonte sur un parent.
+
+Rien ne pouvait sonner. Le navigateur ne prévient pas — c'est une valeur
+légale. Une capture d'écran montre la bonne fonte. Une relecture de diff lit
+`var(--sans)` et voit un nom plausible. Aucun des trois instruments dont je me
+sers d'habitude ne voyait quoi que ce soit.
+
+**La leçon.** Un défaut qui produit le bon résultat pour la mauvaise raison ne
+se trouve pas en regardant le résultat. Il se trouve en vérifiant la
+COHÉRENCE INTERNE du fichier — ici : tout `var(--x)` sans repli désigne-t-il un
+jeton déclaré ? La garde tient en six lignes et a été écrite après coup, mais
+elle ferme la classe entière, pas ce cas-ci.
+
+### 2quinquies.1 — La même garde, trop large, accusait le juste
+
+Première version : _tout_ `var()` doit viser un jeton déclaré. Elle a rougi
+immédiatement — sur `--h-entete`, qui est correct.
+
+`--h-entete` est publié par le script à l'exécution (`setProperty`) et lu en
+`var(--h-entete, 72px)`. Le repli EST la valeur quand le script ne tourne pas ;
+c'est exactement le bon usage.
+
+La règle juste n'est donc pas « tout `var()` doit être déclaré » mais « un
+`var()` **sans repli** ne doit pas viser un jeton absent ». Le repli est la
+frontière : avec lui, le comportement est écrit et voulu ; sans lui, la
+propriété disparaît en silence.
+
+Une garde qui accuse du code correct ne survit pas trois semaines — on
+l'assouplit sans regarder, ou on la supprime. Le coût d'une garde trop large ne
+se paie pas le jour où on l'écrit, il se paie le jour où quelqu'un la
+désactive.
+
+---
+
+## 2 sexies. La palette peut être exacte et la page fausse quand même
+
+Il m'a été demandé de reprendre le design d'une maquette. J'ai commencé par en
+extraire les couleurs et les fontes, je les ai comparées à celles du site, et
+j'ai trouvé : **identiques, au code hexadécimal près**. Mêmes trois familles de
+caractères. J'ai failli en conclure que le travail était déjà fait.
+
+Il ne l'était pas du tout. En rendant la maquette et en lisant son DOM :
+
+|                  | maquette                            | site                           |
+| ---------------- | ----------------------------------- | ------------------------------ |
+| titre de section | 48 px / 600 / −0,025em              | 40 px / **700** / −0,035em     |
+| surtitre         | Instrument Sans, capitales, +0,11em | **JetBrains Mono**, avec émoji |
+| `h1`             | 64 px / **600**                     | 64 px / **700**                |
+
+Aucune couleur ne diffère. Aucune fonte ne diffère. Et pourtant les deux pages
+ne se ressemblent pas : l'une parle en phrases, l'autre étiquette des
+rubriques.
+
+**La leçon.** Une identité visuelle se compare mal par ses JETONS, qui sont ce
+qu'on sait extraire facilement d'un fichier. Elle se compare par son USAGE —
+échelle, graisse, espacement, forme des blocs — qui ne s'extrait pas d'un
+`grep` et demande de RENDRE la page pour lire ses valeurs calculées.
+
+Le corollaire est désagréable : la comparaison facile déclare victoire trop
+tôt, et elle le fait avec l'assurance d'un chiffre exact.
+
+### 2sexies.1 — Un surtitre en `<h2>` : le plan du document énumérait les étiquettes
+
+En regardant la structure de près, le défaut de composition en cachait un de
+structure. Chaque section portait :
+
+```html
+<h2 class="kicker">🔒 Sécurité</h2>
+<p class="headline">Sûr par défaut. Jamais de merge sans revue humaine.</p>
+```
+
+Le titre du document était donc « Sécurité », et la phrase — le vrai titre —
+n'était qu'un paragraphe. Un lecteur d'écran qui énumère les titres lisait la
+table des matières d'une brochure, pas le plan de la page.
+
+La maquette fait l'inverse : `<span>` pour le surtitre, `<h2>` pour la phrase.
+La correction du design et la correction de l'accessibilité étaient le même
+geste — ce qui n'est pas un hasard. Une hiérarchie visuelle juste et une
+hiérarchie sémantique juste décrivent la même chose ; quand elles divergent,
+c'est en général la seconde qui a tort.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait
