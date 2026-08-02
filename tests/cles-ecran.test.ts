@@ -26,7 +26,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -53,7 +53,17 @@ describe('révoquer une clé, révoquer un billet', () => {
     billets: { id: string; etat: string }[];
   }> => (await (await fetch(`${base}/api/membres`, { headers: hive() })).json()) as never;
 
-  beforeAll(async () => {
+  // UNE RUCHE NEUVE PAR TEST.
+  //
+  // Ces cinq tests écrivaient tous sur la même ruche, montée une seule fois :
+  // révoquer le billet au test 3 rendait le test 1 impossible s'il passait
+  // après. Ils ne tenaient que par leur ordre de déclaration — `beforeAll` est
+  // ce qui rendait cette dette invisible.
+  //
+  // Le § 23 du journal dit pourquoi on ne se contente pas de « ça marche » :
+  // un test qui ne peut rougir tout seul ne prouve rien tout seul. Monter la
+  // ruche coûte moins de 200 ms ici ; l'indépendance vaut largement ce prix.
+  beforeEach(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-cles-'));
     server = await createServer({
       port: 0,
@@ -84,20 +94,26 @@ describe('révoquer une clé, révoquer un billet', () => {
     expect(billet, 'sans billet, tout le fichier serait creux').toBeTruthy();
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await server.stop();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
 
-  it('deux machines entrent avec le même billet', async () => {
+  /** Les deux machines de la fable, entrées par le même billet. */
+  const entrerDeux = async () => {
     expect((await rejoindre('noeud-lea', 'Portable de Léa')).status).toBe(201);
     expect((await rejoindre('noeud-tom', 'Tour de Tom')).status).toBe(201);
+  };
+
+  it('deux machines entrent avec le même billet', async () => {
+    await entrerDeux();
     const c = await cles();
     expect(c.noeuds.map((n) => n.nodeId).sort()).toEqual(['noeud-lea', 'noeud-tom']);
     expect(c.billets[0]?.etat).toBe('vivant');
   });
 
   it('RÉVOQUER UNE CLÉ N’EN RÉVOQUE QU’UNE', async () => {
+    await entrerDeux();
     const res = await fetch(`${base}/api/membres/noeud-lea`, {
       method: 'DELETE',
       headers: hive(),
@@ -111,6 +127,7 @@ describe('révoquer une clé, révoquer un billet', () => {
   it('RÉVOQUER LE BILLET NE DÉCONNECTE PERSONNE', async () => {
     // C'est LA confusion à éviter : croire avoir exclu quelqu'un en révoquant
     // le billet par lequel il est entré. Sa clé, elle, vit sa propre vie.
+    await entrerDeux();
     const res = await fetch(`${base}/api/billets/${billetId}`, {
       method: 'DELETE',
       headers: hive(),
@@ -122,10 +139,16 @@ describe('révoquer une clé, révoquer un billet', () => {
   });
 
   it('…mais il n’ouvre plus rien', async () => {
-    expect((await rejoindre('noeud-tiers', 'Machine tierce')).status).not.toBe(201);
+    // La révocation, ce test la fait LUI-MÊME. Il l'empruntait au voisin :
+    // passé avant lui, le billet était encore vivant et la machine tierce
+    // entrait — 201, échec. Et surtout, seul, il ne prouvait rien.
+    expect((await rejoindre('noeud-tiers', 'Machine tierce')).status).toBe(201);
+    await fetch(`${base}/api/billets/${billetId}`, { method: 'DELETE', headers: hive() });
+    expect((await rejoindre('noeud-quatrieme', 'Machine quatrième')).status).not.toBe(201);
   });
 
   it('les empreintes ne sortent jamais', async () => {
+    await entrerDeux();
     // La liste nomme des machines ; elle n'a aucune raison de publier de quoi
     // tenter un cassage hors ligne.
     const texte = await (await fetch(`${base}/api/membres`, { headers: hive() })).text();

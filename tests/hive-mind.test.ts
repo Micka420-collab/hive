@@ -449,6 +449,11 @@ describe('injection bout-en-bout', () => {
 
   it('réinjecte le savoir d’une tâche passée dans le prompt de la suivante', async () => {
     const base = `http://127.0.0.1:${server.port}`;
+    // Ce test-ci a besoin d'un corpus VIDE : toute sa première moitié dit
+    // « aucun souvenir n'existe encore, donc rien n'est injecté ». Il posait
+    // cette prémisse en étant simplement écrit le premier — un vert emprunté à
+    // l'ordre de déclaration, que `--sequence.shuffle` a mis à nu.
+    server.store.pruneMemories(0);
     const project = (await (
       await fetch(`${base}/api/projects`, {
         method: 'POST',
@@ -482,6 +487,16 @@ describe('injection bout-en-bout', () => {
 
   it('expose la mémoire via GET /api/hive-mind (et exige le token)', async () => {
     const base = `http://127.0.0.1:${server.port}`;
+    // Ce test interroge l'ENDPOINT ; la façon dont le souvenir est né ne le
+    // regarde pas. Il le pose donc lui-même, au lieu de compter sur le test
+    // voisin pour lui en fabriquer un.
+    server.store.recordMemory({
+      projectId: server.store.listProjects()[0]?.id ?? 'p-mind',
+      taskId: 'mem-endpoint',
+      title: 'Authentification JWT',
+      content: 'jwt sessions cookies securises bcrypt',
+    });
+
     const res = await fetch(`${base}/api/hive-mind?q=${encodeURIComponent('jwt sessions')}`, {
       headers,
     });
