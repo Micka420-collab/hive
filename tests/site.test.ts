@@ -1204,3 +1204,97 @@ describe('site vitrine — les familles de fonctions', () => {
     );
   });
 });
+
+// ─── LE PIED DE PAGE : AUCUN LIEN QUI NE MÈNE NULLE PART ─────────────────────
+//
+// Un lien mort en pied de page est le plus discret des défauts du site :
+// personne ne le signale — on n'écrit pas à quelqu'un pour lui dire que son
+// « Contribuer » renvoie une 404 — et il reste des années.
+//
+// Ces gardes relisent donc les liens et VÉRIFIENT LEUR CIBLE dans le dépôt :
+// une ancre `#x` doit désigner une section de la page, un chemin GitHub
+// `blob/main/…` doit désigner un fichier qui existe, un gabarit d'issue doit
+// être dans `.github/ISSUE_TEMPLATE/`. C'est ce qui a écarté « Contribuer » et
+// « Sécurité » du plan : CONTRIBUTING.md et SECURITY.md n'existent pas.
+describe('site vitrine — le plan du pied de page', () => {
+  const pied = /<footer>[\s\S]*?<\/footer>/.exec(vitrine)?.[0] ?? '';
+  const liens = [...pied.matchAll(/href="([^"]+)"/g)].map((m) => m[1] ?? '');
+
+  it('LE PIED DE PAGE EST UN PLAN, pas une rangée de liens', () => {
+    expect(pied, 'pied de page introuvable').not.toBe('');
+    const colonnes = (pied.match(/class="pied-col"/g) ?? []).length;
+    expect(colonnes, 'les colonnes du plan ont disparu').toBeGreaterThanOrEqual(3);
+    expect(liens.length, 'le plan a moins de liens qu’une rangée').toBeGreaterThanOrEqual(12);
+    // Chaque colonne porte un titre : sans lui, il faut essayer les liens un
+    // par un pour savoir de quel côté chercher.
+    expect((pied.match(/class="pied-t"/g) ?? []).length).toBe(colonnes);
+  });
+
+  it('CHAQUE ANCRE DÉSIGNE UNE SECTION QUI EXISTE', () => {
+    const sections = new Set(
+      [...vitrine.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1] ?? ''),
+    );
+    const ancres = liens.filter((h) => h.startsWith('#')).map((h) => h.slice(1));
+    expect(ancres.length, 'le pied ne renvoie plus à aucune section').toBeGreaterThan(4);
+    for (const a of ancres) {
+      expect(sections.has(a), `ancre morte dans le pied de page : #${a}`).toBe(true);
+    }
+  });
+
+  it('CHAQUE FICHIER DU DÉPÔT CITÉ EXISTE VRAIMENT', () => {
+    // La garde qui a écarté « Contribuer » et « Sécurité ». Un lien vers une
+    // page absente vaut moins que pas de lien du tout.
+    const fichiers = liens
+      .map((h) => /github\.com\/[^/]+\/[^/]+\/blob\/main\/(.+)$/.exec(h)?.[1])
+      .filter((f): f is string => Boolean(f));
+    expect(fichiers.length, 'le pied ne cite plus aucun fichier du dépôt').toBeGreaterThan(2);
+    for (const f of fichiers) {
+      expect(existsSync(new URL(`../${f}`, import.meta.url)), `fichier absent : ${f}`).toBe(true);
+    }
+  });
+
+  it('CHAQUE GABARIT D’ISSUE CITÉ EXISTE VRAIMENT', () => {
+    const gabarits = liens
+      .map((h) => /issues\/new\?template=([\w.-]+)/.exec(h)?.[1])
+      .filter((g): g is string => Boolean(g));
+    expect(gabarits.length, 'le pied n’ouvre plus aucun formulaire').toBeGreaterThan(0);
+    for (const g of gabarits) {
+      expect(
+        existsSync(new URL(`../.github/ISSUE_TEMPLATE/${g}`, import.meta.url)),
+        `gabarit absent : ${g}`,
+      ).toBe(true);
+    }
+  });
+
+  it('CHAQUE PAGE VOISINE CITÉE EXISTE VRAIMENT', () => {
+    const pages = liens.filter((h) => /^[a-z-]+\/$/.test(h));
+    expect(pages.length, 'le pied ne renvoie plus aux pages voisines').toBeGreaterThan(0);
+    for (const p of pages) {
+      expect(
+        existsSync(new URL(`../site/${p}index.html`, import.meta.url)),
+        `page absente : ${p}`,
+      ).toBe(true);
+    }
+  });
+
+  it('TOUT LIEN SORTANT PORTE rel="noopener"', () => {
+    // `target="_blank"` sans `noopener` donne à la page ouverte une poignée sur
+    // celle-ci via `window.opener`. Les navigateurs récents l'appliquent seuls ;
+    // ce n'est pas une raison pour compter dessus.
+    for (const m of pied.matchAll(/<a\b[^>]*target="_blank"[^>]*>/g)) {
+      expect(m[0], `lien sortant sans noopener : ${m[0].slice(0, 60)}`).toContain('rel="noopener"');
+    }
+    // Et l'inverse : un lien vers l'extérieur qui n'ouvrirait PAS un onglet
+    // ferait sortir le visiteur du site sans le lui dire.
+    for (const h of liens.filter((x) => x.startsWith('http'))) {
+      const balise = new RegExp(`<a[^>]*href="${h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>`);
+      expect(balise.exec(pied)?.[0] ?? '', `lien sortant sans onglet : ${h}`).toContain('_blank');
+    }
+  });
+
+  it('LA VERSION EST TOUJOURS DANS LE PIED, sous une forme ou une autre', () => {
+    // L'en-tête la masque sous 360 px. Cette garde existait déjà ; la refonte
+    // du pied de page a déplacé la chaîne, elle doit continuer de la trouver.
+    expect(pied, 'la version a disparu du pied de page').toMatch(/v0\.2\.0/);
+  });
+});

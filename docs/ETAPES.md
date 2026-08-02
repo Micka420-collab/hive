@@ -934,6 +934,40 @@ active. Journal § 2 ter.
 
 ---
 
+## Le pied de page : un plan, pas une rangée de liens
+
+Il y avait quatre liens en ligne, sans titre. La maquette en fait un PLAN : la
+marque et sa promesse d'un côté, trois colonnes nommées de l'autre, une barre du
+bas pour ce qui n'est ni l'un ni l'autre.
+
+La différence n'est pas décorative. **Un pied de page est ce qu'on lit quand la
+page n'a pas répondu à la question qu'on se posait.** Quatre liens sans titre
+obligent à tous les essayer ; trois colonnes nommées disent en un coup d'œil de
+quel côté chercher.
+
+Valeurs relevées au DOM de la maquette : nom 18px/700, promesse 14px/400, titre
+de colonne 12,5px/700 en capitales à +0,08em, lien 14,5px/400, barre du bas
+13px. Fond sur `--panel` — la dernière section de la page est au ton du corps,
+et sans changement de plan le pied de page s'y fondrait, c'est-à-dire qu'on ne
+verrait pas que la page est finie.
+
+**Chaque destination a été vérifiée AVANT d'être écrite**, et un test le
+re-vérifie : ancres contre les sections réelles, chemins `blob/main/…` contre les
+fichiers du dépôt, gabarits contre `.github/ISSUE_TEMPLATE/`, pages voisines
+contre `site/*/index.html`. C'est ce qui a écarté « Contribuer » et « Sécurité » :
+`CONTRIBUTING.md` et `SECURITY.md` n'existent pas, et un lien vers une page
+absente vaut moins que pas de lien du tout.
+
+Un lien mort en pied de page est le plus discret des défauts d'un site :
+personne n'écrit pour signaler qu'un « Contribuer » renvoie une 404, et il reste
+des années.
+
+Onze mutations, onze rouges — après en avoir corrigé deux qui ne valaient rien
+(voir § 9 octies du journal). Téléphone : 15 liens, tous à 44 px, aucun débord,
+sur les cinq largeurs.
+
+---
+
 ## « En bref » : vingt-trois cartes que personne ne lisait
 
 Le reproche était : _plus designé, moins chargé, plus simple à comprendre_. La

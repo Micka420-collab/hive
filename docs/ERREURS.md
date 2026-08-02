@@ -2568,6 +2568,54 @@ présents** : un total juste peut cacher une carte perdue et une autre dupliqué
 
 ---
 
+## 9 octies. Une mutation qui frappe ailleurs ne prouve rien
+
+Deux mutations sur onze n'ont rien mesuré, et pour deux raisons différentes.
+Toutes deux se lisaient au départ comme un résultat.
+
+**La première a muté le mauvais endroit.** Pour éprouver la garde « chaque
+fichier du dépôt cité existe vraiment », j'ai remplacé
+`blob/main/docs/MODELE-ECONOMIQUE.md` par `blob/main/CONTRIBUTING.md`. La garde
+est restée verte, et j'ai failli conclure à un trou.
+
+Or ce chemin apparaît DEUX fois dans la page : dans le pied de page, et dans la
+note des tarifs. `replace(avant, apres, 1)` a frappé la première occurrence —
+celle des tarifs, hors du périmètre de la garde. Le mutant était réel, la garde
+avait raison, et c'est ma mesure qui était fausse.
+
+Mon garde-fou (`if n < 1: ANCRE INUTILISABLE`) ne vérifiait que l'existence, pas
+l'UNICITÉ. La règle corrigée : **une ancre de mutation doit être unique DANS LE
+PÉRIMÈTRE que la garde examine** — ici, entre `<footer>` et `</footer>`, pas
+dans le fichier.
+
+**La seconde ne s'appliquait pas du tout.** Prettier avait reformaté l'attribut
+sur plusieurs lignes ; mon ancre, écrite sur une seule, ne collait plus. C'est
+le § 9ter.2 qui recommence — un mutant qui ne mute rien se lit comme un
+survivant — mais sur une cause nouvelle : **le formateur passe entre l'écriture
+de l'ancre et son emploi.** Il faut donc relire le fichier APRÈS Prettier pour
+composer l'ancre, jamais avant.
+
+Le geste qui rattrape les deux : afficher le nombre de tests devenus rouges, pas
+seulement le premier. Une mutation qui n'en allume aucun est suspecte avant
+d'être un trou.
+
+---
+
+## 9 nonies. Un chiffre écrit avant d'être mesuré
+
+Dans un commentaire, j'avais écrit que resserrer l'écart des liens du pied de
+page « rendait 130 px à la page ». Mesure faite : **921 → 871, soit 50 px**.
+
+Le chiffre était une estimation de tête, posée dans le fichier comme un fait, et
+il y serait resté. Personne ne re-mesure un commentaire.
+
+C'est un cas particulier d'une règle déjà écrite ici (§ 9 sexies : une capture
+n'est pas une mesure), mais dans l'autre sens : **le danger n'est pas seulement
+de mal mesurer, c'est d'écrire un nombre qu'on n'a pas mesuré du tout.** Un
+commentaire qui porte un chiffre doit porter le chiffre relevé, ou aucun.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait
