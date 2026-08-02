@@ -814,7 +814,7 @@ export function ligneAFuite(
   largeur: number,
   caps: Capacites,
 ): string {
-  if (droite !== '') return gauche;
+  if (droite === '') return gauche;
   const point = caps.unicode ? '·' : '.';
   const manque = largeur - largeurVisible(gauche) - largeurVisible(droite) - 2;
   if (manque < 2) return gauche;
