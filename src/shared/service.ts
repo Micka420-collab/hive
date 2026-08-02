@@ -69,6 +69,26 @@ export interface Fichier {
    * vivent la base et les jetons, ce qui n'aide personne.
    */
   readonly mode: number;
+  /**
+   * L'encodage des octets à écrire.
+   *
+   * ─── POURQUOI CE CHAMP EXISTE, ET CE QU'IL RÉPARE ──────────────────────────
+   *
+   * Le plan Windows déclare `<?xml version="1.0" encoding="UTF-16"?>` — c'est ce
+   * que le planificateur de tâches attend de `schtasks /Create /XML`. L'écriture
+   * réelle, elle, faisait `writeFileSync(chemin, contenu)`, donc de l'UTF-8 sans
+   * marque d'ordre. Un analyseur XML conforme REFUSE un flux dont les octets
+   * contredisent la déclaration : la commande sortait en erreur, aucune tâche
+   * n'était inscrite, et la ruche ne redémarrait jamais à l'ouverture de session.
+   *
+   * C'était la seule des trois plateformes touchée — le plist macOS et l'unité
+   * systemd sont de l'UTF-8, et se portaient bien.
+   *
+   * L'encodage voyage donc DANS LE PLAN, au lieu d'être une convention tacite
+   * entre deux fichiers qui ne se lisent pas. Un plan pur porte tout ce qu'il
+   * faut pour être exécuté — c'est la raison d'être de ce module.
+   */
+  readonly encodage: 'utf8' | 'utf16le';
 }
 
 export interface Plan {
@@ -275,7 +295,7 @@ function planLinux(ctx: Contexte): Plan | Refus {
   return {
     genre: 'plan',
     nom,
-    fichier: { chemin, contenu, mode: 0o600 },
+    fichier: { chemin, contenu, mode: 0o600, encodage: 'utf8' },
     installer: [sc('daemon-reload'), sc('enable', '--now', `${nom}.service`)],
     desinstaller: [sc('disable', '--now', `${nom}.service`)],
     statut: sc('status', '--no-pager', `${nom}.service`),
@@ -350,7 +370,7 @@ function planMacos(ctx: Contexte): Plan | Refus {
   return {
     genre: 'plan',
     nom,
-    fichier: { chemin, contenu, mode: 0o600 },
+    fichier: { chemin, contenu, mode: 0o600, encodage: 'utf8' },
     installer: [lc('load', '-w', chemin)],
     desinstaller: [lc('unload', '-w', chemin)],
     statut: lc('list', nom),
@@ -445,7 +465,7 @@ function planWindows(ctx: Contexte): Plan | Refus {
   return {
     genre: 'plan',
     nom,
-    fichier: { chemin, contenu, mode: 0o600 },
+    fichier: { chemin, contenu, mode: 0o600, encodage: 'utf16le' },
     installer: [st('/Create', '/TN', nom, '/XML', chemin, '/F'), st('/Run', '/TN', nom)],
     desinstaller: [st('/End', '/TN', nom), st('/Delete', '/TN', nom, '/F')],
     statut: st('/Query', '/TN', nom, '/V', '/FO', 'LIST'),

@@ -42,6 +42,50 @@ const sansCommentaires = (chemin: string): string =>
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*(?:\/\/|\*).*$/gm, '');
 
+describe('LE PLAFOND N’A QU’UN SEUL CHEMIN D’ÉCRITURE', () => {
+  // ─── LE DÉFAUT QUE CETTE GARDE FERME ───────────────────────────────────────
+  //
+  // `scheduler.setPlafond` écrit le budget ET invalide le cache mémoïsé que la
+  // porte consulte. Sa docstring dit depuis toujours « C'est le SEUL chemin
+  // d'écriture de `budgets` ». Le webhook d'abonnement, lui, appelait
+  // `store.setBudget` directement.
+  //
+  // Résultat sur une rétrogradation Colonie 200 h → Éclaireuse 10 h : webhook
+  // accepté, abonnement à jour, et 190 heures NON PAYÉES qui passent encore la
+  // porte — jusqu'au redémarrage du processus. Symétrique à la montée : un
+  // client qui paie plus reste bloqué à son ancien quota.
+  //
+  // Une phrase de docstring n'est pas une garde. Celle-ci en est une.
+
+  const SOURCES = ['../src/orchestrator/server.ts', '../src/orchestrator/scheduler.ts'] as const;
+
+  it('`store.setBudget` n’est appelé QUE depuis `setPlafond`', () => {
+    for (const f of SOURCES) {
+      const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+      const appels = [...src.matchAll(/^.*\bstore\.setBudget\(/gm)].map((m) => m[0].trim());
+      for (const appel of appels) {
+        expect(
+          appel,
+          `${f} : « ${appel} » écrit le budget sans invalider le cache de la porte`,
+        ).toMatch(/this\.store\.setBudget\(/);
+      }
+    }
+  });
+
+  it('et le scheduler, lui, l’appelle bien — sinon la garde ne garde rien', () => {
+    // Sans cette borne, supprimer `setPlafond` rendrait la garde ci-dessus
+    // vraie pour cause de vide.
+    const sched = readFileSync(
+      new URL('../src/orchestrator/scheduler.ts', import.meta.url),
+      'utf8',
+    );
+    expect(sched).toContain('this.store.setBudget(');
+    expect(sched, 'le cache doit être invalidé dans le même geste').toMatch(
+      /this\.store\.setBudget\([\s\S]{0,200}this\.budgets = null/,
+    );
+  });
+});
+
 describe('LA RÈGLE : toute borne d’élagage est CÂBLÉE, pas seulement écrite', () => {
   it('CHAQUE `prune*` DU STORE EST APPELÉ PAR DU CODE DE PRODUCTION', () => {
     // Un test qui appelle `pruneX` ne compte pas : il prouve que la fonction

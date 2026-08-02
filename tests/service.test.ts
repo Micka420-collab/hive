@@ -21,6 +21,8 @@
 //     reste inscrit.
 
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -35,7 +37,14 @@ import {
   rendreGestes,
   scriptDe,
 } from '../src/shared/service.js';
-import { type Issue, type Systeme, desinstaller, installer, statut } from '../src/service-reel.js';
+import {
+  SYSTEME,
+  type Issue,
+  type Systeme,
+  desinstaller,
+  installer,
+  statut,
+} from '../src/service-reel.js';
 
 const base = (o: Partial<Contexte> = {}): Contexte => ({
   plateforme: 'linux',
@@ -512,5 +521,76 @@ describe('CE QUI N’EST PAS VÉRIFIÉ ICI, ET QUI LE SAIT', () => {
     //
     // La forme est vérifiée ; l'acceptation ne l'est pas.
     expect(path.isAbsolute(plan().fichier.chemin)).toBe(true);
+  });
+});
+
+describe('LES OCTETS ÉCRITS DISENT CE QUE LE DOCUMENT DÉCLARE', () => {
+  // ─── UNE GARDE D'UNE AUTRE NATURE QUE LES QUARANTE AUTRES ──────────────────
+  //
+  // Tous les tests de ce fichier lisent le PLAN — une structure en mémoire. Le
+  // défaut vivait entre le plan et le disque : le XML Windows déclarait
+  // `encoding="UTF-16"` et `SYSTEME.ecrire` faisait `writeFileSync(chemin,
+  // contenu)`, donc de l'UTF-8 sans marque d'ordre.
+  //
+  // Un analyseur XML conforme — celui du planificateur de tâches en est un —
+  // refuse un flux dont les octets contredisent la déclaration :
+  // `schtasks /Create /XML` sortait en erreur, aucune tâche n'était inscrite, et
+  // la ruche ne redémarrait jamais à l'ouverture de session. Sur la seule des
+  // trois plateformes où personne ici ne peut l'essayer à la main.
+  //
+  // Cette garde-ci écrit POUR DE VRAI et relit les octets. C'est la seule façon
+  // de voir un désaccord entre une déclaration et un encodage.
+
+  const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-service-'));
+
+  /** Écrit un plan par le vrai `SYSTEME` et rend les octets bruts. */
+  function octetsEcrits(p: Plan): Buffer {
+    const chemin = path.join(bac, path.basename(p.fichier.chemin));
+    SYSTEME.ecrire(chemin, p.fichier.contenu, p.fichier.mode, p.fichier.encodage);
+    return readFileSync(chemin);
+  }
+
+  for (const [plateforme, attendu] of [
+    ['win32', 'utf16le'],
+    ['darwin', 'utf8'],
+    ['linux', 'utf8'],
+  ] as const) {
+    it(`${plateforme} : le plan annonce « ${attendu} », et les octets le sont`, () => {
+      const p = planifier(base({ plateforme, niveau: 'utilisateur' }));
+      expect(p.genre, `plan refusé sur ${plateforme}`).toBe('plan');
+      if (p.genre !== 'plan') return;
+      expect(p.fichier.encodage).toBe(attendu);
+
+      const octets = octetsEcrits(p);
+      const bom = octets.subarray(0, 2);
+      if (attendu === 'utf16le') {
+        // `FF FE` n'est pas décoratif : sans lui, le planificateur ne sait pas
+        // dans quel sens lire les paires d'octets.
+        expect([...bom], 'marque d’ordre UTF-16LE absente').toEqual([0xff, 0xfe]);
+        expect(octets.subarray(2).toString('utf16le')).toBe(p.fichier.contenu);
+      } else {
+        expect([...bom], 'aucune marque d’ordre attendue en UTF-8').not.toEqual([0xff, 0xfe]);
+        expect(octets.toString('utf8')).toBe(p.fichier.contenu);
+      }
+    });
+  }
+
+  it('LA DÉCLARATION DU XML ET L’ENCODAGE RÉEL SONT D’ACCORD', () => {
+    // ─── LA GARDE GÉNÉRALE, celle qui vaut pour les prochains plans ─────────
+    //
+    // Elle ne connaît pas Windows : elle lit ce que le document DIT de
+    // lui-même et le confronte aux octets. Le même désaccord, sur une
+    // plateforme qu'on ajouterait demain, rougirait ici sans qu'on y touche.
+    for (const plateforme of ['win32', 'darwin', 'linux'] as const) {
+      const p = planifier(base({ plateforme, niveau: 'utilisateur' }));
+      if (p.genre !== 'plan') continue;
+      const declare = /<\?xml[^>]*encoding="([^"]+)"/i.exec(p.fichier.contenu)?.[1];
+      if (declare === undefined) continue; // ni systemd ni un plist ne déclarent rien
+      const normalise = declare.toLowerCase().replace('-', '');
+      expect(
+        p.fichier.encodage === 'utf16le' ? 'utf16' : 'utf8',
+        `${plateforme} : le document déclare « ${declare} » et le plan écrit en « ${p.fichier.encodage} »`,
+      ).toBe(normalise);
+    }
   });
 });

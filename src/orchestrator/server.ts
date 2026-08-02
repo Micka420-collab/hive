@@ -3038,8 +3038,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
     // Le plafond de La Balance suit les droits : vendre n'ajoute AUCUN
     // mécanisme d'exécution, cela alimente une porte qui existait déjà.
+    //
+    // ─── `scheduler.setPlafond`, ET SURTOUT PAS `store.setBudget` ────────────
+    //
+    // Cette ligne appelait le store directement. Le plafond partait bien en
+    // base — et la PORTE continuait d'appliquer l'ancien, parce que le
+    // scheduler mémoïse `budgets` et que seul `setPlafond` invalide ce cache.
+    //
+    // Concrètement, sur une rétrogradation Colonie 200 h → Éclaireuse 10 h : le
+    // webhook accepté, l'abonnement à jour, et 190 heures non payées qui
+    // passent encore la porte. Symétrique à la montée — un client qui paie plus
+    // reste bloqué à son ancien quota. L'écart ne se refermait qu'au
+    // redémarrage du processus.
+    //
+    // La docstring de `setPlafond` dit depuis toujours « C'est le SEUL chemin
+    // d'écriture de `budgets` », et la route humaine (plus bas) l'honore. Ce
+    // webhook était le seul à ne pas la lire. `tests/bornes-cablees.test.ts`
+    // interdit désormais tout autre appelant.
     const d = droits(suivant, now);
-    store.setBudget(evenement.projectId, d.plafondMs, 'abonnement');
+    scheduler.setPlafond(evenement.projectId, d.plafondMs, 'abonnement', now);
 
     // Faits typés seulement — jamais le refExterne, qui identifie un client
     // chez le processeur et n'a rien à faire dans un journal partagé.

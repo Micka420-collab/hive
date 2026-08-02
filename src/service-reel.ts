@@ -24,6 +24,7 @@ import { spawnSync } from 'node:child_process';
 import {
   type Commande,
   type Contexte,
+  type Fichier,
   type Plan,
   type Refus,
   planifier,
@@ -38,16 +39,33 @@ export interface Issue {
 
 /** Les gestes réels, injectables pour que les tests observent sans rien poser. */
 export interface Systeme {
-  readonly ecrire: (chemin: string, contenu: string, mode: number) => void;
+  readonly ecrire: (
+    chemin: string,
+    contenu: string,
+    mode: number,
+    encodage: Fichier['encodage'],
+  ) => void;
   readonly effacer: (chemin: string) => void;
   readonly existe: (chemin: string) => boolean;
   readonly lancer: (c: Commande) => Issue;
 }
 
 export const SYSTEME: Systeme = {
-  ecrire: (chemin, contenu, mode) => {
+  ecrire: (chemin, contenu, mode, encodage) => {
     mkdirSync(path.dirname(chemin), { recursive: true });
-    writeFileSync(chemin, contenu, { mode });
+    // ─── LES OCTETS DOIVENT DIRE CE QUE LE DOCUMENT DÉCLARE ─────────────────
+    //
+    // Le XML de la tâche planifiée Windows porte `encoding="UTF-16"`. Écrit en
+    // UTF-8, il était refusé par `schtasks /Create /XML` : aucune tâche
+    // inscrite, et une ruche qui ne redémarrait jamais à l'ouverture de session.
+    //
+    // La marque d'ordre `FF FE` n'est pas décorative : sans elle, le
+    // planificateur ne sait pas dans quel sens lire les paires d'octets.
+    const octets =
+      encodage === 'utf16le'
+        ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(contenu, 'utf16le')])
+        : Buffer.from(contenu, 'utf8');
+    writeFileSync(chemin, octets, { mode });
   },
   effacer: (chemin) => {
     rmSync(chemin, { force: true, maxRetries: 5, retryDelay: 100 });
@@ -101,7 +119,7 @@ export function installer(ctx: Contexte, sys: Systeme = SYSTEME): Compte | Refus
   const plan = planifier(ctx);
   if (plan.genre === 'refus') return plan;
 
-  sys.ecrire(plan.fichier.chemin, plan.fichier.contenu, plan.fichier.mode);
+  sys.ecrire(plan.fichier.chemin, plan.fichier.contenu, plan.fichier.mode, plan.fichier.encodage);
 
   const issues: Issue[] = [];
   for (const c of plan.installer) {
