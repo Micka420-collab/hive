@@ -2000,6 +2000,29 @@ attrape tout ce qu'on écrira plus tard. `.apercu-rail b` désignait la marque
 or sur fond or pour l'entrée active, **invisible**. Aucun test ne pouvait le
 dire ; la capture, si.
 
+## 2 quater. Un bouton conditionné, et la condition que personne ne gardait
+
+« + Projet » vivait dans l'en-tête COMMUN du tableau de bord : il suivait les
+treize vues et proposait de créer un projet depuis la Santé ou le Rayon. La
+refonte l'a conditionné à la seule vue « projets ».
+
+Personne ne gardait la condition. La loupe l'a dit — `&&` muté en `||` survivait,
+et le bouton reparaissait partout sans qu'un test bronche.
+
+C'est le mode d'échec du § 1 sous une autre forme : **une décision de produit
+écrite dans une expression, et rien qui la tienne.** Elle ne survit alors qu'à
+la mémoire de qui l'a écrite.
+
+En écrivant la garde, un second piège, cette fois dans le test : je découpais le
+source sur la chaîne `'+ Projet'` pour lire ce qui la précède — mais le
+COMMENTAIRE au-dessus du bouton nomme lui aussi « + Projet ». La coupe tombait
+donc avant la condition, et le test rougissait sur du code parfaitement correct.
+Il vise désormais l'appel JSX `t('+ Projet'`, que le commentaire ne contient pas.
+
+> **Règle** — quand un test découpe du source autour d'un repère textuel, il
+> faut un repère que la PROSE ne peut pas contenir. Un nom de bouton apparaît
+> dans son commentaire ; un appel de fonction, non.
+
 ## 9 sexies. Une capture d'écran n'est pas une mesure
 
 Le tableau de bord venait de passer sur fond crème. Sur mes captures, la barre
