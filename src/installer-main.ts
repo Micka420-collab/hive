@@ -47,7 +47,6 @@ import {
   panneau,
   railPas,
   recapEcritures,
-  titreSection,
   type Verification,
 } from './tui/rendu.js';
 import { Interrompu, ReponseManquante, creerTerminal } from './tui/terminal.js';
