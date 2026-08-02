@@ -1046,6 +1046,52 @@ Deux conséquences, et la seconde est pire :
 
 ---
 
+### 5.3 — Un mutant commité, parce qu'une flotte écrivait dans le même arbre
+
+`ligneAFuite` est partie sur `main` avec sa condition inversée :
+
+```js
+if (droite !== '') return gauche; // au lieu de `=== ''`
+```
+
+Elle abandonnait donc **dès qu'il y avait quelque chose à afficher** : le chrono
+jamais rendu, la fuite de points jamais dessinée — la colonne du rail perdait
+exactement ce pour quoi elle venait d'être écrite.
+
+**Comment.** Une flotte d'agents d'audit tournait sur le dépôt, avec pour
+consigne « ne modifie aucun fichier suivi par git ». L'un d'eux a lancé
+`npm run loupe` : une lecture, au sens où il l'entendait ; une **écriture**, en
+réalité — la loupe mute une ligne, lance la suite, restaure. Elle tournait donc
+en boucle sur `src/tui/rendu.ts` pendant que je travaillais dans le même arbre.
+
+`git add -A` a ramassé la mutation **en vol**, sur un fichier que ce commit-là
+ne touchait pas. Ma relecture n'a rien vu : je relisais ce que j'avais changé.
+Et la suite non plus, parce que je n'avais lancé que le fichier de tests du lot
+en cours ; `tests/tui-rail.test.ts` serait devenu rouge sur-le-champ.
+
+La loupe, elle, n'a pas failli : elle a restauré à chaque tour, et l'arbre était
+propre après. Ce qui a échoué, c'est de commiter pendant qu'elle tournait.
+
+> **Règle** — `git add -A` est interdit dès que quelque chose d'autre peut
+> écrire dans l'arbre. Les chemins s'écrivent explicitement, et
+> `git diff --cached` se lit avant chaque commit — le diff COMPLET, pas celui
+> de ce qu'on croit avoir touché.
+>
+> **Règle** — « ne modifie aucun fichier » ne suffit pas comme consigne à un
+> agent : il faut nommer les OUTILS interdits. `npm run loupe`,
+> `prettier --write`, `npm install`, un formateur : tous écrivent sans qu'on ait
+> l'impression de modifier quoi que ce soit.
+>
+> **Règle** — une flotte d'agents qui écrit travaille dans un arbre SÉPARÉ.
+> Partager un répertoire de travail entre processus concurrents, c'est partager
+> de la mémoire mutable : même classe de bogues, et aucun verrou.
+>
+> **Règle** — après un lot, lancer la suite ENTIÈRE avant de commiter, pas
+> seulement le fichier de tests du lot. C'est le seul filet qui attrape ce
+> qu'on n'a pas vu venir.
+
+---
+
 ## 6. Windows n'est pas Linux avec des barres inverses
 
 ### 6.1 — `new URL(...).pathname` double la lettre de lecteur
