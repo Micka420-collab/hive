@@ -80,12 +80,23 @@ export type NiveauCouleur = 0 | 16 | 256 | 16777216;
  * signal qu'on ne prête pas.
  */
 const RAMPE_MIEL: readonly (readonly [number, number, number])[] = [
-  [120, 63, 4],
-  [166, 92, 8],
-  [204, 122, 10],
-  [230, 154, 20],
-  [245, 184, 56],
-  [252, 211, 108],
+  // ─── LA RAMPE SUIT LA CHARTE, ET LA CHARTE VIENT DU DESIGN ─────────────────
+  //
+  // Les deux derniers tons sont ceux de la vitrine : `#A85E06` (l'ambre
+  // profond) et `#F6C445` (le miel). Ce n'est pas un ajustement esthétique —
+  // c'est ce qui rend vraie la phrase « la même marque dans le terminal et
+  // dans le navigateur », et `tests/vitrine-jetons.test.ts` la vérifie en
+  // lisant CE tableau à travers `degrade`.
+  //
+  // Les quatre premiers tons descendent vers le brun pour que le dégradé ait
+  // une profondeur : une rampe qui commence déjà clair ne se lit pas comme un
+  // dégradé, elle se lit comme un aplat mal imprimé.
+  [92, 51, 6],
+  [138, 76, 8],
+  [168, 94, 6],
+  [206, 128, 16],
+  [232, 165, 34],
+  [246, 196, 69],
 ];
 
 /** Un octet de couleur d'avant-plan en 24 bits. */

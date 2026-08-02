@@ -127,7 +127,11 @@ describe('UN SEUL MIEL POUR DEUX MÉDIAS', () => {
     // dans le fichier — c'est-à-dire une identité qu'on ne peut pas déplacer
     // d'un seul geste. Désormais, changer la rampe du module rougit ici.
     const { haut } = bornesDuMiel();
-    expect(jeton('--gold-2'), 'la lumière du site = le haut de la rampe').toBe(haut);
+    // `--gold` est le miel du design (`#F6C445`), et c'est lui le haut de la rampe.
+    // L'ancienne charte nommait `--gold-2` sa teinte la plus claire ; la nouvelle
+    // inverse les rôles — `--gold-2` y est l'ambre PROFOND. La garde suit le
+    // rôle, pas le nom.
+    expect(jeton('--gold'), 'le miel du site = le haut de la rampe').toBe(haut);
   });
 
   it('AUCUN LITTÉRAL NE DOUBLE UN JETON', () => {

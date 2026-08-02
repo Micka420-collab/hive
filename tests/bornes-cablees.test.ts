@@ -42,6 +42,69 @@ const sansCommentaires = (chemin: string): string =>
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*(?:\/\/|\*).*$/gm, '');
 
+describe('AUCUNE DOCSTRING NE PROMET UN ÉLAGAGE QUI N’EXISTE PAS', () => {
+  // ─── LA PHRASE QUI A FAIT ACCEPTER UNE CONCEPTION ──────────────────────────
+  //
+  // `pruneTachesIssue` et `pruneContreExpertises` sont des bornes RÉFÉRENTIELLES
+  // — elles suppriment les liens dont la tâche a disparu — et leurs deux
+  // docstrings justifiaient ce choix par la même phrase : « les tâches ont déjà
+  // leur propre élagage ».
+  //
+  // C'est faux. `tasks` est la seule table du dépôt sans élagueur. Mesuré sur
+  // 2 000 tâches : les deux bornes suppriment 0 ligne, et il reste 2 000 tâches.
+  // Aucune tâche ne disparaissant jamais, aucun lien n'est jamais orphelin.
+  //
+  // Une phrase fausse dans un commentaire coûte plus qu'une absence de
+  // commentaire : elle fait CROIRE la table bornée, et c'est elle qu'on relit
+  // pour décider de ne rien ajouter.
+
+  it('la table `tasks` n’a toujours pas d’élagueur — la garde tombe le jour où elle en aura un', () => {
+    // Cette assertion est écrite pour DEVENIR fausse. Le jour où `pruneTasks`
+    // arrivera, elle rougira, et celui qui l'écrira ira relire les deux
+    // docstrings — qui redeviendront vraies et devront être remises à jour.
+    const store = sansCommentaires('src/orchestrator/store.ts');
+    expect(
+      /^ {2}pruneTasks\(/m.test(store),
+      'si `pruneTasks` existe, les deux docstrings référentielles doivent redevenir affirmatives',
+    ).toBe(false);
+  });
+
+  it('TANT QU’IL N’Y EN A PAS, aucune docstring ne prétend le contraire', () => {
+    // ─── AFFIRMER N'EST PAS CITER ──────────────────────────────────────────
+    //
+    // La première version de cette garde cherchait la phrase, point. Elle a
+    // rougi sur la docstring CORRIGÉE — celle qui cite la phrase fausse entre
+    // guillemets pour expliquer pourquoi elle l'était.
+    //
+    // C'est le même piège que la garde `process.env` deux heures plus tôt : une
+    // garde qui rougit sur sa propre explication fait supprimer l'explication,
+    // et on perd exactement ce qui empêchait la rechute.
+    //
+    // On refuse donc la phrase AFFIRMÉE, pas la phrase citée : un guillemet
+    // ouvrant juste avant la disculpe.
+    // ─── ET LA PHRASE EST COUPÉE PAR LE RETOUR À LA LIGNE ──────────────────
+    //
+    // Deuxième défaut de cette même garde, trouvé en la vérifiant : la phrase
+    // fautive s'étalait sur DEUX lignes de commentaire dans les deux
+    // docstrings, et une régulière qui la cherche d'un seul tenant ne la voyait
+    // NULLE PART. Elle est restée verte quand j'ai remis l'affirmation.
+    //
+    // Une garde de texte qui ne normalise pas les blancs cherche la mise en
+    // forme autant que le propos. On aplatit d'abord les préfixes de commentaire
+    // et les espaces, ensuite on cherche.
+    const src = readFileSync(new URL('../src/orchestrator/store.ts', import.meta.url), 'utf8')
+      .replace(/\n\s*\*/g, ' ')
+      .replace(/\s+/g, ' ');
+    const affirmations = [...src.matchAll(/(.{2})les tâches ont déjà leur propre élagage/g)]
+      .map((m) => m[1] ?? '')
+      .filter((avant) => !avant.includes('«'));
+    expect(
+      affirmations,
+      'une docstring justifie encore sa conception par un élagage des tâches qui n’existe pas',
+    ).toEqual([]);
+  });
+});
+
 describe('LE PLAFOND N’A QU’UN SEUL CHEMIN D’ÉCRITURE', () => {
   // ─── LE DÉFAUT QUE CETTE GARDE FERME ───────────────────────────────────────
   //

@@ -23,6 +23,8 @@ interface Page {
   html: string;
   /** Préfixe des URL relatives vers site/ (« » à la racine, « ../ » dans rush/). */
   prefixe: string;
+  /** Le dossier QUI CONTIENT la page — c'est lui qui résout ses chemins relatifs. */
+  dossier: string;
 }
 
 const PAGES: Page[] = [
@@ -30,11 +32,13 @@ const PAGES: Page[] = [
     nom: 'vitrine',
     html: readFileSync(new URL('../site/index.html', import.meta.url), 'utf8'),
     prefixe: '',
+    dossier: 'site/',
   },
   {
     nom: 'rush',
     html: readFileSync(new URL('../site/rush/index.html', import.meta.url), 'utf8'),
     prefixe: '../',
+    dossier: 'site/rush/',
   },
 ];
 
@@ -152,7 +156,73 @@ function labelDuGabarit(fichier: string): string {
   return label ?? '';
 }
 
-describe.each(PAGES)('page $nom — les boutons mènent quelque part', ({ html }) => {
+// ─── LES RESSOURCES QUE LE CSS VA CHERCHER ───────────────────────────────────
+//
+// La garde des fontes ci-dessus ne regardait QUE `fonts/*.woff2`. Le jour où la
+// coulée de miel du titre est devenue un fichier (`site/miel.svg`), plus rien ne
+// vérifiait son existence : le supprimer aurait laissé la CI verte et le titre
+// nu, sur la seule page que voient les gens qui découvrent le projet.
+//
+// Une garde nommée d'après UNE ressource aurait eu le même défaut à la ressource
+// suivante. Celle-ci lit les `url()` du document et exige que chacune existe —
+// elle couvre donc aussi ce qu'on ajoutera demain sans y penser.
+describe.each(PAGES)('page $nom — les ressources locales', ({ html, dossier }) => {
+  it('chaque url() du CSS pointe vers un fichier livré', () => {
+    const refs = [...html.matchAll(/url\(\s*'([^']+)'\s*\)/g)]
+      .map((m) => m[1] ?? '')
+      // `data:` est embarqué, `#` vise un filtre du document lui-même, et les
+      // adresses absolues sont déjà couvertes par la garde « aucun tiers ».
+      .filter((u) => !/^(data:|#|https?:|\/\/)/.test(u));
+    expect(refs.length, 'aucune ressource locale : la garde tournerait à vide').toBeGreaterThan(0);
+    for (const ref of new Set(refs)) {
+      const resolu = new URL(ref, new URL(dossier, `file://${RACINE}`));
+      expect(existsSync(resolu), `ressource absente : ${ref}`).toBe(true);
+    }
+  });
+});
+
+// ─── LE MIEL DU TITRE ────────────────────────────────────────────────────────
+//
+// Le surlignage du titre a été, dans l'ordre : un aplat, puis un pseudo-élément
+// en position absolue, puis un fond. Les deux premiers sont morts sur le même
+// défaut, et c'est lui que cette garde retient.
+//
+// Un élément en position absolue posé sur un INLINE QUI SE COUPE se dessine sur
+// la boîte englobante de tous ses fragments. Dès que le titre passait à la ligne
+// — c'est-à-dire sur tout mobile — un filet vertical reliait les deux lignes.
+//
+// Le correctif tient en une déclaration, `box-decoration-break: clone`, et son
+// absence ne casse RIEN de visible sur un écran large : c'est exactement le
+// genre de ligne qu'une retouche ultérieure supprime en croyant nettoyer.
+describe('site vitrine — la coulée de miel', () => {
+  const grad = /\.grad\s*\{([^}]*)\}/.exec(vitrine)?.[1] ?? '';
+
+  it('la règle .grad existe et porte un fond', () => {
+    expect(grad, 'règle .grad introuvable').not.toBe('');
+    expect(grad, 'le miel n’est plus une image de fond').toMatch(/background-image:\s*url\(/);
+  });
+
+  it('le fond se recopie sur CHAQUE fragment de ligne', () => {
+    // Sans le préfixe, Safari — donc l'essentiel du mobile, donc le cas où le
+    // titre se coupe le plus souvent — retombe sur le défaut.
+    expect(grad, 'box-decoration-break absent').toMatch(
+      /(?<!-webkit-)box-decoration-break:\s*clone/,
+    );
+    expect(grad, 'la forme -webkit- manque : Safari garde le défaut').toMatch(
+      /-webkit-box-decoration-break:\s*clone/,
+    );
+  });
+
+  it('aucun pseudo-élément ne redessine le miel par-dessus', () => {
+    // La cause du défaut, interdite à la racine plutôt que corrigée à chaque
+    // retour : si `.grad::before` réapparaît, le filet vertical revient avec.
+    expect(vitrine, '.grad::before ou ::after est de retour').not.toMatch(
+      /\.grad::(?:before|after)/,
+    );
+  });
+});
+
+describe.each(PAGES)('page $nom — les boutons mènent quelque part', ({ html, dossier }) => {
   it('chaque lien « ouvrir un formulaire » vise un gabarit qui existe', () => {
     const gabarits = [...html.matchAll(/issues\/new\?template=([\w.-]+\.yml)/g)].map(
       (m) => m[1] ?? '',
@@ -173,8 +243,7 @@ describe.each(PAGES)('page $nom — les boutons mènent quelque part', ({ html }
     for (const lien of new Set(liens)) {
       // Un lien vers un dossier est servi par son index.html.
       const cible = lien.endsWith('/') ? `${lien}index.html` : lien;
-      const nomPage = html === rush ? 'site/rush/' : 'site/';
-      const resolu = new URL(cible, new URL(nomPage, `file://${RACINE}`));
+      const resolu = new URL(cible, new URL(dossier, `file://${RACINE}`));
       expect(existsSync(resolu), `lien relatif mort : ${lien}`).toBe(true);
     }
   });

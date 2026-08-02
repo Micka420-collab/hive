@@ -11,6 +11,53 @@
 
 ---
 
+## Le chantier de la sortie — comment il est tenu
+
+La sortie officielle est visée **autour du 2 septembre 2026**. Le chantier ne
+tient pas dans une session : il est donc **rythmé par trois rappels** qui
+réveillent le travail au lieu de compter sur la mémoire.
+
+| rappel                  | cadence                    | ce qu'il fait                                                                                                                      |
+| ----------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Le tour de chantier** | toutes les 3 h             | PR en cours → CI → barrière (typecheck, lint, tests) → lot suivant de ce carnet. S'arrête au premier point qui demande une action. |
+| **Le point de sortie**  | chaque matin, 8 h Paris    | jours restants, ce qui est **vérifié** depuis la veille, ce qui reste, ce qui restera hors d'atteinte. Écrit ici.                  |
+| **La revue de sortie**  | une fois, le 26 août (J-7) | plus rien de neuf : premier contact, les trois systèmes, vitrine ↔ README, secrets, dette assumée.                                 |
+
+La règle qui les gouverne tous : **« vérifié » ne veut pas dire « écrit »**. Un
+critère non mesuré n'est pas atteint, et il se dit comme tel — c'est le sens de
+l'avertissement en tête de ce carnet.
+
+---
+
+## Le miel du titre — trois versions, et ce qui a tué les deux premières
+
+Le surlignage du titre de la vitrine est le geste signature du design. Il a fallu
+trois tentatives, et la deuxième est morte d'une règle de rendu que je ne
+connaissais pas : **un élément en position absolue calé sur un inline qui se
+coupe se dessine sur la boîte ENGLOBANTE de tous ses fragments**. Sur une ligne,
+tout allait bien ; dès que le titre passait à la ligne — c'est-à-dire sur tout
+mobile — un filet vertical reliait les deux lignes.
+
+La version retenue est un **fond** (`site/miel.svg`) posé avec
+`box-decoration-break: clone`, seul mécanisme qui repeint le décor pour chaque
+fragment. Six couches y font la matière : bord ondulé porté par les nœuds de la
+courbe (et non par les poignées), ourlet de ménisque + son ombre, translucidité
+croissante avec l'épaisseur, fond de coulée chaud et non brun, irrégularité
+d'épaisseur sur la longueur, plaques spéculaires brisées.
+
+Vérifié à quatre largeurs (1280, 820, 390) et dans les deux langues — le
+français du titre est plus long que l'anglais et se coupe ailleurs. Le titre
+porte désormais `text-wrap: balance`, qui évite les deux mots orphelins en
+seconde ligne.
+
+Cinq gardes tiennent la correction, et **les cinq ont été vues rougir** :
+`background-image` retiré, `box-decoration-break` retiré, sa forme `-webkit-`
+retirée (le seul navigateur où l'omettre casse est Safari mobile, précisément là
+où le titre se coupe), `site/miel.svg` supprimé, et le retour d'un
+`.grad::before`. Voir § 2.9 et § 9 quinquies du journal des erreurs.
+
+---
+
 ## Lot 16 — L'audit adversarial du 2 août, et son registre
 
 Un mois avant la sortie, six lentilles indépendantes ont fouillé la ruche, avec

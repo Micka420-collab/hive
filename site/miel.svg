@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 44" preserveAspectRatio="none" role="presentation">
+  <!--
+    LA COULÉE DE MIEL DU TITRE.
+
+    ─── POURQUOI UN FICHIER, ET PAS DES `linear-gradient` ─────────────────────
+
+    La phrase surlignée passe à la ligne dès qu'on rétrécit la fenêtre. Un
+    pseudo-élément en position absolue se dessine alors sur la boîte ENGLOBANTE
+    des deux morceaux : un filet vertical reliait les deux lignes. Un FOND, lui,
+    se recopie proprement sur chaque fragment (`box-decoration-break: clone`).
+
+    ─── POURQUOI UNE IMAGE, ET PAS UN APLAT ───────────────────────────────────
+
+    Du miel, ça ne ressemble à une bande jaune sous aucun éclairage. Six choses
+    le trahissent, et je les ai trouvées l'une après l'autre en regardant des
+    captures à 4× — pas en raisonnant.
+
+    1. LE BORD HAUT ONDULE. Les points SUR la courbe alternent entre 5 et 15 —
+       et pas seulement les poignées. Une première version ne faisait bouger que
+       les poignées : le bord restait droit, la courbe repassant à la même
+       hauteur à chaque nœud. C'est le nœud qui fait la vague, pas la poignée.
+
+    2. LE BORD EST OURLÉ DE LUMIÈRE. C'est LE détail qui décide de tout, et
+       celui qui manquait le plus longtemps. Un liquide posé sur une surface
+       forme un ménisque : la courbure du bord réfracte la lumière et dessine un
+       liseré clair, net, tout le long. Sans lui on a une teinte ; avec lui on a
+       une matière. Le trait est tracé PAR-DESSUS le détourage, donc seule sa
+       moitié intérieure survit — c'est ainsi qu'on obtient un ourlet qui suit
+       exactement la silhouette sans avoir à la redessiner décalée.
+
+    3. IL EST TRANSLUCIDE, ET PAS ÉGALEMENT. Les opacités montent de 0,76 en
+       surface à 0,94 au fond : la lumière traverse moins là où l'épaisseur est
+       plus grande. C'est ce dégradé-là — pas la teinte — qui donne le volume.
+
+    4. IL RESTE AMBRÉ JUSQU'EN BAS. Une version accumulait du brun foncé au fond
+       (#8c4a04 à 0,40) : ça donnait une ombre portée, pas du miel. Un liquide
+       qui s'épaissit ne devient pas gris, il devient PLUS ORANGE.
+
+    5. IL N'A PAS LA MÊME ÉPAISSEUR SUR TOUTE SA LONGUEUR. Un voile horizontal
+       très faible (0,10 au plus) creuse trois zones. Sans lui, la bande est un
+       dégradé vertical parfait — c'est-à-dire un biseau, pas une matière.
+
+    6. LA LUMIÈRE ACCROCHE PAR PLAQUES. Sous l'ourlet, un halo qui suit la même
+       courbe, puis trois plaques d'inégale longueur séparées de vides. Une
+       nappe lumineuse continue se lirait comme un néon.
+
+    Et les deux bouts ne se ressemblent pas : le gauche est effilé, le droit
+    plus plein — un trait de surligneur part vite et finit là où la main s'est
+    arrêtée. Deux bouts identiques, c'est une gélule.
+
+    `preserveAspectRatio="none"` : l'image est étirée à la largeur du fragment.
+    Chaque morceau de ligne a donc son ondulation propre — deux coulées
+    identiques trahiraient l'image.
+  -->
+  <defs>
+    <!-- La silhouette fermée : c'est elle qui détoure tout le reste. -->
+    <path
+      id="coulee-corps"
+      d="M4,31
+         C4,19 5,11 13,7.6
+         C23,4.2 33,6.4 49,8.2
+         C69,10.4 86,16 106,15.2
+         C126,14.4 144,7 166,7.8
+         C188,8.6 202,15.6 224,14.8
+         C246,14 266,6.2 290,7.4
+         C312,8.5 332,15 354,13.1
+         C372,11.6 386,8.6 393,12.4
+         C397.5,15.2 399,21 398,31
+         C397,40.6 392,43.4 380,43.9
+         C332,44.4 300,43.2 268,43.8
+         C232,44.4 200,43.2 168,43.8
+         C130,44.4 96,43.2 62,43.8
+         C46,44.1 32,43.6 22,43.4
+         C12,43 5,40 4,31 Z"
+    />
+    <!-- La MÊME arête, ouverte : du bas-gauche, par-dessus, jusqu'au bas-droit.
+         On la trace trois fois (ombre, halo, puis ourlet net) au lieu de
+         dessiner trois courbes parallèles à la main — un décalage tracé à la
+         main dérive toujours quelque part, et ça se voit. -->
+    <path
+      id="coulee-arete"
+      fill="none"
+      d="M4,31
+         C4,19 5,11 13,7.6
+         C23,4.2 33,6.4 49,8.2
+         C69,10.4 86,16 106,15.2
+         C126,14.4 144,7 166,7.8
+         C188,8.6 202,15.6 224,14.8
+         C246,14 266,6.2 290,7.4
+         C312,8.5 332,15 354,13.1
+         C372,11.6 386,8.6 393,12.4
+         C397.5,15.2 399,21 398,31"
+    />
+    <!-- Le bord du bas, seul. Il ondule dix fois moins que la surface : le
+         liquide s'étale sur le papier, il ne flotte pas. Mais PAS DU TOUT,
+         c'était une règle tracée à la latte — le seul trait parfaitement droit
+         de tout le dessin, et l'œil le trouvait tout de suite. -->
+    <path
+      id="coulee-assise"
+      fill="none"
+      d="M380,43.9
+         C332,44.4 300,43.2 268,43.8
+         C232,44.4 200,43.2 168,43.8
+         C130,44.4 96,43.2 62,43.8
+         C46,44.1 32,43.6 22,43.4"
+    />
+    <!-- `userSpaceOnUse` et non le défaut : le dégradé doit courir du haut RÉEL
+         de la coulée (y ≈ 5) au fond, pas du haut de la boîte — sinon ses
+         premiers arrêts tombent dans la zone détourée et la surface part déjà
+         trop foncée. -->
+    <linearGradient id="corps" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="44">
+      <stop offset="0" stop-color="#ffe6a2" stop-opacity=".76" />
+      <stop offset=".22" stop-color="#fdd066" stop-opacity=".86" />
+      <stop offset=".56" stop-color="#f6b43a" stop-opacity=".91" />
+      <stop offset=".84" stop-color="#e5941a" stop-opacity=".93" />
+      <stop offset="1" stop-color="#cf7c0c" stop-opacity=".94" />
+    </linearGradient>
+    <!-- Le fond de coulée : chaud, pas sombre. Voir la note 4. -->
+    <linearGradient id="fond" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="44">
+      <stop offset=".62" stop-color="#b96a05" stop-opacity="0" />
+      <stop offset="1" stop-color="#b96a05" stop-opacity=".26" />
+    </linearGradient>
+    <!-- L'irrégularité d'épaisseur sur la longueur. Volontairement à peine
+         perceptible : à 0,10 on la sent, à 0,25 on la voit, et une coulée dont
+         on VOIT les zones est une coulée peinte. -->
+    <linearGradient id="veine" gradientUnits="objectBoundingBox" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a4f04" stop-opacity=".10" />
+      <stop offset=".18" stop-color="#8a4f04" stop-opacity="0" />
+      <stop offset=".41" stop-color="#8a4f04" stop-opacity=".08" />
+      <stop offset=".58" stop-color="#8a4f04" stop-opacity="0" />
+      <stop offset=".79" stop-color="#8a4f04" stop-opacity=".09" />
+      <stop offset="1" stop-color="#8a4f04" stop-opacity=".02" />
+    </linearGradient>
+    <!-- Les flous sont ANISOTROPES : une surface liquide étale ses reflets dans
+         le sens de la coulée. Un flou rond donne une tache de gouache. -->
+    <filter id="flou-halo" x="-15%" y="-90%" width="130%" height="280%">
+      <feGaussianBlur stdDeviation="2.4 1.5" />
+    </filter>
+    <filter id="flou-ombre" x="-15%" y="-90%" width="130%" height="280%">
+      <feGaussianBlur stdDeviation="1.4 0.9" />
+    </filter>
+    <filter id="flou-plaques" x="-25%" y="-160%" width="150%" height="420%">
+      <feGaussianBlur stdDeviation="2.6 0.8" />
+    </filter>
+    <clipPath id="coulee">
+      <use href="#coulee-corps" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#coulee)">
+    <use href="#coulee-corps" fill="url(#corps)" />
+    <use href="#coulee-corps" fill="url(#veine)" />
+    <use href="#coulee-corps" fill="url(#fond)" />
+    <!-- L'OMBRE DU MÉNISQUE, juste sous l'arête. Contre-intuitif, et pourtant
+         c'est ce qui fait exister l'ourlet : un liseré clair posé sur un halo
+         clair ne se voit pas. Il lui faut du sombre CONTRE lui. La courbure du
+         bord dévie la lumière plus loin dans le liquide et laisse, juste
+         derrière, une bande qui en reçoit moins. -->
+    <use
+      href="#coulee-arete"
+      transform="translate(0 2.4)"
+      stroke="#c67f10"
+      stroke-opacity=".34"
+      stroke-width="3"
+      filter="url(#flou-ombre)"
+    />
+    <!-- Le halo, rejeté plus bas et affaibli : à 0,5 il délavait toute la
+         moitié haute et la coulée virait au beige. -->
+    <use
+      href="#coulee-arete"
+      transform="translate(0 7.5)"
+      stroke="#fff4cf"
+      stroke-opacity=".26"
+      stroke-width="4"
+      filter="url(#flou-halo)"
+    />
+    <!-- Les plaques spéculaires : trois, inégales, séparées de vides. Elles
+         sont posées à hauteur fixe alors que la surface ondule — donc là où
+         elle plonge, le détourage les coupe. L'irrégularité est gratuite. -->
+    <g filter="url(#flou-plaques)" fill="#fffdf4">
+      <rect x="24" y="11.6" width="78" height="2.2" rx="1.1" opacity=".52" />
+      <rect x="154" y="18.2" width="48" height="1.8" rx="0.9" opacity=".34" />
+      <rect x="264" y="10.8" width="62" height="1.7" rx="0.85" opacity=".3" />
+    </g>
+    <!-- Le rebond au pied : la lumière qui a traversé la coulée remonte du
+         papier. Très faible — à peine de quoi décoller la coulée du fond. -->
+    <use
+      href="#coulee-assise"
+      stroke="#ffe4ab"
+      stroke-opacity=".3"
+      stroke-width="2.2"
+      filter="url(#flou-ombre)"
+    />
+    <!-- L'ourlet du ménisque, en dernier : rien ne doit passer par-dessus. -->
+    <use href="#coulee-arete" stroke="#fffdf6" stroke-opacity=".95" stroke-width="2.6" />
+  </g>
+</svg>

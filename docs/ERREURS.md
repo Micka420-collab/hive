@@ -688,6 +688,27 @@ désaccord vivait entre les deux.
 > autorise. Une valeur partagée devient alors une constante commune, et le test
 > la relie à sa troisième source hors du langage (ici `dashboard/vite.config.ts`).
 
+### 2.9 — Une garde nommée d'après UNE ressource ne couvre pas la suivante
+
+`site.test.ts` portait « les fichiers de fonte référencés existent ». Sa
+régulière était `url\('(fonts/[^']+\.woff2)'\)` : elle ne pouvait, par
+construction, voir que des `.woff2` dans `fonts/`.
+
+Le jour où le surlignage du titre est devenu un fichier (`site/miel.svg`), rien
+ne vérifiait plus son existence. Le supprimer laissait la CI **entièrement
+verte** et le titre nu — sur la seule page que voient les gens qui découvrent le
+projet.
+
+Le piège n'est pas dans la régulière : il est dans ce que son nom fait croire.
+« Les fichiers référencés existent » se lit comme une couverture des ressources.
+On ne relit pas le motif d'une garde verte.
+
+> **Règle** — une garde d'existence se formule sur le **mécanisme** (« chaque
+> `url()` du document »), jamais sur l'instance qui l'a motivée (« chaque
+> fonte »). Le test de la formulation : est-ce que la garde couvre la ressource
+> qu'on ajoutera le mois prochain sans y penser ? Si la réponse tient à son nom
+> et non à son motif, elle ne couvre rien de plus qu'aujourd'hui.
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois
@@ -1890,6 +1911,51 @@ référence sans rien créer.
 > qu'on ne contrôle pas, ne pas chercher à corriger l'artefact : chercher à ne
 > plus le produire. `scripts/fusionner.sh` — et il REFUSE plutôt que de forcer :
 > base qui a bougé, arbre sale, committer inattendu.
+
+---
+
+## 9 quinquies. Un calque posé sur du texte qui peut se couper
+
+Le surlignage « miel » du titre de la vitrine est mort deux fois, et la seconde
+fois pour une raison que je ne connaissais pas.
+
+| version | technique                                   | ce qui l'a tuée                                 |
+| ------- | ------------------------------------------- | ----------------------------------------------- |
+| 1       | `linear-gradient` à arête franche           | inerte : aucun liquide n'a d'arête droite       |
+| 2       | `::before` absolu + `feTurbulence`          | **un filet vertical dès que le titre se coupe** |
+| 3       | `background-image` + `box-decoration-break` | —                                               |
+
+Le défaut de la version 2 est une règle de rendu, pas une bavure : **un élément
+en position absolue calé sur un inline qui se coupe se dessine sur la boîte
+ENGLOBANTE de tous ses fragments**, pas sur chacun. Sur une phrase qui tient sur
+une ligne, la boîte englobante EST le fragment — tout va bien. Dès que la phrase
+passe à la ligne, la boîte couvre les deux morceaux **et l'interligne entre
+eux** : le décor s'étire en travers.
+
+Le seul calque qui suit vraiment un inline coupé est un **fond**, et seulement
+avec `box-decoration-break: clone`, qui demande au navigateur de repeindre le
+fond pour chaque fragment. Sans cette déclaration, le fond lui-même se répartit
+sur la boîte englobante et le défaut revient — à l'identique.
+
+Deux choses en sortent, et la seconde compte plus que la première :
+
+- La déclaration a besoin de sa forme `-webkit-`, que Safari reste seul à
+  comprendre. Donc l'unique navigateur où l'omettre casse est **Safari mobile**,
+  c'est-à-dire précisément l'endroit où le titre se coupe le plus souvent.
+- Son absence **ne casse rien de visible sur un écran large**. C'est le genre de
+  ligne qu'une retouche ultérieure supprime en croyant nettoyer, et dont le
+  retrait ne se voit qu'en production, sur le téléphone de quelqu'un d'autre.
+
+C'est pour ça que la garde n'exige pas seulement la présence des deux formes :
+elle **interdit `.grad::before`** à la racine. On ne corrige pas la cause à
+chaque retour ; on empêche le retour.
+
+> **Règle** — un défaut qui ne se voit que dans **un état particulier du rendu**
+> (texte coupé, fenêtre étroite, langue plus longue) ne se trouve pas en
+> relisant : il se trouve en **allant chercher cet état**. Toutes les captures
+> qui ont validé la version 2 étaient prises à 1280 px, sur une seule ligne.
+> Depuis, la vérification passe par quatre largeurs et les deux langues — parce
+> que le français du titre est plus long que l'anglais et se coupe ailleurs.
 
 ---
 

@@ -88,45 +88,78 @@
           U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
       @font-face {
-        font-family: 'Space Grotesk';
+        font-family: 'Bricolage Grotesque';
         font-style: normal;
         font-weight: 400 700;
         font-display: swap;
-        src: url('fonts/space-grotesk-latin-ext-400-600-700.woff2') format('woff2');
+        src: url('fonts/bricolage-grotesque-latin-ext-400-700.woff2') format('woff2');
         unicode-range:
           U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
           U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
           U+2C60-2C7F, U+A720-A7FF;
       }
       @font-face {
-        font-family: 'Space Grotesk';
+        font-family: 'Bricolage Grotesque';
         font-style: normal;
         font-weight: 400 700;
         font-display: swap;
-        src: url('fonts/space-grotesk-latin-400-600-700.woff2') format('woff2');
+        src: url('fonts/bricolage-grotesque-latin-400-700.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('fonts/instrument-sans-latin-ext-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('fonts/instrument-sans-latin-400-600.woff2') format('woff2');
         unicode-range:
           U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
           U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
 
       :root {
-        --bg: #130f09;
-        --panel: #201a11;
-        --panel-2: #1a150d;
-        --chip: #2a2216;
-        --border: #392e1c;
-        --border-2: #4c3d23;
-        --text: #f4ecd9;
-        --muted: #b39c72;
-        --dim: #a09070;
-        --encre: #14100b;
-        --gold: #f5b838;
-        --gold-2: #fcd36c;
-        --orange: #e58e26;
-        --green: #86c35d;
-        --blue: #6bb0d6;
-        --red: #e5573f;
+        /* ── LA PALETTE DU DESIGN ────────────────────────────────────────────
+           Thème CLAIR. Les noms restent ceux d'avant — `--bg`, `--panel`,
+           `--text`… — parce que 74 emplois les désignent déjà et qu'un
+           renommage massif serait un diff illisible pour un gain nul. Ce sont
+           les VALEURS qui portent le changement. */
+        --bg: #f7f3e9;
+        --panel: #fffdf8;
+        --panel-2: #f2eada;
+        --chip: #efe7d7;
+        --border: #e3d8c2;
+        --border-2: #e0d2b6;
+        --text: #1b1712;
+        --muted: #7c7263;
+        --dim: #9a8f7c;
+        --encre: #1b1712;
+        /* Le miel : l'accent, et le seul. */
+        --gold: #f6c445;
+        --gold-2: #e08a14;
+        --orange: #a85e06;
+        /* Les trois signaux d'état, repris du design. */
+        --green: #235e52;
+        --blue: #4a4238;
+        --red: #be3a22;
         --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+        --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+        /* Le rayon de courbure et l'ombre portée du design. */
+        --r: 16px;
+        --ombre: 0 16px 32px -20px rgba(27, 23, 18, 0.25);
       }
       * {
         box-sizing: border-box;
@@ -140,11 +173,12 @@
         scroll-behavior: smooth;
       }
       body {
-        background:
-          radial-gradient(1200px 600px at 80% -10%, rgba(246, 185, 59, 0.08), transparent),
-          var(--bg);
+        /* Le halo miel du thème sombre n'a plus lieu d'être sur une crème : il
+           salirait le fond au lieu de l'éclairer. Le design pose un aplat, et
+           c'est la BORDURE de chaque bande qui découpe la page. */
+        background: var(--bg);
         color: var(--text);
-        font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+        font-family: var(--texte);
         font-size: 16px;
         line-height: 1.55;
         -webkit-font-smoothing: antialiased;
@@ -197,11 +231,14 @@
         align-items: center;
         gap: 16px;
         padding: 14px 28px;
-        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        /* `color-mix` plutôt qu'un rgba() en dur : la transparence suit le
+           jeton, et changer `--bg` n'oblige pas à retrouver cette ligne. */
+        background: color-mix(in srgb, var(--bg) 90%, transparent);
+        backdrop-filter: blur(16px);
         border-bottom: 1px solid var(--border);
         position: sticky;
         top: 0;
-        z-index: 20;
+        z-index: 60;
         flex-wrap: wrap;
       }
       .brand {
@@ -214,10 +251,13 @@
         animation: glowpulse 3s ease-in-out infinite;
       }
       .brand .name {
-        font-size: 22px;
+        font-family: var(--titre);
+        font-size: clamp(17px, 3.4vw, 19px);
         font-weight: 700;
-        color: var(--gold);
-        letter-spacing: 0.5px;
+        /* Encre, pas or : sur une crème, l'or ne tient pas le contraste d'un
+           texte — il est réservé aux aplats et au surligneur. */
+        color: var(--text);
+        letter-spacing: -0.03em;
       }
       .brand .ver {
         font-size: 12px;
@@ -486,71 +526,144 @@
       /* ── Hero ── */
       .hero {
         position: relative;
-        max-width: 1120px;
+        max-width: 1240px;
         margin: 0 auto;
-        padding: 72px 28px 40px;
-        text-align: center;
+        padding: clamp(38px, 7.5vw, 92px) clamp(18px, 4vw, 40px) clamp(46px, 8vw, 100px);
+        /* ── ALIGNÉ À GAUCHE, ET C'EST UNE DÉCISION ─────────────────────────
+           Un hero centré fait « page de projet » ; il oblige l'œil à chercher
+           le début de chaque ligne. Le design aligne à gauche et pose le visuel
+           à droite : on lit une colonne, on ne balaie pas. */
+        text-align: left;
         overflow: hidden;
       }
-      .hero .floatbee {
-        position: absolute;
-        display: inline-block;
-        user-select: none;
-        pointer-events: none;
-      }
-      .hero .floatbee.b1 {
-        left: 3%;
-        top: 26px;
-        font-size: 22px;
-        opacity: 0.7;
-        animation: beefloat 5s ease-in-out infinite;
-      }
-      .hero .floatbee.b2 {
-        right: 3%;
-        top: 60px;
-        font-size: 17px;
-        opacity: 0.55;
-        animation: beefloat 7s ease-in-out infinite 1.2s;
-      }
-      .hero .floatbee.b3 {
-        right: 20%;
-        bottom: 40px;
-        font-size: 14px;
-        opacity: 0.4;
-        animation: beefloat 6s ease-in-out infinite 0.5s;
-      }
+      /* ── LES ABEILLES FLOTTANTES ONT ÉTÉ RETIRÉES ──────────────────────────
+         Trois emoji 🐝 dérivaient en fond de hero. Sur le miel sombre ils
+         passaient ; sur la crème du design ils font autocollant, et surtout ils
+         disaient « projet rigolo » à l'endroit précis où la page doit dire
+         « outil qu'on installe en production ».
+         Ce qui les remplace est déjà là : le rayon d'alvéoles du Swarm View,
+         qui montre le produit au lieu de le décorer. */
       .badges {
         display: flex;
         gap: 8px;
-        justify-content: center;
+        justify-content: flex-start;
         flex-wrap: wrap;
-        margin-bottom: 26px;
+        margin-bottom: clamp(16px, 3vw, 24px);
+        /* L'entrée du design : ça monte de 16 px, une fois, au chargement. */
+        animation: hvRise 0.7s both;
+      }
+      .hero h1 {
+        animation: hvRise 0.7s both 0.06s;
+      }
+      .hero .sub {
+        animation: hvRise 0.7s both 0.12s;
+      }
+      .hero .cta-row {
+        animation: hvRise 0.7s both 0.18s;
+      }
+      /* ── LE DÉCALAGE EST L'EFFET ────────────────────────────────────────────
+         Quatre blocs qui montent ENSEMBLE font un écran qui saute. Décalés de
+         60 ms, ils font une phrase : pastille, titre, sous-titre, boutons. C'est
+         l'ordre de lecture, joué une fois. */
+      .swarm-panel {
+        animation: hvPop 0.6s cubic-bezier(0.22, 1, 0.36, 1) both 0.26s;
+      }
+      /* Le rayon respire, et son halo bat plus lentement que lui : deux périodes
+         premières entre elles ne se resynchronisent jamais, donc le mouvement ne
+         se lit jamais comme une boucle. */
+      .swarm-panel svg .hexcell {
+        animation: hvWave 4.2s ease-in-out infinite;
       }
       .badge {
-        padding: 3px 12px;
-        border: 1px solid var(--border);
-        border-radius: 20px;
+        padding: 7px 12px;
+        border: 1px solid var(--border-2);
+        background: var(--panel);
+        border-radius: 8px;
         font-size: 12px;
         font-weight: 600;
+        font-family: var(--mono);
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--titre);
       }
       h1 {
         margin: 0;
-        font-size: clamp(34px, 5.5vw, 58px);
+        font-size: clamp(33px, 7.4vw, 64px);
         font-weight: 700;
-        line-height: 1.12;
-        letter-spacing: -0.5px;
+        line-height: 1.06;
+        /* −0.04em : le serrage du design. Sur Bricolage, c'est ce qui fait la
+           différence entre un titre et une phrase en gros. */
+        letter-spacing: -0.04em;
+        /* Le navigateur cherche des lignes de longueurs voisines au lieu de
+           remplir la première et d'abandonner le reste. Sans lui, la coupure
+           tombait sur « …votre projet, en / même temps » : deux mots seuls sur
+           la seconde ligne, et le surlignage coupé en un timbre-poste. La
+           propriété n'est pas universelle, mais son absence ne coûte que
+           l'ancienne coupure — jamais un titre cassé. */
+        text-wrap: balance;
       }
+      /* ══ LE MIEL ════════════════════════════════════════════════════
+         Le geste signature : pas une couleur SUR le texte, une coulée de miel
+         DERRIÈRE lui. La matière est dans `miel.svg`, qui explique ses quatre
+         couches ; ici on ne décide que de la POSE.
+
+         DEUX VERSIONS SONT MORTES AVANT CELLE-CI, et les deux pour la même
+         raison de fond — j'avais dessiné le miel sur la mauvaise boîte.
+
+         · Un `linear-gradient` à arête franche : un aplat jaune, propre et
+           parfaitement inerte. Aucun liquide n'a d'arête droite.
+
+         · Un `::before` en position absolue, avec turbulence SVG. Il avait
+           enfin l'air de miel — tant que la phrase tenait sur une ligne. Le
+           texte du héros passe à la ligne dès qu'on rétrécit la fenêtre, et un
+           élément absolu positionné sur un inline coupé se dessine sur la boîte
+           ENGLOBANTE des deux morceaux : un filet vertical reliait les lignes.
+
+         C'est la leçon : sur un inline qui peut se couper, le seul calque qui
+         suive vraiment le texte est un FOND. `box-decoration-break: clone` dit
+         au navigateur de repeindre le fond pour CHAQUE fragment de ligne —
+         chaque morceau reçoit donc sa propre coulée, avec ses propres bords.
+
+         L'image étant étirée (`preserveAspectRatio="none"`), deux fragments de
+         largeurs différentes n'ondulent pas pareil. C'est gratuit, et c'est ce
+         qui empêche la répétition de se voir. */
       .grad {
-        background: linear-gradient(90deg, var(--orange), var(--gold), var(--gold-2));
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
+        font-style: normal;
+        /* Le préfixe reste : Safari ne connaît toujours que la forme -webkit-,
+           et sans lui c'est justement Safari mobile — là où la phrase se coupe
+           le plus souvent — qui affiche le défaut qu'on vient de corriger. */
+        -webkit-box-decoration-break: clone;
+        box-decoration-break: clone;
+        /* Le miel déborde un peu de part et d'autre : un surligneur qui
+           s'arrête pile au glyphe se lit comme un fond de cellule. */
+        padding: 0 0.16em;
+        background-image: url('miel.svg');
+        background-repeat: no-repeat;
+        /* La hauteur décide de tout. À 0,62 em la coulée couvre les deux tiers
+           bas des bas-de-casse et mord sous la ligne de base : c'est le geste
+           d'un surligneur tenu à la main. Plus haut, elle noie le texte ; plus
+           bas, elle redevient un soulignement. */
+        background-size: 100% 0.6em;
+        background-position: 0 calc(100% - 0.17em);
+      }
+      /* La seconde ligne porte la promesse qui rassure — plus petite, plus
+         discrète : elle se lit APRÈS, et seulement si la première a convaincu. */
+      .hero .sub-2 {
+        margin-top: 14px;
+        font-size: clamp(14.5px, 3vw, 16px);
+        line-height: 1.55;
+        color: var(--muted);
+        max-width: 520px;
+        animation: hvRise 0.7s both 0.15s;
       }
       .hero .sub {
-        max-width: 680px;
-        margin: 22px auto 0;
-        font-size: 18px;
-        color: var(--muted);
+        max-width: 560px;
+        margin: clamp(16px, 3vw, 24px) 0 0;
+        font-size: clamp(16.5px, 3.6vw, 19.5px);
+        line-height: 1.5;
+        color: var(--blue);
         text-wrap: pretty;
       }
       .hero .sub strong {
@@ -561,22 +674,27 @@
       }
       .cta-row {
         display: flex;
-        gap: 12px;
-        justify-content: center;
+        gap: 10px;
+        justify-content: flex-start;
         flex-wrap: wrap;
-        margin-top: 30px;
+        margin-top: clamp(22px, 4vw, 32px);
       }
+      /* Encre pleine plutôt qu'un dégradé : sur une crème, un aplat sombre est
+         le contraste le plus fort disponible, et il ne discute pas avec le
+         miel — qui reste réservé à UNE chose, l'action de copier. */
       .cta-main {
-        padding: 12px 26px;
-        border-radius: 8px;
-        background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: var(--encre);
+        padding: 13px 22px;
+        border-radius: 10px;
+        background: var(--encre);
+        color: var(--panel);
         font-weight: 700;
-        font-size: 16px;
+        font-size: 15px;
+        transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
       }
       .cta-main:hover {
-        filter: brightness(1.12);
-        color: var(--encre);
+        transform: translateY(-1px);
+        color: var(--panel);
+        box-shadow: var(--ombre);
       }
       .cta-copy {
         display: flex;
@@ -679,28 +797,37 @@
       }
 
       /* ── Sections ── */
+      /* ── LES BANDES ────────────────────────────────────────────────────────
+         Le design ne sépare pas les sections par du vide mais par un TRAIT, et
+         alterne deux fonds très proches. C'est ce qui donne le rythme d'une
+         page imprimée plutôt que d'un long défilement. */
       .section {
-        max-width: 1120px;
+        max-width: 1240px;
         margin: 0 auto;
-        padding: 70px 28px 10px;
+        padding: clamp(48px, 7vw, 88px) clamp(18px, 4vw, 40px);
+        border-bottom: 1px solid var(--border);
+      }
+      .section:nth-of-type(even) {
+        background: var(--panel);
       }
       .section:last-of-type {
-        padding-bottom: 30px;
+        border-bottom: 0;
       }
       .kicker {
-        margin: 0 0 8px;
+        margin: 0 0 10px;
         font-size: 13px;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.02em;
         color: var(--orange);
-        font-weight: 700;
+        font-weight: 600;
+        font-family: var(--mono);
       }
       .headline {
         margin: 0 0 34px;
-        font-size: 28px;
+        font-size: clamp(26px, 4.4vw, 40px);
         font-weight: 700;
-        max-width: 640px;
-        line-height: 1.25;
+        max-width: 720px;
+        line-height: 1.12;
+        letter-spacing: -0.035em;
       }
       .headline.tight {
         margin-bottom: 10px;
@@ -735,15 +862,23 @@
         grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
         gap: 14px;
       }
+      /* ── LES CARTES ────────────────────────────────────────────────────────
+         Le design leur donne un rayon franc (`--r`), une bordure sable et une
+         ombre qui ne se voit qu'au survol — la carte se soulève, elle ne
+         s'allume pas. Sur une crème, un halo coloré salit ; une ombre porte. */
       .card {
         background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 20px;
-        transition: border-color 0.15s;
+        border: 1px solid var(--border-2);
+        border-radius: var(--r);
+        padding: clamp(16px, 3vw, 20px);
+        transition:
+          transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+          box-shadow 0.3s;
       }
       .card:hover {
-        border-color: var(--gold);
+        transform: translateY(-3px);
+        box-shadow: var(--ombre);
+        border-color: var(--border-2);
       }
       .card .ico {
         font-size: 26px;
@@ -1078,6 +1213,161 @@
       }
 
       /* Animations */
+      /* ══ LES ANIMATIONS DU DESIGN ═══════════════════════════════════════════
+         Reprises verbatim de la maquette. Elles ne sont pas décoratives : chacune
+         a un rôle, et c'est pour ça qu'elles sont peu nombreuses et courtes.
+
+         · hvRise / hvDrop  — l'entrée d'un élément unique (la pastille, le menu)
+         · hvView / hvPop   — l'entrée d'une SECTION et de ses cartes, décalée
+         · hvGrowX          — une barre qui se remplit depuis la gauche
+         · hvFloat / hvWave — le rayon d'alvéoles qui respire
+         · hvGlow           — le halo derrière lui
+         · hvBeat           — un point d'état qui bat (en cours / en ligne)
+         · hvMarquee        — le bandeau des agents qui défile
+         · hvShimmer / hvDot / hvSpin — attente, frappe, chargement
+
+         LA COURBE EST TOUJOURS LA MÊME : cubic-bezier(.22, 1, .36, 1). C'est un
+         départ franc et une fin qui s'appuie — ce qui rend un mouvement « posé »
+         plutôt que « glissant ». Une seule courbe pour toute la page, c'est ce
+         qui fait qu'on ne la remarque pas. */
+      @keyframes hvMarquee {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(-50%);
+        }
+      }
+      @keyframes hvBeat {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @keyframes hvRise {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes hvDrop {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes hvView {
+        from {
+          opacity: 0;
+          transform: translateY(18px) scale(0.995);
+          filter: blur(5px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+          filter: none;
+        }
+      }
+      @keyframes hvPop {
+        from {
+          opacity: 0;
+          transform: translateY(14px) scale(0.96);
+          filter: blur(4px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+          filter: none;
+        }
+      }
+      @keyframes hvGrowX {
+        from {
+          transform: scaleX(0);
+        }
+      }
+      @keyframes hvFloat {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-10px);
+        }
+      }
+      @keyframes hvWave {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+        }
+        50% {
+          transform: translateY(-6px) scale(1.03);
+        }
+      }
+      @keyframes hvGlow {
+        0%,
+        100% {
+          opacity: 0.6;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.07);
+        }
+      }
+      @keyframes hvShimmer {
+        0%,
+        100% {
+          filter: brightness(1);
+        }
+        50% {
+          filter: brightness(1.22);
+        }
+      }
+      @keyframes hvDot {
+        0%,
+        80%,
+        100% {
+          opacity: 0.2;
+          transform: translateY(0);
+        }
+        40% {
+          opacity: 1;
+          transform: translateY(-3px);
+        }
+      }
+      @keyframes hvSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ── L'ENTRÉE AU DÉFILEMENT ──────────────────────────────────────────────
+         `animation-timeline: view()` fait jouer l'animation en fonction de la
+         POSITION de l'élément dans la fenêtre, sans une ligne de JavaScript et
+         sans observateur. Les navigateurs qui ne la connaissent pas ignorent la
+         règle : l'élément est simplement là, ce qui est le bon repli. */
+      @supports (animation-timeline: view()) {
+        .section > .kicker,
+        .section > .headline,
+        .section > .grid,
+        .section > .cards {
+          animation: hvView 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+          animation-timeline: view();
+          animation-range: entry 0% entry 42%;
+        }
+      }
+
       @keyframes dash {
         to {
           stroke-dashoffset: -12;
@@ -1228,11 +1518,6 @@
     </header>
 
     <section class="hero">
-      <div aria-hidden="true">
-        <span class="floatbee b1">🐝</span>
-        <span class="floatbee b2">🐝</span>
-        <span class="floatbee b3">🐝</span>
-      </div>
       <div class="badges">
         <span class="badge" style="color: var(--green)" data-i18n="badge.tests">2 600 tests ✓</span>
         <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
@@ -1242,13 +1527,16 @@
         <span class="badge" style="color: var(--muted)">Node ≥ 24</span>
       </div>
       <h1 data-i18n="hero.h1">
-        L'essaim d'agents IA,<br /><span class="grad">orchestré en communauté.</span>
+        Faites coder plusieurs IA sur votre projet,
+        <span class="grad">en même temps</span>.
       </h1>
       <p class="sub" data-i18n="hero.sub">
-        Une <strong>Queen</strong> centrale découpe un projet en tâches et les distribue aux
-        machines des membres, qui exécutent leurs agents de codage — les <em>ouvrières</em> — dans
-        des espaces isolés. Le contrôle est centralisé ;
-        <strong class="key">le code et les clés restent chez chaque membre.</strong>
+        Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
+        ordinateurs de votre équipe, et vous montre le résultat <strong>à valider</strong>.
+      </p>
+      <p class="sub sub-2" data-i18n="hero.sub2">
+        Rien n'est fusionné sans votre accord.
+        <strong class="key">Votre code et vos clés restent sur vos machines.</strong>
       </p>
       <div class="cta-row">
         <a
@@ -1773,6 +2061,52 @@
             ruche <strong>prépare avant de tester</strong>. Et elle installe ce que le
             <strong>dépôt déclare</strong>, jamais ce que la commande nomme — sinon « préparer »
             deviendrait « exécute ce que je te dis » sur la machine d'un membre.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">👁️</div>
+          <h3 data-i18n="feat.gu.t">Les Guetteuses</h3>
+          <p data-i18n="feat.gu">
+            Une ruche exposée se fait sonder — un <code class="tag">.env</code>, une sauvegarde
+            oubliée — et personne ne l'apprend jamais. Les Guetteuses ne ferment aucune porte de
+            plus : elles rendent la reconnaissance <strong>bruyante</strong>. Elles ne prétendent
+            pas rendre la ruche imprenable, parce qu'on baisse la garde devant ce qu'on croit
+            inviolable.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">📉</div>
+          <h3 data-i18n="feat.de.t">La Dérive</h3>
+          <p data-i18n="feat.de">
+            Sous autonomie longue, un projet pourrit
+            <strong>sans qu'aucun cycle ne soit fautif</strong> : la qualité glisse d'un cran à la
+            fois, l'agent ajoute et ne retire jamais, et la somme devient illisible. Aucun contrôle
+            qui regarde une production à la fois ne peut le voir. La Dérive regarde la PENTE, et
+            borne l'autonomie quand elle s'inverse.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🏗</div>
+          <h3 data-i18n="feat.ch.t">Les Chantiers</h3>
+          <p data-i18n="feat.ch">
+            Les travaux que le dépôt <strong>DÉCLARE</strong>, à un clic : ses scripts sur un nœud,
+            ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente jamais une
+            commande — et ce qui SORT de la machine (publier, déployer) porte la raison pour
+            laquelle il faut un humain.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🖥</div>
+          <h3 data-i18n="feat.at.t">L'Atelier <span class="tag">lot 1</span></h3>
+          <p data-i18n="feat.at">
+            Un agent travaille en aveugle : il écrit des fichiers et ne peut pas ouvrir son propre
+            travail. L'Atelier lui donne un bureau jetable — écran, navigateur, réseau FERMÉ par
+            défaut.
+            <strong
+              >Le module qui compose la commande et l'image existent et sont éprouvés ; la capture
+              d'écran et le geste ne le sont pas encore.</strong
+            >
+            Sans docker ni podman, pas d'Atelier — et surtout pas de bureau simulé.
           </p>
         </div>
       </div>
@@ -2404,9 +2738,11 @@
           'badge.tests': '2,600 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
-            'The AI agent swarm,<br /><span class="grad">orchestrated as a community.</span>',
+            'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
           'hero.sub':
-            'A central <strong>Queen</strong> splits a project into tasks and distributes them to members’ machines, which run their coding agents — the <em>workers</em> — in isolated workspaces. Control is centralized; <strong class="key">code and keys stay on each member’s machine.</strong>',
+            'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result <strong>to approve</strong>.',
+          'hero.sub2':
+            'Nothing is merged without your say-so. <strong class="key">Your code and your keys stay on your machines.</strong>',
           'hero.clone': 'Clone the hive',
           'hero.copy': 'copy',
           'swarm.title': '🐝 Swarm View — the swarm, live',
@@ -2467,6 +2803,18 @@
           'feat.cs.t': 'Council of Scouts',
           'feat.cs':
             'The bees’ swarming protocol, applied to ideas: scouts propose, the others <strong>go and check</strong> instead of believing, and may raise a reasoned stop signal. Ten instances of the same model agreeing are not ten opinions — the quorum counts distinct families. The verdict is a proposal, never a decision.',
+          'feat.gu.t': 'The Watchers',
+          'feat.gu':
+            'An exposed hive gets probed — a <code class="tag">.env</code>, a forgotten backup — and nobody ever finds out. The Watchers close no extra door: they make reconnaissance <strong>loud</strong>. They do not claim to make the hive impregnable, because people drop their guard in front of what they believe is unbreakable.',
+          'feat.de.t': 'The Drift',
+          'feat.de':
+            'Under long autonomy a project rots <strong>without any single cycle being at fault</strong>: quality slips one notch at a time, the agent adds and never removes, and the sum becomes unreadable. No check that looks at one output at a time can see it. The Drift watches the SLOPE, and bounds autonomy when it turns.',
+          'feat.ch.t': 'The Works',
+          'feat.ch':
+            'The works the repository <strong>DECLARES</strong>, one click away: its scripts on a node, its workflows on GitHub. The hive picks from that list and never invents a command — and whatever leaves the machine (publish, deploy) carries its reason for needing a human.',
+          'feat.at.t': 'The Workshop <span class="tag">batch 1</span>',
+          'feat.at':
+            'An agent works blind: it writes files and cannot open its own work. The Workshop gives it a disposable desktop — screen, browser, network CLOSED by default. <strong>The module that composes the command and the image exist and are tested; the screenshot and the gesture are not there yet.</strong> Without docker or podman, no Workshop — and above all no simulated desktop.',
           'feat.en.t': 'The environment',
           'feat.en':
             '<code class="tag">npm test</code> on a fresh clone fails for want of dependencies: the hive <strong>prepares before it tests</strong>. And it installs what the <strong>repository declares</strong>, never what the command names — otherwise “prepare” would become “run what I tell you” on a member’s machine.',
