@@ -299,6 +299,20 @@ describe('ENROULER PLUTÔT QUE COUPER — la moitié qui dit quoi faire', () => 
     }
   });
 
+  it('UN MOT QUI REMPLIT LA LIGNE EXACTEMENT Y RESTE', () => {
+    // La loupe a nommé ce trou : `<= largeur` muté en `< largeur` survivait.
+    // Aucune ligne ne débordait — elles s'arrêtaient simplement une colonne
+    // trop tôt — et « aucun mot ne se perd » restait vrai lui aussi. Le
+    // résultat n'était pas FAUX, il était inutilement déchiqueté : et un
+    // enrouleur qui gaspille une colonne sur chaque ligne fait perdre, sur les
+    // avertissements de sécurité, exactement ce qu'on vient de lui faire gagner.
+    //
+    // « abc » (3) + l'espace (1) + « defghi » (6) = 10, soit la largeur pile.
+    expect(enrouler('abc defghi', 10)).toEqual(['abc defghi']);
+    // Un caractère de plus, et il descend : c'est la borne, des deux côtés.
+    expect(enrouler('abc defghij', 10)).toEqual(['abc', 'defghij']);
+  });
+
   it('UN MOT PLUS LONG QUE LA LIGNE EST DÉBITÉ, PAS JETÉ', () => {
     // Une URL de 200 caractères dans une fenêtre étroite doit rester lisible en
     // entier : la repousser à la ligne suivante ne ferait que déplacer le
