@@ -118,6 +118,15 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
     // nœuds peuvent croire simultanément avoir livré la même tâche.
     const projet = server.store.createProject({ name: 'Ruche', repoUrl: null, ownerId: null });
     server.store.createTask({ id: 't-a-autrui', projectId: projet.id, title: 'x', prompt: 'y' });
+    // ELLE EST À QUELQU'UN D'AUTRE, ET ON LE DIT.
+    //
+    // La tâche restait libre, et le test comptait sur un nœud d'un test voisin
+    // pour la rafler avant `n-perime` — l'arrivée d'un nœud déclenche une
+    // distribution. Passé EN PREMIER, `n-perime` était le seul candidat : il
+    // recevait la tâche, son résultat devenait légitime, et le hub se taisait
+    // à juste titre. Le test échouait en accusant le silence du hub, alors que
+    // c'était sa propre prémisse qui manquait.
+    server.store.patchTask('t-a-autrui', { status: 'running', assignedNodeId: 'n-un-autre' });
 
     const { ws, recus } = await noeud('n-perime');
     ws.send(

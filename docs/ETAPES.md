@@ -745,3 +745,93 @@ périmètre (comptes de l'utilisateur).
   offert le jeton de la ruche et la clé d'abonnement au premier `claude.cmd`
   hostile posé en tête de `PATH`. La garde vit désormais dans la sonde, avec un
   test qui relit le dépôt pour exiger que tout nouveau secret y entre.
+
+---
+
+## Le tamis des ordres — dix-sept fichiers qui empruntaient leur vert au voisin
+
+La suite tournait toujours dans le même ordre. Rejouée sous
+`--sequence.shuffle`, elle perdait quatorze tests.
+
+Trois expériences, et chacune a démoli l'hypothèse d'avant :
+
+| ce qu'on soupçonnait        | ce qu'on a mesuré                                             |
+| --------------------------- | ------------------------------------------------------------- |
+| des tests instables         | trois graines → 14, 21, 25 échecs, jamais les mêmes           |
+| la charge de la machine     | **la même graine rend exactement les mêmes 14, deux fois**    |
+| la concurrence des fichiers | `--no-file-parallelism` : les mêmes 14                        |
+| l'ordre des **fichiers**    | les 33 premiers rejoués dans l'ordre exact du mélange : verts |
+
+Restait l'ordre des tests **à l'intérieur** d'un fichier. Un sondage élargi a
+porté le compte à **dix-sept fichiers** : les trois premières graines n'étaient
+qu'un échantillon, et s'y fier aurait laissé huit fichiers dehors.
+
+Le motif était partout le même — un test pose un état, le suivant le lit sans
+jamais le dire. Ce que ça coûtait pour de vrai :
+
+- `NE TOUCHE PAS AUX LIENS VIVANTS` ne voyait un lien mort que parce que deux
+  tests de révocation étaient passés avant : **la moitié de la borne n'était
+  vérifiée qu'un ordre sur deux.**
+- `REPRENDRE LA MÊME ISSUE NE COLLISIONNE PAS` se disait « la seconde prise du
+  fichier ». Joué en premier, il n'éprouvait **aucune collision** — le défaut
+  qu'il existe pour attraper.
+- `UNE ASSIGNATION PÉRIMÉE` comptait sur un nœud voisin pour rafler la tâche.
+  Seul, il la recevait, et **accusait le hub de se taire** alors que sa propre
+  prémisse manquait.
+
+Deux fichiers ne pouvaient pas être découplés tant que le **faux** ne servait
+qu'un exemplaire : le faux GitHub rendait la PR `42` à chaque appel, et le
+catalogue ne contenait qu'un dépôt — or importer est un acte unique. Les deux
+faux servent désormais une collection, et chaque test prend le sien.
+
+Un seul fichier garde son ordre : `caste-boucle`, où l'ordre **est** le sujet.
+`describe(nom, { shuffle: false }, …)` le dit à vitest — et c'est la porte
+dérobée idéale pour faire taire un couplage accidentel en deux mots, alors elle
+se déclare dans `tests/ordre-declare.test.ts` avec sa raison.
+
+`npm run tamis-ordres` rejoue la suite dans trois ordres écrits, et la CI le
+lance à chaque PR. Les graines sont **écrites** : un échec se rejoue à
+l'identique, avec la commande que le script affiche.
+
+**La CI ne mélangeait pas.** Rien de tout ceci n'y était visible, et rien ne
+l'aurait rendu visible tout seul.
+
+---
+
+## Le premier contact — marché pour de vrai, sur un clone vierge
+
+Le conteneur tourne sous Node 22 et la ruche exige 24 : le parcours d'un nouveau
+venu n'avait donc jamais été **observé**, seulement raisonné. Node 24 posé à
+côté, il l'a été — clone dans un dossier vide, `npm install`, installeur,
+démarrage, `doctor`.
+
+**Ce qui marche déjà, et qu'il fallait vérifier plutôt que supposer :**
+
+| étape                                    | ce qu'on voit                                                |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `npm install`                            | 19 s, 285 paquets, aucune faille                             |
+| `npm install --omit=dev`                 | refus NOMMÉ : « il manque tsx », avec la commande qui répare |
+| `npm run install:hive`                   | `.env` créé en 0600, deux secrets tirés, le jeton encadré    |
+| `npm run dev`                            | la Reine répond `{"ok":true}` sur `/api/health`              |
+| ouvrir l'adresse annoncée sans dashboard | la route dit `npm run build:dashboard`                       |
+
+**Les deux frottements trouvés, et corrigés :**
+
+**1. Le remède du docteur désarmait l'installeur.** `cp .env.example .env`
+plante `change-me` dans les deux secrets ; l'installeur ne complète que les clés
+ABSENTES, répond « vos valeurs sont intactes » et laisse les marque-places. Le
+premier conseil du docteur fermait la porte de secours. Il nomme désormais
+`npm run install:hive` — mesuré : un clone vierge passe de trois ✘ à zéro en
+**une commande**, contre trois commandes et deux modifications à la main.
+
+**2. Les avertissements de sécurité perdaient leur moitié utile.** 178 et 281
+caractères pour une largeur de 76 : 102 et 205 caractères coupés, et à chaque
+fois la phrase qui dit quoi faire. `enrouler` et `constatEnroule` répartissent
+au lieu de couper, les lignes de suite alignées sous le libellé.
+
+`tests/premier-contact.test.ts` tient le maillon : ce que l'installeur ÉCRIT
+satisfait ce que le docteur EXIGE. Deux constantes qui divergeraient rougissent
+le jour même, plutôt qu'au premier clone de quelqu'un d'autre.
+
+**Ce que ça ne dit pas** : tout ceci est mesuré sous Linux. Le mur Node 22 du
+conteneur est levé, pas celui de Windows et macOS.

@@ -132,16 +132,26 @@ describe('les liens de partage', () => {
       subAgents: [],
     });
 
+    const premier = await creerLien('pour le client');
+    lien = premier.jeton;
+    lienId = premier.id;
+    expect(lien.startsWith('hive3_')).toBe(true);
+  });
+
+  // Fabrique un lien NEUF.
+  //
+  // Les deux tests de révocation détruisaient le lien commun : passés avant
+  // leurs voisins, ils leur laissaient un jeton mort et une dizaine de 401
+  // inexplicables. Un test qui révoque révoque désormais SON lien.
+  async function creerLien(label: string): Promise<{ id: string; jeton: string }> {
     const res = await fetch(`${base}/api/projects/${projetA}/partages`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${jetonReine}` },
-      body: JSON.stringify({ label: 'pour le client' }),
+      body: JSON.stringify({ label }),
     });
-    const corps = (await res.json()) as { id: string; jeton: string };
-    lien = corps.jeton;
-    lienId = corps.id;
-    expect(lien.startsWith('hive3_')).toBe(true);
-  });
+    expect(res.status).toBe(200);
+    return (await res.json()) as { id: string; jeton: string };
+  }
 
   afterAll(async () => {
     await server.stop();
@@ -317,20 +327,32 @@ describe('les liens de partage', () => {
     });
 
     it('RÉVOQUÉ, IL NE SERT PLUS — tout de suite', async () => {
-      expect((await avecLien(projetA, lien)).status).toBe(200);
-      const rev = await fetch(`${base}/api/projects/${projetA}/partages/${lienId}`, {
+      const jetable = await creerLien('à révoquer');
+      expect((await avecLien(projetA, jetable.jeton)).status).toBe(200);
+      const rev = await fetch(`${base}/api/projects/${projetA}/partages/${jetable.id}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${jetonReine}` },
       });
       expect(rev.status).toBe(200);
-      expect((await avecLien(projetA, lien)).status).toBe(401);
+      expect((await avecLien(projetA, jetable.jeton)).status).toBe(401);
     });
 
     it('re-révoquer n’est pas une erreur', async () => {
-      const res = await fetch(`${base}/api/projects/${projetA}/partages/${lienId}`, {
-        method: 'DELETE',
-        headers: { authorization: `Bearer ${jetonReine}` },
-      });
+      // Il révoque DEUX FOIS son propre lien : le second appel doit répondre
+      // « rien changé », pas « erreur ». Il lisait auparavant l'état laissé par
+      // le test ci-dessus — et échouait dès qu'il passait avant lui.
+      const jetable = await creerLien('à révoquer deux fois');
+      const chemin = `${base}/api/projects/${projetA}/partages/${jetable.id}`;
+      const entetes = { authorization: `Bearer ${jetonReine}` };
+      expect(
+        (
+          (await (await fetch(chemin, { method: 'DELETE', headers: entetes })).json()) as {
+            change: boolean;
+          }
+        ).change,
+      ).toBe(true);
+
+      const res = await fetch(chemin, { method: 'DELETE', headers: entetes });
       expect(res.status).toBe(200);
       expect(((await res.json()) as { change: boolean }).change).toBe(false);
     });
@@ -367,16 +389,20 @@ describe('les liens de partage', () => {
         subAgents: [],
       });
 
-      const res = await fetch(`${base}/api/projects/${projetA}/partages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${jetonReine}` },
-        body: JSON.stringify({ label: 'vivant' }),
+      const vivant = await creerLien('vivant');
+      // Le mort, ce test le tue LUI-MÊME. Il désignait auparavant le lien
+      // commun, mort seulement parce que les tests de révocation étaient
+      // passés avant : la borne n'était vérifiée que dans un ordre sur deux.
+      const mort = await creerLien('à élaguer');
+      await fetch(`${base}/api/projects/${projetA}/partages/${mort.id}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${jetonReine}` },
       });
-      const vivant = (await res.json()) as { id: string };
+
       server.store.prunePartages(0);
       expect(server.store.getPartage(vivant.id)).toBeDefined();
       // …et il emporte bien les morts.
-      expect(server.store.getPartage(lienId)).toBeUndefined();
+      expect(server.store.getPartage(mort.id)).toBeUndefined();
     });
   });
 });

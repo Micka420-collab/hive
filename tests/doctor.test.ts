@@ -201,13 +201,28 @@ describe('1. LA VERSION DE NODE', () => {
 });
 
 describe('2. LE FICHIER .env', () => {
-  it('absent : la commande dit exactement quoi copier', () => {
+  it('ABSENT : le remède mène à un .env UTILISABLE, pas à une copie du modèle', () => {
+    // ─── POURQUOI CE TEST A CHANGÉ DE CAMP ─────────────────────────────────
+    //
+    // Il exigeait `.env.example` — c'est-à-dire le `cp`. Mesuré sur un clone
+    // vierge, ce geste plante `HIVE_TOKEN=change-me` et
+    // `HIVE_JWT_SECRET=change-me`, les valeurs publiées avec le code. Or
+    // l'installeur ne complète que les clés ABSENTES : il répond ensuite
+    // « vos valeurs sont intactes » et laisse les deux marque-places.
+    //
+    // Le premier remède du docteur était donc le geste qui DÉSARMAIT l'outil
+    // fait pour réparer, et le nouveau venu restait avec deux modifications à
+    // la main dans un fichier de quatre cents lignes.
     const d = diag(
       avec({ fichierEnv: { present: false, lisible: false, permissions: null } }),
       'env_present',
     );
     expect(d.gravite).toBe('bloquant');
-    expect(d.reparation).toContain('.env.example');
+    expect(d.reparation).toBe('npm run install:hive');
+    expect(
+      d.reparation,
+      'un `cp` du modèle plante les valeurs publiées et désarme l’installeur',
+    ).not.toMatch(/^\s*cp\b/);
   });
 
   it('LISIBLE PAR TOUTE LA MACHINE : le jeton de ruche fuit', () => {

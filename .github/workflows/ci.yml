@@ -206,6 +206,46 @@ jobs:
       - name: Build (typecheck + dashboard)
         run: npm run build
 
+  # ═══ LE TAMIS DES ORDRES ════════════════════════════════════════════════════
+  #
+  # La suite ci-dessus tourne toujours dans le MÊME ordre. Passée sous
+  # `--sequence.shuffle`, elle perdait dix-sept fichiers : partout le même
+  # motif, un test qui pose un état et un voisin qui le lit sans le dire.
+  #
+  # Ce n'est pas de l'hygiène. « NE TOUCHE PAS AUX LIENS VIVANTS » ne vérifiait
+  # la moitié de sa borne qu'un ordre sur deux ; « REPRENDRE LA MÊME ISSUE NE
+  # COLLISIONNE PAS » n'éprouvait aucune collision s'il passait en premier — le
+  # défaut qu'il existe pour attraper lui était invisible. Un vert emprunté au
+  # voisin ne protège rien, et rien ne pouvait le signaler.
+  #
+  # ─── POURQUOI UN TRAVAIL À PART, ET POURQUOI UN SEUL SYSTÈME ────────────────
+  #
+  # À part : il rejoue la suite trois fois, et l'attacher à la matrice
+  # multiplierait ce coût par trois systèmes pour la même information — un
+  # couplage entre deux tests ne dépend pas de l'OS.
+  #
+  # Les graines sont ÉCRITES, dans `scripts/tamis-ordres.mjs`. Une graine tirée
+  # au hasard ferait rougir la CI sur un ordre que personne ne peut rejouer, et
+  # la première réaction serait de relancer plutôt que de lire.
+  tamis:
+    name: La suite tient dans plusieurs ordres de tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci --foreground-scripts
+
+      - name: Rejouer la suite dans trois ordres
+        run: npm run tamis-ordres
+
   # ═══ L'IMAGE, CONSTRUITE POUR DE VRAI ═══════════════════════════════════════
   #
   # Un Dockerfile qu'on ne construit jamais est une promesse de plus que rien

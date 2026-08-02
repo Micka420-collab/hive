@@ -34,6 +34,7 @@ describe('LE PARCOURS « REJOINDRE », de bout en bout', () => {
   let base: string;
   let jwtLea = '';
   let idLea = '';
+  let idProprio = '';
   let idPublic = '';
   let idPrive = '';
   let idOrphelin = '';
@@ -79,6 +80,7 @@ describe('LE PARCOURS « REJOINDRE », de bout en bout', () => {
     // propriétaire. Léa est le second, un compte membre ordinaire — c'est elle
     // qui doit se heurter aux gardes, un admin voit tout et ne prouverait rien.
     const proprio = await inscrire('proprio@ruche.test', 'Camille');
+    idProprio = proprio.id;
     const lea = await inscrire('lea@ruche.test', 'Léa');
     jwtLea = lea.jwt;
     idLea = lea.id;
@@ -116,8 +118,19 @@ describe('LE PARCOURS « REJOINDRE », de bout en bout', () => {
     expect(r.status, 'le catalogue est public, c’est voulu').toBe(200);
     const liste = (await r.json()) as ProjetPublic[];
 
-    expect(liste.map((p) => p.name)).toEqual(['Ruche ouverte']);
-    const p = liste[0] as ProjetPublic & Record<string, unknown>;
+    // CE QUI EST PUBLIÉ, ET SURTOUT CE QUI NE L'EST PAS. La liste disait
+    // auparavant « exactement ['Ruche ouverte'] » — une égalité qui interdisait
+    // à tout autre test d'ouvrir un projet, et qui a fini par le faire : deux
+    // tests plus bas se disputaient CE projet-ci faute de pouvoir créer le leur.
+    // La propriété visée n'a jamais été le compte, c'est l'ÉTANCHÉITÉ.
+    const noms = liste.map((p) => p.name);
+    expect(noms).toContain('Ruche ouverte');
+    expect(noms, 'un projet privé a fui dans le catalogue').not.toContain('Ruche fermée');
+    expect(noms, 'un projet orphelin a fui dans le catalogue').not.toContain('Ruche orpheline');
+
+    const p = liste.find((x) => x.name === 'Ruche ouverte') as ProjetPublic &
+      Record<string, unknown>;
+    expect(p, 'le projet ouvert doit être là').toBeDefined();
 
     // LE JETON GITHUB NE SORT PAS. `vuePublique` nettoie l'URL ; si un jour
     // quelqu'un renvoie la ligne de base, ce test rougit.
@@ -127,16 +140,33 @@ describe('LE PARCOURS « REJOINDRE », de bout en bout', () => {
     expect(p.ownerId, 'ownerId ne se publie pas').toBeUndefined();
   });
 
+  /**
+   * Un projet ouvert NEUF, que Léa n'a pas encore rejoint.
+   *
+   * Les deux tests ci-dessous se partageaient `idPublic` : le premier exigeait
+   * que Léa n'y soit membre de rien, le second qu'elle le soit déjà. L'un des
+   * deux était donc condamné à rougir dès qu'ils changeaient de place — et
+   * chacun, seul, ne prouvait que la moitié de ce qu'il annonçait.
+   */
+  const projetOuvertNeuf = (nom: string): string =>
+    server.store.createProject({
+      name: nom,
+      repoUrl: null,
+      ownerId: idProprio,
+      visibility: 'public',
+    }).id;
+
   it('UN PROJET OUVERT SE REJOINT, et l’adhésion produit un vrai membre', async () => {
     // `joined: true` sur le fil ne prouve rien : ce qui compte est l'inscription
     // en base, parce que c'est elle que toutes les autres gardes consultent.
-    expect(server.store.estMembre(idPublic, idLea), 'Léa n’est membre de rien').toBe(false);
+    const ouvert = projetOuvertNeuf('Ruche ouverte (adhésion)');
+    expect(server.store.estMembre(ouvert, idLea), 'Léa n’est membre de rien').toBe(false);
 
-    const r = await rejoindre(idPublic, jwtLea);
+    const r = await rejoindre(ouvert, jwtLea);
     expect(r.status).toBe(200);
     expect(await r.json()).toMatchObject({ joined: true });
 
-    expect(server.store.estMembre(idPublic, idLea), 'l’adhésion doit être réelle').toBe(true);
+    expect(server.store.estMembre(ouvert, idLea), 'l’adhésion doit être réelle').toBe(true);
   });
 
   it('REJOINDRE DEUX FOIS NE CASSE RIEN et ne duplique personne', async () => {
@@ -145,10 +175,15 @@ describe('LE PARCOURS « REJOINDRE », de bout en bout', () => {
     // Note : `createProject` pose `ownerId` mais N'INSCRIT PAS de membre — seul
     // `POST /api/projects/user` le fait. Le compte attendu ici est donc celui
     // des adhésions, pas celui des personnes concernées par le projet.
-    const avant = server.store.listMembers(idPublic).length;
-    const r = await rejoindre(idPublic, jwtLea);
+    const ouvert = projetOuvertNeuf('Ruche ouverte (deux fois)');
+    // La PREMIÈRE adhésion est la prémisse, pas le sujet : c'est la seconde
+    // qu'on observe.
+    expect((await rejoindre(ouvert, jwtLea)).status).toBe(200);
+
+    const avant = server.store.listMembers(ouvert).length;
+    const r = await rejoindre(ouvert, jwtLea);
     expect(r.status).toBe(200);
-    expect(server.store.listMembers(idPublic).length, 'pas de doublon').toBe(avant);
+    expect(server.store.listMembers(ouvert).length, 'pas de doublon').toBe(avant);
   });
 
   it('UN PROJET PRIVÉ EST INDISTINGUABLE D’UN PROJET QUI N’EXISTE PAS', async () => {

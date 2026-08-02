@@ -146,7 +146,59 @@ describe('le trajet complet d’un dépôt à URL porteuse de secret', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  /** Un projet orphelin NEUF, sur le même dépôt local : adoptable une fois. */
+  const orphelinNeuf = (nom: string): string =>
+    server.store.createProject({
+      name: nom,
+      repoUrl: depot,
+      visibility: 'private',
+      ownerId: null,
+    }).id;
+
+  /**
+   * Pose la prémisse du trajet sur un projet : adopté, ouvrière admise, et un
+   * lien de partage neuf en main.
+   *
+   * `lien` était fabriqué par le premier test et lu par le second. Passé avant
+   * lui, celui-ci présentait une chaîne vide à toutes les routes et récoltait
+   * des 401 qu'il attribuait à la garde. Le trajet reste raconté dans l'ordre ;
+   * il n'est simplement plus SUPPOSÉ.
+   */
+  const ouvrirLeTrajet = async (projectId: string): Promise<string> => {
+    await noter(
+      'adopter (prémisse)',
+      await fetch(`${base}/api/projects/${projectId}/adopter`, {
+        method: 'POST',
+        headers: auth(jetonAdmin),
+      }),
+    );
+    await noter(
+      'admettre (prémisse)',
+      await fetch(`${base}/api/projects/${projectId}/membres`, {
+        method: 'POST',
+        headers: auth(jetonAdmin),
+        body: JSON.stringify({ userId: idOuvriere }),
+      }),
+    );
+    const cree = await noter(
+      'créer un lien (prémisse)',
+      await fetch(`${base}/api/projects/${projectId}/partages`, {
+        method: 'POST',
+        headers: auth(jetonAdmin),
+        body: JSON.stringify({ label: 'client' }),
+      }),
+    );
+    const jeton = ((await cree.json()) as { jeton: string }).jeton;
+    expect(jeton.startsWith('hive3_'), 'prémisse : le lien doit être émis').toBe(true);
+    return jeton;
+  };
+
   it('LE TRAJET ENTIER PASSE — adopter, admettre, lire, partager', async () => {
+    // SON PROPRE ORPHELIN. « Adopter » n'arrive qu'une fois par projet — un
+    // projet déjà tenu ne change pas de mains, c'est la garde qui empêche
+    // l'adoption d'être un vol. Ce test partageait `projet` avec ses voisins,
+    // qui l'adoptent aussi : passé après l'un d'eux, son 200 devenait 404.
+    const projet = orphelinNeuf('Dépôt suivi (trajet)');
     const adoption = await noter(
       'adopter',
       await fetch(`${base}/api/projects/${projet}/adopter`, {
@@ -188,6 +240,9 @@ describe('le trajet complet d’un dépôt à URL porteuse de secret', () => {
   }, 30_000);
 
   it('LE PORTEUR DU LIEN VOIT L’AVANCEMENT ET LE CODE, ET RIEN D’AUTRE', async () => {
+    const projet = orphelinNeuf('Dépôt suivi (porteur)');
+    const lien = await ouvrirLeTrajet(projet);
+
     const rapport = await noter(
       'rapport (lien)',
       await fetch(`${base}/api/projects/${projet}/report`, { headers: { 'x-hive-partage': lien } }),
@@ -312,11 +367,36 @@ describe('le trajet complet d’un dépôt à URL porteuse de secret', () => {
       `le jeton du dépôt sort dans : ${fuites.join(', ')}. Un repoUrl porte un secret ` +
         'potentiel, et il traverse tout le trajet — le laver à un seul endroit ne suffit pas.',
     ).toEqual([]);
+
+    // « AUCUNE FUITE » NE VAUT QUE PAR LA LARGEUR DE CE QU'ON A REGARDÉ.
+    // Ce seuil vivait dans un méta-test à part, qui comptait le total du
+    // fichier — donc les appels des voisins. Il compte ici les réponses de CE
+    // trajet-ci, celles dans lesquelles on vient de chercher le secret.
+    expect(
+      observees.length,
+      'trop peu de réponses observées pour que « aucune fuite » veuille dire quelque chose',
+    ).toBeGreaterThan(8);
   }, 30_000);
 
-  it('méta-test : on a bien observé un trajet, pas trois appels', () => {
-    // Sans ça, une refonte qui viderait `observees` rendrait le test précédent
-    // vert et creux.
-    expect(observees.length).toBeGreaterThan(8);
+  it('méta-test : l’instrument enregistre vraiment ce qu’il observe', async () => {
+    // Sans ça, une refonte qui viderait `observees` rendrait le test du secret
+    // vert et creux — il chercherait une fuite dans une liste vide.
+    //
+    // Il comptait auparavant le total du fichier (« plus de 8 »), donc les
+    // appels de ses VOISINS : joué en premier, il trouvait zéro. La garde vaut
+    // par ce qu'elle protège — que `noter` retienne — pas par un total qui ne
+    // décrit que l'ordre de déclaration. Le seuil de couverture du trajet est
+    // désormais posé là où il protège, à la fin du test du secret.
+    const avant = observees.length;
+    const res = await noter(
+      'méta',
+      await fetch(`${base}/api/projects/${projet}/report`, { headers: auth(jetonAdmin) }),
+    );
+    expect(observees.length, 'noter() n’enregistre plus rien').toBe(avant + 1);
+    expect(observees[observees.length - 1]?.quoi).toBe('méta');
+    expect(
+      observees[observees.length - 1]?.corps,
+      'le corps est retenu, pas seulement l’étiquette',
+    ).toBe(await res.text());
   });
 });

@@ -817,6 +817,148 @@ referme sur tout, puisque la table serait restée vide.
 > allée dans le test qui fait déjà l'aller-retour complet, plutôt que d'en
 > fabriquer un second.
 
+### 2.14 — Le vert emprunté au voisin
+
+Passée sous `--sequence.shuffle`, la suite perdait quatorze tests. Trois
+constats successifs, chacun a démoli l'hypothèse précédente :
+
+| Expérience                                                         | Ce qu'elle a dit                                 |
+| ------------------------------------------------------------------ | ------------------------------------------------ |
+| trois graines différentes                                          | 14, 21, 25 échecs — donc pas un test précis      |
+| **la même graine, deux fois**                                      | **exactement les mêmes 14** — donc pas la charge |
+| `--no-file-parallelism`                                            | les mêmes 14 — donc pas la concurrence           |
+| les 33 premiers fichiers **rejoués dans l'ordre exact du mélange** | tous verts — donc **pas l'ordre des fichiers**   |
+
+Restait l'ordre des tests **à l'intérieur** d'un fichier. Le sondage élargi (six
+graines de plus) a porté le compte à **dix-sept fichiers**, une quarantaine de
+tests : les trois premières graines n'étaient qu'un échantillon.
+
+Le motif était partout le même. Un test pose un état, le suivant le lit sans
+jamais le dire.
+
+Ce n'est pas une question d'hygiène, et c'est là que ça devient cher :
+
+- `NE TOUCHE PAS AUX LIENS VIVANTS` ne voyait un lien mort que parce que deux
+  tests de révocation étaient passés avant. **La moitié de la borne — que
+  l'élagage emporte bien les morts — n'était vérifiée qu'un ordre sur deux.**
+- `REPRENDRE LA MÊME ISSUE NE COLLISIONNE PAS` se disait « la seconde prise du
+  fichier ». Joué en premier, il était la première : **il n'éprouvait aucune
+  collision**, c'est-à-dire exactement le défaut pour lequel il existe.
+- `UNE ASSIGNATION PÉRIMÉE` comptait sur un nœud voisin pour rafler la tâche
+  avant lui. Seul, il la recevait — et **accusait le hub de se taire** alors que
+  c'était sa propre prémisse qui manquait.
+
+Le geste par défaut n'a presque rien coûté : que chaque test pose sa prémisse.
+Un serveur monté par test là où il y en avait un pour le fichier, un projet neuf
+là où douze tests s'en transformaient un seul, une PR numérotée là où le faux
+GitHub rendait toujours `42` — **deux des dix-sept fichiers ne pouvaient pas
+être découplés tant que le FAUX ne servait qu'un exemplaire.**
+
+Un seul fichier a gardé son ordre : `caste-boucle`, où l'ordre _est_ le sujet
+(une caste monte sur ses productions, puis se perd). Vitest l'entend avec
+`describe(nom, { shuffle: false }, …)` — et c'est la porte dérobée idéale pour
+faire taire un couplage accidentel en deux mots. Elle se déclare donc dans
+`tests/ordre-declare.test.ts`, avec sa raison.
+
+> **Règle** — un test dont le vert dépend de sa place dans le fichier ne prouve
+> rien tout seul. Il pose sa prémisse, ou il déclare que l'ordre est son sujet.
+> `npm run tamis-ordres` rejoue la suite dans plusieurs ordres écrits ; la CI le
+> lance à chaque PR. **La CI ne mélangeait pas : rien de tout ceci n'y était
+> visible.**
+
+### 2.15 — Le remède qui désarme l'outil fait pour réparer
+
+Sur un clone vierge (Node 24, mesuré), le docteur disait :
+
+```
+✘ env_present    aucun fichier .env
+     → cp .env.example .env
+```
+
+Ce geste plante `HIVE_TOKEN=change-me` et `HIVE_JWT_SECRET=change-me` — les
+valeurs **publiées avec le code**. Or l'installeur ne complète que les clés
+**absentes** ; sa prudence est juste, il ne peut pas distinguer une valeur
+choisie d'une valeur recopiée. Lancé ensuite, il répondait donc :
+
+```
+[OK] .env complété — vos valeurs sont intactes
+```
+
+et laissait les deux marque-places. **Le premier remède du docteur était le
+geste qui fermait la porte de secours.** Restaient deux modifications à la main
+dans un fichier de quatre cents lignes, là où une commande suffit.
+
+Les deux modules étaient justes, chacun testé chez lui. Le défaut vivait
+**entre eux** — la forme exacte du § 1, mais entre deux CONSEILS plutôt qu'entre
+deux fonctions.
+
+> **Règle** — un remède se mesure à l'état qu'il produit, pas à sa
+> vraisemblance. `tests/premier-contact.test.ts` fait tourner ce que l'installeur
+> ÉCRIT dans ce que le docteur EXIGE : deux constantes qui divergeraient
+> rougissent le jour même. Et il fixe le piège lui-même — `change-me` survit à
+> l'installeur — pour que le changer redevienne une décision, pas une dérive.
+
+### 2.16 — Une mutation dont l'ancre ne colle pas se lit comme une ligne défendue
+
+En passant `constatEnroule` à la loupe, une mutation sur six a « survécu ». Le
+code n'y était pour rien : mon `replace` cherchait la ligne avec **quatre**
+espaces d'indentation là où le fichier en a deux. La substitution n'a rien fait,
+la suite est restée verte — et un test qui n'a jamais été éprouvé s'est présenté
+comme un test qui tient.
+
+C'est le mode d'échec le plus vicieux de la loupe : il ment dans le sens
+rassurant, et il ressemble exactement à ce qu'on espère voir.
+
+> **Règle** — une mutation s'ASSERTE avant de se juger : `assert old in s` dans
+> le script, sinon « survivant » veut dire « jamais appliqué ». Le vert d'une
+> mutation ratée n'est pas une information, c'est du bruit qu'on prend pour une
+> preuve.
+
+### 2.16 bis — La loupe mute LE DÉPÔT : rien d'autre ne doit tourner pendant
+
+La loupe applique ses mutations **dans les fichiers**, puis les retire. Tant
+qu'elle tourne, l'arbre de travail est donc faux à tout instant — et deux choses
+en découlent, qui m'ont coûté chacune un aller-retour :
+
+- **Les tests lancés en parallèle mesurent le code muté.** Trois échecs sont
+  apparus sur `tamis-ordres`, exactement là où la loupe travaillait. J'ai
+  cherché le défaut dans mes tests neufs ; il n'y en avait aucun.
+- **Une loupe interrompue laisse sa dernière mutation en place.** Tuée par un
+  délai, elle a laissé `&&` → `||` dans le script — et je l'ai _commité_. Une
+  seconde fois, arrêtée proprement, elle laissait `===` → `!==`.
+
+Le second cas est le vrai danger : la mutation survivante ressemble à du code,
+elle passe la relecture, et elle part dans une livraison.
+
+> **Règle** — la loupe s'exécute SEULE, et jamais en arrière-plan pendant qu'on
+> travaille. Après une loupe interrompue, `git diff` sur `src`, `scripts` et
+> `dashboard/src` AVANT tout `git add` — la mutation restante ne se voit qu'à
+> l'œil, et elle se lit comme une ligne ordinaire.
+
+### 2.17 — On coupe un chemin, on n'ampute pas une phrase
+
+Le module de rendu **coupe** tout ce qui dépasse — bon geste pour un nom de
+machine ou un chemin de disque, dont on reconnaît le début.
+
+Les deux avertissements de sécurité de l'installeur font 178 et 281 caractères ;
+`LARGEUR_MAX` vaut 76. On en perdait donc **102 et 205** — et à chaque fois la
+fin, c'est-à-dire la seule moitié qui dit quoi faire :
+
+```
+[ATTENTION] Votre HIVE_TOKEN fait 9 caractères : c'est trop court pour pr…
+```
+
+« Remplacez-le dans .env par au moins 16 caractères — la ruche refusera de
+démarrer autrement » n'a jamais atteint personne, sur aucun terminal, à aucune
+largeur : le texte dépasse la borne de trois fois. On alertait quelqu'un sur le
+secret qui protège sa ruche **en lui coupant la parole au milieu**.
+
+> **Règle** — couper convient à un identifiant, jamais à une phrase. `enrouler`
+> répartit sans rien perdre, `constatEnroule` aligne les lignes de suite sous le
+> libellé (une marque par ligne ferait lire quatre alertes là où il y en a une),
+> et un mot plus long que la ligne est **débité, pas jeté** : repousser une URL
+> de 200 caractères ne ferait que déplacer le débordement.
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois

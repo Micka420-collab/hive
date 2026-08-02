@@ -80,6 +80,12 @@ describe('énumération d’adresses par l’inscription', () => {
   it('UNE FOIS COUPÉE, ELLE N’APPREND RIEN SUR UNE ADRESSE LIBRE NON PLUS', async () => {
     // C'est le point qui compte : si une adresse libre passait encore, le 429
     // deviendrait lui-même l'oracle — « 429 = prise, 200 = libre ».
+    //
+    // Il coupe le robinet LUI-MÊME. Il héritait de la rafale du test au-dessus,
+    // et passé avant lui il interrogeait un compteur intact : la première
+    // adresse libre passait, 200 au lieu de 429.
+    for (let i = 0; i < 12; i++) await inscrire('connu@exemple.test');
+
     const res = await inscrire('jamais-vue@exemple.test');
     expect(res.status).toBe(429);
     expect(res.headers.get('retry-after'), 'un refus sans délai est un mur muet').not.toBeNull();

@@ -22,9 +22,42 @@ describe('Drone Wars — contrat HTTP races/victory', () => {
   let server: HiveServer;
   let dir: string;
   let base: string;
-  let taskId: string;
-  let drones: string[];
+  let projetId: string;
   const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+
+  // Chaque test lance SA course, sur SA tâche.
+  //
+  // Les deux tests du milieu se passaient auparavant `taskId` et `drones` par
+  // des variables de suite : « après la victoire » ne gagnait que parce que
+  // « POST race » avait couru juste avant. Sous `--sequence.shuffle`, il
+  // plantait sur `drones[1]` — et, plus grave, son vert ne prouvait rien tout
+  // seul. Le scénario reste lisible, mais chacun pose désormais sa propre
+  // prémisse.
+  async function lancerCourse(): Promise<{ taskId: string; drones: string[] }> {
+    const created = await fetch(`${base}/api/projects/${projetId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ tasks: [{ title: 'tâche critique', prompt: 'faire vite' }] }),
+    });
+    const [task] = (await created.json()) as { id: string }[];
+    server.store.patchTask(task!.id, { status: 'ready' });
+
+    const started = await fetch(`${base}/api/tasks/${task!.id}/race`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ factor: 2 }),
+    });
+    expect(started.status).toBe(202);
+    const body = (await started.json()) as { taskId: string; drones: string[] };
+    expect(body.taskId).toBe(task!.id);
+    expect(body.drones).toHaveLength(2);
+    return { taskId: task!.id, drones: body.drones };
+  }
+
+  async function coursesEnVol(): Promise<DroneRace[]> {
+    const list = await fetch(`${base}/api/races`, { headers });
+    return ((await list.json()) as { races: DroneRace[] }).races;
+  }
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-races-'));
@@ -44,17 +77,9 @@ describe('Drone Wars — contrat HTTP races/victory', () => {
       headers,
       body: JSON.stringify({ name: 'Projet Courses' }),
     });
-    const project = (await res.json()) as { id: string };
-    const created = await fetch(`${base}/api/projects/${project.id}/tasks`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ tasks: [{ title: 'tâche critique', prompt: 'faire vite' }] }),
-    });
-    const [task] = (await created.json()) as { id: string }[];
-    taskId = task!.id;
-    // Prête + 2 nœuds en ligne, sans passer par le WS : le scheduler est
-    // exposé par le serveur (même approche que la démo).
-    server.store.patchTask(taskId, { status: 'ready' });
+    projetId = ((await res.json()) as { id: string }).id;
+    // 2 nœuds en ligne, sans passer par le WS : le scheduler est exposé par le
+    // serveur (même approche que la démo).
     for (const name of ['course-alpha', 'course-beta']) {
       server.scheduler.registerNode({
         name,
@@ -76,22 +101,14 @@ describe('Drone Wars — contrat HTTP races/victory', () => {
   });
 
   it('POST race lance la course, GET /api/races la liste, GET race la détaille', async () => {
-    const started = await fetch(`${base}/api/tasks/${taskId}/race`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ factor: 2 }),
-    });
-    expect(started.status).toBe(202);
-    const body = (await started.json()) as { taskId: string; drones: string[] };
-    expect(body.taskId).toBe(taskId);
-    expect(body.drones).toHaveLength(2);
-    drones = body.drones;
+    const { taskId } = await lancerCourse();
 
-    const list = await fetch(`${base}/api/races`, { headers });
-    const { races } = (await list.json()) as { races: DroneRace[] };
-    expect(races).toHaveLength(1);
-    expect(races[0]?.taskId).toBe(taskId);
-    expect(races[0]?.drones.map((d) => d.status)).toEqual(['running', 'running']);
+    // « la sienne », pas « la seule » : un voisin peut avoir laissé une course
+    // en vol, et la propriété testée — la course lancée apparaît dans la liste
+    // — ne dit rien du nombre total.
+    const sienne = (await coursesEnVol()).find((c) => c.taskId === taskId);
+    expect(sienne).toBeDefined();
+    expect(sienne?.drones.map((d) => d.status)).toEqual(['running', 'running']);
 
     const one = (await (
       await fetch(`${base}/api/tasks/${taskId}/race`, { headers })
@@ -101,6 +118,8 @@ describe('Drone Wars — contrat HTTP races/victory', () => {
   });
 
   it('après la victoire : race null, victory reconstruite du journal, liste vide', async () => {
+    const { taskId, drones } = await lancerCourse();
+
     // Le 2e drone gagne (résultat injecté au scheduler, comme un task_result WS).
     const winner = drones[1]!;
     server.scheduler.handleTaskResult(winner, {
@@ -118,21 +137,18 @@ describe('Drone Wars — contrat HTTP races/victory', () => {
     expect(one.race).toBeNull();
     expect(one.victory).toEqual({ nodeId: winner, cancelled: 1 });
 
-    const list = await fetch(`${base}/api/races`, { headers });
-    const { races } = (await list.json()) as { races: DroneRace[] };
-    expect(races).toEqual([]);
+    // Une course TRANCHÉE quitte la liste des courses en vol. Là encore on
+    // interroge la sienne : la liste peut contenir celle d'un voisin.
+    expect((await coursesEnVol()).map((c) => c.taskId)).not.toContain(taskId);
   });
 
   it('une tâche terminée sans course n a pas de victoire fantôme', async () => {
     // Nouvelle tâche passée done par le circuit mono-nœud classique.
-    const created = await fetch(
-      `${base}/api/projects/${server.store.listProjects()[0]!.id}/tasks`,
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ tasks: [{ title: 'tâche mono', prompt: 'faire' }] }),
-      },
-    );
+    const created = await fetch(`${base}/api/projects/${projetId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ tasks: [{ title: 'tâche mono', prompt: 'faire' }] }),
+    });
     const [mono] = (await created.json()) as { id: string }[];
     server.store.patchTask(mono!.id, { status: 'done' });
 

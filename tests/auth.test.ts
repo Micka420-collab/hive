@@ -142,28 +142,37 @@ describe('flux HTTP register → login → me', () => {
   });
 
   it('doublon d email → 409 ; login bon/mauvais mot de passe → 200/401', async () => {
+    // SA PROPRE ADRESSE. Ce test lisait le compte créé par le test ci-dessus :
+    // passé avant lui, son « doublon » était une première inscription (200, pas
+    // 409) — et il faisait rougir son voisin au passage, dont l'inscription
+    // devenait le doublon. Deux adresses distinctes, deux tests indépendants.
+    const email = 'butineuse@ruche.fr';
+    const motDePasse = 'nectar-doré-8';
+    const premiere = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email, password: motDePasse, displayName: 'Butineuse' }),
+    });
+    expect(premiere.status, 'prémisse : le compte doit exister').toBe(200);
+
     const dup = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        email: 'abeille@ruche.fr',
-        password: 'autre-mdp-8car',
-        displayName: 'Clone',
-      }),
+      body: JSON.stringify({ email, password: 'autre-mdp-8car', displayName: 'Clone' }),
     });
     expect(dup.status).toBe(409);
 
     const ok = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ email: 'abeille@ruche.fr', password: 'nectar-doré-8' }),
+      body: JSON.stringify({ email, password: motDePasse }),
     });
     expect(ok.status).toBe(200);
 
     const ko = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ email: 'abeille@ruche.fr', password: 'mauvais-mdp' }),
+      body: JSON.stringify({ email, password: 'mauvais-mdp' }),
     });
     expect(ko.status).toBe(401);
   });

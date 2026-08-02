@@ -332,13 +332,36 @@ function moteur(r: Releve): Diagnostic {
   };
 }
 
+/**
+ * Le remède quand il n'y a pas de `.env` — et pourquoi ce n'est plus le `cp`.
+ *
+ * ─── CE QUE LE `cp` FAISAIT VRAIMENT ─────────────────────────────────────────
+ *
+ * Le docteur conseillait `cp .env.example .env`. Mesuré sur un clone vierge :
+ * ce geste plante `HIVE_TOKEN=change-me` et `HIVE_JWT_SECRET=change-me` — les
+ * valeurs publiées avec le code. Et l'installeur, lui, ne COMPLÈTE que les clés
+ * ABSENTES : il répond alors « .env complété — vos valeurs sont intactes » et
+ * laisse les deux marque-places en place. Sa prudence est juste, il ne peut pas
+ * distinguer une valeur choisie d'une valeur recopiée.
+ *
+ * Autrement dit : **le premier remède du docteur était le geste qui désarmait
+ * l'outil fait pour réparer.** Restaient deux modifications à la main dans un
+ * fichier de quatre cents lignes, pour arriver là où une commande arrive.
+ *
+ * `npm run install:hive` crée le fichier, tire les deux secrets au hasard, et
+ * pose les permissions à 0600. Sur un `.env` existant il ne touche à rien
+ * qu'aux clés manquantes — le conseiller ici ne fait donc courir aucun risque
+ * à qui l'aurait déjà rempli.
+ */
+const REMEDE_ENV_ABSENT = 'npm run install:hive';
+
 function fichierEnv(r: Releve): Diagnostic {
   if (!r.fichierEnv.present) {
     return {
       cle: 'env_present',
       gravite: 'bloquant',
       constat: 'aucun fichier .env',
-      reparation: 'cp .env.example .env',
+      reparation: REMEDE_ENV_ABSENT,
     };
   }
   if (!r.fichierEnv.lisible) {

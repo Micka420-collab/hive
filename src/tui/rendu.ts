@@ -339,6 +339,69 @@ export function tronquer(texte: string, max: number, unicode = true): string {
   return points.slice(0, garde).join('') + marque;
 }
 
+/**
+ * Répartit un texte sur plusieurs lignes d'au plus `largeur` colonnes.
+ *
+ * ─── POURQUOI IL A FALLU L'ÉCRIRE ────────────────────────────────────────────
+ *
+ * Tout ce module COUPE. C'est le bon geste pour un libellé, un nom de machine,
+ * un chemin de disque : ce qui dépasse ne doit pas crever un cadre, et perdre
+ * la fin d'un chemin ne coûte rien puisqu'on en reconnaît le début.
+ *
+ * Ça devient une faute dès que le texte est une PHRASE. Les deux avertissements
+ * de sécurité de l'installeur font 178 et 281 caractères ; `LARGEUR_MAX` vaut
+ * 76. Mesuré sur un `.env` issu du `cp .env.example .env` que le docteur
+ * conseille lui-même :
+ *
+ *     Votre HIVE_TOKEN fait 9 caractères : c'est trop court pour protéger quoi…
+ *     Votre HIVE_JWT_SECRET est vide, trop court, ou porte encore l'ancienne v…
+ *
+ * 102 et 205 caractères perdus — et à chaque fois la MOITIÉ QUI DIT QUOI FAIRE.
+ * « Remplacez-le dans .env par au moins 16 caractères — la ruche refusera de
+ * démarrer autrement » n'a jamais atteint personne. On alerte quelqu'un sur le
+ * secret qui protège sa ruche, et on lui coupe la parole au milieu.
+ *
+ * ─── CE QU'IL FAIT DES MOTS PLUS LONGS QUE LA LARGEUR ────────────────────────
+ *
+ * Il les COUPE, il ne les jette pas. Une URL ou un chemin de 200 caractères
+ * dans une fenêtre de 40 doit rester lisible en entier sur trois lignes ; le
+ * repousser à la ligne suivante ne ferait que déplacer le débordement.
+ */
+export function enrouler(texte: string, largeur: number): string[] {
+  if (largeur <= 0) return [];
+  const lignes: string[] = [];
+  // Les retours à la ligne déjà écrits sont des respirations voulues : on
+  // enroule à l'intérieur de chacune plutôt que de les aplatir.
+  for (const paragraphe of texte.split('\n')) {
+    const mots = paragraphe.split(/\s+/).filter((m) => m !== '');
+    if (mots.length === 0) {
+      lignes.push('');
+      continue;
+    }
+    let courante = '';
+    for (const mot of mots) {
+      let reste = mot;
+      // Un mot seul plus large que la ligne : on le débite en tranches.
+      while ([...reste].length > largeur) {
+        if (courante !== '') {
+          lignes.push(courante);
+          courante = '';
+        }
+        lignes.push([...reste].slice(0, largeur).join(''));
+        reste = [...reste].slice(largeur).join('');
+      }
+      if (courante === '') courante = reste;
+      else if ([...courante].length + 1 + [...reste].length <= largeur) courante += ` ${reste}`;
+      else {
+        lignes.push(courante);
+        courante = reste;
+      }
+    }
+    if (courante !== '') lignes.push(courante);
+  }
+  return lignes;
+}
+
 /** Complète à droite jusqu'à `largeur` colonnes visibles. */
 function completer(texte: string, largeur: number): string {
   const manque = largeur - largeurVisible(texte);
@@ -707,12 +770,21 @@ export function recapEcritures(chemins: readonly string[], caps: Capacites): str
  * Sans cadre, sans curseur, sans couleur — c'est ce que lira une CI, un
  * `ssh machine commande`, ou le fichier de log de quelqu'un dans six mois.
  */
+const MARQUES_LINEAIRES: Record<Etat, string> = {
+  fait: 'OK',
+  curseur: '..',
+  avenir: '..',
+  alerte: 'ATTENTION',
+  echec: 'ECHEC',
+};
+
 export function etapeLineaire(v: Verification, caps: Capacites): string {
-  const marque = { fait: 'OK', curseur: '..', avenir: '..', alerte: 'ATTENTION', echec: 'ECHEC' }[
-    v.etat
-  ];
   const morceaux = [v.libelle, v.valeur, v.note].filter((m): m is string => !!m && m !== '');
-  return tronquer(`[${marque}] ${morceaux.join(' — ')}`, caps.largeur, caps.unicode);
+  return tronquer(
+    `[${MARQUES_LINEAIRES[v.etat]}] ${morceaux.join(' — ')}`,
+    caps.largeur,
+    caps.unicode,
+  );
 }
 
 /**
@@ -725,6 +797,26 @@ export function etapeLineaire(v: Verification, caps: Capacites): string {
  */
 export function constat(v: Verification, caps: Capacites): string {
   return caps.cadres ? ligneVerification(v, caps) : etapeLineaire(v, caps);
+}
+
+/**
+ * Le même constat, mais sur autant de lignes qu'il en faut pour tout dire.
+ *
+ * `constat` COUPE, et c'est voulu : un libellé de billet ou un nom de machine
+ * n'a pas à crever un cadre. Une PHRASE, elle, se perd — voir `enrouler`.
+ *
+ * Les lignes de suite sont alignées sous le libellé, jamais sous la marque :
+ * un `[ATTENTION]` par ligne ferait lire trois alertes là où il n'y en a
+ * qu'une. La décision d'alignement vit ici, avec les deux formes de rendu,
+ * plutôt que recopiée chez l'appelant — c'est la leçon du § 9 bis, les deux
+ * chemins pour un même geste dont le moins fréquenté finit par mentir.
+ */
+export function constatEnroule(v: Verification, caps: Capacites): string[] {
+  const tete = caps.cadres ? `  ${symbole(v.etat, caps)}  ` : `[${MARQUES_LINEAIRES[v.etat]}] `;
+  const marge = largeurVisible(tete);
+  const lignes = enrouler(v.libelle, Math.max(1, caps.largeur - marge));
+  if (lignes.length === 0) return [];
+  return lignes.map((l, i) => (i === 0 ? tete : ' '.repeat(marge)) + l);
 }
 
 // ─── LE RAIL ─────────────────────────────────────────────────────────────────

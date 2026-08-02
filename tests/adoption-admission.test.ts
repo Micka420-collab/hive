@@ -31,7 +31,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -86,8 +86,21 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
     jetonOuvriere = ouvriere.token;
     idOuvriere = ouvriere.id;
     jetonTiers = (await inscrire('curieux@ailleurs.test')).token;
+  });
 
-    // Un projet tel que l'import GitHub le crée : privé, sans propriétaire.
+  // UN ORPHELIN NEUF PAR TEST.
+  //
+  // Les douze tests se partageaient un seul projet et se le transformaient
+  // les uns aux autres : adopté au troisième, peuplé au cinquième, dépeuplé
+  // au neuvième. Chacun ne tenait donc que par sa place dans le fichier —
+  // « le propriétaire se retire une ouvrière » échouait dès qu'il passait
+  // avant celui qui admettait l'ouvrière.
+  //
+  // Les COMPTES, eux, restent communs : le premier inscrit est administrateur
+  // par amorçage, et les réinscrire à chaque test déplacerait ce privilège.
+  //
+  // Un projet tel que l'import GitHub le crée : privé, sans propriétaire.
+  beforeEach(() => {
     orphelin = server.store.createProject({
       name: 'Dépôt importé',
       repoUrl: 'https://github.com/micka/ma-ruche.git',
@@ -98,8 +111,27 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
 
   afterAll(async () => {
     await server.stop();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
+
+  /** L'administrateur adopte l'orphelin du test courant. */
+  const adopter = async () => {
+    const res = await fetch(`${base}/api/projects/${orphelin}/adopter`, {
+      method: 'POST',
+      headers: auth(jetonAdmin),
+    });
+    expect(res.status, 'prémisse : l’adoption doit réussir').toBe(200);
+  };
+
+  /** Le propriétaire y admet un compte. */
+  const admettre = async (userId: string) => {
+    const res = await fetch(`${base}/api/projects/${orphelin}/membres`, {
+      method: 'POST',
+      headers: auth(jetonAdmin),
+      body: JSON.stringify({ userId }),
+    });
+    expect(res.status, 'prémisse : l’admission doit réussir').toBe(201);
+  };
 
   it('AVANT ADOPTION, L’OUVRIÈRE NE VOIT RIEN — c’est bien le cul-de-sac', async () => {
     const res = await fetch(`${base}/api/projects/${orphelin}/rayon`, {
@@ -130,6 +162,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('ADOPTER N’EST JAMAIS PRENDRE : un projet déjà tenu ne change pas de mains', async () => {
+    await adopter();
     // C'est la garde qui empêche cette route d'être un vol de projet déguisé
     // en fonctionnalité d'administration. L'admin peut déjà tout LIRE ;
     // s'approprier est un autre acte.
@@ -141,6 +174,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('LE PROPRIÉTAIRE ADMET UNE OUVRIÈRE, QUI LIT ALORS LE CODE', async () => {
+    await adopter();
     // Ce test a bloqué à 30 000 ms EXACTEMENT sur la première CI Windows — pas
     // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
     // lenteur, mais une attente sans fin : git y attendait des identifiants via
@@ -163,6 +197,8 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('UN MEMBRE N’ADMET PAS À SON TOUR', async () => {
+    await adopter();
+    await admettre(idOuvriere);
     // Sans cette asymétrie, « privé » ne veut plus rien dire au bout de trois
     // personnes : le premier invité invite, et ainsi de suite.
     const tiers = await inscrire('encore-un@ailleurs.test');
@@ -175,6 +211,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('un compte inventé n’est pas admis', async () => {
+    await adopter();
     // Une adhésion fantôme serait invisible (la jointure sur `users` la ferait
     // disparaître de `listMembers`) et éternelle.
     const res = await fetch(`${base}/api/projects/${orphelin}/membres`, {
@@ -187,6 +224,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('LE REFUS RESSEMBLE À UNE ABSENCE, À L’OCTET PRÈS', async () => {
+    await adopter();
     // Un « 403 interdit » confirmerait que le projet existe ; répété sur une
     // liste d'identifiants il dessinerait la carte des projets de la ruche.
     const surProjetReel = await fetch(`${base}/api/projects/${orphelin}/membres`, {
@@ -204,6 +242,8 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('le propriétaire se retire une ouvrière', async () => {
+    await adopter();
+    await admettre(idOuvriere);
     const res = await fetch(`${base}/api/projects/${orphelin}/membres/${idOuvriere}`, {
       method: 'DELETE',
       headers: auth(jetonAdmin),
@@ -216,6 +256,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('ON NE RETIRE PAS LE PROPRIÉTAIRE DE SON PROPRE PROJET', async () => {
+    await adopter();
     // Le sortir de la liste ne le déposséderait pas — `ownerId` resterait le
     // sien — ça rendrait seulement l'état incohérent.
     const moi = (await (
@@ -229,6 +270,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   });
 
   it('retirer quelqu’un qui n’est pas membre le dit', async () => {
+    await adopter();
     const res = await fetch(`${base}/api/projects/${orphelin}/membres/${idOuvriere}`, {
       method: 'DELETE',
       headers: auth(jetonAdmin),
