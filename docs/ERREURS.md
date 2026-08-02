@@ -2539,6 +2539,35 @@ prétendait vérifier — et c'était vrai.
 
 ---
 
+## 2 octies. Vingt-trois choses justes font une page fausse
+
+Chacune des 23 cartes de la section « En bref » est exacte, utile, et bien
+écrite. Servies ensemble, elles faisaient **six écrans pleins sur un téléphone**
+et 819 mots de jargon apicole à quelqu'un qui ne sait pas encore ce qu'est une
+ruche.
+
+Il n'y avait donc **rien à corriger dans les cartes** — et c'est ce qui rend ce
+défaut difficile à voir en revue. Un relecteur qui ouvre le diff d'une carte la
+trouve bonne. Le défaut n'existe qu'au niveau de la SOMME, et la somme n'est
+dans aucun diff.
+
+Ce qui l'a rendu visible est une mesure de trois lignes : hauteur de la section
+divisée par la hauteur de la fenêtre. `2,3 écrans` sur un ordinateur, `6,0` sur
+un téléphone. Un chiffre qu'on peut discuter, là où « c'est un peu long » ne se
+discute pas.
+
+**La leçon.** Quand chaque pièce est juste et que l'ensemble ne va pas, le
+défaut est dans la QUANTITÉ ou dans l'ORDRE, jamais dans les pièces. Aucune
+relecture pièce par pièce ne le trouvera ; il faut mesurer l'ensemble.
+
+Et le corollaire, pour la correction : regrouper n'est pas supprimer. Un
+regroupement est l'occasion parfaite de perdre une carte en silence — elle
+disparaît de la page sans que rien ne casse. La garde qui compte vraiment ici ne
+compare pas des nombres mais **les noms annoncés aux titres réellement
+présents** : un total juste peut cacher une carte perdue et une autre dupliquée.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait

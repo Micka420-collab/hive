@@ -29,6 +29,74 @@ l'avertissement en tête de ce carnet.
 
 ---
 
+## Point franc du 2 août — J-31
+
+Rendu à la demande de l'utilisateur, après une journée de sept lots fusionnés
+(#104 à #111). Aucun arrondi : ce qui n'est pas mesuré est écrit comme non
+mesuré.
+
+### Livré ET vérifié aujourd'hui
+
+Sept lots, chacun avec ses gardes éprouvées par mutation avant d'être crues.
+
+| lot                                  | ce qui est vérifié, et comment                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Le tamis des ordres                  | 17 fichiers qui empruntaient leur vert au voisin ; `npm run tamis-ordres` rejoue trois graines en CI                            |
+| Le premier contact                   | le remède du docteur ne désarme plus l'installeur ; 6 tests font passer ce que l'installeur ÉCRIT par ce que le docteur DEMANDE |
+| La vitrine montre le tableau de bord | 5 écrans, 51 clés de traduction, 6 gardes                                                                                       |
+| Plus sobre + téléphone               | l'or redevient la couleur du surligneur ; 5 gardes                                                                              |
+| L'échelle de la maquette             | `h1` et titres de section identiques au DOM de la maquette, chiffre pour chiffre ; 9 gardes, 12 mutations                       |
+| Le téléphone mesuré                  | débord 0 et aucune cible sous 40 px sur 3 pages × 5 largeurs ; 6 gardes, 11 mutations                                           |
+| « En bref » en 4 familles            | 6,0 → 1,5 écran sur téléphone, 23 cartes conservées ; 6 gardes, 8 mutations                                                     |
+
+La suite passe de **2 893 à 2 978 tests** sur 182 fichiers, verte sur les trois
+systèmes.
+
+### Ce qui reste entre la ruche et une sortie présentable
+
+Classé par ce qui casse l'expérience d'un nouvel arrivant EN PREMIER.
+
+1. **Le chemin `spawn` de l'agent sous un vrai Windows n'est pas éprouvé.** La
+   logique l'est (loupe 7/7, `src/shared/agent-windows.ts` pur) ; le `spawn`
+   final, non. C'est le premier geste d'un utilisateur Windows : s'il échoue, la
+   ruche a l'air de tourner et ne fait rien. **Aucune machine Windows ici, et la
+   CI n'y installe pas Claude Code.**
+2. **`npm install` pèse 20 des 23 secondes de l'installation.** Le critère 2 tient
+   dans les deux lectures, mais c'est ce que le nouvel arrivant ATTEND en
+   regardant un écran muet.
+3. **La vitrine fait encore 11 sections et ~10 000 px** là où la maquette en fait
+   7 et 3 865. Les familles ont réglé « En bref » ; les six autres sections n'ont
+   pas été retouchées.
+4. **La barre latérale de Mission Control** : mesurée à `manqueEnBas: 0` par CDP,
+   donc le défaut que j'avais annoncé n'existe pas. Ligne close, mentionnée ici
+   parce que je l'avais affirmée à tort.
+
+### Ce qui restera hors d'atteinte, et demande une décision humaine
+
+- **Les comptes npm et GHCR/cosign** (lot 7, partie du lot 10) ne sont pas les
+  miens. Le code est prêt ; la publication non.
+- **Une VM Windows 11 et une Ubuntu 24.04 vierges** pour mesurer le critère 1 au
+  sens strict. Ce qui a été mesuré ici l'a été dans un conteneur — ce n'est pas
+  la même chose, et ça se dit.
+- **L'intermittent signalé à l'origine n'a JAMAIS été reproduit sur Linux** :
+  invisible en 8 ordres mélangés et 3 exécutions identiques. Il n'est pas fermé,
+  il est introuvable d'ici.
+- **Les tarifs** (0 € / 49 € / à partir de 79 €) sont affichés comme modèle
+  proposé, aucun paiement encaissé. Encaisser pour de vrai avant le 2 septembre
+  est une décision commerciale.
+- **La longueur de la vitrine** : raccourcir de 11 sections à 7 n'est pas du
+  design, c'est décider quel contenu disparaît.
+
+### Et une réserve sur la méthode elle-même
+
+**La loupe échantillonne.** Au dernier passage complet, **8 mutations examinées
+sur 16**. Un vert de la loupe n'est donc pas une preuve d'absence de survivants —
+c'est l'absence de survivant _dans l'échantillon tiré_. Les onze et douze
+mutations des lots d'aujourd'hui ont été posées à la main, sur des ancres
+vérifiées, ce qui est plus sûr sur ce périmètre — mais ne couvre que lui.
+
+---
+
 ## Lot 18 — `HIVE_POLYETHISME=strict` fait enfin quelque chose
 
 **Arbitrage rendu par l'utilisateur le 2 août : câbler la contre-visite.**
@@ -863,6 +931,45 @@ présentation qui la défait ; c'est la capture qui l'a montré. Le second :
 `.apercu-rail b` désignait déjà la marque « Hive » en or, si bien que les
 libellés ajoutés ensuite passaient en or sur fond or — invisibles sur l'entrée
 active. Journal § 2 ter.
+
+---
+
+## « En bref » : vingt-trois cartes que personne ne lisait
+
+Le reproche était : _plus designé, moins chargé, plus simple à comprendre_. La
+mesure lui donne raison sans discussion.
+
+|                      | avant                     | après              |
+| -------------------- | ------------------------- | ------------------ |
+| hauteur, ordinateur  | 2 066 px (2,3 écrans)     | **1 088 px** (1,2) |
+| hauteur, téléphone   | 5 422 px (**6,0 écrans**) | **1 386 px** (1,5) |
+| ce qu'on lit d'abord | 23 cartes, 819 mots       | **4 promesses**    |
+| cartes conservées    | 23                        | **23**             |
+
+Six écrans pleins de cartes, servies d'un coup, sans hiérarchie, à quelqu'un qui
+ne sait pas encore ce qu'est une ruche. Le défaut n'était pas dans les cartes —
+elles sont justes une par une — mais dans le fait de les servir TOUTES en même
+temps.
+
+**Quatre familles, repliables.** Replié, on lit quatre phrases : répartir le
+travail, garder la main, voir ce qui se passe, tenir dans la durée. Chaque
+résumé porte aussi les noms des fonctions qu'il contient — sans eux, il faudrait
+ouvrir les quatre volets pour savoir lequel contient « Le Rayon ».
+
+**Rien n'est supprimé.** Les 23 cartes sont là, mot pour mot, avec leurs clés de
+traduction. C'est exactement ce qu'un regroupement rend facile à perdre : une
+carte disparaît sans que rien ne casse, et personne ne s'en aperçoit avant des
+mois. Six gardes tiennent cette propriété, dont la principale — **ce qu'une
+famille annonce est exactement ce qu'elle contient** — compare les NOMS annoncés
+aux titres réels des cartes du volet, jamais leur nombre.
+
+`<details>` natif plutôt qu'un accordéon en JavaScript : clavier, impression et
+recherche dans la page marchent sans une ligne de script, et une page dont le
+script a échoué garde ses quatre volets ouvrables. Une garde interdit qu'un
+`onclick` reprenne la main dessus.
+
+Huit mutations, huit rouges — dont la carte « Drone Wars » supprimée, qui fait
+rougir **cinq** gardes à la fois.
 
 ---
 
