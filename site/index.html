@@ -883,7 +883,11 @@
       h1 {
         margin: 0;
         font-size: clamp(33px, 7.4vw, 64px);
-        font-weight: 700;
+        /* 600, pas 700. Mesuré dans le DOM de la maquette rendue, pas deviné :
+           `getComputedStyle(h1).fontWeight` y vaut 600. Sur Bricolage à 64 px
+           l'écart d'une graisse est franc — le gras fait une affiche, le
+           demi-gras fait une phrase qu'on peut lire. */
+        font-weight: 600;
         line-height: 1.06;
         /* −0.04em : le serrage du design. Sur Bricolage, c'est ce qui fait la
            différence entre un titre et une phrase en gros. */
@@ -1065,25 +1069,54 @@
       .section:last-of-type {
         border-bottom: 0;
       }
+      /* ── LA HIÉRARCHIE DE SECTION, RELEVÉE DANS LA MAQUETTE ─────────────────
+         Deux blocs, et l'écart entre eux fait tout le ton de la page.
+
+         Ce que la maquette rendue déclare, lu dans le DOM à 1440 px :
+
+           surtitre   12,5px / 700 / Instrument Sans / +1,375px / capitales
+           titre      44–56px / 600 / Bricolage / −0,025em / interligne 1,06
+
+         Ce que cette page déclarait avant :
+
+           surtitre   13px / 600 / JetBrains Mono / +0,02em / avec un émoji
+           titre      26–40px / 700 / Bricolage / −0,035em / interligne 1,12
+
+         L'écart n'est pas dans la palette — elle était déjà exacte au code
+         hexadécimal près — il est ENTIÈREMENT là. Un titre de section à 40 px
+         gras et serré, précédé d'une étiquette en chasse fixe, ne compose pas
+         la même page qu'une phrase à 48 px demi-gras précédée d'un surtitre en
+         capitales espacées. C'est la différence entre étiqueter une section et
+         lui faire dire quelque chose.
+
+         Le surtitre passe en capitales par le CSS, jamais dans le texte : une
+         chaîne écrite EN CAPITALES se copie en capitales, se traduit mal, et
+         se fait épeler lettre par lettre par certains lecteurs d'écran. */
       .kicker {
-        margin: 0 0 10px;
-        font-size: 13px;
-        letter-spacing: 0.02em;
+        margin: 0 0 14px;
+        font-size: 12.5px;
+        font-weight: 700;
+        /* +0,11em = les 1,375 px de la maquette rapportés à ses 12,5 px. En em
+           pour que l'espacement suive la taille si elle change un jour. */
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
         color: var(--orange);
-        font-weight: 600;
-        font-family: var(--mono);
+        font-family: var(--texte);
       }
       .headline {
         margin: 0 0 34px;
-        font-size: clamp(26px, 4.4vw, 40px);
-        font-weight: 700;
-        max-width: 720px;
-        line-height: 1.12;
-        letter-spacing: -0.035em;
+        font-size: clamp(28px, 5vw, 48px);
+        font-weight: 600;
+        /* La mesure suit la taille : à 48 px, 720 px de large coupaient les
+           titres de la maquette en quatre lignes là où elle en fait deux. */
+        max-width: 900px;
+        line-height: 1.06;
+        letter-spacing: -0.025em;
+        text-wrap: balance;
       }
       .headline.tight {
         margin-bottom: 10px;
-        max-width: 680px;
+        max-width: 860px;
       }
       .lede {
         margin: 0 0 34px;
@@ -2226,7 +2259,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >2 949 tests ✓</span
+              >2 960 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -2650,10 +2683,10 @@
     </section>
 
     <section id="features" class="section">
-      <h2 class="kicker" data-i18n="feat.kicker">✨ En bref</h2>
-      <p class="headline" data-i18n="feat.headline">
+      <p class="kicker" data-i18n="feat.kicker">En bref</p>
+      <h2 class="headline" data-i18n="feat.headline">
         Tout ce qu'il faut pour faire butiner un essaim d'IA — sans jamais perdre la main.
-      </p>
+      </h2>
       <div class="cards">
         <div class="card">
           <div class="ico" aria-hidden="true">🧠</div>
@@ -2873,8 +2906,10 @@
     </section>
 
     <section id="archi" class="section">
-      <h2 class="kicker">🗺️ Architecture</h2>
-      <p class="headline" data-i18n="archi.headline">Hub-and-spoke : une Queen, N nœuds membres.</p>
+      <p class="kicker">Architecture</p>
+      <h2 class="headline" data-i18n="archi.headline">
+        Hub-and-spoke : une Queen, N nœuds membres.
+      </h2>
       <div class="archi-grid">
         <div class="node-box">
           <div aria-hidden="true" style="font-size: 22px">🖥️</div>
@@ -2914,10 +2949,10 @@
     </section>
 
     <section id="mission" class="section">
-      <h2 class="kicker">🎛️ Mission Control</h2>
-      <p class="headline tight" data-i18n="mc.headline">
+      <p class="kicker">Mission Control</p>
+      <h2 class="headline tight" data-i18n="mc.headline">
         13 vues navigables au clavier, interface bilingue FR/EN.
-      </p>
+      </h2>
       <p class="lede" data-i18n="mc.lede">
         Sidebar alvéolaire, touches <kbd class="key">1</kbd>–<kbd class="key">0</kbd>, deep-links
         <code class="inline">#/vue/id</code>. Les décisions de revue sont partagées entre tous les
@@ -3249,10 +3284,10 @@
     </section>
 
     <section id="securite" class="section">
-      <h2 class="kicker" data-i18n="sec.kicker">🔒 Sécurité</h2>
-      <p class="headline" data-i18n="sec.headline">
+      <p class="kicker" data-i18n="sec.kicker">Sécurité</p>
+      <h2 class="headline" data-i18n="sec.headline">
         Sûr par défaut. Jamais de merge sans revue humaine.
-      </p>
+      </h2>
       <div class="checks">
         <div class="check">
           <span class="tick" aria-hidden="true">✔</span
@@ -3321,10 +3356,10 @@
          Les trois cartes reprennent la maquette ; les montants viennent de
          `docs/MODELE-ECONOMIQUE.md` §5, seule source de vérité du dépôt. -->
     <section id="tarifs" class="section">
-      <h2 class="kicker" data-i18n="pr.kicker">💛 Tarifs</h2>
-      <p class="headline" data-i18n="pr.headline">
+      <p class="kicker" data-i18n="pr.kicker">Tarifs</p>
+      <h2 class="headline" data-i18n="pr.headline">
         Le logiciel est gratuit. Vous payez l'hébergement si vous voulez.
-      </p>
+      </h2>
       <div class="plans">
         <article class="plan">
           <div class="plan-tete">
@@ -3397,10 +3432,10 @@
     </section>
 
     <section id="communaute" class="section">
-      <h2 class="kicker" data-i18n="co.kicker">🤝 La communauté</h2>
-      <p class="headline" data-i18n="co.headline">
+      <p class="kicker" data-i18n="co.kicker">La communauté</p>
+      <h2 class="headline" data-i18n="co.headline">
         Proposez un projet. La ruche en discute. Des membres s'y attellent.
-      </p>
+      </h2>
       <p class="lede" data-i18n="co.lede">
         Une ruche n'est pas un outil qu'on utilise seul : c'est du temps-machine que des membres se
         prêtent. Un projet qui intéresse la communauté trouve des ouvrières.
@@ -3478,10 +3513,10 @@
     </section>
 
     <section id="raccourcis" class="section">
-      <h2 class="kicker" data-i18n="rc.kicker">⚡ Raccourcis</h2>
-      <p class="headline tight" data-i18n="rc.headline">
+      <p class="kicker" data-i18n="rc.kicker">Raccourcis</p>
+      <h2 class="headline tight" data-i18n="rc.headline">
         Connecter un dépôt, inviter un ami : deux clics chacun.
-      </p>
+      </h2>
       <p class="lede" data-i18n="rc.lede">
         Ces boutons ouvrent <strong>VOTRE</strong> ruche, sur votre machine. Cette page ne voit rien
         et n’envoie rien : elle ne fait que composer la bonne adresse et copier la bonne commande.
@@ -3585,8 +3620,8 @@
     </section>
 
     <section id="demarrer" class="section">
-      <h2 class="kicker" data-i18n="go.kicker">🚀 Démarrer</h2>
-      <p class="headline" data-i18n="go.headline">Une démo complète en deux commandes.</p>
+      <p class="kicker" data-i18n="go.kicker">Démarrer</p>
+      <h2 class="headline" data-i18n="go.headline">Une démo complète en deux commandes.</h2>
       <div class="term-grid">
         <div class="term">
           <div class="term-bar" aria-hidden="true">
@@ -3614,10 +3649,10 @@
     </section>
 
     <section id="roadmap" class="section">
-      <h2 class="kicker">🧭 Roadmap</h2>
-      <p class="headline" data-i18n="rm.headline">
+      <p class="kicker">Roadmap</p>
+      <h2 class="headline" data-i18n="rm.headline">
         Sept paliers livrés. La ruche continue de grandir.
-      </p>
+      </h2>
       <div class="timeline">
         <div class="step">
           <div class="rail">
@@ -3774,7 +3809,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,949 tests ✓',
+          'badge.tests': '2,960 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -3803,7 +3838,7 @@
           'svg.auth': 'JWT auth',
           'svg.integration': 'Integration',
           'svg.e2e': 'E2E tests',
-          'feat.kicker': '✨ At a glance',
+          'feat.kicker': 'At a glance',
           'feat.headline':
             'Everything you need to put an AI swarm to work — without ever losing control.',
           'feat.qb':
@@ -3966,7 +4001,7 @@
           'mc.13.t': 'h · Works',
           'mc.13.d':
             'The works the repository DECLARES, one click away: its scripts on a hive node, its workflows on GitHub. The hive picks from that list and never invents a command — and whatever leaves the machine carries its reason for needing a human.',
-          'sec.kicker': '🔒 Security',
+          'sec.kicker': 'Security',
           'sec.headline': 'Safe by default. Never a merge without human review.',
           'sec.1':
             'Zero <code>shell: true</code> — everything goes through <code>spawn(bin, argv)</code>',
@@ -3983,7 +4018,7 @@
           'nav.shortcuts': 'Shortcuts',
           'nav.rush': 'Rush',
           'nav.pricing': 'Pricing',
-          'pr.kicker': '💛 Pricing',
+          'pr.kicker': 'Pricing',
           'pr.headline': 'The software is free. You pay for hosting only if you want to.',
           'pr.1.n': 'On your machines',
           'pr.1.tag': 'Free',
@@ -4018,7 +4053,7 @@
           'pr.note':
             'Both paid offers are a <strong>proposed model</strong>: no payment is taken today. The full computation, cost assumptions included, is public in <a href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md" target="_blank" rel="noopener">docs/MODELE-ECONOMIQUE.md</a>. The self-hosted hive itself will stay free: no core feature is held behind a wall.',
           'co.cloud.lien': 'See the offers and the economic model →',
-          'co.kicker': '\u{1F91D} The community',
+          'co.kicker': 'The community',
           'co.headline': 'Propose a project. The hive discusses it. Members take it on.',
           'co.lede':
             'A hive is not a tool you use alone: it is machine time that members lend each other. A project the community cares about finds workers.',
@@ -4041,7 +4076,7 @@
             'Hive is and will remain <strong>free and self-hosted</strong>: your hive runs at home, your keys never leave. For those who cannot keep a machine running, a paid hosting offer is being considered \u2014 nodes rented by the hour, to move a project forward without hardware.',
           'co.cloud.h':
             'This does not exist yet. It is written here because the direction is decided, not because it is available.',
-          'rc.kicker': '⚡ Shortcuts',
+          'rc.kicker': 'Shortcuts',
           'rc.headline': 'Connect a repo, invite a friend: two clicks each.',
           'rc.lede':
             'These buttons open <strong>YOUR</strong> hive, on your machine. This page sees nothing and sends nothing: all it does is build the right address and copy the right command.',
@@ -4060,7 +4095,7 @@
             '<code class="inline">npm run setup</code> generates your token, writes the <code class="inline">.env</code> and tells you what is left to do. Nothing is sent anywhere: it all lives on your machine.',
           'rc.note':
             '“Open my hive” only works if it is already running — it is a link to your own machine, not to a service. If nothing opens, start <code class="inline">npm run dev</code> first, or fix the address above.',
-          'go.kicker': '🚀 Get started',
+          'go.kicker': 'Get started',
           'go.headline': 'A full demo in two commands.',
           'go.t1': 'local demo',
           'go.demo':
