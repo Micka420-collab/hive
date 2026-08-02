@@ -549,6 +549,30 @@
         justify-content: flex-start;
         flex-wrap: wrap;
         margin-bottom: clamp(16px, 3vw, 24px);
+        /* L'entrée du design : ça monte de 16 px, une fois, au chargement. */
+        animation: hvRise 0.7s both;
+      }
+      .hero h1 {
+        animation: hvRise 0.7s both 0.06s;
+      }
+      .hero .sub {
+        animation: hvRise 0.7s both 0.12s;
+      }
+      .hero .cta-row {
+        animation: hvRise 0.7s both 0.18s;
+      }
+      /* ── LE DÉCALAGE EST L'EFFET ────────────────────────────────────────────
+         Quatre blocs qui montent ENSEMBLE font un écran qui saute. Décalés de
+         60 ms, ils font une phrase : pastille, titre, sous-titre, boutons. C'est
+         l'ordre de lecture, joué une fois. */
+      .swarm-panel {
+        animation: hvPop 0.6s cubic-bezier(0.22, 1, 0.36, 1) both 0.26s;
+      }
+      /* Le rayon respire, et son halo bat plus lentement que lui : deux périodes
+         premières entre elles ne se resynchronisent jamais, donc le mouvement ne
+         se lit jamais comme une boucle. */
+      .swarm-panel svg .hexcell {
+        animation: hvWave 4.2s ease-in-out infinite;
       }
       .badge {
         padding: 7px 12px;
@@ -1137,6 +1161,161 @@
       }
 
       /* Animations */
+      /* ══ LES ANIMATIONS DU DESIGN ═══════════════════════════════════════════
+         Reprises verbatim de la maquette. Elles ne sont pas décoratives : chacune
+         a un rôle, et c'est pour ça qu'elles sont peu nombreuses et courtes.
+
+         · hvRise / hvDrop  — l'entrée d'un élément unique (la pastille, le menu)
+         · hvView / hvPop   — l'entrée d'une SECTION et de ses cartes, décalée
+         · hvGrowX          — une barre qui se remplit depuis la gauche
+         · hvFloat / hvWave — le rayon d'alvéoles qui respire
+         · hvGlow           — le halo derrière lui
+         · hvBeat           — un point d'état qui bat (en cours / en ligne)
+         · hvMarquee        — le bandeau des agents qui défile
+         · hvShimmer / hvDot / hvSpin — attente, frappe, chargement
+
+         LA COURBE EST TOUJOURS LA MÊME : cubic-bezier(.22, 1, .36, 1). C'est un
+         départ franc et une fin qui s'appuie — ce qui rend un mouvement « posé »
+         plutôt que « glissant ». Une seule courbe pour toute la page, c'est ce
+         qui fait qu'on ne la remarque pas. */
+      @keyframes hvMarquee {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(-50%);
+        }
+      }
+      @keyframes hvBeat {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @keyframes hvRise {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes hvDrop {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes hvView {
+        from {
+          opacity: 0;
+          transform: translateY(18px) scale(0.995);
+          filter: blur(5px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+          filter: none;
+        }
+      }
+      @keyframes hvPop {
+        from {
+          opacity: 0;
+          transform: translateY(14px) scale(0.96);
+          filter: blur(4px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+          filter: none;
+        }
+      }
+      @keyframes hvGrowX {
+        from {
+          transform: scaleX(0);
+        }
+      }
+      @keyframes hvFloat {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-10px);
+        }
+      }
+      @keyframes hvWave {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+        }
+        50% {
+          transform: translateY(-6px) scale(1.03);
+        }
+      }
+      @keyframes hvGlow {
+        0%,
+        100% {
+          opacity: 0.6;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.07);
+        }
+      }
+      @keyframes hvShimmer {
+        0%,
+        100% {
+          filter: brightness(1);
+        }
+        50% {
+          filter: brightness(1.22);
+        }
+      }
+      @keyframes hvDot {
+        0%,
+        80%,
+        100% {
+          opacity: 0.2;
+          transform: translateY(0);
+        }
+        40% {
+          opacity: 1;
+          transform: translateY(-3px);
+        }
+      }
+      @keyframes hvSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ── L'ENTRÉE AU DÉFILEMENT ──────────────────────────────────────────────
+         `animation-timeline: view()` fait jouer l'animation en fonction de la
+         POSITION de l'élément dans la fenêtre, sans une ligne de JavaScript et
+         sans observateur. Les navigateurs qui ne la connaissent pas ignorent la
+         règle : l'élément est simplement là, ce qui est le bon repli. */
+      @supports (animation-timeline: view()) {
+        .section > .kicker,
+        .section > .headline,
+        .section > .grid,
+        .section > .cards {
+          animation: hvView 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+          animation-timeline: view();
+          animation-range: entry 0% entry 42%;
+        }
+      }
+
       @keyframes dash {
         to {
           stroke-dashoffset: -12;
@@ -1827,6 +2006,52 @@
             ruche <strong>prépare avant de tester</strong>. Et elle installe ce que le
             <strong>dépôt déclare</strong>, jamais ce que la commande nomme — sinon « préparer »
             deviendrait « exécute ce que je te dis » sur la machine d'un membre.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">👁️</div>
+          <h3 data-i18n="feat.gu.t">Les Guetteuses</h3>
+          <p data-i18n="feat.gu">
+            Une ruche exposée se fait sonder — un <code class="tag">.env</code>, une sauvegarde
+            oubliée — et personne ne l'apprend jamais. Les Guetteuses ne ferment aucune porte de
+            plus : elles rendent la reconnaissance <strong>bruyante</strong>. Elles ne prétendent
+            pas rendre la ruche imprenable, parce qu'on baisse la garde devant ce qu'on croit
+            inviolable.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">📉</div>
+          <h3 data-i18n="feat.de.t">La Dérive</h3>
+          <p data-i18n="feat.de">
+            Sous autonomie longue, un projet pourrit
+            <strong>sans qu'aucun cycle ne soit fautif</strong> : la qualité glisse d'un cran à la
+            fois, l'agent ajoute et ne retire jamais, et la somme devient illisible. Aucun contrôle
+            qui regarde une production à la fois ne peut le voir. La Dérive regarde la PENTE, et
+            borne l'autonomie quand elle s'inverse.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🏗</div>
+          <h3 data-i18n="feat.ch.t">Les Chantiers</h3>
+          <p data-i18n="feat.ch">
+            Les travaux que le dépôt <strong>DÉCLARE</strong>, à un clic : ses scripts sur un nœud,
+            ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente jamais une
+            commande — et ce qui SORT de la machine (publier, déployer) porte la raison pour
+            laquelle il faut un humain.
+          </p>
+        </div>
+        <div class="card">
+          <div class="ico" aria-hidden="true">🖥</div>
+          <h3 data-i18n="feat.at.t">L'Atelier <span class="tag">lot 1</span></h3>
+          <p data-i18n="feat.at">
+            Un agent travaille en aveugle : il écrit des fichiers et ne peut pas ouvrir son propre
+            travail. L'Atelier lui donne un bureau jetable — écran, navigateur, réseau FERMÉ par
+            défaut.
+            <strong
+              >Le module qui compose la commande et l'image existent et sont éprouvés ; la capture
+              d'écran et le geste ne le sont pas encore.</strong
+            >
+            Sans docker ni podman, pas d'Atelier — et surtout pas de bureau simulé.
           </p>
         </div>
       </div>
@@ -2521,6 +2746,18 @@
           'feat.cs.t': 'Council of Scouts',
           'feat.cs':
             'The bees’ swarming protocol, applied to ideas: scouts propose, the others <strong>go and check</strong> instead of believing, and may raise a reasoned stop signal. Ten instances of the same model agreeing are not ten opinions — the quorum counts distinct families. The verdict is a proposal, never a decision.',
+          'feat.gu.t': 'The Watchers',
+          'feat.gu':
+            'An exposed hive gets probed — a <code class="tag">.env</code>, a forgotten backup — and nobody ever finds out. The Watchers close no extra door: they make reconnaissance <strong>loud</strong>. They do not claim to make the hive impregnable, because people drop their guard in front of what they believe is unbreakable.',
+          'feat.de.t': 'The Drift',
+          'feat.de':
+            'Under long autonomy a project rots <strong>without any single cycle being at fault</strong>: quality slips one notch at a time, the agent adds and never removes, and the sum becomes unreadable. No check that looks at one output at a time can see it. The Drift watches the SLOPE, and bounds autonomy when it turns.',
+          'feat.ch.t': 'The Works',
+          'feat.ch':
+            'The works the repository <strong>DECLARES</strong>, one click away: its scripts on a node, its workflows on GitHub. The hive picks from that list and never invents a command — and whatever leaves the machine (publish, deploy) carries its reason for needing a human.',
+          'feat.at.t': 'The Workshop <span class="tag">batch 1</span>',
+          'feat.at':
+            'An agent works blind: it writes files and cannot open its own work. The Workshop gives it a disposable desktop — screen, browser, network CLOSED by default. <strong>The module that composes the command and the image exist and are tested; the screenshot and the gesture are not there yet.</strong> Without docker or podman, no Workshop — and above all no simulated desktop.',
           'feat.en.t': 'The environment',
           'feat.en':
             '<code class="tag">npm test</code> on a fresh clone fails for want of dependencies: the hive <strong>prepares before it tests</strong>. And it installs what the <strong>repository declares</strong>, never what the command names — otherwise “prepare” would become “run what I tell you” on a member’s machine.',
