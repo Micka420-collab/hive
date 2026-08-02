@@ -132,6 +132,58 @@ describe('LA RÈGLE : toute borne d’élagage est CÂBLÉE, pas seulement écri
     }
   });
 
+  it('LA BORNE DE RÉTENTION EST CÂBLÉE, comme sa sœur `aArreter`', () => {
+    // ─── LA QUATRIÈME BORNE, QUI MANQUAIT AU COMPTE ─────────────────────────
+    //
+    // La règle ci-dessus ne couvre que les `prune*` du STORE. `aSupprimer` vit
+    // dans `serveurs.ts`, elle est pure, elle est testée — et elle n'avait
+    // aucun appelant. Sa sœur `aArreter`, écrite juste au-dessus dans le même
+    // fichier, était câblée depuis toujours.
+    //
+    // Conséquence : `pruneServeurs` élaguait un état — `supprime` — que rien
+    // n'atteignait jamais, sauf le geste manuel d'un administrateur. Le tableau
+    // de bord annonçait au client « ⏳ N j avant effacement », puis à zéro « la
+    // machine va être effacée aujourd'hui, avec tout ce qu'elle contient », et
+    // l'effacement n'arrivait pas. Les données de quelqu'un qui est parti
+    // restaient, après le lui avoir promis par écrit avec un décompte.
+    const server = sansCommentaires('src/orchestrator/server.ts');
+    for (const borne of ['aArreter', 'aSupprimer'] as const) {
+      expect(server, `${borne}( doit être appelée en production`).toMatch(
+        new RegExp(`\\b${borne}\\(`),
+      );
+    }
+
+    // ─── ET SURTOUT : LA FONCTION QUI L'APPELLE DOIT ÊTRE ATTEINTE ──────────
+    //
+    // La première version de cette garde s'arrêtait à la boucle ci-dessus. J'ai
+    // retiré l'appel du tick pour la vérifier : ELLE EST RESTÉE VERTE, parce
+    // que `aSupprimer(` vivait toujours dans le corps de `balayerRetention` —
+    // une fonction que plus personne n'appelait.
+    //
+    // C'est mot pour mot le défaut qu'elle prétend fermer, reproduit dans sa
+    // propre écriture. Prouver qu'un nom apparaît ne prouve pas qu'un chemin
+    // s'exécute. On compte donc les appels HORS DÉFINITION.
+    const appels = [...server.matchAll(/(?<!const )\bbalayerRetention\(/g)];
+    expect(
+      appels.length,
+      '`balayerRetention` est définie mais jamais appelée : la rétention ne s’applique pas',
+    ).toBeGreaterThan(0);
+  });
+
+  it('et l’ordre des deux gestes est le bon : le fournisseur AVANT la base', () => {
+    // Ranger d'abord perdrait la seule trace de ce qu'on paie encore : si le
+    // fournisseur échoue, la ligne doit RESTER en `arrete` pour repasser au
+    // tour suivant. Le `continue` après l'échec est ce qui le garantit.
+    const server = sansCommentaires('src/orchestrator/server.ts');
+    const bloc = /const balayerRetention[\s\S]*?\n  \};/.exec(server);
+    expect(bloc, 'balayerRetention introuvable').toBeTruthy();
+    const corps = (bloc as RegExpExecArray)[0];
+    expect(corps.indexOf('fournisseurServeurs.supprimer')).toBeLessThan(
+      corps.indexOf("transiter(s, 'supprime'"),
+    );
+    expect(corps, 'un échec du fournisseur ne doit PAS ranger la ligne').toContain('continue;');
+  });
+
   it('LES DEUX GRÂCES SONT NON NULLES — sinon elles ne servent à rien', () => {
     // Mettre une grâce à zéro efface un billet révoqué la seconde d'après.
     // Rien ne se rouvre — un mort reste mort — mais l'hôte perd la réponse

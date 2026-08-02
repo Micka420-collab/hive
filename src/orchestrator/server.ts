@@ -137,6 +137,7 @@ import {
   ETATS as ETATS_SERVEUR,
   FOURNISSEUR_MANUEL,
   aArreter,
+  aSupprimer,
   decider,
   replierServeurs,
   transiter,
@@ -2838,6 +2839,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * pas dans une réponse d'API qu'on rejoue en rafraîchissant une page.
    */
   const billetsServeurs = new Map<string, { billet: string; expire: number }>();
+
+  /**
+   * Efface les machines dont la rétention est échue. AUCUN geste humain.
+   *
+   * ─── POURQUOI C'EST UNE OBLIGATION, PAS UN NETTOYAGE ──────────────────────
+   *
+   * Un abonnement s'arrête : la ruche éteint la machine, et le tableau de bord
+   * annonce au client « ⏳ N j avant effacement ». Ne jamais effacer, c'est
+   * conserver indéfiniment les données de quelqu'un qui est parti — après le
+   * lui avoir promis par écrit, avec un décompte.
+   *
+   * ─── L'ORDRE DES DEUX GESTES, ET POURQUOI IL EST CELUI-LÀ ─────────────────
+   *
+   * On demande au fournisseur d'abord, on range ensuite. Si le fournisseur
+   * échoue, la ligne RESTE en `arrete` : elle repassera au prochain tour, et
+   * quelqu'un peut encore voir qu'il y a une machine à éteindre. Ranger
+   * d'abord perdrait la seule trace de ce qu'on paie encore.
+   */
+  const balayerRetention = async (now: number): Promise<void> => {
+    const echues = aSupprimer(serveursDe(), now);
+    if (echues.length === 0) return;
+    for (const s of echues) {
+      try {
+        if (s.refMachine) await fournisseurServeurs.supprimer(s.refMachine);
+      } catch (e) {
+        // On NE range PAS : la ligne doit rester visible tant que la machine
+        // peut exister quelque part. Elle repassera au prochain tour.
+        app.log.warn({ err: e, id: s.id }, 'suppression de machine en échec');
+        continue;
+      }
+      const r = transiter(s, 'supprime', 'rétention échue', now);
+      if (!r.applique) continue;
+      store.setServeur(r.serveur);
+      emitEvent('server_deleted', { serverId: s.id, projectId: s.projectId });
+    }
+  };
 
   const alignerServeurs = async (
     projectId: string,
@@ -6808,6 +6845,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneAcces(ACCES_GRACE_MS);
       store.prunePartages(PARTAGES_GRACE_MS);
       store.pruneServeurs(SERVEURS_SUPPRIMES_CONSERVES);
+      // ─── ET LA QUATRIÈME, QUI MANQUAIT AU COMPTE ───────────────────────────
+      //
+      // Le commentaire ci-dessus dit « machine EFFACÉE » — l'état `supprime`.
+      // Or rien n'y menait jamais : `aSupprimer`, la borne qui désigne les
+      // machines dont la rétention est échue, n'avait AUCUN appelant. La seule
+      // transition vers `supprime` du dépôt était le geste manuel d'un
+      // administrateur.
+      //
+      // `pruneServeurs` élaguait donc un état qu'on n'atteignait pas, et le
+      // tableau de bord affichait « ⏳ N j avant effacement » puis, à zéro,
+      // « la machine X va être effacée aujourd'hui, avec tout ce qu'elle
+      // contient » — indéfiniment. Les données des clients partis restaient,
+      // ce qui est le contraire exact de ce que la ruche leur promet.
+      //
+      // Le balayage est LANCÉ sans être attendu : joindre un fournisseur peut
+      // prendre plusieurs secondes, et le tick d'ordonnancement ne doit jamais
+      // dépendre d'un réseau tiers.
+      void balayerRetention(Date.now()).catch((err: unknown) => {
+        app.log.warn({ err }, 'balayage de rétention en échec');
+      });
+
       // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
       // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
       scruterConseils();
