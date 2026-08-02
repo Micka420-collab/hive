@@ -341,6 +341,40 @@ describe('LE POLYÉTHISME STRICT TIENT SA PROMESSE', () => {
     ).toBe(true);
   });
 
+  it('UNE BUTINEUSE JUGÉE `hollow` SUR CETTE TÂCHE-CI est retenue', async () => {
+    // ─── LE VERDICT LU DOIT ÊTRE CELUI DE LA BONNE TÂCHE ───────────────────
+    //
+    // `exigeContreVisite` suit les Gardiennes au-delà de la caste : une
+    // butineuse dont la production est `hollow` — un diff qui n'a pas tenu ses
+    // promesses — est relue comme une autre.
+    //
+    // Ce test existe pour une raison précise : la loupe a fait survivre
+    // `inspections.find((i) => i.taskId === task.id)` muté en `!==`. Tous mes
+    // autres cas n'ont que des antécédents `clean`, donc lire l'inspection
+    // d'une AUTRE tâche donnait le même résultat. Il fallait une tâche dont le
+    // verdict propre diffère de celui de ses voisines.
+    const { base, srv } = await demarrer('strict');
+    essaimGouvernable(srv);
+    butineuse(srv, 'chevronnee', 5_000);
+    const { projet, tache } = projetAvecProduction(srv, 'chevronnee');
+    srv.store.enregistrerInspection({
+      resultId: 6_000,
+      taskId: tache,
+      nodeId: 'chevronnee',
+      verdict: 'hollow',
+      score: 0,
+      applique: false,
+      griefs: [],
+    });
+    await regler(base, projet);
+
+    await new Promise((r) => setTimeout(r, 700));
+    expect(
+      srv.store.listLivraisons(projet),
+      'une production jugée creuse est partie sans être relue',
+    ).toEqual([]);
+  });
+
   it('la production d’une BUTINEUSE part sans contre-visite', async () => {
     // La porte vise les jeunes ouvrières, pas tout le monde. Une butineuse dont
     // le verdict est `clean` n'a rien à faire relire — sinon `strict` voudrait
