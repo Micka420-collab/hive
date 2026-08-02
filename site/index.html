@@ -596,15 +596,67 @@
         /* −0.04em : le serrage du design. Sur Bricolage, c'est ce qui fait la
            différence entre un titre et une phrase en gros. */
         letter-spacing: -0.04em;
+        /* Le navigateur cherche des lignes de longueurs voisines au lieu de
+           remplir la première et d'abandonner le reste. Sans lui, la coupure
+           tombait sur « …votre projet, en / même temps » : deux mots seuls sur
+           la seconde ligne, et le surlignage coupé en un timbre-poste. La
+           propriété n'est pas universelle, mais son absence ne coûte que
+           l'ancienne coupure — jamais un titre cassé. */
+        text-wrap: balance;
       }
-      /* ── LE SURLIGNEUR ──────────────────────────────────────────────────────
-         Le geste signature du design : pas un dégradé sur le texte, un trait de
-         surligneur DERRIÈRE lui, qui commence à 62 % de la hauteur. L'encre
-         reste noire — donc lisible — et l'accent porte quand même. */
+      /* ══ LE MIEL ════════════════════════════════════════════════════
+         Le geste signature : pas une couleur SUR le texte, une coulée de miel
+         DERRIÈRE lui. La matière est dans `miel.svg`, qui explique ses quatre
+         couches ; ici on ne décide que de la POSE.
+
+         DEUX VERSIONS SONT MORTES AVANT CELLE-CI, et les deux pour la même
+         raison de fond — j'avais dessiné le miel sur la mauvaise boîte.
+
+         · Un `linear-gradient` à arête franche : un aplat jaune, propre et
+           parfaitement inerte. Aucun liquide n'a d'arête droite.
+
+         · Un `::before` en position absolue, avec turbulence SVG. Il avait
+           enfin l'air de miel — tant que la phrase tenait sur une ligne. Le
+           texte du héros passe à la ligne dès qu'on rétrécit la fenêtre, et un
+           élément absolu positionné sur un inline coupé se dessine sur la boîte
+           ENGLOBANTE des deux morceaux : un filet vertical reliait les lignes.
+
+         C'est la leçon : sur un inline qui peut se couper, le seul calque qui
+         suive vraiment le texte est un FOND. `box-decoration-break: clone` dit
+         au navigateur de repeindre le fond pour CHAQUE fragment de ligne —
+         chaque morceau reçoit donc sa propre coulée, avec ses propres bords.
+
+         L'image étant étirée (`preserveAspectRatio="none"`), deux fragments de
+         largeurs différentes n'ondulent pas pareil. C'est gratuit, et c'est ce
+         qui empêche la répétition de se voir. */
       .grad {
-        background: linear-gradient(180deg, transparent 62%, var(--gold) 62%);
         font-style: normal;
-        padding: 0 0.06em;
+        /* Le préfixe reste : Safari ne connaît toujours que la forme -webkit-,
+           et sans lui c'est justement Safari mobile — là où la phrase se coupe
+           le plus souvent — qui affiche le défaut qu'on vient de corriger. */
+        -webkit-box-decoration-break: clone;
+        box-decoration-break: clone;
+        /* Le miel déborde un peu de part et d'autre : un surligneur qui
+           s'arrête pile au glyphe se lit comme un fond de cellule. */
+        padding: 0 0.16em;
+        background-image: url('miel.svg');
+        background-repeat: no-repeat;
+        /* La hauteur décide de tout. À 0,62 em la coulée couvre les deux tiers
+           bas des bas-de-casse et mord sous la ligne de base : c'est le geste
+           d'un surligneur tenu à la main. Plus haut, elle noie le texte ; plus
+           bas, elle redevient un soulignement. */
+        background-size: 100% 0.6em;
+        background-position: 0 calc(100% - 0.17em);
+      }
+      /* La seconde ligne porte la promesse qui rassure — plus petite, plus
+         discrète : elle se lit APRÈS, et seulement si la première a convaincu. */
+      .hero .sub-2 {
+        margin-top: 14px;
+        font-size: clamp(14.5px, 3vw, 16px);
+        line-height: 1.55;
+        color: var(--muted);
+        max-width: 520px;
+        animation: hvRise 0.7s both 0.15s;
       }
       .hero .sub {
         max-width: 560px;
@@ -1475,13 +1527,16 @@
         <span class="badge" style="color: var(--muted)">Node ≥ 24</span>
       </div>
       <h1 data-i18n="hero.h1">
-        L'essaim d'agents IA,<br /><span class="grad">orchestré en communauté.</span>
+        Faites coder plusieurs IA sur votre projet,
+        <span class="grad">en même temps</span>.
       </h1>
       <p class="sub" data-i18n="hero.sub">
-        Une <strong>Queen</strong> centrale découpe un projet en tâches et les distribue aux
-        machines des membres, qui exécutent leurs agents de codage — les <em>ouvrières</em> — dans
-        des espaces isolés. Le contrôle est centralisé ;
-        <strong class="key">le code et les clés restent chez chaque membre.</strong>
+        Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
+        ordinateurs de votre équipe, et vous montre le résultat <strong>à valider</strong>.
+      </p>
+      <p class="sub sub-2" data-i18n="hero.sub2">
+        Rien n'est fusionné sans votre accord.
+        <strong class="key">Votre code et vos clés restent sur vos machines.</strong>
       </p>
       <div class="cta-row">
         <a
@@ -2683,9 +2738,11 @@
           'badge.tests': '2,600 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
-            'The AI agent swarm,<br /><span class="grad">orchestrated as a community.</span>',
+            'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
           'hero.sub':
-            'A central <strong>Queen</strong> splits a project into tasks and distributes them to members’ machines, which run their coding agents — the <em>workers</em> — in isolated workspaces. Control is centralized; <strong class="key">code and keys stay on each member’s machine.</strong>',
+            'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result <strong>to approve</strong>.',
+          'hero.sub2':
+            'Nothing is merged without your say-so. <strong class="key">Your code and your keys stay on your machines.</strong>',
           'hero.clone': 'Clone the hive',
           'hero.copy': 'copy',
           'swarm.title': '🐝 Swarm View — the swarm, live',

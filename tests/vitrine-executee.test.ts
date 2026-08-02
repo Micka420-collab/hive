@@ -212,11 +212,39 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     expect(document.querySelector('h1'), 'pas de titre principal').not.toBeNull();
 
     const fr = basculer('btn-fr');
-    expect(fr, 'le français doit parler d’essaim').toContain('essaim');
-
     const en = basculer('btn-en');
+
+    // ─── ON N'ÉPINGLE PLUS UN MOT DE LA COPIE ──────────────────────────────
+    //
+    // Cette assertion exigeait le mot « essaim » dans le titre français. Elle a
+    // rougi le jour où le titre est passé à « Faites coder plusieurs IA sur
+    // votre projet » — sur un changement de copie parfaitement légitime, et
+    // même souhaitable : le nouveau titre dit un BÉNÉFICE là où l'ancien
+    // nommait une métaphore.
+    //
+    // Un test qui interdit d'améliorer un texte ne protège rien ; il se fait
+    // désarmer. Ce qu'il doit prouver, c'est que la bascule CHANGE le contenu —
+    // et ça se vérifie sans connaître un seul mot :
     expect(en, 'le clic sur EN n’a rien changé').not.toBe(fr);
-    expect(en.toLowerCase()).toContain('swarm');
+    expect(fr.length, 'le français est vide').toBeGreaterThan(20);
+    expect(en.length, 'l’anglais est vide').toBeGreaterThan(20);
+
+    // Et pour être sûr que ce n'est pas la MÊME phrase à une virgule près, on
+    // exige que les deux versions diffèrent substantiellement.
+    const communs = new Set(
+      fr
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((m) => m.length > 3),
+    );
+    const distincts = en
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((m) => m.length > 3 && !communs.has(m));
+    expect(
+      distincts.length,
+      'les deux langues se ressemblent trop pour être deux langues',
+    ).toBeGreaterThan(2);
   });
 
   it('et le retour en FR remet EXACTEMENT le français d’origine', () => {
