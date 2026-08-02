@@ -33,6 +33,7 @@
     "test": "vitest run",
     "lint": "eslint . && prettier --check .",
     "loupe": "node scripts/loupe.mjs",
+    "compte-tests": "node scripts/compte-tests.mjs rapport-tests.json",
     "fusionner": "sh scripts/fusionner.sh",
     "ruche": "node scripts/ruche.mjs",
     "format": "prettier --write .",

@@ -1,14 +1,17 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banniere-sombre.png">
+  <img src="docs/images/banniere-clair.png" width="840" alt="Hive — Faites coder plusieurs IA sur votre projet, en même temps. Une Reine découpe le projet, vos machines exécutent. Le code et les clés ne quittent jamais les vôtres.">
+</picture>
+
 # 🐝 Hive
 
-**Orchestration d'agents IA — un essaim qui tient sur la durée.**
-
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
-![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
-![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2730%20passing-2ea44f)
-![Licence](https://img.shields.io/badge/licence-MIT-green)
+![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
+![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-2838%20passing-F6C445?labelColor=17130C)
+![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
 
@@ -242,7 +245,7 @@ Le détail — et les autres limites assumées, écrites plutôt que tues — es
 | `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                             |
 | `npm run dev`               | Orchestrateur seul                                                           |
 | `npm run node`              | Un nœud membre                                                               |
-| `npm run cli -- doctor`     | **Le docteur** — 12 causes de panne, et la commande qui répare               |
+| `npm run cli -- doctor`     | **Le docteur** — 13 causes de panne, et la commande qui répare               |
 | `npm run cli -- sauvegarde` | Sauvegarde SQLite par `VACUUM INTO`                                          |
 | `npm run cli -- service`    | Installer la ruche en service (systemd · launchd · tâche planifiée)          |
 | `npm test`                  | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit |

@@ -12,3 +12,6 @@ coverage/
 *.tsbuildinfo
 .hermes/
 .claude/
+
+# Le rapport JSON de vitest, produit par la CI pour le garde-badge.
+rapport-tests.json

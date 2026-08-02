@@ -36,8 +36,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getAdapter } from '../src/adapters/index.js';
+import type { Releve } from '../src/shared/doctor.js';
+import { diagnostiquer } from '../src/shared/doctor.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
+
+/**
+ * Un relevé quelconque — il ne sert qu'à COMPTER les diagnostics rendus.
+ *
+ * Aucune valeur n'y est significative : `diagnostiquer` rend toujours la liste
+ * complète, chaque entrée portant son verdict. C'est délibérément un relevé
+ * bancal (Node trop vieux, jeton absent) pour qu'on ne soit pas tenté d'y lire
+ * autre chose qu'une longueur.
+ */
+const RELEVE_QUELCONQUE: Releve = {
+  nodeMajeur: 18,
+  fichierEnv: { present: false, lisible: false, permissions: null },
+  secretSession: { utilisable: false, longueur: 0, publie: false, simulation: false },
+  jeton: { present: false, longueur: 0, trivial: false },
+  port: { numero: 7777, libre: true, parNous: null },
+  moteur: { manquants: [], raison: null },
+  base: { presente: false, integre: false, inscriptible: false },
+  dashboardConstruit: false,
+  agent: 'shell',
+  isolement: 'aucun',
+  wsJoignable: false,
+  reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
+  espace: { octetsLibres: 0, inscriptible: false },
+};
 const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
 
 const FR = lire('README.md');
@@ -208,5 +234,33 @@ describe('LES DEUX READMES DISENT LA MÊME CHOSE', () => {
     expect(liens(EN).length, 'un README renvoie vers plus de documents que l’autre').toBe(
       liens(FR).length,
     );
+  });
+
+  it('LE NOMBRE DE DIAGNOSTICS ANNONCÉ EST CELUI QUE LE DOCTEUR REND', () => {
+    // ─── UN CHIFFRE ANNONCÉ NE VIEILLIT PAS AVEC SON CODE ──────────────────
+    //
+    // Les deux READMEs promettaient « 12 causes de panne ». Le docteur en
+    // rendait TREIZE depuis qu'on lui a ajouté le secret de session — celui
+    // dont l'absence tuait la Reine à la seconde, précisément le diagnostic
+    // qu'un nouveau venu a le plus besoin de trouver annoncé.
+    //
+    // Le chiffre n'a pas menti longtemps parce qu'il était faux : il a menti
+    // parce que RIEN ne le reliait à la liste. On le relie.
+    const rendus = diagnostiquer(RELEVE_QUELCONQUE).length;
+    expect(
+      rendus,
+      'la liste des diagnostics est vide : la garde tournerait à vide',
+    ).toBeGreaterThan(5);
+    for (const [nom, source, motif] of [
+      ['README.md', FR, /\*\*Le docteur\*\* — (\d+) causes de panne/],
+      ['README.en.md', EN, /\*\*The doctor\*\* — (\d+) failure causes/],
+    ] as const) {
+      const annonce = motif.exec(source)?.[1];
+      expect(annonce, `${nom} : la ligne du docteur a changé de forme`).toBeDefined();
+      expect(
+        Number(annonce),
+        `${nom} annonce ${annonce} diagnostics, le code en rend ${rendus}`,
+      ).toBe(rendus);
+    }
   });
 });

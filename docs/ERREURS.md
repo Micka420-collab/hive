@@ -1779,6 +1779,45 @@ silence parce qu'on ne relit que le premier.
 > résolvent, des noms qui existent, deux copies qui coïncident. Prétendre
 > vérifier la prose donnerait une fausse assurance, ce qui est pire que rien.
 
+### 9ter.0 — Deux copies d'accord, et fausses ENSEMBLE
+
+La garde écrite ci-dessus confronte les deux badges l'un à l'autre. Elle est
+utile, et elle n'a rien vu quand le badge est repassé faux : il annonçait
+**2 730 tests** alors que la suite en rendait **2 820** — dans les deux README,
+du même chiffre, parfaitement d'accord.
+
+Deux copies qui se contrôlent l'une l'autre ne détectent que la **divergence**.
+Elles sont muettes sur l'**erreur commune**, qui est justement ce que produit un
+seul geste : je corrige le badge, je corrige les deux d'un coup, et les deux
+vieillissent ensemble au commit suivant.
+
+La même semaine, le même défaut sur un autre chiffre : les deux README
+promettaient « 12 causes de panne » là où `hive doctor` en rendait treize depuis
+qu'on lui avait ajouté le contrôle du secret de session — le diagnostic dont
+l'absence tuait la Reine à la seconde, donc précisément celui qu'un nouveau venu
+a le plus besoin de trouver annoncé.
+
+**Ce qui manquait n'était pas une comparaison de plus : c'était une SOURCE.**
+
+- Le nombre de diagnostics existe dans le code. `tests/readme.test.ts` appelle
+  maintenant `diagnostiquer()` et compare sa longueur au chiffre annoncé.
+- Le compte de tests, lui, **n'existe qu'après l'exécution de la suite**. Aucune
+  garde écrite DANS la suite ne peut le connaître — c'est structurel, pas un
+  oubli. D'où `scripts/compte-tests.mjs`, qui tourne après, lit le rapport JSON
+  de vitest et confronte. La CI le lance en mode constat ; `--corriger` écrit le
+  bon chiffre chez soi.
+
+> **Règle** — une garde qui compare deux copies ne remplace pas une garde qui
+> compare à la SOURCE. Avant d'écrire la première, chercher où la vérité vit
+> vraiment : dans une fonction qu'on peut appeler, dans un fichier qu'on peut
+> lire, dans un rapport qu'on peut produire. Si la source n'est disponible
+> qu'après coup, la garde sort de la suite — elle ne disparaît pas.
+
+> **Règle** — un outil qui ne sait que REFUSER se fait contourner à la troisième
+> fois. `compte-tests.mjs` sait aussi corriger, mais le geste qui répare est
+> chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
+> tout seul en intégration continue cacherait le problème au lieu de le poser.
+
 ### 9ter.1 — La sonde qui confondait « absent » et « qui refuse »
 
 Première version de cette garde : appeler `getAdapter(nom)` et regarder s'il

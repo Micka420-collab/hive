@@ -92,7 +92,19 @@ jobs:
         run: npm run typecheck:dashboard
 
       - name: Tests (vitest, unitaires + e2e)
-        run: npm test
+        run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json
+
+      # ─── LE COMPTE ANNONCÉ PAR LES BADGES ───────────────────────────────────
+      #
+      # Le compte réel n'existe qu'APRÈS l'exécution : aucune garde écrite DANS
+      # la suite ne peut le connaître. Celle-ci lit le rapport et refuse un
+      # badge périmé — deux fois qu'il l'était, deux fois corrigé à la main.
+      #
+      # Sur `ubuntu-latest` seulement : le chiffre est le même partout, et le
+      # vérifier trois fois ne le vérifie pas mieux.
+      - name: Le badge annonce le vrai compte de tests
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/compte-tests.mjs rapport-tests.json
 
       # ─── LES INSTALLEURS, EXERCÉS SUR LES TROIS PLATEFORMES ─────────────────
       #

@@ -29,6 +29,31 @@ l'avertissement en tête de ce carnet.
 
 ---
 
+## Le README au design de la vitrine — et deux chiffres qui mentaient
+
+Les deux README ouvrent maintenant sur une **bannière** qui reprend exactement
+la vitrine : mêmes fontes (Bricolage, Instrument, JetBrains), même crème, même
+coulée de miel derrière la même phrase. Quatre images — français et anglais,
+clair et sombre, servies par `<picture>` selon le thème de qui regarde.
+
+Sur fond sombre, la coulée a dû **monter jusqu'en haut des bas-de-casse** : à sa
+hauteur de vitrine elle ne couvre que le bas des lettres, et le texte en encre
+foncée disparaissait dans le fond. Un surlignage, pas un soulignement.
+
+Deux chiffres du README mentaient, et les deux pour la même raison de fond —
+**rien ne les reliait à leur source** :
+
+| ce qu'il annonçait     | la réalité | ce qui le tient désormais                                |
+| ---------------------- | ---------- | -------------------------------------------------------- |
+| « 12 causes de panne » | 13         | `tests/readme.test.ts` appelle `diagnostiquer()`         |
+| badge « 2 730 tests »  | 2 838      | `scripts/compte-tests.mjs`, lancé par la CI après vitest |
+
+Le second cas mérite d'être dit : la garde existante comparait **les deux badges
+l'un à l'autre**. Ils étaient d'accord. Ils étaient faux ensemble — ce que
+produit toujours un seul geste de correction. Voir § 9ter.0 du journal.
+
+---
+
 ## Le miel du titre — trois versions, et ce qui a tué les deux premières
 
 Le surlignage du titre de la vitrine est le geste signature du design. Il a fallu
@@ -118,7 +143,7 @@ PS C:\Users\micki\Desktop\hive-main> npm run cli -- doctor
 | **1. L'amorce** — dire ce qui manque, sans rien exiger | ✅   | `scripts/amorce.mjs`, JavaScript nu, zéro dépendance. `verdict()` et `annoncer()` sont PURS : les cas deviennent des assertions sur une machine où tout est justement installé. 37 tests dans `tests/amorce.test.mjs`.                                         |
 | **2. La porte unique** — un seul chemin, pas six       | ✅   | `scripts/lancer.mjs`. `ruche`, `cli`, `node`, `join`, `demo`, `install:hive` y passent tous. Un test relit `package.json` et refuse qu'un script reprenne `--import tsx` ou appelle le binaire `tsx`.                                                          |
 | **3. La preuve sur une copie cassée**                  | ✅   | `tsx` réellement retiré de `node_modules`, puis `npm run cli -- doctor` relancé : message nommant la cause et la commande, code de sortie **2**. C'est la seule vérification qui compte ici — le défaut était précisément un message qu'on croyait s'afficher. |
-| **4. Ce qui ARRÊTE et ce qui AVERTIT**                 | ✅   | Dépendance absente → arrêt (plus rien ne peut tourner). Node trop ancien → **avertissement seulement**, parce que `hive doctor` tourne encore et nomme cette cause parmi douze autres. Bloquer là aurait refait le défaut d'un cran plus haut.                 |
+| **4. Ce qui ARRÊTE et ce qui AVERTIT**                 | ✅   | Dépendance absente → arrêt (plus rien ne peut tourner). Node trop ancien → **avertissement seulement**, parce que `hive doctor` tourne encore et nomme cette cause parmi treize autres. Bloquer là aurait refait le défaut d'un cran plus haut.                |
 | **5. La porte est TRAVERSÉE par un test**              | ✅   | Un vrai processus lance `scripts/lancer.mjs` sur `tests/fixtures/echo-argv.ts`, sur les trois systèmes de la CI. C'est ce qui a trouvé la faille Windows : `await import('C:\…')` est refusé par Node (`protocol 'c:'`), et aucune relecture ne le distingue.  |
 
 > **Ce que ce lot corrige n'est pas un message, c'est une illusion de
@@ -268,7 +293,7 @@ strict. La différence est dans l'appelant, pas dans la commande.
 | 5   | Fonctionne **sans TTY** (CI, ssh, pipe)                                  | ✅   | `tests/tui-terminal.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 6   | `NO_COLOR=1`, `TERM=dumb`, 80 colonnes                                   | ✅   | `tests/tui-rendu.test.ts` + `tests/reglages-documentes.test.ts`, sur un module pur.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 7   | **CI verte sur `ubuntu-latest` ET `windows-latest`**                     | ✅   | Dépassé : les **trois** plateformes sont vertes, macOS comprise.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 8   | `hive doctor` diagnostique **10 causes** + quoi faire                    | ✅   | **12** diagnostics, un test par cas, panne **et** sain.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 8   | `hive doctor` diagnostique **10 causes** + quoi faire                    | ✅   | **13** diagnostics, un test par cas, panne **et** sain. Le chiffre est désormais relié au code par `tests/readme.test.ts` — il annonçait 12 depuis l'ajout du secret de session.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 9   | Déploiement **sans écran** : `--non-interactive` + env + codes de sortie | ✅   | `examples/deploiement-sans-ecran.sh` + `tests/deploiement-sans-ecran.test.ts` (8 tests). L'exemple **traite chaque code séparément** — un `\|\| exit 1` aplatirait sept situations en une, et les codes ne serviraient plus à rien. Le test lance le VRAI script par `sh`, contre un faux `install:hive` qui rend le code voulu. Loupe : **7 mutants, 7 morts**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 10  | README **FR et EN** + `CHANGELOG.md` à jour                              | ✅   | Les trois existent et sont tenus. **Cette ligne a été FAUSSE un temps** : elle affichait ✅ pendant que six fonctionnalités livrées (Cerveau, contre-expertise, `hive mode`, image, sauvegarde, désinstallation) manquaient au CHANGELOG. Un fichier d'état qui se coche lui-même est le premier à dériver — corrigé, et noté ici pour que la prochaine relecture s'en méfie. **Puis fausse une SECONDE fois, autrement** : le CHANGELOG était bien « à jour », et un cinquième de son contenu y figurait **trois fois** — dont une copie tombée dans la section `[0.2.0]`, déjà publiée. « À jour » ne veut pas dire « juste ». Le défaut a grossi huit livraisons durant sans qu'aucune relecture le voie, parce qu'une duplication est invisible dans un diff. Ce n'est plus une ligne d'état qui garde ce critère, c'est `tests/documents-qui-grossissent.test.ts`. |
 
@@ -371,6 +396,13 @@ PATH="$N24:$PATH" HIVE_DIR=/tmp/vierge sh install.sh --non-interactive --json
 code de sortie ne prouve pas : `better-sqlite3` et `fastify` se chargent dans
 le clone — c'est-à-dire que la panne de l'image morte ne s'y produit pas — et
 `hive doctor` rend **10 ✔** sur douze diagnostics.
+
+> **Ce chiffre est daté, et il le reste.** Le docteur en rend TREIZE depuis
+> qu'on lui a ajouté le contrôle du secret de session. Le dénominateur de la
+> mesure ci-dessus n'est donc plus celui d'aujourd'hui — et je ne le réécris
+> pas : une mesure qu'on retouche sans relancer le banc n'est plus une mesure,
+> c'est une opinion datée d'un jour qu'elle ne nomme plus. Elle sera refaite au
+> prochain passage sur une machine en Node 24.
 
 #### Les deux points que le doctor soulève, et qu'il faut dire
 

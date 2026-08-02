@@ -257,7 +257,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les douze ──────────────────────────────────────────────────────────────
+// ─── Les treize ─────────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (r.nodeMajeur >= NODE_MINIMUM) {

@@ -1,14 +1,17 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banniere-en-sombre.png">
+  <img src="docs/images/banniere-en-clair.png" width="840" alt="Hive — Put several AIs to work on your project, at the same time. A Queen splits the project, your machines run it. The code and the keys never leave yours.">
+</picture>
+
 # 🐝 Hive
 
-**AI agent orchestration — a swarm built to last.**
-
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
-![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)
-![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-2730%20passing-2ea44f)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
+![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-2838%20passing-F6C445?labelColor=17130C)
+![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
 
@@ -234,7 +237,7 @@ unsaid — is in **[docs/FEATURES.en.md](docs/FEATURES.en.md)**.
 | `npm run demo`              | Full demo (orchestrator + 2 nodes + project)                       |
 | `npm run dev`               | Orchestrator only                                                  |
 | `npm run node`              | A member node                                                      |
-| `npm run cli -- doctor`     | **The doctor** — 12 failure causes, each with the fixing command   |
+| `npm run cli -- doctor`     | **The doctor** — 13 failure causes, each with the fixing command   |
 | `npm run cli -- sauvegarde` | SQLite backup via `VACUUM INTO`                                    |
 | `npm run cli -- service`    | Install the hive as a service (systemd · launchd · scheduled task) |
 | `npm test`                  | 2,310 tests (vitest)                                               |
