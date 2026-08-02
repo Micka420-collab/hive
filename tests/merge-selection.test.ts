@@ -91,6 +91,11 @@ describe('POST /merge/run — sélection de tâches (taskIds)', () => {
   });
 
   it('accepte une sélection valide (503 = plus aucun garde-fou avant le nœud)', async () => {
+    // SA PRÉMISSE : la tâche n'est pas rejetée en revue. Le test d'à côté la
+    // rejette, et ne la relève pas — passé avant celui-ci, il transformait le
+    // 503 attendu en 400 « rejetée en revue ». Le verdict de revue est de
+    // l'état partagé comme un autre : il se pose, il ne se suppose pas.
+    server.store.setTaskReview(doneTask.id, null);
     const res = await run([doneTask.id]);
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toContain('aucun nœud');

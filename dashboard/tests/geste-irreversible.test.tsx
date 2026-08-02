@@ -34,26 +34,35 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-let conteneur: HTMLElement;
-let racine: Root;
+// `undefined` tant que le test courant n'a rien monté : le dernier bloc de ce
+// fichier lit du SOURCE, il ne rend aucun composant.
+let conteneur: HTMLElement | undefined;
+let racine: Root | undefined;
 
 async function monter(element: React.ReactElement): Promise<void> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
-  racine = createRoot(conteneur);
+  const neuve = createRoot(conteneur);
+  racine = neuve;
   await act(async () => {
-    racine.render(element);
+    neuve.render(element);
   });
 }
 
 async function rendre(element: React.ReactElement): Promise<void> {
+  const cible = racine;
+  expect(cible, 'rendre() sans monter() : rien à re-rendre').toBeDefined();
   await act(async () => {
-    racine.render(element);
+    cible!.render(element);
   });
 }
 
-const boutons = (): HTMLButtonElement[] => [...conteneur.querySelectorAll('button')];
-const texte = (): string => conteneur.textContent ?? '';
+const vue = (): HTMLElement => {
+  expect(conteneur, 'aucun composant monté : le test doit appeler monter()').toBeDefined();
+  return conteneur!;
+};
+const boutons = (): HTMLButtonElement[] => [...vue().querySelectorAll('button')];
+const texte = (): string => vue().textContent ?? '';
 
 /** Clique un bouton par son texte exact — et refuse de deviner s'il manque. */
 async function cliquer(libelle: string): Promise<void> {
@@ -74,11 +83,27 @@ beforeAll(() => {
   setLang('fr');
 });
 
+// LE DÉMONTAGE NE SUPPOSE PLUS QU'ON A MONTÉ.
+//
+// Il appelait `racine.unmount()` sans condition. Les trois tests du dernier
+// bloc ne montent rien — ils lisent le source des appelants — et ne devaient
+// leur survie qu'à la racine laissée en place par le test précédent : ils
+// démontaient l'arbre du voisin. Joué en premier, l'un d'eux trouvait
+// `racine` indéfini et le fichier tombait sur « Cannot read properties of
+// undefined ».
+//
+// Remettre les deux à `undefined` après coup est l'autre moitié : sans ça,
+// deux tests sans rendu à la suite démonteraient deux fois la même racine.
 afterEach(async () => {
+  const aDemonter = racine;
+  const aRetirer = conteneur;
+  racine = undefined;
+  conteneur = undefined;
+  if (!aDemonter) return;
   await act(async () => {
-    racine.unmount();
+    aDemonter.unmount();
   });
-  conteneur.remove();
+  aRetirer?.remove();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,7 +209,7 @@ describe('CE QUI RESTE PRÈS DU POINT DE DÉPART NE FAIT RIEN', () => {
     const libelles = boutons().map((b) => b.textContent?.trim());
     expect(libelles, 'Annuler doit précéder la confirmation').toEqual(['Annuler', 'Retirer']);
 
-    const rangee = conteneur.querySelector('.geste-irr');
+    const rangee = vue().querySelector('.geste-irr');
     expect(rangee?.firstElementChild?.className, 'la question vient en tête').toContain(
       'geste-irr-q',
     );
