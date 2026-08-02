@@ -174,6 +174,13 @@ if ($env:NO_COLOR -or $Redirigee) {
   $NiveauCouleur = 16
 }
 
+# ─── LA COULEUR VRAIE NE SE DEVINE PAS ───────────────────────────────────────
+#
+# `COLORTERM` est la SEULE annonce fiable des 24 bits. Le module pur lit
+# exactement la même variable, et les deux doivent conclure pareil : sinon le
+# même terminal verrait deux marques différentes selon le fichier qui l'affiche.
+$VraieCouleur = ($NiveauCouleur -ne 0) -and ($env:COLORTERM -in @('truecolor', '24bit'))
+
 $AMBRE_256 = "$([char]27)[38;5;214m"
 $ATTENUE = "$([char]27)[2m"
 $REPRISE = "$([char]27)[0m"
@@ -241,11 +248,47 @@ function Cadre {
 # Le SYMBOLE porte le sens, la couleur ne fait que hiérarchiser. C'est ce qui
 # rend cette sortie lisible sans couleur du tout — en CI, dans un `less`, ou
 # pour quelqu'un qui ne distingue pas le rouge du vert.
-function Etape($m) { Dire ''; Ecrire "  $($SYM.curseur) $m" 'accent' }
-function Ok($m) { Ecrire "    $($SYM.fait) $m" }
-function Attente($m) { Ecrire "    $($SYM.avenir) $m" 'discret' }
-function Alerte($m) { Ecrire "    $($SYM.alerte) $m" 'discret' }
-function Echec($m) { Ecrire "    $($SYM.echec) $m" }
+# ─── LE RAIL ─────────────────────────────────────────────────────────────────
+#
+# Le même que celui de `src/tui/rendu.ts` et de `install.sh`, et pour la même
+# raison : une suite de lignes cochées dit « ça a marché » et ne dit jamais
+# « où en suis-je ». Une colonne continue le dit sans un mot.
+#
+#     ⬡  Vérification des prérequis
+#     │  ✔ Node v24.18.0
+#     │  ✔ git 2.51
+#     │
+#     ⬡  Installation des dépendances
+#
+# La perle PLEINE (`⬢`) n'existe pas ici, comme elle n'existe pas dans
+# `install.sh` : un script qui écrit une ligne ne revient jamais dessus — et il
+# ne doit pas, sinon sa sortie devient illisible dans un fichier de journal. La
+# déclarer serait déclarer une variante inatteignable (§ 6.2 du journal).
+$PERLE = if ($Unicode) { '⬡' } else { 'o' }
+
+# Le premier pas n'est précédé d'aucun segment : un rail qui commence par un
+# trait pendrait dans le vide.
+$script:PremierPas = $true
+
+function Etape($m) {
+  if ($script:PremierPas) { $script:PremierPas = $false; Dire '' }
+  else { Ecrire "  $($BORD.v)" 'discret' }
+  Ecrire "  $PERLE  $m" 'accent'
+}
+
+# Les verdicts PENDENT au rail. C'est ce trait, un caractère par ligne, qui
+# rattache une vérification à son étape — sans lui, l'écran redevient une liste.
+#
+# Le trait est écrit dans le MÊME appel que le verdict : `Ecrire` teinte la
+# ligne entière, et deux appels donneraient deux lignes. On accepte donc que le
+# trait porte le ton du verdict plutôt que le sien — c'est la seule concession,
+# et elle ne coûte que sur un caractère.
+function Ok($m) { Ecrire "  $($BORD.v)  $($SYM.fait) $m" }
+function Attente($m) { Ecrire "  $($BORD.v)  $($SYM.avenir) $m" 'discret' }
+function Alerte($m) { Ecrire "  $($BORD.v)  $($SYM.alerte) $m" 'discret' }
+# L'échec ne porte pas le rail : il part souvent seul, après un arrêt, et un
+# demi-rail orphelin ne voudrait plus rien dire.
+function Echec($m) { Ecrire "  $($SYM.echec) $m" }
 
 <#
 .SYNOPSIS
@@ -276,7 +319,29 @@ function Banniere {
   $espace = [Math]::Max(2, $interieur - $sous.Length - $marque.Length)
   $barre = $BORD.h * ($interieur + 2)
   Ecrire "$($BORD.hg)$barre$($BORD.hd)" 'discret'
-  Ecrire "$($BORD.v) $($titre.PadRight($interieur)) $($BORD.v)" 'accent'
+  # ─── LA MARQUE EN BLOCS, AUX MÊMES CONDITIONS QUE LE MODULE PUR ────────────
+  #
+  # `src/tui/rendu.ts` dessine « HIVE » en demi-blocs quand le terminal a
+  # l'Unicode, les cadres ET la couleur vraie. Les deux installeurs montraient,
+  # eux, un titre d'une ligne — sur le même terminal, la même machine, la même
+  # installation. Deux marques pour un produit, c'est zéro marque.
+  #
+  # `tests/installeurs.test.ts` confronte ces trois lignes à `BLOCS_HIVE`.
+  if ($Unicode -and $VraieCouleur -and $interieur -ge 22) {
+    # Le dégradé est posé PAR LIGNE : trois octets d'échappement au lieu de
+    # soixante-six, et sur trois lignes l'œil lit une transition tout aussi bien.
+    $blocs = @(
+      @('166;92;8',   '█  █  ███  █   █  ████'),
+      @('230;154;20', '████   █    █ █   ███ '),
+      @('250;205;96', '█  █  ███    █    ████')
+    )
+    foreach ($b in $blocs) {
+      $teinte = "$([char]27)[38;2;$($b[0])m"
+      Write-Host "$($BORD.v) $teinte$($b[1])$REPRISE$(' ' * ($interieur - 22)) $($BORD.v)"
+    }
+  } else {
+    Ecrire "$($BORD.v) $($titre.PadRight($interieur)) $($BORD.v)" 'accent'
+  }
   Ecrire "$($BORD.v) $("$sous$(' ' * $espace)$marque".PadRight($interieur)) $($BORD.v)"
   Ecrire "$($BORD.bg)$barre$($BORD.bd)" 'discret'
   Dire ''

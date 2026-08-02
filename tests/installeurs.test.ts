@@ -27,6 +27,7 @@ import { NODE_MIN, messagePrerequisNode, nodeSuffisant } from '../src/installer.
 import { NODE_MINIMUM } from '../src/shared/doctor.js';
 import {
   type Capacites,
+  BLOCS_HIVE,
   LARGEUR_MAX,
   LARGEUR_MIN_CADRES,
   banniere,
@@ -109,6 +110,41 @@ describe('LA CHARTE VISUELLE EST LA MÊME PARTOUT', () => {
     largeur: LARGEUR_MAX,
   };
   const pauvre: Capacites = { ...capable, couleur: 0, unicode: false };
+
+  it('LA MARQUE EN BLOCS EST LA MÊME DES DEUX CÔTÉS', () => {
+    // ─── DEUX MARQUES POUR UN PRODUIT, C'EST ZÉRO MARQUE ────────────────────
+    //
+    // `src/tui/rendu.ts` dessine « HIVE » en demi-blocs ; `install.sh` montrait
+    // un titre d'une ligne — sur le MÊME terminal, la même machine, la même
+    // installation. Et c'était le chemin le PLUS fréquenté qui était en retard :
+    // `install.sh` est ce qu'on voit en premier du projet.
+    //
+    // Cette garde compare les trois lignes du script au tableau du module. Elle
+    // ne recopie pas le dessin dans le test : une troisième copie divergerait
+    // à son tour.
+    for (const [i, ligne] of BLOCS_HIVE.entries()) {
+      expect(
+        SH,
+        `install.sh : BLOC_${String(i + 1)} devrait valoir la ligne ${String(i + 1)} de BLOCS_HIVE`,
+      ).toContain(`BLOC_${String(i + 1)}='${ligne}'`);
+      // Et le troisième porteur de la marque. Deux copies confrontées à
+      // l'original valent mieux que deux copies confrontées l'une à l'autre :
+      // celles-là peuvent dériver ENSEMBLE.
+      expect(PS, `install.ps1 : ligne ${String(i + 1)} de la marque`).toContain(`'${ligne}'`);
+    }
+  });
+
+  it('les trois conditions d’affichage de la marque sont les mêmes', () => {
+    // Le module exige Unicode, cadres ET couleur vraie. Si le script se
+    // contentait de l'Unicode, le même terminal verrait des blocs d'un côté et
+    // un titre de l'autre — une divergence qu'aucun des deux ne signalerait.
+    expect(SH, 'install.sh doit lire COLORTERM, la seule annonce fiable du 24 bits').toMatch(
+      /COLORTERM/,
+    );
+    expect(SH, 'install.sh doit exiger les trois conditions à la fois').toMatch(
+      /UNICODE" = 1 \] && \[ "\$VRAIE_COULEUR" = 1 \]/,
+    );
+  });
 
   it('les cinq symboles, et leur repli, sont ceux du module pur', () => {
     for (const [etat, ou] of [

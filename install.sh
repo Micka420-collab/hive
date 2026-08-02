@@ -62,8 +62,19 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     *) AMBRE=$(printf '\033[33m') ;;
   esac
   ATTENUE=$(printf '\033[2m'); ZERO=$(printf '\033[0m')
+  # ─── LA COULEUR VRAIE NE SE DEVINE PAS ────────────────────────────────────
+  #
+  # `COLORTERM` est la SEULE annonce fiable des 24 bits — `TERM` ne la porte
+  # pas, y compris sur des terminaux qui la gèrent depuis des années. Le module
+  # pur lit exactement la même variable (`niveauCouleur`), et les deux doivent
+  # conclure pareil : sinon le même terminal verrait deux marques différentes
+  # selon le fichier qui l'affiche.
+  case "${COLORTERM:-}" in
+    truecolor | 24bit) VRAIE_COULEUR=1 ;;
+    *) VRAIE_COULEUR=0 ;;
+  esac
 else
-  AMBRE=''; ATTENUE=''; ZERO=''
+  AMBRE=''; ATTENUE=''; ZERO=''; VRAIE_COULEUR=0
 fi
 
 # ─── L'alphabet, et son repli ────────────────────────────────────────────────
@@ -104,11 +115,55 @@ dire()    { printf '%s\n' "$*"; }
 accent()  { printf '%s%s%s\n' "$AMBRE" "$*" "$ZERO"; }
 discret() { printf '%s%s%s\n' "$ATTENUE" "$*" "$ZERO"; }
 
-etape()   { printf '\n'; printf '  %s%s%s %s\n' "$AMBRE" "$S_CURSEUR" "$ZERO" "$*"; }
-ok()      { printf '    %s %s\n' "$S_FAIT" "$*"; }
-attente() { printf '    %s%s %s%s\n' "$ATTENUE" "$S_AVENIR" "$*" "$ZERO"; }
-alerte()  { printf '    %s%s %s%s\n' "$ATTENUE" "$S_ALERTE" "$*" "$ZERO"; }
-echec()   { printf '    %s %s\n' "$S_ECHEC" "$*" >&2; }
+# ─── LE RAIL ─────────────────────────────────────────────────────────────────
+#
+# Le même que celui de `src/tui/rendu.ts`, et pour la même raison : une suite de
+# lignes cochées dit « ça a marché » et ne dit jamais « où en suis-je ». Une
+# colonne continue le dit sans un mot.
+#
+#     ⬡  Vérification des prérequis
+#     │  ✔ Node v24.18.0
+#     │  ✔ git 2.51
+#     │
+#     ⬡  Installation des dépendances
+#
+# ─── POURQUOI LA PERLE PLEINE N'EXISTE PAS ICI ───────────────────────────────
+#
+# Dans le module pur, `⬢` marque un pas TERMINÉ : l'installeur en TypeScript
+# tient un écran et peut le repeindre. Un script shell, lui, écrit une ligne et
+# ne revient jamais dessus — et il ne DOIT pas, sinon sa sortie devient
+# illisible dans un `tee`, un journal de CI ou un `less`.
+#
+# Une perle pleine serait donc INATTEIGNABLE ici. On ne la déclare pas : le
+# dépôt a déjà payé une frise d'hexagones que plus aucune largeur ne pouvait
+# afficher, et une variante qui ne peut pas aboutir donne l'illusion d'une
+# couverture (§ 6.2 du journal).
+if [ "$UNICODE" = 1 ]; then PERLE='⬡'; else PERLE='o'; fi
+
+# Le premier pas n'est précédé d'aucun segment : un rail qui commence par un
+# trait pendrait dans le vide.
+PREMIER_PAS=1
+
+etape() {
+  if [ "$PREMIER_PAS" = 1 ]; then
+    PREMIER_PAS=0
+    printf '\n'
+  else
+    printf '  %s%s%s\n' "$ATTENUE" "$B_V" "$ZERO"
+  fi
+  printf '  %s%s  %s%s\n' "$AMBRE" "$PERLE" "$*" "$ZERO"
+}
+
+# Les verdicts PENDENT au rail. C'est ce trait, un caractère par ligne, qui
+# rattache une vérification à son étape — sans lui, l'écran redevient une liste.
+rameau()  { printf '  %s%s%s  ' "$ATTENUE" "$B_V" "$ZERO"; }
+ok()      { rameau; printf '%s %s\n' "$S_FAIT" "$*"; }
+attente() { rameau; printf '%s%s %s%s\n' "$ATTENUE" "$S_AVENIR" "$*" "$ZERO"; }
+alerte()  { rameau; printf '%s%s %s%s\n' "$ATTENUE" "$S_ALERTE" "$*" "$ZERO"; }
+# L'échec part sur stderr, donc SANS rail : les deux flux sont mêlés à
+# l'affichage mais séparés dans un `2>fichier`, où un demi-rail orphelin ne
+# voudrait plus rien dire.
+echec()   { printf '  %s %s\n' "$S_ECHEC" "$*" >&2; }
 
 # ─── Le cadre, et la marque ──────────────────────────────────────────────────
 #
@@ -170,6 +225,38 @@ cadre() {
   discret "$B_BG$(barre $((interieur + 2)))$B_BD"
 }
 
+# ─── « HIVE » EN DEMI-BLOCS, LES MÊMES QUE `src/tui/rendu.ts` ────────────────
+#
+# Les demi-blocs donnent deux rangées de pixels par ligne de texte : une
+# capitale lisible tient donc en TROIS lignes là où un dessin en `#` en
+# demanderait cinq — et la charte plafonne la bannière à quatre.
+#
+# Le dégradé est POSÉ PAR LIGNE, pas par caractère : trois octets
+# d'échappement au lieu de soixante-six. En `sh` nu, une boucle par caractère
+# coûterait un `printf` par colonne et se verrait à l'affichage ; et sur trois
+# lignes seulement, l'œil lit une transition tout aussi bien.
+#
+# `tests/installeurs.test.ts` confronte ces trois lignes à `BLOCS_HIVE` : si
+# l'une des deux marques dérive, l'autre le dit.
+BLOC_1='█  █  ███  █   █  ████'
+BLOC_2='████   █    █ █   ███ '
+BLOC_3='█  █  ███    █    ████'
+
+marque_blocs() {
+  interieur=$1
+  comble=$((interieur - 22))
+  [ "$comble" -lt 0 ] && comble=0
+  vide=$(printf "%${comble}s" '')
+  # Du brun-miel au jaune pâle — la rampe de `RAMPE_MIEL`, échantillonnée aux
+  # trois hauteurs de la lettre.
+  for paire in "166;92;8 $BLOC_1" "230;154;20 $BLOC_2" "250;205;96 $BLOC_3"; do
+    teinte=${paire%% *}
+    dessin=${paire#* }
+    printf '%s %s%s%s%s %s\n' \
+      "$B_V" "$(printf '\033[38;2;%sm' "$teinte")" "$dessin" "$ZERO" "$vide" "$B_V"
+  done
+}
+
 # La marque : l'hexagone, le nom espacé, le sous-titre, le marqueur à droite.
 # Quatre lignes au plus, affichées UNE SEULE FOIS, en haut.
 banniere() {
@@ -194,8 +281,24 @@ banniere() {
   [ "$comble" -lt 0 ] && comble=0
 
   discret "$B_HG$(barre $((interieur + 2)))$B_HD"
-  printf '%s %s%s%s%s %s\n' \
-    "$B_V" "$AMBRE" "$titre" "$ZERO" "$(printf "%${comble}s" '')" "$B_V"
+  # ─── LA MARQUE EN BLOCS, AUX MÊMES CONDITIONS QUE LE MODULE PUR ────────────
+  #
+  # `src/tui/rendu.ts` dessine « HIVE » en demi-blocs quand le terminal a
+  # l'Unicode, les cadres ET la couleur vraie. Ce script montrait, lui, un titre
+  # d'une ligne — sur le même terminal, la même machine, la même installation.
+  #
+  # Deux marques pour un même produit, c'est zéro marque. Et c'est en plus la
+  # forme exacte du § 9 bis du journal : deux chemins pour un même geste, dont
+  # le moins fréquenté finit par mentir. Ici c'était le PLUS fréquenté qui
+  # était en retard — `install.sh` est ce qu'on voit en premier.
+  #
+  # Les trois conditions sont donc les mêmes des deux côtés, à la lettre.
+  if [ "$UNICODE" = 1 ] && [ "$VRAIE_COULEUR" = 1 ] && [ "$interieur" -ge 22 ]; then
+    marque_blocs "$interieur"
+  else
+    printf '%s %s%s%s%s %s\n' \
+      "$B_V" "$AMBRE" "$titre" "$ZERO" "$(printf "%${comble}s" '')" "$B_V"
+  fi
   cadre_ligne "$sous$remplissage$marqueur"
   discret "$B_BG$(barre $((interieur + 2)))$B_BD"
   dire ''
@@ -399,7 +502,9 @@ fi
 # dont un non testé.
 
 etape "Configuration"
-dire ""
+# Pas de `dire ""` ici : une ligne vide entre la perle et son premier rameau
+# ROMPRAIT le rail, qui n'a de sens que continu. C'était la seule rupture de
+# la colonne, et elle se voyait à l'écran sans se voir dans le code.
 if [ "$SEC" = 1 ]; then
   alerte "--dry-run : l'installeur n'est pas lancé."
   # LE `--` N'EST PAS DÉCORATIF, et cette ligne l'a longtemps oublié. Elle
