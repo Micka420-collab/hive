@@ -1789,6 +1789,48 @@ colonnes depuis. La chaîne ne correspondait plus, le fichier était intact.
 --stat`) avant de conclure quoi que ce soit sur le vert. Un mutant qui échoue
 > à s'appliquer ment dans le sens rassurant — le pire des deux.
 
+### 9ter.5 — L'outil qui traque les faux verts en était un
+
+`suiteRougit()` lançait `execFileSync('npx', ['vitest', …])` dans un `try` dont
+le `catch` rendait « la suite a rougi ». Il ne distinguait pas :
+
+```
+les tests ont mordu        ← un verdict
+les tests n'ont pas tourné ← une panne
+```
+
+Sous Windows, `npx` est `npx.cmd` et `spawn` sans interpréteur ne sait pas le
+lancer. Chaque mutant y partait en **ENOENT, en trois millisecondes**, était
+compté « ✔ défendue », et la loupe imprimait « LA LOUPE NE VOIT RIEN DE NU »
+puis sortait en 0 — **sans avoir exécuté un seul test**.
+
+Ce n'est pas un défaut parmi d'autres : les verdicts de la loupe sont cités
+comme preuve dans une trentaine de commentaires de ce dépôt — « 17 mutants, 17
+morts », « la loupe l'a montré équivalent ». Sur une machine Windows, aucune de
+ces phrases n'avait de sens.
+
+Le fichier met en garde, dans son propre en-tête, contre `new URL(...).pathname`
+— l'AUTRE piège Windows. Il est passé à côté de celui-ci. Savoir qu'une classe
+de pièges existe ne protège pas de ses autres membres.
+
+Et l'éprouver en a révélé un troisième : `import`er `loupe.mjs` **déclenchait**
+une campagne de mutation complète. Un test qui voulait vérifier une fonction
+pure de vingt lignes a mis le dépôt en mutation ; interrompu, il a laissé
+`src/tui/rendu.ts` muté dans l'arbre.
+
+> **Règle** — un `catch` qui décide d'un VERDICT doit distinguer l'échec du
+> sujet de l'échec de la mesure. En pratique : n'accepter un verdict que sur
+> une preuve POSITIVE que la mesure a eu lieu — un code de sortie numérique,
+> un fichier écrit, une ligne lue. `ENOENT`, un signal, un `timeout` ne sont
+> pas des résultats.
+>
+> **Règle** — un outil qui n'a pas pu regarder le DIT et s'arrête. Il ne rend
+> jamais le verdict le plus rassurant par défaut.
+>
+> **Règle** — tout fichier destiné à être lancé se termine par une garde de
+> point d'entrée. Sans elle, l'importer pour le tester exécute son travail —
+> et le tester devient plus dangereux que ne pas le tester.
+
 ### 9ter.3 — La loupe ne regardait pas là où le code neuf était
 
 Elle ne prenait le diff que de `src` et `dashboard/src`. Le jour où
