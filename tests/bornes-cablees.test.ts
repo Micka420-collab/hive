@@ -58,15 +58,42 @@ describe('AUCUNE DOCSTRING NE PROMET UN ÉLAGAGE QUI N’EXISTE PAS', () => {
   // commentaire : elle fait CROIRE la table bornée, et c'est elle qu'on relit
   // pour décider de ne rien ajouter.
 
-  it('la table `tasks` n’a toujours pas d’élagueur — la garde tombe le jour où elle en aura un', () => {
-    // Cette assertion est écrite pour DEVENIR fausse. Le jour où `pruneTasks`
-    // arrivera, elle rougira, et celui qui l'écrira ira relire les deux
-    // docstrings — qui redeviendront vraies et devront être remises à jour.
+  it('la table `tasks` A MAINTENANT son élagueur, et il est CÂBLÉ', () => {
+    // ─── CETTE ASSERTION ÉTAIT ÉCRITE POUR DEVENIR FAUSSE ──────────────────
+    //
+    // Elle affirmait le contraire — « `pruneTasks` n'existe pas » — avec cette
+    // note : « le jour où il arrivera, elle rougira, et celui qui l'écrira ira
+    // relire les deux docstrings ». C'est exactement ce qui s'est passé : le
+    // lot 17 a ajouté l'élagueur, la garde a rougi, et les docstrings ont été
+    // reprises dans le même changement.
+    //
+    // Elle est retournée plutôt que supprimée. Une borne qui existe et qu'on
+    // n'appelle pas est le défaut que TOUT ce fichier surveille : trois bornes
+    // du dépôt ont vécu des mois écrites et jamais câblées.
     const store = sansCommentaires('src/orchestrator/store.ts');
+    expect(/^ {2}pruneTasks\(/m.test(store), '`pruneTasks` a disparu du store').toBe(true);
+
+    const serveur = sansCommentaires('src/orchestrator/server.ts');
     expect(
-      /^ {2}pruneTasks\(/m.test(store),
-      'si `pruneTasks` existe, les deux docstrings référentielles doivent redevenir affirmatives',
-    ).toBe(false);
+      /store\.pruneTasks\(/.test(serveur),
+      '`pruneTasks` existe mais rien ne l’appelle — une borne écrite et pas câblée',
+    ).toBe(true);
+  });
+
+  it('l’élagage des tâches passe AVANT les bornes référentielles', () => {
+    // Une borne référentielle ne nettoie que ce qui est DÉJÀ orphelin. Si
+    // `pruneTasks` était appelée après `pruneTachesIssue`, les liens de la
+    // tâche qu'elle vient de supprimer attendraient le tick SUIVANT — et sur
+    // une ruche qu'on redémarre souvent, ils ne partiraient jamais.
+    const serveur = sansCommentaires('src/orchestrator/server.ts');
+    const tasks = serveur.indexOf('store.pruneTasks(');
+    const issue = serveur.indexOf('store.pruneTachesIssue(');
+    const contre = serveur.indexOf('store.pruneContreExpertises(');
+    expect(tasks, '`pruneTasks` introuvable dans le tick').toBeGreaterThan(-1);
+    expect(issue, '`pruneTachesIssue` introuvable dans le tick').toBeGreaterThan(-1);
+    expect(contre, '`pruneContreExpertises` introuvable dans le tick').toBeGreaterThan(-1);
+    expect(tasks, '`pruneTasks` est appelée APRÈS `pruneTachesIssue`').toBeLessThan(issue);
+    expect(tasks, '`pruneTasks` est appelée APRÈS `pruneContreExpertises`').toBeLessThan(contre);
   });
 
   it('TANT QU’IL N’Y EN A PAS, aucune docstring ne prétend le contraire', () => {

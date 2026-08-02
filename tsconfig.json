@@ -14,5 +14,12 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests"],
+  // ─── LE TSX EST LA CHAÎNE DU DASHBOARD, PAS CELLE-CI ────────────────────────
+  //
+  // Ce projet-ci compile du code NODE : son `lib` exclut volontairement `dom`,
+  // et il n'a pas `jsx`. Un test qui rend un composant React relève de
+  // `dashboard/tsconfig.json`, qui a déjà la résolution, la bibliothèque DOM et
+  // le pragma JSX qu'il faut. C'est LÀ qu'il est typé — pas nulle part.
+  "exclude": ["tests/**/*.tsx"]
 }

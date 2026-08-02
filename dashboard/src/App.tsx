@@ -51,7 +51,7 @@ const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
 
-const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [] };
+const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
 interface NavItem {
   id: ViewId;

@@ -748,6 +748,37 @@ expect(total.length, 'les scripts lus sont vides').toBeGreaterThan(2000);
 > une ligne particulière. Si la portée choisie a une frontière, le prochain
 > auteur écrira de l'autre côté — sans le faire exprès.
 
+### 2.11 — Deux façons pour un test d'ORDRE d'être indécidable
+
+Un test devait prouver qu'une fenêtre sur les tâches ne change pas l'ordre
+promis (`createdAt` croissant). La mutation qui retirait le tri final **a
+survécu deux fois**, et pour deux raisons différentes — aucune visible en
+relisant le test.
+
+**1. Les valeurs comparées étaient toutes égales.** `createTask` prend
+`now = Date.now()` par défaut : six tâches posées dans une boucle naissent à la
+même milliseconde. `[...dates].sort()` est alors trivialement égal à `dates` —
+six valeurs identiques sont triées dans tous les sens.
+
+**2. La source rendait déjà l'ordre attendu.** Corrigé le premier point, j'ai
+posé les tâches avec des âges CROISSANTS. La requête les rend de la plus fraîche
+à la plus vieille, c'est-à-dire dans l'ordre inverse des âges — donc dans
+l'ordre de création. Le tri final n'avait rien à faire, et le retirer ne changeait
+rien.
+
+Il fallait que la **dernière créée soit la plus fraîche** : la requête la sort en
+tête, là où l'ordre promis la met en queue. Alors seulement le tri porte.
+
+> **Règle** — un test d'ordre doit d'abord garantir que les clés de tri sont
+> **distinctes**. Une assertion sur un tri de valeurs égales est vraie pour
+> n'importe quel code. Ici, une ligne suffit :
+> `expect(new Set(dates).size).toBe(dates.length)`.
+
+> **Règle** — et il doit partir d'une entrée **déjà désordonnée pour le critère
+> testé**. Si la source rend spontanément le bon ordre, on teste la source, pas
+> le tri. La question à se poser : « si j'enlève le tri, qu'est-ce qui change ? »
+> — si la réponse est « rien », le test ne vaut rien, quelle que soit sa prose.
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois

@@ -29,6 +29,75 @@ l'avertissement en tête de ce carnet.
 
 ---
 
+## Lot 17 — la table `tasks` a enfin sa borne, et l'instantané sa fenêtre
+
+Deux défauts, la même racine : **rien ne bornait les tâches**, ni sur disque ni
+sur le fil.
+
+### Ce que coûtait un instantané, mesuré
+
+`getSnapshot()` chargeait la table entière, et `broadcastState()` la rediffuse à
+**chaque changement d'état**. Mesuré sur ce dépôt, tâches de longueur réaliste :
+
+| tâches     | `getSnapshot` | `JSON.stringify` | octets envoyés |
+| ---------- | ------------- | ---------------- | -------------- |
+| 500        | 3,9 ms        | 2,3 ms           | 0,23 Mo        |
+| 2 000      | 14,2 ms       | 8,9 ms           | 0,91 Mo        |
+| 5 000      | 39,4 ms       | 21,5 ms          | 2,28 Mo        |
+| **20 000** | **182,1 ms**  | **94,6 ms**      | **9,13 Mo**    |
+
+À 20 000 tâches, un seul changement d'état **bloque la boucle 277 ms** et pousse
+9,1 Mo à chaque tableau de bord connecté. L'orchestrateur est mono-thread :
+pendant ce temps, il ne répond à personne.
+
+L'instantané porte donc une **fenêtre** de 2 000 tâches — le dernier palier qui
+tient sous ~25 ms. Et il porte `tasksTotal`, le compte réel : sans ce champ, un
+instantané tronqué a exactement l'air d'un instantané complet, et l'écran fait
+compter faux à qui le lit. `StatTiles` l'affiche quand la fenêtre mord.
+
+**L'ordre n'est pas « les plus récentes ».** Les tâches vivantes passent TOUTES,
+quel que soit leur âge ; la limite ne rogne que sur les terminées. Une fenêtre
+par date perdrait la tâche bloquée depuis un an — exactement celle qu'on cherche
+quand quelque chose ne va pas.
+
+### `pruneTasks`, et les deux choses qu'il ne supprime pas
+
+`tasks` était la seule table du dépôt sans élagueur. Pire : deux bornes
+référentielles justifiaient leur conception par « les tâches ont déjà leur
+propre élagage ». C'était faux, et mesuré comme tel — elles supprimaient **0
+ligne, pour toujours**. Elles sont vraies depuis ce lot.
+
+| ne part pas                              | pourquoi                                                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| une tâche dont une **survivante** dépend | `dependsOn` cite des identifiants ; une tâche qui attend un id disparu n'est jamais prête     |
+| la **mémoire** (`memories`)              | le Cerveau existe pour que le savoir dure plus longtemps que l'épisode ; il a sa propre borne |
+
+Le premier point est le piège : protéger « tout id cité par une tâche, quelle
+qu'elle soit » aurait l'air prudent, et ferait de la borne un no-op de plus — sur
+une chaîne A ← B ← C terminée, seul le dernier maillon partirait, à jamais. On
+n'exclut donc que les ids cités par les tâches qui **survivent**.
+
+La rétention est **temporelle** (30 jours) là où toutes les autres comptent des
+lignes. « Les 5 000 dernières » effacerait le mois de janvier d'un projet actif
+et garderait trois ans d'un projet endormi : la même règle, deux résultats
+opposés. Trente jours veut dire la même chose pour tout le monde.
+
+### Ce qui tient
+
+**Dix mutations, dix rouges** — dont la borne rendue muette, la protection
+étendue à toute tâche (le no-op), l'emport des tâches vivantes, la rétention
+ignorée, la cascade sur la mémoire, l'oubli de la cascade sur `reviews`, la
+fenêtre retirée, `tasksTotal` qui ment, l'ordre passé aux « plus récentes », et
+le tri final supprimé.
+
+Le dernier a **survécu deux fois** avant de tomber. La première parce que mes six
+tâches naissaient dans la même milliseconde — six `createdAt` identiques sont
+triés dans tous les sens. La seconde parce que j'avais mis les deux ordres dans
+le même sens, si bien que la requête rendait déjà le résultat attendu. C'est la
+mutation qui l'a dit, pas la relecture.
+
+---
+
 ## Le haut de page repris du design — les quatre pièces qui manquaient
 
 La maquette de Claude Design pose le texte à gauche et un rayon d'alvéoles à

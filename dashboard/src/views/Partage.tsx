@@ -62,7 +62,10 @@ function instantaneDe(projectId: string, nom: string): StateSnapshot {
       },
     ],
     nodes: [],
+    // Le Rayon ne montre que des FICHIERS : il n'a besoin d'aucune tâche, et
+    // zéro sur zéro n'est pas une troncature — c'est une absence honnête.
     tasks: [],
+    tasksTotal: 0,
   };
 }
 

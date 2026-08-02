@@ -83,8 +83,40 @@ export interface HiveEvent {
 export interface StateSnapshot {
   projects: Project[];
   nodes: HiveNode[];
+  /**
+   * Une FENÊTRE sur les tâches, pas la table entière.
+   *
+   * Toutes les tâches vivantes y sont, quel que soit leur âge ; la limite ne
+   * rogne que sur les terminées, des plus récentes aux plus vieilles.
+   */
   tasks: Task[];
+  /**
+   * Le nombre RÉEL de tâches, `tasks.length` compris.
+   *
+   * ─── POURQUOI CE CHAMP EXISTE ──────────────────────────────────────────────
+   *
+   * Sans lui, un instantané tronqué a exactement l'air d'un instantané complet.
+   * C'est le mode de panne que ce dépôt redoute le plus : « un contexte amputé
+   * mais qui a l'air complet est pire qu'une erreur, parce que personne ne va
+   * vérifier ». Un tableau de bord qui affiche 2 000 tâches sur 20 000 sans le
+   * dire fait compter faux à qui le lit.
+   *
+   * `tasksTotal > tasks.length` est donc la façon dont l'instantané ANNONCE sa
+   * propre troncature, et l'écran a de quoi le dire.
+   */
+  tasksTotal: number;
 }
+
+/**
+ * Combien de tâches un instantané transporte au plus.
+ *
+ * 2 000 est mesuré, pas choisi : c'est le dernier palier où la fabrication et
+ * la sérialisation d'un instantané tiennent sous ~25 ms au total (14,2 + 8,9),
+ * pour 0,91 Mo par tableau de bord connecté. Le palier suivant, 5 000, double
+ * déjà la note ; 20 000 la porte à 277 ms — pendant lesquelles l'orchestrateur,
+ * mono-thread, ne répond à personne.
+ */
+export const LIMITE_TACHES_INSTANTANE = 2000;
 
 // ─── Constantes de fonctionnement ────────────────────────────────────────────
 /** Nombre maximal de tentatives avant de marquer une tâche `failed`. */
