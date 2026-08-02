@@ -60,6 +60,65 @@ describe('coquille du dashboard', () => {
   });
 });
 
+describe('« + Projet » ne suit pas les treize vues', () => {
+  // ─── CE QUE LA LOUPE A NOMMÉ ───────────────────────────────────────────────
+  //
+  // Le bouton vivait dans l'en-tête COMMUN : il suivait les treize vues et
+  // proposait de créer un projet depuis la Santé ou le Rayon — une action sans
+  // rapport avec ce qu'on regarde. La refonte l'a conditionné, et personne ne
+  // gardait la condition : `&&` muté en `||` survivait, et le bouton reparaît
+  // partout sans qu'un test bronche.
+
+  /** Le bloc des actions de l'en-tête, là où le bouton vit. */
+  const actions = (): string => {
+    const i = APP.indexOf('topbar-actions');
+    expect(i, 'le bloc d’actions de l’en-tête a disparu').toBeGreaterThan(-1);
+    return APP.slice(i, i + 900);
+  };
+
+  /**
+   * Le texte qui précède le BOUTON, commentaire compris.
+   *
+   * On vise l'appel JSX `t('+ Projet'` et non la chaîne nue : le commentaire
+   * juste au-dessus nomme lui aussi « + Projet », et découper dessus plaçait
+   * la condition APRÈS la coupe — le test cherchait la garde dans un morceau
+   * qui ne pouvait pas la contenir, et rougissait sur du code correct.
+   */
+  const avantLeBouton = (): string => {
+    const bloc = actions();
+    const i = bloc.indexOf("t('+ Projet'");
+    expect(i, 'le bouton « + Projet » a disparu de l’en-tête').toBeGreaterThan(-1);
+    return bloc.slice(0, i);
+  };
+
+  it('LE RELEVÉ TROUVE LE BOUTON — sinon tout ce qui suit est creux', () => {
+    expect(actions()).toContain("t('+ Projet'");
+  });
+
+  it('IL EST CONDITIONNÉ À LA VUE « projets », ET PAR UN ET', () => {
+    // `||` rendrait la condition toujours vraie : c'est exactement le mutant
+    // qui survivait. On exige la conjonction, pas seulement la mention.
+    const avant = avantLeBouton();
+    expect(avant, 'le bouton n’est plus conditionné à la vue').toMatch(
+      /route\.view === 'projets'\s*&&/,
+    );
+    expect(avant, 'un OU rendrait la condition toujours vraie').not.toMatch(
+      /route\.view === 'projets'\s*\|\|/,
+    );
+  });
+
+  it('…ET C’EST BIEN « projets », pas une autre vue', () => {
+    // Un test qui accepterait n'importe quelle vue laisserait le bouton
+    // atterrir sur la Santé sans rougir.
+    const vues = [...avantLeBouton().matchAll(/route\.view === '([a-z]+)'/g)].map((m) => m[1]);
+    expect(vues).toContain('projets');
+    expect(
+      vues.filter((v) => v !== 'projets'),
+      'une autre vue s’est glissée dans la garde',
+    ).toEqual([]);
+  });
+});
+
 describe('les alertes du tableau de bord se traduisent', () => {
   // Le serveur envoie une CLÉ ; la phrase se compose côté navigateur, dans la
   // langue de l'interface. Une clé ajoutée au module pur sans son cas dans la
