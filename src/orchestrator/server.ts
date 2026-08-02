@@ -243,6 +243,27 @@ export const RESULT_RETENTION = 5_000;
 export const LIVRAISONS_RETENTION = 10_000;
 
 /**
+ * Âge au-delà duquel une tâche TERMINÉE est effacée. Trente jours.
+ *
+ * ─── LA SEULE BORNE DE CE DÉPÔT QUI SOIT TEMPORELLE, ET POURQUOI ────────────
+ *
+ * Toutes les autres comptent des lignes (« garder les 5 000 dernières »). Celle
+ * -ci compte des JOURS, et l'écart n'est pas un caprice : une tâche est la
+ * trace d'un travail qu'un humain a demandé et relu. « Les 5 000 dernières »
+ * effacerait le mois de janvier d'un projet actif et garderait trois ans d'un
+ * projet endormi — la même règle, deux résultats opposés, aucun des deux
+ * défendable devant celui qui cherche ce qu'il a livré.
+ *
+ * Trente jours, en revanche, veut dire la même chose pour tout le monde.
+ *
+ * L'inégalité qui compte : cette rétention est STRICTEMENT PLUS LONGUE que
+ * celle des résultats et des livraisons — sinon on effacerait la tâche avant
+ * les lignes qui la citent, et les bornes référentielles perdraient ce qu'elles
+ * sont censées nettoyer À PARTIR d'elle.
+ */
+export const TACHES_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
  * Livraisons dont on va lire les faits en une fois.
  *
  * BORNE DE COURTOISIE, et elle protège l'hôte plus que GitHub : chaque
@@ -6822,6 +6843,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneResults(RESULT_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
+      // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
+      //
+      // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes
+      // référentielles juste dessous se justifiaient par « les tâches ont déjà
+      // leur propre élagage » — c'était faux, et mesuré comme tel : sur 2 000
+      // tâches, elles supprimaient 0 ligne, pour toujours.
+      //
+      // ELLE PASSE AVANT ELLES, et l'ordre est le sujet : une borne
+      // référentielle ne peut nettoyer que ce qui est DÉJÀ orphelin. Appelée en
+      // premier, elle ne verrait rien et il faudrait attendre le tick suivant.
+      store.pruneTasks(TACHES_RETENTION_MS);
       // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
       store.pruneTachesIssue();
       // Idem pour le lien relecture→production. Câblé ICI, dans le même

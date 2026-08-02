@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { LIMITS } from '../shared/protocol.js';
+import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
@@ -1185,6 +1186,118 @@ export class HiveStore {
     return rows.map(rowToTask);
   }
 
+  /** Le nombre de tâches, sans en charger une seule. */
+  compterTaches(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n;
+  }
+
+  /**
+   * Les `limite` tâches qui comptent le plus pour un écran, et rien de plus.
+   *
+   * ─── POURQUOI CETTE MÉTHODE EXISTE ─────────────────────────────────────────
+   *
+   * `getSnapshot()` chargeait la table ENTIÈRE, et `broadcastState()` la
+   * rediffuse à chaque changement d'état. Mesuré sur ce dépôt, tâches de
+   * longueur réaliste :
+   *
+   *     tâches | getSnapshot | JSON.stringify | octets envoyés
+   *     -------|-------------|----------------|----------------
+   *        500 |     3,9 ms  |      2,3 ms    |  0,23 Mo
+   *      2 000 |    14,2 ms  |      8,9 ms    |  0,91 Mo
+   *      5 000 |    39,4 ms  |     21,5 ms    |  2,28 Mo
+   *     20 000 |   182,1 ms  |     94,6 ms    |  9,13 Mo
+   *
+   * À 20 000 tâches, un seul changement d'état BLOQUE la boucle 277 ms et
+   * pousse 9,1 Mo à chaque tableau de bord connecté. L'orchestrateur est
+   * mono-thread : pendant ce temps, il ne répond à personne.
+   *
+   * ─── L'ORDRE N'EST PAS « LES PLUS RÉCENTES » ───────────────────────────────
+   *
+   * Prendre les N dernières par date perdrait une tâche VIVANTE mais ancienne —
+   * exactement celle qu'on regarde quand quelque chose ne va pas. Les tâches
+   * non terminales passent donc TOUTES en premier, quel que soit leur âge ;
+   * la limite ne rogne que sur les terminées, des plus récentes aux plus
+   * vieilles.
+   *
+   * Le retour est ensuite retrié par `createdAt` : `listTasks` promet cet
+   * ordre-là, et une fenêtre ne doit pas changer le contrat, seulement sa
+   * taille.
+   */
+  tachesPourEcran(limite: number): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks
+          ORDER BY (status IN ('done', 'failed')) ASC, updatedAt DESC, id
+          LIMIT ?`,
+      )
+      .all(limite) as TaskRow[];
+    return rows
+      .map(rowToTask)
+      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /**
+   * Élague les tâches TERMINÉES au-delà de la rétention.
+   *
+   * ─── LA SEULE TABLE DU DÉPÔT QUI N'AVAIT PAS DE BORNE ──────────────────────
+   *
+   * `pruneTachesIssue` et `pruneContreExpertises` sont des bornes RÉFÉRENTIELLES
+   * — elles suppriment les liens dont la tâche n'existe plus. Leurs docstrings
+   * ont longtemps justifié cette conception par « les tâches ont déjà leur
+   * propre élagage ». C'était faux, et mesuré comme tel : sur 2 000 tâches, les
+   * deux supprimaient 0 ligne, pour toujours. Aucune tâche ne disparaissant
+   * jamais, aucun lien n'était jamais orphelin.
+   *
+   * Cette méthode-ci les rend enfin vraies.
+   *
+   * ─── DEUX CHOSES QU'ELLE NE SUPPRIME PAS, ET POURQUOI ──────────────────────
+   *
+   * 1. UNE TÂCHE DONT UNE SURVIVANTE DÉPEND ENCORE. C'est la correction qui
+   *    compte : `dependsOn` cite des identifiants, et une tâche qui attend un id
+   *    disparu n'est jamais prête — elle reste bloquée sans que rien ne le dise.
+   *    Le `EXCEPT` ci-dessous exclut donc les ids cités par les tâches qui
+   *    RESTENT. Une chaîne entière de tâches terminées part bien d'un bloc :
+   *    protéger les ids cités par n'importe quelle tâche, y compris celles qu'on
+   *    supprime, aurait fait de cette borne un no-op de plus.
+   *
+   * 2. LA MÉMOIRE. `memories` porte un `taskId`, et pourtant elle survit : le
+   *    Cerveau existe précisément pour que le SAVOIR dure plus longtemps que
+   *    l'épisode qui l'a produit. Il a sa propre borne, `pruneMemories`, qui
+   *    élague par genre et par usage. Cascader ici effacerait les leçons en même
+   *    temps que les faits — c'est-à-dire tout ce que le projet cherche à ne pas
+   *    perdre.
+   *
+   * `reviews`, elle, cascade : un verdict sur une tâche qui n'existe plus ne
+   * désigne rien, et aucune autre borne ne la nettoierait.
+   */
+  pruneTasks(retentionMs: number, now = Date.now()): number {
+    const seuil = now - retentionMs;
+    const supprimer = this.db.transaction((limite: number) => {
+      const condamnees = (
+        this.db
+          .prepare(
+            `SELECT id FROM tasks
+              WHERE status IN ('done', 'failed') AND updatedAt < ?
+             EXCEPT
+             SELECT j.value FROM tasks t, json_each(t.dependsOn) j
+              WHERE NOT (t.status IN ('done', 'failed') AND t.updatedAt < ?)`,
+          )
+          .all(limite, limite) as { id: string }[]
+      ).map((r) => r.id);
+      if (condamnees.length === 0) return 0;
+      let partis = 0;
+      const LOT = 900; // sous la limite de variables liées de SQLite
+      for (let i = 0; i < condamnees.length; i += LOT) {
+        const lot = condamnees.slice(i, i + LOT);
+        const trous = lot.map(() => '?').join(', ');
+        this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
+        partis += this.db.prepare(`DELETE FROM tasks WHERE id IN (${trous})`).run(...lot).changes;
+      }
+      return partis;
+    });
+    return supprimer(seuil);
+  }
+
   /**
    * Lecture ciblée par CLÉ PRIMAIRE : seules les colonnes et les lignes
    * demandées. Découpée en lots de 900 pour rester sous la limite de variables
@@ -2165,28 +2278,27 @@ export class HiveStore {
   /**
    * Élague les liens dont la tâche n'existe plus.
    *
-   * ─── CETTE BORNE NE SUPPRIME RIEN, ET IL FAUT LE DIRE ──────────────────────
+   * ─── ELLE A ÉTÉ UN NO-OP PENDANT DES MOIS, ET ON SAIT POURQUOI ─────────────
    *
-   * Elle est RÉFÉRENTIELLE plutôt que temporelle : un lien sans sa tâche ne
-   * désigne plus rien. Le raisonnement tenait à une prémisse — « les tâches ont
-   * déjà leur propre élagage » — et **cette prémisse est fausse**. `tasks` est
-   * la seule table du dépôt sans élagueur : aucun `pruneTasks` n'existe.
+   * Cette borne est RÉFÉRENTIELLE plutôt que temporelle : un lien sans sa tâche
+   * ne désigne plus rien. Le raisonnement d'origine tenait à une prémisse —
+   * « les tâches ont déjà leur propre élagage » — qui était **fausse**. `tasks`
+   * a longtemps été la seule table du dépôt sans élagueur.
    *
-   * Mesuré, plutôt que déduit : sur 2 000 tâches et autant de liens,
+   * Mesuré à l'époque, plutôt que déduit : sur 2 000 tâches et autant de liens,
    *
    *     pruneTachesIssue()      supprime : 0
    *     pruneContreExpertises() supprime : 0
    *     tâches après élagage    : 2 000
    *
-   * Aucune tâche ne disparaissant jamais, aucun lien n'est jamais orphelin.
-   * Cette borne est donc un NO-OP permanent, et le restera tant que `tasks`
-   * n'aura pas la sienne.
+   * Aucune tâche ne disparaissant jamais, aucun lien n'était jamais orphelin.
    *
-   * On ne la retire pas : elle sera juste le jour où l'élagage des tâches
-   * arrivera, et c'est le bon ordre — la borne référentielle existe AVANT ce
-   * qu'elle borne. Mais la docstring ne peut plus justifier une conception par
-   * un fait qui n'est pas vrai : c'est cette phrase-là qui a fait accepter la
-   * décision, et qui aurait fait croire la table bornée.
+   * ─── LE LOT 17 L'A RENDUE VRAIE ────────────────────────────────────────────
+   *
+   * `pruneTasks` existe désormais, et le tick l'appelle **avant** celle-ci —
+   * l'ordre compte, puisqu'une borne référentielle ne voit que ce qui est déjà
+   * orphelin. La prémisse d'origine est enfin exacte ; elle ne l'était pas
+   * quand on s'en est servi pour décider.
    *
    * Voir `docs/ETAPES.md`, lot 17.
    */
@@ -2265,10 +2377,13 @@ export class HiveStore {
   /**
    * Élague les liens dont l'une des deux tâches n'existe plus.
    *
-   * Même borne RÉFÉRENTIELLE que `pruneTachesIssue` — et, comme elle, un NO-OP
-   * permanent tant que `tasks` n'a pas d'élagueur. La justification d'origine
+   * Même borne RÉFÉRENTIELLE que `pruneTachesIssue`, et même histoire : un
+   * NO-OP tant que `tasks` n'a pas eu d'élagueur. La justification d'origine
    * (« les tâches ont déjà leur propre élagage ») était fausse aux deux
-   * endroits, recopiée d'un bloc à l'autre. Voir la docstring de
+   * endroits, recopiée d'un bloc à l'autre — et le fait qu'elle ait été
+   * RECOPIÉE est ce qui l'a rendue crédible.
+   *
+   * `pruneTasks` (lot 17) l'a rendue vraie. Voir la docstring de
    * `pruneTachesIssue` pour la mesure, et `docs/ETAPES.md` lot 17.
    */
   pruneContreExpertises(): number {
@@ -3059,7 +3174,19 @@ export class HiveStore {
   }
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────
-  getSnapshot(): StateSnapshot {
-    return { projects: this.listProjects(), nodes: this.listNodes(), tasks: this.listTasks() };
+  /**
+   * L'état que le tableau de bord reçoit — BORNÉ, et qui le dit.
+   *
+   * La limite est un paramètre pour que les tests puissent l'atteindre sans
+   * fabriquer deux mille tâches : une borne qu'on ne peut éprouver qu'au prix
+   * d'un banc ne sera jamais éprouvée.
+   */
+  getSnapshot(limite: number = LIMITE_TACHES_INSTANTANE): StateSnapshot {
+    return {
+      projects: this.listProjects(),
+      nodes: this.listNodes(),
+      tasks: this.tachesPourEcran(limite),
+      tasksTotal: this.compterTaches(),
+    };
   }
 }

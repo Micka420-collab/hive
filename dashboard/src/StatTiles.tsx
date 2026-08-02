@@ -13,6 +13,17 @@ interface Props {
 export function StatTiles({ snapshot, throughput }: Props) {
   const t = useT();
   const { nodes, tasks } = snapshot;
+  // ─── LA FENÊTRE SE DIT, ELLE NE SE DEVINE PAS ──────────────────────────────
+  //
+  // L'instantané ne transporte plus la table entière : au-delà de 2 000 tâches,
+  // il n'en porte que les vivantes et les terminées les plus récentes. Un
+  // compteur « 1 200 / 2 000 » sur une ruche qui en a 20 000 serait faux dans
+  // les deux sens à la fois — le numérateur ne voit qu'une fenêtre, et le
+  // dénominateur ferait croire qu'il n'y a rien d'autre.
+  //
+  // On ne bricole donc pas la fraction : on garde le rapport SUR LA FENÊTRE, et
+  // on écrit à côté ce que la fenêtre laisse dehors.
+  const tronque = snapshot.tasksTotal > tasks.length;
   const online = nodes.filter((n) => n.status === 'online').length;
   const done = tasks.filter((t) => t.status === 'done').length;
   const running = tasks.filter((t) => t.status === 'running' || t.status === 'assigned').length;
@@ -40,6 +51,15 @@ export function StatTiles({ snapshot, throughput }: Props) {
         </div>
         <div className="tile-label">{t('Tâches terminées', 'Tasks done')}</div>
         <ProgressBar value={done} max={Math.max(tasks.length, 1)} />
+        {tronque && (
+          <div className="tile-sub" title={t('Fenêtre de l’instantané', 'Snapshot window')}>
+            {t('sur les ', 'of the last ')}
+            {tasks.length}
+            {t(' plus récentes · ', ' · ')}
+            {snapshot.tasksTotal}
+            {t(' au total', ' in total')}
+          </div>
+        )}
       </div>
 
       <div className="tile">
