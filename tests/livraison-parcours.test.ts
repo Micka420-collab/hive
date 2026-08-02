@@ -64,8 +64,9 @@ describe('livrer, puis fusionner', () => {
   let dir: string;
   let base: string;
   let projet = '';
-  let tache: Task;
-  let prOuverte = 0;
+  /** Numéros rendus par le faux GitHub, dans l'ordre. */
+  const prsServies: number[] = [];
+  let prochainePr = 42;
   /** Les PR que le faux GitHub a réellement fusionnées. */
   const fusionnees: number[] = [];
   /** Ce que le faux n'a pas su servir — pour ne pas déboguer à l'aveugle. */
@@ -114,7 +115,17 @@ describe('livrer, puis fusionner', () => {
       }
       if (u.pathname === `/repos/${DEPOT}/git/refs`) return repondre(201, { ref: 'ok' });
       if (u.pathname === `/repos/${DEPOT}/pulls` && req.method === 'POST') {
-        return repondre(201, { number: 42, html_url: `https://github.com/${DEPOT}/pull/42` });
+        // UNE PR PAR LIVRAISON, numérotée. Le faux rendait 42 à chaque appel :
+        // deux livraisons donnaient la même pull request, et les tests ne
+        // pouvaient donc pas livrer chacun la leur. Ça commence à 42, et les
+        // numéros que les tests utilisent comme « jamais ouverte par la ruche »
+        // (7, 999) restent hors d'atteinte pour toujours.
+        const numero = prochainePr++;
+        prsServies.push(numero);
+        return repondre(201, {
+          number: numero,
+          html_url: `https://github.com/${DEPOT}/pull/${numero}`,
+        });
       }
       const m = /^\/repos\/(.+)\/pulls\/(\d+)\/merge$/.exec(u.pathname);
       if (m && req.method === 'PUT') {
@@ -152,10 +163,14 @@ describe('livrer, puis fusionner', () => {
       visibility: 'private',
       ownerId: null,
     }).id;
-    tache = server.store.createTask({ projectId: projet, title: 'corriger la note', prompt: 'x' });
-    server.store.patchTask(tache.id, { status: 'done', assignedNodeId: 'noeud-1' });
+  });
+
+  /** Une tâche terminée avec son diff, prête à être livrée. */
+  const tacheLivrable = (titre: string): Task => {
+    const t = server.store.createTask({ projectId: projet, title: titre, prompt: 'x' });
+    server.store.patchTask(t.id, { status: 'done', assignedNodeId: 'noeud-1' });
     server.store.insertResult({
-      taskId: tache.id,
+      taskId: t.id,
       nodeId: 'noeud-1',
       success: true,
       diff: DIFF,
@@ -163,7 +178,30 @@ describe('livrer, puis fusionner', () => {
       durationMs: 10,
       subAgents: [],
     });
-  });
+    return t;
+  };
+
+  /**
+   * Livre une tâche neuve et rend la pull request ouverte pour elle.
+   *
+   * Les cinq tests de ce bloc se passaient `tache` et `prOuverte` : « on
+   * fusionne bien la sienne » fusionnait la PR ouverte par « la livraison ouvre
+   * une pull request », et « la table suit l'état réel » lisait la fusion faite
+   * par le précédent. Trois maillons, aucun autonome. Chacun livre désormais la
+   * sienne.
+   */
+  const livrer = async (titre: string): Promise<{ tache: Task; pr: number }> => {
+    const t = tacheLivrable(titre);
+    const res = await fetch(`${base}/api/livraison`, {
+      method: 'POST',
+      headers: hive(),
+      body: JSON.stringify({ taskId: t.id }),
+    });
+    expect(res.status, `${await res.clone().text()} · non servis : ${nonServis.join(', ')}`).toBe(
+      201,
+    );
+    return { tache: t, pr: ((await res.json()) as { pr: number }).pr };
+  };
 
   afterAll(async () => {
     await server.stop();
@@ -176,26 +214,21 @@ describe('livrer, puis fusionner', () => {
   });
 
   it('la livraison ouvre une pull request', async () => {
-    const res = await fetch(`${base}/api/livraison`, {
-      method: 'POST',
-      headers: hive(),
-      body: JSON.stringify({ taskId: tache.id }),
-    });
-    expect(res.status, `${await res.clone().text()} · non servis : ${nonServis.join(', ')}`).toBe(
-      201,
-    );
-    const corps = (await res.json()) as { pr: number };
-    prOuverte = corps.pr;
-    expect(prOuverte).toBe(42);
+    const { pr } = await livrer('corriger la note');
+    // LE NUMÉRO REMONTE DE GITHUB, il n'est pas inventé par la ruche : c'est
+    // exactement celui que le faux vient de servir.
+    expect(pr).toBe(prsServies[prsServies.length - 1]);
+    expect(pr).toBeGreaterThanOrEqual(42);
   });
 
   it('LA VOIE MANUELLE RANGE SA LIVRAISON, comme la voie autonome', async () => {
     // Sans ça, le numéro de PR n'existe nulle part où le retrouver : ni pour
     // rouvrir « où en est ma livraison ? », ni pour vérifier quoi que ce soit
     // à son sujet plus tard.
+    const { tache, pr } = await livrer('ranger sa livraison');
     const rangee = server.store.getLivraison(tache.id);
     expect(rangee, 'la livraison manuelle n’a rien rangé').not.toBeNull();
-    expect(rangee?.pr).toBe(prOuverte);
+    expect(rangee?.pr).toBe(pr);
     expect(rangee?.etat).toBe('ouverte');
   });
 
@@ -219,19 +252,26 @@ describe('livrer, puis fusionner', () => {
   });
 
   it('…mais on fusionne bien la sienne', async () => {
+    const { pr } = await livrer('fusionner la sienne');
     const res = await fetch(`${base}/api/livraison/fusion`, {
       method: 'POST',
       headers: hive(),
-      body: JSON.stringify({ projectId: projet, pr: prOuverte }),
+      body: JSON.stringify({ projectId: projet, pr }),
     });
     expect(res.status).toBe(200);
     expect((await res.json()) as { fusionnee: boolean }).toMatchObject({ fusionnee: true });
-    expect(fusionnees).toContain(prOuverte);
+    expect(fusionnees).toContain(pr);
   });
 
   it('LA TABLE SUIT L’ÉTAT RÉEL après la fusion', async () => {
     // Une livraison fusionnée qui resterait « ouverte » ferait mentir l'écran,
     // et rouvrirait la porte à une seconde fusion de la même PR.
+    const { tache, pr } = await livrer('suivre l’état réel');
+    await fetch(`${base}/api/livraison/fusion`, {
+      method: 'POST',
+      headers: hive(),
+      body: JSON.stringify({ projectId: projet, pr }),
+    });
     expect(server.store.getLivraison(tache.id)?.etat).toBe('fusionnee');
   });
 
@@ -242,7 +282,7 @@ describe('livrer, puis fusionner', () => {
       await fetch(`${base}/api/livraison`, {
         method: 'POST',
         headers: hive(),
-        body: JSON.stringify({ taskId: tache.id }),
+        body: JSON.stringify({ taskId: tacheLivrable('jeton absent des réponses').id }),
       })
     ).text();
     const fusion = await (

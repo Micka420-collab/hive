@@ -36,6 +36,33 @@ import type { HiveServer } from '../src/orchestrator/server.js';
 const TOKEN = 'jeton-parcours-github-assez-long';
 const JETON_GH = 'jeton-github-de-test';
 
+/**
+ * Le catalogue que sert le faux GitHub.
+ *
+ * Il n'en servait qu'UN, et c'est ce qui liait les six tests de ce bloc les uns
+ * aux autres : importer un dépôt est un acte unique, donc les deux premiers
+ * exigeaient « pas encore importé » et les quatre suivants « déjà importé »,
+ * sur le même dépôt. Aucun ordre ne pouvait contenter les deux moitiés.
+ *
+ * Chaque test déclare désormais SON dépôt et l'importe lui-même.
+ */
+const DEPOTS = new Map<string, Record<string, unknown>>();
+
+/** Déclare un dépôt au faux GitHub et rend sa fiche. */
+function declarerDepot(fullName: string): Record<string, unknown> {
+  const [, name = fullName] = fullName.split('/');
+  const fiche = {
+    ...DEPOT,
+    id: DEPOTS.size + 1,
+    full_name: fullName,
+    name,
+    clone_url: `https://github.com/${fullName}.git`,
+    html_url: `https://github.com/${fullName}`,
+  };
+  DEPOTS.set(fullName, fiche);
+  return fiche;
+}
+
 const DEPOT = {
   id: 1,
   full_name: 'micka/ma-ruche',
@@ -51,6 +78,9 @@ const DEPOT = {
   archived: false,
   fork: false,
 };
+
+// Le dépôt historique du fichier, présent d'entrée dans le catalogue.
+declarerDepot(DEPOT.full_name);
 
 describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
   let faux: Server;
@@ -82,12 +112,13 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
       const u = new URL(req.url ?? '/', 'http://x');
       if (u.pathname === '/user/repos') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify([DEPOT]));
+        res.end(JSON.stringify([...DEPOTS.values()]));
         return;
       }
-      if (u.pathname === `/repos/${DEPOT.full_name}`) {
+      const demande = DEPOTS.get(u.pathname.replace(/^\/repos\//, ''));
+      if (demande) {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(DEPOT));
+        res.end(JSON.stringify(demande));
         return;
       }
       res.writeHead(404, { 'content-type': 'application/json' });
@@ -129,23 +160,43 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
 
   const hive = { 'x-hive-token': TOKEN, 'content-type': 'application/json' };
 
-  it('la liste des dépôts arrive', async () => {
-    const res = await fetch(`${base}/api/github/repos`, { headers: hive });
-    expect(res.status).toBe(200);
-    const c = (await res.json()) as { depots: { fullName: string; importe: boolean }[] };
-    expect(c.depots.map((d) => d.fullName)).toContain('micka/ma-ruche');
-    expect(c.depots[0]?.importe, 'rien n’est encore importé').toBe(false);
-  });
-
-  it('l’import crée le projet', async () => {
+  /** Importe un dépôt neuf et rend son nom complet et le projet créé. */
+  const importerUnDepotNeuf = async (
+    nom: string,
+  ): Promise<{ fullName: string; projet: { id: string; repoUrl: string } }> => {
+    const fullName = `micka/${nom}`;
+    declarerDepot(fullName);
     const res = await fetch(`${base}/api/github/import`, {
       method: 'POST',
       headers: hive,
-      body: JSON.stringify({ fullName: 'micka/ma-ruche' }),
+      body: JSON.stringify({ fullName }),
     });
-    expect(res.status).toBe(201);
+    expect(res.status, `prémisse : l’import de ${fullName}`).toBe(201);
     const { projet } = (await res.json()) as { projet: { id: string; repoUrl: string } };
-    expect(projet.repoUrl).toBe(DEPOT.clone_url);
+    return { fullName, projet };
+  };
+
+  /** La fiche d'un dépôt dans la liste servie par la ruche. */
+  const dansLaListe = async (fullName: string): Promise<{ importe: boolean } | undefined> => {
+    const res = await fetch(`${base}/api/github/repos`, { headers: hive });
+    expect(res.status).toBe(200);
+    const c = (await res.json()) as { depots: { fullName: string; importe: boolean }[] };
+    return c.depots.find((d) => d.fullName === fullName);
+  };
+
+  it('la liste des dépôts arrive', async () => {
+    const neuf = `micka/pas-encore-importe`;
+    declarerDepot(neuf);
+    expect(
+      (await dansLaListe('micka/ma-ruche'))?.importe,
+      'le dépôt doit être listé',
+    ).toBeDefined();
+    expect((await dansLaListe(neuf))?.importe, 'celui-ci n’est pas importé').toBe(false);
+  });
+
+  it('l’import crée le projet', async () => {
+    const { fullName, projet } = await importerUnDepotNeuf('import-cree-le-projet');
+    expect(projet.repoUrl).toBe(`https://github.com/${fullName}.git`);
   });
 
   it('LE PROJET IMPORTÉ EST LISIBLE PAR L’ADMINISTRATEUR', async () => {
@@ -155,7 +206,8 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
     // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
     // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
     // qu'un délai rallongé n'aurait fait que retarder le même blocage.
-    const id = server.store.listProjects()[0]!.id;
+    const { projet } = await importerUnDepotNeuf('lisible-par-admin');
+    const id = projet.id;
     for (const route of [
       `/api/projects/${id}/rayon`,
       `/api/projects/${id}/members`,
@@ -175,8 +227,8 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
   it('…et un membre ordinaire ne le lit pas pour autant', async () => {
     // Le droit vient du RÔLE. Si l'absence de propriétaire suffisait, tout
     // projet importé serait public de fait.
-    const id = server.store.listProjects()[0]!.id;
-    const res = await fetch(`${base}/api/projects/${id}/members`, {
+    const { projet } = await importerUnDepotNeuf('pas-lisible-par-membre');
+    const res = await fetch(`${base}/api/projects/${projet.id}/members`, {
       headers: { authorization: `Bearer ${jetonMembre}` },
     });
     expect(res.status).toBe(404);
@@ -185,21 +237,30 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
   it('réimporter le même dépôt est refusé, avec le projet existant nommé', async () => {
     // Deux projets Hive sur le même dépôt, c'est deux plans de merge
     // concurrents sur les mêmes fichiers.
+    const { fullName } = await importerUnDepotNeuf('deja-importe');
     const res = await fetch(`${base}/api/github/import`, {
       method: 'POST',
       headers: hive,
-      body: JSON.stringify({ fullName: 'micka/ma-ruche' }),
+      body: JSON.stringify({ fullName }),
     });
     expect(res.status).toBe(409);
     const c = (await res.json()) as { projectId: string; nom: string };
     expect(c.projectId).toBeTruthy();
-    expect(c.nom).toBe('micka/ma-ruche');
+    expect(c.nom).toBe(fullName);
   });
 
   it('la liste marque désormais le dépôt comme importé', async () => {
-    const res = await fetch(`${base}/api/github/repos`, { headers: hive });
-    const c = (await res.json()) as { depots: { importe: boolean }[] };
-    expect(c.depots[0]?.importe).toBe(true);
+    const neuf = `micka/marque-importe`;
+    declarerDepot(neuf);
+    expect((await dansLaListe(neuf))?.importe, 'avant l’import').toBe(false);
+
+    const res = await fetch(`${base}/api/github/import`, {
+      method: 'POST',
+      headers: hive,
+      body: JSON.stringify({ fullName: neuf }),
+    });
+    expect(res.status).toBe(201);
+    expect((await dansLaListe(neuf))?.importe, 'après l’import').toBe(true);
   });
 
   it('un dépôt inexistant dit quoi faire, pas seulement « 404 »', async () => {
@@ -246,11 +307,12 @@ describe('connecter un dépôt depuis un COMPTE', () => {
   beforeAll(async () => {
     faux2 = creerHttp((req, res) => {
       const u = new URL(req.url ?? '/', 'http://x');
+      const fiche = DEPOTS.get(u.pathname.replace(/^\/repos\//, ''));
       const corps =
         u.pathname === '/user/repos'
-          ? JSON.stringify([DEPOT])
-          : u.pathname === `/repos/${DEPOT.full_name}`
-            ? JSON.stringify(DEPOT)
+          ? JSON.stringify([...DEPOTS.values()])
+          : fiche
+            ? JSON.stringify(fiche)
             : null;
       res.writeHead(corps ? 200 : 404, { 'content-type': 'application/json' });
       res.end(corps ?? '{"message":"Not Found"}');
@@ -321,14 +383,21 @@ describe('connecter un dépôt depuis un COMPTE', () => {
     authorization: `Bearer ${jetonMembre2}`,
   });
 
-  it('LE DÉPÔT CONNECTÉ APPARTIENT À CELLE QUI L’A CONNECTÉ', async () => {
+  /** Cette ouvrière connecte un dépôt neuf, et rend le projet obtenu. */
+  const connecter = async (nom: string): Promise<{ id: string; ownerId: string | null }> => {
+    const fullName = `micka/${nom}`;
+    declarerDepot(fullName);
     const res = await fetch(`${base2}/api/github/import`, {
       method: 'POST',
       headers: commeMembre(),
-      body: JSON.stringify({ fullName: 'micka/ma-ruche' }),
+      body: JSON.stringify({ fullName }),
     });
-    expect(res.status).toBe(201);
-    const { projet } = (await res.json()) as { projet: { id: string; ownerId: string | null } };
+    expect(res.status, `prémisse : connecter ${fullName}`).toBe(201);
+    return ((await res.json()) as { projet: { id: string; ownerId: string | null } }).projet;
+  };
+
+  it('LE DÉPÔT CONNECTÉ APPARTIENT À CELLE QUI L’A CONNECTÉ', async () => {
+    const projet = await connecter('connecte-appartient');
     expect(projet.ownerId).toBe(idMembre2);
   });
 
@@ -339,7 +408,10 @@ describe('connecter un dépôt depuis un COMPTE', () => {
     // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
     // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
     // qu'un délai rallongé n'aurait fait que retarder le même blocage.
-    const id = server2.store.listProjects()[0]!.id;
+    // SON PROPRE DÉPÔT. Il lisait `listProjects()[0]`, c'est-à-dire le projet
+    // connecté par le test au-dessus : joué en premier, la liste était vide et
+    // le fichier tombait sur « Cannot read properties of undefined ».
+    const { id } = await connecter('sen-servir-tout-de-suite');
     for (const route of [`/api/projects/${id}/rayon`, `/api/projects/${id}/members`]) {
       const res = await fetch(`${base2}${route}`, { headers: commeMembre() });
       expect(res.status, route).not.toBe(404);
