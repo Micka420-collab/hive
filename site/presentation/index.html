@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hive — Présentation à imprimer</title>
+    <meta
+      name="description"
+      content="La présentation de Hive en une page, faite pour être imprimée ou enregistrée en PDF : ce que fait la ruche, comment l'installer selon son matériel, les trois étapes, la sécurité, les tarifs et le tableau de bord."
+    />
+    <meta name="theme-color" content="#f7f3e9" />
+    <link rel="canonical" href="https://micka420-collab.github.io/hive/presentation/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="Hive — Présentation à imprimer" />
+    <meta
+      property="og:description"
+      content="Une page, imprimable telle quelle : l'essentiel de Hive — installation, fonctionnement, sécurité, tarifs, tableau de bord."
+    />
+    <meta property="og:url" content="https://micka420-collab.github.io/hive/presentation/" />
+    <meta property="og:image" content="https://micka420-collab.github.io/hive/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
+    />
+    <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
+         va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
+         Voir site/fonts/LICENSE.txt (SIL OFL 1.1) pour l'origine des fichiers. -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="../fonts/bricolage-grotesque-latin-400-700.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="../fonts/instrument-sans-latin-400-600.woff2"
+      crossorigin
+    />
+    <style>
+      /* ── Fontes (SIL OFL 1.1, cf. ../fonts/LICENSE.txt) ─────────────────────── */
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/jetbrains-mono-latin-ext-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/jetbrains-mono-latin-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Bricolage Grotesque';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url('../fonts/bricolage-grotesque-latin-ext-400-700.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Bricolage Grotesque';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url('../fonts/bricolage-grotesque-latin-400-700.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/instrument-sans-latin-ext-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/instrument-sans-latin-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+
+      /* Les mêmes valeurs que la vitrine — c'est le MÊME document, sous une
+         autre forme. Un ton qui dériverait ici ferait deux Hive. */
+      :root {
+        --papier: #ffffff;
+        --bureau: #ebe4d4;
+        --bg: #f7f3e9;
+        --panel: #fffdf8;
+        --border: #e3d8c2;
+        --border-2: #e0d2b6;
+        --text: #1b1712;
+        --muted: #7c7263;
+        --dim: #9a8f7c;
+        --blue: #4a4238;
+        --gold: #f6c445;
+        --gold-2: #e08a14;
+        --orange: #a85e06;
+        --green: #235e52;
+        --creme: #f4eee0;
+        --encre-clair: #b5a991;
+        --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+        --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+      }
+
+      /* ── LE PAPIER ────────────────────────────────────────────────────────
+         Une page destinée au papier n'épingle AUCUN format : `@page` ne pose
+         qu'une marge, et le moteur d'impression pagine sur la feuille réelle
+         du lecteur — A4 ici, Letter ailleurs. Fixer 21 × 29,7 cm couperait la
+         moitié du monde d'un demi-pouce.
+
+         À l'écran, la même feuille se pose sur un bureau : on voit tout de
+         suite qu'on lit un document, pas une page web. */
+      @page {
+        margin: 0.7in;
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bureau);
+        color: var(--text);
+        font-family: var(--texte);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .feuille {
+        width: 8.5in;
+        max-width: 100%;
+        margin: 26px auto;
+        padding: 0.7in;
+        background: var(--papier);
+        box-shadow: 0 24px 60px -30px rgba(27, 23, 18, 0.55);
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-family: var(--titre);
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        line-height: 1.08;
+        text-wrap: balance;
+      }
+      p {
+        margin: 0;
+        text-wrap: pretty;
+      }
+      a {
+        color: var(--orange);
+        text-decoration: none;
+      }
+      :focus-visible {
+        outline: 2px solid var(--gold);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      .mono {
+        font-family: var(--mono);
+      }
+      /* L'alvéole du logo : le même hexagone que la vitrine et que le tableau
+         de bord, au clip-path près. */
+      .hex {
+        display: inline-block;
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+      }
+      .kicker {
+        font-family: var(--texte);
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--orange);
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+      /* Aucun bloc encadré ne doit se faire couper par un saut de page : une
+         carte à cheval sur deux feuilles se lit deux fois et se comprend une
+         demie. */
+      .carte,
+      .cmd,
+      .plan,
+      .etape,
+      .alerte {
+        break-inside: avoid;
+      }
+
+      /* ── La barre d'outils, qui n'est PAS le document ─────────────────────
+         Elle porte la langue et l'impression. À l'impression elle disparaît :
+         un bouton « Imprimer » imprimé est une trace de fabrication. */
+      .barre {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 10px clamp(12px, 4vw, 26px);
+        background: rgba(27, 23, 18, 0.94);
+        color: var(--bg);
+      }
+      .barre .marque {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--titre);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+      .barre .marque .hex {
+        width: 17px;
+        height: 19px;
+        background: linear-gradient(150deg, var(--gold), var(--gold-2));
+      }
+      .barre .droite {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .barre a,
+      .barre button {
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .barre a.retour {
+        color: var(--encre-clair);
+      }
+      .lang button {
+        min-height: 34px;
+        padding: 6px 11px;
+        border: 1px solid rgba(244, 238, 224, 0.28);
+        background: transparent;
+        color: var(--encre-clair);
+        border-radius: 999px;
+        font-weight: 600;
+      }
+      .lang button[aria-pressed='true'] {
+        background: var(--gold);
+        border-color: var(--gold);
+        color: var(--text);
+      }
+      .imprimer {
+        min-height: 34px;
+        padding: 7px 15px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--gold);
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      /* ── L'en-tête du document ── */
+      .entete {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding-bottom: 14px;
+        border-bottom: 2px solid var(--text);
+      }
+      .entete .hex {
+        width: 24px;
+        height: 27px;
+        background: linear-gradient(150deg, var(--gold), var(--gold-2));
+      }
+      .entete .nom {
+        font-family: var(--titre);
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: -0.03em;
+      }
+      .entete .sous {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      h1 {
+        margin-top: 26px;
+        font-size: 38px;
+      }
+      /* Le miel du titre. Sur un titre qui se coupe, un fond doit se recopier
+         sur CHAQUE fragment de ligne — sans quoi il relie les deux lignes par
+         un filet vertical. C'est la même leçon que sur la vitrine. */
+      .miel {
+        font-style: normal;
+        background: linear-gradient(180deg, transparent 62%, var(--gold) 62%);
+        -webkit-box-decoration-break: clone;
+        box-decoration-break: clone;
+      }
+      .chapo {
+        margin-top: 14px;
+        font-size: 15.5px;
+        line-height: 1.55;
+        color: var(--blue);
+        max-width: 620px;
+      }
+
+      .jetons {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .jeton {
+        padding: 6px 11px;
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--blue);
+      }
+      .jeton.vert {
+        background: #eaf2ef;
+        border-color: #bfd8d1;
+        color: var(--green);
+      }
+
+      h2.kicker {
+        margin-top: 30px;
+      }
+
+      /* ── Installation ── */
+      .cmds {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+      }
+      .cmd {
+        padding: 12px 14px;
+        background: var(--text);
+        border-radius: 12px;
+      }
+      .cmd.large {
+        grid-column: 1 / -1;
+      }
+      .cmd .quoi {
+        font-size: 11.5px;
+        font-weight: 700;
+        color: var(--gold);
+      }
+      .cmd code {
+        display: block;
+        margin-top: 6px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--creme);
+        /* Les commandes Windows sont longues et n'ont pas d'espace où couper :
+           sans ceci, elles débordent de la feuille au lieu de se plier. */
+        overflow-wrap: anywhere;
+      }
+      .note {
+        margin-top: 9px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      /* ── Les trois étapes ── */
+      .etapes {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 9px;
+      }
+      .etape {
+        padding: 16px;
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-top: 3px solid var(--orange);
+        border-radius: 12px;
+      }
+      .etape.deux {
+        border-top-color: var(--gold-2);
+      }
+      .etape.trois {
+        border-top-color: var(--green);
+      }
+      .etape .n {
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--orange);
+      }
+      .etape h3 {
+        margin-top: 8px;
+        font-size: 16px;
+      }
+      .etape p {
+        margin-top: 7px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--blue);
+      }
+
+      /* ── Sécurité ── */
+      .cartes {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+      }
+      .carte {
+        padding: 14px 16px;
+        background: var(--bg);
+        border: 1px solid var(--border-2);
+        border-radius: 12px;
+      }
+      .carte h3 {
+        font-size: 14px;
+      }
+      .carte p {
+        margin-top: 5px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .alerte {
+        margin-top: 9px;
+        padding: 13px 16px;
+        background: #fbf0e4;
+        border: 1px solid #e8c79b;
+        border-left: 3px solid #c4711a;
+        border-radius: 12px;
+      }
+      .alerte .t {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--orange);
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+      .alerte p {
+        margin-top: 6px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: #5a4530;
+      }
+
+      /* ── Tarifs ────────────────────────────────────────────────────────────
+         Le seul saut de page décidé à la main : les tarifs ouvrent la feuille
+         suivante plutôt que de finir la première par un tiers de grille. */
+      h2.tarifs-titre {
+        break-before: page;
+      }
+      .plans {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 9px;
+      }
+      .plan {
+        padding: 16px;
+        background: var(--panel);
+        border: 1px solid var(--border-2);
+        border-radius: 12px;
+      }
+      .plan.encre {
+        background: var(--text);
+        border-color: var(--text);
+        color: var(--panel);
+      }
+      .plan h3 {
+        font-size: 16px;
+      }
+      .plan .prix {
+        margin-top: 8px;
+      }
+      .plan .prix b {
+        font-family: var(--titre);
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+      .plan .prix span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .plan.encre .prix span {
+        color: var(--encre-clair);
+      }
+      .plan p.d {
+        margin-top: 7px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .plan.encre p.d {
+        color: var(--encre-clair);
+      }
+      .plan .pastille {
+        margin-left: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--gold);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        vertical-align: 2px;
+      }
+
+      .tableau {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--blue);
+        max-width: 640px;
+      }
+
+      .pied {
+        margin-top: 24px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .pied span {
+        font-size: 11.5px;
+        color: var(--dim);
+      }
+
+      /* ── Petits écrans ────────────────────────────────────────────────────
+         Le document reste un document : on ne réordonne rien, on laisse
+         simplement les grilles retomber sur une colonne. */
+      @media (max-width: 700px) {
+        .feuille {
+          margin: 0;
+          padding: 22px 16px 30px;
+          box-shadow: none;
+        }
+        .cmds,
+        .etapes,
+        .cartes,
+        .plans {
+          grid-template-columns: 1fr;
+        }
+        h1 {
+          font-size: 30px;
+        }
+      }
+
+      @media print {
+        body {
+          background: var(--papier);
+        }
+        .feuille {
+          width: auto;
+          margin: 0;
+          padding: 0;
+          box-shadow: none;
+        }
+        .barre {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ══ LA BARRE — hors document ══════════════════════════════════════════
+         Elle ne fait pas partie de la présentation : ni à l'impression, ni dans
+         le PDF. Elle existe pour les deux gestes qu'une page imprimable doit
+         offrir à l'écran — changer de langue, et lancer l'impression. -->
+    <div class="barre no-print">
+      <span class="marque"><span class="hex" aria-hidden="true"></span>Hive</span>
+      <a class="retour" href="../" data-i18n="barre.retour">← Retour au site</a>
+      <div class="droite">
+        <div class="lang" role="group" aria-label="Langue / Language">
+          <button type="button" id="btn-fr" aria-pressed="true" lang="fr">FR</button>
+          <button type="button" id="btn-en" aria-pressed="false" lang="en">EN</button>
+        </div>
+        <button type="button" class="imprimer" id="btn-imprimer" data-i18n="barre.imprimer">
+          Imprimer / PDF
+        </button>
+      </div>
+    </div>
+
+    <main class="feuille">
+      <div class="entete">
+        <span class="hex" aria-hidden="true"></span>
+        <span class="nom">Hive</span>
+        <span class="sous" data-i18n="entete.sous"
+          >Orchestration d'agents IA · open source · MIT</span
+        >
+      </div>
+
+      <h1 data-i18n="h1">
+        Faites coder plusieurs IA sur votre projet, <em class="miel">en même temps</em>.
+      </h1>
+      <p class="chapo" data-i18n="chapo">
+        Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
+        ordinateurs de votre équipe, et vous montre le résultat à valider. Rien n'est fusionné sans
+        votre accord — votre code et vos clés restent sur vos machines.
+      </p>
+
+      <div class="jetons">
+        <span class="jeton" data-i18n="jeton.mit">Gratuit · MIT</span>
+        <span class="jeton" data-i18n="badge.tests">2 933 tests</span>
+        <span class="jeton" data-i18n="jeton.machines">Sur vos machines</span>
+        <span class="jeton vert" data-i18n="jeton.cle">Aucune clé d'API</span>
+      </div>
+
+      <h2 class="kicker" data-i18n="inst.titre">Installation — choisissez votre matériel</h2>
+      <div class="cmds">
+        <div class="cmd">
+          <p class="quoi">macOS / Linux</p>
+          <code
+            >$ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh |
+            sh</code
+          >
+        </div>
+        <div class="cmd">
+          <p class="quoi" data-i18n="inst.win">Windows (PowerShell)</p>
+          <code
+            >&gt; irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1
+            -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass
+            -File "$env:TEMP\hive-install.ps1"</code
+          >
+        </div>
+        <div class="cmd large">
+          <p class="quoi" data-i18n="inst.docker">Serveur · Docker</p>
+          <code>$ docker compose up</code>
+        </div>
+      </div>
+      <p class="note" data-i18n="inst.note">
+        Trois questions au maximum. Jamais de sudo, et rien hors du dossier d'installation. Aucune
+        clé d'API à fournir — votre abonnement IA existant suffit.
+      </p>
+
+      <h2 class="kicker" data-i18n="et.titre">
+        Comment ça marche — trois étapes, et vous gardez la main
+      </h2>
+      <div class="etapes">
+        <div class="etape">
+          <p class="n mono">01</p>
+          <h3 data-i18n="et.1.t">Vous décrivez le projet</h3>
+          <p data-i18n="et.1.d">
+            Quelques phrases suffisent. Hive propose une liste de tâches ordonnées — vous la
+            corrigez avant de lancer.
+          </p>
+        </div>
+        <div class="etape deux">
+          <p class="n mono">02</p>
+          <h3 data-i18n="et.2.t">Les IA travaillent en parallèle</h3>
+          <p data-i18n="et.2.d">
+            Chaque tâche part sur l'ordinateur d'un membre, dans un dossier isolé. Vous voyez
+            l'avancement en direct.
+          </p>
+        </div>
+        <div class="etape trois">
+          <p class="n mono">03</p>
+          <h3 data-i18n="et.3.t">Vous validez, puis ça fusionne</h3>
+          <p data-i18n="et.3.d">
+            Chaque résultat s'arrête devant vous. Vous lisez, vous validez ou refusez. Rien ne passe
+            sans votre accord.
+          </p>
+        </div>
+      </div>
+
+      <h2 class="kicker" data-i18n="se.titre">
+        Sécurité — rien ne part sans que vous l'ayez validé
+      </h2>
+      <div class="cartes">
+        <div class="carte">
+          <h3 data-i18n="se.1.t">Le code reste chez vous</h3>
+          <p data-i18n="se.1.d">
+            Vos dépôts et vos clés ne quittent jamais la machine qui travaille.
+          </p>
+        </div>
+        <div class="carte">
+          <h3 data-i18n="se.2.t">Chaque tâche isolée</h3>
+          <p data-i18n="se.2.d">Dossier dédié, environnement épuré, durée limitée.</p>
+        </div>
+        <div class="carte">
+          <h3 data-i18n="se.3.t">Validation obligatoire</h3>
+          <p data-i18n="se.3.d">Aucune fusion automatique tant que vous ne l'autorisez pas.</p>
+        </div>
+        <div class="carte">
+          <h3 data-i18n="se.4.t">Arrêt immédiat</h3>
+          <p data-i18n="se.4.d">Un seul réglage coupe tout, avant l'effet et non après.</p>
+        </div>
+      </div>
+      <div class="alerte">
+        <p class="t" data-i18n="se.limite.t">Ce qu'on ne cache pas</p>
+        <p data-i18n="se.limite.d">
+          Avec podman, docker ou bubblewrap, l'agent ne voit que le dossier de sa tâche. Mais le
+          réseau reste ouvert — un agent de codage doit joindre l'API de son modèle. Sans moteur de
+          conteneurs, il ne reste qu'une sandbox de processus : dans ce cas, n'utilisez Hive
+          qu'entre gens de confiance, ou posez <span class="mono">HIVE_ISOLEMENT=exige</span>.
+        </p>
+      </div>
+
+      <h2 class="kicker tarifs-titre" data-i18n="ta.titre">Tarifs — le logiciel est gratuit</h2>
+      <div class="plans">
+        <div class="plan">
+          <h3 data-i18n="ta.1.t">Sur vos machines</h3>
+          <p class="prix"><b>0 €</b> <span data-i18n="ta.1.u">pour toujours</span></p>
+          <p class="d" data-i18n="ta.1.d">
+            Tout le logiciel, installé chez vous. Projets et ordinateurs illimités, licence MIT.
+          </p>
+        </div>
+        <div class="plan encre">
+          <h3>
+            <span data-i18n="ta.2.t">Queen hébergée</span>
+            <span class="pastille" data-i18n="ta.2.tag">Populaire</span>
+          </h3>
+          <p class="prix"><b>49 €</b> <span data-i18n="ta.2.u">/ mois</span></p>
+          <p class="d" data-i18n="ta.2.d">
+            On garde l'orchestrateur allumé, vous gardez le code. Vos nœuds et vos clés restent les
+            vôtres.
+          </p>
+        </div>
+        <div class="plan">
+          <h3 data-i18n="ta.3.t">Rush</h3>
+          <p class="prix">
+            <b data-i18n="ta.3.v">dès 79 €</b> <span data-i18n="ta.3.u">par objectif</span>
+          </p>
+          <p class="d" data-i18n="ta.3.d">
+            Un plafond d'heures-ouvrières exécuté sur nos nœuds, sur votre dépôt. Devis fondé sur
+            l'historique réel.
+          </p>
+        </div>
+      </div>
+      <p class="note" data-i18n="ta.note">
+        Les deux offres payantes sont un modèle proposé : aucun paiement n'est encaissé aujourd'hui.
+        Le calcul complet est public dans docs/MODELE-ECONOMIQUE.md. La ruche auto-hébergée restera
+        gratuite.
+      </p>
+
+      <h2 class="kicker" data-i18n="tb.titre">Le tableau de bord</h2>
+      <p class="tableau" data-i18n="tb.d">
+        Treize vues pour piloter la ruche : la <strong>Ruche</strong> (tâches, ordinateurs, activité
+        en direct), <strong>la Reine</strong> (posez vos questions, elle répond depuis l'état réel),
+        la <strong>Miellerie</strong> (chaque diff attend votre verdict), les
+        <strong>Projets</strong> et leur atelier qui transforme un brief en plan,
+        l'<strong>Essaim</strong>, la <strong>Mémoire</strong> (ce que la ruche a retenu de ses
+        erreurs), la <strong>Santé</strong>, la <strong>Chronique</strong> rejouable, le
+        <strong>Rayon</strong> de code en lecture seule, les <strong>Chantiers</strong>, le
+        <strong>Cerveau</strong>, <strong>Mon espace</strong> et l'<strong>Intendance</strong>.
+      </p>
+
+      <div class="pied">
+        <span data-i18n="pied.gauche">© 2026 Hive · Licence MIT</span>
+        <span class="mono">Node ≥ 24 · micka420-collab.github.io/hive</span>
+      </div>
+    </main>
+
+    <script>
+      (function () {
+        'use strict';
+
+        /* ── i18n ─────────────────────────────────────────────────────────
+       Le HTML est écrit en français (langue par défaut). Au chargement,
+       on capture le contenu FR de chaque [data-i18n] ; le dictionnaire
+       ci-dessous ne contient donc que l'anglais. */
+        var EN = {
+          'barre.retour': '← Back to the site',
+          'barre.imprimer': 'Print / PDF',
+          'entete.sous': 'AI agent orchestration · open source · MIT',
+          h1: 'Put several AIs to work on your project, <em class="miel">at the same time</em>.',
+          chapo:
+            'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result to approve. Nothing is merged without your say-so — your code and your keys stay on your machines.',
+          'jeton.mit': 'Free · MIT',
+          'badge.tests': '2,933 tests',
+          'jeton.machines': 'On your machines',
+          'jeton.cle': 'No API key',
+          'inst.titre': 'Install — pick your hardware',
+          'inst.win': 'Windows (PowerShell)',
+          'inst.docker': 'Server · Docker',
+          'inst.note':
+            'Three questions at most. Never sudo, and nothing outside its own folder. No API key to hand over — your existing AI subscription is enough.',
+          'et.titre': 'How it works — three steps, and you stay in charge',
+          'et.1.t': 'You describe the project',
+          'et.1.d':
+            'A few sentences are enough. Hive proposes an ordered task list — you fix it before launching.',
+          'et.2.t': 'The AIs work in parallel',
+          'et.2.d':
+            'Each task goes to a member’s computer, in an isolated folder. You watch progress live.',
+          'et.3.t': 'You approve, then it merges',
+          'et.3.d':
+            'Every result stops in front of you. You read it, you approve or refuse. Nothing goes through without your say-so.',
+          'se.titre': 'Security — nothing leaves without your approval',
+          'se.1.t': 'The code stays with you',
+          'se.1.d': 'Your repositories and your keys never leave the machine doing the work.',
+          'se.2.t': 'Every task isolated',
+          'se.2.d': 'Dedicated folder, scrubbed environment, hard timeout.',
+          'se.3.t': 'Approval required',
+          'se.3.d': 'No automatic merge as long as you have not allowed it.',
+          'se.4.t': 'Immediate stop',
+          'se.4.d': 'A single setting cuts everything, before the effect and not after.',
+          'se.limite.t': 'What we do not hide',
+          'se.limite.d':
+            'With podman, docker or bubblewrap, the agent only sees its own task folder. But the network stays open — a coding agent must reach its model’s API. Without a container engine only a process sandbox remains: in that case, only use Hive between people you trust, or set <span class="mono">HIVE_ISOLEMENT=exige</span>.',
+          'ta.titre': 'Pricing — the software is free',
+          'ta.1.t': 'On your machines',
+          'ta.1.u': 'forever',
+          'ta.1.d':
+            'The whole software, installed at your place. Unlimited projects and computers, MIT licence.',
+          'ta.2.t': 'Hosted Queen',
+          'ta.2.tag': 'Popular',
+          'ta.2.u': '/ month',
+          'ta.2.d':
+            'We keep the orchestrator running, you keep the code. Your nodes and your keys stay yours.',
+          'ta.3.t': 'Rush',
+          'ta.3.v': 'from €79',
+          'ta.3.u': 'per goal',
+          'ta.3.d':
+            'A cap of worker-hours run on our nodes, on your repository. Quote based on real history.',
+          'ta.note':
+            'Both paid offers are a proposed model: no payment is taken today. The full computation is public in docs/MODELE-ECONOMIQUE.md. The self-hosted hive will stay free.',
+          'tb.titre': 'The dashboard',
+          'tb.d':
+            'Thirteen views to steer the hive: the <strong>Hive</strong> (tasks, computers, live activity), <strong>the Queen</strong> (ask your questions, she answers from the real state), the <strong>Honey house</strong> (every diff waits for your verdict), the <strong>Projects</strong> and their workshop turning a brief into a plan, the <strong>Swarm</strong>, the <strong>Memory</strong> (what the hive learned from its mistakes), the <strong>Health</strong>, the replayable <strong>Chronicle</strong>, the read-only <strong>Comb</strong> of code, the <strong>Worksites</strong>, the <strong>Brain</strong>, <strong>My space</strong> and the <strong>Stewardship</strong>.',
+          'pied.gauche': '© 2026 Hive · MIT licence',
+        };
+
+        var TITLES = {
+          fr: 'Hive — Présentation à imprimer',
+          en: 'Hive — Presentation, ready to print',
+        };
+
+        var FR = {}; // capturé depuis le DOM au chargement
+        var nodes = document.querySelectorAll('[data-i18n]');
+        nodes.forEach(function (el) {
+          FR[el.getAttribute('data-i18n')] = el.innerHTML;
+        });
+
+        var lang = 'fr';
+        function setLang(next) {
+          lang = next === 'en' ? 'en' : 'fr';
+          var dict = lang === 'en' ? EN : FR;
+          nodes.forEach(function (el) {
+            var key = el.getAttribute('data-i18n');
+            if (dict[key] != null) el.innerHTML = dict[key];
+          });
+          document.documentElement.lang = lang;
+          document.title = TITLES[lang];
+          document.getElementById('btn-fr').setAttribute('aria-pressed', String(lang === 'fr'));
+          document.getElementById('btn-en').setAttribute('aria-pressed', String(lang === 'en'));
+          try {
+            localStorage.setItem('hive.lang', lang);
+          } catch (e) {
+            /* stockage privé */
+          }
+        }
+
+        document.getElementById('btn-fr').addEventListener('click', function () {
+          setLang('fr');
+        });
+        document.getElementById('btn-en').addEventListener('click', function () {
+          setLang('en');
+        });
+
+        /* Langue initiale : ?lang= > localStorage > langue du navigateur. La
+           même règle que la vitrine — un lecteur qui a choisi l'anglais là-bas
+           ne doit pas le rechoisir ici. */
+        var initial = 'fr';
+        try {
+          var qs = new URLSearchParams(location.search).get('lang');
+          var saved = localStorage.getItem('hive.lang');
+          if (qs === 'en' || qs === 'fr') initial = qs;
+          else if (saved === 'en' || saved === 'fr') initial = saved;
+          else if (
+            String(navigator.language || '')
+              .toLowerCase()
+              .indexOf('fr') !== 0
+          )
+            initial = 'en';
+        } catch (e) {
+          /* défauts conservés */
+        }
+        setLang(initial);
+
+        document.getElementById('btn-imprimer').addEventListener('click', function () {
+          window.print();
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -248,12 +248,12 @@
 
 .mi-add {
   color: var(--green);
-  background: rgba(134, 195, 93, 0.07);
+  background: rgba(35, 94, 82, 0.08);
 }
 
 .mi-del {
   color: var(--red);
-  background: rgba(229, 87, 63, 0.07);
+  background: rgba(168, 64, 42, 0.07);
 }
 
 .mi-hunk {
@@ -304,7 +304,7 @@
 
 /* Faction diverse (≥ 2 types d'agents) : dorée — signal fort. */
 .mi-fac-seg.gold {
-  background: linear-gradient(180deg, var(--gold), var(--amber));
+  background: linear-gradient(180deg, var(--miel), var(--miel-2));
 }
 
 /* Faction monoculture : hachurée — accord entre clones, signal faible. */
@@ -368,8 +368,8 @@
 .mi-elected {
   padding: 1px 8px;
   border-radius: 12px;
-  background: linear-gradient(90deg, var(--amber), var(--honey));
-  color: #14100b;
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  color: var(--encre);
   font-size: 11px;
   font-weight: 700;
 }
@@ -395,12 +395,12 @@
   padding: 1px 5px;
   border: 1px solid var(--border-2);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(27, 23, 18, 0.06);
 }
 
 .btn.primary kbd {
-  border-color: rgba(20, 16, 11, 0.4);
-  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(27, 23, 18, 0.25);
+  background: rgba(27, 23, 18, 0.12);
 }
 
 .mi-reject {
@@ -628,7 +628,7 @@
 
 .mi-empty-icon {
   font-size: 44px;
-  filter: drop-shadow(0 0 12px rgba(246, 185, 59, 0.35));
+  filter: drop-shadow(0 2px 4px rgba(27, 23, 18, 0.25));
 }
 
 .mi-empty-lead {

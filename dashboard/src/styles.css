@@ -1,37 +1,94 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Hive — design system « ruche » (centre de contrôle sombre, miel & ambre)
+   Hive — design system « ruche » (papier de cire, miel & propolis)
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ─── LES FONTES ─────────────────────────────────────────────────────────────
+   Les mêmes fichiers que la vitrine, LUS DEPUIS `site/fonts` : Vite résout ces
+   `url()` à la compilation et les copie dans `dist/assets`. Rien n'est
+   dupliqué dans le dépôt, et rien n'est demandé à Google — une page qui va
+   chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
+   Licence SIL OFL 1.1, cf. site/fonts/LICENSE.txt. */
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../../site/fonts/bricolage-grotesque-latin-400-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('../../site/fonts/instrument-sans-latin-400-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('../../site/fonts/jetbrains-mono-latin-400-600.woff2') format('woff2');
+}
+
+/* ─── LES JETONS ─────────────────────────────────────────────────────────────
+   Thème CLAIR. Les noms restent ceux d'avant — `--bg`, `--panel`, `--honey`… —
+   parce que plusieurs centaines d'emplois les désignent déjà et qu'un
+   renommage massif serait un diff illisible pour un gain nul. Ce sont les
+   VALEURS qui portent le changement, exactement comme sur la vitrine.
+
+   ─── LA SEULE VRAIE DIFFICULTÉ DE L'INVERSION ────────────────────────────
+   Sur fond sombre, `--honey`, `--amber` et `--gold` étaient des accents CLAIRS
+   qui portaient du texte. Repris tels quels sur une crème, ils tombent à
+   2,6:1 — illisibles. Ils deviennent donc trois BRUNS de miel, tous ≥ 4,5:1
+   sur chacune des quatre surfaces, et le miel vif passe dans `--miel`, qui
+   remplit sans jamais porter de texte. Les deux rôles étaient confondus tant
+   que le fond était noir ; ils ne peuvent plus l'être. */
 :root {
-  --bg: #130f09;
-  --bg-2: #1a150d;
-  --panel: #201a11;
-  --panel-2: #2a2216;
-  --panel-3: #332913;
-  --border: #392e1c;
-  --border-2: #4c3d23;
-  --text: #f4ecd9;
-  --muted: #b39c72;
-  --faint: #a09070; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
-  --honey: #f6b93b;
-  --amber: #e58e26;
-  --orange: #ff9f1a;
-  --gold: #ffd166;
-  --red: #e5573f;
-  --green: #86c35d;
-  --blue: #6bb0d6;
+  --bg: #f7f3e9;
+  --bg-2: #f4eee0;
+  --panel: #fffdf8;
+  --panel-2: #f7f3e9;
+  --panel-3: #f1e9d8;
+  --border: #e3d8c2;
+  --border-2: #e0d2b6;
+  --text: #1b1712;
+  --muted: #6f6555;
+  --faint: #6b6152; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
+  --honey: #9d5605;
+  --amber: #96570c;
+  --orange: #9a5a09;
+  --gold: #8a4f05;
+  --red: #a8402a;
+  --green: #235e52;
+  --blue: #1d5b7d;
+  /* L'encre : le contrepoint sombre du design — barre alvéolaire, boutons
+     pleins, journal. Elle ne couvre jamais la page, elle la découpe. */
+  --encre: #1b1712;
+  --encre-2: #241f18;
+  --sur-encre: #a2957d; /* 6:1 sur l'encre — libellés inactifs de la barre */
+  --sur-encre-fort: #fffdf8;
+  /* Le miel vif : REMPLISSAGE uniquement (fonds, jauges, alvéoles actives).
+     Du texte posé dessus doit être de l'encre, jamais l'inverse. */
+  --miel: #f6c445;
+  --miel-2: #e08a14;
   /* Thermorégulation : une teinte par bande de température. La couleur ne
      porte JAMAIS l'information seule — le libellé de bande l'accompagne. */
   --thermo-froide: var(--blue);
   --thermo-normale: var(--green);
   --thermo-chaude: var(--orange);
   --thermo-surchauffe: var(--red);
-  --mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-  --r: 10px;
-  --r-sm: 7px;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+  --r: 14px;
+  --r-sm: 10px;
   --sp: 8px;
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  /* Sur une crème, une ombre noire salit. Celles-ci sont de l'encre diluée :
+     la carte se soulève, elle ne se tache pas. */
+  --shadow: 0 18px 40px -22px rgba(27, 23, 18, 0.4);
+  --shadow-sm: 0 2px 10px -4px rgba(27, 23, 18, 0.18);
 }
 
 * {
@@ -44,23 +101,24 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(246, 185, 59, 0.06), transparent), var(--bg);
+  /* Le halo de miel du thème sombre n'a plus lieu d'être sur une crème : il
+     la salirait au lieu de l'éclairer. Le design pose un aplat, et ce sont les
+     bordures qui découpent. */
+  background: var(--bg);
   color: var(--text);
-  font-family:
-    'Segoe UI',
-    system-ui,
-    -apple-system,
-    sans-serif;
+  font-family: var(--texte);
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3 {
   margin: 0;
-  font-weight: 600;
+  font-family: var(--titre);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .app {
@@ -85,8 +143,9 @@ h3 {
   align-items: center;
   gap: 20px;
   padding: 12px 20px;
-  background: linear-gradient(180deg, var(--panel), var(--bg-2));
-  border-bottom: 1px solid var(--border);
+  background: rgba(247, 243, 233, 0.92);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-2);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -101,16 +160,20 @@ h3 {
 
 .brand-logo {
   font-size: 30px;
-  filter: drop-shadow(0 0 10px rgba(246, 185, 59, 0.5));
+  filter: drop-shadow(0 2px 3px rgba(27, 23, 18, 0.22));
 }
 
 .brand h1 {
+  /* Le titre de la vue en ENCRE, pas en miel : sur du papier, l'accent sert
+     à désigner, pas à titrer. C'est la ligne mono en dessous qui porte la
+     couleur d'ambiance. */
   font-size: 22px;
-  color: var(--honey);
-  letter-spacing: 0.5px;
+  color: var(--text);
+  letter-spacing: -0.025em;
 }
 
 .brand-sub {
+  font-family: var(--mono);
   font-size: 12px;
   color: var(--muted);
 }
@@ -143,7 +206,7 @@ h3 {
 
 .tile.accent {
   border-color: var(--amber);
-  background: linear-gradient(180deg, #2f2410, var(--panel-2));
+  background: linear-gradient(180deg, #fdf3dc, var(--panel));
 }
 
 .tile.danger {
@@ -192,7 +255,10 @@ h3 {
 }
 
 .btn:hover {
-  filter: brightness(1.12);
+  /* Sur un fond clair, `brightness(1.12)` ne produit RIEN de visible : on
+     éclaircit du quasi-blanc. C'est la bordure et l'ombre qui répondent. */
+  border-color: var(--miel-2);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn:active {
@@ -206,8 +272,8 @@ h3 {
 
 .btn.primary,
 .invite-btn {
-  background: linear-gradient(90deg, var(--amber), var(--honey));
-  color: #14100b;
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  color: var(--encre);
   border: none;
   white-space: nowrap;
 }
@@ -225,7 +291,7 @@ h3 {
 }
 
 .btn.danger-btn:hover {
-  background: rgba(229, 87, 63, 0.12);
+  background: rgba(168, 64, 42, 0.1);
 }
 
 .invite-btn {
@@ -252,8 +318,8 @@ h3 {
 }
 
 .view-toggle button.active {
-  background: linear-gradient(90deg, var(--amber), var(--honey));
-  color: #14100b;
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  color: var(--encre);
 }
 
 .token-input {
@@ -346,7 +412,7 @@ h3 {
   gap: 12px;
   color: var(--text);
   font-size: 13px;
-  text-shadow: 0 1px 4px #000;
+  text-shadow: 0 1px 3px rgba(255, 253, 248, 0.9);
 }
 
 .hero-progress span {
@@ -449,8 +515,8 @@ h3 {
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--amber), var(--panel-3));
-  color: #14100b;
+  background: linear-gradient(135deg, var(--miel), var(--miel-2));
+  color: var(--encre);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -599,15 +665,15 @@ h3 {
   border-color: var(--amber);
 }
 .badge.running {
-  color: #14100b;
-  background: var(--orange);
-  border-color: var(--orange);
+  color: var(--encre);
+  background: var(--miel-2);
+  border-color: var(--miel-2);
   animation: pulse 1.3s ease-in-out infinite;
 }
 .badge.done {
-  color: #14100b;
-  background: var(--honey);
-  border-color: var(--honey);
+  color: var(--encre);
+  background: var(--miel);
+  border-color: var(--miel-2);
 }
 .badge.failed {
   color: var(--red);
@@ -637,7 +703,7 @@ h3 {
 
 .pbar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--amber), var(--honey));
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
   border-radius: 4px;
   transition: width 0.4s ease;
 }
@@ -719,7 +785,7 @@ h3 {
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(27, 23, 18, 0.45);
   display: flex;
   justify-content: flex-end;
   z-index: 40;
@@ -877,7 +943,7 @@ h3 {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(27, 23, 18, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -926,8 +992,8 @@ h3 {
 
 .modal-error {
   color: var(--red);
-  background: rgba(229, 87, 63, 0.1);
-  border: 1px solid rgba(229, 87, 63, 0.3);
+  background: rgba(168, 64, 42, 0.09);
+  border: 1px solid rgba(168, 64, 42, 0.32);
   border-radius: var(--r-sm);
   padding: 8px 12px;
   margin: 0 0 12px;
@@ -983,8 +1049,8 @@ h3 {
 
 /* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat. */
 .chip.primary {
-  background: linear-gradient(90deg, var(--amber), var(--honey));
-  color: #14100b;
+  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  color: var(--encre);
   border: none;
   font-weight: 600;
 }
@@ -1001,7 +1067,7 @@ h3 {
 
 /* ─── Panneaux Palier 2 : Hive Mind & Conflits ─────────────────────────── */
 .panel-error {
-  color: var(--red, #e06b6b);
+  color: var(--red, #a8402a);
   font-size: 12px;
   margin: 4px 0;
 }
@@ -1099,8 +1165,8 @@ h3 {
   padding: 1px 6px;
   border-radius: 10px;
   font-size: 10px;
-  color: #14100b;
-  background: var(--amber);
+  color: var(--encre);
+  background: var(--miel-2);
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -1150,8 +1216,8 @@ h3 {
 .copy-btn {
   align-self: flex-start;
   padding: 6px 12px;
-  background: var(--amber);
-  color: #14100b;
+  background: var(--miel-2);
+  color: var(--encre);
   border: none;
   border-radius: 5px;
   font-weight: 700;
@@ -1244,7 +1310,7 @@ h3 {
 .swarm {
   width: 100%;
   display: block;
-  background: radial-gradient(700px 380px at 50% 20%, rgba(246, 185, 59, 0.05), transparent);
+  background: radial-gradient(700px 380px at 50% 20%, rgba(246, 196, 69, 0.16), transparent);
 }
 
 .swarm-empty {
@@ -1284,20 +1350,20 @@ h3 {
   stroke: var(--gold);
 }
 .cell.assigned polygon {
-  fill: #33290f;
+  fill: #f1e4c6;
   stroke: var(--amber);
 }
 .cell.running polygon {
-  fill: #4a3a12;
+  fill: #e7d3a8;
   stroke: var(--orange);
   animation: cellpulse 1.2s ease-in-out infinite;
 }
 .cell.done polygon {
-  fill: var(--honey);
-  stroke: var(--honey);
+  fill: var(--miel);
+  stroke: var(--miel-2);
 }
 .cell.failed polygon {
-  fill: #3a1712;
+  fill: #f3d9d2;
   stroke: var(--red);
 }
 
@@ -1323,7 +1389,7 @@ h3 {
 
 .cell.done .cell-label,
 .cell.done .cell-status {
-  fill: #14100b;
+  fill: var(--encre);
 }
 
 .node .node-hex {
@@ -1382,14 +1448,14 @@ h3 {
 }
 
 .agent {
-  fill: var(--orange);
+  fill: var(--miel-2);
   animation: agentpulse 0.9s ease-in-out infinite;
   transform-box: fill-box;
   transform-origin: center;
 }
 
 .agent.done {
-  fill: var(--honey);
+  fill: var(--miel);
   animation: none;
 }
 
@@ -1453,7 +1519,7 @@ h3 {
 
 .openalex-input:focus {
   border-color: var(--honey);
-  box-shadow: 0 0 0 2px rgba(246, 185, 59, 0.15);
+  box-shadow: 0 0 0 2px rgba(224, 138, 20, 0.28);
 }
 
 .openalex-input::placeholder {
@@ -1517,7 +1583,7 @@ h3 {
 .oa-oa {
   font-size: 11px;
   color: var(--green);
-  background: rgba(134, 195, 93, 0.1);
+  background: rgba(35, 94, 82, 0.1);
   padding: 1px 6px;
   border-radius: 8px;
 }
@@ -1605,119 +1671,133 @@ h3 {
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  width: 84px;
+  /* ─── UNE BARRE LARGE, ET POURQUOI ────────────────────────────────────────
+     Le rail de 84 px n'affichait un libellé que sous une icône de 10 px de
+     haut : treize vues aux noms proches (Ruche, Rayon, Reine) s'y lisaient à
+     la devinette. Le design pose une barre de 214 px où le nom est écrit en
+     clair à côté d'une alvéole. On garde l'icône — elle sert de repère de
+     survol — mais ce n'est plus elle qui porte le sens. */
+  width: 214px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 8px;
-  background: linear-gradient(180deg, var(--bg-2), var(--bg));
-  border-right: 1px solid var(--border);
+  gap: 14px;
+  padding: 18px 12px;
+  /* Le contrepoint sombre du design : la barre est en ENCRE, le reste de la
+     page en papier. C'est de ce seul contraste que vient le côté « produit
+     tech premium » — l'étendre au corps rendrait la ruche illisible. */
+  background: linear-gradient(180deg, var(--encre-2), var(--encre));
+  border-right: 1px solid var(--encre);
   z-index: 30;
 }
 
 .mc-sidebar-brand {
-  font-size: 26px;
-  filter: drop-shadow(0 0 8px rgba(246, 185, 59, 0.35));
-  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 6px 2px;
+  font-size: 22px;
+}
+
+.mc-sidebar-word {
+  font-family: var(--titre);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--sur-encre-fort);
 }
 
 .mc-nav {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  /* La liste défile DANS la barre : sans `min-height: 0`, un conteneur flex
+     refuse de rétrécir sous son contenu et les dernières vues (Cerveau,
+     Intendance) devenaient inatteignables sur un écran bas. */
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .mc-nav-cell {
   position: relative;
-  width: 68px;
-  padding: 9px 2px 7px;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 13px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
+  gap: 9px;
   background: none;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
-  color: var(--muted);
+  color: var(--sur-encre);
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
   transition:
-    color 0.15s,
-    background 0.15s,
-    border-color 0.15s;
+    color 0.18s,
+    background 0.18s;
 }
 
 .mc-nav-cell::before {
-  /* alvéole hexagonale décorative derrière l'icône */
+  /* L'alvéole du design : une puce hexagonale, éteinte tant que la vue n'est
+     pas la vue courante. Elle remplace le gros hexagone qui se dessinait
+     DERRIÈRE l'icône — inutile dès lors que le libellé est lisible. */
   content: '';
-  position: absolute;
-  top: 4px;
-  width: 38px;
-  height: 34px;
-  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
-  background: var(--panel-2);
-  opacity: 0.55;
-  transition:
-    background 0.2s,
-    opacity 0.2s;
-  z-index: 0;
+  flex: none;
+  width: 10px;
+  height: 12px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: #6e6350;
+  transition: background 0.2s;
 }
 
 .mc-nav-cell:hover {
-  color: var(--text);
-}
-
-.mc-nav-cell:hover::before {
-  opacity: 0.9;
+  color: var(--sur-encre-fort);
+  background: rgba(255, 253, 248, 0.06);
 }
 
 .mc-nav-cell.active {
-  color: var(--gold);
+  background: rgba(246, 196, 69, 0.16);
+  color: var(--sur-encre-fort);
 }
 
 .mc-nav-cell.active::before {
-  background: linear-gradient(180deg, var(--amber), var(--honey));
-  opacity: 1;
-}
-
-.mc-nav-cell.active .mc-nav-icon {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+  background: var(--miel);
 }
 
 .mc-nav-cell:focus-visible {
-  outline: 2px solid var(--honey);
+  outline: 2px solid var(--miel);
   outline-offset: 2px;
 }
 
 .mc-nav-icon {
-  position: relative;
-  z-index: 1;
-  font-size: 17px;
-  line-height: 30px;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .mc-nav-label {
-  position: relative;
-  z-index: 1;
-  letter-spacing: 0.04em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mc-nav-badge {
-  position: absolute;
-  top: 0;
-  right: 4px;
-  z-index: 2;
+  flex: none;
+  margin-left: auto;
   min-width: 17px;
-  padding: 1px 4px;
-  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
-  background: var(--red);
-  color: #fff;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--miel);
+  color: var(--encre);
+  font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
   text-align: center;
@@ -1729,14 +1809,14 @@ h3 {
   align-items: center;
   gap: 2px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255, 253, 248, 0.14);
   width: 100%;
 }
 
 .mc-pulse-rate {
   font-family: var(--mono);
   font-size: 10px;
-  color: var(--muted);
+  color: var(--sur-encre);
 }
 
 .mc-body {
@@ -1836,12 +1916,12 @@ button.mc-cell:focus-visible {
 }
 
 .mc-cell.running {
-  background: linear-gradient(180deg, var(--orange), var(--amber));
+  background: linear-gradient(180deg, var(--miel-2), #c4711a);
   animation: mc-throb 1.4s ease-in-out infinite;
 }
 
 .mc-cell.done {
-  background: linear-gradient(180deg, var(--gold), var(--honey));
+  background: linear-gradient(180deg, var(--miel), var(--miel-2));
 }
 
 .mc-cell.failed {
@@ -1859,11 +1939,11 @@ button.mc-cell:focus-visible {
 }
 
 .mc-cell.reviewed {
-  box-shadow: inset 0 0 0 20px rgba(246, 185, 59, 0.28);
+  box-shadow: inset 0 0 0 20px rgba(246, 196, 69, 0.5);
 }
 
 .mc-cell.rejected {
-  box-shadow: inset 0 0 0 20px rgba(229, 87, 63, 0.4);
+  box-shadow: inset 0 0 0 20px rgba(168, 64, 42, 0.32);
 }
 
 @keyframes mc-throb {
@@ -1909,13 +1989,27 @@ button.mc-cell:focus-visible {
 
 @media (max-width: 900px) {
   .mc-sidebar {
-    width: 58px;
+    width: 62px;
+    padding: 14px 8px;
   }
   .mc-nav-cell {
-    width: 48px;
+    justify-content: center;
+    padding: 9px 4px;
   }
-  .mc-nav-label {
+  .mc-nav-cell::before,
+  .mc-nav-label,
+  .mc-sidebar-word {
     display: none;
+  }
+  .mc-nav-icon {
+    font-size: 18px;
+  }
+  .mc-nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    margin-left: 0;
+    padding: 0 5px;
   }
 }
 
@@ -1953,7 +2047,7 @@ button.mc-cell:focus-visible {
 }
 
 .btn.geste-irr-armer:hover:not(:disabled) {
-  background: rgba(229, 87, 63, 0.12);
+  background: rgba(168, 64, 42, 0.1);
 }
 
 .geste-irr {
@@ -1984,5 +2078,5 @@ button.mc-cell:focus-visible {
 }
 
 .btn.geste-irr-oui:hover:not(:disabled) {
-  background: rgba(229, 87, 63, 0.12);
+  background: rgba(168, 64, 42, 0.1);
 }

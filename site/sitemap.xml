@@ -14,4 +14,11 @@
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://micka420-collab.github.io/hive/presentation/</loc>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://micka420-collab.github.io/hive/presentation/?lang=fr" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://micka420-collab.github.io/hive/presentation/?lang=en" />
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
 </urlset>

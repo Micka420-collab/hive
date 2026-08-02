@@ -47,8 +47,15 @@ describe('coquille du dashboard', () => {
   });
 
   it('la barre reste étroite et à demeure', () => {
+    // La VALEUR de la largeur n'est pas la propriété à tenir — elle a déjà
+    // bougé une fois (84 px → 214 px, quand les libellés sont passés à côté
+    // de l'icône au lieu de dessous). Ce qu'on ne peut pas se permettre de
+    // reperdre, c'est qu'elle soit BORNÉE : une barre en pourcentage ou en
+    // `auto` reprendrait toute la largeur et repousserait la vue hors écran.
     const barre = regle('.mc-sidebar');
-    expect(barre).toMatch(/width:\s*84px/);
+    const largeur = /width:\s*(\d+)px/.exec(barre);
+    expect(largeur, 'la barre n’a plus de largeur fixe en pixels').not.toBeNull();
+    expect(Number(largeur?.[1]), 'la barre mange la moitié de l’écran').toBeLessThanOrEqual(320);
     expect(barre).toMatch(/position:\s*sticky/);
   });
 });

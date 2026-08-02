@@ -31,7 +31,7 @@
 
 .rn-crown {
   font-size: 28px;
-  filter: drop-shadow(0 0 8px rgba(246, 185, 59, 0.45));
+  filter: drop-shadow(0 2px 3px rgba(27, 23, 18, 0.28));
 }
 
 .rn-head h2 {
@@ -140,7 +140,7 @@
 }
 
 .rn-user .rn-bubble {
-  background: linear-gradient(180deg, #33290f, var(--panel-3));
+  background: linear-gradient(180deg, #fdf3dc, var(--panel-3));
   border-color: var(--border-2);
   border-bottom-left-radius: var(--r);
   border-bottom-right-radius: 4px;

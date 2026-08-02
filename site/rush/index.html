@@ -8,7 +8,7 @@
       name="description"
       content="Un Rush, c’est un plafond d’heures-ouvrières payé d’avance, exécuté sur des nœuds hébergés, sur l’objectif que vous fixez. Devis fondé sur l’historique, plafond appliqué par le code, merge toujours humain."
     />
-    <meta name="theme-color" content="#130f09" />
+    <meta name="theme-color" content="#f7f3e9" />
     <link rel="canonical" href="https://micka420-collab.github.io/hive/rush/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Rush — acheter du temps d’essaim | Hive" />
@@ -30,7 +30,7 @@
       rel="preload"
       as="font"
       type="font/woff2"
-      href="../fonts/space-grotesk-latin-400-600-700.woff2"
+      href="../fonts/bricolage-grotesque-latin-400-700.woff2"
       crossorigin
     />
     <link
@@ -64,44 +64,73 @@
           U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
       @font-face {
-        font-family: 'Space Grotesk';
+        font-family: 'Bricolage Grotesque';
         font-style: normal;
         font-weight: 400 700;
         font-display: swap;
-        src: url('../fonts/space-grotesk-latin-ext-400-600-700.woff2') format('woff2');
+        src: url('../fonts/bricolage-grotesque-latin-ext-400-700.woff2') format('woff2');
         unicode-range:
           U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
           U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
           U+2C60-2C7F, U+A720-A7FF;
       }
       @font-face {
-        font-family: 'Space Grotesk';
+        font-family: 'Bricolage Grotesque';
         font-style: normal;
         font-weight: 400 700;
         font-display: swap;
-        src: url('../fonts/space-grotesk-latin-400-600-700.woff2') format('woff2');
+        src: url('../fonts/bricolage-grotesque-latin-400-700.woff2') format('woff2');
         unicode-range:
           U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
           U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
 
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/instrument-sans-latin-ext-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url('../fonts/instrument-sans-latin-400-600.woff2') format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+
+      /* Thème CLAIR, repris à l'identique de `site/index.html` : une page de
+         vente qui ne partage pas la palette de la vitrine annonce à celui qui
+         clique qu'il a changé de site. Les noms de jetons ne bougent pas, les
+         valeurs seules portent le changement. */
       :root {
-        --bg: #130f09;
-        --panel: #201a11;
-        --panel-2: #1a150d;
-        --chip: #2a2216;
-        --border: #392e1c;
-        --border-2: #4c3d23;
-        --text: #f4ecd9;
-        --muted: #b39c72;
-        --dim: #a09070;
-        --gold: #f6b93b;
-        --gold-2: #ffd166;
-        --orange: #e58e26;
-        --green: #86c35d;
-        --blue: #6bb0d6;
-        --red: #e5573f;
+        --bg: #f7f3e9;
+        --panel: #fffdf8;
+        --panel-2: #f2eada;
+        --chip: #efe7d7;
+        --border: #e3d8c2;
+        --border-2: #e0d2b6;
+        --text: #1b1712;
+        --encre: #1b1712;
+        --muted: #7c7263;
+        --dim: #9a8f7c;
+        --gold: #f6c445;
+        --gold-2: #e08a14;
+        --orange: #a85e06;
+        --green: #235e52;
+        --blue: #4a4238;
+        --red: #be3a22;
         --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+        --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
       }
       * {
         box-sizing: border-box;
@@ -115,21 +144,30 @@
         scroll-behavior: smooth;
       }
       body {
-        background:
-          radial-gradient(1200px 600px at 80% -10%, rgba(246, 185, 59, 0.08), transparent),
-          var(--bg);
+        /* Le halo de miel du thème sombre salirait la crème au lieu de
+           l'éclairer : le design pose un aplat, les bordures découpent. */
+        background: var(--bg);
         color: var(--text);
-        font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+        font-family: var(--texte);
         font-size: 16px;
         line-height: 1.55;
         -webkit-font-smoothing: antialiased;
       }
+      h1,
+      h2,
+      h3,
+      h4 {
+        font-family: var(--titre);
+        letter-spacing: -0.025em;
+      }
       a {
-        color: var(--gold);
+        /* Le miel vif sur la crème, c'est 2,4:1. Les liens passent au miel
+           foncé, comme sur la vitrine et comme dans le design. */
+        color: var(--orange);
         text-decoration: none;
       }
       a:hover {
-        color: var(--gold-2);
+        color: var(--text);
       }
       :focus-visible {
         outline: 2px solid var(--gold);
@@ -153,13 +191,13 @@
         z-index: 100;
         padding: 8px 16px;
         background: var(--gold);
-        color: #14100b;
+        color: var(--encre);
         font-weight: 700;
         border-radius: 0 0 8px 0;
       }
       .skip-link:focus {
         left: 0;
-        color: #14100b;
+        color: var(--encre);
       }
 
       /* ── En-tête ── */
@@ -168,7 +206,7 @@
         align-items: center;
         gap: 16px;
         padding: 14px 28px;
-        background: linear-gradient(180deg, #201a11, #1a150d);
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
         border-bottom: 1px solid var(--border);
         position: sticky;
         top: 0;
@@ -228,7 +266,7 @@
       }
       .lang-toggle button[aria-pressed='true'] {
         background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: #14100b;
+        color: var(--encre);
         cursor: default;
       }
 
@@ -242,11 +280,11 @@
       }
       .btn.primary {
         background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: #14100b;
+        color: var(--encre);
       }
       .btn.primary:hover {
         filter: brightness(1.12);
-        color: #14100b;
+        color: var(--encre);
       }
       .btn.ghost {
         border: 1px solid var(--border-2);
@@ -262,14 +300,14 @@
         padding: 7px 16px;
         border-radius: 7px;
         background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: #14100b;
+        color: var(--encre);
         font-weight: 700;
         font-size: 14px;
         white-space: nowrap;
       }
       .btn-gold:hover {
         filter: brightness(1.12);
-        color: #14100b;
+        color: var(--encre);
       }
 
       /* ── Sections ── */
@@ -301,15 +339,15 @@
 
       /* ── Bandeau d'honnêteté, tout en haut ── */
       .avis {
-        background: rgba(229, 87, 63, 0.12);
-        border-bottom: 1px solid rgba(229, 87, 63, 0.4);
+        background: rgba(190, 58, 34, 0.09);
+        border-bottom: 1px solid rgba(190, 58, 34, 0.28);
         padding: 11px 28px;
         text-align: center;
         font-size: 14px;
-        color: #f3c9c0;
+        color: #6b2f1c;
       }
       .avis strong {
-        color: #ff9f8e;
+        color: var(--red);
       }
 
       /* ── Héros ── */
@@ -421,14 +459,14 @@
       }
       .offre.phare {
         border-color: var(--gold);
-        box-shadow: 0 0 0 1px rgba(246, 185, 59, 0.25);
+        box-shadow: 0 0 0 1px rgba(224, 138, 20, 0.35);
       }
       .offre .etiq {
         font-size: 11.5px;
         text-transform: uppercase;
         letter-spacing: 0.1em;
         font-weight: 700;
-        color: #14100b;
+        color: var(--encre);
         background: linear-gradient(90deg, var(--orange), var(--gold));
         border-radius: 5px;
         padding: 2px 8px;

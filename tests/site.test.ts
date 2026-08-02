@@ -40,10 +40,30 @@ const PAGES: Page[] = [
     prefixe: '../',
     dossier: 'site/rush/',
   },
+  {
+    nom: 'présentation',
+    html: readFileSync(new URL('../site/presentation/index.html', import.meta.url), 'utf8'),
+    prefixe: '../',
+    dossier: 'site/presentation/',
+  },
 ];
 
 const vitrine = PAGES[0]?.html ?? '';
 const rush = PAGES[1]?.html ?? '';
+
+// ─── LES GARDES QUI NE VALENT QUE POUR CERTAINES PAGES ───────────────────────
+//
+// Les gardes communes (bilinguisme, vie privée, ressources) valent pour TOUTE
+// page. D'autres décrivent un ORGANE que toutes n'ont pas : un en-tête collant,
+// un bouton qui ouvre un formulaire d'issue. La présentation imprimable n'a ni
+// l'un ni l'autre — c'est un document, pas une page de navigation.
+//
+// Les exiger partout accuserait une page de ne pas être une autre. On filtre
+// donc sur la PRÉSENCE de l'organe, et un test plus bas vérifie que ces listes
+// ne sont pas vides : sans lui, une régression qui supprimerait tous les
+// en-têtes ferait passer la garde en la vidant.
+const PAGES_FORMULAIRE = PAGES.filter((p) => /issues\/new\?template=/.test(p.html));
+const PAGES_NAV = PAGES.filter((p) => p.html.includes('<header>'));
 
 /** Le dictionnaire anglais, isolé du reste du script. */
 function dictionnaireEn(html: string): string {
@@ -367,7 +387,16 @@ describe('site vitrine — le bandeau des agents', () => {
   });
 });
 
-describe.each(PAGES)('page $nom — les boutons mènent quelque part', ({ html, dossier }) => {
+describe('les listes filtrées ne sont pas vides', () => {
+  it('au moins une page porte un formulaire, au moins une porte une nav', () => {
+    // Une liste vide rendrait `describe.each` muet : zéro cas, zéro échec, et
+    // une garde qui a l'air verte parce qu'elle n'a rien regardé.
+    expect(PAGES_FORMULAIRE.length, 'plus aucun lien vers un formulaire').toBeGreaterThan(0);
+    expect(PAGES_NAV.length, 'plus aucune page avec en-tête').toBeGreaterThan(0);
+  });
+});
+
+describe.each(PAGES_FORMULAIRE)('page $nom — les formulaires', ({ html }) => {
   it('chaque lien « ouvrir un formulaire » vise un gabarit qui existe', () => {
     const gabarits = [...html.matchAll(/issues\/new\?template=([\w.-]+\.yml)/g)].map(
       (m) => m[1] ?? '',
@@ -380,7 +409,38 @@ describe.each(PAGES)('page $nom — les boutons mènent quelque part', ({ html, 
       );
     }
   });
+});
 
+// ─── LE DOCUMENT IMPRIMABLE NE PEUT PAS INVENTER UNE COMMANDE ────────────────
+//
+// La présentation réécrit les trois commandes d'installation de la vitrine.
+// Deux copies, et l'une des deux part sur papier — c'est-à-dire dans une main
+// où plus aucune correction ne la rattrape. Une URL d'installeur qui change
+// laisserait donc traîner un PDF qui fait exécuter la MAUVAISE commande.
+//
+// La vitrine reste la source : chaque commande imprimée doit se retrouver, au
+// caractère près, dans une de ses puces de système.
+describe('présentation — les commandes viennent de la vitrine', () => {
+  /** Un texte de commande, espaces normalisés — le HTML plie les longues lignes. */
+  const normalise = (s: string): string => s.replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+
+  it('chaque commande imprimée existe telle quelle sur la vitrine', () => {
+    const doc = PAGES.find((p) => p.nom === 'présentation')?.html ?? '';
+    const imprimees = [...doc.matchAll(/<code\b[^>]*>([\s\S]*?)<\/code/g)]
+      .map((m) => normalise(m[1] ?? ''))
+      // L'invite du terminal (`$` ou `>`) est un ornement, pas la commande.
+      .map((c) => c.replace(/^[$>] /, ''));
+    expect(imprimees.length, 'aucune commande lue dans la présentation').toBeGreaterThan(2);
+
+    const vitrineCmds = new Set(valeursDe(vitrine, 'data-install-cmd').map(normalise));
+    expect(vitrineCmds.size, 'la vitrine n’a plus de puce de système').toBeGreaterThan(2);
+    for (const cmd of imprimees) {
+      expect(vitrineCmds, `commande absente de la vitrine : ${cmd}`).toContain(cmd);
+    }
+  });
+});
+
+describe.each(PAGES)('page $nom — les boutons mènent quelque part', ({ html, dossier }) => {
   it('chaque lien relatif interne pointe vers un fichier livré', () => {
     // Une page en sous-dossier casse silencieusement ses liens relatifs : c'est
     // le mode d'échec numéro un d'un site statique à plusieurs pages.
@@ -492,7 +552,7 @@ describe('page rush — ce qui ne doit jamais glisser', () => {
   });
 });
 
-describe.each(PAGES)('page $nom — ancres', ({ html }) => {
+describe.each(PAGES_NAV)('page $nom — ancres', ({ html }) => {
   it('chaque lien de navigation vise une section réelle', () => {
     const nav = html.slice(html.indexOf('<header>'), html.indexOf('</header>'));
     const cibles = [...nav.matchAll(/href="#([\w-]+)"/g)].map((m) => m[1]);

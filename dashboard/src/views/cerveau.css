@@ -21,11 +21,11 @@
   gap: 0.7rem;
   height: 100%;
   min-height: 0;
-  --ce-fond: #0b1218;
-  --ce-carte: #101a24;
-  --ce-bord: #1e2b38;
-  --ce-bord-clair: #2a3d4f;
-  --ce-texte-doux: #8fa1b3;
+  --ce-fond: #14100b;
+  --ce-carte: #1f1913;
+  --ce-bord: #33291c;
+  --ce-bord-clair: #4a3c26;
+  --ce-texte-doux: #a2957d;
 }
 
 /* ─── En-tête ─────────────────────────────────────────────────────────────── */
@@ -98,24 +98,24 @@
 }
 
 .cerveau-tuile.on {
-  border-color: #ffd166;
+  border-color: #f6c445;
   background: #241f14;
 }
 
 .cerveau-tuile.on b {
-  color: #ffd166;
+  color: #f6c445;
 }
 
 .cerveau-tuile.alerte b {
-  color: #ff8f8f;
+  color: #f2a08f;
 }
 
 .cerveau-erreur {
   margin: 0;
   padding: 0.45rem 0.7rem;
   border-radius: 6px;
-  background: #3a1b1b;
-  color: #ffb4b4;
+  background: #3a201a;
+  color: #f4b3a4;
   font-size: 0.8rem;
 }
 
@@ -139,7 +139,7 @@
 }
 
 .cerveau-recherche:focus-visible {
-  outline: 2px solid #6bc5ff;
+  outline: 2px solid #6bb8e8;
   outline-offset: 1px;
 }
 
@@ -206,8 +206,8 @@
 }
 
 .cerveau-modes button.on {
-  background: #1c2a38;
-  color: #e8f0f8;
+  background: #2b2318;
+  color: #f4eee0;
 }
 
 .cerveau-recentrer {
@@ -245,7 +245,7 @@
 
 .cerveau-toile-boite {
   background:
-    radial-gradient(ellipse 70% 60% at 50% 42%, #16232f 0%, var(--ce-fond) 72%), var(--ce-fond);
+    radial-gradient(ellipse 70% 60% at 50% 42%, #201a12 0%, var(--ce-fond) 72%), var(--ce-fond);
 }
 
 .cerveau-toile {
@@ -269,7 +269,7 @@
   max-width: 260px;
   padding: 0.4rem 0.55rem;
   border-radius: 8px;
-  background: rgba(8, 14, 20, 0.96);
+  background: rgba(20, 16, 11, 0.96);
   border: 1px solid var(--ce-bord-clair);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   font-size: 0.74rem;
@@ -351,11 +351,11 @@
 }
 
 .cerveau-liste tbody tr:hover {
-  background: #131f2b;
+  background: #1e1811;
 }
 
 .cerveau-liste tbody tr.on {
-  background: #1c2a38;
+  background: #2b2318;
 }
 
 .cerveau-liste td i {
@@ -369,7 +369,7 @@
 /* Une note qui dort se voit dans le tableau aussi — l'information ne doit pas
  * n'exister que dans le graphe. */
 .cerveau-liste td.dort {
-  color: #7d8fa3;
+  color: #a2957d;
   font-style: italic;
 }
 
@@ -417,8 +417,8 @@
 }
 
 .cerveau-fermer:hover {
-  background: #1c2a38;
-  color: #e8f0f8;
+  background: #2b2318;
+  color: #f4eee0;
 }
 
 .cerveau-genre {
@@ -436,7 +436,7 @@
 
 .cerveau-fiche code {
   font-size: 0.66rem;
-  color: #6f8296;
+  color: #948871;
   word-break: break-all;
 }
 
@@ -492,7 +492,7 @@
 }
 
 .cerveau-voisins button:hover {
-  background: #1c2a38;
+  background: #2b2318;
 }
 
 .cerveau-voisins i {
@@ -507,8 +507,8 @@
 .cerveau-alerte {
   padding: 0.55rem 0.6rem;
   border-radius: 10px;
-  background: #2a1a1a;
-  border: 1px solid #4a2b2b;
+  background: #33201a;
+  border: 1px solid #5a3328;
   font-size: 0.73rem;
 }
 
@@ -536,7 +536,7 @@
 }
 
 .cerveau-alerte em {
-  color: #ff9a9a;
+  color: #f2a08f;
   font-style: normal;
 }
 
@@ -551,7 +551,7 @@
   gap: 0.4rem;
   text-align: center;
   border-radius: 12px;
-  background: radial-gradient(ellipse 70% 60% at 50% 45%, #16232f 0%, var(--ce-fond) 72%);
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, #201a12 0%, var(--ce-fond) 72%);
   border: 1px dashed var(--ce-bord-clair);
   min-height: 380px;
 }
@@ -570,7 +570,7 @@
 .cerveau-vide code {
   margin-top: 0.5rem;
   font-size: 0.7rem;
-  color: #6f8296;
+  color: #948871;
 }
 
 @media (max-width: 980px) {
