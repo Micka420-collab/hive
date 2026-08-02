@@ -310,7 +310,9 @@
         cursor: default;
       }
       .btn-gold {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         padding: 7px 16px;
         border-radius: 7px;
         background: var(--encre);
@@ -327,7 +329,7 @@
       /* ── Communauté ── */
       .etapes {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
         gap: 14px;
         margin: 30px 0 26px;
       }
@@ -430,7 +432,7 @@
       }
       .rc-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
         gap: 14px;
       }
       .rc {
@@ -1144,7 +1146,7 @@
       /* Features */
       .cards {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr));
         gap: 14px;
       }
       /* ── LES CARTES ────────────────────────────────────────────────────────
@@ -1433,7 +1435,7 @@
       }
       .views {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
         gap: 12px;
       }
       .view-card {
@@ -1474,7 +1476,7 @@
       /* Security */
       .checks {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
         gap: 10px 26px;
       }
       .check {
@@ -1682,7 +1684,7 @@
       /* Get started */
       .term-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
         gap: 18px;
         align-items: start;
       }
@@ -1821,6 +1823,12 @@
         flex-wrap: wrap;
         font-size: 14px;
         margin-bottom: 14px;
+      }
+      footer .version {
+        margin-top: 6px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--dim);
       }
       footer .made {
         font-size: 13px;
@@ -2129,11 +2137,133 @@
         .grad {
           background-size: 100% 0.36em;
         }
-        /* Les zones cliquables descendent rarement sous 44 px chez Apple comme
-           chez Google. Les puces de système et la langue les respectent. */
+        /* ── LE DOIGT, PAS LE CURSEUR ────────────────────────────────────────
+           Apple et Google demandent 44 px ; le WCAG 2.5.5 aussi. Deux zones
+           seulement les respectaient — mesuré à cinq largeurs (320 → 430), les
+           dix liens de navigation faisaient **21 px de haut**, le bouton GitHub
+           36, celui qui copie la commande 38, les onglets de l'aperçu 28.
+
+           Vingt-et-un pixels, c'est la hauteur d'une ligne de texte : le doigt
+           qui vise « Sécurité » touche « Tarifs » une fois sur trois. Ce n'est
+           pas un défaut d'apparence — rien ne se voit sur une capture — c'est
+           un défaut d'usage, et il ne se trouve qu'en mesurant les boîtes.
+
+           `inline-flex` plutôt qu'un `padding` vertical : la hauteur devient
+           celle qu'on demande, sans dépendre de l'interligne hérité. */
         .chip-os,
         .lang-toggle button {
-          min-height: 42px;
+          min-height: 44px;
+        }
+        nav.main a,
+        #gh-btn,
+        .barre-install button,
+        .apercu-onglet,
+        .rc-lien,
+        .btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 44px;
+        }
+        /* La navigation est un rail qui glisse : ses liens ne doivent pas
+           grandir en largeur, seulement en surface touchable. */
+        nav.main a {
+          padding: 0 2px;
+        }
+        .apercu-onglets {
+          padding: 6px 10px;
+        }
+        /* ── L'EN-TÊTE TENAIT SUR TROIS RANGS ────────────────────────────────
+           Mesuré : 177 px de haut à 320 et 360 px de large, contre 123 à 390.
+           Marque + langue tenaient sur un rang, le bouton GitHub était rejeté
+           sur le suivant, la navigation sur un troisième. Vingt-deux pour cent
+           du premier écran consommés avant le premier mot du pitch.
+
+           La maquette, elle, tient en 65 px sur un rang — mais elle y arrive en
+           repliant toute sa navigation derrière un bouton. On ne la suit pas
+           jusque-là : un menu replié demande un geste de plus sur une page dont
+           toutes les sections sont à un doigt de défilement, et la bande qui
+           glisse montre au moins qu'il y a une suite.
+
+           Ce qu'on prend à la maquette, c'est la CONTRAINTE : un rang pour la
+           marque et ses commandes. Le mot « GitHub » y suffit à faire la
+           différence — 94 px avec, 44 sans, et davantage encore une fois le
+           compteur d'étoiles arrivé. */
+        .gh-mot {
+          display: none;
+        }
+        header {
+          padding: 10px 12px;
+          gap: 8px;
+        }
+        /* Les quatre liens de pied de page faisaient 22 px, et le champ où l'on
+           colle l'adresse de sa ruche 35. Un champ trop bas se rate au doigt et
+           donne l'impression que la page ne répond pas. */
+        footer .links a {
+          display: inline-flex;
+          align-items: center;
+          min-height: 44px;
+        }
+        .rc-adresse input {
+          min-height: 44px;
+          /* 220 px de plancher débordaient d'un écran de 320 moins ses marges :
+             c'est le même défaut que les grilles, à un autre endroit. */
+          min-width: min(100%, 220px);
+        }
+
+        /* ── CE QU'ON DOIT POUVOIR LIRE ──────────────────────────────────────
+           Six textes passaient sous 12,5 px sur téléphone, dont la COMMANDE
+           qu'on demande au visiteur de copier — 11 px de chasse fixe. Coller
+           une commande qu'on n'a pas pu lire, c'est exactement la confiance
+           aveugle que le reste de la page s'efforce de ne pas demander.
+
+           Les étiquettes du dessin de l'essaim (9 et 10 px) restent où elles
+           sont : agrandir un texte à l'intérieur d'un SVG mis à l'échelle
+           déforme le dessin, et ces mots-là sont de la décoration — ils ne
+           portent aucune information qu'on ne trouve ailleurs en clair. */
+        .barre-install code {
+          font-size: 12.5px;
+        }
+        .pastille {
+          font-size: 12.5px;
+        }
+        .bandeau-agents .intitule {
+          font-size: 12.5px;
+        }
+        .badge {
+          font-size: 12.5px;
+        }
+        /* Le schéma d'architecture et les étiquettes d'agent portent du SENS —
+           « ruche-alpha », « claude-code », « WebSocket ». À 11 et 12 px on les
+           devine ; ce sont pourtant les seuls mots qui disent comment la ruche
+           est faite. */
+        .card p code.tag,
+        .node-box .id,
+        .node-box .d,
+        .archi-center .wire,
+        #journal .ts,
+        .swarm-head .online span,
+        .barre-install button,
+        .apercu-legende,
+        .brand .ver {
+          font-size: 12.5px;
+        }
+        /* CE QUI RESTE PETIT, ET POURQUOI ON N'Y TOUCHE PAS.
+           L'intérieur de l'aperçu (10–12 px) et les étiquettes du dessin de
+           l'essaim (9–10 px) sont des MINIATURES : un modèle réduit d'écran se
+           lit comme une photographie, pas comme du texte. Les agrandir ne les
+           rendrait pas lisibles — ça les ferait déborder de leur cadre et
+           perdre ce qu'ils montrent, c'est-à-dire la FORME de l'interface.
+           Aucun de ces mots ne porte une information absente du texte courant :
+           la légende juste au-dessus dit ce que l'aperçu montre. */
+      }
+
+      /* Il manquait treize pixels à 320 pour que l'en-tête tienne sur un rang.
+         Le seul élément qu'on puisse retirer sans rien perdre est celui qu'on
+         vient de reloger au pied de page. */
+      @media (max-width: 360px) {
+        .brand .ver {
+          display: none;
         }
       }
     </style>
@@ -2163,13 +2293,21 @@
         <button id="btn-fr" aria-pressed="true" lang="fr">FR</button>
         <button id="btn-en" aria-pressed="false" lang="en">EN</button>
       </div>
+      <!-- Le libellé est découpé en morceaux pour une seule raison : sur un
+           téléphone, le mot « GitHub » doit pouvoir disparaître sans que le
+           lien perde son nom. `aria-label` porte le nom complet en toutes
+           circonstances ; ce qui reste à l'écran est l'étoile et son compte.
+           Un `textContent` d'un seul tenant, comme avant, ne se raccourcit
+           pas au CSS — et le compteur d'étoiles le RALLONGEAIT à l'arrivée. -->
       <a
         class="btn-gold"
         id="gh-btn"
         href="https://github.com/Micka420-collab/hive"
         target="_blank"
         rel="noopener"
-        >★ GitHub</a
+        aria-label="Hive sur GitHub"
+        ><span class="gh-etoile" aria-hidden="true">★</span><span class="gh-nb"></span
+        ><span class="gh-mot">GitHub</span></a
       >
     </header>
 
@@ -2259,7 +2397,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >2 960 tests ✓</span
+              >2 972 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -3794,6 +3932,10 @@
         >
       </div>
       <div class="made" data-i18n="footer.made">Fait avec 🍯 — chaque ouvrière compte.</div>
+      <!-- La version ne vivait QUE dans l'en-tête. La masquer sur un petit
+           écran l'aurait donc perdue tout court — d'où ce second emplacement,
+           qui est de toute façon celui où l'on va la chercher. -->
+      <div class="version mono">v0.2.0 · MIT</div>
     </footer>
 
     <script>
@@ -3809,7 +3951,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,960 tests ✓',
+          'badge.tests': '2,972 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -4516,8 +4658,11 @@
           })
           .then(function (j) {
             if (j && typeof j.stargazers_count === 'number') {
-              document.getElementById('gh-btn').textContent =
-                '★ ' + j.stargazers_count + ' · GitHub';
+              /* On n'écrit QUE dans le compte : le mot « GitHub » et l'étoile
+                 restent des nœuds à part, pour que le téléphone puisse cacher
+                 le premier sans effacer le second. */
+              var nb = document.querySelector('#gh-btn .gh-nb');
+              if (nb) nb.textContent = String(j.stargazers_count);
             }
           })
           .catch(function () {

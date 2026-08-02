@@ -963,3 +963,144 @@ describe.each(PAGES)('page $nom — les jetons CSS', ({ html }) => {
     ).toEqual([]);
   });
 });
+
+// ─── LE TÉLÉPHONE : CE QUI NE SE VOIT PAS SUR UNE CAPTURE ────────────────────
+//
+// Tout ce qui suit vient d'une mesure prise dans le DOM à cinq largeurs
+// (320, 360, 390, 414, 430 px), pas d'un coup d'œil sur une image. Les trois
+// défauts trouvés étaient invisibles à l'écran :
+//
+//   · un plancher `minmax(320px, 1fr)` poussait la page 18 px hors cadre à
+//     320 px de large — neuf grilles avaient le même défaut, sur trois pages ;
+//   · les dix liens de navigation faisaient 21 px de haut, là où Apple, Google
+//     et le WCAG 2.5.5 demandent 44 ;
+//   · l'en-tête occupait 177 px sur trois rangs, soit 22 % du premier écran.
+//
+// Aucun de ces trois-là n'a de couleur, de forme ou de police fautive. Ils ne
+// se voient qu'en lisant des boîtes. Ces gardes tiennent donc les RÈGLES qui
+// les ont fermés, puisque le rendu, lui, aura toujours l'air correct.
+/** La feuille de style d'une page, isolée du script — qui contient lui aussi
+ *  des accolades, et par milliers. La première version de ces gardes lisait la
+ *  page ENTIÈRE : sept secondes par page, en retour arrière sur le JavaScript. */
+function feuille(html: string): string {
+  return [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1] ?? '').join('\n');
+}
+
+/** Les règles CSS d'une page, découpées une fois : { sélecteur, corps }. */
+function reglesDe(html: string): Array<{ selecteur: string; corps: string }> {
+  return [...feuille(html).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selecteur: (m[1] ?? '').trim().split('\n').pop()?.trim() ?? '',
+    corps: m[2] ?? '',
+  }));
+}
+
+describe.each(PAGES)('page $nom — les grilles sur un écran étroit', ({ nom, html }) => {
+  it('AUCUNE GRILLE N’A DE PLANCHER DUR', () => {
+    // `repeat(auto-fit, minmax(320px, 1fr))` : à 320 px de large moins les
+    // marges, la colonne ne PEUT pas rétrécir, et c'est la page entière qui
+    // part de travers. `minmax(min(100%, 320px), 1fr)` vaut exactement la même
+    // chose tant qu'il y a la place, et cède quand il n'y en a plus.
+    const durs = [...feuille(html).matchAll(/minmax\(\s*\d+px/g)].map((m) => m[0]);
+    expect(durs, `${nom} : plancher(s) dur(s) ${durs.join(', ')}`).toEqual([]);
+  });
+
+  it('UNE LARGEUR MINIMALE PLUS GRANDE QUE L’ÉCRAN DOIT DÉFILER DANS SON CADRE', () => {
+    // Même défaut, autre propriété — mais avec une exception RÉELLE, et c'est
+    // la garde qui a dû apprendre à la reconnaître. Écrite d'abord comme une
+    // interdiction sèche, elle a accusé `table { min-width: 560px }` dans la
+    // page Rush : un tableau de chiffres n'a pas à se replier sur 320 px, il a
+    // à DÉFILER dans son propre cadre — et c'est ce que fait `.tableau`, juste
+    // au-dessus.
+    //
+    // C'est la deuxième fois de la journée qu'une garde neuve accuse du code
+    // correct. La règle juste n'est jamais « personne ne dépasse » ; c'est
+    // « qui dépasse doit dire où il défile ».
+    const regles = reglesDe(html);
+    regles.forEach((r, i) => {
+      const valeur = Number(/min-width:\s*(\d+)px/.exec(r.corps)?.[1] ?? 0);
+      if (valeur <= 280) return;
+      const avant = regles.slice(Math.max(0, i - 3), i);
+      expect(
+        avant.some((p) => /overflow(?:-x)?:\s*auto/.test(p.corps)),
+        `${nom} : « ${r.selecteur} » impose ${valeur}px sans cadre qui défile au-dessus`,
+      ).toBe(true);
+    });
+  });
+});
+
+describe('site vitrine — le doigt, pas le curseur', () => {
+  const phone = /@media \(max-width: 720px\) \{([\s\S]*?)\n {6}\}\n/.exec(vitrine)?.[1] ?? '';
+
+  it('LA REQUÊTE TÉLÉPHONE EXISTE ET PORTE DES CIBLES DE 44 px', () => {
+    expect(phone, 'requête média téléphone introuvable').not.toBe('');
+    const quarante4 = (phone.match(/min-height:\s*44px/g) ?? []).length;
+    expect(quarante4, 'plus aucune cible ne vaut 44px').toBeGreaterThanOrEqual(3);
+    expect(phone, 'aucune cible ne descend sous 44px').not.toMatch(
+      /min-height:\s*(?:[0-3]\d|4[0-3])px/,
+    );
+  });
+
+  it('LA NAVIGATION, LA LANGUE ET LE BOUTON GITHUB SONT TOUS TENUS', () => {
+    // Les trois organes qu'on touche en premier sur un téléphone. Les nommer
+    // un par un plutôt que compter : un sélecteur retiré ne se verrait pas
+    // dans un total.
+    //
+    // LA PREMIÈRE VERSION CHERCHAIT `nav.main a` DANS TOUTE LA REQUÊTE, et la
+    // loupe l'a prise en flagrant délit : retiré de la règle des 44 px, le
+    // sélecteur survivait dans deux AUTRES règles de la même requête — le
+    // défilement par à-coups et le rembourrage. La garde restait verte pendant
+    // que les dix liens repassaient à 21 px. C'est le même piège qu'un repère
+    // textuel qu'un commentaire contient aussi : il faut chercher dans la
+    // RÈGLE qui porte la propriété, pas dans le fichier.
+    const listes = [...phone.matchAll(/([^{}]+)\{([^{}]*min-height:\s*44px[^{}]*)\}/g)]
+      .map((m) => m[1] ?? '')
+      .join(',');
+    expect(listes, 'aucune règle ne pose 44px').not.toBe('');
+    for (const sel of ['nav.main a', '.lang-toggle button', '#gh-btn']) {
+      expect(listes, `${sel} n’est plus tenu à 44px`).toContain(sel);
+    }
+  });
+});
+
+describe('site vitrine — le bouton GitHub qui doit pouvoir raccourcir', () => {
+  it('LE LIBELLÉ EST EN MORCEAUX, et le mot tombe sur téléphone', () => {
+    // Un `textContent` d'un seul tenant ne se raccourcit pas au CSS. Pire : le
+    // compteur d'étoiles le RALLONGEAIT en arrivant — « ★ GitHub » devenait
+    // « ★ 42 · GitHub », et l'en-tête passait à trois rangs après le chargement.
+    expect(vitrine, 'le mot n’est plus un nœud séparé').toMatch(/class="gh-mot"/);
+    expect(vitrine, 'le compte n’est plus un nœud séparé').toMatch(/class="gh-nb"/);
+    const phone = /@media \(max-width: 720px\) \{([\s\S]*?)\n {6}\}\n/.exec(vitrine)?.[1] ?? '';
+    expect(phone, 'le mot ne tombe plus sur téléphone').toMatch(/\.gh-mot\s*\{\s*display:\s*none/);
+  });
+
+  it('LE SCRIPT N’ÉCRASE PLUS TOUT LE BOUTON', () => {
+    // La garde qui tient l'invariant : si le script revient à
+    // `gh-btn.textContent = …`, les trois morceaux disparaissent et la règle
+    // ci-dessus devient décorative.
+    expect(vitrine, 'le script réécrit tout le bouton').not.toMatch(
+      /getElementById\('gh-btn'\)\.textContent\s*=/,
+    );
+    expect(vitrine, 'le compte n’est plus écrit dans son propre nœud').toMatch(/#gh-btn \.gh-nb/);
+  });
+
+  it('LE LIEN GARDE SON NOM QUAND SON TEXTE RÉTRÉCIT', () => {
+    // Sans `aria-label`, un bouton réduit à « ★ 42 » s'annonce « étoile 42 ».
+    const btn = /<a[^>]*id="gh-btn"[\s\S]*?>/.exec(vitrine)?.[0] ?? '';
+    expect(btn, 'balise #gh-btn introuvable').not.toBe('');
+    expect(btn, 'nom accessible absent').toMatch(/aria-label="[^"]{6,}"/);
+  });
+});
+
+describe('site vitrine — ce qu’on masque doit exister ailleurs', () => {
+  it('LA VERSION SURVIT À L’EN-TÊTE QUI SE SERRE', () => {
+    // Sous 360 px, l'en-tête cache `.brand .ver` pour tenir sur un rang. Elle
+    // n'existait NULLE PART ailleurs : la masquer l'aurait perdue tout court.
+    // La garde ne défend pas le pied de page, elle défend la propriété — « au
+    // moins deux endroits » — pour que le masquage reste sans conséquence.
+    const occurrences = (vitrine.match(/v0\.2\.0/g) ?? []).length;
+    expect(
+      occurrences,
+      'la version n’apparaît qu’une fois : la masquer sur petit écran la perd',
+    ).toBeGreaterThanOrEqual(2);
+  });
+});
