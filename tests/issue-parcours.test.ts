@@ -171,6 +171,16 @@ describe('d’une issue GitHub à des tâches de la ruche', () => {
     expect(corps.issues.map((i) => i.numero).sort(), 'les #4 et #6 sont des PR').toEqual([3, 5]);
   });
 
+  /** Prend une issue par son numéro, et rend les tâches créées. */
+  const prendreIssue = async (numero: number): Promise<{ id: string; title: string }[]> => {
+    const r = await fetch(`${base}/api/projects/${projet}/issues/${numero}`, {
+      method: 'POST',
+      headers: jeton,
+    });
+    expect(r.status, `non servis : ${nonServis.join(', ')}`).toBe(201);
+    return ((await r.json()) as { taches: { id: string; title: string }[] }).taches;
+  };
+
   it('PRENDRE UNE ISSUE CRÉE DES TÂCHES', async () => {
     const avant = server.store.listTasks(projet).length;
     const r = await fetch(`${base}/api/projects/${projet}/issues/3`, {
@@ -187,6 +197,12 @@ describe('d’une issue GitHub à des tâches de la ruche', () => {
     // C'est le maillon qui compte : le corps d'une issue est écrit par
     // n'importe qui sur un dépôt public, et il vient d'entrer dans un prompt de
     // planification.
+    //
+    // IL PREND L'ISSUE LUI-MÊME. Il lisait le DERNIER brief reçu, donc celui
+    // fabriqué par le test au-dessus : joué en premier, la liste était vide et
+    // il annonçait « la Queen Bee n'a reçu aucun brief » — un diagnostic qui
+    // désignait la Queen Bee alors que le défaut était dans sa propre prémisse.
+    await prendreIssue(3);
     const brief = briefsRecus.at(-1) ?? '';
     expect(brief, 'la Queen Bee n’a reçu aucun brief').not.toBe('');
     const ouverture = brief.indexOf(OUVERTURE_DONNEES);
@@ -252,12 +268,7 @@ describe('d’une issue GitHub à des tâches de la ruche', () => {
   });
 
   it('PRENDRE UNE ISSUE RANGE LE LIEN POUR CHAQUE TÂCHE CRÉÉE', async () => {
-    const r = await fetch(`${base}/api/projects/${projet}/issues/3`, {
-      method: 'POST',
-      headers: jeton,
-    });
-    expect(r.status, `non servis : ${nonServis.join(', ')}`).toBe(201);
-    const { taches } = (await r.json()) as { taches: { id: string }[] };
+    const taches = await prendreIssue(3);
     expect(taches.length).toBeGreaterThan(0);
     for (const t of taches) {
       expect(server.store.issueDeTache(t.id), t.id).toEqual({ depot: 'micka/ruche', numero: 3 });
@@ -265,17 +276,16 @@ describe('d’une issue GitHub à des tâches de la ruche', () => {
   });
 
   it('REPRENDRE LA MÊME ISSUE NE COLLISIONNE PAS, ET LE DAG SURVIT', async () => {
-    // C'est la SECONDE prise de l'issue #3 dans ce fichier — geste naturel
-    // quand le premier découpage ne convient pas. La Queen Bee rend des
-    // identifiants de son cru (« A », « B »), uniques dans un découpage et pas
-    // dans un projet : sans préfixe, la clé primaire entrait en collision et la
-    // route rendait un 502 muet.
-    const r = await fetch(`${base}/api/projects/${projet}/issues/3`, {
-      method: 'POST',
-      headers: jeton,
-    });
-    expect(r.status, `non servis : ${nonServis.join(', ')}`).toBe(201);
-    const { taches } = (await r.json()) as { taches: { id: string }[] };
+    // Reprendre une issue est le geste naturel quand le premier découpage ne
+    // convient pas. La Queen Bee rend des identifiants de son cru (« A »,
+    // « B »), uniques dans un découpage et pas dans un projet : sans préfixe,
+    // la clé primaire entrait en collision et la route rendait un 502 muet.
+    //
+    // IL PREND DEUX FOIS, LUI-MÊME. Il se disait « la SECONDE prise du
+    // fichier » et comptait donc sur ses voisins pour être la première : joué
+    // en premier, il n'éprouvait aucune collision et son vert ne disait rien.
+    await prendreIssue(3);
+    const taches = await prendreIssue(3);
     expect(taches).toHaveLength(2);
     for (const t of taches) expect(t.id).toMatch(/^i3-/);
 
@@ -311,7 +321,21 @@ describe('d’une issue GitHub à des tâches de la ruche', () => {
     const supprimes = server.store.pruneTachesIssue();
     expect(supprimes).toBeGreaterThanOrEqual(1);
     expect(server.store.issueDeTache('tache-qui-nexiste-pas')).toBeNull();
-    // …et il n'emporte pas les liens dont la tâche vit encore.
+    // …et il n'emporte pas les liens dont la tâche vit encore. La tâche
+    // témoin est créée ICI : ce test comptait sur une prise d'issue voisine
+    // pour lui en laisser une, et cette moitié-là de la borne ne se vérifiait
+    // donc qu'un ordre sur deux.
+    const temoin = server.store.createTask({
+      projectId: projet,
+      title: 'tâche liée, bien vivante',
+      prompt: 'x',
+    });
+    server.store.lierTacheIssue({
+      taskId: temoin.id,
+      projectId: projet,
+      depot: 'micka/ruche',
+      numero: 3,
+    });
     const vivantes = server.store.listTasks(projet);
     const avecLien = vivantes.filter((t) => server.store.issueDeTache(t.id) !== null);
     expect(avecLien.length, 'les liens des tâches vivantes doivent survivre').toBeGreaterThan(0);

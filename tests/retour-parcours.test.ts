@@ -133,6 +133,19 @@ describe('ce que la pull request renvoie à la ruche', () => {
     return (await r.json()) as { livraisons: Record<string, unknown>[] };
   };
 
+  /**
+   * Sème une livraison ET fait passer la ruche devant : c'est la LISTE qui va
+   * relire GitHub et ranger l'état réel.
+   *
+   * Les deux tests de reprise ci-dessous lisaient `t-verte` et `t-rouge`, semés
+   * — et rafraîchis — par le premier test du fichier. Joués avant lui, ils
+   * s'adressaient à une livraison qui n'existait pas.
+   */
+  const semerEtRafraichir = async (opts: Parameters<typeof livrer>[0]): Promise<void> => {
+    livrer(opts);
+    await lister();
+  };
+
   it('LA RUCHE VOIT ENFIN CE QUE DEVIENT SON TRAVAIL', async () => {
     livrer({
       taskId: 't-verte',
@@ -179,6 +192,15 @@ describe('ce que la pull request renvoie à la ruche', () => {
   });
 
   it('une pull request illisible ne rend pas toute la liste inutilisable', async () => {
+    // LA VOISINE LISIBLE EST SEMÉE ICI. « les autres sont toujours là » lisait
+    // les livraisons d'un test précédent : joué en premier, la liste ne
+    // contenait que le fantôme et il ne restait plus rien à sauver — la moitié
+    // qui compte de ce test ne se vérifiait qu'un ordre sur deux.
+    livrer({
+      taskId: 't-lisible',
+      pr: 24,
+      controles: [{ name: 'tests', status: 'completed', conclusion: 'success' }],
+    });
     server.store.createTask({ id: 't-fantome', projectId: projet, title: 'x', prompt: 'y' });
     server.store.setLivraison({
       taskId: 't-fantome',
@@ -196,15 +218,23 @@ describe('ce que la pull request renvoie à la ruche', () => {
   });
 
   it('REPRENDRE FABRIQUE UNE TÂCHE QUI PORTE CE QUE LA CI A DIT', async () => {
+    await semerEtRafraichir({
+      taskId: 't-rouge-reprise',
+      pr: 21,
+      controles: [
+        { name: 'lint', status: 'completed', conclusion: 'success' },
+        { name: 'tests', status: 'completed', conclusion: 'failure', html_url: 'https://x/run/21' },
+      ],
+    });
     const avant = server.store.listTasks(projet).length;
-    const r = await fetch(`${base}/api/projects/${projet}/livraisons/t-rouge/reprendre`, {
+    const r = await fetch(`${base}/api/projects/${projet}/livraisons/t-rouge-reprise/reprendre`, {
       method: 'POST',
       headers: jeton,
     });
     expect(r.status, `non servis : ${nonServis.join(', ')}`).toBe(201);
     const { tache } = (await r.json()) as { tache: { id: string; prompt: string; title: string } };
     expect(server.store.listTasks(projet).length).toBe(avant + 1);
-    expect(tache.title).toContain('#11');
+    expect(tache.title).toContain('#21');
     // Le contrôle en échec est dans le bloc de données, le vert n'y est pas.
     const ouv = tache.prompt.indexOf(OUVERTURE_DONNEES);
     const fer = tache.prompt.indexOf(FERMETURE_DONNEES);
@@ -266,7 +296,20 @@ describe('ce que la pull request renvoie à la ruche', () => {
   });
 
   it('RIEN À REPRENDRE SE DIT, PLUTÔT QUE DE FABRIQUER DU TRAVAIL VIDE', async () => {
-    const r = await fetch(`${base}/api/projects/${projet}/livraisons/t-verte/reprendre`, {
+    await semerEtRafraichir({
+      taskId: 't-verte-rien',
+      pr: 20,
+      controles: [{ name: 'tests', status: 'completed', conclusion: 'success' }],
+      revues: [
+        {
+          user: { login: 'lea' },
+          state: 'APPROVED',
+          body: '',
+          submitted_at: '2026-07-01T00:00:00Z',
+        },
+      ],
+    });
+    const r = await fetch(`${base}/api/projects/${projet}/livraisons/t-verte-rien/reprendre`, {
       method: 'POST',
       headers: jeton,
     });
@@ -301,8 +344,11 @@ describe('ce que la pull request renvoie à la ruche', () => {
   });
 
   it('une livraison d’un AUTRE projet est indistinguable d’une inexistante', async () => {
+    // La livraison visée doit EXISTER quelque part, sinon les deux refus se
+    // ressemblent pour la raison triviale. Elle est semée ici.
+    livrer({ taskId: 't-ailleurs', pr: 22, controles: [] });
     const autre = server.store.createProject({ name: 'Ailleurs', ownerId: null }).id;
-    const refuse = await fetch(`${base}/api/projects/${autre}/livraisons/t-rouge/reprendre`, {
+    const refuse = await fetch(`${base}/api/projects/${autre}/livraisons/t-ailleurs/reprendre`, {
       method: 'POST',
       headers: jeton,
     });
@@ -315,6 +361,7 @@ describe('ce que la pull request renvoie à la ruche', () => {
   });
 
   it('LA GARDE D’ENGAGEMENT S’APPLIQUE AUX DEUX ROUTES (ADR 0007)', async () => {
+    livrer({ taskId: 't-engagement', pr: 23, controles: [] });
     const aQuelquun = server.store.createProject({
       name: 'Projet possédé',
       repoUrl: 'https://github.com/micka/ruche.git',
@@ -323,7 +370,7 @@ describe('ce que la pull request renvoie à la ruche', () => {
     }).id;
     for (const [methode, chemin] of [
       ['GET', 'livraisons'],
-      ['POST', 'livraisons/t-rouge/reprendre'],
+      ['POST', 'livraisons/t-engagement/reprendre'],
     ] as const) {
       const r = await fetch(`${base}/api/projects/${aQuelquun}/${chemin}`, {
         method: methode,
