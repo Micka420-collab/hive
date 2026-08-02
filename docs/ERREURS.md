@@ -709,6 +709,45 @@ On ne relit pas le motif d'une garde verte.
 > qu'on ajoutera le mois prochain sans y penser ? Si la réponse tient à son nom
 > et non à son motif, elle ne couvre rien de plus qu'aujourd'hui.
 
+### 2.10 — Une garde qui découpe une TRANCHE de fichier, et ses deux façons de mentir
+
+Une garde neuve devait interdire qu'une commande d'installation revienne codée
+en dur dans le script de la vitrine — la table des systèmes vit dans le HTML, et
+une seconde copie dans le script dériverait au premier ajout.
+
+Elle a été creuse deux fois, pour deux raisons différentes, et aucune ne se voit
+en relisant.
+
+**1. La borne de fin cherchée AVANT son début.** La tranche allait de
+`var barreCmd` à `'/* ── Raccourcis'`. Or « Raccourcis » apparaît d'abord dans un
+commentaire de la feuille de style, **3 000 lignes plus haut**. `slice(début,
+fin)` avec `fin < début` rend la chaîne vide — et une chaîne vide ne contient
+aucune commande. La garde passait au vert **sans avoir lu une ligne**.
+
+**2. Ancrée sur une variable, elle ne protège que ce qui la suit.** Corrigée, la
+tranche commençait toujours à `var barreCmd`. Une mutation posant la constante
+**trois lignes au-dessus** a survécu. Rien n'oblige un futur auteur à écrire sa
+table après ce point précis — et la garde était muette sur tout le reste.
+
+La version qui tient ne découpe plus rien : elle lit **tous les `<script>` du
+document**, et vérifie d'abord qu'elle a lu quelque chose.
+
+```js
+const scripts = [...vitrine.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)];
+expect(scripts.length).toBeGreaterThan(0);
+expect(total.length, 'les scripts lus sont vides').toBeGreaterThan(2000);
+```
+
+> **Règle** — une garde qui isole une portion de fichier doit **prouver qu'elle
+> a extrait quelque chose** avant d'affirmer ce qu'il n'y a pas dedans. Sans
+> cette borne, toute erreur d'extraction se lit comme une absence de défaut :
+> c'est le faux vert le plus facile à écrire et le plus difficile à voir.
+
+> **Règle** — ne pas ancrer une garde sur un identifiant du code qu'elle
+> surveille. Ce que la garde interdit doit être interdit **partout**, pas après
+> une ligne particulière. Si la portée choisie a une frontière, le prochain
+> auteur écrira de l'autre côté — sans le faire exprès.
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois

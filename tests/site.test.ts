@@ -145,6 +145,23 @@ describe('fontes — licence', () => {
   });
 });
 
+/**
+ * Un attribut HTML, quel que soit son délimiteur.
+ *
+ * Prettier écrit `attr="valeur"` — sauf si la valeur contient un guillemet,
+ * auquel cas il bascule en `attr='valeur'`. C'est le cas de la commande
+ * Windows, qui met ses chemins entre guillemets. Une garde qui n'accepte que
+ * les guillemets doubles accuse alors un attribut parfaitement valide.
+ */
+const ATTRIBUT = (nom: string): RegExp => new RegExp(`${nom}=("[^"]+"|'[^']+')`);
+
+/** La valeur de chaque occurrence d'un attribut dans une source. */
+function valeursDe(source: string, nom: string): string[] {
+  return [...source.matchAll(new RegExp(`${nom}=(?:"([^"]*)"|'([^']*)')`, 'g'))].map(
+    (m) => m[1] ?? m[2] ?? '',
+  );
+}
+
 /** Le label posé par un gabarit d'issue, tel que GitHub l'appliquera. */
 function labelDuGabarit(fichier: string): string {
   const gabarit = readFileSync(
@@ -218,6 +235,134 @@ describe('site vitrine — la coulée de miel', () => {
     // retour : si `.grad::before` réapparaît, le filet vertical revient avec.
     expect(vitrine, '.grad::before ou ::after est de retour').not.toMatch(
       /\.grad::(?:before|after)/,
+    );
+  });
+});
+
+// ─── LE HAUT DE PAGE REPRIS DU DESIGN ────────────────────────────────────────
+//
+// Trois pièces sont arrivées ensemble : les puces de système, la barre
+// d'installation, et le bandeau des agents. Chacune AFFIRME quelque chose de
+// vérifiable ailleurs dans le dépôt, et c'est cela qu'on garde — pas leur
+// apparence, qu'aucun test ne saurait juger.
+describe('site vitrine — les puces de système et la barre', () => {
+  const puces = [...vitrine.matchAll(/<button\b[\s\S]*?<\/button>/g)]
+    .map((m) => m[0])
+    .filter((b) => b.includes('class="chip-os"'));
+
+  it('il y a bien des puces, et chacune porte SA commande et SA note', () => {
+    expect(puces.length, 'aucune puce de système lue').toBeGreaterThan(2);
+    for (const p of puces) {
+      // Le délimiteur n'est pas le nôtre : Prettier bascule en apostrophes dès
+      // que la valeur contient un guillemet — ce que fait la commande Windows,
+      // avec ses chemins entre guillemets. Une garde qui n'accepte qu'un seul
+      // délimiteur accuse un attribut parfaitement valide.
+      expect(p, `puce sans commande : ${p.slice(0, 80)}`).toMatch(ATTRIBUT('data-install-cmd'));
+      expect(p, `puce sans note : ${p.slice(0, 80)}`).toMatch(ATTRIBUT('data-install-note'));
+    }
+  });
+
+  it('LA COMMANDE AFFICHÉE EST CELLE QU’ON COPIE — le même nœud', () => {
+    // ─── POURQUOI CETTE GARDE, ET PAS « la commande est affichée » ──────────
+    //
+    // La garde des raccourcis exige qu'une commande copiée figure aussi dans un
+    // `<code>` de la page : deux endroits, tenus d'accord. Ici on a mieux, et
+    // c'est la seule chose à protéger — le script LIT le nœud affiché. Les deux
+    // ne peuvent pas diverger puisqu'il n'y en a qu'un.
+    //
+    // Ce que ce test empêche, c'est le retour en arrière : quelqu'un remet une
+    // table des commandes dans le script « pour simplifier », et la barre se
+    // remet à pouvoir montrer autre chose que ce qu'elle colle.
+    expect(vitrine, 'la barre n’a plus de nœud identifiable').toMatch(/id="install-cmd"/);
+    expect(vitrine, 'le bouton ne lit plus le texte affiché').toMatch(
+      /copier\(\s*barreCmd\.textContent/,
+    );
+    // Et la première commande est écrite EN DUR dans le HTML : une page dont le
+    // script n'a pas tourné doit encore montrer quelque chose d'utilisable.
+    const affichee = /<code id="install-cmd"\s*>([\s\S]*?)<\/code/.exec(vitrine)?.[1] ?? '';
+    expect(affichee.replace(/\s+/g, ' ').trim(), 'la barre naît vide').toMatch(/^curl -fsSL http/);
+  });
+
+  it('les puces n’inventent pas de système : AUCUN script ne connaît de table', () => {
+    // Tout vient des attributs. Une table des systèmes dans le script serait
+    // une seconde source, qui dériverait du HTML au premier ajout.
+    //
+    // ─── DEUX FAÇONS DONT CETTE GARDE A ÉTÉ CREUSE ─────────────────────────
+    //
+    // 1. Elle cherchait la fin de la tranche AVANT son début : « Raccourcis »
+    //    apparaît d'abord dans un commentaire de la feuille de style, 3 000
+    //    lignes plus haut. La tranche sortait vide — donc verte, sans avoir lu
+    //    une ligne.
+    //
+    // 2. Corrigée, elle ne regardait plus QU'APRÈS `var barreCmd`. Une mutation
+    //    posant la constante trois lignes AU-DESSUS a survécu. Une garde
+    //    ancrée sur une variable ne protège que ce qui la suit — et rien
+    //    n'oblige un futur auteur à écrire sa table là.
+    //
+    // On lit donc TOUT ce que le navigateur exécute, et on n'ancre plus rien.
+    const scripts = [...vitrine.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(
+      (m) => m[1] ?? '',
+    );
+    expect(scripts.length, 'aucun script lu dans la page').toBeGreaterThan(0);
+    const total = scripts.join('\n');
+    expect(total.length, 'les scripts lus sont vides').toBeGreaterThan(2000);
+    expect(total, 'une commande d’installation est codée en dur dans un script').not.toMatch(
+      /curl -fsSL|docker compose|irm https?:/,
+    );
+  });
+});
+
+describe('site vitrine — le bandeau des agents', () => {
+  /** Les clés d'agent que `getAdapter` sait vraiment construire. */
+  function adaptateursReels(): string[] {
+    const source = readFileSync(new URL('../src/adapters/index.ts', import.meta.url), 'utf8');
+    const debut = source.indexOf('export function getAdapter');
+    const corps = source.slice(debut, source.indexOf('\n}', debut));
+    return [...corps.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1] ?? '');
+  }
+
+  it('chaque nom annoncé correspond à un adaptateur qui existe', () => {
+    // Annoncer un agent retiré enverrait quelqu'un poser `HIVE_AGENT` sur une
+    // valeur que la ruche refuse — au moment précis où il essaie de démarrer.
+    const annonces = [...new Set([...vitrine.matchAll(/data-agent="([^"]+)"/g)].map((m) => m[1]))];
+    expect(annonces.length, 'aucun agent lu dans le bandeau').toBeGreaterThan(2);
+    const reels = adaptateursReels();
+    expect(reels.length, 'aucun `case` lu dans getAdapter').toBeGreaterThan(3);
+    for (const a of annonces) {
+      expect(reels, `agent annoncé et inexistant : ${a}`).toContain(a);
+    }
+  });
+
+  it('« shell » n’est PAS annoncé — c’est un simulacre', () => {
+    // Il existe dans `getAdapter`, donc la garde ci-dessus l'accepterait. Mais
+    // il ne lance AUCUN processus et rend de faux diffs : le mettre sur la
+    // ligne « fonctionne avec l'IA que vous utilisez déjà » serait un mensonge.
+    const bandeau = /<section class="bandeau-agents">[\s\S]*?<\/section>/.exec(vitrine)?.[0] ?? '';
+    expect(bandeau, 'bandeau introuvable').not.toBe('');
+    expect(bandeau, '`shell` est annoncé comme un agent utilisable').not.toMatch(
+      /data-agent="shell"/,
+    );
+  });
+
+  it('la piste défile en double — sinon la boucle saute', () => {
+    // L'animation translate de −50 % : la seconde moitié doit prendre
+    // exactement la place de la première. Une liste écrite une seule fois
+    // donnerait un saut visible à chaque cycle.
+    const piste = /<div class="piste"[\s\S]*?<\/div>/.exec(vitrine)?.[0] ?? '';
+    const noms = [...piste.matchAll(/data-agent="([^"]+)"/g)].map((m) => m[1]);
+    expect(noms.length, 'piste vide').toBeGreaterThan(3);
+    expect(noms.length % 2, 'la liste n’est pas écrite un nombre pair de fois').toBe(0);
+    expect(noms.slice(0, noms.length / 2), 'les deux moitiés diffèrent').toEqual(
+      noms.slice(noms.length / 2),
+    );
+  });
+
+  it('la liste VRAIE est lisible par un lecteur d’écran', () => {
+    // La piste est `aria-hidden` — elle défile et se répète. Sans la liste hors
+    // écran, l'information n'existerait que pour ceux qui voient.
+    expect(vitrine).toMatch(/class="sr-only" data-i18n="agents\.liste"/);
+    expect(vitrine, 'la piste n’est pas masquée aux lecteurs d’écran').toMatch(
+      /<div class="piste" aria-hidden="true">/,
     );
   });
 });
@@ -383,6 +528,10 @@ describe('site vitrine — les raccourcis', () => {
   it('chaque commande copiée existe VRAIMENT dans package.json', () => {
     // Le mode d'échec le plus bête et le plus probable : un script renommé, et
     // la page d'accueil continue d'annoncer l'ancien nom.
+    //
+    // Les commandes des puces de système (`data-install-cmd`) entrent ici
+    // aussi : « Déjà cloné » copie `npm run setup`, et rien d'autre ne
+    // vérifierait que ce script existe encore.
     const scripts = Object.keys(
       (
         JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
@@ -390,7 +539,7 @@ describe('site vitrine — les raccourcis', () => {
         }
       ).scripts,
     );
-    const cmds = commandesCopiees();
+    const cmds = [...commandesCopiees(), ...valeursDe(vitrine, 'data-install-cmd')];
     expect(cmds.length, 'aucun bouton « copier »').toBeGreaterThan(0);
     for (const cmd of cmds) {
       // « npm run setup && npm run dev » → ['setup', 'dev'] ; le « -- … » qui

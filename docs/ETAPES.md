@@ -29,6 +29,41 @@ l'avertissement en tête de ce carnet.
 
 ---
 
+## Le haut de page repris du design — les quatre pièces qui manquaient
+
+La maquette de Claude Design pose le texte à gauche et un rayon d'alvéoles à
+droite. Quatre pièces manquaient encore ; elles sont là.
+
+| pièce                       | ce qu'elle fait                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **La pastille**             | Deux faits vérifiables avant le titre : open source, une commande. Une petite alvéole y bat.                                                |
+| **Les puces de système**    | Linux · macOS, Windows, Docker, Déjà cloné. Une seule commande affichée à la fois — quatre en même temps, et chacun copie celle du voisin.  |
+| **La barre d'installation** | Le seul aplat d'encre du haut de page, donc le seul geste désigné. Elle copie **le nœud qu'elle affiche**.                                  |
+| **Le rayon d'alvéoles**     | Cinq rangées décalées, l'alvéole centrale portant le H. Halo qui respire, ensemble qui flotte, chaque alvéole ondulant à son propre retard. |
+
+S'y ajoute le **bandeau des agents** : « Fonctionne avec l'IA que vous utilisez
+déjà ». C'est la question qu'on se pose avant les fonctionnalités, et elle se
+répond en cinq noms — qui sont les clés **réelles** de `src/adapters/index.ts`.
+
+### Ce que la maquette proposait et qu'on n'a PAS repris
+
+Une carte « Tâches réussies — 94 % » avec sa courbe. Le chiffre est inventé : la
+maquette est une maquette. Le mettre sur la page publique en ferait une mesure,
+et rien dans le dépôt ne la produit. Une vitrine qui affiche une statistique que
+personne ne calcule est un mensonge de la forme la plus coûteuse — celle qu'on
+ne peut plus retirer sans avoir l'air de reculer.
+
+### Ce qui tient tout ça
+
+Huit gardes, **et les huit ont été vues rougir** : une puce sans commande, le
+bouton copiant une constante au lieu du nœud affiché, la barre naissant vide,
+une table de commandes revenant dans un script, un agent annoncé et inexistant,
+`shell` annoncé comme utilisable alors qu'il ne lance rien, la piste du bandeau
+qui cesse d'être écrite en double, et la piste qui cesse d'être masquée aux
+lecteurs d'écran.
+
+---
+
 ## Le README au design de la vitrine — et deux chiffres qui mentaient
 
 Les deux README ouvrent maintenant sur une **bannière** qui reprend exactement

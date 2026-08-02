@@ -543,12 +543,290 @@
          « outil qu'on installe en production ».
          Ce qui les remplace est déjà là : le rayon d'alvéoles du Swarm View,
          qui montre le produit au lieu de le décorer. */
+      /* ══ LA GRILLE DU HERO ══════════════════════════════════════════════════
+         Le design pose le texte à gauche et le rayon d'alvéoles à droite. Deux
+         colonnes en `auto-fit` : à partir de 340 px de large chacune, sinon
+         elles s'empilent — le rayon passe alors SOUS le texte, ce qui est le
+         bon ordre de lecture sur téléphone (on lit la promesse, puis on voit
+         l'image, jamais l'inverse). */
+      .hero-grille {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+        gap: clamp(34px, 5vw, 60px);
+        align-items: center;
+      }
+      /* `min-width: 0` : sans lui, un enfant de grille refuse de descendre
+         sous la largeur de son contenu le plus long — ici la commande
+         d'installation, qui déborderait la page sur mobile. */
+      .hero-texte,
+      .hero-rayon {
+        min-width: 0;
+      }
+      /* ── LA PASTILLE ────────────────────────────────────────────────────────
+         Ce que le design met en premier, avant le titre : deux faits, et pas
+         une promesse. « Open source » et « une commande » sont vérifiables tout
+         de suite, ce qui est exactement ce qu'on veut donner à lire d'abord. */
+      .pastille {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 7px 15px 7px 11px;
+        border: 1px solid var(--border-2);
+        background: var(--panel);
+        border-radius: 999px;
+        font-size: clamp(11.5px, 2.6vw, 13px);
+        font-weight: 600;
+        color: var(--muted);
+        animation: hvRise 0.7s both;
+      }
+      .pastille .alveole {
+        width: 8px;
+        height: 9px;
+        background: var(--gold-2);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+        display: block;
+        flex: none;
+        animation: hvBeat 2.4s ease-in-out infinite;
+      }
+      /* ── LES PUCES DE SYSTÈME ───────────────────────────────────────────────
+         Quatre façons d'installer, et une seule affichée. Une page qui montre
+         les quatre commandes à la fois oblige chacun à trouver la sienne — et
+         c'est le moment où l'on copie celle du voisin. */
+      .chips {
+        margin-top: clamp(22px, 4vw, 32px);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        max-width: 520px;
+      }
+      .chip-os {
+        min-height: 38px;
+        padding: 8px 14px;
+        border: 1px solid var(--border-2);
+        background: var(--panel);
+        color: var(--muted);
+        border-radius: 999px;
+        font-family: inherit;
+        font-size: clamp(12.5px, 2.7vw, 13.5px);
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .chip-os:hover {
+        border-color: var(--gold-2);
+        color: var(--text);
+      }
+      .chip-os[aria-pressed='true'] {
+        background: var(--encre);
+        border-color: var(--encre);
+        color: var(--panel);
+      }
+      .chip-os:active {
+        transform: scale(0.95);
+      }
+      /* ── LA BARRE D'INSTALLATION ────────────────────────────────────────────
+         Encre pleine, invite ambrée, bouton miel. C'est le seul bloc sombre du
+         haut de page, et c'est délibéré : sur une crème, un aplat d'encre est
+         le contraste le plus fort disponible. Il désigne LE geste. */
+      .barre-install {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 11px 11px 15px;
+        background: var(--encre);
+        border-radius: 14px;
+        max-width: 520px;
+        box-shadow: 0 18px 40px -18px rgba(27, 23, 18, 0.5);
+      }
+      .barre-install .invite {
+        color: var(--gold-2);
+        font-family: var(--mono);
+        font-size: 13px;
+        flex: none;
+      }
+      /* `min-width: 0` + `text-overflow` : la commande Windows fait 180
+         caractères. Sans ces deux-là, elle pousse le bouton « copier » hors de
+         l'écran — et le bouton est la raison d'être de la barre. */
+      .barre-install code {
+        flex: 1;
+        min-width: 0;
+        color: #f4eee0;
+        font-family: var(--mono);
+        font-size: clamp(11px, 2.7vw, 13.5px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .barre-install button {
+        flex: none;
+        min-height: 38px;
+        padding: 8px 12px;
+        background: var(--gold);
+        color: var(--encre);
+        border: 0;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: clamp(12px, 2.6vw, 13px);
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .barre-install button:hover {
+        filter: brightness(1.08);
+        transform: translateY(-1px);
+      }
+      .note-install {
+        margin-top: 11px;
+        font-size: clamp(12.5px, 2.8vw, 13.5px);
+        color: var(--muted);
+        max-width: 520px;
+      }
+      /* ══ LE RAYON D'ALVÉOLES ════════════════════════════════════════════════
+         Cinq rangées décalées, l'alvéole centrale portant le H. Le halo derrière
+         respire (`hvGlow`), l'ensemble flotte (`hvFloat`), et chaque alvéole
+         claire ondule avec son propre retard (`hvWave`) — c'est ce décalage qui
+         fait un essaim plutôt qu'une frise qui clignote.
+
+         Les hexagones sont POINTE EN HAUT (`50% 0`), comme dans le design ; le
+         reste de la page emploie des hexagones pointe à gauche pour les nœuds.
+         Deux orientations, deux natures : ici c'est la matière, là c'est un
+         objet du graphe. */
+      .hero-rayon {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .halo-rayon {
+        position: absolute;
+        inset: -12% -6%;
+        background: radial-gradient(58% 52% at 55% 42%, rgba(246, 196, 69, 0.34), transparent 72%);
+        filter: blur(6px);
+        animation: hvGlow 5.5s ease-in-out infinite;
+        pointer-events: none;
+      }
+      .rayon {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(3px, 0.9vw, 6px);
+        align-items: center;
+        max-width: 100%;
+        animation: hvFloat 7s ease-in-out infinite;
+      }
+      .rayon-rang {
+        display: flex;
+        gap: clamp(3px, 0.9vw, 6px);
+      }
+      /* Le décalage d'une demi-alvéole : c'est lui, et rien d'autre, qui fait
+         qu'un damier devient un rayon. */
+      .rayon-rang.decale {
+        margin-left: clamp(19px, 4.8vw, 31px);
+      }
+      .rayon-rang.centre {
+        align-items: center;
+      }
+      .alv {
+        width: clamp(38px, 9.4vw, 56px);
+        height: clamp(44px, 10.8vw, 64px);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+        flex: none;
+        display: block;
+        background: var(--chip);
+        animation: hvWave 4.6s ease-in-out infinite;
+      }
+      .alv.miel {
+        background: linear-gradient(150deg, var(--gold), var(--gold-2));
+      }
+      .alv.ambre {
+        background: #f1e0b4;
+      }
+      .alv.coeur {
+        background: linear-gradient(150deg, var(--encre), #3a2e1c);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--gold);
+        font-family: var(--titre);
+        font-weight: 700;
+        font-size: clamp(15px, 3.8vw, 21px);
+        animation: none;
+      }
+      /* ══ LE BANDEAU DES AGENTS ══════════════════════════════════════════════
+         Il défile parce que la liste est plus longue que l'écran, pas pour
+         bouger. `width: max-content` + translation de −50 % sur une liste
+         écrite DEUX FOIS : la seconde moitié prend exactement la place de la
+         première à la fin du cycle, donc la boucle ne saute pas. */
+      .bandeau-agents {
+        padding: clamp(20px, 4vw, 30px) 0;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        overflow: hidden;
+      }
+      .bandeau-agents .intitule {
+        text-align: center;
+        padding: 0 18px;
+        font-size: clamp(11px, 2.5vw, 12.5px);
+        font-weight: 700;
+        color: var(--dim);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .bandeau-agents .piste {
+        margin-top: 18px;
+        display: flex;
+        width: max-content;
+        gap: clamp(26px, 6vw, 52px);
+        animation: hvMarquee 34s linear infinite;
+      }
+      .bandeau-agents .agent {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--mono);
+        font-size: clamp(13px, 3vw, 16px);
+        font-weight: 500;
+        color: var(--blue);
+        white-space: nowrap;
+      }
+      /* Lu par les lecteurs d'écran, invisible à l'œil. `clip-path` plutôt que
+         `display: none` : ce qui est caché par `display` n'est PAS lu. */
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      .bandeau-agents .agent::before {
+        content: '';
+        width: 9px;
+        height: 10px;
+        background: var(--border-2);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+        display: block;
+        flex: none;
+      }
+      /* Un bandeau qui défile sans fin est une gêne pour qui lit mal. La règle
+         globale `prefers-reduced-motion` coupe déjà toutes les animations ; on
+         rend ici la piste lisible une fois arrêtée, en la laissant se replier
+         au lieu de rester figée en dehors de l'écran. */
+      @media (prefers-reduced-motion: reduce) {
+        .bandeau-agents .piste {
+          width: auto;
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+      }
       .badges {
         display: flex;
         gap: 8px;
         justify-content: flex-start;
         flex-wrap: wrap;
-        margin-bottom: clamp(16px, 3vw, 24px);
+        margin-top: clamp(22px, 4vw, 34px);
         /* L'entrée du design : ça monte de 16 px, une fois, au chargement. */
         animation: hvRise 0.7s both;
       }
@@ -558,13 +836,14 @@
       .hero .sub {
         animation: hvRise 0.7s both 0.12s;
       }
-      .hero .cta-row {
+      .hero .chips,
+      .hero .barre-install {
         animation: hvRise 0.7s both 0.18s;
       }
       /* ── LE DÉCALAGE EST L'EFFET ────────────────────────────────────────────
          Quatre blocs qui montent ENSEMBLE font un écran qui saute. Décalés de
-         60 ms, ils font une phrase : pastille, titre, sous-titre, boutons. C'est
-         l'ordre de lecture, joué une fois. */
+         60 ms, ils font une phrase : pastille, titre, sous-titre, la commande.
+         C'est l'ordre de lecture, joué une fois. */
       .swarm-panel {
         animation: hvPop 0.6s cubic-bezier(0.22, 1, 0.36, 1) both 0.26s;
       }
@@ -672,52 +951,6 @@
       .hero .sub strong.key {
         color: var(--gold-2);
       }
-      .cta-row {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-start;
-        flex-wrap: wrap;
-        margin-top: clamp(22px, 4vw, 32px);
-      }
-      /* Encre pleine plutôt qu'un dégradé : sur une crème, un aplat sombre est
-         le contraste le plus fort disponible, et il ne discute pas avec le
-         miel — qui reste réservé à UNE chose, l'action de copier. */
-      .cta-main {
-        padding: 13px 22px;
-        border-radius: 10px;
-        background: var(--encre);
-        color: var(--panel);
-        font-weight: 700;
-        font-size: 15px;
-        transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-      }
-      .cta-main:hover {
-        transform: translateY(-1px);
-        color: var(--panel);
-        box-shadow: var(--ombre);
-      }
-      .cta-copy {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 12px 22px;
-        border-radius: 8px;
-        background: var(--panel);
-        border: 1px solid var(--border-2);
-        color: var(--gold-2);
-        font-family: var(--mono);
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .cta-copy:hover {
-        border-color: var(--gold);
-      }
-      .cta-copy .lbl {
-        color: var(--muted);
-        font-size: 12px;
-      }
-
       /* ── Swarm View panel ── */
       .swarm-panel {
         margin: 52px auto 0;
@@ -1518,38 +1751,143 @@
     </header>
 
     <section class="hero">
-      <div class="badges">
-        <span class="badge" style="color: var(--green)" data-i18n="badge.tests">2 600 tests ✓</span>
-        <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
-          >Palier 7 livré</span
-        >
-        <span class="badge" style="color: var(--blue)">TypeScript strict</span>
-        <span class="badge" style="color: var(--muted)">Node ≥ 24</span>
-      </div>
-      <h1 data-i18n="hero.h1">
-        Faites coder plusieurs IA sur votre projet,
-        <span class="grad">en même temps</span>.
-      </h1>
-      <p class="sub" data-i18n="hero.sub">
-        Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
-        ordinateurs de votre équipe, et vous montre le résultat <strong>à valider</strong>.
-      </p>
-      <p class="sub sub-2" data-i18n="hero.sub2">
-        Rien n'est fusionné sans votre accord.
-        <strong class="key">Votre code et vos clés restent sur vos machines.</strong>
-      </p>
-      <div class="cta-row">
-        <a
-          class="cta-main"
-          href="https://github.com/Micka420-collab/hive"
-          target="_blank"
-          rel="noopener"
-          data-i18n="hero.clone"
-          >Cloner la ruche</a
-        >
-        <button class="cta-copy" id="copy-btn" type="button">
-          $ npm run demo <span class="lbl" id="copy-lbl" data-i18n="hero.copy">copier</span>
-        </button>
+      <div class="hero-grille">
+        <div class="hero-texte">
+          <div class="pastille">
+            <span class="alveole"></span>
+            <span data-i18n="hero.pastille">Open source · installation en une commande</span>
+          </div>
+          <h1 data-i18n="hero.h1">
+            Faites coder plusieurs IA sur votre projet,
+            <span class="grad">en même temps</span>.
+          </h1>
+          <p class="sub" data-i18n="hero.sub">
+            Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
+            ordinateurs de votre équipe, et vous montre le résultat <strong>à valider</strong>.
+          </p>
+          <p class="sub sub-2" data-i18n="hero.sub2">
+            Rien n’est fusionné sans votre accord.
+            <strong class="key">Votre code et vos clés restent sur vos machines.</strong>
+          </p>
+
+          <!-- ══ LES QUATRE PORTES D’ENTRÉE ════════════════════════════════
+               Chaque puce porte SA commande et SA note. Rien n’est calculé côté
+               script : le HTML dit tout, et une page dont le JavaScript n’a pas
+               tourné affiche encore la première commande, lisible. -->
+          <div class="chips" role="group" data-i18n-attr="aria-label:install.groupe">
+            <button
+              type="button"
+              class="chip-os"
+              aria-pressed="true"
+              data-install-cmd="curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh"
+              data-i18n-attr="data-install-note:install.note.unix"
+              data-install-note="Jamais de sudo, et rien hors du dossier d’installation."
+            >
+              Linux · macOS
+            </button>
+            <button
+              type="button"
+              class="chip-os"
+              aria-pressed="false"
+              data-install-cmd='irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"'
+              data-i18n-attr="data-install-note:install.note.windows"
+              data-install-note="PowerShell 5.1 ou 7. Rien hors du dossier d’installation."
+            >
+              Windows
+            </button>
+            <button
+              type="button"
+              class="chip-os"
+              aria-pressed="false"
+              data-install-cmd="docker compose up"
+              data-i18n-attr="data-install-note:install.note.docker"
+              data-install-note="Depuis le dépôt cloné. La base reste dans un volume."
+            >
+              Docker
+            </button>
+            <button
+              type="button"
+              class="chip-os"
+              aria-pressed="false"
+              data-install-cmd="npm run setup"
+              data-i18n-attr="data-install-note:install.note.clone"
+              data-install-note="Depuis un dépôt déjà cloné. Trois questions au maximum."
+            >
+              <span data-i18n="install.chip.clone">Déjà cloné</span>
+            </button>
+          </div>
+
+          <div class="barre-install">
+            <span class="invite" aria-hidden="true">$</span>
+            <!-- Le bouton copie CE nœud-ci, jamais une constante à côté : ce
+                 qu’on lit est donc, par construction, ce qu’on colle. -->
+            <code id="install-cmd"
+              >curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh |
+              sh</code
+            >
+            <button type="button" id="install-copier" data-i18n="hero.copy">copier</button>
+          </div>
+          <p class="note-install">
+            <span id="install-note" data-i18n="install.note.unix"
+              >Jamais de sudo, et rien hors du dossier d’installation.</span
+            >
+            <span data-i18n="install.sansCle">Aucune clé d’API à fournir.</span>
+          </p>
+
+          <div class="badges">
+            <span class="badge" style="color: var(--green)" data-i18n="badge.tests"
+              >2 860 tests ✓</span
+            >
+            <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
+              >Palier 7 livré</span
+            >
+            <span class="badge" style="color: var(--blue)">TypeScript strict</span>
+            <span class="badge" style="color: var(--muted)">Node ≥ 24</span>
+          </div>
+        </div>
+
+        <!-- Décoratif, et déclaré comme tel : le rayon ne porte aucune
+             information que le texte ne donne pas déjà. Un lecteur d’écran qui
+             énumérerait vingt et une alvéoles vides ne rendrait service à
+             personne. -->
+        <div class="hero-rayon" aria-hidden="true">
+          <div class="halo-rayon"></div>
+          <div class="rayon">
+            <div class="rayon-rang">
+              <span class="alv" style="animation-delay: 0s"></span>
+              <span class="alv ambre" style="animation-delay: 0.2s"></span>
+              <span class="alv" style="animation-delay: 0.4s"></span>
+              <span class="alv miel" style="animation-delay: 0.6s"></span>
+            </div>
+            <div class="rayon-rang decale">
+              <span class="alv ambre" style="animation-delay: 0.15s"></span>
+              <span class="alv" style="animation-delay: 0.35s"></span>
+              <span class="alv miel" style="animation-delay: 0.55s"></span>
+              <span class="alv" style="animation-delay: 0.75s"></span>
+              <span class="alv ambre" style="animation-delay: 0.95s"></span>
+            </div>
+            <div class="rayon-rang centre">
+              <span class="alv" style="animation-delay: 0.3s"></span>
+              <span class="alv miel" style="animation-delay: 0.5s"></span>
+              <span class="alv coeur">H</span>
+              <span class="alv miel" style="animation-delay: 0.7s"></span>
+              <span class="alv" style="animation-delay: 0.9s"></span>
+            </div>
+            <div class="rayon-rang decale">
+              <span class="alv ambre" style="animation-delay: 0.45s"></span>
+              <span class="alv" style="animation-delay: 0.65s"></span>
+              <span class="alv miel" style="animation-delay: 0.85s"></span>
+              <span class="alv" style="animation-delay: 1.05s"></span>
+              <span class="alv ambre" style="animation-delay: 1.25s"></span>
+            </div>
+            <div class="rayon-rang">
+              <span class="alv miel" style="animation-delay: 0.6s"></span>
+              <span class="alv" style="animation-delay: 0.8s"></span>
+              <span class="alv ambre" style="animation-delay: 1s"></span>
+              <span class="alv" style="animation-delay: 1.2s"></span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="swarm-panel">
@@ -1887,6 +2225,38 @@
         </svg>
         <ul class="journal" id="journal" aria-live="off"></ul>
       </div>
+    </section>
+
+    <!-- ══ LE BANDEAU DES AGENTS ═══════════════════════════════════════════════
+         La question qu’on se pose en découvrant l’outil, c’est « est-ce que ça
+         marche avec CE QUE J’AI DÉJÀ ? ». Elle passe avant les fonctionnalités,
+         et elle se répond en cinq noms.
+
+         Chaque nom porte son `data-agent` : c’est la clé RÉELLE de
+         `src/adapters/index.ts`, et une garde la confronte au `switch`. Annoncer
+         ici un agent qui n’existe plus enverrait quelqu’un poser `HIVE_AGENT` sur
+         une valeur que la ruche refuse. -->
+    <section class="bandeau-agents">
+      <p class="intitule" data-i18n="agents.intitule">
+        Fonctionne avec l’IA que vous utilisez déjà
+      </p>
+      <div class="piste" aria-hidden="true">
+        <span class="agent" data-agent="claude-code">Claude Code</span>
+        <span class="agent" data-agent="codex">Codex</span>
+        <span class="agent" data-agent="grok">Grok</span>
+        <span class="agent" data-agent="hermes-agent">Hermes</span>
+        <span class="agent" data-agent="custom">HIVE_AGENT_CMD</span>
+        <span class="agent" data-agent="claude-code">Claude Code</span>
+        <span class="agent" data-agent="codex">Codex</span>
+        <span class="agent" data-agent="grok">Grok</span>
+        <span class="agent" data-agent="hermes-agent">Hermes</span>
+        <span class="agent" data-agent="custom">HIVE_AGENT_CMD</span>
+      </div>
+      <!-- La piste défile et se répète : elle est illisible pour un lecteur
+           d’écran. La liste vraie est ici, une seule fois, hors de l’écran. -->
+      <p class="sr-only" data-i18n="agents.liste">
+        Agents pris en charge : Claude Code, Codex, Grok, Hermes, ou le vôtre par HIVE_AGENT_CMD.
+      </p>
     </section>
 
     <section id="features" class="section">
@@ -2735,7 +3105,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,600 tests ✓',
+          'badge.tests': '2,860 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -2743,8 +3113,18 @@
             'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result <strong>to approve</strong>.',
           'hero.sub2':
             'Nothing is merged without your say-so. <strong class="key">Your code and your keys stay on your machines.</strong>',
-          'hero.clone': 'Clone the hive',
+          'hero.pastille': 'Open source · one-command install',
           'hero.copy': 'copy',
+          'install.groupe': 'Pick your system',
+          'install.chip.clone': 'Already cloned',
+          'install.note.unix': 'Never sudo, and nothing outside its own folder.',
+          'install.note.windows': 'PowerShell 5.1 or 7. Nothing outside its own folder.',
+          'install.note.docker': 'From the cloned repository. The database stays in a volume.',
+          'install.note.clone': 'From a repository you already cloned. Three questions at most.',
+          'install.sansCle': 'No API key to provide.',
+          'agents.intitule': 'Works with the AI you already use',
+          'agents.liste':
+            'Supported agents: Claude Code, Codex, Grok, Hermes, or your own via HIVE_AGENT_CMD.',
           'swarm.title': '🐝 Swarm View — the swarm, live',
           'swarm.online': 'online',
           'swarm.alt': 'Swarm View: two member nodes linked to a DAG of hexagonal tasks',
@@ -3154,15 +3534,52 @@
           } else repli();
         }
 
-        /* ── Copier la commande de démo ── */
-        var copyLbl = document.getElementById('copy-lbl');
-        var copyTimer = null;
-        document.getElementById('copy-btn').addEventListener('click', function () {
-          copier('npm install && npm run demo', function () {
-            copyLbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
-            clearTimeout(copyTimer);
-            copyTimer = setTimeout(function () {
-              copyLbl.textContent = lang === 'en' ? 'copy' : 'copier';
+        /* ── Les quatre portes d'entrée ─────────────────────────────────────
+           Une puce est choisie, la barre affiche SA commande et la note prend
+           SA phrase. Tout vient des attributs de la puce : il n'y a pas de
+           table des systèmes dans ce script, donc rien qui puisse diverger du
+           HTML — et une page dont le script n'a pas tourné montre encore la
+           première commande, entière et lisible.
+
+           Le libellé de la note voyage dans `data-install-note`, que la bascule
+           FR/EN réécrit comme n'importe quel autre attribut traduit. C'est
+           pourquoi on RELIT l'attribut à chaque clic au lieu de le mémoriser. */
+        var barreCmd = document.getElementById('install-cmd');
+        var barreNote = document.getElementById('install-note');
+        var puces = [].slice.call(document.querySelectorAll('.chip-os'));
+
+        function choisirPuce(puce) {
+          puces.forEach(function (p) {
+            p.setAttribute('aria-pressed', String(p === puce));
+          });
+          barreCmd.textContent = puce.getAttribute('data-install-cmd') || '';
+          var note = puce.getAttribute('data-install-note');
+          if (note) {
+            barreNote.textContent = note;
+            /* La note vient désormais de la puce : sans ce retrait, la
+               prochaine bascule de langue la réécrirait avec le texte du
+               système par DÉFAUT, pas celui qu'on regarde. */
+            barreNote.removeAttribute('data-i18n');
+          }
+        }
+        puces.forEach(function (puce) {
+          puce.addEventListener('click', function () {
+            choisirPuce(puce);
+          });
+        });
+
+        /* ── Copier la commande d'installation ──────────────────────────────
+           On lit le TEXTE AFFICHÉ, jamais une constante gardée à côté. Ce qu'on
+           voit est donc ce qu'on colle, par construction et non par vigilance :
+           les deux ne peuvent pas diverger, puisqu'il n'y en a qu'un. */
+        var btnInstall = document.getElementById('install-copier');
+        var timerInstall = null;
+        btnInstall.addEventListener('click', function () {
+          copier(barreCmd.textContent.trim().replace(/\s+/g, ' '), function () {
+            btnInstall.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+            clearTimeout(timerInstall);
+            timerInstall = setTimeout(function () {
+              btnInstall.textContent = lang === 'en' ? 'copy' : 'copier';
             }, 1800);
           });
         });
