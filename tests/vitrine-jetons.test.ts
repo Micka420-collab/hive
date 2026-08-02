@@ -103,7 +103,10 @@ for (const page of PAGES) {
  */
 function bornesDuMiel(): { bas: string; haut: string } {
   const caps = capacites({ COLORTERM: 'truecolor' }, { isTTY: true, columns: 80 });
-  const rvb = [...degrade('AB', caps).matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g)].map(
+  const rvb = [
+    // eslint-disable-next-line no-control-regex
+    ...degrade('AB', caps).matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g),
+  ].map(
     (m) => `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`,
   );
   expect(rvb.length, 'deux couleurs attendues aux deux bouts de la rampe').toBe(2);
