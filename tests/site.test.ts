@@ -1104,3 +1104,103 @@ describe('site vitrine — ce qu’on masque doit exister ailleurs', () => {
     ).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ─── VINGT-TROIS CARTES, QUATRE FAMILLES ─────────────────────────────────────
+//
+// Mesuré avant de toucher à quoi que ce soit : la section « En bref » faisait
+// 2 066 px sur un ordinateur et **5 422 px sur un téléphone** — six écrans
+// pleins — pour 23 cartes et 819 mots servis d'un coup, sans hiérarchie, à
+// quelqu'un qui ne sait pas encore ce qu'est une ruche.
+//
+// Elles sont rangées en quatre familles repliables. Le point qui compte, et que
+// ces gardes tiennent : **rien n'a été supprimé**. Un regroupement est une
+// occasion parfaite de perdre une carte en silence — elle disparaît de la page
+// sans que rien ne casse, et personne ne s'en aperçoit avant des mois.
+describe('site vitrine — les familles de fonctions', () => {
+  /** Chaque famille : son résumé, sa liste annoncée, ses cartes réelles. */
+  const familles = [...vitrine.matchAll(/<details class="famille">([\s\S]*?)<\/details>/g)].map(
+    (m) => {
+      const bloc = m[1] ?? '';
+      const resume = /<summary>([\s\S]*?)<\/summary>/.exec(bloc)?.[1] ?? '';
+      const texte = (h: string): string =>
+        h
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      return {
+        titre: texte(/<b[^>]*>([\s\S]*?)<\/b>/.exec(resume)?.[1] ?? ''),
+        annonces: texte(/class="fam-liste"[^>]*>([\s\S]*?)<\/span/.exec(resume)?.[1] ?? '')
+          .split('·')
+          .map((t) => t.trim())
+          .filter(Boolean),
+        compte: Number(texte(/class="fam-nb"[^>]*>([\s\S]*?)<\/span/.exec(resume)?.[1] ?? '0')),
+        cartes: [...bloc.matchAll(/<div class="card">([\s\S]*?)<h3[^>]*>([\s\S]*?)<\/h3>/g)].map(
+          (c) => texte(c[2] ?? ''),
+        ),
+      };
+    },
+  );
+
+  it('IL Y A QUATRE FAMILLES, ET AUCUNE CARTE ORPHELINE', () => {
+    expect(familles.length, 'les familles ont disparu').toBe(4);
+    const dansFamilles = familles.reduce((n, f) => n + f.cartes.length, 0);
+    const total = (vitrine.match(/<div class="card">/g) ?? []).length;
+    expect(dansFamilles, `${total - dansFamilles} carte(s) hors famille`).toBe(total);
+  });
+
+  it('LES VINGT-TROIS CARTES SONT TOUTES LÀ, ET CHACUNE UNE SEULE FOIS', () => {
+    // Le vrai risque du regroupement : une carte tombée pendant le déplacement.
+    // On ne compte pas — on compare les NOMS, parce qu'un total juste peut
+    // cacher une carte perdue et une autre dupliquée.
+    const tous = familles.flatMap((f) => f.cartes);
+    expect(tous.length, 'le compte de cartes a changé').toBe(23);
+    const doublons = tous.filter((n, i) => tous.indexOf(n) !== i);
+    expect(doublons, `carte(s) rangée(s) deux fois : ${doublons.join(', ')}`).toEqual([]);
+  });
+
+  it('CE QU’UNE FAMILLE ANNONCE EST EXACTEMENT CE QU’ELLE CONTIENT', () => {
+    // La garde qui porte tout le reste. Replié, on ne voit QUE la liste des
+    // noms : si elle ment, le visiteur qui cherche « Le Rayon » ouvre les
+    // quatre volets pour rien, et la page a l'air correcte pendant ce temps.
+    for (const f of familles) {
+      expect(f.annonces, `famille « ${f.titre} » : liste annoncée ≠ cartes réelles`).toEqual(
+        f.cartes,
+      );
+    }
+  });
+
+  it('LE NOMBRE AFFICHÉ EST LE NOMBRE RÉEL', () => {
+    for (const f of familles) {
+      expect(f.compte, `famille « ${f.titre} » annonce ${f.compte} fonctions`).toBe(
+        f.cartes.length,
+      );
+    }
+  });
+
+  it('LA VERSION ANGLAISE ANNONCE AUTANT DE FONCTIONS QUE LA FRANÇAISE', () => {
+    // Les listes sont traduites (les cartes le sont : « Miellerie » devient
+    // « Honey House »). Une traduction qui perd un nom rendrait la liste
+    // anglaise plus courte que son contenu — sans qu'aucune autre garde ne le
+    // voie, puisque les cartes, elles, seraient toujours là.
+    const dico = dictionnaireEn(vitrine);
+    for (const [i, cle] of ['fam.rep.l', 'fam.main.l', 'fam.voir.l', 'fam.durer.l'].entries()) {
+      const val = new RegExp(`'${cle.replace(/\./g, '\\.')}':\\s*'([^']*)'`).exec(dico)?.[1] ?? '';
+      expect(val, `${cle} sans traduction`).not.toBe('');
+      expect(
+        val.split('·').length,
+        `${cle} : ${val.split('·').length} noms pour ${familles[i]?.cartes.length} cartes`,
+      ).toBe(familles[i]?.cartes.length);
+    }
+  });
+
+  it('LE DÉPLIAGE NE DÉPEND PAS DU JAVASCRIPT', () => {
+    // `<details>` est natif : clavier, impression et recherche dans la page
+    // marchent sans qu'on écrive une ligne. Un accordéon maison rendrait 23
+    // cartes inatteignables le jour où le script échoue.
+    expect(vitrine, 'les familles ne sont plus des <details>').toMatch(/<details class="famille">/);
+    const section = /<section id="features"[\s\S]*?<\/section>/.exec(vitrine)?.[0] ?? '';
+    expect(section, 'un script pilote maintenant le dépliage').not.toMatch(
+      /onclick|addEventListener/,
+    );
+  });
+});

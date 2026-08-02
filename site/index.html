@@ -1975,6 +1975,126 @@
         }
       }
 
+      /* ── VINGT-TROIS CARTES, ET PERSONNE POUR LES LIRE ──────────────────────
+         Mesuré avant de toucher à quoi que ce soit : la section « En bref »
+         faisait **2 066 px sur un ordinateur et 5 422 px sur un téléphone** —
+         SIX ÉCRANS PLEINS — pour 23 cartes et 819 mots. Aucun visiteur ne lit
+         ça ; il fait défiler jusqu'à ce que ça s'arrête.
+
+         Le défaut n'est pas dans les cartes, qui sont justes une par une. Il
+         est dans le fait qu'on les serve toutes en même temps, sans hiérarchie,
+         à quelqu'un qui ne sait pas encore ce qu'est une ruche.
+
+         Elles sont donc rangées en QUATRE FAMILLES. Replié, on lit quatre
+         promesses — quatre phrases. Déplié, on retrouve les 23 cartes,
+         inchangées, mot pour mot : rien n'est supprimé, tout est rangé.
+
+         `<details>` plutôt qu'un accordéon en JavaScript : c'est natif, ça
+         marche au clavier sans qu'on écrive une ligne, ça s'ouvre à
+         l'impression et à la recherche dans la page sur les navigateurs
+         récents, et une page dont le script n'a pas tourné garde ses quatre
+         volets ouvrables. */
+      .familles {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .famille {
+        border: 1px solid var(--border-2);
+        border-radius: 14px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+      .famille summary {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 20px 22px;
+        cursor: pointer;
+        list-style: none;
+      }
+      .famille summary::-webkit-details-marker {
+        display: none;
+      }
+      .famille summary:hover {
+        background: var(--chip);
+      }
+      .famille summary:focus-visible {
+        outline: 2px solid var(--gold);
+        outline-offset: -2px;
+      }
+      /* Le numéro : c'est lui qui dit « il y en a quatre, et vous en êtes à la
+         deuxième ». Sans lui, quatre volets repliés se lisent comme une liste
+         sans fin. */
+      .fam-n {
+        flex: none;
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--orange);
+        padding-top: 3px;
+      }
+      .fam-txt {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .fam-txt b {
+        font-family: var(--titre);
+        font-size: clamp(18px, 3.4vw, 22px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .fam-p {
+        color: var(--blue);
+        font-size: 15.5px;
+        line-height: 1.5;
+        max-width: 68ch;
+        text-wrap: pretty;
+      }
+      /* Les noms des fonctions, en clair et repliés. Sans eux, un volet fermé
+         demanderait de l'ouvrir pour savoir s'il contient ce qu'on cherche —
+         et un visiteur venu pour « Le Rayon » ne le trouverait qu'au quatrième
+         essai. */
+      .fam-liste {
+        margin-top: 3px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: var(--dim);
+      }
+      /* Le compte, et la chevron qui dit que ça s'ouvre. */
+      .fam-nb {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding-top: 2px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .fam-nb::after {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-right: 2px solid var(--muted);
+        border-bottom: 2px solid var(--muted);
+        transform: rotate(45deg) translate(-2px, -2px);
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .famille[open] .fam-nb::after {
+        transform: rotate(-135deg) translate(-2px, -2px);
+      }
+      .famille[open] summary {
+        border-bottom: 1px solid var(--border);
+      }
+      .famille > .cards {
+        padding: 20px 22px 22px;
+      }
+
       /* ── L'ENTRÉE AU DÉFILEMENT ──────────────────────────────────────────────
          `animation-timeline: view()` fait jouer l'animation en fonction de la
          POSITION de l'élément dans la fenêtre, sans une ligne de JavaScript et
@@ -2397,7 +2517,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >2 972 tests ✓</span
+              >2 978 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -2825,221 +2945,304 @@
       <h2 class="headline" data-i18n="feat.headline">
         Tout ce qu'il faut pour faire butiner un essaim d'IA — sans jamais perdre la main.
       </h2>
-      <div class="cards">
-        <div class="card">
-          <div class="ico" aria-hidden="true">🧠</div>
-          <h3>Queen Bee</h3>
-          <p data-i18n="feat.qb">
-            Décrivez un projet en une phrase → un <strong>DAG de tâches</strong> est généré,
-            heuristique ou IA, éditable avant lancement.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🧬</div>
-          <h3>Hive Mind</h3>
-          <p data-i18n="feat.hm">
-            Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans les
-            suivantes. 100 % hors-ligne.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🛡️</div>
-          <h3>Sting Detector</h3>
-          <p data-i18n="feat.sd">
-            Repère les tâches concurrentes qui toucheraient le même fichier et
-            <strong>sérialise</strong> pour éviter les conflits.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">⚔️</div>
-          <h3>Drone Wars</h3>
-          <p data-i18n="feat.dw">
-            Redondance compétitive opt-in : la même tâche sur 2-5 nœuds, le premier succès gagne,
-            bonus nectar au vainqueur.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🍯</div>
-          <h3 data-i18n="feat.mi.t">Miellerie</h3>
-          <p data-i18n="feat.mi">
-            Revue des productions IA : diff par fichier, logs, consensus du Parlement, approbation
-            au clavier, merge Honeycomb en un geste.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">👑</div>
-          <h3 data-i18n="feat.qa.t">La Reine répond</h3>
-          <p data-i18n="feat.qa">
-            Chat multilingue avec la ruche : avancement réel, santé, classement, aide au brief. IA
-            optionnelle, repli hors-ligne garanti.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🐝</div>
-          <h3>Swarm View 2D/3D</h3>
-          <p data-i18n="feat.sv">
-            L'essaim vivant en SVG léger ou en 3D (alvéoles hexagonales, ouvrières en orbite, caméra
-            orbitale), chargée à la demande.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🧩</div>
-          <h3 data-i18n="feat.aa.t">Agent-agnostique</h3>
-          <p data-i18n="feat.aa">
-            <code class="tag">claude-code</code> <code class="tag">codex</code>
-            <code class="tag">hermes</code> — ou votre propre AgentAdapter.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🐜</div>
-          <h3 data-i18n="feat.ph.t">Phéromones</h3>
-          <p data-i18n="feat.ph">
-            La ruche apprend <strong>quel nœud réussit quel type de tâche</strong> (API, interface,
-            base, tests…) et départage les ouvrières à charge égale. Le signal s'évapore en 7 jours,
-            comme une vraie phéromone.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🌡️</div>
-          <h3 data-i18n="feat.th.t">Thermorégulation</h3>
-          <p data-i18n="feat.th">
-            Quand les échecs s'accumulent, la ruche <strong>ventile</strong> : la concurrence baisse
-            automatiquement le temps de refroidir, puis remonte. Hystérésis intégrée — jamais de
-            clignotement.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">👶</div>
-          <h3 data-i18n="feat.co.t">Couveuse</h3>
-          <p data-i18n="feat.co">
-            Une tâche re-tentée ne repart plus à l'aveugle : les
-            <strong>leçons des échecs précédents</strong> sont injectées dans le contexte de
-            l'ouvrière suivante, en bloc de données isolé des instructions.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">⚖️</div>
-          <h3 data-i18n="feat.ba.t">La Balance</h3>
-          <p data-i18n="feat.ba">
-            Le pèse-ruche : <strong>où est passée chaque seconde-ouvrière</strong> (utile, reprise,
-            échec, rebuté), le devis d'un projet avant de le lancer, et un plafond facultatif —
-            doublement opt-in, jamais une frontière de sécurité.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🐝</div>
-          <h3 data-i18n="feat.ry.t">Le Rayon</h3>
-          <p data-i18n="feat.ry">
-            <strong>Le code du projet, lisible par les abeilles</strong> : arbre de fichiers,
-            éditeur coloré, et un miroir tenu par le hub — jamais l'API GitHub, pour que montrer le
-            code ne dépense pas le jeton de l'hôte. Le <code class="tag">.git</code>, les
-            <code class="tag">.env</code> et les clés ne sortent jamais.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">👁</div>
-          <h3 data-i18n="feat.ap.t">L'Aperçu</h3>
-          <p data-i18n="feat.ap">
-            <strong>Voir ce que l'IA construit</strong>, pas seulement son diff : le site est replié
-            en un document autonome et affiché dans un cadre à <strong>origine opaque</strong>,
-            réseau coupé. Le code prévisualisé ne peut lire ni votre session, ni vos cookies.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🔗</div>
-          <h3 data-i18n="feat.pa.t">Partage en lecture</h3>
-          <p data-i18n="feat.pa">
-            Montrez l'avancement et le code à un client <strong>sans lui donner la ruche</strong> :
-            un lien à part, valable pour un seul projet, qui expire et se révoque un par un — là où
-            changer le jeton de ruche déconnecterait tout l'essaim.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🛂</div>
-          <h3 data-i18n="feat.ga.t">Les Gardiennes</h3>
-          <p data-i18n="feat.ga">
-            La ruche ne croit pas l'agent sur parole. Un « succès » à <strong>diff vide</strong>,
-            hors des fichiers promis, ou dont les logs crient l'échec, est repéré à l'entrée — avant
-            de polluer la mémoire, les phéromones et les comptes.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🐣</div>
-          <h3 data-i18n="feat.po.t">Polyéthisme</h3>
-          <p data-i18n="feat.po">
-            Chez l'abeille, le métier vient avec l'expérience. Ici aussi : une
-            <strong>caste se gagne</strong> sur les productions observées — et se perd de la même
-            façon. On encadre une nouvelle venue, on laisse travailler une chevronnée, et on ne
-            confie la relecture qu'à plus expérimenté que soi.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🗣</div>
-          <h3 data-i18n="feat.cs.t">Conseil des Éclaireuses</h3>
-          <p data-i18n="feat.cs">
-            Le protocole d'essaimage des abeilles, appliqué aux idées : des éclaireuses proposent,
-            les autres <strong>vont vérifier</strong> au lieu de croire, et peuvent émettre un
-            signal d'arrêt motivé. Dix instances du même modèle d'accord ne font pas dix avis — le
-            quorum compte les familles distinctes. Le verdict est une proposition, jamais une
-            décision.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">📦</div>
-          <h3 data-i18n="feat.en.t">L'environnement</h3>
-          <p data-i18n="feat.en">
-            <code class="tag">npm test</code> sur un clone frais échoue faute de dépendances : la
-            ruche <strong>prépare avant de tester</strong>. Et elle installe ce que le
-            <strong>dépôt déclare</strong>, jamais ce que la commande nomme — sinon « préparer »
-            deviendrait « exécute ce que je te dis » sur la machine d'un membre.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">👁️</div>
-          <h3 data-i18n="feat.gu.t">Les Guetteuses</h3>
-          <p data-i18n="feat.gu">
-            Une ruche exposée se fait sonder — un <code class="tag">.env</code>, une sauvegarde
-            oubliée — et personne ne l'apprend jamais. Les Guetteuses ne ferment aucune porte de
-            plus : elles rendent la reconnaissance <strong>bruyante</strong>. Elles ne prétendent
-            pas rendre la ruche imprenable, parce qu'on baisse la garde devant ce qu'on croit
-            inviolable.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">📉</div>
-          <h3 data-i18n="feat.de.t">La Dérive</h3>
-          <p data-i18n="feat.de">
-            Sous autonomie longue, un projet pourrit
-            <strong>sans qu'aucun cycle ne soit fautif</strong> : la qualité glisse d'un cran à la
-            fois, l'agent ajoute et ne retire jamais, et la somme devient illisible. Aucun contrôle
-            qui regarde une production à la fois ne peut le voir. La Dérive regarde la PENTE, et
-            borne l'autonomie quand elle s'inverse.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🏗</div>
-          <h3 data-i18n="feat.ch.t">Les Chantiers</h3>
-          <p data-i18n="feat.ch">
-            Les travaux que le dépôt <strong>DÉCLARE</strong>, à un clic : ses scripts sur un nœud,
-            ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente jamais une
-            commande — et ce qui SORT de la machine (publier, déployer) porte la raison pour
-            laquelle il faut un humain.
-          </p>
-        </div>
-        <div class="card">
-          <div class="ico" aria-hidden="true">🖥</div>
-          <h3 data-i18n="feat.at.t">L'Atelier <span class="tag">lot 1</span></h3>
-          <p data-i18n="feat.at">
-            Un agent travaille en aveugle : il écrit des fichiers et ne peut pas ouvrir son propre
-            travail. L'Atelier lui donne un bureau jetable — écran, navigateur, réseau FERMÉ par
-            défaut.
-            <strong
-              >Le module qui compose la commande et l'image existent et sont éprouvés ; la capture
-              d'écran et le geste ne le sont pas encore.</strong
-            >
-            Sans docker ni podman, pas d'Atelier — et surtout pas de bureau simulé.
-          </p>
-        </div>
+      <p class="lede" data-i18n="feat.lede">
+        Vingt-trois fonctions, rangées en quatre familles. Lisez les quatre promesses ; dépliez
+        celle qui vous concerne.
+      </p>
+      <div class="familles">
+        <details class="famille">
+          <summary>
+            <span class="fam-n" aria-hidden="true">01</span>
+            <span class="fam-txt">
+              <b data-i18n="fam.rep.t">Répartir le travail</b>
+              <span class="fam-p" data-i18n="fam.rep.p"
+                >La ruche découpe le projet, choisit qui fait quoi, et s’arrange pour que deux
+                ouvrières ne se marchent jamais dessus.</span
+              >
+              <span class="fam-liste" data-i18n="fam.rep.l"
+                >Queen Bee · Sting Detector · Drone Wars · Phéromones · Thermorégulation ·
+                Agent-agnostique</span
+              >
+            </span>
+            <span class="fam-nb" aria-hidden="true">6</span>
+          </summary>
+          <div class="cards">
+            <div class="card">
+              <div class="ico" aria-hidden="true">🧠</div>
+              <h3>Queen Bee</h3>
+              <p data-i18n="feat.qb">
+                Décrivez un projet en une phrase → un <strong>DAG de tâches</strong> est généré,
+                heuristique ou IA, éditable avant lancement.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🛡️</div>
+              <h3>Sting Detector</h3>
+              <p data-i18n="feat.sd">
+                Repère les tâches concurrentes qui toucheraient le même fichier et
+                <strong>sérialise</strong> pour éviter les conflits.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">⚔️</div>
+              <h3>Drone Wars</h3>
+              <p data-i18n="feat.dw">
+                Redondance compétitive opt-in : la même tâche sur 2-5 nœuds, le premier succès
+                gagne, bonus nectar au vainqueur.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🐜</div>
+              <h3 data-i18n="feat.ph.t">Phéromones</h3>
+              <p data-i18n="feat.ph">
+                La ruche apprend <strong>quel nœud réussit quel type de tâche</strong> (API,
+                interface, base, tests…) et départage les ouvrières à charge égale. Le signal
+                s'évapore en 7 jours, comme une vraie phéromone.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🌡️</div>
+              <h3 data-i18n="feat.th.t">Thermorégulation</h3>
+              <p data-i18n="feat.th">
+                Quand les échecs s'accumulent, la ruche <strong>ventile</strong> : la concurrence
+                baisse automatiquement le temps de refroidir, puis remonte. Hystérésis intégrée —
+                jamais de clignotement.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🧩</div>
+              <h3 data-i18n="feat.aa.t">Agent-agnostique</h3>
+              <p data-i18n="feat.aa">
+                <code class="tag">claude-code</code> <code class="tag">codex</code>
+                <code class="tag">hermes</code> — ou votre propre AgentAdapter.
+              </p>
+            </div>
+          </div>
+        </details>
+        <details class="famille">
+          <summary>
+            <span class="fam-n" aria-hidden="true">02</span>
+            <span class="fam-txt">
+              <b data-i18n="fam.main.t">Garder la main</b>
+              <span class="fam-p" data-i18n="fam.main.p"
+                >Rien n’est fusionné sans vous — et la ruche se méfie aussi de ses propres agents,
+                qui savent très bien annoncer un succès qu’ils n’ont pas obtenu.</span
+              >
+              <span class="fam-liste" data-i18n="fam.main.l"
+                >Miellerie · Les Gardiennes · Polyéthisme · Conseil des Éclaireuses · La
+                Dérive</span
+              >
+            </span>
+            <span class="fam-nb" aria-hidden="true">5</span>
+          </summary>
+          <div class="cards">
+            <div class="card">
+              <div class="ico" aria-hidden="true">🍯</div>
+              <h3 data-i18n="feat.mi.t">Miellerie</h3>
+              <p data-i18n="feat.mi">
+                Revue des productions IA : diff par fichier, logs, consensus du Parlement,
+                approbation au clavier, merge Honeycomb en un geste.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🛂</div>
+              <h3 data-i18n="feat.ga.t">Les Gardiennes</h3>
+              <p data-i18n="feat.ga">
+                La ruche ne croit pas l'agent sur parole. Un « succès » à
+                <strong>diff vide</strong>, hors des fichiers promis, ou dont les logs crient
+                l'échec, est repéré à l'entrée — avant de polluer la mémoire, les phéromones et les
+                comptes.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🐣</div>
+              <h3 data-i18n="feat.po.t">Polyéthisme</h3>
+              <p data-i18n="feat.po">
+                Chez l'abeille, le métier vient avec l'expérience. Ici aussi : une
+                <strong>caste se gagne</strong> sur les productions observées — et se perd de la
+                même façon. On encadre une nouvelle venue, on laisse travailler une chevronnée, et
+                on ne confie la relecture qu'à plus expérimenté que soi.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🗣</div>
+              <h3 data-i18n="feat.cs.t">Conseil des Éclaireuses</h3>
+              <p data-i18n="feat.cs">
+                Le protocole d'essaimage des abeilles, appliqué aux idées : des éclaireuses
+                proposent, les autres <strong>vont vérifier</strong> au lieu de croire, et peuvent
+                émettre un signal d'arrêt motivé. Dix instances du même modèle d'accord ne font pas
+                dix avis — le quorum compte les familles distinctes. Le verdict est une proposition,
+                jamais une décision.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">📉</div>
+              <h3 data-i18n="feat.de.t">La Dérive</h3>
+              <p data-i18n="feat.de">
+                Sous autonomie longue, un projet pourrit
+                <strong>sans qu'aucun cycle ne soit fautif</strong> : la qualité glisse d'un cran à
+                la fois, l'agent ajoute et ne retire jamais, et la somme devient illisible. Aucun
+                contrôle qui regarde une production à la fois ne peut le voir. La Dérive regarde la
+                PENTE, et borne l'autonomie quand elle s'inverse.
+              </p>
+            </div>
+          </div>
+        </details>
+        <details class="famille">
+          <summary>
+            <span class="fam-n" aria-hidden="true">03</span>
+            <span class="fam-txt">
+              <b data-i18n="fam.voir.t">Voir ce qui se passe</b>
+              <span class="fam-p" data-i18n="fam.voir.p"
+                >Le travail en cours, le code produit, les heures dépensées — à l’écran, et
+                montrables à un client sans lui donner les clés de la ruche.</span
+              >
+              <span class="fam-liste" data-i18n="fam.voir.l"
+                >Swarm View 2D/3D · Le Rayon · L'Aperçu · Partage en lecture · La Balance · La Reine
+                répond</span
+              >
+            </span>
+            <span class="fam-nb" aria-hidden="true">6</span>
+          </summary>
+          <div class="cards">
+            <div class="card">
+              <div class="ico" aria-hidden="true">🐝</div>
+              <h3>Swarm View 2D/3D</h3>
+              <p data-i18n="feat.sv">
+                L'essaim vivant en SVG léger ou en 3D (alvéoles hexagonales, ouvrières en orbite,
+                caméra orbitale), chargée à la demande.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🐝</div>
+              <h3 data-i18n="feat.ry.t">Le Rayon</h3>
+              <p data-i18n="feat.ry">
+                <strong>Le code du projet, lisible par les abeilles</strong> : arbre de fichiers,
+                éditeur coloré, et un miroir tenu par le hub — jamais l'API GitHub, pour que montrer
+                le code ne dépense pas le jeton de l'hôte. Le <code class="tag">.git</code>, les
+                <code class="tag">.env</code> et les clés ne sortent jamais.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">👁</div>
+              <h3 data-i18n="feat.ap.t">L'Aperçu</h3>
+              <p data-i18n="feat.ap">
+                <strong>Voir ce que l'IA construit</strong>, pas seulement son diff : le site est
+                replié en un document autonome et affiché dans un cadre à
+                <strong>origine opaque</strong>, réseau coupé. Le code prévisualisé ne peut lire ni
+                votre session, ni vos cookies.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🔗</div>
+              <h3 data-i18n="feat.pa.t">Partage en lecture</h3>
+              <p data-i18n="feat.pa">
+                Montrez l'avancement et le code à un client
+                <strong>sans lui donner la ruche</strong> : un lien à part, valable pour un seul
+                projet, qui expire et se révoque un par un — là où changer le jeton de ruche
+                déconnecterait tout l'essaim.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">⚖️</div>
+              <h3 data-i18n="feat.ba.t">La Balance</h3>
+              <p data-i18n="feat.ba">
+                Le pèse-ruche : <strong>où est passée chaque seconde-ouvrière</strong> (utile,
+                reprise, échec, rebuté), le devis d'un projet avant de le lancer, et un plafond
+                facultatif — doublement opt-in, jamais une frontière de sécurité.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">👑</div>
+              <h3 data-i18n="feat.qa.t">La Reine répond</h3>
+              <p data-i18n="feat.qa">
+                Chat multilingue avec la ruche : avancement réel, santé, classement, aide au brief.
+                IA optionnelle, repli hors-ligne garanti.
+              </p>
+            </div>
+          </div>
+        </details>
+        <details class="famille">
+          <summary>
+            <span class="fam-n" aria-hidden="true">04</span>
+            <span class="fam-txt">
+              <b data-i18n="fam.durer.t">Tenir dans la durée</b>
+              <span class="fam-p" data-i18n="fam.durer.p"
+                >Une ruche qui tourne des semaines apprend de ses réussites, se répare après ses
+                échecs, et surveille sa propre exposition.</span
+              >
+              <span class="fam-liste" data-i18n="fam.durer.l"
+                >Hive Mind · Couveuse · L'environnement · Les Chantiers · L'Atelier lot 1 · Les
+                Guetteuses</span
+              >
+            </span>
+            <span class="fam-nb" aria-hidden="true">6</span>
+          </summary>
+          <div class="cards">
+            <div class="card">
+              <div class="ico" aria-hidden="true">🧬</div>
+              <h3>Hive Mind</h3>
+              <p data-i18n="feat.hm">
+                Mémoire partagée : la ruche apprend des tâches réussies et réinjecte le savoir dans
+                les suivantes. 100 % hors-ligne.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">👶</div>
+              <h3 data-i18n="feat.co.t">Couveuse</h3>
+              <p data-i18n="feat.co">
+                Une tâche re-tentée ne repart plus à l'aveugle : les
+                <strong>leçons des échecs précédents</strong> sont injectées dans le contexte de
+                l'ouvrière suivante, en bloc de données isolé des instructions.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">📦</div>
+              <h3 data-i18n="feat.en.t">L'environnement</h3>
+              <p data-i18n="feat.en">
+                <code class="tag">npm test</code> sur un clone frais échoue faute de dépendances :
+                la ruche <strong>prépare avant de tester</strong>. Et elle installe ce que le
+                <strong>dépôt déclare</strong>, jamais ce que la commande nomme — sinon « préparer »
+                deviendrait « exécute ce que je te dis » sur la machine d'un membre.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🏗</div>
+              <h3 data-i18n="feat.ch.t">Les Chantiers</h3>
+              <p data-i18n="feat.ch">
+                Les travaux que le dépôt <strong>DÉCLARE</strong>, à un clic : ses scripts sur un
+                nœud, ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente
+                jamais une commande — et ce qui SORT de la machine (publier, déployer) porte la
+                raison pour laquelle il faut un humain.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">🖥</div>
+              <h3 data-i18n="feat.at.t">L'Atelier <span class="tag">lot 1</span></h3>
+              <p data-i18n="feat.at">
+                Un agent travaille en aveugle : il écrit des fichiers et ne peut pas ouvrir son
+                propre travail. L'Atelier lui donne un bureau jetable — écran, navigateur, réseau
+                FERMÉ par défaut.
+                <strong
+                  >Le module qui compose la commande et l'image existent et sont éprouvés ; la
+                  capture d'écran et le geste ne le sont pas encore.</strong
+                >
+                Sans docker ni podman, pas d'Atelier — et surtout pas de bureau simulé.
+              </p>
+            </div>
+            <div class="card">
+              <div class="ico" aria-hidden="true">👁️</div>
+              <h3 data-i18n="feat.gu.t">Les Guetteuses</h3>
+              <p data-i18n="feat.gu">
+                Une ruche exposée se fait sonder — un <code class="tag">.env</code>, une sauvegarde
+                oubliée — et personne ne l'apprend jamais. Les Guetteuses ne ferment aucune porte de
+                plus : elles rendent la reconnaissance <strong>bruyante</strong>. Elles ne
+                prétendent pas rendre la ruche imprenable, parce qu'on baisse la garde devant ce
+                qu'on croit inviolable.
+              </p>
+            </div>
+          </div>
+        </details>
       </div>
     </section>
 
@@ -3951,7 +4154,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,972 tests ✓',
+          'badge.tests': '2,978 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -3981,6 +4184,28 @@
           'svg.integration': 'Integration',
           'svg.e2e': 'E2E tests',
           'feat.kicker': 'At a glance',
+          'feat.lede':
+            'Twenty-three features, sorted into four families. Read the four promises; unfold the one that concerns you.',
+          'fam.rep.l':
+            'Queen Bee · Sting Detector · Drone Wars · Pheromones · Thermoregulation · Agent-agnostic',
+          'fam.main.l':
+            'Honey House · The Guards · Division of labour · Council of Scouts · The Drift',
+          'fam.voir.l':
+            'Swarm View 2D/3D · The Comb · The Preview · Read-only sharing · The Balance · The Queen answers',
+          'fam.durer.l':
+            'Hive Mind · Brood Chamber · The environment · The Works · The Workshop batch 1 · The Watchers',
+          'fam.rep.t': 'Split the work',
+          'fam.rep.p':
+            'The hive splits the project, decides who does what, and makes sure two workers never step on each other.',
+          'fam.main.t': 'Keep control',
+          'fam.main.p':
+            'Nothing is merged without you — and the hive also distrusts its own agents, who are perfectly capable of reporting a success they never achieved.',
+          'fam.voir.t': 'See what is happening',
+          'fam.voir.p':
+            'Work in progress, code produced, hours spent — on screen, and shareable with a client without handing over the keys to the hive.',
+          'fam.durer.t': 'Last over time',
+          'fam.durer.p':
+            'A hive running for weeks learns from its successes, repairs itself after failures, and watches its own exposure.',
           'feat.headline':
             'Everything you need to put an AI swarm to work — without ever losing control.',
           'feat.qb':

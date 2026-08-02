@@ -866,6 +866,45 @@ active. Journal § 2 ter.
 
 ---
 
+## « En bref » : vingt-trois cartes que personne ne lisait
+
+Le reproche était : _plus designé, moins chargé, plus simple à comprendre_. La
+mesure lui donne raison sans discussion.
+
+|                      | avant                     | après              |
+| -------------------- | ------------------------- | ------------------ |
+| hauteur, ordinateur  | 2 066 px (2,3 écrans)     | **1 088 px** (1,2) |
+| hauteur, téléphone   | 5 422 px (**6,0 écrans**) | **1 386 px** (1,5) |
+| ce qu'on lit d'abord | 23 cartes, 819 mots       | **4 promesses**    |
+| cartes conservées    | 23                        | **23**             |
+
+Six écrans pleins de cartes, servies d'un coup, sans hiérarchie, à quelqu'un qui
+ne sait pas encore ce qu'est une ruche. Le défaut n'était pas dans les cartes —
+elles sont justes une par une — mais dans le fait de les servir TOUTES en même
+temps.
+
+**Quatre familles, repliables.** Replié, on lit quatre phrases : répartir le
+travail, garder la main, voir ce qui se passe, tenir dans la durée. Chaque
+résumé porte aussi les noms des fonctions qu'il contient — sans eux, il faudrait
+ouvrir les quatre volets pour savoir lequel contient « Le Rayon ».
+
+**Rien n'est supprimé.** Les 23 cartes sont là, mot pour mot, avec leurs clés de
+traduction. C'est exactement ce qu'un regroupement rend facile à perdre : une
+carte disparaît sans que rien ne casse, et personne ne s'en aperçoit avant des
+mois. Six gardes tiennent cette propriété, dont la principale — **ce qu'une
+famille annonce est exactement ce qu'elle contient** — compare les NOMS annoncés
+aux titres réels des cartes du volet, jamais leur nombre.
+
+`<details>` natif plutôt qu'un accordéon en JavaScript : clavier, impression et
+recherche dans la page marchent sans une ligne de script, et une page dont le
+script a échoué garde ses quatre volets ouvrables. Une garde interdit qu'un
+`onclick` reprenne la main dessus.
+
+Huit mutations, huit rouges — dont la carte « Drone Wars » supprimée, qui fait
+rougir **cinq** gardes à la fois.
+
+---
+
 ## Le téléphone, mesuré à cinq largeurs
 
 Trois défauts, aucun visible à l'écran. C'est le point commun : ils ne se
