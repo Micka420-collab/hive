@@ -122,7 +122,6 @@
         --gold: #f6b93b;
         --gold-2: #ffd166;
         --orange: #e58e26;
-        --amber: #ff9f1a;
         --green: #86c35d;
         --blue: #6bb0d6;
         --red: #e5573f;
@@ -308,7 +307,11 @@
       .etape h3 {
         margin: 0 0 6px;
         font-size: 16px;
-        color: var(--gold-soft);
+        /* `--gold-soft` n'a JAMAIS été déclaré : cette ligne était sans effet et
+           le titre héritait `--text`. On écrit donc ce qu'il rendait déjà —
+           corriger la déclaration sans changer le rendu, pour que la prochaine
+           retouche parte d'une base vraie. */
+        color: var(--text);
       }
       .etape p {
         margin: 0;
@@ -339,7 +342,8 @@
       .btn.ghost {
         background: var(--panel);
         border: 1px solid var(--border-2);
-        color: var(--gold-soft);
+        /* Idem : jeton fantôme, la couleur venait de l'héritage. */
+        color: var(--text);
       }
       .btn.ghost:hover {
         border-color: var(--gold);
@@ -361,7 +365,9 @@
         border-radius: 8px;
         border: 1px solid var(--border-2);
         background: var(--panel);
-        color: var(--gold-soft);
+        /* Idem, mais celui-ci tombait sur `--muted` et non sur `--text` :
+           mesuré dans le navigateur avant d'écrire, pas déduit. */
+        color: var(--muted);
         min-width: 220px;
       }
       .rc-adresse input:focus {
@@ -416,7 +422,11 @@
         font-family: var(--mono);
         font-size: 12.5px;
         color: var(--dim);
-        background: var(--bg-2);
+        /* `--bg-2` n'a jamais été déclaré : la commande n'avait AUCUN fond et ne
+           se détachait pas de la section. C'était le seul des quatre jetons
+           fantômes à se voir — un bloc de code qui ne ressemble pas à un bloc
+           de code demande de deviner ce qu'on va copier. */
+        background: var(--panel-2);
         border: 1px solid var(--border);
         border-radius: 7px;
         padding: 8px 10px;
