@@ -863,3 +863,45 @@ présentation qui la défait ; c'est la capture qui l'a montré. Le second :
 `.apercu-rail b` désignait déjà la marque « Hive » en or, si bien que les
 libellés ajoutés ensuite passaient en or sur fond or — invisibles sur l'entrée
 active. Journal § 2 ter.
+
+---
+
+## Plus sobre, et une vraie version téléphone
+
+Deux demandes en une, et la seconde a commencé par un faux diagnostic.
+
+**Le téléphone n'était pas cassé.** Ma première capture à `--window-size=390`
+montrait du texte coupé sur la droite : j'ai failli corriger un débordement qui
+n'existait pas. `--window-size` décrit la fenêtre, chrome compris — le viewport
+réel valait 500 px, l'image 390, d'où la coupe. Mesuré avec
+`Emulation.setDeviceMetricsOverride` à un vrai 390 : `scrollWidth` = 390, aucun
+débordement. C'est la troisième fois de la journée que cet écart me piège
+(§ 9 sexies du journal).
+
+Ce qui était vrai, en revanche : **dix liens de navigation sur trois lignes
+avant le premier mot du pitch.** On faisait lire un sommaire à quelqu'un qui ne
+sait pas encore ce qu'est la ruche. La barre tient désormais sur une ligne qui
+glisse, avec un fondu au bord qui l'annonce — rien n'est caché derrière un menu
+replié, parce qu'un menu demande un geste de plus sur une page dont toutes les
+sections sont à un doigt de défilement.
+
+**La sobriété, elle, se résume à une règle :** l'or est la couleur du
+surligneur, pas celle des boutons. Trois aplats dorés en dégradé se disputaient
+le haut de page — GitHub, la langue active, l'appel à l'action. Ils passent en
+encre. Le bouton « copier » garde un contour de miel au lieu d'un aplat plein,
+les quatre badges cessent d'avoir chacun leur couleur, et la promesse
+« votre code reste chez vous » quitte l'orange vif pour l'encre : une phrase
+entière d'accent criait plus fort que le titre.
+
+**Le miel a gardé sa matière et perdu son poids.** Les opacités des sept
+couches sont divisées par deux, et la coulée passe de 0,6 à 0,42 em. À 0,6,
+l'ourlet à 0,95 dessinait un contour net et le miel se lisait comme un objet
+posé SUR le mot ; à la moitié, il redevient ce qu'un surligneur fait — une bande
+qui passe dessous.
+
+Au passage, une animation morte retirée : `glowpulse` n'avait plus d'appelant.
+
+Cinq gardes nouvelles, toutes passées à la loupe. L'une d'elles était trop
+lâche et la loupe l'a dit : `/mask-image:/` attrapait aussi `-webkit-mask-image`,
+donc le test restait vert avec le seul préfixe — cassé partout sauf chez WebKit.
+Il exige maintenant les deux écritures.

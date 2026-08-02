@@ -146,6 +146,17 @@
       <use href="#coulee-corps" />
     </clipPath>
   </defs>
+  <!-- ─── PASSE DE SOBRIÉTÉ ────────────────────────────────────────────────
+       Les couches ci-dessous sont celles d'origine, et les commentaires qui
+       expliquent POURQUOI chacune existe restent vrais. Seules leurs OPACITÉS
+       ont été divisées à peu près par deux.
+
+       Ce qui faisait un beau miel en grand faisait une tache en petit :
+       l'ourlet à 0,95 et l'ombre du ménisque à 0,34 dessinaient un contour
+       net, et la coulée se lisait comme un objet posé SUR le mot plutôt que
+       comme un trait de surligneur passé DESSOUS. À la moitié des valeurs, la
+       matière est encore là — le ménisque, le rebond, les plaques — mais elle
+       ne réclame plus l'attention avant le titre. -->
   <g clip-path="url(#coulee)">
     <use href="#coulee-corps" fill="url(#corps)" />
     <use href="#coulee-corps" fill="url(#veine)" />
@@ -159,7 +170,7 @@
       href="#coulee-arete"
       transform="translate(0 2.4)"
       stroke="#c67f10"
-      stroke-opacity=".34"
+      stroke-opacity=".15"
       stroke-width="3"
       filter="url(#flou-ombre)"
     />
@@ -169,7 +180,7 @@
       href="#coulee-arete"
       transform="translate(0 7.5)"
       stroke="#fff4cf"
-      stroke-opacity=".26"
+      stroke-opacity=".16"
       stroke-width="4"
       filter="url(#flou-halo)"
     />
@@ -177,20 +188,20 @@
          sont posées à hauteur fixe alors que la surface ondule — donc là où
          elle plonge, le détourage les coupe. L'irrégularité est gratuite. -->
     <g filter="url(#flou-plaques)" fill="#fffdf4">
-      <rect x="24" y="11.6" width="78" height="2.2" rx="1.1" opacity=".52" />
-      <rect x="154" y="18.2" width="48" height="1.8" rx="0.9" opacity=".34" />
-      <rect x="264" y="10.8" width="62" height="1.7" rx="0.85" opacity=".3" />
+      <rect x="24" y="11.6" width="78" height="2.2" rx="1.1" opacity=".22" />
+      <rect x="154" y="18.2" width="48" height="1.8" rx="0.9" opacity=".14" />
+      <rect x="264" y="10.8" width="62" height="1.7" rx="0.85" opacity=".12" />
     </g>
     <!-- Le rebond au pied : la lumière qui a traversé la coulée remonte du
          papier. Très faible — à peine de quoi décoller la coulée du fond. -->
     <use
       href="#coulee-assise"
       stroke="#ffe4ab"
-      stroke-opacity=".3"
+      stroke-opacity=".18"
       stroke-width="2.2"
       filter="url(#flou-ombre)"
     />
     <!-- L'ourlet du ménisque, en dernier : rien ne doit passer par-dessus. -->
-    <use href="#coulee-arete" stroke="#fffdf6" stroke-opacity=".95" stroke-width="2.6" />
+    <use href="#coulee-arete" stroke="#fffdf6" stroke-opacity=".5" stroke-width="2.6" />
   </g>
 </svg>

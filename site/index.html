@@ -255,8 +255,7 @@
         gap: 11px;
       }
       .brand .bee {
-        font-size: 28px;
-        animation: glowpulse 3s ease-in-out infinite;
+        font-size: 26px;
       }
       .brand .name {
         font-family: var(--titre);
@@ -284,7 +283,7 @@
       }
       nav.main a:hover,
       nav.main a.active {
-        color: var(--gold-2);
+        color: var(--text);
       }
       .lang-toggle {
         display: inline-flex;
@@ -306,17 +305,17 @@
         color: var(--text);
       }
       .lang-toggle button[aria-pressed='true'] {
-        background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: var(--encre);
+        background: var(--encre);
+        color: var(--bg);
         cursor: default;
       }
       .btn-gold {
         display: inline-block;
         padding: 7px 16px;
         border-radius: 7px;
-        background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: var(--encre);
-        font-weight: 700;
+        background: var(--encre);
+        color: var(--bg);
+        font-weight: 600;
         font-size: 14px;
         white-space: nowrap;
       }
@@ -380,12 +379,18 @@
         font-weight: 700;
         font-size: 15px;
       }
+      /* ─── SOBRIÉTÉ : DE L'ENCRE, PAS DE L'OR ──────────────────────────
+         Trois aplats dorés en dégradé se disputaient l'attention en haut de
+         page — le bouton GitHub, la langue active, l'appel à l'action. L'or
+         est la couleur du SURLIGNEUR de cette identité ; s'en servir aussi
+         pour les boutons, c'est n'avoir plus rien pour désigner l'important.
+         Un seul aplat sombre par écran, et l'or redevient un accent. */
       .btn.primary {
-        background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: var(--encre);
+        background: var(--encre);
+        color: var(--bg);
       }
       .btn.primary:hover {
-        filter: brightness(1.12);
+        filter: brightness(1.35);
         color: var(--encre);
       }
       .btn.ghost {
@@ -670,20 +675,20 @@
         flex: none;
         min-height: 38px;
         padding: 8px 12px;
-        background: var(--gold);
-        color: var(--encre);
-        border: 0;
+        background: transparent;
+        color: var(--gold);
+        border: 1px solid var(--gold);
         border-radius: 8px;
         font-family: inherit;
         font-size: clamp(12px, 2.6vw, 13px);
-        font-weight: 700;
+        font-weight: 600;
         cursor: pointer;
         white-space: nowrap;
         transition: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
       }
       .barre-install button:hover {
-        filter: brightness(1.08);
-        transform: translateY(-1px);
+        background: var(--gold);
+        color: var(--encre);
       }
       .note-install {
         margin-top: 11px;
@@ -932,8 +937,12 @@
            bas des bas-de-casse et mord sous la ligne de base : c'est le geste
            d'un surligneur tenu à la main. Plus haut, elle noie le texte ; plus
            bas, elle redevient un soulignement. */
-        background-size: 100% 0.6em;
-        background-position: 0 calc(100% - 0.17em);
+        /* PLUS SOBRE : la coulée passe de 0,6 à 0,42 em et se pose plus bas.
+           À 0,6 elle noyait les bas-de-casse et se lisait comme un bloc de
+           couleur ; à 0,42 elle redevient ce qu'un surligneur fait — une
+           bande qui passe SOUS le mot sans le manger. */
+        background-size: 100% 0.42em;
+        background-position: 0 calc(100% - 0.1em);
       }
       /* La seconde ligne porte la promesse qui rassure — plus petite, plus
          discrète : elle se lit APRÈS, et seulement si la première a convaincu. */
@@ -956,8 +965,10 @@
       .hero .sub strong {
         color: var(--text);
       }
+      /* Elle était en or vif — une phrase entière d'accent, qui criait plus
+         fort que le titre. En encre, avec le poids pour seule emphase. */
       .hero .sub strong.key {
-        color: var(--gold-2);
+        color: var(--text);
       }
       /* ── Swarm View panel ── */
       .swarm-panel {
@@ -1980,15 +1991,6 @@
           transform: translate(10px, -14px) rotate(10deg);
         }
       }
-      @keyframes glowpulse {
-        0%,
-        100% {
-          filter: drop-shadow(0 0 10px rgba(246, 185, 59, 0.5));
-        }
-        50% {
-          filter: drop-shadow(0 0 22px rgba(246, 185, 59, 0.85));
-        }
-      }
       .anim-dash {
         animation: dash 0.8s linear infinite;
       }
@@ -2036,20 +2038,69 @@
           order: -1;
         }
       }
+      /* ─── LE TÉLÉPHONE ───────────────────────────────────────────────────
+         Mesuré à un viewport réel de 390 px : rien ne débordait, mais la page
+         n'était pas PENSÉE pour un pouce. Dix liens de navigation se
+         répartissaient sur TROIS lignes avant le premier mot du pitch — on
+         faisait lire un sommaire à quelqu'un qui ne sait pas encore ce qu'est
+         la ruche.
+
+         La navigation tient désormais sur une ligne qui glisse. Rien n'est
+         caché — un menu replié demande un geste de plus pour une page dont
+         toutes les sections sont à un doigt de défilement — et la barre garde
+         sa hauteur, quel que soit le nombre de liens. */
       @media (max-width: 720px) {
         header {
-          padding: 12px 16px;
+          padding: 10px 16px;
           gap: 10px;
+          /* Le titre et les liens sur deux rangs : la marque reste lisible
+             au lieu d'être écrasée par la navigation. */
+          flex-wrap: wrap;
         }
         nav.main {
-          gap: 12px;
-          font-size: 13px;
+          order: 3;
+          width: 100%;
+          margin-left: 0;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          gap: 16px;
+          font-size: 13.5px;
+          padding-bottom: 2px;
+          /* Chaque lien se cale sous le doigt plutôt que de s'arrêter au
+             hasard du geste. */
+          scroll-snap-type: x proximity;
+          scrollbar-width: none;
+        }
+        nav.main::-webkit-scrollbar {
+          display: none;
+        }
+        /* Rien n'indiquait que la bande glissait — un lien coupé net se lit
+           comme un défaut, pas comme une invitation. Le fondu à droite le dit
+           sans coûter la place d'une flèche. */
+        nav.main {
+          -webkit-mask-image: linear-gradient(90deg, #000 84%, transparent);
+          mask-image: linear-gradient(90deg, #000 84%, transparent);
+        }
+        nav.main a {
+          scroll-snap-align: start;
+          white-space: nowrap;
         }
         .hero {
-          padding: 48px 18px 32px;
+          padding: 34px 18px 28px;
         }
         .section {
-          padding: 54px 18px 10px;
+          padding: 44px 18px 10px;
+        }
+        /* Un surligneur encore plus discret quand la ligne est courte : à
+           cette taille, la coulée occupe une part bien plus grande du mot. */
+        .grad {
+          background-size: 100% 0.36em;
+        }
+        /* Les zones cliquables descendent rarement sous 44 px chez Apple comme
+           chez Google. Les puces de système et la langue les respectent. */
+        .chip-os,
+        .lang-toggle button {
+          min-height: 42px;
         }
       }
     </style>
@@ -2174,13 +2225,13 @@
           </p>
 
           <div class="badges">
-            <span class="badge" style="color: var(--green)" data-i18n="badge.tests"
-              >2 941 tests ✓</span
+            <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
+              >2 946 tests ✓</span
             >
-            <span class="badge" style="color: var(--gold-2)" data-i18n="badge.tier"
+            <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
             >
-            <span class="badge" style="color: var(--blue)">TypeScript strict</span>
+            <span class="badge" style="color: var(--muted)">TypeScript strict</span>
             <span class="badge" style="color: var(--muted)">Node ≥ 24</span>
           </div>
         </div>
@@ -3723,7 +3774,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '2,941 tests ✓',
+          'badge.tests': '2,946 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',

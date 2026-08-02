@@ -507,6 +507,68 @@ describe('site vitrine — l’aperçu du tableau de bord', () => {
   });
 });
 
+describe('site vitrine — la version téléphone', () => {
+  const page = PAGES.find((p) => p.nom === 'vitrine');
+  const vitrine = page?.html ?? '';
+
+  /** Le bloc de règles qui ne s'applique qu'aux petits écrans. */
+  const petitEcran = (): string => {
+    const i = vitrine.indexOf('@media (max-width: 720px)');
+    expect(i, 'aucun point de rupture téléphone').toBeGreaterThan(-1);
+    // On s'arrête à la fermeture du bloc média, repérée par l'indentation.
+    const fin = vitrine.indexOf('\n      }', i);
+    return vitrine.slice(i, fin);
+  };
+
+  it('LE POINT DE RUPTURE EXISTE ET N’EST PAS VIDE', () => {
+    // Sans ça, tout ce qui suit chercherait dans une chaîne vide et serait
+    // vert sans rien avoir regardé.
+    expect(petitEcran().length).toBeGreaterThan(200);
+  });
+
+  it('LA NAVIGATION TIENT SUR UNE LIGNE QUI GLISSE', () => {
+    // Mesuré à 390 px : les dix liens s'étalaient sur TROIS lignes avant le
+    // premier mot du pitch. On faisait lire un sommaire à quelqu'un qui ne
+    // sait pas encore ce qu'est la ruche.
+    const bloc = petitEcran();
+    expect(bloc, 'la nav doit cesser de passer à la ligne').toMatch(/flex-wrap:\s*nowrap/);
+    expect(bloc, 'et défiler à la place').toMatch(/overflow-x:\s*auto/);
+  });
+
+  it('…ET ELLE DIT QU’ELLE GLISSE, DANS LES DEUX ÉCRITURES', () => {
+    // Un lien coupé net se lit comme un défaut, pas comme une invitation.
+    //
+    // La loupe a montré que ce test était trop lâche : `/mask-image:/` attrape
+    // aussi `-webkit-mask-image`, si bien qu'il restait vert avec le seul
+    // préfixe — c'est-à-dire cassé partout sauf chez WebKit. Safari exige
+    // encore le préfixe, Firefox ne connaît QUE la forme standard : il faut
+    // les deux, et le test le dit maintenant.
+    const bloc = petitEcran();
+    expect(bloc, 'sans la forme préfixée, Safari ne fond pas le bord').toMatch(
+      /-webkit-mask-image:\s*linear-gradient/,
+    );
+    expect(bloc, 'sans la forme standard, Firefox ne fond pas le bord').toMatch(
+      /(?<!-)\bmask-image:\s*linear-gradient/,
+    );
+  });
+
+  it('LES CIBLES TACTILES NE DESCENDENT PAS SOUS 42 px', () => {
+    // Apple comme Google donnent 44 px comme plancher confortable. En dessous,
+    // on vise au pixel près avec un pouce.
+    const bloc = petitEcran();
+    const hauteurs = [...bloc.matchAll(/min-height:\s*(\d+)px/g)].map((m) => Number(m[1]));
+    expect(hauteurs.length, 'aucune cible tactile élargie').toBeGreaterThan(0);
+    for (const h of hauteurs) expect(h).toBeGreaterThanOrEqual(42);
+  });
+
+  it('LA PAGE DÉCLARE SON VIEWPORT — sans quoi le téléphone dézoome tout', () => {
+    // Sans cette balise, Safari et Chrome mobile rendent la page à 980 px de
+    // large puis la réduisent : le point de rupture ci-dessus ne se
+    // déclencherait JAMAIS, et tout ce fichier serait vert pour rien.
+    expect(vitrine).toMatch(/<meta[^>]+name="viewport"[^>]+width=device-width/);
+  });
+});
+
 describe('présentation — les commandes viennent de la vitrine', () => {
   /** Un texte de commande, espaces normalisés — le HTML plie les longues lignes. */
   const normalise = (s: string): string => s.replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
