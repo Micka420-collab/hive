@@ -817,6 +817,55 @@ referme sur tout, puisque la table serait restée vide.
 > allée dans le test qui fait déjà l'aller-retour complet, plutôt que d'en
 > fabriquer un second.
 
+### 2.14 — Le vert emprunté au voisin
+
+Passée sous `--sequence.shuffle`, la suite perdait quatorze tests. Trois
+constats successifs, chacun a démoli l'hypothèse précédente :
+
+| Expérience                                                         | Ce qu'elle a dit                                 |
+| ------------------------------------------------------------------ | ------------------------------------------------ |
+| trois graines différentes                                          | 14, 21, 25 échecs — donc pas un test précis      |
+| **la même graine, deux fois**                                      | **exactement les mêmes 14** — donc pas la charge |
+| `--no-file-parallelism`                                            | les mêmes 14 — donc pas la concurrence           |
+| les 33 premiers fichiers **rejoués dans l'ordre exact du mélange** | tous verts — donc **pas l'ordre des fichiers**   |
+
+Restait l'ordre des tests **à l'intérieur** d'un fichier. Le sondage élargi (six
+graines de plus) a porté le compte à **dix-sept fichiers**, une quarantaine de
+tests : les trois premières graines n'étaient qu'un échantillon.
+
+Le motif était partout le même. Un test pose un état, le suivant le lit sans
+jamais le dire.
+
+Ce n'est pas une question d'hygiène, et c'est là que ça devient cher :
+
+- `NE TOUCHE PAS AUX LIENS VIVANTS` ne voyait un lien mort que parce que deux
+  tests de révocation étaient passés avant. **La moitié de la borne — que
+  l'élagage emporte bien les morts — n'était vérifiée qu'un ordre sur deux.**
+- `REPRENDRE LA MÊME ISSUE NE COLLISIONNE PAS` se disait « la seconde prise du
+  fichier ». Joué en premier, il était la première : **il n'éprouvait aucune
+  collision**, c'est-à-dire exactement le défaut pour lequel il existe.
+- `UNE ASSIGNATION PÉRIMÉE` comptait sur un nœud voisin pour rafler la tâche
+  avant lui. Seul, il la recevait — et **accusait le hub de se taire** alors que
+  c'était sa propre prémisse qui manquait.
+
+Le geste par défaut n'a presque rien coûté : que chaque test pose sa prémisse.
+Un serveur monté par test là où il y en avait un pour le fichier, un projet neuf
+là où douze tests s'en transformaient un seul, une PR numérotée là où le faux
+GitHub rendait toujours `42` — **deux des dix-sept fichiers ne pouvaient pas
+être découplés tant que le FAUX ne servait qu'un exemplaire.**
+
+Un seul fichier a gardé son ordre : `caste-boucle`, où l'ordre _est_ le sujet
+(une caste monte sur ses productions, puis se perd). Vitest l'entend avec
+`describe(nom, { shuffle: false }, …)` — et c'est la porte dérobée idéale pour
+faire taire un couplage accidentel en deux mots. Elle se déclare donc dans
+`tests/ordre-declare.test.ts`, avec sa raison.
+
+> **Règle** — un test dont le vert dépend de sa place dans le fichier ne prouve
+> rien tout seul. Il pose sa prémisse, ou il déclare que l'ordre est son sujet.
+> `npm run tamis-ordres` rejoue la suite dans plusieurs ordres écrits ; la CI le
+> lance à chaque PR. **La CI ne mélangeait pas : rien de tout ceci n'y était
+> visible.**
+
 ## 3. Corriger le symptôme là où il apparaît fait revenir le problème
 
 ### 3.1 — Le plafond de délai, trois fois
