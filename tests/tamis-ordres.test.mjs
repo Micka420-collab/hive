@@ -63,6 +63,24 @@ describe('le tamis des ordres', () => {
     expect(vues).toEqual([4242, 7]);
   });
 
+  it('UNE GRAINE NULLE OU NÉGATIVE N’EST PAS UN ORDRE', async () => {
+    // La loupe a trouvé ce trou : `Number.isInteger(n) && n > 0` muté en `||`
+    // survivait, parce que tous mes cas étaient soit des entiers positifs, soit
+    // du texte. Ni l'un ni l'autre ne distingue les deux opérateurs — il
+    // fallait un nombre ENTIER qui ne soit pas un ordre valable.
+    const { vues, lancer } = lanceur({});
+    await principal(['0', '-5'], lancer, () => undefined);
+    expect(vues, 'zéro et les négatifs ne sont pas des graines').toEqual(GRAINES);
+  });
+
+  it('…mais une graine valable au milieu du bruit est bien retenue', async () => {
+    // L'autre moitié : un filtre qui rejetterait TOUT rendrait le test
+    // ci-dessus vert pour la mauvaise raison.
+    const { vues, lancer } = lanceur({});
+    await principal(['0', '99', '-3'], lancer, () => undefined);
+    expect(vues).toEqual([99]);
+  });
+
   it('UNE GRAINE ILLISIBLE NE FAIT PAS SILENCIEUSEMENT ZÉRO ORDRE', async () => {
     // `Number('abc')` rend NaN. Sans filtre, le script aurait rejoué « NaN » ;
     // avec un filtre mais sans repli, il n'aurait rejoué RIEN — et rendu 0.

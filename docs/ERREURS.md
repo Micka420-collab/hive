@@ -914,6 +914,27 @@ rassurant, et il ressemble exactement à ce qu'on espère voir.
 > mutation ratée n'est pas une information, c'est du bruit qu'on prend pour une
 > preuve.
 
+### 2.16 bis — La loupe mute LE DÉPÔT : rien d'autre ne doit tourner pendant
+
+La loupe applique ses mutations **dans les fichiers**, puis les retire. Tant
+qu'elle tourne, l'arbre de travail est donc faux à tout instant — et deux choses
+en découlent, qui m'ont coûté chacune un aller-retour :
+
+- **Les tests lancés en parallèle mesurent le code muté.** Trois échecs sont
+  apparus sur `tamis-ordres`, exactement là où la loupe travaillait. J'ai
+  cherché le défaut dans mes tests neufs ; il n'y en avait aucun.
+- **Une loupe interrompue laisse sa dernière mutation en place.** Tuée par un
+  délai, elle a laissé `&&` → `||` dans le script — et je l'ai _commité_. Une
+  seconde fois, arrêtée proprement, elle laissait `===` → `!==`.
+
+Le second cas est le vrai danger : la mutation survivante ressemble à du code,
+elle passe la relecture, et elle part dans une livraison.
+
+> **Règle** — la loupe s'exécute SEULE, et jamais en arrière-plan pendant qu'on
+> travaille. Après une loupe interrompue, `git diff` sur `src`, `scripts` et
+> `dashboard/src` AVANT tout `git add` — la mutation restante ne se voit qu'à
+> l'œil, et elle se lit comme une ligne ordinaire.
+
 ### 2.17 — On coupe un chemin, on n'ampute pas une phrase
 
 Le module de rendu **coupe** tout ce qui dépasse — bon geste pour un nom de
