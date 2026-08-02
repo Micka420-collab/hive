@@ -2165,10 +2165,30 @@ export class HiveStore {
   /**
    * Élague les liens dont la tâche n'existe plus.
    *
-   * C'est la borne, et elle est RÉFÉRENTIELLE plutôt que temporelle : un lien
-   * sans sa tâche ne désigne plus rien, et les tâches ont déjà leur propre
-   * élagage. Une borne « garder les N derniers » serait ici un second réglage à
-   * accorder au premier, donc un désaccord en puissance.
+   * ─── CETTE BORNE NE SUPPRIME RIEN, ET IL FAUT LE DIRE ──────────────────────
+   *
+   * Elle est RÉFÉRENTIELLE plutôt que temporelle : un lien sans sa tâche ne
+   * désigne plus rien. Le raisonnement tenait à une prémisse — « les tâches ont
+   * déjà leur propre élagage » — et **cette prémisse est fausse**. `tasks` est
+   * la seule table du dépôt sans élagueur : aucun `pruneTasks` n'existe.
+   *
+   * Mesuré, plutôt que déduit : sur 2 000 tâches et autant de liens,
+   *
+   *     pruneTachesIssue()      supprime : 0
+   *     pruneContreExpertises() supprime : 0
+   *     tâches après élagage    : 2 000
+   *
+   * Aucune tâche ne disparaissant jamais, aucun lien n'est jamais orphelin.
+   * Cette borne est donc un NO-OP permanent, et le restera tant que `tasks`
+   * n'aura pas la sienne.
+   *
+   * On ne la retire pas : elle sera juste le jour où l'élagage des tâches
+   * arrivera, et c'est le bon ordre — la borne référentielle existe AVANT ce
+   * qu'elle borne. Mais la docstring ne peut plus justifier une conception par
+   * un fait qui n'est pas vrai : c'est cette phrase-là qui a fait accepter la
+   * décision, et qui aurait fait croire la table bornée.
+   *
+   * Voir `docs/ETAPES.md`, lot 17.
    */
   pruneTachesIssue(): number {
     return this.db
@@ -2245,9 +2265,11 @@ export class HiveStore {
   /**
    * Élague les liens dont l'une des deux tâches n'existe plus.
    *
-   * Même borne RÉFÉRENTIELLE que `pruneTachesIssue`, et pour la même raison :
-   * les tâches ont déjà leur propre élagage, et un second réglage temporel à
-   * accorder au premier serait un désaccord en puissance.
+   * Même borne RÉFÉRENTIELLE que `pruneTachesIssue` — et, comme elle, un NO-OP
+   * permanent tant que `tasks` n'a pas d'élagueur. La justification d'origine
+   * (« les tâches ont déjà leur propre élagage ») était fausse aux deux
+   * endroits, recopiée d'un bloc à l'autre. Voir la docstring de
+   * `pruneTachesIssue` pour la mesure, et `docs/ETAPES.md` lot 17.
    */
   pruneContreExpertises(): number {
     return this.db
