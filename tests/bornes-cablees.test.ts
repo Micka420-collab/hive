@@ -175,7 +175,7 @@ describe('LA RÈGLE : toute borne d’élagage est CÂBLÉE, pas seulement écri
     // fournisseur échoue, la ligne doit RESTER en `arrete` pour repasser au
     // tour suivant. Le `continue` après l'échec est ce qui le garantit.
     const server = sansCommentaires('src/orchestrator/server.ts');
-    const bloc = /const balayerRetention[\s\S]*?\n  \};/.exec(server);
+    const bloc = /const balayerRetention[\s\S]*?\n {2}\};/.exec(server);
     expect(bloc, 'balayerRetention introuvable').toBeTruthy();
     const corps = (bloc as RegExpExecArray)[0];
     expect(corps.indexOf('fournisseurServeurs.supprimer')).toBeLessThan(
