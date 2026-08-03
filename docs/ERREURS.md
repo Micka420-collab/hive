@@ -1738,6 +1738,72 @@ Chacun invisible sous `pwsh`, chacun fatal chez l'utilisateur.
 
 ---
 
+## 6.6 bis. Un fichier de configuration comparé à mes attentes, jamais à son consommateur
+
+L'unité systemd que Hive écrit était **refusée par systemd depuis le premier
+jour**. Onze tests la couvraient. Tous verts.
+
+    WorkingDirectory= path is not absolute: "/home/user/hive"
+    hive-ruche.service: Unit configuration has fatal error, unit will not be started.
+
+La cause tient en une fonction trop bien nommée. `citerSystemd` citait « une
+valeur dans un fichier d'unité systemd » — un domaine qui a l'air juste
+partout. Elle a donc été employée sur les **quatre** directives que le module
+écrit. Or systemd n'a pas une grammaire, il en a **deux**, et il ne le dit nulle
+part au même endroit :
+
+| directive           | guillemets                          | pourquoi                      |
+| ------------------- | ----------------------------------- | ----------------------------- |
+| `ExecStart=`        | **obligatoires** si espace          | ligne de commande, découpée   |
+| `ReadWritePaths=`   | **obligatoires** si espace          | liste séparée par des espaces |
+| `WorkingDirectory=` | **fatals** — l'unité ne démarre pas | prend la ligne entière        |
+| `EnvironmentFile=`  | **ignorés SANS UN MOT**             | prend la ligne entière        |
+
+Le quatrième est le pire, et c'est celui qui manquait le plus. Cité,
+`EnvironmentFile=` n'échoue pas : systemd note « path is not absolute,
+ignoring » et passe. Le service démarre, écoute, et n'a **ni `HIVE_TOKEN` ni
+`HIVE_JWT_SECRET`** — exactement la panne que l'en-tête de `src/shared/service.ts`
+déclare exister pour fermer.
+
+### Ce qui rendait les onze tests aveugles
+
+Ils comparaient le fichier produit **à la chaîne que j'attendais** :
+
+    expect(ligne).toBe('WorkingDirectory="/home/moi/hive"');
+
+Cette ligne ne pouvait rien trouver. Elle gravait ma croyance et la relisait.
+Un fichier de configuration n'a qu'un seul juge — **le programme qui doit
+l'avaler** —, et il n'avait jamais été consulté.
+
+### Ce que ça coûtait de le consulter : 28 ms
+
+C'est le chiffre que je n'avais pas pris. Je répétais « aucune CI ne peut
+vérifier que `systemctl` avale le fichier », ce qui est vrai de
+`systemctl enable` et **faux** de la question posée. Entre « installer pour de
+bon » et « ne rien vérifier », il y a `systemd-analyze verify` : il charge
+l'unité, rend ses erreurs, sans gestionnaire, sans bus, sans privilège. Les
+équivalents existent sur les deux autres plateformes — `plutil -lint`,
+`schtasks /Create /XML`.
+
+C'est la **troisième** fois qu'une limite déclarée hors d'atteinte tombe dès
+qu'on la chiffre (§ 9 decies). Le motif est stable : je décris l'obstacle avec
+les mots de la version maximale de la tâche, et je n'essaie jamais la version
+minimale qui répondrait quand même.
+
+### La règle
+
+> Un fichier destiné à un autre programme se vérifie **en le lui donnant**.
+> Tant que son consommateur ne l'a pas lu, une garde dessus ne mesure que la
+> constance de mes attentes. Et avant d'écrire qu'une vérification est
+> impossible : chercher le mode « valide sans installer » de l'outil — la
+> plupart en ont un, et il coûte des millisecondes.
+
+`tests/service-accepte.test.ts` soumet désormais le fichier au juge de chaque
+plateforme, et lui redonne la version d'AVANT le correctif pour vérifier qu'il
+la refuse — sans quoi un outil complaisant serait vert lui aussi.
+
+---
+
 ## 6 bis. Un remplacement de texte sans compte touche TOUTES les occurrences
 
 ### 6bis.1 — 286 lignes de CHANGELOG en triple, et la cause tient en un argument
@@ -2825,6 +2891,62 @@ C'est le même défaut : **on désigne par un motif ce qu'on croit unique, sans
 jamais compter.** Le geste qui l'évite est toujours le même et coûte une ligne —
 compter avant d'utiliser. Je l'écris ici en toutes lettres parce que trois
 rappels en une journée montrent qu'il ne se déduit pas ; il se vérifie.
+
+### Quatrième occurrence — et elle est arrivée APRÈS l'avoir écrit
+
+En posant la garde de forme du § 6.6 bis, j'ai cherché la ligne du module qui
+contient `` `WorkingDirectory= `` — et je l'ai trouvée **dans le commentaire de
+`valeurSystemd`**, qui nomme les deux directives concernées. Le `.find()` rendait
+de la prose ; la garde se prononçait dessus. Elle est passée du premier coup, ce
+qui est exactement le symptôme.
+
+Ce qui est instructif n'est pas la rechute — c'est qu'elle a eu lieu **dans le
+même fichier que la leçon**, quelques minutes après l'avoir relue. Le motif était
+d'ailleurs le matériau nº 1 de la liste ci-dessus, mot pour mot : un repère
+textuel que le commentaire contient aussi.
+
+Conclusion, moins flatteuse que la précédente : **écrire la règle ne l'applique
+pas.** Ce qui l'applique, c'est de ne jamais laisser un `.find()` ou un
+`indexOf()` décider seul. La garde corrigée filtre les lignes de commentaire,
+puis exige `toHaveLength(1)` — c'est le `expect` qui compte, pas le paragraphe.
+
+---
+
+## 9 terdecies. Vérifier qu'un outil EXISTE en le lançant mesure autre chose
+
+Le lot du § 6.6 bis ajoute une étape de CI qui doit répondre à une question
+simple : **le juge est-il installé ?** Si `systemd-analyze` disparaissait de
+l'image, les `runIf` de `tests/service-accepte.test.ts` seraient sautés — donc
+verts, et sans objet.
+
+Je l'ai écrite en **lançant** l'outil. Trois jambes rouges, deux causes, aucune
+qui n'ait rien à voir avec la présence :
+
+| jambe   | ce que j'ai écrit        | ce qui s'est passé                                                                                         |
+| ------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| macOS   | `plutil 2>&1 \| head -1` | `plutil` sans argument imprime son mode d'emploi et sort en **non nul** ; `-o pipefail` l'a propagé        |
+| Windows | `schtasks /Query /?`     | sous Git Bash, `/Query` est converti en **chemin Windows** avant d'atteindre le binaire → `Invalid syntax` |
+
+Dans les deux cas **l'outil était présent**. L'étape ne mesurait pas sa présence,
+elle mesurait ce que le programme fait de ses arguments — et sur Windows, ce que
+le shell fait des arguments avant lui.
+
+`command -v` répond exactement à la question posée : il consulte le PATH, ne
+lance rien, et ne passe aucun argument à mangler. (Avec un repli sur
+`$outil.exe`, parce que la résolution de Git Bash n'est pas celle d'un shell
+POSIX.)
+
+### La règle
+
+> Pour savoir si un programme EXISTE, on regarde le PATH — on ne l'exécute pas.
+> Un lancement introduit deux variables étrangères à la question : le code de
+> sortie du programme pour l'invocation choisie, et le traitement que le shell
+> réserve aux arguments.
+
+C'est le pendant exact de la leçon du même lot (§ 6.6 bis) : là, je vérifiais un
+fichier sans le donner à son consommateur ; ici, j'interroge un consommateur pour
+une question qui ne le regardait pas. Les deux fois, l'instrument ne mesurait pas
+la grandeur.
 
 ---
 

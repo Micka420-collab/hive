@@ -91,6 +91,41 @@ jobs:
       - name: Typecheck (dashboard)
         run: npm run typecheck:dashboard
 
+      # ─── LE JUGE DOIT ÊTRE LÀ AVANT QU'ON LUI DEMANDE SON AVIS ──────────────
+      #
+      # `tests/service-accepte.test.ts` soumet le fichier de service à l'outil
+      # de la plateforme : `systemd-analyze verify` sous Linux, `plutil -lint`
+      # sous macOS, `schtasks` sous Windows. C'est ce qui a montré que l'unité
+      # systemd de Hive était REFUSÉE depuis le premier jour.
+      #
+      # Ces tests sont des `runIf` : si l'outil disparaissait de l'image, ils
+      # seraient sautés — donc verts, et sans objet. Cette étape refuse ce
+      # silence-là. Elle tourne AVANT la suite pour que la panne se lise sur son
+      # propre nom, pas au milieu de 3 000 tests.
+      #
+      # On teste la PRÉSENCE, pas le code de sortie. Première version :
+      # `plutil 2>&1 | head -1` — or `plutil` sans argument imprime son mode
+      # d'emploi et sort en NON NUL, ce que `-o pipefail` a fidèlement propagé.
+      # La jambe macOS a échoué sur un outil parfaitement présent.
+      #
+      # `command -v` évite les deux pièges : il ne lance rien, et il ne passe
+      # aucun argument — sous Git Bash, `/Query` serait converti en chemin
+      # Windows avant même d'atteindre `schtasks`.
+      - name: L’outil qui juge le fichier de service est là
+        shell: bash
+        run: |
+          set -e
+          case "${{ runner.os }}" in
+            Linux)   outil=systemd-analyze ;;
+            macOS)   outil=plutil ;;
+            Windows) outil=schtasks ;;
+          esac
+          if ! command -v "$outil" >/dev/null 2>&1 && ! command -v "$outil.exe" >/dev/null 2>&1; then
+            echo "::error::« $outil » est introuvable : les gardes de tests/service-accepte.test.ts seraient sautées, donc vertes et sans objet."
+            exit 1
+          fi
+          echo "✔ $outil"
+
       - name: Tests (vitest, unitaires + e2e)
         run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json
 
