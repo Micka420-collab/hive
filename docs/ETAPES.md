@@ -170,6 +170,23 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-troisième lot — deux bornes et le cœur du scrutin** (nuit du 3 au
+4 août, 21 h 10 → 21 h 40 UTC). `serveurs.ts` — la semaine des « bientôt
+effacés » se termine PILE à sept jours (`jours <= 7` mutée en `<` : la
+machine à exactement sept jours — celle qu'on a le plus de temps de
+sauver — disparaissait de la liste ; le cas existant vivait à 3 jours).
+`tui/rendu.ts` — la ligne qui tient PILE dans le cadre garde sa teinte
+(`largeurVisible <= interieur` mutée : elle passerait par `tronquer`, qui
+retire les séquences de style — testé avec une teinte posée sur une
+largeur exacte). `server.ts` — LE SCRUTIN DÉPOUILLE : `attendues.length
+=== 0` mutée en `!==` sauterait précisément les sessions qui ont des
+éclaireuses à dépouiller — tout conseil resterait « exploration » à
+jamais. Le test existant ne pouvait pas le voir : `Array.isArray(v.danses)`
+est vrai sur un tableau VIDE (du décor), et le scrutin ne vit PAS dans
+`scheduler.tick()` mais dans le tickTimer du serveur — le banc monte SA
+ruche au cœur qui bat à 50 ms et exige LA danse. **3 mutations rejouées,
+3 rouges.** Restent 8 survivantes.
+
 **Vingt-deuxième lot — chaque alvéole pèse SON miel, et l'erreur GitHub
 porte son habit** (même soir, 20 h 25 → 20 h 40 UTC, après la fusion de la
 PR #135). LE BALAYAGE DU SOIR EST RENDU entre-temps : **95 examinées,

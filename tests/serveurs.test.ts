@@ -281,6 +281,26 @@ describe('serveurs — ce que voit l’administrateur', () => {
     expect(vue.bientotSupprimes[0]?.jours).toBe(3);
   });
 
+  it('…et la semaine se termine PILE à sept jours — pas à six', () => {
+    // Survivante du balayage du soir : `x.jours <= 7` mutée en `<` — la
+    // machine à EXACTEMENT sept jours disparaîtrait de la liste « bientôt
+    // effacé », précisément celle que l'administrateur a encore le plus de
+    // temps de sauver. Le cas existant vit à 3 jours, loin de la borne ;
+    // une borne se teste sur la borne (§ du 18e lot, même leçon).
+    const vue = replierServeurs(
+      [
+        serveur({ id: 'sept', etat: 'arrete', arreteA: NOW - (RETENTION_JOURS - 7) * JOUR }),
+        serveur({ id: 'huit', etat: 'arrete', arreteA: NOW - (RETENTION_JOURS - 8) * JOUR }),
+      ],
+      NOW,
+    );
+    expect(
+      vue.bientotSupprimes.map((x) => x.id),
+      'sept jours dedans, huit dehors',
+    ).toEqual(['sept']);
+    expect(vue.bientotSupprimes[0]?.jours).toBe(7);
+  });
+
   it('l’ordre est TOTAL', () => {
     const a = serveur({ id: 'a', etat: 'arrete', arreteA: NOW - (RETENTION_JOURS - 2) * JOUR });
     const b = serveur({ id: 'b', etat: 'arrete', arreteA: NOW - (RETENTION_JOURS - 2) * JOUR });

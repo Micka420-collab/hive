@@ -246,6 +246,22 @@ describe('rien ne déborde, jamais', () => {
     expect(largeurs.size, `largeurs vues : ${[...largeurs].join(', ')}`).toBe(1);
     expect([...largeurs][0]).toBe(caps.largeur);
   });
+
+  it('LA LIGNE QUI TIENT PILE garde sa teinte — elle ne passe pas par tronquer', () => {
+    // Survivante du balayage du soir : `largeurVisible(ligne) <= interieur`
+    // mutée en `<` — la ligne qui fait EXACTEMENT la largeur intérieure
+    // passerait par `tronquer`, qui retire les séquences de style. Une ligne
+    // déjà teintée par nos soins perdrait sa couleur au moment précis où
+    // elle remplit le cadre. La borne se teste sur la borne : une teinte
+    // posée, une largeur pile, et la teinte doit survivre.
+    const caps = capacites({ TERM: 'xterm-256color' }, TTY);
+    const interieur = caps.largeur - 4;
+    const pile = `\x1b[32m${'a'.repeat(interieur)}\x1b[0m`;
+    expect(largeurVisible(pile), 'le banc lui-même : la ligne fait PILE').toBe(interieur);
+    const lignes = cadre([pile], caps);
+    expect(lignes[1], 'la teinte survit à la ligne pleine').toContain('\x1b[32m');
+    expect(largeurVisible(lignes[1] ?? '')).toBe(caps.largeur);
+  });
 });
 
 describe('mesurer et couper', () => {

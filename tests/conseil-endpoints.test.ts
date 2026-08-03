@@ -167,6 +167,68 @@ describe('lire un conseil', () => {
     expect(Array.isArray(v.danses)).toBe(true);
   });
 
+  it('LE SCRUTIN DÉPOUILLE RÉELLEMENT — la proposition rapportée devient une danse', async () => {
+    // Survivante du balayage du soir : `if (attendues.length === 0) continue;`
+    // de `scruterConseils` mutée en `!==` — le scrutin sauterait PRÉCISÉMENT
+    // les sessions qui ont des éclaireuses à dépouiller : tout conseil
+    // resterait « exploration » pour toujours, sans une danse. Le test
+    // au-dessus ne pouvait pas le voir : `Array.isArray(v.danses)` est vrai
+    // aussi sur un tableau VIDE — c'était du décor, au sens strict de la
+    // discipline. Et le scrutin ne vit PAS dans `scheduler.tick()` : il bat
+    // dans le tickTimer du serveur (période `tickMs`) — ce banc monte donc SA
+    // ruche, au cœur qui bat à 50 ms, et attend la danse sans pousser.
+    const nid = mkdtempSync(path.join(os.tmpdir(), 'hive-scrutin-'));
+    const ruche = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(nid, 's.db'),
+      simulation: false,
+      tickMs: 50,
+    });
+    try {
+      const socle = `http://127.0.0.1:${ruche.port}`;
+      const projet = ruche.store.createProject({ name: 'Scrutin', description: 'd' }).id;
+      const r0 = await fetch(`${socle}/api/projects/${projet}/conseil`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ question: 'Le scrutin bat-il ?' }),
+      });
+      const v0 = (await r0.json()) as Vue;
+      const taches = ruche.store.tachesADepouiller(v0.id);
+      expect(taches.length, 'le banc lui-même : des éclaireuses en vol').toBeGreaterThan(0);
+      const noeud = ruche.store.registerNode({
+        name: 'n-scrutin',
+        ownerName: 'o',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+      });
+      ruche.store.insertResult({
+        taskId: taches[0]!.taskId,
+        nodeId: noeud.id,
+        success: true,
+        diff: '',
+        logs: 'HIVE_PROPOSITION {"titre":"Le scrutin vit","corps":"preuve","qualite":8,"sources":["https://exemple.com/s"]}',
+        durationMs: 10,
+        subAgents: [],
+      });
+      ruche.store.patchTask(taches[0]!.taskId, { status: 'done' });
+      for (const t of taches.slice(1)) ruche.store.patchTask(t.taskId, { status: 'failed' });
+
+      let v: Vue = v0;
+      for (let i = 0; i < 100 && v.danses.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 20));
+        v = (await (await fetch(`${socle}/api/conseil/${v0.id}`, { headers })).json()) as Vue;
+      }
+      expect(v.danses.length, 'la proposition rapportée doit devenir une danse').toBeGreaterThan(0);
+      expect(v.danses[0]?.titre).toBe('Le scrutin vit');
+    } finally {
+      await ruche.stop();
+      rmSync(nid, { recursive: true, force: true, maxRetries: 5 });
+    }
+  });
+
   it('la liste des conseils est gardée et rend le nôtre', async () => {
     const v0 = (await (await ouvrir()).json()) as Vue;
     expect((await fetch(`${base}/api/conseils`)).status).toBe(401);
