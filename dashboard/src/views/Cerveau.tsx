@@ -47,6 +47,7 @@ import { useT } from '../i18n';
 import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './cerveau.css';
+import { rappelerAuCentre } from './cerveau-physique';
 
 /** Une couleur par genre — l'ordre des genres EST leur priorité. */
 const COULEUR: Record<string, string> = {
@@ -245,15 +246,12 @@ export default function Cerveau(_props: ViewProps) {
           q.vy -= (dy / d) * f * d * 0.5;
         }
         // ── Force 3 : rappel au centre ──────────────────────────────────────
-        for (const p of liste) {
-          if (p.id === attrape.current.id) continue; // le doigt gagne
-          p.vx += (L / 2 - p.x) * 0.0009;
-          p.vy += (H / 2 - p.y) * 0.0009;
-          p.vx *= 0.86;
-          p.vy *= 0.86;
-          p.x += p.vx * (dt / 16);
-          p.y += p.vy * (dt / 16);
-        }
+        //
+        // SORTIE DU CANEVAS, et c'est délibéré : `getContext` rend null sous
+        // happy-dom, donc rien de cette boucle n'était éprouvé — le balayage
+        // par mutation l'a montré sur « le doigt gagne ». Voir
+        // `cerveau-physique.ts`, qui porte la règle et ses tests.
+        rappelerAuCentre(liste, { L, H, dt, attrapeId: attrape.current.id });
       }
       for (const p of liste) {
         if (p.naissance < 1) p.naissance = Math.min(1, p.naissance + dt / 420);

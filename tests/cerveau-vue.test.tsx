@@ -145,4 +145,30 @@ describe('le Cerveau — les deux dernières survivantes du balayage', () => {
     // Et la voisine est proposée : le savoir se parcourt de note en note.
     expect(fiche?.textContent).toContain('L’épisode du port occupé');
   });
+
+  it('UNE NOTE JAMAIS SERVIE LE DIT — et celle qui l’a été donne son âge', async () => {
+    // Survivante du balayage du soir : `n.serviIlYaJours === null` mutée en
+    // `!==` inverse les deux mondes — la note SERVIE il y a deux jours
+    // s'annoncerait « jamais » (on la croirait morte, on la resservirait pour
+    // rien), et celle qui dort vraiment afficherait « il y a null j ». La
+    // colonne existe précisément pour décider quoi ressortir du rayon.
+    const dom = await monter();
+    cliquer(boutonMode(dom, 'Liste'));
+    const rangee = (titre: string) =>
+      [...dom.querySelectorAll('.cerveau-liste tbody tr')].find((r) =>
+        (r.textContent ?? '').includes(titre),
+      );
+    const servie = rangee('La leçon des tubes');
+    const dormante = rangee('L’épisode du port occupé');
+    expect(servie, 'la note servie est dans la liste').toBeTruthy();
+    expect(dormante, 'la note dormante est dans la liste').toBeTruthy();
+
+    expect(servie?.textContent, 'servie il y a deux jours, elle le dit').toContain('il y a 2 j');
+    expect(servie?.textContent, 'une note servie n’est pas « jamais »').not.toContain('jamais');
+    expect(dormante?.textContent, 'jamais servie, elle le dit').toContain('jamais');
+    // L'habit `dort` marque la même chose que le texte : les deux gardes de
+    // la ligne sont éprouvées, pas seulement celle qu'on regarde.
+    expect(dormante?.querySelector('.dort'), 'la dormante porte son habit').toBeTruthy();
+    expect(servie?.querySelector('.dort'), 'la servie ne le porte pas').toBeNull();
+  });
 });

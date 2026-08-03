@@ -73,6 +73,7 @@ import {
   fetchVerdictChantier,
 } from '../dashboard/src/api';
 import { PleinEssaim } from '../dashboard/src/PleinEssaim';
+import { BalanceProjet } from '../dashboard/src/views/Balance';
 import Intendance from '../dashboard/src/views/Intendance';
 import Memoire from '../dashboard/src/views/Memoire';
 import { Journal } from '../dashboard/src/Journal';
@@ -576,6 +577,62 @@ describe('les sentinelles du balayage du soir', () => {
     vi.mocked(fetchRayon)
       .mockReset()
       .mockResolvedValue({ chemin: '', entrees: [] } as never);
+  });
+
+  it('BALANCE : le geste ARMÉ dit ce qu’il va faire — sinon on confirme à l’aveugle', async () => {
+    // `{arme && cible !== null && (…)}` mutée en `===` : le plafond s'armerait
+    // SANS jamais annoncer ce qu'il va couper. Le second clic — celui qui
+    // engage — se ferait à l'aveugle, sur le geste qui peut arrêter
+    // l'assignation d'un projet entier. La phrase d'avertissement EST la
+    // moitié utile de l'armement.
+    const solde = {
+      projectId: 'p1',
+      depenseMs: 0,
+      tentatives: 0,
+      plafondMs: null,
+    } as never;
+    const dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={solde}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    const bouton = (libelle: string) =>
+      [...dom.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes(libelle));
+
+    const ouvrir = bouton('Poser un plafond');
+    expect(ouvrir, 'le geste de plafond est offert').toBeTruthy();
+    act(() => {
+      ouvrir?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    const champ = dom.querySelector('.bal-plafond-input') as HTMLInputElement;
+    expect(champ, 'le formulaire s’ouvre').toBeTruthy();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(champ) as object,
+        'value',
+      )?.set;
+      setter?.call(champ, '2');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(
+      dom.querySelector('.bal-plafond-avert'),
+      'au repos, aucun avertissement d’engagement',
+    ).toBeNull();
+
+    act(() => {
+      bouton('Poser le plafond')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    const avert = dom.querySelector('.bal-plafond-avert');
+    expect(avert, 'armé, le geste annonce ce qu’il va faire').toBeTruthy();
+    expect(avert?.textContent, 'il nomme le projet').toContain('Rucher');
+    expect(avert?.textContent, 'il chiffre le plafond visé').toContain('2 h');
   });
 
   it('MÉMOIRE : le compteur dit « se souvient », pas « fouille », quand le compte EST là', async () => {

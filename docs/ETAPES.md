@@ -170,6 +170,31 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-cinquième lot — les trois dernières du dashboard, et la physique
+sortie de son canevas** (nuit, 22 h 50 → 23 h 25 UTC). Balance — le geste
+ARMÉ dit ce qu'il va faire (`arme && cible !== null` mutée en `===` : le
+plafond s'armerait sans annoncer ce qu'il coupe, et le second clic — celui
+qui engage — se ferait à l'aveugle sur un geste qui peut arrêter
+l'assignation d'un projet entier). Cerveau — une note jamais servie le dit,
+et celle qui l'a été donne son âge (`serviIlYaJours === null` mutée : la
+note servie il y a deux jours s'annoncerait « jamais », on la resservirait
+pour rien, et la dormante afficherait « il y a null j » ; les DEUX lignes —
+le texte et l'habit `dort` — sont éprouvées).
+
+**Et la survivante du canevas, qu'on avait annoncée « probablement hors
+d'atteinte », ne l'était pas.** `p.id === attrape.current.id` (« le doigt
+gagne ») vivait dans une boucle que happy-dom n'exécute jamais
+(`getContext('2d')` rend `null`). Le repli honnête aurait été de l'écrire au
+carnet ; la bonne réponse était de constater que la force ne dépend d'AUCUN
+contexte de dessin. Elle est sortie dans `dashboard/src/views/cerveau-physique.ts`
+avec la règle qu'elle porte enfin dicible — « le corps que l'humain tient ne
+bouge pas tout seul, et les autres si ». 6 tests neufs, la mutation en fait
+rougir 4, et les seuils de convergence sont MESURÉS (46 pts à 400 tours,
+0,005 à 2 000) et non devinés. § 2 quaterdecies au journal : « hors
+d'atteinte du banc » est souvent « au mauvais endroit ». **4 mutations
+rejouées, 4 rouges.** Reste UNE survivante : le `find` de la livraison
+(`server.ts`), qui demande un banc GitHub simulé.
+
 **Vingt-quatrième lot — la coquille qui synchronise, le jeton à Entrée,
 l'essaim qui ne décore pas le zéro, le rayon qui déplie** (nuit, 22 h 10 →
 22 h 45 UTC). App ×2 — SEUL `task_reviewed` synchronise les revues (mutée

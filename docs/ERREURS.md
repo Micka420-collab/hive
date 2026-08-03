@@ -2966,6 +2966,48 @@ pour ce qui les éprouve.
 
 ---
 
+## 2 quaterdecies. « Hors d’atteinte du banc » est souvent « au mauvais endroit »
+
+Le balayage a rendu SANS TEST la ligne `p.id === attrape.current.id` — « le
+doigt gagne » — de la simulation du graphe du Cerveau. Vérification faite,
+elle était bel et bien inatteignable : la boucle entière commence par
+
+```ts
+const ctx = c.getContext('2d');
+if (!ctx) return;
+```
+
+et `getContext` rend `null` sous happy-dom. Pas une mise en scène au monde ne
+pouvait faire rougir cette ligne LÀ OÙ ELLE ÉTAIT. Le premier réflexe — et il
+était déjà écrit dans le plan de la nuit — était de la déclarer « hors
+d'atteinte » et de le noter honnêtement au carnet.
+
+**C'était le mauvais réflexe, et voici pourquoi.** « Hors d'atteinte » se
+prononce sur un COUPLE (la logique, son décor), jamais sur la logique seule.
+Ici la force ne dépendait d'aucun contexte de dessin : elle prend des corps,
+des bornes, un pas de temps, et rend des corps déplacés. Ce n'est pas le canevas
+qui la rendait intestable, c'est le fait qu'elle habitait dedans.
+
+Sortie dans `dashboard/src/views/cerveau-physique.ts`, elle s'éprouve à la
+milliseconde près : six tests, et la mutation en fait rougir QUATRE. Au
+passage, la règle qu'elle porte est devenue dicible en une phrase — « le corps
+que l'humain tient ne bouge pas tout seul, et les autres si » — ce qu'aucun
+commentaire dans la boucle ne disait.
+
+**La règle.** Avant d'écrire « hors d'atteinte », poser la question suivante :
+_est-ce la LOGIQUE qui est intestable, ou son VOISINAGE ?_ Si la logique est
+pure — pas d'E/S, pas de contexte graphique, pas d'horloge —, l'extraire coûte
+quelques lignes et rend la garde définitivement éprouvable. On ne garde
+l'aveu « hors d'atteinte » que pour ce qui l'est vraiment : un vrai navigateur,
+un vrai gestionnaire de services, une vraie machine Windows.
+
+Le corollaire est moins confortable : **une ligne que le banc ne peut pas
+atteindre est souvent le symptôme d'une logique mal rangée, pas une fatalité
+de l'outillage.** Le balayage par mutation ne dit pas seulement « ce test
+manque » ; il dit parfois « ce code est au mauvais endroit ».
+
+---
+
 ## 2 terdecies. Un témoin présent sur les DEUX branches ne témoigne de rien
 
 Même famille que § 2 duodecies — on désigne sans vérifier — mais le matériau
