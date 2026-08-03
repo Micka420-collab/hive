@@ -172,8 +172,11 @@ describe('la porte des amis, ruche allumée — les trois actes', () => {
       'la ruche n’a jamais vu le nœud — l’échange a rendu une clé qui n’ouvre rien',
     ).toBeGreaterThan(0);
 
-    // Un Ctrl+C est une réponse, pas un échec.
-    expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
+    // Un Ctrl+C est une réponse, pas un échec — SUR POSIX. Sous Windows,
+    // `kill('SIGINT')` TERMINE le processus sans passer par le handler : le
+    // code de sortie n'y mesure pas l'arrêt propre, seulement notre coup de
+    // grâce. L'assertion ne prétend donc rien là-bas.
+    if (POSIX) expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
   }, 45_000);
 
   it('ACTE 2 — au redémarrage, LE BILLET N’EST PAS REDEMANDÉ', async () => {
@@ -182,7 +185,7 @@ describe('la porte des amis, ruche allumée — les trois actes', () => {
     // correctement ». C'est le défaut exact que la mémoire de clé ferme.
     const r = await lancerJoin(billet, nidDeLAmi(), { marqueur: 'vous butinez pour la ruche' });
     expect(r.sortie).toContain('déjà obtenue — le billet n’est pas redemandé');
-    expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
+    if (POSIX) expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
   }, 45_000);
 
   it('ACTE 3 — le même billet, un nid NEUF : refus net, marche à suivre', async () => {
