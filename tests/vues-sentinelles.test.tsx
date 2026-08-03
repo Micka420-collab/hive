@@ -49,14 +49,28 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
   fetchMonTableau: vi.fn(() => Promise.resolve(null)),
+  fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
+  fetchServeurs: vi.fn(() => Promise.resolve(null)),
+  fetchCles: vi.fn(() => Promise.resolve({ noeuds: [], billets: [] })),
+  fetchMembres: vi.fn(() =>
+    Promise.resolve({
+      membres: [],
+      admins: 0,
+      inscription: { mode: 'ouverte', avertissement: '' },
+    }),
+  ),
 }));
 
 import {
   fetchGhosts,
   fetchGuet,
+  fetchMemories,
   fetchMonTableau,
+  fetchServeurs,
   fetchVerdictChantier,
 } from '../dashboard/src/api';
+import Intendance from '../dashboard/src/views/Intendance';
+import Memoire from '../dashboard/src/views/Memoire';
 import { Journal } from '../dashboard/src/Journal';
 import { OpenAlexPanel } from '../dashboard/src/OpenAlexPanel';
 import MonEspace from '../dashboard/src/views/MonEspace';
@@ -468,5 +482,87 @@ describe('les sentinelles du balayage du soir', () => {
       'l’échéance à venir se compte',
     ).toContain('5');
     expect(echue?.querySelector('.me-jours'), 'l’échéance passée ne se compte pas').toBeNull();
+  });
+
+  it('MÉMOIRE : le compteur dit « se souvient », pas « fouille », quand le compte EST là', async () => {
+    // `{total === null ? fouille : se souvient de N}` mutée en `!==` : la
+    // ruche qui SAIT afficherait « fouille ses rayons » à jamais, et le
+    // chargement dirait « se souvient de null chose ».
+    vi.mocked(fetchMemories).mockResolvedValue({ total: 3, memories: [] } as never);
+    const dom = await monter(
+      <Memoire
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          onOpenTask: () => {},
+        } as unknown as ViewProps)}
+      />,
+    );
+    expect(dom.textContent, 'le compte connu se dit').toContain('se souvient de 3 choses');
+    expect(dom.textContent, 'plus de fouille une fois le compte connu').not.toContain(
+      'fouille ses rayons',
+    );
+  });
+
+  it('INTENDANCE : la ligne de suite n’existe QUE si elle a quelque chose à dire', async () => {
+    // `{(erreur || note || aConfirmer) && (…)}` mutée en `||` : une rangée de
+    // suite VIDE s'ouvrirait sous chaque machine au repos, et la confirmation
+    // demandée se rendrait crue, hors de sa rangée. Le monde « avec » se
+    // fabrique SANS réseau : demander l'effacement (→ effacé) ne fait que
+    // poser `aConfirmer` — le vrai geste n'arrive qu'à la confirmation.
+    vi.mocked(fetchServeurs).mockResolvedValue({
+      vue: {
+        total: 1,
+        facturables: 1,
+        parEtat: { demande: 0, provisionnement: 0, pret: 1, arrete: 0, supprime: 0, echoue: 0 },
+        bientotSupprimes: [],
+      },
+      serveurs: [
+        {
+          id: 'srv-1',
+          projectId: 'p1',
+          projet: 'Rucher',
+          refAbonnement: 'ab-1',
+          etat: 'pret',
+          fournisseur: 'manuel',
+          refMachine: 'm-1',
+          gabarit: '2vcpu',
+          motif: '',
+          creeA: 1,
+          majA: 1,
+          arreteA: 0,
+          joursAvantSuppression: -1,
+          transitions: ['supprime'],
+        },
+      ],
+      fournisseur: 'manuel',
+      retentionJours: 30,
+      serveursMax: 8,
+    } as never);
+    const dom = await monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    expect(dom.textContent, 'la machine est rendue').toContain('srv-1');
+    expect(
+      dom.querySelector('.in-ligne-suite'),
+      'au repos, pas de rangée de suite vide',
+    ).toBeNull();
+
+    const bouton = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('→ supprimé'),
+    );
+    expect(bouton, 'le geste d’effacement est proposé (transitions)').toBeTruthy();
+    await act(async () => {
+      bouton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    const suite = dom.querySelector('.in-ligne-suite');
+    expect(suite, 'la demande de confirmation ouvre la rangée de suite').toBeTruthy();
+    expect(suite?.textContent).toContain('Effacer définitivement cette machine ?');
   });
 });

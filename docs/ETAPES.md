@@ -170,6 +170,23 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-et-unième lot — la Mémoire qui sait, l'Intendance qui n'ouvre pas
+de rangée vide** (même soir, 20 h 05 → 20 h 20 UTC). Mémoire — le compteur
+dit « se souvient de 3 choses » quand le compte EST là (`total === null ?`
+mutée en `!==` : la ruche qui sait afficherait « fouille ses rayons » à
+jamais, et le chargement « se souvient de null chose »). Intendance — la
+rangée de suite d'une machine n'existe que si elle a quelque chose à dire
+(`(erreur || note || aConfirmer) &&` mutée en `||` : une rangée vide sous
+chaque machine au repos, et la confirmation rendue crue hors de sa rangée) ;
+le monde « avec » se fabrique SANS réseau — demander l'effacement ne fait
+que poser `aConfirmer`, le vrai geste n'arrive qu'à la confirmation. Trois
+pièges de banc payés en route : l'état de serveur `'actif'` N'EXISTE PAS
+(la liste est demande/provisionnement/pret/arrete/supprime/echoue — le
+banc a planté sur `ETAT_SENS[s.etat]` avant la première assertion),
+`fetchMembres` exige `inscription.avertissement`, et le bouton du geste
+s'appelle « → supprimé », pas « effacé ». **2 mutations rejouées,
+2 rouges, chacune tuant exactement son test nommé.**
+
 **Vingtième lot — la Reine et Mon Espace, et § 2 terdecies appliqué AVANT
 la morsure** (même soir, 19 h 45 → 19 h 55 UTC). Reine — le badge « 📡 état
 réel » ne se porte que sur la réponse CALCULÉE (`m.source === 'live' &&`
