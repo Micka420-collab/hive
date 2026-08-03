@@ -535,6 +535,21 @@ if [ "$SEC" = 1 ]; then
   dire "  Sans --dry-run, la suite serait :"
   dire ""
   accent "    $SUITE"
+  # ─── ET L'ÉCRAN, QUE CETTE CARTE TAISAIT ──────────────────────────────────
+  #
+  # L'installeur construit le tableau de bord depuis peu. Cette carte, elle, ne
+  # nommait que la configuration : elle annonçait donc MOINS que ce que le vrai
+  # passage allait faire.
+  #
+  # C'est mot pour mot la faute que le commentaire du dessus documente déjà à
+  # propos du `--` manquant : une ligne qui dit « voilà ce qui va se passer »
+  # doit dire vrai, sinon elle est pire que son absence.
+  #
+  # Elle a aussi une conséquence de couverture. La CI ne lance `install.sh`
+  # qu'en `--dry-run`, et ce mode SORT ICI — l'étape 5 n'y est donc jamais
+  # exécutée. Ce que la CI peut encore vérifier, c'est que la carte l'ANNONCE ;
+  # c'est peu, et c'est mieux que rien du tout.
+  accent "    npm run build:dashboard"
   dire ""
   exit 0
 fi

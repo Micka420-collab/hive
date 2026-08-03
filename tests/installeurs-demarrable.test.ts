@@ -272,3 +272,40 @@ describe('l’écran après une installation', () => {
     expect(page, 'pas de viewport : illisible sur téléphone').toMatch(/name="viewport"/);
   });
 });
+
+// ─── CE QUE LA CARTE DE `--dry-run` PROMET ───────────────────────────────────
+//
+// La CI ne lance `install.sh` qu'en `--dry-run`, et ce mode sort AVANT l'étape
+// qui construit l'écran. Cette étape n'est donc jamais exécutée en CI — elle
+// n'est tenue que par les gardes statiques du dessus, et par une exécution à la
+// main (1 866 ms, diagnostic passé de ⚠ à ✔).
+//
+// Ce que la CI peut encore vérifier, c'est que la carte de fin ANNONCE ce que
+// le vrai passage fera. Une carte qui promet moins que la réalité est la faute
+// que ce fichier documente déjà à propos du `--` manquant.
+describe('la carte de --dry-run dit tout ce qui va se passer', () => {
+  const install = readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
+  /** Le bloc `--dry-run`, du test jusqu'à son `exit 0`. */
+  const carte = /if \[ "\$SEC" = 1 \]; then[\s\S]*?exit 0/.exec(install)?.[0] ?? '';
+
+  it('LA CARTE EXISTE, et elle se termine bien par une sortie', () => {
+    expect(carte, 'bloc --dry-run introuvable').not.toBe('');
+    expect(carte, 'le --dry-run ne sort plus : il continuerait et ÉCRIRAIT').toContain('exit 0');
+  });
+
+  it('ELLE NOMME LES DEUX GESTES DU VRAI PASSAGE', () => {
+    // La configuration a toujours été annoncée. La construction de l'écran ne
+    // l'était pas — la carte promettait donc moins que la réalité.
+    expect(carte, 'la configuration a disparu de la carte').toMatch(/npm run install:hive/);
+    expect(carte, 'la carte tait la construction de l’écran').toMatch(/npm run build:dashboard/);
+  });
+
+  it('CE QUE LA CARTE NOMME EXISTE VRAIMENT DANS LE SCRIPT', () => {
+    // La garde qui empêche la carte de dériver de l'autre côté : annoncer un
+    // geste que le script ne fait plus vaudrait le silence d'avant.
+    for (const geste of ['npm run install:hive', 'npm run build:dashboard']) {
+      const apres = install.slice(install.indexOf('exit 0\nfi'));
+      expect(apres, `annoncé mais jamais exécuté : ${geste}`).toContain(geste);
+    }
+  });
+});

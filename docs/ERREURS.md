@@ -2828,6 +2828,39 @@ rappels en une journée montrent qu'il ne se déduit pas ; il se vérifie.
 
 ---
 
+## 9 duodecies. Ajouter une étape déplace la frontière de ce que la CI couvre
+
+`install.sh` a gagné une étape 5 : la construction de l'écran. Les cinq travaux
+de la CI sont passés au vert, et j'ai failli m'arrêter là.
+
+**La CI ne lance `install.sh` qu'en `--dry-run`** — et ce mode sort à l'étape 4.
+L'étape que je venais d'ajouter n'a donc **jamais été exécutée** par aucun des
+cinq travaux. Le vert ne disait rien d'elle.
+
+Pire, et c'est le vrai défaut : la carte de fin du `--dry-run` annonçait
+toujours un seul geste, `npm run install:hive`. Elle promettait donc **moins**
+que ce que le vrai passage allait faire. C'est mot pour mot la faute que le
+commentaire d'à côté documente déjà à propos du `--` manquant : _une ligne qui
+dit « voilà ce qui va se passer » doit dire vrai, sinon elle est pire que son
+absence._
+
+**La leçon.** Une CI couvre un CHEMIN, pas un fichier. Ajouter une étape après
+le point de sortie d'un mode, c'est ajouter du code hors couverture — sans que
+rien ne baisse, puisqu'aucune mesure ne suit ce chemin-là.
+
+Le réflexe qui manque, et qui coûte trente secondes : **après avoir ajouté une
+étape, relire ce que la CI lance vraiment, et où ça s'arrête.** Ici, `grep
+install.sh .github/workflows/ci.yml` donnait la réponse en une ligne :
+`sh install.sh --dry-run`.
+
+Ce qui a été fait avec cette information : la carte annonce désormais les deux
+gestes — donc la CI vérifie au moins l'ANNONCE, ce qu'elle pouvait encore faire.
+Et le carnet dit que l'étape elle-même n'est tenue que par des gardes statiques
+et par une exécution à la main. C'est peu ; le dire est ce qui empêche de le
+prendre pour davantage.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait
