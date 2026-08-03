@@ -71,7 +71,9 @@ beforeEach(() => {
   vi.mocked(fetchMergeResult).mockClear().mockResolvedValue({ result: null });
   vi.mocked(fetchConseils).mockReset().mockResolvedValue({ conseils: [] });
   vi.mocked(fetchConseil).mockReset().mockRejectedValue(new Error('aucune session simulée'));
-  vi.mocked(fetchBalance).mockReset().mockResolvedValue(null);
+  vi.mocked(fetchBalance)
+    .mockReset()
+    .mockResolvedValue(null as never);
 });
 afterEach(() => {
   vi.useRealTimers();
