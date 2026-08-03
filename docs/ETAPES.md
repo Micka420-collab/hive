@@ -156,6 +156,17 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Cinquième lot — le chemin RÉUSSI de `join`, contre une ruche vivante**
+(même jour) : ce que le carnet portait comme « territoire des tests e2e » est
+fait. `tests/join-ruche-vivante.test.ts` monte une VRAIE ruche (`createServer`,
+port éphémère), crée un billet à usage unique par la vraie route
+`POST /api/billets`, et joue les trois actes dans l'ordre où l'ami les vit :
+l'échange (clé mémorisée en 0600, nœud visible côté ruche, URL réelle affichée
+avant tout échange), le redémarrage (le billet N'EST PAS redemandé — la raison
+d'être de la mémoire de clé), et le même billet sur un nid neuf (refus net,
+marche à suivre). 4 mutations 4 rouges : clé jamais rangée, jamais relue, 0600
+perdu, persistance annoncée sans vérification.
+
 **Quatrième lot — `bin.ts` et `orchestrator/main.ts`, faits** (même jour) :
 8 tests, 6 mutations 6 rouges. La porte unique du paquet npm : l'aide et la
 table des sous-commandes confrontées (source comptée ↔ aide imprimée), la
