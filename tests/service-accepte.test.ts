@@ -39,12 +39,13 @@
 // cette étape existe toujours dans `.github/workflows/ci.yml`.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type Contexte, type Plan, planifier } from '../src/shared/service.js';
+import { SYSTEME } from '../src/service-reel.js';
 
 const RACINE_DEPOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -87,10 +88,30 @@ function planIci(o: Partial<Contexte> = {}): Plan {
   return r;
 }
 
-/** Écrit le fichier du plan dans un dossier jetable et rend son chemin. */
+/**
+ * Écrit le fichier du plan dans un dossier jetable, PAR LE VRAI ÉCRIVAIN.
+ *
+ * ─── LA PREMIÈRE VERSION A ÉTÉ REFUSÉE PAR WINDOWS, ET ELLE AVAIT TORT ───────
+ *
+ * Elle faisait `writeFileSync(ou, contenu, encodage)` — une réécriture à moi de
+ * ce que `SYSTEME.ecrire` fait déjà. Or ce dernier préfixe les fichiers UTF-16
+ * de la marque d'ordre `FF FE`, sans laquelle un analyseur XML ne sait pas dans
+ * quel sens lire les paires d'octets. `schtasks` a répondu, à juste titre :
+ *
+ *   ERROR: The task XML is malformed.
+ *   (1,2)::ERROR: one root element
+ *
+ * Le produit était correct ; c'est mon banc d'essai qui posait des octets que la
+ * ruche n'écrit jamais. J'ai reproduit, DANS LE TEST DU LOT SUR CE SUJET, la
+ * faute exacte que le lot corrige : fabriquer soi-même l'artefact au lieu de le
+ * demander au code qui le fabrique.
+ *
+ * Le test y gagne : il couvre désormais la chaîne entière — plan → écrivain →
+ * outil de la plateforme — au lieu de deux tiers de celle-ci.
+ */
 function poser(p: Plan, nomFichier = path.basename(p.fichier.chemin)): string {
   const ou = path.join(dossier('ruche-svc-'), nomFichier);
-  writeFileSync(ou, p.fichier.contenu, p.fichier.encodage);
+  SYSTEME.ecrire(ou, p.fichier.contenu, p.fichier.mode, p.fichier.encodage);
   return ou;
 }
 
@@ -130,7 +151,7 @@ describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
     );
 
     const ou = path.join(dossier('ruche-svc-casse-'), 'hive-casse.service');
-    writeFileSync(ou, casse, 'utf8');
+    SYSTEME.ecrire(ou, casse, p.fichier.mode, p.fichier.encodage);
     const r = spawnSync('systemd-analyze', ['verify', ou], {
       shell: false,
       encoding: 'utf8',
@@ -157,7 +178,12 @@ describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
     // Même exigence que sous Linux : prouver que l'outil regarde.
     const p = planIci();
     const ou = path.join(dossier('ruche-plist-casse-'), 'casse.plist');
-    writeFileSync(ou, p.fichier.contenu.replace('</plist>', ''), 'utf8');
+    SYSTEME.ecrire(
+      ou,
+      p.fichier.contenu.replace('</plist>', ''),
+      p.fichier.mode,
+      p.fichier.encodage,
+    );
     const r = spawnSync('plutil', ['-lint', ou], {
       shell: false,
       encoding: 'utf8',
@@ -210,8 +236,16 @@ describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
   it.runIf(WINDOWS)('…et il refuserait un XML dont la balise racine est fausse', () => {
     const p = planIci();
     const nom = `hive-test-casse-${process.pid}`;
+    // MÊME écrivain que le cas favorable : sans ça, ce test rougirait pour la
+    // marque d'ordre absente et non pour la balise racine mutée — vert pour la
+    // mauvaise raison, ce qui ne garde rien.
     const ou = path.join(dossier('ruche-xml-casse-'), `${nom}.xml`);
-    writeFileSync(ou, p.fichier.contenu.replace('<Task ', '<Tache '), p.fichier.encodage);
+    SYSTEME.ecrire(
+      ou,
+      p.fichier.contenu.replace('<Task ', '<Tache '),
+      p.fichier.mode,
+      p.fichier.encodage,
+    );
     const r = spawnSync('schtasks', ['/Create', '/TN', nom, '/XML', ou, '/F'], {
       shell: false,
       encoding: 'utf8',

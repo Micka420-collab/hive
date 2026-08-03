@@ -2912,6 +2912,62 @@ puis exige `toHaveLength(1)` — c'est le `expect` qui compte, pas le paragraphe
 
 ---
 
+## 6.6 ter. Le banc d'essai qui refabrique l'artefact au lieu de le demander
+
+Suite immédiate du § 6.6 bis, et la plus instructive des trois.
+
+`tests/service-accepte.test.ts` soumet le fichier de service à l'outil de sa
+plateforme. Sur `windows-latest`, `schtasks` a répondu :
+
+    ERROR: The task XML is malformed.
+    (1,2)::ERROR: one root element
+
+Mon premier réflexe a été de chercher le défaut dans le plan Windows. **Il n'y
+en avait pas.** `src/service-reel.ts` préfixe les fichiers UTF-16 de la marque
+d'ordre `FF FE` — sans elle, un analyseur XML ne sait pas dans quel sens lire
+les paires d'octets — et un commentaire de six lignes explique pourquoi. Le
+produit était juste.
+
+C'est mon aide de test qui était fausse :
+
+```ts
+// ce que j'avais écrit — une réécriture à moi de l'écrivain
+writeFileSync(ou, p.fichier.contenu, p.fichier.encodage);
+
+// ce qu'il fallait — l'écrivain lui-même
+SYSTEME.ecrire(ou, p.fichier.contenu, p.fichier.mode, p.fichier.encodage);
+```
+
+`writeFileSync(…, 'utf16le')` de Node n'écrit **pas** de marque d'ordre. Mon
+banc d'essai posait donc des octets que la ruche n'écrit jamais, et jugeait
+ceux-là.
+
+### Pourquoi celle-ci pique
+
+J'ai commis, **dans le test du lot consacré à ce sujet**, la faute exacte que le
+lot corrige. Le § 6.6 bis dit : _un fichier destiné à un autre programme se
+vérifie en le lui donnant._ Encore faut-il lui donner **le fichier que le
+produit écrit** — pas une reconstitution de mémoire. J'avais remplacé une
+comparaison à mes attentes par une soumission au vrai juge, et je lui ai présenté
+un faux.
+
+Le pendant en négatif était pire encore : la contre-épreuve
+(« un XML à la racine inconnue est refusé ») écrivait elle aussi sans marque
+d'ordre. Elle aurait donc rougi **pour l'absence de marque et non pour la balise
+mutée** — verte pour la mauvaise raison, ce qui ne garde rien.
+
+### La règle
+
+> Un test qui juge un artefact doit se le faire **produire par le code de
+> production**, jusqu'au dernier octet. Dès qu'un banc d'essai réimplémente une
+> étape de la chaîne — l'écriture, l'encodage, la sérialisation — il juge son
+> propre ouvrage et non celui du produit.
+
+Le test y a gagné : il couvre désormais plan → écrivain → outil de la
+plateforme, au lieu de deux tiers de la chaîne.
+
+---
+
 ## 9 terdecies. Vérifier qu'un outil EXISTE en le lançant mesure autre chose
 
 Le lot du § 6.6 bis ajoute une étape de CI qui doit répondre à une question
