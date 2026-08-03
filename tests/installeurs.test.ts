@@ -23,7 +23,7 @@ import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { NODE_MIN, messagePrerequisNode, nodeSuffisant } from '../src/installer.js';
+import { NODE_MIN, conseilServeur, messagePrerequisNode, nodeSuffisant } from '../src/installer.js';
 import { NODE_MINIMUM } from '../src/shared/doctor.js';
 import {
   type Capacites,
@@ -629,5 +629,35 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
     const { code, sortie } = lancer(['--dry-run', '--dir=/tmp/jamais-cree']);
     expect(code, 'prérequis manquant ⇒ code 2').toBe(2);
     expect(sortie).toMatch(new RegExp(String(NODE_MINIMUM)));
+  });
+});
+
+describe('le conseil du chemin « serveur » — la survivante qui vivait dans une chaîne', () => {
+  it('ENCHAÎNE build PUIS dev : `&&`, jamais `||`', () => {
+    // La survivante du balayage loupe du 3 août vivait DANS la chaîne
+    // imprimée, en dur dans `installer-main.ts` où aucun test ne pouvait la
+    // lire (`main()` court à l'import, le bloc n'existe qu'au clavier).
+    // Mutée en `||`, la commande copiée-collée ne lancerait `dev` QUE si le
+    // build échoue — un conseil est du code qu'un humain exécute.
+    const ligne = conseilServeur().find((l) => l.includes('build:dashboard'));
+    expect(ligne, 'la ligne de commande doit exister').toBeDefined();
+    expect(ligne).toContain('npm run build:dashboard && npm run dev');
+    expect(ligne).not.toContain('||');
+  });
+
+  it('les secrets passent par l’environnement — la ligne montre la forme, le texte dit pourquoi', () => {
+    const texte = conseilServeur().join('\n');
+    expect(texte).toContain('HIVE_TOKEN=… HIVE_JWT_SECRET=… npm run install:hive');
+    expect(texte).toContain('jamais en argument');
+  });
+
+  it('installer-main CONSOMME la fonction — pas une copie qui divergerait en silence', () => {
+    // Sans cette garde, l'extraction serait du décor : le module pur dirait
+    // vrai pendant que l'écran continuerait d'imprimer une copie mutée.
+    const source = readFileSync(new URL('../src/installer-main.ts', import.meta.url), 'utf8');
+    expect([...source.matchAll(/conseilServeur\(\)/g)]).toHaveLength(1);
+    expect(source, 'l’ancienne copie en dur doit avoir disparu').not.toContain(
+      'build:dashboard &&',
+    );
   });
 });

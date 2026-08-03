@@ -14,6 +14,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { planParCle, signer } from '../src/orchestrator/abonnement.js';
 import { RETENTION_JOURS } from '../src/orchestrator/serveurs.js';
+import type { FournisseurServeur } from '../src/orchestrator/serveurs.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -35,7 +36,9 @@ describe('serveurs — provisionnement automatique', () => {
     else process.env.HIVE_WEBHOOK_SECRET = avant;
   });
 
-  async function demarrer(): Promise<{ base: string; srv: HiveServer; admin: string }> {
+  async function demarrer(
+    fournisseur?: FournisseurServeur,
+  ): Promise<{ base: string; srv: HiveServer; admin: string }> {
     avant = process.env.HIVE_WEBHOOK_SECRET;
     process.env.HIVE_WEBHOOK_SECRET = SECRET;
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-srv-'));
@@ -47,6 +50,7 @@ describe('serveurs — provisionnement automatique', () => {
       dbPath: path.join(dir, 'hive.db'),
       simulation: false,
       tickMs: 10_000,
+      ...(fournisseur ? { fournisseurServeurs: fournisseur } : {}),
     });
     const base = `http://127.0.0.1:${server.port}`;
     // Le premier compte est admin.
@@ -232,6 +236,52 @@ describe('serveurs — provisionnement automatique', () => {
       ts: Date.now() + 1,
     });
     expect((await lireServeurs(base, admin)).vue.facturables).toBe(1);
+  });
+
+  it('« SUPPRIMER » SUIT LA SUPPRESSION, « ARRÊTER » L’ARRÊT — jamais l’inverse', async () => {
+    // La survivante du balayage loupe du 3 août : `courant.refMachine &&
+    // req.body.etat === 'supprime'` mutée en `!==` — un ARRÊT aurait alors
+    // DÉTRUIT la machine, et une suppression l'aurait laissée facturer. Avec
+    // le fournisseur manuel (no-ops, `ref: ''`), les deux moitiés traversaient
+    // l'API sans témoin ; ce fournisseur enregistreur les regarde — et prouve
+    // au passage que « le fournisseur est injectable » n'est plus une prose.
+    const arretees: string[] = [];
+    const supprimees: string[] = [];
+    const banc: FournisseurServeur = {
+      nom: 'banc',
+      demarrer: ({ billet }) =>
+        Promise.resolve({ ref: 'machine-du-banc', instructions: [`join ${billet}`] }),
+      arreter: (ref) => {
+        arretees.push(ref);
+        return Promise.resolve();
+      },
+      supprimer: (ref) => {
+        supprimees.push(ref);
+        return Promise.resolve();
+      },
+    };
+    const { base, srv, admin } = await demarrer(banc);
+    const p = srv.store.createProject({ name: 'Ruche' }).id;
+    expect((await poster(base, achat(p))).status).toBe(200);
+    const { serveurs } = await lireServeurs(base, admin);
+    const id = serveurs[0]?.id as string;
+
+    const poser = (etat: string): Promise<Response> =>
+      fetch(`${base}/api/admin/serveurs/${id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${admin}` },
+        body: JSON.stringify({ etat }),
+      });
+
+    // L'ARRÊT : `arreter` reçoit la référence réelle, `supprimer` se tait.
+    expect((await poser('arrete')).status).toBe(200);
+    expect(arretees).toEqual(['machine-du-banc']);
+    expect(supprimees, 'un arrêt ne détruit RIEN — la machine doit pouvoir repartir').toEqual([]);
+
+    // LA SUPPRESSION : c'est maintenant, et seulement maintenant.
+    expect((await poser('supprime')).status).toBe(200);
+    expect(supprimees).toEqual(['machine-du-banc']);
+    expect(arretees, 'et l’arrêt n’est pas rejoué au passage').toEqual(['machine-du-banc']);
   });
 });
 

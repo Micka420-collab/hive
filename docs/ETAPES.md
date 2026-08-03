@@ -170,6 +170,46 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Douzième lot — les HUIT hors-dashboard sont toutes tuées** (même jour,
+16 h 40 → 17 h 10 UTC) : les quatre pures d'abord, chacune dans son harnais
+existant — `tui/rendu.ts` (le huitième fantôme sur un ratio exact : la garde
+de largeur ne rougissait pas, c'est le CONTENU qui mentait), `workflow.ts`
+(`lireRun` : la ligne JUMELLE de `lireWorkflow`, § 2 duodecies — même texte,
+deux sorts), `concierge.ts` (le compte « en vol » : le contexte 1-en-vol /
+1-tombé du test voisin était SYMÉTRIQUE, la mutation y était invisible ; 2/1
+la voit), `scheduler.ts` (la frontière `<=` exacte d'expiration du cooldown à
+l'enrôlement d'une course, contre-preuve à expiration − 1). Puis les quatre
+qui demandaient un harnais : `ruche.mjs` (la Reine qui sort en 0 sans qu'on
+ait rien demandé — `pkill -INT -P` sur l'enfant seul, prémisse « arrêté
+(code 0) » VÉRIFIÉE sinon `null ?? 1` rend le test vert par la mauvaise
+porte ; l'apostrophe courbe du marqueur du test voisin, qui ne pouvait pas
+matcher, corrigée au passage), `installer-main.ts` (le `&&` de la chaîne
+imprimée : extrait en `conseilServeur()` PURE dans `installer.ts` — `main()`
+court à l'import, le bloc n'existait qu'au clavier — avec garde de
+consommation pour que l'extraction ne soit pas du décor), `server.ts` (le
+fournisseur de serveurs rendu RÉELLEMENT injectable — le commentaire le
+promettait, le code l'écrivait en dur, et avec le manuel no-ops/`ref: ''` la
+garde arrêt/suppression traversait l'API sans témoin ; un fournisseur
+enregistreur prouve que « supprimer » suit la suppression et jamais l'arrêt),
+`cli.ts` (le badge 📡/✨ : une vraie ruche, la vraie CLI en sous-processus —
+un fait ne se déguise pas en génération). **8 mutations rejouées ligne à
+ligne, 8 rouges.** Restent **18 survivantes, toutes dans les vues du
+dashboard.** Leçon d'instrument au passage : `git checkout --` pour retirer
+une mutation EMPORTE les éditions non committées du même fichier — les
+mutations sur fichiers en chantier se retirent par mutation INVERSE.
+
+**Onzième lot — la CI de la PR #131, deux rougeurs, deux leçons** (même
+jour) : le tamis a rougi sur `merge-wiring` (graine 23757) — vert en local au
+même commit, même graine ; un `applied` vide non refusé vient du `catch` du
+nœud, et le message réel vivait dans `result.logs` QUE PERSONNE N'AFFICHAIT.
+L'intermittent est reparti avec son secret — c'est peut-être celui « jamais
+reproduit » du carnet. Chaque assertion du chemin heureux porte désormais
+`diagnostic()` (§ 9 sexdecies : un intermittent ne laisse que ce que
+l'assertion montre). Puis les DEUX gardes de cohérence des badges ont rougi
+— et elles avaient raison : le compte de tests vit à SIX endroits (2 READMEs,
+2 pages × 2 langues), ma recherche n'en avait trouvé que deux (§ 2 duodecies,
+la virgule anglaise « 3,088 » échappait au motif « 3 088 »).
+
 **Dixième lot — la Chronique : les deux vides ne se confondent pas** (même
 jour) : la survivante `events.length === 0` — mutée, « la ruche n'a encore
 rien vécu » s'afficherait sous un journal plein. `tests/chronique-journal.test.tsx`

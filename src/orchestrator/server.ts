@@ -142,6 +142,7 @@ import {
   replierServeurs,
   transiter,
 } from './serveurs.js';
+import type { FournisseurServeur } from './serveurs.js';
 import {
   RETENTION_JOURS,
   SERVEURS_MAX,
@@ -447,6 +448,17 @@ export interface ServerConfig {
    * `consignes` : on encadre, on ne retient rien. Optionnel, comme les autres.
    */
   polyethisme?: ModePolyethisme;
+  /**
+   * Le fournisseur de machines. Défaut : le fournisseur MANUEL livré.
+   *
+   * Le commentaire du provisionnement disait « le fournisseur est injectable »
+   * pendant que le code l'écrivait en dur — et avec le manuel (no-ops,
+   * `ref: ''`), AUCUN test ne pouvait observer que « supprimer » suit bien la
+   * suppression et jamais l'arrêt. C'est un banc d'essai qui l'exige, mais le
+   * point d'injection est aussi, très exactement, l'endroit où un vrai cloud
+   * se branchera.
+   */
+  fournisseurServeurs?: FournisseurServeur;
 }
 
 /**
@@ -2961,7 +2973,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // aucune machine mais produit les instructions exactes, billet compris, pour
   // que l'humain les colle sur n'importe quel VPS. La CHAÎNE est réelle de bout
   // en bout ; seul le « qui allume la machine » est remplaçable.
-  const fournisseurServeurs = FOURNISSEUR_MANUEL;
+  const fournisseurServeurs = config.fournisseurServeurs ?? FOURNISSEUR_MANUEL;
 
   /**
    * Gabarit demandé par défaut. Aligné sur ce que l'isolement borne déjà

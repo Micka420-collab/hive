@@ -33,6 +33,7 @@ import {
   avertissements,
   completerEnv,
   composerReglages,
+  conseilServeur,
   lireEnv,
   messagePrerequisNode,
   nodeSuffisant,
@@ -284,20 +285,10 @@ async function main(): Promise<void> {
   }
 
   if (chemin === 2) {
-    bloc([
-      '  Sur un serveur, l’installeur ne pose aucune question et rend un code',
-      '  de sortie exploitable :',
-      '',
-      '      HIVE_TOKEN=… HIVE_JWT_SECRET=… npm run install:hive',
-      '      npm run build:dashboard && npm run dev',
-      '',
-      '  Les secrets passent par l’environnement, jamais en argument : ' + '`/proc/*/cmdline`',
-      '  et l’historique du shell sont lisibles par d’autres.',
-      '',
-      `  Codes de sortie : 0 succès · ${CODE.PREREQUIS} prérequis · ` +
-        `${CODE.REPONSE_MANQUANTE} réponse manquante · ${CODE.PORT_OCCUPE} port occupé · ` +
-        `${CODE.REFUS_SECURITE} refus de sécurité · ${CODE.INTERROMPU} interrompu.`,
-    ]);
+    // Le texte vit dans `installer.ts` (pur) : ici, `main()` court à l'import
+    // et aucun test ne peut le lire — c'est là que le `&&` du conseil avait
+    // survécu au balayage, invisible.
+    bloc(conseilServeur());
     return;
   }
 

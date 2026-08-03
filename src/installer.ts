@@ -25,6 +25,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { PORT_DASHBOARD_DEV } from './assistant.js';
+import { CODE } from './codes-sortie.js';
 import { LONGUEUR_MIN_SECRET_JWT, SECRET_JWT_INTERDIT } from './orchestrator/auth.js';
 import { NODE_MINIMUM } from './shared/doctor.js';
 import { MIN_TOKEN_LENGTH } from './shared/types.js';
@@ -324,6 +325,33 @@ export function messagePrerequisNode(version: string): string[] {
     `Node ${version} — la ruche exige ${NODE_MIN} ou plus.`,
     'Installez une version récente depuis https://nodejs.org, puis relancez.',
     `(Sur macOS/Linux, « nvm install ${NODE_MIN} » suffit si vous avez nvm.)`,
+  ];
+}
+
+/**
+ * Le conseil du chemin « Installer sur un serveur », mot pour mot.
+ *
+ * Il vivait en dur dans `installer-main.ts`, où aucun test ne pouvait
+ * l'atteindre (`main()` s'exécute à l'import, et le bloc n'est accessible
+ * qu'au clavier interactif). Le balayage loupe du 3 août y a trouvé une
+ * survivante DANS la chaîne imprimée : `&&` mué en `||`, la commande
+ * copiée-collée n'aurait lancé `dev` QUE si le build échouait — un conseil
+ * est du code qu'un humain exécute, il se juge comme du code.
+ */
+export function conseilServeur(): string[] {
+  return [
+    '  Sur un serveur, l’installeur ne pose aucune question et rend un code',
+    '  de sortie exploitable :',
+    '',
+    '      HIVE_TOKEN=… HIVE_JWT_SECRET=… npm run install:hive',
+    '      npm run build:dashboard && npm run dev',
+    '',
+    '  Les secrets passent par l’environnement, jamais en argument : `/proc/*/cmdline`',
+    '  et l’historique du shell sont lisibles par d’autres.',
+    '',
+    `  Codes de sortie : 0 succès · ${CODE.PREREQUIS} prérequis · ` +
+      `${CODE.REPONSE_MANQUANTE} réponse manquante · ${CODE.PORT_OCCUPE} port occupé · ` +
+      `${CODE.REFUS_SECURITE} refus de sécurité · ${CODE.INTERROMPU} interrompu.`,
   ];
 }
 

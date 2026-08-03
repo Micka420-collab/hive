@@ -149,7 +149,11 @@ describe('le lanceur de la ruche — vie et mort', () => {
         const r = await lancerRuche(
           ['--sans-ecran', '--sans-noeud'],
           envRuche({ HIVE_PORT: String(porte) }),
-          'la ruche s’arrête',
+          // Apostrophe DROITE : c'est celle que ruche.mjs imprime. La première
+          // version portait la courbe — un marqueur qui ne pouvait pas matcher,
+          // et le test ne se résolvait que par la mort du lanceur (le boucher
+          // de 30 s aurait masqué un lanceur qui ne meurt pas en panne vague).
+          "la ruche s'arrête",
           () => {
             /* rien : la mort du hub EST le geste */
           },
@@ -159,6 +163,37 @@ describe('le lanceur de la ruche — vie et mort', () => {
       } finally {
         await new Promise((resoudre) => bouchon.close(resoudre));
       }
+    },
+    60_000,
+  );
+
+  it.runIf(POSIX)(
+    'UNE REINE QUI SORT EN 0 N’EST PAS UN SUCCÈS DE RUCHE — le lanceur rend non nul',
+    async () => {
+      // La survivante du balayage loupe du 3 août : `arreter(code === 0 ? 1 :
+      // (code ?? 1))` mutée en `!==`. Le test voisin (port occupé) ne la voit
+      // pas : son hub meurt en 1, et `1 → 1` des deux côtés du miroir. La
+      // branche qui distingue est celle du hub qui sort PROPREMENT (code 0)
+      // sans qu'on ait demandé l'arrêt de la ruche : pour un superviseur, une
+      // ruche qui perd sa Reine — même poliment — n'est pas un succès. Mutée,
+      // le lanceur rendrait 0 et rien ne redémarrerait jamais.
+      const r = await lancerRuche(
+        ['--sans-ecran', '--sans-noeud'],
+        envRuche(),
+        'en ligne',
+        (pid) => {
+          // SIGINT à L'ENFANT seul, pas au lanceur : `pkill -P` vise les enfants
+          // directs, et la Reine est le seul ici. Son gestionnaire SIGINT sort
+          // en `process.exit(0)` — c'est précisément la prémisse qu'on veut.
+          spawn('pkill', ['-INT', '-P', String(pid)], { shell: false });
+        },
+      );
+      // La prémisse est VÉRIFIÉE, pas supposée : mort par code 0, pas par
+      // signal — tuée par signal, `code` serait null et `null ?? 1` rendrait 1
+      // des deux côtés de la mutation : un test vert pour la mauvaise porte.
+      expect(r.sortie, 'la Reine doit être sortie en 0 (prémisse)').toContain('arrêté (code 0)');
+      expect(r.sortie).toContain("la ruche s'arrête");
+      expect(r.code, `une ruche sans Reine n’est pas un succès :\n${r.sortie}`).not.toBe(0);
     },
     60_000,
   );
