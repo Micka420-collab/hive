@@ -96,13 +96,20 @@ describe('les méthodes d’installation', () => {
     expect(winget?.privilegie).toBe(true);
   });
 
-  it('la commande .deb suit l’architecture', () => {
-    expect(methodesInstallation(linuxArm).find((m) => m.cle === 'apt')?.commande).toContain(
-      'arm64.deb',
-    );
-    expect(methodesInstallation(linux).find((m) => m.cle === 'apt')?.commande).toContain(
-      'amd64.deb',
-    );
+  it('la commande .deb suit l’architecture — dans ses DEUX moitiés', () => {
+    // La commande apt est composée : `curl … && sudo dpkg -i …`, et chaque
+    // moitié nomme le fichier. Le balayage du soir a montré qu'un simple
+    // `toContain('arm64.deb')` était satisfait par la moitié curl SEULE — la
+    // moitié dpkg mutée (`arch === 'arm64'` → `!==`) téléchargeait arm64 puis
+    // installait amd64, et le test restait vert. On exige donc que l'AUTRE
+    // architecture n'apparaisse nulle part : télécharger un fichier et en
+    // installer un autre est exactement le genre d'échec que personne ne
+    // relie à sa cause.
+    const apt = (p: Plateforme) => methodesInstallation(p).find((m) => m.cle === 'apt')?.commande;
+    expect(apt(linuxArm)).toContain('arm64.deb');
+    expect(apt(linuxArm), 'sur arm64, aucune moitié ne parle d’amd64').not.toContain('amd64');
+    expect(apt(linux)).toContain('amd64.deb');
+    expect(apt(linux), 'sur x64, aucune moitié ne parle d’arm64').not.toContain('arm64');
   });
 
   it('une plateforme non couverte ne propose pas de binaire fantôme', () => {

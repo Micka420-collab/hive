@@ -172,6 +172,25 @@ describe('LE COMPTE DES ARRÊTS — le critère « ≤ 3 décisions »', () => {
     expect(r.arrets).toBe(3);
     expect(r.ecran).toContain('npm run cli');
   });
+
+  it('LE DÉPÔT TAPÉ SE RETROUVE DANS LA COMMANDE — pas jeté en route', async () => {
+    // Le balayage du soir : `depot === '' ? undefined : depot` muté en `!==`
+    // JETTE précisément ce que l'humain vient de taper — la commande
+    // proposée crée alors un projet SANS dépôt, et l'avertissement « espace
+    // vide » contredit la réponse qu'on vient de donner. Le seul cas testé
+    // jusqu'ici était le ⏎ (dépôt vide), qui ne distingue pas les deux sens.
+    const r = await jouer({
+      touches: [ENTREE],
+      lignes: ['ma-ruche', 'https://github.com/exemple/rucher'],
+      neuf: true,
+    });
+    expect(r.ecran, 'la commande porte le dépôt répondu').toContain(
+      'https://github.com/exemple/rucher',
+    );
+    expect(r.ecran, 'avec un dépôt, pas d’avertissement d’espace vide').not.toContain(
+      'espace vide',
+    );
+  });
 });
 
 describe('LA CONFIRMATION REVIENT DÈS QUE LA MACHINE S’OUVRE', () => {

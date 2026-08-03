@@ -242,4 +242,44 @@ describe('LE DISPATCH DU CLI — la porte d’entrée, enfin empruntée', () => 
       ).not.toContain('Erreur :');
     }
   }, 120_000);
+
+  it('« cloudflare » SANS LE BINAIRE : la liste des méthodes, pas « aucune méthode »', async () => {
+    // Le balayage du soir : `methodes.length === 0` muté en `!==` inverse le
+    // diagnostic — la machine qui A des méthodes d'installation s'entendrait
+    // dire « Aucune méthode connue », et l'impasse réelle listerait du vide.
+    // Le PATH du sous-processus est NEUTRALISÉ pour que `cloudflared` soit
+    // introuvable sur les trois systèmes, machine du développeur comprise :
+    // c'est ce qui rend le chemin « pas installé » déterministe (le spawn de
+    // `versionCloudflared` rend null sur ENOENT). Les trois plateformes de la
+    // CI ont toutes au moins une méthode (apt, winget, brew, binaire local).
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      NO_COLOR: '1',
+      HIVE_TOKEN: 'jeton-test-suffisamment-long',
+      HIVE_HTTP: 'http://127.0.0.1:1',
+    };
+    // Windows nomme la variable `Path` (ou autre casse) : on retire TOUTES
+    // ses graphies avant d'en poser une vide, sinon la vraie survivrait.
+    for (const cle of Object.keys(env)) if (/^path$/i.test(cle)) delete env[cle];
+    env.PATH = '';
+    const { code, sortie } = await new Promise<{ code: number; sortie: string }>((resolve) => {
+      execFile(
+        process.execPath,
+        ['--import', 'tsx', CLI, 'cloudflare'],
+        { cwd: RACINE, encoding: 'utf8', timeout: 30_000, env },
+        (e, stdout, stderr) => {
+          const err = e as { code?: number } | null;
+          resolve({ code: err?.code ?? 0, sortie: `${stdout}${stderr}` });
+        },
+      );
+    });
+    expect(sortie, 'le chemin « pas installé » doit être pris').toContain('Installer cloudflared');
+    expect(sortie, 'les méthodes existent : elles se listent').toContain(
+      'Puis relancez cette commande',
+    );
+    expect(sortie, 'une machine outillée ne s’entend pas dire le contraire').not.toContain(
+      'Aucune méthode connue',
+    );
+    expect(code).toBe(0);
+  }, 60_000);
 });

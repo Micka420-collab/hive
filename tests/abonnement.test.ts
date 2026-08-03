@@ -104,6 +104,17 @@ describe('abonnements — les droits, fermés par défaut', () => {
     expect(droits(a, NOW).actif).toBe(false);
   });
 
+  it('…et le terme est PILE au terme — pas une milliseconde de plus', () => {
+    // Le balayage du soir : les deux cas ci-dessus vivent à 3 jours et à
+    // J+1 du seuil — `now >= fin` muté en `>` restait vert, et l'instant
+    // exact où la grâce expire donnait encore des droits. Une borne se
+    // teste sur la borne, pas dans ses environs.
+    const a = abo({ plan: 'essaim', etat: 'impaye', impayeDepuis: NOW - GRACE_JOURS * JOUR });
+    const d = droits(a, NOW);
+    expect(d.actif, 'à l’instant exact du terme, la grâce est finie').toBe(false);
+    expect(d.motif).toMatch(/délai de grâce .* dépassé/);
+  });
+
   it('un impayé sans date est refusé plutôt que deviné', () => {
     const a = abo({ plan: 'essaim', etat: 'impaye', impayeDepuis: null });
     expect(droits(a, NOW).actif).toBe(false);

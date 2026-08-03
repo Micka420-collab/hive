@@ -170,6 +170,27 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Dix-huitième lot — les cinq survivantes HORS dashboard du balayage du
+soir** (même soir, 19 h 20 → 19 h 30 UTC), et quatre d'entre elles disent la
+même chose : LES BORNES ET LES MOITIÉS NE SE TESTENT QUE SUR ELLES-MÊMES.
+`cloudflare.ts` — la commande apt est composée (`curl … && sudo dpkg -i …`)
+et le test existant (`toContain('arm64.deb')`) était satisfait par la moitié
+curl SEULE : mutée, la moitié dpkg téléchargeait arm64 et installait amd64
+sans rougir ; on exige désormais que l'AUTRE architecture n'apparaisse nulle
+part. `desinstallation.ts` — `while (n >= 1024)` : tous les cas du test
+vivaient LOIN des seuils ; 1 Mo pile s'affichait « 1024 ko » sous le mutant ;
+la borne se teste sur la borne (1 Mo et 1 Go exacts). `abonnement.ts` —
+`now >= fin` du délai de grâce : les cas existants étaient à 3 jours et à
+J+1 ; l'instant EXACT du terme donnait encore des droits sous `>`.
+`installer-assistant.ts` — `depot === '' ? undefined : depot` mutée JETTE
+précisément ce que l'humain vient de taper (le seul cas testé était le ⏎,
+qui ne distingue pas les deux sens) ; le dépôt répondu doit se retrouver
+dans la commande proposée. `cli.ts` — `methodes.length === 0` du diagnostic
+cloudflare : mutée, la machine outillée s'entend dire « Aucune méthode
+connue » ; le test lance le VRAI CLI avec un PATH neutralisé (l'absence de
+cloudflared rendue déterministe sur les trois systèmes) et exige la liste.
+**5 mutations rejouées, 5 rouges.**
+
 **Dix-septième lot — la première fournée du balayage du soir : sept
 survivantes tombent** (même soir, 18 h 50 → 19 h 15 UTC). Le balayage élargi
 de la nuit (base : premier commit du dépôt, LOUPE_MAX=100, toujours en cours

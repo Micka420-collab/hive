@@ -349,6 +349,12 @@ describe('LE RELEVÉ — sur un vrai disque', () => {
     expect(taillelisible(2048)).toBe('2.0 ko');
     expect(taillelisible(5 * 1024 * 1024)).toBe('5.0 Mo');
     expect(taillelisible(20 * 1024 * 1024)).toBe('20 Mo');
+    // Les BORNES exactes : le balayage du soir a montré que tous les cas
+    // ci-dessus vivaient loin des seuils — `while (n >= 1024)` muté en `>`
+    // restait vert, et 1 Mo pile s'affichait « 1024 ko ». Un mégot exact et
+    // un giga exact traversent la boucle par son égalité.
+    expect(taillelisible(1024 * 1024), '1 Mo pile change d’unité').toBe('1.0 Mo');
+    expect(taillelisible(1024 ** 3), '1 Go pile change deux fois').toBe('1.0 Go');
   });
 });
 
