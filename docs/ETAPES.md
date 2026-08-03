@@ -170,6 +170,32 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-sixième lot — L'INSTANT OÙ UN ACCÈS MEURT, et la machine qu'on
+n'efface pas** (nuit, 23 h 30 → 00 h 10 UTC). Premier lot tiré de la file de
+nuit rendue par un agent Fable 5 (classée par ce qui coûte le plus cher si
+une garde est muette : argent → secrets → suppression de données → codes de
+sortie). Les bornes d'ARGENT ont été sondées d'abord et sont toutes
+DÉFENDUES (plafond à la borne exacte, seuil d'alerte, plan sans heures :
+trois mutations, trois rouges sans écrire une ligne — on vérifie avant de
+croire, dans les deux sens). Deux familles étaient nues :
+
+· `jugerBillet` n'avait **aucun banc à lui** — il n'était éprouvé qu'à
+travers le HTTP, avec un billet périmé depuis 1970, à des décennies de la
+borne. Mutée en `<`, la garde `expireA <= maintenant` laissait la porte de
+la ruche s'ouvrir une dernière fois à l'instant exact de l'expiration. Son
+jumeau `jugerPartage` portait la même faiblesse, et `partageVivant` (qui
+sert l'écran ET l'élagage) pouvait diverger du juge sans que rien ne rougisse.
+`tests/expiration-instant.test.ts`, 10 tests, **3 mutations rejouées,
+3 rouges.**
+
+· `aSupprimer` — le geste le plus irréversible du dépôt, celui qui appelle
+le fournisseur pour effacer une machine. `s.arreteA > 0` mutée en `>= 0` :
+une ligne incohérente (état `arrete`, aucune date d'arrêt) devenait
+candidate à l'effacement DÉFINITIF, et immédiatement — `now - 0` dépasse
+toute rétention. Le terme de rétention lui-même n'était éprouvé que d'un
+côté. 2 tests, **2 mutations rejouées, 2 rouges.** Le dernier admin
+(`admins <= 1`), lui, était déjà défendu.
+
 **Vingt-cinquième lot — les trois dernières du dashboard, et la physique
 sortie de son canevas** (nuit, 22 h 50 → 23 h 25 UTC). Balance — le geste
 ARMÉ dit ce qu'il va faire (`arme && cible !== null` mutée en `===` : le

@@ -2966,6 +2966,44 @@ pour ce qui les éprouve.
 
 ---
 
+## 2 quindecies. Un juge éprouvé UN ÉTAGE TROP HAUT ne l’est pas
+
+`jugerBillet` décide qui entre dans la ruche : révoqué, expiré, épuisé,
+inconnu. Il avait des tests — mais tous par-dessus le HTTP
+(`billet-motifs.test.ts` monte une vraie ruche et lit le code 401). Le compte
+était flatteur : quatre motifs, quatre tests. La garde `expireA <= maintenant`
+a pourtant survécu à sa mutation.
+
+**Pourquoi.** Le banc HTTP posait un billet avec `expiresAt: 1` — le
+1ᵉʳ janvier 1970. À cinquante ans de la frontière, `<` et `<=` rendent le même
+verdict. Le test prouvait « un billet largement périmé est refusé », ce qui
+n'a jamais été la question ; la question est « à l'instant annoncé, est-ce
+fini ? ».
+
+Deux fautes se composent ici, et elles se composent souvent :
+
+1. **L'étage.** Un juge pur testé seulement à travers son appelant hérite des
+   commodités de l'appelant — des données rondes, des cas francs, ce qu'on
+   fabrique facilement en montant un serveur. Les frontières, elles, ne se
+   fabriquent bien qu'au contact : `jugerBillet(billet({ expireA: NOW }), NOW)`
+   tient sur une ligne, et il n'existait pas.
+2. **La distance à la borne.** C'est la leçon du 18ᵉ lot (« 1 Mo pile
+   s'affichait 1024 ko »), reprise ici sur un ACCÈS et non sur un affichage.
+   Un cas loin de la frontière ne dit rien de la frontière.
+
+**La règle.** Tout module PUR qui rend un verdict mérite un banc à SON étage,
+même s'il est déjà couvert d'en haut. Le test d'intégration prouve le
+CÂBLAGE ; il ne prouve pas la RÈGLE. Et quand la règle porte une borne, le
+banc doit la toucher des deux côtés : `terme - 1`, `terme`, `terme + 1`.
+
+Corollaire mesuré le même soir : la garde jumelle de `jugerPartage` portait
+exactement la même faiblesse, et `partageVivant` — qui sert l'écran et
+l'élagage — pouvait diverger du juge sans que rien ne rougisse. **Une famille
+de règles se garde en famille** : la jumelle non testée dérive à la première
+retouche, et personne ne s'en aperçoit puisque l'autre est verte.
+
+---
+
 ## 2 quaterdecies. « Hors d’atteinte du banc » est souvent « au mauvais endroit »
 
 Le balayage a rendu SANS TEST la ligne `p.id === attrape.current.id` — « le

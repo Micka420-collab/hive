@@ -152,6 +152,33 @@ describe('serveurs — arrêter, puis supprimer', () => {
     expect(aSupprimer([s], NOW + RETENTION_JOURS * JOUR)).toHaveLength(1);
   });
 
+  it('UNE MACHINE « ARRÊTÉE » SANS DATE D’ARRÊT N’EST PAS EFFAÇABLE — jamais', () => {
+    // `s.arreteA > 0` mutée en `>= 0` : une ligne incohérente — état `arrete`
+    // mais `arreteA` à zéro — deviendrait candidate à la suppression
+    // DÉFINITIVE, et immédiatement : `now - 0` dépasse toute rétention. Le
+    // chemin qui consomme cette liste appelle le fournisseur pour effacer la
+    // machine ; c'est le geste le plus irréversible du dépôt, et il ne doit
+    // pas dépendre d'une ligne bien formée. Une donnée incohérente se REFUSE,
+    // elle ne se devine pas — surtout dans ce sens-là.
+    const orpheline = serveur({ etat: 'arrete', arreteA: 0 });
+    expect(aSupprimer([orpheline], NOW), 'sans date d’arrêt, on n’efface pas').toEqual([]);
+    expect(
+      aSupprimer([orpheline], NOW + 100 * RETENTION_JOURS * JOUR),
+      'et le temps ne la rend pas effaçable non plus',
+    ).toEqual([]);
+  });
+
+  it('LE TERME DE RÉTENTION TOMBE PILE — pas un jour de plus', () => {
+    // `now - s.arreteA >= RETENTION` mutée en `>` : à l'instant EXACT du
+    // terme, la machine resterait sur la facture un tour de plus. Le cas
+    // au-dessus vit à `RETENTION_JOURS * JOUR` pile — celui-ci le dit à la
+    // milliseconde près, des deux côtés.
+    const s = serveur({ etat: 'arrete', arreteA: NOW });
+    const terme = NOW + RETENTION_JOURS * JOUR;
+    expect(aSupprimer([s], terme - 1), 'une milliseconde avant : elle vit').toEqual([]);
+    expect(aSupprimer([s], terme), 'au terme exact : elle part').toHaveLength(1);
+  });
+
   it('une machine allumée n’est jamais supprimée par ce chemin', () => {
     const s = serveur({ etat: 'pret' });
     expect(aSupprimer([s], NOW + 10 * RETENTION_JOURS * JOUR)).toEqual([]);
