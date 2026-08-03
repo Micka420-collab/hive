@@ -170,6 +170,26 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Quinzième lot — sept sentinelles : les survivantes isolées tombent toutes**
+(même jour, 17 h 30 → 17 h 45 UTC) : une par vue, plus le module partagé et
+la Balance (jouée par la carte Projets). Ruche (« 0/0 tâches butinées » sur
+une ruche vide, si la mutation vivait), Rayon (le `repoUrl` rendu CRU avec
+son jeton `ghp_…` au lieu de passer par `sansIdentifiants` — la moitié
+dangereuse de ce `&&`-là), Chantiers (« (code 1) » disparu des verdicts
+réels, « (code null) » sur les autres), Santé (l'habit cliquable au fantôme
+qui ne mène nulle part), OpenAlex (une erreur vide au repos, la vraie sans
+son habit), `countPendingReviews` (le badge compterait revues et tâches en
+vol : 3 au lieu de 1), et l'alerte de plafond de la Balance (l'alarme sur
+chaque plafond SAUF ceux qui la méritent).
+`tests/vues-sentinelles.test.tsx` (6) + un test dans
+`tests/projets-alveoles.test.tsx`, **7 mutations rejouées, 7 rouges.**
+Restent **4 survivantes : Cerveau ×2, App ×2.** À NOTER honnêtement : une
+passe complète sur trois a rendu UN rouge non identifié (la sortie était
+partie dans un grep, pas dans un fichier — la leçon § 9 sexdecies appliquée
+à moitié) ; deux passes complètes suivantes et cinq passes des fichiers
+neufs sont vertes. S'il refrappe en CI, merge-wiring porte désormais son
+diagnostic.
+
 **Quatorzième lot — les Projets : la porte, le rapport, l'étoile** (même
 jour, 17 h 25 → 17 h 30 UTC) : les TROIS survivantes de la vue. La porte de
 l'atelier Queen Bee (`busy !== 'idle' ||` mutée en `===` : bouton mort au

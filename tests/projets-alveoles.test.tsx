@@ -51,7 +51,13 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { fetchConseil, fetchConseils, fetchMergeResult, runMerge } from '../dashboard/src/api';
+import {
+  fetchBalance,
+  fetchConseil,
+  fetchConseils,
+  fetchMergeResult,
+  runMerge,
+} from '../dashboard/src/api';
 import Projets from '../dashboard/src/views/Projets';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -65,6 +71,7 @@ beforeEach(() => {
   vi.mocked(fetchMergeResult).mockClear().mockResolvedValue({ result: null });
   vi.mocked(fetchConseils).mockReset().mockResolvedValue({ conseils: [] });
   vi.mocked(fetchConseil).mockReset().mockRejectedValue(new Error('aucune session simulée'));
+  vi.mocked(fetchBalance).mockReset().mockResolvedValue(null);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -278,5 +285,46 @@ describe('les Projets — les trois survivantes du balayage', () => {
     // Et l'étoile vit dans la retenue, une seule fois.
     expect(dom.textContent?.match(/★/g)).toHaveLength(1);
     expect(retenues[0]?.textContent).toContain('★');
+  });
+
+  it('LA BALANCE : l’alerte de plafond ne sonne QUE sur un solde en alerte', async () => {
+    // La survivante de Balance.tsx : `{etat === 'alerte' && (…)}` mutée en
+    // `!==` — l'alarme sonnerait sur chaque plafond SAUF ceux qui la
+    // méritent. Deux soldes plafonnés, un seul en alerte : le badge ⚠ doit
+    // suivre l'état, pas l'inverse.
+    const solde = (etat: 'passe' | 'alerte') => ({
+      projectId: 'p1',
+      depenseMs: 5_400_000,
+      tentatives: 3,
+      plafondMs: 6_000_000,
+      etat,
+      bloque: false,
+    });
+    const balance = (etat: 'passe' | 'alerte') =>
+      ({
+        version: 1,
+        mode: 'strict',
+        aJour: true,
+        fenetre: 100,
+        pesee: {
+          version: 1,
+          global: { totalMs: 0, tentatives: 0 },
+          parProjet: [],
+          parNoeud: [],
+          reprises: { taches: 0, tentatives: 0 },
+        },
+        soldes: [solde(etat)],
+      }) as never;
+
+    vi.mocked(fetchBalance).mockResolvedValue(balance('passe'));
+    const calme = await monter(instantane([tache('t-1', 'Une tâche')]));
+    expect(calme.textContent).toContain('Plafond');
+    expect(calme.textContent, 'sous le seuil, pas d’alarme').not.toContain('Alerte :');
+
+    act(() => racine?.unmount());
+    vi.mocked(fetchBalance).mockResolvedValue(balance('alerte'));
+    const alerte = await monter(instantane([tache('t-1', 'Une tâche')]));
+    expect(alerte.textContent, 'au seuil franchi, l’alarme sonne').toContain('Alerte :');
+    expect(alerte.textContent).toContain('% du plafond consommés');
   });
 });
