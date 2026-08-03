@@ -13,9 +13,11 @@
 // La fiche ne s'offre que si l'appelant fournit les tâches et le geste
 // d'ouverture : les rendus qui n'ont que les nœuds gardent le panneau d'avant.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
+import { fetchWaggle } from './api';
+import type { NodeNectar } from './api';
 import { useT } from './i18n';
 import { activateProps, ProgressBar, STATUS_ICON } from './ui';
 
@@ -61,6 +63,25 @@ function FicheOuvriere({
   const butinees = missions.filter((m) => m.status === 'done').length;
   const echouees = missions.filter((m) => m.status === 'failed').length;
 
+  // Le nectar de CETTE ouvrière — sa ligne du Waggle Board. UN relevé à
+  // l'ouverture de la fiche, pas une sonde de plus qui battrait pour rien :
+  // la fiche est éphémère, le classement bouge à l'échelle de la tâche.
+  // En panne, la fiche reste utile : le nectar se tait, il ne bloque rien.
+  const [nectar, setNectar] = useState<NodeNectar | null>(null);
+  useEffect(() => {
+    let vivant = true;
+    fetchWaggle()
+      .then((w) => {
+        if (vivant) setNectar(w.nodes.find((n) => n.nodeId === noeud.id) ?? null);
+      })
+      .catch(() => {
+        /* classement injoignable : la fiche vit sans lui */
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [noeud.id]);
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
@@ -91,6 +112,19 @@ function FicheOuvriere({
           {noeud.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')} ·{' '}
           {noeud.running}/{noeud.maxConcurrency} {t('en vol', 'in flight')}
         </p>
+
+        {nectar && (
+          <p className="fo-nectar">
+            🍯 {nectar.score} {t('nectar', 'nectar')} · {Math.round(nectar.successRate * 100)} %{' '}
+            {t('de réussite', 'success')}
+            {nectar.raceWins > 0 && (
+              <span className="fo-victoires">
+                {' '}
+                · ⚔ {nectar.raceWins} {t('victoire(s) de course', 'race win(s)')}
+              </span>
+            )}
+          </p>
+        )}
 
         <h3 className="fo-sous-titre">
           {t('Ses missions', 'Their missions')}{' '}

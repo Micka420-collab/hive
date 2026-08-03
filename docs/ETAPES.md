@@ -182,6 +182,17 @@ décision d'interface n° 1 de la vue — est le chemin du test, comme du
 clavier. `tests/cerveau-vue.test.tsx`, 2 tests, **2 mutations rejouées,
 2 rouges.**
 
+**MISSION « LE POSTE » — lot 3 : le nectar dans la fiche** (même soir,
+18 h 35 → 18 h 45 UTC) : la fiche coéquipière porte la ligne du Waggle Board
+de CETTE ouvrière — 🍯 score, % de réussite, ⚔ victoires de course (tues à
+zéro : une absence ne se décore pas). UN relevé à l'ouverture de la fiche,
+pas une sonde de plus ; en panne, le nectar se tait et la fiche vit sans
+lui ; une ouvrière absente du classement n'a pas de nectar inventé. 2 tests
+de plus (8 au fichier), **2 mutations rejouées, 2 rouges** (la ligne de la
+BONNE ouvrière — deux entrées aux chiffres différents au banc —, et le ⚔ à
+zéro). Au passage : § 9 nonies récidivé et rattrapé avant push — badges
+écrits « +4 » de tête, la suite mesurait +2 ; corrigés à 3 134 MESURÉS.
+
 **MISSION « LE POSTE » — lot 2 : la fiche coéquipière** (même soir, 18 h 15 →
 18 h 30 UTC) : cliquer la carte d'une ouvrière ouvre SA fiche — qui elle est
 (machine, agent, hôte, charge), et SES MISSIONS (portées + rendues : le

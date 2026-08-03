@@ -12,16 +12,35 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HiveNode, Task } from '../src/shared/types';
+
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  fetchWaggle: vi.fn(() =>
+    Promise.resolve({ nodes: [], totalTasksDone: 0, totalTasksFailed: 0, topNodeId: null }),
+  ),
+}));
+
+import { fetchWaggle } from '../dashboard/src/api';
 import { NodesPanel } from '../dashboard/src/NodesPanel';
 import { setLang } from '../dashboard/src/i18n';
-import type { HiveNode, Task } from '../src/shared/types';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
-beforeEach(() => setLang('fr'));
+beforeEach(() => {
+  setLang('fr');
+  vi.mocked(fetchWaggle)
+    .mockReset()
+    .mockResolvedValue({
+      nodes: [],
+      totalTasksDone: 0,
+      totalTasksFailed: 0,
+      topNodeId: null,
+    } as never);
+});
 afterEach(() => {
   act(() => racine?.unmount());
   conteneur?.remove();
@@ -181,5 +200,86 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     const dom = await monter(NOEUDS);
     cliquer(dom.querySelector('.node-card') as Element);
     expect(dom.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('LE NECTAR DE LA FICHE EST CELUI DE CETTE OUVRIÈRE — pas celui de la voisine', async () => {
+    // Deux lignes au classement, des chiffres différents : muté en `!==`, la
+    // fiche porterait le nectar de l'AUTRE sous ce nom-là.
+    const ligne = (nodeId: string, score: number, successRate: number, raceWins: number) => ({
+      nodeId,
+      name: nodeId,
+      agentType: 'shell',
+      tasksDone: 5,
+      tasksFailed: 1,
+      totalDurationMs: 6_000,
+      avgDurationMs: 1_200,
+      successRate,
+      raceWins,
+      score,
+    });
+    vi.mocked(fetchWaggle).mockResolvedValue({
+      nodes: [ligne('n-ruche-manchot', 99, 1, 7), ligne('n-ruche-fenetre', 24, 5 / 6, 2)],
+      totalTasksDone: 10,
+      totalTasksFailed: 2,
+      topNodeId: 'n-ruche-manchot',
+    } as never);
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
+    cliquer(
+      [...dom.querySelectorAll('.node-card')].find((c) =>
+        (c.textContent ?? '').includes('ruche-fenetre'),
+      ) as Element,
+    );
+    await act(async () => {});
+    const nectar = dom.querySelector('.fo-nectar');
+    expect(nectar, 'la ligne de nectar se montre').toBeTruthy();
+    expect(nectar?.textContent).toContain('24 nectar');
+    expect(nectar?.textContent).toContain('83 % de réussite');
+    expect(nectar?.textContent).toContain('⚔ 2');
+    expect(nectar?.textContent, 'pas le nectar de la voisine').not.toContain('99');
+  });
+
+  it('SANS VICTOIRE DE COURSE, pas de ⚔ — et sans ligne au classement, pas de nectar', async () => {
+    vi.mocked(fetchWaggle).mockResolvedValue({
+      nodes: [
+        {
+          nodeId: 'n-ruche-fenetre',
+          name: 'ruche-fenetre',
+          agentType: 'shell',
+          tasksDone: 2,
+          tasksFailed: 0,
+          totalDurationMs: 100,
+          avgDurationMs: 50,
+          successRate: 1,
+          raceWins: 0,
+          score: 8,
+        },
+      ],
+      totalTasksDone: 2,
+      totalTasksFailed: 0,
+      topNodeId: 'n-ruche-fenetre',
+    } as never);
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
+    const carte = (nom: string) =>
+      [...dom.querySelectorAll('.node-card')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      ) as Element;
+
+    cliquer(carte('ruche-fenetre'));
+    await act(async () => {});
+    expect(dom.querySelector('.fo-nectar')?.textContent).toContain('8 nectar');
+    expect(
+      dom.querySelector('.fo-nectar')?.textContent,
+      'zéro victoire ne se décore pas',
+    ).not.toContain('⚔');
+
+    // Ferme, puis ouvre la voisine — absente du classement : le nectar se tait.
+    cliquer(dom.querySelector('.modal-close') as Element);
+    cliquer(carte('ruche-manchot'));
+    await act(async () => {});
+    expect(dom.querySelector('[role="dialog"]')?.textContent).toContain('ruche-manchot');
+    expect(
+      dom.querySelector('.fo-nectar'),
+      'pas de ligne au classement, pas de nectar inventé',
+    ).toBeNull();
   });
 });
