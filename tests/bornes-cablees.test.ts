@@ -412,6 +412,81 @@ describe('ÉLAGUER NE DOIT PAS ROUVRIR CE QUI A ÉTÉ FERMÉ', () => {
     ).toBe(0);
   });
 
+  it('LES BORNES DE GRÂCE TOMBENT À LA MILLISECONDE — ni avant, ni après', () => {
+    // Les tests ci-dessus jugent des cas FRANCS : un billet vivant à un jour
+    // de son terme, un lien mort depuis longtemps. Aucun ne touche la
+    // frontière — et quatre mutations de borne y ont survécu sans un bruit :
+    //
+    //   · `expiresAt <= ?` → `<`   un billet expiré À L'INSTANT survit à la purge
+    //   · `createdAt < ?`  → `<=`  un billet né PILE au seuil de grâce part trop tôt
+    //   · `expireA <= ?`   → `<`   idem pour un lien de partage
+    //   · `creeA < ?`      → `<=`  idem pour sa grâce
+    //
+    // C'est la même leçon que § 2 quindecies (l'instant exact où un accès
+    // meurt), appliquée cette fois à ce qu'on EFFACE : une grâce de trente
+    // jours qui efface au vingt-neuvième est un mensonge, et un billet mort
+    // qu'on garde est une porte qu'on croit fermée.
+    const T = 1_800_000_000_000;
+    const GRACE = 30 * 24 * 60 * 60 * 1_000;
+
+    // ── Le billet expiré À L'INSTANT PRÉCIS : mort, donc élagué. ──────────
+    server.store.creerBillet({
+      id: 'b-expire-pile',
+      secretHash: 'd'.repeat(64),
+      expiresAt: T, // expire exactement « maintenant »
+      uses: 5,
+      now: T - GRACE - 1, // né avant le seuil de grâce
+    });
+    // On juge par IDENTIFIANT, jamais par compte : le nombre de suppressions
+    // dépend de ce que les tests voisins ont laissé derrière eux — le fichier
+    // le dit déjà plus haut, et la première version de ce test-ci s'est fait
+    // prendre exactement là (« expected 2 to be 1 »).
+    server.store.pruneAcces(GRACE, T);
+    expect(server.store.getBillet('b-expire-pile'), 'expiré à l’instant : il part').toBeNull();
+
+    // ── Le billet né PILE au seuil de grâce : trop jeune, il reste. ───────
+    // `createdAt < seuil` — à `createdAt === seuil`, la grâce n'est pas
+    // écoulée. Mutée en `<=`, on efface un jour trop tôt la trace de ce qui
+    // s'est passé, précisément quand quelqu'un vient demander pourquoi.
+    server.store.creerBillet({
+      id: 'b-seuil-pile',
+      secretHash: 'e'.repeat(64),
+      expiresAt: T - 1, // bien mort
+      uses: 5,
+      now: T - GRACE, // né PILE au seuil
+    });
+    server.store.pruneAcces(GRACE, T);
+    expect(
+      server.store.getBillet('b-seuil-pile'),
+      'né au seuil : la grâce court encore, il reste',
+    ).not.toBeNull();
+
+    // ── Les deux mêmes bornes, côté liens de partage. ─────────────────────
+    const projet = server.store.createProject({ name: 'Bornes', repoUrl: null, ownerId: null });
+    server.store.creerPartage({
+      id: 'lien-expire-pile',
+      projectId: projet.id,
+      secretHash: 'f'.repeat(64),
+      label: 'expiré à l’instant',
+      creePar: 'u1',
+      expireA: T,
+      now: T - GRACE - 1,
+    });
+    server.store.creerPartage({
+      id: 'lien-seuil-pile',
+      projectId: projet.id,
+      secretHash: 'g'.repeat(64),
+      label: 'né au seuil',
+      creePar: 'u1',
+      expireA: T - 1,
+      now: T - GRACE,
+    });
+    server.store.prunePartages(GRACE, T);
+    const restants = server.store.listPartages(projet.id).map((p) => p.id);
+    expect(restants, 'expiré à l’instant : le lien part').not.toContain('lien-expire-pile');
+    expect(restants, 'né au seuil de grâce : le lien survit').toContain('lien-seuil-pile');
+  });
+
   it('UNE MACHINE ALLUMÉE NE S’ÉLAGUE PAS — on perdrait ce qu’on paie', () => {
     // Élaguer une machine encore allumée perdrait la seule trace de ce qu'on
     // PAIE, et plus personne ne saurait l'éteindre. La facture continuerait de

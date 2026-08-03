@@ -131,6 +131,30 @@ describe('L’ÉLAGUEUR DES TÂCHES SUPPRIME VRAIMENT', () => {
     expect(store.getTask(t.id)).toBeDefined();
   });
 
+  it('LA BORNE TOMBE PILE : la tâche qui a EXACTEMENT l’âge de rétention reste', () => {
+    // `updatedAt < seuil` mutée en `<=` : la tâche dont l'âge vaut EXACTEMENT
+    // la rétention part un tour trop tôt. Les cas voisins vivent à 3 et à 40
+    // jours pour une rétention de 30 — à des jours de la frontière, ils ne la
+    // départagent pas (§ 2 quindecies, la même leçon que sur les accès).
+    //
+    // L'horloge est FIXÉE : `poser` date par soustraction sur `Date.now()`, et
+    // un élagage qui rappellerait l'heure quelques millisecondes plus tard
+    // ferait basculer le cas limite au hasard — c'est un intermittent qu'on
+    // fabrique soi-même.
+    const maintenant = Date.now();
+    const pile = poser({ titre: 'pile à la borne', statut: 'done', ageJours: 30 });
+    store.patchTask(pile.id, { status: 'done' }, maintenant - 30 * JOUR);
+    expect(
+      store.pruneTasks(30 * JOUR, maintenant),
+      'à l’âge exact, la rétention n’est pas encore écoulée',
+    ).toBe(0);
+    expect(store.getTask(pile.id), 'elle est toujours là').toBeDefined();
+
+    // …et une milliseconde plus tard, elle part : la borne ne s'inverse pas.
+    expect(store.pruneTasks(30 * JOUR, maintenant + 1), 'un instant après, elle part').toBe(1);
+    expect(store.getTask(pile.id)).toBeUndefined();
+  });
+
   it('une tâche terminée mais RÉCENTE ne part pas', () => {
     const t = poser({ titre: 'récente', statut: 'done', ageJours: 3 });
     expect(store.pruneTasks(30 * JOUR)).toBe(0);

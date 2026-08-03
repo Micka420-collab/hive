@@ -170,6 +170,30 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-neuvième lot — LES CINQ BORNES D'ÉLAGAGE, À LA MILLISECONDE** (nuit,
+01 h 25 → 01 h 50 UTC, lot 4 de la file). Sondées d'abord : la protection des
+dépendances de `pruneTasks` (celle qui empêche d'effacer une tâche dont une
+VIVANTE a encore besoin) est bien gardée, et la garde « déjà mort » de
+`pruneAcces` aussi. **Cinq bornes de temps étaient nues** — toutes les mêmes,
+et toutes sur le même motif : les cas existants vivent LOIN de la frontière
+(3 et 40 jours pour une rétention de 30 ; un billet vivant à un jour de son
+terme). `pruneTasks` effaçait un tour trop tôt la tâche dont l'âge vaut
+exactement la rétention ; `pruneAcces` gardait un billet expiré à l'instant
+précis et effaçait un jour trop tôt celui né pile au seuil de grâce ;
+`prunePartages` portait les deux mêmes fautes sur les liens de partage. Une
+grâce de trente jours qui efface au vingt-neuvième est un mensonge, et un
+billet mort qu'on garde est une porte qu'on croit fermée. **5 mutations
+rejouées, 5 rouges.**
+
+Un piège de banc en chemin, et le fichier le documentait déjà : un compte de
+suppressions dépend de ce que les tests voisins ont laissé derrière eux
+(« expected 2 to be 1 »). On juge par IDENTIFIANT, jamais par compte —
+l'avertissement était écrit vingt lignes plus haut, et je suis tombé dedans
+quand même. L'horloge du cas limite est FIXÉE pour la même raison : un
+élagage qui rappellerait l'heure quelques millisecondes plus tard ferait
+basculer la frontière au hasard, c'est-à-dire un intermittent qu'on fabrique
+soi-même.
+
 **Vingt-huitième lot — QUATRE SONDES SUR CINQ POUVAIENT REDEVENIR FUYANTES**
 (nuit, 00 h 50 → 01 h 20 UTC, lot 3 de la file de nuit). L'audit du 2 août
 avait trouvé quatre sondes qui livraient `HIVE_TOKEN`, `HIVE_JWT_SECRET` et
