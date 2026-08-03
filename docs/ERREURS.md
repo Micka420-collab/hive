@@ -2912,6 +2912,44 @@ puis exige `toHaveLength(1)` — c'est le `expect` qui compte, pas le paragraphe
 
 ---
 
+## 9 terdecies. Vérifier qu'un outil EXISTE en le lançant mesure autre chose
+
+Le lot du § 6.6 bis ajoute une étape de CI qui doit répondre à une question
+simple : **le juge est-il installé ?** Si `systemd-analyze` disparaissait de
+l'image, les `runIf` de `tests/service-accepte.test.ts` seraient sautés — donc
+verts, et sans objet.
+
+Je l'ai écrite en **lançant** l'outil. Trois jambes rouges, deux causes, aucune
+qui n'ait rien à voir avec la présence :
+
+| jambe   | ce que j'ai écrit        | ce qui s'est passé                                                                                         |
+| ------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| macOS   | `plutil 2>&1 \| head -1` | `plutil` sans argument imprime son mode d'emploi et sort en **non nul** ; `-o pipefail` l'a propagé        |
+| Windows | `schtasks /Query /?`     | sous Git Bash, `/Query` est converti en **chemin Windows** avant d'atteindre le binaire → `Invalid syntax` |
+
+Dans les deux cas **l'outil était présent**. L'étape ne mesurait pas sa présence,
+elle mesurait ce que le programme fait de ses arguments — et sur Windows, ce que
+le shell fait des arguments avant lui.
+
+`command -v` répond exactement à la question posée : il consulte le PATH, ne
+lance rien, et ne passe aucun argument à mangler. (Avec un repli sur
+`$outil.exe`, parce que la résolution de Git Bash n'est pas celle d'un shell
+POSIX.)
+
+### La règle
+
+> Pour savoir si un programme EXISTE, on regarde le PATH — on ne l'exécute pas.
+> Un lancement introduit deux variables étrangères à la question : le code de
+> sortie du programme pour l'invocation choisie, et le traitement que le shell
+> réserve aux arguments.
+
+C'est le pendant exact de la leçon du même lot (§ 6.6 bis) : là, je vérifiais un
+fichier sans le donner à son consommateur ; ici, j'interroge un consommateur pour
+une question qui ne le regardait pas. Les deux fois, l'instrument ne mesurait pas
+la grandeur.
+
+---
+
 ## 9 duodecies. Ajouter une étape déplace la frontière de ce que la CI couvre
 
 `install.sh` a gagné une étape 5 : la construction de l'écran. Les cinq travaux
