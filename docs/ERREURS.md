@@ -2742,6 +2742,43 @@ inutile au dépôt.
 
 ---
 
+## 2 undecies. Une garde dont les deux membres viennent de la même source
+
+Écrite pour empêcher trois tests Windows de devenir décoratifs, ma garde
+« le faux paquet imite la disposition que le code déclare » ne gardait rien.
+
+Elle plantait le faux paquet **depuis** `PAQUETS_AGENTS`, puis comparait sa
+place à un chemin calculé **depuis la même table**. Changer `cli.js` en
+`index.js` déplaçait les deux côtés ensemble, et l'égalité tenait toujours.
+
+Deux mutations sur quatre ont survécu, et c'est ce qui l'a montré :
+
+| mutation                                                         | verdict    |
+| ---------------------------------------------------------------- | ---------- |
+| `entree: 'cli.js'` → `'index.js'`                                | **survit** |
+| `paquet: '@anthropic-ai/claude-code'` → `'@anthropic-ai/claude'` | **survit** |
+| l'agent retiré de la table                                       | rouge      |
+
+Seule la disparition complète rougissait — parce qu'alors le code lançait une
+erreur, pas parce que la garde avait vu quelque chose.
+
+**La leçon.** Une assertion `a === b` ne vaut que si `a` et `b` ont des origines
+INDÉPENDANTES. Quand les deux se dérivent de la même déclaration, on ne teste
+plus le code : on teste que `x === x`. C'est vert par construction, ça se lit
+comme une garde, et ça survit à n'importe quel changement.
+
+Le remède, appliqué ici : **écrire la valeur attendue en toutes lettres dans le
+test**. `{ paquet: '@anthropic-ai/claude-code', entree: 'cli.js' }` est un fait
+consigné, pas un calcul. Le jour où le paquet change pour de bon, le test rougit
+— et c'est exactement ce qu'on veut, puisque quelqu'un doit alors aller relire
+les trois tests que personne ne voit jamais tourner en local.
+
+C'est la même famille que le § 9ter.0 (« deux copies d'accord, et fausses
+ENSEMBLE ») : l'accord entre deux choses ne prouve rien tant qu'on n'a pas
+montré qu'elles pouvaient être en désaccord.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait

@@ -56,11 +56,17 @@ systèmes.
 
 Classé par ce qui casse l'expérience d'un nouvel arrivant EN PREMIER.
 
-1. **Le chemin `spawn` de l'agent sous un vrai Windows n'est pas éprouvé.** La
-   logique l'est (loupe 7/7, `src/shared/agent-windows.ts` pur) ; le `spawn`
-   final, non. C'est le premier geste d'un utilisateur Windows : s'il échoue, la
-   ruche a l'air de tourner et ne fait rien. **Aucune machine Windows ici, et la
-   CI n'y installe pas Claude Code.**
+1. **Le chemin `spawn` de l'agent sous Windows — la limite était franchissable.**
+   Je l'ai annoncée hors d'atteinte toute la journée : « aucune machine Windows
+   ici, et la CI n'y installe pas Claude Code ». La deuxième moitié est vraie et
+   la conclusion était fausse. La question n'est pas « Claude Code répond-il ? »
+   mais « Node, lancé SANS interpréteur, sur un chemin Windows composé par nous,
+   exécute-t-il le script qui s'y trouve ? » — et ça ne demande pas Claude Code,
+   ça demande **un fichier à la bonne place**. `prefixeNpmWindows` lit
+   `npm_config_prefix` avant `APPDATA` : `tests/agent-windows-spawn.test.ts`
+   plante donc un faux paquet dans un dossier temporaire et fait le vrai
+   `spawn`. **Vérifié par la CI Windows, pas par moi** — les trois tests sont
+   sautés partout ailleurs, et je ne les ai jamais vus passer.
 2. **`npm install` pèse 20 des 23 secondes de l'installation.** Le critère 2 tient
    dans les deux lectures, mais c'est ce que le nouvel arrivant ATTEND en
    regardant un écran muet.
