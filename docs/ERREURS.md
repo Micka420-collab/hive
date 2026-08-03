@@ -2705,6 +2705,43 @@ connaître était imprimé dans la sortie que je lisais.
 
 ---
 
+## 9 undecies. Un état qui dérive vers le PESSIMISME ne se corrige jamais tout seul
+
+Le tour de chantier m'a envoyé chercher « le prochain lot non fait ». Le tableau
+des lots donnait le lot 4 en 🟡 :
+
+> « Implémenté et testé (`tests/args.test.ts`) ; **pas de script reproductible
+> dans `examples/`**. »
+
+`examples/deploiement-sans-ecran.sh` était là depuis un moment, couvert par
+**neuf tests**, et il marche : lancé sur un clone vierge sous Node 24, il rend
+0, écrit un `.env` en 600 avec ses huit clés, et le docteur répond derrière.
+Sans les secrets, il rend 3 sans rien toucher.
+
+**J'ai donc passé un moment à préparer un travail déjà fait**, et j'ai failli
+écrire un test qui aurait fait doublon avec neuf autres.
+
+**Ce qui rend ce cas particulier.** Un statut qui dérive vers l'OPTIMISME — « ✅ »
+sur quelque chose d'absent — se fait attraper le jour où quelqu'un s'y fie : il
+cherche la chose, ne la trouve pas, corrige. C'est douloureux mais borné.
+
+Un statut qui dérive vers le PESSIMISME ne se fait attraper par personne. Rien
+ne casse. Le seul effet est que le travail se refait, ou qu'on le contourne, ou
+qu'on l'annonce comme manquant à quelqu'un qui l'a déjà — c'est-à-dire qu'on
+sous-vend ce qu'on a construit. Et cette ligne-là, personne ne vient jamais la
+démentir : il faut aller regarder exprès.
+
+**La leçon.** Un tableau d'état se relit dans les DEUX sens. « Qu'est-ce qui est
+annoncé fait et ne l'est pas ? » est la question qu'on pense à poser ; « qu'est-ce
+qui est annoncé manquant et existe ? » est celle qui traîne des mois.
+
+Le geste concret, et il est bon marché : **avant de commencer un lot annoncé
+non fait, vérifier qu'il l'est.** `ls`, puis lancer la chose. Ça m'aurait coûté
+trente secondes ; ne pas le faire m'a coûté davantage, et aurait ajouté un test
+inutile au dépôt.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait
