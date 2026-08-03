@@ -29,7 +29,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StateSnapshot, Task } from '../src/shared/types';
+import type { HiveEvent, StateSnapshot, Task } from '../src/shared/types';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 
@@ -50,7 +50,8 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { fetchGhosts, fetchVerdictChantier } from '../dashboard/src/api';
+import { fetchGhosts, fetchGuet, fetchVerdictChantier } from '../dashboard/src/api';
+import { Journal } from '../dashboard/src/Journal';
 import { OpenAlexPanel } from '../dashboard/src/OpenAlexPanel';
 import Chantiers from '../dashboard/src/views/Chantiers';
 import Rayon from '../dashboard/src/views/Rayon';
@@ -67,6 +68,9 @@ beforeEach(() => {
   setLang('fr');
   localStorage.clear();
   vi.mocked(fetchGhosts)
+    .mockReset()
+    .mockResolvedValue(null as never);
+  vi.mocked(fetchGuet)
     .mockReset()
     .mockResolvedValue(null as never);
   vi.mocked(fetchVerdictChantier)
@@ -293,5 +297,91 @@ describe('les sentinelles — une par survivante isolée', () => {
     // Mutée en `||`, la revue compterait (statut vrai court-circuite) et la
     // tâche en vol aussi (!review vrai) : 3 au lieu de 1.
     expect(countPendingReviews(tasks)).toBe(1);
+  });
+});
+
+// ─── Les sentinelles du balayage du soir ─────────────────────────────────────
+//
+// Le balayage élargi (base : premier commit du dépôt) a rendu de nouvelles
+// survivantes isolées. Même règle qu'au-dessus : une par garde, avec ce que
+// l'écran raconterait de faux si la mutation vivait.
+
+describe('les sentinelles du balayage du soir', () => {
+  it('JOURNAL : « En attente d’événements… » ne se dit QUE devant un journal vide', async () => {
+    // `{events.length === 0 && (…)}` mutée en `||` : la ligne d'attente
+    // s'afficherait SOUS un journal plein (une ruche active qui prétend
+    // attendre), et disparaîtrait du journal vide (le seul moment où elle
+    // renseigne). Les deux mondes se testent — la mutation les inverse tous
+    // les deux.
+    const evenement = (id: number): HiveEvent =>
+      ({ id, ts: 1_700_000_000_000 + id, type: 'task_done', payload: {} }) as HiveEvent;
+    const plein = await monter(<Journal events={[evenement(1), evenement(2)]} />);
+    expect(plein.textContent, 'un journal plein n’attend rien').not.toContain(
+      'En attente d’événements',
+    );
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    const vide = await monter(<Journal events={[]} />);
+    expect(vide.textContent, 'le journal vide le dit').toContain('En attente d’événements');
+  });
+
+  it('SANTÉ : l’erreur de la chasse aux fantômes porte son habit — et seulement elle', async () => {
+    // `{ghost.error && <p className="panel-error">…}` mutée en `||` : au repos
+    // un paragraphe d'erreur VIDE s'afficherait en permanence, et l'erreur
+    // réelle serait rendue CRUE, sans son habit rouge. `ghost.error` est
+    // l'erreur de la SONDE : le mock doit rejeter, pas rendre un payload.
+    vi.mocked(fetchGhosts).mockRejectedValue(new Error('la chasse est tombée'));
+    const dom = await monter(
+      <Sante {...({ snapshot: instantane(), refreshTick: 0 } as unknown as ViewProps)} />,
+    );
+    const erreurs = [...dom.querySelectorAll('.panel-error')];
+    expect(
+      erreurs.some((e) => (e.textContent ?? '').includes('la chasse est tombée')),
+      'l’erreur réelle porte .panel-error',
+    ).toBe(true);
+    expect(
+      erreurs.every((e) => (e.textContent ?? '').trim() !== ''),
+      'aucun habit d’erreur vide à l’écran',
+    ).toBe(true);
+  });
+
+  it('SANTÉ : la liste des sondages du Guet n’existe QUE s’il y a des passages', async () => {
+    // `{v.derniers.length > 0 && (…)}` mutée en `||` : avec des passages, le
+    // court-circuit rend `true` — React n'affiche RIEN, la liste disparaît au
+    // moment exact où elle informe ; sans passage, une liste vide s'afficherait.
+    vi.mocked(fetchGuet).mockResolvedValue({
+      niveau: 'reniflage',
+      passages: 2,
+      sources: 1,
+      appats: ['/.env'],
+      conseil: 'Ne rien exposer de plus.',
+      derniers: [
+        { source: '203.0.113.7', chemin: '/.env', appat: 'env', quand: 1_700_000_000_000 },
+        { source: '203.0.113.7', chemin: '/.git/config', appat: 'git', quand: 1_700_000_001_000 },
+      ],
+    } as never);
+    const avec = await monter(
+      <Sante {...({ snapshot: instantane(), refreshTick: 0 } as unknown as ViewProps)} />,
+    );
+    const liste = avec.querySelector('.gu-liste');
+    expect(liste, 'deux passages : la liste se montre').toBeTruthy();
+    expect(liste?.querySelectorAll('li')).toHaveLength(2);
+    expect(liste?.textContent).toContain('/.git/config');
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    vi.mocked(fetchGuet).mockResolvedValue({
+      niveau: 'calme',
+      passages: 0,
+      sources: 0,
+      appats: [],
+      conseil: 'Rien à faire.',
+      derniers: [],
+    } as never);
+    const sans = await monter(
+      <Sante {...({ snapshot: instantane(), refreshTick: 0 } as unknown as ViewProps)} />,
+    );
+    expect(sans.querySelector('.gu-liste'), 'aucun passage : pas de liste vide').toBeNull();
   });
 });

@@ -170,6 +170,22 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Dix-neuvième lot — trois sentinelles de plus : Journal, et les deux de
+Santé** (même soir, 19 h 35 → 19 h 45 UTC). Journal — « En attente
+d'événements… » ne se dit QUE devant un journal vide (`events.length === 0
+&&` mutée en `||` : la ruche active prétendrait attendre, et le journal
+vide — le seul moment où la ligne renseigne — la perdrait). Santé —
+l'erreur de la chasse aux fantômes porte son habit `.panel-error` et
+seulement elle (`ghost.error` est l'erreur de la SONDE : le mock doit
+REJETER, pas rendre un payload — mutée en `||`, un habit d'erreur vide
+s'afficherait au repos et l'erreur réelle se rendrait crue) ; et la liste
+des sondages du Guet n'existe que s'il y a des passages (mutée, le
+court-circuit rend `true` — React n'affiche RIEN : la liste disparaît au
+moment exact où elle informe). Au passage, un piège d'outillage : un rejeu
+en boucle shell avec `|` comme séparateur IFS s'est fait découper par les
+`||` DES CHAÎNES MUTÉES — trois « no tests » muets ; rejoué un par un,
+heredoc, verdict affiché. **3 mutations rejouées, 3 rouges.**
+
 **Dix-huitième lot — les cinq survivantes HORS dashboard du balayage du
 soir** (même soir, 19 h 20 → 19 h 30 UTC), et quatre d'entre elles disent la
 même chose : LES BORNES ET LES MOITIÉS NE SE TESTENT QUE SUR ELLES-MÊMES.
