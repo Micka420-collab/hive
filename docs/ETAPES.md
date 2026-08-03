@@ -170,6 +170,28 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-huitième lot — QUATRE SONDES SUR CINQ POUVAIENT REDEVENIR FUYANTES**
+(nuit, 00 h 50 → 01 h 20 UTC, lot 3 de la file de nuit). L'audit du 2 août
+avait trouvé quatre sondes qui livraient `HIVE_TOKEN`, `HIVE_JWT_SECRET` et
+la clé d'API au premier binaire hostile du `PATH`. La correction —
+`envSonde`, appliquée aux cinq sites — avait été comptée close. Mesure faite
+cette nuit, site par site, en remplaçant `env: envSonde(process.env)` par
+`env: process.env` : doctor-releve **nu** (29 verts), cli **nu** (7 verts),
+agent-detect **nu** (12 verts), isolement **nu** (36 verts), tunnel **gardé**
+(1 rouge). Quatre sur cinq sans garde.
+
+La réponse n'est pas cinq tests de plus : ce serait prouver les sites
+d'aujourd'hui et laisser le sixième naître nu, exactement comme les quatre
+précédents. `tests/sondes-sans-secret.test.ts` lit la SOURCE et tient une
+propriété structurelle — _tout lancement de `--version` dans `src` passe par
+`envSonde`_ — y compris dans les fichiers qui n'existent pas encore. Elle est
+doublée d'une garde de COMPORTEMENT sur le module pur (une garde de forme
+qui exige un nom sans vérifier ce qu'il fait déplace le décor d'un cran), et
+d'une garde qui compte les sondes vues : si le découpage cessait de les voir,
+le test deviendrait vert pour de mauvaises raisons. **6 mutations rejouées
+(les 5 sites + le module pur), 6 rouges.** § 2 sexdecies au journal : une
+correction appliquée partout n'est pas une correction tenue.
+
 **Vingt-septième lot — LE BALAYAGE DU SOIR EST SOLDÉ : 32 SUR 32** (nuit,
 00 h 15 → 00 h 45 UTC). La dernière survivante était le `.find((i) =>
 i.taskId === task.id && i.nodeId === dernier.nodeId)` qui choisit

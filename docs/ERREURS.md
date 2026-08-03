@@ -3005,6 +3005,49 @@ cherche des instructions.** La réparation, elle, coûte un `--amend -F` et un
 
 ---
 
+## 2 sexdecies. Une correction appliquée PARTOUT n’est pas une correction TENUE
+
+L'audit du 2 août avait trouvé quatre sondes qui livraient `HIVE_TOKEN`,
+`HIVE_JWT_SECRET` et la clé d'API au premier binaire hostile posé en tête du
+`PATH`. La correction a été faite proprement : un module pur, `envSonde`,
+appliqué aux cinq sites de sondage. Le registre de l'audit l'a comptée close.
+
+Le balayage de la nuit a mesuré ce que valait cette clôture. En remplaçant
+`env: envSonde(process.env)` par `env: process.env`, site par site :
+
+| site                          | verdict                      |
+| ----------------------------- | ---------------------------- |
+| `doctor-releve.ts`            | 29 tests verts — **nu**      |
+| `cli.ts`                      | 7 tests verts — **nu**       |
+| `node-client/agent-detect.ts` | 12 tests verts — **nu**      |
+| `node-client/isolement.ts`    | 36 tests verts — **nu**      |
+| `node-client/tunnel.ts`       | 1 test ROUGE — le seul gardé |
+
+**Quatre sites sur cinq pouvaient redevenir fuyants sans qu'une seule ligne
+rougisse.** La correction était partout dans le code et nulle part dans les
+gardes : elle vivait dans le SOUVENIR qu'on l'avait faite.
+
+Ce n'est pas la même faute que « la garde n'était pas câblée » (§ 6.5) : ici
+tout était câblé, et correctement. La faute est plus discrète — **on a
+confondu « le défaut est réparé » avec « le défaut ne peut plus revenir »**.
+Le premier se vérifie en lisant ; le second demande un test, et personne n'en
+avait écrit parce que le code lu était juste.
+
+**La règle.** Quand un défaut a été trouvé à PLUSIEURS endroits, la correction
+n'est pas finie tant qu'une garde n'empêche pas le PROCHAIN endroit de naître
+avec. Une garde par site prouve les sites d'aujourd'hui ; c'est une garde
+STRUCTURELLE qu'il faut — ici : « tout lancement de `--version` dans `src`
+passe par `envSonde` », lue sur la source, y compris dans les fichiers qui
+n'existent pas encore. Elle rougit sur les cinq sites mutés, et elle rougira
+sur le sixième.
+
+Corollaire, appris en l'écrivant : une garde de FORME doit être doublée d'une
+garde de COMPORTEMENT sur le module qu'elle nomme. Exiger le nom `envSonde`
+sans vérifier qu'`envSonde` retire vraiment quelque chose, c'est déplacer le
+décor d'un cran — il suffirait d'en écrire une qui ne fait rien.
+
+---
+
 ## 2 quindecies. Un juge éprouvé UN ÉTAGE TROP HAUT ne l’est pas
 
 `jugerBillet` décide qui entre dans la ruche : révoqué, expiré, épuisé,
