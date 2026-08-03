@@ -91,6 +91,27 @@ jobs:
       - name: Typecheck (dashboard)
         run: npm run typecheck:dashboard
 
+      # ─── LE JUGE DOIT ÊTRE LÀ AVANT QU'ON LUI DEMANDE SON AVIS ──────────────
+      #
+      # `tests/service-accepte.test.ts` soumet le fichier de service à l'outil
+      # de la plateforme : `systemd-analyze verify` sous Linux, `plutil -lint`
+      # sous macOS, `schtasks` sous Windows. C'est ce qui a montré que l'unité
+      # systemd de Hive était REFUSÉE depuis le premier jour.
+      #
+      # Ces tests sont des `runIf` : si l'outil disparaissait de l'image, ils
+      # seraient sautés — donc verts, et sans objet. Cette étape refuse ce
+      # silence-là. Elle tourne AVANT la suite pour que la panne se lise sur son
+      # propre nom, pas au milieu de 3 000 tests.
+      - name: L’outil qui juge le fichier de service est là
+        shell: bash
+        run: |
+          set -e
+          case "${{ runner.os }}" in
+            Linux)   systemd-analyze --version >/dev/null && echo "✔ systemd-analyze" ;;
+            macOS)   plutil 2>&1 | head -1 >/dev/null && echo "✔ plutil" ;;
+            Windows) schtasks /Query /? >/dev/null && echo "✔ schtasks" ;;
+          esac
+
       - name: Tests (vitest, unitaires + e2e)
         run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json
 

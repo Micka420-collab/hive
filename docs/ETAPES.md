@@ -67,9 +67,15 @@ Barrière au 3 août : `typecheck`, `lint`, **2 998 tests passés / 3 sautés** 
 3. **Lot 8 — pas de Release, pas d'empreintes.** Le chemin annoncé
    (`curl … | sh`) clone `main` et fonctionne ; il n'y a simplement aucune
    version figée à installer. La moitié « Release » est bloquée.
-4. **Lot 9 🟡 — les fichiers de service sont écrits, jamais acceptés.** Aucune CI
-   ne peut vérifier que `systemctl` / `launchctl` / `schtasks` les avalent. Le
-   plan pur est vérifié pour les trois plateformes ; l'installation réelle, non.
+4. ~~**Lot 9 🟡 — les fichiers de service sont écrits, jamais acceptés.** Aucune
+   CI ne peut vérifier que `systemctl` / `launchctl` / `schtasks` les avalent.~~
+   **Faux, et cher.** Cette phrase décrivait `systemctl enable` — pas la question
+   posée. `systemd-analyze verify` charge l'unité et rend ses erreurs en **28 ms**,
+   sans gestionnaire ni privilège. Lancé une fois : **l'unité que Hive écrit était
+   REFUSÉE** (`WorkingDirectory= path is not absolute` → `unit will not be
+started`), et `EnvironmentFile=` était ignoré **en silence** — le service
+   démarrait donc sans `HIVE_TOKEN` ni `HIVE_JWT_SECRET`. Corrigé, soumis aux
+   trois juges de plateforme à chaque CI. Voir § 6.6 bis du journal.
 
 ### Hors d'atteinte — à dire, pas à simuler
 
@@ -88,6 +94,33 @@ Barrière au 3 août : `typecheck`, `lint`, **2 998 tests passés / 3 sautés** 
 - **La longueur de la vitrine et sa navigation.** La maquette a 3 liens et
   7 sections ; la page en a 10 et 13. Retirer six sections construites sur
   demande n'est pas une correction de design.
+
+### Correction du même jour — le point 4 était faux
+
+Écrit le matin : « aucune CI ne peut vérifier que `systemctl` / `launchctl` /
+`schtasks` avalent les fichiers ». Lancé l'après-midi : `systemd-analyze verify`,
+**28 ms**, et un refus net.
+
+| ce que systemd disait de l'unité de Hive | conséquence                                         |
+| ---------------------------------------- | --------------------------------------------------- |
+| `WorkingDirectory= path is not absolute` | `unit will not be started` — le service ne part pas |
+| `EnvironmentFile= …, ignoring`           | **aucune erreur** : il part, sans aucun secret      |
+
+Cause : une fonction d'échappement au nom trop général, employée sur les quatre
+directives, alors que systemd en a deux grammaires. Onze tests couvraient ce
+fichier ; ils comparaient le fichier à mes attentes, jamais à son consommateur.
+
+Ce qui est fait maintenant : `tests/service-accepte.test.ts` soumet le fichier au
+juge de sa plateforme — `systemd-analyze verify`, `plutil -lint`,
+`schtasks /Create /XML` — et lui redonne la version d'AVANT le correctif pour
+vérifier qu'il la refuse. Une étape de CI exige la présence des trois outils
+avant de lancer la suite, faute de quoi les `runIf` s'éteindraient en vert.
+6 mutations, 6 rouges. Barrière : **3 016 tests / 7 sautés**, 184 fichiers.
+
+Ce qui reste NON vérifié sur ce lot, et qui se dit : l'unité est **recevable**,
+elle n'a pas été **démarrée**. `systemctl --user enable --now` demande un bus de
+session qu'aucun runner n'a. Le lot passe de « jamais accepté » à « accepté,
+jamais démarré » — c'est un cran, pas la fin.
 
 ### Ce que la loupe ne couvre toujours pas
 

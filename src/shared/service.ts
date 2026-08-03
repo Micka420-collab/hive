@@ -155,25 +155,89 @@ export function scriptDe(cible: Cible): string {
 }
 
 /**
- * Une valeur dans un fichier d'unité systemd.
+ * Le `%` de systemd, doublé — la seule règle COMMUNE à toutes ses directives.
  *
- * ─── DEUX PIÈGES, ET LE SECOND N'EST PAS CONNU ───────────────────────────────
+ * `%` est le caractère de SPÉCIFICATEUR : `%h` devient le home, `%i` le nom
+ * d'instance… Un chemin contenant un `%` ne planterait pas — il serait
+ * silencieusement réécrit en autre chose. C'est le piège qu'on ne voit pas
+ * venir, parce qu'il n'échoue pas : il remplace.
  *
- * 1. systemd DÉCOUPE `ExecStart` sur les espaces. Un chemin d'installation
- *    contenant une espace donnerait deux arguments. On cite donc en `"…"`, en
- *    échappant `\` et `"` à l'intérieur.
- *
- * 2. `%` est le caractère de SPÉCIFICATEUR de systemd : `%h` devient le home,
- *    `%i` le nom d'instance… Un chemin contenant un `%` serait silencieusement
- *    réécrit en autre chose. Il se double.
- *
- * Le second est celui qu'on ne voit pas venir, parce qu'il n'échoue pas : il
- * remplace.
+ * Mesuré : `WorkingDirectory=/tmp/p%c` fait dire à `systemd-analyze verify`
+ * « Specifier '%c' used in unit configuration, which is deprecated » ; la forme
+ * doublée passe sans un mot. Sur les quatre directives que ce module écrit.
  */
-export function citerSystemd(valeur: string): string {
-  const echappe = valeur.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%');
+function doublerPourCent(valeur: string): string {
+  return valeur.replace(/%/g, '%%');
+}
+
+/**
+ * Un ARGUMENT dans une directive que systemd DÉCOUPE SUR LES ESPACES.
+ *
+ * Deux directives seulement, dans ce module : `ExecStart=` (une ligne de
+ * commande) et `ReadWritePaths=` (une liste). Là, un chemin contenant une
+ * espace donnerait deux arguments — donc on cite en `"…"`, en échappant `\` et
+ * `"` à l'intérieur, et on double le `%`.
+ *
+ * ─── POURQUOI CE NOM EST SI LONG ─────────────────────────────────────────────
+ *
+ * Il s'appelait `citerSystemd`. Un nom qui n'annonce aucun domaine a l'air
+ * juste partout : il a donc été employé sur les quatre directives que ce module
+ * écrit, dont deux qui REFUSENT les guillemets. Le fichier produit était rejeté
+ * par systemd depuis le premier jour, et les tests étaient verts — ils
+ * comparaient le fichier à lui-même, jamais à son consommateur (§ 6.6 de
+ * `docs/ERREURS.md`).
+ */
+export function citerArgumentSystemd(valeur: string): string {
+  const echappe = doublerPourCent(valeur.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
   return `"${echappe}"`;
 }
+
+/**
+ * Une valeur dans une directive qui prend LA LIGNE ENTIÈRE — donc SANS
+ * guillemets.
+ *
+ * `WorkingDirectory=` et `EnvironmentFile=` ne découpent rien : la valeur est le
+ * reste de la ligne, espaces comprises. Les guillemets n'y sont pas de la
+ * syntaxe, ce sont des CARACTÈRES DU CHEMIN. Mesuré, sur systemd 255 :
+ *
+ *   · `WorkingDirectory="/home/moi/hive"` →
+ *     « path is not absolute » + « unit will not be started ». FATAL.
+ *   · `EnvironmentFile=-"/home/moi/hive/.env"` →
+ *     « path is not absolute, IGNORING ». Aucune erreur, aucun démarrage
+ *     manqué : le `.env` n'est simplement jamais lu.
+ *
+ * Le second est exactement la panne que l'en-tête de ce fichier dit exister pour
+ * fermer — une ruche qui démarre « avec succès », sans `HIVE_TOKEN`, sans
+ * `HIVE_JWT_SECRET`, et qui n'est la ruche de personne.
+ *
+ * Il n'y a rien à échapper ici : ni `\` ni `"` n'ont de sens dans une valeur qui
+ * n'est pas découpée. Seul le `%` en garde un. Le `\` FINAL, lui, est refusé en
+ * amont — voir `RISQUE_LIGNE_SUIVANTE`.
+ */
+export function valeurSystemd(valeur: string): string {
+  return doublerPourCent(valeur);
+}
+
+/**
+ * Le `\` final, qui n'est pas un caractère mais une CONTINUATION DE LIGNE.
+ *
+ * Le lexer de systemd recolle la ligne suivante avant que la directive ne soit
+ * lue. Mesuré : une unité dont le `WorkingDirectory` finit par un `\` unique se
+ * fait répondre « Service has no ExecStart= » — la ligne `ExecStart` avait été
+ * AVALÉE dans la valeur du répertoire.
+ *
+ * Un nombre PAIR d'antislashes, lui, ne continue pas — mesuré aussi. J'avais
+ * donc écrit une expression qui ne refusait que les impairs. Elle était plus
+ * fine, et pas plus juste : je ne peux pas observer d'ici ce que la valeur VAUT
+ * ensuite. Il faudrait un gestionnaire systemd vivant, et
+ * `systemd-analyze verify` ne rend que la syntaxe.
+ *
+ * Laisser passer `…\\` aurait donc été autoriser un chemin dont je ne sais pas
+ * s'il désigne le bon dossier. On refuse TOUT antislash final : aucun chemin
+ * d'installation légitime n'en porte, et c'est la seule des deux règles dont je
+ * peux démontrer la correction.
+ */
+export const RISQUE_LIGNE_SUIVANTE = /\\$/;
 
 /**
  * Un texte dans un document XML — plist de launchd, tâche planifiée de Windows.
@@ -247,6 +311,25 @@ function planLinux(ctx: Contexte): Plan | Refus {
   const script = p.join(ctx.racine, ...scriptDe(ctx.cible).split('/'));
   const utilisateur = ctx.niveau === 'utilisateur';
 
+  // Le `\` final avale la ligne suivante. Il se refuse ici, et pas dans
+  // `planifier`, parce qu'un chemin Windows en est PLEIN — la règle est propre à
+  // la grammaire de systemd, pas au projet.
+  for (const [quoi, valeur] of [
+    ['la racine', ctx.racine],
+    ['le chemin de Node', ctx.execNode],
+  ] as const) {
+    if (RISQUE_LIGNE_SUIVANTE.test(valeur)) {
+      return {
+        genre: 'refus',
+        motif:
+          `${quoi} finit par un antislash. Dans un fichier d’unité systemd, un ` +
+          'antislash en fin de ligne RECOLLE la ligne suivante : la directive ' +
+          'd’après serait avalée dans le chemin, et le service démarrerait ' +
+          'amputé — ou pas du tout. Installez ailleurs.',
+      };
+    }
+  }
+
   const chemin = utilisateur
     ? p.join(ctx.home, '.config', 'systemd', 'user', `${nom}.service`)
     : p.join('/etc', 'systemd', 'system', `${nom}.service`);
@@ -263,18 +346,26 @@ function planLinux(ctx: Contexte): Plan | Refus {
     '',
     '[Service]',
     'Type=simple',
-    `WorkingDirectory=${citerSystemd(ctx.racine)}`,
-    `ExecStart=${citerSystemd(ctx.execNode)} ${citerSystemd(script)}`,
+    // Prend la ligne entière : PAS de guillemets, sans quoi systemd répond
+    // « path is not absolute » et refuse de démarrer l'unité.
+    `WorkingDirectory=${valeurSystemd(ctx.racine)}`,
+    // Découpé sur les espaces : les guillemets sont obligatoires ici.
+    `ExecStart=${citerArgumentSystemd(ctx.execNode)} ${citerArgumentSystemd(script)}`,
     // `-` en tête : le service démarre même sans `.env`. C'est délibéré — la
     // ruche sait se plaindre elle-même, mieux que systemd ne le ferait.
-    `EnvironmentFile=-${citerSystemd(p.join(ctx.racine, '.env'))}`,
+    //
+    // Et PAS de guillemets non plus : cités, systemd les garde pour des
+    // caractères du chemin, ne trouve pas le fichier, et passe son chemin SANS
+    // RIEN DIRE. Le service démarre alors sans aucun secret.
+    `EnvironmentFile=-${valeurSystemd(p.join(ctx.racine, '.env'))}`,
     'Restart=on-failure',
     'RestartSec=5',
     'NoNewPrivileges=true',
     'PrivateTmp=true',
     'ProtectSystem=strict',
     'ProtectHome=read-only',
-    `ReadWritePaths=${citerSystemd(ctx.racine)}`,
+    // Une LISTE séparée par des espaces : citée, comme `ExecStart`.
+    `ReadWritePaths=${citerArgumentSystemd(ctx.racine)}`,
     'ProtectKernelTunables=true',
     'ProtectKernelModules=true',
     'ProtectControlGroups=true',

@@ -30,7 +30,8 @@ import {
   AVERTISSEMENT_LINGER,
   type Contexte,
   type Plan,
-  citerSystemd,
+  citerArgumentSystemd,
+  valeurSystemd,
   echapperXml,
   codeJournal,
   planifier,
@@ -88,13 +89,17 @@ describe('LE RÉPERTOIRE DE TRAVAIL — la garde qui compte le plus', () => {
     // présent, syntaxiquement correct, et tout aussi faux.
     const p = plan();
     const ligne = p.fichier.contenu.split('\n').find((l) => l.startsWith('WorkingDirectory='))!;
-    expect(ligne).toBe('WorkingDirectory="/home/moi/hive"');
+    // SANS guillemets : `WorkingDirectory=` prend la ligne entière. Cette ligne
+    // affirmait l'inverse, et elle était verte — parce qu'elle comparait le
+    // fichier à lui-même. `tests/service-accepte.test.ts` le soumet désormais à
+    // `systemd-analyze verify`, qui, lui, le refusait.
+    expect(ligne).toBe('WorkingDirectory=/home/moi/hive');
   });
 });
 
 describe('L’ÉCHAPPEMENT — ce fichier décrit ce que la machine lancera', () => {
-  it('systemd : les espaces sont citées', () => {
-    expect(citerSystemd('/mes docs/hive')).toBe('"/mes docs/hive"');
+  it('systemd : les espaces sont citées DANS UNE LIGNE DE COMMANDE', () => {
+    expect(citerArgumentSystemd('/mes docs/hive')).toBe('"/mes docs/hive"');
   });
 
   it('systemd : `%` EST DOUBLÉ — le piège qu’on ne voit pas venir', () => {
@@ -102,11 +107,19 @@ describe('L’ÉCHAPPEMENT — ce fichier décrit ce que la machine lancera', ()
     // `%i` le nom d'instance. Un chemin contenant `%h` ne PLANTERAIT pas — il
     // serait silencieusement remplacé par autre chose. Une panne qui ne
     // ressemble pas à une panne.
-    expect(citerSystemd('/tmp/100%h/hive')).toBe('"/tmp/100%%h/hive"');
+    expect(citerArgumentSystemd('/tmp/100%h/hive')).toBe('"/tmp/100%%h/hive"');
+  });
+
+  it('systemd : `%` est doublé AUSSI hors ligne de commande', () => {
+    // La seule règle commune aux deux grammaires. `valeurSystemd` n'échappe
+    // rien d'autre — et c'est délibéré : hors découpage, `\` et `"` sont des
+    // caractères du chemin, pas de la syntaxe.
+    expect(valeurSystemd('/tmp/100%h/hive')).toBe('/tmp/100%%h/hive');
+    expect(valeurSystemd('/a"b\\c')).toBe('/a"b\\c');
   });
 
   it('systemd : guillemets et barres inverses', () => {
-    expect(citerSystemd('/a"b\\c')).toBe('"/a\\"b\\\\c"');
+    expect(citerArgumentSystemd('/a"b\\c')).toBe('"/a\\"b\\\\c"');
   });
 
   it('XML : les cinq entités', () => {
