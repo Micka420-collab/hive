@@ -199,14 +199,34 @@ describe('la porte des amis, ruche allumée', () => {
     // Un Ctrl+C est une réponse, pas un échec — SUR POSIX. Sous Windows,
     // `kill('SIGINT')` termine sans passer par le gestionnaire : le code n'y
     // mesure que notre coup de grâce.
-    if (POSIX) expect(premier.code, `sortie :\n${premier.sortie}`).toBe(0);
+    //
+    // ─── DEUX CODES D'ARRÊT PROPRE, PAS UN — la course de l'ENVELOPPE ───────
+    //
+    // Le gestionnaire SIGINT de `join.ts` sort en 0, et c'est sa promesse.
+    // Mais le banc lance le script À TRAVERS `tsx`, qui est un PARENT : quand
+    // le SIGINT le frappe, tsx court entre deux nouvelles — la sortie 0 de
+    // son enfant, et sa propre mort par signal qu'il traduit en 130 (128+2).
+    // Sous charge (CI, graine 23757, deux fois), 130 gagne parfois ALORS QUE
+    // « Déconnexion de la ruche… » a été imprimé — l'arrêt propre a bien eu
+    // lieu, seule l'enveloppe a parlé la première. On exige donc LA PREUVE de
+    // l'arrêt propre (le message du gestionnaire) et l'un des deux codes
+    // qu'elle peut rendre — jamais un vrai code d'erreur, jamais le SIGKILL
+    // du coup de grâce (code null), qui signerait un join suspendu.
+    const ARRET_PROPRE = [0, 130];
+    if (POSIX) {
+      expect(premier.sortie).toContain('Déconnexion de la ruche…');
+      expect(ARRET_PROPRE, `sortie :\n${premier.sortie}`).toContain(premier.code);
+    }
 
     // ── Redémarrage, MÊME nid : le billet est épuisé, la clé suffit ────────
     // Sans la mémoire de clé, ce second lancement représenterait un billet
     // consommé et mettrait l'ami dehors « en ayant tout fait correctement ».
     const second = await lancerJoin(billet, w, { marqueur: 'vous butinez pour la ruche' });
     expect(second.sortie).toContain('déjà obtenue — le billet n’est pas redemandé');
-    if (POSIX) expect(second.code, `sortie :\n${second.sortie}`).toBe(0);
+    if (POSIX) {
+      expect(second.sortie).toContain('Déconnexion de la ruche…');
+      expect(ARRET_PROPRE, `sortie :\n${second.sortie}`).toContain(second.code);
+    }
   }, 90_000);
 
   it('UN BILLET ÉPUISÉ N’OUVRE PLUS RIEN — refus net, marche à suivre', async () => {

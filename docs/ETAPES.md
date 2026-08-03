@@ -182,6 +182,30 @@ décision d'interface n° 1 de la vue — est le chemin du test, comme du
 clavier. `tests/cerveau-vue.test.tsx`, 2 tests, **2 mutations rejouées,
 2 rouges.**
 
+**L'INTERMITTENT DE LA GRAINE 23757 EST ATTRAPÉ** (même soir) : deuxième
+frappe sur la même graine, et cette fois avec un nom — join-ruche-vivante,
+« expected 130 to be +0 », le message « Déconnexion de la ruche… » PRÉSENT
+dans la sortie. Le produit sort en 0 ; c'est l'enveloppe `tsx` du banc qui,
+frappée par le même SIGINT, traduit parfois sa propre mort en 130 avant
+d'avoir vu le 0 de son enfant. Corrigé dans le test : preuve du chemin
+graceful exigée + les deux codes d'arrêt propre acceptés, jamais un vrai
+code d'erreur ni le SIGKILL du coup de grâce — § 9 septdecies au journal
+(le QUATRIÈME visage du code de sortie trompeur de la journée). La première
+frappe (16 h 40, merge-wiring) reste inexpliquée mais porte désormais son
+diagnostic embarqué.
+
+**CORRECTION DU MÊME SOIR — le « 29/29 » ci-dessous a été écrit VINGT
+MINUTES TROP TÔT.** J'avais compté les survivantes sur la LISTE DE QUEUE du
+journal de balayage, qui n'en portait que 27 : les DEUX de `App.tsx`
+(l'info-bulle qui parlerait l'autre langue, et `route.view === 'rayon'` —
+le Rayon sous toutes les vues sauf la sienne) vivaient dans le CORPS du
+journal et pas dans sa queue. C'est § 2 duodecies appliqué à mon propre
+comptage : la source de vérité était `grep -c "SANS TEST"` (29), pas une
+liste dérivée. Les deux sont tuées dans la foulée — `tests/app-coquille.test.tsx`,
+la coquille MONTÉE pour de vrai (flux WebSocket et sondes simulés, nav,
+routage par hash et i18n réels), 2 mutations rejouées, 2 rouges — et c'est
+MAINTENANT que le compte est bon.
+
 **LE COMPTE FINAL DU BALAYAGE DU 3 AOÛT : 69 examinées, 40 défendues
 d'emblée, 29 survivantes — et les 29 sont résolues le jour même**, toutes
 par un test qui les tue (aucune déclarée équivalente). En chemin : deux

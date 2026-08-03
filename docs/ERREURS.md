@@ -3022,6 +3022,35 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 septdecies. L'enveloppe parle parfois avant l'enfant
+
+L'intermittent de la graine 23757 est ATTRAPÉ, à sa deuxième frappe sur la
+même graine (join-ruche-vivante, « expected 130 to be +0 » — la première
+frappe, sur merge-wiring, était repartie sans nom, § 9 sexdecies). Le
+gestionnaire SIGINT de `join.ts` imprime « Déconnexion de la ruche… » puis
+`process.exit(0)` — et le message ÉTAIT dans la sortie. Mais le banc lance le
+script À TRAVERS `tsx`, qui est un processus PARENT : frappé par le même
+SIGINT, tsx court entre deux nouvelles — la sortie 0 de son enfant, et sa
+propre mort par signal qu'il traduit en 130 (128+2). Sous charge CI, 130
+gagne parfois la course. Le produit a tenu sa promesse ; seule l'enveloppe a
+parlé la première.
+
+### La règle
+
+> Le code de sortie d'un processus lancé À TRAVERS une enveloppe (tsx, npm,
+> un shell) mesure l'enveloppe, pas le produit. Pour juger un arrêt propre :
+> exiger LA PREUVE du chemin graceful (le message que lui seul imprime), puis
+> accepter l'ENSEMBLE des codes que l'enveloppe peut honnêtement rendre
+> (ici {0, 130}) — jamais un vrai code d'erreur, jamais le SIGKILL du coup de
+> grâce, qui signerait un processus suspendu.
+
+C'est le quatrième visage du code de sortie trompeur (§ 9 quaterdecies : le
+tube ; § 9 quindecies : le minuteur unref ; § 9 terdecies : l'outil lancé
+pour rien) — le motif commun tient en une phrase : entre le code qu'on écrit
+et le code qu'on lit, il y a des intermédiaires, et chacun a son mot à dire.
+
+---
+
 ## 9 sexdecies. Un intermittent ne laisse que ce que l'assertion montre
 
 Le test bout-en-bout du merge (`merge-wiring.test.ts`) a rougi UNE fois en CI
