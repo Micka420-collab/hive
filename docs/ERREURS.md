@@ -3005,6 +3005,39 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 quaterdecies. Un tube avale le code de sortie — trois morsures en une heure
+
+Trois fois le même mécanisme, le même jour, sous trois déguisements :
+
+1. **La sonde.** `installeur --drapeau-inconnu | head -4; echo CODE=$?` — le
+   `$?` est celui de `head`. J'ai lu « CODE=0 » deux fois et failli conclure
+   que le refus d'option rendait 0. Le produit était juste ; mon thermomètre
+   mesurait le tube.
+2. **La chaîne de fusion.** `sh scripts/fusionner.sh | tail -3 && git checkout
+-B … origin/main`. Le script a REFUSÉ (arbre sale, code 1) — mais le
+   pipeline a rendu le code de `tail`, le `&&` a laissé passer, et le
+   `checkout -B` a réinitialisé ma branche locale en **perdant le commit de la
+   PR #124** (toujours sur le dépôt distant, rien de définitif — mais
+   uniquement parce que la poussée avait déjà eu lieu).
+3. **La relecture.** En croyant diagnostiquer le nº 2, j'ai d'abord conclu
+   « quelqu'un a fusionné #124 avant moi » — une explication qui accusait le
+   monde extérieur plutôt que mon tube.
+
+### La règle
+
+> Le code de sortie d'un pipeline est celui de son DERNIER maillon. Dès qu'un
+> `| head`, `| tail`, `| grep` suit une commande dont le code compte, ce code
+> est perdu — pour le `$?`, pour le `&&`, pour le `set -e`. Soit on lit
+> `PIPESTATUS[0]`, soit on sépare : la commande d'abord, seule, son code
+> capturé ; la mise en forme ensuite.
+
+Le parent de cette leçon est le § 9 terdecies : l'instrument qui ne mesure pas
+la grandeur. Ici l'instrument est le shell lui-même, et il ne prévient pas —
+`set -o pipefail` existe précisément parce que ce défaut est assez vieux pour
+avoir son remède standard.
+
+---
+
 ## 9 terdecies. Vérifier qu'un outil EXISTE en le lançant mesure autre chose
 
 Le lot du § 6.6 bis ajoute une étape de CI qui doit répondre à une question

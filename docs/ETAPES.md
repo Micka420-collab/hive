@@ -156,6 +156,18 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Troisième lot — `installer-main.ts`, fait** (même jour) : 6 tests en
+sous-processus dans un cwd jetable, 6 mutations 6 rouges. La répartition
+Node 22 / Node 24 est ASSUMÉE et travaille pour nous : sous le Node 22 du
+conteneur, on teste la porte `PREREQUIS` (refus net, code 2, quoi faire) — un
+chemin que la CI, sous Node 24, n'emprunte jamais ; sous Node ≥ 24, les chemins
+complets : le dry-run annonce puis n'écrit RIEN, `--json` rend du JSON
+analysable sans filtre, le vrai passage crée le `.env` en 0600 puis
+l'idempotence tient octet pour octet, et un port occupé se lit dans le code de
+sortie (4) sans annuler le reste. Leçon du lot au journal (§ 9 quaterdecies) :
+un tube avale le code de sortie — trois morsures en une heure, dont une qui a
+réinitialisé la branche locale en perdant un commit (sauf sur le distant).
+
 **Deuxième lot — `join.ts` et `tunnel.ts`, faits** (même jour) : 16 tests,
 6 mutations 6 rouges. Le tunnel : `urlRucheDepuisTunnel` refuse `http`, le vrai
 `spawn` sur un fournisseur factice (URL sur stdout ET stderr — cloudflared
