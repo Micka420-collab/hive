@@ -156,6 +156,15 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Huitième lot — le tiroir de tâche, rendu et manipulé** (même jour) : la
+survivante `task.status === 'done' && victory` du balayage — inversée, la
+bannière 🏆 décorerait tout SAUF les gagnées. `tests/tiroir-tache.test.tsx`
+(5 tests, happy-dom, module api simulé par `importOriginal`, CodeMirror
+écarté) : le trophée nomme le vainqueur et compte les annulés ; la même
+victoire sur une tâche en cours se tait ; une tâche échouée ne demande même
+pas la course ; Annuler n'existe que si annulable et annule LA BONNE tâche.
+4 mutations 4 rouges.
+
 **Septième lot — le lanceur, et le code de sortie qu'il ne rendait pas**
 (même jour) : premier test jamais écrit pour `scripts/ruche.mjs`
 (`tests/lanceur-ruche.test.ts`, 2 tests POSIX, vraie Reine sur port éphémère),
