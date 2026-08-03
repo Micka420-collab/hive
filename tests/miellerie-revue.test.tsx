@@ -142,11 +142,15 @@ describe('la Miellerie — les quatre survivantes du balayage', () => {
     // tranchait pas, la fraîcheur mettrait la revue en tête — le test ne peut
     // être vert que si c'est bien le RANG qui commande.
     localStorage.setItem('hive.review', JSON.stringify({ 't-revue': 'approved' }));
+    // TROIS tâches, UNE revue — le compteur ne peut être juste que dans un
+    // sens : le balayage du soir a montré que « 1/2 » avec 1+1 était un
+    // contexte SYMÉTRIQUE (muté, l'autre moitié comptait pareil).
     const dom = await monter(
       instantane(
         [{ id: 'p1', name: 'Rucher' }],
         [
           tache('t-neuve', 'Tâche neuve à revoir', 'p1', 1_000),
+          tache('t-aussi', 'Tâche aussi à revoir', 'p1', 500),
           tache('t-revue', 'Tâche déjà revue', 'p1', 2_000),
         ],
       ),
@@ -157,7 +161,9 @@ describe('la Miellerie — les quatre survivantes du balayage', () => {
     expect(iNeuve, 'la neuve doit être dans la file').toBeGreaterThan(-1);
     expect(iRevue, 'la revue doit être dans la file').toBeGreaterThan(-1);
     expect(iNeuve, 'le travail à faire passe devant le travail fait').toBeLessThan(iRevue);
-    expect(dom.textContent).toContain('1/2 revues');
+    expect(dom.textContent, 'une revue sur trois — le compteur suit les REVUES').toContain(
+      '1/3 revues',
+    );
   });
 
   it('L’INSPECTEUR MONTRE LE DIFF DE LA TÂCHE ACTIVE — jamais celui d’une autre', async () => {
@@ -177,6 +183,73 @@ describe('la Miellerie — les quatre survivantes du balayage', () => {
       dom.textContent,
       'le diff d’une autre tâche ne se glisse pas sous ce titre',
     ).not.toContain('MIEL-D-UNE-AUTRE-TACHE');
+    // Et le diff BIEN FORMÉ passe par la découpe par fichier — pas par le
+    // repli brut. La survivante du soir : `chunks.length === 0 || !startsWith`
+    // mutée, un vrai diff serait rendu en bloc brut sans ses compteurs.
+    // ATTENTION : `.mi-files` existe sur LES DEUX chemins (le repli brut y
+    // loge sa note « Diff affiché brut ») — un premier essai s'y était fié
+    // et la mutation avait SURVÉCU. Seule la puce par fichier distingue.
+    expect(dom.querySelector('.mi-file-chip'), 'la découpe par fichier fait foi').toBeTruthy();
+    expect(dom.textContent, 'un diff bien formé ne passe pas par le repli brut').not.toContain(
+      'Diff affiché brut',
+    );
+  });
+
+  it('LA RANGÉE ACTIVE PORTE SON HABIT — et elle seule', async () => {
+    // `task.id === activeId` mutée : l'habit « active » irait à toutes les
+    // AUTRES rangées, et l'œil suivrait la mauvaise tâche.
+    const dom = await monter(
+      instantane(
+        [{ id: 'p1', name: 'Rucher' }],
+        [
+          tache('t-active', 'La tâche suivie', 'p1', 2_000),
+          tache('t-autre', 'L’autre tâche', 'p1', 1_000),
+        ],
+      ),
+    );
+    const rangees = [...dom.querySelectorAll('.mi-row')];
+    const active = rangees.find((r) => (r.textContent ?? '').includes('La tâche suivie'));
+    const autre = rangees.find((r) => (r.textContent ?? '').includes('L’autre tâche'));
+    expect(active?.classList.contains('active'), 'la suivie porte l’habit').toBe(true);
+    expect(autre?.classList.contains('active'), 'l’autre ne le porte pas').toBe(false);
+  });
+
+  it('LES TOUCHES j/k CIRCULENT DANS LA FILE — le retour anticipé ne vaut que file vide', async () => {
+    // `if (flat.length === 0) return;` mutée en `!==` : le clavier serait mort
+    // précisément quand il y a des tâches à parcourir.
+    const naviguer = vi.fn();
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    const props = {
+      snapshot: instantane(
+        [{ id: 'p1', name: 'Rucher' }],
+        [
+          tache('t-un', 'Première de la file', 'p1', 2_000),
+          tache('t-deux', 'Seconde de la file', 'p1', 1_000),
+        ],
+      ),
+      events: [],
+      agentsByTask: {},
+      deferred: new Set(),
+      onOpenTask: () => {},
+      onNavigate: naviguer,
+      navigate: () => {},
+      refreshTick: 0,
+    } as unknown as ViewProps;
+    await act(async () => racine?.render(<Miellerie {...props} />));
+    await act(async () => {});
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+    });
+    expect(naviguer, '« j » avance à la seconde tâche').toHaveBeenCalledWith(
+      'miellerie',
+      't-deux',
+      {
+        replace: true,
+      },
+    );
   });
 
   it('LE PIED DE VUE NOMME LE PROJET DE LA TÂCHE ACTIVE', async () => {

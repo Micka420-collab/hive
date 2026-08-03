@@ -2966,6 +2966,45 @@ pour ce qui les éprouve.
 
 ---
 
+## 2 terdecies. Un témoin présent sur les DEUX branches ne témoigne de rien
+
+Même famille que § 2 duodecies — on désigne sans vérifier — mais le matériau
+est neuf : un **sélecteur DOM**, et cette fois c'est le REJEU de la mutation
+qui a attrapé la faute, pas la relecture.
+
+La garde `splitDiff` de la Miellerie a deux rendus : le diff DÉCOUPÉ par
+fichier, et le repli BRUT (« Diff affiché brut ») quand la découpe échoue.
+Mon test voulait prouver qu'un diff bien formé passe par la découpe ; il
+affirmait :
+
+```ts
+expect(dom.querySelector('.mi-files')).toBeTruthy();
+```
+
+Mutation rejouée (`chunks.length === 0` → `!==`, la découpe toujours
+refusée) : **« Tests 6 passed »**. Le mutant a survécu parce que `.mi-files`
+existe sur LES DEUX chemins — le repli brut loge sa note explicative dans un
+conteneur du même nom. Mon témoin ne distinguait pas les deux mondes que le
+test prétendait départager.
+
+**La règle.** Avant de fonder une garde sur un témoin (sélecteur, classe,
+texte), LIRE LES DEUX BRANCHES du rendu et vérifier que le témoin n'existe
+que sur celle qu'on affirme. Un témoin partagé rend un verdict vert dans les
+deux mondes — c'est un décor, au sens strict de la discipline « muter
+avant d'écrire ». Ici le vrai discriminant était `.mi-file-chip` (la puce
+par fichier, que seule la découpe rend) — et, en ceinture, l'ABSENCE du
+texte « Diff affiché brut ».
+
+Ce que ce paragraphe ajoute à la famille : le comptage du § 2 duodecies ne
+suffit pas ici — `.mi-files` est UNIQUE dans le DOM des deux rendus, un
+`toHaveLength(1)` serait passé aussi. L'exclusivité ne se compte pas dans le
+document qu'on tient ; elle se vérifie contre L'AUTRE document, celui que la
+branche adverse aurait produit. C'est exactement ce que fait le rejeu de la
+mutation — raison de plus pour ne JAMAIS s'en dispenser, même quand le test
+« semble » évidemment lié à la garde.
+
+---
+
 ## 6.6 ter. Le banc d'essai qui refabrique l'artefact au lieu de le demander
 
 Suite immédiate du § 6.6 bis, et la plus instructive des trois.

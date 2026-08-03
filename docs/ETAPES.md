@@ -170,6 +170,27 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Dix-septième lot — la première fournée du balayage du soir : sept
+survivantes tombent** (même soir, 18 h 50 → 19 h 15 UTC). Le balayage élargi
+de la nuit (base : premier commit du dépôt, LOUPE_MAX=100, toujours en cours
+dans l'atelier) rend ses survivantes par paquets ; les sept premières sont
+mortes. Miellerie ×4 — le compteur de revues (« 1/3 revues » sur TROIS tâches
+dont UNE revue : le premier banc à 1+1 était SYMÉTRIQUE, § 2 duodecies encore,
+la mutation y comptait juste par accident), la garde splitDiff
+(`chunks.length === 0 ||` — mutée, un vrai diff se rendrait en bloc brut sans
+ses compteurs par fichier), l'habit `active` de la rangée suivie, et les
+touches j/k mortes précisément quand la file est pleine (`length === 0`
+mutée en `!==`). Chronique — le bandeau « vous regardez le passé » qui
+s'afficherait au PRÉSENT, en permanence (`{inReplay && (` mutée en `||`).
+Essaim ×2 — le ⚔ de course porté par l'ouvrière dont le drone est TOMBÉ
+(`d.status === 'running'`), et « running » cru à l'écran (`statusLabel`).
+**17 tests dans les trois fichiers, 7 mutations rejouées, 7 rouges.** Une
+leçon payée en direct : mon premier discriminant du splitDiff — `.mi-files` —
+existe sur LES DEUX chemins du rendu (le repli brut y loge sa note « Diff
+affiché brut ») et la mutation a SURVÉCU au premier rejeu ; seule la puce
+`.mi-file-chip` distingue la découpe. Le rejeu n'est pas une cérémonie : il
+attrape aussi le test qui croit discriminer et ne discrimine rien.
+
 **Seizième lot — le Cerveau, et LE BALAYAGE EST SOLDÉ : 29 survivantes sur
 29 résolues** (même jour, 17 h 45 → 17 h 50 UTC) : les deux dernières.
 L'interrupteur de mode qui allumerait l'AUTRE mode (`mode === 'graphe'`

@@ -111,6 +111,25 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     ).toContain('Aucun événement ne passe les filtres actifs');
   });
 
+  it('« VOUS REGARDEZ LE PASSÉ » NE S’AFFICHE QU’EN REPLAY', async () => {
+    // La survivante du balayage du soir : `{inReplay && (` mutée en `||` —
+    // le bandeau du Time-Lapse s'afficherait au PRÉSENT, en permanence : un
+    // journal vivant qui prétend être une archive.
+    const dom = await monterChronique([evenement(1, 'task_done')]);
+    expect(dom.textContent, 'au présent, pas de bandeau du passé').not.toContain(
+      'vous regardez le passé',
+    );
+
+    const bouton = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Time-Lapse'),
+    );
+    expect(bouton, 'le bouton du Time-Lapse doit exister au présent').toBeTruthy();
+    await act(async () => {
+      bouton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(dom.textContent, 'en replay, le bandeau se dit').toContain('vous regardez le passé');
+  });
+
   it('les compteurs de famille disent le VRAI compte', async () => {
     const dom = await monterChronique([
       evenement(1, 'task_done'),

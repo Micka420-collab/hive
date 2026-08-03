@@ -33,7 +33,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { fetchPolyethisme } from '../dashboard/src/api';
+import { fetchPolyethisme, fetchRaces } from '../dashboard/src/api';
 import Essaim from '../dashboard/src/views/Essaim';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,6 +44,9 @@ let conteneur: HTMLElement | null = null;
 beforeEach(() => {
   setLang('fr');
   vi.mocked(fetchPolyethisme).mockReset();
+  vi.mocked(fetchRaces)
+    .mockReset()
+    .mockResolvedValue({ races: [] } as never);
 });
 afterEach(() => {
   act(() => racine?.unmount());
@@ -132,6 +135,71 @@ describe('le polyéthisme — la survivante du balayage', () => {
     vi.mocked(fetchPolyethisme).mockResolvedValue(vuePoly([]));
     const dom = await monterEssaim();
     expect(dom.textContent).toContain('Aucune ouvrière observée');
+  });
+
+  it('LE ⚔ NE MARQUE QUE L’OUVRIÈRE DONT LE DRONE VOLE — pas celle dont il est tombé', async () => {
+    // Deux survivantes du balayage du soir, dans la même mise en scène :
+    //   · `d.status === 'running'` du marquage ⚔ — mutée, l'ouvrière au drone
+    //     TOMBÉ porterait le badge de course, et celle qui vole non ;
+    //   · `statusLabel('running')` — mutée, le drone en vol s'annoncerait
+    //     « running » cru, et tous les autres « en vol ».
+    vi.mocked(fetchRaces).mockResolvedValue({
+      races: [
+        {
+          taskId: 't-course',
+          drones: [
+            { nodeId: 'n-vol', status: 'running' },
+            { nodeId: 'n-tombe', status: 'failed' },
+          ],
+        },
+      ],
+    } as never);
+    const noeud = (id: string, name: string) =>
+      ({
+        id,
+        name,
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: 1,
+        running: 0,
+        status: 'online',
+        lastSeen: 1,
+      }) as never;
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    const props = {
+      ...proprietes(),
+      snapshot: {
+        ...INSTANTANE,
+        nodes: [noeud('n-vol', 'ruche-en-vol'), noeud('n-tombe', 'ruche-tombee')],
+      },
+    } as unknown as ViewProps;
+    await act(async () => racine?.render(<Essaim {...props} />));
+    const dom = conteneur;
+
+    const cartes = [...dom.querySelectorAll('.es-node')];
+    const enVol = cartes.find((c) => (c.textContent ?? '').includes('ruche-en-vol'));
+    const tombee = cartes.find((c) => (c.textContent ?? '').includes('ruche-tombee'));
+    expect(
+      enVol?.querySelector('.es-race-badge'),
+      'le drone vole : le badge se porte',
+    ).toBeTruthy();
+    expect(
+      tombee?.querySelector('.es-race-badge'),
+      'le drone est tombé : pas de badge de course',
+    ).toBeNull();
+
+    // Les étiquettes d'état, dans la carte des courses.
+    const libelles = [...dom.querySelectorAll('[aria-label]')].map(
+      (e) => e.getAttribute('aria-label') ?? '',
+    );
+    expect(libelles.some((l) => l.includes('ruche-en-vol — en vol'))).toBe(true);
+    expect(libelles.some((l) => l.includes('ruche-tombee — tombé'))).toBe(true);
+    expect(
+      libelles.some((l) => l.includes('— running')),
+      'aucun statut cru ne traverse l’écran',
+    ).toBe(false);
   });
 
   it('MODE DEMANDÉ MAIS ÉTEINT : l’écart est DIT — pas un encadrement de façade', async () => {
