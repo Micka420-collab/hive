@@ -156,6 +156,27 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**LE BALAYAGE LOUPE DU DÉPÔT ENTIER EST RENDU** (3 août, 15 h 20 → 16 h 40
+UTC) : 1 979 mutations candidates, 69 examinées en échantillonnage régulier
+pleine largeur. **40 défendues, 29 survivantes — 42 %.** Le gros vit dans les
+vues du dashboard à 0 % (Miellerie ×4, Projets ×3, Cerveau ×2, App ×2…), mais
+**8 survivantes sont hors dashboard**, dans du code couvert : `scheduler.ts`
+(fenêtre de rejets récents), `server.ts` (garde `refMachine && etat ===
+'supprime'`), `concierge.ts`, `workflow.ts`, `tui/rendu.ts`, `cli.ts` (badge
+IA/état réel), `ruche.mjs` (le code d'arrêt composé), et `installer-main.ts` —
+celle-ci dans une CHAÎNE IMPRIMÉE : muter le `&&` de « npm run
+build:dashboard && npm run dev » fausse le conseil affiché au chemin serveur.
+Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
+Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
+`scratchpad/loupe-nuit-70.log`, à traiter par familles.
+
+**Dixième lot — la Chronique : les deux vides ne se confondent pas** (même
+jour) : la survivante `events.length === 0` — mutée, « la ruche n'a encore
+rien vécu » s'afficherait sous un journal plein. `tests/chronique-journal.test.tsx`
+(4 tests) : le vide d'accueil, sa disparition dès le premier événement, le
+« tout filtré » qui désigne LES FILTRES au lieu d'accuser la ruche, et les
+compteurs de famille au vrai compte. 3 mutations 3 rouges.
+
 **Neuvième lot — l'Essaim : le conseil de caste ne ment à personne** (même
 jour) : la survivante `n.caste !== 'butineuse'` — inversée, la caste sommitale
 recevrait « N productions pour le palier suivant » (un palier qui n'existe
