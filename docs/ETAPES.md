@@ -156,6 +156,18 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Sixième lot — la transition des différées, extraite et tuée** (même jour) :
+la survivante `ev.type === 'task_conflict_deferred'` du balayage vivait dans un
+`useEffect` de `App.tsx` — 467 lignes d'intégration qu'aucun test ne monte.
+Le geste établi du dépôt (extraire le pur, tester le pur — comme `rendu.ts`)
+s'applique : `dashboard/src/differees.ts`, transition pure, avec son contrat
+d'IDENTITÉ RÉFÉRENTIELLE (un événement étranger rend `prev` LUI-MÊME — sans
+quoi l'écran se re-rendrait au rythme du flux en plein essaim). 6 tests,
+4 mutations 4 rouges — dont la survivante d'origine, dans les deux sens.
+L'e2e de `join` a par ailleurs coûté TROIS jambes rouges avant d'être juste
+(ordre emprunté au voisin — § 2.14 récidive —, puis scrutation post-mortem
+d'un nœud déjà tué) : le fichier garde les trois leçons en tête.
+
 **Cinquième lot — le chemin RÉUSSI de `join`, contre une ruche vivante**
 (même jour) : ce que le carnet portait comme « territoire des tests e2e » est
 fait. `tests/join-ruche-vivante.test.ts` monte une VRAIE ruche (`createServer`,

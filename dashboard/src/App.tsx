@@ -22,6 +22,7 @@ import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
+import { transitionDifferees } from './differees';
 import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import {
@@ -202,20 +203,10 @@ export function App() {
             return next;
           });
         }
-        if (ev.type === 'task_conflict_deferred') {
-          setDeferred((prev) => new Set(prev).add(taskId));
-        } else if (
-          ['task_assigned', 'task_done', 'task_failed', 'task_cancelled', 'task_requeued'].includes(
-            ev.type,
-          )
-        ) {
-          setDeferred((prev) => {
-            if (!prev.has(taskId)) return prev;
-            const next = new Set(prev);
-            next.delete(taskId);
-            return next;
-          });
-        }
+        // La transition vit dans `differees.ts`, PUR — la loupe l'avait rendue
+        // SANS TEST tant qu'elle était enfouie ici. Rendre `prev` lui-même
+        // quand rien ne change est le contrat : même référence, pas de rendu.
+        setDeferred((prev) => transitionDifferees(prev, ev.type, taskId) as Set<string>);
       },
       onStatus: (up) => {
         setConnected(up);
