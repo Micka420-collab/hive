@@ -156,6 +156,18 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Neuvième lot — l'Essaim : le conseil de caste ne ment à personne** (même
+jour) : la survivante `n.caste !== 'butineuse'` — inversée, la caste sommitale
+recevrait « N productions pour le palier suivant » (un palier qui n'existe
+pas) et les autres perdraient leur guide. `tests/essaim-castes.test.tsx`
+(5 tests, api simulé, 3 sondes muettes + polyéthisme mis en scène) : la
+nourrice voit ce qui lui manque chiffré contre le bon seuil, la butineuse ne
+reçoit rien, la bâtisseuse au volume atteint apprend que c'est la fiabilité
+qui retient, la liste vide se dit, et l'écart mode/modeDemande (Gardiennes
+éteintes) est affiché. 3 mutations 3 rouges — la troisième avait d'abord
+MANQUÉ SA CIBLE (motif inventé au lieu de l'ancre réelle, « survit » nul) et
+a été rejouée sur la vraie ligne.
+
 **Huitième lot — le tiroir de tâche, rendu et manipulé** (même jour) : la
 survivante `task.status === 'done' && victory` du balayage — inversée, la
 bannière 🏆 décorerait tout SAUF les gagnées. `tests/tiroir-tache.test.tsx`
