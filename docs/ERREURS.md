@@ -866,6 +866,23 @@ faire taire un couplage accidentel en deux mots. Elle se déclare donc dans
 > lance à chaque PR. **La CI ne mélangeait pas : rien de tout ceci n'y était
 > visible.**
 
+#### Récidive du 3 août — j'ai écrit le dix-huitième fichier moi-même
+
+`tests/join-ruche-vivante.test.ts`, première version : trois « actes » dont
+l'en-tête disait fièrement « l'ordre est porteur : vitest exécute les `it` en
+séquence — ce fichier s'appuie dessus et le dit ». Le tamis (graine 15838) a
+mélangé les tests DU fichier : l'acte 3 joué en premier trouvait un billet
+vierge, `join` réussissait, et le test attendait trente secondes une fin qui
+ne venait jamais.
+
+**Le dire n'est pas une exemption.** L'exemption existe — elle se déclare dans
+`tests/ordre-declare.test.ts`, où l'ordre est le SUJET du test. Ici l'ordre
+n'était pas le sujet, c'était une économie : trois prémisses partagées au lieu
+de trois posées. Le remède a coûté vingt lignes — chaque test crée SON billet,
+et la consommation de l'acte 3 se pose par la vraie route d'échange au lieu de
+s'hériter. Le fichier y a gagné : les deux tests tiennent désormais chacun
+debout tout seuls, dans n'importe quel ordre.
+
 ### 2.15 — Le remède qui désarme l'outil fait pour réparer
 
 Sur un clone vierge (Node 24, mesuré), le docteur disait :

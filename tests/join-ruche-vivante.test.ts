@@ -3,33 +3,29 @@
 // ─── CE QUE LES LOTS PRÉCÉDENTS NE POUVAIENT PAS DIRE ────────────────────────
 //
 // `tests/join-porte.test.ts` éprouve les trois refus précoces — tout ce qui se
-// mesure SANS ruche. Le carnet portait le reste en toutes lettres : « le
-// démarrage RÉUSSI (échange de billet accepté, clé mémorisée en 0600,
-// WebSocket ouvert) demande une ruche vivante — territoire des tests e2e. »
-// Ce fichier est ce territoire.
+// mesure SANS ruche. Ici, la ruche est RÉELLE : `createServer` sur un port
+// éphémère, une base jetable, des billets créés par la VRAIE route
+// `POST /api/billets`. Le nœud est réel aussi : le sous-processus `join.ts`,
+// celui que l'ami lance.
 //
-// La ruche est RÉELLE : `createServer` sur un port éphémère, une base dans un
-// dossier jetable, un billet créé par la VRAIE route `POST /api/billets` — pas
-// un billet bricolé qui dériverait du format serveur. Le nœud est réel aussi :
-// le sous-processus `join.ts`, celui que l'ami lance.
+// ─── DEUX FAUTES DE LA PREMIÈRE VERSION, TOUTES DEUX MESURÉES ────────────────
 //
-// ─── LES TROIS ACTES, DANS L'ORDRE OÙ L'AMI LES VIT ──────────────────────────
+// 1. LES ACTES EMPRUNTAIENT LEUR PRÉMISSE AU VOISIN. « Vitest exécute les `it`
+//    en séquence », disait l'en-tête — et le tamis des ordres a mélangé les
+//    tests DU FICHIER (graine 15838) : l'acte 3 passé en premier trouvait un
+//    billet vierge, `join` réussissait, et le test attendait 30 s une fin qui
+//    ne venait pas. Le remède est celui que le tamis prescrit : chaque test
+//    pose SA prémisse — son billet, son nid, sa consommation.
 //
-//   1. Premier lancement : le billet s'échange contre une clé, la clé est
-//      MÉMORISÉE (0600), le nœud apparaît côté ruche.
-//   2. Redémarrage : la clé est relue, LE BILLET N'EST PAS REDEMANDÉ. C'est la
-//      raison d'être de cette mémoire : un billet est à usage unique, et sans
-//      elle le premier redémarrage mettrait l'ami dehors « en ayant tout fait
-//      correctement » (docstring de `cheminCle`).
-//   3. Le même billet sur une AUTRE machine : refusé — épuisé — avec la
-//      marche à suivre. C'est le pendant serveur de l'acte 1.
-//
-// L'ordre est porteur : l'acte 2 n'a de sens qu'après l'acte 1, l'acte 3
-// qu'après la consommation. Vitest exécute les `it` d'un fichier en séquence —
-// ce fichier s'appuie dessus et le dit.
+// 2. LE NŒUD ÉTAIT AFFIRMÉ AU LIEU D'ÊTRE ATTENDU. Le marqueur « vous
+//    butinez » part juste après `client.start()` ; l'enregistrement WebSocket,
+//    lui, est asynchrone. Sur le loopback local la course était invisible ;
+//    la jambe windows-latest l'a perdue (« expected 0 to be greater than 0 »).
+//    On SCRUTE désormais, avec échéance — et l'identifiant PRÉCIS du nœud (lu
+//    dans son nid), pas un compte global qu'un autre test pourrait gonfler.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,17 +44,10 @@ interface Issue {
   sortie: string;
 }
 
-/**
- * Lance `join` et attend un MARQUEUR dans sa sortie, puis l'arrête.
- *
- * Un nœud démarré vit jusqu'au signal : sans marqueur atteint dans les 30 s,
- * on tue et on échoue avec la sortie en main. `attendreFin` couvre l'acte 3,
- * où le processus se termine tout seul — en refus.
- */
 function lancerJoin(
   billet: string,
   workdir: string,
-  opts: { marqueur?: string; attendreFin?: boolean } = {},
+  opts: { marqueur?: string } = {},
 ): Promise<Issue> {
   return new Promise((resoudre, rejeter) => {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
@@ -83,7 +72,7 @@ function lancerJoin(
     };
     const boucher = setTimeout(() => {
       proc.kill('SIGKILL');
-      finir(null, new Error(`marqueur jamais atteint :\n${sortie}`));
+      finir(null, new Error(`ni fin ni marqueur en 30 s :\n${sortie}`));
     }, 30_000);
     boucher.unref?.();
     const lire = (m: Buffer): void => {
@@ -105,10 +94,18 @@ function lancerJoin(
   });
 }
 
-describe('la porte des amis, ruche allumée — les trois actes', () => {
+/** Scrute une condition jusqu'à l'échéance — l'asynchrone s'ATTEND, il ne s'affirme pas. */
+async function scruter(condition: () => boolean, quoi: string, echeanceMs = 10_000): Promise<void> {
+  const depart = Date.now();
+  while (!condition()) {
+    if (Date.now() - depart > echeanceMs) throw new Error(`échéance : ${quoi}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+describe('la porte des amis, ruche allumée', () => {
   let server: HiveServer;
   let racineDonnees: string;
-  let billet: string;
   const nids: string[] = [];
 
   const nid = (): string => {
@@ -116,6 +113,18 @@ describe('la porte des amis, ruche allumée — les trois actes', () => {
     nids.push(d);
     return d;
   };
+
+  /** Un billet NEUF par la vraie route — chaque test pose sa prémisse. */
+  async function creerBillet(): Promise<string> {
+    const rep = await fetch(`http://127.0.0.1:${server.port}/api/billets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify({ uses: 1, url: `ws://127.0.0.1:${server.port}/ws` }),
+    });
+    expect(rep.status, 'la ruche a refusé de créer le billet').toBe(201);
+    const { billet } = (await rep.json()) as { billet: string };
+    return billet;
+  }
 
   beforeAll(async () => {
     racineDonnees = mkdtempSync(path.join(os.tmpdir(), 'ruche-vivante-'));
@@ -128,15 +137,6 @@ describe('la porte des amis, ruche allumée — les trois actes', () => {
       simulation: false,
       tickMs: 1_000,
     });
-    // Le billet vient de la VRAIE route — usage UNIQUE, transport privé en
-    // clair (usuel en local, accepté sans `insecure`).
-    const rep = await fetch(`http://127.0.0.1:${server.port}/api/billets`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
-      body: JSON.stringify({ uses: 1, url: `ws://127.0.0.1:${server.port}/ws` }),
-    });
-    expect(rep.status, 'la ruche a refusé de créer le billet').toBe(201);
-    ({ billet } = (await rep.json()) as { billet: string });
   });
 
   afterAll(async () => {
@@ -145,20 +145,19 @@ describe('la porte des amis, ruche allumée — les trois actes', () => {
     for (const d of nids.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  const nidDeLAmi = (): string => nids[0] as string;
-
-  it('ACTE 1 — le billet s’échange, la clé est MÉMORISÉE, le nœud butine', async () => {
+  it('L’ÉCHANGE PUIS LE REDÉMARRAGE — la clé mémorisée épargne le billet', async () => {
+    const billet = await creerBillet();
     const w = nid();
-    const r = await lancerJoin(billet, w, { marqueur: 'vous butinez pour la ruche' });
 
-    // L'échange a eu lieu et l'a DIT — « et mémorisée », pas la variante ⚠
-    // « NON mémorisée » (qui contient aussi le mot, d'où l'exigence du « et »).
-    expect(r.sortie).toContain('Clé de nœud obtenue et mémorisée');
-    expect(r.sortie, 'l’URL réelle doit précéder tout échange').toContain(
+    // ── Premier lancement : l'échange ──────────────────────────────────────
+    const premier = await lancerJoin(billet, w, { marqueur: 'vous butinez pour la ruche' });
+    // « et mémorisée » au mot près : la variante ⚠ « NON mémorisée » contient
+    // aussi « mémorisée ».
+    expect(premier.sortie).toContain('Clé de nœud obtenue et mémorisée');
+    expect(premier.sortie, 'l’URL réelle doit précéder tout échange').toContain(
       `ws://127.0.0.1:${server.port}/ws`,
     );
 
-    // La clé est LÀ, et elle n'est qu'à l'ami.
     const cle = path.join(w, 'node-key.txt');
     expect(existsSync(cle), 'aucune clé mémorisée').toBe(true);
     if (POSIX) {
@@ -166,34 +165,44 @@ describe('la porte des amis, ruche allumée — les trois actes', () => {
         .toBe(0o600);
     }
 
-    // Et côté ruche : le nœud s'est bien présenté avec sa clé.
-    expect(
-      server.store.listNodes().length,
-      'la ruche n’a jamais vu le nœud — l’échange a rendu une clé qui n’ouvre rien',
-    ).toBeGreaterThan(0);
+    // L'identifiant PRÉCIS de ce nœud, lu dans son nid — pas un compte global.
+    const nodeId = readFileSync(path.join(w, 'node-id.txt'), 'utf8').trim();
+    await scruter(
+      () => server.store.listNodes().some((n) => n.id === nodeId),
+      `le nœud ${nodeId} ne s’est jamais présenté à la ruche`,
+    );
 
     // Un Ctrl+C est une réponse, pas un échec — SUR POSIX. Sous Windows,
-    // `kill('SIGINT')` TERMINE le processus sans passer par le handler : le
-    // code de sortie n'y mesure pas l'arrêt propre, seulement notre coup de
-    // grâce. L'assertion ne prétend donc rien là-bas.
-    if (POSIX) expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
-  }, 45_000);
+    // `kill('SIGINT')` termine sans passer par le gestionnaire : le code n'y
+    // mesure que notre coup de grâce.
+    if (POSIX) expect(premier.code, `sortie :\n${premier.sortie}`).toBe(0);
 
-  it('ACTE 2 — au redémarrage, LE BILLET N’EST PAS REDEMANDÉ', async () => {
-    // Même nid : la clé de l'acte 1 doit suffire. Le billet est épuisé — si le
-    // nœud le représentait, l'ami serait dehors « en ayant tout fait
-    // correctement ». C'est le défaut exact que la mémoire de clé ferme.
-    const r = await lancerJoin(billet, nidDeLAmi(), { marqueur: 'vous butinez pour la ruche' });
-    expect(r.sortie).toContain('déjà obtenue — le billet n’est pas redemandé');
-    if (POSIX) expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
-  }, 45_000);
+    // ── Redémarrage, MÊME nid : le billet est épuisé, la clé suffit ────────
+    // Sans la mémoire de clé, ce second lancement représenterait un billet
+    // consommé et mettrait l'ami dehors « en ayant tout fait correctement ».
+    const second = await lancerJoin(billet, w, { marqueur: 'vous butinez pour la ruche' });
+    expect(second.sortie).toContain('déjà obtenue — le billet n’est pas redemandé');
+    if (POSIX) expect(second.code, `sortie :\n${second.sortie}`).toBe(0);
+  }, 90_000);
 
-  it('ACTE 3 — le même billet, un nid NEUF : refus net, marche à suivre', async () => {
-    // L'usage unique n'est pas une politesse : c'est ce qui rend un billet
-    // prêtable. Consommé à l'acte 1, il ne doit plus ouvrir aucune porte.
-    const r = await lancerJoin(billet, nid(), { attendreFin: true });
+  it('UN BILLET ÉPUISÉ N’OUVRE PLUS RIEN — refus net, marche à suivre', async () => {
+    // La prémisse est POSÉE ICI : un billet neuf, consommé par la vraie route
+    // d'échange — le geste exact que `join` fait au test d'à côté, sans
+    // dépendre de lui ni de l'ordre des tests (graine 15838 du tamis).
+    const billet = await creerBillet();
+    const consommation = await fetch(`http://127.0.0.1:${server.port}/api/rejoindre`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        billet,
+        nodeId: `node-premisse-${process.pid}`,
+        label: 'consommateur de prémisse',
+      }),
+    });
+    expect(consommation.status, 'la prémisse ne s’est pas posée : l’échange a échoué').toBe(201);
+
+    const r = await lancerJoin(billet, nid());
     expect(r.code, 'un billet épuisé doit refuser').toBe(1);
-    // Le refus vient de la ruche AVEC son motif, et join dit quoi faire.
     expect(r.sortie).toMatch(/épuisé|refusé|Billet/i);
     expect(r.sortie, 'le refus doit dire comment obtenir un billet neuf').toContain('invite');
   }, 45_000);
