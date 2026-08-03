@@ -49,6 +49,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
   fetchMonTableau: vi.fn(() => Promise.resolve(null)),
+  fetchEssaim: vi.fn(() => Promise.resolve(null)),
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
   fetchCles: vi.fn(() => Promise.resolve({ noeuds: [], billets: [] })),
@@ -62,13 +63,16 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import {
+  fetchEssaim,
   fetchGhosts,
   fetchGuet,
   fetchMemories,
   fetchMonTableau,
+  fetchRayon,
   fetchServeurs,
   fetchVerdictChantier,
 } from '../dashboard/src/api';
+import { PleinEssaim } from '../dashboard/src/PleinEssaim';
 import Intendance from '../dashboard/src/views/Intendance';
 import Memoire from '../dashboard/src/views/Memoire';
 import { Journal } from '../dashboard/src/Journal';
@@ -482,6 +486,96 @@ describe('les sentinelles du balayage du soir', () => {
       'l’échéance à venir se compte',
     ).toContain('5');
     expect(echue?.querySelector('.me-jours'), 'l’échéance passée ne se compte pas').toBeNull();
+  });
+
+  it('PLEIN ESSAIM : le compte d’observations ne se dit QUE s’il y en a', async () => {
+    // `{etat.derive.echantillon > 0 && (…)}` mutée en `||` : le verdict de
+    // santé annoncerait « 0 production(s) observée(s) » — une surveillance
+    // qui prétend avoir observé alors qu'elle n'a rien vu — et le VRAI compte
+    // disparaîtrait dès qu'il existe (le court-circuit rend `true`, React
+    // n'affiche rien).
+    const essaimUi = (echantillon: number) =>
+      ({
+        niveau: 'off',
+        derive: { etat: 'saine', indicateurs: [], echantillon, solitudeJours: 0, motif: 'm' },
+        decision: { pas: 'observer', motif: 'm', gouvernantes: [] },
+        gouvernantes: [],
+        gouvernantesRequises: 2,
+        depotInscrit: false,
+        plafond: 'passe',
+        lecons: [],
+        niveaux: ['off', 'propose', 'gouverne', 'plein'],
+      }) as never;
+    vi.mocked(fetchEssaim).mockResolvedValue(essaimUi(3));
+    const avec = await monter(<PleinEssaim projectId="p1" />);
+    expect(avec.textContent, 'trois productions observées se disent').toContain(
+      '3 production(s) observée(s)',
+    );
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    vi.mocked(fetchEssaim).mockResolvedValue(essaimUi(0));
+    const sans = await monter(<PleinEssaim projectId="p1" />);
+    expect(sans.textContent, 'zéro observation ne se décore pas').not.toContain(
+      'production(s) observée(s)',
+    );
+  });
+
+  it('RAYON : ouvrir un dossier montre SES enfants', async () => {
+    // `{estDossier && rendre(e.chemin, profondeur + 1)}` mutée en `||` : le
+    // court-circuit rend `true` sur chaque dossier — React n'affiche RIEN, et
+    // les enfants d'un dossier déplié ne se montrent jamais. L'arbre entier
+    // deviendrait une liste plate de racine.
+    vi.mocked(fetchRayon).mockImplementation(((_p: string, chemin = '') =>
+      Promise.resolve(
+        chemin === ''
+          ? {
+              chemin: '',
+              entrees: [
+                { chemin: 'alveoles', nom: 'alveoles', type: 'dossier', taille: 0 },
+                { chemin: 'miel.txt', nom: 'miel.txt', type: 'fichier', taille: 12 },
+              ],
+            }
+          : {
+              chemin,
+              entrees: [
+                { chemin: `${chemin}/couvain.ts`, nom: 'couvain.ts', type: 'fichier', taille: 5 },
+              ],
+            },
+      )) as never);
+    const dom = await monter(
+      <Rayon
+        {...props(
+          instantane({
+            projects: [
+              {
+                id: 'p1',
+                name: 'Rucher',
+                repoUrl: null,
+                description: null,
+                visibility: 'private',
+                ownerId: null,
+                createdAt: 1,
+              },
+            ] as never,
+          }),
+        )}
+      />,
+    );
+    expect(dom.textContent, 'la racine se montre').toContain('alveoles');
+    expect(dom.textContent, 'l’enfant ne se montre pas avant le dépli').not.toContain('couvain.ts');
+
+    const bouton = [...dom.querySelectorAll('.ry-entree')].find((b) =>
+      (b.textContent ?? '').includes('alveoles'),
+    );
+    expect(bouton, 'l’entrée du dossier existe').toBeTruthy();
+    await act(async () => {
+      bouton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(dom.textContent, 'le dossier déplié montre ses enfants').toContain('couvain.ts');
+    vi.mocked(fetchRayon)
+      .mockReset()
+      .mockResolvedValue({ chemin: '', entrees: [] } as never);
   });
 
   it('MÉMOIRE : le compteur dit « se souvient », pas « fouille », quand le compte EST là', async () => {

@@ -35,7 +35,10 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
 }));
 
+import { connectFeed, getToken } from '../dashboard/src/api';
+import type { FeedHandlers } from '../dashboard/src/api';
 import { App } from '../dashboard/src/App';
+import { getReview } from '../dashboard/src/views/shared';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -112,5 +115,72 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     expect(rayon.textContent, 'la route du Rayon affiche le Rayon').toContain(
       'Aucun projet dans la ruche.',
     );
+  });
+});
+
+describe('la coquille de l’App — les survivantes du balayage du soir', () => {
+  it('SEUL L’ÉVÉNEMENT task_reviewed SYNCHRONISE LES REVUES — les autres n’y touchent pas', async () => {
+    // `if (ev.type === 'task_reviewed')` mutée en `!==` : le verdict posé par
+    // un autre opérateur ne se synchroniserait JAMAIS, et chaque autre
+    // événement de tâche (progression comprise) appellerait la synchro avec
+    // un état indéfini — c'est-à-dire EFFACERAIT la revue existante.
+    let poignees: FeedHandlers | null = null;
+    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+      poignees = h;
+      return { close: () => {} };
+    });
+    await monter();
+    expect(poignees, 'le flux doit être branché au montage').toBeTruthy();
+
+    const on = poignees as unknown as FeedHandlers;
+    await act(async () => {
+      on.onEvent({
+        id: 1,
+        ts: 1,
+        type: 'task_reviewed',
+        payload: { taskId: 't-sync', state: 'approved' },
+      } as never);
+    });
+    // Le cache des revues vit EN MÉMOIRE (serverReviews) — localStorage ne
+    // porte que le geste local. `getReview` lit ce que l'écran lira.
+    expect(getReview('t-sync'), 'le verdict d’un autre opérateur se synchronise').toBe('approved');
+
+    await act(async () => {
+      on.onEvent({
+        id: 2,
+        ts: 2,
+        type: 'task_progress',
+        payload: { taskId: 't-sync', subAgents: [] },
+      } as never);
+    });
+    expect(getReview('t-sync'), 'la progression ne touche pas aux revues').toBe('approved');
+  });
+
+  it('LE JETON SE POSE À ENTRÉE — et à aucune autre touche', async () => {
+    // `e.key === 'Enter' && applyToken()` mutée en `!==` : chaque frappe
+    // ordinaire poserait un jeton encore incomplet (et reconnecterait le
+    // flux en perdant les événements de la fenêtre), et la touche Entrée —
+    // le geste attendu — ne ferait plus rien.
+    const dom = await monter();
+    const champ = dom.querySelector('.token-input') as HTMLInputElement;
+    expect(champ, 'le champ du jeton existe').toBeTruthy();
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(champ) as object,
+        'value',
+      )?.set;
+      setter?.call(champ, 'jeton-complet-pour-le-banc');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => {
+      champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    });
+    expect(getToken(), 'une frappe ordinaire ne pose rien').not.toBe('jeton-complet-pour-le-banc');
+
+    act(() => {
+      champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(getToken(), 'Entrée pose le jeton').toBe('jeton-complet-pour-le-banc');
   });
 });
