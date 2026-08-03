@@ -303,6 +303,40 @@ describe('site vitrine — les puces de système et la barre', () => {
     expect(affichee.replace(/\s+/g, ' ').trim(), 'la barre naît vide').toMatch(/^curl -fsSL http/);
   });
 
+  it('L’INVITE SUIT L’INTERPRÉTEUR — `>` devant PowerShell, `$` devant le reste', () => {
+    // ─── LE DÉTAIL QUE LA MAQUETTE AVAIT ET QUE LA PAGE N'AVAIT PAS ─────────
+    //
+    // L'invite n'est pas un ornement : `$` promet un shell POSIX, `>` promet
+    // PowerShell. La puce Windows affichait `$ irm …` — le mauvais
+    // interpréteur annoncé sur la seule ligne qu'on lit avant de coller.
+    //
+    // La règle se vérifie par LE CONTENU des commandes, pas par le libellé des
+    // puces : toute puce dont la commande est du PowerShell (`irm `,
+    // `powershell `) doit porter `data-install-invite=">"`, et aucune autre ne
+    // doit porter d'invite — le défaut `$` du script est le bon pour elles.
+    expect(puces.length, 'aucune puce lue — la garde ne regarde rien').toBeGreaterThan(2);
+    for (const p of puces) {
+      const cmd = /data-install-cmd=(?:"([^"]*)"|'([^']*)')/.exec(p);
+      const commande = cmd?.[1] ?? cmd?.[2] ?? '';
+      const powershell = /\birm |\bpowershell /.test(commande);
+      if (powershell) {
+        expect(p, `commande PowerShell sans invite « > » : ${commande.slice(0, 60)}`).toMatch(
+          /data-install-invite=">"/,
+        );
+      } else {
+        expect(p, `invite explicite sur une puce POSIX : ${commande.slice(0, 60)}`).not.toMatch(
+          /data-install-invite/,
+        );
+      }
+    }
+    // Le script bascule bien l'invite, avec `$` en défaut — sans ce défaut, la
+    // barre resterait sur `>` après un aller-retour par la puce Windows.
+    expect(vitrine, 'l’invite n’a plus de nœud identifiable').toMatch(/id="install-invite"/);
+    expect(vitrine, 'le script ne bascule plus l’invite').toMatch(
+      /barreInvite\.textContent = puce\.getAttribute\('data-install-invite'\) \|\| '\$'/,
+    );
+  });
+
   it('les puces n’inventent pas de système : AUCUN script ne connaît de table', () => {
     // Tout vient des attributs. Une table des systèmes dans le script serait
     // une seconde source, qui dériverait du HTML au premier ajout.

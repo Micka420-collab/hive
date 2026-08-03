@@ -2699,6 +2699,7 @@
               class="chip-os"
               aria-pressed="false"
               data-install-cmd='irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"'
+              data-install-invite=">"
               data-i18n-attr="data-install-note:install.note.windows"
               data-install-note="PowerShell 5.1 ou 7. Rien hors du dossier d’installation."
             >
@@ -2727,7 +2728,12 @@
           </div>
 
           <div class="barre-install">
-            <span class="invite" aria-hidden="true">$</span>
+            <!-- L'invite est un fait, pas un décor : `$` promet un shell POSIX,
+                 `>` promet PowerShell. La puce Windows porte la sienne
+                 (`data-install-invite`) — une commande irm derrière un `$`
+                 annoncerait le mauvais interpréteur à la seule ligne que
+                 l'utilisateur lit avant de coller. -->
+            <span class="invite" id="install-invite" aria-hidden="true">$</span>
             <!-- Le bouton copie CE nœud-ci, jamais une constante à côté : ce
                  qu’on lit est donc, par construction, ce qu’on colle. -->
             <code id="install-cmd"
@@ -2745,7 +2751,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >3 045 tests ✓</span
+              >3 046 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -4572,7 +4578,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '3,045 tests ✓',
+          'badge.tests': '3,046 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -5192,6 +5198,7 @@
 
         var barreCmd = document.getElementById('install-cmd');
         var barreNote = document.getElementById('install-note');
+        var barreInvite = document.getElementById('install-invite');
         var puces = [].slice.call(document.querySelectorAll('.chip-os'));
 
         function choisirPuce(puce) {
@@ -5199,6 +5206,10 @@
             p.setAttribute('aria-pressed', String(p === puce));
           });
           barreCmd.textContent = puce.getAttribute('data-install-cmd') || '';
+          /* `$` par défaut : seule la puce qui promet un AUTRE interpréteur
+             porte son invite. PowerShell dit `>`, un shell POSIX dit `$`, et la
+             barre ne doit jamais annoncer l'un devant la commande de l'autre. */
+          barreInvite.textContent = puce.getAttribute('data-install-invite') || '$';
           var note = puce.getAttribute('data-install-note');
           if (note) {
             barreNote.textContent = note;
