@@ -156,6 +156,17 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Septième lot — le lanceur, et le code de sortie qu'il ne rendait pas**
+(même jour) : premier test jamais écrit pour `scripts/ruche.mjs`
+(`tests/lanceur-ruche.test.ts`, 2 tests POSIX, vraie Reine sur port éphémère),
+et il a trouvé UN DÉFAUT DU PRODUIT à sa première exécution : le lanceur
+imprimait « ✘ arrêté (code 1) — la ruche s'arrête. » puis SORTAIT EN 0 — le
+`process.exit(code)` vivait dans un minuteur `unref()`, et la boucle vide
+sortait naturellement avant qu'il ne tire. Une ruche amputée passait pour un
+succès aux yeux d'un superviseur. Corrigé (`process.exitCode` posé avant le
+minuteur), § 9 quindecies au journal — troisième leçon du jour sur un code de
+sortie avalé. 4 mutations 4 rouges, dont le défaut d'origine réintroduit.
+
 **Sixième lot — la transition des différées, extraite et tuée** (même jour) :
 la survivante `ev.type === 'task_conflict_deferred'` du balayage vivait dans un
 `useEffect` de `App.tsx` — 467 lignes d'intégration qu'aucun test ne monte.

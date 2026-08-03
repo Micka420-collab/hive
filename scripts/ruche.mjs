@@ -154,6 +154,19 @@ for (const p of liste) {
 function arreter(code) {
   if (onFerme) return;
   onFerme = true;
+  // ─── LE CODE SE POSE AVANT LE MINUTEUR, PAS DEDANS ─────────────────────────
+  //
+  // La version précédente ne rendait le code QUE par `process.exit(code)` dans
+  // un minuteur `unref()`. Or `unref` veut dire : « ne me retiens pas » — dès
+  // que le dernier enfant meurt et que ses tuyaux se ferment, plus rien ne
+  // tient la boucle, et Node sort NATURELLEMENT… en 0, avant que le minuteur ne
+  // tire. Mesuré : hub mort sur EADDRINUSE, le lanceur imprimait « ✘ arrêté
+  // (code 1) — la ruche s'arrête. » et rendait 0. Pour un superviseur, une
+  // ruche amputée passait pour un succès.
+  //
+  // `process.exitCode` fait porter le bon code à la sortie naturelle ; le
+  // minuteur ne reste que comme coup de grâce si un tuyau retient la boucle.
+  process.exitCode = code;
   for (const e of enfants) {
     // `kill` sur un processus déjà mort est sans effet et ne jette pas ; on ne
     // filtre donc pas, pour ne pas risquer d'en oublier un.

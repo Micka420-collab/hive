@@ -3022,6 +3022,40 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 quindecies. Un `process.exit` dans un minuteur `unref` est une promesse en l'air
+
+Trouvé par le premier test jamais écrit pour `scripts/ruche.mjs` — un défaut du
+PRODUIT, pas du banc d'essai. Le lanceur promettait : « la mort d'un seul
+emporte les autres », et il rendait le code de sortie ainsi :
+
+```js
+differer(() => process.exit(code), 1_000).unref();
+```
+
+`unref` veut dire : « ne me retiens pas ». Dès que le dernier enfant meurt et
+que ses tuyaux se ferment, plus rien ne tient la boucle — et Node sort
+NATURELLEMENT, en 0, AVANT que le minuteur ne tire. Mesuré : hub mort sur
+`EADDRINUSE`, le lanceur imprimait « ✘ arrêté (code 1) — la ruche s'arrête. »
+et rendait **0**. Toute la prose était juste ; le seul octet qu'un superviseur
+lit était faux. Une ruche amputée passait pour un succès — exactement la panne
+que le commentaire du fichier disait vouloir éviter.
+
+### La règle
+
+> Un `process.exit(code)` différé dans un minuteur `unref()` ne s'exécute que
+> si quelque chose d'AUTRE retient la boucle jusque-là. Le code de sortie se
+> pose en `process.exitCode = code` AVANT le minuteur — la sortie naturelle le
+> porte alors — et le `process.exit` du minuteur ne reste que comme coup de
+> grâce pour une boucle qu'un tuyau retiendrait.
+
+C'est la troisième leçon de la journée sur un code de sortie avalé (§ 9
+quaterdecies : par un tube ; ici : par la course entre la boucle qui se vide et
+un minuteur qui a promis de ne pas la retenir). Le motif commun : **le code de
+sortie n'est jamais vérifié en le lisant soi-même** — on croit l'avoir rendu
+parce qu'on a écrit l'instruction qui le rend.
+
+---
+
 ## 9 quaterdecies. Un tube avale le code de sortie — trois morsures en une heure
 
 Trois fois le même mécanisme, le même jour, sous trois déguisements :
