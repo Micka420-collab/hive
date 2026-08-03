@@ -1458,10 +1458,48 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   if (existsSync(path.join(dashboardDist, 'index.html'))) {
     await app.register(fastifyStatic, { root: dashboardDist });
   } else {
-    app.get('/', async () => ({
-      hive: 'orchestrateur en ligne',
-      hint: 'Dashboard non construit : lancez `npm run build:dashboard`.',
-    }));
+    // ─── CE QU'ON SERT QUAND L'ÉCRAN N'EST PAS CONSTRUIT ─────────────────────
+    //
+    // Cette route rendait un objet JSON. Dans un terminal c'est lisible ; dans
+    // un navigateur — c'est-à-dire là où arrive quelqu'un qui vient de lancer
+    // `npm run dev` — ça donne :
+    //
+    //     {"hive":"orchestrateur en ligne","hint":"Dashboard non construit : …"}
+    //
+    // Le premier contact avec le produit était un texte de débogage. La
+    // consigne y était pourtant, mot pour mot : ce n'est pas l'information qui
+    // manquait, c'est la FORME. On sert donc une page, avec la commande à
+    // copier — et sans une seule requête vers l'extérieur, puisque la ruche
+    // n'en émet jamais.
+    //
+    // `install.sh` construit désormais l'écran (1,9 s) : cette page ne devrait
+    // se voir que sur un clone monté à la main. Elle reste le filet de celui-là.
+    const PAGE_SANS_ECRAN = `<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive — l'écran n'est pas construit</title>
+<style>
+  :root { color-scheme: light }
+  body { margin:0; min-height:100vh; display:grid; place-items:center;
+         background:#f7f3e9; color:#1b1712; padding:24px;
+         font:16px/1.55 'Segoe UI', system-ui, sans-serif }
+  main { max-width:34rem }
+  h1 { margin:0 0 14px; font-size:clamp(24px,5vw,34px); letter-spacing:-.03em }
+  p { margin:0 0 16px; color:#4a4238 }
+  code { display:block; padding:14px 16px; border-radius:10px;
+         background:#1b1712; color:#f4eee0; overflow-x:auto;
+         font:14px ui-monospace, SFMono-Regular, Menlo, monospace }
+  small { color:#7c7263 }
+</style></head><body><main>
+  <h1>La ruche tourne. L'écran, lui, n'est pas construit.</h1>
+  <p>L'orchestrateur répond — l'API, les nœuds et les tâches fonctionnent.
+     Il manque seulement l'interface, qui se construit en une commande&nbsp;:</p>
+  <code>npm run build:dashboard</code>
+  <p><small>Rechargez cette page ensuite. Rien à réinstaller.</small></p>
+</main></body></html>`;
+    app.get('/', async (_req, reply) =>
+      reply.type('text/html; charset=utf-8').send(PAGE_SANS_ECRAN),
+    );
   }
 
   const authorized = (req: FastifyRequest): boolean =>

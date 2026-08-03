@@ -541,3 +541,44 @@ fi
 
 # shellcheck disable=SC2086
 npm run install:hive -- $POUR_INSTALLEUR
+
+# ─── 5. L'écran ─────────────────────────────────────────────────────────────
+#
+# ─── CE QUE VOYAIT UN NOUVEL ARRIVANT AVANT CETTE ÉTAPE ─────────────────────
+#
+# L'installation réussissait, `hive doctor` ne reprochait plus qu'UNE chose —
+# « tableau de bord non construit » —, et celui qui suivait la consigne
+# (`npm run dev`, puis son navigateur) recevait ceci :
+#
+#     {"hive":"orchestrateur en ligne","hint":"Dashboard non construit : …"}
+#
+# Le premier contact avec le produit était donc un texte de débogage, sur une
+# ruche dont toute la promesse est un tableau de bord de treize vues.
+#
+# ─── POURQUOI ON LE CONSTRUIT PLUTÔT QUE DE LE DIRE ─────────────────────────
+#
+# Parce que c'est GRATUIT : mesuré à 1 866 ms sur ce dépôt, contre ≈ 20 s pour
+# le `npm install` qui vient de passer. Faire porter à l'utilisateur une
+# commande de plus pour économiser deux secondes, c'est lui demander de payer
+# notre confort en attention — et l'attention d'un nouvel arrivant est ce qu'on
+# a de plus rare.
+#
+# ─── ET POURQUOI UN ÉCHEC ICI N'ARRÊTE RIEN ─────────────────────────────────
+#
+# La ruche TOURNE sans écran : orchestrateur, API, nœuds, tout fonctionne. Un
+# `vite build` qui échoue (mémoire, plateforme exotique) ne doit donc pas
+# transformer une installation réussie en installation ratée. On suspend
+# `set -e` le temps de l'appel, on le dit, et on rend la main avec le geste.
+etape "Construction de l'écran"
+CODE_ECRAN=0
+npm run build:dashboard >/dev/null 2>&1 || CODE_ECRAN=$?
+if [ "$CODE_ECRAN" = 0 ]; then
+  ok "tableau de bord prêt"
+else
+  alerte "l'écran n'a pas pu être construit — la ruche tourne quand même"
+  dire ""
+  dire "  Pour réessayer plus tard, sans rien réinstaller :"
+  dire ""
+  accent "    cd $DOSSIER && npm run build:dashboard"
+  dire ""
+fi

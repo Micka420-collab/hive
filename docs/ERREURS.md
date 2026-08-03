@@ -2779,6 +2779,55 @@ montré qu'elles pouvaient être en désaccord.
 
 ---
 
+## 2 duodecies. Un repère d’ORDRE qui n’est pas unique ne garde aucun ordre
+
+Troisième fois en une journée, sur un matériau différent à chaque fois. Il faut
+donc que la règle soit écrite une bonne fois.
+
+La garde voulait tenir : « l'installeur construit l'écran APRÈS avoir
+configuré ». Elle comparait deux positions :
+
+```js
+const iConfig = install.indexOf('npm run install:hive --');
+const iEcran = install.indexOf('npm run build:dashboard');
+expect(iEcran).toBeGreaterThan(iConfig);
+```
+
+Les deux chaînes apparaissent **plusieurs fois** dans `install.sh` : dans le
+bloc `--dry-run`, et dans la ligne de conseil qui redonne le geste après un
+échec. `indexOf` rend la PREMIÈRE, donc deux positions qui n'ont rien à voir
+avec les appels réels. Déplacer pour de bon la construction avant la
+configuration laissait la garde verte — mesuré, le mutant a survécu.
+
+**La règle.** Une garde qui compare des POSITIONS doit d'abord prouver que ses
+repères sont **uniques**. Sans quoi elle compare deux occurrences arbitraires et
+rend un verdict sur rien.
+
+Le remède tient en deux lignes, et il vaut mieux que n'importe quelle
+précaution de rédaction :
+
+```js
+expect(compter(APPEL_CONFIG)).toBe(1);
+expect(compter(APPEL_ECRAN)).toBe(1);
+```
+
+### La famille, maintenant qu'elle est complète
+
+Trois occurrences aujourd'hui, trois matériaux :
+
+1. **§ 2 quater** — un repère textuel que le COMMENTAIRE contient aussi.
+2. **§ 9 octies** — une ancre de MUTATION présente deux fois : elle frappait
+   ailleurs que dans le périmètre de la garde.
+3. **§ 2 duodecies** — un repère d'ORDRE présent deux fois : les positions
+   comparées n'étaient pas celles des appels.
+
+C'est le même défaut : **on désigne par un motif ce qu'on croit unique, sans
+jamais compter.** Le geste qui l'évite est toujours le même et coûte une ligne —
+compter avant d'utiliser. Je l'écris ici en toutes lettres parce que trois
+rappels en une journée montrent qu'il ne se déduit pas ; il se vérifie.
+
+---
+
 ## 10. Ce qui a le mieux marché
 
 À garder, parce que ces gestes ont trouvé des défauts que rien d'autre n'aurait

@@ -29,6 +29,74 @@ l'avertissement en tête de ce carnet.
 
 ---
 
+## Point de sortie du 3 août — J-30
+
+Sortie visée le 2 septembre 2026. **Trente jours.** Rien n'est arrondi ici : un
+critère non mesuré n'est pas atteint, et il se dit comme tel.
+
+### Livré ET vérifié depuis hier
+
+Trois choses seulement, et les trois sont mesurées, pas écrites.
+
+|                                            | ce qui le prouve                                                                                                                                                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **La loupe a balayé tout le code du jour** | 41 mutations possibles, **41 examinées, 41 tuées**, sans échantillonnage. Atelier séparé, base sur le premier commit du 2 août.                                                                       |
+| **Le `spawn` de l'agent sous Windows**     | Log de la jambe `windows-latest` : `✓ tests/agent-windows-spawn.test.ts (4 tests)` — quatre, là où Linux affiche `1 passé                                                                             | 3 sautés`. Le chemin composé existe, `spawn('node', […], shell:false)` le lance, les arguments traversent. |
+| **Le déploiement sans écran**              | Lancé sur un clone vierge sous Node 24 : code **0**, `.env` créé en **600** avec 8 clés, aucun secret d'exemple survivant, `hive doctor` qui répond. Sans les secrets : **3**, avant de rien toucher. |
+
+Deux de ces trois lignes étaient annoncées **hors d'atteinte** la veille. Dans les
+deux cas la barrière n'était pas technique — je n'avais pas chiffré le coût de la
+franchir (§ 9 decies et § 2 undecies du journal).
+
+Barrière au 3 août : `typecheck`, `lint`, **2 998 tests passés / 3 sautés** sur
+183 fichiers, verte sur les trois systèmes.
+
+### Ce qui reste, par ce qui gêne un nouvel arrivant EN PREMIER
+
+1. **Après une installation réussie, il n'y a pas d'écran.** Mesuré à l'instant
+   sur un clone vierge : le docteur ne reproche qu'une chose,
+   `⚠ dashboard — tableau de bord non construit`. Celui qui suit la consigne
+   (`npm run dev`) et ouvre son navigateur reçoit **un bloc JSON**
+   (`{"hive":"orchestrateur en ligne","hint":…}`). C'est le premier contact avec
+   le produit, et c'est un texte de débogage. **Coût de la correction, chiffré :
+   `npm run build:dashboard` prend 1 866 ms** et fait passer le diagnostic de ⚠
+   à ✔. C'est le lot en cours.
+2. **La vitrine fait 13 sections et ~11 400 px** là où la maquette en fait 7 et
+   3 865. Le premier écran est juste ; la page est trois fois trop longue.
+   **Demande un arbitrage** (voir plus bas).
+3. **Lot 8 — pas de Release, pas d'empreintes.** Le chemin annoncé
+   (`curl … | sh`) clone `main` et fonctionne ; il n'y a simplement aucune
+   version figée à installer. La moitié « Release » est bloquée.
+4. **Lot 9 🟡 — les fichiers de service sont écrits, jamais acceptés.** Aucune CI
+   ne peut vérifier que `systemctl` / `launchctl` / `schtasks` les avalent. Le
+   plan pur est vérifié pour les trois plateformes ; l'installation réelle, non.
+
+### Hors d'atteinte — à dire, pas à simuler
+
+- **Les comptes npm (lot 7) et GHCR/cosign (lot 10)** ne sont pas les miens. Le
+  code est prêt, la publication non.
+- **Une VM Windows 11 et une Ubuntu 24.04 vierges** pour mesurer le critère 1 au
+  sens strict. Ce qui a été mesuré l'a été dans un conteneur — ce n'est pas la
+  même chose, et ça se dit. _(À noter : le `spawn` Windows, lui, EST vérifié
+  depuis hier — sur le runner de la CI, qui est une vraie machine Windows.)_
+- **L'intermittent signalé à l'origine n'a jamais été reproduit sur Linux** :
+  invisible en 8 ordres mélangés et 3 exécutions identiques. Pas fermé —
+  introuvable d'ici.
+- **Les tarifs** (0 € / 49 € / dès 79 €) sont affichés comme modèle proposé,
+  aucun paiement encaissé. Encaisser avant le 2 septembre est une décision
+  commerciale.
+- **La longueur de la vitrine et sa navigation.** La maquette a 3 liens et
+  7 sections ; la page en a 10 et 13. Retirer six sections construites sur
+  demande n'est pas une correction de design.
+
+### Ce que la loupe ne couvre toujours pas
+
+Le balayage du 3 août porte sur **le diff du jour**, pas sur le dépôt entier, et
+la loupe ne mute que des **opérateurs**. Une garde absente sur du code sans
+opérateur lui reste invisible.
+
+---
+
 ## Point franc du 2 août — J-31
 
 Rendu à la demande de l'utilisateur, après une journée de sept lots fusionnés

@@ -180,3 +180,95 @@ describe('CE QUE L’INSTALLEUR WINDOWS DIT DE LA POLITIQUE D’EXÉCUTION', () 
     expect(PS1).toMatch(/npm\.cmd/);
   });
 });
+
+// ─── UNE RUCHE INSTALLÉE MAIS SANS ÉCRAN ─────────────────────────────────────
+//
+// Mesuré sur un clone vierge le 3 août : l'installation réussit, et
+// `hive doctor` ne reproche plus qu'UNE chose — « tableau de bord non
+// construit ». Celui qui suit la consigne (`npm run dev`, puis son navigateur)
+// recevait alors :
+//
+//     {"hive":"orchestrateur en ligne","hint":"Dashboard non construit : …"}
+//
+// Le premier contact avec le produit était un texte de débogage, sur une ruche
+// dont toute la promesse est un tableau de bord.
+//
+// Deux corrections, et donc deux propriétés à tenir : l'installeur CONSTRUIT
+// l'écran (1,9 s mesurées, contre ≈ 20 s de `npm install` juste avant), et le
+// serveur sert une PAGE plutôt qu'un objet à celui qui arrive quand même sans.
+describe('l’écran après une installation', () => {
+  const install = readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
+  const serveur = readFileSync(new URL('../src/orchestrator/server.ts', import.meta.url), 'utf8');
+
+  it('L’INSTALLEUR CONSTRUIT L’ÉCRAN, et APRÈS avoir configuré', () => {
+    // L'ordre compte : construire avant que `.env` existe ferait tourner Vite
+    // pour une ruche qui n'est peut-être pas configurée.
+    // LES DEUX REPÈRES DOIVENT ÊTRE UNIQUES, et ma première version ne l'a pas
+    // vérifié : `npm run install:hive --` et `npm run build:dashboard`
+    // apparaissent AUSSI dans le bloc `--dry-run` et dans la ligne de conseil.
+    // `indexOf` pointait donc sur ces occurrences-là, et déplacer réellement la
+    // construction avant la configuration laissait la garde verte. Mesuré :
+    // le mutant a survécu.
+    //
+    // On vise donc les deux APPELS, à leur forme exacte, et on exige leur
+    // unicité avant de comparer quoi que ce soit.
+    const APPEL_CONFIG = 'npm run install:hive -- $POUR_INSTALLEUR';
+    const APPEL_ECRAN = 'npm run build:dashboard >/dev/null';
+    const compter = (aiguille: string): number => install.split(aiguille).length - 1;
+    expect(compter(APPEL_CONFIG), `repère non unique : ${APPEL_CONFIG}`).toBe(1);
+    expect(compter(APPEL_ECRAN), `repère non unique : ${APPEL_ECRAN}`).toBe(1);
+    expect(
+      install.indexOf(APPEL_ECRAN),
+      'l’écran se construit AVANT la configuration',
+    ).toBeGreaterThan(install.indexOf(APPEL_CONFIG));
+  });
+
+  it('UN ÉCHEC DE CONSTRUCTION N’ANNULE PAS L’INSTALLATION', () => {
+    // La ruche TOURNE sans écran : orchestrateur, API, nœuds. Un `vite build`
+    // qui échoue ne doit pas transformer une installation réussie en échec —
+    // et `set -eu` le ferait sans le `|| CODE=$?`.
+    expect(install, 'set -eu a disparu : tout le raisonnement ci-dessous tombe').toMatch(
+      /^set -eu$/m,
+    );
+    // On vise L'APPEL, pas la ligne de conseil : le fichier contient les deux,
+    // et découper le script sur un repère approximatif — ma première version
+    // coupait sur « accent( », défini cent lignes plus haut — vise à côté.
+    const ligne = /^.*npm run build:dashboard\s*>.*$/m.exec(install)?.[0] ?? '';
+    expect(ligne, 'appel à build:dashboard introuvable').not.toBe('');
+    expect(ligne, 'un échec de construction ferait mourir l’installeur').toMatch(/\|\|\s*\w+=\$\?/);
+    // Et il doit DIRE quoi faire, sans quoi l'utilisateur reste avec une ruche
+    // muette et aucune piste.
+    expect(install, 'l’échec ne redonne pas le geste').toMatch(
+      /npm run build:dashboard[\s\S]{0,400}?cd \$DOSSIER && npm run build:dashboard/,
+    );
+  });
+
+  it('SANS ÉCRAN, LE SERVEUR SERT UNE PAGE — pas un objet JSON', () => {
+    // La consigne était déjà là, mot pour mot, dans le JSON. Ce n'est pas
+    // l'information qui manquait, c'est la forme : un navigateur affiche
+    // l'objet tel quel.
+    expect(serveur, 'le repli est redevenu du JSON').not.toMatch(
+      /app\.get\('\/', async \(\) => \(\{\s*hive:/,
+    );
+    expect(serveur, 'le repli ne se déclare plus comme du HTML').toMatch(
+      /reply\.type\('text\/html; charset=utf-8'\)/,
+    );
+    expect(serveur, 'la page de repli ne dit plus la commande').toMatch(
+      /<code>npm run build:dashboard<\/code>/,
+    );
+  });
+
+  it('LA PAGE DE REPLI N’APPELLE PERSONNE À L’EXTÉRIEUR', () => {
+    // Une ruche n'émet aucune requête sortante. Une page de secours qui irait
+    // chercher une fonte ou une feuille de style trahirait l'adresse de la
+    // machine au premier démarrage — c'est-à-dire au pire moment.
+    const page = /const PAGE_SANS_ECRAN = `([\s\S]*?)`;/.exec(serveur)?.[1] ?? '';
+    expect(page, 'page de repli introuvable').not.toBe('');
+    expect(page, 'la page de repli va chercher quelque chose dehors').not.toMatch(
+      /https?:\/\/|src=|<link\b/,
+    );
+    // Et elle doit rester lisible sur un téléphone : c'est une page d'erreur,
+    // pas une maquette, mais elle se lit sur ce qu'on a sous la main.
+    expect(page, 'pas de viewport : illisible sur téléphone').toMatch(/name="viewport"/);
+  });
+});
