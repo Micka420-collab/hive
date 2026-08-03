@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { PlateformeNoeud } from '../shared/machine.js';
 import { LIMITS } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
@@ -632,6 +633,20 @@ CREATE TABLE IF NOT EXISTS project_members (
   PRIMARY KEY (projectId, userId)
 );
 CREATE INDEX IF NOT EXISTS idx_members_user ON project_members(userId);
+
+-- La machine derriere chaque noeud (windows/macos/linux/autre), DECLAREE par
+-- lui a l'inscription. TABLE LATERALE, pas une colonne de plus sur « nodes »
+-- (regle 2 : aucune migration) : une base deja en service la cree vide et la
+-- remplit au fil des reconnexions.
+--
+-- BORNE STRUCTURELLE (regle 3), comme « user_roles » : une ligne par noeud,
+-- jamais plus — la clef primaire EST la borne. Un noeud ancien qui ne declare
+-- rien n'a pas de ligne, et l'ecran n'invente rien a sa place.
+CREATE TABLE IF NOT EXISTS machines_noeuds (
+  nodeId     TEXT PRIMARY KEY REFERENCES nodes(id),
+  plateforme TEXT NOT NULL,
+  majA       INTEGER NOT NULL
+);
 `;
 
 interface ProjectRow {
@@ -862,6 +877,8 @@ export interface NodeProfile {
   ownerName: string;
   agentType: string;
   maxConcurrency: number;
+  /** La machine déclarée par le nœud. Absente : on n'écrase pas ce qu'on sait. */
+  plateforme?: PlateformeNoeud;
 }
 
 export interface TaskPatch {
@@ -914,11 +931,12 @@ function rowToTask(row: TaskRow): Task {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, (
+  SELECT n.*, m.plateforme AS plateforme, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
   ) AS running
   FROM nodes n
+  LEFT JOIN machines_noeuds m ON m.nodeId = n.id
 `;
 
 export class HiveStore {
@@ -1148,6 +1166,17 @@ export class HiveStore {
           'online',
           now,
         );
+    }
+    // La machine déclarée se range à part (table latérale). ABSENTE, on ne
+    // touche à rien : un client d'une version antérieure qui se reconnecte ne
+    // doit pas effacer ce qu'une version récente avait appris.
+    if (profile.plateforme !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO machines_noeuds (nodeId, plateforme, majA) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET plateforme = excluded.plateforme, majA = excluded.majA',
+        )
+        .run(id, profile.plateforme, now);
     }
     return this.getNode(id) as HiveNode;
   }

@@ -1,5 +1,7 @@
-// Panneau des nœuds : une carte par machine membre, avec charge et agent.
+// Panneau des nœuds : une carte par machine membre, avec charge, agent — et
+// la MACHINE elle-même (🪟/🍎/🐧), déclarée par le nœud à l'inscription.
 
+import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode } from '../../src/shared/types';
 import { useT } from './i18n';
 import { ProgressBar } from './ui';
@@ -44,6 +46,16 @@ export function NodesPanel({ nodes }: { nodes: HiveNode[] }) {
               </div>
               <div className="node-meta">
                 {n.ownerName} · {n.agentType}
+                {/* La machine derrière l'ouvrière — « quelles ouvrières
+                    tournent sous Windows ? » se lit ici, pas dans un log.
+                    Absente (nœud d'une version antérieure) : rien, plutôt
+                    qu'une plateforme inventée. */}
+                {n.plateforme && (
+                  <span className="node-plateforme" title={n.plateforme}>
+                    {' '}
+                    · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+                  </span>
+                )}
               </div>
               <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
             </div>

@@ -6642,6 +6642,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               ownerName: msg.ownerName,
               agentType: msg.agentType,
               maxConcurrency: msg.maxConcurrency,
+              // Déjà validée par le protocole (estPlateforme) — hors liste, le
+              // message entier a été refusé bien avant d'arriver ici.
+              ...(msg.plateforme !== undefined ? { plateforme: msg.plateforme } : {}),
             });
             nodeId = node.id;
             const previous = nodeSockets.get(node.id);

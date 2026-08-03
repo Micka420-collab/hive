@@ -2,6 +2,8 @@
 // Chaque message entrant est validé champ par champ — jamais de confiance aveugle.
 
 import { nomDeChantierValide } from './chantier.js';
+import { estPlateforme } from './machine.js';
+import type { PlateformeNoeud } from './machine.js';
 import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
@@ -55,6 +57,11 @@ export interface RegisterMsg {
   nodeId?: string;
   /** Tâches réellement en cours côté nœud, pour réconciliation à la reconnexion. */
   activeTasks?: string[];
+  /**
+   * La machine du nœud (windows/macos/linux/autre), déclarée par lui. Optionnel :
+   * un nœud d'une version antérieure n'en envoie pas, et le hub n'invente rien.
+   */
+  plateforme?: PlateformeNoeud;
 }
 
 export interface HeartbeatMsg {
@@ -421,6 +428,13 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.activeTasks !== undefined) {
           if (!isIdList(m.activeTasks)) return null;
           msg.activeTasks = m.activeTasks;
+        }
+        // La plateforme vient du réseau : hors liste, le message est REFUSÉ —
+        // pas corrigé en douce. Un champ optionnel mal formé est un client
+        // qui ment ou qui bogue, et les deux se disent.
+        if (m.plateforme !== undefined) {
+          if (!estPlateforme(m.plateforme)) return null;
+          msg.plateforme = m.plateforme;
         }
         return msg;
       }

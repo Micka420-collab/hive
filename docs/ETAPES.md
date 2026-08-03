@@ -182,6 +182,27 @@ décision d'interface n° 1 de la vue — est le chemin du test, comme du
 clavier. `tests/cerveau-vue.test.tsx`, 2 tests, **2 mutations rejouées,
 2 rouges.**
 
+**MISSION « LE POSTE » — lot 1 : la machine derrière chaque ouvrière** (même
+soir, 18 h 05 → 18 h 20 UTC, demandé par l'utilisateur en s'inspirant de
+ai-workers.dls.so — les ouvrières IA présentées comme des coéquipières).
+« Quelles ouvrières tournent sous Windows ? » a désormais une réponse à
+l'écran : le nœud DÉCLARE sa plateforme à l'inscription
+(`plateformeDepuis(process.platform)` — module pur `src/shared/machine.ts`,
+une seule liste partagée protocole/écran), le protocole la VALIDE (hors
+liste → message entier refusé, pas de correction en douce), le store la
+retient dans une table LATÉRALE `machines_noeuds` (règle 2 : aucune
+migration ; borne structurelle : une ligne par nœud ; un client ancien qui
+ne déclare rien N'EFFACE PAS le savoir acquis), et le panneau des nœuds
+porte la puce (🪟 windows · 🍎 macos · 🐧 linux — rien pour un nœud d'avant,
+plutôt qu'une invention). `tests/poste-machine.test.ts` (10 tests, dont un
+BOUT-EN-BOUT : vrai nœud, vraie ruche, `/api/state` porte la plateforme de
+ce processus) + `tests/poste-ecran.test.tsx` (2 tests). **6 mutations
+rejouées — une par maillon : pur, protocole, store, écran, client, serveur —
+6 rouges.** Lots suivants de la mission : la fiche coéquipière (missions,
+mémoire, liens Rayon/Aperçu — « l'ordinateur virtuel de la ruche pour
+tester/modifier le code » — existe déjà en pièces, il manque la porte
+d'entrée par ouvrière).
+
 **L'INTERMITTENT DE LA GRAINE 23757 EST ATTRAPÉ** (même soir) : deuxième
 frappe sur la même graine, et cette fois avec un nom — join-ruche-vivante,
 « expected 130 to be +0 », le message « Déconnexion de la ruche… » PRÉSENT
