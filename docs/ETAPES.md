@@ -170,6 +170,22 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Quatorzième lot — les Projets : la porte, le rapport, l'étoile** (même
+jour, 17 h 25 → 17 h 30 UTC) : les TROIS survivantes de la vue. La porte de
+l'atelier Queen Bee (`busy !== 'idle' ||` mutée en `===` : bouton mort au
+repos, vivant pendant le travail — les deux moitiés vérifiées par frappe
+réelle dans le champ contrôlé), le rapport de merge qui ne se rend qu'une
+fois RENDU (muté, `result` indéfini casse l'écran au repos — le flux complet
+est joué : plan, double confirmation, scrutation aux minuteurs simulés,
+résultat au battement suivant), et l'habit « retenue » du Conseil des
+Éclaireuses sur LA danse retenue seule (la battue n'a aucun arrêt : sa classe
+ne peut devenir « retenue » que par la mutation ; l'ancre visée est la ligne
+de la CLASSE, pas sa jumelle de l'étoile — § 2 duodecies).
+`tests/projets-alveoles.test.tsx`, 3 tests, **3 mutations rejouées,
+3 rouges.** Leçon d'instrument : deux sous-composants embarqués (PleinEssaim,
+Balance) sondent par de VRAIS fetch — sans leurs simulacres, le banc bruisse
+d'ECONNREFUSED vers le port 3000. Restent **11 survivantes.**
+
 **Treizième lot — la Miellerie, la plus grosse famille, tombe entière** (même
 jour, 17 h 15 → 17 h 25 UTC) : les QUATRE survivantes de la vue, chacune avec
 ce que l'écran aurait raconté de faux — la file de revue qui enterrerait le
