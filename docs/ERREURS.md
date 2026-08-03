@@ -3022,6 +3022,37 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 sexdecies. Un intermittent ne laisse que ce que l'assertion montre
+
+Le test bout-en-bout du merge (`merge-wiring.test.ts`) a rougi UNE fois en CI
+(3 août, graine 23757) : `expected [] to deeply equal ['wa','wb']`. Rejoué en
+local au même commit, même graine : vert. Un `applied` vide non refusé ne peut
+venir que de la branche `catch` du nœud — le clone ou `runMerge` a JETÉ — et le
+message réel de l'exception vivait dans `result.logs`. Or personne ne
+l'affichait : le client du test est `quiet`, et l'assertion était nue
+(`expect(result?.applied).toEqual([...])`). L'intermittent est reparti avec son
+secret ; c'est peut-être le même que celui « jamais reproduit en 8 ordres
+mélangés et 3 exécutions identiques » — et on ne le saura pas, précisément
+parce que rien n'a été noté au moment où il frappait.
+
+La différence avec un test ORDINAIRE : un rouge reproductible, on le rejoue
+avec des `console.log`. Un rouge à une occurrence par semaine, **la seule
+information qu'on en aura jamais est celle que l'assertion emporte** — c'est au
+moment où l'on écrit le test qu'on décide de ce que la panne future dira.
+
+### La règle
+
+> Dans un test de bout en bout, toute assertion sur un RÉSULTAT DISTANT porte
+> en message le diagnostic embarqué (`logs`, `conflicts`, `refused`, …) que le
+> canal transporte déjà. Une assertion nue sur un champ d'un résultat distant,
+> c'est choisir d'avance que l'intermittent restera introuvable.
+
+Corrigé dans `merge-wiring.test.ts` : chaque assertion du chemin heureux porte
+`diagnostic()` — la prochaine rougeur dira si c'est le clone, un conflit
+d'application, ou un refus, au lieu de « expected [] ».
+
+---
+
 ## 9 quindecies. Un `process.exit` dans un minuteur `unref` est une promesse en l'air
 
 Trouvé par le premier test jamais écrit pour `scripts/ruche.mjs` — un défaut du

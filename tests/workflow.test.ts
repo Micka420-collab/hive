@@ -317,6 +317,18 @@ describe('RELIRE LES RUNS', () => {
     expect(lireRun(run({ run_started_at: 'jamais', created_at: undefined }))?.demarreA).toBe(0);
   });
 
+  it('LE NOM DU RUN est celui de l’API — la ligne jumelle de lireWorkflow', () => {
+    // La survivante du balayage loupe du 3 août : `typeof o.name === 'string'`
+    // mutée en `!==` DANS lireRun — la jumelle textuelle de la ligne de
+    // lireWorkflow (§ 2 duodecies : deux marqueurs identiques, deux sorts
+    // différents). lireWorkflow rend null sur nom vide ; lireRun, lui, ne
+    // refuse rien — muté, chaque run s'afficherait SANS NOM, sans une erreur.
+    expect(lireRun(run())?.nom).toBe('CI');
+    // Et un nom qui n'est pas une chaîne devient chaîne vide — jamais la
+    // valeur crue, qui traverserait l'échappement prévu pour des chaînes.
+    expect(lireRun(run({ name: 42 }))?.nom).toBe('');
+  });
+
   it('sans workflowId, on lit les runs du DÉPÔT', async () => {
     const { f, appels } = faux([{ corps: { workflow_runs: [run()] } }]);
     const r = await lireRuns({ jeton: JETON, fetcheur: f }, 'o/r');

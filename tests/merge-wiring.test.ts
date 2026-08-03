@@ -161,11 +161,25 @@ describe('câblage merge (hub↔nœud)', () => {
       }
       await new Promise((r) => setTimeout(r, 150));
     }
-    expect(result).not.toBeNull();
-    expect(result?.applied).toEqual(['wa', 'wb']);
-    expect(result?.conflicts).toEqual([]);
-    expect(result?.mergedDiff).toContain('l2-A');
-    expect(result?.mergedDiff).toContain('l10-B');
+    // ─── LA PANNE DOIT PORTER SA CAUSE ─────────────────────────────────────
+    //
+    // Ce test a rougi UNE fois en CI (« expected [] to deeply equal
+    // ['wa','wb'] », 3 août, graine 23757) sans laisser d'empreinte : un
+    // `applied` vide non refusé vient de la branche catch du nœud — clone ou
+    // runMerge a JETÉ — et le message réel vit dans `result.logs`, que
+    // personne n'affichait (le client est `quiet`, l'assertion était nue).
+    // L'intermittent est reparti avec son secret. Chaque assertion porte donc
+    // le diagnostic : la prochaine rougeur se lira au lieu de se deviner.
+    const diagnostic = (): string =>
+      result === null
+        ? 'aucun résultat avant l’échéance'
+        : `applied=${JSON.stringify(result.applied)} conflicts=${JSON.stringify(result.conflicts)}` +
+          `${result.refused ? ` refused=${result.refused}` : ''}\n— logs du nœud —\n${result.logs}`;
+    expect(result, diagnostic()).not.toBeNull();
+    expect(result?.applied, diagnostic()).toEqual(['wa', 'wb']);
+    expect(result?.conflicts, diagnostic()).toEqual([]);
+    expect(result?.mergedDiff, diagnostic()).toContain('l2-A');
+    expect(result?.mergedDiff, diagnostic()).toContain('l10-B');
   });
 
   it('refuse un projet sans dépôt et exige le token', async () => {

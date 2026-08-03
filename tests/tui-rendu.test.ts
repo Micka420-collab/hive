@@ -576,6 +576,17 @@ describe('LA BARRE DE PROGRESSION', () => {
     expect(vu).toBe('[#####-----]');
     expect(vu, 'aucun échappement quand la couleur est coupée').not.toContain(ESC);
   });
+
+  it('un ratio EXACT ne fabrique pas de huitième fantôme (&&, pas ||)', () => {
+    // La survivante du balayage loupe du 3 août : `pleins < cases && reste > 0`
+    // mutée en `||`. À 2/4 exactement, il n'y a AUCUN reste : deux pleins, deux
+    // vides. Mutée, la barre afficherait '██▏░' — un huitième entamé qui
+    // n'existe pas, et une colonne de vide avalée pour lui faire de la place.
+    // (La garde de largeur ne rougissait pas : le total reste bon, c'est le
+    // CONTENU qui ment.)
+    expect(nu(barreProgression(0.5, 4, VRAI))).toBe('██░░');
+    expect(nu(barreProgression(1, 4, VRAI))).toBe('████');
+  });
 });
 
 describe('LA MARQUE EN LETTRES DE BLOCS', () => {

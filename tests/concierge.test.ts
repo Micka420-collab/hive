@@ -275,6 +275,27 @@ describe('answerLive', () => {
     expect(en.reply).toContain('drone race(s) in flight');
   });
 
+  it('courses : le compte « en vol » ne compte QUE les drones en vol', () => {
+    // La survivante du balayage loupe du 3 août : `d.status === 'running'`
+    // mutée en `!==`. Le contexte du test voisin (1 en vol, 1 tombé) est
+    // SYMÉTRIQUE — 1 de chaque côté du miroir, la mutation y est invisible.
+    // Ici 2 en vol, 1 tombé : le miroir répondrait « 1 drone(s) en vol ».
+    const ctx = makeCtx({
+      races: [
+        {
+          taskId: 't9',
+          title: 'Audit de sécurité',
+          drones: [
+            { nodeId: 'n1', status: 'running' },
+            { nodeId: 'n2', status: 'running' },
+            { nodeId: 'n3', status: 'failed' },
+          ],
+        },
+      ],
+    });
+    expect(answerLive('où en sont les courses ?', ctx).reply).toContain('2 drone(s) en vol sur 3');
+  });
+
   it('classement : mentionne les victoires de course seulement si > 0', () => {
     const withWins = (raceWins: number) =>
       makeCtx({

@@ -159,6 +159,30 @@ describe('Scheduler (ordonnancement)', () => {
     expect(store.getTask(t.id)?.status).toBe('assigned');
   });
 
+  it('startRace : le cooldown qui expire EXACTEMENT maintenant libère le nœud (<=, pas <)', () => {
+    // La survivante du balayage loupe du 3 août : dans le filtre d'enrôlement
+    // des drones, `(rejet ?? 0) <= now` mutée en `<`. À l'instant précis où le
+    // refus expire, le nœud resterait exclu — et la course refusée « aucun
+    // nœud disponible » alors que la fenêtre vient de se rouvrir.
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 'p' });
+    const node = scheduler.registerNode(profile('n1'));
+    const t0 = 1_000_000;
+    scheduler.tick(t0);
+    scheduler.rejectTask(node.id, t.id, 'noeud_sature', false, t0, 60_000);
+    const expiration = t0 + 60_000; // max(3 s, min(60 s, 24 h)) = 60 s
+
+    // Une milliseconde AVANT : le refus tient encore — la contre-preuve qui
+    // montre que le test sait distinguer les deux côtés de la frontière.
+    const avant = scheduler.startRace(t.id, 2, expiration - 1);
+    expect(avant.ok, 'le cooldown doit encore tenir à expiration - 1').toBe(false);
+
+    // À l'expiration EXACTE : le nœud est libre, la course part avec lui.
+    const pile = scheduler.startRace(t.id, 2, expiration);
+    expect(pile.ok, 'à l’expiration exacte, le nœud est éligible (<=)').toBe(true);
+    if (pile.ok) expect(pile.drones).toEqual([node.id]);
+  });
+
   it('promeut pending → ready quand toutes les dépendances sont done', () => {
     const p = store.createProject({ name: 'P' });
     const a = store.createTask({ projectId: p.id, title: 'A', prompt: 'a' });
