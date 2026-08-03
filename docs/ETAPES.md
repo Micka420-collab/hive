@@ -170,6 +170,19 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Treizième lot — la Miellerie, la plus grosse famille, tombe entière** (même
+jour, 17 h 15 → 17 h 25 UTC) : les QUATRE survivantes de la vue, chacune avec
+ce que l'écran aurait raconté de faux — la file de revue qui enterrerait le
+travail À FAIRE sous le travail fait (la revue est plus FRAÎCHE exprès : seul
+le rang peut mettre la neuve devant), l'inspecteur qui montrerait le diff
+d'UNE AUTRE tâche sous le titre de celle qu'on relit (l'étranger vient en
+premier dans la liste simulée, pour que la boucle ait à choisir), le pied de
+coulée qui nommerait le projet VOISIN (qui n'a aucune tâche : son nom ne peut
+surgir que par la mutation), et « le nœud coule le miel… » affiché au repos
+et tu pendant la coulée (les deux moitiés vérifiées, le double-clic
+d'armement joué pour de vrai). `tests/miellerie-revue.test.tsx`, 4 tests,
+**4 mutations rejouées, 4 rouges.** Restent **14 survivantes.**
+
 **Douzième lot — les HUIT hors-dashboard sont toutes tuées** (même jour,
 16 h 40 → 17 h 10 UTC) : les quatre pures d'abord, chacune dans son harnais
 existant — `tui/rendu.ts` (le huitième fantôme sur un ratio exact : la garde
