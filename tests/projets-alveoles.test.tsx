@@ -55,6 +55,7 @@ import {
   fetchBalance,
   fetchConseil,
   fetchConseils,
+  fetchDepotsGithub,
   fetchMergeResult,
   runMerge,
 } from '../dashboard/src/api';
@@ -328,5 +329,83 @@ describe('les Projets — les trois survivantes du balayage', () => {
     const alerte = await monter(instantane([tache('t-1', 'Une tâche')]));
     expect(alerte.textContent, 'au seuil franchi, l’alarme sonne').toContain('Alerte :');
     expect(alerte.textContent).toContain('% du plafond consommés');
+  });
+
+  it('CHAQUE ALVÉOLE PÈSE SON MIEL — jamais celui de la voisine', async () => {
+    // Survivante du balayage du soir : `p.projectId === project.id` du
+    // compteProjet mutée en `!==` — avec deux projets, chaque carte
+    // afficherait la pesée de L'AUTRE. Deux comptes aux durées bien
+    // distinctes (30 min / 2 h) pour que l'échange se voie.
+    const compte = (totalMs: number) => ({
+      utileMs: totalMs,
+      repriseMs: 0,
+      echecMs: 0,
+      rebuteMs: 0,
+      totalMs,
+      tentatives: 1,
+      rendement: 1,
+    });
+    vi.mocked(fetchBalance).mockResolvedValue({
+      version: 1,
+      mode: 'observation',
+      aJour: true,
+      fenetre: 100,
+      pesee: {
+        version: 1,
+        global: compte(9_000_000),
+        parProjet: [
+          { projectId: 'p-un', ...compte(30 * 60_000) },
+          { projectId: 'p-deux', ...compte(2 * 3_600_000) },
+        ],
+        parNoeud: [],
+        reprises: { taches: 0, tentatives: 0 },
+      },
+      soldes: [],
+    } as never);
+    const deuxProjets = {
+      projects: [
+        { id: 'p-un', name: 'Ruche-Un', repoUrl: null, description: null, createdAt: 1 },
+        { id: 'p-deux', name: 'Ruche-Deux', repoUrl: null, description: null, createdAt: 2 },
+      ],
+      nodes: [],
+      tasks: [],
+      tasksTotal: 0,
+    } as unknown as StateSnapshot;
+    const dom = await monter(deuxProjets);
+    const cartes = [...dom.querySelectorAll('.pj-card')];
+    const un = cartes.find((c) => (c.textContent ?? '').includes('Ruche-Un'));
+    const deux = cartes.find((c) => (c.textContent ?? '').includes('Ruche-Deux'));
+    expect(un?.querySelector('.bal-projet-total')?.textContent, 'Ruche-Un pèse 30 min').toContain(
+      '30 min',
+    );
+    expect(deux?.querySelector('.bal-projet-total')?.textContent, 'Ruche-Deux pèse 2 h').toContain(
+      '2 h',
+    );
+    expect(un?.textContent, 'le miel de la voisine ne déborde pas').not.toContain('2 h');
+  });
+
+  it('L’ERREUR GITHUB PORTE SON HABIT — et il n’existe pas au repos', async () => {
+    // `{erreur && <p className="pj-gh-erreur">}` mutée en `||` : un habit
+    // d'erreur VIDE s'afficherait dès l'ouverture de la section, et l'erreur
+    // réelle se rendrait crue. Les deux mondes : ouverture sereine (liste
+    // vide), puis ouverture sur une sonde en panne.
+    vi.mocked(fetchDepotsGithub).mockResolvedValue({ depots: [] } as never);
+    const serein = await monter(instantane([]));
+    cliquer(bouton(serein, 'Connecter un dépôt GitHub'));
+    await act(async () => {});
+    expect(
+      serein.querySelector('.pj-gh-erreur'),
+      'aucun habit d’erreur sur une ouverture sereine',
+    ).toBeNull();
+
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    vi.mocked(fetchDepotsGithub).mockRejectedValue(new Error('GitHub non connecté (501)'));
+    const panne = await monter(instantane([]));
+    cliquer(bouton(panne, 'Connecter un dépôt GitHub'));
+    await act(async () => {});
+    const habit = panne.querySelector('.pj-gh-erreur');
+    expect(habit, 'la panne réelle porte son habit').toBeTruthy();
+    expect(habit?.textContent).toContain('GitHub non connecté');
   });
 });

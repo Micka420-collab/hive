@@ -170,6 +170,19 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-deuxième lot — chaque alvéole pèse SON miel, et l'erreur GitHub
+porte son habit** (même soir, 20 h 25 → 20 h 40 UTC, après la fusion de la
+PR #135). LE BALAYAGE DU SOIR EST RENDU entre-temps : **95 examinées,
+63 défendues, 32 SANS TEST (34 %)** — verdict scellé, dernière survivante
+recensée : la borne de troncature de `tui/rendu.ts`. Ce lot tue les deux de
+Projets : `p.projectId === project.id` du compteProjet (mutée, avec DEUX
+projets au banc — 30 min / 2 h — chaque carte afficherait la pesée de
+L'AUTRE ; le banc à un seul projet n'aurait rien vu), et
+`{erreur && <p className="pj-gh-erreur">}` (mutée, un habit d'erreur vide
+dès l'ouverture de la section GitHub, l'erreur réelle rendue crue — les
+deux mondes joués : ouverture sereine puis sonde en panne). **2 mutations
+rejouées, 2 rouges, chacune tuant exactement son test nommé.** Restent 11.
+
 **Vingt-et-unième lot — la Mémoire qui sait, l'Intendance qui n'ouvre pas
 de rangée vide** (même soir, 20 h 05 → 20 h 20 UTC). Mémoire — le compteur
 dit « se souvient de 3 choses » quand le compte EST là (`total === null ?`
