@@ -170,6 +170,41 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-septième lot — LE BALAYAGE DU SOIR EST SOLDÉ : 32 SUR 32** (nuit,
+00 h 15 → 00 h 45 UTC). La dernière survivante était le `.find((i) =>
+i.taskId === task.id && i.nodeId === dernier.nodeId)` qui choisit
+l'inspection des Gardiennes annoncée dans la pull request. Mutée en `||`,
+elle retient la première inspection qui partage SOIT la tâche SOIT
+l'ouvrière — et `listInspections` rend les plus récentes en tête : le corps
+de la PR annonce alors le verdict d'une AUTRE production. C'est un mensonge
+de la ruche à celui qui relit, dans le seul document dont il dispose pour
+décider de fusionner.
+
+Il a fallu un banc neuf : le faux GitHub existant notait les APPELS
+(méthode, chemin) mais jetait les CORPS — or c'est le corps qui porte le
+verdict, et aucune assertion sur un chemin ne pouvait départager les deux
+mondes. `tests/livraison-inspection.test.ts` monte donc un GitHub simulé qui
+garde ce qu'on lui envoie, avec une mise en scène ASYMÉTRIQUE (deux
+inspections, dont une d'une autre tâche par la MÊME ouvrière, posée en
+second pour arriver en tête du tri) : un banc à une seule inspection aurait
+rendu le même corps dans les deux mondes.
+
+**Et la garde JUMELLE du chemin autonome survivait aussi** — sondée dans la
+foulée par application de § 2 quindecies (une famille de règles se garde en
+famille). Elle se prouve encore mieux : le banc autonome livre une
+production que personne n'a inspectée, et la mutation lui fait annoncer
+« Gardiennes — verdict clean ». L'absence de verdict est une information ;
+une absence maquillée en verdict est un mensonge. Le faux GitHub d'essaim
+gagne la capture des corps au passage. **2 mutations rejouées, 2 rouges.**
+
+**COMPTE FINAL DU BALAYAGE DU SOIR : 95 examinées, 63 défendues,
+32 survivantes — 32 résolues, toutes par un test qui les tue, aucune
+déclarée équivalente.** Dont une qu'on avait annoncée « probablement hors
+d'atteinte » et qui ne l'était pas (la physique du canevas, sortie en module
+pur), et deux gardes de sûreté trouvées en chemin par la file de nuit
+(l'instant exact d'expiration d'un accès, la machine effaçable sans date
+d'arrêt).
+
 **Vingt-sixième lot — L'INSTANT OÙ UN ACCÈS MEURT, et la machine qu'on
 n'efface pas** (nuit, 23 h 30 → 00 h 10 UTC). Premier lot tiré de la file de
 nuit rendue par un agent Fable 5 (classée par ce qui coûte le plus cher si

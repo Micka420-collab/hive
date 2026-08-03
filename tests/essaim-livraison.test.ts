@@ -40,6 +40,14 @@ const DIFF = [
 interface FauxGithub {
   url: string;
   appels: Array<{ methode: string; chemin: string }>;
+  /**
+   * Corps des POST vers `/pulls`, dans l'ordre.
+   *
+   * Les APPELS (méthode, chemin) ne suffisent pas à tout juger : le verdict
+   * des Gardiennes voyage dans le CORPS de la pull request, et aucune
+   * assertion sur un chemin ne peut dire s'il est juste.
+   */
+  corpsDesPr: Array<Record<string, unknown>>;
   fermer(): Promise<void>;
   /** Statut rendu par l'endpoint de fusion. 200 = fusionne. */
   statutFusion: number;
@@ -47,6 +55,7 @@ interface FauxGithub {
 
 async function fauxGithub(): Promise<FauxGithub> {
   const appels: Array<{ methode: string; chemin: string }> = [];
+  const corpsDesPr: Array<Record<string, unknown>> = [];
   const etat = { statutFusion: 200 };
   let prochainePr = 41;
 
@@ -58,7 +67,9 @@ async function fauxGithub(): Promise<FauxGithub> {
       rep.end(JSON.stringify(corps));
     };
     // On consomme le corps : sans cela, Node garde la connexion en attente.
-    req.resume();
+    // On le GARDE au passage — cf. `corpsDesPr`.
+    let brut = '';
+    req.on('data', (c: Buffer) => (brut += c.toString()));
     req.on('end', () => {
       if (chemin.includes('/git/ref/heads/')) return envoyer(200, { object: { sha: 'base-sha' } });
       if (chemin.includes('/contents/')) {
@@ -77,7 +88,14 @@ async function fauxGithub(): Promise<FauxGithub> {
           ? envoyer(200, { merged: true, sha: 'merge-sha' })
           : envoyer(etat.statutFusion, { message: 'not mergeable' });
       }
-      if (chemin.endsWith('/pulls')) return envoyer(201, { number: ++prochainePr });
+      if (chemin.endsWith('/pulls')) {
+        try {
+          corpsDesPr.push(JSON.parse(brut) as Record<string, unknown>);
+        } catch {
+          corpsDesPr.push({ illisible: brut });
+        }
+        return envoyer(201, { number: ++prochainePr });
+      }
       envoyer(404, { message: 'not found' });
     });
   });
@@ -86,6 +104,7 @@ async function fauxGithub(): Promise<FauxGithub> {
   return {
     url: `http://127.0.0.1:${port}`,
     appels,
+    corpsDesPr,
     get statutFusion() {
       return etat.statutFusion;
     },
@@ -217,6 +236,36 @@ describe('la ruche livre toute seule', () => {
     expect(ouverte).toBe(true);
     expect(faux.appels.some((a) => a.methode === 'POST' && a.chemin.endsWith('/pulls'))).toBe(true);
     expect(srv.store.listLivraisons(p, 'ouverte')[0]?.pr).toBeGreaterThan(0);
+  });
+
+  it('LA PR N’ANNONCE PAS UN VERDICT QUE PERSONNE N’A RENDU SUR CETTE PRODUCTION', async () => {
+    // Garde JUMELLE de celle du trajet manuel (`livraison-inspection.test.ts`) :
+    //
+    //   .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId)
+    //
+    // Mutée en `||`, elle retient la première inspection qui partage SOIT la
+    // tâche SOIT l'ouvrière. Or `projetLivrable` donne aux gouvernantes des
+    // inspections « clean » sur d'AUTRES tâches (c'est ce qui les fait
+    // butineuses) — et la production livrée, elle, n'a jamais été inspectée.
+    //
+    // Le corps de la pull request annoncerait donc « Gardiennes — verdict
+    // clean » sur un travail que personne n'a jugé. Celui qui relit lirait un
+    // contrôle qui n'a pas eu lieu, dans le seul document qu'il ait pour
+    // décider de fusionner. L'absence de verdict est une information ; une
+    // absence maquillée en verdict est un mensonge.
+    const { base, srv, faux } = await demarrer();
+    const p = projetLivrable(srv);
+    await regler(base, p, 'gouverne');
+
+    expect(await jusqua(() => faux.corpsDesPr.length > 0), 'une PR doit partir').toBe(true);
+    const corps = String(faux.corpsDesPr[0]?.body ?? '');
+    expect(corps, 'le banc lui-même : c’est bien un corps de PR de la ruche').toContain(
+      'Ouvert par une ruche Hive',
+    );
+    expect(
+      corps,
+      'aucune inspection sur cette production : la PR n’en invente pas une',
+    ).not.toContain('Gardiennes');
   });
 
   it('UNE PRODUCTION NON RELUE NE PART PAS', async () => {
