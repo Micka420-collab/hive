@@ -170,6 +170,28 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Seizième lot — le Cerveau, et LE BALAYAGE EST SOLDÉ : 29 survivantes sur
+29 résolues** (même jour, 17 h 45 → 17 h 50 UTC) : les deux dernières.
+L'interrupteur de mode qui allumerait l'AUTRE mode (`mode === 'graphe'`
+mutée sur la ligne de la classe — pas ses jumelles `aria-pressed` et
+`{mode === 'graphe' &&`), et `noteChoisie` (`choisi === null ? null : …`
+mutée : la fiche ne s'ouvrirait JAMAIS — l'écran fait pour interroger le
+savoir n'aurait plus de réponse). Le canevas ne se dessine pas sous
+happy-dom : la LISTE — « la même information, dans un tableau navigable »,
+décision d'interface n° 1 de la vue — est le chemin du test, comme du
+clavier. `tests/cerveau-vue.test.tsx`, 2 tests, **2 mutations rejouées,
+2 rouges.**
+
+**LE COMPTE FINAL DU BALAYAGE DU 3 AOÛT : 69 examinées, 40 défendues
+d'emblée, 29 survivantes — et les 29 sont résolues le jour même**, toutes
+par un test qui les tue (aucune déclarée équivalente). En chemin : deux
+défauts du PRODUIT corrigés (l'unité systemd jamais chargeable, le code de
+sortie avalé du lanceur), une extraction (conseilServeur), une injection
+promise par un commentaire et enfin réelle (fournisseurServeurs), et cinq
+leçons neuves au journal. Leçon de barrière au passage : la CI court DEUX
+tsc (`typecheck` + `typecheck:dashboard`) — la barrière locale n'en courait
+qu'un, trois jambes rouges pour une ligne l'ont dit.
+
 **Quinzième lot — sept sentinelles : les survivantes isolées tombent toutes**
 (même jour, 17 h 30 → 17 h 45 UTC) : une par vue, plus le module partagé et
 la Balance (jouée par la carte Projets). Ruche (« 0/0 tâches butinées » sur
