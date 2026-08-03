@@ -15,6 +15,7 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
+import { plateformeDepuis } from '../shared/machine.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type { AssignChantierMsg, AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
@@ -150,6 +151,10 @@ export class HiveNodeClient {
         // Tâches réellement en cours : permet au hub de réconcilier son état
         // (requalifier les tâches qu'on ne fait plus, annuler nos zombies).
         activeTasks: [...this.active.keys()],
+        // La machine se DIT : « quelles ouvrières tournent sous Windows ? »
+        // doit avoir une réponse à l'écran, pas une devinette (§ 6.2 — la
+        // moitié des morsures de ce dépôt sont des morsures Windows).
+        plateforme: plateformeDepuis(process.platform),
       });
     });
 

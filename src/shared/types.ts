@@ -2,6 +2,8 @@
 // Vocabulaire de la ruche : orchestrateur = Queen, machine membre = Node,
 // agent = ouvrière, tâche = butinage, crédits de compute = Nectar (palier 4).
 
+import type { PlateformeNoeud } from './machine.js';
+
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
 
@@ -28,6 +30,12 @@ export interface HiveNode {
   running: number;
   status: NodeStatus;
   lastSeen: number | null;
+  /**
+   * La machine derrière l'ouvrière (windows/macos/linux/autre), DÉCLARÉE par
+   * le nœud à l'inscription. `null`/absent : nœud d'une version antérieure —
+   * on affiche alors rien plutôt qu'une plateforme inventée.
+   */
+  plateforme?: PlateformeNoeud | null;
 }
 
 /** Sous-agent lancé par un agent sur un nœud (visualisé en pulsation sur le Swarm View). */
