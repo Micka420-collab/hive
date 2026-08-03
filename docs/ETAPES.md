@@ -182,6 +182,32 @@ décision d'interface n° 1 de la vue — est le chemin du test, comme du
 clavier. `tests/cerveau-vue.test.tsx`, 2 tests, **2 mutations rejouées,
 2 rouges.**
 
+**MISSION « LE POSTE » — lot 2 : la fiche coéquipière** (même soir, 18 h 15 →
+18 h 30 UTC) : cliquer la carte d'une ouvrière ouvre SA fiche — qui elle est
+(machine, agent, hôte, charge), et SES MISSIONS (portées + rendues : le
+résultat garde son nom même si la tâche a été réassignée), cliquables vers
+le tiroir de tâche — l'entrée PAR OUVRIÈRE vers ce que la ruche sait déjà
+montrer par tâche (diff, logs, Rayon, Aperçu). La fiche ne s'offre que si
+l'appelant fournit tâches et geste ; ouvrir le tiroir FERME la fiche (deux
+surfaces modales ne s'empilent pas). 4 tests, **3 mutations rejouées,
+3 rouges** (le filtre des missions, le compte des butinées, la fiche
+conditionnée).
+
+**LE SECOND VISAGE DE L'INTERMITTENT EST TROUVÉ — et c'était le vrai
+coupable des fusions** (même soir) : le test « hive desinstaller LANCÉ POUR
+DE VRAI --oui » donnait à la commande une racine jetable, mais
+`contexteReel` pose `tmpdir = os.tmpdir()` RÉEL — et `retirer` y balaie
+`hive-merge-*` : il rasait les RUSTINES des tests de merge des workers
+vitest voisins. D'où « applied [] » (merge-wiring, 16 h 40, graine 23757)
+et « can't open patch » (merge-runner, 18 h 21, graine 15838) — CI
+seulement, jamais au rejeu local (il fallait le chevauchement de deux
+fichiers précis dans deux workers). Corrigé : le sous-processus reçoit un
+/tmp à lui (`TMPDIR`/`TEMP`/`TMP`, qu'`os.tmpdir()` respecte), le balayage
+par préfixe reste couvert DANS le bac, et un TÉMOIN dans le vrai /tmp monte
+la garde — l'isolement retiré, c'est LUI qui rougit (contre-preuve
+rejouée). § 9 octodecies au journal. Le « 130 » de join (§ 9 septdecies)
+était le PREMIER visage, distinct et lui aussi corrigé.
+
 **MISSION « LE POSTE » — lot 1 : la machine derrière chaque ouvrière** (même
 soir, 18 h 05 → 18 h 20 UTC, demandé par l'utilisateur en s'inspirant de
 ai-workers.dls.so — les ouvrières IA présentées comme des coéquipières).

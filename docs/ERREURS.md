@@ -3022,6 +3022,39 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 octodecies. Un test qui lance un vrai nettoyeur doit lui donner un monde jetable ENTIER
+
+L'intermittent des graines avait DEUX visages, et le second est le vrai
+coupable des fusions : `merge-wiring` rendait « applied [] » (16 h 40),
+`merge-runner` mourait sur « can't open patch …/hive-merge-…/ta.patch »
+(18 h 21). Le fichier de rustine DISPARAISSAIT entre son écriture et
+`git apply`.
+
+Qui l'effaçait : le test « `hive desinstaller` LANCÉ POUR DE VRAI » avec
+`--oui`. Il donnait à la commande une RACINE jetable — mais `contexteReel`
+pose `tmpdir = os.tmpdir()`, et `retirer` y balaie les restes de fusion PAR
+PRÉFIXE (`hive-merge-*`). Le bac à sable ne couvrait que la racine : le
+nettoyeur, lui, balayait le **/tmp partagé de tous les workers vitest** — et
+rasait les rustines d'un test de merge voisin, selon l'ordre et la charge.
+D'où un intermittent CI-seulement, jamais reproductible en local au même
+commit et à la même graine : il fallait que DEUX fichiers précis se
+chevauchent dans deux workers.
+
+### La règle
+
+> Un test qui exécute un VRAI nettoyeur (désinstallation, purge, élagueur)
+> doit lui donner un monde jetable ENTIER — pas seulement la racine qu'on
+> pense viser, mais TOUT ce que son contexte réel résout : `os.tmpdir()` se
+> déborde par `TMPDIR`/`TEMP`/`TMP` dans l'environnement de l'enfant. Et on
+> poste un TÉMOIN dans le monde réel (un dossier au préfixe balayé, qui doit
+> SURVIVRE) : si l'isolement se défait un jour, c'est CE test qui rougit —
+> pas un test de merge d'un worker voisin, trois graines plus tard.
+
+La contre-preuve a été rejouée : l'isolement retiré, le témoin meurt et le
+test rougit — la panne d'origine est redevenue visible à sa source.
+
+---
+
 ## 9 septdecies. L'enveloppe parle parfois avant l'enfant
 
 L'intermittent de la graine 23757 est ATTRAPÉ, à sa deuxième frappe sur la
