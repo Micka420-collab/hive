@@ -170,6 +170,22 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingt-quatrième lot — la coquille qui synchronise, le jeton à Entrée,
+l'essaim qui ne décore pas le zéro, le rayon qui déplie** (nuit, 22 h 10 →
+22 h 45 UTC). App ×2 — SEUL `task_reviewed` synchronise les revues (mutée
+en `!==`, le verdict d'un autre opérateur ne se synchroniserait jamais et
+chaque événement de progression EFFACERAIT la revue existante ; témoin
+corrigé en route : le cache vit EN MÉMOIRE — `getReview` — pas dans
+localStorage, qui ne porte que le geste local), et le jeton se pose à
+Entrée et à aucune autre touche (mutée, chaque frappe poserait un jeton
+incomplet et reconnecterait le flux). PleinEssaim — le compte
+d'observations ne se dit que s'il y en a (mutée, « 0 production(s)
+observée(s) » : une surveillance qui prétend avoir observé sans rien voir).
+Rayon — ouvrir un dossier montre SES enfants (mutée, le court-circuit rend
+`true` : l'arbre entier devient une liste plate de racine). **4 mutations
+rejouées, 4 rouges.** Restent 4 : Balance (arme && cible), Cerveau ×2,
+et le `find` de la livraison (banc GitHub simulé à monter).
+
 **Vingt-troisième lot — deux bornes et le cœur du scrutin** (nuit du 3 au
 4 août, 21 h 10 → 21 h 40 UTC). `serveurs.ts` — la semaine des « bientôt
 effacés » se termine PILE à sept jours (`jours <= 7` mutée en `<` : la
