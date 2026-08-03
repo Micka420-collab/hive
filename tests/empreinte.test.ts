@@ -361,7 +361,7 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
   // pas vérifié. Une commande branchée dans un `else if` que personne ne
   // traverse est du code mort qui a l'air vivant.
 
-  const lancer = (args: string[]): { code: number; sortie: string } => {
+  const lancer = (args: string[], tmpJetable: string): { code: number; sortie: string } => {
     try {
       return {
         code: 0,
@@ -383,7 +383,26 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
           {
             cwd: RACINE_CHEMIN,
             encoding: 'utf8',
-            env: { ...process.env, NO_COLOR: '1', HIVE_DB: '', HIVE_WORKDIR: '' },
+            env: {
+              ...process.env,
+              NO_COLOR: '1',
+              HIVE_DB: '',
+              HIVE_WORKDIR: '',
+              // ─── LE MONDE JETABLE EST ENTIER, /tmp COMPRIS ─────────────────
+              //
+              // `contexteReel` pose `tmpdir = os.tmpdir()`, et `retirer` y
+              // balaie les restes de fusion PAR PRÉFIXE. Lancée avec le /tmp
+              // RÉEL, cette commande rasait les rustines des tests de merge
+              // des workers vitest VOISINS — l'intermittent CI des graines
+              // 23757 puis 15838 (merge-wiring « applied [] » à 16 h 40,
+              // merge-runner « can't open patch » à 18 h 21, le 3 août).
+              // `os.tmpdir()` lit TMPDIR (POSIX) et TEMP/TMP (Windows) : le
+              // sous-processus reçoit donc un /tmp à lui, et le témoin posé
+              // dans le vrai /tmp par le test « --oui » monte la garde.
+              TMPDIR: tmpJetable,
+              TEMP: tmpJetable,
+              TMP: tmpJetable,
+            },
           },
         ),
       };
@@ -399,8 +418,9 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
       mkdirSync(path.join(bac, 'data', 'rayons'), { recursive: true });
       mkdirSync(path.join(bac, '.hive-work'), { recursive: true });
       writeFileSync(path.join(bac, '.env'), 'HIVE_TOKEN=x\n');
+      mkdirSync(path.join(bac, 'temp'), { recursive: true });
 
-      const r = lancer([bac]);
+      const r = lancer([bac], path.join(bac, 'temp'));
       expect(r.code, r.sortie).toBe(0);
       expect(r.sortie).toMatch(/Rien n’a été supprimé/);
 
@@ -443,14 +463,34 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
       writeFileSync(path.join(bac, '.env'), 'HIVE_TOKEN=x\n');
       writeFileSync(path.join(bac, 'data', 'hive.db'), 'base');
       writeFileSync(path.join(bac, '.hive-work', 'join', 'node-key.txt'), 'k');
+      // Un reste de fusion DANS le monde jetable : le balayage par préfixe
+      // reste couvert — dans le bac, plus jamais dans le /tmp partagé.
+      mkdirSync(path.join(bac, 'temp', `${PREFIXE_FUSION}reste`), { recursive: true });
+      // Et LE TÉMOIN, dans le VRAI /tmp : c'est lui qui rougit si l'isolement
+      // se défait un jour — la panne d'origine redeviendrait visible ICI, pas
+      // dans un test de merge d'un worker voisin, trois graines plus tard.
+      const temoin = mkdtempSync(path.join(os.tmpdir(), PREFIXE_FUSION));
 
-      const r = lancer([bac, '--oui']);
-      expect(r.code, r.sortie).toBe(0);
+      let r: { code: number; sortie: string };
+      try {
+        r = lancer([bac, '--oui'], path.join(bac, 'temp'));
+        expect(r.code, r.sortie).toBe(0);
 
-      expect(existsSync(path.join(bac, '.env')), '.env supprimé').toBe(true);
-      expect(existsSync(path.join(bac, 'data', 'hive.db')), 'base supprimée').toBe(true);
-      expect(existsSync(path.join(bac, 'data', 'rayons')), 'rayons gardés').toBe(false);
-      expect(existsSync(path.join(bac, '.hive-work')), '.hive-work gardé').toBe(false);
+        expect(existsSync(path.join(bac, '.env')), '.env supprimé').toBe(true);
+        expect(existsSync(path.join(bac, 'data', 'hive.db')), 'base supprimée').toBe(true);
+        expect(existsSync(path.join(bac, 'data', 'rayons')), 'rayons gardés').toBe(false);
+        expect(existsSync(path.join(bac, '.hive-work')), '.hive-work gardé').toBe(false);
+        expect(
+          existsSync(path.join(bac, 'temp', `${PREFIXE_FUSION}reste`)),
+          'le reste de fusion du bac est balayé',
+        ).toBe(false);
+        expect(
+          existsSync(temoin),
+          'LE TÉMOIN DU /tmp PARTAGÉ A ÉTÉ EMPORTÉ — l’isolement est défait',
+        ).toBe(true);
+      } finally {
+        rmSync(temoin, { recursive: true, force: true });
+      }
 
       // ─── CE QUI RESTE DOIT ÊTRE DIT, AVEC SON CHEMIN ───────────────────────
       //
@@ -488,8 +528,9 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
     try {
       mkdirSync(path.join(bac, '.hive-work'), { recursive: true });
       writeFileSync(path.join(bac, '.env'), 'HIVE_TOKEN=x\n');
+      mkdirSync(path.join(bac, 'temp'), { recursive: true });
 
-      const r = lancer([bac, '--oui']);
+      const r = lancer([bac, '--oui'], path.join(bac, 'temp'));
       expect(r.code, r.sortie).toBe(0);
 
       const conserves = r.sortie
@@ -513,7 +554,7 @@ describe('`hive desinstaller` LANCÉ POUR DE VRAI', () => {
   it('`--json` rend un objet, pour une supervision', () => {
     const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-cli-desinst-'));
     try {
-      const r = lancer([bac, '--json']);
+      const r = lancer([bac, '--json'], mkdtempSync(path.join(os.tmpdir(), 'hive-cli-tmp-')));
       expect(r.code, r.sortie).toBe(0);
       const vu = JSON.parse(r.sortie) as {
         racine: string;
