@@ -2839,6 +2839,29 @@ consigné, pas un calcul. Le jour où le paquet change pour de bon, le test roug
 — et c'est exactement ce qu'on veut, puisque quelqu'un doit alors aller relire
 les trois tests que personne ne voit jamais tourner en local.
 
+### Deuxième occurrence — la liste qui s'adapte à la mutation qu'elle traque
+
+Le lot du dispatch CLI, même journée que la relecture de cette page. Mon test
+« chaque commande gardée, lancée sans argument, s'arrête à l'usage » tirait sa
+liste de commandes gardées **d'un parse de `cmd === 'x' && a1` dans la
+source**. Retirer `&& a1` de `stings` — la mutation exacte que le test devait
+attraper — retirait donc `stings` de la liste : la garde tombée, le test
+cessait de la chercher. Vert, mutation survivante, mesuré.
+
+C'est la même faute sous une autre forme : les deux membres ne sont plus une
+égalité mais **un périmètre et son contenu**, dérivés de la même source. Le
+remède est le même — la liste des vingt gardées est désormais LITTÉRALE dans le
+test, et une assertion la confronte à la source : si elles divergent, l'une des
+deux a bougé et quelqu'un doit relire.
+
+Dans le même lot, une annexe qui pique : le commentaire de ma première version
+affirmait que la bijection avait « mordu à la première exécution » sur le
+crochet de `<billetId]>`. **Faux — c'est une relecture qui l'avait vu**, et la
+mutation l'a prouvé : le crochet réintroduit, six tests verts. Attribuer à un
+test ce que l'œil a trouvé, c'est fabriquer de la couverture en prose (§ 9
+nonies, cousin direct). La garde d'équilibre des délimiteurs existe maintenant,
+et c'est ELLE qui rougit sur ce crochet — vérifié.
+
 C'est la même famille que le § 9ter.0 (« deux copies d'accord, et fausses
 ENSEMBLE ») : l'accord entre deux choses ne prouve rien tant qu'on n'a pas
 montré qu'elles pouvaient être en désaccord.
@@ -2909,6 +2932,20 @@ Conclusion, moins flatteuse que la précédente : **écrire la règle ne l'appli
 pas.** Ce qui l'applique, c'est de ne jamais laisser un `.find()` ou un
 `indexOf()` décider seul. La garde corrigée filtre les lignes de commentaire,
 puis exige `toHaveLength(1)` — c'est le `expect` qui compte, pas le paragraphe.
+
+### Cinquième occurrence — dans une MUTATION, cette fois
+
+Le lot du dispatch CLI. Ma mutation « `exitCode = 1` → `0` dans la branche
+d'usage » a frappé la **première** occurrence du motif — ligne 275, la
+validation de `replay`, couverte par un AUTRE fichier de test. Verdict imprimé :
+« survit ». Verdict réel : la mutation n'avait jamais touché ma cible.
+
+Une mutation est un repère comme un autre : **mal ancrée, son verdict porte sur
+autre chose que ce qu'on croit** — et un « survit » infondé fait écrire un test
+de plus contre un défaut qui n'existe pas, ou pire, fait douter d'une garde
+saine. Rejouée sur une ancre à contexte unique (la fin du fichier), elle a
+rougi trois tests. Compter l'ancre AVANT le verdict vaut pour les gardes ET
+pour ce qui les éprouve.
 
 ---
 

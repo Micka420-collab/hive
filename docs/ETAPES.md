@@ -122,6 +122,40 @@ elle n'a pas été **démarrée**. `systemctl --user enable --now` demande un bu
 session qu'aucun runner n'a. Le lot passe de « jamais accepté » à « accepté,
 jamais démarré » — c'est un cran, pas la fin.
 
+### Analyse du dépôt entier — même jour, à la demande de l'utilisateur
+
+Deux instruments, deux chiffres jamais mesurés jusqu'ici.
+
+**La couverture (v8, première mesure)** : **62,31 % des lignes, 56,48 % des
+branches** sur `src` + `dashboard/src` + `scripts`. 3 016 tests verts laissent
+~4 500 lignes que rien n'exécute, dont **2 654 dans 34 fichiers à 0 %**. Le 0 %
+est parfois trompeur — `src/cli.ts` (728 lignes) est exercé en sous-processus,
+invisible pour v8 — mais l'inventaire réel derrière ce 0 % l'était à peine
+moins : **sur les 40 commandes du dispatch, 3 étaient lancées par un test**
+(`replay`, `events`, `mode`).
+
+**La loupe sur tout le dépôt** : **1 979 mutations candidates** (opérateurs,
+131 fichiers). À ~80 s la mutation, **~44 h** — hors de portée d'une traite.
+Les plus chargés : `server.ts` (143), `cli.ts` (112), puis les vues du tableau
+de bord. Le balayage exhaustif reste un chantier de nuit, PAS un acquis.
+
+**Premier lot tiré de l'analyse — le dispatch du CLI** (`tests/cli-dispatch.test.ts`,
+6 gardes) : commande inconnue → usage + code 1 sans requête ; bijection
+dispatch ↔ usage imprimé par le vrai processus ; les 20 commandes gardées
+lancées sans argument s'arrêtent à l'usage, jamais au réseau (témoin :
+`HIVE_HTTP` injoignable) ; équilibre des délimiteurs. Un défaut réel corrigé au
+passage : `revoquer <billetId]>` dans l'usage — vu à la relecture, PAS par la
+bijection, et c'est écrit tel quel dans le test. 5 mutations, 5 rouges — mais
+la première passe en avait laissé survivre 3, dont deux fautes déjà au journal
+(§ 2 undecies : liste auto-adaptée ; § 2 duodecies : ancre de mutation non
+unique, cinquième occurrence).
+
+**Prochaines zones sombres de `src/`, par lignes jamais exécutées** :
+`installer-main.ts` (116), `node-client/join.ts` (107 — le chemin B, celui d'un
+ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
+`main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
+ils passent devant.
+
 ### Ce que la loupe ne couvre toujours pas
 
 Le balayage du 3 août porte sur **le diff du jour**, pas sur le dépôt entier, et
