@@ -102,15 +102,29 @@ jobs:
       # seraient sautés — donc verts, et sans objet. Cette étape refuse ce
       # silence-là. Elle tourne AVANT la suite pour que la panne se lise sur son
       # propre nom, pas au milieu de 3 000 tests.
+      #
+      # On teste la PRÉSENCE, pas le code de sortie. Première version :
+      # `plutil 2>&1 | head -1` — or `plutil` sans argument imprime son mode
+      # d'emploi et sort en NON NUL, ce que `-o pipefail` a fidèlement propagé.
+      # La jambe macOS a échoué sur un outil parfaitement présent.
+      #
+      # `command -v` évite les deux pièges : il ne lance rien, et il ne passe
+      # aucun argument — sous Git Bash, `/Query` serait converti en chemin
+      # Windows avant même d'atteindre `schtasks`.
       - name: L’outil qui juge le fichier de service est là
         shell: bash
         run: |
           set -e
           case "${{ runner.os }}" in
-            Linux)   systemd-analyze --version >/dev/null && echo "✔ systemd-analyze" ;;
-            macOS)   plutil 2>&1 | head -1 >/dev/null && echo "✔ plutil" ;;
-            Windows) schtasks /Query /? >/dev/null && echo "✔ schtasks" ;;
+            Linux)   outil=systemd-analyze ;;
+            macOS)   outil=plutil ;;
+            Windows) outil=schtasks ;;
           esac
+          if ! command -v "$outil" >/dev/null 2>&1 && ! command -v "$outil.exe" >/dev/null 2>&1; then
+            echo "::error::« $outil » est introuvable : les gardes de tests/service-accepte.test.ts seraient sautées, donc vertes et sans objet."
+            exit 1
+          fi
+          echo "✔ $outil"
 
       - name: Tests (vitest, unitaires + e2e)
         run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json
