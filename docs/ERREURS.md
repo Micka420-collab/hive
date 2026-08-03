@@ -2966,6 +2966,45 @@ pour ce qui les éprouve.
 
 ---
 
+## 9 novodecies. Le shell lit le message de commit AVANT git
+
+`git commit -m "… la garde `arreteA > 0`mutée en`>= 0` …"` — écrit entre
+guillemets DOUBLES, avec des accents graves autour du code cité, comme on le
+fait naturellement en Markdown.
+
+Le shell a fait exactement ce qu'on lui demandait : il a pris le contenu des
+accents graves pour une COMMANDE à exécuter, a cherché un programme nommé
+`arreteA`, ne l'a pas trouvé — et a interprété les `>` comme des
+redirections. Résultat : deux fichiers vides nommés `0` et `=` sont apparus
+à la racine du dépôt, et le message poussé portait **deux trous béants** là
+où le code cité aurait dû être :
+
+    aSupprimer — le geste qui appelle le fournisseur…
+     mutée en  : une ligne incohérente…
+
+La phrase survivante avait toujours l'air d'une phrase. C'est ce qui rend la
+faute vicieuse : rien ne rougit, rien n'échoue, et le message part sur la
+branche en disant à moitié ce qu'il voulait dire.
+
+**La règle.** Un message de commit qui CITE DU CODE ne passe jamais par
+`-m "…"`. On l'écrit dans un fichier et on le donne à git :
+
+```sh
+git commit -F chemin/du/message.txt
+```
+
+Le heredoc `<<'FIN'` (avec le délimiteur entre apostrophes, qui coupe toute
+interprétation) est l'autre forme sûre. Les guillemets simples marcheraient
+aussi, mais interdisent les apostrophes — inutilisable en français.
+
+C'est le cousin exact du séparateur `|` qui découpait une boucle de rejeu sur
+les `||` des chaînes mutées (§ du dix-neuvième lot) : **dès qu'on fait
+transiter du code par le shell comme s'il s'agissait de texte, le shell y
+cherche des instructions.** La réparation, elle, coûte un `--amend -F` et un
+`push --force-with-lease` sur la branche de travail — jamais sur `main`.
+
+---
+
 ## 2 quindecies. Un juge éprouvé UN ÉTAGE TROP HAUT ne l’est pas
 
 `jugerBillet` décide qui entre dans la ruche : révoqué, expiré, épuisé,
