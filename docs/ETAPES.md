@@ -65,8 +65,19 @@ Classé par ce qui casse l'expérience d'un nouvel arrivant EN PREMIER.
    ça demande **un fichier à la bonne place**. `prefixeNpmWindows` lit
    `npm_config_prefix` avant `APPDATA` : `tests/agent-windows-spawn.test.ts`
    plante donc un faux paquet dans un dossier temporaire et fait le vrai
-   `spawn`. **Vérifié par la CI Windows, pas par moi** — les trois tests sont
-   sautés partout ailleurs, et je ne les ai jamais vus passer.
+   `spawn`. **VÉRIFIÉ.** Le log de la jambe `windows-latest` du 3 août dit
+   `✓ tests/agent-windows-spawn.test.ts (4 tests)` — quatre, là où Linux
+   affiche `1 passé | 3 sautés`. Les trois tests Windows ont donc bien tourné,
+   et ils passent : le chemin composé existe, `spawn('node', […], shell:false)`
+   le lance, les arguments de la tâche traversent, et sans fichier on retombe
+   sur `[bin]`. C'est la première fois de la journée que cette ligne n'est pas
+   une promesse.
+
+   _(Cette ligne a dit « pas encore vu passer » pendant exactement une heure —
+   le temps que la CI réponde. La corriger tout de suite est l'application du
+   § 9 undecies : un état qui dérive vers le pessimisme n'est démenti par
+   personne.)_
+
 2. **`npm install` pèse 20 des 23 secondes de l'installation.** Le critère 2 tient
    dans les deux lectures, mais c'est ce que le nouvel arrivant ATTEND en
    regardant un écran muet.
