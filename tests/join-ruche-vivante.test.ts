@@ -47,7 +47,7 @@ interface Issue {
 function lancerJoin(
   billet: string,
   workdir: string,
-  opts: { marqueur?: string } = {},
+  opts: { marqueur?: string; avantArret?: () => Promise<void> } = {},
 ): Promise<Issue> {
   return new Promise((resoudre, rejeter) => {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
@@ -75,13 +75,33 @@ function lancerJoin(
       finir(null, new Error(`ni fin ni marqueur en 30 s :\n${sortie}`));
     }, 30_000);
     boucher.unref?.();
+    let marqueurVu = false;
     const lire = (m: Buffer): void => {
       sortie += m.toString('utf8');
-      if (opts.marqueur && sortie.includes(opts.marqueur)) {
+      if (opts.marqueur && !marqueurVu && sortie.includes(opts.marqueur)) {
+        marqueurVu = true;
         clearTimeout(boucher);
-        // L'arrêt du nœud est un geste NORMAL : SIGINT, comme un Ctrl+C.
-        proc.kill('SIGINT');
-        setTimeout(() => proc.kill('SIGKILL'), 5_000).unref?.();
+        // ─── L'ATTENTE SE FAIT PENDANT QUE LE PROCESSUS VIT ────────────────
+        //
+        // La version précédente tuait AU marqueur puis scrutait l'enregis-
+        // trement — un nœud mort ne se présente à personne. Sous Windows,
+        // `kill('SIGINT')` termine net : la connexion WebSocket n'aboutissait
+        // jamais, et la scrutation post-mortem expirait (jambe windows-latest,
+        // « ne s'est jamais présenté à la ruche »). Ubuntu gagnait la même
+        // course sans la voir. Ce qui doit être vrai DU VIVANT du nœud
+        // s'attend ici, avant le signal.
+        void (async () => {
+          try {
+            await opts.avantArret?.();
+          } catch (e) {
+            proc.kill('SIGKILL');
+            finir(null, e as Error);
+            return;
+          }
+          // L'arrêt du nœud est un geste NORMAL : SIGINT, comme un Ctrl+C.
+          proc.kill('SIGINT');
+          setTimeout(() => proc.kill('SIGKILL'), 5_000).unref?.();
+        })();
       }
     };
     proc.stdout.on('data', lire);
@@ -150,7 +170,18 @@ describe('la porte des amis, ruche allumée', () => {
     const w = nid();
 
     // ── Premier lancement : l'échange ──────────────────────────────────────
-    const premier = await lancerJoin(billet, w, { marqueur: 'vous butinez pour la ruche' });
+    const premier = await lancerJoin(billet, w, {
+      marqueur: 'vous butinez pour la ruche',
+      // L'identifiant PRÉCIS de ce nœud, lu dans son nid — pas un compte
+      // global. Et l'attente a lieu du VIVANT du processus (voir lancerJoin).
+      avantArret: async () => {
+        const nodeId = readFileSync(path.join(w, 'node-id.txt'), 'utf8').trim();
+        await scruter(
+          () => server.store.listNodes().some((n) => n.id === nodeId),
+          `le nœud ${nodeId} ne s'est jamais présenté à la ruche`,
+        );
+      },
+    });
     // « et mémorisée » au mot près : la variante ⚠ « NON mémorisée » contient
     // aussi « mémorisée ».
     expect(premier.sortie).toContain('Clé de nœud obtenue et mémorisée');
@@ -164,13 +195,6 @@ describe('la porte des amis, ruche allumée', () => {
       expect(statSync(cle).mode & 0o777, 'une clé lisible par tous n’est la clé de personne') //
         .toBe(0o600);
     }
-
-    // L'identifiant PRÉCIS de ce nœud, lu dans son nid — pas un compte global.
-    const nodeId = readFileSync(path.join(w, 'node-id.txt'), 'utf8').trim();
-    await scruter(
-      () => server.store.listNodes().some((n) => n.id === nodeId),
-      `le nœud ${nodeId} ne s’est jamais présenté à la ruche`,
-    );
 
     // Un Ctrl+C est une réponse, pas un échec — SUR POSIX. Sous Windows,
     // `kill('SIGINT')` termine sans passer par le gestionnaire : le code n'y
