@@ -48,11 +48,19 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
+  fetchMonTableau: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { fetchGhosts, fetchGuet, fetchVerdictChantier } from '../dashboard/src/api';
+import {
+  fetchGhosts,
+  fetchGuet,
+  fetchMonTableau,
+  fetchVerdictChantier,
+} from '../dashboard/src/api';
 import { Journal } from '../dashboard/src/Journal';
 import { OpenAlexPanel } from '../dashboard/src/OpenAlexPanel';
+import MonEspace from '../dashboard/src/views/MonEspace';
+import Reine from '../dashboard/src/views/Reine';
 import Chantiers from '../dashboard/src/views/Chantiers';
 import Rayon from '../dashboard/src/views/Rayon';
 import Ruche from '../dashboard/src/views/Ruche';
@@ -383,5 +391,82 @@ describe('les sentinelles du balayage du soir', () => {
       <Sante {...({ snapshot: instantane(), refreshTick: 0 } as unknown as ViewProps)} />,
     );
     expect(sans.querySelector('.gu-liste'), 'aucun passage : pas de liste vide').toBeNull();
+  });
+
+  it('REINE : le badge « 📡 état réel » ne se porte QUE sur la réponse calculée', async () => {
+    // `{m.source === 'live' && (…)}` mutée en `||` : la réponse du modèle
+    // porterait le badge du calcul réel (on ferait passer une supposition
+    // pour une lecture d'instruments), et la réponse réellement calculée le
+    // perdrait. Les messages vivent en sessionStorage : on sème, on monte.
+    sessionStorage.setItem(
+      'hive.reine.chat',
+      JSON.stringify({
+        messages: [
+          { id: 'm-calc', role: 'queen', text: 'Trois ouvrières en vol.', ts: 1, source: 'live' },
+          { id: 'm-llm', role: 'queen', text: 'Je pense que tout va bien.', ts: 2, source: 'llm' },
+        ],
+        suggestions: [],
+      }),
+    );
+    const dom = await monter(<Reine {...({ snapshot: instantane() } as unknown as ViewProps)} />);
+    sessionStorage.removeItem('hive.reine.chat');
+    const bulles = [...dom.querySelectorAll('.rn-msg')];
+    const calc = bulles.find((b) => (b.textContent ?? '').includes('Trois ouvrières'));
+    const llm = bulles.find((b) => (b.textContent ?? '').includes('Je pense'));
+    // § 2 terdecies, appliqué AVANT de se faire mordre une deuxième fois : la
+    // branche llm porte AUSSI un `.rn-src` (« ✨ IA ») — le sélecteur est un
+    // témoin partagé, seul le TEXTE du badge distingue les deux mondes.
+    expect(calc?.textContent, 'la réponse calculée porte le badge du réel').toContain('état réel');
+    expect(llm?.textContent, 'la supposition porte le badge du modèle').toContain('✨ IA');
+    expect(llm?.textContent, 'la supposition ne se pare pas du réel').not.toContain('état réel');
+  });
+
+  it('MON ESPACE : le compte à rebours ne s’affiche QUE quand il reste des jours', async () => {
+    // `{a.jours >= 0 && (…)}` mutée en `||` : l'alerte qui A une échéance
+    // perdrait son compte à rebours (le court-circuit rend `true`, React
+    // n'affiche rien), et l'échéance déjà passée (`jours: -1`) afficherait
+    // « -1 j » — un délai négatif présenté comme du temps restant.
+    const alerte = (cle: string, projet: string, jours: number) =>
+      ({
+        cle,
+        gravite: 'attention',
+        projectId: `p-${projet}`,
+        projet,
+        message: `alerte ${projet}`,
+        jours,
+        details: {},
+      }) as never;
+    vi.mocked(fetchMonTableau).mockResolvedValue({
+      version: 1,
+      projets: [],
+      alertes: [
+        alerte('quota_proche', 'rucher-a-terme', 5),
+        alerte('quota_proche', 'rucher-echu', -1),
+      ],
+      totaux: { projets: 0, serveursActifs: 0, heuresIncluses: 0, depenseMs: 0 },
+      balanceAJour: true,
+      balanceMode: 'off',
+    } as never);
+    const dom = await monter(
+      <MonEspace
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          onNavigate: () => {},
+          // Sans session, la vue s'arrête à l'invitation — l'espace ne se
+          // monte qu'une fois la personne connue.
+          user: { displayName: 'apicultrice' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    const lignes = [...dom.querySelectorAll('.me-alerte')];
+    const aTerme = lignes.find((l) => (l.textContent ?? '').includes('rucher-a-terme'));
+    const echue = lignes.find((l) => (l.textContent ?? '').includes('rucher-echu'));
+    expect(aTerme, 'l’alerte à échéance est rendue').toBeTruthy();
+    expect(
+      aTerme?.querySelector('.me-jours')?.textContent ?? '',
+      'l’échéance à venir se compte',
+    ).toContain('5');
+    expect(echue?.querySelector('.me-jours'), 'l’échéance passée ne se compte pas').toBeNull();
   });
 });

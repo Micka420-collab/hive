@@ -170,6 +170,21 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Vingtième lot — la Reine et Mon Espace, et § 2 terdecies appliqué AVANT
+la morsure** (même soir, 19 h 45 → 19 h 55 UTC). Reine — le badge « 📡 état
+réel » ne se porte que sur la réponse CALCULÉE (`m.source === 'live' &&`
+mutée en `||` : la supposition du modèle se parerait du badge des
+instruments, et la lecture réelle le perdrait). Le premier discriminant
+(`.rn-src`) s'est révélé PARTAGÉ au premier passage — la branche llm porte
+aussi un `.rn-src` (« ✨ IA ») — et cette fois la leçon toute fraîche a
+servi : c'est le TEXTE du badge qui distingue, pas le sélecteur. Mon
+Espace — le compte à rebours d'une alerte ne s'affiche que quand il reste
+des jours (`a.jours >= 0 &&` mutée : l'échéance à venir perd son compte, et
+l'échéance passée affiche « -1 j » — un délai négatif présenté comme du
+temps restant) ; la vue exige une session (`user`), sans quoi elle s'arrête
+à l'invitation. **2 mutations rejouées, 2 rouges, chacune tuant exactement
+son test nommé.**
+
 **Dix-neuvième lot — trois sentinelles de plus : Journal, et les deux de
 Santé** (même soir, 19 h 35 → 19 h 45 UTC). Journal — « En attente
 d'événements… » ne se dit QUE devant un journal vide (`events.length === 0
