@@ -156,6 +156,20 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Quatrième lot — `bin.ts` et `orchestrator/main.ts`, faits** (même jour) :
+8 tests, 6 mutations 6 rouges. La porte unique du paquet npm : l'aide et la
+table des sous-commandes confrontées (source comptée ↔ aide imprimée), la
+réécriture d'`argv` prouvée par `hive cli state` (sans elle, `cli` prendrait
+« cli » pour la commande et rendrait l'usage au lieu de tenter la requête),
+l'aiguillage de chaque sous-commande, et les drapeaux nus qui vont à
+l'installeur. La Reine : bannière (écran + base), arrêt PROPRE sur SIGTERM —
+le signal que systemd enverra — avec code 0 dit et mesuré, et le `.env` du
+répertoire courant réellement lu (base annoncée = base du fichier, aucun
+autre canal). Ce qui reste à 0 % dans `src/` et se dit : `demo.ts` (93 lignes
+— reconstruit le dashboard à la volée s'il manque, instable en CI) et
+`node-client/main.ts` (29 lignes, le nœud configuré — demande une ruche
+vivante, territoire e2e).
+
 **Troisième lot — `installer-main.ts`, fait** (même jour) : 6 tests en
 sous-processus dans un cwd jetable, 6 mutations 6 rouges. La répartition
 Node 22 / Node 24 est ASSUMÉE et travaille pour nous : sous le Node 22 du
