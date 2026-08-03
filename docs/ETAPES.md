@@ -156,6 +156,20 @@ ami qui rejoint), `demo.ts` (93), `node-client/tunnel.ts` (50), les trois
 `main.ts` d'entrée. `join.ts` et `tunnel.ts` portent des billets et des clés :
 ils passent devant.
 
+**Deuxième lot — `join.ts` et `tunnel.ts`, faits** (même jour) : 16 tests,
+6 mutations 6 rouges. Le tunnel : `urlRucheDepuisTunnel` refuse `http`, le vrai
+`spawn` sur un fournisseur factice (URL sur stdout ET stderr — cloudflared
+annonce sur stderr —, sortie sans URL, minuteur), et LA garde du lot : un faux
+`cloudflared` dans le PATH **déverse l'environnement qu'il reçoit** — les
+sentinelles `HIVE_TOKEN`/`ANTHROPIC_API_KEY` n'y figurent pas, et la mutation
+`envSonde(process.env)` → `process.env` rougit. `join` : les trois refus
+précoces en sous-processus (invitation difforme → 1 ; sans billet ni terminal
+→ code 3 avec les deux issues imprimées ; billet vers ruche injoignable → URL
+réelle montrée puis refus), plus la preuve que `HIVE_INVITE` est bien lu avant
+la garde TTY. Ce qui reste NON couvert sur ce chemin, et qui se dit : le
+démarrage RÉUSSI (échange de billet accepté, clé mémorisée en 0600, WebSocket
+ouvert) demande une ruche vivante — c'est le territoire des tests e2e.
+
 ### Ce que la loupe ne couvre toujours pas
 
 Le balayage du 3 août porte sur **le diff du jour**, pas sur le dépôt entier, et
