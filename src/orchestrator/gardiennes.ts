@@ -252,6 +252,30 @@ export interface Inspection {
   examen: Examen;
 }
 
+/**
+ * L'inspection DE CETTE production — celle du couple (tâche, ouvrière) EXACT.
+ *
+ * Les DEUX membres sont nécessaires, et le second est le plus facile à oublier :
+ * une même tâche peut avoir été réessayée par PLUSIEURS ouvrières, et
+ * `listInspections` en rend alors plusieurs qui partagent la tâche. Sans le
+ * `nodeId`, on retiendrait la première venue — et `listInspections` rendant les
+ * plus récentes en tête, ce serait souvent le verdict d'une tentative
+ * ANTÉRIEURE d'une AUTRE ouvrière. La pull request annoncerait ainsi « clean »
+ * sur un travail jugé creux, ou l'inverse : un mensonge de la ruche dans le seul
+ * document sur lequel un humain décide de fusionner.
+ *
+ * Extrait pour être TENU en un seul endroit : deux copies de cette recherche
+ * (route HTTP et livraison autonome) pouvaient dériver — ou être fausses
+ * ensemble (§ 2 sexdecies du carnet).
+ */
+export function inspectionDeProduction<T extends { taskId: string; nodeId: string }>(
+  inspections: readonly T[],
+  taskId: string,
+  nodeId: string,
+): T | undefined {
+  return inspections.find((i) => i.taskId === taskId && i.nodeId === nodeId);
+}
+
 // ─── La promesse ────────────────────────────────────────────────────────────
 
 /**

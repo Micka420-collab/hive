@@ -127,6 +127,25 @@ describe('la pull request porte le verdict de CETTE production', () => {
     }
   });
 
+  /** Monte le hub + le GitHub simulé, et rend de quoi jouer une livraison. */
+  async function demarrer(): Promise<{ base: string; store: HiveServer['store'] }> {
+    for (const cle of ['HIVE_GITHUB_TOKEN', 'HIVE_GITHUB_API']) avant[cle] = process.env[cle];
+    gh = await fauxGithub();
+    process.env.HIVE_GITHUB_TOKEN = 'jeton-github-simule';
+    process.env.HIVE_GITHUB_API = `${gh.url}/api`;
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-livr-insp-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 10_000,
+    });
+    return { base: `http://127.0.0.1:${server.port}`, store: server.store };
+  }
+
   it('LE VERDICT EST CELUI DE LA TÂCHE LIVRÉE — pas celui d’une voisine de la même ouvrière', async () => {
     for (const cle of ['HIVE_GITHUB_TOKEN', 'HIVE_GITHUB_API']) avant[cle] = process.env[cle];
     gh = await fauxGithub();
@@ -207,6 +226,97 @@ describe('la pull request porte le verdict de CETTE production', () => {
     expect(
       corps,
       'le verdict d’une AUTRE tâche de la même ouvrière ne s’y glisse pas',
+    ).not.toContain('`hollow`');
+  }, 30_000);
+
+  it('LE VERDICT EST CELUI DE LA DERNIÈRE OUVRIÈRE — pas celui d’une tentative antérieure sur la MÊME tâche', async () => {
+    // L'asymétrie du premier banc est sur la TÂCHE (même ouvrière, deux tâches),
+    // et elle laisse survivre la SUPPRESSION du membre `nodeId === dernier.nodeId`
+    // (§ 2 sexvicies : une mutation survit tant qu'un cas réel n'est pas atteint).
+    // Ici l'asymétrie est sur l'OUVRIÈRE : UNE seule tâche, réessayée par deux
+    // nœuds. Deux inspections partagent donc la tâche, et seul le membre sur le
+    // nodeId départage. La tâche a d'abord échoué chez « ancienne » (jugée
+    // « hollow »), puis réussi chez « derniere » (jugée « clean ») : c'est la
+    // production de « derniere » qu'on livre, donc son verdict qui doit partir.
+    const { base, store } = await demarrer();
+    const projet = store.createProject({
+      name: 'Rucher',
+      description: 'un projet',
+      repoUrl: 'https://github.com/moi/mon-projet',
+    });
+    const ancienne = store.registerNode({
+      name: 'ancienne',
+      ownerName: 'moi',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    const derniere = store.registerNode({
+      name: 'derniere',
+      ownerName: 'moi',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    const tache = store.createTask({ projectId: projet.id, title: 'La réessayée', prompt: 'p' });
+
+    // Première tentative (ancienne), puis la DERNIÈRE (derniere) : c'est cette
+    // dernière production, en queue de `resultats`, que la livraison porte.
+    const rAncienne = store.insertResult({
+      taskId: tache.id,
+      nodeId: ancienne.id,
+      success: true,
+      diff: DIFF,
+      logs: '',
+      durationMs: 10,
+      subAgents: [],
+    });
+    const rDerniere = store.insertResult({
+      taskId: tache.id,
+      nodeId: derniere.id,
+      success: true,
+      diff: DIFF,
+      logs: '',
+      durationMs: 10,
+      subAgents: [],
+    });
+    store.patchTask(tache.id, { status: 'done' });
+
+    // On pose le bon verdict (derniere/clean) EN PREMIER, puis l'ancien
+    // (ancienne/hollow) : `listInspections` rendant les plus récentes en tête,
+    // l'ancien passe devant. Sans le membre sur le nodeId, un `.find` sur la
+    // seule tâche retiendrait donc « hollow ».
+    store.enregistrerInspection({
+      resultId: typeof rDerniere === 'number' ? rDerniere : 2,
+      taskId: tache.id,
+      nodeId: derniere.id,
+      verdict: 'clean',
+      score: 0,
+      applique: true,
+      griefs: [],
+    });
+    store.enregistrerInspection({
+      resultId: typeof rAncienne === 'number' ? rAncienne : 1,
+      taskId: tache.id,
+      nodeId: ancienne.id,
+      verdict: 'hollow',
+      score: 90,
+      applique: true,
+      griefs: [],
+    });
+
+    const rep = await fetch(`${base}/api/livraison`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ taskId: tache.id }),
+    });
+    expect(rep.status, 'la livraison doit aboutir').toBe(201);
+    expect(gh?.corpsDesPr, 'une pull request est bien partie').toHaveLength(1);
+
+    const corps = String(gh?.corpsDesPr[0]?.body ?? '');
+    expect(corps, 'le corps de la PR porte un verdict de Gardiennes').toContain('Gardiennes');
+    expect(corps, 'et c’est celui de la DERNIÈRE ouvrière').toContain('`clean`');
+    expect(
+      corps,
+      'le verdict d’une tentative antérieure d’une AUTRE ouvrière ne s’y glisse pas',
     ).not.toContain('`hollow`');
   }, 30_000);
 });

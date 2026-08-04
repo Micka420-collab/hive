@@ -18,6 +18,7 @@ import {
   cheminsPromis,
   fichiersTouches,
   inspecter,
+  inspectionDeProduction,
   lignesQuiCrient,
   promesseDeModification,
   replierInspections,
@@ -529,5 +530,35 @@ describe('Gardiennes : invariants de SOURCE', () => {
     for (const code of Object.keys(POIDS)) {
       expect(code, code).toMatch(/^[a-z]+(_[a-z]+)*$/);
     }
+  });
+});
+
+describe('inspectionDeProduction — l’inspection du couple (tâche, ouvrière) EXACT', () => {
+  const insp = (taskId: string, nodeId: string, verdict: string) => ({ taskId, nodeId, verdict });
+
+  it('EXIGE LA TÂCHE — une inspection de la même ouvrière sur une AUTRE tâche est écartée', () => {
+    const trouvee = inspectionDeProduction(
+      [insp('t2', 'n1', 'hollow'), insp('t1', 'n1', 'clean')],
+      't1',
+      'n1',
+    );
+    expect(trouvee?.verdict, 'la tâche doit correspondre').toBe('clean');
+  });
+
+  it('EXIGE L’OUVRIÈRE — une inspection de la MÊME tâche par une AUTRE ouvrière est écartée', () => {
+    // Le cas de la tâche réessayée : deux ouvrières l'ont touchée, on livre la
+    // production de la DERNIÈRE, donc c'est SON verdict qu'on veut. La première
+    // de la liste (rendue en tête) est l'ancienne : sans le membre sur le nodeId,
+    // c'est elle qui sortirait.
+    const trouvee = inspectionDeProduction(
+      [insp('t1', 'n-ancienne', 'hollow'), insp('t1', 'n-derniere', 'clean')],
+      't1',
+      'n-derniere',
+    );
+    expect(trouvee?.verdict, 'l’ouvrière doit correspondre').toBe('clean');
+  });
+
+  it('RIEN NE CORRESPOND ⇒ undefined — jamais une inspection au hasard', () => {
+    expect(inspectionDeProduction([insp('t1', 'n1', 'clean')], 't2', 'n2')).toBeUndefined();
   });
 });

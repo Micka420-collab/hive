@@ -171,6 +171,7 @@ import {
   CORPUS_GARDIENNES,
   cheminsPromis,
   fichiersTouches,
+  inspectionDeProduction,
   replierInspections,
 } from './gardiennes.js';
 import type { LigneGardienne, ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
@@ -2238,9 +2239,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
 
       const noeud = store.getNode(dernier.nodeId);
-      const inspection = store
-        .listInspections()
-        .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId);
+      const inspection = inspectionDeProduction(store.listInspections(), task.id, dernier.nodeId);
       // Les fichiers sont lus du diff AVANT la livraison : le corps de la PR
       // part avec la requête qui l'ouvre, il ne peut donc pas attendre le
       // résultat. Une analyse en trop coûte quelques microsecondes ; une PR
@@ -2862,9 +2861,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const resultats = store.resultsForTask(task.id);
         const dernier = resultats[resultats.length - 1]!;
         const noeud = store.getNode(dernier.nodeId);
-        const inspection = store
-          .listInspections()
-          .find((i) => i.taskId === task.id && i.nodeId === dernier.nodeId);
+        const inspection = inspectionDeProduction(store.listInspections(), task.id, dernier.nodeId);
         const branche = nomBranche(task.id);
         const issueOrigine = store.issueDeTache(task.id);
 
