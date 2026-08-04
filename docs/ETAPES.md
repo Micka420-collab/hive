@@ -4156,3 +4156,34 @@ rouges. Leçon consignée dans docs/ERREURS.md (§ 2 quattuortrigies : le piège
 d'assignation.** Reste, hors cœur : G5 (protocole / tableau de bord — exposer
 l'échelon élu et son vécu au Mission Control, comme l'Aiguillage montre ses
 modèles), et le trou assumé du cadre de prompt sous global `off` + opt-in (rare).
+
+### Lot G5a livré : les endpoints du tableau de bord (lire l'état, régler l'opt-in)
+
+Le Garde-Fous devient VISIBLE et RÉGLABLE, comme le Plein Essaim — deux gestes,
+côté server (le React suit au lot G5b). Aucun précédent : l'Aiguillage n'est
+exposé NULLE PART au tableau (recon), donc c'est la première fois qu'un bandit
+appris se montre à l'humain.
+
+- `scheduler.classementGardeFou(projectId)` (PUBLIC, motif `get gardiennes`) : le
+  classement des échelons PERMIS d'un projet — le premier est l'ÉLU — ou `[]` sans
+  opt-in. Réutilise `antecedentsGardeFou` + `classerEchelons` (rien de neuf côté
+  calcul). L'humain voit la moyenne / les essais / le score par échelon : POURQUOI
+  tel échelon gouverne.
+- `GET /api/projects/:id/garde-fou` : le consentement (opt-in + bornes + poseur) +
+  `echelonElu` + `classement` + l'échelle complète (`ECHELONS`, `REGLAGES`) pour
+  décrire ce que chaque échelon commande. Gardé par `lectureProjetPermise`, 404 si
+  projet inconnu.
+- `POST /api/projects/:id/garde-fou` : geste HUMAIN (le méta garde-fou — la ruche
+  n'élargit jamais sa propre latitude). Schéma Fastify : `actif` booléen,
+  `borneMin`/`borneMax` validés contre l'échelle (`enum [...ECHELONS]`,
+  `additionalProperties:false`) — seul un échelon connu entre. `setGardeFou(…,
+'humain')`. Gardé par `authorized`, 404 si projet inconnu.
+
+Banc `garde-fou-endpoint.test.ts` : 5 tests via le harnais HTTP (createServer,
+runner éteint — aucun intermittent § 9). Non opt-in (inactif, classement vide,
+échelle décrite) ; régler puis lire (l'opt-in et les bornes reviennent, l'élu à
+froid = strict) ; le classement reflète le vécu (leger passe élu) ; une borne hors
+échelle refusée (400) ; projet inconnu (404). Mutations rejouées rouges. **Reste** :
+G5b (le composant React `GardeFous.tsx`, façon `PleinEssaim.tsx` — helpers purs
+testés contre `garde-fou.ts`, rendu léger asserté sur `textContent`, canevas non
+simulé sous happy-dom).

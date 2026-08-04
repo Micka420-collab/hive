@@ -23,12 +23,14 @@ import type { Antecedent } from './aiguillage.js';
 // le mode global (rien ne change).
 import {
   REGLAGES,
+  classerEchelons,
+  echelonsPermis,
   elireEchelon,
   observationDepuisFaits,
   replierAntecedentsGardeFou,
   versEchelon,
 } from './garde-fou.js';
-import type { Echelon, ObservationGardeFou } from './garde-fou.js';
+import type { Echelon, ObservationGardeFou, RangGardeFou } from './garde-fou.js';
 // La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
 // le grand livre (comptage additif) et son cache de projets sont importés ici.
 // Aucun symbole d'IMPUTATION (`peserLaRuche`, `Pesee`, `Compte`…) ne doit
@@ -1400,6 +1402,21 @@ export class Scheduler {
     const min = versEchelon(consentement.borneMin) ?? 'strict';
     const max = versEchelon(consentement.borneMax) ?? 'strict';
     return elireEchelon({ min, max }, this.antecedentsGardeFou());
+  }
+
+  /**
+   * POUR LE TABLEAU DE BORD : le classement des échelons PERMIS d'un projet — le
+   * premier est l'ÉLU. `[]` si le projet n'a pas opt-in. Lecture seule, motif
+   * `get gardiennes` / `get balance` : le tableau montre ce que la ruche a appris
+   * (moyenne, essais, score par échelon), et l'humain voit POURQUOI tel échelon
+   * gouverne. Bornes illisibles ⇒ le plus strict, comme à l'élection.
+   */
+  classementGardeFou(projectId: string): RangGardeFou[] {
+    const consentement = this.store.getGardeFou(projectId);
+    if (!consentement?.actif) return [];
+    const min = versEchelon(consentement.borneMin) ?? 'strict';
+    const max = versEchelon(consentement.borneMax) ?? 'strict';
+    return classerEchelons(echelonsPermis({ min, max }), this.antecedentsGardeFou());
   }
 
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */

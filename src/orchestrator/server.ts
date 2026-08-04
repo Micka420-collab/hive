@@ -191,7 +191,8 @@ import type { Caste, ModePolyethisme } from './polyethisme.js';
 // L'Agent Garde-Fous : le POLYÉTHISME d'une production suit l'échelon POSÉ pour
 // sa tâche (projet opt-in), pas le seul mode global — et l'EXIGENCE constatée est
 // rangée, ce qui rend l'observation repliable (le bandit apprend).
-import { REGLAGES, versEchelon } from './garde-fou.js';
+import { ECHELONS, REGLAGES, versEchelon } from './garde-fou.js';
+import type { Echelon } from './garde-fou.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -2727,6 +2728,78 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply
         .code(200)
         .send({ niveau: e.niveau, depotInscrit: e.depotInscrit, decision: e.decision });
+    },
+  );
+
+  /**
+   * L'état de l'Agent Garde-Fous d'un projet, pour le tableau de bord : le
+   * consentement (opt-in + bornes posés par l'humain) ET ce que la ruche a appris
+   * — le classement des échelons permis, le premier étant l'ÉLU. `classement` vide
+   * ⇒ projet non opt-in. L'échelle complète et ses réglages accompagnent, pour que
+   * l'écran explique ce que chaque échelon commande, sans le deviner.
+   */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/garde-fou',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const c = store.getGardeFou(req.params.projectId);
+      const classement = scheduler.classementGardeFou(req.params.projectId);
+      return {
+        actif: c?.actif ?? false,
+        bornes: c ? { min: c.borneMin, max: c.borneMax } : null,
+        definiPar: c?.definiPar ?? null,
+        echelonElu: classement[0]?.echelon ?? null,
+        classement,
+        echelons: ECHELONS,
+        reglages: REGLAGES,
+      };
+    },
+  );
+
+  /**
+   * Règle l'Agent Garde-Fous d'un projet — GESTE HUMAIN, sans équivalent
+   * automatique (le méta garde-fou : la ruche n'élargit jamais sa propre
+   * latitude). L'opt-in et les DEUX bornes de l'échelle. `borneMin`/`borneMax`
+   * validés contre l'échelle par le schéma : seul un échelon connu entre.
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { actif: boolean; borneMin: Echelon; borneMax: Echelon };
+  }>(
+    '/api/projects/:projectId/garde-fou',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['actif', 'borneMin', 'borneMax'],
+          properties: {
+            actif: { type: 'boolean' },
+            borneMin: { type: 'string', enum: [...ECHELONS] },
+            borneMax: { type: 'string', enum: [...ECHELONS] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      store.setGardeFou(
+        req.params.projectId,
+        { actif: req.body.actif, borneMin: req.body.borneMin, borneMax: req.body.borneMax },
+        'humain',
+      );
+      const classement = scheduler.classementGardeFou(req.params.projectId);
+      return reply.code(200).send({
+        actif: req.body.actif,
+        bornes: { min: req.body.borneMin, max: req.body.borneMax },
+        echelonElu: classement[0]?.echelon ?? null,
+      });
     },
   );
 
