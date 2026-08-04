@@ -78,6 +78,26 @@ function celluleNav(dom: HTMLElement, libelle: string): HTMLButtonElement {
 }
 
 describe('la coquille de l’App — les deux dernières survivantes du balayage', () => {
+  it('LA CELLULE DE LA VUE COURANTE PORTE `aria-current` ET la classe active', async () => {
+    // Survivantes loupe (§ 9 vicies, la famille GardeFous / PleinEssaim /
+    // AccountPanel) : sur la navigation, `aria-current={route.view === item.id ?
+    // 'page' : undefined}` ET `className={… === item.id ? ' active'}`. Mutées en
+    // `!==`, la suite restait verte — les bancs lisaient le libellé et l'info-bulle,
+    // jamais l'état COURANT de la cellule. Or `aria-current="page"` est ce qu'un
+    // lecteur d'écran annonce comme « la page où vous êtes », et `.active` la
+    // surligne : inverser désigne TOUTES les vues SAUF la bonne comme courantes.
+    const dom = await monter();
+    // Au réveil, la Ruche est la vue courante (hash vide → 'ruche').
+    const ruche = celluleNav(dom, 'Ruche');
+    const projets = celluleNav(dom, 'Projets');
+    expect(ruche.getAttribute('aria-current'), 'la Ruche est la page courante').toBe('page');
+    expect(ruche.className, 'la Ruche porte la classe active').toContain('active');
+    expect(projets.getAttribute('aria-current'), 'les Projets ne sont pas la page').toBeNull();
+    expect(projets.className, 'les Projets ne portent pas la classe active').not.toContain(
+      'active',
+    );
+  });
+
   it('L’INFO-BULLE PARLE LA LANGUE DE L’ÉCRAN — jamais l’autre', async () => {
     // La survivante du `title` : mutée, chaque info-bulle parlerait la langue
     // que l'utilisateur n'a PAS choisie. Le libellé visible (ligne voisine,

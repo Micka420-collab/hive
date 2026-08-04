@@ -4344,3 +4344,22 @@ Toujours pas de nouvelle leçon : § 9 vicies (« un banc de rendu doit lire
 l'ATTRIBUT, pas seulement `textContent` ») en est à sa 3ᵉ confirmation (GardeFous,
 PleinEssaim, AccountPanel). Le motif à surveiller partout : un état porté par
 `aria-*` / une classe conditionnelle, jugé par un banc qui n'assert que le texte.
+
+### § 9 vicies, 4ᵉ récidive : la navigation principale (App.tsx)
+
+Balayage ciblé poursuivi. `App.tsx`, la barre de navigation : DEUX survivantes sur
+la cellule de la vue courante —
+`aria-current={route.view === item.id ? 'page' : undefined}` et
+`className={\`mc-nav-cell${route.view === item.id ? ' active' : ''}\`}`. Mutées en
+`!==`, la suite restait verte : les bancs (`app-coquille.test.tsx`) lisaient le
+libellé et l'info-bulle, jamais l'état COURANT de la cellule. `aria-current="page"`
+est ce qu'un lecteur d'écran annonce comme « la page où vous êtes » ; inverser
+désigne toutes les vues SAUF la bonne comme courantes.
+
+Correctif : un banc dans `app-coquille.test.tsx` qui, au réveil (hash vide → Ruche),
+lit `getAttribute('aria-current')` ET `className` sur la Ruche (courante) ET sur les
+Projets (non courants). Les 2 mutations rejouées → rouge, verdict affiché. Suite +1.
+
+§ 9 vicies en est à sa 4ᵉ confirmation (GardeFous, PleinEssaim, AccountPanel, App).
+Toujours pas de nouvelle leçon — le motif est stable et connu ; ce qui compte, c'est
+de le débusquer partout où un état d'activation vit dans un `aria-*` / une classe.
