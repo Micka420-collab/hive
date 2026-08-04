@@ -3279,3 +3279,81 @@ motif est stable, seul le déguisement change.
 
 Corrigé en isolant le corps de `principal()` par suivi des accolades. Rejoué
 sous les trois formes — trois rouges.
+
+## La porte du compte : « se connecter » pouvait créer un compte
+
+### La survivante, et pourquoi elle sortait du lot des autres
+
+Les rappels de la nuit portaient une liste de survivantes « de moindre portée »
+— états vides, bascules d'affichage. **La liste était périmée** : Balance,
+premier nom vérifié, était déjà défendue (`tests/vues-sentinelles.test.tsx`,
+mutation → 1 rouge). Les listes de survivantes ne se croient pas sur parole ;
+elles se remutent.
+
+Sur les huit restantes, une seule ne relevait pas de l'affichage :
+
+    mode === 'login' ? await authLogin(…) : await authRegister(…)
+
+Nudité vérifiée contre la suite **entière** avant d'écrire une ligne : **3 330
+tests verts** avec `!==` en place (§ 2 septdecies — « survit » veut dire « survit
+aux fichiers que j'ai lancés », donc on lance tout).
+
+### Ce que la mutation produit
+
+Elle ne change pas un affichage, elle change **l'opération d'identifiants**
+envoyée au serveur. « Se connecter » appellerait `authRegister` :
+
+- si l'adresse existe déjà, la personne lit « email déjà utilisé » alors qu'elle
+  essayait de se connecter — et n'a aucune raison de soupçonner l'écran plutôt
+  que sa mémoire ;
+- si l'adresse est libre — une faute de frappe suffit — **un compte neuf est
+  créé en silence** et la session s'ouvre dessus. La personne se croit chez elle
+  et ne voit aucun de ses projets, tandis que son vrai compte n'a pas bougé.
+
+Rien ne casse, tout répond. Et le libellé du bouton resterait juste, puisqu'il
+vient d'une **autre** ligne : un écran parfaitement cohérent enverrait la
+mauvaise requête.
+
+### Pourquoi le banc existant ne la voyait pas
+
+`tests/compte-porte.test.tsx` existait déjà et gardait `canSubmit`, l'indice de
+longueur et le libellé du bouton. Il portait même l'avertissement qui décrit
+exactement ce qui s'est passé :
+
+> une famille de bascules ne se garde pas par un seul de ses membres
+
+`mode === 'login'` apparaît **sept fois** dans le composant. Les gardées étaient
+les bascules d'affichage ; celle de `submit()` — la seule qui choisisse l'appel
+réseau — ne l'était pas. Le nouveau banc vit donc dans ce fichier-là, à côté de
+l'avertissement qu'il vérifie enfin.
+
+### Deux voisines débusquées en rejouant
+
+En mutant les six autres occurrences pour vérifier que le banc neuf ne les
+confondait pas avec la sienne, **deux ont survécu**. Les mesurer et les laisser
+nues aurait été pire que ne pas les avoir regardées — le silence se relit comme
+« couvert ».
+
+- **le titre de la modale** : muté, l'écran se contredit (onglet « Connexion »,
+  bouton « Se connecter », titre « Créer un compte ») ;
+- **l'`autocomplete` du mot de passe** : invisible à l'œil, donc jamais
+  remarqué. Muté, il ment dans les deux sens — `new-password` à la connexion
+  fait proposer de **générer** un mot de passe au lieu de remplir l'enregistré ;
+  `current-password` à l'inscription fait **remplir un mot de passe existant**
+  dans un compte neuf, et la réutilisation se fait toute seule.
+
+### Mutations — quatre, quatre rouges
+
+| mutation                                        | avant le lot  | après    |
+| ----------------------------------------------- | ------------- | -------- |
+| l.90 — l'envoi : `login` et `register` échangés | **survivait** | 4 rouges |
+| l.108 — la porte `canSubmit`                    | 4 rouges      | 4 rouges |
+| l.125 — le titre de la modale                   | **survivait** | 1 rouge  |
+| l.196 — l'`autocomplete` du mot de passe        | **survivait** | 1 rouge  |
+
+### Une chose constatée plutôt que supposée
+
+Le premier banc de contraste cherchait l'onglet « Inscription » après un envoi
+réussi. Il a rougi : `submit()` appelle `onClose()`, donc **la modale se
+referme** — comportement voulu, que je n'avais pas vérifié. Rouvrir avant de
+basculer, plutôt que supposer que l'écran reste tel qu'on l'a laissé.

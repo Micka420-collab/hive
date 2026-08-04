@@ -25,8 +25,26 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// ─── CE QU'ON SIMULE, ET CE QU'ON LAISSE VRAI ────────────────────────────────
+//
+// SEULS les quatre appels réseau de l'envoi sont simulés. `clearJwt` reste le
+// VRAI : le banc de déconnexion, plus haut, vérifie qu'il vide réellement
+// `localStorage`, et le simuler rendrait cette assertion creuse — elle
+// passerait sur un `clearJwt` qui ne ferait plus rien.
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  authLogin: vi.fn(() => Promise.resolve({ token: 'jeton-de-connexion' })),
+  authRegister: vi.fn(() => Promise.resolve({ token: 'jeton-d-inscription' })),
+  authMe: vi.fn(() =>
+    Promise.resolve({ id: 'u1', email: 'abeille@ruche.fr', displayName: 'Abeille' }),
+  ),
+  saveJwt: vi.fn(),
+}));
+
 import { AccountPanel } from '../dashboard/src/AccountPanel';
+import { authLogin, authRegister } from '../dashboard/src/api';
 import type { AuthUser } from '../dashboard/src/api';
 import { setLang } from '../dashboard/src/i18n';
 
@@ -200,5 +218,162 @@ describe('la porte canSubmit — les trois survivantes de la loupe', () => {
       'Créer le compte',
     );
     expect(m.soumission().textContent, 'et il ne dit plus l’autre').not.toContain('Se connecter');
+  });
+});
+
+// ─── L'ENVOI : QUELLE OPÉRATION PART RÉELLEMENT ──────────────────────────────
+//
+// Tout ce qui précède éprouve ce que la modale MONTRE — le libellé du bouton,
+// l'indice de longueur, l'état de la porte. Rien n'éprouvait ce qu'elle FAIT.
+//
+// Le fichier le dit lui-même quelques lignes plus haut : « une famille de
+// bascules ne se garde pas par un seul de ses membres ». `mode === 'login'`
+// apparaît plusieurs fois dans le composant, et celle de `submit()` — la seule
+// qui choisisse l'appel réseau — n'était éprouvée nulle part. Nudité vérifiée
+// contre la suite ENTIÈRE avant d'écrire : 3 330 tests verts avec `!==` en
+// place (§ 2 septdecies).
+//
+// Mutée, elle ne change pas un affichage, elle change L'OPÉRATION D'IDENTIFIANTS
+// envoyée au serveur :
+//
+//   · si l'adresse existe déjà, quelqu'un qui se connecte lit « email déjà
+//     utilisé », sans raison de soupçonner l'écran plutôt que sa mémoire ;
+//   · si l'adresse est libre — une faute de frappe suffit — un compte NEUF est
+//     créé en silence et la session s'ouvre dessus. La personne se croit chez
+//     elle et ne voit AUCUN de ses projets, tandis que son vrai compte n'a pas
+//     bougé. C'est le pire des deux : rien ne casse, tout répond.
+//
+// Le libellé du bouton, lui, resterait juste — il vient d'une AUTRE ligne. Un
+// écran parfaitement cohérent enverrait donc la mauvaise requête.
+
+describe('l’envoi — quelle opération part réellement', () => {
+  beforeEach(() => {
+    vi.mocked(authLogin).mockClear();
+    vi.mocked(authRegister).mockClear();
+  });
+
+  it('CONNEXION : c’est `authLogin` qui part, JAMAIS `authRegister`', async () => {
+    // LA garde. Mutée, cette assertion tombe : « Se connecter » créerait un compte.
+    const m = ouvrirModale();
+    saisir(m.champs().email, 'abeille@ruche.fr');
+    saisir(m.champs().mdp, 'un-mot-de-passe');
+    await act(async () => m.soumission().click());
+
+    expect(vi.mocked(authLogin), 'se connecter, c’est se connecter').toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(authRegister),
+      'créer un compte n’a PAS été demandé — le faire ouvrirait un compte fantôme',
+    ).not.toHaveBeenCalled();
+  });
+
+  it('INSCRIPTION : c’est `authRegister` qui part, JAMAIS `authLogin`', async () => {
+    // L'autre moitié du contraste. Les deux ensemble rendent l'échange
+    // impossible : aucune mutation ne peut les satisfaire toutes les deux.
+    const m = ouvrirModale();
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    saisir(m.champs().email, 'abeille@ruche.fr');
+    saisir(m.champs().nom as HTMLInputElement, 'Abeille');
+    saisir(m.champs().mdp, 'x'.repeat(12));
+    await act(async () => m.soumission().click());
+
+    expect(vi.mocked(authRegister), 's’inscrire, c’est s’inscrire').toHaveBeenCalledTimes(1);
+    expect(vi.mocked(authLogin), 'la connexion n’a PAS été tentée').not.toHaveBeenCalled();
+  });
+
+  it('L’INSCRIPTION PORTE LE NOM AFFICHÉ — la signature aussi diffère', async () => {
+    // Les deux appels n'ont pas la même forme : un `authRegister` sans nom
+    // créerait un compte anonyme si le serveur était plus permissif. Éprouver
+    // les ARGUMENTS, pas seulement le nom de la fonction appelée.
+    const m = ouvrirModale();
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    saisir(m.champs().email, 'abeille@ruche.fr');
+    saisir(m.champs().nom as HTMLInputElement, 'Abeille');
+    saisir(m.champs().mdp, 'x'.repeat(12));
+    await act(async () => m.soumission().click());
+
+    expect(vi.mocked(authRegister)).toHaveBeenCalledWith(
+      'abeille@ruche.fr',
+      'x'.repeat(12),
+      'Abeille',
+    );
+  });
+
+  it('LES DEUX MODES N’APPELLENT JAMAIS LA MÊME CHOSE — dit explicitement', async () => {
+    // La propriété nommée pour elle-même, afin qu'elle survive à une réécriture
+    // séparée des deux bancs ci-dessus.
+    const m = ouvrirModale();
+    saisir(m.champs().email, 'abeille@ruche.fr');
+    saisir(m.champs().mdp, 'un-mot-de-passe');
+    await act(async () => m.soumission().click());
+    const apresConnexion = [
+      vi.mocked(authLogin).mock.calls.length,
+      vi.mocked(authRegister).mock.calls.length,
+    ];
+
+    // LA MODALE S'EST REFERMÉE — `submit()` appelle `onClose()` quand l'appel
+    // réussit. C'est le comportement voulu, et il fallait le constater plutôt
+    // que le supposer : la première version de ce banc cherchait l'onglet
+    // « Inscription » dans un panneau qui n'affichait plus qu'un bouton.
+    cliquer(boutonParTexte(m.dom, 'Se connecter'));
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    saisir(m.champs().email, 'abeille@ruche.fr');
+    saisir(m.champs().nom as HTMLInputElement, 'Abeille');
+    saisir(m.champs().mdp, 'x'.repeat(12));
+    await act(async () => m.soumission().click());
+    const apresInscription = [
+      vi.mocked(authLogin).mock.calls.length,
+      vi.mocked(authRegister).mock.calls.length,
+    ];
+
+    expect(apresConnexion, 'la connexion n’appelle QUE login').toEqual([1, 0]);
+    expect(apresInscription, 'l’inscription n’ajoute QUE register').toEqual([1, 1]);
+  });
+});
+
+// ─── LES DEUX DERNIÈRES BASCULES, TROUVÉES EN MUTANT LES VOISINES ────────────
+//
+// En rejouant la survivante de l'envoi, j'ai muté les six autres `mode ===
+// 'login'` du composant pour vérifier que le banc neuf ne les confondait pas
+// avec la sienne. Deux ont SURVÉCU. Les mesurer et les laisser nues aurait été
+// pire que ne pas les avoir regardées : le silence se relit comme « couvert ».
+
+describe('les bascules que la mutation des voisines a débusquées', () => {
+  it('LE TITRE DE LA MODALE SUIT LE MODE — pas seulement l’onglet et le bouton', () => {
+    // Muté, l'écran se contredit lui-même : l'onglet dit « Connexion », le
+    // bouton dit « Se connecter », et le titre annonce « Créer un compte ».
+    // On vise le titre PAR SON ID : « Connexion » est aussi le texte de
+    // l'onglet, et un repère non unique jugerait le mauvais élément — le
+    // § 2 duodecies, déjà payé plus haut dans ce fichier.
+    const m = ouvrirModale();
+    const titre = (): string => m.dom.querySelector('#account-title')?.textContent ?? '';
+
+    expect(titre(), 'à l’ouverture, on se connecte').toContain('Connexion');
+    expect(titre(), 'et on ne propose pas l’inverse').not.toContain('Créer un compte');
+
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    expect(titre(), 'après bascule, on crée un compte').toContain('Créer un compte');
+  });
+
+  it('LE CHAMP MOT DE PASSE DIT AU GESTIONNAIRE CE QU’IL DOIT FAIRE', () => {
+    // `autocomplete` est invisible à l'œil, donc personne ne remarque jamais
+    // qu'il ment — et il ment dans les deux sens :
+    //
+    //   · `new-password` à la CONNEXION : le gestionnaire propose de GÉNÉRER un
+    //     mot de passe au lieu de remplir celui qui est enregistré ;
+    //   · `current-password` à l'INSCRIPTION : il remplit un mot de passe
+    //     EXISTANT dans un compte neuf, et la réutilisation se fait toute seule.
+    //
+    // C'est exactement le genre de défaut qui reste en place des années : rien
+    // ne casse, rien ne s'affiche, et seul un gestionnaire de mots de passe s'en
+    // aperçoit — sans pouvoir le dire.
+    const m = ouvrirModale();
+    expect(m.champs().mdp.getAttribute('autocomplete'), 'connexion : remplir l’existant').toBe(
+      'current-password',
+    );
+
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    expect(m.champs().mdp.getAttribute('autocomplete'), 'inscription : en proposer un neuf').toBe(
+      'new-password',
+    );
   });
 });
