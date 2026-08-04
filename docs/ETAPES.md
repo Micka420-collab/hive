@@ -3857,3 +3857,104 @@ et par relecture. Frontière assumée, pas oubliée.
 apprend, et n'arrête jamais d'explorer. C'est la demande d'origine de
 l'utilisateur, tenue. Reste, hors Aiguillage : l'Agent Garde-Fous (feature 2,
 non commencée), et les tâches de nuit #63.
+
+---
+
+## FEATURE 2 — l'Agent Garde-Fous (la ruche apprend son propre trou de vol)
+
+Demande utilisateur, verbatim : « je veux aussi dans Hive un agent garde-fous
+qui teste les meilleurs garde-fous pour des projets avec la base de l'IA — mais
+pas forcément utilisé sur tous les projets ». Même moteur explore/exploit UCB1
+que l'Aiguillage, mais appliqué à une autre question : « quel ÉCHELON de
+garde-fous pour ce PROJET ? », et OPT-IN par projet.
+
+### Le fork tranché par un agent Fable 5 (avant d'écrire une ligne)
+
+Trois partis pris étaient ouverts ; un agent Fable 5 les a tranchés, et voici la
+décision retenue (avec la justification, pour qu'on n'ait pas à la redémontrer) :
+
+**Q1 — LE BRAS : une ÉCHELLE de trois échelons ordonnés, pas un éventail.**
+`leger < standard < strict`, chacun un paquet cohérent de deux modes
+(`{ModeGardiennes, ModePolyethisme}`), et rien d'autre :
+
+- `leger` = gardiennes `consultatif` + polyéthisme `consignes` (on annote et on
+  cadre, rien n'est jamais retenu) ;
+- `standard` = gardiennes `strict` + polyéthisme `consignes` (le trou de vol refuse
+  le nectar creux, mais aucune contre-visite ne retient) ;
+- `strict` = gardiennes `strict` + polyéthisme `strict` (le paquet complet).
+
+Pourquoi PAS le produit cartésien (9 configs) ni les interrupteurs indépendants :
+un projet réel rend quelques verdicts par jour ; neuf bras passeraient des
+semaines à seulement éteindre les infinis d'exploration. C'est l'argument déjà
+gravé dans l'Aiguillage (« une taxonomie fine se paie deux fois »). L'ordre TOTAL
+n'est pas un luxe : les bornes {min, max} de gouvernance (Q3) n'ont de sens que
+sur une échelle ordonnée. Les SEUILS de caste (SEUIL_BATISSEUSE, FIABILITE_…) ne
+sont PAS des bras et ne le seront jamais : ils calibrent le polyéthisme lui-même,
+et les faire varier par projet rendrait les castes incomparables d'une ruche à
+l'autre — une butineuse doit vouloir dire la même chose partout.
+
+**Q2 — LA RÉCOMPENSE : un compromis qualité/coût, pour que « toujours strict » ne
+gagne pas trivialement.** `r = (2·q + 1·f) / 3`, dans [0, 1] :
+
+- `q`, la QUALITÉ = le verdict des GARDIENNES (`clean`=1, `suspect`=2/3, `hollow`=0),
+  et `q = 0` si la production a fini REPRISE, quel que soit le verdict d'entrée.
+  Le 2/3 est `1 − POIDS_SUSPECTE`, la même indulgence que `fiabilite()`. C'est le
+  MÊME instrument sur tous les échelons ;
+- `f`, la FLUIDITÉ = ce que le garde-fou a coûté (`directe`=1,
+  `retenue_puis_relachee`=1/2, `en_attente`=0).
+
+Le verdict de CONTRE-VISITE (`appliquer/ameliorer/refaire`) n'entre PAS dans `r` :
+il n'existe que sur l'échelon `strict`, et une récompense mesurée avec un
+instrument différent selon le bras ne compare rien. Le bénéfice de la
+contre-visite se lit par ce qu'elle PRÉVIENT (moins de reprises), pas par sa
+propre note. Le strict paie son péage `f=1/2` à chaque relecture même stérile, et
+ne le rembourse que s'il évite réellement des creux ; le léger encaisse `q=0` sur
+chaque creux qui passe. Les jetons/la durée bruts restent dehors : `durationMs`
+varie cent fois plus avec la taille de la tâche qu'avec le réglage — un
+dénominateur bruité. **« gardiennes off » est EXCLU de l'espace des bras** : un
+bras qui éteint l'instrument de mesure n'a aucun signal, donc reste à `+∞` pour
+toujours ou paraît nul sur du vide — deux faux. L'humain peut éteindre les
+Gardiennes, mais c'est un geste HORS échelle (l'agent inactif), pas un bras.
+
+**Q3 — LA GOUVERNANCE : l'agent APPLIQUE, mais seulement DANS des bornes que seul
+l'humain écrit, et il s'y meut dans les DEUX sens.** Une table `garde_fous` sur le
+motif exact de `essaim` (une ligne par projet, une intention humaine jamais un
+calcul, borne structurelle sans élagueur, → `BORNÉES_PAR_L_HUMAIN`) porte
+`{actif, borneMin, borneMax, definiPar}`. Pas de ligne ou `actif=0` ⇒ l'agent
+n'existe pas pour ce projet (l'opt-in demandé). DANS les bornes, l'agent relâche
+ET resserre : un cliquet « resserrer seul » serait interdit par la règle 3 du
+polyéthisme et convergerait mécaniquement vers le plus strict (le gagnant trivial
+qu'on vient d'écarter, en contradiction avec la règle 6). La doctrine « une ruche
+qui élève son propre niveau d'autonomie est échappée » vise l'élargissement de sa
+PROPRE latitude — pas le mouvement dans une latitude déjà consentie. Quatre
+verrous : opt-in ; bornes écrites par `definiPar` SEUL (le module REÇOIT ses
+bornes, n'en REND jamais) ; plancher structurel (l'échelon le plus bas garde les
+Gardiennes allumées — « tout éteindre » inatteignable par l'agent) ; élections
+journalisées.
+
+### Lot G1 livré : le module PUR `src/orchestrator/garde-fou.ts` (inerte)
+
+Comme le lot 2 de l'Aiguillage : le module pur d'abord, AUCUN câblage, aucun
+changement de comportement. Il RÉUTILISE littéralement le moteur de l'Aiguillage
+(`scoreUCB`, `moyenne`, `Antecedent`) — c'est le « même moteur » demandé, partagé
+pour de vrai, pas recopié.
+
+Surface : `ECHELONS`/`rangEchelon`, `REGLAGES` (le paquet de modes par échelon,
+plancher jamais `off`), `NOTE_VERDICT`/`NOTE_TRAVERSEE`/`POIDS_QUALITE`(2)/
+`POIDS_FLUIDITE`(1)/`recompenseGardeFou`, `CORPUS_GARDE_FOU`(200)/
+`replierAntecedentsGardeFou`, `Bornes`/`BORNES_DEFAUT`/`normaliserBornes` (inversées
+⇒ resserrées sur le plus strict, fermé par défaut)/`echelonsPermis` (jamais vide),
+`comparerRangs` (un SEUL départage partagé : score décroissant puis plus strict à
+ex æquo)/`classerEchelons`/`elireEchelon` (jamais `null`, via `reduce` sans valeur
+initiale sur une liste garantie non vide — pas d'assertion `!`, pas de branche
+morte).
+
+Banc `tests/garde-fou.test.ts` : 18 tests. Chaque point de décision éprouvé par
+mutation (rejeu rouge affiché) — les poids 2/1 (via le couple clean+en_attente=2/3
+et hollow+directe=1/3), la porte `reprise` (clean+directe reprise=1/3 vs 1), la
+fenêtre `slice(-CORPUS)` (l'ancienne oubliée), les bornes inversées (resserrées
+sur le strict), et surtout le verrou de gouvernance (`strict` parfait mais hors
+bornes n'est JAMAIS élu). **Reste** : lot G2 (la table `garde_fous` + la
+reconstruction des observations par jointure, motif `observationsAiguillage`), lot
+G3 (le câblage scheduler : lire les bornes, élire, appliquer le `Reglage`,
+journaliser), lot G4 (protocole/tableau de bord).
