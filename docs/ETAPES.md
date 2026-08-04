@@ -3768,3 +3768,28 @@ survivait faute d'un banc qui pose une phéromone sur un non-porteur). Les 117
 tests d'ordonnancement voisins restent verts. **Reste 3b-bis** — la borne du
 troupeau (élections en vol) — puis **lot 3c** (course de drones), **lot 4**
 (activation : le nœud déclare, l'adaptateur passe `--model`).
+
+### Lot 3b-bis livré : la borne du troupeau (élections en vol)
+
+Le `+∞` d'un modèle jamais essayé tient jusqu'au premier VERDICT — pas jusqu'au
+premier LANCEMENT. Le temps que les contre-visites reviennent (des minutes), un
+modèle neuf raflerait toutes les tâches prêtes de son genre. Corrigé côté
+CROISÉ-PASSE (la limite de capacité borne déjà chaque passe) :
+
+- `store.electionsEnVolAiguillage()` — les tâches ENCORE actives
+  (`assigned`/`running`) au modèle posé mais sans contre-visite. DEUX filtres,
+  pas un : « sans verdict » seul laisserait une tâche `done`/`failed` jamais
+  relue peser en vol pour toujours ;
+- `aiguillage.injecterEnVol(antecedents, enVol)` — +1 `essai` SANS note par
+  élection en vol : le `+∞` s'éteint dès le premier lancement (score fini),
+  moyenne temporairement pessimiste puis corrigée aux vrais verdicts ;
+- `scheduler.lireAntecedents` — injecte les élections en vol après les verdicts,
+  une fois par passe.
+
+Banc : 3 `injecterEnVol` (le `+∞` s'éteint, la note reste 0, chaque vol compte),
+4 `electionsEnVolAiguillage` (active+sans verdict = en vol ; jugée sort ; `done`
+sans verdict n'entre pas ; sans modèle rien), 1 intégration (un modèle neuf à
+5 élections en vol ne rafle plus la tâche prête, opus reprend). Mutations
+rejouées rouges aux trois niveaux (pure, store, câblage). **Reste** : lot 3c
+(course de drones — les deux sites du scheduler encore intouchés), lot 4
+(activation).
