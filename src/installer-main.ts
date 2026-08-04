@@ -18,12 +18,13 @@
 // projet, et un `.env` existant COMPLÉTÉ, jamais écrasé — écraser un jeton en
 // service couperait tous les nœuds déjà connectés.
 
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { analyser, nonInteractif, type Forme } from './args.js';
 import { type ReglagePropose } from './assistant.js';
 import { CODE } from './codes-sortie.js';
+import { MODE_SECRET, ecrireAtomique } from './ecriture-atomique.js';
 import { assistant } from './installer-assistant.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
 import { decider, modeDepuisEnv, trouverFournisseur } from './node-client/isolement.js';
@@ -79,30 +80,9 @@ const AIDE = [
     `${CODE.REFUS_SECURITE} refus de sécurité · ${CODE.INTERROMPU} interrompu.`,
 ];
 
-/**
- * Écrit un fichier ATOMIQUEMENT : temporaire, puis `rename`.
- *
- * `rename` sur le même système de fichiers est atomique — le lecteur voit
- * l'ancien fichier ou le nouveau, jamais un `.env` à moitié écrit. Sans cela,
- * un `^C` au mauvais moment, ou un disque plein, laisserait une configuration
- * TRONQUÉE : un jeton coupé en deux, une ruche qui refuse de démarrer, et
- * aucune trace de ce qui s'est passé.
- */
-function ecrireAtomique(chemin: string, contenu: string, mode: number): void {
-  const temporaire = `${chemin}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temporaire, contenu, { mode });
-    renameSync(temporaire, chemin);
-  } catch (err) {
-    // Ne pas laisser de temporaire derrière soi, même quand ça tourne mal.
-    try {
-      unlinkSync(temporaire);
-    } catch {
-      /* le temporaire n'existait pas : rien à nettoyer */
-    }
-    throw err;
-  }
-}
+// `ecrireAtomique` vit dans `src/ecriture-atomique.ts` : ce fichier-ci
+// s'exécute à l'import (`main().catch(…)` en dernière ligne), donc aucun banc
+// ne pouvait l'éprouver — et il porte la seule bonne façon d'écrire un secret.
 
 /**
  * Le port est-il libre ?
@@ -427,7 +407,15 @@ function ecrireReglages(reglages: readonly ReglagePropose[]): void {
   if (ajouts.length > 0) {
     contenu = `${contenu.replace(/\s*$/, '')}\n\n# ─── Posé par l’assistant ───\n${ajouts.join('\n')}`;
   }
-  writeFileSync(CHEMIN_ENV, contenu, { mode: 0o600 });
+  // MÊME VOIE que le chemin principal, et pas un `writeFileSync` direct.
+  //
+  // C'est le chemin INTERACTIF — celui où l'on appuie sur `^C` —, et il écrit
+  // le fichier qui porte `HIVE_TOKEN` et `HIVE_JWT_SECRET`. La voie directe y
+  // perdait deux choses : l'atomicité (un `^C` laisse un `.env` tronqué), et
+  // surtout les DROITS — `mode` n'est honoré qu'à la création, donc un `.env`
+  // déjà présent en 644 (ce que produit le `cp .env.example .env` que le
+  // docteur conseille) le restait, secrets compris. Mesuré, pas supposé.
+  ecrireAtomique(CHEMIN_ENV, contenu, MODE_SECRET);
 }
 
 main().catch((err: unknown) => {

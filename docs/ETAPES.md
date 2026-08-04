@@ -2427,3 +2427,48 @@ cadavres.
 Suite mesurée : **3 231** (3 224 passés, 7 ignorés, 212 fichiers). Les six
 badges sont posés par `node scripts/compte-tests.mjs rapport-tests.json
 --corriger`, à partir du rapport JSON de l'exécution — pas à la main.
+
+---
+
+## Le `.env` de l'assistant gardait ses vieux droits — avec les secrets dedans
+
+`src/installer-main.ts` était l'autre fichier à 0 % de couverture, et pour la
+même raison structurelle que `join.ts` : il finit par `main().catch(…)`, donc
+l'importer LANCE l'installeur. Aucun banc ne pouvait le toucher.
+
+Il portait DEUX écrivains du même fichier — le `.env`, celui qui contient
+`HIVE_TOKEN` et `HIVE_JWT_SECRET` : le chemin principal écrivait par
+temporaire + `rename`, le chemin de l'**assistant** par un `writeFileSync`
+direct. Les deux demandaient `{ mode: 0o600 }`. Les deux ont l'air corrects.
+
+**Mesuré avant d'écrire une ligne de correctif :**
+
+```
+fichier existant en 644, puis writeFileSync(… { mode: 0o600 })  → 644
+temporaire neuf en 0600, puis rename                            → 600
+```
+
+`mode` n'est honoré qu'à la **création**. Sur un fichier qui existe déjà,
+l'option est silencieusement sans effet. Et le scénario n'est pas théorique :
+le dépôt conseille lui-même `cp .env.example .env`, ce qui produit un 644.
+L'assistant le complétait ensuite avec les secrets dedans — lisibles par tous
+les comptes de la machine. C'est en outre le chemin INTERACTIF, donc celui où
+l'on appuie sur `^C` : il perdait aussi l'atomicité, et un `^C` au mauvais
+moment y laissait un `.env` tronqué.
+
+**Le correctif** n'est pas « ajouter un `chmod` » : c'est faire passer les deux
+écrivains par la même voie. `src/ecriture-atomique.ts` porte `ecrireAtomique` et
+`MODE_SECRET`, avec 9 tests sur de vrais fichiers — dont celui qui pose la
+prémisse (un `.env` en 644) et vérifie qu'il ressort en 600.
+
+**Et la garde qui la tient.** Le correctif vit dans un fichier qu'aucun banc ne
+peut appeler : sans garde structurelle, le prochain écrivain du `.env` naîtrait
+au `writeFileSync` direct et personne ne le verrait (§ 2 sexdecies). Deux
+gardes de SOURCE ont donc été ajoutées — aucun `writeFileSync` de `src/**` ne
+vise un `.env`, et l'installeur passe bien deux fois par la voie atomique. Le
+défaut d'origine a été remis en place pour les éprouver : **ROUGE toutes les
+deux**. La première compte aussi les écrivains qu'elle voit (`> 3`), pour ne
+pas devenir verte le jour où elle cesserait de regarder.
+
+Carnet : § 2 tervicies — devant une option de droits, la question n'est jamais
+« l'a-t-on demandée ? » mais « à quel moment est-elle lue ? ».

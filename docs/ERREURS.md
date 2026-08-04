@@ -3005,6 +3005,53 @@ cherche des instructions.** La réparation, elle, coûte un `--amend -F` et un
 
 ---
 
+## 2 tervicies. `mode` n'est honoré qu'à la CRÉATION — un secret réécrit garde ses vieux droits
+
+`src/installer-main.ts` portait DEUX écrivains du même fichier : le `.env`,
+celui qui contient `HIVE_TOKEN` et `HIVE_JWT_SECRET`.
+
+```ts
+// chemin principal — temporaire, puis rename
+ecrireAtomique(CHEMIN_ENV, contenu, 0o600);
+
+// chemin de l'ASSISTANT — écriture directe
+writeFileSync(CHEMIN_ENV, contenu, { mode: 0o600 });
+```
+
+Les deux demandent `0o600`. Les deux ont l'air corrects. Mesuré avant d'écrire
+la moindre ligne de correctif :
+
+```
+fichier existant en 644, puis writeFileSync(… { mode: 0o600 })  → 644
+temporaire neuf en 0600, puis rename                            → 600
+```
+
+**`mode` n'est honoré qu'à la CRÉATION du fichier.** Sur un fichier qui existe
+déjà, l'option est silencieusement sans effet — aucune erreur, aucun
+avertissement, et un code qui se lit comme s'il protégeait quelque chose.
+
+Le scénario n'est pas théorique : le dépôt conseille lui-même
+`cp .env.example .env` (§ du premier contact), et un `cp` produit un fichier en 644. L'assistant le complétait ensuite avec le jeton et le secret de session
+dedans — lisibles par tous les comptes de la machine. Et c'est le chemin
+INTERACTIF, donc aussi celui où un `^C` laisse un `.env` tronqué, l'atomicité
+étant l'autre chose que la voie directe perdait.
+
+**Ce qui rend ce défaut invisible.** Il n'y a rien à voir. Les deux appels
+demandent le bon mode ; il faut savoir que l'un des deux ne l'obtient pas.
+C'est la famille des options qui ne s'appliquent qu'à certains états — comme
+`{ recursive: true }` qui ne crée rien si le chemin existe déjà en fichier.
+Devant une option de droits ou de permissions, la question n'est jamais « l'a-t-on
+demandée ? » mais « à quel moment est-elle lue ? ».
+
+**La règle.** Écrire un secret n'a qu'une seule bonne façon : créer un fichier
+NEUF avec le bon mode, puis `rename`. Un fichier neuf ne peut hériter de rien.
+`src/ecriture-atomique.ts` la porte, et une garde de SOURCE interdit à tout
+`src/**` d'écrire un `.env` autrement — parce que `installer-main.ts`
+s'exécute à l'import et qu'aucun banc ne peut donc l'appeler : sans garde
+structurelle, la correction ne serait pas TENUE (§ 2 sexdecies).
+
+---
+
 ## 2 duovicies. Une suite qui fuit des processus finit par se faire mentir elle-même
 
 Relevé pris cette nuit sur le conteneur, en cherchant pourquoi un balayage

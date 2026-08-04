@@ -646,7 +646,13 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'que des mois d’erreurs ont produit, et ça n’existe nulle part ailleurs.',
     'src/cli.ts': '.hive-work/bin — le binaire cloudflared téléchargé',
     'src/desinstallation.ts': 'c’est LUI qui supprime, sur ordre explicite',
-    'src/installer-main.ts': '<racine>/.env, écrit en 600 par écriture atomique',
+    // Le CHEMIN est inchangé — `<racine>/.env`, toujours déclaré dans
+    // `empreinte()`, donc toujours dans `hive desinstaller`. Ce sont les
+    // gestes d'écriture qui ont quitté `installer-main.ts` (lequel s'exécute à
+    // l'import, donc intestable) pour un module éprouvé. Il n'y avait pas UN
+    // écrivain du `.env` mais deux, et le second — celui de l'assistant —
+    // écrivait sans atomicité et sans obtenir les droits qu'il demandait.
+    'src/ecriture-atomique.ts': '<racine>/.env, écrit en 600 par écriture atomique',
     'src/node-client/client.ts': '<workdir>/<nom> — l’espace d’une tâche',
     // Les CHEMINS n'ont pas bougé — `<workdir>/join/node-id.txt` et
     // `node-key.txt` sont toujours déclarés dans `empreinte()`, donc toujours
