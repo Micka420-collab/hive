@@ -170,6 +170,33 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Trente-deuxième lot — un balayage de nuit NEUF, et ses deux premières
+prises** (nuit, 03 h 00 → 03 h 25 UTC). Nouveau balayage lancé dans
+l'atelier (base : premier commit, LOUPE_MAX=140) sur un dépôt qui a reçu
+soixante-dix tests dans la journée — l'échantillon est donc frais, et son
+taux de survie l'est aussi : **50 % sur les dix premières examinées**. La
+qualité d'un dépôt ne se lit pas au nombre de tests.
+
+Deux tuées dans ce lot. OpenAlex — `{paper.doi && (…)}` mutée en `||` : le
+court-circuit rend `true` sur un article QUI A un DOI (React n'affiche
+rien : le lien disparaît au moment où il sert), et un article SANS DOI
+recevrait un lien vers `https://doi.org/null`. Une bibliographie qui envoie
+sur une page morte vaut moins que pas de lien du tout. Plein Essaim —
+`l.portee === 'systemique'` mutée : le ⚠ irait aux leçons vues sur UNE
+machine (un incident local présenté comme un défaut du code) et la vraie
+leçon systémique perdrait sa marque — l'inverse exact de ce que la portée
+sert à distinguer. **2 mutations rejouées, 2 rouges.**
+
+Piège de banc au passage : mon faux OpenAlex rendait `{ papers, total }` là
+où la vue lit `{ results, total, page }` — la vue est tombée sur
+`papers.map` de `undefined`. Un banc qui ment sur la FORME de la réponse ne
+teste pas la vue, il teste sa gestion d'erreur. Corrigé en lisant le
+destructurage de la source, pas en devinant.
+
+Les trois autres survivantes du même balayage (AccountPanel `mode ===
+'login'`, App `route.view === 'miellerie'`, Journal `typeof v === 'number'`)
+attendent le lot suivant, et le balayage continue.
+
 **Trente-et-unième lot — LA COUVERTURE, RE-MESURÉE ET REPRODUCTIBLE** (nuit,
 02 h 30 → 02 h 45 UTC, lots 6 et 10 de la file).
 

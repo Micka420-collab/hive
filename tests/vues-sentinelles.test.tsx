@@ -716,4 +716,89 @@ describe('les sentinelles du balayage du soir', () => {
     expect(suite, 'la demande de confirmation ouvre la rangée de suite').toBeTruthy();
     expect(suite?.textContent).toContain('Effacer définitivement cette machine ?');
   });
+
+  it('OPENALEX : le DOI ne se lie QUE s’il existe — pas de lien mort', async () => {
+    // `{paper.doi && (…)}` mutée en `||` : le court-circuit rend `true` sur un
+    // article QUI A un DOI (React n'affiche rien : le lien disparaît au moment
+    // où il sert), et un article SANS DOI recevrait un lien vers
+    // `https://doi.org/null`. Une bibliographie qui envoie sur une page morte
+    // vaut moins que pas de lien du tout.
+    vi.useFakeTimers();
+    const article = (id: string, doi: string | null) => ({
+      id,
+      title: `Article ${id}`,
+      doi,
+      year: 2024,
+      citedBy: 3,
+      authors: ['Une abeille'],
+      abstract: null,
+      type: 'article',
+      openAccess: true,
+      url: null,
+    });
+    vi.spyOn(window, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          results: [article('avec', '10.1234/abeille'), article('sans', null)],
+          total: 2,
+          page: 1,
+        }),
+    } as unknown as Response);
+    const dom = await monter(<OpenAlexPanel onClose={() => {}} />);
+    const champ = dom.querySelector('.openalex-input') as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(champ) as object,
+        'value',
+      )?.set;
+      setter?.call(champ, 'abeilles');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450);
+    });
+
+    const liens = [...dom.querySelectorAll('.oa-doi')];
+    expect(liens, 'un seul des deux articles porte un DOI').toHaveLength(1);
+    expect(liens[0]?.getAttribute('href'), 'le lien pointe sur le vrai DOI').toContain(
+      '10.1234/abeille',
+    );
+    expect(dom.textContent, 'aucun « null » ne traverse l’écran').not.toContain('doi.org/null');
+  });
+
+  it('PLEIN ESSAIM : le ⚠ ne marque que les leçons SYSTÉMIQUES', async () => {
+    // `l.portee === 'systemique'` mutée en `!==` : le ⚠ irait aux leçons
+    // vues sur UNE machine (un incident local présenté comme un défaut du
+    // code) et la vraie leçon systémique — celle qui dit « ça vient du code,
+    // pas d'une machine » — perdrait sa marque. C'est l'inverse exact de ce
+    // que la portée sert à distinguer.
+    vi.mocked(fetchEssaim).mockResolvedValue({
+      niveau: 'off',
+      derive: { etat: 'saine', indicateurs: [], echantillon: 2, solitudeJours: 0, motif: 'm' },
+      decision: { pas: 'observer', motif: 'm', gouvernantes: [] },
+      gouvernantes: [],
+      gouvernantesRequises: 2,
+      depotInscrit: false,
+      plafond: 'passe',
+      lecons: [
+        { signature: 'sig-sys', portee: 'systemique', noeuds: 3, extrait: 'panne partagée' },
+        { signature: 'sig-loc', portee: 'locale', noeuds: 1, extrait: 'panne isolée' },
+      ],
+      niveaux: ['off', 'propose', 'gouverne', 'plein'],
+    } as never);
+    const dom = await monter(<PleinEssaim projectId="p1" />);
+    const lignes = [...dom.querySelectorAll('.essaim-lecon')];
+    const sys = lignes.find((l) => (l.textContent ?? '').includes('panne partagée'));
+    const loc = lignes.find((l) => (l.textContent ?? '').includes('panne isolée'));
+    expect(
+      sys?.querySelector('.essaim-lecon-portee')?.textContent,
+      'la systémique porte le ⚠',
+    ).toContain('⚠');
+    expect(
+      loc?.querySelector('.essaim-lecon-portee')?.textContent,
+      'la locale ne l’usurpe pas',
+    ).not.toContain('⚠');
+  });
 });
