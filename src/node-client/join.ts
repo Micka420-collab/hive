@@ -21,6 +21,7 @@ import { decoderBillet, encoderBillet, jugerTransport, urlHttpDeRuche } from '..
 import type { Billet } from '../shared/acces.js';
 import { LIMITS } from '../shared/protocol.js';
 import { bornerConcurrence, identiteStable, lireCle, rangerCle } from './identite-noeud.js';
+import { annonceAgent, avertissementTransport } from './annonces-join.js';
 
 try {
   process.loadEnvFile('.env');
@@ -158,35 +159,18 @@ async function main(): Promise<void> {
   const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
   const nodeId = identiteStable(workRoot);
 
-  const hasRealAgent = allAgents.some((a) => a !== 'shell');
   // Toujours afficher l'URL RÉELLE de connexion, jamais masquée par le libellé :
   // c'est là que part le token, l'utilisateur doit pouvoir la vérifier.
   console.log(`\n🐝 Connexion à : ${url}${label ? `  (« ${label} »)` : ''}`);
-  const transport = jugerTransport(url);
-  if (transport === 'clair_public') {
-    // On ne bloque pas — c'est la machine de l'invité, et l'hôte a pu vouloir
-    // ce montage. Mais il doit savoir que ce n'est pas seulement sa clé qui
-    // voyage en clair : c'est tout le code source qui transitera ensuite.
-    console.log(
-      '   ⚠ Transport EN CLAIR vers une adresse publique : votre clé, les prompts,\n' +
-        '     les logs et les diffs de code circuleront sans chiffrement. Demandez à\n' +
-        '     l’hôte une URL wss:// (`npm run cli -- tunnel`).',
-    );
-  } else if (transport === 'clair_prive') {
-    console.log('   ℹ Transport en clair sur réseau privé (usuel en local).');
-  }
+  // Les DEUX annonces vivent dans `annonces-join.ts`, pur et éprouvé : ce
+  // fichier-ci court à l'import, et c'est précisément là que le balayage avait
+  // trouvé « transport === 'clair_public' » sans aucune garde.
+  const avertissement = avertissementTransport(jugerTransport(url));
+  if (avertissement) console.log(avertissement);
   console.log(`   Agents détectés : ${allAgents.join(', ')}`);
   console.log(`   Agent utilisé   : ${detected.label}`);
-  if (detected.agent === 'shell' && !hasRealAgent) {
-    console.log(
-      '   ℹ Aucun agent IA détecté : mode « shell simulé » (sûr, sans exécution réelle).\n' +
-        '     Installez Claude Code ou Codex, ou définissez HIVE_AGENT, pour du vrai travail.',
-    );
-  } else if (detected.agent === 'shell' && hasRealAgent) {
-    console.log(
-      '   ℹ Agent « shell simulé » forcé (HIVE_AGENT) alors que des agents réels sont disponibles.',
-    );
-  }
+  const motAgent = annonceAgent(detected.agent, allAgents);
+  if (motAgent) console.log(motAgent);
 
   // ─── Le secret avec lequel ce nœud se présentera ────────────────────────────
   // Billet : on réutilise la clé déjà obtenue si elle existe (un billet est à

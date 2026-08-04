@@ -2472,3 +2472,53 @@ pas devenir verte le jour où elle cesserait de regarder.
 
 Carnet : § 2 tervicies — devant une option de droits, la question n'est jamais
 « l'a-t-on demandée ? » mais « à quel moment est-elle lue ? ».
+
+---
+
+## L'avertissement « transport en clair » ne pouvait rien garder
+
+Dernière survivante grave du balayage de nuit : `transport === 'clair_public'`
+dans `join.ts`, mutée en `!==`, ne faisait rougir personne. Même cause
+structurelle que les deux lots précédents — le fichier finit par `await main()`,
+donc l'importer ouvrirait un WebSocket, et aucun banc ne peut le charger.
+
+Le dépôt avait DÉJÀ tranché ce cas exact, pour l'installeur : `conseilServeur()`
+vit dans `installer.ts` (pur) « parce que `main()` court à l'import et qu'aucun
+test ne peut le lire — c'est là que le `&&` du conseil avait survécu au
+balayage, invisible ». Même remède : `src/node-client/annonces-join.ts`.
+
+**Ce qui n'était tenu par rien.** `jugerTransport()` est pur et éprouvé
+ailleurs : savoir si une URL est sûre, privée ou publique n'était pas le
+problème. Ce que personne ne gardait, c'est la CORRESPONDANCE entre ce verdict
+et ce que l'invité lit. Or les deux phrases en clair ne disent pas la même
+chose :
+
+- « réseau privé (usuel en local) » rassure, et il a raison de le faire ;
+- « adresse publique » prévient que la clé, les prompts, les logs ET les diffs
+  de code traverseront l'internet sans chiffrement.
+
+Muter la garde ne fait pas « perdre » un avertissement : elle les **échange**.
+Celui qui envoie son code source sur l'internet lit « usuel en local », et
+celui qui se connecte à sa propre machine est effrayé pour rien. Un
+avertissement qui se trompe de situation est pire que pas d'avertissement — il
+apprend à ne plus le lire.
+
+**La seconde annonce avait le même vice**, moins grave et de la même famille :
+deux situations distinctes mènent au mode « shell simulé » — aucun agent IA
+installé, ou bien `HIVE_AGENT` qui l'impose alors que de vrais agents sont là.
+Dire « aucun agent détecté » à quelqu'un qui en a trois installés l'envoie
+réinstaller ce qu'il possède déjà, au lieu de regarder sa variable
+d'environnement.
+
+**Rejeu, verdict affiché** (11 tests neufs, mutation par NUMÉRO DE LIGNE) :
+
+| mutation                             | verdict  |
+| ------------------------------------ | -------- |
+| `verdict === 'clair_public'` → `!==` | 5 rouges |
+| `verdict === 'clair_prive'` → `!==`  | 4 rouges |
+| `retenu !== 'shell'` → `===`         | 5 rouges |
+| `some((a) => a !== 'shell')` → `===` | 2 rouges |
+| `!auMoinsUnReel` → `auMoinsUnReel`   | 3 rouges |
+
+Cinq gardes, cinq rouges. Un test branche en plus les deux pièces sur le vrai
+`jugerTransport` : un module pur peut être parfait et mal câblé.
