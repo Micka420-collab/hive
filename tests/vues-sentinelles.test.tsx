@@ -180,6 +180,37 @@ describe('les sentinelles — une par survivante isolée', () => {
     expect(pleine.textContent).toContain('tâches butinées');
   });
 
+  it('RUCHE : une ruche VIDE dit « aucune tâche en attente » — pas un vide muet', async () => {
+    // LE PREMIER ÉCRAN D'UN NOUVEL ARRIVANT. `total === 0` mutée en `!==` :
+    // nudité confirmée contre la suite entière (3 348 verts avec la mutation).
+    // Le sentinel voisin garde le BANDEAU de progrès (`total > 0 && …`) ; ce
+    // message-ci — celui que voit quelqu'un qui vient d'installer et n'a créé
+    // aucune tâche — n'était gardé nulle part.
+    //
+    // Mutée, la liste est simplement VIDE : pas d'erreur, pas de « 0/0 », rien.
+    // Or un écran vide sans un mot est le pire accueil : on ne sait pas si la
+    // ruche marche, si l'on a raté une étape, ou si c'est normal. La phrase le
+    // dit — c'est normal, et il n'y a rien à faire pour l'instant.
+    const vide = await monter(<Ruche {...props(instantane())} />);
+    expect(vide.textContent, 'une file vide se nomme, elle ne se tait pas').toContain(
+      'Aucune tâche en attente',
+    );
+
+    act(() => racine?.unmount());
+    // Et dès qu'une tâche attend, le message DISPARAÎT — sinon il mentirait sur
+    // une ruche occupée. Le contraste tue la mutation : mutée, ce montage-ci
+    // afficherait « aucune tâche » alors qu'une tâche est là.
+    const occupee = await monter(
+      <Ruche
+        {...props(instantane({ tasks: [tache('t1', 'À butiner', 'ready')], tasksTotal: 1 }))}
+      />,
+    );
+    expect(occupee.textContent, 'une file qui a du travail ne se dit pas vide').not.toContain(
+      'Aucune tâche en attente',
+    );
+    expect(occupee.textContent, 'elle montre la tâche qui attend').toContain('À butiner');
+  });
+
   it('RAYON : le repoUrl est LAVÉ de ses identifiants — jamais rendu cru', async () => {
     // Mutée en `||`, l'expression rendrait la CHAÎNE `repoUrl` telle quelle —
     // avec le jeton dedans — au lieu de l'élément `<code>` lavé.
