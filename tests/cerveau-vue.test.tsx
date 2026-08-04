@@ -146,6 +146,63 @@ describe('le Cerveau — les deux dernières survivantes du balayage', () => {
     expect(fiche?.textContent).toContain('L’épisode du port occupé');
   });
 
+  it('« RECENTRER » N’EXISTE QU’EN MODE GRAPHE — rien à recentrer dans un tableau', async () => {
+    // Survivante du balayage de nuit : `{mode === 'graphe' && (…)}` mutée en
+    // `!==` — le bouton « Recentrer » apparaîtrait au-dessus de la LISTE (où
+    // il ne peut rien recentrer, et où le clic serait sans effet visible :
+    // le pire des retours, celui qui laisse croire à une panne) et
+    // disparaîtrait du graphe, le seul endroit où il sert.
+    const dom = await monter();
+    const recentrer = () => dom.querySelector('.cerveau-recentrer');
+    expect(recentrer(), 'au réveil, on est en graphe : le bouton est là').toBeTruthy();
+
+    cliquer(boutonMode(dom, 'Liste'));
+    expect(recentrer(), 'dans la liste, il n’y a rien à recentrer').toBeNull();
+
+    cliquer(boutonMode(dom, 'Graphe'));
+    expect(recentrer(), 'de retour au graphe, il revient').toBeTruthy();
+  });
+
+  it('LES ORPHELINES NE S’ANNONCENT QUE S’IL Y EN A', async () => {
+    // `(g?.orphelines.length ?? 0) > 0 &&` mutée en `||` : le court-circuit
+    // rend `true` quand il Y EN A (React n'affiche rien — l'alerte disparaît
+    // au moment où elle informe), et un cerveau parfaitement relié
+    // annoncerait « 0 orphelines » comme s'il y avait un problème. Une alerte
+    // qui se déclenche à vide finit par ne plus être lue du tout.
+    const dom = await monter();
+    expect(dom.textContent, 'aucune orpheline dans le banc : rien ne s’annonce').not.toContain(
+      'orphelines',
+    );
+
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    vi.mocked(fetchCerveau).mockResolvedValue({
+      noeuds: [
+        {
+          id: 'note-seule',
+          genre: 'episode',
+          titre: 'Une note sans lien',
+          recurrences: 1,
+          degre: 0,
+          ageJours: 2,
+          serviIlYaJours: null,
+        },
+      ],
+      aretes: [],
+      liensMorts: [],
+      orphelines: ['note-seule'],
+      parGenre: { invariant: 0, lecon: 0, decision: 0, carte: 0, episode: 1 },
+      servies: 0,
+      total: 1,
+      dossier: 'cerveau',
+    } as never);
+    const avec = await monter();
+    expect(avec.textContent, 'une orpheline : l’alerte se dit').toContain('orphelines');
+    expect(avec.textContent, 'et elle dit pourquoi ça compte').toContain(
+      'du savoir qui ne se raccroche à rien',
+    );
+  });
+
   it('UNE NOTE JAMAIS SERVIE LE DIT — et celle qui l’a été donne son âge', async () => {
     // Survivante du balayage du soir : `n.serviIlYaJours === null` mutée en
     // `!==` inverse les deux mondes — la note SERVIE il y a deux jours

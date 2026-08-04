@@ -170,6 +170,27 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Trente-cinquième lot — le Cerveau ×2 et la trace du plafond** (nuit,
+04 h 25 → 04 h 50 UTC). Cerveau — « Recentrer » n'existe qu'en mode graphe
+(mutée, le bouton apparaîtrait au-dessus de la LISTE où il ne peut rien
+recentrer : un clic sans effet visible, le pire des retours, celui qui laisse
+croire à une panne) ; et les orphelines ne s'annoncent que s'il y en a (mutée
+en `||`, le court-circuit rend `true` quand il Y EN A — l'alerte disparaît au
+moment où elle informe — et un cerveau parfaitement relié annoncerait
+« 0 orphelines » ; une alerte qui se déclenche à vide finit par ne plus être
+lue). Balance — « Posé par… » ne s'affiche que si un plafond est posé (mutée
+en `===` : la trace du geste humain s'afficherait sur un projet SANS plafond
+et disparaîtrait de celui qui en a un — savoir QUI a borné un projet et QUAND
+est ce qui rend le geste discutable au lieu d'être subi). **3 mutations
+rejouées, 3 rouges.**
+
+Quatrième banc trop léger de la nuit, même famille que les trois autres : la
+trace ne vient PAS du solde mais d'une sonde à part (`fetchProjectBalance`),
+lue seulement pour les projets qui ONT un plafond. Un banc qui la posait dans
+le solde jugeait une vue qui ne la lit jamais. Et l'écran ne montre que les
+huit premiers caractères de l'identifiant (l'entier vit dans le `title`) —
+c'est ce qu'on juge, pas ce qu'on aurait aimé lire.
+
 **Trente-quatrième lot — la barre d'espace du Time-Lapse** (nuit, 04 h 05 →
 04 h 20 UTC). `e.key === ' '` mutée en `!==` : TOUTE touche basculerait la
 lecture SAUF l'espace — la seule que l'écran annonce (« Lecture / pause

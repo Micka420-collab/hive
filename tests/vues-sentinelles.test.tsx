@@ -49,6 +49,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
   fetchMonTableau: vi.fn(() => Promise.resolve(null)),
+  fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
@@ -64,6 +65,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 
 import {
   fetchEssaim,
+  fetchProjectBalance,
   fetchGhosts,
   fetchGuet,
   fetchMemories,
@@ -826,6 +828,62 @@ describe('les sentinelles du balayage du soir', () => {
     expect(muette, 'la ligne sans durée existe').not.toBe('');
     expect(muette, 'aucune durée inventée').not.toContain(' en ');
     expect(dom.textContent, 'et surtout aucun NaN à l’écran').not.toContain('NaN');
+  });
+
+  it('BALANCE : « posé par… » ne s’affiche QUE si un plafond est posé', async () => {
+    // `plafondMs !== null && trace` mutée en `===` : la trace du geste humain
+    // s'afficherait sur un projet SANS plafond (« Posé par… » un plafond qui
+    // n'existe pas) et disparaîtrait de celui qui en a un — précisément là où
+    // elle sert : savoir QUI a borné un projet, et QUAND, est ce qui rend le
+    // geste discutable au lieu d'être subi.
+    // La trace ne vient PAS du solde : elle est lue par une sonde à part
+    // (`fetchProjectBalance`), et seulement pour les projets qui ONT un
+    // plafond. Un banc qui la posait dans le solde jugeait une vue qui ne la
+    // lit jamais — quatrième banc trop léger de la nuit.
+    vi.mocked(fetchProjectBalance).mockResolvedValue({
+      projectId: 'p1',
+      depenseMs: 1_000,
+      tentatives: 1,
+      plafondMs: 3_600_000,
+      definiPar: 'utilisateur-abcdef12',
+      updatedAt: 1_800_000_000_000,
+    } as never);
+    const solde = (plafondMs: number | null) =>
+      ({ projectId: 'p1', depenseMs: 1_000, tentatives: 1, plafondMs }) as never;
+
+    const sans = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={solde(null)}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    expect(
+      sans.querySelector('.bal-plafond-trace'),
+      'aucun plafond posé : aucune trace à montrer',
+    ).toBeNull();
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    const avec = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={solde(3_600_000)}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    const trace = avec.querySelector('.bal-plafond-trace');
+    expect(trace, 'un plafond posé : on dit par qui').toBeTruthy();
+    // L'écran ne montre que les huit premiers caractères de l'identifiant —
+    // assez pour reconnaître, trop peu pour exposer (l'entier est dans le
+    // `title`). C'est ce qu'on juge, pas ce qu'on aurait aimé lire.
+    expect(trace?.textContent, 'et le nom court de l’opérateur y est').toContain('utilisat');
   });
 
   it('BALANCE : « grand livre à l’arrêt » ne se dit QU’EN mode off', async () => {
