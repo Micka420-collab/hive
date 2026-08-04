@@ -2659,3 +2659,47 @@ le réseau (`ECONNREFUSED 127.0.0.1:3000` dans la sortie). Le banc passait quand
 même — mais il dépendait de la machine qui l'exécute, et il payait un aller-
 retour réseau à chaque montage. Toutes les sondes de l'écran sont désormais
 simulées, pas seulement celle qu'on juge.
+
+---
+
+## Deux bornes de saisie du CLI : le premier argument et le dernier dépôt
+
+Deux survivantes, toutes deux dans `src/cli.ts` — qui se termine par un
+`try { … } catch` de tête, donc s'exécute à l'import. Aucun banc ne pouvait les
+appeler. Cinquième fois cette nuit que ce motif rend une règle intestable, et
+cinquième fois que le remède est le même : la sortir dans un module pur.
+
+**`iSetup >= 0` — zéro est une position, pas une absence.** `indexOf` rend `0`
+quand le drapeau est le PREMIER argument, c'est-à-dire dans l'invocation que la
+documentation montre : `hive cloudflare --setup ma-ruche.exemple.fr`. Sur `> 0`,
+celle-là perd son argument **en silence** — pas d'erreur, pas de message, juste
+un hôte `undefined`. C'est le même piège que le `-1` d'`indexOf`, vu par l'autre
+bout : on se méfie de la valeur sentinelle et on oublie que la première position
+est légitime.
+
+En lisant, une seconde occurrence du même `iSetup >= 0` est apparue vingt lignes
+plus bas, que le balayage n'avait pas signalée — même borne, même défaut. Elle
+passe par `aLeDrapeau`, distinct de `valeurApres` à dessein : un `--setup` posé
+SANS valeur est présent, et les confondre ferait suivre le chemin « pas de
+tunnel nommé » au lieu de refuser un nom d'hôte manquant.
+
+**`n <= r.depots.length` — le dernier dépôt devenait inchoisissable.** Sur `<`,
+le refus se contredit lui-même : « n'est pas un numéro de la liste (1 à 12) »
+quand l'utilisateur vient de taper 12, qu'il a lu à l'écran. Une erreur qui nie
+ce qu'elle affiche ne s'attribue à rien — on se croit fou avant de croire à un
+défaut.
+
+**Rejeu, verdict affiché** (11 tests neufs, mutation par numéro de ligne avec
+`assert l[i] != avant`) :
+
+| mutation                          | verdict  |
+| --------------------------------- | -------- |
+| `valeurApres` : `i >= 0` → `> 0`  | 1 rouge  |
+| `aLeDrapeau` : `>= 0` → `> 0`     | 1 rouge  |
+| borne haute : `n > taille` → `>=` | 3 rouges |
+| borne basse : `n < 1` → `n < 2`   | 2 rouges |
+| les deux bornes : `\|\|` → `&&`   | 5 rouges |
+| garde d'entier inversée           | 5 rouges |
+
+Les deux gardes ont été sondées contre la **suite entière** avant écriture —
+3 256 tests verts avec chacune des mutations en place.

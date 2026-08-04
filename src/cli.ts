@@ -44,6 +44,7 @@ import {
   minutesUntilOpen,
   nightShiftFromEnv,
 } from './shared/night-shift.js';
+import { aLeDrapeau, choisirParNumero, valeurApres } from './choix-cli.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -1188,8 +1189,10 @@ async function cmdRevoquerBillet(id: string): Promise<void> {
 async function cmdCloudflare(...args: string[]): Promise<void> {
   const plateforme = { os: process.platform, arch: process.arch };
   const port = Number(new URL(BASE).port || 7777);
-  const iSetup = args.indexOf('--setup');
-  const hote = iSetup >= 0 ? args[iSetup + 1] : undefined;
+  // `valeurApres` / `aLeDrapeau` : la borne `>= 0` vit dans `choix-cli.ts`,
+  // pur et éprouvé — zéro est une POSITION, et `--setup` en tête d'arguments
+  // est justement l'invocation que la documentation montre.
+  const hote = valeurApres(args, '--setup');
 
   const installe = await versionCloudflared();
 
@@ -1229,7 +1232,7 @@ async function cmdCloudflare(...args: string[]): Promise<void> {
   }
 
   // ─── Tunnel nommé : l'URL stable ──────────────────────────────────────────
-  if (iSetup >= 0) {
+  if (aLeDrapeau(args, '--setup')) {
     if (!hote || !hoteValide(hote)) {
       console.error(
         '\n✘ Nom d’hôte invalide.\n\n' +
@@ -1554,9 +1557,8 @@ async function cmdGithub(filtre?: string): Promise<void> {
   }
   if (!reponse) return;
 
-  const n = Number(reponse);
-  const choisi =
-    Number.isInteger(n) && n >= 1 && n <= r.depots.length ? r.depots[n - 1] : undefined;
+  const rang = choisirParNumero(reponse, r.depots.length);
+  const choisi = rang === null ? undefined : r.depots[rang];
   if (!choisi) {
     console.error(`\n✘ « ${reponse} » n’est pas un numéro de la liste (1 à ${r.depots.length}).\n`);
     process.exitCode = 1;
