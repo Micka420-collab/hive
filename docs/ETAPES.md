@@ -4297,3 +4297,26 @@ est donc clos** : sur les 12 candidates mutables, la seule vraie dette était la
 famille des 4 gardes d'ATTRIBUT du panneau (aria-pressed ×2, aria-current,
 `erreur && <p>`), corrigée au lot précédent (#171). Le reste — scheduler.ts et
 server.ts — était déjà défendu. Plus de « reste » sur ce diff.
+
+### La leçon § 9 vicies généralise : deux survivantes d'attribut dans `PleinEssaim`
+
+En appliquant la leçon § 9 vicies (« un test de rendu qui ne lit que `textContent`
+est aveugle à l'attribut ») au FRÈRE de `GardeFous.tsx` — `PleinEssaim.tsx`, même
+motif de boutons de réglage — la loupe ciblée a trouvé DEUX survivantes de la même
+famille sur les boutons de niveau :
+
+| ligne | garde                                         | mutation    | verdict (suite entière)                      |
+| ----- | --------------------------------------------- | ----------- | -------------------------------------------- |
+| 247   | `aria-pressed={etat.niveau === n}`            | `===`→`!==` | 🟢 survivante (aucun test ne lit l'attribut) |
+| 248   | `className={etat.niveau === n ? 'actif' : …}` | `===`→`!==` | 🟢 survivante (aucun test ne lit la classe)  |
+
+Inverser l'un ou l'autre marque TOUS les boutons SAUF le bon comme « courant » —
+un vrai défaut d'interface (lecteur d'écran via `aria-pressed`, style via `.actif`),
+invisible au banc qui n'assertait que le texte. Correctif : un banc de rendu dans
+`tests/vues-sentinelles.test.tsx` qui lit `getAttribute('aria-pressed')` ET
+`className` sur un niveau élu distinct d'un niveau inactif. Chacune des deux
+mutations rejouée → rouge, verdict affiché. Suite +1.
+
+La leçon tient donc au-delà de son premier cas : partout où un panneau porte un
+état d'ACTIVATION dans un attribut (aria-*, classe), le banc doit lire l'attribut,
+pas le texte. Pas de nouvelle leçon — c'est § 9 vicies qui se confirme.

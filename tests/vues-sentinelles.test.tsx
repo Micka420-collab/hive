@@ -605,6 +605,37 @@ describe('les sentinelles du balayage du soir', () => {
     );
   });
 
+  it('PLEIN ESSAIM : le niveau COURANT est marqué (aria-pressed + classe), pas l’inverse', async () => {
+    // Survivantes loupe (§ 9 vicies, même famille que le Garde-Fous) :
+    // `aria-pressed={etat.niveau === n}` et `className={etat.niveau === n ? 'actif' …}`.
+    // Mutées en `!==`, la suite restait verte — un banc qui ne lit que le TEXTE
+    // est aveugle à l'attribut ET à la classe. Or un lecteur d'écran (aria-pressed)
+    // et le style CSS (`.actif`) les lisent : inverser marque TOUS les boutons SAUF
+    // le bon comme choisis — le mauvais niveau annoncé « courant ».
+    const etat = {
+      niveau: 'gouverne',
+      derive: { etat: 'saine', indicateurs: [], echantillon: 0, solitudeJours: 0, motif: 'm' },
+      decision: { pas: 'observer', motif: 'm', gouvernantes: [] },
+      gouvernantes: [],
+      gouvernantesRequises: 2,
+      depotInscrit: false,
+      plafond: 'passe',
+      lecons: [],
+      niveaux: ['off', 'propose', 'gouverne', 'plein'],
+    } as never;
+    vi.mocked(fetchEssaim).mockResolvedValue(etat);
+    const dom = await monter(<PleinEssaim projectId="p1" />);
+    const boutons = [...dom.querySelectorAll('.essaim-niveau')] as HTMLButtonElement[];
+    const actif = boutons.find((b) => b.textContent?.trim() === 'gouverne');
+    const inactif = boutons.find((b) => b.textContent?.trim() === 'off');
+    expect(actif?.getAttribute('aria-pressed'), 'le niveau courant est pressé').toBe('true');
+    expect(actif?.className, 'le niveau courant porte la classe active').toContain('actif');
+    expect(inactif?.getAttribute('aria-pressed'), 'un autre niveau n’est pas pressé').toBe('false');
+    expect(inactif?.className, 'un autre niveau ne porte pas la classe active').not.toContain(
+      'actif',
+    );
+  });
+
   it('RAYON : ouvrir un dossier montre SES enfants', async () => {
     // `{estDossier && rendre(e.chemin, profondeur + 1)}` mutée en `||` : le
     // court-circuit rend `true` sur chaque dossier — React n'affiche RIEN, et
