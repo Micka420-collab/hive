@@ -3793,3 +3793,28 @@ sans verdict n'entre pas ; sans modèle rien), 1 intégration (un modèle neuf �
 rejouées rouges aux trois niveaux (pure, store, câblage). **Reste** : lot 3c
 (course de drones — les deux sites du scheduler encore intouchés), lot 4
 (activation).
+
+### Lot 3c livré : la course de drones enregistre le modèle du vainqueur
+
+Le second chemin d'assignation (Plein Essaim). Parti pris DIFFÉRENT de la boucle
+principale : on ne RESTREINT PAS la course au meilleur modèle — une course tire
+sa robustesse de la DIVERSITÉ des agents (décision Fable 5). On note seulement :
+
+- `DroneRace.modeleParDrone?` (nodeId → modèle), rempli par le scheduler à
+  l'enrôlement (drone-wars reste pur), préservé au fil des `{ ...race }` ;
+- `startRace` : `choisirModele` par drone ; le modèle du PRIMAIRE est posé dès le
+  départ — la course compte alors comme une élection en vol (borne du troupeau) ;
+- `handleDroneResult 'won'` : on RE-pose le modèle du VAINQUEUR (écrase le
+  primaire) — c'est SA production que la contre-visite jugera ;
+- `promoteNextDrone` : le producteur suivi change, l'élection en vol suit ;
+- `antecedentsAiguillage` extrait (repli des verdicts + injection des essais en
+  vol), partagé par la boucle principale (mémoïsé) et la course (une fois).
+
+Banc `aiguillage-drone.test.ts` : le vainqueur non-primaire voit SON modèle
+enregistré (pas le primaire remplacé) ; le primaire est en vol pendant la
+course ; la promotion suit le producteur ; no-op sans modèles. Mutations des
+trois sites de pose rejouées rouges, chacune par son banc. **Reste** : lot 4
+(activation — le node-client déclare ses modeles détectés, l'adaptateur passe la
+variante au CLI). Après le lot 4, la boucle est CÂBLÉE de bout en bout : le nœud
+déclare → la ruche choisit → le nœud exécute → la contre-visite juge → la ruche
+apprend.
