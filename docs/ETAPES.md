@@ -2750,3 +2750,39 @@ derrière la promesse de la tâche (`prev.then(() => postReview(…))`), pour
 sérialiser les envois. Affirmer sans drainer les microtâches, c'est juger
 l'instant AVANT l'envoi. Même famille que les cinq bancs trop légers de la
 nuit : le banc ne regardait pas ce qu'il croyait regarder.
+
+---
+
+## `j` et `k` échangeaient leurs directions
+
+Survivante du balayage : `e.key === 'j' ? 1 : -1` dans la file de revue de la
+Miellerie. Nudité vérifiée par exclusion avant écriture — 3 274 tests verts
+avec la mutation en place.
+
+`j` et `k` sont le geste de base de cet écran : on descend la file en
+approuvant ou rejetant, sans quitter le clavier. C'est la raison d'être des
+raccourcis — relire quarante productions à la souris est un travail qu'on
+abandonne au bout de dix.
+
+**Mutée, la touche ne cesse pas de fonctionner : les deux ÉCHANGENT leurs
+directions.** C'est ce qui rend le défaut coûteux plutôt que visible — rien
+n'est cassé, tout répond, mais la main apprend l'inverse de ce qu'elle sait. Une
+file parcourue à l'envers se relit deux fois, ou se saute.
+
+**Ce qui rend le banc décisif : le point de départ.** Depuis la PREMIÈRE
+production, `j` va sur la deuxième et `k` boucle sur la dernière — deux
+destinations différentes. Un banc qui partirait du milieu d'une liste
+symétrique ne distinguerait pas les deux sens, et resterait vert sur
+l'inversion. Une assertion explicite pose d'ailleurs la règle : les deux
+touches ne mènent jamais au même endroit.
+
+| mutation                                       | verdict  |
+| ---------------------------------------------- | -------- |
+| `e.key === 'j'` → `!==` (les deux échangent)   | 2 rouges |
+| `? 1 : -1` → `? 1 : 1` (`k` cesse de remonter) | 2 rouges |
+| `flat.length === 0` → `!==` (file vide)        | 4 rouges |
+| garde de saisie `inInput()` niée               | 5 rouges |
+
+Les deux gardes d'entrée sont éprouvées avec le reste : taper « jk » dans un
+champ ne doit pas faire défiler la file sous l'utilisateur, et `Ctrl+J`
+appartient au navigateur.
