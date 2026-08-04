@@ -66,6 +66,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 import {
   fetchEssaim,
   fetchProjectBalance,
+  fetchWorkflows,
   fetchGhosts,
   fetchGuet,
   fetchMemories,
@@ -828,6 +829,45 @@ describe('les sentinelles du balayage du soir', () => {
     expect(muette, 'la ligne sans durée existe').not.toBe('');
     expect(muette, 'aucune durée inventée').not.toContain(' en ');
     expect(dom.textContent, 'et surtout aucun NaN à l’écran').not.toContain('NaN');
+  });
+
+  it('CHANTIERS : « aucun workflow déclaré » ne se dit QUE s’il n’y en a aucun', async () => {
+    // Survivante du balayage de nuit : `workflows.length === 0` mutée en
+    // `!==` — un dépôt QUI A des workflows s'entendrait dire qu'il n'en
+    // déclare aucun (on irait en écrire un qui existe déjà), et un dépôt qui
+    // n'en a pas afficherait la liste vide avec son champ de branche : une
+    // commande sans rien à commander.
+    const projet = instantane({
+      projects: [
+        {
+          id: 'p1',
+          name: 'Rucher',
+          repoUrl: 'https://github.com/o/r',
+          description: null,
+          visibility: 'private',
+          ownerId: null,
+          createdAt: 1,
+        },
+      ] as never,
+    });
+
+    vi.mocked(fetchWorkflows).mockResolvedValue({ workflows: [] } as never);
+    const sans = await monter(<Chantiers {...props(projet)} />);
+    expect(sans.textContent, 'aucun workflow : on le dit').toContain('Aucun workflow déclaré');
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    vi.mocked(fetchWorkflows).mockResolvedValue({
+      // Les champs sont FRANÇAIS (`nom`, `chemin`) : le dépôt parle sa langue
+      // jusque dans ses types, et un banc en anglais rendrait des cellules
+      // vides sans que rien ne proteste.
+      workflows: [{ id: 1, nom: 'CI', chemin: '.github/workflows/ci.yml', etat: 'active' }],
+    } as never);
+    const avec = await monter(<Chantiers {...props(projet)} />);
+    expect(avec.textContent, 'un workflow existe : on ne prétend pas le contraire').not.toContain(
+      'Aucun workflow déclaré',
+    );
+    expect(avec.textContent, 'et on le nomme').toContain('CI');
   });
 
   it('BALANCE : « posé par… » ne s’affiche QUE si un plafond est posé', async () => {

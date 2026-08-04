@@ -48,6 +48,7 @@ import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './cerveau.css';
 import { rappelerAuCentre } from './cerveau-physique';
+import { corpsSousLePoint, estEteinte, rayon } from './cerveau-designation';
 
 /** Une couleur par genre — l'ordre des genres EST leur priorité. */
 const COULEUR: Record<string, string> = {
@@ -79,16 +80,9 @@ interface Corps {
   n: NoeudGraphe;
 }
 
-/**
- * Rayon d'une note.
- *
- * Les récurrences sont écrasées par une racine : une panne vue cinquante fois
- * ne doit pas faire un disque cinquante fois plus large — elle mangerait
- * l'écran et cacherait précisément ce qu'elle explique.
- */
-function rayon(n: NoeudGraphe): number {
-  return 5 + Math.sqrt(n.recurrences) * 2.8 + Math.min(7, n.degre * 0.9);
-}
+// Le rayon d'une note vit désormais dans `cerveau-designation.ts` avec le test
+// de proximité qui s'en sert : les deux règles se jugent ensemble, hors du
+// canevas où rien ne s'exécute sous banc.
 
 /**
  * La « chaleur » d'une note : 1 si elle vient de servir, 0 si jamais.
@@ -264,7 +258,10 @@ export default function Cerveau(_props: ViewProps) {
       ctx.scale(vue.current.zoom, vue.current.zoom);
 
       const actif = choisi ?? survole.current;
-      const voisinage = choisi !== null ? proches : null;
+      // `proches` est DÉJÀ null quand rien n'est choisi (son useMemo l'exige) :
+      // le `choisi !== null ?` qui vivait ici ne retirait jamais rien. Une
+      // garde qui ne garde rien reste une garde qu'un jour on mute — le
+      // balayage l'avait justement signalée survivante.
 
       for (const a of g?.aretes ?? []) {
         const p = bodies.get(a.de);
@@ -283,7 +280,7 @@ export default function Cerveau(_props: ViewProps) {
       for (const p of liste) {
         const r = rayon(p.n) * p.naissance;
         const ch = chaleur(p.n);
-        const eteint = actif !== null && p.id !== actif && !voisinage?.has(p.id);
+        const eteint = estEteinte(p.id, actif, proches);
         const couleur = COULEUR[p.n.genre] ?? '#888';
 
         // Le halo : une note qui a servi récemment RESPIRE. Sous mouvement
@@ -342,7 +339,7 @@ export default function Cerveau(_props: ViewProps) {
       const boites: { x: number; y: number; l: number; h: number }[] = [];
       const candidats = liste
         .filter((p) => {
-          const eteint = actif !== null && p.id !== actif && !voisinage?.has(p.id);
+          const eteint = estEteinte(p.id, actif, proches);
           const charpente = p.n.genre !== 'episode' && p.n.degre > 0;
           return !eteint && (p.id === actif || charpente);
         })
@@ -404,19 +401,10 @@ export default function Cerveau(_props: ViewProps) {
     };
   };
 
-  const sous = (ev: { clientX: number; clientY: number }): Corps | null => {
-    const { x, y } = auGraphe(ev);
-    let trouve: Corps | null = null;
-    let meilleur = Infinity;
-    for (const p of corps.current.values()) {
-      const d = Math.hypot(p.x - x, p.y - y);
-      if (d < rayon(p.n) + 8 && d < meilleur) {
-        meilleur = d;
-        trouve = p;
-      }
-    }
-    return trouve;
-  };
+  // La conversion écran → graphe reste ici (elle seule connaît le cadrage) ;
+  // le choix du corps visé, lui, est une règle pure et éprouvée.
+  const sous = (ev: { clientX: number; clientY: number }): Corps | null =>
+    corpsSousLePoint(auGraphe(ev), corps.current.values());
 
   const vide = entier !== null && entier.total === 0;
   const rienDeFiltre = g !== null && g.total === 0 && entier !== null && entier.total > 0;

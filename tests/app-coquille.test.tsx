@@ -183,4 +183,33 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     });
     expect(getToken(), 'Entrée pose le jeton').toBe('jeton-complet-pour-le-banc');
   });
+
+  it('LA MIELLERIE NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
+    // Survivante du balayage de nuit : `{route.view === 'miellerie' && …}`
+    // mutée en `!==`. La Miellerie est l'écran où l'humain APPROUVE ou REJETTE
+    // ce que l'IA a produit : mutée, elle s'ouvrirait sous toutes les autres
+    // vues (le geste de revue posé sur une tâche qu'on ne regardait pas) et
+    // sa propre route serait vide — l'écran de contrôle introuvable là où on
+    // le cherche. Vérifiée NUE : la suite entière moins ce fichier reste
+    // verte avec la mutation en place (208 fichiers, 3 183 tests).
+    const accueil = await monter();
+    expect(
+      accueil.textContent,
+      'la vue d’accueil ne porte pas la file de revue d’un autre écran',
+    ).not.toContain('Le nectar arrive');
+
+    act(() => racine?.unmount());
+    location.hash = '#/miellerie';
+    const miellerie = await monter();
+    // Chunk paresseux : vrai import dynamique, scruté borné à une seconde.
+    // « Chargement de la vue… » n'est pas un état final acceptable.
+    for (let i = 0; i < 50 && !miellerie.textContent?.includes('Le nectar arrive'); i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+    expect(miellerie.textContent, 'la route de la Miellerie affiche la Miellerie').toContain(
+      'Le nectar arrive — aucune production à revoir.',
+    );
+  });
 });

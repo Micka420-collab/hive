@@ -2129,3 +2129,71 @@ Cinq gardes nouvelles, toutes passées à la loupe. L'une d'elles était trop
 lâche et la loupe l'a dit : `/mask-image:/` attrapait aussi `-webkit-mask-image`,
 donc le test restait vert avec le seul préfixe — cassé partout sauf chez WebKit.
 Il exige maintenant les deux écritures.
+
+---
+
+## Les deux dernières gardes du Cerveau : extraites, pas classées « intestables »
+
+Le balayage de nuit laissait trois survivantes hors du canevas, et le plan de
+la nuit disait d'en documenter deux comme **dette assumée** — elles vivent
+dans la boucle de dessin, `getContext` rend `null` sous happy-dom, donc rien
+ne les exécute jamais. C'était le bon diagnostic et la mauvaise conclusion.
+
+En lisant la source plutôt que le plan (§ 2 quaterdecies : « hors d'atteinte
+du banc » est presque toujours « au mauvais endroit ») :
+
+- `d < rayon(p.n) + 8 && d < meilleur` ne touche **aucun** contexte de dessin.
+  Elle prend un point déjà converti en coordonnées du graphe et une liste de
+  corps, et rend une décision. C'est la même situation que la physique du
+  lot 25, sortie dans `cerveau-physique.ts` — et le même remède.
+- `voisinage = choisi !== null ? proches : null` était **pire que non testée :
+  redondante**. `proches` vaut déjà `null` quand `choisi` l'est (son `useMemo`
+  l'exige). La condition ne retirait jamais rien. Une garde qui ne garde rien
+  reste une garde qu'un jour on mute : elle est retirée, pas testée.
+
+`dashboard/src/views/cerveau-designation.ts` porte désormais `rayon`,
+`MARGE_DOIGT`, `corpsSousLePoint` et `estEteinte` ; `Cerveau.tsx` ne garde que
+la conversion écran → graphe, seule à connaître le cadrage courant. Les deux
+sites de calcul du halo passent par le même prédicat au lieu de recopier la
+même expression à deux endroits.
+
+**Ce que ces règles protègent.** Mutée en `>`, la sélection attrape la note la
+plus ÉLOIGNÉE du clic : l'écran répond, mais à côté — la panne qui ne
+ressemble pas à une panne. Sans `d < meilleur`, deux notes qui se chevauchent
+rendent l'une des deux inatteignable, et laquelle dépend de l'ordre
+d'insertion d'un `Map`. Sans l'exception du voisinage, désigner une note
+éteint précisément ce qu'on voulait voir : ses liens.
+
+**Rejeu, verdict affiché.** Huit mutations, huit rouges — après correction de
+la deuxième, qui avait frappé le commentaire au lieu du code et rendu un faux
+vert (§ 2 octodecies du journal, écrite pour ça).
+
+| mutation                                                  | verdict  |
+| --------------------------------------------------------- | -------- |
+| `d < rayon + MARGE` → `>`                                 | 6 rouges |
+| garde `d < meilleur` retirée (le DERNIER en portée gagne) | 1 rouge  |
+| `d < meilleur` → `d > meilleur`                           | 5 rouges |
+| `actif === null` → `!==`                                  | 4 rouges |
+| `id === actif` → `!==`                                    | 3 rouges |
+| `!voisinage?.has(id)` → `voisinage?.has(id)`              | 3 rouges |
+| `Math.min(7, …)` → `Math.max`                             | 4 rouges |
+| `Math.sqrt(recurrences)` → `recurrences`                  | 1 rouge  |
+| `MARGE_DOIGT = 8` → `0`                                   | 2 rouges |
+
+**Deux autres survivantes tuées dans le même lot**, chacune vérifiée NUE par
+exclusion avant d'écrire quoi que ce soit :
+
+- `workflows.length === 0` (Chantiers) — mutée, un dépôt sans workflow affiche
+  quand même le champ « Branche ou tag » : une commande sans rien à commander.
+- `route.view === 'miellerie'` (App) — mutée, la Miellerie se colle SOUS toutes
+  les autres vues et disparaît de sa propre route. La suite entière moins
+  `tests/app-coquille.test.tsx` reste verte avec la mutation en place
+  (208 fichiers, 3 183 tests) : la garde était bien nue.
+
+Suite mesurée après le lot : **3 208** (3 201 passés, 7 ignorés, 210 fichiers).
+Les six badges sont alignés sur ce chiffre mesuré.
+
+**Ce qui reste ouvert.** Une exécution de la barrière a rendu 2 rouges sur
+3 201 ; les quatre suivantes sont vertes. Le détail avait été mangé par un
+`grep` posé avant lecture — l'intermittent n'est donc ni nommé ni fermé
+(§ 2 novodecies).

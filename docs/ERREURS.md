@@ -3005,6 +3005,93 @@ cherche des instructions.** La réparation, elle, coûte un `--amend -F` et un
 
 ---
 
+## 2 novodecies. Filtrer la sortie d'un banc avant de l'avoir lue détruit la preuve
+
+Barrière de fin de lot, quatre commandes enchaînées pour aller vite :
+
+```bash
+npm run typecheck | tail -4 && npm run lint | tail -4 \
+  && npx vitest run | grep -E "Test Files|Tests |Duration" | tail -5
+```
+
+Le `grep` a rendu ceci : **2 failed | 3 199 passed**. Deux tests rouges sur
+trois mille deux cents — et pas un mot de plus, parce que le motif retenu ne
+gardait que les lignes de total. Ni le nom des tests, ni leur fichier, ni
+l'assertion. Les quatre exécutions complètes qui ont suivi sont vertes.
+
+**Ce qui est perdu l'est pour de bon.** Un intermittent ne se rejoue pas sur
+commande : c'est ce qui le définit. La seule occurrence observée de la nuit
+portait tout ce qu'on aurait pu en apprendre — deux noms de tests, deux
+fichiers, deux messages — et un `grep` posé AVANT la lecture les a jetés.
+Quatre exécutions vertes ne réparent pas ça ; elles disent seulement « pas
+reproduit en quatre essais », ce qui n'est pas la même phrase que « corrigé »,
+ni même que « compris ».
+
+**La règle.** La sortie d'un banc va d'abord dans un FICHIER, et le filtre se
+pose sur le fichier :
+
+```bash
+npx vitest run > /tmp/banc.log 2>&1; tail -20 /tmp/banc.log
+```
+
+Le tube coûte zéro à écrire et se paye une seule fois — au moment précis où
+il y avait quelque chose à apprendre. C'est la même famille que le tube qui
+avale un code de sortie (§ 9 quaterdecies) : dans les deux cas on interpose un
+outil entre soi et ce que la machine a réellement dit.
+
+**Ce qui reste ouvert.** L'intermittent n'est pas nommé, donc il n'est pas
+fermé. Il est écrit ici pour que la prochaine occurrence soit capturée, pas
+pour donner l'impression qu'il a été traité.
+
+---
+
+## 2 octodecies. Le rejeu peut frapper le COMMENTAIRE qui décrit la garde
+
+Cousin immédiat de § 2 septdecies, et plus sournois : le bon fichier, la bonne
+suite, la bonne chaîne — mais pas la bonne ligne.
+
+Batterie de huit mutations sur `cerveau-designation.ts`, chacune appliquée par
+`perl -0pi -e "s/\Q$avant\E/$apres/"`. Sept rendent la suite rouge. La
+huitième — `d < meilleur` → `d > meilleur`, la règle « le plus proche gagne » —
+rend **13 verts**. Verdict apparent : garde nue, il faut un test.
+
+Sauf que ce mutant-là ne peut pas survivre : avec `meilleur` initialisé à
+`Infinity`, `d > meilleur` est faux au premier tour, donc plus rien n'est
+jamais trouvé, donc TOUT devrait rougir. Un mutant qui devrait tout casser et
+ne casse rien n'est pas une garde nue : c'est un rejeu qui n'a pas eu lieu.
+
+La cause tenait en un caractère manquant. `s///` sans `/g` remplace la
+PREMIÈRE occurrence — et l'en-tête du module cite la garde qu'il protège :
+
+```
+ *   · `d < rayon(p.n) + 8 && d < meilleur` — la sélection du corps sous le
+```
+
+La mutation a donc été appliquée au commentaire. Le code n'a pas bougé d'un
+octet, et la suite verte ne disait rien d'autre que « le code n'a pas changé ».
+
+**Le signal qui a sauvé le coup.** Pas une relecture : une INCOHÉRENCE. Sept
+mutations rouges, une verte, sur une règle dont on pouvait prédire à la main
+qu'elle ferait tout tomber. Un rejeu dont le résultat contredit ce qu'on sait
+du code est un rejeu à vérifier, jamais un résultat à noter.
+
+**La règle.** Muter par NUMÉRO DE LIGNE, sur la ligne de code repérée d'abord,
+et afficher la ligne obtenue avant de lancer :
+
+```bash
+LIGNE=$(grep -n 'if (d < rayon(p.n) + MARGE_DOIGT && d < meilleur) {' "$F" | cut -d: -f1)
+awk -v l="$LIGNE" -v r="$nouveau" 'NR==l{print r; next}{print}' "$ORIG" > "$F"
+sed -n "${LIGNE}p" "$F"     # on LIT ce qu'on vient d'écrire
+```
+
+Et le corollaire qui fait mal : plus un module documente honnêtement les
+règles qu'il tient — ce que ce dépôt demande partout — plus ses commentaires
+citent son propre code, et plus une substitution textuelle a de chances de
+frapper la prose au lieu de la logique. La bonne documentation rend le rejeu
+naïf dangereux.
+
+---
+
 ## 2 septdecies. Un rejeu contre le MAUVAIS fichier ne prouve rien
 
 Le rejeu de mutation est devenu l'instrument de confiance du dépôt : « la
