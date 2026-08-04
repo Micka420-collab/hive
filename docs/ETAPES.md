@@ -4273,3 +4273,27 @@ diff d'intégration) n'ont PAS encore été examinées. La loupe est trop lente 
 ce dépôt pour un balayage de fond en tâche de nuit (redémarrages + crochet d'arrêt
 qui refuse un arbre sali par un mutant transitoire) ; le reliquat `server.ts` est
 à reprendre en ciblé (mutation d'un garde à la fois, suite entière par garde).
+
+### Balayage loupe Garde-Fous CLÔTURÉ : les 3 gardes `server.ts` mesurées, toutes défendues
+
+Reprise CIBLÉE (la loupe complète est trop lente ici — chaque mutant ≈ une suite
+entière) des 3 candidates de `server.ts` que le balayage n'avait pas atteintes,
+toutes dans le câblage livraison / contre-visite (G4b/G5a). Une mutation à la
+fois, SUITE ENTIÈRE rejouée par garde (un targeted sur le seul fichier risquerait
+un faux survivant — une garde peut être défendue par un banc d'un AUTRE fichier),
+verdict affiché :
+
+| ligne | garde                                                        | mutation    | verdict                                               |
+| ----- | ------------------------------------------------------------ | ----------- | ----------------------------------------------------- |
+| 1129  | `brut === null ? null : versEchelon(brut)` (`polyethismeDe`) | `===`→`!==` | 🔴 mord `STRICT : le projet ATTEINT la contre-visite` |
+| 2486  | `getEchelonGardeFou(task.id) !== null` (`optIn`)             | `!==`→`===` | 🔴 mord `LEGER : … RANGE « dispensee »`               |
+| 2488  | `if (poly !== 'strict')` (la porte de contre-visite)         | `!==`→`===` | 🔴 mord `LEGER : … RANGE « dispensee »`               |
+
+Les trois sont **défendues** par `tests/garde-fou-livraison.test.ts` (les bancs de
+refus par projet, G4b). Rien à écrire, aucun équivalent à documenter.
+
+**Le balayage loupe de TOUT le diff d'intégration Garde-Fous (base d'avant G4a)
+est donc clos** : sur les 12 candidates mutables, la seule vraie dette était la
+famille des 4 gardes d'ATTRIBUT du panneau (aria-pressed ×2, aria-current,
+`erreur && <p>`), corrigée au lot précédent (#171). Le reste — scheduler.ts et
+server.ts — était déjà défendu. Plus de « reste » sur ce diff.
