@@ -3072,3 +3072,81 @@ qu'une affordance absente : on réessaie.
 Le banc éprouve les **deux sens** séparément : `tasks` seule, puis `onOpenTask`
 seule. Il ne suffit pas que l'une manque — il faut que **chacune, seule**, soit
 insuffisante, sinon le `||` passerait sur la moitié des cas.
+
+## Tâche #62 — clôture : les deux derniers axes, et ce qu'ils N'ONT PAS trouvé
+
+Un audit qui ne consigne que ses trouvailles ment sur sa couverture : on ne peut
+plus distinguer « examiné, rien à signaler » de « jamais regardé ». Les deux
+derniers axes sont donc écrits ici avec ce qui a été vérifié, et comment.
+
+### Axe (c) — le chemin de livraison : RIEN À SIGNALER
+
+Question posée : que peut-on écrire dans le dépôt de quelqu'un ? La base est-elle
+jamais forcée ? Écrit-on sur `main` ?
+
+| garde                                  | où                                              | verdict                   |
+| -------------------------------------- | ----------------------------------------------- | ------------------------- |
+| `refValide` sur la base ET la branche  | `livraison.ts:336`                              | présente                  |
+| `cheminValide` sur tout chemin du diff | **câblée** en `rustine.ts:191`                  | présente                  |
+| mode de fichier                        | `MODE_FICHIER = '100644'` en dur                | aucun exécutable livrable |
+| création de branche                    | `POST refs`, échoue si elle existe              | rien d'écrasé en silence  |
+| fusion                                 | aucune — « une PR ouverte est un objet inerte » | rien sur `main`           |
+| application du diff                    | tout ou rien, AVANT la moindre écriture         | pas de branche orpheline  |
+
+Le point qui comptait le plus est le troisième : `cheminValide` n'est pas
+seulement écrite, elle est **appelée au point d'analyse**, et le cas de
+traversée est éprouvé de bout en bout (`tests/rustine.test.ts` livre
+`../../etc/passwd` et attend un refus). C'est exactement ce que les registres 1
+et 2 reprochaient ailleurs — ici, c'est fait.
+
+### Axe (d) — ce qu'un hôte peut faire faire à la machine d'un invité : RIEN À SIGNALER
+
+C'est la frontière qui compte pour ce produit : des amis prêtent leur machine.
+La question n'est pas « le hub est-il correct » mais « que se passe-t-il si le
+hub ment ? ».
+
+Le nœud ne fait confiance à personne, et c'est écrit noir sur blanc dans
+`merge-runner.ts` : _« un nœud ne doit pas tenir pour acquis que le hub est bien
+celui qu'il croit »_. Les **trois** chemins d'exécution jugent leurs commandes :
+
+| chemin   | garde                                    | où                               |
+| -------- | ---------------------------------------- | -------------------------------- |
+| tâche    | `jugerCommandeTest` + `jugerPreparation` | `client.ts:435-436`              |
+| chantier | `jugerPreparation`, puis `jugerChantier` | `client.ts:554`, `:595`          |
+| merge    | `jugerCommandeTest` + `jugerPreparation` | `runMerge`, avant toute écriture |
+
+Un chantier ne peut nommer qu'un script **que le dépôt déclare lui-même** — le
+hub choisit lequel, jamais quoi. Et autour : `shell: false` partout,
+environnement épuré (aucun secret du nœud vers l'enfant), sortie plafonnée,
+délai dur, enveloppe de bac à sable sur tous les chemins.
+
+### La fausse trouvaille que la méthode a évitée
+
+Un relevé par `grep` montrait `runProc(msg.prepareCommand, …)` au chemin des
+chantiers **sans** `jugerPreparation` sur la même ligne, alors que le chemin du
+merge, lui, l'appelle explicitement. La conclusion s'écrivait toute seule : la
+garde est câblée chez un appelant et pas chez l'autre — la forme exacte des
+registres 1 et 2, sur l'axe le plus sensible du produit.
+
+C'était faux. La garde est en `client.ts:554`, dans le même gestionnaire, **avant
+le clone**, avec sortie anticipée. Lire le flot de contrôle plutôt que le
+résultat du `grep` a évité une trouvaille imaginaire — deuxième fois cette nuit
+après `pruneResults`, et pour la même raison.
+
+> **Ce que ça dit de la méthode** : le `grep` propose, il ne conclut pas. Une
+> garde absente d'une ligne peut être présente dans le chemin qui y mène, et
+> l'inverse est vrai aussi. Seule la lecture du flot — ou l'exécution — tranche.
+
+### Bilan de l'audit #62
+
+| registre | axe                       | résultat                                              |
+| -------- | ------------------------- | ----------------------------------------------------- |
+| 1        | bornes d'élagage          | 2 points ouverts fermés, doctrine tenue par une garde |
+| 2        | bac à sable (a)           | refus en code fourre-tout — **corrigé**               |
+| 3        | billets et clés (b)       | exclusion contournable en se renommant — **corrigé**  |
+| —        | livraison (c)             | rien à signaler, gardes câblées et éprouvées          |
+| —        | frontière hôte/invité (d) | rien à signaler, défense en profondeur                |
+
+Deux défauts de fond trouvés, tous deux **prouvés en exécutant** avant d'être
+corrigés, et tous deux de la même famille : une règle écrite que rien
+n'appliquait.

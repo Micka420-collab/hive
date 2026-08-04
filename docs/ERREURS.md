@@ -2058,6 +2058,37 @@ donc à des millisecondes différentes. Le cas n'est pas atteignable.
 > de la requête. Écrire un test qui fabrique un scénario impossible, c'est de la
 > décoration.
 
+### 8.1 — Le `grep` propose, le flot de contrôle tranche
+
+Audit de la frontière hôte/invité. Un relevé montrait, au chemin des chantiers :
+
+```js
+runProc(msg.prepareCommand, dir, env, …)   // aucune garde sur cette ligne
+```
+
+alors que le chemin du merge, lui, appelle explicitement `jugerPreparation`
+avant son `runProc`. La conclusion s'écrivait toute seule, et elle était
+séduisante parce qu'elle avait la **forme d'un défaut déjà trouvé deux fois la
+même nuit** : une garde câblée chez un appelant et pas chez l'autre — sur l'axe
+le plus sensible du produit, en plus.
+
+C'était faux. La garde est trente lignes plus haut, dans le même gestionnaire,
+**avant le clone**, avec sortie anticipée. Le `grep` ne la montrait pas parce
+qu'elle n'est pas sur la ligne de l'appel : elle est sur le chemin qui y mène.
+
+Ce qui rend l'erreur intéressante, c'est son moteur : une hypothèse qui
+ressemble à ce qu'on vient de trouver ailleurs se vérifie moins sévèrement. Deux
+registres venaient d'établir « une règle écrite que rien n'applique », et le
+troisième cas s'y est glissé sans payer sa preuve.
+
+> **Règle** — une garde absente d'une LIGNE peut être présente dans le CHEMIN
+> qui y mène ; et l'inverse est vrai — une garde présente peut être court-
+> circuitée en amont. Avant d'annoncer une garde manquante, lire le flot de
+> contrôle du gestionnaire entier, ou l'exécuter.
+>
+> **Règle** — se méfier deux fois plus d'une trouvaille qui a la forme de la
+> précédente. C'est le moment où l'on vérifie le moins.
+
 ---
 
 ## 8 bis. Une chaîne vide n'est pas absente
