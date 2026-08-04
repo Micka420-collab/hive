@@ -234,7 +234,10 @@ async function main(): Promise<void> {
   for (const l of bac.lignes) console.log(l);
   if (bac.refuse) {
     console.error('✘ Ce nœud ne démarre pas.\n');
-    process.exit(1);
+    // Voir `main.ts` : le code du refus vient de la décision, pas d'un `1`
+    // recopié — c'est le duplicata entre les deux chemins qui avait déjà
+    // coûté l'absence totale de bac à sable sur celui-ci.
+    process.exit(bac.codeSortie);
   }
 
   const client = new HiveNodeClient({

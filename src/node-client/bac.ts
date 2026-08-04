@@ -31,6 +31,7 @@ import {
   trouverFournisseur,
   type Fournisseur,
 } from './isolement.js';
+import { CODE, type CodeSortie } from '../codes-sortie.js';
 
 /** Ce que `decider` rend — nommé ici, faute de l'être à la source. */
 export type Decision = ReturnType<typeof decider>;
@@ -43,6 +44,32 @@ export interface Bac {
   lignes: string[];
   /** Le nœud doit-il renoncer à démarrer ? */
   refuse: boolean;
+  /**
+   * Le code que le processus doit rendre — porté ICI, pas recopié par chaque
+   * chemin de démarrage.
+   *
+   * ─── POURQUOI CE CHAMP EXISTE ─────────────────────────────────────────────
+   *
+   * Les deux chemins sortaient en `1`. Or `codes-sortie.ts` dit exactement ce
+   * qu'est ce `1` : « Erreur non classée. Le fourre-tout, à n'utiliser qu'en
+   * DERNIER RECOURS » — et il définit `REFUS_SECURITE` juste en dessous, pour
+   * ce cas précis.
+   *
+   * Ce n'est pas une coquetterie de numérotation. Le même fichier dit ce que ça
+   * coûte : « Ansible, systemd ou un Makefile ne peuvent pas distinguer
+   * "déjà en place" de "port occupé" de "on a refusé pour raison de sécurité".
+   * La seule réponse possible devient relancer et espérer. »
+   *
+   * Un `Restart=on-failure` voit `1`, relance, le nœud refuse à nouveau,
+   * relance — sur une machine qui ne pourra JAMAIS travailler, faute de moteur
+   * de conteneurs. Avec un code dédié, le superviseur s'arrête et le dit à un
+   * humain, qui est le seul à pouvoir installer podman.
+   *
+   * Le champ vit dans la décision plutôt que chez l'appelant parce que le trou
+   * d'origine était précisément un duplicata : deux chemins, deux copies, une
+   * dérive garantie — c'est ce que dit l'en-tête de ce fichier.
+   */
+  codeSortie: CodeSortie;
 }
 
 /**
@@ -60,6 +87,18 @@ export function annonce(decision: Decision, fournisseur: Fournisseur | null): st
   for (const l of etat.laissePasser) lignes.push(`     • ${l}`);
   lignes.push('');
   return lignes;
+}
+
+/**
+ * Le code que le processus doit rendre, selon qu'il refuse ou non.
+ *
+ * Exporté et minuscule À DESSEIN. Tant que la règle vivait à l'intérieur de
+ * `preparerBac`, un banc ne pouvait l'éprouver qu'en fabriquant un `Bac` à la
+ * main — c'est-à-dire en RECOPIANT la règle, donc en jugeant sa propre copie.
+ * Mesuré : deux mutations de la règle d'origine laissaient le banc vert.
+ */
+export function codeDuBac(refuse: boolean): CodeSortie {
+  return refuse ? CODE.REFUS_SECURITE : CODE.SUCCES;
 }
 
 /**
@@ -81,6 +120,7 @@ export async function preparerBac(env: NodeJS.ProcessEnv = process.env): Promise
     // tâche qu'un nœud qui en prend une sans bac à sable en croyant le
     // contraire.
     refuse: decision.refuse,
+    codeSortie: codeDuBac(decision.refuse),
   };
 }
 

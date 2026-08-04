@@ -2846,3 +2846,55 @@ La leçon vaut plus que la garde, et elle est au carnet (§ 2 quatervicies) : un
 garde structurelle qu'on n'éprouve pas est une hypothèse, et on la croit
 d'autant plus volontiers sur parole qu'elle a l'air d'être du contrôle plutôt
 que du test.
+
+### 5. Registre 2 — le refus de bac à sable sortait en code fourre-tout
+
+**Prouvé en exécutant**, pas supposé. Un nœud lancé avec `HIVE_ISOLEMENT=exige`
+sur une machine sans moteur de conteneurs (`PATH` vidé de podman et de docker) :
+
+```
+🛡  Isolement : HIVE_ISOLEMENT=exige et aucun moteur de conteneurs trouvé…
+✘ Ce nœud ne démarre pas.
+CODE=1
+```
+
+Le refus fonctionne. Le code, non. `codes-sortie.ts` décrit ce `1` comme _« le
+fourre-tout, à n'utiliser qu'en DERNIER RECOURS »_ et définit `REFUS_SECURITE`
+juste en dessous, pour ce cas exact. Le même fichier dit ce que la confusion
+coûte : _« Ansible, systemd ou un Makefile ne peuvent pas distinguer "déjà en
+place" de "port occupé" de "on a refusé pour raison de sécurité". La seule
+réponse possible devient relancer et espérer. »_
+
+Concrètement : un `Restart=on-failure` voit `1`, relance, le nœud refuse,
+relance — **sur une machine qui ne pourra jamais travailler**, faute de moteur
+de conteneurs. Un code dédié laisse le superviseur s'arrêter et prévenir
+l'humain, seul capable d'installer podman.
+
+**Le correctif ne recopie pas le code chez l'appelant.** Le trou d'origine de
+`bac.ts` était précisément un duplicata — deux chemins de démarrage, deux
+copies, et `join.ts` s'était retrouvé sans aucun bac à sable. Le code vit donc
+dans la décision (`bac.codeSortie`), et les deux chemins la lisent.
+
+**Deux fois la même leçon, payée sur mon propre banc.**
+
+Le premier jet fabriquait un `Bac` À LA MAIN dans le montage de test — donc
+recopiait la règle et jugeait sa propre copie. Mesuré : deux mutations de la
+règle laissaient le banc **vert**. La règle est sortie en `codeDuBac()`, minuscule
+et exportée, précisément pour qu'un banc ne puisse plus la réécrire.
+
+Et une fois cela corrigé, une troisième mutation survivait encore : remplacer
+`codeDuBac(decision.refuse)` par `codeDuBac(false)` dans `preparerBac` ne
+faisait rougir personne — la règle était éprouvée, son APPLICATION non. L'état
+refusant de `preparerBac` exige une machine sans moteur de conteneurs, qu'un
+banc ne peut pas fabriquer sans sonder le système ; un simulacre de sonde ne
+prouverait que le simulacre. Le câblage est donc jugé à la source, et c'est dit
+franchement dans le banc plutôt que masqué par une simulation.
+
+| mutation                               | verdict  |
+| -------------------------------------- | -------- |
+| `main.ts` : retour au `1` nu           | 1 rouge  |
+| `join.ts` : retour au `1` nu           | 1 rouge  |
+| la règle rend le fourre-tout           | 2 rouges |
+| le code ne dépend plus du refus        | 2 rouges |
+| `preparerBac` n'applique plus sa règle | 1 rouge  |
+| le code du bac devient une constante   | 2 rouges |

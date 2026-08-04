@@ -21,8 +21,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { annonce, optionBac, type Bac } from '../src/node-client/bac.js';
+import { annonce, codeDuBac, optionBac, preparerBac, type Bac } from '../src/node-client/bac.js';
 import { decider, type Fournisseur } from '../src/node-client/isolement.js';
+import { CODE } from '../src/codes-sortie.js';
 
 const source = (chemin: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/node-client/${chemin}`, import.meta.url)), 'utf8');
@@ -37,7 +38,14 @@ const PODMAN: Fournisseur = {
 
 function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null): Bac {
   const decision = decider(mode, fournisseur);
-  return { decision, fournisseur, lignes: annonce(decision, fournisseur), refuse: decision.refuse };
+  return {
+    decision,
+    fournisseur,
+    lignes: annonce(decision, fournisseur),
+    refuse: decision.refuse,
+    // La VRAIE règle, pas une copie : c'est tout l'objet de `codeDuBac`.
+    codeSortie: codeDuBac(decision.refuse),
+  };
 }
 
 describe('LES DEUX CHEMINS DE DÉMARRAGE PASSENT PAR LE MÊME BAC', () => {
@@ -124,5 +132,97 @@ describe('le refus, et ce qui part au client', () => {
     };
     variables.push('SECRET_AJOUTE_APRES_COUP');
     expect(option.bac.variables).toEqual(['HOME']);
+  });
+});
+
+describe('LE REFUS DE BAC À SABLE A SON PROPRE CODE DE SORTIE', () => {
+  // ─── TROUVAILLE DE L'AUDIT #62, PROUVÉE EN EXÉCUTANT ───────────────────────
+  //
+  // Un nœud lancé avec `HIVE_ISOLEMENT=exige` sur une machine sans moteur de
+  // conteneurs refuse bien de démarrer — mesuré, `PATH` vidé de podman et de
+  // docker :
+  //
+  //     🛡  Isolement : HIVE_ISOLEMENT=exige et aucun moteur trouvé…
+  //     ✘ Ce nœud ne démarre pas.
+  //     CODE=1
+  //
+  // Or `codes-sortie.ts` décrit ce `1` comme « le fourre-tout, à n'utiliser
+  // qu'en DERNIER RECOURS », et définit `REFUS_SECURITE` juste en dessous pour
+  // ce cas exact. Le même fichier dit ce que la confusion coûte : un
+  // superviseur ne peut plus distinguer « refusé pour raison de sécurité » de
+  // n'importe quelle autre panne, et « la seule réponse possible devient
+  // relancer et espérer ».
+  //
+  // Concrètement : `Restart=on-failure` voit 1, relance, le nœud refuse,
+  // relance — sur une machine qui ne pourra JAMAIS travailler faute de moteur
+  // de conteneurs. Un code dédié laisse le superviseur s'arrêter et prévenir
+  // l'humain, seul capable d'installer podman.
+
+  it('UN REFUS REND `REFUS_SECURITE`, PAS LE FOURRE-TOUT', () => {
+    const bac = bacDe('exige', null);
+    expect(bac.refuse, 'la prémisse : ce bac refuse bien').toBe(true);
+    expect(bac.codeSortie, 'un refus de sécurité a son propre code').toBe(CODE.REFUS_SECURITE);
+    expect(bac.codeSortie, 'et surtout pas le fourre-tout').not.toBe(CODE.ERREUR);
+  });
+
+  it('LA RÈGLE ELLE-MÊME, PRISE À LA SOURCE — pas la copie d’un banc', () => {
+    // Ce test existe parce que le précédent, seul, laissait passer DEUX
+    // mutations : le montage de banc fabriquait son `Bac` à la main, donc
+    // recopiait la règle et jugeait sa propre copie. Mesuré, pas supposé.
+    expect(codeDuBac(true), 'refus').toBe(CODE.REFUS_SECURITE);
+    expect(codeDuBac(false), 'pas de refus').toBe(CODE.SUCCES);
+    expect(codeDuBac(true), 'jamais le fourre-tout').not.toBe(CODE.ERREUR);
+    expect(codeDuBac(true), 'et le code DÉPEND du refus').not.toBe(codeDuBac(false));
+  });
+
+  it('UN DÉMARRAGE NORMAL REND LE SUCCÈS — le code ne parle que du refus', () => {
+    for (const [mode, f] of [
+      ['exige', PODMAN],
+      ['auto', PODMAN],
+      ['auto', null],
+      ['off', null],
+    ] as const) {
+      const bac = bacDe(mode, f);
+      expect(bac.refuse, `${mode} + ${f ? f.nom : 'rien'} : ne refuse pas`).toBe(false);
+      expect(bac.codeSortie, `${mode} + ${f ? f.nom : 'rien'}`).toBe(CODE.SUCCES);
+    }
+  });
+
+  it('`preparerBac` APPLIQUE la règle — sans quoi elle serait juste et inutilisée', async () => {
+    // Le chemin `off` ne sonde AUCUN moteur (`mode === 'off' ? null : …`) :
+    // c'est le seul état de `preparerBac` qu'un banc puisse atteindre sans
+    // dépendre de la machine qui l'exécute. Il suffit à prouver que le champ
+    // est bien alimenté par la règle, et pas par une constante.
+    const bac = await preparerBac({ HIVE_ISOLEMENT: 'off' });
+    expect(bac.refuse, 'off ne refuse jamais').toBe(false);
+    expect(bac.codeSortie, 'et rend le succès').toBe(CODE.SUCCES);
+  });
+
+  it('LE CÂBLAGE DE LA RÈGLE EST JUGÉ À LA SOURCE — le refus ne s’atteint pas sous banc', () => {
+    // Dit franchement : l'état REFUSANT de `preparerBac` exige une machine SANS
+    // moteur de conteneurs. Le banc ne peut pas le fabriquer sans sonder le
+    // système, et un simulacre de sonde ne prouverait que le simulacre.
+    //
+    // Mesuré : remplacer `codeDuBac(decision.refuse)` par `codeDuBac(false)`
+    // laissait tout le reste du fichier vert. C'est ce trou-là que cette garde
+    // ferme — la seule chose qu'on puisse honnêtement vérifier ici, c'est que
+    // l'argument passé est bien la décision.
+    const s = source('bac.ts');
+    expect(s, 'le code du bac doit venir de la règle').toContain('codeDuBac(decision.refuse)');
+  });
+
+  it('AUCUN CHEMIN DE DÉMARRAGE N’ÉCRIT SON CODE À LA MAIN', () => {
+    // Le trou d'origine de ce fichier était un DUPLICATA : deux chemins, deux
+    // copies, une dérive garantie — `join.ts` n'avait alors aucun bac du tout.
+    // Le code de sortie vient donc de la décision, et cette garde empêche le
+    // troisième chemin de naître avec un `1` recopié.
+    for (const fichier of ['main.ts', 'join.ts']) {
+      const s = source(fichier);
+      const refus = /\.refuse\b[\s\S]{0,400}?process\.exit\(([^)]+)\)/.exec(s);
+      expect(refus, `${fichier} : refus sans sortie ?`).not.toBeNull();
+      expect(refus?.[1], `${fichier} : le code du refus doit venir du bac`).toContain(
+        'bac.codeSortie',
+      );
+    }
   });
 });

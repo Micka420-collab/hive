@@ -38,7 +38,10 @@ for (const l of bac.lignes) console.log(l);
 
 if (bac.refuse) {
   console.error('✘ Ce nœud ne démarre pas.\n');
-  process.exit(1);
+  // `bac.codeSortie`, jamais un `1` écrit à la main : un refus de sécurité a
+  // son propre code, et c'est ce qui permet à un superviseur de s'arrêter au
+  // lieu de relancer sans fin une machine qui ne pourra jamais travailler.
+  process.exit(bac.codeSortie);
 }
 
 // ─── QUEL AGENT, ET POURQUOI CE N'EST PLUS « shell » PAR DÉFAUT ─────────────
