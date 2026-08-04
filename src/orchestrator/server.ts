@@ -7048,6 +7048,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dans le même changement que la table (règle 3). Elle naît vraie —
       // `pruneTasks`, juste au-dessus, fait vraiment disparaître des tâches.
       store.pruneContreVisites();
+      // Le lien tâche→modèle de l'Aiguillage : même borne référentielle, câblée
+      // avec la table (règle 3), et placée APRÈS `pruneTasks` — une borne
+      // référentielle ne nettoie que ce qui est déjà orphelin.
+      store.pruneAiguillageModeles();
       store.pruneConseils(CONSEILS_CONSERVES);
       // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
       //

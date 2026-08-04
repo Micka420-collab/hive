@@ -9,6 +9,8 @@ import type { PlateformeNoeud } from '../shared/machine.js';
 import { LIMITS } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
+import { CORPUS_AIGUILLAGE } from './aiguillage.js';
+import type { Suite } from './polyethisme.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
@@ -27,6 +29,18 @@ import type {
   TaskStatus,
   User,
 } from '../shared/types.js';
+
+/**
+ * Une ligne brute de la reconstruction des observations d'aiguillage : de quoi
+ * `categoriser(title, prompt)` à la lecture, plus le modèle et le verdict. La
+ * catégorie n'est PAS figée ici — elle se recalcule au moment du choix.
+ */
+export interface LigneObservationAiguillage {
+  title: string;
+  prompt: string;
+  modele: string;
+  suite: Suite;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -401,6 +415,30 @@ CREATE TABLE IF NOT EXISTS contre_visites (
   visiteurNodeId   TEXT NOT NULL,
   visiteurAgent    TEXT NOT NULL,
   renduA           INTEGER NOT NULL
+);
+
+-- ─── L'Aiguillage appris : le SEUL fait qui manque, et rien d'autre ──────────
+-- Quel modèle a été choisi pour produire quelle tâche. Ce fait ne vit nulle
+-- part ailleurs : la table tasks n'a pas de colonne modèle, et la règle 2
+-- (aucune colonne sur une table existante, aucun ALTER) interdit de lui en
+-- ajouter une. D'où une table LATÉRALE clé-par-tâche, exactement comme
+-- contre_visites, taches_issue, contre_expertises et conseil_plans.
+--
+-- On ne recopie NI le verdict (il reste dans contre_visites) NI la catégorie
+-- (recalculée par categoriser à la lecture, pour suivre la taxonomie du jour).
+-- Les observations de l'Aiguillage sont RECONSTRUITES par jointure — une seule
+-- source par fait, pas de duplication qui dérive.
+--
+-- INSERT OR REPLACE : la DERNIÈRE assignation gagne, ce qui aligne « dernier
+-- modèle choisi » sur « dernier verdict » (contre_visites fait pareil).
+--
+-- BORNE (règle 3) : pruneAiguillageModeles, référentielle, câblée dans
+-- server.ts après pruneTasks. Elle naît vraie — des tâches disparaissent
+-- pour de bon depuis le lot 17.
+CREATE TABLE IF NOT EXISTS aiguillage_modeles (
+  taskId  TEXT PRIMARY KEY,
+  modele  TEXT NOT NULL,
+  choisiA INTEGER NOT NULL
 );
 
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
@@ -2508,6 +2546,56 @@ export class HiveStore {
   pruneContreVisites(): number {
     return this.db
       .prepare('DELETE FROM contre_visites WHERE productionTaskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
+  }
+
+  /**
+   * Range le modèle choisi pour produire une tâche (l'Aiguillage appris).
+   *
+   * `INSERT OR REPLACE` : une ré-assignation écrase — la dernière assignation
+   * est celle dont on lira le verdict, et `contre_visites` fait exactement le
+   * même choix (dernière relecture gagne).
+   */
+  poserModeleAiguillage(taskId: string, modele: string, now = Date.now()): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO aiguillage_modeles (taskId, modele, choisiA) VALUES (?, ?, ?)',
+      )
+      .run(taskId, modele, now);
+  }
+
+  /**
+   * Reconstruit les observations que `replierAntecedents` replie — SANS rien
+   * recopier. Pour chaque tâche dont on connaît À LA FOIS le modèle
+   * (`aiguillage_modeles`) ET le verdict (`contre_visites`), on rend son
+   * titre + prompt (pour `categoriser` à la lecture), le modèle, et le verdict.
+   *
+   * Bornée par `limite` (les plus récentes), puis rendue en ordre
+   * CHRONOLOGIQUE : c'est l'ordre que `replierAntecedents` documente, et son
+   * `slice(-CORPUS)` redevient un no-op puisque la borne est déjà le `LIMIT`.
+   */
+  observationsAiguillage(limite = CORPUS_AIGUILLAGE): LigneObservationAiguillage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite
+           FROM contre_visites cv
+           JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+           JOIN tasks t              ON t.id      = cv.productionTaskId
+          ORDER BY cv.renduA DESC
+          LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as LigneObservationAiguillage[];
+    return rows.reverse();
+  }
+
+  /**
+   * Élague les liens dont la tâche n'existe plus. Référentielle, comme
+   * `pruneContreVisites` juste au-dessus, et vraie dès le premier jour :
+   * `pruneTasks` fait disparaître des tâches pour de bon depuis le lot 17.
+   */
+  pruneAiguillageModeles(): number {
+    return this.db
+      .prepare('DELETE FROM aiguillage_modeles WHERE taskId NOT IN (SELECT id FROM tasks)')
       .run().changes;
   }
 
