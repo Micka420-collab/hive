@@ -192,4 +192,31 @@ describe('la file de revue au clavier', () => {
     });
     expect(demandes).toEqual([]);
   });
+
+  it('LE VOLET « VERDICT » EST OUVERT PAR DÉFAUT, ET `i` LE REPLIE', async () => {
+    // Survivante d'affichage : `{showInfo && (…)}` — nudité confirmée contre la
+    // suite entière. `showInfo` vaut `true` au départ : le volet où l'on LIT le
+    // verdict d'une production est ouvert d'emblée, c'est la raison d'être de
+    // l'écran. `i` le replie pour rendre la place à la file.
+    //
+    // Mutée en `|| ` ou en `!showInfo`, l'état s'inverse : le volet serait replié
+    // à l'ouverture — on relirait des productions sans voir le verdict — et `i`
+    // l'ouvrirait au lieu de le fermer. On vise l'aside `.mi-info` par sa CLASSE,
+    // pas le texte « Verdict » (qui vit AUSSI dans le libellé du bouton de
+    // bascule — un repère non unique jugerait le mauvais élément, § 2 duodecies).
+    await monter(TROIS);
+    expect(
+      document.querySelector('.mi-info'),
+      'le volet verdict est ouvert d’emblée — c’est là qu’on lit le jugement',
+    ).not.toBeNull();
+
+    frapper('i');
+    expect(
+      document.querySelector('.mi-info'),
+      '`i` replie le volet — le contraste tue l’inversion',
+    ).toBeNull();
+
+    frapper('i');
+    expect(document.querySelector('.mi-info'), '`i` le rouvre').not.toBeNull();
+  });
 });
