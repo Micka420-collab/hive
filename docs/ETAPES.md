@@ -3212,3 +3212,70 @@ prétend attraper, sous ses deux formes et sur les deux fichiers — la leçon
 
 Le contrat des codes n'est pas modifié : aucun numéro ne bouge, aucun n'est
 ajouté. Seul l'affichage cesse d'en oublier un.
+
+## Le verrou de la loupe — la règle que j'ai enfreinte une heure après l'avoir écrite
+
+### Ce qui s'est passé
+
+§ 2 unvicies dit que deux loupes dans un même atelier ne rendent **aucun**
+verdict : l'une restaure pendant que l'autre mesure. La règle avait coûté un
+balayage entier, refait seul, avec des chiffres différents.
+
+Le soir même, j'ai lancé un balayage large **en tâche de fond**, puis une
+seconde loupe dans le même atelier pour valider une PR. Les deux verdicts sont
+nuls. Je ne l'ai vu qu'en comptant les processus.
+
+La fusion de la PR concernée ne repose pas dessus — CI verte sur les 5 jambes,
+`mergeable_state` propre, barrière locale entière — et ce verdict-là disait de
+toute façon « rien à conclure », pas « feu vert ». Mais la garde n'a pas été
+mesurée honnêtement, et ça ne se raconte pas autrement.
+
+### Pourquoi un verrou plutôt qu'une résolution
+
+Ma règle était **exactement du même genre que les défauts corrigés la même
+nuit** : écrite, juste, chèrement apprise — et appliquée par rien. Les registres
+1, 2 et 3 disaient tous « la borne est écrite, pas câblée ». Le carnet aussi,
+donc.
+
+`scripts/loupe.mjs` porte désormais un verrou : `jugerVerrou` (pure, `vivant`
+injecté), refus explicite qui nomme le pid tenant et dit quoi faire, péremption
+à 2 h contre le pid recyclé, retrait en sortie.
+
+Éprouvé **en exécutant**, dans les deux sens :
+
+| essai                               | mesuré                         |
+| ----------------------------------- | ------------------------------ |
+| verrou au nom d'un processus mort   | `CODE=0`, la loupe passe       |
+| verrou au nom d'un processus VIVANT | `CODE=2`, refus nommant le pid |
+
+Le premier essai avait d'abord été raté : le processus qui posait le verrou
+sortait aussitôt, donc son pid était mort et la loupe passait — à raison. Le
+banc ne créait pas la condition qu'il prétendait créer, comme le `chmod` en
+root du § 2 vicies.
+
+### Mutations — quatre sur la règle, trois sur le câblage
+
+| mutation                                       | verdict  |
+| ---------------------------------------------- | -------- |
+| le verrou ne bloque JAMAIS                     | 4 rouges |
+| le verrou bloque TOUJOURS                      | 1 rouge  |
+| la borne de péremption glisse d'une ms         | 1 rouge  |
+| la péremption disparaît (pid recyclé condamne) | 3 rouges |
+| le câblage mis en **commentaire**              | 1 rouge¹ |
+| le câblage **supprimé**                        | 1 rouge¹ |
+| le verrou n'est plus retiré en sortant         | 1 rouge  |
+
+### ¹ La garde de câblage a d'abord échoué à son propre rejeu
+
+Elle cherchait `jugerVerrou(` dans tout le fichier. Commenter le câblage, puis
+le supprimer, la laissait **verte les deux fois** : `jugerVerrou(` figure aussi
+dans sa propre **définition**, quelques lignes plus haut. La garde constatait
+que la fonction existe, jamais qu'elle est appelée.
+
+**Troisième fois de la nuit** que « le texte est là » se fait passer pour « la
+règle est appliquée » : un appel commenté (§ 2 quatervicies), une règle recopiée
+par un banc (registre 2), et maintenant une définition prise pour un appel. Le
+motif est stable, seul le déguisement change.
+
+Corrigé en isolant le corps de `principal()` par suivi des accolades. Rejoué
+sous les trois formes — trois rouges.

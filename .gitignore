@@ -15,3 +15,6 @@ coverage/
 
 # Le rapport JSON de vitest, produit par la CI pour le garde-badge.
 rapport-tests.json
+
+# Le verrou d’exclusivité de la loupe — propre à une exécution, jamais partagé.
+.loupe-verrou
