@@ -491,6 +491,23 @@ Deux choses valent d'être écrites, et la seconde plus que la première :
 > qui y tourne déjà. « Je viens de lancer quelque chose » n'est pas un fait
 > qu'on se rappelle : c'est un fait qu'on MESURE.
 
+### 2 trigies — Un harnais de mutation qui ne compte que les « passed » ment quand TOUT échoue
+
+Mon script de mutation lisait le verdict par `re.search(r'(\\d+) passed', sortie)`.
+Sur un banc de DEUX tests où la mutation fait tomber les DEUX, vitest imprime
+« Tests 2 failed (2) » — **sans aucun « passed »**. Le motif ne mordait pas, le
+script retombait sur `0` et annonçait **« SURVIT »** une mutation qui tuait tout.
+
+Rattrapé par réflexe — devant une survivante inattendue, j'ai rejoué à la main
+et LU la sortie entière (§ 2 novodecies) : deux `TypeError: null.name`, la
+garde mordait parfaitement. Sans ce réflexe, j'aurais écrit un banc « qui ne
+peut pas rougir » en croyant l'inverse.
+
+> **Règle** — un verdict de mutation ne se lit pas au seul compteur « passed ».
+> Compter AUSSI les « failed », et traiter l'absence des deux comme illisible,
+> jamais comme « survit ». Un `0 passed` peut être `N failed`, c'est-à-dire le
+> CONTRAIRE d'une survie.
+
 ### 2 nonvicies — Une garde de source qui trouve la DÉFINITION croit avoir trouvé l'APPEL
 
 Le banc du verrou ci-dessus vérifiait le câblage ainsi :

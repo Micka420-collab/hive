@@ -3548,3 +3548,41 @@ Ce qui est déjà couvert et n'est donc PAS un trou : le parcours de bout en bou
   en CI, pas sur du matériel réel — et cette nuance doit être dite.
 - **Le nombre de sections de la vitrine (13→7) et les tarifs** : décisions
   d'édition et commerciales de l'utilisateur, pas les miennes.
+
+## Le premier écran, suite : deux états de plus gardés, quatre mesurés nus et en file
+
+Poursuite du point 1 du POINT DE SORTIE. Les sept survivantes d'affichage ont
+d'abord été **vérifiées nues contre la suite ENTIÈRE en un seul passage** (les
+six restantes mutées d'un coup → 3 349 verts, aucune attrapée). « Pas attrapée
+par les bancs de vue » n'est pas « nue » (§ 2 septdecies) ; ce passage groupé,
+lui, le prouve.
+
+Deux gardées ce lot, les plus urgentes pour un nouvel arrivant :
+
+- **MonEspace — « expire aujourd'hui » (0 jour).** Le sentinel voisin éprouvait
+  5 jours (à venir) et −1 (passé), jamais **0** — et `>= 0` vs `> 0` ne diffèrent
+  QU'À zéro. Or zéro jour, c'est l'échéance du jour, le moment où le compte à
+  rebours sert le plus. Banc de borne ajouté ; `>= 0` → `> 0` rougit.
+- **Partage — l'écran d'un invité.** `rapport === null` garde le « Ouverture du
+  rayon… » qu'un invité voit en collant son lien. Muté, la vue lit `rapport.name`
+  sur `null` — un plantage à l'accueil de quelqu'un qui découvre le produit.
+  Banc par contraste ; le mutant fait tomber les deux tests (TypeError).
+
+Restent **quatre**, mesurées nues et **consignées ici pour n'être pas
+silencieuses** (les mesurer et les taire serait pire que ne pas les avoir
+regardées) :
+
+| garde                        | fichier         | ce qu'un mutant casse                                             |
+| ---------------------------- | --------------- | ----------------------------------------------------------------- |
+| `depots.depots.length === 0` | `Projets.tsx`   | « Aucun dépôt ne correspond » disparaît de la recherche de dépôts |
+| `busy === 'send'`            | `Projets.tsx`   | le bouton d'envoi ment sur son état (« Envoi… » au repos)         |
+| `e.type === 'dossier'`       | `Rayon.tsx`     | un dossier reçoit l'icône d'un fichier                            |
+| `showInfo && (`              | `Miellerie.tsx` | le volet « verdict » s'affiche toujours, ou jamais                |
+
+### Une leçon de méthode, chèrement rappelée
+
+Le mutant de Partage a d'abord été annoncé **« SURVIT »** par mon script — à
+tort. Sur un banc de deux tests où la mutation les fait tomber tous les deux,
+vitest n'imprime aucun « passed », et mon compteur retombait sur zéro. Lire la
+sortie entière a montré la vérité (deux `TypeError`). Consigné au carnet
+(§ 2 trigies) : un verdict de mutation ne se lit pas au seul « passed ».

@@ -523,6 +523,55 @@ describe('les sentinelles du balayage du soir', () => {
     expect(echue?.querySelector('.me-jours'), 'l’échéance passée ne se compte pas').toBeNull();
   });
 
+  it('MON ESPACE : « expire AUJOURD’HUI » (0 jour) se compte encore — la borne, pas le signe', async () => {
+    // LA MOITIÉ QUE LE SENTINEL VOISIN N'ATTEIGNAIT PAS. `a.jours >= 0` mutée en
+    // `> 0` : nudité confirmée contre la suite entière. Le banc ci-dessus
+    // éprouve 5 (à venir) et -1 (passé) — jamais **0**, et c'est précisément
+    // `>= 0` vs `> 0` qui ne diffèrent QU'À ZÉRO.
+    //
+    // Or zéro jour, c'est « expire aujourd'hui » : le moment où le compte à
+    // rebours est le PLUS utile. Muté, l'alerte la plus urgente perdrait son
+    // « 0 j » et se tairait — l'apicultrice croirait avoir le temps. § 2
+    // sexvicies : la question n'est pas « ce code est-il mort ? » mais « quel
+    // cas réel mon banc n'atteint jamais ? ».
+    const alerte = (projet: string, jours: number) =>
+      ({
+        cle: 'quota_proche',
+        gravite: 'attention',
+        projectId: `p-${projet}`,
+        projet,
+        message: `alerte ${projet}`,
+        jours,
+        details: {},
+      }) as never;
+    vi.mocked(fetchMonTableau).mockResolvedValue({
+      version: 1,
+      projets: [],
+      alertes: [alerte('rucher-aujourdhui', 0)],
+      totaux: { projets: 0, serveursActifs: 0, heuresIncluses: 0, depenseMs: 0 },
+      balanceAJour: true,
+      balanceMode: 'off',
+    } as never);
+    const dom = await monter(
+      <MonEspace
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          onNavigate: () => {},
+          user: { displayName: 'apicultrice' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    const ligne = [...dom.querySelectorAll('.me-alerte')].find((l) =>
+      (l.textContent ?? '').includes('rucher-aujourdhui'),
+    );
+    expect(ligne, 'l’alerte du jour est rendue').toBeTruthy();
+    expect(
+      ligne?.querySelector('.me-jours')?.textContent ?? '',
+      'zéro jour restant se compte encore — c’est « aujourd’hui », pas « jamais »',
+    ).toContain('0');
+  });
+
   it('PLEIN ESSAIM : le compte d’observations ne se dit QUE s’il y en a', async () => {
     // `{etat.derive.echantillon > 0 && (…)}` mutée en `||` : le verdict de
     // santé annoncerait « 0 production(s) observée(s) » — une surveillance
