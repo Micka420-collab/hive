@@ -170,6 +170,21 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Trente-quatrième lot — la barre d'espace du Time-Lapse** (nuit, 04 h 05 →
+04 h 20 UTC). `e.key === ' '` mutée en `!==` : TOUTE touche basculerait la
+lecture SAUF l'espace — la seule que l'écran annonce (« Lecture / pause
+(Espace) »). Le raccourci existe précisément pour qu'on n'ait pas à viser un
+bouton pendant qu'une archive défile. **1 mutation rejouée, 1 rouge.**
+
+Troisième piège de banc de la nuit, et toujours le même : les commandes de
+transport n'existent QUE s'il y a des images à rejouer, et le faux replay du
+fichier en rendait ZÉRO — le banc jugeait la branche « aucun événement à
+rejouer », pas celle qu'on visait. Trois fois cette nuit (la pesée vide de la
+Balance, la forme `results` d'OpenAlex, les images du replay), la même faute :
+**un banc qui ne charge pas assez juge une branche voisine, et il est vert
+pour de mauvaises raisons.** La parade est toujours de LIRE la garde qui
+protège le bloc visé avant d'écrire le décor.
+
 **Trente-troisième lot — trois de plus du balayage de nuit** (nuit, 03 h 30 →
 04 h 00 UTC). AccountPanel — le bouton de soumission dit ce qu'il va faire
 (`mode === 'login'` mutée : il promettrait « Créer le compte » à qui se

@@ -32,6 +32,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchReplay: vi.fn(() => Promise.resolve({ frames: [] })),
 }));
 
+import { fetchReplay } from '../dashboard/src/api';
 import Chronique from '../dashboard/src/views/Chronique';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -128,6 +129,61 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
       bouton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     expect(dom.textContent, 'en replay, le bandeau se dit').toContain('vous regardez le passé');
+  });
+
+  it('EN REPLAY, LA BARRE D’ESPACE MET EN PAUSE — et elle seule', async () => {
+    // Survivante du balayage de nuit : `e.key === ' '` mutée en `!==` — TOUTE
+    // touche basculerait le Time-Lapse SAUF l'espace, la seule que l'écran
+    // annonce. Le raccourci existe précisément pour qu'on n'ait pas à viser un
+    // bouton pendant qu'une archive défile.
+    // Les commandes de transport n'existent QUE s'il y a des images à rejouer :
+    // le faux replay du fichier en rend zéro, et la barre ne se dessine pas.
+    // Un banc vide aurait jugé une branche qu'on ne vise pas.
+    const image = (eventId: number) => ({
+      eventId,
+      ts: 1_700_000_000_000 + eventId * 1_000,
+      type: 'task_done',
+      projects: 1,
+      nodesOnline: 1,
+      nodesTotal: 1,
+      tasks: { pending: 0, ready: 0, assigned: 0, running: 0, done: eventId, failed: 0 },
+    });
+    vi.mocked(fetchReplay).mockResolvedValue({
+      frames: [image(1), image(2), image(3)],
+      finalCounts: image(3),
+      lastEventId: 3,
+      eventCount: 3,
+    } as never);
+
+    const dom = await monterChronique([evenement(1, 'task_done')]);
+    const bouton = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Time-Lapse'),
+    );
+    await act(async () => {
+      bouton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(dom.textContent, 'le banc lui-même : on est bien en replay').toContain(
+      'vous regardez le passé',
+    );
+
+    const bascule = () =>
+      [...dom.querySelectorAll('button')].find((b) =>
+        /▶|⏸|Lecture|Pause/i.test(b.textContent ?? ''),
+      );
+    const avant = bascule()?.textContent ?? '';
+    expect(avant, 'la bascule lecture/pause existe').not.toBe('');
+
+    // Une touche ORDINAIRE ne doit RIEN faire.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+    });
+    expect(bascule()?.textContent, 'une touche quelconque ne bascule rien').toBe(avant);
+
+    // L'espace, lui, bascule.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+    expect(bascule()?.textContent, 'l’espace bascule la lecture').not.toBe(avant);
   });
 
   it('les compteurs de famille disent le VRAI compte', async () => {
