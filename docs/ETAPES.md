@@ -4126,3 +4126,33 @@ la ruche élit un échelon dans ses bornes (G4a) → la production est gouverné
 (Gardiennes G4a + Polyéthisme G4b) → l'exigence et le verdict sont rangés → la
 contre-visite juge → `observationsGardeFou` replie → le bandit apprend, et
 n'arrête jamais d'explorer.
+
+### Lot G4c livré : la course de drones (le second chemin d'assignation)
+
+L'autre voie d'assignation (Plein Essaim) suit maintenant l'échelon de garde-fous,
+comme la voie mono (G4a). Parti pris IDENTIQUE à l'Aiguillage : on ne RESTREINT
+PAS la course à un échelon — sa robustesse vient de la DIVERSITÉ des agents. On
+POSE seulement.
+
+- Pose UNE FOIS au lancement (`lanceCourse`, après le modèle du primaire) :
+  `echelonGardeFouElu(task.projectId)` puis `poserEchelonGardeFou(taskId, …)`. Le
+  mode de garde-fous est PAR TÂCHE (pas par drone comme le modèle), donc un seul
+  pose suffit — il vaut pour le drone qui gagnera, sans re-pose au vainqueur ni à
+  la promotion (contrairement au modèle, re-posé car il diffère par drone).
+- Le REFUS de la course (`handleDroneResult`) lit désormais `modeGardiennesDe(task)`
+  au lieu du seul mode global — la même parité qui empêche une course de
+  contourner les Gardiennes vaut pour l'échelon élu. Maintenant TESTABLE (en G4a
+  ce site restait au global, faute d'échelon posé côté drone : c'eût été un mutant
+  équivalent).
+
+Banc `garde-fou-drone.test.ts` : 2 tests (l'échelon posé au lancement pour un
+projet opt-in / rien sinon ; le REFUS de la course suit l'échelon — un creux d'un
+drone sous un projet opt-in strict est refusé, `applique` vrai, là où un projet
+non opt-in sous le même global consultatif ne refuse pas). Mutations rejouées
+rouges. Leçon consignée dans docs/ERREURS.md (§ 2 quattuortrigies : le piège bash
+`+ "'x'" +` qui éclate le motif de mutation en arguments — un faux « bit »).
+
+**L'Agent Garde-Fous est CÂBLÉ de bout en bout, sur les DEUX chemins
+d'assignation.** Reste, hors cœur : G5 (protocole / tableau de bord — exposer
+l'échelon élu et son vécu au Mission Control, comme l'Aiguillage montre ses
+modèles), et le trou assumé du cadre de prompt sous global `off` + opt-in (rare).

@@ -413,6 +413,30 @@ réelle.
 
 ## 2. Un test peut passer pour la mauvaise raison
 
+### 2 quattuortrigies — Concaténer un motif de mutation avec `+ "'x'" +` en bash le fait ÉCLATER en arguments
+
+En rejouant les mutations du Garde-Fous, j'ai voulu remplacer une ligne qui
+contenait des apostrophes (`… === 'strict'`). Pour l'insérer dans un argument
+bash déjà entre apostrophes, j'ai écrit `'… === ' + "'strict'" + ' …'`, croyant
+concaténer trois morceaux. En bash, `+` n'est PAS un opérateur : c'est un
+caractère littéral, et les ESPACES autour de lui séparent la commande en
+plusieurs arguments. Le motif passé au remplaceur était donc tronqué au premier
+espace — la mutation ne s'appliquait pas (ou s'appliquait ailleurs), et le banc
+« rougissait » pour une AUTRE raison qu'attendue. Un faux « bit » : la mutation
+que je croyais éprouver n'a jamais existé.
+
+Ce qui l'a démasqué : trois mutations d'affilée ont donné des rouges
+INCOHÉRENTS avec leur cible (une qui cassait cinq tests par erreur de syntaxe, là
+où une seule aurait dû rougir). Un rouge qui ne tombe pas EXACTEMENT sur le test
+visé est un signal, pas une victoire.
+
+La règle : **quand un motif de mutation contient des apostrophes, mettre
+l'argument ENTIER entre guillemets doubles** (`mut "… === 'strict'" "…"`), jamais
+de concaténation `+`. Et surtout : **un rejeu ne compte que si le test qui
+rougit est CELUI qu'on visait** — vérifier le NOM du test rouge, pas seulement
+qu'il y a du rouge. Les mutations valides de ce lot ont été refaites, proprement
+double-quotées, et ont mordu la bonne cible.
+
 ### 2 tritrigies — Un demi-câblage qui ENREGISTRE sans EXÉCUTER fait apprendre un mensonge
 
 L'Aiguillage se câblait en quatre lots : le nœud DÉCLARE ses modèles (4a), et

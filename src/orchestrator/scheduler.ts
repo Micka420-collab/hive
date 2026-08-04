@@ -1050,6 +1050,12 @@ export class Scheduler {
     if (modeleParDrone[primary]) {
       this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
     }
+    // L'Agent Garde-Fous : l'échelon de garde-fous gouverne TOUTE la course (le
+    // mode est PAR TÂCHE, pas par drone comme le modèle), donc on le pose UNE
+    // FOIS pour la tâche — il vaudra pour le drone qui gagnera, sans re-pose.
+    // `null` (projet non opt-in) ⇒ rien posé, la course reste indiscernable d'avant.
+    const echelonGF = this.echelonGardeFouElu(task.projectId);
+    if (echelonGF) this.store.poserEchelonGardeFou(taskId, echelonGF, now);
     // La tâche part en course : elle n'est plus « différée pour conflit ».
     this.deferredByConflict.delete(taskId);
     this.races.set(taskId, race);
@@ -1090,7 +1096,10 @@ export class Scheduler {
     // en vol annulés au profit d'un retour à vide. Sans cette parité, lancer une
     // course serait un contournement des Gardiennes.
     const inspection = this.renifler(task, result);
-    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennes === 'strict';
+    // Comme la voie mono (G4a) : le REFUS de la course suit l'échelon de garde-fous
+    // du projet (posé au lancement), pas le seul mode global. La parité qui empêche
+    // la course de contourner les Gardiennes vaut donc aussi pour l'échelon élu.
+    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennesDe(task) === 'strict';
     const retenu = result.success && !refusee;
     const { race: updated, decision } = recordDroneResult(race, nodeId, retenu);
     if (decision.outcome === 'lost') {
