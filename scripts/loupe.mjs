@@ -34,7 +34,7 @@
 //   mentirait dans le sens rassurant, le pire des deux.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -222,6 +222,103 @@ function suiteRougit() {
 // § 2.8 du journal — un fichier qui s'exécute à l'import est un angle mort — et
 // le § 5.2 — une loupe interrompue laisse sa mutation — dans le même geste.
 //
+// ─── L'EXCLUSIVITÉ, ET POURQUOI ELLE EST CÂBLÉE PLUTÔT QUE PROMISE ───────────
+//
+// La loupe MUTE l'arbre : elle écrit une ligne fausse, lance la suite, restaure.
+// Deux loupes dans le même atelier se marchent donc littéralement dessus —
+// l'une restaure pendant que l'autre mesure — et les verdicts des DEUX perdent
+// toute valeur. Pas « à moitié faux » : sans valeur, puisqu'on ne sait plus
+// quelle version du fichier a été éprouvée.
+//
+// C'est au carnet (§ 2 unvicies) depuis qu'une première collision a fait jeter
+// un balayage entier : refaits seuls, les chiffres différaient (26 contre 30,
+// 1 contre 2).
+//
+// La règle était donc connue, écrite, et chèrement apprise. Elle a quand même
+// été enfreinte le soir même — un balayage large lancé en tâche de fond, puis
+// une seconde loupe dans le même atelier pour valider une PR, parce qu'entre
+// les deux on ne pense plus au processus qu'on ne voit pas.
+//
+// C'est le motif que ce dépôt passe la nuit à corriger ailleurs : UNE RÈGLE QUE
+// RIEN N'APPLIQUE FINIT PAR ÊTRE ENFREINTE, et la discipline de celui qui l'a
+// écrite n'y change rien — elle rend seulement la faute plus vexante. On ne se
+// promet donc pas de faire attention : on câble la garde.
+
+/**
+ * L'âge au-delà duquel un verrou est réputé ABANDONNÉ.
+ *
+ * Un verrou sans péremption est pire que pas de verrou : une loupe tuée au
+ * clavier bloquerait l'atelier jusqu'à ce que quelqu'un devine qu'il faut
+ * supprimer un fichier dont il ignore l'existence.
+ *
+ * Deux heures : très au-delà du balayage le plus long observé (une quinzaine de
+ * minutes), très en-deçà d'une session de travail.
+ */
+export const VERROU_PERIME_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Le verrou est-il libre ?
+ *
+ * `vivant` est INJECTÉ plutôt que lu : savoir si un pid tourne est un accès
+ * système, et le passer en paramètre est ce qui permet d'éprouver les quatre
+ * branches sans jamais lancer — ni tuer — un vrai processus.
+ *
+ * L'ÂGE EST JUGÉ AVANT LE PID, et l'ordre compte : un pid RECYCLÉ par le
+ * système désignerait un processus étranger bien vivant, et l'atelier resterait
+ * bloqué sur un verrou que plus personne ne tient.
+ */
+export function jugerVerrou(brut, maintenant, vivant) {
+  if (brut === null || brut.trim() === '') return { libre: true };
+  let v;
+  try {
+    v = JSON.parse(brut);
+  } catch {
+    return { libre: true, motif: 'illisible' };
+  }
+  if (typeof v !== 'object' || v === null) return { libre: true, motif: 'illisible' };
+  const { pid, depuis } = v;
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+    return { libre: true, motif: 'illisible' };
+  }
+  if (typeof depuis !== 'number' || !Number.isFinite(depuis)) {
+    return { libre: true, motif: 'illisible' };
+  }
+  if (maintenant - depuis > VERROU_PERIME_MS) return { libre: true, motif: 'perime', pid };
+  return vivant(pid) ? { libre: false, motif: 'tenu', pid } : { libre: true, motif: 'perime', pid };
+}
+
+/**
+ * Ce qu'on dit à celui qui arrive second.
+ *
+ * Un refus qui ne dit pas quoi faire transforme une garde en énigme : le
+ * réflexe suivant serait de supprimer le fichier au hasard, ce qui rétablit
+ * exactement le défaut que le verrou existe pour empêcher.
+ */
+export function refusExclusivite(pid) {
+  return (
+    `LOUPE : une autre loupe tourne déjà dans cet atelier (pid ${pid}).\n` +
+    '        Deux loupes qui mutent le même arbre ne rendent AUCUN verdict\n' +
+    '        valable : l’une restaure pendant que l’autre mesure (§ 2 unvicies).\n' +
+    '        Attendez qu’elle finisse, ou arrêtez-la, puis relancez.'
+  );
+}
+
+/** Le contenu du verrou. Sérialisé ici pour que le format ait UN seul auteur. */
+export function contenuVerrou(pid, maintenant) {
+  return JSON.stringify({ pid, depuis: maintenant });
+}
+
+/** Le pid tourne-t-il ? `kill(pid, 0)` ne tue rien : il teste l'existence. */
+function pidVivant(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM = il existe mais ne nous appartient pas. Il est donc VIVANT.
+    return e?.code === 'EPERM';
+  }
+}
+
 // `process.argv[1]` est le script que Node a réellement lancé. On compare les
 // chemins RÉELS des deux côtés : `fileURLToPath` d'un côté, `realpath` de
 // l'autre, parce qu'un lien symbolique ou un `./scripts/loupe.mjs` relatif
@@ -235,6 +332,33 @@ if (MOI !== LANCE) {
 }
 
 function principal() {
+  // LA GARDE, CÂBLÉE. Voir l'en-tête de `jugerVerrou` : la règle existait déjà
+  // au carnet et a quand même été enfreinte, faute de quoi que ce soit pour
+  // l'appliquer.
+  const verrou = path.join(RACINE, '.loupe-verrou');
+  let brut = null;
+  try {
+    brut = readFileSync(verrou, 'utf8');
+  } catch {
+    // Pas de verrou : personne ne tient l'atelier.
+  }
+  const v = jugerVerrou(brut, Date.now(), pidVivant);
+  if (!v.libre) {
+    console.error(refusExclusivite(v.pid));
+    process.exit(2);
+  }
+  writeFileSync(verrou, contenuVerrou(process.pid, Date.now()));
+  // Retiré quoi qu'il arrive — y compris sur `process.exit()`, que ce script
+  // appelle à chaque issue. `unlinkSync` peut échouer si quelqu'un l'a déjà
+  // supprimé : ce n'est pas une raison de faire échouer la loupe.
+  process.on('exit', () => {
+    try {
+      unlinkSync(verrou);
+    } catch {
+      /* déjà parti */
+    }
+  });
+
   const toutes = candidates();
   if (toutes.length === 0) {
     console.log('LOUPE : aucune ligne mutable ajoutée par cette branche.');

@@ -461,6 +461,63 @@ cas qui marche.
 > jamais ? ». La seconde est la plus souvent vraie sur un `||` entre deux
 > sources qu'on croit équivalentes.
 
+### 2 octovicies — J'ai enfreint ma propre règle, écrite une heure plus tôt
+
+§ 2 unvicies dit que deux loupes dans un même atelier ne rendent AUCUN verdict :
+l'une restaure pendant que l'autre mesure. La règle avait coûté un balayage
+entier, refait seul, avec des chiffres différents (26 contre 30, 1 contre 2).
+
+Le soir même, j'ai lancé un balayage large **en tâche de fond**, puis, quelques
+minutes plus tard, une seconde loupe dans le même atelier pour valider une PR.
+Les deux verdicts sont nuls. Je ne l'ai vu qu'en comptant les processus.
+
+Deux choses valent d'être écrites, et la seconde plus que la première :
+
+1. **Ce qu'on ne voit pas, on cesse d'y penser.** Un travail en tâche de fond
+   sort du champ ; la commande suivante est raisonnée comme si l'atelier était
+   au repos. Ce n'est pas de la distraction, c'est la propriété normale d'un
+   état invisible.
+2. **Ma règle était exactement du même genre que les défauts que je corrigeais
+   la même nuit** : une règle écrite, juste, chèrement apprise — et que rien
+   n'appliquait. Les registres 1, 2 et 3 disaient tous « la borne est écrite,
+   pas câblée ». Le carnet aussi, donc.
+
+> **Règle** — une règle de méthode qui ne peut être tenue que par la vigilance
+> sera enfreinte, y compris par celui qui vient de l'écrire. Si elle porte sur
+> quelque chose qu'un programme peut vérifier, elle doit devenir un VERROU, pas
+> un paragraphe. `scripts/loupe.mjs` en a un depuis.
+
+> **Règle** — avant de lancer une commande dans un atelier partagé, compter ce
+> qui y tourne déjà. « Je viens de lancer quelque chose » n'est pas un fait
+> qu'on se rappelle : c'est un fait qu'on MESURE.
+
+### 2 nonvicies — Une garde de source qui trouve la DÉFINITION croit avoir trouvé l'APPEL
+
+Le banc du verrou ci-dessus vérifiait le câblage ainsi :
+
+```js
+expect(vif).toContain('jugerVerrou(');
+```
+
+Rejoué contre le geste qu'il prétend attraper — commenter le câblage, puis le
+supprimer — il est resté **VERT les deux fois**. `jugerVerrou(` figure aussi
+dans sa propre **définition**, quelques lignes plus haut dans le même fichier.
+La garde constatait donc que la fonction EXISTE, jamais qu'elle est APPELÉE.
+
+C'est la **troisième** fois de la nuit que « le texte est là » se fait passer
+pour « la règle est appliquée » : d'abord un appel commenté (§ 2 quatervicies),
+puis une règle recopiée par un banc au lieu d'être appelée (registre 2), et
+maintenant une définition prise pour un appel. Le motif est stable, seul le
+déguisement change.
+
+Corrigé en isolant le corps de `principal()` par suivi des accolades, et en ne
+cherchant que dedans. Rejoué sous les trois formes : commenté, supprimé, et
+verrou jamais retiré — trois rouges.
+
+> **Règle** — une garde de source doit chercher dans la PORTÉE qui l'intéresse,
+> pas dans le fichier. Dans un fichier qui définit ET appelle, `toContain` sur
+> le tout ne distingue pas les deux, et se trompe toujours du côté rassurant.
+
 ### 2 septvicies — Un harnais de mutation qui restaure par `git checkout --` efface le travail non commité
 
 Le harnais mute une ligne, lance le banc, puis restaure par
