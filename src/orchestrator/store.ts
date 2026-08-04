@@ -10,6 +10,7 @@ import { LIMITS } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import { CORPUS_AIGUILLAGE } from './aiguillage.js';
+import type { Echelon } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
@@ -174,6 +175,37 @@ CREATE TABLE IF NOT EXISTS essaim (
   version       INTEGER NOT NULL DEFAULT 1,
   definiPar     TEXT,
   updatedAt     INTEGER NOT NULL
+);
+
+-- L'Agent Garde-Fous — les BORNES qu'un humain pose sur l'apprentissage du
+-- réglage du trou de vol d'un projet.
+--
+-- (Aucune apostrophe inversée dans ce bloc, et ce n'est pas un oubli : tout ce
+-- schéma vit dans un littéral gabarit. Une seule le refermerait, et l'erreur
+-- qu'on récolte alors parle de modules TypeScript, pas de SQL — le motif
+-- « contre_visites ».)
+--
+-- UNE INTENTION HUMAINE, pas un calcul (règle 1) : « actif » (l'opt-in) et les
+-- deux bornes {min, max} sont posés à la main par le propriétaire du projet.
+-- L'Agent Garde-Fous élit un échelon DANS ces bornes ; il ne les écrit JAMAIS
+-- lui-même. Un agent qui élargirait sa PROPRE latitude ne serait pas gouverné,
+-- il serait échappé — exactement le motif d'« essaim ». L'échelon ÉLU n'est PAS
+-- rangé ici : il se recalcule des antécédents (règle 1, aucune vue dérivée
+-- matérialisée). Cette table ne porte que le CONSENTEMENT.
+--
+-- BORNE STRUCTURELLE (règle 3), comme « budgets » et « essaim » : une ligne par
+-- projet, donc une taille qui ne croît pas avec l'histoire de la ruche. Pas
+-- d'élagueur, et il ne faut jamais en ajouter « par symétrie » — l'effacer
+-- rendrait à « inactif » un projet que l'humain avait ouvert, ou relâcherait ses
+-- bornes sans que personne le sache.
+CREATE TABLE IF NOT EXISTS garde_fous (
+  projectId TEXT PRIMARY KEY REFERENCES projects(id),
+  actif     INTEGER NOT NULL DEFAULT 0,
+  borneMin  TEXT NOT NULL,
+  borneMax  TEXT NOT NULL,
+  version   INTEGER NOT NULL DEFAULT 1,
+  definiPar TEXT,
+  updatedAt INTEGER NOT NULL
 );
 
 -- Les abonnements — l'etat d'un droit, jamais un moyen de paiement.
@@ -2186,6 +2218,89 @@ export class HiveStore {
       | undefined;
     if (!row) return null;
     return { ...row, depotInscrit: row.depotInscrit === 1 };
+  }
+
+  /**
+   * Pose (ou retire) le CONSENTEMENT Garde-Fous d'un projet — l'opt-in et les
+   * bornes {min, max} de l'échelle dans lesquelles l'agent aura le droit d'élire.
+   * `null` supprime la ligne : le projet redevient inactif, l'agent n'existe
+   * plus pour lui. Motif `setEssaim` — INSERT … ON CONFLICT DO UPDATE, une
+   * intention humaine écrasée en place, jamais un calcul de la ruche.
+   *
+   * Les bornes sont typées `Echelon` À L'ÉCRITURE : seul un échelon valide entre.
+   * Ce qui les RANGE et ce qui les ÉLIT sont deux mains différentes — la ruche
+   * lit, l'humain écrit.
+   */
+  setGardeFou(
+    projectId: string,
+    reglage: { actif: boolean; borneMin: Echelon; borneMax: Echelon } | null,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    if (reglage === null) {
+      this.db.prepare('DELETE FROM garde_fous WHERE projectId = ?').run(projectId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO garde_fous (projectId, actif, borneMin, borneMax, version, definiPar, updatedAt)
+         VALUES (?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           actif = excluded.actif,
+           borneMin = excluded.borneMin,
+           borneMax = excluded.borneMax,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(projectId, reglage.actif ? 1 : 0, reglage.borneMin, reglage.borneMax, definiPar, now);
+  }
+
+  /**
+   * Le consentement Garde-Fous d'un projet. `null` si aucune ligne — donc
+   * INACTIF par absence (l'opt-in demandé : pas de ligne ⇒ l'agent n'existe pas).
+   * Les bornes reviennent en TEXTE BRUT : les valider et les normaliser
+   * (`normaliserBornes`, `echelonsPermis`) est le geste du module, pas du store.
+   */
+  getGardeFou(projectId: string): {
+    projectId: string;
+    actif: boolean;
+    borneMin: string;
+    borneMax: string;
+    definiPar: string | null;
+    updatedAt: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT projectId, actif, borneMin, borneMax, definiPar, updatedAt FROM garde_fous WHERE projectId = ?',
+      )
+      .get(projectId) as
+      | {
+          projectId: string;
+          actif: number;
+          borneMin: string;
+          borneMax: string;
+          definiPar: string | null;
+          updatedAt: number;
+        }
+      | undefined;
+    if (!row) return null;
+    return { ...row, actif: row.actif === 1 };
+  }
+
+  /**
+   * Projets où l'Agent Garde-Fous est ACTIF, triés — l'ordre stable évite qu'un
+   * parcours change de projet d'un tick à l'autre (motif `listProjetsAutonomes`).
+   *
+   * BORNÉ PAR CONSTRUCTION : `garde_fous` est 1:1 avec `projects`, donc cette
+   * lecture ne croît pas avec l'histoire de la ruche — un `SELECT` sans `LIMIT`
+   * s'y justifie comme pour `listBudgets` et `listProjetsAutonomes`.
+   */
+  listProjetsGardeFou(): string[] {
+    return (
+      this.db
+        .prepare(`SELECT projectId FROM garde_fous WHERE actif = 1 ORDER BY projectId`)
+        .all() as Array<{ projectId: string }>
+    ).map((r) => r.projectId);
   }
 
   /**
