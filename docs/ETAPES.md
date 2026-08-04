@@ -3572,12 +3572,18 @@ Restent **quatre**, mesurées nues et **consignées ici pour n'être pas
 silencieuses** (les mesurer et les taire serait pire que ne pas les avoir
 regardées) :
 
-| garde                        | fichier         | ce qu'un mutant casse                                             |
-| ---------------------------- | --------------- | ----------------------------------------------------------------- |
-| `depots.depots.length === 0` | `Projets.tsx`   | « Aucun dépôt ne correspond » disparaît de la recherche de dépôts |
-| `busy === 'send'`            | `Projets.tsx`   | le bouton d'envoi ment sur son état (« Envoi… » au repos)         |
-| `e.type === 'dossier'`       | `Rayon.tsx`     | un dossier reçoit l'icône d'un fichier                            |
-| `showInfo && (`              | `Miellerie.tsx` | le volet « verdict » s'affiche toujours, ou jamais                |
+| garde                        | fichier       | ce qu'un mutant casse                                             |
+| ---------------------------- | ------------- | ----------------------------------------------------------------- |
+| `depots.depots.length === 0` | `Projets.tsx` | « Aucun dépôt ne correspond » disparaît de la recherche de dépôts |
+| `busy === 'send'`            | `Projets.tsx` | le bouton d'envoi ment sur son état (« Envoi… » au repos)         |
+| `e.type === 'dossier'`       | `Rayon.tsx`   | un dossier reçoit l'icône d'un fichier                            |
+
+**Miellerie `showInfo` — GARDÉE depuis.** Le volet « verdict » est ouvert par
+défaut (`showInfo` vaut `true`) ; `i` le replie. Muté, il serait replié à
+l'ouverture — on relirait les productions sans voir le jugement. Banc par
+contraste dans `tests/miellerie-clavier.test.tsx`, mutation `&&` → `!showInfo`
+**lue en entier** (1 rouge, § 2 trigies). Restent **trois** : Projets ×2 (flux
+GitHub et panneau d'envoi, plus profonds à monter) et Rayon (icône, cosmétique).
 
 ### Une leçon de méthode, chèrement rappelée
 
