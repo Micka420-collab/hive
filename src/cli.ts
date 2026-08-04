@@ -44,7 +44,7 @@ import {
   minutesUntilOpen,
   nightShiftFromEnv,
 } from './shared/night-shift.js';
-import { aLeDrapeau, choisirParNumero, valeurApres } from './choix-cli.js';
+import { aLeDrapeau, choisirDansListe, valeurApres } from './choix-cli.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -1561,8 +1561,7 @@ async function cmdGithub(filtre?: string): Promise<void> {
   }
   if (!reponse) return;
 
-  const rang = choisirParNumero(reponse, r.depots.length);
-  const choisi = rang === null ? undefined : r.depots[rang];
+  const choisi = choisirDansListe(reponse, r.depots);
   if (!choisi) {
     console.error(`\n✘ « ${reponse} » n’est pas un numéro de la liste (1 à ${r.depots.length}).\n`);
     process.exitCode = 1;

@@ -283,3 +283,69 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     ).toBeNull();
   });
 });
+
+// ─── UNE CARTE N'A L'AIR CLIQUABLE QUE SI ELLE L'EST ─────────────────────────
+//
+// `{...(tasks && onOpenTask ? activateProps(…) : {})}` — survivant du balayage
+// de nuit, `&&` muté en `||` ne faisait rougir personne.
+//
+// Ce que la mutation produit n'est pas une carte cassée, c'est PIRE : une
+// carte qui porte `role="button"`, `tabIndex=0`, le curseur main et la réponse
+// au clavier — et qui n'ouvre RIEN. La fiche exige les deux propriétés
+// (`tasks && onOpenTask && ouverte`), donc `setOuverte` réussit et l'écran ne
+// bouge pas.
+//
+// Pour quelqu'un qui navigue au clavier, c'est un arrêt de tabulation qui ne
+// mène nulle part, annoncé « bouton » par un lecteur d'écran. Une affordance
+// qui ment coûte plus cher qu'une absence d'affordance : on réessaie.
+
+describe('la carte d’une ouvrière n’est activable que si elle mène quelque part', () => {
+  it('LES DEUX PROPRIÉTÉS FOURNIES : la carte est un bouton', async () => {
+    const racineDom = await monterAvecFiche(
+      [ouvriere('Maya')],
+      [mission('t1', 'Butiner', 'n-Maya', 'done')],
+      () => {},
+    );
+    const carte = racineDom.querySelector('.node-card');
+    expect(carte?.getAttribute('role'), 'elle mène à la fiche, elle le dit').toBe('button');
+    expect(carte?.getAttribute('tabindex'), 'et le clavier peut l’atteindre').toBe('0');
+  });
+
+  it('AUCUNE DES DEUX : la carte n’est PAS un bouton', async () => {
+    // `monter` ne passe ni `tasks` ni `onOpenTask` — le cas du panneau
+    // d'accueil, où les cartes ne sont que de l'affichage.
+    const racineDom = await monter([ouvriere('Maya')]);
+    const carte = racineDom.querySelector('.node-card');
+    expect(carte?.getAttribute('role'), 'rien à ouvrir, donc pas un bouton').toBeNull();
+    expect(carte?.getAttribute('tabindex'), 'et pas un arrêt de tabulation').toBeNull();
+  });
+
+  it('UNE SEULE DES DEUX NE SUFFIT PAS — c’est CE cas que le `&&` protège', async () => {
+    // LA garde. Sous `||`, ces deux montages rendraient une carte « bouton »
+    // qui n'ouvre rien. Les deux sens sont éprouvés : il ne suffit pas que
+    // l'un des deux manque, il faut que CHACUN, seul, soit insuffisant.
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+
+    // `tasks` seule, sans `onOpenTask`.
+    await act(async () =>
+      racine?.render(
+        <NodesPanel nodes={[ouvriere('Maya')]} tasks={[mission('t1', 'B', 'n-Maya', 'done')]} />,
+      ),
+    );
+    expect(
+      conteneur.querySelector('.node-card')?.getAttribute('role'),
+      'des missions mais personne pour les ouvrir',
+    ).toBeNull();
+
+    // `onOpenTask` seule, sans `tasks`.
+    await act(async () =>
+      racine?.render(<NodesPanel nodes={[ouvriere('Maya')]} onOpenTask={() => {}} />),
+    );
+    expect(
+      conteneur.querySelector('.node-card')?.getAttribute('role'),
+      'de quoi ouvrir, mais rien à montrer',
+    ).toBeNull();
+  });
+});

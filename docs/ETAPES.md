@@ -3012,4 +3012,63 @@ et deux mutants y sont sans défense.
 - `src/cli.ts` — `const choisi = rang === null ? undefined : r.depots[rang]`
 
 À reprendre : écrire les deux bancs, ou constater par écrit que les mutants
-sont équivalents.
+sont équivalents. **Fait dans la foulée — voir ci-dessous.**
+
+## La dette de la loupe, payée : deux mutants sans défense dans du code déjà livré
+
+Relevés par une mesure faite contre une base périmée, donc trouvés par accident
+— mais réels, et sur du code déjà fusionné. Les deux sont fermés, chacun par le
+remède que son défaut appelait.
+
+### `src/cli.ts` — entre l'index et l'élément, une ligne que rien ne tenait
+
+    const rang = choisirParNumero(reponse, r.depots.length);
+    const choisi = rang === null ? undefined : r.depots[rang];
+
+La première ligne était éprouvée ; la seconde, non. Elle vit dans une fonction
+qui attend une réponse au clavier (`rl.question`), donc qu'aucun banc ne peut
+appeler — § 2.8, pour la sixième fois de la nuit, et pour la sixième fois le
+remède est d'extraire la règle plutôt que de simuler un terminal.
+
+Le piège tient en une phrase : muter `=== null` en `!== null` ne fait rien
+planter, parce que `liste[null]` vaut `undefined` **comme le refus légitime**.
+Les deux branches rendent alors la même chose, la fonction devient une
+constante, et le CLI répond « ce n'est pas un numéro de la liste » à TOUTES les
+saisies — y compris les bonnes. La commande est morte et rien ne le dit.
+
+`choisirDansListe(saisie, liste)` sort la règle dans `choix-cli.ts`.
+
+| mutation                                    | verdict    |
+| ------------------------------------------- | ---------- |
+| le mutant exact de la loupe (`===` → `!==`) | 2 rouges   |
+| la fonction ne rend plus jamais rien        | 2 rouges   |
+| tout choix rend le PREMIER élément          | 1 rouge    |
+| la borne haute déborde d'un cran            | ÉQUIVALENT |
+
+Le dernier est **constaté par écrit** dans le module plutôt qu'ignoré : élargir
+la borne d'un cran fait rendre `liste[3]` sur une liste de trois, c'est-à-dire
+`undefined`, c'est-à-dire le refus. Aucun appelant ne peut distinguer les deux.
+C'est la **même coïncidence du langage** qui cachait le défaut d'origine, et
+c'est pour ça qu'elle méritait d'être écrite : la borne reste juste, mais ce qui
+la tient est `choisirParNumero`, pas ce banc-ci.
+
+### `dashboard/src/NodesPanel.tsx` — une affordance qui ment
+
+    {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
+
+Muté en `||`, le résultat n'est pas une carte cassée : c'est **pire**. La carte
+porte `role="button"`, `tabIndex=0`, le curseur main et la réponse au clavier —
+et n'ouvre rien, puisque la fiche exige les deux propriétés. Pour quelqu'un qui
+navigue au clavier, c'est un arrêt de tabulation annoncé « bouton » par un
+lecteur d'écran, qui ne mène nulle part. Une affordance qui ment coûte plus cher
+qu'une affordance absente : on réessaie.
+
+| mutation                                    | verdict  |
+| ------------------------------------------- | -------- |
+| le mutant exact de la loupe (`&&` → `\|\|`) | 1 rouge  |
+| toute carte devient un bouton               | 2 rouges |
+| aucune carte n'est jamais un bouton         | 6 rouges |
+
+Le banc éprouve les **deux sens** séparément : `tasks` seule, puis `onOpenTask`
+seule. Il ne suffit pas que l'une manque — il faut que **chacune, seule**, soit
+insuffisante, sinon le `||` passerait sur la moitié des cas.

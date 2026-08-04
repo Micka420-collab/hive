@@ -25,7 +25,7 @@
 // avant de croire à un défaut.
 
 import { describe, expect, it } from 'vitest';
-import { aLeDrapeau, choisirParNumero, valeurApres } from '../src/choix-cli.js';
+import { aLeDrapeau, choisirDansListe, choisirParNumero, valeurApres } from '../src/choix-cli.js';
 
 describe('la valeur qui suit un drapeau', () => {
   it('LE DRAPEAU EN PREMIÈRE POSITION EST TROUVÉ — zéro est une POSITION', () => {
@@ -104,5 +104,58 @@ describe('le choix d’un dépôt par son numéro', () => {
     // pour ça ferait passer un défaut de saisie pour un numéro invalide.
     expect(choisirParNumero('  2  ', 3)).toBe(1);
     expect(choisirParNumero('\t3\n', 3)).toBe(2);
+  });
+});
+
+// ─── DE L'INDEX À L'ÉLÉMENT ──────────────────────────────────────────────────
+//
+// `choisirParNumero` était éprouvé ; le PAS SUIVANT ne l'était pas. Entre
+// l'index et l'élément il restait une ligne dans `cli.ts`, et la loupe l'a
+// trouvée sans défense :
+//
+//     const choisi = rang === null ? undefined : r.depots[rang];
+//
+// Le piège est que la mutation `=== null` → `!== null` ne fait PAS planter :
+// `liste[null]` vaut `undefined` comme le refus légitime, donc les deux
+// branches rendent `undefined` et la fonction devient une constante. Le CLI
+// répond alors « ce n'est pas un numéro de la liste » à TOUTES les saisies, y
+// compris les bonnes — la commande est morte, et rien ne le dit.
+//
+// C'est pour cela que les bancs ci-dessous éprouvent les deux côtés : ce qui
+// est refusé ET ce qui est RENDU. Un banc qui ne vérifierait que les refus
+// resterait vert sur une fonction qui ne rend plus jamais rien.
+
+describe('choisir un élément dans une liste numérotée', () => {
+  const LISTE = ['alpha', 'beta', 'gamma'] as const;
+
+  it('UN NUMÉRO VALIDE REND L’ÉLÉMENT — le premier, le dernier, celui du milieu', () => {
+    // LA garde. Sous la mutation, les trois rendent `undefined`.
+    expect(choisirDansListe('1', LISTE), 'le premier').toBe('alpha');
+    expect(choisirDansListe('2', LISTE), 'celui du milieu').toBe('beta');
+    expect(choisirDansListe('3', LISTE), 'PILE le dernier').toBe('gamma');
+  });
+
+  it('CE QUI NE DÉSIGNE RIEN NE REND RIEN', () => {
+    for (const saisie of ['0', '4', '-1', '', '  ', 'deux', '2.5']) {
+      expect(choisirDansListe(saisie, LISTE), `« ${saisie} »`).toBeUndefined();
+    }
+  });
+
+  it('UNE LISTE VIDE NE REND JAMAIS RIEN — et ne lève pas', () => {
+    expect(choisirDansListe('1', [])).toBeUndefined();
+    expect(choisirDansListe('0', [])).toBeUndefined();
+  });
+
+  it('LE REFUS ET LE CHOIX NE SE CONFONDENT PAS — la fonction n’est pas constante', () => {
+    // L'assertion qui tue la mutation par contraste plutôt que par valeur :
+    // une fonction devenue constante échoue ici même si l'on se trompait sur
+    // l'élément attendu.
+    expect(choisirDansListe('2', LISTE)).not.toBe(choisirDansListe('99', LISTE));
+  });
+
+  it('LA LISTE N’EST PAS TOUCHÉE — choisir n’est pas prélever', () => {
+    const avant = [...LISTE];
+    choisirDansListe('2', LISTE);
+    expect([...LISTE]).toEqual(avant);
   });
 });

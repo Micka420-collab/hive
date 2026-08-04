@@ -76,3 +76,50 @@ export function choisirParNumero(saisie: string, taille: number): number | null 
   if (n < 1 || n > taille) return null;
   return n - 1;
 }
+
+/**
+ * L'ÉLÉMENT désigné par une saisie humaine, ou `undefined` si aucun.
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE, ALORS QUE `choisirParNumero` SUFFISAIT ──
+ *
+ * Parce que `choisirParNumero` rend un INDEX, et qu'entre l'index et l'élément
+ * il restait une ligne dans `cli.ts` — une ligne à l'intérieur d'une fonction
+ * qui attend une réponse au clavier (`rl.question`), donc qu'aucun banc ne peut
+ * appeler :
+ *
+ *     const rang = choisirParNumero(reponse, r.depots.length);
+ *     const choisi = rang === null ? undefined : r.depots[rang];
+ *
+ * La loupe a trouvé la seconde ligne SANS DÉFENSE. Muter `=== null` en
+ * `!== null` la rend toujours `undefined` — car `liste[null]` vaut `undefined`
+ * lui aussi — et le CLI répond alors « ce n'est pas un numéro de la liste » à
+ * TOUTES les saisies, y compris les bonnes. La commande devient inutilisable
+ * sans qu'une seule assertion ne bronche.
+ *
+ * Le remède est le même que pour les deux règles au-dessus, et c'est le
+ * cinquième de la nuit : sortir la règle du fichier auto-exécutant plutôt que
+ * de contorsionner un banc autour d'un terminal simulé.
+ *
+ * `undefined` plutôt qu'une exception : l'appelant DOIT traiter le cas, et il
+ * le traite déjà — c'est lui qui sait comment le dire à l'utilisateur, avec la
+ * saisie fautive et les bornes de la liste sous les yeux.
+ *
+ * ─── UN MUTANT ÉQUIVALENT, CONSTATÉ PAR ÉCRIT ────────────────────────────────
+ *
+ * Élargir la borne d'un cran — `choisirParNumero(saisie, liste.length + 1)` —
+ * SURVIT à ce banc, et ce n'est pas un trou : le mutant est **équivalent**. Sur
+ * une liste de trois, la saisie « 4 » rend alors l'index 3, et `liste[3]` vaut
+ * `undefined` : exactement la valeur du refus. Aucun appelant ne peut
+ * distinguer les deux comportements.
+ *
+ * Ça vaut d'être écrit, parce que c'est la MÊME coïncidence du langage qui
+ * cachait le défaut d'origine : hors bornes, un tableau rend `undefined`, et
+ * `undefined` est aussi la façon dont cette fonction dit « rien ». La borne
+ * reste donc écrite juste — on ne s'appuie pas sur une coïncidence pour être
+ * correct — mais aucun banc ne peut la tenir depuis ici. Ce qui la tient est
+ * `choisirParNumero`, éprouvé plus haut sur ses deux bords.
+ */
+export function choisirDansListe<T>(saisie: string, liste: readonly T[]): T | undefined {
+  const rang = choisirParNumero(saisie, liste.length);
+  return rang === null ? undefined : liste[rang];
+}
