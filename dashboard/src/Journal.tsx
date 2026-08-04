@@ -27,6 +27,27 @@ const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
  * n'ont aucune durée en main), il rend `null` et la ligne se lit exactement
  * comme avant — jamais un « 0 ms » inventé. Le texte reste reconstruit ici
  * depuis les champs typés du payload, comme tout le reste du journal.
+ *
+ * ─── LES DEUX MOITIÉS NE PROTÈGENT PAS DU MÊME ACCIDENT ──────────────────────
+ *
+ * `typeof v === 'number'` écarte ce qui n'est pas un nombre ; `Number.isFinite`
+ * écarte `NaN` et l'infini. La seconde est celle qu'on oublie d'éprouver, parce
+ * qu'un champ ABSENT est déjà recalé par la première : il faut une charge utile
+ * qui porte un `NaN` — une soustraction de dates dont l'une manque en produit
+ * un, pas un `undefined` — pour que la moitié droite serve.
+ *
+ * ─── UN MUTANT ÉQUIVALENT, CONSTATÉ PAR ÉCRIT ────────────────────────────────
+ *
+ * Retirer `typeof v === 'number'` SURVIT au banc, et ce n'est pas un trou :
+ * `Number.isFinite` est la forme STRICTE, sans coercition — elle rend déjà
+ * `false` sur `'12'`, `null` ou `undefined`. Les deux versions sont donc
+ * indiscernables pour tout appelant.
+ *
+ * On garde quand même le `typeof`, et pour une raison qui n'est pas la
+ * redondance : il dit l'INTENTION, et il protège du jour où quelqu'un
+ * remplacerait `Number.isFinite` par le `isFinite` global — celui-là COERCE, et
+ * `isFinite('12')` vaut `true`. La ceinture seule suffirait ; les bretelles
+ * disent pourquoi elle est là.
  */
 const cout = (v: unknown): string | null =>
   typeof v === 'number' && Number.isFinite(v) ? formatDuree(v) : null;

@@ -831,6 +831,43 @@ describe('les sentinelles du balayage du soir', () => {
     expect(dom.textContent, 'et surtout aucun NaN à l’écran').not.toContain('NaN');
   });
 
+  it('JOURNAL : une durée NaN ou infinie NE S’AFFICHE PAS — l’autre moitié de la garde', async () => {
+    // LA MOITIÉ QUE LE BANC VOISIN N'ATTEIGNAIT PAS.
+    //
+    // La garde est `typeof v === 'number' && Number.isFinite(v)`. Le banc
+    // ci-dessus éprouve une durée ABSENTE — et `typeof undefined === 'number'`
+    // est déjà faux, donc `Number.isFinite` n'y sert jamais à rien. Muter le
+    // `&&` en `||` le laissait vert : nudité confirmée contre la suite ENTIÈRE
+    // (3 336 verts avec la mutation en place).
+    //
+    // `Number.isFinite` ne porte que pour `NaN` et l'infini — et c'est
+    // précisément ce qu'une charge utile malformée produit : une soustraction
+    // de dates dont l'une manque rend `NaN`, pas `undefined`. L'en-tête du
+    // module promet « jamais un 0 ms inventé » ; sans cette moitié-là, il
+    // afficherait « terminée en NaN ».
+    const ev = (id: number, type: string, payload: Record<string, unknown>): HiveEvent =>
+      ({ id, ts: 1_700_000_000_000 + id, type, payload }) as HiveEvent;
+    const dom = await monter(
+      <Journal
+        events={[
+          ev(1, 'task_done', { taskId: 't-nan', durationMs: Number.NaN }),
+          ev(2, 'task_done', { taskId: 't-inf', durationMs: Number.POSITIVE_INFINITY }),
+          ev(3, 'task_done', { taskId: 't-vraie', durationMs: 1_500 }),
+        ]}
+      />,
+    );
+    const ligne = (marque: string) =>
+      [...dom.querySelectorAll('.jrow')].find((l) => (l.textContent ?? '').includes(marque));
+
+    // Le CONTRASTE, dans le même rendu : la vraie durée s'affiche, les deux
+    // fausses se taisent. Un banc qui ne montrerait que les silences resterait
+    // vert sur une garde qui ne dirait plus jamais rien.
+    expect(ligne('t-vraie')?.textContent, 'la durée réelle se dit toujours').toContain('1.5 s');
+    expect(ligne('t-nan')?.textContent, 'NaN ne devient pas une durée').not.toContain(' en ');
+    expect(ligne('t-inf')?.textContent, 'l’infini non plus').not.toContain(' en ');
+    expect(dom.textContent, 'et rien de tout cela ne fuit à l’écran').not.toMatch(/NaN|Infinity|∞/);
+  });
+
   it('CHANTIERS : « aucun workflow déclaré » ne se dit QUE s’il n’y en a aucun', async () => {
     // Survivante du balayage de nuit : `workflows.length === 0` mutée en
     // `!==` — un dépôt QUI A des workflows s'entendrait dire qu'il n'en

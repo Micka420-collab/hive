@@ -3357,3 +3357,57 @@ Le premier banc de contraste cherchait l'onglet « Inscription » après un envo
 réussi. Il a rougi : `submit()` appelle `onClose()`, donc **la modale se
 referme** — comportement voulu, que je n'avais pas vérifié. Rouvrir avant de
 basculer, plutôt que supposer que l'écran reste tel qu'on l'a laissé.
+
+## Le journal : la moitié droite de la garde n'était éprouvée nulle part
+
+### Ce que la liste disait, et ce qui était vrai
+
+Le rappel nommait `dashboard/src/views/Journal.tsx` — **ce fichier n'existe
+pas**. Le Journal vit dans `dashboard/src/Journal.tsx`, un cran plus haut. La
+ligne, elle, était réelle :
+
+    typeof v === 'number' && Number.isFinite(v) ? formatDuree(v) : null
+
+Une liste de survivantes se vérifie donc **deux fois** : que la ligne existe, et
+qu'elle est encore nue. Nudité confirmée contre la suite entière : **3 336 verts**
+avec le `&&` muté en `||`.
+
+### Pourquoi le banc voisin ne la voyait pas
+
+Une sentinelle gardait déjà cette ligne — et éprouvait une durée **absente**.
+Or `typeof undefined === 'number'` est déjà faux : la moitié `Number.isFinite`
+ne servait **jamais** dans ce banc.
+
+Elle ne porte que pour `NaN` et l'infini, et c'est exactement ce qu'une charge
+utile malformée produit : une soustraction de dates dont l'une manque rend
+`NaN`, pas `undefined`. Sans cette moitié, le journal afficherait « terminée
+en NaN » — alors que l'en-tête du module promet « jamais un 0 ms inventé ».
+
+C'est le § 2 sexvicies dans sa forme la plus pure : la question à poser devant
+une survivante n'est pas seulement « ce code est-il mort ? », mais **« quel cas
+réel mon banc n'atteint-il jamais ? »**.
+
+### Mutations — cinq passées
+
+| mutation                                   | verdict        |
+| ------------------------------------------ | -------------- |
+| **la survivante** : le `&&` devient `\|\|` | 1 rouge        |
+| `Number.isFinite` disparaît                | 1 rouge        |
+| la garde ne filtre plus rien               | 2 rouges       |
+| la garde refuse tout                       | 2 rouges       |
+| le contrôle de type disparaît              | **ÉQUIVALENT** |
+
+Le dernier est **constaté par écrit** dans la source : `Number.isFinite` est la
+forme STRICTE, sans coercition — elle rend déjà `false` sur `'12'`, `null` ou
+`undefined`. Les deux versions sont indiscernables pour tout appelant.
+
+Le `typeof` reste quand même, et pas par redondance : il dit l'intention, et il
+protège du jour où quelqu'un écrirait le `isFinite` **global** — celui-là
+coerce, et `isFinite('12')` vaut `true`.
+
+### Une chose apprise en rougissant
+
+Le premier banc cherchait la ligne `t-infinie`. Elle n'existait pas : le journal
+tronque les identifiants à **huit caractères** (`slice(0, 8)`), et `t-infinie`
+en fait neuf. Le repère se cherchait donc dans un texte qui ne pouvait pas le
+contenir — un banc rouge pour une raison qui n'avait rien à voir avec la garde.
