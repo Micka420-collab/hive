@@ -23,10 +23,12 @@ import {
   echelonsPermis,
   elireEchelon,
   normaliserBornes,
+  observationDepuisFaits,
   rangEchelon,
   recompenseGardeFou,
   replierAntecedentsGardeFou,
   type Echelon,
+  type FaitsProduction,
   type ObservationGardeFou,
   type Traversee,
 } from '../src/orchestrator/garde-fou.js';
@@ -106,6 +108,63 @@ describe('la récompense — le compromis qualité / fluidité', () => {
     // là où sans reprise ce serait 1. C'est le démenti le plus dur du verdict.
     expect(recompenseGardeFou(obs('leger', 'clean', 'directe', true))).toBeCloseTo(1 / 3);
     expect(recompenseGardeFou(obs('leger', 'clean', 'directe', false))).toBeCloseTo(1);
+  });
+});
+
+describe('observationDepuisFaits — la traversée est une VUE, pas un fait rangé', () => {
+  const faits = (p: Partial<FaitsProduction>): FaitsProduction => ({
+    echelon: 'standard',
+    verdict: 'clean',
+    suite: null,
+    exigence: null,
+    ...p,
+  });
+
+  it('une contre-visite a eu lieu ⇒ retenue_puis_relachee, quel que soit son verdict', () => {
+    expect(observationDepuisFaits(faits({ suite: 'appliquer' }))).toMatchObject({
+      traversee: 'retenue_puis_relachee',
+      reprise: false,
+    });
+    expect(observationDepuisFaits(faits({ suite: 'ameliorer' }))).toMatchObject({
+      traversee: 'retenue_puis_relachee',
+    });
+  });
+
+  it('une suite « refaire » lève la REPRISE — la production a été renvoyée', () => {
+    expect(observationDepuisFaits(faits({ suite: 'refaire' }))).toMatchObject({
+      traversee: 'retenue_puis_relachee',
+      reprise: true,
+    });
+  });
+
+  it('exigée mais AUCUNE contre-visite ⇒ en_attente — pend à la revue humaine', () => {
+    expect(observationDepuisFaits(faits({ suite: null, exigence: 'exigee' }))).toMatchObject({
+      traversee: 'en_attente',
+      reprise: false,
+    });
+  });
+
+  it('dispensée ⇒ directe — passée sans entrave', () => {
+    expect(observationDepuisFaits(faits({ suite: null, exigence: 'dispensee' }))).toMatchObject({
+      traversee: 'directe',
+    });
+  });
+
+  it('NI contre-visite NI exigence ⇒ null : EN VOL, fermé par défaut', () => {
+    // Le piège qu'on refuse : sans décision, on ne suppose PAS « directe ». Une
+    // production non tranchée ne pèse pas encore, elle ne se déguise pas en butin.
+    expect(observationDepuisFaits(faits({ suite: null, exigence: null }))).toBeNull();
+  });
+
+  it('reporte l’échelon et le verdict tels quels', () => {
+    expect(
+      observationDepuisFaits(faits({ echelon: 'leger', verdict: 'hollow', exigence: 'dispensee' })),
+    ).toEqual({
+      echelon: 'leger',
+      verdict: 'hollow',
+      traversee: 'directe',
+      reprise: false,
+    });
   });
 });
 

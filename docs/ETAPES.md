@@ -3987,3 +3987,52 @@ booléen `actif` reconstruit, écrasement en place, retrait sur `null`, liste tr
 des actifs seuls — identifiants littéraux pour que le ORDER BY rougisse sans
 intermittence). Mutations rejouées rouges. `bornes-doctrine.test.ts` reste vert :
 la table neuve est bornée-par-l'humain, pas orpheline.
+
+### Lot G3 livré : les observations reconstruites par jointure (inerte)
+
+La seconde moitié de la mémoire du Garde-Fous. Le fork de la `traversee` (tranché
+par un agent Fable 5, consigné ci-dessous) : le verdict « attendre » (production
+retenue à la revue humaine) N'EST PAS rangé dans `contre_visites` (sa contrainte
+CHECK n'admet que appliquer/ameliorer/refaire), donc « aucune contre-visite »
+recouvrait DEUX cas opposés — `directe` (passée librement, fluidité 1) et
+`en_attente` (retenue, fluidité 0). Les confondre fausserait la récompense aux
+deux extrêmes.
+
+**Décision (A raffinée) : persister le seul atome NON recalculable — l'EXIGENCE —
+et DÉRIVER la traversée à la lecture.**
+
+- `garde_fou_echelons(taskId PK, echelon, choisiA)` — l'échelon qui a gouverné une
+  tâche, posé à l'assignation (motif `aiguillage_modeles`, INSERT OR REPLACE).
+- `garde_fou_exigences(productionTaskId PK, exigence CHECK(exigee|dispensee),
+decideA)` — une contre-visite était-elle REQUISE ? Fait décidé à l'instant où la
+  caste VIVE est interrogée (`exigeContreVisite`), donc figé là : rejuger une
+  vieille production avec la caste d'AUJOURD'HUI serait un mensonge à retardement
+  (le mal que la doctrine des Gardiennes existe pour empêcher). C'est le seul
+  atome qu'on range, et rien d'autre.
+- `observationsGardeFou()` — jointure `garde_fou_echelons × gardiennes (verdict le
+plus récent) × contre_visites × garde_fou_exigences`, filtrée aux productions
+  TRANCHÉES (une contre-visite OU une exigence), rendue chronologique et bornée
+  (motif `observationsAiguillage`). Rend des FAITS BRUTS, jamais la traversée.
+- `observationDepuisFaits` (PUR, garde-fou.ts) — reconstruit la traversée comme une
+  VUE : contre-visite faite ⇒ `retenue_puis_relachee` (+ `reprise` si `refaire`) ;
+  sinon exigée ⇒ `en_attente` ; sinon dispensée ⇒ `directe` ; sinon (rien de
+  tranché) ⇒ `null`, EN VOL, fermé par défaut — on ne suppose JAMAIS `directe`
+  faute de décision.
+
+Pourquoi PAS ranger la traversée toute faite : la figer figerait un ÉTAT — une
+production retenue aujourd'hui, RELÂCHÉE demain si une relectrice de caste
+suffisante émerge, laisserait une ligne `en_attente` menteuse. La traversée est
+une vue de deux faits datés (règle 1 de La Balance : aucune vue matérialisée).
+Pourquoi PAS une colonne sur `garde_fou_echelons` : cette table est INSERT OR
+REPLACE (dernière assignation gagne) — une réassignation effacerait la traversée
+d'un premier temps. Deux faits datés dans une ligne = dérive.
+
+Deux bornes référentielles jumelles (`pruneGardeFouEchelons`,
+`pruneGardeFouExigences`), câblées dans server.ts après `pruneTasks` dans le MÊME
+lot (règle 3) — `bornes-doctrine.test.ts` reste vert. Bancs : 6 tests purs
+(`observationDepuisFaits`, chaque branche + le null en vol) et 5 de store
+(assemblage, écart des en vol, verdict le plus récent, ordre + LIMIT, les deux
+élagueurs orphelin/vivant). Mutations rejouées rouges. **Reste** : lot G4 (câblage
+scheduler — lire les bornes, élire, appliquer le `Reglage`, poser l'échelon à
+l'assignation et l'exigence au point `exigeContreVisite`), lot G5 (protocole /
+tableau de bord).

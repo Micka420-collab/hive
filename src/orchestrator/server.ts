@@ -7055,6 +7055,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // avec la table (règle 3), et placée APRÈS `pruneTasks` — une borne
       // référentielle ne nettoie que ce qui est déjà orphelin.
       store.pruneAiguillageModeles();
+      // L'Agent Garde-Fous : l'échelon posé par tâche et l'exigence par production
+      // — deux bornes référentielles jumelles, câblées avec leurs tables (règle 3)
+      // et placées APRÈS `pruneTasks`, comme celle de l'Aiguillage juste au-dessus.
+      store.pruneGardeFouEchelons();
+      store.pruneGardeFouExigences();
       store.pruneConseils(CONSEILS_CONSERVES);
       // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
       //

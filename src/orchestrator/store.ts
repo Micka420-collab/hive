@@ -10,7 +10,8 @@ import { LIMITS } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import { CORPUS_AIGUILLAGE } from './aiguillage.js';
-import type { Echelon } from './garde-fou.js';
+import { CORPUS_GARDE_FOU } from './garde-fou.js';
+import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
@@ -471,6 +472,41 @@ CREATE TABLE IF NOT EXISTS aiguillage_modeles (
   taskId  TEXT PRIMARY KEY,
   modele  TEXT NOT NULL,
   choisiA INTEGER NOT NULL
+);
+
+-- L'Agent Garde-Fous : quel ÉCHELON de garde-fous a gouverné quelle tâche. Fait
+-- posé à l'assignation, clé par tâche, motif aiguillage_modeles au mot près
+-- (INSERT OR REPLACE : une réassignation ré-élit, la dernière gouverne). On ne
+-- recopie NI le verdict (il vit dans gardiennes) NI l'exigence : les observations
+-- de la récompense se RECONSTRUISENT par jointure — une seule source par fait.
+-- BORNE (règle 3) : pruneGardeFouEchelons, référentielle, câblée après pruneTasks
+-- (motif pruneAiguillageModeles). Vraie dès le premier jour — les tâches
+-- disparaissent pour de bon depuis le lot 17.
+CREATE TABLE IF NOT EXISTS garde_fou_echelons (
+  taskId  TEXT PRIMARY KEY,
+  echelon TEXT NOT NULL,
+  choisiA INTEGER NOT NULL
+);
+
+-- L'Agent Garde-Fous : une contre-visite était-elle EXIGÉE pour cette production,
+-- ou en était-elle DISPENSÉE ? C'est le SEUL atome non recalculable du problème —
+-- il se décide à l'instant où la caste VIVE est interrogée (exigeContreVisite),
+-- et rejuger une vieille production avec la caste d'aujourd'hui serait un mensonge
+-- à retardement (le mal que la doctrine des Gardiennes existe pour empêcher). On
+-- le fige donc ici, et rien d'autre : la traversee (directe / retenue / en_attente)
+-- reste une VUE dérivée de deux faits datés — cette exigence x la contre_visite.
+--
+-- Le verdict « attendre » du polyéthisme (production retenue faute de relecteur)
+-- ne vit PAS dans contre_visites (sa contrainte CHECK ne l'admet pas) : c'est
+-- exactement le trou que cette table comble, pour que « retenue à la revue » ne
+-- se confonde pas avec « passée librement ».
+--
+-- CHECK à deux valeurs, comme contre_visites : une v2 cohabitera sans migration.
+-- BORNE (règle 3) : pruneGardeFouExigences, référentielle, câblée après pruneTasks.
+CREATE TABLE IF NOT EXISTS garde_fou_exigences (
+  productionTaskId TEXT PRIMARY KEY,
+  exigence         TEXT NOT NULL CHECK (exigence IN ('exigee', 'dispensee')),
+  decideA          INTEGER NOT NULL
 );
 
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
@@ -2743,6 +2779,64 @@ export class HiveStore {
   }
 
   /**
+   * Range l'ÉCHELON de garde-fous sous lequel une tâche a été assignée. `INSERT
+   * OR REPLACE` : une réassignation ré-élit, la dernière gouverne (motif
+   * `poserModeleAiguillage`).
+   */
+  poserEchelonGardeFou(taskId: string, echelon: Echelon, now = Date.now()): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO garde_fou_echelons (taskId, echelon, choisiA) VALUES (?, ?, ?)',
+      )
+      .run(taskId, echelon, now);
+  }
+
+  /**
+   * Range l'EXIGENCE de contre-visite d'une production — le fait daté que rien ne
+   * peut reconstruire (voir le schéma). `exigee` si une contre-visite était
+   * requise, `dispensee` sinon. `INSERT OR REPLACE` : la dernière décision gagne.
+   */
+  poserExigenceGardeFou(productionTaskId: string, exigee: boolean, now = Date.now()): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO garde_fou_exigences (productionTaskId, exigence, decideA) VALUES (?, ?, ?)',
+      )
+      .run(productionTaskId, exigee ? 'exigee' : 'dispensee', now);
+  }
+
+  /**
+   * Reconstruit les FAITS BRUTS que `observationDepuisFaits` assemble — SANS rien
+   * recopier. Pour chaque tâche dont l'Agent Garde-Fous a posé l'échelon, que les
+   * Gardiennes ont verdictée, ET dont le sort est TRANCHÉ (une contre-visite OU
+   * une exigence rangée), on rend : l'échelon, le verdict le PLUS RÉCENT (une tâche
+   * réassignée a plusieurs inspections), la suite de contre-visite (ou `null`), et
+   * l'exigence (ou `null`). La `traversee` n'est PAS ici — c'est une vue que le
+   * module dérive de ces deux derniers faits.
+   *
+   * Le filtre « sort tranché » écarte les productions EN VOL : sans lui, le `LIMIT`
+   * gaspillerait sa fenêtre sur des tâches encore en cours. Bornée par `limite`,
+   * rendue en ordre CHRONOLOGIQUE (motif `observationsAiguillage`).
+   */
+  observationsGardeFou(limite = CORPUS_GARDE_FOU): FaitsProduction[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.echelon AS echelon,
+                g.verdict AS verdict,
+                cv.suite  AS suite,
+                ex.exigence AS exigence
+           FROM garde_fou_echelons e
+           JOIN gardiennes g ON g.id = (SELECT MAX(id) FROM gardiennes WHERE taskId = e.taskId)
+           LEFT JOIN contre_visites cv     ON cv.productionTaskId = e.taskId
+           LEFT JOIN garde_fou_exigences ex ON ex.productionTaskId = e.taskId
+          WHERE cv.productionTaskId IS NOT NULL OR ex.productionTaskId IS NOT NULL
+          ORDER BY e.choisiA DESC
+          LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(limite, CORPUS_GARDE_FOU))) as FaitsProduction[];
+    return rows.reverse();
+  }
+
+  /**
    * Reconstruit les observations que `replierAntecedents` replie — SANS rien
    * recopier. Pour chaque tâche dont on connaît À LA FOIS le modèle
    * (`aiguillage_modeles`) ET le verdict (`contre_visites`), on rend son
@@ -2805,6 +2899,22 @@ export class HiveStore {
   pruneAiguillageModeles(): number {
     return this.db
       .prepare('DELETE FROM aiguillage_modeles WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
+  }
+
+  /** Élague les échelons dont la tâche n'existe plus. Référentielle, motif `pruneAiguillageModeles`. */
+  pruneGardeFouEchelons(): number {
+    return this.db
+      .prepare('DELETE FROM garde_fou_echelons WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
+  }
+
+  /** Élague les exigences dont la production n'existe plus. Référentielle, même motif. */
+  pruneGardeFouExigences(): number {
+    return this.db
+      .prepare(
+        'DELETE FROM garde_fou_exigences WHERE productionTaskId NOT IN (SELECT id FROM tasks)',
+      )
       .run().changes;
   }
 

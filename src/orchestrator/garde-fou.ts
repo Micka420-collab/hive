@@ -64,7 +64,7 @@
 import { moyenne, scoreUCB } from './aiguillage.js';
 import type { Antecedent } from './aiguillage.js';
 import type { ModeGardiennes, Verdict } from './gardiennes.js';
-import type { ModePolyethisme } from './polyethisme.js';
+import type { ModePolyethisme, Suite } from './polyethisme.js';
 
 /** Version du format des antécédents rangés — relevée si le calcul change. */
 export const VERSION_GARDE_FOU = 1;
@@ -198,6 +198,67 @@ export function recompenseGardeFou(o: ObservationGardeFou): number {
   const qualite = o.reprise ? 0 : NOTE_VERDICT[o.verdict];
   const fluidite = NOTE_TRAVERSEE[o.traversee];
   return (POIDS_QUALITE * qualite + POIDS_FLUIDITE * fluidite) / (POIDS_QUALITE + POIDS_FLUIDITE);
+}
+
+// ─── Reconstruire une observation depuis les faits datés ─────────────────────
+//
+// La `traversee` n'est PAS un fait rangé : c'est une VUE dérivée de deux faits
+// datés — l'EXIGENCE (une contre-visite était-elle requise ?) et la CONTRE-VISITE
+// (a-t-elle eu lieu, et qu'a-t-elle dit ?). La figer serait un mensonge à
+// retardement : une production RETENUE aujourd'hui peut être RELÂCHÉE demain si
+// une relectrice de caste suffisante émerge, et une traversée `en_attente` gelée
+// mentirait alors. On range donc le seul atome non-recalculable, l'exigence, et
+// on RECONSTRUIT la traversée à la lecture (règle 1 de La Balance : aucune vue
+// dérivée matérialisée).
+
+/**
+ * L'exigence de contre-visite, telle qu'un fait daté la range : une contre-visite
+ * était-elle REQUISE pour cette production, ou en était-elle DISPENSÉE ? Décidée à
+ * l'instant où la caste VIVE est interrogée (`exigeContreVisite`), donc non
+ * recalculable plus tard — d'où sa persistance (motif du verdict des Gardiennes).
+ */
+export type Exigence = 'exigee' | 'dispensee';
+
+/**
+ * Les faits BRUTS d'une production, tels que la jointure du store les assemble —
+ * chacun de sa source unique : `echelon` de `garde_fou_echelons`, `verdict` des
+ * Gardiennes, `suite` de `contre_visites` (`null` si aucune n'a eu lieu),
+ * `exigence` de `garde_fou_exigences` (`null` si le sort n'est pas encore tranché).
+ */
+export interface FaitsProduction {
+  echelon: Echelon;
+  verdict: Verdict;
+  suite: Suite | null;
+  exigence: Exigence | null;
+}
+
+/**
+ * Assemble une observation depuis les faits datés — ou `null` si la production
+ * est ENCORE EN VOL (échelon posé, mais ni contre-visite faite ni exigence
+ * tranchée), auquel cas elle ne pèse pas encore dans le repli.
+ *
+ * La `traversee`, reconstruite :
+ *   · une contre-visite a eu lieu (suite ≠ null) ⇒ `retenue_puis_relachee` — la
+ *     relecture a coûté son péage, quelle qu'ait été sa réponse ;
+ *   · sinon, une contre-visite était EXIGÉE mais absente ⇒ `en_attente` — la
+ *     production pend à la revue humaine, le coût maximal ;
+ *   · sinon, elle en était DISPENSÉE ⇒ `directe` — passée sans entrave.
+ *
+ * FERMÉ PAR DÉFAUT : sans exigence tranchée, on ne SUPPOSE jamais `directe` — on
+ * rend `null` et la production reste en vol. Confondre « pas encore décidé » avec
+ * « passé librement » offrirait au léger une récompense qu'il n'a pas gagnée.
+ *
+ * La `reprise` est le seul verdict de contre-visite qui compte ici : `refaire`
+ * dit que la production a été renvoyée — sa qualité tombe à 0 (cf. `recompenseGardeFou`).
+ */
+export function observationDepuisFaits(f: FaitsProduction): ObservationGardeFou | null {
+  const reprise = f.suite === 'refaire';
+  let traversee: Traversee;
+  if (f.suite !== null) traversee = 'retenue_puis_relachee';
+  else if (f.exigence === 'exigee') traversee = 'en_attente';
+  else if (f.exigence === 'dispensee') traversee = 'directe';
+  else return null;
+  return { echelon: f.echelon, verdict: f.verdict, traversee, reprise };
 }
 
 // ─── Les antécédents — motif replierAntecedents, par ÉCHELON ─────────────────
