@@ -170,6 +170,23 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Trentième lot — la fenêtre de l'instantané : RIEN à faire, et c'est le
+résultat** (nuit, 01 h 55 → 02 h 20 UTC, lot 9 de la file). Les deux gardes
+visées — la clause d'ordre qui garde les tâches VIVANTES anciennes dans la
+fenêtre, et `tasksTotal` qui dit le compte réel — sont **déjà tenues** depuis
+le lot 17. Je ne l'ai pas vu tout de suite : j'avais sondé avec
+`tests/store-scaling.test.ts` (21 verts, verdict « nue ») alors que les
+gardes vivent dans `tests/taches-bornees.test.ts`. Deux tests écrits pour
+rien, retirés plutôt que gardés « au cas où » — un doublon coûte du temps à
+chaque exécution, pour toujours, et fait croire à une couverture qu'on avait
+déjà. § 2 septdecies au journal : un rejeu contre le mauvais fichier ne
+prouve rien ; « survit » veut dire « survit AUX FICHIERS QUE J'AI LANCÉS ».
+
+Les trouvailles de la nuit ont donc été REVÉRIFIÉES par exclusion (mutation
+en place, suite entière moins le fichier neuf) : la sonde du docteur passe la
+suite entière sans rougir — elle était bien nue —, et la borne d'expiration
+des billets aussi. Les deux lots précédents tiennent.
+
 **Vingt-neuvième lot — LES CINQ BORNES D'ÉLAGAGE, À LA MILLISECONDE** (nuit,
 01 h 25 → 01 h 50 UTC, lot 4 de la file). Sondées d'abord : la protection des
 dépendances de `pruneTasks` (celle qui empêche d'effacer une tâche dont une

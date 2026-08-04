@@ -3005,6 +3005,51 @@ cherche des instructions.** La réparation, elle, coûte un `--amend -F` et un
 
 ---
 
+## 2 septdecies. Un rejeu contre le MAUVAIS fichier ne prouve rien
+
+Le rejeu de mutation est devenu l'instrument de confiance du dépôt : « la
+mutation survit » veut dire « cette garde est nue », et on écrit un test.
+Cette nuit, il a menti — parce qu'on ne lui avait pas donné les bons tests à
+faire tourner.
+
+Sondage de la fenêtre de l'instantané : on retire la clause
+`ORDER BY (status IN ('done','failed')) ASC` de `tachesPourEcran`, puis on
+lance `tests/store-scaling.test.ts` — **21 verts**. Verdict noté : garde nue.
+Deux tests écrits, rejeu fait, rouge, satisfaction.
+
+Sauf que le rouge affichait TROIS noms, dont deux qui n'étaient pas les
+miens : « LES TÂCHES VIVANTES PASSENT TOUTES, même les plus anciennes » et
+« quand les vivantes DÉBORDENT la limite… ». Ces gardes existaient depuis le
+lot 17, dans `tests/taches-bornees.test.ts` — le fichier que je n'avais pas
+lancé. Mes deux tests étaient des doublons, écrits sur la foi d'un sondage
+qui n'avait rien sondé.
+
+**Ce que le rejeu prouve, exactement.** « Survit » ne veut jamais dire « rien
+ne la garde » : ça veut dire « rien ne la garde DANS LES FICHIERS QUE J'AI
+LANCÉS ». C'est un quantificateur qu'on oublie parce qu'on choisit le fichier
+« évident » — ici un fichier dont le nom parlait d'échelle, alors que la
+garde vivait dans celui qui parle de bornes.
+
+**La règle.** Avant de déclarer une garde nue, rejouer la mutation contre la
+SUITE ENTIÈRE. Le coût est réel (une centaine de secondes) et il est
+inférieur à celui d'un doublon : un test redondant coûte du temps à chaque
+exécution, pour toujours, et fait croire à une couverture qu'on avait déjà.
+La forme pratique, quand on veut aussi savoir si SON test est le seul
+gardien :
+
+```bash
+npx vitest run --exclude 'tests/mon-nouveau-test.ts'   # mutation en place
+```
+
+Vert ⇒ la garde était bien nue et le test neuf est le seul à la tenir.
+Rouge ⇒ quelqu'un la gardait déjà : lire QUI, et ne pas écrire de doublon.
+
+Les deux doublons ont été retirés plutôt que gardés « au cas où ». Et les
+trouvailles de la même nuit ont toutes été revérifiées par exclusion — les
+sondes fuyantes et les bornes de grâce étaient, elles, réellement nues.
+
+---
+
 ## 2 sexdecies. Une correction appliquée PARTOUT n’est pas une correction TENUE
 
 L'audit du 2 août avait trouvé quatre sondes qui livraient `HIVE_TOKEN`,
