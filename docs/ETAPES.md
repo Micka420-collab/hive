@@ -3742,3 +3742,29 @@ fonction pure `aiguillerNoeuds` et ses bancs ; AUCUN changement de comportement
 du scheduler. **Lot 3b** — les trois sites du scheduler s'en servent, l'élection
 est enregistrée, la borne des élections en vol ; le comportement change alors,
 sous la garde du no-op. **Lot 4** — l'adaptateur passe la variante au CLI.
+
+### Lot 3b livré : la boucle principale de l'ordonnanceur écoute le routeur
+
+`assignReadyTasks` appelle `aiguillerNoeuds` entre le tri par charge et le
+départage phéromones. Antécédents repliés au plus une fois par passe
+(`lireAntecedents`, jumeau de `lireTraces`) — et seulement si un éligible déclare
+des modèles, sinon zéro lecture SQL neuve. La catégorie est RECALCULÉE à la
+lecture (`categoriser`), jamais figée. Le départage phéromones opère sur la
+sous-liste restreinte (`candidats`), pas sur tous les éligibles : un nœud écarté
+faute du bon modèle ne revient pas par la porte des phéromones — sinon on
+enregistrerait un modèle pour une tâche partie sur un nœud qui ne sait pas le
+lancer. Le modèle commandé est rangé (`poserModeleAiguillage`) APRÈS le patch
+d'assignation réussi, jamais avant.
+
+**Inerte en production jusqu'au lot 4** : aucun nœud ne déclare encore de
+modèles, donc `aiguillerNoeuds` rend toujours `null` — d'où la sûreté de câbler
+le routeur et son enregistrement AVANT que quoi que ce soit ne les active.
+
+Banc `aiguillage-scheduler.test.ts` : 4 tests (no-op sans modèles, aiguillage +
+élection enregistrée, union sur les éligibles / famine tuée, modèle avant
+phéromones), toutes les mutations rejouées rouges — dont une survivante attrapée
+et corrigée (§ 2 duotrigies : un départage phéromones sur la mauvaise liste
+survivait faute d'un banc qui pose une phéromone sur un non-porteur). Les 117
+tests d'ordonnancement voisins restent verts. **Reste 3b-bis** — la borne du
+troupeau (élections en vol) — puis **lot 3c** (course de drones), **lot 4**
+(activation : le nœud déclare, l'adaptateur passe `--model`).

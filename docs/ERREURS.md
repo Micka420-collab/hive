@@ -413,6 +413,34 @@ réelle.
 
 ## 2. Un test peut passer pour la mauvaise raison
 
+### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
+
+En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au
+départage phéromones : `exAequo = candidats.filter(...)` au lieu de
+`eligibles.filter(...)`, pour qu'un nœud écarté faute du bon modèle ne revienne
+pas par la porte des phéromones. Trois mutations rejouées, deux rouges — mais
+celle-là, `candidats` → `eligibles`, a **SURVÉCU**.
+
+La raison est nette une fois vue : mes bancs ne posaient **aucune phéromone**.
+Sans dépôt, `meilleurNoeud` rend `null` (il ne tranche que sur un signal
+strictement positif), le bloc de départage ne change donc jamais le nœud, et
+`candidats` ou `eligibles` donnent le même résultat. La ligne était juste, et
+**intestable en l'état** : rien dans le banc ne créait la situation où les deux
+listes divergent.
+
+Corrigé en ajoutant un banc qui POSE une phéromone sur un **non-porteur** du
+modèle élu (un `insertResult` réussi sur son domaine) : alors, et seulement
+alors, le départage sur `eligibles` renverrait la tâche au non-porteur, et le
+mutant rougit. C'est la cousine de § 2 vicies (un banc doit vraiment créer sa
+condition) appliquée à un DÉPARTAGE : restreindre l'entrée d'un tri ne se prouve
+qu'avec une entrée qui, sans la restriction, sortirait différemment.
+
+> **Règle** — une garde qui RESTREINT l'ensemble sur lequel opère un
+> départage/tri conditionnel n'est éprouvée que si le banc fournit le SIGNAL qui
+> ferait trancher ce départage autrement. Pas de signal ⇒ les deux ensembles
+> coïncident ⇒ le mutant survit, et la restriction est du décor jusqu'à preuve
+> du contraire.
+
 ### 2 untrigies — Un backtick DANS un gabarit ferme le gabarit, même en commentaire
 
 Le schéma SQL du store est un seul gabarit : `const SCHEMA = \`… CREATE TABLE …\``.
