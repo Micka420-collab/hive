@@ -38,9 +38,13 @@ function result(taskId: string, success = true): Omit<TaskResult, 'nodeId'> {
 describe('Aiguillage câblé — la course de drones', () => {
   let store: HiveStore;
   let scheduler: Scheduler;
+  let assignations: { nodeId: string; taskId: string; modele?: string }[];
   beforeEach(() => {
     store = new HiveStore(':memory:');
-    scheduler = new Scheduler(store, {});
+    assignations = [];
+    scheduler = new Scheduler(store, {
+      onAssign: (nodeId, task, modele) => assignations.push({ nodeId, taskId: task.id, modele }),
+    });
   });
   afterEach(() => store.close());
 
@@ -86,6 +90,19 @@ describe('Aiguillage câblé — la course de drones', () => {
     expect(obs, 'une observation, une seule').toHaveLength(1);
     expect(obs[0]?.modele, 'le modèle du vainqueur').toBe(modeleDe(vainqueur));
     expect(obs[0]?.modele, 'pas celui du primaire remplacé').not.toBe(modeleDe(primaire));
+  });
+
+  it('CHAQUE DRONE REÇOIT SON MODÈLE via onAssign — pour le passer à `--model`', () => {
+    // La course diversifie les agents : chaque drone lance SON modèle, pas un
+    // modèle commun. onAssign doit donc porter, par drone, le modèle de ce drone.
+    const { taskId, a, b } = deuxDrones(['modele-a', 'modele-b']);
+    const started = scheduler.startRace(taskId, 2, 1_000);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const modeleAssigne = (nodeId: string): string | undefined =>
+      assignations.find((x) => x.nodeId === nodeId && x.taskId === taskId)?.modele;
+    expect(modeleAssigne(a), 'le drone a lance son modèle').toBe('modele-a');
+    expect(modeleAssigne(b), 'le drone b lance le sien').toBe('modele-b');
   });
 
   it('PENDANT LA COURSE, LE MODÈLE DU PRIMAIRE EST EN VOL — la borne du troupeau tient aussi ici', () => {

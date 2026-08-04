@@ -34,6 +34,13 @@ export interface NodeClientOptions {
   /** shell | claude-code | codex (ou tout adaptateur injecté). */
   agentType: string;
   maxConcurrency: number;
+  /**
+   * Les modèles que ce nœud DÉCLARE pouvoir faire tourner (ex.
+   * `['claude-opus-5', 'claude-fable-5']`), lus de `HIVE_MODELES`. Ce que
+   * l'Aiguillage appris consomme pour choisir. Absent/vide : le nœud ne déclare
+   * rien, et la ruche ordonnance comme avant.
+   */
+  modeles?: string[];
   /** Racine des workspaces de tâches (défaut : ./.hive-work/<name>). */
   workRoot?: string;
   /** Adaptateur injectable (tests, agents custom). */
@@ -155,6 +162,11 @@ export class HiveNodeClient {
         // doit avoir une réponse à l'écran, pas une devinette (§ 6.2 — la
         // moitié des morsures de ce dépôt sont des morsures Windows).
         plateforme: plateformeDepuis(process.platform),
+        // Les modèles déclarés, s'il y en a. Absents : le hub n'invente rien et
+        // ordonnance comme avant l'Aiguillage (même règle que la plateforme).
+        ...(this.opts.modeles && this.opts.modeles.length > 0
+          ? { modeles: this.opts.modeles }
+          : {}),
       });
     });
 
@@ -192,7 +204,7 @@ export class HiveNodeClient {
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         break;
       case 'assign_task':
-        void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext);
+        void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext, msg.modele);
         break;
       case 'assign_merge':
         void this.runMergeJob(msg);
@@ -272,7 +284,12 @@ export class HiveNodeClient {
   }
 
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
-  private async runTask(task: Task, repoUrl: string | null, hiveContext?: string): Promise<void> {
+  private async runTask(
+    task: Task,
+    repoUrl: string | null,
+    hiveContext?: string,
+    modele?: string,
+  ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
     if (!ID_PATTERN.test(task.id)) {
@@ -335,6 +352,9 @@ export class HiveNodeClient {
         env: workspace.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
+        // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
+        // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
+        ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
         onProgress: (p) => {
           this.send({

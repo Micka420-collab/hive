@@ -213,6 +213,12 @@ export interface AssignTaskMsg {
   repoUrl?: string | null;
   /** Contexte Hive Mind (souvenirs pertinents) à préfixer au prompt de la tâche. */
   hiveContext?: string;
+  /**
+   * Le modèle que l'Aiguillage appris a choisi pour cette tâche, que le nœud
+   * passera à son adaptateur (`--model`). Absent : le nœud emploie son modèle
+   * par défaut. Un nom de modèle n'est PAS un secret ; il voyage en clair.
+   */
+  modele?: string;
 }
 
 export interface CancelTaskMsg {
@@ -628,9 +634,14 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.hiveContext !== undefined && !isStrAllowEmpty(m.hiveContext, LIMITS.hiveContext)) {
         return null;
       }
+      // Le modèle choisi, s'il est présent : un nom court et non vide, validé
+      // comme un nom de nœud. Mal formé ⇒ tout le message tombe (même sévérité
+      // que le reste — un hub qui ment sur un champ ment peut-être sur les autres).
+      if (m.modele !== undefined && !isStr(m.modele, LIMITS.name)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
       if (m.hiveContext !== undefined) msg.hiveContext = m.hiveContext;
+      if (m.modele !== undefined) msg.modele = m.modele;
       return msg;
     }
     case 'cancel_task':

@@ -1150,7 +1150,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
    * qu'on oublie de garder.
    */
-  const envoyerTache = (nodeId: string, task: Task): void => {
+  const envoyerTache = (nodeId: string, task: Task, modele?: string): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
     if (ws) {
@@ -1176,6 +1176,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         task,
         repoUrl: project?.repoUrl ?? null,
         ...(contexte ? { hiveContext: contexte } : {}),
+        // Le modèle choisi par l'Aiguillage, s'il y en a un : le nœud le passe à
+        // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
+        ...(modele ? { modele } : {}),
       });
     }
   };
@@ -1191,7 +1194,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const ws = nodeSockets.get(nodeId);
       if (ws) send(ws, { type: 'cancel_task', taskId, reason });
     },
-    onAssign: (nodeId, task) => envoyerTache(nodeId, task),
+    onAssign: (nodeId, task, modele) => envoyerTache(nodeId, task, modele),
     onEvent: (event) => {
       broadcastEvent({ type: 'event', event });
       stateDirty = true;

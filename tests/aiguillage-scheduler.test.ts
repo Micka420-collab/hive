@@ -33,9 +33,13 @@ const profile = (name: string, modeles?: string[]) => ({
 describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () => {
   let store: HiveStore;
   let scheduler: Scheduler;
+  let assignations: { nodeId: string; taskId: string; modele?: string }[];
   beforeEach(() => {
     store = new HiveStore(':memory:');
-    scheduler = new Scheduler(store, {});
+    assignations = [];
+    scheduler = new Scheduler(store, {
+      onAssign: (nodeId, task, modele) => assignations.push({ nodeId, taskId: task.id, modele }),
+    });
   });
   afterEach(() => store.close());
 
@@ -199,6 +203,32 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     expect(task?.assignedNodeId, 'le modèle (opus/zzz) l’emporte sur la phéromone de aaa').toBe(
       nz.id,
     );
+  });
+
+  it('LE MODÈLE ÉLU PART AVEC LA TÂCHE — onAssign le reçoit pour `--model`', () => {
+    // Le câblage de bout en bout : sans ce troisième argument, le nœud ne saurait
+    // jamais quel modèle lancer, et l'enregistrement mentirait (on note un modèle
+    // que la production n'a pas employé).
+    vecu('opus', 'appliquer', 3);
+    vecu('fable', 'refaire', 3);
+    const nz = scheduler.registerNode(profile('zzz', ['opus']));
+    scheduler.registerNode(profile('aaa', ['fable']));
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    scheduler.tick(5_000);
+
+    const mienne = assignations.find((a) => a.taskId === t);
+    expect(mienne?.nodeId, 'la tâche part au porteur d’opus').toBe(nz.id);
+    expect(mienne?.modele, 'et opus voyage avec elle').toBe('opus');
+  });
+
+  it('SANS MODÈLE DÉCLARÉ, onAssign ne porte AUCUN modèle — no-op de bout en bout', () => {
+    scheduler.registerNode(profile('aaa'));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    const mienne = assignations.find((a) => a.taskId === t);
+    expect(mienne, 'la tâche est bien assignée').toBeTruthy();
+    expect(mienne?.modele, 'mais sans modèle imposé').toBeUndefined();
   });
 
   it('LE TROUPEAU EST BORNÉ — un modèle neuf avec des élections EN VOL ne rafle plus la tâche prête', () => {

@@ -26,6 +26,12 @@ export interface AdapterContext {
   attempt: number;
   /** Annulation coopérative (cancel_task, arrêt du nœud). */
   signal: AbortSignal;
+  /**
+   * Le modèle choisi par l'Aiguillage appris (ex. `claude-opus-5`), à passer au
+   * CLI de l'agent (`--model`). Absent : l'agent emploie son modèle par défaut.
+   * Ce n'est PAS un secret — il peut voyager en argument de commande.
+   */
+  modele?: string;
   /** Remontée de progrès vers l'orchestrateur (sous-agents, logs). */
   onProgress: (progress: AdapterProgress) => void;
   /**

@@ -3,7 +3,7 @@
 // respecte le contrat AgentAdapter (progrès, flaky, annulation).
 
 import { describe, expect, it } from 'vitest';
-import { createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
+import { argvClaude, createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
 import { createCodexAdapter } from '../src/adapters/codex.js';
 import { createShellAdapter } from '../src/adapters/shell.js';
 import type { AdapterContext } from '../src/adapters/index.js';
@@ -52,6 +52,24 @@ describe('garde-fous anti-RCE des adaptateurs', () => {
     expect(() => createClaudeCodeAdapter('change-me')).toThrow(/trivial/);
     expect(() => createCodexAdapter('change-me')).toThrow(/trivial/);
     expect(createClaudeCodeAdapter('un-vrai-token-de-ruche').name).toBe('claude-code');
+  });
+});
+
+describe('argvClaude — le modèle de l’Aiguillage passe à `claude --model`', () => {
+  it('SANS MODÈLE, aucun `--model` — l’agent emploie son défaut', () => {
+    const argv = argvClaude('mon prompt');
+    expect(argv).not.toContain('--model');
+    expect(argv[argv.length - 1], 'le prompt reste en dernier').toBe('mon prompt');
+  });
+
+  it('AVEC MODÈLE, `--model <nom>` est présent, et AVANT le `--` (option, pas prompt)', () => {
+    const argv = argvClaude('mon prompt', 'claude-opus-5');
+    const iModele = argv.indexOf('--model');
+    expect(iModele, '`--model` est présent').toBeGreaterThanOrEqual(0);
+    expect(argv[iModele + 1], 'suivi de son nom').toBe('claude-opus-5');
+    // AVANT le séparateur `--` : sinon le nom serait lu comme du texte de prompt.
+    expect(iModele, 'le modèle est une OPTION, avant `--`').toBeLessThan(argv.indexOf('--'));
+    expect(argv[argv.length - 1], 'le prompt reste tout en dernier').toBe('mon prompt');
   });
 });
 

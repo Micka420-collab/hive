@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-3402%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-3416%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -215,6 +215,15 @@ retardement. `HIVE_AGENT` force le choix si vous en voulez un autre.
 s'authentifie tout seul. Aucune clé d'API, d'Anthropic ou d'ailleurs, n'est
 requise pour faire travailler la ruche — voir
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
+
+**L'Aiguillage appris** choisit, parmi les modèles qu'un nœud sait faire tourner,
+celui qui a fait le mieux sur le genre de la tâche (idéation, correction, test…),
+et il n'arrête jamais d'essayer les autres. Déclarez les modèles de votre nœud
+avec `HIVE_MODELES` (liste séparée par des virgules, ex.
+`HIVE_MODELES=claude-opus-5,claude-fable-5`) : la ruche teste, retient le meilleur
+par genre, et réutilise. Absent, rien ne change — le nœud est ordonnancé comme
+avant. Le nom du modèle voyage en clair (ce n'est pas un secret) et part en
+argument `--model` au binaire.
 
 Le **polyéthisme** confie à chaque ouvrière le travail que son expérience
 permet, et le **Conseil des Éclaireuses** fait vérifier une direction par
