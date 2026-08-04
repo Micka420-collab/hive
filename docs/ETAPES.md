@@ -2703,3 +2703,50 @@ défaut.
 
 Les deux gardes ont été sondées contre la **suite entière** avant écriture —
 3 256 tests verts avec chacune des mutations en place.
+
+---
+
+## Une revue faite hors ligne pouvait disparaître sans un mot
+
+Survivante du balayage : `v !== null && typeof v === 'object' && 'state' in v`,
+dans le tampon des revues non synchronisées. Nudité vérifiée contre la suite
+ENTIÈRE avant écriture — 3 267 tests verts avec la mutation en place.
+
+**Ce que ce tampon porte.** Un humain approuve ou rejette une production. Le
+POST part. S'il échoue — coupure, ruche redémarrée, tunnel tombé —, le verdict
+n'est pas perdu : il est gardé localement, réaffiché, et re-posté au retour du
+réseau. Chaque entrée mémorise DEUX choses, et la seconde est la subtile :
+`state`, le verdict de l'humain, et `base`, le verdict SERVEUR connu au moment
+du geste. `base` existe pour ne pas rejouer un geste périmé — si un autre
+opérateur a statué entre-temps, sa décision est plus récente et prime.
+
+**Ce que la garde distingue.** Deux formats cohabitent : l'ANCIEN (le verdict
+nu, `"approved"`) et le NOUVEAU (`{ state, base }`). Mutée, un tampon au format
+neuf est relu comme s'il était ancien : `state` devient l'OBJET tout entier, et
+`base` retombe à `null`. Deux conséquences, toutes deux silencieuses :
+
+1. le verdict affiché n'est plus « approuvée » mais une structure — l'écran
+   cesse de dire ce que l'humain a décidé ;
+2. `base` valant `null`, la comparaison au serveur échoue et l'entrée est
+   ABANDONNÉE : le geste hors ligne disparaît sans un mot.
+
+C'est la perte de données la plus grave rencontrée cette nuit : silencieuse, et
+sur une décision humaine.
+
+| mutation                                  | verdict  |
+| ----------------------------------------- | -------- |
+| `'state' in v` nié                        | 3 rouges |
+| `typeof v === 'object'` → `!==`           | 5 rouges |
+| péremption : `serverVal !== base` → `===` | 5 rouges |
+
+Les deux moitiés de la règle sont éprouvées, sans quoi la première serait
+creuse : un geste dont la base correspond toujours au serveur est RENVOYÉ, et
+un geste dont le serveur a bougé depuis est ABANDONNÉ.
+
+**Un piège d'asynchrone au passage.** Le premier jet affirmait que le rejeu
+avait bien re-posté, et rendait « rien n'a été renvoyé » sur un rejeu
+parfaitement sain : `postReview` n'est pas appelé tout de suite mais enchaîné
+derrière la promesse de la tâche (`prev.then(() => postReview(…))`), pour
+sérialiser les envois. Affirmer sans drainer les microtâches, c'est juger
+l'instant AVANT l'envoi. Même famille que les cinq bancs trop légers de la
+nuit : le banc ne regardait pas ce qu'il croyait regarder.
