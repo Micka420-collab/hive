@@ -3958,3 +3958,32 @@ bornes n'est JAMAIS élu). **Reste** : lot G2 (la table `garde_fous` + la
 reconstruction des observations par jointure, motif `observationsAiguillage`), lot
 G3 (le câblage scheduler : lire les bornes, élire, appliquer le `Reglage`,
 journaliser), lot G4 (protocole/tableau de bord).
+
+### Lot G2 livré : la table `garde_fous` — le consentement humain (inerte)
+
+La première moitié de la mémoire du Garde-Fous : les BORNES qu'un humain pose,
+et rien de ce que la ruche calcule. Motif `essaim`/`budgets` au mot près — une
+ligne par projet, `{actif, borneMin, borneMax, definiPar}`, `INSERT … ON CONFLICT
+DO UPDATE`, suppression sur `null`, borne STRUCTURELLE (1:1 avec `projects`, aucun
+élagueur) inscrite dans `BORNÉES_PAR_L_HUMAIN` avec son motif. `setGardeFou`
+(bornes typées `Echelon` à l'écriture), `getGardeFou` (bornes en texte brut — les
+valider est le geste du module, `normaliserBornes`, pas du store ; `null` ⇒
+inactif par absence, l'opt-in demandé), `listProjetsGardeFou` (actifs seuls,
+triés).
+
+L'échelon ÉLU n'est délibérément PAS rangé ici (règle 1 : aucune vue dérivée
+matérialisée — il se recalcule des antécédents). Cette table ne porte QUE le
+consentement ; la seconde moitié (l'échelon posé par tâche + les observations
+reconstruites par jointure) est le lot G3, séparé parce qu'elle porte un vrai
+fork : le verdict `attendre` (production retenue à la revue humaine) N'EST PAS
+rangé dans `contre_visites` (sa contrainte CHECK n'admet que appliquer/ameliorer/
+refaire), donc reconstruire la `traversee` (`en_attente`) de la récompense
+demande soit de PERSISTER ce fait daté (doctrine « un verdict recalculé est un
+mensonge à retardement »), soit de le DÉRIVER de la caste vive — à trancher (agent
+Fable 5) au lot G3.
+
+Banc `garde-fou-store.test.ts` : 6 tests (inactif par absence, aller-retour,
+booléen `actif` reconstruit, écrasement en place, retrait sur `null`, liste triée
+des actifs seuls — identifiants littéraux pour que le ORDER BY rougisse sans
+intermittence). Mutations rejouées rouges. `bornes-doctrine.test.ts` reste vert :
+la table neuve est bornée-par-l'humain, pas orpheline.
