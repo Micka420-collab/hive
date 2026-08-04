@@ -413,6 +413,70 @@ réelle.
 
 ## 2. Un test peut passer pour la mauvaise raison
 
+### 2 quinvicies — Une garantie de sécurité attachée à une CHAÎNE, pas à un sujet
+
+`docs/FONCTIONNALITES.md` promettait aux utilisateurs :
+
+> Un membre exclu **ne peut pas revenir avec le token maître** : le refus est
+> définitif, il ne se replie pas sur l'ancienne porte.
+
+Mesuré sur un vrai serveur : `node-exclu` fermé en 4403, **`node-exclu-bis`
+admis**. La garde était réelle, mais elle testait le `nodeId` **annoncé par
+celui qu'on veut exclure** — une valeur que l'adversaire choisit lui-même.
+
+Ce qui rend l'entrée coûteuse, c'est que la fausse promesse était écrite à
+**trois endroits**, et que chacun rassurait sur la foi des deux autres : le
+commentaire du code, l'en-tête du banc, et la documentation publique. Le banc,
+lui, n'éprouvait que la reconnexion sous le MÊME nom — il confirmait donc une
+garantie qu'il ne mesurait pas.
+
+> **Règle** — une garde qui protège contre une PERSONNE ne peut pas se fonder
+> sur une valeur que cette personne fournit. Demander « qui es-tu ? » à
+> l'adversaire et le croire n'est pas un contrôle d'accès.
+>
+> **Règle** — quand une promesse de sécurité est écrite en toutes lettres dans
+> la doc destinée aux utilisateurs, le banc qui la tient doit rejouer le geste
+> de CONTOURNEMENT, pas seulement le geste naïf.
+
+### 2 sexvicies — Une mutation survivante n'accuse pas toujours le code
+
+Sept mutations sur huit rouges ; la survivante disait « on peut supprimer le
+test `getNode` du câblage sans que rien ne rougisse ». La tentation est de
+conclure que le code est mort et de l'enlever.
+
+C'était l'inverse. Deux tables disent qu'une machine est connue — `nodes` (elle
+s'est déjà présentée) et `node_keys` (l'hôte lui a remis une clé) — et elles
+**ne se recouvrent pas**. Tous les bancs du fichier obtenaient leur nœud par
+billet, donc passaient tous par `node_keys` : la machine vraiment ancienne,
+celle d'avant les billets, n'était éprouvée **nulle part**. Supprimer la ligne
+aurait cassé exactement la compatibilité que le lot promettait.
+
+Les deux mutations survivantes du lot ont ainsi réclamé deux bancs manquants,
+et les deux portaient des garanties de **compatibilité** — celles qui ne
+rougissent jamais toutes seules, parce qu'un cas jamais testé ressemble à un
+cas qui marche.
+
+> **Règle** — devant une mutation survivante, poser la question dans les deux
+> sens : « ce code est-il mort ? » ET « quel cas réel mon banc n'atteint-il
+> jamais ? ». La seconde est la plus souvent vraie sur un `||` entre deux
+> sources qu'on croit équivalentes.
+
+### 2 septvicies — Un harnais de mutation qui restaure par `git checkout --` efface le travail non commité
+
+Le harnais mute une ligne, lance le banc, puis restaure par
+`git checkout -- <fichier>`. Sur du code **non commité**, cette restauration ne
+revient pas à l'état d'avant la mutation : elle revient à **HEAD**, donc elle
+supprime la fonction qu'on venait d'écrire. Constaté en direct : la première
+mutation a rendu son verdict, et la deuxième a échoué sur « ancre absente » —
+le fichier ne contenait plus rien à muter.
+
+Le verdict rendu était juste ; c'est la suite de la campagne qui était perdue.
+Un harnais qui échoue bruyamment est une chance : le même geste sur un fichier
+que la campagne n'aurait plus touché aurait effacé le travail en silence.
+
+> **Règle** — **commiter avant de muter**. Le point de restauration coûte un
+> commit jetable qu'on écrase ensuite ; l'oublier coûte le travail.
+
 ### 2.1 — Un comptage qui compense
 
 Une assertion comptait `.pj-ouv-desc` sur toute la page. Sous mutation, une

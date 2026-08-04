@@ -265,8 +265,15 @@ npm run cli -- membres        # qui a les clés, quels billets circulent encore
 npm run cli -- exclure node-…  # sa clé ne vaut plus rien, sa connexion est coupée
 ```
 
-> Un membre exclu **ne peut pas revenir avec le token maître** : le refus est
-> définitif, il ne se replie pas sur l'ancienne porte.
+> Un membre exclu **ne peut pas revenir avec le token maître** : ni sous son
+> identifiant, ni sous un autre. Dès qu'une ruche a exclu quelqu'un, le token
+> maître n'enregistre plus de machine inconnue — les nouvelles entrent par
+> billet. Les machines déjà connues, elles, ne sont pas dérangées.
+>
+> Le résidu, dit franchement : le porteur du token maître peut encore se faire
+> passer pour une machine **déjà connue**. Ce geste-là ne passe pas inaperçu, il
+> coupe la connexion de la vraie machine — mais si votre token a fuité, changez-le
+> plutôt que de compter sur l'exclusion.
 
 ### Se connecter depuis l'extérieur
 

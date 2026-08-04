@@ -2579,6 +2579,25 @@ export class HiveStore {
     );
   }
 
+  /**
+   * Cette ruche a-t-elle déjà exclu quelqu'un ?
+   *
+   * C'est le déclencheur du durcissement de la seconde porte (voir
+   * `tokenMaitrePeutEnregistrer`). Tant qu'il rend `false`, rien ne change pour
+   * personne — une ruche qui n'a jamais exclu de membre garde exactement le
+   * comportement d'avant.
+   *
+   * `LIMIT 1` : on ne compte pas, on demande s'il en existe UNE. La question
+   * est posée à chaque `register`, donc elle doit coûter une lecture d'index et
+   * pas un parcours de table.
+   */
+  rucheAExclu(): boolean {
+    return (
+      this.db.prepare('SELECT 1 FROM node_keys WHERE revokedAt IS NOT NULL LIMIT 1').get() !==
+      undefined
+    );
+  }
+
   revoquerBillet(id: string, now = Date.now()): boolean {
     return (
       this.db

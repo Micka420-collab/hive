@@ -1154,7 +1154,11 @@ async function cmdExclure(nodeId: string): Promise<void> {
   await api(`/api/membres/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
   console.log(
     `\n⛔ ${nodeId} est exclu : sa clé ne vaut plus rien et sa connexion est coupée\n` +
-      '   immédiatement. Les autres membres ne sont pas affectés.\n',
+      '   immédiatement. Les autres membres ne sont pas affectés.\n\n' +
+      '   Cette ruche a désormais exclu quelqu’un : le token de ruche n’enregistre\n' +
+      '   plus de machine INCONNUE — sans quoi l’exclu reviendrait sous un autre nom.\n' +
+      '   Les machines déjà connues continuent normalement ; les nouvelles entrent\n' +
+      '   par billet :  npm run cli -- invite\n',
   );
 }
 

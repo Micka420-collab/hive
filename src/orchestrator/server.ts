@@ -38,7 +38,9 @@ import {
   jugerBillet,
   jugerTransport,
   motifDicible,
+  REFUS_TOKEN_MAITRE,
   tirerSecret,
+  tokenMaitrePeutEnregistrer,
 } from '../shared/acces.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
@@ -6631,6 +6633,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }
             if (verdict === 'refuse' && !tokenMatches(msg.token, config.token)) {
               ws.close(4401, 'token invalide');
+              return;
+            }
+            // ─── LA SECONDE PORTE NE SUFFISAIT PAS À FERMER UNE EXCLUSION ────
+            //
+            // Le refus ci-dessus est attaché au `nodeId` ANNONCÉ. Mesuré sur un
+            // serveur réel : `node-exclu` fermé en 4403, `node-exclu-bis` ADMIS
+            // — le même exclu, six caractères plus loin. La promesse tenue par
+            // le commentaire, par la documentation publique et par l'en-tête du
+            // banc était donc fausse, et fausse contre le SEUL adversaire que
+            // l'exclusion vise : l'ancien membre, qui a eu le token de ruche.
+            //
+            // La règle est PURE et vit dans `acces.ts` : elle s'éprouve sans
+            // base ni socket, et le câblage se juge ici (registre 2 : une règle
+            // qu'on n'éprouve qu'à travers sa copie n'est pas éprouvée).
+            if (
+              verdict === 'refuse' &&
+              !tokenMaitrePeutEnregistrer({
+                nodeIdConnu: msg.nodeId
+                  ? store.getNode(msg.nodeId) !== undefined ||
+                    store.getCleNoeud(msg.nodeId) !== null
+                  : false,
+                rucheAExclu: store.rucheAExclu(),
+              })
+            ) {
+              emitEvent('invite_rejected', {
+                nodeId: msg.nodeId ?? null,
+                refus: 'token_maitre_apres_exclusion',
+              });
+              ws.close(4403, REFUS_TOKEN_MAITRE);
               return;
             }
             if (verdict === 'cle' && msg.nodeId) store.toucherCleNoeud(msg.nodeId);

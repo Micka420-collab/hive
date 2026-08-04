@@ -2898,3 +2898,118 @@ franchement dans le banc plutôt que masqué par une simulation.
 | le code ne dépend plus du refus        | 2 rouges |
 | `preparerBac` n'applique plus sa règle | 1 rouge  |
 | le code du bac devient une constante   | 2 rouges |
+
+## Tâche #62 — troisième registre : l'exclusion d'un membre était contournable en se renommant
+
+### La trouvaille, prouvée en exécutant
+
+L'axe (b) de l'audit — billets et clés — demandait deux choses : un billet à
+usage unique est-il RÉELLEMENT consommé, et la révocation est-elle effective ?
+
+Les deux premières réponses sont bonnes, et vérifiées :
+
+- la consommation est **atomique** — `UPDATE … WHERE usesLeft > 0` fait tout le
+  travail, et deux nœuds qui présentent le même billet au même instant ne
+  peuvent pas réussir tous les deux, quel que soit l'entrelacement ;
+- la révocation **mord tout de suite** : la route ferme le socket en cours
+  (4403), et un seul socket existe par nœud, le précédent étant fermé au
+  remplacement.
+
+La troisième réponse était mauvaise. Sur un serveur réel :
+
+| geste                                                | mesuré      |
+| ---------------------------------------------------- | ----------- |
+| exclure `node-exclu`                                 | 200         |
+| il revient sous `node-exclu`, avec le token de ruche | 4403 ✔      |
+| il revient sous **`node-exclu-bis`**, même token     | **ADMIS** ✘ |
+
+La garde existait, mais elle était attachée au `nodeId` **annoncé** — une chaîne
+que l'exclu choisit lui-même. Quatre caractères suffisaient.
+
+### Pourquoi c'était plus grave qu'un défaut de code
+
+La promesse était écrite à **trois endroits**, et chacun rassurait sur la foi
+des deux autres : le commentaire du `register`, l'en-tête de `acces-ws.test.ts`,
+et surtout `docs/FONCTIONNALITES.md` — donc adressée aux utilisateurs :
+
+> Un membre exclu ne peut pas revenir avec le token maître : le refus est
+> définitif, il ne se replie pas sur l'ancienne porte.
+
+Le banc, lui, n'éprouvait que la reconnexion sous le MÊME nom. Il confirmait
+une garantie qu'il ne mesurait pas.
+
+### L'arbitrage, et pourquoi il n'a pas été pris seul
+
+Durcir un chemin d'authentification n'est pas une correction : c'est un
+changement de contrat. L'utilisateur dormant, la question a été posée à un
+agent Fable 5, qui a vérifié le dépôt avant de trancher — **DURCIR, sans
+interrupteur** — et a rapporté deux faits décisifs que l'analyse initiale
+n'avait pas :
+
+1. **aucune rotation de `HIVE_TOKEN` n'existe ni n'est documentée.**
+   `.env.example` l'écrit lui-même : « elle ouvre tout, POUR TOUJOURS, et ne
+   peut être révoquée que pour tout le monde à la fois ». L'échappatoire douce
+   — « dites à l'hôte de faire tourner son token » — conseillait donc un geste
+   que le produit ne sait pas faire ;
+2. la fausse promesse était **aussi dans la documentation publique**, pas
+   seulement dans un commentaire interne.
+
+Vérification faite de mon côté : les deux sont exacts. Et l'**ADR 0007** porte
+déjà le statut « (a) resserrée par la propriété, avec **(c) pour cible** », où
+la voie (c) est précisément de séparer le rôle d'opérateur du rôle de machine
+membre, en laissant ouvert « le sort du jeton partagé ». Ce lot n'invente donc
+pas une politique : il tranche la part la plus étroite d'une cible déjà
+acceptée.
+
+### La règle, et ce qu'elle ne casse pas
+
+`tokenMaitrePeutEnregistrer({ nodeIdConnu, rucheAExclu })` — pure, dans
+`acces.ts`, éprouvable sans base ni socket. Le token de ruche n'enregistre plus
+un `nodeId` **inconnu** dès lors que la ruche a **déjà exclu** quelqu'un.
+
+Le déclencheur est la première exclusion, jamais la mise à jour :
+
+- une ruche qui n'a exclu personne ne change en **rien** ;
+- une machine déjà connue garde sa porte — aucune ne tombe au premier
+  `git pull`.
+
+Résidu **assumé et épinglé par un banc** : le porteur du token maître peut
+encore usurper un `nodeId` connu. Ce geste est visible — il coupe la connexion
+du titulaire (4000). La vraie réponse à un token qui a fui reste de changer le
+token, et la documentation le dit désormais au lieu de promettre l'inverse.
+
+### Mutations — huit passées, huit rouges
+
+| mutation                                           | verdict  |
+| -------------------------------------------------- | -------- |
+| la règle admet toujours (porte rouverte)           | 1 rouge  |
+| la règle refuse toujours (casse toutes les ruches) | 4 rouges |
+| la règle : le `\|\|` devient `&&`                  | 4 rouges |
+| la règle : déclencheur inversé                     | 3 rouges |
+| le magasin : « a exclu » devient « a un membre »   | 1 rouge  |
+| le câblage : la ruche n'a jamais exclu             | 1 rouge  |
+| le câblage : un nœud connu n'est plus reconnu      | 1 rouge¹ |
+| le câblage : une clé connue n'est plus reconnue    | 1 rouge¹ |
+
+¹ **Ces deux-là ont d'abord SURVÉCU**, et c'est le plus instructif du lot. Deux
+tables disent qu'une machine est connue — `nodes` et `node_keys` — et elles ne
+se recouvrent pas. Tous les bancs du fichier obtenaient leur nœud par billet,
+donc passaient tous par `node_keys` : la machine d'avant les billets, et la
+machine invitée mais jamais venue, n'étaient éprouvées **nulle part**. Les deux
+bancs manquants portaient chacun une garantie de **compatibilité** — celles qui
+ne rougissent jamais seules, parce qu'un cas jamais testé ressemble à un cas
+qui marche.
+
+### Reste à faire, relevé en passant
+
+En rejouant la loupe, une première mesure a été faite contre une base
+**périmée** (l'atelier suivait le `main` local, en retard de huit fusions). Le
+verdict rouge qu'elle a rendu ne concernait donc pas cette branche — mais il
+n'est pas nul pour autant : il porte sur du code **déjà fusionné** cette nuit,
+et deux mutants y sont sans défense.
+
+- `dashboard/src/NodesPanel.tsx` — `{...(tasks && onOpenTask ? … : {})}`
+- `src/cli.ts` — `const choisi = rang === null ? undefined : r.depots[rang]`
+
+À reprendre : écrire les deux bancs, ou constater par écrit que les mutants
+sont équivalents.

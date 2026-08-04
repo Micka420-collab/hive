@@ -338,6 +338,81 @@ export function jugerBillet(
   return { ok: true };
 }
 
+// ─── La seconde porte : jusqu'où le token de ruche ouvre ──────────────────────
+
+/**
+ * Le token de ruche peut-il enregistrer CE nœud ?
+ *
+ * ─── LA PROMESSE QUI ÉTAIT FAUSSE ────────────────────────────────────────────
+ *
+ * `docs/FONCTIONNALITES.md` affirmait — aux utilisateurs, pas dans un
+ * commentaire interne :
+ *
+ *     Un membre exclu ne peut pas revenir avec le token maître : le refus est
+ *     définitif, il ne se replie pas sur l'ancienne porte.
+ *
+ * MESURÉ SUR SERVEUR RÉEL, c'était faux. La garde existait, mais elle était
+ * attachée à une CHAÎNE DE CARACTÈRES — le `nodeId` annoncé. L'exclu revenait
+ * en changeant son nom : `node-exclu` fermé en 4403, `node-exclu-bis` ADMIS.
+ * Une garantie qu'on contourne en tapant quatre caractères de plus n'est pas
+ * une garantie, et celle-ci était écrite dans la documentation publique, dans
+ * le commentaire du code ET dans l'en-tête de son propre banc.
+ *
+ * ─── POURQUOI ON DURCIT PLUTÔT QUE DE CORRIGER LA PHRASE ─────────────────────
+ *
+ * L'exclusion vise UN adversaire : l'ancien membre de confiance. Or c'est
+ * exactement celui qui a détenu le token de ruche, puisqu'il se recopie sur
+ * chaque machine membre. Contre le seul cas qu'elle vise, la fonctionnalité
+ * n'était donc qu'un affichage.
+ *
+ * L'échappatoire douce — « dites à l'hôte de faire tourner son token » — est
+ * INAPPLICABLE : aucune rotation n'existe ni n'est documentée, et
+ * `.env.example` l'écrit lui-même, « elle ouvre tout, POUR TOUJOURS, et ne peut
+ * être révoquée que pour tout le monde à la fois ». Conseiller un geste que le
+ * produit ne sait pas faire, c'est déplacer le problème sur l'utilisateur.
+ *
+ * C'est aussi le premier pas de la voie (c) de l'ADR 0007, déjà ACCEPTÉE comme
+ * cible : séparer le rôle d'opérateur du rôle de machine membre. L'ADR laissait
+ * ouvert « le sort du jeton partagé » ; ceci en tranche la part la plus étroite
+ * qui referme le trou.
+ *
+ * ─── CE QUE LA RÈGLE NE CASSE PAS ────────────────────────────────────────────
+ *
+ * Le déclencheur est la PREMIÈRE EXCLUSION, pas la mise à jour :
+ *
+ *   · une ruche qui n'a jamais exclu personne ne change en RIEN ;
+ *   · un nœud déjà connu garde sa porte, donc aucune machine historique ne
+ *     tombe au premier `git pull` — c'est la condition que le code se donne
+ *     depuis le début, et une mise à jour de sécurité qui casse la production
+ *     ne se déploie jamais, donc ne protège personne.
+ *
+ * Reste ouvert, ASSUMÉ et éprouvé : le porteur du token maître peut encore
+ * usurper un nodeId historique CONNU. Mais ce geste-là est VISIBLE — il
+ * remplace la connexion du titulaire, qui se voit fermer son socket en 4000.
+ *
+ * Fonction PURE : les deux faits lui sont donnés. C'est ce qui la rend
+ * éprouvable sans base ni serveur, et c'est le remède habituel du carnet
+ * (§ 2.8) contre une règle enfouie dans un chemin qu'on ne peut pas appeler.
+ */
+export function tokenMaitrePeutEnregistrer(faits: {
+  /** Ce `nodeId` a déjà été vu par la ruche (nœud connu ou clé non révoquée). */
+  nodeIdConnu: boolean;
+  /** Au moins une clé de nœud a été révoquée dans cette ruche. */
+  rucheAExclu: boolean;
+}): boolean {
+  return faits.nodeIdConnu || !faits.rucheAExclu;
+}
+
+/**
+ * Ce qu'on dit à l'opérateur quand la seconde porte se ferme.
+ *
+ * Un refus qui ne dit pas quoi faire ensuite transforme un durcissement en
+ * panne : l'hôte voit une machine neuve refusée sans comprendre que c'est SON
+ * exclusion de la semaine dernière qui a armé la règle.
+ */
+export const REFUS_TOKEN_MAITRE =
+  'ruche à exclusion active : les nouvelles machines entrent par billet';
+
 /** Borne le TTL demandé dans [1 min, TTL_BILLET_MAX_MS]. */
 export function bornerTtl(demande: number | undefined): number {
   if (typeof demande !== 'number' || !Number.isFinite(demande)) return TTL_BILLET_MS;
