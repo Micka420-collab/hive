@@ -5,6 +5,12 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+// L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
+// qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
+// lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
+// modèle choisi. Absence de modèles déclarés ⇒ `null` ⇒ aucun changement.
+import { aiguillerNoeuds, categoriser, replierAntecedents } from './aiguillage.js';
+import type { Antecedent } from './aiguillage.js';
 // La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
 // le grand livre (comptage additif) et son cache de projets sont importés ici.
 // Aucun symbole d'IMPUTATION (`peserLaRuche`, `Pesee`, `Compte`…) ne doit
@@ -1300,6 +1306,23 @@ export class Scheduler {
       traces = replierTraces(domaines, resultats, now);
       return traces;
     };
+    // Antécédents de l'Aiguillage : repliés au plus UNE fois par passe, et
+    // seulement si un nœud éligible déclare des modèles (sinon `aiguillerNoeuds`
+    // rend `null` sans même les demander — zéro lecture SQL neuve). La catégorie
+    // n'est jamais stockée : on la RECALCULE à la lecture (`categoriser`), pour
+    // que la taxonomie du jour s'applique au vécu ancien.
+    let antecedents: Map<string, Antecedent> | null = null;
+    const lireAntecedents = (): Map<string, Antecedent> => {
+      if (antecedents) return antecedents;
+      antecedents = replierAntecedents(
+        this.store.observationsAiguillage().map((o) => ({
+          categorie: categoriser(o.title, o.prompt),
+          modele: o.modele,
+          suite: o.suite,
+        })),
+      );
+      return antecedents;
+    };
     for (const task of this.store.tasksByStatus('ready')) {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
@@ -1344,14 +1367,29 @@ export class Scheduler {
             (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
         )
         .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
-      let node = eligibles[0];
+      // ─── L'Aiguillage appris : le MODÈLE, avant le nœud ──────────────────
+      // Parmi les éligibles (déjà filtrés par charge et triés), on restreint à
+      // ceux qui offrent le meilleur modèle pour le genre de la tâche. `null`
+      // (aucun éligible ne déclare de modèle) ⇒ NO-OP : on garde la liste et
+      // l'ordonnancement d'avant, phéromones comprises. La sous-liste préserve
+      // l'ordre de charge, donc le départage plus bas reste inchangé.
+      const route = aiguillerNoeuds(
+        categoriser(task.title, task.prompt),
+        eligibles,
+        lireAntecedents(),
+      );
+      const candidats = route ? route.noeuds : eligibles;
+      let node = candidats[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       // Phéromones : le critère principal « moins chargé » reste intact — elles
       // ne DÉPARTAGENT que les ex æquo à charge minimale, et seulement sur un
       // signal net (score strictement positif et sans égalité).
       let routePheromone: { domaine: Domaine; score: number } | null = null;
       const chargeMin = charge(node);
-      const exAequo = eligibles.filter((n) => charge(n) === chargeMin);
+      // Départage phéromones SUR LES CANDIDATS restreints par l'Aiguillage : un
+      // nœud écarté parce qu'il n'offre pas le modèle élu ne doit pas revenir par
+      // la porte des phéromones.
+      const exAequo = candidats.filter((n) => charge(n) === chargeMin);
       if (exAequo.length >= 2) {
         const domaine = this.cacheDomaines.domaine(task);
         const elu = meilleurNoeud(
@@ -1373,6 +1411,13 @@ export class Scheduler {
         now,
       );
       if (!assigned) continue;
+      // On enregistre le modèle COMMANDÉ (pas prouvé exécuté — l'écho du modèle
+      // effectif par le nœud est un lot ultérieur), et SEULEMENT quand
+      // l'Aiguillage a réellement choisi : jamais avant le patch (un patch raté
+      // poserait un modèle fantôme), jamais au résultat (une ré-assignation doit
+      // écraser, c'est le contrat « la dernière assignation gagne » qui aligne
+      // dernier modèle et dernier verdict).
+      if (route) this.store.poserModeleAiguillage(task.id, route.modele, now);
       if (routePheromone) {
         // Faits typés seulement (dont le NOM du nœud, que le Journal affiche) :
         // le texte bilingue est reconstruit à l'affichage.
