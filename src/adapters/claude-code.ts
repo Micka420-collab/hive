@@ -12,6 +12,21 @@ import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * Les arguments de `claude -p`, avec le modèle de l'Aiguillage en option s'il y
+ * en a un.
+ *
+ * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
+ * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
+ * prompt reste donc en TOUT DERNIER, derrière `--`. Un nom de modèle n'est pas un
+ * secret ; il part en clair, comme `--verbose`. `spawn` reçoit ce tableau tel
+ * quel (`shell: false`), donc aucun de ces mots ne passe par un shell.
+ */
+export function argvClaude(prompt: string, modele?: string): string[] {
+  const drapeauxModele = modele ? ['--model', modele] : [];
+  return ['-p', '--output-format', 'stream-json', '--verbose', ...drapeauxModele, '--', prompt];
+}
+
 export function createClaudeCodeAdapter(
   token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN,
 ): AgentAdapter {
@@ -33,7 +48,7 @@ export function createClaudeCodeAdapter(
       // Tout ce qui suit `--` est du texte. Cf. src/adapters/prompt-argv.ts.
       const result = await runCommandStreaming(
         'claude',
-        ['-p', '--output-format', 'stream-json', '--verbose', '--', task.prompt],
+        argvClaude(task.prompt, ctx.modele),
         ctx,
         (line) => {
           const subAgents = tracker.feed(line);

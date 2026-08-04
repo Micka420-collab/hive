@@ -219,6 +219,25 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
     ).toBeNull();
   });
 
+  it('accepte le modèle de l’Aiguillage dans assign_task, et le conserve', () => {
+    // Le champ que le nœud passera à `--model`. Optionnel : un hub d'avant
+    // l'Aiguillage n'en envoie pas, et le nœud emploie son modèle par défaut.
+    const avec = parseServerMessage(
+      JSON.stringify({ type: 'assign_task', task: validTask, modele: 'claude-opus-5' }),
+    );
+    expect(avec).toMatchObject({ type: 'assign_task', modele: 'claude-opus-5' });
+    const sans = parseServerMessage(JSON.stringify({ type: 'assign_task', task: validTask }));
+    expect(sans).not.toBeNull();
+    expect(sans).not.toHaveProperty('modele');
+  });
+
+  it('rejette un modèle malformé dans assign_task — tout le message tombe', () => {
+    const m = (modele: unknown) => JSON.stringify({ type: 'assign_task', task: validTask, modele });
+    expect(parseServerMessage(m('')), 'un nom vide').toBeNull();
+    expect(parseServerMessage(m('x'.repeat(200))), 'un nom démesuré').toBeNull();
+    expect(parseServerMessage(m(42)), 'pas une chaîne').toBeNull();
+  });
+
   it('rejette cancel_task sans taskId valide', () => {
     expect(parseServerMessage(JSON.stringify({ type: 'cancel_task', reason: 'x' }))).toBeNull();
     expect(

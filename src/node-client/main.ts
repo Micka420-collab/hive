@@ -12,6 +12,7 @@ import {
 import type { AgentType } from './agent-detect.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
+import { parseModeles } from './modeles.js';
 
 try {
   process.loadEnvFile('.env');
@@ -20,6 +21,9 @@ try {
 }
 
 const maxConcurrency = Number.parseInt(process.env.HIVE_MAX_CONCURRENCY ?? '2', 10);
+
+// Les modèles déclarés par l'opérateur pour l'Aiguillage appris, sanitisés.
+const modelesDeclares = parseModeles(process.env.HIVE_MODELES);
 
 // L'agent réel doit retrouver sa config/clé API dans la sandbox ; on fusionne
 // avec un éventuel HIVE_KEEP_ENV explicite. Le shell simulé ne reçoit rien.
@@ -91,6 +95,8 @@ const client = new HiveNodeClient({
   maxConcurrency: Number.isInteger(maxConcurrency) ? Math.min(Math.max(maxConcurrency, 1), 16) : 2,
   workRoot: process.env.HIVE_WORKDIR,
   keepEnv: variables,
+  // Les modèles que l'opérateur déclare (HIVE_MODELES), pour l'Aiguillage appris.
+  ...(modelesDeclares ? { modeles: modelesDeclares } : {}),
   ...optionBac(bac, variables),
 });
 

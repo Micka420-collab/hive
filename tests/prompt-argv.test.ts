@@ -34,13 +34,12 @@ describe('les adaptateurs à CLI connue posent le terminateur `--`', () => {
   it('claude-code : le prompt est le DERNIER argument, derrière `--`', () => {
     const src = lire('../src/adapters/claude-code.ts');
     // La forme exacte compte : `--` doit précéder immédiatement le prompt, et
-    // toutes les options doivent être avant. L'ordre d'origine
-    // (`-p, task.prompt, --output-format, …`) est précisément celui qui laissait
-    // la CLI lire le prompt comme une option.
-    expect(src).toContain("'--verbose', '--', task.prompt");
-    expect(src, "le prompt ne doit plus suivre '-p' directement").not.toContain(
-      "'-p', task.prompt",
-    );
+    // TOUTES les options doivent être avant — y compris `--model` de l'Aiguillage.
+    // La construction vit maintenant dans `argvClaude` (pur) : `...drapeauxModele`
+    // (les options du modèle) PUIS `--` PUIS le prompt. Cet ordre précis est ce
+    // qui empêche le prompt — ou un nom de modèle — d'être lu comme une option.
+    expect(src).toContain("...drapeauxModele, '--', prompt");
+    expect(src, "le prompt ne doit plus suivre '-p' directement").not.toContain("'-p', prompt");
   });
 
   it('codex : `--` sépare la sous-commande du prompt', () => {

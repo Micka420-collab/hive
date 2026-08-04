@@ -216,6 +216,15 @@ s'authentifie tout seul. Aucune clé d'API, d'Anthropic ou d'ailleurs, n'est
 requise pour faire travailler la ruche — voir
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
 
+**L'Aiguillage appris** choisit, parmi les modèles qu'un nœud sait faire tourner,
+celui qui a fait le mieux sur le genre de la tâche (idéation, correction, test…),
+et il n'arrête jamais d'essayer les autres. Déclarez les modèles de votre nœud
+avec `HIVE_MODELES` (liste séparée par des virgules, ex.
+`HIVE_MODELES=claude-opus-5,claude-fable-5`) : la ruche teste, retient le meilleur
+par genre, et réutilise. Absent, rien ne change — le nœud est ordonnancé comme
+avant. Le nom du modèle voyage en clair (ce n'est pas un secret) et part en
+argument `--model` au binaire.
+
 Le **polyéthisme** confie à chaque ouvrière le travail que son expérience
 permet, et le **Conseil des Éclaireuses** fait vérifier une direction par
 plusieurs agents avant de s'y engager — une danse que personne ne reprend

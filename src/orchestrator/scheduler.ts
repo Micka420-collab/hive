@@ -59,7 +59,7 @@ export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
   /** Appelé quand une tâche est assignée — le serveur pousse alors `assign_task` au nœud. */
-  onAssign?: (nodeId: string, task: Task) => void;
+  onAssign?: (nodeId: string, task: Task, modele?: string) => void;
   /** Appelé pour annuler le travail d'un nœud (drone perdant) — le serveur envoie `cancel_task`. */
   onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
@@ -1024,7 +1024,8 @@ export class Scheduler {
     this.races.set(taskId, race);
     this.emit('drone_race_started', { taskId, factor: race.factor, drones: launch });
     this.emit('task_assigned', { taskId, nodeId: primary, branch: assigned.branch });
-    for (const droneId of launch) this.opts.onAssign?.(droneId, assigned);
+    // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
+    for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
   }
 
@@ -1482,7 +1483,8 @@ export class Scheduler {
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
       // sans réécrire le prompt persisté de la tâche.
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
-      this.opts.onAssign?.(node.id, assigned);
+      // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
+      this.opts.onAssign?.(node.id, assigned, route?.modele);
       activeNow.push(assigned); // les tâches suivantes tiennent compte de celle-ci
     }
   }
