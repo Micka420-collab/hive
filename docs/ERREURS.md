@@ -3052,6 +3052,56 @@ structurelle, la correction ne serait pas TENUE (§ 2 sexdecies).
 
 ---
 
+## 2 quatervicies. Une garde de SOURCE qui ne retire pas les commentaires accepte du code mort
+
+Écrite pendant l'audit d'avant-sortie, une garde devait tenir la doctrine des
+bornes : _toute table arrive avec son élagueur, et l'élagueur est CÂBLÉ_. Elle
+cherchait donc, dans `server.ts` :
+
+```ts
+const jamaisAppeles = [...elagueurs()].filter((nom) => !SERVEUR.includes(`store.${nom}(`));
+```
+
+Rejeu, forme exacte du défaut historique : on commente l'appel à `pruneTasks`.
+
+**La garde est restée VERTE.** Le texte `store.pruneTasks(` était toujours là —
+simplement mort. `includes()` sur la source BRUTE ne distingue pas une ligne
+qui s'exécute d'une ligne qu'on a mise entre parenthèses.
+
+**Pourquoi c'est le pire des cas de figure.** Commenter un appel est le geste le
+plus courant d'un débogage — et celui qu'on oublie le plus souvent de défaire.
+La garde rassurait donc précisément à l'instant où la borne venait d'être
+désactivée à la main. Une garde qui couvre le cas rare (suppression) et manque
+le cas fréquent (mise en commentaire) est moins qu'inutile : elle donne un
+sentiment de sûreté sur le mauvais scénario.
+
+**La règle.** Toute garde qui juge du CODE en lisant du TEXTE retire d'abord les
+commentaires — comme le fait déjà la garde des sondes sans secret :
+
+```ts
+function sansCommentaires(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !/^\s*(?:\/\/|\*)/.test(l))
+    .join('\n');
+}
+```
+
+**Et la leçon de méthode qui compte plus que la règle.** Ce défaut n'a pas été
+trouvé en relisant : il a été trouvé parce que la garde neuve a été REJOUÉE
+contre le défaut qu'elle prétendait attraper, avant d'être livrée. Une garde
+qu'on n'éprouve pas est une hypothèse, et celle-ci était fausse. C'est le
+pendant exact de « un test qui ne peut pas rougir est du décor » — appliqué aux
+gardes structurelles, qu'on a d'autant plus tendance à croire sur parole
+qu'elles ont l'air d'être du contrôle plutôt que du test.
+
+Cousine de § 2 octodecies (la substitution qui frappe le commentaire au lieu du
+code) : dans les deux cas, la prose et la logique se ressemblent trop pour qu'un
+outil textuel les distingue tout seul.
+
+---
+
 ## 2 duovicies. Une suite qui fuit des processus finit par se faire mentir elle-même
 
 Relevé pris cette nuit sur le conteneur, en cherchant pourquoi un balayage

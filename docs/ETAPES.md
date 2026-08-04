@@ -2786,3 +2786,63 @@ touches ne mènent jamais au même endroit.
 Les deux gardes d'entrée sont éprouvées avec le reste : taper « jk » dans un
 champ ne doit pas faire défiler la file sous l'utilisateur, et `Ctrl+J`
 appartient au navigateur.
+
+---
+
+## Tâche #62 — audit d'avant-sortie, premier registre
+
+L'audit commence par les deux points ouverts nommés au carnet, et les mesure
+plutôt que de les supposer.
+
+### 1. `getSnapshot()` sans LIMIT — FERMÉ
+
+`getSnapshot(limite = LIMITE_TACHES_INSTANTANE)` : la borne existe et porte sa
+valeur par défaut. Rien à faire.
+
+### 2. La table `tasks` sans élagueur — FERMÉ, et vérifié à trois niveaux
+
+- les **13** élagueurs définis dans le magasin sont tous invoqués par
+  `server.ts` (comparaison exhaustive définis / appelés : aucun écart) ;
+- **toutes** les tables créées sont bornées, ou bornées par un geste humain ;
+- `pruneResults` fait exception à la forme : il ne SUPPRIME pas, il ALLÈGE
+  (`diff` et `logs` vidés, le fait daté conservé). Un relevé naïf le comptait
+  comme « n'élague rien » et déclarait `results` sans borne — c'était faux, et
+  lire le corps de la méthode l'a montré avant que ça ne devienne une trouvaille
+  imaginaire.
+
+### 3. La trouvaille : la doctrine n'était tenue que par la discipline
+
+La règle est écrite noir sur blanc au-dessus de la boucle d'élagage — _« une
+table nouvelle arrive avec sa borne, et la borne est CÂBLÉE, pas seulement
+écrite »_ — et elle a déjà cédé DEUX FOIS, de deux façons distinctes : trois
+bornes écrites jamais appelées (lot 46), puis une table sans aucune borne
+(`tasks`). Une garde qui ne vérifierait que l'un des deux cas n'aurait pas vu
+l'autre.
+
+`tests/bornes-doctrine.test.ts` vérifie les deux, plus trois propriétés de la
+liste d'exceptions elle-même : aucune exception ne survit à sa table, chacune
+porte un MOTIF lisible (pas un `TODO`), et un compteur empêche la garde de
+devenir verte à vide.
+
+Le choix d'une liste d'exceptions _avec motif_ plutôt qu'une règle absolue est
+délibéré : toutes les tables n'ont pas à être élaguées, et l'exiger rendrait la
+garde fausse — donc contournée. Ce qui distingue les deux familles n'est pas la
+taille mais la CAUSE de la croissance : sous le geste d'un humain, ou sous la
+machine. L'exception force à trancher la question au lieu de l'oublier.
+
+### 4. La garde neuve portait le vice qu'elle traque
+
+Rejouée contre le défaut du lot 46 — on COMMENTE l'appel à `pruneTasks` — elle
+est restée **verte** : elle cherchait `store.pruneTasks(` dans la source brute,
+et le texte était toujours là, simplement mort.
+
+C'est le pire des cas de figure : commenter un appel est le geste le plus
+courant d'un débogage, et celui qu'on oublie le plus de défaire. La garde
+rassurait donc exactement à l'instant où la borne venait d'être désactivée à la
+main. Corrigée par un retrait des commentaires ; rejouée sous ses DEUX formes —
+appel commenté, appel supprimé — **rouge les deux fois**.
+
+La leçon vaut plus que la garde, et elle est au carnet (§ 2 quatervicies) : une
+garde structurelle qu'on n'éprouve pas est une hypothèse, et on la croit
+d'autant plus volontiers sur parole qu'elle a l'air d'être du contrôle plutôt
+que du test.
