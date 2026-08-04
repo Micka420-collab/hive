@@ -4082,3 +4082,47 @@ compromis appris → leger, bornes respectées → jamais hors {min,max}, le REF
 l'échelon et pas le mode global). Mutations rejouées rouges. **Reste** : G4b
 (Polyéthisme + exigence → l'apprentissage démarre), G4c (course de drones), G5
 (protocole/tableau).
+
+### Lot G4b livré : le Polyéthisme + l'exigence côté livraison (l'apprentissage démarre)
+
+L'ACTIVATION, seconde moitié — et c'est ELLE qui ferme la boucle d'apprentissage.
+En G4a, tout projet opt-in restait à `strict` faute d'observations repliables. G4b
+range l'EXIGENCE, ce qui rend les productions repliables : le bandit apprend enfin.
+
+Dans `server.ts`, au point de décision de livraison (`contreVisiteAutorise`, appelé
+par `aLivrer`) :
+
+- `polyethismeDe(task)` — le jumeau server de `modeGardiennesDe` : échelon posé ?
+  `REGLAGES[echelon].polyethisme` : mode global. Les DEUX modes d'une production
+  viennent donc du MÊME échelon posé.
+- Le court-circuit global `polyethismeEnVigueur() !== 'strict'` devient
+  `polyethismeDe(task) !== 'strict'` : un projet opt-in en `strict` ATTEINT la
+  contre-visite même sous un hive global `consignes` (sans quoi la sévérité
+  choisie n'aurait aucun effet).
+- L'EXIGENCE est RANGÉE pour toute production d'un projet opt-in :
+  `dispensee` si l'échelon n'est pas strict (branché AVANT le gate, sinon les
+  productions `leger`/`standard` — dispensées de contre-visite — n'auraient jamais
+  d'exigence et resteraient en vol à vie), sinon `exigee = exigeContreVisite(...)`.
+  `INSERT OR REPLACE` : rejoué à chaque passe, la dernière décision (au moment de
+  livrer) gagne, motif de la doctrine des Gardiennes.
+
+Banc `garde-fou-livraison.test.ts` : 2 tests via un GET SYNCHRONE sur `/essaim`
+(runner éteint → aucun tick, aucun intermittent § 9 ; aucun GitHub, aucun réseau —
+`etatEssaim` ne fait que COMPTER, et ce comptage passe par `aLivrer →
+contreVisiteAutorise`). LEGER : la production passe d'EN VOL à REPLIABLE, exigence
+`dispensee` rangée. STRICT : la contre-visite est atteinte malgré le global
+consignes, exigence `exigee` rangée (nœud nourrice). Mutations rejouées rouges.
+
+**Bornes de ce lot, dites honnêtement.** Le cadre de prompt (`construireCadre`,
+server ~1132) garde son gate global `polyethismeEnVigueur() === 'off'` : le texte
+du cadre est IDENTIQUE entre `consignes` et `strict` (seule la contre-visite les
+sépare), donc un projet opt-in reçoit déjà son cadre tant que le global n'est pas
+`off` ; le seul trou (global `off` + opt-in) est un réglage rare, laissé à un lot
+ultérieur avec la course de drones (G4c). **Reste** : G4c (course de drones —
+second REFUS + pose côté drone), G5 (protocole / tableau de bord).
+
+La boucle est CÂBLÉE de bout en bout sur la voie principale : le projet opt-in →
+la ruche élit un échelon dans ses bornes (G4a) → la production est gouvernée
+(Gardiennes G4a + Polyéthisme G4b) → l'exigence et le verdict sont rangés → la
+contre-visite juge → `observationsGardeFou` replie → le bandit apprend, et
+n'arrête jamais d'explorer.

@@ -188,6 +188,10 @@ import {
   trancher,
 } from './polyethisme.js';
 import type { Caste, ModePolyethisme } from './polyethisme.js';
+// L'Agent Garde-Fous : le POLYÉTHISME d'une production suit l'échelon POSÉ pour
+// sa tâche (projet opt-in), pas le seul mode global — et l'EXIGENCE constatée est
+// rangée, ce qui rend l'observation repliable (le bandit apprend).
+import { REGLAGES, versEchelon } from './garde-fou.js';
 import { askConcierge } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -1110,6 +1114,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   /** Mode réellement en vigueur : `off` si les Gardiennes n'inspectent rien. */
   const polyethismeEnVigueur = (): ModePolyethisme =>
     modeEffectif(modePolyethismeDemande, scheduler.gardiennes.mode !== 'off');
+
+  /**
+   * Le POLYÉTHISME qui gouverne UNE production. Si l'Agent Garde-Fous a posé un
+   * échelon pour cette tâche (projet opt-in), c'est la sévérité de cet échelon
+   * (`REGLAGES[echelon].polyethisme`, jamais `off`) qui prime — le jumeau server
+   * de `modeGardiennesDe`, pour que les deux modes d'une production viennent du
+   * MÊME échelon posé. Sinon, le mode global. On lit l'échelon POSÉ, jamais on ne
+   * re-élit : le mode qui JUGE est celui qui a GOUVERNÉ.
+   */
+  const polyethismeDe = (task: Task): ModePolyethisme => {
+    const brut = store.getEchelonGardeFou(task.id);
+    const echelon = brut === null ? null : versEchelon(brut);
+    return echelon ? REGLAGES[echelon].polyethisme : polyethismeEnVigueur();
+  };
 
   const casteDe = (nodeId: string, now = Date.now()): Caste => {
     if (!castesMemo || now - castesMemo.calculeA >= GARDIENNES_TTL_MS) {
@@ -2460,7 +2478,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     task: Task,
     inspections: readonly LigneGardienne[],
   ): { ok: boolean; motif: string } => {
-    if (polyethismeEnVigueur() !== 'strict') return { ok: true, motif: 'polyéthisme non strict' };
+    // Le POLYÉTHISME suit l'échelon du projet (opt-in), pas le seul mode global :
+    // un projet en « strict » atteint la contre-visite même sous un hive global
+    // « consignes ». Et `optIn` (échelon posé) commande le RANGEMENT de l'exigence.
+    const poly = polyethismeDe(task);
+    const optIn = store.getEchelonGardeFou(task.id) !== null;
+
+    if (poly !== 'strict') {
+      // Aucune contre-visite sous cet échelon : la production passe. Mais si le
+      // projet est opt-in, on RANGE que la contre-visite était DISPENSÉE — c'est
+      // ce fait daté qui rend l'observation REPLIABLE (traversée `directe`). Sans
+      // lui, toute production « leger »/« standard » resterait en vol pour
+      // toujours, et le bandit n'apprendrait jamais rien d'autre que « strict ».
+      if (optIn) store.poserExigenceGardeFou(task.id, false);
+      return { ok: true, motif: 'polyéthisme non strict' };
+    }
 
     // `casteDe` plutôt qu'une seconde carte : elle est mémoïsée avec le TTL des
     // Gardiennes, et surtout elle tient LA règle qui compte — un nœud sans
@@ -2487,6 +2519,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       verdict: inspection?.verdict ?? 'clean',
       chemins: fichiersTouches(dernier?.diff ?? ''),
     });
+    // Opt-in : on RANGE l'exigence CONSTATÉE (exigee/dispensee) — le fait daté,
+    // pris à l'instant où la caste vive est interrogée, qui fait apprendre le
+    // bandit. `INSERT OR REPLACE` : rejoué à chaque passe, la dernière décision
+    // (celle du moment de livrer) gagne, comme le veut la doctrine des Gardiennes.
+    if (optIn) store.poserExigenceGardeFou(task.id, exigee);
 
     const cv = store.contreVisiteDe(task.id);
     const verdict = trancher({
