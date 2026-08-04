@@ -96,6 +96,23 @@ export default defineConfig({
       HIVE_JWT_SECRET: 'secret-de-session-des-tests-pas-un-secret-reel',
     },
     testTimeout: 20_000,
+    // ─── LA COUVERTURE, MESURABLE EN UNE COMMANDE ────────────────────────────
+    //
+    // Elle ne l'était pas : le seul chiffre connu (62,31 % de lignes) datait du
+    // 3 août à midi, avait été obtenu à la main, et neuf lots de tests de vues
+    // l'ont périmé dans la journée. Un chiffre qu'on ne peut pas relancer
+    // devient une opinion datée — c'est la règle du carnet, appliquée à
+    // l'instrument qui la mesure.
+    //
+    // `npm run couverture` rend le même total à chaque exécution : v8 compte
+    // ce que le processus exécute, sans échantillonnage.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'dashboard/src/**/*.{ts,tsx}'],
+      exclude: ['**/*.d.ts', 'dashboard/src/main.tsx'],
+      reporter: ['text-summary', 'json-summary'],
+      reportsDirectory: 'coverage',
+    },
     // Le MÊME plafond que ci-dessus : c'est le hook qui monte le serveur et
     // efface l'arborescence, donc le travail lourd est ici. Les laisser
     // diverger, c'est donner 20 s pour interroger un serveur et 10 pour le

@@ -170,6 +170,46 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Trente-et-unième lot — LA COUVERTURE, RE-MESURÉE ET REPRODUCTIBLE** (nuit,
+02 h 30 → 02 h 45 UTC, lots 6 et 10 de la file).
+
+D'abord le lot 6, la désinstallation : ses deux gardes — la résolution du
+chemin parent en absolu (celle qui empêche un nom hostile de sortir du
+dossier balayé) et l'aiguillage chemin-unique / balayage-par-préfixe — sont
+**déjà tenues**. Sondées contre la SUITE ENTIÈRE cette fois, pas contre un
+fichier choisi au nom : 3 rouges pour la première, 5 pour la seconde. Rien à
+faire, et c'est le résultat.
+
+Puis le lot 10. Le seul chiffre de couverture connu — 62,31 % de lignes —
+datait du 3 août à MIDI, avait été obtenu à la main, et neuf lots de tests de
+vues l'ont périmé dans la journée qui a suivi. Un chiffre qu'on ne peut pas
+relancer devient une opinion datée. `npm run couverture` existe désormais
+(bloc `coverage` dans la config vitest, fournisseur v8 déjà présent) et rend
+**exactement le même total à deux exécutions d'affilée** — c'est la seule
+preuve qui compte pour un instrument de mesure :
+
+|              | 3 août midi | 4 août 02 h 40               |
+| ------------ | ----------- | ---------------------------- |
+| lignes       | 62,31 %     | **73,05 %** (8 634 / 11 819) |
+| branches     | 56,48 %     | **66,44 %** (6 929 / 10 428) |
+| fonctions    | —           | **71,09 %** (2 041 / 2 871)  |
+| instructions | —           | **71,87 %** (9 811 / 13 651) |
+
+**Onze fichiers restent à 0 %**, et le carnet les nomme plutôt que de les
+laisser dans un rapport que personne ne rouvre : `cli.ts` (728 lignes — il
+est exercé en sous-processus, invisible pour v8, mais son dispatch a
+désormais son banc), `SwarmView3D.tsx` (226 — du canevas WebGL),
+`installer-main.ts` (116), `node-client/join.ts` (107), `demo.ts` (93),
+`CodeEditor.tsx` (41), les trois `main.ts` d'entrée (29+29+14), `Partage.tsx`
+(22), `ConflictsPanel.tsx` (15). Et dix fichiers sous 40 %, dont
+`Cerveau.tsx` (18,9 % — le canevas, encore), `dashboard/src/api.ts` (26,6 %)
+et `NewProjectModal.tsx` (3,4 %).
+
+Le chiffre n'est PAS un objectif : c'est une carte des angles morts. Le
+verdict qui compte reste celui du balayage par mutation — 34 % de survivantes
+sur l'échantillon du soir — parce qu'il dit ce qui est GARDÉ, là où la
+couverture ne dit que ce qui est EXÉCUTÉ.
+
 **Trentième lot — la fenêtre de l'instantané : RIEN à faire, et c'est le
 résultat** (nuit, 01 h 55 → 02 h 20 UTC, lot 9 de la file). Les deux gardes
 visées — la clause d'ordre qui garde les tâches VIVANTES anciennes dans la
