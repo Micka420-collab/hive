@@ -2613,3 +2613,49 @@ d'erreur était visible ; sans lui, deux tests inutiles auraient été écrits. 
 correctif est le même qu'au § 2 octodecies : le script de mutation doit
 VÉRIFIER que la ligne a changé (`assert l[i] != avant`) avant de lancer quoi
 que ce soit.
+
+---
+
+## Les Gardiennes accusaient la mauvaise machine
+
+Survivante du balayage : `snapshot.nodes.find((n) => n.id === nodeId)` dans la
+vue Santé. Trois fichiers portent pourtant « gardiennes » dans leur nom — ils
+éprouvent l'inspection, son endpoint et son câblage, jamais ce que l'écran en
+RACONTE. Deuxième fois cette nuit qu'un nom de fichier rassurant cache un angle
+mort d'affichage (après `honeycomb.test.ts`).
+
+Le code disait déjà l'enjeu, à l'endroit exact :
+
+> Le NOM du nœud, pas son identifiant : « 3f2a-… » ne dit à personne sur qui il
+> hésite à compter.
+
+C'est une ACCUSATION affichée à un humain : cette machine-là a rendu du travail
+creux. Mutée, `find` rend le premier nœud qui N'EST PAS celui-là — la ruche
+accuse nommément la mauvaise machine, dans l'écran fait pour décider à qui l'on
+confie du travail.
+
+**Ce qui rend ce défaut particulièrement difficile à voir** : l'écran reste
+parfaitement cohérent. Un nom réel, un verdict réel, un grief réel. Seul le LIEN
+entre eux est faux — et rien à l'écran ne peut le trahir. C'est le contraire
+d'un plantage : c'est une phrase bien formée qui dit le contraire du vrai.
+
+Le repli `?? nodeId` compte aussi : un nœud parti de la ruche n'est plus dans
+l'instantané, et doit rendre son identifiant brut. Afficher une chaîne vide
+laisserait un grief sans coupable ; afficher le nom du voisin accuse quelqu'un
+à sa place. Le silence est le moindre mal, l'erreur nommée le pire.
+
+| mutation                        | verdict  |
+| ------------------------------- | -------- |
+| `n.id === nodeId` → `!==`       | 3 rouges |
+| repli `?? nodeId` → chaîne vide | 1 rouge  |
+
+La fixture met le nœud accusé en SECOND exprès : mutée, la recherche rend le
+premier de la liste, donc l'innocent — il faut donc qu'il existe et qu'il soit
+distinct pour que le contraste juge.
+
+**Au passage, une sonde oubliée.** Le premier jet ne simulait que
+`fetchGardiennes` ; les quatre autres sondes de l'écran partaient réellement sur
+le réseau (`ECONNREFUSED 127.0.0.1:3000` dans la sortie). Le banc passait quand
+même — mais il dépendait de la machine qui l'exécute, et il payait un aller-
+retour réseau à chaque montage. Toutes les sondes de l'écran sont désormais
+simulées, pas seulement celle qu'on juge.
