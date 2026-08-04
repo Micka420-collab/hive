@@ -3150,3 +3150,65 @@ après `pruneResults`, et pour la même raison.
 Deux défauts de fond trouvés, tous deux **prouvés en exécutant** avant d'être
 corrigés, et tous deux de la même famille : une règle écrite que rien
 n'appliquait.
+
+## Tâche #64 — l'installeur : ce qui était déjà là, et le seul défaut trouvé
+
+### Ce qui n'a PAS été touché, et pourquoi
+
+L'identité de l'installeur existe déjà, et elle est solide. Rendue aux quatre
+niveaux de capacité pour la juger — en la REGARDANT, pas en lisant son code :
+
+| capacité          | ce qui s'affiche                                          |
+| ----------------- | --------------------------------------------------------- |
+| 24 bits           | la marque en lettres de blocs, dégradé miel ligne à ligne |
+| 256 couleurs      | le titre d'une ligne, `⬡  H I V E`                        |
+| sans couleur      | idem, sans teinte                                         |
+| ASCII 50 colonnes | `<>  H I V E — …`, tronqué proprement                     |
+
+La marque est **volontairement** réservée au 24 bits, et le banc qui le tient
+porte sa raison : « sans dégradé, trois lignes de blocs pleins ne sont pas une
+marque : c'est un mur d'ambre au-dessus des prérequis, qui sont la seule chose
+à lire ». J'ai rendu la marque en 256 couleurs et en monochrome pour vérifier :
+c'est **exact**, l'aplat ambre est un mur.
+
+C'est donc une décision d'édition, motivée et éprouvée. La rouvrir pendant que
+l'utilisateur dort n'est pas mon rôle — même famille que le nombre de sections
+de la vitrine.
+
+### Le défaut, lui, est réel : la légende des codes de sortie mentait
+
+`codes-sortie.ts` le dit de lui-même : ces codes sont une **interface
+publique**, « les changer casse les scripts de quelqu'un ». La légende qui les
+explique dans `--help` est la partie de cette interface qu'un humain lit.
+
+Elle était écrite **à la main, mot pour mot, dans deux fichiers** — et les deux
+copies avaient déjà dérivé, du même côté : **six codes annoncés sur sept**.
+
+`ERREUR` (1) manquait. C'est le fourre-tout, celui qu'un script rencontre le
+plus souvent après `0`. Quelqu'un dont l'installation rendait `1` lisait
+`--help` et n'y trouvait rien : ni le sens du code, ni même son existence.
+
+La table `SENS` était là, dans le même fichier, et disait la vérité pour les
+sept. **Personne ne s'en servait.** C'est le motif de la nuit une fois de plus :
+la règle est écrite, et ce qui s'affiche est une copie.
+
+`legendeCodes()` la dérive de `CODE` + `SENS`, et les deux aides l'appellent.
+
+### Mutations — sept passées, sept rouges
+
+| mutation                                                    | verdict  |
+| ----------------------------------------------------------- | -------- |
+| **le défaut d'origine** : le code 1 disparaît               | 1 rouge  |
+| la légende devient vide                                     | 3 rouges |
+| les numéros sans leur sens                                  | 2 rouges |
+| les sens sans leur numéro                                   | 1 rouge  |
+| une aide réécrit la légende à la main (`installer.ts`)      | 1 rouge  |
+| une aide cesse d'appeler la légende                         | 1 rouge  |
+| une aide réécrit la légende à la main (`installer-main.ts`) | 1 rouge  |
+
+Les trois dernières rejouent la garde **structurelle** contre le geste qu'elle
+prétend attraper, sous ses deux formes et sur les deux fichiers — la leçon
+§ 2 quatervicies, appliquée d'emblée cette fois plutôt qu'après coup.
+
+Le contrat des codes n'est pas modifié : aucun numéro ne bouge, aucun n'est
+ajouté. Seul l'affichage cesse d'en oublier un.

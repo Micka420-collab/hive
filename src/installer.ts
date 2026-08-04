@@ -25,7 +25,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { PORT_DASHBOARD_DEV } from './assistant.js';
-import { CODE } from './codes-sortie.js';
+import { legendeCodes } from './codes-sortie.js';
 import { LONGUEUR_MIN_SECRET_JWT, SECRET_JWT_INTERDIT } from './orchestrator/auth.js';
 import { NODE_MINIMUM } from './shared/doctor.js';
 import { MIN_TOKEN_LENGTH } from './shared/types.js';
@@ -349,9 +349,7 @@ export function conseilServeur(): string[] {
     '  Les secrets passent par l’environnement, jamais en argument : `/proc/*/cmdline`',
     '  et l’historique du shell sont lisibles par d’autres.',
     '',
-    `  Codes de sortie : 0 succès · ${CODE.PREREQUIS} prérequis · ` +
-      `${CODE.REPONSE_MANQUANTE} réponse manquante · ${CODE.PORT_OCCUPE} port occupé · ` +
-      `${CODE.REFUS_SECURITE} refus de sécurité · ${CODE.INTERROMPU} interrompu.`,
+    `  ${legendeCodes()}`,
   ];
 }
 

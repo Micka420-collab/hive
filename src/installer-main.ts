@@ -23,7 +23,7 @@ import { createServer } from 'node:net';
 import path from 'node:path';
 import { analyser, nonInteractif, type Forme } from './args.js';
 import { type ReglagePropose } from './assistant.js';
-import { CODE } from './codes-sortie.js';
+import { CODE, legendeCodes } from './codes-sortie.js';
 import { MODE_SECRET, ecrireAtomique } from './ecriture-atomique.js';
 import { assistant } from './installer-assistant.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
@@ -75,9 +75,7 @@ const AIDE = [
   '  --json              sortie machine, pour Ansible ou un Makefile',
   '  --help              cette aide',
   '',
-  `  Codes de sortie : 0 succès · ${CODE.PREREQUIS} prérequis · ` +
-    `${CODE.REPONSE_MANQUANTE} réponse manquante · ${CODE.PORT_OCCUPE} port occupé · ` +
-    `${CODE.REFUS_SECURITE} refus de sécurité · ${CODE.INTERROMPU} interrompu.`,
+  `  ${legendeCodes()}`,
 ];
 
 // `ecrireAtomique` vit dans `src/ecriture-atomique.ts` : ce fichier-ci
