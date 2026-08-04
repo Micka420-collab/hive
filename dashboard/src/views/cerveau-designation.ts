@@ -42,6 +42,33 @@ export interface TailleNote {
   degre: number;
 }
 
+/** La part d'une note dont dépend sa « chaleur » — son ancienneté d'usage. */
+export interface NoteServie {
+  /** Jours depuis le dernier usage, ou `null` si elle n'a JAMAIS servi. */
+  serviIlYaJours: number | null;
+}
+
+/** Au-delà de ce nombre de jours sans usage, une note est froide (chaleur 0). */
+export const FENETRE_CHALEUR_JOURS = 30;
+
+/**
+ * La « chaleur » d'une note, entre 0 et 1 : 1 si elle vient de servir, et elle
+ * décroît linéairement jusqu'à 0 sur `FENETRE_CHALEUR_JOURS` jours.
+ *
+ * `null` (JAMAIS servie) et `0` (servie AUJOURD'HUI) sont aux deux extrêmes — et
+ * les confondre est précisément le défaut que cet écran existe pour éviter :
+ * `null` rend 0 (du savoir dormant), là où 0 jour rend 1 (du savoir vif). Sans
+ * la garde, `null` glisserait dans l'arithmétique (`null / 30 === 0`) et une note
+ * jamais touchée s'afficherait aussi chaude qu'une note servie à l'instant.
+ *
+ * Le plancher `Math.max(0, …)` empêche une horloge en avance (ancienneté > 30)
+ * de produire une chaleur NÉGATIVE, qui inverserait le halo au lieu de l'éteindre.
+ */
+export function chaleur(n: NoteServie): number {
+  if (n.serviIlYaJours === null) return 0;
+  return Math.max(0, 1 - n.serviIlYaJours / FENETRE_CHALEUR_JOURS);
+}
+
 /** Un corps posé sur la scène — la part que la désignation touche. */
 export interface CorpsPointable {
   id: string;

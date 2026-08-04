@@ -48,7 +48,7 @@ import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './cerveau.css';
 import { rappelerAuCentre } from './cerveau-physique';
-import { corpsSousLePoint, estEteinte, rayon } from './cerveau-designation';
+import { chaleur, corpsSousLePoint, estEteinte, rayon } from './cerveau-designation';
 
 /** Une couleur par genre — l'ordre des genres EST leur priorité. */
 const COULEUR: Record<string, string> = {
@@ -82,19 +82,9 @@ interface Corps {
 
 // Le rayon d'une note vit désormais dans `cerveau-designation.ts` avec le test
 // de proximité qui s'en sert : les deux règles se jugent ensemble, hors du
-// canevas où rien ne s'exécute sous banc.
-
-/**
- * La « chaleur » d'une note : 1 si elle vient de servir, 0 si jamais.
- *
- * `null` (jamais servie) et 0 jour (servie aujourd'hui) sont aux deux
- * extrêmes — les confondre ferait passer du savoir dormant pour actif, ce que
- * cet écran existe précisément pour éviter.
- */
-function chaleur(n: NoeudGraphe): number {
-  if (n.serviIlYaJours === null) return 0;
-  return Math.max(0, 1 - n.serviIlYaJours / 30);
-}
+// canevas où rien ne s'exécute sous banc. `chaleur` (ancienneté → 0..1) a
+// rejoint `cerveau-designation.ts`, aux côtés de `rayon` : une garde survivante
+// du balayage, sortie de la boucle de dessin pour s'éprouver au point près.
 
 /** Le système demande-t-il moins de mouvement ? */
 function mouvementReduit(): boolean {

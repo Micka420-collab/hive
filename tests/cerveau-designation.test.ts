@@ -24,8 +24,10 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  chaleur,
   corpsSousLePoint,
   estEteinte,
+  FENETRE_CHALEUR_JOURS,
   MARGE_DOIGT,
   rayon,
   type CorpsPointable,
@@ -151,5 +153,29 @@ describe('ce qui reste allumé', () => {
     const seule = new Set<string>();
     expect(estEteinte('choisie', 'choisie', seule)).toBe(false);
     expect(estEteinte('autre', 'choisie', seule)).toBe(true);
+  });
+});
+
+describe('chaleur — le savoir dormant et le savoir vif ne se confondent pas', () => {
+  it('JAMAIS SERVIE (null) VAUT 0 — c’est du savoir dormant, pas du savoir frais', () => {
+    // LE cœur : `null` n'est pas « 0 jour ». Sans la garde, `null / 30 === 0`
+    // rendrait 1, et une note jamais touchée brillerait comme une note servie à
+    // l'instant — l'exact contraire de ce que l'écran veut montrer.
+    expect(chaleur({ serviIlYaJours: null })).toBe(0);
+  });
+
+  it('SERVIE AUJOURD’HUI (0 jour) VAUT 1 — le maximum, à l’opposé de « jamais »', () => {
+    expect(chaleur({ serviIlYaJours: 0 })).toBe(1);
+  });
+
+  it('DÉCROÎT LINÉAIREMENT sur la fenêtre — la moitié de la fenêtre vaut la moitié', () => {
+    expect(chaleur({ serviIlYaJours: FENETRE_CHALEUR_JOURS / 2 })).toBeCloseTo(0.5, 10);
+    expect(chaleur({ serviIlYaJours: FENETRE_CHALEUR_JOURS })).toBe(0);
+  });
+
+  it('AU-DELÀ DE LA FENÊTRE, PLANCHER À 0 — jamais de chaleur NÉGATIVE', () => {
+    // Une ancienneté supérieure à la fenêtre (horloge en avance, ou note très
+    // vieille) ne doit pas inverser le halo : `Math.max(0, …)` tient le plancher.
+    expect(chaleur({ serviIlYaJours: FENETRE_CHALEUR_JOURS * 2 })).toBe(0);
   });
 });
