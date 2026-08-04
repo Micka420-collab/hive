@@ -764,6 +764,57 @@ export function setEssaim(
   });
 }
 
+// ─── L'Agent Garde-Fous : le réglage appris du trou de vol d'un projet ──────
+
+/** Un échelon de garde-fous. Miroir de `Echelon` (garde-fou.ts). */
+export type EchelonUi = 'leger' | 'standard' | 'strict';
+
+/** Une ligne du classement d'un échelon. Miroir de `RangGardeFou`. */
+export interface RangGardeFouUi {
+  echelon: EchelonUi;
+  essais: number;
+  moyenne: number;
+  score: number;
+}
+
+/**
+ * Ce que le GET `/garde-fou` rend : le CONSENTEMENT humain (opt-in + bornes) ET
+ * ce que la ruche a appris (le classement des échelons permis, le premier est
+ * l'élu). Miroir de la RÉPONSE du server, tenu à la main comme `EtatEssaimUi`.
+ */
+export interface EtatGardeFouUi {
+  actif: boolean;
+  bornes: { min: EchelonUi; max: EchelonUi } | null;
+  definiPar: string | null;
+  echelonElu: EchelonUi | null;
+  classement: RangGardeFouUi[];
+  echelons: EchelonUi[];
+  reglages: Record<EchelonUi, { gardiennes: string; polyethisme: string }>;
+}
+
+export function fetchGardeFou(projectId: string): Promise<EtatGardeFouUi> {
+  return api<EtatGardeFouUi>(`/api/projects/${projectId}/garde-fou`);
+}
+
+/**
+ * Règle l'Agent Garde-Fous — geste HUMAIN. `actif` est l'opt-in ; `borneMin`/
+ * `borneMax` bornent l'échelle dans laquelle la ruche a le droit d'élire (elle
+ * n'élargit jamais sa propre latitude).
+ */
+export function reglerGardeFou(
+  projectId: string,
+  reglage: { actif: boolean; borneMin: EchelonUi; borneMax: EchelonUi },
+): Promise<{
+  actif: boolean;
+  bornes: { min: EchelonUi; max: EchelonUi };
+  echelonElu: EchelonUi | null;
+}> {
+  return api(`/api/projects/${projectId}/garde-fou`, {
+    method: 'POST',
+    body: JSON.stringify(reglage),
+  });
+}
+
 export function fetchBalance(): Promise<BalanceState> {
   return api<BalanceState>('/api/balance');
 }

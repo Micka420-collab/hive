@@ -4187,3 +4187,34 @@ froid = strict) ; le classement reflète le vécu (leger passe élu) ; une borne
 G5b (le composant React `GardeFous.tsx`, façon `PleinEssaim.tsx` — helpers purs
 testés contre `garde-fou.ts`, rendu léger asserté sur `textContent`, canevas non
 simulé sous happy-dom).
+
+### Lot G5b livré : le composant React `GardeFous.tsx` (le Garde-Fous se MONTRE)
+
+Le dernier maillon de la feature 2. Le Mission Control montre désormais l'échelon
+élu et son vécu, comme le Plein Essaim montre le solde — miroir de
+`PleinEssaim.tsx` (recon Explore : c'est LE motif d'un panneau de projet réglable).
+
+- `dashboard/src/api.ts` : les types `EchelonUi` / `RangGardeFouUi` / `EtatGardeFouUi`
+  (miroirs tenus à la main de la RÉPONSE du server, façon `EtatEssaimUi`) +
+  `fetchGardeFou` (GET) et `reglerGardeFou` (POST, geste humain).
+- `dashboard/src/GardeFous.tsx` : deux commandes DISTINCTES — l'opt-in (case à
+  cocher) et les BORNES {min, max} de l'échelle (boutons `aria-pressed`) — plus
+  l'échelon ÉLU nommé et le CLASSEMENT (moyenne / essais / score par échelon,
+  l'élu marqué `aria-current`). L'humain voit POURQUOI tel échelon gouverne, il ne
+  pose pas un réglage à l'aveugle. Poll 5 s. PAS de canevas (un tableau suffit).
+- Monté dans `Projets.tsx` juste sous `<PleinEssaim>` — les deux réglages « jusqu'où
+  la ruche va seule », côte à côte.
+
+Discipline du canevas happy-dom (leçon G5, `cerveau-vue.test.tsx`) : la seule
+logique qui peut se tromper — le `+∞` d'un échelon jamais essayé, que `toFixed`
+rendrait « Infinity » — est extraite en HELPERS PURS (`formatScore`,
+`formatMoyenne`, `descriptionEchelon`), testés directement et mutés (verdict
+affiché). Le rendu React n'a qu'un `textContent` léger, asserté sous `fetchGardeFou`
+simulé. Banc `garde-fou-vue.test.tsx` : 4 tests (2 helpers purs, 2 rendus — actif :
+l'élu nommé + le classement + « ∞ » et pas « Infinity » ; inactif : « Aucun échelon
+élu » assumé plutôt qu'inventé).
+
+**La feature 2 (Agent Garde-Fous) est COMPLÈTE** — le moteur UCB (G1), le store
+latéral (G2), la boucle d'apprentissage sur les deux chemins d'assignation (G3/G4),
+les endpoints (G5a) et le panneau réglable (G5b). Opt-in par projet, gouvernance
+humaine des bornes, apprentissage global du corpus.
