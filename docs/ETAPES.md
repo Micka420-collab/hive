@@ -2522,3 +2522,55 @@ d'environnement.
 
 Cinq gardes, cinq rouges. Un test branche en plus les deux pièces sur le vrai
 `jugerTransport` : un module pur peut être parfait et mal câblé.
+
+---
+
+## La Miellerie annonçait « prêt à fusionner » sans savoir compter
+
+Trois survivantes de plus, toutes dans l'écran où l'humain décide de couler le
+miel — c'est-à-dire d'intégrer pour de bon ce que l'IA a produit.
+
+**Le compteur d'approbations.** `t.status === 'done' && getReview(t.id) ===
+'approved'` mutée en `||` : le compteur cesse de compter des APPROBATIONS pour
+compter des ACHÈVEMENTS. Il annoncerait « 3 approuvée(s) / 3 terminée(s) » sur
+un projet dont personne n'a relu une seule production — sur la ligne exacte que
+l'utilisateur regarde avant d'appuyer. Son jumeau, le compteur de rejets, avait
+le même trou ; et le filtre par projet (`t.projectId === projectId`) qui les
+précède n'était pas gardé non plus : sans lui, le pied de vue annonce comme
+prêtes des productions d'un autre dépôt, que la coulée ne prendra pas — le
+chiffre et le geste divergent en silence.
+
+La fixture est **asymétrique à dessein** : trois terminées, une approuvée, une
+rejetée, une non relue. Un contexte symétrique (une approuvée pour une
+terminée) rendrait « 1 / 1 » des deux côtés de la mutation — vert pour la
+mauvaise raison, le piège que ce fichier documentait déjà et qui a coûté cinq
+bancs cette nuit.
+
+**Le plan de fusion d'un autre projet.** `planState.id === projectId` a l'air
+redondante : un `useEffect` vide déjà `planState` quand le projet change. C'est
+précisément pourquoi quelqu'un la supprimerait un jour.
+
+Elle ne sert que sur une COURSE, et cette course est réelle : la demande de
+plan est asynchrone. Changer de projet PENDANT le vol déclenche l'effet, qui
+nettoie ; puis la réponse du PREMIER projet arrive et se réinstalle dans
+l'état — l'effet ne se rejouera pas, `projectId` n'ayant pas rebougé. Sans la
+garde, le plan du Rucher s'affiche sous le titre de l'Autre rucher : des
+numéros de tâches, des conflits et un verdict « intégrable » qui parlent d'un
+dépôt qu'on ne regarde pas.
+
+Le banc monte donc la course pour de vrai — demande retenue en vol, changement
+de projet par re-rendu SUR LA MÊME RACINE (remonter repartirait d'un état vide
+et la garde n'aurait plus rien à garder), livraison tardive, réouverture. Rejeu :
+**ROUGE**, avec le plan `7/9` du premier rucher affiché sous le second.
+
+**Rejeu, verdict affiché** (3 tests neufs, mutation par numéro de ligne) :
+
+| mutation                                | verdict |
+| --------------------------------------- | ------- |
+| compteur des approuvées : `&&` → `\|\|` | 1 rouge |
+| compteur des rejets : `&&` → `\|\|`     | 1 rouge |
+| filtre par projet : `===` → `!==`       | 1 rouge |
+| plan d'un autre projet : `===` → `!==`  | 1 rouge |
+
+Les quatre gardes ont été vérifiées NUES par exclusion avant écriture : la
+suite entière moins ce fichier reste verte avec la mutation en place.

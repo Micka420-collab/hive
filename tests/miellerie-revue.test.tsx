@@ -41,7 +41,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   postReview: vi.fn(() => Promise.resolve()),
 }));
 
-import { fetchMergeResult, fetchResults, runMerge } from '../dashboard/src/api';
+import { fetchMergePlan, fetchMergeResult, fetchResults, runMerge } from '../dashboard/src/api';
 import Miellerie from '../dashboard/src/views/Miellerie';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -101,24 +101,39 @@ function instantane(projects: Array<{ id: string; name: string }>, tasks: Task[]
   } as unknown as StateSnapshot;
 }
 
-async function monter(snapshot: StateSnapshot): Promise<HTMLElement> {
-  conteneur = document.createElement('div');
-  document.body.appendChild(conteneur);
-  racine = createRoot(conteneur);
-  const props = {
+function propsDe(snapshot: StateSnapshot, selectedId?: string): ViewProps {
+  return {
     snapshot,
     events: [],
     agentsByTask: {},
     deferred: new Set(),
+    selectedId,
     onOpenTask: () => {},
     onNavigate: () => {},
     navigate: () => {},
     refreshTick: 0,
   } as unknown as ViewProps;
-  await act(async () => racine?.render(<Miellerie {...props} />));
+}
+
+async function monter(snapshot: StateSnapshot, selectedId?: string): Promise<HTMLElement> {
+  conteneur = document.createElement('div');
+  document.body.appendChild(conteneur);
+  racine = createRoot(conteneur);
+  await act(async () => racine?.render(<Miellerie {...propsDe(snapshot, selectedId)} />));
   // Les sondes simulées se posent en microtâches : un tour de plus les draine.
   await act(async () => {});
   return conteneur;
+}
+
+/**
+ * Re-rend SUR LA MÊME RACINE — l'état du composant survit.
+ *
+ * C'est indispensable pour éprouver une course : remonter repartirait d'un
+ * `planState` vide, et la garde qu'on juge n'aurait plus rien à garder.
+ */
+async function rerendre(snapshot: StateSnapshot, selectedId?: string): Promise<void> {
+  await act(async () => racine?.render(<Miellerie {...propsDe(snapshot, selectedId)} />));
+  await act(async () => {});
 }
 
 function cliquer(el: Element): void {
@@ -292,5 +307,146 @@ describe('la Miellerie — les quatre survivantes du balayage', () => {
     expect(vi.mocked(runMerge)).toHaveBeenCalledWith('p1', { taskIds: undefined });
     expect(dom.textContent).toContain('Fusion en cours…');
     expect(dom.textContent, 'en coulant, l’attente se dit').toContain('Le nœud coule le miel');
+  });
+});
+
+describe('la Miellerie — le compte que l’humain lit avant de couler', () => {
+  it('« PRÊT À FUSIONNER » COMPTE LES APPROUVÉES, PAS LES TERMINÉES', async () => {
+    // Survivante du balayage de nuit : `t.status === 'done' && getReview(t.id)
+    // === 'approved'` mutée en `||`. Le compteur cesserait alors de compter
+    // des APPROBATIONS pour compter des ACHÈVEMENTS — c'est-à-dire qu'il
+    // annoncerait « 3 approuvée(s) / 3 terminée(s) » sur un projet dont
+    // personne n'a relu une seule production. C'est la ligne exacte que
+    // l'humain regarde avant d'appuyer sur « Couler le miel ».
+    //
+    // Vérifiée NUE par exclusion : la suite entière moins ce fichier reste
+    // verte avec la mutation en place (3 240 tests).
+    //
+    // La fixture est ASYMÉTRIQUE À DESSEIN — trois terminées, UNE approuvée,
+    // UNE rejetée, UNE non relue. Un contexte symétrique (une approuvée pour
+    // une terminée) rendrait « 1 / 1 » des deux côtés de la mutation : vert
+    // pour la mauvaise raison, le piège que ce fichier documente déjà.
+    localStorage.setItem(
+      'hive.review',
+      JSON.stringify({ 't-oui': 'approved', 't-non': 'rejected' }),
+    );
+    const dom = await monter(
+      instantane(
+        [{ id: 'p1', name: 'Rucher' }],
+        [
+          tache('t-oui', 'Celle qu’on a approuvée', 'p1', 3_000),
+          tache('t-non', 'Celle qu’on a rejetée', 'p1', 2_000),
+          tache('t-muette', 'Celle que personne n’a relue', 'p1', 1_000),
+        ],
+      ),
+    );
+
+    const pied = dom.querySelector('.mi-merge-count');
+    expect(pied, 'le pied de coulée doit être là').toBeTruthy();
+    const dit = (pied?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(dit, 'une seule approuvée sur trois terminées').toContain('1 approuvée(s) / 3');
+    expect(dit, 'et la rejetée est dite exclue, pas approuvée').toContain('1 rejetée(s) exclue(s)');
+    // La formulation qui trahirait la mutation, énoncée à part : si le
+    // compteur suivait les achèvements, il annoncerait tout comme prêt.
+    expect(dit, 'jamais « tout est approuvé » quand rien ne l’est').not.toContain('3 approuvée(s)');
+  });
+
+  it('UNE PRODUCTION D’UN AUTRE PROJET NE GONFLE AUCUN DES DEUX COMPTES', async () => {
+    // Le compteur filtre d'abord par projet (`projTasks`). Sans ce filtre, le
+    // pied de vue annoncerait comme prêtes à couler des productions qui
+    // n'appartiennent pas au dépôt qu'on regarde — et la coulée, elle, ne les
+    // prendrait pas : le chiffre et le geste divergeraient en silence.
+    localStorage.setItem(
+      'hive.review',
+      JSON.stringify({ 't-ici': 'approved', 't-ailleurs': 'approved' }),
+    );
+    const dom = await monter(
+      instantane(
+        [
+          { id: 'p1', name: 'Rucher' },
+          { id: 'p2', name: 'Autre rucher' },
+        ],
+        [
+          tache('t-ici', 'La nôtre', 'p1', 3_000),
+          tache('t-ailleurs', 'Celle du voisin', 'p2', 2_000),
+        ],
+      ),
+    );
+    const dit = (dom.querySelector('.mi-merge-count')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(dit, 'une seule des deux approbations est la nôtre').toContain('1 approuvée(s) / 1');
+  });
+});
+
+describe('la Miellerie — le plan de fusion appartient à SON projet', () => {
+  it('UNE RÉPONSE TARDIVE NE COLLE PAS LE PLAN D’UN AUTRE PROJET SOUS CELUI-CI', async () => {
+    // Survivante du balayage de nuit : `planState.id === projectId`, mutée en
+    // `!==`. Elle a l'air redondante — un `useEffect` vide déjà `planState`
+    // quand le projet change — et c'est exactement pourquoi quelqu'un la
+    // supprimerait un jour.
+    //
+    // Elle ne sert que sur une COURSE, et cette course est réelle : la demande
+    // de plan est asynchrone. Si l'on change de projet PENDANT le vol, l'effet
+    // nettoie ; puis la réponse du PREMIER projet arrive et se réinstalle dans
+    // l'état — l'effet, lui, ne se rejouera pas, `projectId` n'ayant pas
+    // rebougé. Sans cette garde, le plan du Rucher s'afficherait alors sous le
+    // titre de l'Autre rucher : des numéros de tâches, des conflits et un
+    // verdict « intégrable » qui parlent d'un dépôt qu'on ne regarde pas.
+    //
+    // Le fichier tient déjà la même règle pour les sondes de résultats
+    // (« un objet TAGUÉ par l'id demandé ») : c'est la même règle, appliquée
+    // au plan.
+    //
+    // Vérifiée NUE par exclusion : la suite entière moins ce fichier reste
+    // verte avec la mutation en place (3 240 tests).
+    const snapshot = instantane(
+      [
+        { id: 'p1', name: 'Rucher' },
+        { id: 'p2', name: 'Autre rucher' },
+      ],
+      [tache('t-p1', 'La nôtre', 'p1', 3_000), tache('t-p2', 'Celle du voisin', 'p2', 2_000)],
+    );
+
+    // La demande du PREMIER projet est retenue en vol : c'est la course.
+    let livrerPlanDeP1: (() => void) | null = null;
+    vi.mocked(fetchMergePlan).mockImplementationOnce(
+      () =>
+        new Promise((resoudre) => {
+          livrerPlanDeP1 = () =>
+            resoudre({
+              total: 9,
+              done: 7,
+              mergeable: true,
+              testsRun: false,
+              order: [],
+              conflicts: [],
+            });
+        }),
+    );
+
+    const dom = await monter(snapshot, 't-p1');
+    cliquer(bouton(dom, 'Plan de merge'));
+    await act(async () => {});
+
+    // On change de projet PENDANT le vol — sur la même racine, donc l'état du
+    // composant survit, comme dans un vrai navigateur.
+    await rerendre(snapshot, 't-p2');
+
+    // La réponse du premier projet arrive maintenant. Trop tard.
+    expect(livrerPlanDeP1, 'la demande devait être en vol').not.toBeNull();
+    await act(async () => {
+      (livrerPlanDeP1 as unknown as () => void)();
+    });
+
+    // L'utilisateur rouvre le plan, cette fois pour le SECOND projet : sa
+    // demande à lui est encore en vol, et l'état porte le plan du premier.
+    vi.mocked(fetchMergePlan).mockImplementationOnce(() => new Promise(() => {}));
+    cliquer(bouton(dom, 'Plan de merge'));
+    await act(async () => {});
+
+    expect(dom.textContent, 'on regarde bien l’autre rucher').toContain('Autre rucher');
+    expect(
+      dom.textContent,
+      'le plan du PREMIER projet ne doit pas s’afficher sous le second',
+    ).not.toContain('7/9');
   });
 });
