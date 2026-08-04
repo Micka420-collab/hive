@@ -3263,6 +3263,24 @@ SECOND incident a été capturé qu'on a pu lire son horloge.
 
 ---
 
+**Le troisième visage, vu la nuit suivante.** Un script de mutation en Python
+imbriqué dans un `printf` de shell : les guillemets se sont télescopés,
+`python3` a rendu une `SyntaxError`, la ligne n'a pas bougé — et la suite est
+restée verte. « 4 verts » se lit exactement comme « la garde est nue », et deux
+tests inutiles allaient être écrits. Seul le message d'erreur, imprimé au
+milieu de la sortie, a sauvé le coup.
+
+D'où la forme définitive : le script de mutation **vérifie qu'il a muté**.
+
+```python
+avant = l[i]
+l[i] = l[i].replace(ancien, nouveau)
+assert l[i] != avant, 'mutation NON appliquée'
+```
+
+Sans cette assertion, toute défaillance du mutateur — mauvaise ancre, mauvais
+échappement, fichier déplacé — se déguise en découverte.
+
 ## 2 octodecies. Le rejeu peut frapper le COMMENTAIRE qui décrit la garde
 
 Cousin immédiat de § 2 septdecies, et plus sournois : le bon fichier, la bonne

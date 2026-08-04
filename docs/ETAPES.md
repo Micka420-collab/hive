@@ -2574,3 +2574,42 @@ et la garde n'aurait plus rien à garder), livraison tardive, réouverture. Reje
 
 Les quatre gardes ont été vérifiées NUES par exclusion avant écriture : la
 suite entière moins ce fichier reste verte avec la mutation en place.
+
+---
+
+## Le rayon de miel disait « repoussée » de tout ce qui attendait
+
+Survivante du balayage : `deferred?.has(t.id) && t.status === 'ready'`, dans le
+composant `Honeycomb`. Elle n'avait aucun banc — et c'est un angle mort typique :
+`tests/honeycomb.test.ts` existe bel et bien, mais éprouve l'ALGORITHME du plan
+de fusion, pas l'affichage. Deux choses portent le même nom, l'une est couverte,
+et on croit l'autre couverte aussi.
+
+**Ce que cette grille existe pour dire.** Le rayon est le seul écran qu'on lit
+sans lire : une couleur par état, à trois mètres. Toute sa valeur tient dans le
+fait que deux états différents ne se ressemblent pas. Or « en attente » et
+« repoussée » sont opposés — `ready`, la ruche va la prendre dès qu'une
+ouvrière se libère ; `deferred`, un humain a décidé de NE PAS la faire pour
+l'instant.
+
+Mutée en `||`, toute tâche en attente porte l'habit des repoussées : le tableau
+annonce que rien ne va démarrer, sur une ruche qui démarre. Et l'autre moitié
+ment aussi — mutée en `!== 'ready'`, une tâche repoussée déjà partie porte
+l'habit, et celle qui attend vraiment le perd.
+
+La fixture sépare donc les QUATRE combinaisons (repoussée×attente), parce que
+la mutation n'en change que deux : c'est le contraste qui juge, pas le total.
+
+| mutation              | verdict  |
+| --------------------- | -------- |
+| `&&` → `\|\|`         | 2 rouges |
+| `=== 'ready'` → `!==` | 2 rouges |
+
+**Un piège de méthode, encore.** Deux des trois mutations de la première
+batterie n'ont pas été appliquées du tout : les guillemets imbriqués du script
+ont fait échouer `python3`, qui a imprimé une `SyntaxError` — et la suite est
+restée verte, ce qui se lit exactement comme « la garde est nue ». Le message
+d'erreur était visible ; sans lui, deux tests inutiles auraient été écrits. Le
+correctif est le même qu'au § 2 octodecies : le script de mutation doit
+VÉRIFIER que la ligne a changé (`assert l[i] != avant`) avant de lancer quoi
+que ce soit.
