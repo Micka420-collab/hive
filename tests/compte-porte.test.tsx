@@ -376,4 +376,29 @@ describe('les bascules que la mutation des voisines a débusquées', () => {
       'new-password',
     );
   });
+
+  it('L’ONGLET COURANT PORTE `aria-selected` ET la classe active — pas seulement le texte', () => {
+    // Survivantes loupe (§ 9 vicies, la famille GardeFous / PleinEssaim) : sur les
+    // onglets, `aria-selected={mode === 'login'}` ET `className={… ? 'active'}`, aux
+    // deux onglets. Mutées en `!==`, la suite restait verte — les bancs voisins
+    // lisaient le TITRE et le BOUTON, jamais l'onglet lui-même. Or un lecteur
+    // d'écran (`role="tab"` + `aria-selected`) et le style `.active` s'y fient :
+    // inverser désigne le MAUVAIS onglet comme choisi.
+    const m = ouvrirModale();
+    const onglets = (): HTMLButtonElement[] =>
+      [...m.dom.querySelectorAll('.drawer-tabs [role="tab"]')] as HTMLButtonElement[];
+    const [connexion, inscription] = onglets();
+
+    // À l'ouverture, « Connexion » est l'onglet courant, « Inscription » non —
+    // dans l'attribut ET dans la classe, pour les deux onglets.
+    expect(connexion?.getAttribute('aria-selected'), 'connexion : onglet courant').toBe('true');
+    expect(connexion?.className, 'connexion : classe active').toContain('active');
+    expect(inscription?.getAttribute('aria-selected'), 'inscription : pas courant').toBe('false');
+    expect(inscription?.className, 'inscription : pas la classe active').not.toContain('active');
+
+    // Et l'état SUIT le mode : après bascule, les deux onglets s'inversent.
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    expect(onglets()[1]?.getAttribute('aria-selected'), 'inscription devient courant').toBe('true');
+    expect(onglets()[0]?.getAttribute('aria-selected'), 'connexion ne l’est plus').toBe('false');
+  });
 });

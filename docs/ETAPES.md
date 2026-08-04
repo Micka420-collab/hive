@@ -4320,3 +4320,27 @@ mutations rejouée → rouge, verdict affiché. Suite +1.
 La leçon tient donc au-delà de son premier cas : partout où un panneau porte un
 état d'ACTIVATION dans un attribut (aria-*, classe), le banc doit lire l'attribut,
 pas le texte. Pas de nouvelle leçon — c'est § 9 vicies qui se confirme.
+
+### § 9 vicies, 3ᵉ récidive : les onglets d'AccountPanel — Cerveau, lui, était déjà défendu
+
+Balayage ciblé (mutation par garde, suite entière rejouée, verdict affiché) des
+panneaux du dashboard portant un état d'activation dans un attribut/classe :
+
+- **Cerveau.tsx** : DÉJÀ défendu. `aria-pressed={mode === 'graphe'}` muté rougit —
+  le banc `dashboard/tests/cerveau-vue.test.tsx` a un test dédié « les bascules
+  annoncent leur état — aria-pressed, pas seulement une classe ». (Mon premier
+  grep visait `tests/`, le banc vit dans `dashboard/tests/` — d'où l'angle mort.)
+- **AccountPanel.tsx** : QUATRE survivantes réelles sur les onglets login/register —
+  `aria-selected={mode === 'login'}` et `className={… ? 'active'}`, aux DEUX
+  onglets. Les bancs voisins (`compte-porte.test.tsx`) lisaient le titre et le
+  bouton, jamais l'onglet. Inverser désigne le mauvais onglet comme choisi
+  (lecteur d'écran via `role="tab"`+`aria-selected`, style via `.active`).
+
+Correctif : un banc dans `compte-porte.test.tsx` qui lit `getAttribute('aria-selected')`
+ET `className` sur les deux onglets, à l'ouverture (login courant) puis après
+bascule. Les 4 mutations rejouées → rouge, verdict affiché. Suite +1 (3476).
+
+Toujours pas de nouvelle leçon : § 9 vicies (« un banc de rendu doit lire
+l'ATTRIBUT, pas seulement `textContent` ») en est à sa 3ᵉ confirmation (GardeFous,
+PleinEssaim, AccountPanel). Le motif à surveiller partout : un état porté par
+`aria-*` / une classe conditionnelle, jugé par un banc qui n'assert que le texte.
