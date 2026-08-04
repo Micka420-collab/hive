@@ -31,7 +31,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 vi.mock('../dashboard/src/CodeEditor', () => ({ default: () => null }));
 
-import { cancelTask, fetchRace } from '../dashboard/src/api';
+import { cancelTask, fetchRace, fetchResults } from '../dashboard/src/api';
 import { TaskDrawer } from '../dashboard/src/TaskDrawer';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,6 +43,10 @@ beforeEach(() => {
   setLang('fr');
   vi.mocked(fetchRace).mockClear();
   vi.mocked(cancelTask).mockClear();
+  // Défaut : aucun résultat (les onglets ne se rendent pas). Un test qui veut
+  // les onglets pose son propre `mockResolvedValue` — remis à zéro ici pour
+  // qu'il ne fuie pas dans le banc suivant.
+  vi.mocked(fetchResults).mockResolvedValue([]);
 });
 afterEach(() => {
   act(() => racine?.unmount());
@@ -162,5 +166,40 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
       ),
       'une tâche terminée ne s’annule plus — le bouton serait un mensonge',
     ).toBe(false);
+  });
+});
+
+describe('le tiroir — l’onglet affiché (survivantes d’attribut du balayage)', () => {
+  it('L’ONGLET REGARDÉ PORTE la classe active — Diff par défaut, Logs au clic', async () => {
+    // Survivantes loupe (§ 9 vicies, la famille GardeFous / PleinEssaim /
+    // AccountPanel / App) : `className={tab === 'diff' ? 'active' : ''}` et son
+    // jumeau 'logs'. Mutées en `!==`, la suite restait verte — aucun banc ne
+    // lisait quel onglet est surligné. Or c'est la SEULE marque (pas d'aria ici)
+    // qui dit lequel de Diff / Logs on regarde : inverser surligne l'onglet
+    // qu'on NE voit PAS.
+    vi.mocked(fetchResults).mockResolvedValue([
+      {
+        taskId: 'tache-du-tiroir',
+        nodeId: 'noeud-1',
+        diff: 'le diff',
+        logs: 'les journaux',
+        success: true,
+        durationMs: 100,
+        subAgents: [],
+      },
+    ]);
+    const dom = await monter(<TaskDrawer task={tache('done')} nodes={NOEUDS} onClose={() => {}} />);
+    // `fetchResults` se résout en microtâche APRÈS le premier rendu.
+    await act(async () => {});
+    const onglets = (): HTMLButtonElement[] =>
+      [...dom.querySelectorAll('.drawer-tabs button')] as HTMLButtonElement[];
+    const [diff, logs] = onglets();
+    // Au réveil, Diff est l'onglet regardé.
+    expect(diff?.className, 'Diff est actif par défaut').toContain('active');
+    expect(logs?.className, 'Logs ne l’est pas').not.toContain('active');
+    // Au clic sur Logs, la marque suit — les deux onglets s'inversent.
+    act(() => logs?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onglets()[1]?.className, 'Logs devient actif').toContain('active');
+    expect(onglets()[0]?.className, 'Diff ne l’est plus').not.toContain('active');
   });
 });

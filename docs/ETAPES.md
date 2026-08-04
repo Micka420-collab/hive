@@ -4363,3 +4363,23 @@ Projets (non courants). Les 2 mutations rejouées → rouge, verdict affiché. S
 § 9 vicies en est à sa 4ᵉ confirmation (GardeFous, PleinEssaim, AccountPanel, App).
 Toujours pas de nouvelle leçon — le motif est stable et connu ; ce qui compte, c'est
 de le débusquer partout où un état d'activation vit dans un `aria-*` / une classe.
+
+### § 9 vicies, 5ᵉ récidive : les onglets Diff/Logs du tiroir de tâche (TaskDrawer)
+
+Balayage ciblé poursuivi. `TaskDrawer.tsx`, la barre d'onglets du résultat : DEUX
+survivantes — `className={tab === 'diff' ? 'active' : ''}` et le jumeau `'logs'`.
+Mutées en `!==`, la suite restait verte : `tiroir-tache.test.tsx` ne montait même
+pas les onglets (son `fetchResults` par défaut rend `[]`, donc `last` est nul et
+la barre ne se rend pas). Ici PAS d'aria — la classe `.active` est la SEULE marque
+qui dit lequel de Diff / Logs on regarde ; inverser surligne l'onglet qu'on ne voit
+pas.
+
+Correctif : un banc qui pose un `fetchResults` avec un résultat (diff + logs), monte
+le tiroir, attend la microtâche, puis lit `className` sur les deux onglets — Diff
+actif par défaut, Logs après clic. Les 2 mutations rejouées → rouge, verdict
+affiché. Suite +1. (Réinitialisation de `fetchResults` dans `beforeEach` pour que
+l'override ne fuie pas dans les bancs voisins.)
+
+§ 9 vicies en est à sa 5ᵉ confirmation (GardeFous, PleinEssaim, AccountPanel, App,
+TaskDrawer). Restent au balayage d'activation : Ruche (mode 2d/3d), Rayon
+(ry-entree), Miellerie (probablement déjà défendu — `miellerie-revue` lit la classe).
