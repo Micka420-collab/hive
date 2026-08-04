@@ -90,6 +90,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   nodes: 'une ligne par machine qui rejoint la ruche',
   node_keys: 'une clé par machine — supprimée avec elle',
   machines_noeuds: 'une ligne par machine provisionnée',
+  modeles_noeuds:
+    'une liste de modèles par machine — clé primaire nodeId, écrasée à la ré-inscription',
   abonnements: 'une ligne par compte abonné',
   budgets: 'un plafond par projet',
   essaim: 'clé primaire `projectId` — une seule ligne par projet, par construction',

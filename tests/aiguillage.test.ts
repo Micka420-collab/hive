@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   C_EXPLORATION,
   CORPUS_AIGUILLAGE,
+  aiguillerNoeuds,
   categoriser,
   choisirModele,
   classer,
@@ -210,5 +211,79 @@ describe('classer / choisirModele — le choix, et sa reproductibilité', () => 
       'trié par mérite : opus (1.0) > fable (0.5) > sonnet (0.0)',
     ).toEqual(['opus', 'fable', 'sonnet']);
     expect(rangs[0]).toMatchObject({ modele: 'opus', essais: 5, moyenne: 1 });
+  });
+});
+
+describe('aiguillerNoeuds — du modèle élu aux nœuds qui savent le faire tourner', () => {
+  // Un nœud réduit à ce que la fonction lit : son id (pour se distinguer) et ses
+  // modèles. Le vrai HiveNode en porte davantage ; la fonction n'y touche pas.
+  const noeud = (id: string, modeles?: string[]) => ({ id, modeles });
+
+  it('ÉLIT LE MEILLEUR MODÈLE SUR L’UNION, et ne rend que les nœuds qui l’offrent', () => {
+    // opus vit sur n1, fable sur n2 ; opus a le meilleur vécu sur « code ». La
+    // ruche doit élire opus ET n'orienter que vers son porteur — envoyer la tâche
+    // à n2 lui ferait tourner fable, pas le modèle choisi.
+    const memoire = replierAntecedents([
+      ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 4 }, () => obs('code', 'fable', 'refaire')),
+    ]);
+    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['fable'])], memoire);
+    expect(route?.modele, 'opus a la meilleure moyenne sur ce genre').toBe('opus');
+    expect(
+      route?.noeuds.map((n) => n.id),
+      'seul le porteur d’opus est rendu',
+    ).toEqual(['n1']);
+  });
+
+  it('NO-OP quand AUCUN éligible ne déclare de modèle — l’appelant ne touche à rien', () => {
+    // Une flotte d'avant l'Aiguillage (aucun `modeles`) ou aux listes vides : la
+    // fonction rend `null`, signal à l'appelant de garder son ordonnancement.
+    expect(
+      aiguillerNoeuds('code', [noeud('n1'), noeud('n2', [])], new Map()),
+      'rien à aiguiller',
+    ).toBeNull();
+  });
+
+  it('EXPLORE : un modèle JAMAIS essayé (+∞) l’emporte sur un bon connu, et son porteur est rendu', () => {
+    // opus a un vécu parfait ; grok n'a aucun vécu → score +∞ → il DOIT être
+    // essayé avant qu'on prétende le connaître. La route mène alors à son porteur.
+    const memoire = replierAntecedents(
+      Array.from({ length: 10 }, () => obs('code', 'opus', 'appliquer')),
+    );
+    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['grok'])], memoire);
+    expect(route?.modele, 'l’inconnu passe avant le bon connu').toBe('grok');
+    expect(route?.noeuds.map((n) => n.id)).toEqual(['n2']);
+  });
+
+  it('PLUSIEURS PORTEURS de l’élu : tous rendus, dans l’ordre d’entrée (le départage de charge suit)', () => {
+    // n1 et n3 offrent tous deux opus ; l'appelant a déjà trié par charge (n1
+    // avant n3). La fonction préserve cet ordre — c'est lui qui départage ensuite.
+    const memoire = replierAntecedents([
+      ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 4 }, () => obs('code', 'fable', 'refaire')),
+    ]);
+    const route = aiguillerNoeuds(
+      'code',
+      [noeud('n1', ['opus']), noeud('n2', ['fable']), noeud('n3', ['opus'])],
+      memoire,
+    );
+    expect(route?.modele).toBe('opus');
+    expect(
+      route?.noeuds.map((n) => n.id),
+      'les deux porteurs d’opus, ordre d’entrée préservé',
+    ).toEqual(['n1', 'n3']);
+  });
+
+  it('N’INVENTE JAMAIS un modèle hors des éligibles — l’union se limite à ce qu’ils OFFRENT', () => {
+    // opus a un vécu superbe, mais aucun éligible ne le propose : la ruche ne
+    // peut pas l'exécuter, donc il n'entre pas dans l'union et n'est pas élu.
+    // C'est le cœur de « union sur les éligibles » : la mémoire ne suffit pas,
+    // il faut un porteur atteignable.
+    const memoire = replierAntecedents(
+      Array.from({ length: 10 }, () => obs('code', 'opus', 'appliquer')),
+    );
+    const route = aiguillerNoeuds('code', [noeud('n1', ['fable'])], memoire);
+    expect(route?.modele, 'seul un modèle atteignable est élu').toBe('fable');
+    expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
   });
 });

@@ -127,3 +127,56 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     expect(store.observationsAiguillage().map((o) => o.modele)).toEqual(['m-vivant']);
   });
 });
+
+describe('HiveStore — les modèles déclarés d’un nœud (ce que l’Aiguillage lira)', () => {
+  let store: HiveStore;
+  beforeEach(() => {
+    store = new HiveStore(':memory:');
+  });
+  afterEach(() => store.close());
+
+  const base = {
+    name: 'ouvrière',
+    ownerName: 'membre',
+    agentType: 'claude-code',
+    maxConcurrency: 2,
+  };
+
+  it('UN NŒUD QUI DÉCLARE SES MODÈLES LES VOIT RESSORTIR — au retour ET à la relecture', () => {
+    // Le champ que l'Aiguillage lira pour choisir. Un champ rangé mais qui ne
+    // ressort pas ne servirait à rien ; on le vérifie par les TROIS chemins de
+    // lecture (retour d'inscription, getNode, listNodes), qui passent tous par
+    // la même relecture JSON — un seul cassé les casse tous.
+    const n = store.registerNode({
+      ...base,
+      nodeId: 'n1',
+      modeles: ['claude-opus-5', 'claude-fable-5'],
+    });
+    expect(n.modeles).toEqual(['claude-opus-5', 'claude-fable-5']);
+    expect(store.getNode('n1')?.modeles).toEqual(['claude-opus-5', 'claude-fable-5']);
+    expect(store.listNodes()[0]?.modeles).toEqual(['claude-opus-5', 'claude-fable-5']);
+  });
+
+  it('UN NŒUD SANS MODÈLES N’EN INVENTE AUCUN — le champ reste ABSENT, jamais `[]`', () => {
+    // Un agent à modèle unique, ou un nœud d'avant l'Aiguillage : `modeles`
+    // absent veut dire « je n'ai rien déclaré », pas « je déclare une liste
+    // vide ». L'Aiguillage retombe alors sur l'ordonnancement d'avant.
+    const n = store.registerNode({ ...base, nodeId: 'n1' });
+    expect(n.modeles, 'ni [] ni liste inventée').toBeUndefined();
+    expect(store.getNode('n1')?.modeles).toBeUndefined();
+  });
+
+  it('LA RÉ-INSCRIPTION REMPLACE la liste — la dernière déclaration gagne', () => {
+    store.registerNode({ ...base, nodeId: 'n1', modeles: ['a'] });
+    store.registerNode({ ...base, nodeId: 'n1', modeles: ['b', 'c'] });
+    expect(store.getNode('n1')?.modeles).toEqual(['b', 'c']);
+  });
+
+  it('UNE RÉ-INSCRIPTION SANS MODÈLES N’EFFACE PAS ce qu’on savait', () => {
+    // Même règle que `plateforme` : un client d'une version antérieure qui se
+    // reconnecte sans déclarer ne doit pas effacer une liste déjà apprise.
+    store.registerNode({ ...base, nodeId: 'n1', modeles: ['a', 'b'] });
+    store.registerNode({ ...base, nodeId: 'n1' });
+    expect(store.getNode('n1')?.modeles).toEqual(['a', 'b']);
+  });
+});

@@ -36,6 +36,13 @@ export interface HiveNode {
    * on affiche alors rien plutôt qu'une plateforme inventée.
    */
   plateforme?: PlateformeNoeud | null;
+  /**
+   * Les modèles que ce nœud sait faire tourner (ex. `['claude-opus-5',
+   * 'claude-fable-5']`), DÉCLARÉS à l'inscription. C'est ce que l'Aiguillage
+   * appris consomme pour choisir. Absent/vide : nœud d'avant l'Aiguillage ou
+   * agent à modèle unique — la ruche retombe sur son ordonnancement d'avant.
+   */
+  modeles?: string[];
 }
 
 /** Sous-agent lancé par un agent sur un nœud (visualisé en pulsation sur le Swarm View). */

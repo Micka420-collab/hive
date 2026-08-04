@@ -685,6 +685,16 @@ CREATE TABLE IF NOT EXISTS machines_noeuds (
   plateforme TEXT NOT NULL,
   majA       INTEGER NOT NULL
 );
+
+-- BORNE STRUCTURELLE (regle 3), jumelle de « machines_noeuds » : une ligne par
+-- noeud, jamais plus — la clef primaire EST la borne, et la ré-inscription
+-- ECRASE (ON CONFLICT). Les modeles declares par le noeud, ranges en JSON : ce
+-- que l'Aiguillage lit pour choisir. Un noeud a modele unique n'a pas de ligne.
+CREATE TABLE IF NOT EXISTS modeles_noeuds (
+  nodeId  TEXT PRIMARY KEY REFERENCES nodes(id),
+  modeles TEXT NOT NULL,
+  majA    INTEGER NOT NULL
+);
 `;
 
 interface ProjectRow {
@@ -917,6 +927,8 @@ export interface NodeProfile {
   maxConcurrency: number;
   /** La machine déclarée par le nœud. Absente : on n'écrase pas ce qu'on sait. */
   plateforme?: PlateformeNoeud;
+  /** Les modèles déclarés par le nœud. Absents : on n'écrase pas ce qu'on sait. */
+  modeles?: string[];
 }
 
 export interface TaskPatch {
@@ -969,13 +981,48 @@ function rowToTask(row: TaskRow): Task {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, m.plateforme AS plateforme, (
+  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
   ) AS running
   FROM nodes n
   LEFT JOIN machines_noeuds m ON m.nodeId = n.id
+  LEFT JOIN modeles_noeuds md ON md.nodeId = n.id
 `;
+
+/** La ligne brute d'un nœud telle que `NODE_SELECT` la rend, avant relecture. */
+interface NodeRowBrut extends NodeRow {
+  plateforme: PlateformeNoeud | null;
+  modeles: string | null;
+}
+
+/**
+ * Relit la liste de modèles JSON d'un nœud. Tolérant comme `lireGriefs` : une
+ * ligne illisible (base éditée à la main, version future) vaut « aucun modèle
+ * connu », jamais une exception qui ferait tomber une lecture de nœuds.
+ */
+function lireModeles(brut: string): string[] {
+  try {
+    const lus: unknown = JSON.parse(brut);
+    return Array.isArray(lus) ? lus.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * De la ligne brute au `HiveNode` : la seule transformation est de replier la
+ * colonne `modeles` (JSON) en tableau. `plateforme` et `running` passent tels
+ * quels. Une liste vide (ou absente) laisse `modeles` ABSENT — un nœud sans
+ * modèle déclaré n'a pas de `modeles: []` inventé.
+ */
+function rowToNode(row: NodeRowBrut): HiveNode {
+  const { modeles, ...reste } = row;
+  const node = reste as unknown as HiveNode;
+  const liste = typeof modeles === 'string' ? lireModeles(modeles) : [];
+  if (liste.length > 0) node.modeles = liste;
+  return node;
+}
 
 export class HiveStore {
   private readonly db: Database.Database;
@@ -1216,15 +1263,29 @@ export class HiveStore {
         )
         .run(id, profile.plateforme, now);
     }
+    // Les modèles déclarés, rangés à part (table latérale), même règle que la
+    // plateforme : ABSENTS, on ne touche à rien ; présents, on ÉCRASE la liste
+    // d'avant (une ré-inscription redéclare — la dernière déclaration gagne).
+    if (profile.modeles !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO modeles_noeuds (nodeId, modeles, majA) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET modeles = excluded.modeles, majA = excluded.majA',
+        )
+        .run(id, JSON.stringify(profile.modeles), now);
+    }
     return this.getNode(id) as HiveNode;
   }
 
   getNode(id: string): HiveNode | undefined {
-    return this.db.prepare(`${NODE_SELECT} WHERE n.id = ?`).get(id) as NodeRow | undefined;
+    const row = this.db.prepare(`${NODE_SELECT} WHERE n.id = ?`).get(id) as NodeRowBrut | undefined;
+    return row ? rowToNode(row) : undefined;
   }
 
   listNodes(): HiveNode[] {
-    return this.db.prepare(`${NODE_SELECT} ORDER BY n.name`).all() as NodeRow[];
+    return (this.db.prepare(`${NODE_SELECT} ORDER BY n.name`).all() as NodeRowBrut[]).map(
+      rowToNode,
+    );
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
@@ -1238,11 +1299,13 @@ export class HiveStore {
 
   /** Nœuds online dont le dernier heartbeat est antérieur à `cutoff`. */
   staleNodes(cutoff: number): HiveNode[] {
-    return this.db
-      .prepare(
-        `${NODE_SELECT} WHERE n.status = 'online' AND (n.lastSeen IS NULL OR n.lastSeen < ?)`,
-      )
-      .all(cutoff) as NodeRow[];
+    return (
+      this.db
+        .prepare(
+          `${NODE_SELECT} WHERE n.status = 'online' AND (n.lastSeen IS NULL OR n.lastSeen < ?)`,
+        )
+        .all(cutoff) as NodeRowBrut[]
+    ).map(rowToNode);
   }
 
   // ─── Tâches ────────────────────────────────────────────────────────────────

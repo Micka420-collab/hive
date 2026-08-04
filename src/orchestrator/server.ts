@@ -6676,6 +6676,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               // Déjà validée par le protocole (estPlateforme) — hors liste, le
               // message entier a été refusé bien avant d'arriver ici.
               ...(msg.plateforme !== undefined ? { plateforme: msg.plateforme } : {}),
+              // Déjà validée par le protocole (isModeleList) — liste bornée, noms
+              // non vides ; mal formée, tout le register a été refusé en amont.
+              ...(msg.modeles !== undefined ? { modeles: msg.modeles } : {}),
             });
             nodeId = node.id;
             const previous = nodeSockets.get(node.id);

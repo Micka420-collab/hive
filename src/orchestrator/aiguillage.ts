@@ -359,3 +359,47 @@ export function choisirModele(
   if (modelesDispo.length === 0) return null;
   return classer(categorie, modelesDispo, antecedents)[0]?.modele ?? null;
 }
+
+// ─── Du modèle élu aux nœuds qui savent le faire tourner ──────────────────────
+//
+// Le Scheduler ne choisit pas un modèle dans le vide : les modèles sont
+// PARTITIONNÉS par nœud (un nœud claude-code ne lance pas Grok). Cette fonction
+// fait le pont, et son parti pris est décisif — l'union se calcule sur les seuls
+// nœuds ÉLIGIBLES (déjà filtrés par l'appelant : en ligne, non saturés, hors
+// cooldown de refus). Un modèle dont l'unique porteur est saturé n'entre donc
+// jamais dans l'union : la famine « le meilleur modèle vit sur un nœud plein »
+// est tuée par construction, pas rattrapée après coup.
+//
+// L'ordre est LEXICOGRAPHIQUE et il se lit de gauche à droite : l'appelant a déjà
+// trié `eligibles` par charge (et phéromones), on élit le modèle sur l'union,
+// puis on REND la sous-liste des offrants DANS CET ORDRE — le départage par
+// charge de l'appelant s'applique ensuite tel quel, sur la seule liste
+// restreinte. Le modèle domine donc la charge PARMI les éligibles (c'est le but :
+// piloter réellement le travail), sans jamais franchir le filtre de capacité qui
+// reste en amont, chez l'appelant.
+
+/**
+ * Le modèle élu pour ce genre, et les nœuds éligibles qui l'offrent — ou `null`
+ * si AUCUN éligible ne déclare de modèle. Le `null` est le NO-OP : l'appelant
+ * garde alors exactement son ordonnancement d'avant, sans rien restreindre ni
+ * enregistrer. `eligibles` est supposé déjà filtré ET trié par l'appelant ; la
+ * sous-liste rendue préserve cet ordre.
+ */
+export function aiguillerNoeuds<N extends { readonly modeles?: readonly string[] | null }>(
+  categorie: Categorie,
+  eligibles: readonly N[],
+  antecedents: Map<string, Antecedent>,
+): { modele: string; noeuds: N[] } | null {
+  // Un `Set` déduplique par CONSTRUCTION : le même modèle offert par deux nœuds
+  // ne doit compter qu'une fois pour `classer`, sinon le total du genre est
+  // doublé et le bonus d'exploration faussé. Aucun prédicat de dédup à part —
+  // c'est la structure qui le tient, pas une ligne qu'on pourrait muter seule.
+  const union = new Set<string>();
+  for (const n of eligibles) for (const m of n.modeles ?? []) union.add(m);
+  // Union vide (aucun éligible ne déclare de modèle) : `choisirModele` rend
+  // `null`, et ce `null` EST le no-op — l'appelant garde son ordonnancement.
+  const modele = choisirModele(categorie, [...union], antecedents);
+  if (modele === null) return null;
+  const noeuds = eligibles.filter((n) => (n.modeles ?? []).includes(modele));
+  return { modele, noeuds };
+}
