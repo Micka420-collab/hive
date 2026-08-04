@@ -32,6 +32,14 @@ export interface DroneRace {
   winner: string | null;
   /** Course tranchée : un gagnant existe (plus rien à attendre). */
   decided: boolean;
+  /**
+   * Le modèle que l'Aiguillage a élu pour CHAQUE drone (nodeId → modèle), rempli
+   * par le scheduler à l'enrôlement — ce module reste pur et n'en calcule aucun.
+   * Absent : aucun drone ne déclarait de modèle (course d'avant l'Aiguillage). On
+   * s'en sert pour re-poser le modèle du VAINQUEUR : c'est SA production que la
+   * contre-visite jugera. Préservé au fil des `{ ...race }` de ce module.
+   */
+  modeleParDrone?: Record<string, string>;
 }
 
 /** Nœud candidat à devenir drone (l'agentType sert à diversifier la course). */

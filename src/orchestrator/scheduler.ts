@@ -9,7 +9,13 @@ import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
 // modèle choisi. Absence de modèles déclarés ⇒ `null` ⇒ aucun changement.
-import { aiguillerNoeuds, categoriser, injecterEnVol, replierAntecedents } from './aiguillage.js';
+import {
+  aiguillerNoeuds,
+  categoriser,
+  choisirModele,
+  injecterEnVol,
+  replierAntecedents,
+} from './aiguillage.js';
 import type { Antecedent } from './aiguillage.js';
 // La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
 // le grand livre (comptage additif) et son cache de projets sont importés ici.
@@ -995,6 +1001,24 @@ export class Scheduler {
       now,
     );
     if (!assigned) return { ok: false, error: 'tâche introuvable' };
+    // L'Aiguillage : le modèle élu par CHAQUE drone, sur ses propres modeles. La
+    // course n'est PAS restreinte (elle maximise la diversité d'agents) — on note
+    // seulement, pour re-poser le modèle du VAINQUEUR quand il gagnera. Le modèle
+    // du primaire est posé DÈS MAINTENANT : tant que la course court, la tâche
+    // compte comme une élection en vol (borne du troupeau).
+    const categorie = categoriser(task.title, task.prompt);
+    const antecedents = this.antecedentsAiguillage();
+    const noeuds = new Map(this.store.listNodes().map((n) => [n.id, n]));
+    const modeleParDrone: Record<string, string> = {};
+    for (const droneId of launch) {
+      const modeles = noeuds.get(droneId)?.modeles;
+      const elu = modeles ? choisirModele(categorie, modeles, antecedents) : null;
+      if (elu) modeleParDrone[droneId] = elu;
+    }
+    if (Object.keys(modeleParDrone).length > 0) race.modeleParDrone = modeleParDrone;
+    if (modeleParDrone[primary]) {
+      this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
+    }
     // La tâche part en course : elle n'est plus « différée pour conflit ».
     this.deferredByConflict.delete(taskId);
     this.races.set(taskId, race);
@@ -1060,6 +1084,11 @@ export class Scheduler {
         },
         now,
       );
+      // L'Aiguillage : c'est la production du VAINQUEUR que la contre-visite
+      // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
+      // `won` précède toujours le verdict, donc la jointure lira le bon couple.
+      const modeleVainqueur = race.modeleParDrone?.[nodeId];
+      if (modeleVainqueur) this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
       this.emit('task_done', { taskId: task.id, nodeId, durationMs: result.durationMs });
       this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
       for (const loser of decision.cancel) {
@@ -1126,6 +1155,10 @@ export class Scheduler {
     const next = runningDrones(race)[0];
     if (next) {
       this.store.patchTask(taskId, { status: 'assigned', assignedNodeId: next }, now);
+      // Le producteur suivi change : l'élection en vol suit, pour que la borne du
+      // troupeau attribue la tâche au modèle qui la porte VRAIMENT désormais.
+      const modelePromu = race.modeleParDrone?.[next];
+      if (modelePromu) this.store.poserModeleAiguillage(taskId, modelePromu, now);
       this.emit('drone_promoted', { taskId, nodeId: next });
     }
   }
@@ -1277,6 +1310,30 @@ export class Scheduler {
     this.derniereSauvegardeLivre = now;
   }
 
+  /**
+   * Les antécédents de l'Aiguillage : le vécu jugé (verdicts) PLUS les élections
+   * en vol comptées comme essais sans note (la borne du troupeau). Bâti à neuf à
+   * chaque appel — les appelants qui le veulent stable le mémoïsent (la boucle
+   * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
+   */
+  private antecedentsAiguillage(): Map<string, Antecedent> {
+    const antecedents = replierAntecedents(
+      this.store.observationsAiguillage().map((o) => ({
+        categorie: categoriser(o.title, o.prompt),
+        modele: o.modele,
+        suite: o.suite,
+      })),
+    );
+    injecterEnVol(
+      antecedents,
+      this.store.electionsEnVolAiguillage().map((e) => ({
+        categorie: categoriser(e.title, e.prompt),
+        modele: e.modele,
+      })),
+    );
+    return antecedents;
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1313,25 +1370,7 @@ export class Scheduler {
     // que la taxonomie du jour s'applique au vécu ancien.
     let antecedents: Map<string, Antecedent> | null = null;
     const lireAntecedents = (): Map<string, Antecedent> => {
-      if (antecedents) return antecedents;
-      antecedents = replierAntecedents(
-        this.store.observationsAiguillage().map((o) => ({
-          categorie: categoriser(o.title, o.prompt),
-          modele: o.modele,
-          suite: o.suite,
-        })),
-      );
-      // Borne du troupeau : les élections EN VOL (modèle posé, tâche encore
-      // active, verdict pas rendu) comptent comme des essais SANS note. Un modèle
-      // neuf voit ainsi son `+∞` s'éteindre dès son premier lancement, au lieu de
-      // rafler tout un genre en attendant les verdicts.
-      injecterEnVol(
-        antecedents,
-        this.store.electionsEnVolAiguillage().map((e) => ({
-          categorie: categoriser(e.title, e.prompt),
-          modele: e.modele,
-        })),
-      );
+      antecedents ??= this.antecedentsAiguillage();
       return antecedents;
     };
     for (const task of this.store.tasksByStatus('ready')) {
