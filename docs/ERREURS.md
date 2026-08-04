@@ -413,6 +413,28 @@ réelle.
 
 ## 2. Un test peut passer pour la mauvaise raison
 
+### 2 untrigies — Un backtick DANS un gabarit ferme le gabarit, même en commentaire
+
+Le schéma SQL du store est un seul gabarit : `const SCHEMA = \`… CREATE TABLE …\``.
+En y ajoutant la table `aiguillage_modeles`, j'ai précédé le `CREATE` d'un
+commentaire SQL qui citait les tables voisines entre backticks — `` `tasks` ``,
+`` `contre_visites` `` — par réflexe Markdown. Or **un backtick n'a pas de sens
+« commentaire » dans un gabarit** : le premier a FERMÉ le gabarit en plein
+milieu, et tout ce qui suivait — du vrai SQL — est devenu du code TypeScript que
+le compilateur a essayé de lire. D'où une volée de `TS1005`/`TS1443` **loin de la
+cause**, sur des lignes parfaitement saines.
+
+Ce qui trompe ici, c'est que le diagnostic ne désigne pas le coupable : le
+compilateur signale l'endroit où le gabarit rouvert cesse d'être analysable, pas
+le backtick qui l'a fermé. Corrigé en retirant les backticks du commentaire SQL ;
+le typecheck est redevenu propre d'un coup.
+
+> **Règle** — dans un gabarit (`` ` … ` ``), il n'y a pas de commentaire : tout
+> est de la donnée jusqu'au prochain backtick, y compris ce qui ressemble à de la
+> prose. Un backtick posé « pour décorer » un mot ferme la chaîne. Quand un
+> typecheck rend des `TS1005` en cascade sur du code sain, chercher le gabarit
+> ouvert AU-DESSUS, pas l'erreur signalée.
+
 ### 2 quinvicies — Une garantie de sécurité attachée à une CHAÎNE, pas à un sujet
 
 `docs/FONCTIONNALITES.md` promettait aux utilisateurs :
