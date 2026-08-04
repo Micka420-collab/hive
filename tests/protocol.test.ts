@@ -63,6 +63,41 @@ describe('parseClientMessage', () => {
     expect(parseClientMessage(JSON.stringify({ ...register, nodeId: 'a/b' }))).toBeNull();
   });
 
+  it('accepte les modèles déclarés par un nœud, et les conserve', () => {
+    // Le champ que l'Aiguillage appris consomme : les modèles qu'un nœud sait
+    // faire tourner. On vérifie qu'ils passent ET qu'ils ressortent intacts —
+    // un champ accepté mais silencieusement jeté ne servirait à personne.
+    const msg = parseClientMessage(
+      JSON.stringify({ ...register, modeles: ['claude-opus-5', 'claude-fable-5'] }),
+    );
+    expect(msg).not.toBeNull();
+    expect(msg).toMatchObject({ modeles: ['claude-opus-5', 'claude-fable-5'] });
+  });
+
+  it('un register SANS modèles reste valide — aucun nœud n’est forcé de les déclarer', () => {
+    // Compatibilité : un nœud d'avant l'Aiguillage, ou un agent à modèle unique,
+    // n'envoie rien. Le hub ne doit pas le refuser, ni inventer une liste.
+    const msg = parseClientMessage(JSON.stringify(register));
+    expect(msg).not.toBeNull();
+    expect(msg).not.toHaveProperty('modeles');
+  });
+
+  it('rejette une liste de modèles malformée — le message ENTIER tombe', () => {
+    // Même sévérité que `plateforme` : un champ optionnel mal formé est un
+    // client qui ment ou qui bogue. On refuse tout plutôt que de garder une
+    // moitié de vérité que l'Aiguillage prendrait pour argent comptant.
+    const modeles = (m: unknown) => JSON.stringify({ ...register, modeles: m });
+    expect(parseClientMessage(modeles('claude-opus-5')), 'pas un tableau').toBeNull();
+    expect(parseClientMessage(modeles([])), 'liste vide').toBeNull();
+    expect(parseClientMessage(modeles([''])), 'un nom vide').toBeNull();
+    expect(parseClientMessage(modeles(['ok', 42])), 'un élément non-chaîne').toBeNull();
+    expect(parseClientMessage(modeles(['x'.repeat(200)])), 'un nom démesuré').toBeNull();
+    expect(
+      parseClientMessage(modeles(Array.from({ length: 17 }, (_, i) => `m${String(i)}`))),
+      'trop de modèles (borne à 16)',
+    ).toBeNull();
+  });
+
   it('rejette task_update et task_result malformés', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_update', taskId: 'a b', status: 'running' })),

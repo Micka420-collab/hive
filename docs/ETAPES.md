@@ -3592,3 +3592,57 @@ tort. Sur un banc de deux tests où la mutation les fait tomber tous les deux,
 vitest n'imprime aucun « passed », et mon compteur retombait sur zéro. Lire la
 sortie entière a montré la vérité (deux `TypeError`). Consigné au carnet
 (§ 2 trigies) : un verdict de mutation ne se lit pas au seul « passed ».
+
+## Câblage de l'Aiguillage — lot 1 : un nœud déclare ses modèles ; et la décision de stockage
+
+### Lot 1 livré : le protocole
+
+Un nœud claude-code peut désormais déclarer `modeles?: string[]` dans son
+`register` (ex. `['claude-opus-5', 'claude-fable-5']`) — le champ que
+l'Aiguillage consommera pour choisir. Validé **exactement comme `plateforme`** :
+liste bornée (≤ 16), chaque nom une chaîne non vide et courte, et un message mal
+formé est **refusé en entier**, pas rafistolé. Optionnel : un nœud d'avant, ou
+un agent à modèle unique, n'en envoie pas et le hub retombe sur son
+comportement d'avant. Un nom de modèle n'est pas un secret ; il transite en
+clair sans danger. Cinq mutations, cinq rouges (vérificateur de verdict corrigé,
+§ 2 trigies).
+
+### Décision d'architecture pour la suite — confiée à un agent Fable 5
+
+**Où ranger le lien tâche→modèle ?** L'agent a vérifié le dépôt et tranché :
+**une table LATÉRALE, pas une colonne.** Le motif est décisif et je l'ai
+re-vérifié : le dépôt a une **règle 2 écrite** (`store.ts` : « aucune migration,
+aucune colonne ajoutée à une table existante ») — le schéma est tout en
+`CREATE TABLE IF NOT EXISTS`, sans un seul `ALTER TABLE`, donc une colonne neuve
+sur `tasks` n'existerait jamais sur une base déjà en service. C'est pourquoi
+`taches_issue`, `contre_expertises`, `contre_visites`, `conseil_plans` sont déjà
+des tables latérales clé-par-tâche. Le précédent est massif.
+
+Forme retenue (**B′**) — ne recopier RIEN, ne stocker que le fait qui manque :
+
+```sql
+CREATE TABLE IF NOT EXISTS aiguillage_modeles (
+  taskId  TEXT PRIMARY KEY,   -- une ligne par tâche, dernière assignation gagne
+  modele  TEXT NOT NULL,
+  choisiA INTEGER NOT NULL
+);
+```
+
+- Écrite **à l'assignation** (pas sur `results` : le modèle est choisi AVANT
+  qu'un résultat existe, et `results` a plusieurs lignes par tâche).
+- Les `Observation[]` sont **reconstruites à la lecture** : jointure
+  `contre_visites × aiguillage_modeles × tasks`, `ORDER BY renduA DESC LIMIT
+CORPUS_AIGUILLAGE`, `categoriser(title, prompt)` calculé au moment du choix.
+  Une seule source par fait : `suite` reste dans `contre_visites`, la catégorie
+  suit la taxonomie du jour — la dérive à deux copies (le défaut corrigé toute
+  la nuit) n'a **pas de troisième endroit où renaître**.
+- Doctrine des bornes respectée : `pruneAiguillageModeles`
+  (`DELETE … WHERE taskId NOT IN (SELECT id FROM tasks)`), câblée dans
+  `server.ts` après `pruneTasks` — table qui grossit sous la machine, bornée et
+  câblée dans le même changement (règle 3). Aucune entrée
+  `BORNÉES_PAR_L_HUMAIN`.
+
+Lots suivants : (2) la table + ses méthodes + la lecture jointe, avec la garde
+`bornes-doctrine` qui reste verte ; (3) le scheduler choisit à l'assignation et
+enregistre ; (4) le nœud range ses modèles déclarés et l'adaptateur claude-code
+passe `--model` au CLI.

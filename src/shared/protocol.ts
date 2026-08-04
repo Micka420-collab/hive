@@ -34,6 +34,8 @@ export const LIMITS = {
   diff: 1024 * 1024,
   subAgents: 32,
   maxConcurrency: 16,
+  /** Nombre max de modèles qu'un nœud peut déclarer savoir faire tourner. */
+  modeles: 16,
   /** Contexte Hive Mind joint à une assignation (borné : injecté dans le prompt). */
   hiveContext: 8_000,
   /** Nombre max de diffs joints à un merge. */
@@ -62,6 +64,18 @@ export interface RegisterMsg {
    * un nœud d'une version antérieure n'en envoie pas, et le hub n'invente rien.
    */
   plateforme?: PlateformeNoeud;
+  /**
+   * Les modèles que ce nœud sait faire tourner (ex. `['claude-opus-5',
+   * 'claude-fable-5']`). Déclarés par lui, pour que l'Aiguillage appris
+   * (`aiguillage.ts`) puisse CHOISIR lequel employer sur un genre de tâche.
+   *
+   * Optionnel, et à dessein : un nœud d'une version antérieure — ou un agent
+   * qui n'expose qu'un modèle — n'en envoie pas, et le hub retombe alors sur
+   * son comportement d'avant (le nœud choisit lui-même). Aucun nœud n'est
+   * forcé de le déclarer, et rien de sensible n'y transite : un nom de modèle
+   * n'est pas un secret.
+   */
+  modeles?: string[];
 }
 
 export interface HeartbeatMsg {
@@ -336,6 +350,21 @@ function isIdList(v: unknown): v is string[] {
   return Array.isArray(v) && v.length <= 1000 && v.every((x) => isId(x));
 }
 
+/**
+ * Une liste de modèles déclarés : bornée en nombre, chacun une chaîne non vide
+ * et courte. On refuse le vide et le démesuré comme partout ailleurs — un champ
+ * optionnel mal formé est un client qui ment ou qui bogue, et les deux se
+ * disent (même règle que `plateforme`).
+ */
+function isModeleList(v: unknown): v is string[] {
+  return (
+    Array.isArray(v) &&
+    v.length >= 1 &&
+    v.length <= LIMITS.modeles &&
+    v.every((x) => isStr(x, LIMITS.name))
+  );
+}
+
 /** Diffs joints à un merge : liste non vide bornée de { taskId, diff }. */
 function isMergeDiffs(v: unknown): v is MergeDiffInput[] {
   if (!Array.isArray(v) || v.length === 0 || v.length > LIMITS.mergeDiffs) return false;
@@ -435,6 +464,13 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.plateforme !== undefined) {
           if (!estPlateforme(m.plateforme)) return null;
           msg.plateforme = m.plateforme;
+        }
+        // Les modèles déclarés viennent aussi du réseau : mal formés, le message
+        // entier est REFUSÉ, pas rafistolé. L'Aiguillage n'aura que des noms
+        // valides à départager.
+        if (m.modeles !== undefined) {
+          if (!isModeleList(m.modeles)) return null;
+          msg.modeles = m.modeles;
         }
         return msg;
       }
