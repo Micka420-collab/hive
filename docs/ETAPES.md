@@ -3646,3 +3646,99 @@ Lots suivants : (2) la table + ses méthodes + la lecture jointe, avec la garde
 `bornes-doctrine` qui reste verte ; (3) le scheduler choisit à l'assignation et
 enregistre ; (4) le nœud range ses modèles déclarés et l'adaptateur claude-code
 passe `--model` au CLI.
+
+### Lot 2 livré : la mémoire tâche→modèle, côté store
+
+Table `aiguillage_modeles` posée telle que B′ ci-dessus. `poserModeleAiguillage`
+(`INSERT OR REPLACE`, dernière assignation gagne), `observationsAiguillage`
+(jointure interne modèle × verdict × tâche, `ORDER BY renduA DESC LIMIT`, rendue
+en ordre chronologique tel que `replierAntecedents` l'attend), et
+`pruneAiguillageModeles` (borne référentielle) câblé après `pruneContreVisites`
+dans `server.ts`. Un demi-fait — modèle sans verdict, ou verdict sans modèle —
+n'entre PAS dans la mémoire : la jointure interne l'exige, et deux bancs le
+tiennent. Banc `aiguillage-store.test.ts` : 6 tests, **6 mutations rejouées, 6
+rouges** (INSERT OR REPLACE, jointure interne, ordre DESC, `reverse()`, borne
+`limite`, `NOT IN`). `bornes-doctrine` reste verte (table + élagueur câblé dans
+le même changement). Fusionné dans #155.
+
+### Ce que l'utilisateur a demandé le 4 août — tester d'AUTRES fournisseurs (xAI, etc.)
+
+> « faut aussi qu'il puisse tester avec les autres modèles d'IA comme chez xAI et
+> les autres, fait des tests toute la journée, travaille sur le projet »
+
+Découverte en cherchant où câbler : **la ruche a DÉJÀ les adaptateurs
+multi-fournisseurs.** `src/adapters/` porte `grok.ts` (xAI Grok Build, `grok -p`),
+`codex.ts` (OpenAI), `claude-code.ts`, `hermes-agent.ts`, `custom.ts`, `shell.ts`.
+Un nœud peut donc déjà ÊTRE un nœud Grok. Ce qui manque n'est pas l'exécution,
+c'est le CHOIX : l'Aiguillage, précisément. Deux nuances réelles restent :
+
+1. les modèles sont **partitionnés par nœud** (un nœud claude-code ne lance pas
+   Grok) — l'ordonnanceur doit choisir **(nœud, modèle) ensemble**, pas juste un
+   nœud ; c'est l'objet du lot 3 ci-dessous ;
+2. les adaptateurs ne passent pas encore de **variante de modèle** (`grok -p`
+   sans `--model`, `claude` sans `--model`) — objet du lot 4.
+
+L'Aiguillage pur traite déjà le modèle comme une chaîne opaque : il route
+`grok-4`, `claude-opus-5`, `codex-...` sur le même pied, sans rien de spécial à
+faire par fournisseur. Le cœur est donc bon ; il ne reste qu'à le brancher.
+
+### Décision lot 3 — comment marier routeur appris et équilibrage de charge (agent Fable 5)
+
+Le fork : les modèles vivant sur des nœuds différents, comment le routeur appris
+pilote-t-il le travail vers le meilleur modèle — Y COMPRIS entre fournisseurs —
+sans casser l'équilibrage de charge ni provoquer de famine ? Confié à un agent
+Fable 5 (a lu `aiguillage.ts`, les trois sites de `scheduler.ts`, `types.ts`,
+`adapters/`, `store.ts`, `drone-wars.ts`). Tranché ainsi :
+
+1. **Union sur les nœuds ÉLIGIBLES, pas tous les nœuds en ligne.** Pipeline :
+   filtre d'éligibilité existant (online, `concurrenceEffective`, cooldown de
+   refus) → union des `modeles` des seuls éligibles → `choisirModele` → nœud le
+   moins chargé parmi ceux qui offrent l'élu. Classer des paires (nœud, modèle)
+   serait du sur-machinage : `scoreUCB` ne dépend que de (catégorie × modèle),
+   jamais du nœud. L'union sur les _éligibles_ tue structurellement la famine :
+   le modèle exclusif d'un nœud saturé n'entre pas dans l'union.
+2. **Lexicographique, jamais pondéré.** Éligibilité (filtre dur) → modèle (UCB) →
+   charge (départage parmi les offrants) → phéromones puis nom. Un score pondéré
+   est mort-né : `scoreUCB` rend `+∞` pour un modèle jamais essayé, aucune
+   pondération ne survit à l'infini. Compromis assumé et à écrire : le modèle
+   DOMINE la charge parmi les éligibles — c'est le but (« piloter réellement »),
+   et la surcharge reste impossible car la capacité est un filtre dur en amont.
+3. **Une fonction pure `aiguillerNoeuds(categorie, eligibles, antecedents)`** dans
+   `aiguillage.ts` (rend `{ modele, noeuds }` ou `null`), trois retouches
+   chirurgicales dans `scheduler.ts` : (site 1) boucle principale, restreindre
+   `eligibles` à `route.noeuds` avant le départage phéromones, antécédents
+   construits paresseusement une fois par passe (façon `lireTraces`) ; (site 2)
+   course de drones, NE PAS restreindre (la course maximise la diversité), mais
+   calculer le modèle élu par drone et le ranger dans la `DroneRace` en mémoire ;
+   (site 3) victoire/promotion, re-poser le modèle du nœud qui devient
+   `assignedNodeId`, lu dans la course.
+4. **No-op** : garde en tête de `aiguillerNoeuds` — aucun éligible ne déclare de
+   `modeles` non vide ⇒ `null`, l'appelant ne touche à RIEN (même tri, mêmes
+   phéromones, zéro lecture SQL neuve, aucun `poserModeleAiguillage`). À
+   verrouiller : flotte sans `modeles` ⇒ trace d'événements et écritures store
+   strictement identiques à aujourd'hui.
+5. **On enregistre le modèle COMMANDÉ**, dans le même geste que le `patchTask`
+   d'assignation réussi (jamais avant le patch — un patch raté poserait un modèle
+   fantôme ; jamais au résultat — les ré-assignations doivent écraser). Course :
+   poser le modèle du primaire au départ, RE-poser celui du VAINQUEUR au `won`
+   (c'est sa production que la contre-visite juge, et `won` précède `renduA`).
+   Nuance à documenter : c'est le modèle commandé, pas prouvé exécuté — l'écho du
+   modèle effectif par le nœud est le lot 4.
+6. **Piège du troupeau, borné.** Le `+∞` d'exploration tient jusqu'au premier
+   VERDICT (la jointure passe par `contre_visites`), pas jusqu'au premier
+   lancement — un modèle neuf aspirerait donc toutes les tâches prêtes de la
+   catégorie. Borne : compter les élections EN VOL (modèle posé, verdict pas
+   rendu) comme des `essais` supplémentaires injectés dans les antécédents avant
+   `classer` — le premier lancement éteint l'infini, la moyenne est
+   temporairement pessimiste puis se corrige, tout reste déterministe (les ex
+   æquo à `+∞` restent départagés par `localeCompare`, déjà en place). Famine par
+   nœud saturé : morte-née (reco 1). Boucle par refus : déjà bornée par le
+   cooldown `recentRejections` existant.
+
+Découpage retenu pour tenir des lots relisibles : **lot 3a** — `node.modeles`
+atteint le hub (types + table latérale 1:1 `modeles_noeuds` façon `plateforme`,
+`registerNode` la range, `NODE_SELECT` la joint, `server.ts` la passe) + la
+fonction pure `aiguillerNoeuds` et ses bancs ; AUCUN changement de comportement
+du scheduler. **Lot 3b** — les trois sites du scheduler s'en servent, l'élection
+est enregistrée, la borne des élections en vol ; le comportement change alors,
+sous la garde du no-op. **Lot 4** — l'adaptateur passe la variante au CLI.
