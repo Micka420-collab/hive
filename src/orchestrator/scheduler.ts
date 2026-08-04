@@ -9,7 +9,7 @@ import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
 // modèle choisi. Absence de modèles déclarés ⇒ `null` ⇒ aucun changement.
-import { aiguillerNoeuds, categoriser, replierAntecedents } from './aiguillage.js';
+import { aiguillerNoeuds, categoriser, injecterEnVol, replierAntecedents } from './aiguillage.js';
 import type { Antecedent } from './aiguillage.js';
 // La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
 // le grand livre (comptage additif) et son cache de projets sont importés ici.
@@ -1319,6 +1319,17 @@ export class Scheduler {
           categorie: categoriser(o.title, o.prompt),
           modele: o.modele,
           suite: o.suite,
+        })),
+      );
+      // Borne du troupeau : les élections EN VOL (modèle posé, tâche encore
+      // active, verdict pas rendu) comptent comme des essais SANS note. Un modèle
+      // neuf voit ainsi son `+∞` s'éteindre dès son premier lancement, au lieu de
+      // rafler tout un genre en attendant les verdicts.
+      injecterEnVol(
+        antecedents,
+        this.store.electionsEnVolAiguillage().map((e) => ({
+          categorie: categoriser(e.title, e.prompt),
+          modele: e.modele,
         })),
       );
       return antecedents;

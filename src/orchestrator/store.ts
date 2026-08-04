@@ -2652,6 +2652,37 @@ export class HiveStore {
   }
 
   /**
+   * Les élections EN VOL : une tâche s'est vu poser un modèle, elle est ENCORE
+   * en cours (`assigned`/`running`), et aucune contre-visite ne l'a jugée. On
+   * rend titre + prompt (pour re-`categoriser`) et le modèle — jamais de suite,
+   * il n'y en a pas encore.
+   *
+   * ─── POURQUOI CES DEUX FILTRES, ET PAS UN SEUL ──────────────────────────────
+   *
+   * L'Aiguillage les compte comme des essais SANS note, pour éteindre le `+∞`
+   * d'exploration d'un modèle neuf dès son PREMIER lancement — sinon, son score
+   * restant infini jusqu'au premier VERDICT (qui met des minutes à revenir), il
+   * aspirerait toutes les tâches prêtes d'un genre.
+   *
+   * · « pas de contre-visite » seul ne suffit PAS : une tâche `done`/`failed`
+   *   qui n'a jamais été relue traînerait comme un essai en vol ÉTERNEL, et
+   *   déprimerait son modèle à jamais. On exige donc qu'elle soit encore ACTIVE
+   *   (`assigned`/`running`) : un essai en vol est un essai qui va, vraiment,
+   *   rendre un verdict bientôt.
+   */
+  electionsEnVolAiguillage(): { title: string; prompt: string; modele: string }[] {
+    return this.db
+      .prepare(
+        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele
+           FROM aiguillage_modeles am
+           JOIN tasks t ON t.id = am.taskId
+          WHERE t.status IN ('assigned', 'running')
+            AND am.taskId NOT IN (SELECT productionTaskId FROM contre_visites)`,
+      )
+      .all() as { title: string; prompt: string; modele: string }[];
+  }
+
+  /**
    * Élague les liens dont la tâche n'existe plus. Référentielle, comme
    * `pruneContreVisites` juste au-dessus, et vraie dès le premier jour :
    * `pruneTasks` fait disparaître des tâches pour de bon depuis le lot 17.

@@ -16,10 +16,12 @@ import {
   choisirModele,
   classer,
   cle,
+  injecterEnVol,
   moyenne,
   recompenseDe,
   replierAntecedents,
   scoreUCB,
+  type Antecedent,
   type Observation,
 } from '../src/orchestrator/aiguillage.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
@@ -285,5 +287,43 @@ describe('aiguillerNoeuds — du modèle élu aux nœuds qui savent le faire tou
     const route = aiguillerNoeuds('code', [noeud('n1', ['fable'])], memoire);
     expect(route?.modele, 'seul un modèle atteignable est élu').toBe('fable');
     expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
+  });
+});
+
+describe('injecterEnVol — le troupeau borné : le +∞ s’éteint au premier lancement', () => {
+  it('UN MODÈLE NEUF EN VOL N’EST PLUS À +∞ — un essai sans note suffit à éteindre l’infini', () => {
+    const m = new Map<string, Antecedent>();
+    // Avant : grok n'a aucun vécu → score +∞.
+    expect(scoreUCB(m.get(cle('code', 'grok')) ?? { essais: 0, recompenseTotale: 0 }, 10)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
+    injecterEnVol(m, [{ categorie: 'code', modele: 'grok' }]);
+    const a = m.get(cle('code', 'grok'));
+    expect(a, 'l’essai en vol crée l’antécédent').toEqual({ essais: 1, recompenseTotale: 0 });
+    expect(Number.isFinite(scoreUCB(a!, 10)), 'le score est désormais FINI').toBe(true);
+    expect(moyenne(a!), 'et la note reste 0 — pessimiste tant que rien n’est jugé').toBe(0);
+  });
+
+  it('N’EFFACE PAS LE VÉCU — un essai en vol ALOURDIT essais sans toucher la note', () => {
+    const m = replierAntecedents(Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')));
+    expect(m.get(cle('code', 'opus')), 'opus : 4 essais, note pleine').toEqual({
+      essais: 4,
+      recompenseTotale: 4,
+    });
+    injecterEnVol(m, [{ categorie: 'code', modele: 'opus' }]);
+    expect(m.get(cle('code', 'opus')), 'un essai de plus, même somme de notes').toEqual({
+      essais: 5,
+      recompenseTotale: 4,
+    });
+    expect(moyenne(m.get(cle('code', 'opus'))!), 'la moyenne baisse un peu').toBeCloseTo(0.8, 10);
+  });
+
+  it('CHAQUE ÉLECTION EN VOL COMPTE — deux tâches en vol du même modèle = deux essais', () => {
+    const m = new Map<string, Antecedent>();
+    injecterEnVol(m, [
+      { categorie: 'code', modele: 'grok' },
+      { categorie: 'code', modele: 'grok' },
+    ]);
+    expect(m.get(cle('code', 'grok'))?.essais, 'deux en vol, deux essais').toBe(2);
   });
 });

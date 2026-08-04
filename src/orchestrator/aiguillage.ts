@@ -283,6 +283,39 @@ export function moyenne(a: Antecedent): number {
   return a.essais > 0 ? a.recompenseTotale / a.essais : 0;
 }
 
+/**
+ * Compte les élections EN VOL comme des essais SANS note, DANS les antécédents.
+ *
+ * ─── POURQUOI CETTE INJECTION EXISTE ─────────────────────────────────────────
+ *
+ * `scoreUCB` rend `+∞` pour un modèle jamais essayé, et cet infini tient jusqu'au
+ * premier VERDICT — pas jusqu'au premier LANCEMENT. Un modèle neuf resterait donc
+ * à `+∞` le temps que les contre-visites reviennent (des minutes), et pendant ce
+ * temps il raflerait toutes les tâches prêtes de son genre : le TROUPEAU.
+ *
+ * En ajoutant un `essai` (à récompense NULLE) par élection en vol, on éteint
+ * l'infini dès le premier lancement : `essais` passe à > 0, `scoreUCB` devient
+ * fini, et la moyenne est TEMPORAIREMENT pessimiste (0) puis se corrige quand les
+ * vrais verdicts tombent. Tout reste déterministe — les ex æquo restent
+ * départagés par le nom, comme avant.
+ *
+ * Mute la carte EN PLACE (elle vient d'être bâtie par `replierAntecedents`, on ne
+ * la partage pas). Une élection en vol dont on connaît DÉJÀ un verdict passé
+ * n'écrase rien : elle s'ajoute, alourdissant `essais` sans toucher la note — ce
+ * qui pèse un peu plus pessimiste tant que la production en cours n'a pas rendu.
+ */
+export function injecterEnVol(
+  antecedents: Map<string, Antecedent>,
+  enVol: readonly { categorie: Categorie; modele: string }[],
+): void {
+  for (const e of enVol) {
+    const k = cle(e.categorie, e.modele);
+    const a = antecedents.get(k) ?? { essais: 0, recompenseTotale: 0 };
+    a.essais += 1;
+    antecedents.set(k, a);
+  }
+}
+
 // ─── Le choix : exploiter le meilleur, explorer le reste ──────────────────────
 
 /**

@@ -180,3 +180,63 @@ describe('HiveStore — les modèles déclarés d’un nœud (ce que l’Aiguill
     expect(store.getNode('n1')?.modeles).toEqual(['a', 'b']);
   });
 });
+
+describe('HiveStore — les élections EN VOL de l’Aiguillage (la borne du troupeau)', () => {
+  let store: HiveStore;
+  beforeEach(() => {
+    store = new HiveStore(':memory:');
+  });
+  afterEach(() => store.close());
+
+  function tache(title: string, prompt: string): string {
+    const p = store.createProject({ name: 'Rucher' });
+    return store.createTask({ projectId: p.id, title, prompt }).id;
+  }
+  function verdict(taskId: string, now: number): void {
+    store.enregistrerContreVisite({
+      productionTaskId: taskId,
+      suite: 'appliquer',
+      raison: '',
+      visiteurNodeId: 'v',
+      visiteurAgent: 'claude-code',
+      now,
+    });
+  }
+
+  it('UNE TÂCHE ACTIVE, MODÈLE POSÉ, SANS VERDICT EST EN VOL', () => {
+    const t = tache('Corrige le crash', 'la ruche plante');
+    store.poserModeleAiguillage(t, 'grok', 1_000);
+    store.patchTask(t, { status: 'running' });
+    const enVol = store.electionsEnVolAiguillage();
+    expect(enVol).toHaveLength(1);
+    expect(enVol[0]).toMatchObject({
+      title: 'Corrige le crash',
+      prompt: 'la ruche plante',
+      modele: 'grok',
+    });
+  });
+
+  it('UNE TÂCHE DÉJÀ JUGÉE N’EST PLUS EN VOL — le verdict la sort', () => {
+    const t = tache('T', 't');
+    store.poserModeleAiguillage(t, 'grok', 1_000);
+    store.patchTask(t, { status: 'running' });
+    verdict(t, 2_000);
+    expect(store.electionsEnVolAiguillage(), 'jugée ⇒ hors vol').toEqual([]);
+  });
+
+  it('UNE TÂCHE TERMINÉE SANS VERDICT N’EST PAS EN VOL — sinon elle déprimerait son modèle à jamais', () => {
+    // Le second filtre, celui qu'on oublie : `done`/`failed` sans relecture ne
+    // rendra JAMAIS de verdict — la compter en vol pèserait sur son modèle sans
+    // fin. Seules les tâches ENCORE actives sont de vraies élections en vol.
+    const t = tache('T', 't');
+    store.poserModeleAiguillage(t, 'grok', 1_000);
+    store.patchTask(t, { status: 'done' });
+    expect(store.electionsEnVolAiguillage(), 'done sans verdict ⇒ pas en vol').toEqual([]);
+  });
+
+  it('SANS MODÈLE POSÉ, RIEN — une tâche active ordinaire n’est pas une élection', () => {
+    const t = tache('T', 't');
+    store.patchTask(t, { status: 'running' });
+    expect(store.electionsEnVolAiguillage()).toEqual([]);
+  });
+});

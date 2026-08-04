@@ -200,4 +200,33 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       nz.id,
     );
   });
+
+  it('LE TROUPEAU EST BORNÉ — un modèle neuf avec des élections EN VOL ne rafle plus la tâche prête', () => {
+    // opus a un vécu fort sur « code » ; grok est NEUF (0 verdict) mais a DÉJÀ
+    // cinq élections en vol (cinq tâches actives, modèle grok, pas encore
+    // jugées). Sans la borne, grok serait à +∞ et raflerait la tâche prête.
+    // Avec, ses cinq essais en vol éteignent l'infini, et opus (note haute)
+    // reprend la main — le premier lancement a suffi.
+    vecu('opus', 'appliquer', 8);
+    for (let i = 0; i < 5; i++) {
+      const tv = store.createTask({
+        projectId: store.createProject({ name: 'vol' }).id,
+        title: 'Ajoute un endpoint',
+        prompt: 'implémente la fonction',
+      }).id;
+      store.poserModeleAiguillage(tv, 'grok', 100 + i);
+      store.patchTask(tv, { status: 'running' }); // active, sans verdict ⇒ en vol
+    }
+    const nOpus = scheduler.registerNode(profile('n-opus', ['opus']));
+    const nGrok = scheduler.registerNode(profile('n-grok', ['grok']));
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    scheduler.tick(5_000);
+
+    const task = store.getTask(t);
+    expect(task?.assignedNodeId, 'grok en vol éteint son +∞ ⇒ opus reprend la tâche').toBe(
+      nOpus.id,
+    );
+    expect(task?.assignedNodeId, 'et grok neuf ne rafle plus').not.toBe(nGrok.id);
+  });
 });
