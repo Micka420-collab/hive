@@ -89,6 +89,15 @@ export function rangEchelon(e: Echelon): number {
   return ECHELONS.indexOf(e);
 }
 
+/**
+ * Ramène un texte à un échelon connu, ou `null` s'il n'en est pas un. Le store
+ * rend les bornes en TEXTE BRUT (une base éditée à la main pourrait contenir
+ * n'importe quoi) ; c'est ici, et pas dans le store, qu'on les valide.
+ */
+export function versEchelon(brut: string): Echelon | null {
+  return (ECHELONS as readonly string[]).includes(brut) ? (brut as Echelon) : null;
+}
+
 /** Le paquet de modes qu'un échelon commande. Les deux modes bougent ENSEMBLE. */
 export interface Reglage {
   /** Jamais `off` : le plancher garde le contrôle d'entrée allumé (voir ci-dessus). */

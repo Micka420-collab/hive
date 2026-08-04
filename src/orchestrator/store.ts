@@ -2792,6 +2792,18 @@ export class HiveStore {
   }
 
   /**
+   * L'échelon posé pour une tâche, ou `null` si aucun (projet non opt-in). Rendu
+   * en TEXTE BRUT — le module le valide (`versEchelon`). C'est ce que lit l'aval
+   * pour que le mode qui JUGE une production soit le mode qui l'a GOUVERNÉE.
+   */
+  getEchelonGardeFou(taskId: string): string | null {
+    const row = this.db
+      .prepare('SELECT echelon FROM garde_fou_echelons WHERE taskId = ?')
+      .get(taskId) as { echelon: string } | undefined;
+    return row?.echelon ?? null;
+  }
+
+  /**
    * Range l'EXIGENCE de contre-visite d'une production — le fait daté que rien ne
    * peut reconstruire (voir le schéma). `exigee` si une contre-visite était
    * requise, `dispensee` sinon. `INSERT OR REPLACE` : la dernière décision gagne.

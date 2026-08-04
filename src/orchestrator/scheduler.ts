@@ -17,6 +17,18 @@ import {
   replierAntecedents,
 } from './aiguillage.js';
 import type { Antecedent } from './aiguillage.js';
+// L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
+// gouverner la sévérité des Gardiennes de la production. Module PUR — le scheduler
+// lui donne les antécédents et pose l'échelon élu. Projet non opt-in ⇒ repli sur
+// le mode global (rien ne change).
+import {
+  REGLAGES,
+  elireEchelon,
+  observationDepuisFaits,
+  replierAntecedentsGardeFou,
+  versEchelon,
+} from './garde-fou.js';
+import type { Echelon, ObservationGardeFou } from './garde-fou.js';
 // La Balance n'entre JAMAIS dans le choix du nœud (doctrine, règle 4) : seuls
 // le grand livre (comptage additif) et son cache de projets sont importés ici.
 // Aucun symbole d'IMPUTATION (`peserLaRuche`, `Pesee`, `Compte`…) ne doit
@@ -708,6 +720,22 @@ export class Scheduler {
   }
 
   /**
+   * Le mode des Gardiennes qui gouverne UNE production. Si l'Agent Garde-Fous a
+   * posé un échelon pour cette tâche (projet opt-in), c'est la sévérité de cet
+   * échelon (`REGLAGES[echelon].gardiennes`, jamais `off`) qui prime — le mode qui
+   * JUGE est le mode qui a GOUVERNÉ. Sinon, le mode global de la ruche.
+   *
+   * On lit l'échelon POSÉ à l'assignation, jamais on ne re-élit : re-élire à la
+   * réception pourrait rendre un autre échelon si les antécédents ont bougé, et
+   * juger une production sous un cadre qu'elle n'a pas connu.
+   */
+  private modeGardiennesDe(task: Task): ModeGardiennes {
+    const brut = this.store.getEchelonGardeFou(task.id);
+    const echelon = brut === null ? null : versEchelon(brut);
+    return echelon ? REGLAGES[echelon].gardiennes : this.modeGardiennes;
+  }
+
+  /**
    * Le contrôle d'entrée d'une production. `null` en mode `off` ou sur un échec
    * DÉCLARÉ : les gardiennes ne reniflent que ce qui prétend ENTRER dans le
    * rayon — un résultat qui s'annonce en échec n'alimente déjà ni la mémoire,
@@ -725,7 +753,7 @@ export class Scheduler {
    * faux positif sur 100 % des tâches du projet.
    */
   private renifler(task: Task, result: Omit<TaskResult, 'nodeId'>): Inspection | null {
-    if (this.modeGardiennes === 'off' || !result.success) return null;
+    if (this.modeGardiennesDe(task) === 'off' || !result.success) return null;
     return inspecter({
       titre: task.title,
       prompt: task.prompt,
@@ -833,7 +861,10 @@ export class Scheduler {
     // deuxième tentative, elle, part sur un AUTRE nœud, avec les logs de la
     // production refusée en leçon de Couveuse.
     const inspection = this.renifler(task, result);
-    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennes === 'strict';
+    // Le REFUS suit l'échelon de garde-fous du projet (modeGardiennesDe), pas le
+    // seul mode global : un projet opt-in en « standard »/« strict » ferme la
+    // porte au creux, un projet en « leger » ne la ferme pas.
+    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennesDe(task) === 'strict';
     const retenu = result.success && !refusee;
     const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
     if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
@@ -1335,6 +1366,33 @@ export class Scheduler {
     return antecedents;
   }
 
+  /**
+   * Les antécédents de l'Agent Garde-Fous, repliés par échelon depuis les
+   * productions TRANCHÉES (`observationsGardeFou`). Une production encore en vol
+   * (ni contre-visite ni exigence) rend `null` et ne pèse pas (`observationDepuisFaits`).
+   */
+  private antecedentsGardeFou(): Map<Echelon, Antecedent> {
+    const observees = this.store
+      .observationsGardeFou()
+      .map(observationDepuisFaits)
+      .filter((o): o is ObservationGardeFou => o !== null);
+    return replierAntecedentsGardeFou(observees);
+  }
+
+  /**
+   * L'échelon de garde-fous élu pour un projet, ou `null` s'il n'a pas opt-in
+   * (`getGardeFou` absent ou `actif` faux). Élit DANS les bornes que l'humain a
+   * posées — le module ne les invente jamais. Bornes illisibles ⇒ repli sur le
+   * plus strict (fermé par défaut).
+   */
+  private echelonGardeFouElu(projectId: string): Echelon | null {
+    const consentement = this.store.getGardeFou(projectId);
+    if (!consentement?.actif) return null;
+    const min = versEchelon(consentement.borneMin) ?? 'strict';
+    const max = versEchelon(consentement.borneMax) ?? 'strict';
+    return elireEchelon({ min, max }, this.antecedentsGardeFou());
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1469,6 +1527,14 @@ export class Scheduler {
       // écraser, c'est le contrat « la dernière assignation gagne » qui aligne
       // dernier modèle et dernier verdict).
       if (route) this.store.poserModeleAiguillage(task.id, route.modele, now);
+      // L'Agent Garde-Fous : si le projet a opt-in, on élit et on POSE l'échelon
+      // de garde-fous — c'est lui qui gouvernera la sévérité des Gardiennes de
+      // cette production (lu par `modeGardiennesDe` à la réception). Après le patch
+      // réussi, comme le modèle : un patch raté ne poserait aucun échelon fantôme,
+      // et une ré-assignation écrase (la dernière gouverne). `null` (projet non
+      // opt-in) ⇒ rien n'est posé ⇒ la ruche reste indiscernable de celle d'avant.
+      const echelonGF = this.echelonGardeFouElu(task.projectId);
+      if (echelonGF) this.store.poserEchelonGardeFou(task.id, echelonGF, now);
       if (routePheromone) {
         // Faits typés seulement (dont le NOM du nœud, que le Journal affiche) :
         // le texte bilingue est reconstruit à l'affichage.

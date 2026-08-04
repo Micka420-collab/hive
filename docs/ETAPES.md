@@ -4036,3 +4036,49 @@ lot (règle 3) — `bornes-doctrine.test.ts` reste vert. Bancs : 6 tests purs
 scheduler — lire les bornes, élire, appliquer le `Reglage`, poser l'échelon à
 l'assignation et l'exigence au point `exigeContreVisite`), lot G5 (protocole /
 tableau de bord).
+
+### Lot G4a livré : le câblage Gardiennes de l'ordonnanceur (boucle principale)
+
+L'ACTIVATION, première moitié : sur un projet OPT-IN, la ruche élit un échelon de
+garde-fous dans les bornes de l'humain, le POSE à l'assignation, et la sévérité
+des Gardiennes de la production suit CET échelon. Projet non opt-in ⇒ repli sur le
+mode global — la ruche reste indiscernable d'avant (inerte tant que personne
+n'active, comme l'Aiguillage sans HIVE_MODELES).
+
+- `store.getEchelonGardeFou(taskId)` — l'échelon POSÉ, lu à la réception : le mode
+  qui JUGE est le mode qui a GOUVERNÉ. On ne re-élit jamais après coup (les
+  antécédents ont pu bouger).
+- `garde-fou.versEchelon(brut)` (pur) — valide le texte des bornes rendu brut par
+  le store.
+- `scheduler.antecedentsGardeFou()` — replie `observationsGardeFou → observationDepuisFaits`.
+- `scheduler.echelonGardeFouElu(projectId)` — `null` si pas d'opt-in ; sinon
+  `elireEchelon` dans les bornes (illisibles ⇒ repli sur le plus strict).
+- `scheduler.modeGardiennesDe(task)` — échelon posé ? `REGLAGES[echelon].gardiennes`
+  : mode global. Câblé à la porte `renifler` et au REFUS de `handleTaskResult`.
+- Pose : après le patch d'assignation réussi (comme le modèle de l'Aiguillage).
+
+**Fork tranché (moi-même, défendable) : l'apprentissage est GLOBAL, la gouvernance
+PAR PROJET.** Les antécédents replient le vécu de TOUTE la ruche (motif Aiguillage),
+pas d'un seul projet. Un apprentissage par projet n'aurait presque jamais assez de
+verdicts pour sortir du « fermé par défaut » (c'est la raison même de l'échelle à
+trois échelons — « un projet rend quelques verdicts par jour ») : il resterait
+bloqué sur strict, ce qui NIE l'adaptation qu'on cherche. Le global apprend vite
+quel échelon offre le meilleur compromis, et le PAR-PROJET vit dans l'opt-in et les
+bornes (un dépôt d'auth pose min=strict, un prototype ouvre à leger). C'est
+sample-efficient ET gouverné par projet.
+
+**Bornes de ce lot, dites honnêtement.** Ne sont PAS encore câblés : la COURSE DE
+DRONES (le second REFUS, `handleDroneResult`, laissé au mode global — un drone n'a
+pas d'échelon posé, donc `modeGardiennesDe` y replierait déjà sur le global : le
+changer serait un mutant équivalent tant que rien n'y pose d'échelon), et le
+POLYÉTHISME (contre-visite + exigence, server-side, lot G4b) — c'est LUI qui rendra
+les observations repliables et fera vraiment APPRENDRE le bandit ; tant que G4b
+n'est pas là, tout projet opt-in reste à `strict` (aucune observation ⇒ +∞ ⇒
+départage strict), ce qui est SÛR et non menteur (l'échelon posé strict gouverne
+bien les Gardiennes ; aucun verdict n'est encore attribué).
+
+Banc `garde-fou-scheduler.test.ts` : 5 tests (no-op sans opt-in, froid → strict,
+compromis appris → leger, bornes respectées → jamais hors {min,max}, le REFUS suit
+l'échelon et pas le mode global). Mutations rejouées rouges. **Reste** : G4b
+(Polyéthisme + exigence → l'apprentissage démarre), G4c (course de drones), G5
+(protocole/tableau).
