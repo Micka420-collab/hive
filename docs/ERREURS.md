@@ -413,6 +413,32 @@ réelle.
 
 ## 2. Un test peut passer pour la mauvaise raison
 
+### 2 tritrigies — Un demi-câblage qui ENREGISTRE sans EXÉCUTER fait apprendre un mensonge
+
+L'Aiguillage se câblait en quatre lots : le nœud DÉCLARE ses modèles (4a), et
+l'adaptateur EXÉCUTE le modèle choisi (4b). J'allais livrer 4a seul — c'est un
+lot plus petit, plus relisible, et les deux « marchent » indépendamment au
+typecheck. J'ai failli le commiter.
+
+Le piège : l'ENREGISTREMENT du modèle choisi (`poserModeleAiguillage`) était déjà
+VIF depuis deux lots plus tôt, et il ne s'active que si un nœud déclare des
+modèles. Livrer 4a seul aurait donc fait, dès qu'un opérateur pose `HIVE_MODELES` :
+la ruche CHOISIT un modèle, l'ENREGISTRE, mais l'adaptateur (sans 4b) lance le
+modèle par DÉFAUT. La contre-visite jugerait la production du défaut, et
+l'Aiguillage l'attribuerait au modèle choisi. Chaque tâche apprendrait un
+mensonge — pire que pas d'apprentissage, parce que ça se croit informé.
+
+Rien dans 4a ne rougit à cause de ça : 4a est correct EN SOI. Le défaut naît de
+son INTERACTION avec un effet déjà en vol. Un banc de 4a ne pouvait pas le voir.
+
+> **Règle** — avant de livrer la moitié d'une fonctionnalité, demander : « quel
+> EFFET DÉJÀ VIF cette moitié active-t-elle, que l'autre moitié est nécessaire à
+> rendre VRAI ? ». Quand la première moitié allume un enregistrement, une mesure,
+> un compteur — et que la seconde est ce qui le rend fidèle — les deux sont
+> INSÉPARABLES, même si chacune compile et se teste seule. Un demi-câblage qui
+> mesure sans agir n'est pas un progrès partiel : c'est une source de données
+> fausses qui se présentent comme vraies.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au

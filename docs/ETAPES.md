@@ -3818,3 +3818,42 @@ trois sites de pose rejouées rouges, chacune par son banc. **Reste** : lot 4
 variante au CLI). Après le lot 4, la boucle est CÂBLÉE de bout en bout : le nœud
 déclare → la ruche choisit → le nœud exécute → la contre-visite juge → la ruche
 apprend.
+
+### Lot 4 livré : L'ACTIVATION — la boucle est câblée de bout en bout
+
+La ruche choisit désormais un modèle ET le fait exécuter. **4a et 4b vont
+ENSEMBLE par nécessité** : sans 4b, un nœud qui déclare des modèles ferait
+choisir+enregistrer (lots 3b/3c, déjà vifs) un modèle que l'adaptateur
+n'emploierait pas — le verdict serait attribué au MAUVAIS modèle, et l'Aiguillage
+apprendrait un mensonge. Presque livré 4a seul ; rattrapé avant le commit.
+
+- **4a — le nœud DÉCLARE (déclaré, pas détecté).** `parseModeles(HIVE_MODELES)`
+  (pur, sanitisant : vide/doublon/nom démesuré écartés, borné comme le protocole,
+  rien de valide ⇒ `undefined` ⇒ no-op). On ne DÉTECTE pas : un modèle qu'un
+  abonnement interdit échouerait en boucle SANS rendre de verdict (l'échec
+  d'infra réassigne, il ne juge pas), donc l'Aiguillage ne pourrait même pas
+  apprendre à l'éviter — l'opérateur seul sait ce que son compte peut appeler.
+  `NodeClientOptions.modeles` inclus dans le register (validé au lot 1).
+- **4b — le modèle ATTEINT le CLI.** `assign_task.modele` (protocole, optionnel,
+  validé comme un nom de nœud) ; `onAssign(nodeId, task, modele)` (la boucle passe
+  `route.modele`, la course `modeleParDrone[droneId]`) ; `server.envoyerTache` le
+  met dans `assign_task` ; le node-client le passe en `ctx.modele` ; `argvClaude`
+  (pur, extrait) → `--model <nom>` AVANT le `--`, prompt en dernier, `shell:false`.
+
+**Bornes de couverture, dites honnêtement.** Les points de DÉCISION sont tous
+éprouvés par mutation (8 rejouées rouges) : `parseModeles` (chaque clause + la
+borne), `argvClaude` (avec/sans, position avant `--`), `assign_task.modele`
+(accepté/rejeté), les DEUX sites `onAssign`. Les deux PASSE-PLATS d'une ligne
+entre ces extrémités — `envoyerTache` qui recopie `modele` dans `assign_task`, et
+le node-client qui le pose en `ctx.modele` — ne sont pas éprouvés par un banc
+DÉDIÉ : un e2e qui les couvrirait dépendrait du minuteur du tick (assignation
+asynchrone), et ce dépôt a trop de leçons sur les intermittents (§ 9) pour en
+ajouter un flou. Ils sont couverts par COMPOSITION (onAssign prouvé porte le
+modèle ; `assign_task.modele` prouvé se relit ; `argvClaude(ctx.modele)` prouvé),
+et par relecture. Frontière assumée, pas oubliée.
+
+**La boucle est complète** : le nœud déclare (`HIVE_MODELES`) → la ruche choisit
+(UCB1, borné) → le nœud exécute (`--model`) → la contre-visite juge → la ruche
+apprend, et n'arrête jamais d'explorer. C'est la demande d'origine de
+l'utilisateur, tenue. Reste, hors Aiguillage : l'Agent Garde-Fous (feature 2,
+non commencée), et les tâches de nuit #63.
