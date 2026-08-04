@@ -73,7 +73,7 @@ import {
   fetchVerdictChantier,
 } from '../dashboard/src/api';
 import { PleinEssaim } from '../dashboard/src/PleinEssaim';
-import { BalanceProjet } from '../dashboard/src/views/Balance';
+import { BalanceProjet, CarteBalance } from '../dashboard/src/views/Balance';
 import Intendance from '../dashboard/src/views/Intendance';
 import Memoire from '../dashboard/src/views/Memoire';
 import { Journal } from '../dashboard/src/Journal';
@@ -800,5 +800,83 @@ describe('les sentinelles du balayage du soir', () => {
       loc?.querySelector('.essaim-lecon-portee')?.textContent,
       'la locale ne l’usurpe pas',
     ).not.toContain('⚠');
+  });
+
+  it('JOURNAL : le coût s’affiche quand il EXISTE, et se tait sinon', async () => {
+    // `typeof v === 'number' && Number.isFinite(v)` mutée en `!==` : la durée
+    // d'une tâche terminée disparaîtrait du journal (elle EST un nombre), et
+    // un événement sans durée — ceux d'avant ce lot, ou `no_working_agent`
+    // qui n'en a aucune — passerait à `formatDuree(undefined)`. L'en-tête du
+    // module le promet en toutes lettres : « jamais un 0 ms inventé ».
+    const ev = (id: number, type: string, payload: Record<string, unknown>): HiveEvent =>
+      ({ id, ts: 1_700_000_000_000 + id, type, payload }) as HiveEvent;
+    const dom = await monter(
+      <Journal
+        events={[
+          ev(1, 'task_done', { taskId: 't-chiffree', durationMs: 1_500 }),
+          ev(2, 'task_done', { taskId: 't-muette' }),
+        ]}
+      />,
+    );
+    const ligne = (marque: string) =>
+      [...dom.querySelectorAll('.jrow')].find((l) => (l.textContent ?? '').includes(marque));
+
+    expect(ligne('t-chiffr')?.textContent, 'la durée connue se dit').toContain('1.5 s');
+    const muette = ligne('t-muette')?.textContent ?? '';
+    expect(muette, 'la ligne sans durée existe').not.toBe('');
+    expect(muette, 'aucune durée inventée').not.toContain(' en ');
+    expect(dom.textContent, 'et surtout aucun NaN à l’écran').not.toContain('NaN');
+  });
+
+  it('BALANCE : « grand livre à l’arrêt » ne se dit QU’EN mode off', async () => {
+    // `balance.mode === 'off'` mutée en `!==` : une ruche qui TIENT ses
+    // comptes annoncerait que le grand livre est arrêté (on cesserait de se
+    // fier à des soldes pourtant justes), et une ruche en mode « off »
+    // afficherait le message de rattrapage — un rattrapage qui n'aura jamais
+    // lieu, puisque rien n'est tenu.
+    const etat = (mode: string) =>
+      ({
+        version: 1,
+        mode,
+        aJour: false,
+        fenetre: 100,
+        pesee: {
+          version: 1,
+          // La carte se TAIT sur une pesée vide (« rien pesé ») : le banc doit
+          // porter du miel, sinon on juge une branche qu'on ne vise pas.
+          global: {
+            utileMs: 60_000,
+            repriseMs: 0,
+            echecMs: 0,
+            rebuteMs: 0,
+            totalMs: 60_000,
+            tentatives: 4,
+            rendement: 1,
+          },
+          parProjet: [],
+          parNoeud: [],
+          reprises: { taches: 0, tentatives: 0 },
+          corpus: { taches: 3, tentatives: 4, ignorees: 0 },
+        },
+        soldes: [],
+      }) as never;
+
+    const arret = await monter(
+      <CarteBalance balance={etat('off')} erreur={null} snapshot={instantane()} />,
+    );
+    expect(arret.textContent, 'en mode off, on le dit').toContain('Grand livre à l’arrêt');
+    expect(arret.textContent, 'et on ne promet pas de rattrapage').not.toContain(
+      'Rattrapage du grand livre',
+    );
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    const tenu = await monter(
+      <CarteBalance balance={etat('observation')} erreur={null} snapshot={instantane()} />,
+    );
+    expect(tenu.textContent, 'grand livre tenu mais en retard : c’est un rattrapage').toContain(
+      'Rattrapage du grand livre',
+    );
+    expect(tenu.textContent, 'et surtout pas « à l’arrêt »').not.toContain('Grand livre à l’arrêt');
   });
 });

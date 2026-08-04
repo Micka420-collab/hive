@@ -170,6 +170,33 @@ Trois survivantes du balayage ont été tuées L'APRÈS-MIDI MÊME (TaskDrawer,
 Essaim, Chronique — lots 8 à 10) : restent **26**, listées dans
 `scratchpad/loupe-nuit-70.log`, à traiter par familles.
 
+**Trente-troisième lot — trois de plus du balayage de nuit** (nuit, 03 h 30 →
+04 h 00 UTC). AccountPanel — le bouton de soumission dit ce qu'il va faire
+(`mode === 'login'` mutée : il promettrait « Créer le compte » à qui se
+connecte et « Se connecter » à qui s'inscrit ; l'indice de longueur bascule
+bien, LUI, mais c'est une AUTRE ligne — une famille de bascules ne se garde
+pas par un seul de ses membres). Journal — le coût s'affiche quand il existe
+et se tait sinon (`typeof v === 'number'` mutée : la durée d'une tâche
+terminée disparaîtrait, et un événement sans durée passerait à `formatDuree`
+d'un `undefined` ; l'en-tête du module promet en toutes lettres « jamais un
+0 ms inventé »). Balance — « grand livre à l'arrêt » ne se dit qu'en mode
+`off` (mutée : une ruche qui TIENT ses comptes annoncerait l'arrêt, et une
+ruche en `off` promettrait un rattrapage qui n'aura jamais lieu).
+**3 mutations rejouées, 3 rouges.**
+
+Deux pièges de banc, tous deux réglés en LISANT la source plutôt qu'en
+devinant : `CarteBalance` prend ses données EN PROPRIÉTÉ (il n'y a pas de vue
+`Balance` par défaut à monter), et elle se TAIT sur une pesée vide — un banc
+à `totalMs: 0` jugeait la branche « rien pesé », pas celle qu'on visait. Le
+champ `corpus` s'appelle `{ taches, tentatives, ignorees }`, pas `{ lues,
+imputees }`. Un banc qui invente la forme de ses données ne teste pas la vue.
+
+Reste du balayage : la garde `plafondMs !== null && trace` de Balance, et
+`voisinage = choisi !== null` du Cerveau — celle-ci vit dans la boucle de
+dessin du canevas, comme le glisser du lot 25 ; contrairement à lui, elle ne
+porte aucune règle extractible (un ternaire d'affichage), et sera documentée
+comme telle plutôt que simulée.
+
 **Trente-deuxième lot — un balayage de nuit NEUF, et ses deux premières
 prises** (nuit, 03 h 00 → 03 h 25 UTC). Nouveau balayage lancé dans
 l'atelier (base : premier commit, LOUPE_MAX=140) sur un dépôt qui a reçu

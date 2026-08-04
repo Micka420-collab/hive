@@ -179,4 +179,26 @@ describe('la porte canSubmit — les trois survivantes de la loupe', () => {
     cliquer(boutonParTexte(m.dom, 'Inscription'));
     expect(m.dom.textContent).toContain('12 caractères minimum');
   });
+
+  it('LE BOUTON DIT CE QU’IL VA FAIRE — « Se connecter » ou « Créer le compte »', () => {
+    // Survivante du balayage de nuit : `mode === 'login'` mutée en `!==` —
+    // le bouton de soumission promettrait « Créer le compte » à quelqu'un qui
+    // se connecte, et « Se connecter » à quelqu'un qui s'inscrit. Les deux
+    // gestes ne sont pas réversibles de la même façon : créer un compte avec
+    // une adresse déjà prise échoue, et se croire en train de créer alors
+    // qu'on se connecte fait taper un mot de passe qu'on n'a pas encore.
+    //
+    // L'indice de longueur (test ci-dessus) bascule bien, lui — c'est une
+    // AUTRE ligne. Une famille de bascules ne se garde pas par un seul de ses
+    // membres.
+    const m = ouvrirModale();
+    expect(m.soumission().textContent, 'à la connexion, il propose de se connecter').toContain(
+      'Se connecter',
+    );
+    cliquer(boutonParTexte(m.dom, 'Inscription'));
+    expect(m.soumission().textContent, 'à l’inscription, il propose de créer').toContain(
+      'Créer le compte',
+    );
+    expect(m.soumission().textContent, 'et il ne dit plus l’autre').not.toContain('Se connecter');
+  });
 });
