@@ -22,7 +22,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   reglerGardeFou: vi.fn(() => Promise.resolve({})),
 }));
 
-import { fetchGardeFou } from '../dashboard/src/api';
+import { fetchGardeFou, reglerGardeFou } from '../dashboard/src/api';
 import type { EtatGardeFouUi } from '../dashboard/src/api';
 import { GardeFous, formatMoyenne, formatScore } from '../dashboard/src/GardeFous';
 
@@ -113,6 +113,56 @@ describe('le rendu — ce que l’écran raconte', () => {
     expect(dom.textContent).toContain('Aucun échelon élu');
     expect(dom.textContent, 'aucun échelon inventé quand il n’y en a pas').not.toContain(
       'Échelon élu :',
+    );
+  });
+
+  it('les BORNES choisies sont marquées `aria-pressed` — la bonne, pas l’inverse', async () => {
+    // Survivantes loupe : `aria-pressed={bornes.min === e}` et `.max === e`,
+    // mutées en `!==`, marquaient l’INVERSE — le mauvais échelon montré comme
+    // choisi. Un état d’accessibilité qu’aucun test n’assertait. Bornes prises
+    // distinctes (min ≠ défaut, max ≠ défaut) pour que la morsure soit nette.
+    vi.mocked(fetchGardeFou).mockResolvedValue(etat({ bornes: { min: 'standard', max: 'leger' } }));
+    const dom = await monter(<GardeFous projectId="p4" />);
+    const champs = dom.querySelectorAll('.garde-fou-bornes fieldset');
+    // L’ordre des boutons suit `etat.echelons` : leger, standard, strict.
+    const bas = champs[0]!.querySelectorAll('button');
+    const haut = champs[1]!.querySelectorAll('button');
+    expect(bas[1]!.getAttribute('aria-pressed'), 'borne basse = standard, pressée').toBe('true');
+    expect(bas[0]!.getAttribute('aria-pressed'), 'leger n’est pas la borne basse').toBe('false');
+    expect(haut[0]!.getAttribute('aria-pressed'), 'borne haute = leger, pressée').toBe('true');
+    expect(haut[2]!.getAttribute('aria-pressed'), 'strict n’est pas la borne haute').toBe('false');
+  });
+
+  it('la ligne ÉLUE du classement porte `aria-current` — pas une autre', async () => {
+    // Survivante loupe : `aria-current={r.echelon === etat.echelonElu ? …}`,
+    // mutée en `!==`, marquait TOUTES les lignes sauf l’élue. Jamais assertée.
+    vi.mocked(fetchGardeFou).mockResolvedValue(etat({ echelonElu: 'standard' }));
+    const dom = await monter(<GardeFous projectId="p5" />);
+    const lignes = dom.querySelectorAll('.garde-fou-classement tbody tr');
+    // `etat()` : classement [leger, standard, strict].
+    expect(lignes[1]!.getAttribute('aria-current'), 'la ligne standard (élue) est courante').toBe(
+      'true',
+    );
+    expect(lignes[0]!.getAttribute('aria-current'), 'leger n’est pas l’élu').toBeNull();
+    expect(lignes[2]!.getAttribute('aria-current'), 'strict n’est pas l’élu').toBeNull();
+  });
+
+  it('une ERREUR de réglage s’affiche — `erreur && <p>` n’est pas du décor', async () => {
+    // Survivante loupe : `{erreur && <p className="garde-fou-erreur">…}`, mutée
+    // en `||`, cassait l’affichage (le message brut sans son cadre, ou un cadre
+    // vide en permanence). Aucun test ne DÉCLENCHAIT d’erreur, donc rien ne la
+    // gardait. Un réglage qui échoue doit MONTRER pourquoi.
+    vi.mocked(fetchGardeFou).mockResolvedValue(etat());
+    vi.mocked(reglerGardeFou).mockRejectedValueOnce(new Error('plafond refusé par la ruche'));
+    const dom = await monter(<GardeFous projectId="p6" />);
+    const bouton = dom.querySelector('.garde-fou-bornes fieldset button') as HTMLButtonElement;
+    await act(async () => {
+      bouton.dispatchEvent(new Event('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    const err = dom.querySelector('.garde-fou-erreur');
+    expect(err?.textContent, 'le message d’erreur est montré dans son cadre').toContain(
+      'plafond refusé par la ruche',
     );
   });
 });

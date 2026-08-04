@@ -3910,6 +3910,46 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 vicies. Un test de rendu qui ne lit que `textContent` est aveugle à l'attribut
+
+En rebalayant l'intégration du Garde-Fous, la loupe a désigné QUATRE survivantes
+d'un coup dans `GardeFous.tsx`, toutes de la même famille :
+
+```
+aria-pressed={bornes.min === e}          // === → !==  : SANS TEST
+aria-pressed={bornes.max === e}          // === → !==  : SANS TEST
+aria-current={r.echelon === etat.echelonElu ? …}   // === → !==  : SANS TEST
+{erreur && <p className="garde-fou-erreur">{erreur}</p>}   // && → ||  : SANS TEST
+```
+
+Les trois premières inversent un état d'ACCESSIBILITÉ : le mauvais bouton de
+borne montré comme choisi, la mauvaise ligne du classement marquée « courante ».
+La quatrième casse l'affichage d'une erreur de réglage. Toutes VRAIES (pas
+équivalentes) : un lecteur d'écran, et le style CSS accroché à `[aria-pressed]`,
+lisent ces attributs.
+
+Pourquoi rien ne les gardait : les bancs de rendu du panneau assertaient sur
+`dom.textContent`. Or `aria-pressed`, `aria-current`, `class`, `disabled` ne sont
+PAS du texte — ils ne rentrent jamais dans `textContent`. Un banc qui ne lit que
+le texte affiché voit l'échelon élu s'écrire « strict », mais pas QUEL bouton le
+porte. La loupe, elle, mute la source et voit la suite rester verte : elle a
+raison, l'attribut est du comportement que rien n'éprouve.
+
+Correctif : trois bancs qui interrogent l'ATTRIBUT (`getAttribute('aria-pressed')`,
+`getAttribute('aria-current')`) et un quatrième qui DÉCLENCHE l'erreur (un réglage
+qui rejette) puis lit le cadre `.garde-fou-erreur`. Chacun muté → rouge, verdict
+affiché.
+
+### La règle
+
+> Un test de rendu qui n'assertait que `textContent` ne garde que le texte. Tout
+> ce qui vit dans un ATTRIBUT — `aria-*`, `class`, `disabled`, `href`, `value` —
+> lui est invisible, et donc du décor pour la loupe. Quand un attribut PORTE du
+> sens (accessibilité, état sélectionné, lien), interroge-le par
+> `getAttribute` / la propriété, pas par le texte de l'écran.
+
+---
+
 ## 9 novemdecies. Un garde que seul le typeur défend n'est pas défendu par un test
 
 La loupe, relancée sur le diff du Garde-Fous (`LOUPE_BASE` épinglée, jamais dans

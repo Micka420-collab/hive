@@ -4241,3 +4241,35 @@ test »).
 `GardeFous.tsx` est en tête alphabétique du diff), donc `scheduler.ts` (+98) et
 `server.ts` (+112) de l'intégration Garde-Fous n'ont pas encore été balayés — lot
 suivant.
+
+### Balayage loupe de l'intégration : quatre survivantes d'accessibilité dans le panneau
+
+Balayage loupe complet du diff d'intégration Garde-Fous (`LOUPE_BASE` épinglée sur
+9168f01, avant G4a ; jamais dans le dépôt). Sur 12 mutations mutables, verdicts
+obtenus pour 9 avant que la loupe — très lente sur ce dépôt (chaque mutant ≈ une
+suite entière) — ne soit arrêtée. Résultat NET :
+
+- `scheduler.ts` : TOUTES défendues (`modeGardiennesDe(task) === 'off'`,
+  `brut === null`, observations `!== null`) — les bancs de refus G4a/G4b/G4c
+  tiennent.
+- `GardeFous.tsx` : QUATRE survivantes réelles, toutes de la même famille — un
+  état porté par un ATTRIBUT qu'aucun banc n'assertait (les rendus lisaient
+  `textContent`, qui ignore les attributs) :
+  · `aria-pressed={bornes.min === e}` et `.max === e` (quel bouton de borne est
+  montré choisi) ;
+  · `aria-current={r.echelon === etat.echelonElu ? …}` (quelle ligne du classement
+  est courante) ;
+  · `{erreur && <p className="garde-fou-erreur">…}` (l'affichage d'une erreur).
+
+Jugées VRAIES, pas équivalentes (accessibilité + style CSS accroché à
+`[aria-pressed]` les lisent). Correctif = trois bancs qui interrogent l'attribut
+(`getAttribute`) et un qui déclenche l'erreur puis lit son cadre. Chacun muté →
+rouge, verdict affiché. Suite portée à 3474. Leçon : ERREURS § 9 vicies
+(« un test de rendu qui ne lit que `textContent` est aveugle à l'attribut »).
+
+**Reste, honnêtement** : la loupe s'est arrêtée après 9 mutations sur 12 — les
+**3 candidates de `server.ts`** (les gardes de la livraison / contre-visite du
+diff d'intégration) n'ont PAS encore été examinées. La loupe est trop lente sur
+ce dépôt pour un balayage de fond en tâche de nuit (redémarrages + crochet d'arrêt
+qui refuse un arbre sali par un mutant transitoire) ; le reliquat `server.ts` est
+à reprendre en ciblé (mutation d'un garde à la fois, suite entière par garde).
