@@ -693,6 +693,68 @@ describe('les sentinelles du balayage du soir', () => {
       .mockResolvedValue({ chemin: '', entrees: [] } as never);
   });
 
+  it('RUCHE : le bouton du mode d’affichage COURANT porte la classe active', async () => {
+    // Survivantes loupe (§ 9 vicies, la famille GardeFous / … / TaskDrawer) :
+    // `className={mode === '2d' ? 'active' : ''}` et le jumeau '3d'. Mutées en
+    // `!==`, la suite restait verte — aucun banc ne lisait quel bouton de mode
+    // est allumé. La classe `.active` est la seule marque de « on regarde la 2D » :
+    // inverser allume le bouton du mode qu'on ne voit PAS.
+    localStorage.setItem('hive.view', '2d');
+    const dom = await monter(<Ruche {...props(instantane())} />);
+    const boutons = [...dom.querySelectorAll('.view-toggle button')] as HTMLButtonElement[];
+    const d2 = boutons.find((b) => b.textContent?.trim() === '2D');
+    const d3 = boutons.find((b) => b.textContent?.trim() === '3D');
+    expect(d2?.className, '2D est le mode courant').toContain('active');
+    expect(d3?.className, '3D ne l’est pas').not.toContain('active');
+  });
+
+  it('RAYON : l’entrée du fichier OUVERT porte la classe active — pas une autre', async () => {
+    // Survivante loupe (§ 9 vicies) : `ry-entree${ouvert === e.chemin ? ' active'}`.
+    // Mutée en `!==`, la suite restait verte — aucun banc ne lisait quelle entrée
+    // est surlignée. La classe `.active` est la seule marque du fichier ouvert :
+    // inverser surligne toutes les entrées SAUF celle qu'on lit.
+    vi.mocked(fetchRayon).mockResolvedValue({
+      chemin: '',
+      entrees: [
+        { chemin: 'miel.txt', nom: 'miel.txt', type: 'fichier', taille: 12 },
+        { chemin: 'cire.txt', nom: 'cire.txt', type: 'fichier', taille: 8 },
+      ],
+    } as never);
+    const dom = await monter(
+      <Rayon
+        {...props(
+          instantane({
+            projects: [
+              {
+                id: 'p1',
+                name: 'Rucher',
+                repoUrl: null,
+                description: null,
+                visibility: 'private',
+                ownerId: null,
+                createdAt: 1,
+              },
+            ] as never,
+          }),
+        )}
+      />,
+    );
+    const entree = (nom: string): HTMLButtonElement | undefined =>
+      [...dom.querySelectorAll('.ry-entree')].find((b) => (b.textContent ?? '').includes(nom)) as
+        HTMLButtonElement | undefined;
+    // Rien d'ouvert au départ : aucune entrée n'est active.
+    expect(entree('miel.txt')?.className, 'aucune entrée active avant ouverture').not.toContain(
+      'active',
+    );
+    await act(async () => {
+      entree('miel.txt')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(entree('miel.txt')?.className, 'le fichier ouvert est actif').toContain('active');
+    expect(entree('cire.txt')?.className, 'un autre fichier ne l’est pas').not.toContain('active');
+  });
+
   it('BALANCE : le geste ARMÉ dit ce qu’il va faire — sinon on confirme à l’aveugle', async () => {
     // `{arme && cible !== null && (…)}` mutée en `===` : le plafond s'armerait
     // SANS jamais annoncer ce qu'il va couper. Le second clic — celui qui

@@ -4383,3 +4383,34 @@ l'override ne fuie pas dans les bancs voisins.)
 § 9 vicies en est à sa 5ᵉ confirmation (GardeFous, PleinEssaim, AccountPanel, App,
 TaskDrawer). Restent au balayage d'activation : Ruche (mode 2d/3d), Rayon
 (ry-entree), Miellerie (probablement déjà défendu — `miellerie-revue` lit la classe).
+
+### § 9 vicies CLÔTURÉ : Ruche (mode 2d/3d) + Rayon (ry-entree) — le balayage d'activation est complet
+
+Derniers candidats du balayage des états d'activation portés par attribut/classe :
+
+- **Ruche.tsx** : `className={mode === '2d' ? 'active' : ''}` et le jumeau '3d' — le
+  bouton du mode d'affichage courant. DEUX survivantes.
+- **Rayon.tsx** : `ry-entree${ouvert === e.chemin ? ' active'}` — l'entrée du
+  fichier ouvert. UNE survivante.
+
+Mutées en `!==`, la suite restait verte : ni `SwarmView` (canevas ? non — DOM) ni
+l'arbre de fichiers n'étaient assertés sur leur classe active. Correctif : deux
+bancs dans `vues-sentinelles.test.tsx` (le 2D allumé par défaut ; l'entrée cliquée
+surlignée, pas une autre). Les 3 mutations rejouées → rouge, verdict affiché. Suite +2.
+
+**Le balayage § 9 vicies est CLOS.** Bilan sur les panneaux du dashboard portant un
+état d'activation dans un `aria-*` / une classe conditionnelle :
+
+| panneau                           | survivantes trouvées | statut                    |
+| --------------------------------- | -------------------- | ------------------------- |
+| GardeFous (élu/bornes)            | 4 (dont l'`&&`)      | défendu (#171, #170)      |
+| PleinEssaim (niveau)              | 2                    | défendu (#173)            |
+| AccountPanel (onglets)            | 4                    | défendu (#174)            |
+| App (nav)                         | 2                    | défendu (#175)            |
+| TaskDrawer (Diff/Logs)            | 2                    | défendu (#176)            |
+| Ruche (2d/3d) + Rayon (ry-entree) | 3                    | défendu (ce lot)          |
+| Cerveau (mode/dormantes)          | 0                    | déjà défendu (banc dédié) |
+
+Motif désormais épinglé partout : un état d'activation lu par un banc qui n'assert
+que `textContent` est du décor (§ 9 vicies). Prochain lot : hors de cette famille —
+#63 identité visuelle de la vitrine, ou un autre diff au balayage loupe.
