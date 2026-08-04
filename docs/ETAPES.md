@@ -3411,3 +3411,76 @@ Le premier banc cherchait la ligne `t-infinie`. Elle n'existait pas : le journal
 tronque les identifiants à **huit caractères** (`slice(0, 8)`), et `t-infinie`
 en fait neuf. Le repère se cherchait donc dans un texte qui ne pouvait pas le
 contenir — un banc rouge pour une raison qui n'avait rien à voir avec la garde.
+
+## L'Aiguillage appris — la ruche choisit le modèle qui a fait le mieux, sans se figer
+
+### La demande
+
+L'utilisateur, réveillé : « une fois connectée, la ruche doit pouvoir dire —
+Fable 5 pour l'idéation, Opus 5 était meilleur sur cette tâche-là la dernière
+fois. Elle teste, garde en mémoire, réutilise le meilleur ; et essaie d'autres
+méthodes pour ne garder que la meilleure. »
+
+### Ce qui existait, et ce qui manquait
+
+Le **Polyéthisme** note déjà chaque _nœud_ par sa fiabilité (caste), mais pas le
+couple _(genre de tâche × modèle)_ — et un nœud ne déclare qu'un `agentType`,
+jamais opus5/fable5. Le **Conseil** fait délibérer plusieurs modèles, mais ne
+retient rien d'un tour à l'autre. Il manquait la **mémoire** et le **choix
+appris**.
+
+### Trois forks tranchés avec l'utilisateur (présent)
+
+- **Signal appris** : le verdict de **contre-visite** du Polyéthisme
+  (`appliquer`/`améliorer`/`refaire`) — une note de qualité, pas un succès
+  binaire.
+- **Exposition des modèles** : la ruche **choisit**, le nœud **exécute** (la
+  tâche portera le modèle, l'adaptateur claude-code le passera au CLI).
+- **Catégorie** : **dérivée du prompt/titre**, sans rien demander à personne.
+
+### Le module — `src/orchestrator/aiguillage.ts`, pur
+
+- `categoriser(titre, prompt)` → un des sept genres (idéation, code, correction,
+  refactorisation, test, documentation, autre), par comptage de mots FR+EN, la
+  précédence départageant les ex æquo (« corriger le test qui échoue » est une
+  _correction_, pas un _test_).
+- `recompenseDe(verdict)` : `appliquer`=1, `améliorer`=0.5, `refaire`=0. Le
+  milieu compte — punir l'à-peu-près comme le faux ferait préférer un modèle qui
+  rate moins souvent mais complètement.
+- `replierAntecedents` : la mémoire (genre × modèle) → {essais, note}, avec
+  **oubli** au-delà de `CORPUS_AIGUILLAGE` (un modèle s'améliore ; on ne le juge
+  pas sur ce qu'il n'est plus).
+- `choisirModele` / `classer` : **UCB1**, déterministe. Le meilleur score
+  l'emporte, mais un modèle **peu essayé** reçoit un bonus, et un modèle
+  **jamais essayé** vaut `+∞` (« inconnu » n'est pas « mauvais »). C'est
+  exactement « garder le meilleur sans se figer », et sans le moindre
+  `Math.random` — deux ruches au même vécu font le même choix.
+
+Le module NE câble rien : déclarer les modèles d'un nœud, porter le modèle dans
+l'assignation, enregistrer le verdict — c'est le lot suivant.
+
+### Mutations — huit posées
+
+| mutation                                   | verdict                   |
+| ------------------------------------------ | ------------------------- |
+| un modèle neuf ne vaut plus l'infini       | 2 rouges                  |
+| le bonus d'exploration disparaît (glouton) | 2 rouges                  |
+| l'exploration réduite à zéro               | 2 rouges                  |
+| le départage par le nom disparaît          | 1 rouge                   |
+| le tri classe le PIRE en tête              | 4 rouges                  |
+| l'oubli disparaît (fenêtre infinie)        | 1 rouge                   |
+| « autre » devient « code » par défaut      | 1 rouge                   |
+| la précédence bascule au dernier ex æquo   | **survivait → simplifié** |
+
+### La survivante était du DÉCOR — et le rejeu l'a montré
+
+`rang < meilleurRang` (le départage des ex æquo) muté en `<=` **survivait**. En
+cherchant pourquoi : le rang ne fait que **croître** dans la boucle, et n'est
+jamais `<` au meilleur déjà retenu — la branche ne se déclenchait **jamais**. La
+précédence était en réalité tenue par l'**ordre de parcours** + le `>` strict,
+et tout le bookkeeping `meilleurRang` était mort.
+
+Retiré. La fonction est plus courte, et les deux mutations qui éprouvent
+vraiment la précédence (`>` → `>=`, et l'ordre inversé) rougissent désormais.
+C'est § 2 sexvicies pris à l'endroit : une survivante n'accuse pas toujours le
+banc — parfois elle accuse du code qui ne sert à rien.
