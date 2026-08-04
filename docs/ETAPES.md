@@ -4218,3 +4218,26 @@ l'élu nommé + le classement + « ∞ » et pas « Infinity » ; inactif : « A
 latéral (G2), la boucle d'apprentissage sur les deux chemins d'assignation (G3/G4),
 les endpoints (G5a) et le panneau réglable (G5b). Opt-in par projet, gouvernance
 humaine des bornes, apprentissage global du corpus.
+
+### Balayage loupe post-G5b : une survivante réelle dans `GardeFous.tsx`
+
+Après la fusion de la feature 2, un balayage loupe élargi (`LOUPE_BASE` épinglée
+sur le commit d'avant G4a, jamais dans le dépôt) sur le diff d'intégration a
+désigné une survivante dans le panneau : `{etat.actif && etat.echelonElu ? …}`
+mutée en `||` laissait la suite verte.
+
+Jugement (la loupe désigne, l'humain tranche) : PAS un mutant équivalent. Le
+`&& etat.echelonElu` narrow `EchelonUi | null` → `EchelonUi` avant `nomEchelon` ;
+le type autorise l'élu `null` (réponse partielle / état transitoire du poll), et
+sous `||` `nomEchelon(null)` rend « strict » — un échelon inventé pour un projet
+qui n'en a élu aucun. Le typeur mordait, mais la loupe lance `vitest` (esbuild
+jette les types) : le comportement n'était épinglé par aucun test. Correctif =
+un TEST, pas une ligne de code (un projet actif à l'élu `null` DOIT dire « Aucun
+échelon élu »). Muté → rouge, verdict affiché. Leçon consignée : ERREURS
+§ 9 novemdecies (« un garde que seul le typeur défend n'est pas défendu par un
+test »).
+
+**Reste du balayage à faire** : la loupe est morte tôt (le container a redémarré ;
+`GardeFous.tsx` est en tête alphabétique du diff), donc `scheduler.ts` (+98) et
+`server.ts` (+112) de l'intégration Garde-Fous n'ont pas encore été balayés — lot
+suivant.

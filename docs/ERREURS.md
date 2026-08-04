@@ -3910,6 +3910,51 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 novemdecies. Un garde que seul le typeur défend n'est pas défendu par un test
+
+La loupe, relancée sur le diff du Garde-Fous (`LOUPE_BASE` épinglée, jamais dans
+le dépôt), a désigné une survivante dans `GardeFous.tsx` :
+
+```
+{etat.actif && etat.echelonElu ? (…élu nommé…) : (…« Aucun échelon élu »…)}
+```
+
+Mutée en `||`, la suite restait **verte** — aucun des cinq tests du panneau ne
+mordait. Le réflexe est de crier au mutant équivalent : le serveur, quand un
+projet a opt-in, rend TOUJOURS un élu (`elireEchelon` ne rend jamais `null`),
+donc `actif:true, echelonElu:null` ne sort jamais de la vraie ruche.
+
+C'était faux, et pour deux raisons qui se cumulent :
+
+1. Le `&& etat.echelonElu` **narrow le type** `EchelonUi | null` vers `EchelonUi`
+   avant `nomEchelon`. Le type AUTORISE l'élu `null` (réponse partielle, état
+   transitoire du poll) : l'entrée existe, elle est typable, le composant est à
+   la frontière de confiance HTTP — il ne peut pas SUPPOSER l'invariant serveur.
+2. Sous `||`, `nomEchelon(null)` tombe dans le `default` du `switch` et rend
+   « strict » — un échelon **INVENTÉ** pour un projet qui n'en a élu aucun.
+
+Le typeur mordait bien la mutation (`echelonElu` n'est plus narrow sous `||`).
+Mais la loupe lance `vitest`, pas `tsc` : esbuild jette les types sans les
+vérifier, la mutation tourne, et le comportement de rendu — « quand il n'y a pas
+d'élu, on le DIT » — n'était épinglé par AUCUN test. Un garde tenu par le seul
+typeur est du décor pour la loupe, et la loupe a raison : le jour où quelqu'un
+change la forme du narrow, le typeur suit le code et ne proteste plus.
+
+Le correctif est un TEST, pas une ligne de code : un projet `actif` dont l'élu
+est `null` doit afficher « Aucun échelon élu » et n'inventer aucun échelon. Muté,
+il rougit (« Échelon élu : strict » là où on attend l'absence) — verdict affiché.
+
+### La règle
+
+> Quand la loupe (`vitest` seul) désigne une survivante que le typeur, lui,
+> mordrait, ce n'est PAS un mutant équivalent : c'est un comportement défendu par
+> le seul `tsc`. Épingle-le par un test qui rejoue l'entrée que le TYPE autorise
+> — surtout à une frontière de confiance (une réponse HTTP), où le composant ne
+> peut pas supposer l'invariant de son producteur. Le typeur garde la forme ; le
+> test garde le comportement.
+
+---
+
 ## 9 octodecies. Un test qui lance un vrai nettoyeur doit lui donner un monde jetable ENTIER
 
 L'intermittent des graines avait DEUX visages, et le second est le vrai

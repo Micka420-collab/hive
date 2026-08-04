@@ -99,4 +99,20 @@ describe('le rendu — ce que l’écran raconte', () => {
     expect(dom.textContent).toContain('Aucun échelon élu');
     expect(dom.textContent).toContain('Inactif');
   });
+
+  it('un projet ACTIF mais sans élu (élu null) : on le DIT, on n’invente pas « strict »', async () => {
+    // Le garde `etat.actif && etat.echelonElu` narrow le type `EchelonUi | null`
+    // vers `EchelonUi` avant `nomEchelon`. La loupe l'a muté en `||` : la suite
+    // restait verte, donc RIEN ne défendait le comportement au niveau du test —
+    // seul le typeur mordait, et la loupe ne le lance pas. Un `actif:true` avec
+    // `echelonElu:null` (réponse partielle du serveur, ou état transitoire)
+    // rendrait alors `nomEchelon(null)` → « strict », un échelon INVENTÉ pour un
+    // projet qui n'en a élu aucun. On affiche l'absence, on ne la remplace pas.
+    vi.mocked(fetchGardeFou).mockResolvedValue(etat({ echelonElu: null, classement: [] }));
+    const dom = await monter(<GardeFous projectId="p3" />);
+    expect(dom.textContent).toContain('Aucun échelon élu');
+    expect(dom.textContent, 'aucun échelon inventé quand il n’y en a pas').not.toContain(
+      'Échelon élu :',
+    );
+  });
 });
