@@ -12,12 +12,12 @@
 // demande un port éphémère au système : deux exécutions concurrentes de la
 // suite ne peuvent pas se marcher dessus.
 
-import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const MAIN = path.join(RACINE, 'src', 'orchestrator', 'main.ts');
@@ -26,6 +26,11 @@ const POSIX = process.platform !== 'win32';
 
 const aNettoyer: string[] = [];
 afterEach(() => {
+  // Sans condition, et AVANT le ménage des dossiers : une Reine encore vivante
+  // tient ouverte la base qu'on s'apprête à effacer. C'est quand un test
+  // échoue ou laisse une promesse pendante qu'un processus reste — donc
+  // exactement quand un nettoyage conditionnel ne s'exécuterait pas.
+  reprendreTous();
   for (const d of aNettoyer.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -54,18 +59,21 @@ function demarrerPuisArreter(
   signal: NodeJS.Signals,
 ): Promise<Issue> {
   return new Promise((resoudre, rejeter) => {
-    const proc = spawn(process.execPath, [TSX, MAIN], {
-      cwd,
-      env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    // `lancerBorne` : la Reine reste adressable en GROUPE, et le harnais la
+    // reprend même si ce banc n'y parvient pas (§ 2 duovicies du carnet).
+    const proc = lancerBorneTuyaute(process.execPath, [TSX, MAIN], { cwd, env });
     let sortie = '';
     let arme = false;
+    // 45 s, pas 30 : ce boucher existe pour qu'une Reine qui ne démarre JAMAIS
+    // rende une erreur NOMMÉE au lieu d'un dépassement anonyme de vitest — il
+    // doit donc tirer avant les 60 s du banc, et le plus tard possible avant.
+    // À 30 s il tirait à mi-course, et une machine chargée suffisait à le
+    // déclencher sur une Reine parfaitement saine : un chien de garde en temps
+    // mural ne distingue pas « en panne » de « occupé ».
     const boucher = setTimeout(() => {
-      proc.kill('SIGKILL');
+      tuerGroupe(proc);
       rejeter(new Error(`la Reine n'a jamais annoncé « en ligne » :\n${sortie}`));
-    }, 30_000);
+    }, 45_000);
     boucher.unref?.();
     const lire = (morceau: Buffer): void => {
       sortie += morceau.toString('utf8');
@@ -76,7 +84,7 @@ function demarrerPuisArreter(
         // testerait la course, pas l'arrêt.
         setTimeout(() => proc.kill(signal), 150);
         const boucherArret = setTimeout(() => {
-          proc.kill('SIGKILL');
+          tuerGroupe(proc);
           rejeter(new Error(`la Reine ignore ${signal} :\n${sortie}`));
         }, 15_000);
         boucherArret.unref?.();

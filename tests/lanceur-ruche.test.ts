@@ -24,13 +24,13 @@
 // notre coup de grâce, pas l'arrêt du lanceur (même raison que
 // `reine-demarrage.test.ts`).
 
-import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { lancerBorne, lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const LANCEUR = path.join(RACINE, 'scripts', 'ruche.mjs');
@@ -38,6 +38,11 @@ const POSIX = process.platform !== 'win32';
 
 const aNettoyer: string[] = [];
 afterEach(() => {
+  // Le filet AVANT le ménage des dossiers : un processus encore vivant tient
+  // ouverte la base qu'on s'apprête à effacer. Et il est posé sans condition —
+  // c'est quand un test échoue ou laisse une promesse pendante que des
+  // processus restent, donc exactement quand un nettoyage conditionnel saute.
+  reprendreTous();
   for (const d of aNettoyer.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -59,12 +64,11 @@ function lancerRuche(
   alors: (pid: number) => void,
 ): Promise<Issue> {
   return new Promise((resoudre, rejeter) => {
-    const proc = spawn(process.execPath, [LANCEUR, ...args], {
-      cwd: RACINE,
-      env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    // `lancerBorne`, jamais `spawn` nu : le lanceur démarre lui-même un hub,
+    // un nœud et un `vite`. On l'abat en SIGKILL — le signal qui ne lui laisse
+    // aucune chance de reprendre sa descendance. Sans groupe adressable, ses
+    // trois enfants survivaient au banc (§ 2 duovicies du carnet).
+    const proc = lancerBorneTuyaute(process.execPath, [LANCEUR, ...args], { cwd: RACINE, env });
     let sortie = '';
     let fini = false;
     let vu = false;
@@ -74,10 +78,18 @@ function lancerRuche(
       if (e) rejeter(e);
       else resoudre(v as Issue);
     };
+    // 45 s, pas 30 : ce boucher existe pour qu'un hub qui ne démarre JAMAIS
+    // rende une erreur NOMMÉE au lieu d'un dépassement anonyme de vitest — il
+    // doit donc tirer avant les 60 s du banc, et le plus tard possible avant.
+    // À 30 s il tirait à mi-course en laissant la moitié du budget inutilisée,
+    // et un simple ralentissement de la machine suffisait à le déclencher :
+    // vu ici à 30 017 ms sur un conteneur chargé, alors que l'enfant allait
+    // parfaitement bien. Un boucher qui tire sur la lenteur ne distingue plus
+    // « en panne » de « occupé » — et c'est un test qui ment une fois sur N.
     const boucherMarqueur = setTimeout(() => {
-      proc.kill('SIGKILL');
+      tuerGroupe(proc);
       finir(null, new Error(`marqueur « ${marqueur} » jamais vu :\n${sortie}`));
-    }, 30_000);
+    }, 45_000);
     boucherMarqueur.unref?.();
     const lire = (m: Buffer): void => {
       sortie += m.toString('utf8');
@@ -86,7 +98,7 @@ function lancerRuche(
         clearTimeout(boucherMarqueur);
         alors(proc.pid as number);
         const boucherFin = setTimeout(() => {
-          proc.kill('SIGKILL');
+          tuerGroupe(proc);
           finir(null, new Error(`le lanceur ne meurt pas après le geste :\n${sortie}`));
         }, 15_000);
         boucherFin.unref?.();
@@ -185,7 +197,7 @@ describe('le lanceur de la ruche — vie et mort', () => {
           // SIGINT à L'ENFANT seul, pas au lanceur : `pkill -P` vise les enfants
           // directs, et la Reine est le seul ici. Son gestionnaire SIGINT sort
           // en `process.exit(0)` — c'est précisément la prémisse qu'on veut.
-          spawn('pkill', ['-INT', '-P', String(pid)], { shell: false });
+          lancerBorne('pkill', ['-INT', '-P', String(pid)]);
         },
       );
       // La prémisse est VÉRIFIÉE, pas supposée : mort par code 0, pas par

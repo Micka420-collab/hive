@@ -16,6 +16,7 @@ import {
   corpsPr,
   depotDepuisUrl,
   fusionner,
+  lireFaitsPr,
   livrer,
   nomBranche,
   refValide,
@@ -285,6 +286,31 @@ describe('livraison — LA garantie : aucun merge automatique', () => {
     await expect(fusionner(OPTS(f), 'moi/mon-projet', 0)).rejects.toThrow(ErreurGithub);
     await expect(fusionner(OPTS(f), 'moi/mon-projet', -1)).rejects.toThrow(ErreurGithub);
     expect(f.appels).toHaveLength(0);
+  });
+
+  it('LIRE LES FAITS D’UNE PR REFUSE AUSSI UN NUMÉRO ABSURDE — le jumeau qui n’était pas tenu', async () => {
+    // Survivante du balayage du lot 11, en atelier exclusif : `lireFaitsPr`
+    // porte MOT POUR MOT la même garde que `fusionner` ci-dessus, et elle
+    // seule était nue. Muter son `||` en `&&` ne faisait rougir personne.
+    //
+    // Ce que ça ouvre : la garde ne sert pas qu'à écarter un zéro poli. Elle
+    // est le seul contrôle avant que `numero` ne parte dans un CHEMIN d'URL —
+    // `/repos/${depot}/pulls/${numero}`. Sur un `||`, une valeur non entière
+    // arrivée d'un JSON est arrêtée net ; sur un `&&`, `!Number.isInteger(x)`
+    // vaut vrai mais `x <= 0` vaut faux (une comparaison contre `NaN` est
+    // toujours fausse), donc la conjonction est fausse et la valeur passe
+    // ENTIÈRE dans le chemin appelé. Un contrôle qui ne peut plus être vrai
+    // que sur `-1` et `-2` n'est plus un contrôle.
+    const f = fauxGithub({});
+    await expect(lireFaitsPr(OPTS(f), 'moi/mon-projet', 0)).rejects.toThrow(ErreurGithub);
+    await expect(lireFaitsPr(OPTS(f), 'moi/mon-projet', -1)).rejects.toThrow(ErreurGithub);
+    // Les deux formes que le `&&` laisserait filer, et qui n'ont rien à faire
+    // dans un chemin d'URL : un non-entier, et ce qui n'est pas un nombre.
+    await expect(lireFaitsPr(OPTS(f), 'moi/mon-projet', 1.5)).rejects.toThrow(ErreurGithub);
+    await expect(
+      lireFaitsPr(OPTS(f), 'moi/mon-projet', '7/../../secrets' as unknown as number),
+    ).rejects.toThrow(ErreurGithub);
+    expect(f.appels, 'AUCUN appel réseau : le refus est antérieur').toHaveLength(0);
   });
 
   it('traduit un refus de fusion de GitHub en conseil actionnable', async () => {

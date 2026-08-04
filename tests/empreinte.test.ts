@@ -648,7 +648,12 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/desinstallation.ts': 'c’est LUI qui supprime, sur ordre explicite',
     'src/installer-main.ts': '<racine>/.env, écrit en 600 par écriture atomique',
     'src/node-client/client.ts': '<workdir>/<nom> — l’espace d’une tâche',
-    'src/node-client/join.ts': '<workdir>/join — identifiant et clé du nœud',
+    // Les CHEMINS n'ont pas bougé — `<workdir>/join/node-id.txt` et
+    // `node-key.txt` sont toujours déclarés dans `empreinte()`, donc toujours
+    // dans `hive desinstaller`. C'est le fichier SOURCE qui écrit qui a changé :
+    // ces gestes ont quitté `join.ts`, qui s'exécute à l'import et qu'aucun
+    // banc ne pouvait donc toucher (0 % de couverture), pour un module éprouvé.
+    'src/node-client/identite-noeud.ts': '<workdir>/join — identifiant et clé du nœud',
     'src/node-client/merge-runner.ts': 'os.tmpdir()/hive-merge-* — effacé en finally',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',

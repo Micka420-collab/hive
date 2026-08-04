@@ -24,12 +24,12 @@
 //    On SCRUTE désormais, avec échéance — et l'identifiant PRÉCIS du nœud (lu
 //    dans son nid), pas un compte global qu'un autre test pourrait gonfler.
 
-import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -38,6 +38,11 @@ const JOIN = path.join(RACINE, 'src', 'node-client', 'join.ts');
 const TSX = path.join(RACINE, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const POSIX = process.platform !== 'win32';
 const TOKEN = 'jeton-de-ruche-vivante-suffisamment-long';
+
+// Sans condition : c'est quand un test échoue, expire, ou laisse une promesse
+// pendante qu'un nœud reste vivant — donc exactement quand un nettoyage
+// conditionnel ne s'exécuterait pas (§ 2 duovicies du carnet).
+afterEach(() => reprendreTous());
 
 interface Issue {
   code: number | null;
@@ -56,12 +61,9 @@ function lancerJoin(
     env.HIVE_WORKDIR = workdir;
     env.HIVE_ISOLEMENT = 'off';
 
-    const proc = spawn(process.execPath, [TSX, JOIN, billet], {
-      cwd: RACINE,
-      env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    // `lancerBorne` : le nœud reste adressable en GROUPE, et le harnais le
+    // reprend même si ce banc n'y parvient pas (§ 2 duovicies du carnet).
+    const proc = lancerBorneTuyaute(process.execPath, [TSX, JOIN, billet], { cwd: RACINE, env });
     let sortie = '';
     let fini = false;
     const finir = (v: Issue | null, e?: Error): void => {
@@ -71,9 +73,9 @@ function lancerJoin(
       else resoudre(v as Issue);
     };
     const boucher = setTimeout(() => {
-      proc.kill('SIGKILL');
-      finir(null, new Error(`ni fin ni marqueur en 30 s :\n${sortie}`));
-    }, 30_000);
+      tuerGroupe(proc);
+      finir(null, new Error(`ni fin ni marqueur en 45 s :\n${sortie}`));
+    }, 45_000);
     boucher.unref?.();
     let marqueurVu = false;
     const lire = (m: Buffer): void => {
@@ -94,13 +96,13 @@ function lancerJoin(
           try {
             await opts.avantArret?.();
           } catch (e) {
-            proc.kill('SIGKILL');
+            tuerGroupe(proc);
             finir(null, e as Error);
             return;
           }
           // L'arrêt du nœud est un geste NORMAL : SIGINT, comme un Ctrl+C.
           proc.kill('SIGINT');
-          setTimeout(() => proc.kill('SIGKILL'), 5_000).unref?.();
+          setTimeout(() => tuerGroupe(proc), 5_000).unref?.();
         })();
       }
     };

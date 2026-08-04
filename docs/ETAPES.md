@@ -2197,3 +2197,233 @@ Les six badges sont alignés sur ce chiffre mesuré.
 3 201 ; les quatre suivantes sont vertes. Le détail avait été mangé par un
 `grep` posé avant lecture — l'intermittent n'est donc ni nommé ni fermé
 (§ 2 novodecies).
+
+---
+
+## `join.ts` était à 0 % de couverture : pas mal testé — intestable
+
+La re-mesure de couverture avait désigné `src/node-client/join.ts` (335 lignes)
+à **0 %**. Pas « oublié » : le fichier finit par `await main()` sans garde,
+donc l'importer ouvrirait un WebSocket et poserait des gestionnaires de signal
+au moment du chargement. Aucun banc ne pouvait le toucher (§ 2.8 du carnet), et
+le compteur de tests montait pendant ce temps.
+
+Ce qu'il porte n'est pourtant pas anodin : **c'est le premier code qu'un ami
+invité exécute sur SA machine.**
+
+- combien de tâches il mènera de front, depuis une variable d'environnement
+  qu'il tape lui-même ;
+- l'identité sous laquelle la ruche le reconnaîtra d'un redémarrage à l'autre ;
+- sa clé propre, écrite en clair dans un fichier de son disque.
+
+Ces trois décisions ne dépendent ni du réseau, ni des signaux, ni d'`argv`.
+Elles sortent dans `src/node-client/identite-noeud.ts` ; `join.ts` les importe
+et perd 62 lignes sans changer d'un octet ce qu'il fait.
+
+**Ce qu'on protège, et pourquoi ça compte.** `0` en concurrence donnerait un
+nœud qui affiche « ✔ Nœud démarré » et n'accepte jamais rien — une panne qui
+ressemble à un fonctionnement. Une identité qui change à chaque lancement
+laisse une file de fantômes dans la ruche. Une clé en `0644` sur une machine
+partagée est une identité de nœud qu'un autre compte peut endosser sans rien
+voler d'apparent.
+
+**Rejeu, verdict affiché** (16 tests neufs) :
+
+| mutation                                                      | verdict                 |
+| ------------------------------------------------------------- | ----------------------- |
+| `Math.max(n, MIN)` → `Math.min` (borne basse)                 | 4 rouges                |
+| `Math.min(…, MAX)` → `Math.max` (borne haute)                 | 4 rouges                |
+| `ID_PATTERN.test(existante)` nié                              | 3 rouges                |
+| garde `ID_PATTERN` retirée (on croit le fichier sur parole)   | 1 rouge                 |
+| `v.length > 0` → `>= 0` (un fichier vide deviendrait une clé) | 1 rouge                 |
+| `mode: 0o600` → `0o644`                                       | 1 rouge                 |
+| clé et identité dans le MÊME fichier                          | 1 rouge                 |
+| `Number.isInteger` → `Number.isFinite`                        | **survit — équivalent** |
+
+La dernière est notée telle quelle, sans test décoratif : `parseInt` ne rend
+jamais qu'un entier ou `NaN`, donc les deux prédicats ne peuvent pas diverger.
+Vérifié par exécution sur `'Infinity'`, `'1e400'`, `'3.9'`, `'0x10'`, `' 7 '`.
+
+**Un banc trop léger de plus, et d'une espèce nouvelle.** Le test du disque en
+lecture seule passait par `chmod 0o500` — sans effet, la suite tournant en
+root. Sa première assertion (`not.toThrow()`) était verte : écrite seule, elle
+aurait rendu un banc vert n'ayant jamais emprunté le chemin dégradé qu'il
+prétend éprouver. C'est l'assertion de CONSÉQUENCE qui a mordu. L'obstacle est
+désormais structurel — un fichier là où il faudrait un dossier, `ENOTDIR` pour
+tout le monde et sur tous les systèmes (§ 2 vicies).
+
+### Balayage du lot 11 (mop-up) — premier essai ANNULÉ, deux mutateurs dans un seul atelier
+
+Neuf gardes de `comptes.ts` et `livraison.ts` devaient passer à la mutation,
+suite entière à chaque fois. `concierge.ts` a été écarté après lecture : ses
+869 lignes sont presque entièrement de la construction de phrases bilingues,
+sans règle à trahir.
+
+**Le premier passage ne compte pas.** Une loupe lancée plus tôt tournait
+encore dans le MÊME atelier, et son journal l'établit à la seconde : elle a
+fini à 02:24:41, mon balayage avait commencé à 02:12. Pire, à 02:10 un
+`git checkout` destiné à réaligner l'atelier sur la branche a piétiné l'état
+que la loupe avait en vol. Deux mutateurs sur un même répertoire ne rendent
+pas des verdicts moins précis : ils ne rendent aucun verdict. Une suite rouge
+ne dit plus laquelle des deux mutations l'a fait rougir, et une restauration
+peut effacer la mutation de l'autre avant qu'elle n'ait été jugée.
+
+Les chiffres du premier passage ne sont donc pas recopiés ici, même ceux qui
+« avaient l'air bons » — un résultat plausible obtenu par un protocole cassé
+reste un résultat qu'on ne peut pas produire.
+
+**Le second passage, atelier exclusif** (garde d'exclusivité exécutée AVANT
+toute mutation : « processus tiers dans l'atelier : 0 ✔ ») :
+
+| garde                                                          | verdict          |
+| -------------------------------------------------------------- | ---------------- |
+| `comptes:147` — dernier administrateur (`admins <= 1` → `< 1`) | 2 rouges         |
+| `livraison:111` — HTTPS obligatoire (`!==` → `===`)            | 27 rouges        |
+| `livraison:112` — hôte `github.com` (`&&` → `\|\|`)            | 26 rouges        |
+| `livraison:210` — ref vide ou trop longue (`\|\|` → `&&`)      | 1 rouge          |
+| `livraison:212` — traversée `..` et `//` (`\|\|` → `&&`)       | 1 rouge          |
+| `livraison:213` — `/` au bord et `.lock` (`\|\|` → `&&`)       | 1 rouge          |
+| `livraison:440` — numéro de PR entier > 0 (`\|\|` → `&&`)      | 1 rouge          |
+| `livraison:318` — encodage `base64` (`!==` → `===`)            | 19 rouges        |
+| **`livraison:141` — numéro d'issue entier > 0**                | **SURVIT — nue** |
+
+Huit gardes tenues, une nue. Et les chiffres diffèrent de ceux du passage
+annulé (26 contre 30, 1 contre 2) : l'écart était fait de tests tombés par
+DÉPASSEMENT DE DÉLAI, pas par la mutation. Refaire le balayage n'était donc
+pas du zèle.
+
+**La survivante est le jumeau asymétrique de la garde d'à côté.** `lireFaitsPr`
+porte MOT POUR MOT le contrôle de `fusionnerPr`, testé depuis toujours — et
+elle seule était nue. C'est encore § 2 sexdecies : un soin appliqué à un site
+et pas à son jumeau.
+
+Ce que la garde tient réellement dépasse le zéro poli : c'est le SEUL contrôle
+avant que `numero` ne parte dans un chemin d'URL,
+`/repos/${depot}/pulls/${numero}`. Sur `||`, une valeur non entière venue d'un
+JSON est arrêtée net. Sur `&&`, `!Number.isInteger(x)` vaut vrai mais `x <= 0`
+vaut faux — toute comparaison contre `NaN` l'est —, donc la conjonction est
+fausse et la valeur passe ENTIÈRE dans le chemin appelé. Un contrôle qui ne
+peut plus être vrai que sur `-1` et `-2` n'est plus un contrôle.
+
+Test écrit, rejeu fait : **ROUGE**, et l'assertion qui tombe est « AUCUN appel
+réseau » — sur `&&`, `0`, `-1`, `1.5` et `'7/../../secrets'` partent tous les
+quatre vers GitHub.
+
+### L'intermittent de la nuit a fini par se nommer
+
+Le passage annulé ci-dessus n'aura pas été inutile pour autant : sa sortie
+était CAPTURÉE, et elle a fait apparaître, parmi les victimes d'une mutation
+de `refValide`, un test qui n'a rien à voir avec elle. Ce constat-là ne
+dépend d'aucune mutation — c'est une horloge :
+
+```
+× ^C ARRÊTE TOUT — bannière, Reine en ligne, arrêt dit, code 0   30017 ms
+```
+
+Ce n'est pas la mutation qui l'a tué : c'est un `setTimeout(30_000)` posé
+DANS le banc — le boucher qui tue l'enfant si la bannière du hub ne paraît
+pas — alors que vitest accorde 60 s à ce test. Un chien de garde en temps
+mural ne distingue pas « en panne » de « occupé » : chargé par les balayages
+eux-mêmes, le conteneur mettait plus de trente secondes à démarrer une ruche
+parfaitement saine. Le boucher passe à **45 s** : il garde sa raison d'être
+(rendre une erreur NOMMÉE plutôt qu'un dépassement anonyme de vitest) sans
+tirer sur la lenteur.
+
+Cause **probable** de l'exécution perdue plus tôt dans la nuit, pas cause
+prouvée : les deux tests de ce soir-là n'ont jamais été nommés et ne le seront
+pas. C'est parce que le SECOND incident, lui, a été capturé qu'on a pu lire
+son horloge.
+
+---
+
+## La suite fuyait des ruches entières — et c'est ça qui la faisait mentir
+
+En cherchant pourquoi un balayage mettait douze minutes là où il en met quatre,
+un relevé de processus a rendu ceci :
+
+```
+40 processus node survivants, jusqu'à 1 070 s d'âge
+  · src/orchestrator/main.ts   (des ruches entières)
+  · src/node-client/main       (des nœuds)
+  · vite.js dashboard          (des serveurs de développement)
+plusieurs à 35-40 % de CPU chacun.
+charge : 13,18   cœurs : 4
+```
+
+Dix-sept minutes que personne ne les avait lancés. La machine tournait à
+**3,3 fois sa charge nominale**, uniquement avec des cadavres. Après reprise
+des orphelins, la charge est retombée à **3,70** et le balayage en cours a
+repris une allure normale.
+
+**Deux causes, distinctes.** Le lanceur `ruche.mjs` démarre lui-même un hub, un
+nœud et un `vite` ; les bancs l'abattent en `SIGKILL`, c'est-à-dire le signal
+qui ne lui laisse aucune chance de reprendre sa descendance — un `proc.kill()`
+ne parle qu'à un processus, il fallait parler au GROUPE. Et les bornes
+d'attente étaient posées en `setTimeout(…).unref()`, ce qui signifie
+littéralement « si plus rien ne retient la boucle, n'attends pas ce minuteur » :
+quand le worker vitest se termine pendant une attente, le boucher n'est jamais
+appelé et l'enfant survit à tout le monde. Le filet était à l'endroit exact où
+il ne pouvait pas servir.
+
+**Ce que ça coûtait n'est pas la lenteur.** Les mêmes bancs bornent leurs
+attentes en temps MURAL. À 3,3× la charge, une ruche parfaitement saine met
+plus de trente secondes à s'annoncer — et se fait tuer par son propre chien de
+garde. La suite rougissait au hasard, sur du code qui allait bien, et ça
+empirait à chaque exécution : la signature exacte d'un intermittent qui
+« apparaît sans raison » après quelques heures de travail.
+
+**Le correctif.** `tests/harnais-processus.ts` : lancement en groupe propre
+(`detached`), `tuerGroupe` qui frappe le groupe entier (donc les
+petits-enfants), et `reprendreTous` posé en `afterEach` **sans condition** —
+parce que c'est quand un test échoue, expire ou laisse une promesse pendante
+que des processus restent, donc exactement quand un nettoyage conditionnel ne
+s'exécute pas. Les trois bancs concernés (`lanceur-ruche`, `reine-demarrage`,
+`join-ruche-vivante`) y sont câblés.
+
+**Et la garde qui la rend tenue.** `tests/harnais-processus.test.ts` fabrique un
+VRAI père qui engendre un VRAI fils, et vérifie que tuer le groupe emporte le
+petit-enfant — c'est lui qui survivait. Sans ce banc, le quatrième fichier qui
+lancera un processus le fera au `spawn` nu et la fuite reviendra, invisible
+(§ 2 sexdecies : une correction appliquée partout n'est pas une correction
+tenue).
+
+**Le corollaire de mesure**, noté au carnet : avant de croire un chiffre de
+durée, regarder `/proc/loadavg` et compter les processus vivants. Un banc
+mesure toujours deux choses à la fois — le code, et la machine.
+
+**Ce qui a été vérifié et NON modifié.** Les autres bancs qui lancent des
+processus (`ask-cli`, `bin-porte-unique`, les sondes du docteur) passent par
+`execFile` promisifié : ils ATTENDENT la fin du processus, qui est de toute
+façon une commande brève, pas un serveur. Aucun orphelin ne leur est
+attribuable dans le relevé. `service.test.ts` cite `orchestrator/main.js` mais
+ne lance rien. Ils sont donc laissés tels quels — élargir le harnais à des
+appels qui n'en ont pas besoin ajouterait du bruit sans fermer de trou.
+
+**Deux échecs à la barrière, tous deux instructifs.**
+
+1. `tests/empreinte.test.ts` a rougi : « un fichier de `src/` s'est mis à
+   écrire ». C'est la garde qui fait exactement son travail — les gestes
+   d'écriture avaient changé de fichier source. Les CHEMINS, eux, n'ont pas
+   bougé d'un octet : `<workdir>/join/node-id.txt` et `node-key.txt` restent
+   déclarés dans `empreinte()`, donc dans `hive desinstaller` et dans
+   `docs/INSTALLATION.md`. Seule la clé de la liste `AUTORISES` change. Une
+   garde qui interpelle sur un simple déplacement est une garde qui marche.
+
+2. Mon propre banc du harnais a EXPIRÉ à 30 010 ms — et il avait raison. Le
+   harnais nettoyait sur `close`, or `close` attend que les FLUX se ferment,
+   pas que le processus meure : un enfant lancé en `stdio: 'inherit'` tient
+   les tuyaux de son père ouverts tant qu'il vit. Sur `close`, le nettoyage
+   n'arrivait donc **jamais dans le seul cas qui compte** — « le père est
+   mort, son fils tourne encore » —, et l'appelant restait suspendu jusqu'à
+   son échéance. Corrigé en `exit`, qui parle du processus. Sans le banc du
+   père fugace, ce trou serait entré dans le dépôt à l'intérieur même du
+   correctif censé le boucher.
+
+**Preuve de bout en bout.** Après une suite complète : **0 processus de ruche
+survivant** (compté), contre 40 au relevé de la nuit. Et la suite passe de
+117,7 s à **87,7 s** — un quart de son temps était consommé par ses propres
+cadavres.
+
+Suite mesurée : **3 231** (3 224 passés, 7 ignorés, 212 fichiers). Les six
+badges sont posés par `node scripts/compte-tests.mjs rapport-tests.json
+--corriger`, à partir du rapport JSON de l'exécution — pas à la main.

@@ -3005,6 +3005,155 @@ cherche des instructions.** La réparation, elle, coûte un `--amend -F` et un
 
 ---
 
+## 2 duovicies. Une suite qui fuit des processus finit par se faire mentir elle-même
+
+Relevé pris cette nuit sur le conteneur, en cherchant pourquoi un balayage
+mettait douze minutes là où il en met quatre :
+
+```
+40 processus node survivants, jusqu'à 1 070 s d'âge
+  · src/orchestrator/main.ts        (des ruches entières)
+  · src/node-client/main            (des nœuds)
+  · vite.js dashboard               (des serveurs de développement)
+plusieurs à 35-40 % de CPU chacun.
+charge : 13,18   cœurs : 4
+```
+
+Dix-sept minutes que personne ne les avait lancés. La machine tournait à
+3,3 fois sa charge nominale, uniquement avec des cadavres.
+
+**Les deux causes, et elles sont distinctes.**
+
+1. **Tuer le père libère les enfants.** `scripts/ruche.mjs` démarre lui-même un
+   hub, un nœud et un `vite`. Le banc l'abat en `SIGKILL` — précisément le
+   signal qui ne lui laisse AUCUNE chance de reprendre sa descendance. Le
+   lanceur meurt, ses trois enfants sont rattachés à l'init et continuent.
+   `proc.kill()` ne parle qu'à un processus ; il fallait parler au GROUPE
+   (`detached: true` au lancement, `process.kill(-pid)` pour frapper).
+
+2. **Un chien de garde `unref()` ne garde rien.** Les trois bancs bornaient
+   leurs attentes par `setTimeout(…).unref()`. `unref` dit exactement : « si
+   plus rien d'autre ne retient la boucle, n'attends pas ce minuteur ». Quand
+   le worker vitest se termine pendant qu'une attente est en cours, le boucher
+   n'est donc jamais appelé, et l'enfant qu'il devait tuer survit à tout le
+   monde. Le filet était posé à l'endroit exact où il ne pouvait pas servir.
+
+**Ce que ça coûtait vraiment — et ce n'est pas la lenteur.** Les mêmes bancs
+posent des budgets en temps MURAL : « la bannière doit paraître en 30 s ». Sur
+une machine à 3,3× sa charge, un enfant parfaitement sain met plus de trente
+secondes à s'annoncer. La suite s'est donc mise à rougir au hasard, sur des
+processus qui allaient bien, tués par un budget que la fuite des exécutions
+PRÉCÉDENTES avait rendu intenable. **La fuite ne ralentissait pas la suite :
+elle la faisait mentir** — et elle empirait à chaque exécution, ce qui est la
+signature d'un intermittent qui « apparaît sans raison » après quelques heures.
+
+C'est la cause probable de l'exécution perdue de § 2 novodecies.
+
+**La règle.** Un banc qui lance un vrai processus le lance dans son propre
+groupe et le reprend **sans condition** en `afterEach` — pas dans le chemin
+nominal, qui est précisément celui qui ne s'exécute pas les jours où ça compte.
+`tests/harnais-processus.ts` porte les trois gestes, et
+`tests/harnais-processus.test.ts` fabrique un vrai petit-enfant pour vérifier
+qu'il meurt : sans ce banc, le quatrième fichier qui lancera un processus le
+fera au `spawn` nu et la fuite reviendra, invisible (§ 2 sexdecies — une
+correction appliquée partout n'est pas une correction tenue).
+
+**Le corollaire de mesure.** Avant de croire un chiffre de durée — d'un test,
+d'un balayage, d'un profil —, regarder `/proc/loadavg` et compter les
+processus vivants. Un banc mesure toujours DEUX choses en même temps : le code,
+et la machine. On ne peut lire la première qu'en tenant la seconde.
+
+---
+
+## 2 unvicies. Deux mutateurs dans un seul atelier ne rendent aucun verdict
+
+L'atelier existe pour que la loupe mute du code sans jamais toucher l'arbre de
+travail. Règle tenue — et insuffisante, parce qu'elle ne dit rien du cas où
+DEUX balayages y entrent en même temps.
+
+Cette nuit : une loupe lancée à un tour précédent tournait encore dans
+l'atelier ; un second balayage, à la ligne, y a été lancé par-dessus. Les
+horodatages l'établissent à la seconde — la loupe a fini à 02:24:41, l'autre
+avait commencé à 02:12. Et à 02:10, un `git checkout` destiné à réaligner
+l'atelier sur la branche courante avait déjà piétiné l'état que la loupe
+tenait en vol.
+
+**Ce que ça détruit, exactement.** Le rejeu de mutation repose sur une seule
+hypothèse : _une_ différence entre la source et sa version de référence.
+Toute la lecture en découle — rouge ⇒ cette garde est tenue, vert ⇒ elle est
+nue. À deux mutations simultanées :
+
+- une suite rouge ne dit plus LAQUELLE des deux mutations l'a fait rougir ;
+- une suite verte ne prouve rien non plus, car la restauration de l'un peut
+  avoir effacé la mutation de l'autre avant qu'elle n'ait été jugée ;
+- et les deux se contaminent en silence, sans qu'aucun outil ne proteste.
+
+Le piège, c'est que le résultat reste PLAUSIBLE. Les verdicts obtenus ce
+soir-là avaient tous l'air raisonnables — les gardes qu'on croyait tenues
+rougissaient, les noms des tests tombés étaient sur le sujet. C'est
+exactement ce qui rend la tentation forte de les garder « puisqu'ils vont
+dans le bon sens ». Un résultat plausible obtenu par un protocole cassé reste
+un résultat qu'on ne peut pas produire : il a été jeté, et le balayage
+relancé atelier exclusif.
+
+**La règle.** Avant d'ouvrir un balayage dans l'atelier, VÉRIFIER qu'aucun
+autre n'y tourne — et ne jamais y faire de `git checkout` tant qu'il en
+tourne un :
+
+```bash
+pgrep -af 'vitest|loupe' | grep atelier   # doit être vide
+cd "$ATELIER" && git status --short       # doit être vide aussi
+```
+
+Un atelier sale AVANT de commencer n'est pas un détail à nettoyer d'un
+`git checkout --` : c'est la trace qu'un autre balayage est en cours ou s'est
+interrompu. Dans les deux cas, on attend ou on enquête — on n'écrase pas.
+
+---
+
+## 2 vicies. Un banc qui tourne en root ne peut pas éprouver un refus de droits
+
+`identite-noeud.ts` avale volontairement les échecs d'écriture : c'est la
+machine de l'invité, on n'y meurt pas pour un dossier interdit. Restait à
+prouver que le chemin dégradé fait bien ce qu'il annonce. Le banc évident :
+
+```ts
+mkdirSync(ferme);
+chmodSync(ferme, 0o500);
+expect(() => rangerCle(path.join(ferme, 'travail'), 'x')).not.toThrow();
+expect(lireCle(path.join(ferme, 'travail'))).toBeNull();
+```
+
+Rouge — `expected 'x' to be null`. L'écriture avait **réussi**. La suite tourne
+en root dans le conteneur, et root ignore les bits POSIX : `0o500` ne ferme
+rien du tout.
+
+**Ce qui aurait été pire que ce rouge.** La première assertion,
+`not.toThrow()`, était verte. Écrite seule — ce qui est la forme naturelle du
+test « ça ne doit pas exploser » — elle aurait donné un banc vert qui n'a
+JAMAIS emprunté la branche qu'il prétend éprouver, sur un chemin de
+dégradation qui n'aurait donc jamais été exécuté nulle part. C'est la seconde
+assertion, celle qui vérifie la CONSÉQUENCE et pas seulement l'absence
+d'explosion, qui a révélé le vice.
+
+**La règle.** Ne jamais simuler une impossibilité d'écriture par les droits :
+le compte qui exécute le banc n'est pas connu d'avance (root en conteneur,
+utilisateur ordinaire en local, et Windows n'a pas ces bits). Un obstacle
+STRUCTUREL, lui, tient pour tout le monde et sur tous les systèmes :
+
+```ts
+writeFileSync(path.join(racine, 'obstacle'), 'je suis un fichier');
+const bouche = path.join(racine, 'obstacle', 'travail'); // ENOTDIR, root compris
+```
+
+Corollaire de famille : `chmod`, `process.getuid()`, `umask` et les droits en
+général sont des HYPOTHÈSES sur l'environnement du banc. Une hypothèse tacite
+sur l'environnement est exactement ce qui rend un test vert au mauvais
+endroit — la même racine que « le banc trop léger », vue depuis le système de
+fichiers.
+
+---
+
 ## 2 novodecies. Filtrer la sortie d'un banc avant de l'avoir lue détruit la preuve
 
 Barrière de fin de lot, quatre commandes enchaînées pour aller vite :
@@ -3039,9 +3188,31 @@ il y avait quelque chose à apprendre. C'est la même famille que le tube qui
 avale un code de sortie (§ 9 quaterdecies) : dans les deux cas on interpose un
 outil entre soi et ce que la machine a réellement dit.
 
-**Ce qui reste ouvert.** L'intermittent n'est pas nommé, donc il n'est pas
-fermé. Il est écrit ici pour que la prochaine occurrence soit capturée, pas
-pour donner l'impression qu'il a été traité.
+**Ce qui a fini par le nommer — par accident.** Un balayage de mutation lancé
+plus tard, dont la sortie était CAPTURÉE, a fait apparaître ceci parmi les
+victimes d'une mutation de `refValide` :
+
+```
+× ^C ARRÊTE TOUT — bannière, Reine en ligne, arrêt dit, code 0   30017 ms
+```
+
+Trente mille dix-sept millisecondes. `refValide` n'a rien à voir avec le
+Ctrl+C d'un lanceur : ce test n'est pas tombé sur la mutation, il a dépassé un
+délai. Et le délai en question est un `setTimeout(30_000)` posé DANS le banc —
+le boucher qui tue l'enfant si la bannière du hub ne paraît pas — alors que
+vitest, lui, accorde 60 s à ce test.
+
+Un chien de garde en temps mural ne distingue pas « en panne » de
+« occupé ». À 30 s sur un budget de 60, il tirait à mi-course en laissant la
+moitié du délai inutilisée : il suffisait que la machine soit chargée — ici,
+par les balayages eux-mêmes — pour qu'un enfant parfaitement sain soit
+déclaré muet. Porté à 45 s, il garde sa raison d'être (rendre une erreur
+NOMMÉE plutôt qu'un dépassement anonyme) sans se déclencher sur la lenteur.
+
+C'est une cause PROBABLE de l'exécution perdue, pas une cause prouvée : les
+deux tests de ce soir-là n'ont jamais été nommés, et ils ne le seront pas.
+La leçon de méthode ci-dessus tient donc entièrement — c'est parce que le
+SECOND incident a été capturé qu'on a pu lire son horloge.
 
 ---
 

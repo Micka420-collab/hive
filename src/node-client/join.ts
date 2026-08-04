@@ -8,8 +8,6 @@
 //
 // Sans argument, l'invitation est demandée de façon interactive.
 
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -21,7 +19,8 @@ import { HiveNodeClient } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
 import { decoderBillet, encoderBillet, jugerTransport, urlHttpDeRuche } from '../shared/acces.js';
 import type { Billet } from '../shared/acces.js';
-import { ID_PATTERN, LIMITS } from '../shared/protocol.js';
+import { LIMITS } from '../shared/protocol.js';
+import { bornerConcurrence, identiteStable, lireCle, rangerCle } from './identite-noeud.js';
 
 try {
   process.loadEnvFile('.env');
@@ -29,58 +28,10 @@ try {
   // Pas de .env : tout vient de l'invitation et des valeurs par défaut.
 }
 
-/** Identité de nœud stable, mémorisée localement pour garder sa place à la reconnexion. */
-function stableNodeId(workRoot: string): string {
-  const file = path.join(workRoot, 'node-id.txt');
-  try {
-    const existing = readFileSync(file, 'utf8').trim();
-    if (ID_PATTERN.test(existing)) return existing;
-  } catch {
-    // premier lancement
-  }
-  const id = `node-${randomUUID()}`.slice(0, 64);
-  try {
-    mkdirSync(workRoot, { recursive: true });
-    writeFileSync(file, id, 'utf8');
-  } catch {
-    // impossible d'écrire : on garde l'id en mémoire pour cette session
-  }
-  return id;
-}
-
-/**
- * Clé propre du nœud, mémorisée à côté de son identité.
- *
- * INDISPENSABLE, pas une optimisation : un billet est à usage UNIQUE. Sans
- * cette mémoire, le premier redémarrage du nœud redemanderait un échange avec
- * un billet déjà consommé — et l'ami se retrouverait dehors sans comprendre
- * pourquoi, en ayant tout fait correctement.
- *
- * Fichier en 0600 : sur une machine partagée, une clé lisible par tous les
- * comptes vaudrait la même clé pour personne.
- */
-function cheminCle(workRoot: string): string {
-  return path.join(workRoot, 'node-key.txt');
-}
-
-function lireCle(workRoot: string): string | null {
-  try {
-    const v = readFileSync(cheminCle(workRoot), 'utf8').trim();
-    return v.length > 0 ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function rangerCle(workRoot: string, cle: string): void {
-  try {
-    mkdirSync(workRoot, { recursive: true });
-    writeFileSync(cheminCle(workRoot), cle, { encoding: 'utf8', mode: 0o600 });
-  } catch {
-    // Impossible d'écrire : le nœud tourne quand même pour cette session, mais
-    // il faudra un nouveau billet au prochain démarrage. On le dit plus bas.
-  }
-}
+// L'identité du nœud, sa clé et la borne de concurrence vivent dans
+// `identite-noeud.ts` : ce fichier-ci finit par `await main()`, donc aucun
+// test ne peut l'importer sans ouvrir un WebSocket (§ 2.8 du carnet). Ce qui
+// ne dépend ni du réseau ni des signaux en sort pour être éprouvé.
 
 /**
  * Échange un billet contre la clé du nœud, en HTTP(S), AVANT d'ouvrir le
@@ -204,8 +155,8 @@ async function main(): Promise<void> {
   const allAgents = await detectAllAgents();
 
   const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
-  const maxConcurrency = clampConcurrency(process.env.HIVE_MAX_CONCURRENCY);
-  const nodeId = stableNodeId(workRoot);
+  const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
+  const nodeId = identiteStable(workRoot);
 
   const hasRealAgent = allAgents.some((a) => a !== 'shell');
   // Toujours afficher l'URL RÉELLE de connexion, jamais masquée par le libellé :
@@ -325,11 +276,6 @@ async function main(): Promise<void> {
   });
   process.on('uncaughtException', (err) => console.error('[hive] exception non catchée :', err));
   process.on('unhandledRejection', (reason) => console.error('[hive] rejet non géré :', reason));
-}
-
-function clampConcurrency(raw: string | undefined): number {
-  const n = Number.parseInt(raw ?? '2', 10);
-  return Number.isInteger(n) ? Math.min(Math.max(n, 1), 16) : 2;
 }
 
 await main();
