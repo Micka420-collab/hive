@@ -4414,3 +4414,25 @@ surlignée, pas une autre). Les 3 mutations rejouées → rouge, verdict affich�
 Motif désormais épinglé partout : un état d'activation lu par un banc qui n'assert
 que `textContent` est du décor (§ 9 vicies). Prochain lot : hors de cette famille —
 #63 identité visuelle de la vitrine, ou un autre diff au balayage loupe.
+
+### Le dernier « hors d'atteinte du banc » du Cerveau : le seuil clic/glisser extrait
+
+Reste nommé du balayage : `attrape.current.id` du glisser au canevas. En le
+regardant, le vrai décor n'était pas l'affectation (canevas pur, `getContext` nul
+sous banc) mais la RÈGLE cachée dans le `onMouseUp` : `Math.hypot(dx, dy) > 4` —
+le départage clic / glisser. Sans lui, déplacer une note la sélectionnerait
+toujours au relâcher.
+
+Discipline (§ 2 quaterdecies, déjà en tête du module) : « hors d'atteinte du banc »
+est presque toujours « au mauvais endroit ». Plutôt que simuler un canevas muet,
+la règle est SORTIE en `estUnClic(depart, fin)` + `SEUIL_GLISSE` dans
+`cerveau-designation.ts` (aux côtés de `corpsSousLePoint`, `rayon`, `chaleur`,
+déjà extraits pour la même raison), et le `onMouseUp` l'appelle. Trois bancs :
+sans déplacement → clic ; micro-tremblement (≤ seuil, PILE au seuil) → clic ;
+au-delà, y compris en diagonale (hypot 3-4-5) → glisser. Muté `<=`→`<`, le banc
+« pile au seuil » rougit (verdict affiché). Suite +3.
+
+La pick-logic (`corpsSousLePoint`) était déjà extraite et éprouvée : le seul décor
+restant était ce seuil. Les items nommés du balayage (Balance `arme && cible`,
+Cerveau `serviIlYaJours`, server.ts livraison, ce seuil) sont tous soit déjà
+défendus, soit désormais extraits+éprouvés.

@@ -48,7 +48,7 @@ import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './cerveau.css';
 import { rappelerAuCentre } from './cerveau-physique';
-import { chaleur, corpsSousLePoint, estEteinte, rayon } from './cerveau-designation';
+import { chaleur, corpsSousLePoint, estEteinte, estUnClic, rayon } from './cerveau-designation';
 
 /** Une couleur par genre — l'ordre des genres EST leur priorité. */
 const COULEUR: Record<string, string> = {
@@ -568,9 +568,11 @@ export default function Cerveau(_props: ViewProps) {
                 onMouseUp={(ev) => {
                   const a = attrape.current;
                   // Un glisser n'est pas un clic : sans ce départage, déplacer
-                  // une note la sélectionnerait toujours au relâcher.
-                  const bouge = Math.hypot(ev.clientX - a.x, ev.clientY - a.y) > 4;
-                  if (!bouge) setChoisi(sous(ev)?.id ?? null);
+                  // une note la sélectionnerait toujours au relâcher. La règle
+                  // (le seuil) vit dans `estUnClic`, pure et éprouvée hors canevas.
+                  if (estUnClic({ x: a.x, y: a.y }, { x: ev.clientX, y: ev.clientY })) {
+                    setChoisi(sous(ev)?.id ?? null);
+                  }
                   attrape.current = { id: null, fond: false, x: 0, y: 0 };
                 }}
                 onMouseLeave={() => {

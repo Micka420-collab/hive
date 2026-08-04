@@ -27,9 +27,11 @@ import {
   chaleur,
   corpsSousLePoint,
   estEteinte,
+  estUnClic,
   FENETRE_CHALEUR_JOURS,
   MARGE_DOIGT,
   rayon,
+  SEUIL_GLISSE,
   type CorpsPointable,
 } from '../dashboard/src/views/cerveau-designation.js';
 
@@ -177,5 +179,27 @@ describe('chaleur — le savoir dormant et le savoir vif ne se confondent pas', 
     // Une ancienneté supérieure à la fenêtre (horloge en avance, ou note très
     // vieille) ne doit pas inverser le halo : `Math.max(0, …)` tient le plancher.
     expect(chaleur({ serviIlYaJours: FENETRE_CHALEUR_JOURS * 2 })).toBe(0);
+  });
+});
+
+describe('estUnClic — départager le clic du glisser (extrait du canevas)', () => {
+  // Cette règle vivait dans le `onMouseUp` du canevas, que happy-dom ne peut
+  // pas jouer (`getContext` nul → aucun corps à saisir). Extraite en pur, elle
+  // s'éprouve au pixel près plutôt que d'être simulée à travers un canevas muet.
+  it('un relâcher SANS déplacement est un clic', () => {
+    expect(estUnClic({ x: 10, y: 10 }, { x: 10, y: 10 })).toBe(true);
+  });
+
+  it('un micro-tremblement (≤ SEUIL_GLISSE) reste un clic', () => {
+    expect(estUnClic({ x: 0, y: 0 }, { x: 3, y: 0 }), 'trois pixels').toBe(true);
+    // PILE au seuil : la frontière au pixel près — c'est elle qui meurt si `<=`
+    // devient `<`, et un déplacement juste égal au seuil cesserait d'être un clic.
+    expect(estUnClic({ x: 0, y: 0 }, { x: SEUIL_GLISSE, y: 0 }), 'pile au seuil').toBe(true);
+  });
+
+  it('au-delà du seuil, c’est un GLISSER — pas un clic', () => {
+    expect(estUnClic({ x: 0, y: 0 }, { x: 5, y: 0 }), 'cinq pixels').toBe(false);
+    // La distance est euclidienne : hypot(3, 4) = 5, au-delà du seuil de 4.
+    expect(estUnClic({ x: 0, y: 0 }, { x: 3, y: 4 }), 'diagonale 3-4-5').toBe(false);
   });
 });

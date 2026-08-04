@@ -147,3 +147,28 @@ export function estEteinte(
   if (id === actif) return false;
   return !voisinage?.has(id);
 }
+
+/**
+ * Un relâcher de souris est-il un CLIC, et non la fin d'un GLISSER ?
+ *
+ * Déplacer une note dans le graphe se termine par un `mouseup`, exactement comme
+ * un clic pour la désigner. Sans ce départage, chaque déplacement sélectionnerait
+ * la note au relâcher — on ne pourrait jamais la bouger sans la choisir.
+ *
+ * La règle : en deçà de `SEUIL_GLISSE` pixels parcourus entre l'appui et le
+ * relâcher, c'est un clic ; au-delà, un glisser. Le seuil absorbe le micro-
+ * tremblement de la main, qui ne doit pas changer un clic en glisser. La distance
+ * est EUCLIDIENNE : un déplacement en diagonale compte autant qu'à l'horizontale.
+ *
+ * Même motif que les règles ci-dessus : extraite de la boucle du canevas (où
+ * `getContext` est nul sous banc) pour s'éprouver au pixel près, plutôt que
+ * d'être simulée à travers un canevas muet.
+ */
+export const SEUIL_GLISSE = 4;
+
+export function estUnClic(
+  depart: { readonly x: number; readonly y: number },
+  fin: { readonly x: number; readonly y: number },
+): boolean {
+  return Math.hypot(fin.x - depart.x, fin.y - depart.y) <= SEUIL_GLISSE;
+}
