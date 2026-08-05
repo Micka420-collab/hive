@@ -1298,6 +1298,72 @@ recommencer : **si un hook expire de nouveau à 20 000 ms, ce n'est plus de la
 lenteur.** Cent fois un coût mesuré à 200 ms, ce n'est plus un disque qu'on
 attend. Le geste sera de trouver ce qui bloque, pas de passer à 30.
 
+### 3.2 ter — Un banc qui dort n'immobilise pas que lui-même
+
+Le déclencheur du § 3.2 bis a fini par sonner. Sur `main`, la CI Windows a
+rougi — et **elle seule**, le même commit ayant passé les cinq contrôles de sa
+PR et le rejeu en trois ordres sous Linux. Trois hooks de démontage ont expiré
+à 20 000 ms, tous à la même seconde :
+
+    tests/conseil-runner.test.ts:41   afterEach  Hook timed out in 20000ms
+    tests/essaim-endpoint.test.ts:35  afterEach  Hook timed out in 20000ms
+    tests/hardening.test.ts:103       afterEach  Hook timed out in 20000ms
+
+La règle interdisait de relever le plafond : « trouver CE QUI bloque ». Or les
+trois hooks incriminés font exactement ce que le § 3.2 bis a mesuré à moins de
+200 ms — `stop()`, `close()`, `rmSync`. Ce n'étaient donc pas eux. **Le blocage
+était chez un VOISIN.** À la seconde exacte où les trois expiraient, un
+quatrième fichier finissait :
+
+    tests/filet-relivraison.test.ts (2 tests) 26749ms
+        ✓ DEUX RENVOIS D'UNE MÊME TÂCHE SONT ESPACÉS 26450ms
+
+Ce test attend **vingt-six secondes de temps réel** — un `setTimeout(26_000)`
+nu — pour observer deux re-livraisons espacées de quinze. Presque zéro calcul,
+mais un fork immobilisé si longtemps qu'il traverse toute la queue de fin. Sur
+un runner Windows partagé à quatre cœurs, ses trois voisins de fin arrivent au
+démontage pendant que ce fork tient encore une ruche vivante (SQLite, WebSocket,
+boucle de tick) — et l'effacement des arborescences temporaires, déjà lent sous
+Windows (voir § 6.1 bis, le handle qu'on ne voit pas sous Linux), déborde le
+plafond.
+
+**Ce qui a rendu la cause difficile à nommer** : le hook qui RAPPORTE le délai
+n'est pas celui qui le CAUSE. La règle « trouver ce qui bloque » doit donc
+regarder les voisins de queue, pas seulement la ligne qui a rougi. Je le dis au
+conditionnel là où je ne peux pas le prouver : le défaut est Windows-seul et
+intermittent (une fois en treize poussées), donc irreproductible sur ce banc
+Linux — le lien de cause est INFÉRÉ d'une co-terminaison à la seconde près, pas
+observé sous debogueur.
+
+**Le remède ne touche pas au plafond.** Il ôte le blocage à sa source :
+`createServer` accepte depuis toujours un `relivraisonMinMs` — documenté mot
+pour mot « un test qui veut observer plusieurs re-livraisons ne peut pas
+attendre quinze secondes par tour ». `filet-relivraison` précédait cette option
+et ne l'avait jamais adoptée ; `instinct-endpoints`, lui, la passe déjà à 0.
+L'espacement réglé à 2 000 ms ramène la fenêtre d'observation de 26 s à 12, sans
+rien retirer à ce que le test prouve — muter la garde d'espacement
+(`&&`→`||`, server.ts) le fait toujours rougir (un seul renvoi observé, « 1 ≥ 2 »
+faux). Vingt secondes de temps réel disparaissent du chemin critique de CHAQUE
+exécution, sur les trois OS.
+
+> **Règle** — quand un hook expire, le coupable n'est pas toujours le hook. Sur
+> un banc parallèle à ressources bornées, un fichier VOISIN qui dort en temps
+> réel immobilise un fork et affame le démontage des autres. « Trouver ce qui
+> bloque » veut dire regarder la QUEUE, pas seulement la ligne rouge.
+>
+> **Règle** — un test qui attend des secondes réelles alors qu'une option de
+> banc peut les raccourcir n'est pas seulement lent : c'est un risque de
+> stabilité CI. Le temps réel d'un test est une ressource partagée du banc.
+>
+> **Règle** — avant d'inventer un réglage pour raccourcir un banc, chercher
+> s'il existe déjà. Ici il existait, documenté pour ce cas précis, et un test
+> voisin l'utilisait — l'oubli était d'adoption, pas de conception.
+
+**Ce qui le garde** : `tests/filet-relivraison.test.ts` lui-même, dont la
+fenêtre raccourcie reste sensible à la mutation de la garde d'espacement
+(vérifié : `&&`→`||` le fait tomber sur « moins de deux renvois »). Aucun compte
+de tests ne change — le badge est intact.
+
 ### 3.3 — Attendre, oui, mais attendre la BONNE erreur
 
 Le pas de CI qui attend la ruche dans le conteneur ne faisait **pas** de

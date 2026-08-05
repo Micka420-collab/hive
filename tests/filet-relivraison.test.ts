@@ -12,8 +12,16 @@
 //
 // ─── LE RÉGLAGE DU BANC EST ÉCRIT ICI, ET C'EST DÉLIBÉRÉ ─────────────────────
 //
-// Ces tests tournent avec un `tickMs` court pour ne pas durer des minutes. Le
-// défaut de production est 2 000 ms.
+// Ces tests tournent avec DEUX réglages raccourcis pour ne pas durer des
+// minutes : un `tickMs` court (60 ms ; la production est à 2 000 ms) ET un
+// espacement de re-livraison court (`relivraisonMinMs`, ici 2 000 ms ; la
+// production est à 15 000 ms). L'espacement est réglable POUR CETTE RAISON —
+// `createServer` le documente : « un test qui veut observer plusieurs
+// re-livraisons ne peut pas attendre quinze secondes par tour ». Le laisser au
+// défaut faisait attendre ce banc VINGT-SIX SECONDES par exécution ; un fork
+// immobilisé si longtemps sur la CI Windows partagée débordait sur les hooks de
+// démontage des fichiers voisins (voir ERREURS, § « un banc qui dort n'immobilise
+// pas que lui-même »).
 //
 // Je le dis parce que je m'y suis fait prendre : le premier compte-rendu de ce
 // défaut annonçait « 118 renvois en douze secondes », chiffre exact mais mesuré
@@ -38,8 +46,14 @@ const TOKEN = 'jeton-filet-suffisamment-long-pour-passer';
 /** Le tick du BANC. La production est à 2 000 ms — voir l'en-tête. */
 const TICK_BANC = 60;
 
-/** L'espacement minimum promis par le serveur, en millisecondes. */
-const ESPACEMENT = 15_000;
+/**
+ * L'espacement minimum de re-livraison RÉGLÉ POUR CE BANC, en millisecondes —
+ * passé au serveur via `relivraisonMinMs` (le défaut de production est
+ * 15 000 ms). Court exprès : c'est la PROPRIÉTÉ mesurée — deux renvois sont
+ * espacés d'au moins tant — pas sa valeur de production, et l'observer vite
+ * épargne au banc une vingtaine de secondes d'attente nue.
+ */
+const ESPACEMENT = 2_000;
 
 describe('le filet de re-livraison espace ses tentatives', () => {
   let server: HiveServer | null = null;
@@ -67,6 +81,7 @@ describe('le filet de re-livraison espace ses tentatives', () => {
       dbPath: path.join(dir, 'data', 'hive.db'),
       simulation: false,
       tickMs: TICK_BANC,
+      relivraisonMinMs: ESPACEMENT,
     });
     return server;
   }
@@ -119,7 +134,7 @@ describe('le filet de re-livraison espace ses tentatives', () => {
     return recues;
   }
 
-  it('DEUX RENVOIS D’UNE MÊME TÂCHE SONT ESPACÉS', { timeout: 40_000 }, async () => {
+  it('DEUX RENVOIS D’UNE MÊME TÂCHE SONT ESPACÉS', { timeout: 25_000 }, async () => {
     // ─── L'ASSERTION QUI DÉCIDE ───────────────────────────────────────────
     //
     // Elle ne compte pas les renvois : ce compte dépend du tick, et c'est
@@ -133,16 +148,19 @@ describe('le filet de re-livraison espace ses tentatives', () => {
     const t = srv.store.createTask({ projectId: projet.id, title: 'T', prompt: 'p' });
     srv.store.patchTask(t.id, { status: 'ready' });
 
-    // ─── CE QU'ON LAISSE PASSER, ET POURQUOI C'EST LONG ────────────────────
+    // ─── CE QU'ON LAISSE PASSER, ET POURQUOI ───────────────────────────────
     //
     // La PREMIÈRE livraison est l'assignation normale, pas un renvoi — la
     // compter comme tel ferait mesurer l'écart « assignation → premier
     // rattrapage », qui vaut les 5 s du filet et n'a rien à voir avec
     // l'espacement. C'est l'erreur qu'a faite la première version de ce test.
     //
-    // Il faut donc voir DEUX renvois pour avoir un écart à mesurer :
-    // 5 s d'armement, puis deux tours d'espacement. D'où l'observation longue.
-    await new Promise((r) => setTimeout(r, 26_000));
+    // Il faut donc voir DEUX renvois pour avoir un écart à mesurer : 5 s
+    // d'armement (le filet ne se déclenche qu'au-delà de cinq secondes de
+    // silence), puis deux tours d'espacement de 2 s. Douze secondes en montrent
+    // quatre — une marge confortable au-dessus des deux exigés, robuste au
+    // retard de tick d'un runner chargé.
+    await new Promise((r) => setTimeout(r, 12_000));
 
     expect(recues.length, 'la tâche n’a jamais été assignée').toBeGreaterThan(0);
     const renvois = recues.slice(1);
@@ -156,7 +174,7 @@ describe('le filet de re-livraison espace ses tentatives', () => {
     expect(
       plusPetit,
       `deux renvois à ${plusPetit} ms d’écart : le filet est redevenu un robinet ` +
-        `(${recues.length} livraisons en 26 s au tick de banc ${TICK_BANC} ms)`,
+        `(${recues.length} livraisons en 12 s au tick de banc ${TICK_BANC} ms)`,
     ).toBeGreaterThanOrEqual(ESPACEMENT - 1_000);
   });
 

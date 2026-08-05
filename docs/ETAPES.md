@@ -4436,3 +4436,32 @@ La pick-logic (`corpsSousLePoint`) était déjà extraite et éprouvée : le seu
 restant était ce seuil. Les items nommés du balayage (Balance `arme && cible`,
 Cerveau `serviIlYaJours`, server.ts livraison, ce seuil) sont tous soit déjà
 défendus, soit désormais extraits+éprouvés.
+
+### CI Windows rouge sur `main` : le voisin qui dort 26 s (décision de nuit)
+
+La CI Windows de `main` (commit 7899453) a rougi seule — trois hooks `afterEach`
+(conseil-runner, essaim-endpoint, hardening) expirés à 20 000 ms, à la seconde
+exacte où `filet-relivraison` finissait ses 26 s de temps réel. Le même commit
+avait passé les cinq contrôles de sa PR (#178) et le rejeu en trois ordres sous
+Linux : intermittent, Windows-seul.
+
+**Arbitrage tranché seul (utilisateur endormi).** Le § 3.2 bis de ERREURS pose
+la règle : un hook qui re-expire à 20 000 ms n'est plus de la lenteur, « trouver
+CE QUI bloque, pas passer à 30 ». Les trois hooks font ce que le § 3.2 bis a
+mesuré à < 200 ms — le blocage était chez un voisin : `filet-relivraison` attend
+`setTimeout(26_000)` pour observer deux re-livraisons espacées de 15 s, et sur un
+runner Windows partagé ce fork immobilisé traverse la queue de fin pendant que
+ses voisins affament leur démontage. Remède choisi : NON un plafond relevé, NON
+un re-run nu, mais ôter le blocage à sa source. `createServer` accepte depuis
+toujours `relivraisonMinMs` (documenté pour ce cas exact ; `instinct-endpoints`
+le passe déjà à 0). Espacement réglé à 2 000 ms → fenêtre 26 s → 12 s. Vingt
+secondes de temps réel ôtées du chemin critique de CHAQUE exécution, sur les
+trois OS. Zéro ligne de production touchée (l'option existait), le badge est
+intact (aucun test ajouté/retiré).
+
+Mutation-first (banc raccourci, pas décor) : garde d'espacement `&&`→`||`
+(server.ts:7078) → `filet-relivraison` ROUGE (« 1 ≥ 2 » faux, un seul renvoi),
+restaurée → VERT (2/2, 14 s). Leçon consignée en ERREURS § 3.2 ter, « Un banc
+qui dort n'immobilise pas que lui-même ». La cause exacte (voisin → famine de
+démontage) est INFÉRÉE d'une co-terminaison à la seconde près, pas reproduite —
+le défaut est irreproductible sur ce banc Linux, et c'est dit tel quel.
