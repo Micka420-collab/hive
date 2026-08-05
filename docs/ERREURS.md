@@ -3879,6 +3879,39 @@ atteindre est souvent le symptôme d'une logique mal rangée, pas une fatalité
 de l'outillage.** Le balayage par mutation ne dit pas seulement « ce test
 manque » ; il dit parfois « ce code est au mauvais endroit ».
 
+## 2 quaterdecies bis. Un helper extrait pour un banc `.ts` doit être SELF-CONTAINED
+
+Suite directe du § ci-dessus. J'ai sorti l'icône du rayon (`e.type === 'dossier'`)
+d'un composant `.tsx` pour l'éprouver — exactement le bon geste. Mais j'ai visé
+DEUX mauvais endroits avant le bon, et les deux échecs disent la même chose.
+
+**Essai 1 — `export function icone` dans `Rayon.tsx`, banc `.ts` qui l'importe.**
+Le tsconfig RACINE (celui qui compile `tests/`, en `moduleResolution: nodenext`)
+tire alors `Rayon.tsx` dans son programme et rougit : `--jsx` n'y est pas réglé,
+parce que ce tsconfig n'a jamais eu à compiler de JSX — le dashboard a le sien
+(`dashboard/tsconfig.json`, résolution bundler). Un helper laissé dans un `.tsx`
+n'est pas atteignable par un banc `.ts` du programme racine.
+
+**Essai 2 — module pur `rayon-affichage.ts`, mais qui importe `EntreeRayon` de
+`../api`.** Mieux : plus de JSX. Mais `../api` est `dashboard/src/api.ts`, dont
+les imports sont extensionless (résolution bundler), et le tsconfig racine, lui,
+exige les extensions `.js` (nodenext). Importer le module de banc a donc tiré
+TOUT le graphe du dashboard dans le programme racine, qui a rougi sur les imports
+d'`api.ts` — du code parfaitement correct pour SON tsconfig, faux pour l'autre.
+
+**Ce qui marche — et pourquoi `cerveau-designation.ts`, lui, n'a jamais posé ce
+problème :** il n'importe RIEN. Le module extrait pour un banc `.ts` du programme
+racine doit être self-contained — n'importer que des modules `src/shared/*` purs
+(que le programme racine compile déjà, extensions comprises), jamais `../api` ni
+un `.tsx`. `rayon-affichage.ts` prend donc son type d'entrée directement de
+`src/shared/rayon`, pas de son ré-export dans l'api.
+
+> **Règle** — extraire un helper pour un banc n'est pas fini quand il compile
+> côté dashboard : il faut que le PROGRAMME QUI LE TESTE puisse le tirer sans
+> tirer ce qu'il ne sait pas compiler. Un module de banc n'importe que du pur
+> et du partagé — la frontière `dashboard` (bundler) / racine (nodenext) ne se
+> traverse que par `src/shared`.
+
 ---
 
 ## 2 terdecies. Un témoin présent sur les DEUX branches ne témoigne de rien

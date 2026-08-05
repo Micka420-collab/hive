@@ -45,6 +45,9 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchIssues: vi.fn(() => Promise.resolve({ issues: [] })),
   fetchLivraisons: vi.fn(() => Promise.resolve({ livraisons: [] })),
   planBrief: vi.fn(() => Promise.resolve({ tasks: [], source: 'heuristic' })),
+  // `addTasks` part sinon en VRAI vers le port 3000 ; le banc du bouton d'envoi
+  // la remplace par une promesse qu'il tient en vol pour figer `busy === 'send'`.
+  addTasks: vi.fn(() => Promise.resolve([{ id: 't-x' }])),
   // Sondes des sous-composants embarqués (PleinEssaim, Balance) : sans elles,
   // un VRAI fetch part vers le port 3000 et le banc bruisse d'ECONNREFUSED.
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
@@ -52,11 +55,13 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import {
+  addTasks,
   fetchBalance,
   fetchConseil,
   fetchConseils,
   fetchDepotsGithub,
   fetchMergeResult,
+  planBrief,
   runMerge,
 } from '../dashboard/src/api';
 import Projets from '../dashboard/src/views/Projets';
@@ -407,5 +412,84 @@ describe('les Projets — les trois survivantes du balayage', () => {
     const habit = panne.querySelector('.pj-gh-erreur');
     expect(habit, 'la panne réelle porte son habit').toBeTruthy();
     expect(habit?.textContent).toContain('GitHub non connecté');
+  });
+
+  it('LA RECHERCHE DE DÉPÔTS DIT « AUCUN » QUAND ELLE NE TROUVE RIEN — et se tait sinon', async () => {
+    // `depots.depots.length === 0` mutée en `!==` : le « Aucun dépôt ne
+    // correspond » DISPARAÎT d'une recherche vide — un arrivant cherche, ne voit
+    // rien, et ne sait pas si ça a seulement cherché — et s'AFFICHE au-dessus des
+    // résultats quand il y en a. Les deux mondes, sur la première action d'un
+    // nouvel arrivant : connecter son dépôt. Ouvrir la section suffit à lancer la
+    // liste (`lister('')` au clic).
+    vi.mocked(fetchDepotsGithub).mockResolvedValue({ depots: [] } as never);
+    const vide = await monter(instantane([]));
+    cliquer(bouton(vide, 'Connecter un dépôt GitHub'));
+    await act(async () => {});
+    expect(vide.textContent, 'une recherche sans résultat le DIT').toContain(
+      'Aucun dépôt ne correspond.',
+    );
+
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    vi.mocked(fetchDepotsGithub).mockResolvedValue({
+      depots: [
+        {
+          fullName: 'octo/rucher',
+          importe: false,
+          prive: false,
+          archive: false,
+          langage: null,
+          description: null,
+        },
+      ],
+    } as never);
+    const plein = await monter(instantane([]));
+    cliquer(bouton(plein, 'Connecter un dépôt GitHub'));
+    await act(async () => {});
+    expect(plein.textContent, 'le dépôt trouvé se montre').toContain('octo/rucher');
+    expect(plein.textContent, 'un dépôt trouvé ne s’annonce pas « aucun »').not.toContain(
+      'Aucun dépôt ne correspond.',
+    );
+  });
+
+  it('LE BOUTON D’ENVOI DIT « ENVOI… » PENDANT L’ENVOI — et « Envoyer » au repos', async () => {
+    // `busy === 'send'` mutée en `!==` : le bouton MENT sur son état — « Envoyer
+    // les tâches » pendant que l'envoi part, « Envoi… » au repos. On fige l'envoi
+    // en vol (`addTasks` tenue par une promesse qu'on ne résout qu'à la fin) pour
+    // regarder le libellé aux DEUX instants.
+    let resoudre: (v: unknown) => void = () => {};
+    vi.mocked(addTasks).mockImplementation(
+      () => new Promise((r) => (resoudre = r as (v: unknown) => void)),
+    );
+    vi.mocked(planBrief).mockResolvedValue({
+      tasks: [{ id: 'socle', title: 'Le socle', prompt: 'p', dependsOn: [] }],
+      source: 'heuristic',
+    } as never);
+
+    const dom = await monter(instantane([tache('t-1', 'Une tâche')]));
+    const brief = dom.querySelector('.pj-brief') as HTMLTextAreaElement;
+    taper(brief, 'Une API de sondages avec authentification');
+    cliquer(bouton(dom, 'Proposer un plan'));
+    await act(async () => {});
+
+    // Au repos, le bouton porte son libellé d'action.
+    const envoyer = bouton(dom, 'Envoyer les tâches');
+    expect(envoyer.textContent, 'au repos, le bouton invite à agir').toContain(
+      'Envoyer les tâches',
+    );
+
+    // Envoi lancé, `addTasks` encore en vol : le libellé bascule sur « Envoi… ».
+    cliquer(envoyer);
+    await act(async () => {});
+    expect(dom.textContent, 'pendant l’envoi, le bouton le DIT').toContain('Envoi…');
+    expect(dom.textContent, 'et ne ment pas en affichant encore l’invitation').not.toContain(
+      'Envoyer les tâches',
+    );
+
+    // L'envoi se termine : retour au repos.
+    await act(async () => {
+      resoudre([{ id: 'socle-x' }]);
+    });
+    expect(dom.textContent, 'l’envoi fini, le miel est déposé').toContain('déposée(s)');
   });
 });

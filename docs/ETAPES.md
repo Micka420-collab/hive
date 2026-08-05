@@ -4465,3 +4465,69 @@ restaurée → VERT (2/2, 14 s). Leçon consignée en ERREURS § 3.2 ter, « Un 
 qui dort n'immobilise pas que lui-même ». La cause exacte (voisin → famine de
 démontage) est INFÉRÉE d'une co-terminaison à la seconde près, pas reproduite —
 le défaut est irreproductible sur ce banc Linux, et c'est dit tel quel.
+
+## POINT DE SORTIE — 5 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**28 jours** (5 août → 2 septembre).
+
+La vérité de méthode du point de sortie d'hier tient toujours : **il n'existe
+aucun « definition of done » de sortie écrit et mesuré** dans ce dépôt. Le seul
+jeu mesuré est celui de l'installation (§ « Les 10 critères mesurables »). « Une
+sortie présentable » n'est donc la cible mesurée de personne — et tant que ce
+n'est pas écrit, on ne l'atteint pas. C'est le manque le moins visible et le
+plus structurant.
+
+### 2. Livré ET vérifié depuis le point de sortie d'hier (pas « écrit » — vérifié)
+
+Le dernier point de sortie s'arrêtait à la suite 3 355, Aiguillage lot 1 en CI.
+Depuis, fusionnés sur `main` et mesurés :
+
+| lot                                       | comment c'est vérifié                                                                                                                                                                                                                                                              |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Aiguillage câblé de bout en bout (3a→4)   | le routeur appris (UCB1) atteint la boucle de l'ordonnanceur, la course de drones, l'enregistrement du vainqueur, plus la borne du troupeau (élections en vol) ; chaque lot muté, VERDICT affiché. L'« Aiguillage NON CÂBLÉ » d'hier est câblé.                                    |
+| Feature 2 — Agent Garde-Fous (G1→G5b)     | module pur UCB1 opt-in par projet → table de consentement → observations par jointure → câblage ordonnanceur + Polyéthisme + course de drones → endpoints → panneau React réglable ; chaque garde mutée rouge. Le « garde-fou À CONCEVOIR » d'hier est livré.                      |
+| Balayage § 9 vicies CLÔTURÉ (7 panneaux)  | l'état d'activation (aria-selected/pressed/current + classe) défendu par `getAttribute`/`className`, pas `textContent` (un test qui ne lit que le texte est aveugle à l'attribut) : GardeFous, PleinEssaim, AccountPanel, App (nav), TaskDrawer, Ruche, Rayon — chacun muté rouge. |
+| Seuil clic/glisser du Cerveau extrait     | `estUnClic` + `SEUIL_GLISSE` sortis de la boucle canvas (inatteignable sous banc), éprouvés au pixel ; `<=`→`<` fait rougir « pile au seuil ».                                                                                                                                     |
+| `install.sh` construit ENFIN le dashboard | `npm run build:dashboard` câblé, repli gracieux (un `vite build` qui échoue n'abat pas l'install : il DIT quoi relancer) ; le serveur sert `dashboard/dist/index.html`. Le trou « ruche qui tourne ≠ ruche qu'on regarde » du point de sortie d'hier est fermé.                    |
+| CI Windows : flake de démontage (PR #179) | trois hooks `afterEach` expiraient à 20 000 ms derrière un voisin qui dormait 26 s ; espacement de re-livraison réglé (fenêtre 26 s→12 s), Windows retombé de ~298 s à ~140 s, VERT sur PR ET push ; mutation `&&`→`                                                               |     | ` rouge. |
+
+Suite **3 355 → 3 483**, mesurée (`npm test`, jamais de tête). Barrière rejouée
+ce tour : typecheck, typecheck:dashboard, lint, `vitest run` — **3 476 verts, 7
+ignorés**.
+
+### 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+1. **Le premier écran — la fin de la file.** Restent **trois** gardes d'affichage
+   mesurées nues (consignées hier, pas tues) : `depots.depots.length === 0`
+   (Projets — « Aucun dépôt ne correspond » disparaît de la recherche de dépôts,
+   la toute première action d'un arrivant qui ajoute son projet) ; `busy === 'send'`
+   (Projets — le bouton d'envoi ment sur son état) ; `e.type === 'dossier'`
+   (Rayon — icône dossier, cosmétique). **Actionnable, je reprends dessus
+   maintenant**, des deux gardes de Projets (la première action) vers l'icône.
+2. **Le balayage loupe élargi.** Couverture inconnue sur le reste du diff cumulé
+   depuis la dernière base épinglée — le « quoi d'autre est nu » systématique, à
+   mener dans l'atelier, LOUPE_BASE épinglée, jamais commitée.
+3. **La vitrine (#63).** Existe et rend (`tests/site.test.ts`), mais son identité
+   visuelle (13→7 sections) attend une **décision d'édition de l'utilisateur**.
+   Pas cassée, pas finie — et « présentable » n'est mesuré par personne (cf. §1).
+4. **Un DoD de sortie écrit.** Le méta-manque du §1 : sans lui, « présentable »
+   n'a pas de cible mesurable. L'écrire suppose une part d'arbitrage éditorial
+   (ce qu'on promet à la sortie) qui touche à une décision de l'utilisateur.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé depuis hier, et toujours vrai :
+
+- **Les comptes npm (lot 7) et GHCR/cosign (lot 10) ne sont pas les miens.**
+  Aucune image officielle publiée ni paquet signé possible d'ici. `curl | sh`
+  depuis le dépôt marche sans eux ; « docker pull » d'une image officielle et
+  « npm i -g » d'un paquet signé restent sur une décision et des identifiants
+  humains.
+- **Aucune VRAIE machine Windows ni macOS.** La CI (runners GitHub) prouve que
+  le code passe là-bas, PAS que l'install marche sur le poste d'un utilisateur.
+  « Marche sur les 3 OS » est vérifié en CI, pas sur du matériel réel — la
+  nuance doit être dite.
+- **Le nombre de sections de la vitrine (13→7) et les tarifs** : décisions
+  d'édition et commerciales de l'utilisateur, pas les miennes.
