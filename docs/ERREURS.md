@@ -4132,6 +4132,46 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 unvicies. Un banc qui n'éprouve que la condition d'un risque est aveugle à son verrou
+
+Le § 1.0 ter le répète : le JS de la vitrine échappe à la loupe (elle ne balaie
+jamais `site/`) et ne tient que par des bancs d'exécution. En relisant les liens
+« Ouvrir ma ruche », composés depuis l'adresse saisie, le banc voisin
+(« OUVRIR MA RUCHE COMPOSE LE LIEN ») vérifiait bien que chaque lien s'ouvre dans
+un nouvel onglet :
+
+```js
+a.setAttribute('target', '_blank');
+a.setAttribute('rel', 'noopener'); // ← posé, mais gardé par PERSONNE
+```
+
+Il assertait `target === '_blank'` — et RIEN sur `rel`. Or `target="_blank"` sans
+`rel="noopener"` est précisément la faille : la page ouverte (le tableau de bord
+de la ruche) garde une poignée `window.opener` vers la vitrine et peut la faire
+naviguer ailleurs — du « reverse tabnabbing », une redirection d'hameçonnage
+silencieuse. Ôter la seule ligne `rel` ne faisait rougir aucun banc.
+
+Pourquoi ça échappe à la relecture : le banc épinglait la condition qui REND la
+faille possible (`_blank`), en croyant couvrir le lien, sans jamais épingler le
+verrou qui la FERME (`noopener`). Les deux attributs vont par paire — l'un ouvre
+un risque, l'autre le referme — et n'éprouver que le premier laisse tomber le
+second sans bruit.
+
+Correctif : un banc dédié qui saisit une adresse puis lit
+`getAttribute('rel') === 'noopener'` sur le lien composé. Muté (ligne `rel`
+retirée) → « expected null to be 'noopener' », rouge ; restauré → vert.
+
+### La règle
+
+> Quand deux attributs vont par paire — l'un OUVRE un risque (`target="_blank"`,
+> un `innerHTML`, un `dangerouslySetInnerHTML`), l'autre le FERME (`rel="noopener"`,
+> un échappement, une allowlist) — un test qui n'épingle que le premier est
+> aveugle au second. Éprouve le VERROU, pas seulement la condition qui le rend
+> nécessaire : c'est le verrou qui protège, et c'est lui qu'une retouche fera
+> sauter en silence.
+
+---
+
 ## 9 vicies. Un test de rendu qui ne lit que `textContent` est aveugle à l'attribut
 
 En rebalayant l'intégration du Garde-Fous, la loupe a désigné QUATRE survivantes

@@ -470,6 +470,23 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
       '_blank',
     );
   });
+
+  it('LE LIEN OUVERT NE REND PAS LA MAIN SUR LA VITRINE — rel="noopener"', () => {
+    // Un lien `target="_blank"` SANS `rel="noopener"` laisse la page qu'il OUVRE
+    // (le tableau de bord de la ruche) garder une poignée `window.opener` vers la
+    // vitrine, et la faire naviguer ailleurs à sa guise : c'est le « reverse
+    // tabnabbing », une porte d'hameçonnage silencieuse. La composition pose bien
+    // `noopener` — mais RIEN ne le gardait. Le banc voisin vérifie `_blank` (la
+    // condition qui REND la faille possible) sans jamais vérifier le verrou qui la
+    // ferme : ôter la seule ligne `rel` ne faisait alors rougir aucun banc.
+    const projets = rcLien('#/projets');
+    saisirAdresse('http://192.168.1.10:8080');
+    expect(projets?.getAttribute('target'), 'le lien s’ouvre dans un nouvel onglet').toBe('_blank');
+    expect(
+      projets?.getAttribute('rel'),
+      'un onglet ouvert par `_blank` doit couper `window.opener`',
+    ).toBe('noopener');
+  });
 });
 
 describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
