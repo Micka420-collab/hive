@@ -209,10 +209,22 @@ describe('les bornes — reçues, jamais rendues, fermées par défaut', () => {
   });
 
   it('des bornes INVERSÉES se resserrent sur le PLUS STRICT — jamais sur le plus lâche', () => {
-    // min=strict, max=leger est une méprise : on échoue vers PLUS de garde-fous.
+    // `min` plus strict que `max` est une méprise : on échoue vers PLUS de
+    // garde-fous. Le PLUS STRICT est TOUJOURS `min` dans ce cas — on l'éprouve
+    // sur les TROIS inversions possibles, pour que « resserrer sur `min` » (et
+    // jamais sur `max`) soit défendu par un test, et pas seulement par le typeur :
+    // c'est ce qui empêche la branche `: max` de renaître muette (§ 2.16 ter).
     expect(normaliserBornes({ min: 'strict', max: 'leger' })).toEqual({
       min: 'strict',
       max: 'strict',
+    });
+    expect(normaliserBornes({ min: 'strict', max: 'standard' })).toEqual({
+      min: 'strict',
+      max: 'strict',
+    });
+    expect(normaliserBornes({ min: 'standard', max: 'leger' })).toEqual({
+      min: 'standard',
+      max: 'standard',
     });
   });
 

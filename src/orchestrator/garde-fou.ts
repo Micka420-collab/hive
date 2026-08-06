@@ -334,8 +334,12 @@ export const BORNES_DEFAUT: Bornes = { min: 'leger', max: 'strict' };
  */
 export function normaliserBornes(b: Bornes): Bornes {
   if (rangEchelon(b.min) <= rangEchelon(b.max)) return b;
-  const plusStrict = rangEchelon(b.min) >= rangEchelon(b.max) ? b.min : b.max;
-  return { min: plusStrict, max: plusStrict };
+  // On n'arrive ici QUE si `min` est plus strict que `max` (rang(min) > rang(max)).
+  // Le PLUS STRICT des deux est donc forcément `min` : l'ancien départage
+  // `rang(min) >= rang(max) ? min : max` portait une branche `: max` qu'AUCUNE
+  // entrée n'atteignait. Un balayage élargi de la loupe l'a signalée nue — et
+  // c'était le bon signal : du code mort, pas un test manquant (ERREURS § 2.16 ter).
+  return { min: b.min, max: b.min };
 }
 
 /**

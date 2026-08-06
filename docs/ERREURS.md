@@ -1244,6 +1244,43 @@ elle passe la relecture, et elle part dans une livraison.
 > `dashboard/src` AVANT tout `git add` — la mutation restante ne se voit qu'à
 > l'œil, et elle se lit comme une ligne ordinaire.
 
+### 2.16 ter — Un survivant de la loupe se TRANCHE ; un équivalent sur un ternaire dénonce du code mort
+
+La loupe échantillonne : au-delà de `LOUPE_MAX`, elle examine une ligne sur deux
+(pas régulier) et DIT ce qu'elle laisse de côté. Sur beaucoup de branches
+fusionnées, la moitié non examinée s'accumule — un angle mort réel. Un
+**balayage élargi** le rouvre : `LOUPE_BASE` épinglée par variable
+d'environnement (jamais écrite dans le dépôt — le défaut reste `origin/main`) sur
+une base large, `LOUPE_MAX` monté pour examiner TOUTES les candidates, pas la
+moitié.
+
+Ce balayage a rendu deux survivants sur `normaliserBornes` (`garde-fou.ts`). Les
+deux étaient ÉQUIVALENTS — mais ils ne disaient pas la même chose :
+
+- `rangEchelon(b.min) <= rangEchelon(b.max)` muté en `<` : pour `min == max`, la
+  branche suivante reconstruit `{ min, min }`, **égal en valeur** à `b` ; la
+  seule différence est `return b` (même référence) contre un objet neuf. Aucun
+  contrat ne repose sur l'identité de référence, et le contrat de VALEUR
+  (`min == max` préservé) est déjà couvert. Écrire `expect(...).toBe(b)` tuerait
+  le mutant, mais éprouverait un détail d'implémentation que personne n'exige :
+  du décor déguisé en couverture. On le **laisse, et on le consigne équivalent**.
+- `rangEchelon(b.min) >= rangEchelon(b.max) ? b.min : b.max` muté en `>` : on
+  n'atteint cette ligne QUE si `min > max`, donc `min >= max` y est TOUJOURS
+  vrai — le ternaire rend toujours `b.min`, et la branche `: b.max` est du **code
+  mort**. Ici le survivant n'appelle pas un test : il appelle le **retrait de la
+  branche morte**. Et pour qu'elle ne renaisse pas muette, un test EXÉCUTÉ épingle
+  désormais « resserrer sur `min` » sur les trois inversions (VERDICT montré :
+  `b.min` → `b.max` rougit `{ leger, leger } ≠ { strict, strict }`).
+
+> **Règle** — un survivant de la loupe n'est pas d'office un test manquant. On
+> TRANCHE : soit une entrée de VALEUR distingue l'original du mutant → on écrit
+> CE test, muté d'abord ; soit aucune ne le distingue → il est équivalent. Un
+> équivalent sur une comparaison ou un ternaire trahit souvent une branche que
+> rien n'atteint : on la retire. Les équivalences qui restent (ici le `<=` de la
+> ligne conservée) se CONSIGNENT, sinon le prochain balayage élargi rouvre la
+> même enquête. Et le balayage élargi est un OUTIL : `LOUPE_BASE` s'épingle le
+> temps d'un run, jamais dans le dépôt.
+
 ### 2.17 — On coupe un chemin, on n'ampute pas une phrase
 
 Le module de rendu **coupe** tout ce qui dépasse — bon geste pour un nom de
