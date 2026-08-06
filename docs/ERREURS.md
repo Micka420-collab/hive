@@ -1281,6 +1281,19 @@ deux étaient ÉQUIVALENTS — mais ils ne disaient pas la même chose :
 > même enquête. Et le balayage élargi est un OUTIL : `LOUPE_BASE` s'épingle le
 > temps d'un run, jamais dans le dépôt.
 
+Corollaire, mesuré sur un balayage épinglé LOIN en arrière (base d'avant le
+lot « Le Poste ») : **du code MÛR, réputé couvert, cache encore des gardes
+nues.** Le per-nœud `noeud.status === 'online' ? « en ligne » : « hors ligne »`
+(`NodesPanel.tsx`) survivait `=== → !==` : la fiche d'admin aurait annoncé une
+machine EN LIGNE « hors ligne » (et l'inverse) — on coupe la vivante, on croit
+la morte encore là. La cause n'est pas l'âge du code mais que **tous les bancs
+de rendu ne montaient QUE des nœuds `online`** : la branche `offline` n'avait
+jamais d'entrée. Un affichage à DEUX branches ne s'éprouve qu'avec une entrée
+POUR CHAQUE branche — c'est le « des deux côtés » du § 2 quindecies, transposé
+du seuil numérique au ternaire d'état. Le balayage élargi n'est donc pas réservé
+au code récent : une fenêtre ancienne, jamais entièrement échantillonnée, en
+vaut la peine.
+
 ### 2.17 — On coupe un chemin, on n'ampute pas une phrase
 
 Le module de rendu **coupe** tout ce qui dépasse — bon geste pour un nom de

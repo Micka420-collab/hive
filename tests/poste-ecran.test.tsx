@@ -167,6 +167,32 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     expect(fiche?.textContent).toContain('✔ 1 · ✘ 1');
   });
 
+  it('LA FICHE DIT L’ÉTAT DE LA MACHINE — « en ligne » pour la vive, « hors ligne » pour la muette', async () => {
+    // Le panneau d'admin sert à DÉCIDER : couper une ouvrière, en relancer une.
+    // Sans la garde `status === 'online'`, une machine EN LIGNE s'annoncerait
+    // « hors ligne » et l'inverse — on couperait la vivante, on croirait la
+    // morte encore là. La garde vit dans la fiche : on l'ouvre pour la lire.
+    const vive = ouvriere('ruche-vive'); // status: 'online'
+    const muette = { ...ouvriere('ruche-muette'), status: 'offline' as const };
+    const dom = await monterAvecFiche([vive, muette], [], () => {});
+
+    const carte = (nom: string) =>
+      [...dom.querySelectorAll('.node-card')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      ) as Element;
+
+    cliquer(carte('ruche-vive'));
+    const ficheVive = dom.querySelector('[role="dialog"]')?.textContent ?? '';
+    expect(ficheVive, 'la machine en ligne s’annonce en ligne').toContain('en ligne');
+    expect(ficheVive, 'et jamais hors ligne').not.toContain('hors ligne');
+    cliquer(dom.querySelector('.modal-close') as Element);
+
+    cliquer(carte('ruche-muette'));
+    const ficheMuette = dom.querySelector('[role="dialog"]')?.textContent ?? '';
+    expect(ficheMuette, 'la machine hors ligne s’annonce hors ligne').toContain('hors ligne');
+    expect(ficheMuette, 'et jamais en ligne').not.toContain('en ligne');
+  });
+
   it('CLIQUER UNE MISSION OUVRE LE TIROIR — et referme la fiche', async () => {
     const ouvrir = vi.fn();
     const dom = await monterAvecFiche(NOEUDS, MISSIONS, ouvrir);
