@@ -31,6 +31,7 @@ import {
   FENETRE_CHALEUR_JOURS,
   MARGE_DOIGT,
   rayon,
+  selectionAuRelacher,
   SEUIL_GLISSE,
   type CorpsPointable,
 } from '../dashboard/src/views/cerveau-designation.js';
@@ -201,5 +202,42 @@ describe('estUnClic — départager le clic du glisser (extrait du canevas)', ()
     expect(estUnClic({ x: 0, y: 0 }, { x: 5, y: 0 }), 'cinq pixels').toBe(false);
     // La distance est euclidienne : hypot(3, 4) = 5, au-delà du seuil de 4.
     expect(estUnClic({ x: 0, y: 0 }, { x: 3, y: 4 }), 'diagonale 3-4-5').toBe(false);
+  });
+});
+
+describe('selectionAuRelacher — ce que le relâcher du canevas DÉCIDE', () => {
+  // Le compagnon d'`estUnClic` : là où `onMouseUp` du canevas ne se joue pas
+  // sous banc (`getContext` nul, aucun corps à saisir), la DÉCISION de sélection
+  // est extraite en pur et s'éprouve ici. La tuyauterie qui reste dans le
+  // canevas (retenir l'id sous le curseur, traîner le corps) est inerte sans elle.
+  it('un clic sur une note la choisit', () => {
+    expect(selectionAuRelacher({ x: 10, y: 10 }, { x: 11, y: 10 }, 'note')).toEqual({
+      choisir: true,
+      id: 'note',
+    });
+  });
+
+  it('un clic dans le vide DÉSÉLECTIONNE — id null, mais c’est bien un choix', () => {
+    expect(selectionAuRelacher({ x: 10, y: 10 }, { x: 12, y: 10 }, null)).toEqual({
+      choisir: true,
+      id: null,
+    });
+  });
+
+  it('un GLISSER ne choisit RIEN, même relâché pile sur une note', () => {
+    // Le cœur du départage : sans lui, déplacer une note l'isolerait au
+    // relâcher. `choisir: false` laisse la sélection courante INTACTE — la note
+    // sous le curseur (« note ») est ignorée, on ne renvoie pas `id: 'note'`.
+    expect(selectionAuRelacher({ x: 0, y: 0 }, { x: 50, y: 0 }, 'note')).toEqual({
+      choisir: false,
+      id: null,
+    });
+  });
+
+  it('pile au seuil, le relâcher reste un choix (frontière héritée d’estUnClic)', () => {
+    expect(selectionAuRelacher({ x: 0, y: 0 }, { x: SEUIL_GLISSE, y: 0 }, 'note')).toEqual({
+      choisir: true,
+      id: 'note',
+    });
   });
 });

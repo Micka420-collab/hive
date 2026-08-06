@@ -3970,6 +3970,16 @@ atteindre est souvent le symptôme d'une logique mal rangée, pas une fatalité
 de l'outillage.** Le balayage par mutation ne dit pas seulement « ce test
 manque » ; il dit parfois « ce code est au mauvais endroit ».
 
+**Seconde application, le même canevas.** La DÉCISION du relâcher de souris —
+« un glisser ne choisit rien ; un clic choisit la note dessous, ou le vide » —
+vivait dans le `onMouseUp` du même canevas, tout aussi injouable sous banc.
+Extraite en `selectionAuRelacher` (aux côtés d'`estUnClic`), elle s'éprouve
+au pixel près, et la mutation `!estUnClic → estUnClic` fait rougir le cas qui
+compte : un glisser qui SÉLECTIONNE au relâcher. Ce qui reste dans le canevas
+est alors inerte — retenir l'`id` sous le curseur, traîner le corps —, et
+c'est CE résidu-là, et lui seul, qu'on avoue « hors d'atteinte ». Une famille
+de tuyauterie de canevas s'extrait pièce par pièce, chaque décision d'abord.
+
 ## 2 quaterdecies bis. Un helper extrait pour un banc `.ts` doit être SELF-CONTAINED
 
 Suite directe du § ci-dessus. J'ai sorti l'icône du rayon (`e.type === 'dossier'`)

@@ -172,3 +172,28 @@ export function estUnClic(
 ): boolean {
   return Math.hypot(fin.x - depart.x, fin.y - depart.y) <= SEUIL_GLISSE;
 }
+
+/**
+ * Ce qu'un relâcher de souris DÉCIDE sur le canevas : choisir une note, ou rien.
+ *
+ * C'est le compagnon d'`estUnClic`, extrait pour la même raison — le canevas ne
+ * se joue pas sous banc (`getContext` nul, aucune mise en page pour placer les
+ * corps). Ce qui RESTE dans `Cerveau.tsx` est alors de la pure tuyauterie :
+ * `onMouseDown` retient l'`id` sous le curseur, `onMouseMove` traîne le corps.
+ * La DÉCISION, elle — « un glisser ne choisit rien, un clic choisit ce qu'il y a
+ * dessous » —, vit ici et s'éprouve au pixel près.
+ *
+ * `choisir: false` NE touche PAS la sélection courante : déplacer une note ne
+ * doit jamais l'isoler au relâcher, même si le curseur retombe pile dessus.
+ * `choisir: true` avec `id: null` est un choix délibéré : un clic dans le vide
+ * DÉSÉLECTIONNE. Confondre les deux (« glisser » traité comme « clic dans le
+ * vide ») effacerait la sélection à chaque déplacement.
+ */
+export function selectionAuRelacher(
+  appui: { readonly x: number; readonly y: number },
+  relache: { readonly x: number; readonly y: number },
+  idSousRelache: string | null,
+): { choisir: boolean; id: string | null } {
+  if (!estUnClic(appui, relache)) return { choisir: false, id: null };
+  return { choisir: true, id: idSousRelache };
+}
