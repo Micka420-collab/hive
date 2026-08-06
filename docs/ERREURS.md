@@ -3928,6 +3928,15 @@ l'élagage — pouvait diverger du juge sans que rien ne rougisse. **Une famille
 de règles se garde en famille** : la jumelle non testée dérive à la première
 retouche, et personne ne s'en aperçoit puisque l'autre est verte.
 
+Corollaire tranchant, mesuré un balayage élargi plus tard sur `isModeleList`
+(`protocol.ts`, borne `v.length <= LIMITS.modeles`) : le banc éprouvait le REFUS
+au-dessus (17 modèles rejetés) et RIEN d'autre. Or **le côté refusé ne défend
+pas un `<=` : `N + 1` est rejeté par `<=` comme par `<`.** Seul le côté ACCEPTÉ
+— `N` pile à la borne — distingue les deux, et c'est justement lui qu'un
+`terme + 1` seul laisse nu. Une borne « testée » par sa seule moitié haute est
+une borne non testée : le off-by-one qui la resserre passe le banc. Le côté qui
+compte pour un seuil d'acceptation est TOUJOURS l'acceptation à la borne.
+
 ---
 
 ## 2 quaterdecies. « Hors d’atteinte du banc » est souvent « au mauvais endroit »

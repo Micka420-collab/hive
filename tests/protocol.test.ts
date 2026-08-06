@@ -72,6 +72,16 @@ describe('parseClientMessage', () => {
     );
     expect(msg).not.toBeNull();
     expect(msg).toMatchObject({ modeles: ['claude-opus-5', 'claude-fable-5'] });
+
+    // PILE À LA BORNE. Le refus au-dessus (17) est déjà éprouvé plus bas ; le
+    // côté ACCEPTÉ du seuil ne l'était nulle part. Sans lui, la garde
+    // `v.length <= LIMITS.modeles` se resserre en `<` sans qu'aucun banc rougisse
+    // — un nœud qui déclare EXACTEMENT LIMITS.modeles modèles serait refusé, et
+    // sa liste (peut-être son meilleur modèle en queue) tomberait avec le message.
+    const pileALaBorne = Array.from({ length: LIMITS.modeles }, (_, i) => `m${String(i)}`);
+    const auBord = parseClientMessage(JSON.stringify({ ...register, modeles: pileALaBorne }));
+    expect(auBord, 'une liste pile à la borne est acceptée').not.toBeNull();
+    expect(auBord).toMatchObject({ modeles: pileALaBorne });
   });
 
   it('un register SANS modèles reste valide — aucun nœud n’est forcé de les déclarer', () => {
