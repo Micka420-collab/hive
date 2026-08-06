@@ -299,4 +299,39 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     expect(unix?.getAttribute('aria-pressed'), 'la puce cliquée est enfoncée').toBe('true');
     expect(win?.getAttribute('aria-pressed'), 'l’autre est relâchée').toBe('false');
   });
+
+  /** Un onglet d'aperçu, retrouvé par l'écran qu'il désigne. */
+  function onglet(ecran: string): HTMLElement | null {
+    return document.querySelector(`.apercu-onglet[data-ecran="${ecran}"]`);
+  }
+  /** Le corps de l'écran désigné. */
+  function corps(ecran: string): HTMLElement | null {
+    return document.querySelector(`[data-ecran-corps="${ecran}"]`);
+  }
+
+  it('L’APERÇU CHANGE D’ÉCRAN AU CLIC — l’onglet choisi s’allume, son écran se montre', () => {
+    // Même patron que les puces de système : un visiteur qui veut voir « Les
+    // ordinateurs » clique l'onglet, et doit tomber DESSUS — pas rester sur
+    // « Les tâches ». `site.test.ts` verrouille les DONNÉES des onglets ; ici on
+    // MONTE la page et on CLIQUE, en éprouvant les DEUX sens pour ne rien
+    // supposer de l'écran de départ (la moitié des visiteurs arrive autrement).
+    const taches = onglet('taches');
+    const ordis = onglet('ordinateurs');
+    expect(
+      taches && ordis,
+      'les onglets « taches » et « ordinateurs » doivent exister',
+    ).toBeTruthy();
+
+    ordis?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(ordis?.getAttribute('aria-selected'), 'l’onglet cliqué s’allume').toBe('true');
+    expect(taches?.getAttribute('aria-selected'), 'l’onglet d’avant s’éteint').toBe('false');
+    expect(corps('ordinateurs')?.hidden, 'l’écran choisi se montre').toBe(false);
+    expect(corps('taches')?.hidden, 'l’écran d’avant se cache').toBe(true);
+
+    taches?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(taches?.getAttribute('aria-selected'), 'le retour rallume le premier').toBe('true');
+    expect(ordis?.getAttribute('aria-selected'), 'et éteint le second').toBe('false');
+    expect(corps('taches')?.hidden, 'son écran revient').toBe(false);
+    expect(corps('ordinateurs')?.hidden, 'l’autre se cache').toBe(true);
+  });
 });
