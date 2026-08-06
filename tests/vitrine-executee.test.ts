@@ -300,6 +300,56 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     expect(win?.getAttribute('aria-pressed'), 'l’autre est relâchée').toBe('false');
   });
 
+  it('LE BOUTON « COPIER » MET AU PRESSE-PAPIER LA COMMANDE AFFICHÉE, ET CONFIRME', async () => {
+    // ─── LE GESTE QUI SUIT LE CHOIX DE LA PUCE ────────────────────────────
+    //
+    // L'arrivant a choisi sa puce ; il clique « copier » et colle dans son
+    // terminal. Ce qui compte n'est pas que LA BARRE montre la bonne commande
+    // (la puce s'en charge, éprouvé au banc d'au-dessus) mais que le CLIC prenne
+    // CELLE-LÀ — la commande VIVE, pas une figée dans le code. Un « copier » qui
+    // enverrait la POSIX pendant que la barre montre PowerShell ferait coller
+    // `curl … | sh` dans PowerShell : un geste réussi EN APPARENCE (le bouton
+    // dit quand même « copié ✓ ») dont la première ligne échoue chez l'arrivant.
+    //
+    // Le presse-papier est une frontière externe qu'on INJECTE plutôt que de
+    // simuler — happy-dom n'en a pas. `copier` s'en sert s'il existe : c'est le
+    // chemin d'un vrai navigateur, et `writeText` capture la chaîne au moment
+    // MÊME de l'appel (avant que sa promesse tienne).
+    let capture: string | null = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (s: string) => {
+          capture = s;
+          return Promise.resolve();
+        },
+      },
+    });
+    try {
+      puce('Windows')?.dispatchEvent(new Event('click', { bubbles: true }));
+      const affichee = document.getElementById('install-cmd')?.textContent ?? '';
+      const bouton = document.getElementById('install-copier');
+      const avant = bouton?.textContent ?? '';
+      bouton?.dispatchEvent(new Event('click', { bubbles: true }));
+
+      expect(capture, 'le clic de copie n’a rien mis au presse-papier').not.toBeNull();
+      expect(capture, 'la commande copiée est bien celle de Windows').toContain('install.ps1');
+      expect(capture, 'et jamais la POSIX en même temps').not.toContain('install.sh');
+      // La barre et le presse-papier ne divergent pas : c'est LA commande
+      // affichée qui part, aux espaces près (le bouton replie le multi-ligne).
+      expect(capture, 'le presse-papier suit la barre').toBe(affichee.trim().replace(/\s+/g, ' '));
+
+      // La confirmation n'est due qu'à une copie RÉELLE (la promesse a tenu) :
+      // « copié ✓ » sur un presse-papier vide ferait coller du vide.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(bouton?.textContent, 'le bouton confirme la copie').toContain('✓');
+      expect(bouton?.textContent, 'et le libellé a bien changé').not.toBe(avant);
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
   /** Un onglet d'aperçu, retrouvé par l'écran qu'il désigne. */
   function onglet(ecran: string): HTMLElement | null {
     return document.querySelector(`.apercu-onglet[data-ecran="${ecran}"]`);
