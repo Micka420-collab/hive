@@ -376,3 +376,42 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     );
   });
 });
+
+describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
+  // Le premier contact d'un visiteur qui REVIENT : sa langue doit être celle
+  // qu'il a choisie la dernière fois — rangée dans `localStorage` —, pas celle
+  // de son navigateur. `site.test.ts` ne peut PAS voir cette résolution : elle
+  // arrive au CHARGEMENT du script, avant tout clic. Ici on range une
+  // préférence, on MONTE la page, et on regarde quelle langue elle a prise.
+  //
+  // Note de méthode : la loupe ne balaie que `src`, `dashboard/src`, `scripts` —
+  // jamais `site/`. Les gardes du JavaScript de la vitrine (celle-ci comprise)
+  // sont donc un angle mort qu'aucun balayage automatique ne couvre ; elles ne
+  // tiennent que par des bancs comme celui-ci.
+
+  /** Range une préférence, monte la page, et rend la langue prise ('fr' | 'en'). */
+  function langueAuChargement(prefere: 'fr' | 'en'): string {
+    localStorage.clear();
+    localStorage.setItem('hive.lang', prefere);
+    document.documentElement.innerHTML = VITRINE.replace(/^[\s\S]*?<html[^>]*>/, '').replace(
+      /<\/html>[\s\S]*$/,
+      '',
+    );
+    const principal = scriptsExecutes(VITRINE).reduce((a, b) =>
+      a.code.length > b.code.length ? a : b,
+    );
+    new Function(principal.code)();
+    // `setLang` pose `aria-pressed` sur les deux boutons de langue : c'est le
+    // signe le plus direct de la langue que la page a RÉELLEMENT prise.
+    return document.getElementById('btn-en')?.getAttribute('aria-pressed') === 'true' ? 'en' : 'fr';
+  }
+
+  it('« en » enregistré ouvre en anglais ; « fr » ouvre en français', () => {
+    // Sans la garde `saved === 'en' || saved === 'fr'`, la page retomberait sur
+    // la langue du NAVIGATEUR (anglais sous happy-dom, comme Chromium) et
+    // ignorerait le choix rangé — un visiteur francophone reverrait l'anglais à
+    // chaque visite malgré son clic de la dernière fois.
+    expect(langueAuChargement('en'), 'préférence « en » ignorée au chargement').toBe('en');
+    expect(langueAuChargement('fr'), 'préférence « fr » ignorée au chargement').toBe('fr');
+  });
+});

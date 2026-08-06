@@ -111,6 +111,32 @@ pourtant tous les visiteurs.
 > ne prouve pas que le CLIC l'utilise. Données lockées + comportement nu = un
 > arrivant qui copie la bonne chose par accident, jusqu'au jour où non.
 
+### 1.0 ter — La loupe ne balaie pas `site/` : tout un dossier de code hors sonde
+
+En défendant l'un après l'autre les gestes de la vitrine (puces OS, onglets
+d'aperçu, liens « ouvrir ma ruche », langue initiale), un fait s'est imposé :
+**aucun de ces défauts n'aurait été trouvé par un balayage automatique.** La
+loupe (`scripts/loupe.mjs`) ne mute que les lignes ajoutées sous `src`,
+`dashboard/src`, `scripts` — jamais sous `site/`. Or `site/index.html` porte
+plusieurs CENTAINES de lignes de JavaScript exécutable : toute la vitrine, la
+seule page que voient les gens qui découvrent le projet.
+
+C'est un angle mort de dossier entier, et il est pernicieux parce qu'il est
+INVISIBLE : on lance `npm run loupe`, elle rend « rien de nu », et on croit le
+diff couvert — alors qu'elle n'a même pas regardé le fichier le plus lu du
+dépôt. Chaque garde du script de la vitrine (`p === puce`, `data-ecran === cle`,
+`if (!base)`, `saved === 'en' || saved === 'fr'`) a dû être trouvée À LA MAIN, à
+la lecture, puis défendue par un banc d'exécution (`vitrine-executee.test.ts`).
+
+> **Règle** — « la loupe ne voit rien de nu » ne vaut que pour ce que la loupe
+> REGARDE. Ce qu'elle exclut (`site/`, et tout `.html` porteur de script) reste
+> à couvrir à la main : une garde hors de sa portée n'est pas défendue parce que
+> le balayage est vert, elle est seulement HORS CHAMP.
+>
+> **Règle** — du code exécutable dans un fichier que le balayage n'atteint pas
+> demande un banc d'exécution dédié, sinon il vit et meurt sans qu'aucune sonde
+> ne le touche. La vitrine en est l'exemple type : très lue, jamais mutée.
+
 ### 1.1 — `require()` dans un module ESM : silencieux pour toujours
 
 `baseIntegre()` appelait `require('better-sqlite3')` dans un fichier ESM.
