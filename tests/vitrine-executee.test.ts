@@ -350,6 +350,51 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     }
   });
 
+  it('« OUVRIR MA RUCHE » : CHAQUE BOUTON COPIE SA PROPRE COMMANDE, ET CONFIRME', async () => {
+    // La section « Ouvrir ma ruche » offre plusieurs gestes (github, invite,
+    // installer-et-lancer) ; chacun a SA commande, dans son `data-cmd`. Un
+    // handler qui copierait une commande FIXE — ou toujours celle du premier
+    // bouton — enverrait le nouveau venu lancer le mauvais geste, et le bouton
+    // dirait quand même « copié ✓ ». Comme la barre d'installation, le
+    // presse-papier est INJECTÉ, pas simulé.
+    let capture: string | null = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (s: string) => {
+          capture = s;
+          return Promise.resolve();
+        },
+      },
+    });
+    try {
+      const boutons = [...document.querySelectorAll('.rc-copier')] as HTMLElement[];
+      expect(
+        boutons.length,
+        'la section « Ouvrir ma ruche » offre plusieurs copies',
+      ).toBeGreaterThan(1);
+      const vues = new Set<string>();
+      for (const b of boutons) {
+        const attendu = b.getAttribute('data-cmd') ?? '';
+        expect(attendu, 'un bouton de copie sans commande').not.toBe('');
+        b.dispatchEvent(new Event('click', { bubbles: true }));
+        expect(capture, 'le bouton n’a pas copié SA commande').toBe(attendu);
+        // La confirmation vit dans le libellé DE CE bouton, pas d'un autre.
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(b.querySelector('span')?.textContent, 'ce bouton-ci confirme la copie').toContain(
+          '✓',
+        );
+        vues.add(attendu);
+      }
+      // Chaque bouton a bien sa PROPRE commande — sinon « copie la sienne » ne
+      // veut rien dire.
+      expect(vues.size, 'deux boutons copient la même commande').toBe(boutons.length);
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
   /** Un onglet d'aperçu, retrouvé par l'écran qu'il désigne. */
   function onglet(ecran: string): HTMLElement | null {
     return document.querySelector(`.apercu-onglet[data-ecran="${ecran}"]`);
