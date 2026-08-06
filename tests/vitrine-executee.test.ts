@@ -334,4 +334,45 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     expect(corps('taches')?.hidden, 'son écran revient').toBe(false);
     expect(corps('ordinateurs')?.hidden, 'l’autre se cache').toBe(true);
   });
+
+  /** Un lien « Ouvrir ma ruche », retrouvé par la vue qu'il vise. */
+  function rcLien(vue: string): HTMLElement | null {
+    return document.querySelector(`.rc-lien[data-vue="${vue}"]`);
+  }
+  /** Saisit une adresse dans le champ et déclenche la mise à jour des liens. */
+  function saisirAdresse(valeur: string): void {
+    const champ = document.getElementById('rc-url') as HTMLInputElement | null;
+    if (champ) {
+      champ.value = valeur;
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  it('« OUVRIR MA RUCHE » COMPOSE LE LIEN — et n’en laisse jamais un MORT', () => {
+    // Le port se règle, une ruche prêtée tourne parfois sur une autre machine :
+    // les liens se COMPOSENT depuis le champ. `site.test.ts` prouve qu'aucun href
+    // n'est figé et que le code de composition existe ; il ne peut pas prouver
+    // qu'il MARCHE. Ici on saisit une adresse, et on regarde les href.
+    //
+    // La règle qui décide : une adresse VIDE ⇒ AUCUN href. Un lien mort qui a
+    // l'air vivant est pire qu'un bouton visiblement inactif — un visiteur
+    // cliquerait dans le vide sans comprendre pourquoi.
+    const projets = rcLien('#/projets');
+    const racine = rcLien('');
+    expect(projets && racine, 'les liens « ouvrir ma ruche » doivent exister').toBeTruthy();
+
+    saisirAdresse('');
+    expect(projets?.hasAttribute('href'), 'adresse vide ⇒ pas de lien mort').toBe(false);
+
+    saisirAdresse('http://192.168.1.10:8080/');
+    expect(projets?.getAttribute('href'), 'le lien vise la machine SAISIE, slash de fin ôté').toBe(
+      'http://192.168.1.10:8080#/projets',
+    );
+    expect(racine?.getAttribute('href'), 'la racine mène à l’adresse nue').toBe(
+      'http://192.168.1.10:8080',
+    );
+    expect(projets?.getAttribute('target'), 'la ruche s’ouvre dans un nouvel onglet').toBe(
+      '_blank',
+    );
+  });
 });
