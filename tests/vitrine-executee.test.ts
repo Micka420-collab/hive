@@ -259,4 +259,44 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
   it('le journal de l’essaim se remplit — il était VIDE quand le script mourait', () => {
     expect(document.querySelectorAll('#journal li').length).toBeGreaterThan(0);
   });
+
+  /** Une puce de système, retrouvée par son libellé. */
+  function puce(libelle: string): HTMLElement | undefined {
+    return [...document.querySelectorAll('.chip-os')].find((b) =>
+      (b.textContent ?? '').includes(libelle),
+    ) as HTMLElement | undefined;
+  }
+
+  it('LA PUCE OS BASCULE LA COMMANDE À COPIER — Windows n’est pas Linux', () => {
+    // ─── LA PREMIÈRE ACTION D'UN ARRIVANT ─────────────────────────────────
+    //
+    // Il clique SA puce pour copier LA bonne commande. `site.test.ts` verrouille
+    // les DONNÉES de chaque puce (sa commande, sa note, son invite) ; il ne peut
+    // pas voir que le CLIC les met vraiment dans la barre, parce qu'il lit le
+    // HTML comme du texte. Ici la page est MONTÉE et le script LANCÉ : on clique,
+    // et on regarde ce qui s'affiche — donc ce qui sera copié, la barre lisant le
+    // nœud qu'elle montre.
+    //
+    // Ce qu'un `choisirPuce` cassé produirait : un arrivant Windows copiant la
+    // commande POSIX (`curl … | sh`) dans PowerShell, et une installation qui
+    // échoue à la toute première ligne, sans qu'aucun banc ne rougisse.
+    const cmd = () => document.getElementById('install-cmd')?.textContent ?? '';
+    const invite = () => document.getElementById('install-invite')?.textContent ?? '';
+    const win = puce('Windows');
+    const unix = puce('Linux · macOS');
+    expect(win && unix, 'les puces Windows et Linux·macOS doivent exister').toBeTruthy();
+
+    win?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(cmd(), 'la puce Windows sert la commande PowerShell').toContain('install.ps1');
+    expect(cmd(), 'et jamais la commande POSIX en même temps').not.toContain('install.sh');
+    expect(invite(), 'PowerShell s’annonce par « > », jamais « $ »').toBe('>');
+    expect(win?.getAttribute('aria-pressed'), 'la puce cliquée est enfoncée').toBe('true');
+    expect(unix?.getAttribute('aria-pressed'), 'l’autre est relâchée').toBe('false');
+
+    unix?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(cmd(), 'la puce Linux·macOS sert la commande POSIX').toContain('install.sh');
+    expect(invite(), 'un shell POSIX s’annonce par « $ »').toBe('$');
+    expect(unix?.getAttribute('aria-pressed'), 'la puce cliquée est enfoncée').toBe('true');
+    expect(win?.getAttribute('aria-pressed'), 'l’autre est relâchée').toBe('false');
+  });
 });

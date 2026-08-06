@@ -83,6 +83,34 @@ l'assertion aurait été fausse chez la moitié des visiteurs réels.
 > **Règle** — le nombre de tests verts ne mesure rien s'ils partagent tous le
 > même angle mort. Quarante-cinq lectures ne valent pas une exécution.
 
+### 1.0 bis — Le harnais existait ; le geste le plus fréquent n'y passait pas
+
+Suite directe. Une fois `vitrine-executee.test.ts` en place — le banc qui MONTE
+la page et CLIQUE —, on aurait pu croire les gestes de la vitrine couverts. Le
+balayage du point de sortie a montré le contraire : **la toute première action
+d'un arrivant n'y passait pas.** Les puces OS de la barre d'installation
+(Windows / Linux·macOS / Docker) basculent la commande à copier ; `site.test.ts`
+verrouillait bien les DONNÉES de chaque puce — sa commande, sa note, son invite
+`$`/`>` — mais RIEN n'exécutait `choisirPuce` pour vérifier que cliquer met
+vraiment la bonne commande dans la barre. Muté `p === puce` → `!==`, la garde
+survivait : un arrivant Windows aurait copié `curl … | sh` dans PowerShell, et
+l'installation aurait échoué à la première ligne, banc au vert.
+
+Ce qui est instructif, c'est POURQUOI ce geste-là a été le dernier couvert : il
+est trop évident. « C'est un bouton qui change un texte » — donc on verrouille
+son texte et on passe. Les gardes obscures (un halo de graphe, un départage de
+clic) ont eu leur mutation-test avant la commande d'installation, que lisent
+pourtant tous les visiteurs.
+
+> **Règle** — la criticité d'une interaction et la profondeur de son test sont
+> souvent en sens INVERSE : le geste le plus évident (« juste un bouton »)
+> reçoit le traitement le plus léger. Quand un harnais d'exécution existe, le
+> premier à y faire passer est le geste le PLUS fréquent, pas le plus subtil.
+>
+> **Règle** — verrouiller la DONNÉE d'un contrôle (sa commande, son libellé)
+> ne prouve pas que le CLIC l'utilise. Données lockées + comportement nu = un
+> arrivant qui copie la bonne chose par accident, jusqu'au jour où non.
+
 ### 1.1 — `require()` dans un module ESM : silencieux pour toujours
 
 `baseIntegre()` appelait `require('better-sqlite3')` dans un fichier ESM.

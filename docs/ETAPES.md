@@ -4531,3 +4531,60 @@ Inchangé depuis hier, et toujours vrai :
   nuance doit être dite.
 - **Le nombre de sections de la vitrine (13→7) et les tarifs** : décisions
   d'édition et commerciales de l'utilisateur, pas les miennes.
+
+## POINT DE SORTIE — 6 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**27 jours** (6 août → 2 septembre).
+
+Rappel de méthode, inchangé et toujours vrai : **aucun « definition of done » de
+sortie n'est écrit ni mesuré**. Seul l'installation l'est (§ « Les 10 critères
+mesurables »). « Présentable » n'est donc la cible mesurée de personne.
+
+### 2. Livré ET vérifié depuis le dernier point de sortie (5 août)
+
+**Honnêteté d'abord : RIEN de neuf n'a été livré depuis `d9b8a09` (5 août, PR
+#180).** Les tours suivants ont trouvé la ruche verte et n'avaient rien d'utile
+à AJOUTER — j'ai vérifié sans livrer, et « stable et vert » n'est pas « livré » :
+
+- Barrière rejouée **verte**, mesurée : typecheck (× 2), lint, `vitest run` —
+  **3 480 passés, 7 ignorés (3 487)**.
+- Les trois items nommés du balayage re-confirmés **défendus, mutation-first,
+  VERDICT rouge affiché** : Balance `arme && cible !== null` (`&&`→`||` rougit
+  `vues-sentinelles`), Cerveau `serviIlYaJours === null` (`===`→`!==` rougit
+  3 tests de `cerveau-designation`). Le chemin de RETOUR de livraison
+  (`/livraisons` + `/reprendre` contre un GitHub simulé) est tracé à son banc,
+  `retour-parcours.test.ts` — le « find taskId && nodeId » cherché n'existe pas
+  comme garde nue (lookups par clé unique, corrélation merge par `mergeId`).
+- Balayage loupe élargi : **13/40** mutants du diff de deux jours échantillonnés
+  (base épinglée `68087bc`), tous défendus — **couverture PARTIELLE**, le reste
+  non mesuré, et dit tel quel.
+
+### 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+1. **Les puces OS de la barre d'installation ne sont pas éprouvées EN
+   COMPORTEMENT.** C'est la PREMIÈRE action d'un arrivant : cliquer sa puce
+   (Windows / Linux·macOS / Docker / déjà cloné) pour copier LA bonne commande.
+   `site.test.ts` verrouille les DONNÉES de chaque puce (commande, note, invite),
+   mais RIEN ne vérifie que cliquer bascule vraiment la commande affichée,
+   l'invite (`$` shell POSIX / `>` PowerShell) et l'état `aria-pressed`. Le
+   harnais qui EXÉCUTE le JS de la page existe déjà (`vitrine-executee.test.ts`,
+   né d'un `<script>` mort qu'aucun des 45 bancs de texte n'avait vu) : l'oubli
+   est d'usage, pas de conception. Si `choisirPuce` cassait, un arrivant Windows
+   copierait la commande POSIX et l'installation échouerait, sans qu'aucun banc
+   ne rougisse. **Actionnable, je reprends dessus maintenant.**
+2. **La couverture loupe du diff cumulé est partielle** (13/40 échantillonnés).
+   Le reste n'est pas mesuré ; un balayage complet dans l'atelier reste à mener.
+3. **La vitrine (#63)** — identité visuelle (13→7 sections) : décision d'édition
+   de l'utilisateur (cf. § 4).
+4. **Un DoD de sortie écrit** — le méta-manque du § 1 ; l'écrire touche à ce que
+   la sortie PROMET, une part éditoriale qui revient à l'utilisateur.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé, et toujours vrai : comptes **npm** (lot 7) et **GHCR/cosign** (lot 10)
+pas les miens (ni image officielle ni paquet signé d'ici) ; **aucune vraie
+machine Windows ni macOS** (la CI prouve le code, pas l'install sur un poste
+réel) ; **sections (13→7) et tarifs de la vitrine** — décisions d'édition et
+commerciales de l'utilisateur.
