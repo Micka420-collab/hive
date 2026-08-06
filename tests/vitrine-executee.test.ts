@@ -56,7 +56,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // ─── POURQUOI `process.cwd()` ET NON `import.meta.url` ───────────────────────
 //
@@ -389,10 +389,8 @@ describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
   // sont donc un angle mort qu'aucun balayage automatique ne couvre ; elles ne
   // tiennent que par des bancs comme celui-ci.
 
-  /** Range une préférence, monte la page, et rend la langue prise ('fr' | 'en'). */
-  function langueAuChargement(prefere: 'fr' | 'en'): string {
-    localStorage.clear();
-    localStorage.setItem('hive.lang', prefere);
+  /** Monte la page dans l'état courant (query + préférence rangée) et rend la langue prise. */
+  function langueAuChargement(): string {
     document.documentElement.innerHTML = VITRINE.replace(/^[\s\S]*?<html[^>]*>/, '').replace(
       /<\/html>[\s\S]*$/,
       '',
@@ -406,12 +404,47 @@ describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
     return document.getElementById('btn-en')?.getAttribute('aria-pressed') === 'true' ? 'en' : 'fr';
   }
 
+  beforeEach(() => {
+    localStorage.clear();
+    window.history.replaceState(null, '', '/');
+  });
+
+  afterEach(() => {
+    // Ni la query ni la préférence rangée ne doivent fuir vers les bancs voisins.
+    localStorage.clear();
+    window.history.replaceState(null, '', '/');
+  });
+
   it('« en » enregistré ouvre en anglais ; « fr » ouvre en français', () => {
     // Sans la garde `saved === 'en' || saved === 'fr'`, la page retomberait sur
     // la langue du NAVIGATEUR (anglais sous happy-dom, comme Chromium) et
     // ignorerait le choix rangé — un visiteur francophone reverrait l'anglais à
     // chaque visite malgré son clic de la dernière fois.
-    expect(langueAuChargement('en'), 'préférence « en » ignorée au chargement').toBe('en');
-    expect(langueAuChargement('fr'), 'préférence « fr » ignorée au chargement').toBe('fr');
+    localStorage.setItem('hive.lang', 'en');
+    expect(langueAuChargement(), 'préférence « en » ignorée au chargement').toBe('en');
+
+    localStorage.clear();
+    localStorage.setItem('hive.lang', 'fr');
+    expect(langueAuChargement(), 'préférence « fr » ignorée au chargement').toBe('fr');
+  });
+
+  it('un lien partagé « ?lang=en » impose l’anglais malgré la préférence « fr » rangée', () => {
+    // Le partage : quelqu'un envoie « …/?lang=en » à un ami francophone. Ce lien
+    // doit s'ouvrir en anglais même si l'ami avait choisi le français la dernière
+    // fois. Sans la garde `qs === 'en' || qs === 'fr'`, la query serait ignorée
+    // et la page retomberait sur la préférence rangée — le partageur perdrait le
+    // contrôle de la langue qu'il montre.
+    localStorage.setItem('hive.lang', 'fr');
+    window.history.replaceState(null, '', '/?lang=en');
+    expect(langueAuChargement(), '« ?lang=en » n’a pas imposé l’anglais').toBe('en');
+  });
+
+  it('« ?lang=fr » impose le français malgré la préférence « en » rangée', () => {
+    // La symétrie : le lien prime dans les deux sens. Un francophone qui partage
+    // « …/?lang=fr » impose sa langue à un visiteur dont la dernière visite était
+    // en anglais.
+    localStorage.setItem('hive.lang', 'en');
+    window.history.replaceState(null, '', '/?lang=fr');
+    expect(langueAuChargement(), '« ?lang=fr » n’a pas imposé le français').toBe('fr');
   });
 });
