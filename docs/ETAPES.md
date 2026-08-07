@@ -4588,3 +4588,73 @@ pas les miens (ni image officielle ni paquet signé d'ici) ; **aucune vraie
 machine Windows ni macOS** (la CI prouve le code, pas l'install sur un poste
 réel) ; **sections (13→7) et tarifs de la vitrine** — décisions d'édition et
 commerciales de l'utilisateur.
+
+---
+
+## POINT DE SORTIE — 7 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**26 jours** (7 août → 2 septembre).
+
+Et une chose change ce tour, après l'avoir répétée à CHAQUE point de sortie :
+le « definition of done » de sortie, absent depuis le début et cité comme LE
+méta-manque, est **enfin écrit et mesuré** — `docs/DEFINITION-DE-SORTIE.md`.
+« Présentable » a maintenant une cible. Ce qui n'y porte pas un ✅ est dit non
+atteint (❌), hors d'atteinte (🔒) ou décision de l'utilisateur (👤) — jamais
+maquillé.
+
+### 2. Livré ET vérifié depuis le 6 août
+
+**Onze lots** fusionnés sur `main`, chacun mutation-first (VERDICT rouge
+affiché) puis CI **5 jambes vertes** :
+
+- **Vitrine, bancs d'exécution du JS hors-loupe (§ 1.0 ter)** : puces OS EN
+  COMPORTEMENT (#74), aperçu au clic (#75), « Ouvrir ma ruche » compose les
+  liens (#76) et coupe `window.opener` par `rel="noopener"` (#85), langue au
+  chargement (#77) et `?lang=` partagé (#78), bouton « copier » (#82), boutons
+  `rc-copier` (#84).
+- **Cœur** : branche morte de `normaliserBornes` retirée (#79, la loupe l'a
+  dénoncée), DÉCISION du relâcher du canevas extraite et éprouvée hors banc
+  (#80), borne acceptée de `isModeleList` défendue (#81), état
+  en-ligne/hors-ligne de la fiche d'ouvrière (#83).
+- Suite portée à **3501** (mesurée à l'instant : 3494 verts, 7 ignorés, 0 rouge,
+  236 fichiers), leçon `ERREURS § 9 unvicies` (un banc aveugle au VERROU d'un
+  risque : `_blank` éprouvé, `noopener` non).
+- **Balayage loupe élargi** (base épinglée `946b36b`, la plus large surface
+  `src`) : **8 mutants, 8 défendus**, « rien de nu ».
+- Et une panne SUBIE, pas simulée : l'**incident GitHub Actions** (Major
+  Outage, ~15:22 → ~00:01 UTC) a throttlé les webhooks et bloqué la CI de #191
+  des heures — les pushs ne déclenchaient AUCUN run. Diagnostic corrigé sur la
+  PR (dépôt public → pas un quota, une panne de service), sonde relancée dès la
+  reprise, #191 fusionnée en avance rapide sur `b166399`. **La CI n'a jamais été
+  contournée** : pas de fusion sans les 5 verts réels.
+
+### 3. Ce qui reste entre la ruche et une sortie présentable
+
+Honnêteté d'abord : **rien ne CASSE le parcours d'un arrivant** — l'install, le
+site et le tableau de bord passent tous au vert, sur les 3 OS en CI. Le reste
+n'est donc pas de la panne ; c'est (a) l'instrument pour CERTIFIER
+« présentable » et (b) de la finition éditoriale.
+
+1. **Le DoD de sortie, écrit et mesuré — FAIT ce tour**
+   (`docs/DEFINITION-DE-SORTIE.md`). C'est la porte : sans lui, « présentable »
+   n'était la cible mesurée de personne, et aucun autre point ne pouvait se dire
+   « atteint ». **Ce qu'il reste à ce point** : câbler ses deux gates encore
+   manuels — `npm audit --audit-level=high` dans la CI, et un seuil de
+   couverture — si l'on veut que « sûr » et « couvert » rougissent d'eux-mêmes.
+   Ils sont marqués ❌ dans le DoD tant qu'ils ne le sont pas.
+2. **L'identité visuelle de la vitrine (#63, 13→7 sections)** — la première
+   impression d'un arrivant. 👤 Décision d'édition de l'utilisateur (cf. § 4) :
+   la page publique ne se reskine pas de tête, et un agent d'arbitrage ne
+   trancherait ici qu'une marque qui n'est pas la sienne. Reste ❌.
+3. **Le README GitHub au design de la vitrine** — la première impression côté
+   dépôt, en aval de #63. Reste ❌.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé : comptes **npm** (lot 7) et **GHCR/cosign** (lot 10) pas les miens (ni
+image officielle ni paquet signé d'ici) ; **aucune vraie machine Windows ni
+macOS** (la CI prouve le code, pas l'install sur un poste réel) ; **sections
+(13→7) et tarifs de la vitrine** — décisions d'édition et commerciales de
+l'utilisateur.

@@ -1,0 +1,89 @@
+# Definition of Done — la sortie de Hive
+
+> Chaque point de sortie du carnet (`docs/ETAPES.md`) répète la même phrase :
+> _« aucun definition of done de sortie n'est écrit ni mesuré ; seul
+> l'installation l'est »_. Ce fichier est cet instrument manquant.
+>
+> **La règle qu'il tient : un critère qui n'est pas MESURÉ n'est pas ATTEINT, et
+> il se dit comme tel.** Un ✅ ici veut dire qu'une commande ou un banc a rendu
+> le verdict — pas qu'on le croit. Le reste porte son vrai visage :
+>
+> - ✅ **atteint** — mesuré, la preuve est nommée ;
+> - ❌ **non atteint** — pas encore fait, ou pas encore mesuré ;
+> - 🔒 **hors d'atteinte** — dépend de comptes ou de machines qui ne sont pas
+>   les miens ; à DIRE, jamais à simuler ;
+> - 👤 **décision de l'utilisateur** — un arbitrage d'édition ou de commerce qui
+>   ne se tranche pas depuis le code.
+>
+> On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
+> datée ; quand la mesure vieillit, on la refait avant de s'y fier.
+
+## A. Le code tient — ✅ mesuré (arbre `b166399`, 7 août 2026)
+
+| Critère                  | Comment on le mesure                                     | Verdict                                            |
+| ------------------------ | -------------------------------------------------------- | -------------------------------------------------- |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                     |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                            |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **3501** (3494 verts, 7 ignorés, **0 rouge**)   |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ 5 jambes vertes (run `31133288061`)             |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                           |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » (base `946b36b`, 8 mutants tués) |
+
+## B. On l'installe — ✅ mesuré, avec une réserve DITE
+
+Les **10 critères mesurables de l'installation** (`docs/ETAPES.md § « Les 10
+critères mesurables »`) sont tenus et éprouvés : `installer-assistant.test.ts`,
+`installer.test.ts` (27 bancs), `deploiement-sans-ecran.test.ts` (8 bancs, loupe
+7/7), `tui-terminal.test.ts`, `tui-rendu.test.ts`, `paquet.test.ts`. Mesure de
+bout en bout : `sh install.sh` sur Node 24 dans un dossier vide → **23,3 s,
+code 0**, `.env` en 0600, `hive doctor` rend **10 ✔** ; **3** décisions en
+interactif, **0** avec `--non-interactive`.
+
+- 🔒 **Réserve, à ne pas maquiller** : le banc du critère 1 est un conteneur
+  Linux Node 24, **PAS une VM Windows ni macOS vierge**. « Marche sur les 3 OS »
+  veut dire _le code passe la CI sur les trois_, **pas** _l'installation réussit
+  sur le poste réel d'un utilisateur_. La nuance est le critère, pas une note en
+  bas de page.
+
+## C. C'est défendu — ⚠️ partiellement mesuré
+
+Livré et couvert par des bancs : **Les Gardiennes** (contrôle d'entrée du
+nectar), les audits adversariaux de nuit, les failles fermées (injection Hive
+Mind, secret de session `HIVE_JWT_SECRET`, import d'un chemin absolu sous
+Windows).
+
+- ❌ **Gate non câblé** : rien ne fait ROUGIR la sortie sur une vulnérabilité
+  haute d'une dépendance — pas de `npm audit --audit-level=high` dans la CI. « Sûr »
+  n'a donc pas de cible qui se vérifie toute seule, seulement des audits
+  ponctuels. À câbler si on veut que ce soit un critère de sortie, et non une
+  vigilance.
+
+## D. Couverture — ❌ pas un critère (et pas re-mesurée ici)
+
+`npm run couverture` existe (`vitest run --coverage`). Dernière valeur CONNUE :
+**~73 % de lignes** (commit `70cd3ad`) — **non re-mesurée ce tour**, donc citée
+comme historique, pas comme fait courant. **Aucun seuil de couverture n'est
+défini comme condition de sortie.** À ce jour, la couverture n'est pas un gate :
+elle se mesure, elle ne barre rien.
+
+## E. Présentable — ❌ / 🔒 / 👤 : ce qui n'est pas du code
+
+- 👤 ❌ **Identité visuelle de la vitrine** (#63, 13→7 sections) : la première
+  impression d'un arrivant. Décision d'édition de l'utilisateur — la page
+  publique ne se reskine pas de tête. Non atteint.
+- ❌ **README GitHub au design de la vitrine** : la première impression côté
+  dépôt, en aval de #63. Non atteint.
+- 🔒 **Paquet npm signé** (lot 7), **image officielle GHCR + `cosign`** (lot 10) :
+  pas mes comptes ni mes clés. `curl … | sh` depuis le dépôt marche sans eux ;
+  « `npm i -g` » et « `docker pull` » d'un artefact officiel restent une décision
+  et des identifiants humains.
+- 👤 **Tarifs de la vitrine** : décision commerciale de l'utilisateur.
+
+## Verdict honnête
+
+Le **code**, l'**installation** (en CI) et le **socle de sûreté** sont mesurés et
+tenus. Ce qui manque à une sortie « présentable » n'est pas du code : c'est
+**(1)** une identité de vitrine tranchée, **(2)** des artefacts publiés sous des
+comptes qui ne sont pas les miens, et **(3)** deux gates non câblés — audit de
+dépendances, seuil de couverture — si l'on veut que « sûr » et « couvert » aient
+une cible qui rougit d'elle-même. Aucun de ces manques n'est caché derrière un ✅.
