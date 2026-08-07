@@ -82,6 +82,27 @@ jobs:
       - name: Ce que les dépendances optionnelles ont donné
         run: node scripts/deps-optionnelles.mjs
 
+      # ─── AUCUNE VULN HAUTE NE PASSE — le gate que le DoD réclamait ──────────
+      #
+      # `docs/DEFINITION-DE-SORTIE.md` § C notait « défendu » comme NON MESURÉ :
+      # rien ne faisait ROUGIR la sortie sur une vuln haute d'une dépendance.
+      # Cette étape EST ce gate. Le jour où elle est née, elle a trouvé deux
+      # vulns hautes — `brace-expansion` (GHSA-rgw5-rvv9-x895) et `fast-uri`
+      # (GHSA-7p8r-x3mc-p8w7), toutes deux transitives —, fermées par
+      # `npm audit fix`.
+      #
+      # `--audit-level=high` barre sur HAUTE et CRITIQUE, pas sur les modérées :
+      # un seuil qui refuse le vrai danger sans hurler à chaque broutille. Coût
+      # assumé : un avis publié demain sur une transitive rougira la CI même sans
+      # changement de code. C'est le but — une vuln haute qui dort est pire.
+      #
+      # Une seule jambe (Linux) : l'arbre de dépendances ne dépend pas de l'OS,
+      # et l'auditer trois fois ne ferait que tripler le risque d'un hoquet du
+      # registre.
+      - name: Aucune vulnérabilité haute dans les dépendances
+        if: runner.os == 'Linux'
+        run: npm audit --audit-level=high
+
       - name: Lint (ESLint + Prettier)
         run: npm run lint
 

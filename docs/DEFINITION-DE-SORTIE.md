@@ -45,18 +45,21 @@ interactif, **0** avec `--non-interactive`.
   sur le poste réel d'un utilisateur_. La nuance est le critère, pas une note en
   bas de page.
 
-## C. C'est défendu — ⚠️ partiellement mesuré
+## C. C'est défendu — ✅ mesuré et gardé (le gate a mordu à sa naissance)
 
 Livré et couvert par des bancs : **Les Gardiennes** (contrôle d'entrée du
 nectar), les audits adversariaux de nuit, les failles fermées (injection Hive
 Mind, secret de session `HIVE_JWT_SECRET`, import d'un chemin absolu sous
 Windows).
 
-- ❌ **Gate non câblé** : rien ne fait ROUGIR la sortie sur une vulnérabilité
-  haute d'une dépendance — pas de `npm audit --audit-level=high` dans la CI. « Sûr »
-  n'a donc pas de cible qui se vérifie toute seule, seulement des audits
-  ponctuels. À câbler si on veut que ce soit un critère de sortie, et non une
-  vigilance.
+- ✅ **Gate câblé** : `npm audit --audit-level=high` est désormais une étape de
+  la CI (jambe `ubuntu`, `.github/workflows/ci.yml`). Il a trouvé **2 vulns
+  hautes le jour où il est né** — `brace-expansion` (DoS, `GHSA-rgw5-rvv9-x895`)
+  et `fast-uri` (host confusion, `GHSA-7p8r-x3mc-p8w7`), toutes deux
+  transitives —, fermées par `npm audit fix` (`package-lock.json` seul). Mesure
+  après fix : **0 vulnérabilité**. Coût assumé et voulu : un avis publié demain
+  sur une transitive rougira la CI sans changement de code — une vuln haute qui
+  dort est pire qu'une CI qui la nomme.
 
 ## D. Couverture — ❌ pas un critère (et pas re-mesurée ici)
 
@@ -81,9 +84,10 @@ elle se mesure, elle ne barre rien.
 
 ## Verdict honnête
 
-Le **code**, l'**installation** (en CI) et le **socle de sûreté** sont mesurés et
-tenus. Ce qui manque à une sortie « présentable » n'est pas du code : c'est
-**(1)** une identité de vitrine tranchée, **(2)** des artefacts publiés sous des
-comptes qui ne sont pas les miens, et **(3)** deux gates non câblés — audit de
-dépendances, seuil de couverture — si l'on veut que « sûr » et « couvert » aient
-une cible qui rougit d'elle-même. Aucun de ces manques n'est caché derrière un ✅.
+Le **code**, l'**installation** (en CI) et le **socle de sûreté** — désormais
+gardé par `npm audit --audit-level=high` en CI — sont mesurés et tenus. Ce qui
+manque à une sortie « présentable » n'est pas du code : c'est **(1)** une
+identité de vitrine tranchée, **(2)** des artefacts publiés sous des comptes qui
+ne sont pas les miens, et **(3)** UN gate encore non câblé — un seuil de
+couverture — si l'on veut que « couvert » ait, lui aussi, une cible qui rougit
+d'elle-même. Aucun de ces manques n'est caché derrière un ✅.
