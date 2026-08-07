@@ -30,6 +30,7 @@ import {
   estUnClic,
   FENETRE_CHALEUR_JOURS,
   MARGE_DOIGT,
+  priseAuDoigt,
   rayon,
   selectionAuRelacher,
   SEUIL_GLISSE,
@@ -239,5 +240,20 @@ describe('selectionAuRelacher — ce que le relâcher du canevas DÉCIDE', () =>
       choisir: true,
       id: 'note',
     });
+  });
+});
+
+describe('priseAuDoigt — ce qu’un appui sur le canevas attrape', () => {
+  it('un corps sous le doigt est SAISI (fond: false), pour être déplacé', () => {
+    // `sousLeCurseur === null` muté en `!== null` : un corps réel serait pris
+    // pour du vide, l'appui saisirait le FOND, et cliquer une note déplacerait
+    // la vue au lieu de la note. Cette assertion mord sur ce défaut.
+    expect(priseAuDoigt({ id: 'n1' }, 10, 20)).toEqual({ id: 'n1', fond: false, x: 10, y: 20 });
+  });
+
+  it('un appui dans le VIDE saisit le fond (fond: true), pour déplacer la vue', () => {
+    // Le point d'appui (x, y) est reporté tel quel : c'est de là que le seuil
+    // clic/glisser d'`estUnClic` mesurera, au relâcher, si c'était un glisser.
+    expect(priseAuDoigt(null, 10, 20)).toEqual({ id: null, fond: true, x: 10, y: 20 });
   });
 });

@@ -53,6 +53,7 @@ import {
   corpsSousLePoint,
   estEteinte,
   rayon,
+  priseAuDoigt,
   selectionAuRelacher,
 } from './cerveau-designation';
 
@@ -538,10 +539,10 @@ export default function Cerveau(_props: ViewProps) {
                 ref={canvas}
                 className="cerveau-toile"
                 onMouseDown={(ev) => {
-                  const p = sous(ev);
-                  attrape.current = p
-                    ? { id: p.id, fond: false, x: ev.clientX, y: ev.clientY }
-                    : { id: null, fond: true, x: ev.clientX, y: ev.clientY };
+                  // La DÉCISION « corps ou fond ? » vit dans `priseAuDoigt`, pure
+                  // et éprouvée hors canevas ; ne reste ici que de trouver le
+                  // corps sous le curseur (`sous`, en coordonnées du canevas).
+                  attrape.current = priseAuDoigt(sous(ev), ev.clientX, ev.clientY);
                 }}
                 onMouseMove={(ev) => {
                   const a = attrape.current;

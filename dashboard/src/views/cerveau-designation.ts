@@ -197,3 +197,39 @@ export function selectionAuRelacher(
   if (!estUnClic(appui, relache)) return { choisir: false, id: null };
   return { choisir: true, id: idSousRelache };
 }
+
+/** L'état de saisie du canevas : ce qu'un appui a attrapé, et d'où il est parti. */
+export interface Prise {
+  /** L'identifiant du corps saisi, ou `null` si l'appui a manqué tout corps. */
+  id: string | null;
+  /** Vrai si c'est le FOND qui est saisi — le glisser déplacera alors la VUE. */
+  fond: boolean;
+  /** Le point d'appui, en pixels de l'écran, d'où se mesure le glisser. */
+  x: number;
+  y: number;
+}
+
+/**
+ * Ce qu'un APPUI sur le canevas attrape : un corps, ou le fond.
+ *
+ * Même motif que `selectionAuRelacher` (et § 2 quaterdecies du carnet) : la
+ * boucle du canevas ne se joue pas sous banc (`getContext` rend `null`), mais la
+ * DÉCISION, elle, s'éprouve au point près une fois sortie de la boucle. Trouver
+ * le corps sous le curseur en coordonnées du canevas RESTE dans `Cerveau.tsx` ;
+ * ce qui est décidable — « corps ou fond ? » — vient ici.
+ *
+ * La règle, et pourquoi les deux membres comptent : un corps sous le doigt est
+ * SAISI (`fond: false`) pour être déplacé ; à défaut, on saisit le FOND
+ * (`fond: true`), et le glisser déplace la VUE (panoramique). Confondre les deux
+ * casse un geste sur deux — saisir le fond alors qu'on visait une note
+ * déplacerait la vue au lieu de la note ; « saisir » un corps là où il n'y en a
+ * pas traînerait un identifiant qui ne désigne personne.
+ */
+export function priseAuDoigt(
+  sousLeCurseur: { readonly id: string } | null,
+  x: number,
+  y: number,
+): Prise {
+  if (sousLeCurseur === null) return { id: null, fond: true, x, y };
+  return { id: sousLeCurseur.id, fond: false, x, y };
+}
