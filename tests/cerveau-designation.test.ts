@@ -26,6 +26,7 @@ import { describe, expect, it } from 'vitest';
 import {
   chaleur,
   corpsSousLePoint,
+  deplacementDuGlisse,
   estEteinte,
   estUnClic,
   FENETRE_CHALEUR_JOURS,
@@ -255,5 +256,31 @@ describe('priseAuDoigt — ce qu’un appui sur le canevas attrape', () => {
     // Le point d'appui (x, y) est reporté tel quel : c'est de là que le seuil
     // clic/glisser d'`estUnClic` mesurera, au relâcher, si c'était un glisser.
     expect(priseAuDoigt(null, 10, 20)).toEqual({ id: null, fond: true, x: 10, y: 20 });
+  });
+});
+
+describe('deplacementDuGlisse — ce qu’un glisser accomplit selon la prise', () => {
+  it('un corps saisi se TRAÎNE, et l’id ressort resserré à string', () => {
+    // `prise.id !== null` muté en `=== null` : un corps réel ne serait plus
+    // traîné (il tomberait en fond ou survol), et le glisser au-dessus du VIDE
+    // croirait tenir un corps. Cette assertion mord sur ce défaut — le même
+    // mutant survivait tant que la décision restait dans le canevas muet.
+    expect(deplacementDuGlisse({ id: 'n1', fond: false })).toEqual({ traine: true, id: 'n1' });
+  });
+
+  it('un corps PRIME sur le fond : id non nul l’emporte même si fond est vrai', () => {
+    // L'ordre des gardes : sans la priorité du corps, traîner une note
+    // déplacerait la vue. `id` non nul doit gagner quoi qu'indique `fond`.
+    expect(deplacementDuGlisse({ id: 'n1', fond: true })).toEqual({ traine: true, id: 'n1' });
+  });
+
+  it('le FOND saisi (id nul, fond vrai) déplace la vue', () => {
+    expect(deplacementDuGlisse({ id: null, fond: true })).toEqual({ traine: false, fond: true });
+  });
+
+  it('rien de saisi (id nul, fond faux) n’est qu’un survol', () => {
+    // Pas de corps et fond faux : l'appui n'a rien retenu, le déplacement ne
+    // fait que survoler — ni traîne, ni panoramique.
+    expect(deplacementDuGlisse({ id: null, fond: false })).toEqual({ traine: false, fond: false });
   });
 });

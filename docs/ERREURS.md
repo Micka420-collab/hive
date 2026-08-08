@@ -4037,6 +4037,38 @@ un `.tsx`. `rayon-affichage.ts` prend donc son type d'entrée directement de
 
 ---
 
+## 2 quaterdecies ter. Extraire une décision peut LAISSER un opérateur mutable dans le décor intestable
+
+Troisième application de § 2 quaterdecies, avec un piège que les deux premières
+n'avaient pas révélé. La garde survivante était `attrape.current.id !== null` de
+`onMouseMove` du Cerveau — « ce glisser traîne-t-il un corps ? » —, prisonnière
+du canevas muet comme ses sœurs. Extraction évidente : sortir l'aiguillage dans
+une fonction pure `deplacementDuGlisse`, et dispatcher dessus dans le
+gestionnaire.
+
+Le premier jet a rendu un type discriminé sur une chaîne — `{ geste: 'corps' } |
+{ geste: 'fond' } | { geste: 'survol' }` — et le gestionnaire testait
+`if (d.geste === 'corps')`, `if (d.geste === 'fond')`. **Le balayage a
+immédiatement mordu ces `===` tout neufs** (il tournait encore quand il a
+réécrit `=== 'fond'` en `!== 'fond'` sur le disque). Logique : `onMouseMove`
+reste injouable sous banc, donc TOUTE comparaison qu'on y laisse est une
+survivante. On avait déplacé la garde d'un cran — et, pire, TROQUÉ UNE survivante
+(`id !== null`) CONTRE DEUX (`geste === 'corps'`, `geste === 'fond'`).
+
+**La règle, qui prolonge § 2 quaterdecies.** Extraire la décision ne suffit pas :
+il faut que l'appelant la CONSOMME sans opérateur. Un résultat en booléens NUS
+(`{ traine: true; id } | { traine: false; fond }`, lu par `if (d.traine)` puis
+`if (d.fond)`) laisse la SEULE comparaison — `prise.id !== null` — dans la
+fonction pure, où un banc la garde. Le canevas ne reçoit plus que des drapeaux à
+tester, jamais une comparaison à muter. Après correction, le balayage ne voit
+qu'UNE mutation sur le diff, et elle est défendue.
+
+Le corollaire général : **une extraction qui ré-expose un opérateur dans le
+contexte intestable n'a rien gagné.** Mesurer l'extraction à la loupe, pas à
+l'intention — c'est elle, pas moi, qui a vu que le premier découpage fuyait.
+
+---
+
 ## 2 terdecies. Un témoin présent sur les DEUX branches ne témoigne de rien
 
 Même famille que § 2 duodecies — on désigne sans vérifier — mais le matériau

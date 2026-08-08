@@ -51,6 +51,7 @@ import { rappelerAuCentre } from './cerveau-physique';
 import {
   chaleur,
   corpsSousLePoint,
+  deplacementDuGlisse,
   estEteinte,
   rayon,
   priseAuDoigt,
@@ -545,9 +546,15 @@ export default function Cerveau(_props: ViewProps) {
                   attrape.current = priseAuDoigt(sous(ev), ev.clientX, ev.clientY);
                 }}
                 onMouseMove={(ev) => {
+                  // L'AIGUILLAGE « corps, fond ou survol ? » vit dans
+                  // `deplacementDuGlisse`, pur et éprouvé hors canevas ; ne reste
+                  // ici que le déplacement lui-même (coordonnées du canevas).
+                  // Les booléens sont NUS à dessein — aucune comparaison ne
+                  // retombe dans ce gestionnaire injouable sous banc.
                   const a = attrape.current;
-                  if (a.id !== null) {
-                    const p = corps.current.get(a.id);
+                  const d = deplacementDuGlisse(a);
+                  if (d.traine) {
+                    const p = corps.current.get(d.id);
                     if (p) {
                       const { x, y } = auGraphe(ev);
                       p.x = x;
@@ -557,7 +564,7 @@ export default function Cerveau(_props: ViewProps) {
                     }
                     return;
                   }
-                  if (a.fond) {
+                  if (d.fond) {
                     vue.current.dx += ev.clientX - a.x;
                     vue.current.dy += ev.clientY - a.y;
                     attrape.current = { ...a, x: ev.clientX, y: ev.clientY };

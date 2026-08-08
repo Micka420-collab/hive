@@ -233,3 +233,36 @@ export function priseAuDoigt(
   if (sousLeCurseur === null) return { id: null, fond: true, x, y };
   return { id: sousLeCurseur.id, fond: false, x, y };
 }
+
+/**
+ * Ce qu'un GLISSER du curseur accomplit : TRAÎNER un corps (`traine: true`, avec
+ * son `id` déjà resserré à `string`), ou, à défaut de corps, déplacer le FOND
+ * (`fond: true`) si le fond était saisi, sinon SURVOLER (`fond: false`).
+ */
+export type Deplacement =
+  | { readonly traine: true; readonly id: string }
+  | { readonly traine: false; readonly fond: boolean };
+
+/**
+ * L'aiguillage du déplacement, sorti de la boucle du canevas pour s'éprouver au
+ * point près.
+ *
+ * Même motif que `priseAuDoigt` et `selectionAuRelacher` (et § 2 quaterdecies du
+ * carnet) : le déplacement lui-même — bouger un corps en coordonnées du graphe,
+ * translater la vue — reste de la tuyauterie du canevas, injouable sous banc
+ * (`getContext` rend `null`). L'aiguillage, lui, ne lit que la prise.
+ *
+ * Le résultat se lit par des booléens NUS (`traine`, puis `fond`), et c'est
+ * délibéré : l'appelant les teste sans opérateur (`if (d.traine)`), si bien que
+ * la SEULE comparaison — `prise.id !== null` — vit ICI, où un banc la garde, et
+ * ne retombe pas dans `onMouseMove`, où le canevas muet la rendrait intestable.
+ * L'ordre compte : un corps saisi PRIME sur le fond, sinon traîner une note
+ * déplacerait la VUE au lieu de la note — un geste sur deux cassé.
+ */
+export function deplacementDuGlisse(prise: {
+  readonly id: string | null;
+  readonly fond: boolean;
+}): Deplacement {
+  if (prise.id !== null) return { traine: true, id: prise.id };
+  return { traine: false, fond: prise.fond };
+}
