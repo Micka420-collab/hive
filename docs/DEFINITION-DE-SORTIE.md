@@ -71,13 +71,36 @@ Windows).
   ne double ce gate, « gardé » vaut **à la livraison** ; entre deux livraisons,
   ça tient à l'habitude d'auditer localement.
 
-## D. Couverture — ❌ pas un critère (et pas re-mesurée ici)
+## D. Couverture — ❌ pas un critère, mais enfin RE-MESURÉE et REPRODUCTIBLE
 
-`npm run couverture` existe (`vitest run --coverage`). Dernière valeur CONNUE :
-**~73 % de lignes** (commit `70cd3ad`) — **non re-mesurée ce tour**, donc citée
-comme historique, pas comme fait courant. **Aucun seuil de couverture n'est
-défini comme condition de sortie.** À ce jour, la couverture n'est pas un gate :
-elle se mesure, elle ne barre rien.
+**Le trou trouvé et fermé ce tour :** `npm run couverture` (`vitest run
+--coverage`) exige un fournisseur, `@vitest/coverage-v8`, qui est une dépendance
+de pair **optionnelle** de vitest — il n'entre PAS avec lui. Il n'était **pas
+déclaré** dans `devDependencies` ; un `npm ci` propre ne l'installait donc
+jamais, et la commande mourait sur `MISSING DEPENDENCY  Cannot find dependency
+'@vitest/coverage-v8'`. Le « re-mesurée et reproductible » du commit `70cd3ad`
+tenait à un reliquat dans `node_modules`, pas à une dépendance déclarée : depuis
+un clone vierge, l'instrument ne se relançait pas. Corrigé : le fournisseur est
+désormais **déclaré** (`@vitest/coverage-v8` en `devDependencies`) et **gardé**
+par un banc (`tests/couverture-reproductible.test.ts`, muté rouge : il lie le
+fournisseur déclaré au `provider` de `vitest.config.ts` et exige qu'il se
+résolve).
+
+**Mesure datée, depuis le fournisseur fraîchement installé (8 août 2026,
+arbre `1f0a71d` + ce lot) :**
+
+| Dimension    | Couverture  | Détail          |
+| ------------ | ----------- | --------------- |
+| Lignes       | **75,43 %** | 9 138 / 12 113  |
+| Branches     | 69,48 %     | 7 402 / 10 652  |
+| Fonctions    | 74,33 %     | 2 207 / 2 969   |
+| Instructions | 74,19 %     | 10 384 / 13 995 |
+
+**Aucun seuil de couverture n'est défini comme condition de sortie.** La
+couverture n'est pas un gate : elle se mesure (et le fait, maintenant, de façon
+reproductible), elle ne barre rien. Le verdict qui BARRE reste le balayage par
+mutation (`npm run loupe`), qui dit ce qui est GARDÉ là où la couverture ne dit
+que ce qui est EXÉCUTÉ.
 
 ## E. Présentable — ❌ / 🔒 / 👤 : ce qui n'est pas du code
 

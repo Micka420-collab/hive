@@ -4132,6 +4132,46 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 duovicies. Un outil qui dépend d'un paquet OPTIONNEL non déclaré ne se relance pas depuis un clone neuf
+
+`npm run couverture` (`vitest run --coverage`) marchait sur cette machine et
+rendait un chiffre. Le commit qui l'a introduit (`70cd3ad`) l'a même annoncé
+« re-mesuré et reproductible », en croyant le fournisseur v8 « déjà présent via
+vitest ». Il ne l'était pas : `@vitest/coverage-v8` est une **dépendance de pair
+OPTIONNELLE** de vitest — elle n'entre PAS avec lui. Elle n'était déclarée nulle
+part dans `package.json` ; ce qui la faisait résoudre, c'était un **reliquat dans
+`node_modules`** d'une installation antérieure. Depuis un clone vierge suivi d'un
+`npm ci`, la commande mourait sur :
+
+```
+MISSING DEPENDENCY  Cannot find dependency '@vitest/coverage-v8'
+```
+
+Deux leçons, pas une :
+
+1. **Un paquet dont un script documenté a besoin doit être DÉCLARÉ**, même quand
+   c'est une dépendance de pair optionnelle d'un outil déjà présent. « Optionnel »
+   côté outil ne veut pas dire « facultatif » côté produit : si `npm run X` en a
+   besoin, `npm ci` doit l'installer, donc il est en `dependencies`/`devDependencies`.
+   Le piège est le même que § 6.6 ter et que le classement des paquets de
+   `paquet.test.ts` : sur la machine du développeur, tout est là et tout marche ;
+   le trou n'existe que pour le clone neuf de quelqu'un d'autre.
+2. **« Reproductible » se prouve depuis le CLONE, pas depuis la machine.** Un
+   chiffre qu'on ne peut relancer que là où traîne l'artefact n'est pas
+   reproductible ; c'est une opinion datée avec un reliquat pour témoin. La règle
+   du carnet — « ce qui n'est pas exécuté n'est pas vérifié » — vaut aussi pour ce
+   qu'on a écrit soi-même : réviser sa propre allégation de « reproductible » quand
+   elle ne tient qu'à un `node_modules` chanceux.
+
+Corrigé : `@vitest/coverage-v8` déclaré en `devDependencies`, et une garde qui
+rougit si le fournisseur configuré dans `vitest.config.ts` n'est ni déclaré ni
+résolvable (`tests/couverture-reproductible.test.ts`, muté rouge en basculant
+`provider` sur `istanbul` : `Cannot find module '@vitest/coverage-istanbul'`).
+La couverture, une fois le fournisseur installé, s'est re-mesurée : 75,43 % de
+lignes — un chiffre qui se relance maintenant depuis un clone neuf.
+
+---
+
 ## 9 unvicies. Un banc qui n'éprouve que la condition d'un risque est aveugle à son verrou
 
 Le § 1.0 ter le répète : le JS de la vitrine échappe à la loupe (elle ne balaie

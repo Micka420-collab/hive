@@ -4658,3 +4658,82 @@ image officielle ni paquet signé d'ici) ; **aucune vraie machine Windows ni
 macOS** (la CI prouve le code, pas l'install sur un poste réel) ; **sections
 (13→7) et tarifs de la vitrine** — décisions d'édition et commerciales de
 l'utilisateur.
+
+## POINT DE SORTIE — 8 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**25 jours** (8 août → 2 septembre).
+
+### 2. Livré ET vérifié depuis le 7 août
+
+**Six lots** fusionnés sur `main`, chacun mutation-first (VERDICT rouge affiché)
+puis CI **5 jambes vertes**, plus **le lot de ce tour** :
+
+- **Sûreté, la boucle entière fermée** : le gate `npm audit --audit-level=high`
+  câblé en CI, qui a mordu à sa naissance — 2 vulns hautes transitives fermées
+  (`brace-expansion`, `fast-uri`) (#193) ; un banc-garde qui rougit si la CI
+  perd ce gate (#194, muté rouge) ; puis, preuve que le gate ne suffit pas seul,
+  une **3ᵉ vuln haute** (`nanoid` < 3.3.17, avis publié APRÈS le câblage)
+  attrapée non par la CI mais par un `npm audit` **local** entre deux PR, et
+  fermée (#196) ; la leçon inscrite au DoD § C — un gate ne vaut que si son
+  DÉCLENCHEUR couvre tous les moments du risque (#197).
+- **Cœur** : `priseAuDoigt` extrait de la boucle du canevas du Cerveau — « corps
+  ou fond ? » à l'appui —, éprouvé hors banc (#195, `getContext` nul sous
+  happy-dom, donc la DÉCISION sort de la boucle pour s'éprouver au point près).
+- **Le DoD de sortie enfin écrit et mesuré** — `docs/DEFINITION-DE-SORTIE.md`
+  (#192). « Présentable » a une cible ; ce qui n'y porte pas de ✅ est dit ❌, 🔒
+  ou 👤, jamais maquillé.
+- **Ce tour — la couverture, re-mesurée et RENDUE reproductible** : le trou dit
+  au § 4 ci-dessous. `@vitest/coverage-v8` (dépendance de pair **optionnelle** de
+  vitest, jamais installée seule) était non déclaré ; `npm run couverture`
+  mourait sur `MISSING DEPENDENCY` depuis un clone neuf. Fournisseur **déclaré**
+  en `devDependencies`, **gardé** par un banc muté rouge
+  (`tests/couverture-reproductible.test.ts`, qui lie le fournisseur déclaré au
+  `provider` de la config et exige qu'il se résolve), et couverture re-mesurée :
+  **lignes 75,43 %** (9 138 / 12 113), branches 69,48 %, fonctions 74,33 %,
+  instructions 74,19 % (`0 vuln` à l'`npm audit` du même tour).
+
+Suite mesurée à l'instant (rapport JSON de vitest, arbre `1f0a71d` + ce lot) :
+**3507** (3500 verts, 7 ignorés, 0 rouge, 237 fichiers) — +3 pour les gardes de
+la couverture reproductible. Les quatre badges (deux README, vitrine ×2 langues)
+portés à ce compte par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+### 3. Ce qui reste entre la ruche et une sortie présentable
+
+Classé par ce qui casse un arrivant en premier. Honnêteté d'abord : **pour qui
+INSTALLE ou UTILISE, rien ne casse** — l'install, le site et le tableau de bord
+passent au vert sur les 3 OS en CI. Le reste tient en trois points :
+
+1. **La première impression : identité de la vitrine (#63, 13→7 sections) et
+   README GitHub à sa suite.** C'est ce que voit d'abord un arrivant, et c'est le
+   plus gros manque. Mais c'est une **décision d'édition de l'utilisateur** (👤) :
+   la page publique ne se reskine pas de tête, et un agent d'arbitrage ne
+   trancherait ici qu'une marque qui n'est pas la sienne. Reste ❌ — tenu, pas
+   caché.
+2. **Le premier `npm run couverture` d'un contributeur — CASSÉ, corrigé ce
+   tour.** Un arrivant côté CODE (qui clone et lance les scripts documentés)
+   tombait sur `MISSING DEPENDENCY`. C'est le premier point de cette liste que je
+   pouvais tenir sans fabriquer une décision d'utilisateur, et c'est fait
+   (fournisseur déclaré + gardé + couverture re-mesurée). Reste ✅.
+3. **Les gates « qui rougissent d'eux-mêmes », encore incomplets — et dits tels.**
+   Le gate `npm audit` ne se déclenche qu'à l'ouverture/mise à jour d'une PR
+   (angle mort entre deux livraisons, couvert à la main ; § C du DoD). Et
+   **aucun seuil de couverture n'est câblé** — délibérément : la couverture se
+   mesure (maintenant de façon reproductible), elle ne BARRE rien ; le verdict
+   qui barre reste le balayage par mutation. Un seuil reste à décider si l'on
+   veut que « couvert » ait, lui aussi, une cible qui rougit seule.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé : comptes **npm** (lot 7) et **GHCR/cosign** (lot 10) pas les miens ;
+**aucune vraie machine Windows ni macOS** (la CI prouve le code, pas l'install
+sur un poste réel) ; **sections (13→7) et tarifs de la vitrine** — décisions
+d'édition et commerciales de l'utilisateur.
+
+Et une correction d'honnêteté, parce que la règle vaut aussi pour ce qu'on a
+écrit soi-même : le commit `70cd3ad` annonçait la couverture « re-mesurée et
+reproductible ». Elle ne l'était pas depuis un clone vierge — le fournisseur
+manquait à la déclaration et ne tenait qu'à un reliquat de `node_modules`. **Un
+critère (même un non-critère comme la couverture) qui n'est pas mesuré de façon
+reproductible n'est pas mesuré ; il se dit comme tel, et se corrige.** C'est fait.
