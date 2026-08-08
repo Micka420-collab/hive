@@ -60,6 +60,16 @@ Windows).
   après fix : **0 vulnérabilité**. Coût assumé et voulu : un avis publié demain
   sur une transitive rougira la CI sans changement de code — une vuln haute qui
   dort est pire qu'une CI qui la nomme.
+- ⚠️ **L'angle mort du DÉCLENCHEUR, et comment on le couvre** : ce gate ne tourne
+  qu'à l'ouverture ou la mise à jour d'une PR. Un avis publié ENTRE deux
+  livraisons reste donc invisible en CI jusqu'au prochain push. Ce n'est pas une
+  vue de l'esprit : `nanoid` < 3.3.17 (boucle infinie quand `size` vaut zéro,
+  `GHSA-2v37-7h3g-55p8`) est tombé après le câblage, et c'est un `npm audit`
+  **local** périodique — pas la CI — qui l'a attrapé et fermé (#196). Leçon
+  générale : câbler une garde ne suffit pas si son **déclencheur** ne couvre pas
+  tous les moments où le risque survient. Tant qu'aucune exécution **planifiée**
+  ne double ce gate, « gardé » vaut **à la livraison** ; entre deux livraisons,
+  ça tient à l'habitude d'auditer localement.
 
 ## D. Couverture — ❌ pas un critère (et pas re-mesurée ici)
 
