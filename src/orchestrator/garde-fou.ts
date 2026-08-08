@@ -333,6 +333,12 @@ export const BORNES_DEFAUT: Bornes = { min: 'leger', max: 'strict' };
  * manque.
  */
 export function normaliserBornes(b: Bornes): Bornes {
+  // `<=` et `<` sont ICI un mutant ÉQUIVALENT, et c'est CONSIGNÉ, pas un test qui
+  // manque : `rangEchelon` est injectif (index sur trois échelons distincts), donc
+  // rang(min) == rang(max) ⟹ min == max ; la reconstruction `{ min, min }` ci-dessous
+  // rend alors la MÊME valeur que `b`. Un balayage élargi de la loupe le re-signalera
+  // « sans test » à chaque fois — il ne se tranche pas par un `toBe` sur l'identité de
+  // référence, qui n'éprouverait qu'un détail que personne n'exige (ERREURS § 2.16 ter).
   if (rangEchelon(b.min) <= rangEchelon(b.max)) return b;
   // On n'arrive ici QUE si `min` est plus strict que `max` (rang(min) > rang(max)).
   // Le PLUS STRICT des deux est donc forcément `min` : l'ancien départage
