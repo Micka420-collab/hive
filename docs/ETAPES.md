@@ -4803,3 +4803,49 @@ Et le cadrage honnête du point 3.1, pour ne pas faire semblant : je peux **prop
 la structure 7-sections (arbitrage délégué + PR relue), mais le CONTENU définitif de
 la marque — le ton, ce qu'on garde vraiment, les tarifs — **reste ta décision**. Je
 livre une proposition à trancher, pas un fait accompli.
+
+### Arbitrage vitrine 13→7 — DÉCIDÉ par un agent Fable 5, EN ATTENTE de validation
+
+La décision, notée ici comme le veut la règle (« un arbitrage se délègue, et se
+consigne dans `docs/ETAPES.md` »). **Rien n'est implémenté sur `site/index.html`
+tant que l'utilisateur n'a pas validé cette structure** : la vitrine se publie à
+la fusion sur `main` (GitHub Pages), et « relu avant mise en ligne » veut dire
+exactement ça. L'autorisation permanente de fusion vaut pour les lots de
+durcissement, pas pour une refonte de marque publique.
+
+**Les 7 sections retenues** (compte de la maquette, cible ~3 900 px) :
+
+1. **Héros** — promesse + install (puces OS + commande) + démo de l'essaim (le
+   panneau essaim y est DÉJÀ) + bande « fonctionne avec votre IA ».
+2. **Comment ça marche** — les 3 étapes (`id="etapes"`).
+3. **Fonctionnalités & l'écran** — les 4 familles + l'aperçu à onglets du tableau
+   de bord (`id="features"`) ; l'archi se réduit à 3 pills, « mission » ne garde
+   que l'aperçu.
+4. **Sécurité** — resserrée (`id="securite"`).
+5. **Communauté & modèle** — les tarifs deviennent un résumé + lien vers `rush/`
+   (`id="communaute"`).
+6. **Démarrer** — l'adresse de ruche + cartes d'action (`id="raccourcis"`, re-titrée).
+7. **Appel + pied** (`id="appel"`).
+
+**Mapping** : GARDE hero, etapes, features, securite, communaute, raccourcis, appel.
+FUSIONNE bandeau-agents→héros, archi→features (3 pills), mission→features (aperçu
+seul), tarifs→communauté, demarrer→raccourcis (`npm run demo` seul). RETIRE roadmap.
+
+**Deux prémisses corrigées par l'agent** : le panneau essaim (`swarm-panel`) est
+déjà dans le héros ; `montant`/`unitaire`/`avis` vivent dans `site/rush/index.html`,
+PAS dans la vitrine — la refonte n'y touche pas.
+
+**Hooks testés préservés** (fusionnés permis, supprimés non) : carrousel/essaim,
+`chip-os` + install-cmd/copier/invite, `apercu-onglet`, `etapes`/`etape-n`,
+`features`/`famille`, `communaute`, `rc-url`/`rc-cmd` (`id="raccourcis"`),
+`appel`/`pied-*`, `gh-btn`/`btn-en` (header). Conséquence mécanique à prévoir :
+nav purgée de `#archi #mission #tarifs #demarrer #roadmap`, ancres du pied
+re-pointées, et le seuil `sections.length > 6` de `site.test.ts` abaissé.
+
+**Reste ta décision** (l'agent ne l'a pas tranché) : les montants réels
+(0/49/79 €), le ton commercial (« Populaire », « Bientôt »), et si le contenu
+roadmap/archi retiré doit migrer vers une page docs plutôt que disparaître.
+
+**Livraison prévue si tu valides** : un merge de section par lot (RETIRE roadmap
+d'abord), chacun barrière + bancs vitrine verts + capture chromium, chacun une PR
+que TU fusionnes — pas le tour de nuit.
