@@ -4737,3 +4737,69 @@ reproductible ». Elle ne l'était pas depuis un clone vierge — le fournisseur
 manquait à la déclaration et ne tenait qu'à un reliquat de `node_modules`. **Un
 critère (même un non-critère comme la couverture) qui n'est pas mesuré de façon
 reproductible n'est pas mesuré ; il se dit comme tel, et se corrige.** C'est fait.
+
+## POINT DE SORTIE — 9 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**24 jours** (9 août → 2 septembre).
+
+### 2. Livré ET vérifié depuis le 8 août
+
+**Deux lots** fusionnés sur `main`, chacun mutation-first puis CI 5 jambes vertes,
+plus des vérifications MESURÉES (pas récitées) :
+
+- **#199 — Cerveau : `deplacementDuGlisse`.** La garde `attrape.current.id !== null`
+  de `onMouseMove` (« ce glisser traîne-t-il un corps, le fond, ou survole-t-il ? »)
+  était sans test — VERDICT affiché : mutée `=== null`, les 73 bancs cerveau
+  restaient verts. Extraite hors du canevas muet, éprouvée au point près : la
+  mutation fait rougir 4 bancs (`{ traine: false, fond: false } ≠ { traine: true,
+id: 'n1' }`), loupe « rien de nu ». Leçon neuve inscrite (`ERREURS § 2 quaterdecies
+ter`) : un premier découpage exposait `d.geste === 'corps'` dans le gestionnaire
+  injouable — **le balayage a mordu ce `===` tout neuf** ; corrigé en booléens nus,
+  la seule comparaison reste dans la fonction pure.
+- **#200 — Garde-Fous : le `<=` de `normaliserBornes` est un mutant ÉQUIVALENT.**
+  Preuve exhaustive (les 9 couples ; `rangEchelon` injectif ⟹ `rang(min)==rang(max)
+⟹ min==max ⟹ le repli `{min,min}`=`b`). Pas un test qui manque, un équivalent :
+  consigné AU CODE (le balayage le re-signalera à chaque fois) et au carnet (§ 2.16
+  ter). Commentaire seul, CI verte.
+- **Balayage élargi EXHAUSTIF** (base épinglée `HEAD~80`, jamais dans le dépôt) :
+  cette fois **les 50 candidates examinées**, pas la moitié échantillonnée — 49
+  défendues, l'unique survivant étant le `<=` équivalent ci-dessus. Couvre
+  `aiguillage`, les gardes de traversée de `garde-fou`, le `taskId && nodeId` de
+  `gardiennes`, `scheduler`, `server`, `store`, `protocol`. `machine.ts` (jamais
+  balayé) confirmé défendu (`plateformeDepuis`/`estPlateforme` mordent sur
+  `poste-machine.test.ts`).
+- **Vérif de sortie complète, MESURÉE aujourd'hui** (arbre `7390979`) : `typecheck`
+  ×2 verts, `lint` (eslint + prettier) vert, `vitest` **3511** (3504 verts, 7
+  ignorés, **0 rouge**), `npm audit --audit-level=high` **0 vuln**, les 6 badges =
+  3511 vérifiés en mode CI (pas de tête).
+
+### 3. Ce qui reste entre la ruche et une sortie présentable
+
+Classé par ce qui casse un arrivant EN PREMIER.
+
+1. **La première impression : la vitrine fait 13 sections / ~11 400 px** là où la
+   maquette de référence en fait **7 / ~3 865 px**. C'est le premier écran d'un
+   arrivant, et c'est ce qui casse l'expérience avant tout le reste : une page
+   trois fois trop longue, sans identité tranchée. Le carnet l'a toujours classé
+   « décision d'édition » — **quelles** 6 sections retirer ou fusionner est un
+   arbitrage, pas de la mécanique. Ce tour, je l'attaque par le mécanisme prévu :
+   un agent d'arbitrage (Fable 5) tranche la structure 7-sections ; sa décision et
+   l'implémentation partent en **lot séparé, relu par l'utilisateur** avant toute
+   mise en ligne (rien n'est publié sans sa fusion).
+2. **README GitHub au design de la vitrine** — la première impression côté dépôt,
+   en aval de la structure décidée au point 1.
+3. **Rien d'autre côté code ne casse l'arrivant** : install (23,3 s, `hive doctor`
+   10 ✔), tableau de bord et site passent tous au vert, sur les 3 OS en CI.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé : comptes **npm** et **GHCR/cosign** pas les miens ; **aucune vraie
+machine Windows ni macOS** (la CI prouve le code, pas l'install sur un poste réel) ;
+**tarifs de la vitrine** — décision commerciale de l'utilisateur.
+
+Et le cadrage honnête du point 3.1, pour ne pas faire semblant : je peux **proposer**
+la structure 7-sections (arbitrage délégué + PR relue), mais le CONTENU définitif de
+la marque — le ton, ce qu'on garde vraiment, les tarifs — **reste ta décision**. Je
+livre une proposition à trancher, pas un fait accompli.
