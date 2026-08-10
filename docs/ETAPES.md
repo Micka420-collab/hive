@@ -4860,6 +4860,32 @@ roadmap/archi retiré doit migrer vers une page docs plutôt que disparaître.
 d'abord), chacun barrière + bancs vitrine verts + capture chromium, chacun une PR
 que TU fusionnes — pas le tour de nuit.
 
+### Vitrine lot B — fusion demarrer→raccourcis (décision agent Fable 5)
+
+Tu as **fusionné la PR #203** (lot A) : je lis ça comme le feu vert sur la
+direction, et je reprends la consolidation. Lot B, tranché par un agent Fable 5
+(spec dans `scratchpad/vitrine-lot-B-decision.md`) :
+
+- La section `demarrer` (« Une démo complète en deux commandes », 2 terminaux)
+  fusionne dans `id="raccourcis"`, re-titrée **« Démarrer »**. On garde le
+  terminal `npm run demo` (déplacé en tête, sous « D'abord, la démo »), on
+  **retire** le second terminal « inviter un ami » — il DOUBLAIT la carte
+  « Inviter un ami » déjà présente. Nouveau h2 : « Une démo en deux commandes,
+  votre ruche en deux clics. » Deux jalons `<h3 class="rc-sous">` articulent la
+  bande (démo d'abord, ta vraie ruche ensuite).
+- Nav et pied : les deux liens « Raccourcis »/« Démarrer » se réconcilient en un
+  seul (« Démarrer » → `#raccourcis`) ; ancres `pr.1.cta`/`ap.cta1`/`f.demarrer`
+  re-pointées. Clés EN orphelines purgées (go.kicker/headline/t2/invite/n2,
+  nav.shortcuts, f.raccourcis) ; `rc.s1`/`rc.s2` ajoutées.
+- **Sections `class="section"` : 9 → 8** (seuil banc `> 6` tenu). Crochets
+  éprouvés intacts : `id="raccourcis"`, `rc-url`/`rc-cmd`/`rc-copier`/`rc-lien`,
+  lede « VOTRE ruche », `rc-note`, les 3 cartes.
+- **Reste ta décision** (non tranché par l'agent, dit franchement) : la
+  formulation exacte de la promesse du h2 et le ton des deux jalons.
+
+Comme lot A : PR relisable, capture chromium à l'appui, **c'est TOI qui
+fusionnes** — je ne stacke pas C→E avant ta réaction.
+
 ## POINT DE SORTIE — 10 août 2026, sortie visée ~2 septembre
 
 ### 1. Combien de jours restent
