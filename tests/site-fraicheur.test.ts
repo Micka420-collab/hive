@@ -154,63 +154,30 @@ describe('la version affichée est celle du paquet', () => {
   });
 });
 
-describe('la frise des paliers est d’accord avec elle-même', () => {
-  const frise = (): string => {
-    const debut = vitrine.indexOf('<section id="roadmap"');
-    expect(debut, 'section roadmap introuvable').toBeGreaterThan(-1);
-    return vitrine.slice(debut, vitrine.indexOf('</section>', debut));
-  };
-
-  /** Les paliers marqués livrés dans la frise. */
-  const livres = (): number => (frise().match(/class="ok"/g) ?? []).length;
-
-  const MOTS_FR: Record<string, number> = {
-    Un: 1,
-    Deux: 2,
-    Trois: 3,
-    Quatre: 4,
-    Cinq: 5,
-    Six: 6,
-    Sept: 7,
-    Huit: 8,
-    Neuf: 9,
-    Dix: 10,
-  };
-  const MOTS_EN: Record<string, number> = {
-    One: 1,
-    Two: 2,
-    Three: 3,
-    Four: 4,
-    Five: 5,
-    Six: 6,
-    Seven: 7,
-    Eight: 8,
-    Nine: 9,
-    Ten: 10,
-  };
-
-  it('le badge du bandeau annonce le dernier palier de la frise', () => {
-    // La dérive typique : on ajoute un palier en bas de page et on oublie le
-    // badge en haut. Les deux se contredisent alors sur le même écran.
-    const n = livres();
-    expect(n, 'aucun palier livré dans la frise').toBeGreaterThan(0);
-    expect(chiffre(enFrancais('badge.tier')), 'badge FR ≠ frise').toBe(n);
-    expect(chiffre(enAnglais('badge.tier')), 'badge EN ≠ frise').toBe(n);
-  });
-
-  it('le chapeau de la frise compte les mêmes paliers que la frise', () => {
-    const n = livres();
-    const motFr = enFrancais('rm.headline').split(' ')[0] ?? '';
-    const motEn = enAnglais('rm.headline').split(' ')[0] ?? '';
-    expect(MOTS_FR[motFr], `« ${motFr} » n’est pas un nombre écrit`).toBe(n);
-    expect(MOTS_EN[motEn], `« ${motEn} » n’est pas un nombre écrit`).toBe(n);
-  });
-
-  it('les paliers se suivent sans trou ni doublon', () => {
-    const numeros = [...frise().matchAll(/<div class="hex">(\d+)<\/div>/g)].map((m) =>
-      Number(m[1]),
-    );
-    expect(numeros).toEqual(Array.from({ length: livres() }, (_, i) => i + 1));
+describe('le badge « palier » ne diverge pas entre les langues', () => {
+  // ─── CE QUI RESTE MESURABLE QUAND LA FRISE PART ─────────────────────────────
+  //
+  // Ici vivaient trois gardes qui recoupaient le badge « Palier 7 livré » du
+  // héros contre une FRISE de paliers en bas de page : le badge devait annoncer
+  // le dernier palier livré, le chapeau compter les mêmes, les numéros se suivre
+  // sans trou. Cette frise a été retirée — elle racontait des paliers déjà
+  // livrés, de l'histoire et pas un argument —, et l'arbitrage a gardé le badge
+  // seul comme porteur du « où en est le projet », épaulé du lien CHANGELOG du
+  // pied.
+  //
+  // Retirer la frise retire donc AUSSI son recoupement : le badge n'a plus de
+  // référent sur la page. Le CHANGELOG, lui, n'énonce les paliers qu'en prose
+  // (« paliers 2 → 4 fusionnés ») — aucun numéro parsable dont on pourrait faire
+  // une source de vérité. La seule dérive encore MESURABLE est donc le désaccord
+  // ENTRE LES DEUX LANGUES : un « Palier 7 » français figé au-dessus d'un
+  // « Tier 8 » anglais, que personne ne relit. On garde cette parité — la même
+  // classe de garde que « les deux langues annoncent le même chiffre » pour le
+  // badge des tests — et on ne feint pas d'en prouver davantage.
+  it('les deux langues annoncent le même palier', () => {
+    const fr = chiffre(enFrancais('badge.tier'));
+    const en = chiffre(enAnglais('badge.tier'));
+    expect(fr, 'aucun numéro de palier dans le badge FR').toBeGreaterThan(0);
+    expect(en, `le badge FR annonce le palier ${fr}, le badge EN le palier ${en}`).toBe(fr);
   });
 });
 

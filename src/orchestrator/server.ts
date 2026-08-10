@@ -6939,6 +6939,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               emitEvent('merge_result_ignored', { mergeId: msg.mergeId, nodeId });
               break;
             }
+            // ─── L'APPARTENANCE, COMME POUR UNE TÂCHE ──────────────────────
+            //
+            // `task_result` ignore un résultat dont `assignedNodeId !== nodeId`
+            // (scheduler.ts) ; ce chemin-ci ne le faisait pas. La seule défense
+            // était alors le SECRET du `mergeId` — un `randomUUID` envoyé au
+            // seul socket assigné, jamais diffusé aux nœuds. C'est vrai
+            // aujourd'hui, mais faire reposer une appartenance sur un identifiant
+            // secret, là où le reste de la ruche la VÉRIFIE, c'est un invariant
+            // qui tient par accident. On l'aligne : un nœud qui n'est pas
+            // l'assigné ne pose pas ce résultat, et surtout NE CONSOMME PAS le
+            // pending — le vrai assigné peut encore livrer.
+            if (pending.nodeId !== nodeId) {
+              send(ws, {
+                type: 'error',
+                message: `merge ${msg.mergeId} non assigné à ce nœud — résultat ignoré`,
+              });
+              emitEvent('merge_result_ignored', { mergeId: msg.mergeId, nodeId });
+              break;
+            }
             mergeResults.set(pending.projectId, msg);
             pendingMerges.delete(msg.mergeId);
             emitEvent('merge_completed', {
@@ -6962,6 +6981,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               send(ws, {
                 type: 'error',
                 message: `chantier ${msg.chantierId} inconnu du hub (expiré ou déjà clos) — résultat ignoré`,
+              });
+              emitEvent('chantier_result_ignored', { chantierId: msg.chantierId, nodeId });
+              break;
+            }
+            // Même appartenance que pour le merge (voir merge_result) : un nœud
+            // non assigné n'écrit pas ce résultat et ne consomme pas le pending.
+            if (pending.nodeId !== nodeId) {
+              send(ws, {
+                type: 'error',
+                message: `chantier ${msg.chantierId} non assigné à ce nœud — résultat ignoré`,
               });
               emitEvent('chantier_result_ignored', { chantierId: msg.chantierId, nodeId });
               break;
