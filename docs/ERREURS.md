@@ -4164,6 +4164,37 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 quattuorvicies. Défaire une mutation par `git checkout` efface le travail non commité qu'elle mutait
+
+En éprouvant deux gardes que je VENAIS d'écrire (`merge_result` /
+`chantier_result`, appartenance du nœud assigné), j'ai muté chaque garde
+`!== → ===`, lancé le banc, vu le rouge — puis restauré avec
+`git checkout -- src/orchestrator/server.ts`. Sauf que `git checkout`
+restaure la version COMMITÉE : mes gardes n'étaient pas encore commités, alors
+il les a emportés avec la mutation. Le `grep` final l'a dit sans détour : zéro
+garde dans le fichier. J'avais silencieusement défait la fonctionnalité que
+j'étais en train de bâtir.
+
+Le rejeu, lui, restait honnête par accident — la seconde mutation s'est jouée
+sur un fichier DÉJÀ dégardé, si bien que son rouge mesurait l'ABSENCE du garde
+(la plus forte des mutations) plutôt que le `===` voulu. Mais « le verdict tient
+quand même » ne rachète pas « j'ai effacé mon lot sans le voir » : il a fallu
+re-poser les deux gardes à la main.
+
+### La règle
+
+Le point de restauration d'une mutation doit être une COPIE de l'état qu'on
+mute, pas le dernier commit. `git checkout -- fichier` rembobine jusqu'à
+l'index ; si ce qu'on mute n'est pas encore scellé par un commit, il efface
+aussi le travail en cours. Avant de muter du code non commité : `cp fichier
+sauvegarde` ; pour restaurer : `cp sauvegarde fichier`. Le `git checkout` ne
+convient que quand le code sous mutation est DÉJÀ commité — et alors seulement.
+Corollaire : après une passe de mutation, un `grep` (ou `git diff`) qui compte
+ce qu'on croit avoir ajouté est le témoin qui rattrape ce genre d'effacement
+avant qu'il n'entre dans un commit.
+
+---
+
 ## 9 trevicies. Un barrage fait de bancs triés à la main n'est pas un barrage
 
 En retirant la `<section id="roadmap">` de la vitrine (lot A de la refonte
