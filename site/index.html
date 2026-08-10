@@ -2635,7 +2635,6 @@
         <a href="#raccourcis" data-i18n="nav.shortcuts">Raccourcis</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
         <a href="#demarrer" data-i18n="nav.start">Démarrer</a>
-        <a href="#roadmap">Roadmap</a>
       </nav>
       <div class="lang-toggle" role="group" aria-label="Langue / Language">
         <button id="btn-fr" aria-pressed="true" lang="fr">FR</button>
@@ -4306,144 +4305,11 @@
       </div>
     </section>
 
-    <section id="roadmap" class="section">
-      <p class="kicker">Roadmap</p>
-      <h2 class="headline" data-i18n="rm.headline">
-        Sept paliers livrés. La ruche continue de grandir.
-      </h2>
-      <div class="timeline">
-        <div class="step">
-          <div class="rail">
-            <div class="hex">1</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.1.t">Palier 1</span>
-              <span class="ok" data-i18n="rm.ok1">✅ livré</span>
-            </div>
-            <p data-i18n="rm.1.d">
-              Essaim réel, temps réel, persistant · Swarm View 2D/3D · invitations · éditeur intégré
-              · sécurité &amp; sandbox v0.
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail">
-            <div class="hex">2</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.2.t">Palier 2</span>
-              <span class="ok" data-i18n="rm.ok2">✅ livré</span>
-            </div>
-            <p data-i18n="rm.2.d">
-              Queen Bee (brief → DAG) · Hive Mind (mémoire partagée) · Sting Detector (prévention de
-              conflits).
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail">
-            <div class="hex">3</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.3.t">Palier 3</span>
-              <span class="ok" data-i18n="rm.ok3">✅ livré</span>
-            </div>
-            <p data-i18n="rm.3.d">
-              Honeycomb Merge (plan + exécution réelle) · Drone Wars · Time-Lapse Replay.
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail">
-            <div class="hex">4</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.4.t">Palier 4</span>
-              <span class="ok" data-i18n="rm.ok4">✅ livré</span>
-            </div>
-            <p data-i18n="rm.4.d">
-              Nectar &amp; Waggle Board · Night Shift · Parlement des Agents · Ghost in the Hive.
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail">
-            <div class="hex">5</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.5.t">Palier 5 — l'instinct</span>
-              <span class="ok" data-i18n="rm.ok5">✅ livré</span>
-            </div>
-            <p data-i18n="rm.5.d">
-              Phéromones (routage par affinité apprise) · Thermorégulation (ventilation adaptative)
-              · Couveuse (les re-tentatives apprennent de leurs échecs).
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail">
-            <div class="hex">6</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.6.t">Palier 6 — la conscience économique</span>
-              <span class="ok" data-i18n="rm.ok6">✅ livré</span>
-            </div>
-            <p data-i18n="rm.6.d">
-              La Balance : peser le temps-ouvrière et l'imputer à une cause, prévoir le coût d'un
-              projet, borner une dépense — plus deux campagnes d'audit adversarial.
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail">
-            <div class="hex">7</div>
-            <div class="line"></div>
-          </div>
-          <div class="body">
-            <div class="t">
-              <span data-i18n="rm.7.t">Palier 7 — la transparence</span>
-              <span class="ok" data-i18n="rm.ok7">✅ livré</span>
-            </div>
-            <p data-i18n="rm.7.d">
-              Le Rayon (le code du projet en lecture, éditeur de la Reine compris) · l'Aperçu (voir
-              ce que l'IA construit, pas seulement son diff) · le partage en lecture par tunnel · le
-              polyéthisme et le Conseil des Éclaireuses · la préparation de l'environnement.
-            </p>
-          </div>
-        </div>
-        <div class="step">
-          <div class="rail"><div class="hex next">→</div></div>
-          <div class="body">
-            <div class="t next" data-i18n="rm.next.t">Ensuite</div>
-            <p data-i18n="rm.next.d">
-              Fédération de ruches · un bac à sable qui borne aussi le réseau · des droits par
-              membre, pour que le jeton partagé cesse d'être la seule porte (ADR 0007).
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- ══ LA BANDE D'APPEL ═════════════════════════════════════════════════
          La maquette la pose juste avant le pied de page, sur son propre aplat
          (`--chip`, relevé à rgb(239,231,215)), 416 px de haut. C'est la seule
          section de sa page qui ne fait qu'une chose : redonner la commande à
-         quelqu'un qui vient de tout lire et qui a fait défiler loin du haut.
-
-         Sans elle, la page se terminait sur une frise de paliers livrés — de
-         l'histoire, pas une invitation. -->
+         quelqu'un qui vient de tout lire et qui a fait défiler loin du haut. -->
     <section class="appel">
       <div class="appel-dedans">
         <h2 class="headline" data-i18n="ap.headline">Essayez en une commande.</h2>
@@ -4914,37 +4780,6 @@
             '<span class="c"># you (host)</span><br /><span class="p">$ </span>npm run cli -- invite<br /><span class="c"># your friend pastes the command</span><br /><span class="p">$ </span>npm run join -- hive1_eyJ2IjoxLCJ1cmw…<br /><span class="o">🐝 Joining the hive: Micka’s Hive<br />✔ Node started — you’re foraging for the hive.</span>',
           'go.n2':
             'Their Claude Code / Codex is auto-detected. ⚠️ The invite contains the hive token: share it over a private channel.',
-          'rm.headline': 'Seven tiers shipped. The hive keeps growing.',
-          'rm.1.t': 'Tier 1',
-          'rm.ok1': '✅ shipped',
-          'rm.1.d':
-            'Real swarm, real-time, persistent · Swarm View 2D/3D · invitations · built-in editor · security &amp; sandbox v0.',
-          'rm.2.t': 'Tier 2',
-          'rm.ok2': '✅ shipped',
-          'rm.2.d':
-            'Queen Bee (brief → DAG) · Hive Mind (shared memory) · Sting Detector (conflict prevention).',
-          'rm.3.t': 'Tier 3',
-          'rm.ok3': '✅ shipped',
-          'rm.3.d': 'Honeycomb Merge (plan + real execution) · Drone Wars · Time-Lapse Replay.',
-          'rm.4.t': 'Tier 4',
-          'rm.ok4': '✅ shipped',
-          'rm.4.d':
-            'Nectar &amp; Waggle Board · Night Shift · Agent Parliament · Ghost in the Hive.',
-          'rm.next.t': 'Next',
-          'rm.6.t': 'Tier 6 — economic awareness',
-          'rm.ok6': '✅ shipped',
-          'rm.6.d':
-            'The Balance: weigh worker-time and impute it to a cause, forecast a project’s cost, cap a spend — plus two adversarial audit campaigns.',
-          'rm.5.t': 'Tier 5 — instinct',
-          'rm.ok5': '✅ shipped',
-          'rm.5.d':
-            'Pheromones (learned-affinity routing) · Thermoregulation (adaptive ventilation) · Brood Chamber (retries learn from their failures).',
-          'rm.7.t': 'Tier 7 — transparency',
-          'rm.ok7': '✅ shipped',
-          'rm.7.d':
-            'The Comb (the project’s code, read in full, the Queen’s editor included) · the Preview (see what the AI builds, not just its diff) · read-only sharing over the tunnel · division of labour and the Council of Scouts · environment preparation.',
-          'rm.next.d':
-            'Hive federation · a sandbox that bounds the network too · per-member permissions, so the shared token stops being the only door (ADR 0007).',
           'ap.headline': 'Try it in one command.',
           'ap.p':
             'The script installs everything and asks three questions at most. Add <code class="inline">--dry-run</code> to see what it would do without creating anything.',
