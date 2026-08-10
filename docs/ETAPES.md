@@ -4804,14 +4804,24 @@ la structure 7-sections (arbitrage délégué + PR relue), mais le CONTENU défi
 la marque — le ton, ce qu'on garde vraiment, les tarifs — **reste ta décision**. Je
 livre une proposition à trancher, pas un fait accompli.
 
-### Arbitrage vitrine 13→7 — DÉCIDÉ par un agent Fable 5, EN ATTENTE de validation
+### Arbitrage vitrine 13→7 — DÉCIDÉ par un agent Fable 5 ; implémentation COMMENCÉE, la fusion reste à toi
 
 La décision, notée ici comme le veut la règle (« un arbitrage se délègue, et se
-consigne dans `docs/ETAPES.md` »). **Rien n'est implémenté sur `site/index.html`
-tant que l'utilisateur n'a pas validé cette structure** : la vitrine se publie à
-la fusion sur `main` (GitHub Pages), et « relu avant mise en ligne » veut dire
-exactement ça. L'autorisation permanente de fusion vaut pour les lots de
-durcissement, pas pour une refonte de marque publique.
+consigne dans `docs/ETAPES.md` »).
+
+**Changement de posture, dit franchement (10 août).** La consigne du contrôle CI
+de #202 disait « ne PAS commencer l'implémentation de la vitrine tant que le feu
+vert n'est pas donné » ; le point de sortie suivant disait « reprends le travail
+sur le premier point de la liste 3 » — et ce premier point EST la vitrine. Les
+deux se réconcilient sans mentir : « reprends le travail » autorise à
+**implémenter** (en lot, sur une PR, capture à l'appui) ; il n'autorise pas à
+**publier**. J'ai donc commencé — lot A livré — mais **je n'auto-fusionne PAS la
+vitrine** : la page se publie à la fusion sur `main` (GitHub Pages), donc la
+fusion des lots vitrine reste ta décision, exactement comme ce carnet l'écrit
+plus bas (« chacun une PR que TU fusionnes — pas le tour de nuit »). L'autorisation
+permanente de fusion vaut pour les lots de durcissement, pas pour une refonte de
+marque publique. Et je m'arrête à **un** lot par tour tant que tu n'as pas réagi
+à la direction : livrer une proposition à trancher, pas un tas non relu.
 
 **Les 7 sections retenues** (compte de la maquette, cible ~3 900 px) :
 
@@ -4849,3 +4859,61 @@ roadmap/archi retiré doit migrer vers une page docs plutôt que disparaître.
 **Livraison prévue si tu valides** : un merge de section par lot (RETIRE roadmap
 d'abord), chacun barrière + bancs vitrine verts + capture chromium, chacun une PR
 que TU fusionnes — pas le tour de nuit.
+
+## POINT DE SORTIE — 10 août 2026, sortie visée ~2 septembre
+
+### 1. Combien de jours restent
+
+**23 jours** (10 août → 2 septembre).
+
+### 2. Ce qui est LIVRÉ ET VÉRIFIÉ depuis hier
+
+Deux choses, et rien de plus — je ne compte pas ce que « j'ai décidé » comme
+livré.
+
+- **#202 — l'arbitrage vitrine 13→7 consigné** (agent Fable 5), avec ses deux
+  prémisses corrigées (`swarm-panel` déjà dans le héros ; `montant`/`unitaire`
+  vivent dans `site/rush/`, hors périmètre). C'est une décision écrite, pas du
+  code exécuté — je la classe donc comme livrée en tant que **décision**, pas en
+  tant que page.
+- **Vitrine lot A — la roadmap retirée** (`8aa283f`). Vérifié, pas « écrit » :
+  `vitest run tests/site.test.ts tests/vitrine-executee.test.ts` → **135 passés /
+  135**, `lint` vert, et une **capture chromium pleine page** relue (nav sans
+  « Roadmap », badges « 3 511 tests ✓ » intacts, aucune casse de mise en page).
+  Le filet qui PROUVE le retrait propre est le trio de bancs resté vert :
+  « aucune traduction orpheline » (a forcé la purge du dictionnaire EN `rm.*`),
+  l'ancre de nav, le compte de sections (`class="section"` 10→9, seuil `> 6`
+  tenu). Suite inchangée à **3 511** (le lot n'ajoute ni ne retire de banc ;
+  badges non touchés, donc justes sans re-mesure).
+
+**Ce que ce n'est PAS**, dit franchement : la vitrine n'est **pas publiée**. Lot A
+est sur une PR, pas sur `main`. « Livré et vérifié » ici veut dire _mesuré dans
+l'arbre_, pas _en ligne_ — la mise en ligne (fusion → GitHub Pages) reste ta
+décision.
+
+### 3. Ce qui reste entre la ruche et une sortie présentable
+
+Classé par ce qui casse un arrivant EN PREMIER.
+
+1. **La première impression : la vitrine.** Toujours le point n°1, et il n'est
+   **pas atteint**. Lot A a retiré la roadmap ; restent les **quatre fusions**
+   qui portent réellement la consolidation vers 7 sections (bandeau-agents→héros,
+   archi+mission→features, tarifs→communauté, demarrer→raccourcis) — c'est là
+   qu'est la substance, pas dans le retrait. Et au-dessus de la structure, la
+   **nouvelle identité visuelle** (#63) reste un arbitrage d'édition que je
+   **propose**, que je n'atteins pas : je livre des lots à trancher, un par tour,
+   que **tu** fusionnes.
+2. **README GitHub au design de la vitrine** — la première impression côté dépôt,
+   en aval de la structure décidée au point 1. Non atteint.
+3. **Rien d'autre côté code ne casse l'arrivant** : install (23,3 s, `hive doctor`
+   10 ✔), tableau de bord et site passent tous au vert, sur les 3 OS en CI.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé : comptes **npm** et **GHCR/cosign** pas les miens ; **aucune vraie
+machine Windows ni macOS** (la CI prouve le code, pas l'install sur un poste réel) ;
+**tarifs de la vitrine** (0/49/79 €) et **ton commercial** — décisions
+commerciales de l'utilisateur. Et le cadrage honnête du point 3.1 : je peux
+**proposer** la structure et l'implémenter lot par lot ; le CONTENU définitif de
+la marque — ce qu'on garde vraiment, le ton, l'identité visuelle de #63 — **reste
+ta décision**. Une proposition à trancher, pas un fait accompli.
