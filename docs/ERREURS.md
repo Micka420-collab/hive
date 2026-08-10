@@ -4164,6 +4164,41 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 trevicies. Un barrage fait de bancs triés à la main n'est pas un barrage
+
+En retirant la `<section id="roadmap">` de la vitrine (lot A de la refonte
+13→7), j'ai lancé ce que je CROYAIS être la barrière : les deux fichiers que
+j'associais à la vitrine, `site.test.ts` et `vitrine-executee.test.ts`. Verts
+tous les deux, 135/135. Barrière franchie, commit, push. La CI est alors passée
+au rouge **sur les trois OS** : un TROISIÈME fichier, `site-fraicheur.test.ts`,
+lisait lui aussi la roadmap (`vitrine.indexOf('<section id="roadmap"')` et la
+clé `rm.headline` du dictionnaire) et tenait trois bancs à la frise des paliers.
+
+Il n'était pas dans ma sélection parce que **je ne savais pas qu'il était
+couplé** — et c'est exactement le piège. Les deux fichiers que j'ai choisis
+étaient ceux dont le NOM disait « la vitrine ». Celui qui a mordu portait le nom
+d'un autre souci — la _fraîcheur_ — mais lisait le même `site/index.html`. Un
+sous-ensemble trié à la main ne protège que contre les couplages qu'on a déjà en
+tête ; le couplage qui casse est, par construction, celui qu'on n'a pas listé.
+
+### La règle
+
+La barrière, c'est `npx vitest run` — la suite **entière** —, jamais une
+sélection de fichiers « pertinents ». Trois bancs lisaient la vitrine ; j'en
+connaissais deux. Le coût de la suite complète (~80 s) est le prix de ne pas
+livrer une CI rouge sur trois OS et un correctif au tour d'après. Quand un
+changement touche un fichier partagé (ici la page publique), la seule question
+honnête n'est pas « quels bancs je crois pertinents ? » mais « quels bancs
+LISENT ce fichier ? » — et `grep -l` la répond mieux que la mémoire, la suite
+complète sans faille. Corollaire constructif du même tour : quand la garde
+supprimée protégeait AUSSI autre chose de vivant (ici le badge « Palier 7 » du
+héros, que l'arbitrage garde), on ne jette pas sa protection en silence — on la
+ré-ancre sur ce qui reste MESURABLE (la parité des deux langues du badge, mutée
+rouge) et on écrit franchement qu'on ne prouve pas plus, faute de source de
+vérité parsable.
+
+---
+
 ## 9 duovicies. Un outil qui dépend d'un paquet OPTIONNEL non déclaré ne se relance pas depuis un clone neuf
 
 `npm run couverture` (`vitest run --coverage`) marchait sur cette machine et
