@@ -4943,3 +4943,73 @@ commerciales de l'utilisateur. Et le cadrage honnête du point 3.1 : je peux
 **proposer** la structure et l'implémenter lot par lot ; le CONTENU définitif de
 la marque — ce qu'on garde vraiment, le ton, l'identité visuelle de #63 — **reste
 ta décision**. Une proposition à trancher, pas un fait accompli.
+
+## POINT DE SORTIE — 11 août 2026, sortie visée ~2 septembre
+
+### 1. Combien de jours restent
+
+**22 jours** (11 août → 2 septembre).
+
+### 2. Ce qui est LIVRÉ ET VÉRIFIÉ depuis hier
+
+**Honnêteté d'abord : RIEN de neuf n'a été FUSIONNÉ depuis `b45314a` (#203, hier).**
+La dernière fusion sur `main` reste le lot du 10 août (roadmap retirée + garde
+d'appartenance de l'audit #62 + point de sortie). « Vérifié » n'est pas « livré »,
+et je ne compte pas une re-mesure comme une livraison. Ce tour a **vérifié**, pas
+livré :
+
+- **Barrière entière rejouée verte**, mesurée (pas de tête) : `typecheck` (×2),
+  `lint`, `vitest run` → **3 511 (3 504 verts, 7 ignorés, 0 rouge)**. Badge juste
+  sans re-mesure (aucun banc ajouté/retiré).
+- **Balayage loupe ÉLARGI**, base épinglée `68087bc` (le diff cumulé de ~2
+  semaines, jamais commitée), échantillon porté à 20 : **14 des 41 mutants
+  examinés, tous ✔ défendus** sur 9 fichiers (GardeFous, cerveau-designation,
+  modeles, aiguillage, garde-fou, scheduler, server, store, protocol) — « LA
+  LOUPE NE VOIT RIEN DE NU ». **Couverture PARTIELLE et dite comme telle : 27
+  mutants laissés de côté** (la loupe échantillonne). Ce tour la porte à 41/41
+  (§ point 3.3), pour que « rien de nu » cesse d'être un échantillon.
+- **Vitrine lot B (#204) reste TENUE**, pas fusionnée : CI 5-vertes,
+  `mergeable_state clean`, inchangée depuis son ouverture. « Mesuré dans l'arbre »,
+  **pas en ligne** — la mise en ligne est ta décision, comme lot A.
+
+### 3. Ce qui reste entre la ruche et une sortie présentable
+
+Classé par ce qui casse un arrivant EN PREMIER — et pour chacun, **qui peut le
+lever** (car deux des trois premiers ne sont pas les miens à trancher).
+
+1. **La première impression : la vitrine. BLOQUÉE SUR TOI.** Toujours le point
+   n°1, toujours **pas atteint**. Lot A fusionné, lot B (#204) **tenu pour ta
+   fusion**, et les lots C→E (tarifs→communauté, archi+mission→features,
+   bandeau→héros) **je ne les empile pas** tant que tu n'as pas réagi à lot B —
+   c'est ton ordre permanent, et l'empilage rendrait #204 illisible. Au-dessus de
+   la structure, l'**identité visuelle #63** reste ton arbitrage d'édition. Je ne
+   peux avancer ce point n°1 **qu'après** ta réaction à #204 (fusion ou cap
+   donné) — pas contre elle.
+2. **README GitHub au design de la vitrine** — première impression côté dépôt, en
+   aval de #63. **Décision d'édition**, non atteint.
+3. **La loupe à couverture PLEINE sur le diff cumulé.** Le seul point de cette
+   liste **entièrement mien**, sans décision humaine : le balayage d'hier et de ce
+   tour ÉCHANTILLONNENT (14/41). Un mutant nu peut dormir dans les 27 non
+   examinés. **Actionnable, je reprends dessus maintenant** — 41/41, base
+   `68087bc`, dans l'atelier.
+4. **Le seuil de couverture — délibérément PAS un gate.** Le DoD (§ D) pose que la
+   couverture se mesure mais ne barre rien ; le verdict qui BARRE est la loupe.
+   Câbler un seuil qui rougit serait **changer la définition de sortie** — une
+   décision de politique, pas un trou de code. Je le NOMME, je ne le tranche pas
+   seul.
+5. **Rien d'autre côté code ne casse l'arrivant** : install (23,3 s, `hive doctor`
+   10 ✔), tableau de bord et site passent au vert, sur les 3 OS en CI.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé, et toujours vrai : comptes **npm** et **GHCR/cosign** pas les miens
+(pas d'artefact officiel signé d'ici ; `curl … | sh` marche sans) ; **aucune
+vraie machine Windows ni macOS** (la CI prouve le CODE sur les trois, pas l'INSTALL
+sur un poste réel — la nuance est le critère) ; **tarifs** (0/49/79 €) et **ton
+commercial** — décisions de l'utilisateur. Et le cadrage du 3.1 : je **propose**
+la structure de vitrine et l'implémente lot par lot ; le CONTENU de la marque
+(#63, README) **reste ta décision**. Un point structurel apparaît aussi ce tour :
+la branche de travail **est** la PR vitrine tenue (#204) — tant qu'elle n'est pas
+fusionnée, tout code neuf s'y empilerait et couplerait un durcissement à la
+publication de la vitrine. La sortie propre de ce couplage, c'est **ta réaction à
+#204**.
