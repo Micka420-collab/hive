@@ -5170,3 +5170,64 @@ Vérifié : mutation de la garde neuve de la loupe → banc ROUGE (« expected
 [ Array(1) ] to deeply equal [] »), restaurée par copie → 8/8 VERT. Barrière
 entière verte (codes lus sans tube). Suite **3 524** (3 517 verts, 7 ignorés,
 0 rouge), badges re-mesurés à 3 524 et garde CI verte.
+
+## Feu vert utilisateur : #205 fusionnée, la vitrine se finalise, la DGM s'acte
+
+L'utilisateur a donné son feu vert explicite sur #205 (« la PR 205 attend ton
+feu vert ») : fusionnée (`5bc9c61`), CI verte et loupe 6/6 au moment du geste.
+Le même message demande de passer de l'investigation à l'implémentation de
+l'auto-amélioration façon Darwin Gödel Machine, et de finaliser la vitrine.
+
+### Cerveau : « consolider après trois récurrences » — déjà livré, re-prouvé
+
+`SEUIL_CONSOLIDATION = 3` (`cerveau.ts:316`), justification écrite (« Deux fois
+est une coïncidence, trois fois est un motif »). Mutation 3→2 : **2 bancs
+ROUGES** (« DEUX FOIS NE FAIT PAS UNE RÈGLE, TROIS OUI »), restauré → 34/34.
+Rien à écrire, tout à constater.
+
+### ADR 0009 — l'évolution façon DGM : refus sourcés, boucle DIFFÉRÉE
+
+L'enquête (13 agents, 3 lentilles adversariales) est actée dans
+`docs/adr/0009-evolution-fachon-dgm.md` : Firecracker/Kata REFUSÉS (pas de KVM
+sur macOS, Windows 11 + virtualisation imbriquée + admin requis — contre
+« aucun sudo, jamais ») ; CrewAI REFUSÉ (Python, 903 Mo, casse l'install
+23,3 s) ; LangGraph.js REFUSÉ architecturalement (`replay.ts` rend déjà son
+cœur — deux histoires divergentes sinon) ; AutoCover INACQUÉRABLE (interne
+Uber) ; SWE-bench DIFFÉRÉ (≈22 000 USD le run). Ce que la vision demande
+existe déjà pour l'essentiel (isolement à 3 régimes, Gardiennes, courses de
+drones, Cerveau, loupe). La pièce manquante — l'Épreuve, un verdict que le
+producteur du diff ne contrôle pas (« le juge n'entre pas dans la ruche qu'il
+inspecte ») — est conçue mais la contradiction lui a trouvé **8 failles
+bloquantes** : elle attend l'après-sortie, et l'ADR les liste comme préalables.
+
+### Vitrine lot D — archi + mission fondues dans features (7→5 sections)
+
+Arbitrage rendu directement (le modèle d'arbitrage est aux commandes) et deux
+amendements au plan initial, consignés :
+
+1. **La garantie de fraîcheur survit à l'énumération.** `site-fraicheur`
+   confrontait les 13 cartes ET le chiffre du chapeau à la nav d'App.tsx. La
+   grille des cartes part (c'est l'inventaire que la refonte coupe — l'aperçu
+   MONTRE, il ne récite plus), mais la phrase « 13 vues navigables au
+   clavier » suit l'aperçu dans features avec sa clé `mc.headline` : le banc
+   du NOMBRE mord toujours contre App.tsx. Une 14ᵉ vue rendra la vitrine
+   rouge le jour même. Les deux bancs d'énumération partent avec la grille,
+   et le commentaire du fichier dit pourquoi.
+2. **Lot E sans déplacement.** Le plan comptait « héros + bandeau » comme la
+   bande n°1 NARRATIVE ; structurellement le bandeau est pleine largeur
+   (fond + bordure propres) et le nicher dans `.hero` (max-width 1240 px)
+   casserait son design pour zéro gain visible. Il reste une bande autonome
+   collée au héros : 7 bandes, dont 5 sections porteuses d'id.
+
+Mécanique : pastilles (`archi.p1-3`) + aperçu à onglets déplacés dans
+features sous un jalon `feat.ecran` ; sections archi et mission supprimées ;
+nav et pied purgés (−2 liens chacun) ; **35 clés EN retirées**, 1 ajoutée
+(`feat.ecran`) ; CSS mort purgé règle par règle (`.archi-*`, `.node-box`,
+`.queen-box`, `.view-box`, `.wire`, `.views`, `.view-card` — `.hexico`
+ÉPARGNÉ, encore 3 usages dans securite ; une première passe l'aurait emporté,
+la garde « aucun sélecteur étranger » a mordu avant l'écriture) ; 4 planchers
+de bancs ajustés à la forme consolidée (sections >4, surtitres >4, liens du
+pied ≥10, ancres internes >2), chacun avec son commentaire.
+
+**La consolidation 13→7 est ACHEVÉE** : héros, bandeau, étapes,
+fonctionnalités & écran, sécurité, communauté & modèle, démarrer (+ appel).

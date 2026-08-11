@@ -201,28 +201,20 @@ describe('Mission Control montre le vrai tableau de bord', () => {
     });
   };
 
-  /** Les cartes de la section Mission Control, dans l'ordre de la page. */
-  const cartes = (): { cle: string; fr: string }[] => {
-    const debut = vitrine.indexOf('<section id="mission"');
-    const bloc = vitrine.slice(debut, vitrine.indexOf('</section>', debut));
-    return [...bloc.matchAll(/<div class="t" data-i18n="(mc\.[\w.]+)">([^<]+)<\/div>/g)].map(
-      (m) => ({ cle: m[1] ?? '', fr: (m[2] ?? '').trim() }),
-    );
-  };
-
-  it('chaque vue du tableau de bord a sa carte, avec la BONNE touche', () => {
-    // Une touche fausse sur la vitrine est un piège discret : le visiteur
-    // essaie « 9 », tombe ailleurs, et conclut que le clavier ne marche pas.
-    const attendues = nav().map((v) => v.titreFr);
-    expect(cartes().map((c) => c.fr)).toEqual(attendues);
-  });
-
-  it('les cartes anglaises portent les mêmes touches et les mêmes noms', () => {
-    const attendues = nav().map((v) => v.titreEn);
-    expect(cartes().map((c) => enAnglais(c.cle))).toEqual(attendues);
-  });
-
-  it('le chapeau annonce le bon nombre de vues', () => {
+  // Ici vivaient deux gardes qui recoupaient les TREIZE cartes de la section
+  // « Mission Control » (une par vue, avec sa touche) contre la nav d'App.tsx.
+  // Le lot D de la consolidation 13→7 a fondu cette section dans « features » et
+  // l'énumération n'a pas suivi : c'était l'inventaire que la refonte coupe —
+  // l'aperçu à onglets MONTRE le tableau de bord, il ne le récite plus.
+  //
+  // Retirer l'énumération retire donc AUSSI son recoupement carte à carte. Ce
+  // qui reste MESURABLE — et qui reste gardé, ci-dessous — est le NOMBRE : la
+  // phrase « 13 vues navigables au clavier » a suivi l'aperçu dans features
+  // (clé `mc.headline` intacte), et son chiffre est toujours confronté à la
+  // source vraie, la nav d'App.tsx. Ajouter une quatorzième vue rend la vitrine
+  // rouge le jour même ; se tromper de touche ne se voit plus ici — le
+  // tableau de bord lui-même l'enseigne, et on ne feint pas d'en prouver plus.
+  it('la phrase « N vues » annonce le vrai compte d’App.tsx', () => {
     const n = nav().length;
     expect(n, 'aucune vue lue dans App.tsx').toBeGreaterThan(5);
     expect(chiffre(enFrancais('mc.headline')), 'chapeau FR').toBe(n);
