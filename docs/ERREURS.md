@@ -4164,6 +4164,40 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 octovicies. Committer pendant qu'un agent VÉRIFIE le même arbre grave sa mutation
+
+J'ai lancé un agent de vérification en lui demandant, entre autres, si mes gardes
+neuves « peuvent VRAIMENT rougir ». Pour répondre, il a fait la seule chose
+sensée : il a MUTÉ les fichiers pour voir les gardes mordre. Pendant ce temps,
+j'ai commité.
+
+Le commit a donc gravé `npm run fantome` dans `README.en.md` — la mutation d'un
+autre processus, capturée à l'instant précis où elle était posée. Et l'ironie est
+totale : ce lot existe pour corriger des commandes qui n'existent pas.
+
+Ce qui a permis de le voir tient à un détail : après le `git push`, un
+`git status` a montré `M README.en.md`. Une modification APRÈS un commit qu'on
+croit complet n'est jamais du bruit — c'est un second écrivain. Je l'ai regardée
+au lieu de la committer par réflexe, et le `git diff` a montré la mutation.
+
+### La règle
+
+Le § 2 unvicies dit déjà que deux loupes dans le même atelier ne rendent aucun
+verdict valable. La règle est plus large : **tout ce qui MUTE l'arbre est un
+écrivain, et deux écrivains simultanés se gravent l'un dans l'autre.** Un agent
+de vérification à qui l'on demande si une garde peut rougir EST un tel écrivain,
+même quand on ne le voit pas travailler.
+
+Concrètement : ne jamais committer tant qu'un agent lancé sur le même dépôt n'a
+pas rendu. Et si `git status` montre une modification qu'on n'a pas faite,
+LA REGARDER — jamais la ranger dans le commit « puisqu'elle est là ».
+
+Corollaire pour l'avenir : un agent de vérification devrait travailler sur une
+COPIE (ou un worktree), pas sur l'arbre vivant. Le demander explicitement dans sa
+consigne coûte une phrase ; l'oublier coûte un commit faux poussé sur la branche.
+
+---
+
 ## 9 septvicies. La loupe lit le diff COMMITÉ mais mute l'arbre DE TRAVAIL
 
 Après avoir corrigé une nudité que la loupe venait de désigner, je l'ai relancée

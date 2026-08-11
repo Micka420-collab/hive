@@ -256,7 +256,7 @@ unsaid — is in **[docs/FEATURES.en.md](docs/FEATURES.en.md)**.
 
 | Command                     | Effect                                                               |
 | --------------------------- | -------------------------------------------------------------------- |
-| `npm run fantome`             | **Everything in one command** — Queen + worker + screen              |
+| `npm run ruche`             | **Everything in one command** — Queen + worker + screen              |
 | `npm run demo`              | Full demo (orchestrator + 2 nodes + project)                         |
 | `npm run dev`               | Orchestrator only                                                    |
 | `npm run node`              | A member node                                                        |
