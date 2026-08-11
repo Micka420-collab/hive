@@ -5091,3 +5091,46 @@ Il ne referme pas « les états vides du tableau de bord » : la mesure dit qu'i
 étaient déjà bons, et c'est dit tel quel plutôt que maquillé en victoire. Restent
 les priorités suivantes de la liste — doublons de la vitrine (lot C tranché, spec
 en attente d'implémentation), bac à sable, alertes visuelles.
+
+### Vitrine lot C — fusion tarifs→communauté (décision agent Fable 5)
+
+Troisième lot de la consolidation 13→7, débloqué par la fusion de #204 (lot B).
+Arbitrage tranché par un agent Fable 5 ; les MONTANTS et le TON restent la
+décision de l'utilisateur, et n'ont pas bougé — ils vivent sur `rush/`.
+
+**Décision : l'étal des prix est démonté ENTIÈREMENT.** Aucune des trois cartes
+ne survit, pas même la gratuite. Motif : les deux payantes doublaient mot pour
+mot le bloc `cloud` déjà présent dans `communaute` (même direction, même
+honnêteté, même lien `rush/`), et la grille complète — avec sa sensibilité au
+coût et ses engagements « jamais à vendre » — vit sur `rush/`. Replanter un étal
+de prix au milieu de la bande « communauté » aurait violé « une idée par bande ».
+
+**La seule clause reversée**, parce qu'elle ne survivait NULLE PART ailleurs :
+« aucune fonction du noyau n'est retenue derrière un mur », recyclée mot pour mot
+de `pr.note` dans `co.cloud.d` (FR + EN). Aucun nouveau bloc, aucune nouvelle
+clé, pas de 2ᵉ `<h2>`. L'argument « gratuit / pour toujours / MIT » survivait
+déjà : `co.cloud.d` en `<strong>`, badge d'en-tête « v0.2.0 · MIT », pied
+`f.promesse`.
+
+Nettoyages induits : nav et pied purgés de `#tarifs` (`nav.rush`/`f.rush` restent
+les entrées tarifaires), **33 clés EN** retirées (`pr.*`, `nav.pricing`,
+`f.tarifs`), et **26 règles CSS mortes** (`.plans`, `.plan*`, `.tarifs-note`)
+avec leur commentaire de section. Sections `class="section"` : **8 → 7** — la
+cible du plan est atteinte. Environ 11 ko retirés de la page.
+
+**Vérifié, pas « écrit »** : bancs vitrine **174/174** (`site`, `site-fraicheur`,
+`vitrine-executee`, `apercu`, `vitrine-jetons`) ; barrière entière — typecheck
+**0**, typecheck:dashboard **0**, lint **0** (codes lus sans tube) ; suite
+**3 508 verts, 7 ignorés (3 515), 0 rouge** ; garde de badge de la CI
+(`compte-tests.mjs` SANS `--corriger`) : « les 6 annonces disent 3515 ».
+Enfin le DOM RENDU par chromium a été relu — pas seulement la source : la clause
+se lit bien en place, et `id="tarifs"`, « Hosted Queen », « €79 », « Pricing »
+ont tous disparu de la page.
+
+Une garde d'écriture a mordu pendant le retrait du CSS : mon assertion « un seul
+commentaire dans le bloc » a arrêté le script (il y en avait quatre, tous
+documentant des règles `.plan*`). Rien n'a été écrit. Remplacée par la garde qui
+mesure vraiment ce qui compte — AUCUN sélecteur étranger ne part avec le bloc —
+plutôt que par un proxy fragile.
+
+Restent les lots D (archi+mission→features) et E (bandeau-agents→héros).
