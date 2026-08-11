@@ -79,6 +79,23 @@ const MAX_MUTATIONS = Number(process.env.LOUPE_MAX ?? 12);
  * la syntaxe — `a >== b`, ou toutes les fonctions fléchées du fichier — et un
  * fichier qui ne s'analyse plus fait échouer la suite entière : le mutant
  * passerait pour tué, et la loupe mentirait dans le sens rassurant.
+ *
+ * ─── `??` : LE REPLI SUR ABSENCE, ET SA CONFUSION AVEC LA FAUSSETÉ ───────────
+ *
+ * `a ?? b` ne prend `b` que si `a` est `null` ou `undefined`. `a || b` le prend
+ * AUSSI quand `a` vaut `0`, `''` ou `false`. Échanger les deux est un vrai
+ * changement de sens, et le pire genre : il ne se manifeste que sur les valeurs
+ * « fausses mais présentes », donc jamais sur le chemin heureux.
+ *
+ * Le dépôt en compte 652 en production, et plusieurs portent des décisions —
+ * `(nodeOnShift.get(n.id) ?? true)` en tête : mutée, une ouvrière déclarée HORS
+ * SERVICE (`false`) redeviendrait disponible, et le hub lui confierait un merge
+ * qu'elle refuserait.
+ *
+ * Comme les autres, le motif porte ses espaces : ` ??= ` ne contient pas ` ?? `
+ * (le second `?` y est suivi d'un `=`). Sans cela la loupe écrirait `a ||= b` —
+ * du JavaScript VALIDE, donc silencieux, et le verdict porterait sur autre
+ * chose que ce qu'on croit mesurer.
  */
 const ECHANGES = [
   [' && ', ' || '],
@@ -89,6 +106,7 @@ const ECHANGES = [
   [' < ', ' <= '],
   [' === ', ' !== '],
   [' !== ', ' === '],
+  [' ?? ', ' || '],
 ];
 
 /**

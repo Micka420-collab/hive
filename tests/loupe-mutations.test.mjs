@@ -127,6 +127,47 @@ describe('une borne se mute DANS LES DEUX SENS — resserrer ET relâcher', () =
   });
 });
 
+describe('`??` n’est pas `||` — le repli sur ABSENCE, muté en repli sur FAUSSETÉ', () => {
+  // ─── POURQUOI CET OPÉRATEUR MÉRITE SA PLACE ─────────────────────────────────
+  //
+  // `a ?? b` ne prend `b` que si `a` est `null` ou `undefined`. `a || b` le prend
+  // aussi quand `a` vaut `0`, `''` ou `false`. L'échange est donc un vrai
+  // changement de sens — et un sens qui se casse en silence, puisqu'il ne se
+  // manifeste que sur les valeurs « fausses mais présentes ».
+  //
+  // Le dépôt compte 652 `??` en production, et plusieurs portent des décisions :
+  //
+  //     (nodeOnShift.get(n.id) ?? true)      un nœud HORS SERVICE (false)
+  //                                          redeviendrait de service ;
+  //     MATRICE[role]?.includes(action) ?? false
+  //                                          une permission refusée resterait
+  //                                          refusée, mais la table devient
+  //                                          indistinguable d'une absence.
+  //
+  // Aucun n'était mutable jusqu'ici : la loupe rendait ZÉRO candidat sur ces
+  // lignes, et imprimait son verdict rassurant par-dessus.
+
+  it('`??` se relâche en `||` — le repli mord alors sur zéro, vide et faux', () => {
+    expect(quoi('    const service = nodeOnShift.get(id) ?? true;')).toEqual(['?? → ||']);
+  });
+
+  it('la mutation garde la forme : un seul jeton change', () => {
+    const [m] = mutationsDeLigne('  return MATRICE[role]?.includes(action) ?? false;');
+    expect(m.apres).toBe('  return MATRICE[role]?.includes(action) || false;');
+  });
+
+  it('`??=` n’est PAS un `??` — l’affectation ne se mute pas', () => {
+    // Piège de forme : ` ??= ` ne contient pas ` ?? ` (le second `?` y est suivi
+    // d'un `=`). Sans cette précaution la loupe écrirait `a ||= b` — valide en
+    // JavaScript, donc SILENCIEUX, et le verdict porterait sur autre chose.
+    expect(quoi('  compteurs[cle] ??= 0;')).toEqual([]);
+  });
+
+  it('deux `??` sur une ligne : on s’abstient, comme partout ailleurs', () => {
+    expect(quoi('  const x = a ?? b ?? c;')).toEqual([]);
+  });
+});
+
 describe('les échanges d’origine tiennent toujours', () => {
   it('les cinq opérateurs binaires sont toujours proposés', () => {
     expect(quoi('  if (a && b) {')).toEqual(['&& → ||']);
