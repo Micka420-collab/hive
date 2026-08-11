@@ -68,6 +68,65 @@ describe('la loupe sait muter un tri par `instanceof`', () => {
   });
 });
 
+describe('une borne se mute DANS LES DEUX SENS — resserrer ET relâcher', () => {
+  // ─── L'ASYMÉTRIE QUE CE BANC FERME ──────────────────────────────────────────
+  //
+  // La table allait dans un seul sens : `>=` → `>` et `<=` → `<`, qui RESSERRENT
+  // une borne. Les échanges inverses — ceux qui la RELÂCHENT — n'existaient pas,
+  // alors que `===` ↔ `!==` était bien symétrique.
+  //
+  // Ce n'est pas une lacune théorique. Le carnet raconte `aSupprimer`, le geste
+  // le plus irréversible du dépôt (il appelle le fournisseur pour effacer une
+  // machine) : `s.arreteA > 0` muté en `>= 0` faisait entrer une ligne
+  // incohérente — état « arrêté », aucune date d'arrêt — dans les candidates à
+  // l'effacement DÉFINITIF, et immédiatement, puisque `now - 0` dépasse toute
+  // rétention. Cette mutation-là a été posée À LA MAIN : la loupe ne savait pas
+  // la produire, et ne le saurait toujours pas.
+  //
+  // Le sens qui relâche est le plus dangereux des deux. Resserrer une borne fait
+  // refuser du travail légitime — ça se voit. La relâcher fait ACCEPTER ce qui
+  // devait être refusé, et personne ne vient s'en plaindre.
+
+  it('`>` se relâche en `>=` — le sens qui laisse passer', () => {
+    expect(quoi('    if (s.arreteA > 0) {')).toEqual(['> → >=']);
+  });
+
+  it('`<` se relâche en `<=` — l’écart d’une unité des boucles et des plafonds', () => {
+    expect(quoi('    for (let i = 0; i < n; i++) {')).toEqual(['< → <=']);
+  });
+
+  it('`||` se resserre en `&&`, comme `&&` se relâche en `||`', () => {
+    // Un refus écrit `if (a || b) refuser` ne refuserait plus que sur les DEUX
+    // à la fois : une porte qui s'entrouvre sans que la forme bouge.
+    expect(quoi('  if (a || b) {')).toEqual(['|| → &&']);
+  });
+
+  it('les bornes déjà larges ne produisent QU’UN candidat, pas une boucle', () => {
+    // `>= → >` puis `> → >=` reviendrait au point de départ. Chaque ligne ne doit
+    // proposer qu'un seul échange par opérateur présent, sinon la loupe
+    // mesurerait deux fois la même chose et gonflerait son propre verdict.
+    expect(quoi('  if (a >= b) {')).toEqual(['>= → >']);
+    expect(quoi('  if (a <= b) {')).toEqual(['<= → <']);
+  });
+
+  it('`=>` n’est PAS un `>` — une flèche ne se mute pas', () => {
+    // Piège de forme : sans l'espace à gauche, `=> ` contiendrait la cible et la
+    // loupe transformerait toutes les fonctions fléchées en code invalide. Une
+    // mutation qui casse la syntaxe fait échouer la suite entière et passe pour
+    // un mutant tué — la loupe mentirait dans le sens rassurant.
+    expect(quoi('  const f = (x) => x;')).toEqual([]);
+  });
+
+  it('`>=` n’est pas lu comme un `>` — sinon l’un mangerait l’autre', () => {
+    // ` >= ` ne contient pas ` > ` (le `>` y est suivi d'un `=`, pas d'un
+    // espace). Si c'était le cas, une même ligne rendrait deux mutations dont
+    // l'une casserait la syntaxe (`a >== b`).
+    const m = mutationsDeLigne('  if (a >= b) {');
+    expect(m.length).toBe(1);
+    expect(m[0].apres).toBe('  if (a > b) {');
+  });
+});
+
 describe('les échanges d’origine tiennent toujours', () => {
   it('les cinq opérateurs binaires sont toujours proposés', () => {
     expect(quoi('  if (a && b) {')).toEqual(['&& → ||']);

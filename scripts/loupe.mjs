@@ -54,11 +54,39 @@ const MAX_MUTATIONS = Number(process.env.LOUPE_MAX ?? 12);
  * Chacun change le SENS sans toucher à la forme : le fichier reste analysable,
  * donc un échec de la suite est bien un test qui a mordu, pas un parseur qui a
  * renoncé.
+ *
+ * ─── LA TABLE ÉTAIT ASYMÉTRIQUE, ET DU MAUVAIS CÔTÉ ──────────────────────────
+ *
+ * `===` ↔ `!==` allait dans les deux sens. Les bornes, non : `>=` → `>` et
+ * `<=` → `<` RESSERRENT, et leurs inverses — ceux qui RELÂCHENT — manquaient.
+ *
+ * Le sens absent était le plus dangereux des deux. Resserrer une borne fait
+ * refuser du travail légitime : quelqu'un s'en plaint le jour même. La relâcher
+ * fait ACCEPTER ce qui devait être refusé, et personne ne vient le dire.
+ *
+ * Ce n'était pas théorique : le carnet raconte `aSupprimer`, le geste le plus
+ * irréversible du dépôt — `s.arreteA > 0` muté en `>= 0` faisait entrer une
+ * ligne incohérente (état « arrêté », aucune date d'arrêt) dans les candidates à
+ * l'effacement DÉFINITIF, immédiatement, puisque `now - 0` dépasse toute
+ * rétention. Cette mutation-là avait été posée À LA MAIN, faute que la loupe
+ * sache la produire.
+ *
+ * ─── POURQUOI CES ÉCHANGES NE SE MARCHENT PAS DESSUS ─────────────────────────
+ *
+ * Chaque motif porte ses espaces : ` >= ` ne contient pas ` > ` (le `>` y est
+ * suivi d'un `=`), et ` => ` non plus (le `>` y est précédé d'un `=`). Sans
+ * cette précaution, une même ligne rendrait deux mutations dont l'une casserait
+ * la syntaxe — `a >== b`, ou toutes les fonctions fléchées du fichier — et un
+ * fichier qui ne s'analyse plus fait échouer la suite entière : le mutant
+ * passerait pour tué, et la loupe mentirait dans le sens rassurant.
  */
 const ECHANGES = [
   [' && ', ' || '],
+  [' || ', ' && '],
   [' >= ', ' > '],
+  [' > ', ' >= '],
   [' <= ', ' < '],
+  [' < ', ' <= '],
   [' === ', ' !== '],
   [' !== ', ' === '],
 ];
