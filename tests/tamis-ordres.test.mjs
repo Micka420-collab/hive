@@ -10,7 +10,7 @@
 // en affichant les échecs, et on apprendrait à ne plus les lire.
 
 import { describe, expect, it } from 'vitest';
-import { GRAINES, principal } from '../scripts/tamis-ordres.mjs';
+import { GRAINES, codeDeSortie, principal } from '../scripts/tamis-ordres.mjs';
 
 /** Un lanceur qui note ce qu'on lui demande et rend les codes prévus. */
 function lanceur(codes) {
@@ -23,6 +23,35 @@ function lanceur(codes) {
     },
   };
 }
+
+describe('le code de sortie d’un ordre — zéro est un SUCCÈS', () => {
+  // ─── LA GARDE QUE LE BALAYAGE A TROUVÉE NUE ─────────────────────────────────
+  //
+  // `resolve(code ?? 1)` vivait dans le rappel de `spawn` : hors d'atteinte,
+  // puisque l'éprouver aurait demandé de relancer la suite DEPUIS la suite.
+  // Mutée en `code || 1`, la suite ENTIÈRE est restée verte — 244 fichiers,
+  // 3 559 tests — alors que le tamis rapportait un ÉCHEC pour chaque ordre qui
+  // passait.
+  //
+  // Le dégât n'est pas d'être rouge : c'est d'être rouge SANS RAISON. Une CI qui
+  // barre une suite verte s'apprend à ne plus être crue, puis se fait désarmer
+  // par lassitude — et le jour où elle a raison, personne ne l'écoute.
+
+  it('ZÉRO RESTE ZÉRO — un ordre qui passe n’est pas un ordre rouge', () => {
+    expect(codeDeSortie(0)).toBe(0);
+  });
+
+  it('TUÉ PAR UN SIGNAL (null) ⇒ échec — on ne conclut rien de bon d’un mort', () => {
+    expect(codeDeSortie(null)).toBe(1);
+  });
+
+  it('un code d’échec traverse tel quel, il ne se normalise pas', () => {
+    // Sans ce banc, une implémentation qui rendrait toujours 0 ou toujours 1
+    // satisferait les deux du dessus.
+    expect(codeDeSortie(2)).toBe(2);
+    expect(codeDeSortie(130)).toBe(130);
+  });
+});
 
 describe('le tamis des ordres', () => {
   it('SANS ARGUMENT, IL REJOUE LES GRAINES ÉCRITES', async () => {
