@@ -116,6 +116,31 @@ describe('le rendu — ce que l’écran raconte', () => {
     );
   });
 
+  it('CLASSEMENT VIDE ⇒ AUCUN TABLEAU — pas un cadre d’en-têtes sans une ligne', async () => {
+    // ─── LA GARDE QUE LA LOUPE A TROUVÉE NUE ────────────────────────────────
+    //
+    // `{etat.classement.length > 0 && (<table …>)}`. Deux bancs ci-dessus
+    // passent déjà `classement: []`, mais tous deux n'assertent que du TEXTE —
+    // or un tableau vide n'ajoute aucun mot, seulement des en-têtes. Mutée en
+    // `>= 0`, la garde laissait donc s'afficher « Échelon | Moyenne | Essais »
+    // au-dessus de rien, et pas un test ne rougissait.
+    //
+    // Ce que ça raconte à l'écran : un projet tout neuf, qui n'a encore rien
+    // essayé, semblerait avoir un classement dont les lignes ne sont pas
+    // arrivées — un chargement qui ne finit jamais, là où il n'y a
+    // simplement rien à montrer.
+    vi.mocked(fetchGardeFou).mockResolvedValue(etat({ classement: [] }));
+    const dom = await monter(<GardeFous projectId="p5" />);
+    expect(
+      dom.querySelector('.garde-fou-classement'),
+      'un classement vide ne doit poser AUCUN tableau',
+    ).toBeNull();
+    // Et la contre-épreuve, sur le même écran : avec des lignes, il est là.
+    vi.mocked(fetchGardeFou).mockResolvedValue(etat());
+    const plein = await monter(<GardeFous projectId="p5bis" />);
+    expect(plein.querySelectorAll('.garde-fou-classement tbody tr').length).toBe(3);
+  });
+
   it('les BORNES choisies sont marquées `aria-pressed` — la bonne, pas l’inverse', async () => {
     // Survivantes loupe : `aria-pressed={bornes.min === e}` et `.max === e`,
     // mutées en `!==`, marquaient l’INVERSE — le mauvais échelon montré comme

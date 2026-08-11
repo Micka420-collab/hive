@@ -87,6 +87,50 @@ describe('Drone Wars : câblage scheduler', () => {
     expect(scheduler.listRaces()).toEqual([]);
   });
 
+  it('AUCUN MODÈLE DÉCLARÉ ⇒ le champ reste ABSENT, pas un objet vide', () => {
+    // ─── LA GARDE QUE LES BORNES RELÂCHÉES ONT TROUVÉE NUE ──────────────────
+    //
+    // `if (Object.keys(modeleParDrone).length > 0) race.modeleParDrone = …`
+    //
+    // Mutée en `>= 0`, la course porte `modeleParDrone: {}` au lieu de ne rien
+    // porter. Tous les LECTEURS internes passent par `?.[…]` et lisent
+    // `undefined` dans les deux cas : côté comportement, rien ne bouge.
+    //
+    // Mais `listRaces()` est rendu TEL QUEL par l'API (`/races`). La différence
+    // sort donc sur le fil : un client verrait tantôt la clé absente, tantôt un
+    // objet vide, pour la même situation — « aucun modèle attribué ». Une forme
+    // qui varie sans que le sens varie est une forme qu'il faut gérer deux fois.
+    //
+    // On fige donc l'ABSENCE, qui est le sens : pas de modèle ⇒ pas de champ.
+    const { task } = setup(2);
+    const started = scheduler.startRace(task.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    const [course] = scheduler.listRaces();
+    expect(course?.modeleParDrone, 'aucun nœud ne déclare de modèle ici').toBeUndefined();
+  });
+
+  it('DES MODÈLES DÉCLARÉS ⇒ le champ est là, et nomme chaque drone', () => {
+    // La contre-épreuve du banc ci-dessus : sans elle, une implémentation qui
+    // n'écrirait JAMAIS le champ le satisferait aussi.
+    const { task, nodes } = setup(2);
+    for (const id of nodes) {
+      const n = store.getNode(id)!;
+      store.registerNode({
+        nodeId: id,
+        name: n.name,
+        ownerName: n.ownerName,
+        agentType: n.agentType,
+        maxConcurrency: n.maxConcurrency,
+        modeles: ['claude-opus-5'],
+      });
+    }
+    const started = scheduler.startRace(task.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    const [course] = scheduler.listRaces();
+    expect(course?.modeleParDrone, 'des modèles déclarés doivent apparaître').toBeDefined();
+    expect(Object.keys(course?.modeleParDrone ?? {}).sort()).toEqual([...started.drones].sort());
+  });
+
   it('la victoire reste retrouvable dans le journal après la course (lastEventFor)', () => {
     const { task } = setup(2);
     const started = scheduler.startRace(task.id, 2);
