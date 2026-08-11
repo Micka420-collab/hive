@@ -11,9 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  ENTREE_PASTILLE,
   compteAffiche,
+  doitSonder,
   pastilleDesAlertes,
   phraseAlertes,
+  porteLaPastille,
 } from '../dashboard/src/views/pastille-alertes.js';
 import type { Pastille } from '../dashboard/src/views/pastille-alertes.js';
 
@@ -21,6 +24,34 @@ import type { Pastille } from '../dashboard/src/views/pastille-alertes.js';
 const source = (nb: number, graviteMax: Pastille['gravite'] | null) => ({
   alertes: Array.from({ length: nb }, (_, i) => ({ i })),
   graviteMax,
+});
+
+describe('le câblage, sorti du JSX parce que la loupe l’a trouvé NU', () => {
+  // Ces trois règles vivaient dans le rendu de `App.tsx`. La loupe les a mutées
+  // sans faire rougir un seul banc — donc elles étaient au mauvais endroit
+  // (§ 2 quaterdecies), pas seulement mal testées.
+
+  it('ON NE SONDE PAS SANS SESSION — la route rend 401', () => {
+    // Muté, ce test sondait exactement quand il ne fallait pas : un cliquetis
+    // de refus toutes les 30 s pour un visiteur anonyme, et un message d'erreur
+    // allumé en permanence dans une interface où rien ne va mal.
+    expect(doitSonder(null)).toBe(false);
+    expect(doitSonder(undefined)).toBe(false);
+    expect(doitSonder({ id: 'u1', email: 'a@b.c' })).toBe(true);
+  });
+
+  it('UNE SEULE entrée de navigation porte la pastille', () => {
+    const p = { total: 2, gravite: 'critique' } as const;
+    expect(porteLaPastille(ENTREE_PASTILLE, p)).toBe(true);
+    // Muté en `!==`, la pastille serait apparue sur TOUTES les autres.
+    for (const ailleurs of ['miellerie', 'ruche', 'sante', 'essaim']) {
+      expect(porteLaPastille(ailleurs, p), `pastille égarée sur ${ailleurs}`).toBe(false);
+    }
+  });
+
+  it('pas de pastille à porter ⇒ aucune entrée ne la porte', () => {
+    expect(porteLaPastille(ENTREE_PASTILLE, null)).toBe(false);
+  });
 });
 
 describe('la pastille s’allume — et sur la gravité du SERVEUR', () => {
@@ -75,15 +106,15 @@ describe('ce que la pastille MONTRE et ce qu’elle DIT', () => {
     // § 9 vicies : un état qui ne tient qu'à un pixel n'est vérifiable ni par un
     // banc, ni par un lecteur d'écran.
     const p: Pastille = { total: 3, gravite: 'critique' };
-    expect(phraseAlertes(p, true)).toBe('3 alertes, la plus grave : critique');
-    expect(phraseAlertes(p, false)).toBe('3 alerts, most severe: critical');
+    expect(phraseAlertes(p, 'fr')).toBe('3 alertes, la plus grave : critique');
+    expect(phraseAlertes(p, 'en')).toBe('3 alerts, most severe: critical');
   });
 
   it('une seule alerte ne se dit pas « la plus grave »', () => {
     // « 1 alerte, la plus grave : critique » est du charabia : il n'y a pas de
     // hiérarchie à une seule.
-    expect(phraseAlertes({ total: 1, gravite: 'critique' }, true)).toBe('1 alerte, critique');
-    expect(phraseAlertes({ total: 1, gravite: 'attention' }, false)).toBe(
+    expect(phraseAlertes({ total: 1, gravite: 'critique' }, 'fr')).toBe('1 alerte, critique');
+    expect(phraseAlertes({ total: 1, gravite: 'attention' }, 'en')).toBe(
       '1 alert, needs attention',
     );
   });
@@ -91,8 +122,8 @@ describe('ce que la pastille MONTRE et ce qu’elle DIT', () => {
   it('les trois gravités ont chacune leur mot, dans les deux langues', () => {
     const gravites = ['critique', 'attention', 'info'] as const;
     const dits = gravites.flatMap((g) => [
-      phraseAlertes({ total: 2, gravite: g }, true),
-      phraseAlertes({ total: 2, gravite: g }, false),
+      phraseAlertes({ total: 2, gravite: g }, 'fr'),
+      phraseAlertes({ total: 2, gravite: g }, 'en'),
     ]);
     // Six phrases DISTINCTES : si deux gravités se disaient pareil, l'une
     // d'elles serait indiscernable à l'oreille.

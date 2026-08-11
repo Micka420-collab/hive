@@ -64,6 +64,37 @@ export function pastilleDesAlertes(tableau: SourceAlertes | null): Pastille | nu
   return { total, gravite: tableau.graviteMax };
 }
 
+/**
+ * L'entrée de navigation qui porte la pastille. Nommée ICI, une seule fois.
+ *
+ * Écrite au fil du JSX, cette constante était hors d'atteinte du banc : la
+ * loupe a montré qu'on pouvait la muter en `!==` — la pastille serait alors
+ * apparue sur TOUTES les entrées sauf la bonne — sans qu'un test rougisse.
+ */
+export const ENTREE_PASTILLE = 'monespace';
+
+/** Cette entrée de nav doit-elle porter la pastille ? */
+export function porteLaPastille(idEntree: string, p: Pastille | null): boolean {
+  return idEntree === ENTREE_PASTILLE && p !== null;
+}
+
+/**
+ * Faut-il interroger la route des alertes ?
+ *
+ * ─── CE N'EST PAS UNE OPTIMISATION, C'EST UNE GARDE ──────────────────────────
+ *
+ * `/api/moi/tableau` répond 401 sans session. Sonder quand même fabriquerait un
+ * cliquetis de refus toutes les trente secondes pour tout visiteur anonyme —
+ * du bruit dans les journaux du serveur, et un `poll.error` allumé en
+ * permanence dans une interface où rien ne va mal.
+ *
+ * La loupe a trouvé cette ligne NUE dans le JSX : mutée, elle sondait
+ * exactement quand il ne fallait pas. D'où son déménagement ici.
+ */
+export function doitSonder(session: unknown): boolean {
+  return session !== null && session !== undefined;
+}
+
 /** Le compte affiché. Au-delà de 99, on dit « beaucoup » sans mentir. */
 export function compteAffiche(total: number): string {
   return total > 99 ? '99+' : String(total);
@@ -79,7 +110,7 @@ export function compteAffiche(total: number): string {
  * la laisser à la couleur (§ 9 vicies : un état qui ne tient qu'à un pixel est
  * un état que personne ne peut vérifier — ni un banc, ni un lecteur d'écran).
  */
-export function phraseAlertes(p: Pastille, fr: boolean): string {
+export function phraseAlertes(p: Pastille, langue: 'fr' | 'en'): string {
   // Un `switch` plutôt qu'une table indexée : sous `noUncheckedIndexedAccess`,
   // toute lecture par clé rend `| undefined`, et une gravité « peut-être
   // absente » n'a aucun sens ici — les trois cas sont exhaustifs, et le
@@ -102,7 +133,7 @@ export function phraseAlertes(p: Pastille, fr: boolean): string {
     }
   })();
   const [nomFr, nomEn] = nom;
-  if (fr) {
+  if (langue === 'fr') {
     return p.total === 1 ? `1 alerte, ${nomFr}` : `${p.total} alertes, la plus grave : ${nomFr}`;
   }
   return p.total === 1 ? `1 alert, ${nomEn}` : `${p.total} alerts, most severe: ${nomEn}`;

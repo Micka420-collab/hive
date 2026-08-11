@@ -24,7 +24,13 @@ import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import { transitionDifferees } from './differees';
-import { compteAffiche, pastilleDesAlertes, phraseAlertes } from './views/pastille-alertes';
+import {
+  compteAffiche,
+  doitSonder,
+  pastilleDesAlertes,
+  phraseAlertes,
+  porteLaPastille,
+} from './views/pastille-alertes';
 import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import {
@@ -287,12 +293,12 @@ export function App() {
   // `useApiPoll` suspend déjà de lui-même quand l'onglet est caché ; le tic de
   // session le réveille à la connexion, sans quoi la pastille attendrait le
   // prochain intervalle pour apparaître.
-  const ticSession = user === null ? 0 : 1;
+  const sonde = doitSonder(user);
   const lireTableau = useCallback(
-    () => (user === null ? Promise.resolve(null) : fetchMonTableau()),
+    () => (doitSonder(user) ? fetchMonTableau() : Promise.resolve(null)),
     [user],
   );
-  const monTableau = useApiPoll(lireTableau, 30_000, refreshTick + ticSession);
+  const monTableau = useApiPoll(lireTableau, 30_000, refreshTick + (sonde ? 1 : 0));
   const pastille = useMemo(() => pastilleDesAlertes(monTableau.data), [monTableau.data]);
 
   const pendingReviews = useMemo(
@@ -367,12 +373,12 @@ export function App() {
                   {item.icon}
                 </span>
                 <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
-                {item.id === 'monespace' && pastille !== null && (
+                {porteLaPastille(item.id, pastille) && pastille !== null && (
                   <span
                     className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
                     data-gravite={pastille.gravite}
-                    aria-label={phraseAlertes(pastille, lang === 'fr')}
-                    title={phraseAlertes(pastille, lang === 'fr')}
+                    aria-label={phraseAlertes(pastille, lang)}
+                    title={phraseAlertes(pastille, lang)}
                   >
                     {compteAffiche(pastille.total)}
                   </span>
