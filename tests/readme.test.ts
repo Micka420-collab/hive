@@ -220,12 +220,79 @@ describe('LES DEUX READMES DISENT LA MÊME CHOSE', () => {
       ['README.md', FR],
       ['README.en.md', EN],
     ] as const) {
-      const comptes = [...source.matchAll(/\b2[  ]?\d{3}\b tests?\b/gi)];
+      // ─── LE MOTIF A ÉTÉ ÉLARGI DEUX FOIS, POUR DEUX RAISONS ────────────────
+      //
+      // 1. Il ne connaissait que l'espace (`2 310`), pas la VIRGULE anglaise.
+      //    `README.en.md` a donc pu annoncer « 2,310 tests » pendant que la
+      //    suite en comptait 3 522 : le banc regardait, et ne voyait rien.
+      //
+      // 2. Il était indexé sur `2\d{3}` — la valeur du jour où il fut écrit.
+      //    Le jour où la suite passe 4 000, un tel motif devient aveugle SANS
+      //    que rien ne rougisse. Une garde qui expire en silence est pire que
+      //    pas de garde : elle rassure.
+      //
+      // On accepte donc n'importe quel millier, quel que soit son séparateur.
+      const comptes = [...source.matchAll(/\b\d{1,2}[  ,]?\d{3}\b\s+tests?\b/gi)];
       expect(
         comptes.map((m) => m[0]),
         `${nom} répète le compte de tests`,
       ).toEqual([]);
     }
+  });
+
+  it('CHAQUE COMMANDE CITÉE EXISTE VRAIMENT DANS package.json', () => {
+    // ─── LE TROU QUE CE BANC FERME ─────────────────────────────────────────
+    //
+    // La table des commandes est ce qu'un arrivant COPIE. Rien ne la recoupait
+    // contre les scripts réels : un script renommé, et le README envoie taper
+    // une commande qui n'existe pas — sans qu'aucun banc ne rougisse.
+    //
+    // Mesuré : la table anglaise avait DEUX lignes de moins que la française
+    // (`ruche` — « tout en une commande », l'entrée principale du produit — et
+    // `fusionner`). Aucune garde ne l'a vu, parce qu'aucune ne regardait.
+    //
+    // On lit `npm run X` ET `npm test` (qui n'est pas un `run`), puis on exige
+    // que chaque nom soit un script déclaré. Ce qui suit un `--` est un
+    // ARGUMENT (`npm run cli -- doctor`), pas un script : on ne retient que le
+    // premier mot.
+    const scripts = new Set(
+      Object.keys(
+        (
+          JSON.parse(readFileSync(path.join(RACINE, 'package.json'), 'utf8')) as {
+            scripts?: Record<string, unknown>;
+          }
+        ).scripts ?? {},
+      ),
+    );
+    expect(scripts.size, 'aucun script lu dans package.json').toBeGreaterThan(5);
+
+    for (const [nom, source] of [
+      ['README.md', FR],
+      ['README.en.md', EN],
+    ] as const) {
+      const cites = new Set(
+        [...source.matchAll(/`npm run ([a-z][\w:-]*)/g)].map((m) => m[1] ?? ''),
+      );
+      // `npm test` est le seul script qu'on n'invoque pas par `run`.
+      if (/`npm test`/.test(source)) cites.add('test');
+
+      expect(cites.size, `${nom} ne cite aucune commande npm`).toBeGreaterThan(5);
+      const fantomes = [...cites].filter((c) => !scripts.has(c));
+      expect(fantomes, `${nom} cite des commandes qui n’existent pas`).toEqual([]);
+    }
+  });
+
+  it('LES DEUX TABLES DE COMMANDES CITENT LES MÊMES SCRIPTS', () => {
+    // La parité de STRUCTURE ne suffit pas : c'est le contenu qui envoie
+    // l'anglophone taper la bonne commande. Une entrée présente d'un seul côté
+    // est une fonctionnalité invisible pour la moitié des lecteurs — ici,
+    // `npm run ruche`, c'est-à-dire la façon dont on démarre le produit.
+    const dansTable = (source: string): string[] =>
+      [...source.matchAll(/^\| `npm (?:run )?([a-z][\w:-]*)[^|]*\|/gm)]
+        .map((m) => m[1] ?? '')
+        .sort();
+    expect(dansTable(FR), 'la table FR est vide').not.toEqual([]);
+    expect(dansTable(EN), 'les deux tables divergent').toEqual(dansTable(FR));
   });
 
   it('LES DEUX RENVOIENT VERS LE MÊME NOMBRE DE DOCUMENTS', () => {
