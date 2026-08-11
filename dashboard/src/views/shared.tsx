@@ -11,6 +11,7 @@ import type {
   TaskStatus,
 } from '../../../src/shared/types';
 import { ApiError, postReview } from '../api';
+import { messageDeSondage } from './sondage';
 import type { AuthUser } from '../api';
 import { useLang, useT } from '../i18n';
 import type { UiLang } from '../i18n';
@@ -357,7 +358,7 @@ export function useApiPoll<T>(fetcher: () => Promise<T>, intervalMs: number, tic
             setError(null);
           }
         })
-        .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
+        .catch((e) => alive && setError(messageDeSondage(e)));
     };
     load();
     const id = window.setInterval(() => {

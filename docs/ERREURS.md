@@ -4164,6 +4164,49 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 quinvicies. Chercher un MOT dans le code ne dit pas ce que l'écran AFFICHE
+
+Mission : « corriger les états vides du tableau de bord, ils font amateur ».
+Premier réflexe, et il était faux : `grep` des mots d'un état vide (« Aucun »,
+« vide », « Rien à ») sur les quinze vues, puis compter les `.map(` sans garde
+voisine. Le verdict de cette méthode : trois vues « nues » — `SwarmView`,
+`Reine`, `Cerveau`.
+
+**Les deux qui comptaient étaient des FAUX POSITIFS.** `Reine` a bien son état
+vide, mais dans une classe (`rn-empty`) et non dans les mots cherchés. `Cerveau`
+a le sien, complet et soigné — « Le Cerveau est vide, c'est l'état normal d'une
+ruche neuve » — derrière un drapeau `entier.total === 0` qu'aucun `grep` de
+vocabulaire ne pouvait voir. J'ai failli livrer une « correction » à deux écrans
+qui n'avaient rien de cassé.
+
+Ce qui a tranché, c'est d'avoir RENDU les treize vues avec un instantané vide
+(sonde jetable, montée sur le harnais React déjà là) et LU ce qui sortait. Et
+c'est ce rendu — pas le `grep` — qui a montré le seul vrai défaut, que le
+vocabulaire ne pouvait pas trouver puisque la phrase fautive n'est écrite nulle
+part dans le dépôt :
+
+    Failed to execute "fetch()" on "Window" with URL …
+
+Le navigateur, pas la ruche. `useApiPoll` rangeait `e.message` tel quel et
+vingt-cinq endroits rendent `poll.error` sans le relire — donc pour une ruche
+AUTO-HÉBERGÉE, le geste le plus banal qui soit (redémarrer son orchestrateur)
+affichait de l'anglais technique au milieu d'une interface française, sans rien
+dire à faire.
+
+### La règle
+
+Pour savoir ce qu'un écran DIT, il faut le rendre et le lire — pas chercher des
+mots dans sa source. Un `grep` de vocabulaire ne voit ni les états portés par
+une CLASSE, ni ceux gardés par un DRAPEAU, ni — surtout — le texte qui n'est pas
+écrit dans le dépôt parce qu'il vient d'ailleurs (navigateur, serveur, système).
+Ces trois angles morts se recouvrent exactement là où se logent les vrais
+défauts d'accueil. Corollaire de méthode : une sonde de mesure jetable, montée
+sur un harnais qui existe déjà, coûte quelques minutes et remplace trois
+suppositions par un tableau de faits — elle se jette ensuite, et seul le banc
+qui garde la correction reste.
+
+---
+
 ## 9 quattuorvicies. Défaire une mutation par `git checkout` efface le travail non commité qu'elle mutait
 
 En éprouvant deux gardes que je VENAIS d'écrire (`merge_result` /
@@ -4552,6 +4595,25 @@ Le parent de cette leçon est le § 9 terdecies : l'instrument qui ne mesure pas
 la grandeur. Ici l'instrument est le shell lui-même, et il ne prévient pas —
 `set -o pipefail` existe précisément parce que ce défaut est assez vieux pour
 avoir son remède standard.
+
+### Quatrième morsure — et ce qui a rattrapé le coup
+
+`npm run typecheck 2>&1 | tail -3 && echo "=== TYPECHECK OK ==="`. Le typecheck
+racine RENDAIT 2 (trois imports sans extension explicite dans un banc neuf), le
+tube a rendu le code de `tail`, et « TYPECHECK OK » s'est imprimé sous les trois
+lignes d'erreur qui disaient le contraire. La règle ci-dessus était écrite,
+relue, et enfreinte quand même — parce qu'on ajoute un `| tail` pour ABRÉGER la
+sortie, pas en pensant au code de sortie.
+
+Ce qui a sauvé la mise n'est pas la vigilance : c'est que le tube laissait
+passer le TEXTE de l'erreur. J'ai lu les trois lignes et vu que « OK » mentait.
+D'où le corollaire, plus robuste que « faire attention » : quand on abrège une
+sortie, abréger par la FIN (`tail`) plutôt que la museler — un `> /dev/null`
+aurait rendu l'échec parfaitement silencieux. Et la forme qui ne se trompe
+jamais reste celle du § 9 quaterdecies, appliquée pour le reste de ce lot :
+
+    npm run typecheck > /tmp/tc.log 2>&1; TC=$?
+    echo "typecheck=$TC (0 = vert)"
 
 ---
 
