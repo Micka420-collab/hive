@@ -116,6 +116,70 @@ function lignesAjoutees() {
   return par;
 }
 
+/**
+ * La classe de droite d'un `instanceof`, remplacée par la plus large qui soit.
+ *
+ * ─── L'ANGLE MORT QUI A DONNÉ CETTE RÈGLE ────────────────────────────────────
+ *
+ * La loupe ne mutait que des opérateurs BINAIRES DE COMPARAISON. Un lot dont la
+ * garde centrale était `if (e instanceof TypeError)` — le tri entre « le serveur
+ * a refusé » et « personne n'a répondu » — lui a donc rendu ZÉRO candidat, et
+ * elle a imprimé « LA LOUPE NE VOIT RIEN DE NU » sur un diff dont la seule vraie
+ * décision n'avait jamais été mutée. Son en-tête met en garde contre le faux
+ * vert rassurant ; elle en produisait un. Le dépôt compte 79 `instanceof` en
+ * production : l'angle mort n'était pas une curiosité.
+ *
+ * ─── POURQUOI `Object` PLUTÔT QU'UNE NÉGATION ────────────────────────────────
+ *
+ * Nier (`!(x instanceof Y)`) demanderait de connaître les BORNES de l'expression
+ * — donc un parseur. Sans lui, on poserait des parenthèses au jugé, et une
+ * mutation qui casse la syntaxe fait échouer toute la suite : elle passerait
+ * pour un mutant tué, et la loupe mentirait dans le sens rassurant, le pire des
+ * deux (voir l'en-tête).
+ *
+ * Remplacer la classe par `Object` reste un échange de JETON — la forme ne bouge
+ * pas, `Object` est toujours dans la portée — et il ôte exactement ce que la
+ * garde apporte : sa capacité à DISTINGUER. Un banc qui sépare `TypeError` de
+ * `SyntaxError` rougit ; un banc qui ne fait que suivre le chemin heureux, non.
+ * C'est bien ce qu'on veut mesurer.
+ *
+ * Ce que cette mutation NE voit pas, et il faut le dire : sur une entrée
+ * PRIMITIVE, `'x' instanceof Object` et `'x' instanceof String` valent tous deux
+ * `false` — le mutant survit alors sans être faux. La loupe DÉSIGNE, un humain
+ * juge : c'est déjà son contrat.
+ */
+const CLASSE_LA_PLUS_LARGE = 'Object';
+
+/**
+ * Les mutations d'UNE ligne. PURE, donc éprouvable — et elle l'est
+ * (`tests/loupe-mutations.test.mjs`), ce qui n'était pas le cas tant qu'elle
+ * vivait enfouie dans `candidates()`.
+ */
+export function mutationsDeLigne(ligne) {
+  const out = [];
+  for (const [de, vers] of ECHANGES) {
+    if (!ligne.includes(de)) continue;
+    // Une seule occurrence de l'opérateur : sinon on ne saurait pas laquelle on
+    // a mutée, et le verdict porterait sur autre chose que ce qu'on croit.
+    if (ligne.split(de).length - 1 !== 1) continue;
+    out.push({
+      avant: ligne,
+      apres: ligne.replace(de, vers),
+      quoi: `${de.trim()} → ${vers.trim()}`,
+    });
+  }
+  // `instanceof` : la classe de droite s'élargit, la garde cesse de trier.
+  const m = / instanceof ([A-Za-z_$][\w$]*)/.exec(ligne);
+  if (m !== null && ligne.split(' instanceof ').length - 1 === 1 && m[1] !== CLASSE_LA_PLUS_LARGE) {
+    out.push({
+      avant: ligne,
+      apres: ligne.replace(` instanceof ${m[1]}`, ` instanceof ${CLASSE_LA_PLUS_LARGE}`),
+      quoi: `instanceof ${m[1]} → instanceof ${CLASSE_LA_PLUS_LARGE}`,
+    });
+  }
+  return out;
+}
+
 /** Les mutations candidates, une par (fichier, ligne, échange). */
 function candidates() {
   const out = [];
@@ -126,17 +190,7 @@ function candidates() {
       // sinon on ne saurait pas laquelle on a mutée, et le verdict porterait
       // sur autre chose que ce qu'on croit.
       if (source.split(ligne).length - 1 !== 1) continue;
-      for (const [de, vers] of ECHANGES) {
-        if (!ligne.includes(de)) continue;
-        // Une seule occurrence de l'opérateur, même raison.
-        if (ligne.split(de).length - 1 !== 1) continue;
-        out.push({
-          fichier,
-          avant: ligne,
-          apres: ligne.replace(de, vers),
-          quoi: `${de.trim()} → ${vers.trim()}`,
-        });
-      }
+      for (const m of mutationsDeLigne(ligne)) out.push({ fichier, ...m });
     }
   }
   return out;

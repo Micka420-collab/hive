@@ -5018,3 +5018,155 @@ la branche de travail **est** la PR vitrine tenue (#204) — tant qu'elle n'est 
 fusionnée, tout code neuf s'y empilerait et couplerait un durcissement à la
 publication de la vitrine. La sortie propre de ce couplage, c'est **ta réaction à
 #204**.
+
+## Accueil : la ruche injoignable ne parle plus anglais technique
+
+Nouvelle consigne de l'utilisateur (priorités de sortie fin août) : **états vides
+du tableau de bord d'abord, « car ils font amateur »**, puis doublons de la
+vitrine, bac à sable, tests d'intégration, alertes visuelles.
+
+### Ce que la mesure a dit, contre ma première hypothèse
+
+Le `grep` de vocabulaire (« Aucun », « vide », « Rien à ») désignait trois vues
+nues. **Deux étaient des faux positifs** : `Reine` porte son état vide dans une
+CLASSE (`rn-empty`), `Cerveau` derrière un DRAPEAU (`entier.total === 0`) avec
+un texte déjà soigné. J'ai donc RENDU les treize vues sur un instantané vide
+(sonde jetable sur le harnais React existant) — et les états vides de la ruche
+se sont révélés largement bons : Ruche, Miellerie, Rayon, Chantiers, Memoire,
+Essaim, Chronique, Projets ont tous leur phrase.
+
+Le rendu a en revanche montré le défaut que le vocabulaire ne POUVAIT pas
+trouver, puisque la phrase fautive n'est écrite nulle part dans le dépôt :
+
+    Failed to execute "fetch()" on "Window" with URL …
+
+### Le défaut, et pourquoi il compte pour une sortie
+
+`useApiPoll` rangeait `e.message` tel quel, et **vingt-cinq endroits** du tableau
+de bord rendent `poll.error` sans le relire. Le tri est pourtant net :
+
+- le serveur RÉPOND et refuse → `ApiError`, message tiré du corps JSON, écrit
+  pour un humain : on le montre tel quel ;
+- le `fetch` n'aboutit PAS → c'est le NAVIGATEUR qui parle, dans sa langue, sans
+  rien dire à faire.
+
+Pour une ruche AUTO-HÉBERGÉE, le second cas est le plus banal qui soit — on
+redémarre son propre orchestrateur — et c'était le seul à rester en anglais
+technique au milieu d'une interface française.
+
+### Le correctif, à la source plutôt qu'écran par écran
+
+`messageDeSondage()` extraite en module PUR `dashboard/src/views/sondage.ts`
+(§ 2 quaterdecies : « hors d'atteinte du banc » = « au mauvais endroit », comme
+`rayon-affichage.ts` et `cerveau-designation.ts`), appelée par le `catch` de
+`useApiPoll` : **un seul endroit, vingt-cinq écrans réparés**. Le tri se fait sur
+`TypeError` — ce que `fetch` rejette PAR SPÉCIFICATION sur échec de transport —
+et non sur « tout ce qui n'est pas une ApiError », qui mentirait sur les pannes
+voisines (un corps JSON illisible jette un `SyntaxError` : la ruche A répondu).
+
+### Vérifié, pas « écrit »
+
+- **Mutation-first, VERDICT AFFICHÉ** : garde `e instanceof TypeError` inversée →
+  **4/4 ROUGE**, dont l'assertion qui reproduit le défaut d'origine
+  (`expected 'Failed to fetch' not to contain 'Failed to fetch'`) et celles qui
+  attrapent le mensonge sur les cas voisins ; restaurée par COPIE (jamais
+  `git checkout`, § 9 quattuorvicies) → **4/4 VERT**. Rejoué APRÈS l'extraction,
+  la fonction ayant changé de fichier.
+- **Barrière entière** : typecheck **0**, typecheck:dashboard **0**, lint **0**
+  (codes lus SANS tube), `vitest run` **240 fichiers, 3 508 passés, 7 ignorés
+  (3 515), 0 rouge**.
+- **Badges re-mesurés**, jamais écrits de tête : `compte-tests.mjs --corriger`
+  porte README, README.en, vitrine et présentation à **3 515**.
+
+### Leçons consignées
+
+`ERREURS § 9 quinvicies` (chercher un MOT dans le code ne dit pas ce que l'écran
+AFFICHE — trois angles morts : la classe, le drapeau, et le texte venu
+d'ailleurs) ; `§ 9 quaterdecies` enrichi d'une **quatrième morsure** du tube qui
+avale le code de sortie, mordue dans ce lot même.
+
+### Ce que ce lot n'est PAS
+
+Il ne referme pas « les états vides du tableau de bord » : la mesure dit qu'ils
+étaient déjà bons, et c'est dit tel quel plutôt que maquillé en victoire. Restent
+les priorités suivantes de la liste — doublons de la vitrine (lot C tranché, spec
+en attente d'implémentation), bac à sable, alertes visuelles.
+
+### Vitrine lot C — fusion tarifs→communauté (décision agent Fable 5)
+
+Troisième lot de la consolidation 13→7, débloqué par la fusion de #204 (lot B).
+Arbitrage tranché par un agent Fable 5 ; les MONTANTS et le TON restent la
+décision de l'utilisateur, et n'ont pas bougé — ils vivent sur `rush/`.
+
+**Décision : l'étal des prix est démonté ENTIÈREMENT.** Aucune des trois cartes
+ne survit, pas même la gratuite. Motif : les deux payantes doublaient mot pour
+mot le bloc `cloud` déjà présent dans `communaute` (même direction, même
+honnêteté, même lien `rush/`), et la grille complète — avec sa sensibilité au
+coût et ses engagements « jamais à vendre » — vit sur `rush/`. Replanter un étal
+de prix au milieu de la bande « communauté » aurait violé « une idée par bande ».
+
+**La seule clause reversée**, parce qu'elle ne survivait NULLE PART ailleurs :
+« aucune fonction du noyau n'est retenue derrière un mur », recyclée mot pour mot
+de `pr.note` dans `co.cloud.d` (FR + EN). Aucun nouveau bloc, aucune nouvelle
+clé, pas de 2ᵉ `<h2>`. L'argument « gratuit / pour toujours / MIT » survivait
+déjà : `co.cloud.d` en `<strong>`, badge d'en-tête « v0.2.0 · MIT », pied
+`f.promesse`.
+
+Nettoyages induits : nav et pied purgés de `#tarifs` (`nav.rush`/`f.rush` restent
+les entrées tarifaires), **33 clés EN** retirées (`pr.*`, `nav.pricing`,
+`f.tarifs`), et **26 règles CSS mortes** (`.plans`, `.plan*`, `.tarifs-note`)
+avec leur commentaire de section. Sections `class="section"` : **8 → 7** — la
+cible du plan est atteinte. Environ 11 ko retirés de la page.
+
+**Vérifié, pas « écrit »** : bancs vitrine **174/174** (`site`, `site-fraicheur`,
+`vitrine-executee`, `apercu`, `vitrine-jetons`) ; barrière entière — typecheck
+**0**, typecheck:dashboard **0**, lint **0** (codes lus sans tube) ; suite
+**3 508 verts, 7 ignorés (3 515), 0 rouge** ; garde de badge de la CI
+(`compte-tests.mjs` SANS `--corriger`) : « les 6 annonces disent 3515 ».
+Enfin le DOM RENDU par chromium a été relu — pas seulement la source : la clause
+se lit bien en place, et `id="tarifs"`, « Hosted Queen », « €79 », « Pricing »
+ont tous disparu de la page.
+
+Une garde d'écriture a mordu pendant le retrait du CSS : mon assertion « un seul
+commentaire dans le bloc » a arrêté le script (il y en avait quatre, tous
+documentant des règles `.plan*`). Rien n'a été écrit. Remplacée par la garde qui
+mesure vraiment ce qui compte — AUCUN sélecteur étranger ne part avec le bloc —
+plutôt que par un proxy fragile.
+
+Restent les lots D (archi+mission→features) et E (bandeau-agents→héros).
+
+### La loupe voyait tout, sauf les tris par `instanceof`
+
+Le balayage de contrôle du lot « messageDeSondage » a rendu **1 seul candidat** —
+et pas la garde centrale du lot. Motif : les opérateurs de la loupe étaient
+`&&`/`||`, `>=`/`>`, `<=`/`<`, `===`/`!==`. **`instanceof` n'y figurait pas.**
+L'instrument qui traque les faux verts venait d'en produire un, sur un dépôt qui
+compte **79 `instanceof` en production**.
+
+Corrigé : `mutationsDeLigne(ligne)` sortie de `candidates()` en fonction PURE et
+exportée — elle était intestable tant qu'elle lisait le disque (§ 2
+quaterdecies) — et l'opérateur `instanceof X → instanceof Object` ajouté. Pas une
+négation : nier demanderait les bornes de l'expression, donc un parseur, et une
+mutation qui casse la syntaxe passe pour un mutant tué. Élargir la classe reste
+un échange de jeton et ôte exactement ce que la garde apporte, sa capacité à
+DISTINGUER. La limite est dite au code : sur une entrée primitive, le mutant
+survit sans être faux — la loupe désigne, un humain juge.
+
+**L'opérateur a gagné sa place au premier essai.** Relancée, la loupe a trouvé
+une nudité RÉELLE dans le lot qu'elle venait de déclarer propre :
+`e instanceof Error ? e.message : String(e)` survivait à sa mutation, faute d'un
+banc passant un objet qui ne soit pas une `Error`. Pas équivalent — sur un objet
+nu, la branche livrait « [object Object] » à l'écran, exactement le charabia que
+cette fonction existe pour empêcher. Corrigé (un objet nu rend « Panne inattendue
+de la ruche. ») et éprouvé.
+
+Deux leçons consignées : `ERREURS § 9 sexvicies` (un instrument ne trouve que ce
+que sa liste d'opérateurs contient) et `§ 9 septvicies` (la loupe lit le diff
+COMMITÉ mais mute l'arbre de travail — son silence ne prouve rien tant que les
+deux ne coïncident pas ; c'est ce piège qui a failli me faire signer un « rien de
+nu » obtenu juste après une correction non commitée).
+
+Vérifié : mutation de la garde neuve de la loupe → banc ROUGE (« expected
+[ Array(1) ] to deeply equal [] »), restaurée par copie → 8/8 VERT. Barrière
+entière verte (codes lus sans tube). Suite **3 524** (3 517 verts, 7 ignorés,
+0 rouge), badges re-mesurés à 3 524 et garde CI verte.
