@@ -5294,3 +5294,49 @@ correspondances (un `balayage` vaut-il un `effacement_imminent` ? non : l'un est
 irréversible) et un problème de périmètre non résolu (`/api/moi/tableau` est
 borné aux projets dont on est membre, alors que Guetteuses et Fantômes sont des
 signaux de ruche entière). C'est un lot d'après-sortie.
+
+### La pastille d'alertes câblée — et l'obstacle que j'avais inventé
+
+Suite de `graviteMax` : le badge est posé sur « Mon espace ».
+
+**Une correction contre moi.** J'avais annoncé un obstacle bloquant : « `user`
+est une REF dans App.tsx, donc un poll conditionné dessus ne se réveillerait pas
+à la connexion ». **C'est faux** : `user` est un ÉTAT (`useState<AuthUser |
+null>`, App.tsx:138) ; le `userRef` (l.145-146) n'en est qu'un miroir, pour que
+le gestionnaire de raccourcis clavier n'ait pas à se recréer. J'avais lu la ref
+sans voir l'état juste au-dessus. Le câblage ne demandait pas de comprendre le
+flux d'authentification — il demandait de lire sept lignes plus haut.
+
+Mécanique : un module PUR `pastille-alertes.ts` (décide d'allumer, plafonne le
+compte, rend la phrase du lecteur d'écran) ; un sondage BORNÉ à la session dans
+App.tsx, réveillé par un tic de session ; trois modificateurs CSS distingués par
+la FORME autant que par la couleur (plein+halo / plein / creux) ; `data-gravite`
+pour que les bancs puissent lire l'état ailleurs que dans un pixel.
+
+Deux pièges fermés au module pur, chacun éprouvé : **`null` n'est pas « info »**
+(une ruche saine ne porte aucune pastille — une pastille toujours allumée
+n'attire plus l'œil), et **un serveur ancien n'invente pas de couleur** (le
+contrat porte un `version` ; sans `graviteMax`, on n'allume pas plutôt que de
+mentir sur l'urgence). Mutation `||` → `&&` : 2 bancs ROUGES, dont le cas du
+serveur ancien (« expected { total: 5, gravite: null } to be null »).
+
+#### Deux défauts que la barrière a attrapés, et qu'un tube aurait cachés
+
+1. **`typecheck` racine = 2** alors que la suite était verte et
+   `typecheck:dashboard` à 0. Le banc du module pur importait sans extension
+   `.js` — la convention du dépôt (`moduleResolution: node16`), que les bancs
+   voisins respectent déjà.
+2. **Importer `Gravite` depuis `../api.js` a tiré TOUT `api.ts` dans le graphe
+   du typecheck RACINE**, révélant quatre erreurs d'extension préexistantes dans
+   ce fichier — invisibles jusque-là parce qu'`api.ts` n'était compilé que par
+   le tsconfig du tableau de bord, qui a d'autres règles. Corrigé en important le
+   type depuis SA SOURCE (`src/orchestrator/tableau.js`) : un module pur ne
+   devrait pas dépendre d'un module d'API pour un type de trois littéraux.
+
+Le `switch` des libellés porte un `const jamais: never` : le jour où une
+quatrième gravité naît, la compilation s'arrête là plutôt que de rendre une
+pastille muette.
+
+Vérifié : barrière entière verte (codes lus SANS TUBE — c'est ce qui a montré le
+typecheck rouge quand tout le reste était vert), suite **3 537** (3 530 verts,
+0 rouge), badges re-mesurés à 3 537, garde CI verte.

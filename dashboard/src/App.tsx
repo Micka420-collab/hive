@@ -3,7 +3,7 @@
 // tiroir de tâche et modales globales. L'état temps réel (snapshot + journal)
 // vit ici et descend dans les vues en props (contrat ViewProps).
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
 import {
   authMe,
@@ -11,6 +11,7 @@ import {
   connectFeed,
   estAdmin,
   fetchPulse,
+  fetchMonTableau,
   fetchReviews,
   getJwt,
   getToken,
@@ -23,6 +24,7 @@ import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import { transitionDifferees } from './differees';
+import { compteAffiche, pastilleDesAlertes, phraseAlertes } from './views/pastille-alertes';
 import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import {
@@ -275,6 +277,24 @@ export function App() {
     return buckets.slice(-24).map((b) => b.done + b.failed);
   }, [pulse.data]);
 
+  // ─── Les alertes de la personne, annoncées depuis N'IMPORTE QUEL écran ─────
+  //
+  // Une alerte `effacement_imminent` ne se rattrape pas après coup, et elle
+  // dormait invisible tant qu'on n'ouvrait pas « Mon espace ». Le sondage est
+  // BORNÉ à la session : sans elle, la route rend 401, et boucler dessus
+  // fabriquerait un cliquetis de refus pour un visiteur anonyme.
+  //
+  // `useApiPoll` suspend déjà de lui-même quand l'onglet est caché ; le tic de
+  // session le réveille à la connexion, sans quoi la pastille attendrait le
+  // prochain intervalle pour apparaître.
+  const ticSession = user === null ? 0 : 1;
+  const lireTableau = useCallback(
+    () => (user === null ? Promise.resolve(null) : fetchMonTableau()),
+    [user],
+  );
+  const monTableau = useApiPoll(lireTableau, 30_000, refreshTick + ticSession);
+  const pastille = useMemo(() => pastilleDesAlertes(monTableau.data), [monTableau.data]);
+
   const pendingReviews = useMemo(
     () => countPendingReviews(snapshot.tasks),
     [snapshot.tasks, reviewTick],
@@ -347,6 +367,16 @@ export function App() {
                   {item.icon}
                 </span>
                 <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
+                {item.id === 'monespace' && pastille !== null && (
+                  <span
+                    className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
+                    data-gravite={pastille.gravite}
+                    aria-label={phraseAlertes(pastille, lang === 'fr')}
+                    title={phraseAlertes(pastille, lang === 'fr')}
+                  >
+                    {compteAffiche(pastille.total)}
+                  </span>
+                )}
                 {item.id === 'miellerie' && pendingReviews > 0 && (
                   <span
                     className="mc-nav-badge"
