@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-3522%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-3524%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -19,10 +19,14 @@
 
 ---
 
-Une **Reine** centrale découpe un projet en tâches et les distribue aux machines
-des membres — les **nœuds** — qui exécutent chacune leurs agents de codage dans
-des espaces de travail isolés. Le contrôle est centralisé ; **le code et les clés
-restent chez chaque membre.**
+Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les
+distribue aux ordinateurs de votre équipe, et vous montre chaque résultat **à
+valider**. Rien n'est fusionné sans votre accord — **votre code et vos clés
+restent sur vos machines.**
+
+Sous le capot : une **Reine** centrale orchestre, des **nœuds** exécutent leurs
+agents de codage dans des espaces de travail isolés. Le contrôle est centralisé,
+l'exécution ne l'est pas.
 
 Ce que Hive cherche à résoudre n'est pas « faire écrire du code à une IA » —
 c'est **faire tenir une équipe d'IA sur un projet pendant des mois** sans
@@ -42,6 +46,18 @@ compris au deuxième.
                                   │  React · 2D/3D │
                                   └────────────────┘
 ```
+
+## 🔁 Comment ça marche
+
+Trois étapes, et vous gardez la main.
+
+1. **Vous décrivez le projet.** Quelques phrases suffisent. Hive vous propose
+   une liste de tâches ordonnées — vous la corrigez avant de lancer.
+2. **Les IA travaillent en parallèle.** Chaque tâche part sur l'ordinateur d'un
+   membre, qui fait tourner son IA dans un dossier isolé. Vous voyez
+   l'avancement en direct.
+3. **Vous validez, puis ça fusionne.** Chaque résultat s'arrête devant vous.
+   Vous lisez, vous validez ou vous refusez. Rien ne passe sans votre accord.
 
 ## ⚡ Installation
 
@@ -239,9 +255,18 @@ s'éteint.
 - **Bac à sable par tâche** — cwd dédié, environnement épuré, délai dur, sortie plafonnée.
 - **Jamais de fusion sans revue humaine.**
 
-> **Limite assumée (bac à sable v0)** : un processus réel peut lire le disque et
-> accéder au réseau. D'ici une vraie isolation, ne faites tourner Hive qu'entre
-> **membres de confiance**.
+> **Ce que le bac à sable fait — et ce qu'il ne fait pas.** Avec **podman**,
+> **docker** ou **bubblewrap** installé, l'agent ne voit que le répertoire de sa
+> tâche : ni votre `HOME`, ni vos clés SSH, ni vos autres projets. **Le réseau
+> reste ouvert**, et c'est délibéré — un agent de codage doit joindre l'API de son
+> modèle. L'isolement l'empêche de _lire_ votre machine, pas d'_envoyer_ ce qu'il
+> a lu du dépôt.
+>
+> **Sans moteur de conteneurs**, il ne reste qu'une sandbox de processus : cwd
+> dédié et environnement épuré, mais **le disque entier** reste lisible sous votre
+> utilisateur. Dans ce cas, n'ouvrez votre ruche qu'à des **membres de confiance**
+> — ou posez `HIVE_ISOLEMENT=exige`, et le nœud **refusera de travailler** faute de
+> bac à sable, plutôt que de travailler à découvert.
 
 Le détail — et les autres limites assumées, écrites plutôt que tues — est dans
 **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**.

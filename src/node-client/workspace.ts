@@ -1,11 +1,25 @@
-// Préparation du répertoire de travail d'une tâche — sandbox v0.
-// Isolation fournie : un cwd dédié par tâche, environnement épuré (pas de
-// HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la tâche,
-// branche git `hive/<taskId>` quand le projet a un dépôt.
-// Limites (documentées dans le README) : pas encore de VM/conteneur — un
-// processus malveillant peut toujours lire le disque. La vraie isolation
-// (Firecracker/Docker + réseau filtré) est prévue à l'itération suivante ;
-// d'ici là, Hive ne doit tourner qu'entre membres de confiance.
+// Préparation du répertoire de travail d'une tâche.
+//
+// Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
+// (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
+// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt.
+//
+// ─── CE N'EST PAS TOUT L'ISOLEMENT, ET CE COMMENTAIRE L'A CRU LONGTEMPS ──────
+//
+// Il annonçait « pas encore de VM/conteneur » et promettait Firecracker « à
+// l'itération suivante ». Les deux affirmations sont fausses aujourd'hui :
+//
+//   · `isolement.ts` EXISTE et enveloppe l'agent dans podman, docker ou
+//     bubblewrap — au niveau `conteneur`, l'agent ne voit que le répertoire
+//     préparé ici, ni le HOME du membre ni ses clés ;
+//   · Firecracker est REFUSÉ, avec sa raison, par l'ADR 0009 (pas de KVM sur
+//     macOS, Windows 11 + virtualisation imbriquée + droits admin contre
+//     « aucun sudo, jamais »).
+//
+// Ce qui reste vrai : SANS moteur de conteneurs, il ne reste que ce
+// répertoire-ci, et le disque entier demeure lisible sous l'utilisateur du
+// membre. C'est le niveau `processus` de `constat()`, et c'est là — pas ici —
+// que la vérité de l'isolement s'écrit.
 
 import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';

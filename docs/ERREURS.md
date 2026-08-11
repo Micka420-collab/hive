@@ -4164,6 +4164,75 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 novievicies. Un EPERM de nettoyage peut être la CONSÉQUENCE d'un délai dépassé
+
+La CI Windows a rougi sur `preparation-merge.test.ts` avec deux échecs :
+
+    Error: EPERM, Permission denied: …\Temp\hive-prep-lSOoej   (afterAll, rmSync)
+    Error: Test timed out in 60000ms.                            (le test juste avant)
+
+Le § 6.1 bis enseigne qu'un EPERM au nettoyage désigne une ressource laissée
+OUVERTE, et que « Windows a raison » — la tentation d'ajouter `maxRetries` y est
+nommée comme un traitement du symptôme. Appliquer cette leçon telle quelle ici
+aurait envoyé chercher une fuite de handle qui n'existe pas.
+
+Car l'ordre des faits dit autre chose : c'est le TEST qui a expiré d'abord, en
+laissant ses processus git vivants ; le `afterAll` a ensuite tenté d'effacer un
+dossier encore tenu par eux. L'EPERM est la conséquence, pas la cause. Deux
+indices le confirmaient : le `maxRetries: 5` était DÉJÀ posé (donc le symptôme
+était déjà traité), et la durée du run — **413 s contre ~140 à 298 s d'habitude**
+— désignait un runner lent, pas un défaut de code. Vérifié : le commit suivant,
+identique côté code, est passé VERT sur les cinq jambes.
+
+### La règle
+
+Devant un EPERM de nettoyage sous Windows, lire d'abord **ce qui a échoué juste
+avant**. S'il y a un délai dépassé dans la même suite, l'EPERM en découle et
+corriger le nettoyage ne corrigera rien. Les deux diagnostics mènent à des
+gestes opposés — fermer une ressource, ou comprendre une lenteur — et se
+tromper de leçon coûte une chasse dans du code qui va très bien.
+
+Corollaire : ne jamais « réparer » un intermittent avant d'avoir vu s'il se
+reproduit. Un second passage vert sur le même code est une donnée ; un correctif
+posé sans elle en supprime la possibilité, et laisse croire qu'on a soigné
+quelque chose.
+
+---
+
+## 9 octovicies. Committer pendant qu'un agent VÉRIFIE le même arbre grave sa mutation
+
+J'ai lancé un agent de vérification en lui demandant, entre autres, si mes gardes
+neuves « peuvent VRAIMENT rougir ». Pour répondre, il a fait la seule chose
+sensée : il a MUTÉ les fichiers pour voir les gardes mordre. Pendant ce temps,
+j'ai commité.
+
+Le commit a donc gravé `npm run fantome` dans `README.en.md` — la mutation d'un
+autre processus, capturée à l'instant précis où elle était posée. Et l'ironie est
+totale : ce lot existe pour corriger des commandes qui n'existent pas.
+
+Ce qui a permis de le voir tient à un détail : après le `git push`, un
+`git status` a montré `M README.en.md`. Une modification APRÈS un commit qu'on
+croit complet n'est jamais du bruit — c'est un second écrivain. Je l'ai regardée
+au lieu de la committer par réflexe, et le `git diff` a montré la mutation.
+
+### La règle
+
+Le § 2 unvicies dit déjà que deux loupes dans le même atelier ne rendent aucun
+verdict valable. La règle est plus large : **tout ce qui MUTE l'arbre est un
+écrivain, et deux écrivains simultanés se gravent l'un dans l'autre.** Un agent
+de vérification à qui l'on demande si une garde peut rougir EST un tel écrivain,
+même quand on ne le voit pas travailler.
+
+Concrètement : ne jamais committer tant qu'un agent lancé sur le même dépôt n'a
+pas rendu. Et si `git status` montre une modification qu'on n'a pas faite,
+LA REGARDER — jamais la ranger dans le commit « puisqu'elle est là ».
+
+Corollaire pour l'avenir : un agent de vérification devrait travailler sur une
+COPIE (ou un worktree), pas sur l'arbre vivant. Le demander explicitement dans sa
+consigne coûte une phrase ; l'oublier coûte un commit faux poussé sur la branche.
+
+---
+
 ## 9 septvicies. La loupe lit le diff COMMITÉ mais mute l'arbre DE TRAVAIL
 
 Après avoir corrigé une nudité que la loupe venait de désigner, je l'ai relancée

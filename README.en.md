@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-3522%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-3524%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -19,10 +19,12 @@
 
 ---
 
-A central **Queen** splits a project into tasks and hands them to members'
-machines — the **nodes** — each running its own coding agents in isolated
-workspaces. Control is centralised; **the code and the keys stay with each
-member.**
+You write what you want to build. Hive splits it into tasks, hands them to
+your team's computers, and shows you every result **to validate**. Nothing is
+merged without your say-so — **your code and your keys stay on your machines.**
+
+Under the hood: a central **Queen** orchestrates, **nodes** run their coding
+agents in isolated workspaces. Control is centralised; execution is not.
 
 What Hive sets out to solve is not "getting an AI to write code" — it is
 **keeping a team of AIs on one project for months** without it drifting,
@@ -41,6 +43,17 @@ repeating itself, or relearning in month six what it understood in month two.
                                   │  React · 2D/3D │
                                   └────────────────┘
 ```
+
+## 🔁 How it works
+
+Three steps, and you stay in charge.
+
+1. **You describe the project.** A few sentences are enough. Hive proposes an
+   ordered list of tasks — you correct it before launching.
+2. **The AIs work in parallel.** Each task goes to a member's computer, which
+   runs its AI in an isolated folder. You watch progress live.
+3. **You validate, then it merges.** Every result stops in front of you. You
+   read it, you approve or refuse. Nothing passes without your say-so.
 
 ## ⚡ Install
 
@@ -223,26 +236,37 @@ it — a dance nobody repeats dies out.
 - **Per-task sandbox** — dedicated cwd, scrubbed environment, hard timeout, capped output.
 - **Never a merge without human review.**
 
-> **Accepted limit (sandbox v0)**: a real process can read the disk and reach
-> the network. Until proper isolation lands, run Hive only among **trusted
-> members**.
+> **What the sandbox does — and what it does not.** With **podman**, **docker**
+> or **bubblewrap** installed, the agent only sees its own task directory: not
+> your `HOME`, not your SSH keys, not your other projects. **The network stays
+> open**, deliberately — a coding agent must reach its model's API. Isolation
+> stops it from _reading_ your machine, not from _sending_ what it read of the
+> repository.
+>
+> **Without a container engine**, only a process sandbox remains: a dedicated cwd
+> and a stripped environment, but **the whole disk** stays readable under your
+> user. In that case, open your hive to **trusted members** only — or set
+> `HIVE_ISOLEMENT=exige`, and the node will **refuse to work** for lack of a
+> sandbox, rather than work in the open.
 
 The detail — and the other accepted limits, written down rather than left
 unsaid — is in **[docs/FEATURES.en.md](docs/FEATURES.en.md)**.
 
 ## 🛠️ Commands
 
-| Command                     | Effect                                                             |
-| --------------------------- | ------------------------------------------------------------------ |
-| `npm run demo`              | Full demo (orchestrator + 2 nodes + project)                       |
-| `npm run dev`               | Orchestrator only                                                  |
-| `npm run node`              | A member node                                                      |
-| `npm run cli -- doctor`     | **The doctor** — 13 failure causes, each with the fixing command   |
-| `npm run cli -- sauvegarde` | SQLite backup via `VACUUM INTO`                                    |
-| `npm run cli -- service`    | Install the hive as a service (systemd · launchd · scheduled task) |
-| `npm test`                  | 2,310 tests (vitest)                                               |
-| `npm run lint`              | ESLint + Prettier — zero errors required                           |
-| `npm run loupe`             | **The magnifier** — is new code defended by its own tests?         |
+| Command                     | Effect                                                               |
+| --------------------------- | -------------------------------------------------------------------- |
+| `npm run ruche`             | **Everything in one command** — Queen + worker + screen              |
+| `npm run demo`              | Full demo (orchestrator + 2 nodes + project)                         |
+| `npm run dev`               | Orchestrator only                                                    |
+| `npm run node`              | A member node                                                        |
+| `npm run cli -- doctor`     | **The doctor** — 13 failure causes, each with the fixing command     |
+| `npm run cli -- sauvegarde` | SQLite backup via `VACUUM INTO`                                      |
+| `npm run cli -- service`    | Install the hive as a service (systemd · launchd · scheduled task)   |
+| `npm test`                  | The full suite (vitest) — the count lives in the badge, in one place |
+| `npm run fusionner`         | Fast-forwards the branch onto `main` — no merge commit               |
+| `npm run lint`              | ESLint + Prettier — zero errors required                             |
+| `npm run loupe`             | **The magnifier** — is new code defended by its own tests?           |
 
 ### The magnifier
 
