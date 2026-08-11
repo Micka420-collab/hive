@@ -73,8 +73,19 @@ export function pastilleDesAlertes(tableau: SourceAlertes | null): Pastille | nu
  */
 export const ENTREE_PASTILLE = 'monespace';
 
-/** Cette entrée de nav doit-elle porter la pastille ? */
-export function porteLaPastille(idEntree: string, p: Pastille | null): boolean {
+/**
+ * Cette entrée de nav doit-elle porter la pastille ?
+ *
+ * Rend un GARDE DE TYPE (`p is Pastille`) et non un simple booléen, pour une
+ * raison mesurée : avec un booléen, l'appelant devait ajouter un
+ * `&& pastille !== null` que TypeScript exigeait mais que cette fonction
+ * vérifiait déjà. La loupe a montré cette redondance NUE — mutée, la pastille
+ * ne s'affichait plus jamais, et rien ne rougissait.
+ *
+ * On ne l'a pas entourée d'un test : on l'a supprimée. Un banc posé autour
+ * d'une condition redondante ne défend rien, il fige un doublon.
+ */
+export function porteLaPastille(idEntree: string, p: Pastille | null): p is Pastille {
   return idEntree === ENTREE_PASTILLE && p !== null;
 }
 

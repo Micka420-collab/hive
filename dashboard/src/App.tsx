@@ -373,7 +373,7 @@ export function App() {
                   {item.icon}
                 </span>
                 <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
-                {porteLaPastille(item.id, pastille) && pastille !== null && (
+                {porteLaPastille(item.id, pastille) && (
                   <span
                     className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
                     data-gravite={pastille.gravite}
