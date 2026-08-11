@@ -5387,3 +5387,70 @@ qui ferme les fusions d'un nœud parti, éprouvée ce même tour.
 
 Vérifié : barrière entière verte (codes lus sans tube), arbre propre, atelier
 démonté.
+
+## L'instrument élargi trouve sept gardes que personne n'éprouvait
+
+La table d'échanges de la loupe était asymétrique : `>= → >` et `<= → <`
+existaient, leurs inverses non. Elle ne savait donc muter une borne que dans le
+sens qui RESSERRE — jamais dans celui qui RELÂCHE, qui est pourtant le plus
+dangereux : resserrer fait refuser du travail légitime et quelqu'un s'en plaint
+le jour même, relâcher fait ACCEPTER ce qui devait être refusé et personne ne
+vient le dire. `|| → &&` manquait de même.
+
+Table symétrisée (commit « La loupe ne savait relâcher aucune borne »), puis le
+MÊME balayage, sur la MÊME base épinglée `68087bc` :
+
+| instrument                   | mutations | nues            |
+| ---------------------------- | --------- | --------------- |
+| avant `instanceof` (11 août) | 41        | 0               |
+| avec `instanceof`            | 57        | 1 (équivalente) |
+| avec les bornes relâchées    | **70**    | **8**           |
+
+Sept nudités réelles qu'aucun balayage précédent ne pouvait produire.
+
+### Livré ce tour — les deux à conséquence
+
+**`client.ts` — un nœud à liste de modèles VIDE ne pouvait plus rejoindre la
+ruche.** En JavaScript `[]` est TRUTHY : le `&&` ne filtre rien, et `.length > 0`
+est SEUL à empêcher d'envoyer `modeles: []`. Or le hub exige `v.length >= 1` et
+refuse le `register` ENTIER quand la liste est malformée — le nœud aurait bouclé
+sans qu'aucun message ne dise pourquoi. Mutée, la suite entière restait verte
+(243 fichiers, 3 542 tests). Banc de bout en bout sur un vrai serveur ;
+verdict rouge : « une liste de modèles VIDE a empêché le nœud de rejoindre ».
+
+**`modeles.ts` — la borne de longueur n'était tenue que d'un côté.** Le banc
+existant éprouvait `LIMITS.name + 1` (rejeté) et jamais `LIMITS.name` (accepté).
+Mutée en `>=`, un nom de longueur MAXIMALE était écarté en silence : le nœud
+déclarait un modèle de moins que ce qu'il sait faire tourner, et l'Aiguillage n'y
+envoyait plus rien. Aucune panne — juste un modèle qui cesse d'exister pour la
+ruche.
+
+### Consigné ÉQUIVALENT, et mesuré comme tel
+
+Trois mutants ne peuvent pas rougir, et c'est écrit à côté de la ligne plutôt
+qu'entouré d'un banc de décor :
+
+- `garde-fou.ts`, `normaliserBornes` (`<= → <`) — déjà consigné ; 9 paires de
+  bornes possibles, 0 divergence de valeur.
+- `garde-fou.ts`, `elireEchelon` (`< → <=`) — `comparerRangs` ne rend `0` qu'à
+  score ET échelon égaux, or `rangs` porte au plus une entrée par échelon.
+  **Mesuré : 90 paires distinctes, 0 comparaison nulle.**
+- `tableau.ts`, `graviteLaPlusHaute` (`< → <=`) — `RANG` est injectif, donc rangs
+  égaux ⟹ gravités égales ⟹ réaffectation sans effet. **Mesuré : 364 suites de
+  gravités de longueur ≤ 5, 0 divergence.**
+
+### PAS fait, et dit plutôt que maquillé
+
+Trois nudités restent, réelles mais à faible conséquence, et je ne les ai pas
+éprouvées cette nuit — bâcler trois bancs en fin de tour aurait produit du décor :
+
+1. `dashboard/src/GardeFous.tsx` — `etat.classement.length > 0` : muté, un
+   `<table>` d'en-têtes sans une seule ligne s'affiche. Cosmétique, visible.
+2. `src/orchestrator/scheduler.ts` — `Object.keys(modeleParDrone).length > 0` :
+   muté, `race.modeleParDrone` reçoit `{}` au lieu de rester absent.
+3. `src/orchestrator/store.ts` — `staleNodes`, `n.lastSeen < ?` : muté, un nœud
+   dont le heartbeat vaut EXACTEMENT la limite devient périmé. La documentation
+   de la méthode dit « antérieur à », donc le contrat est du côté du `<` strict.
+
+Aucune n'est un mutant équivalent : les trois changent un comportement
+observable. Elles attendent leur banc.

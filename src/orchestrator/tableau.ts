@@ -337,6 +337,12 @@ export function trier(alertes: readonly Alerte[]): Alerte[] {
  */
 export function graviteLaPlusHaute(alertes: readonly Alerte[]): Gravite | null {
   let pire: Gravite | null = null;
+  // `<` et `<=` sont ICI un mutant ÉQUIVALENT, et c'est CONSIGNÉ, pas un test qui
+  // manque : `RANG` est injectif (0, 1, 2 sur trois gravités distinctes), donc
+  // RANG[a] == RANG[pire] ⟹ a == pire, et la réaffectation ne change rien.
+  // Mesuré plutôt que raisonné — les 364 suites de gravités de longueur ≤ 5
+  // rendent le même verdict avec l'une ou l'autre comparaison. La loupe le
+  // re-signalera « sans test » à chaque passe : elle ne sait pas lire ceci.
   for (const a of alertes) if (pire === null || RANG[a.gravite] < RANG[pire]) pire = a.gravite;
   return pire;
 }
