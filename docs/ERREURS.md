@@ -4199,6 +4199,59 @@ quelque chose.
 
 ---
 
+## 9 quattuortrigies. Un opérateur de mutation se juge à son RENDEMENT, jamais à son idée
+
+Deux opérateurs ajoutés à la loupe le même soir, sur le même raisonnement — « la
+liste ne le contient pas, donc l'instrument est aveugle » (§ 9 sexvicies). Deux
+résultats opposés, et seule la MESURE les distinguait :
+
+| ajouté                                             | désignations neuves | dont actionnables    |
+| -------------------------------------------------- | ------------------- | -------------------- |
+| bornes relâchées (`> → >=`, `< → <=`, `\|\| → &&`) | 8                   | **7**                |
+| `?? →                                              |                     | `, sur tous les `??` | 12  | **2** |
+
+Les dix autres étaient équivalentes **par le type** : `get(k) ?? {…}` — un objet
+n'est jamais _falsy_ ; `n.modeles ?? []` ; `row?.echelon ?? null` — une union de
+littéraux non vides ; `essais ?? 0` et `c?.actif ?? false` — la valeur _falsy_
+possible EST le repli.
+
+La loupe ne lit pas les types. Elle aurait donc re-désigné ces dix **à chaque
+passe**, pour toujours.
+
+### Pourquoi c'est grave, et pas seulement bruyant
+
+Un instrument qui ne peut plus rendre vert n'est plus une porte, c'est un mur.
+Son en-tête met en garde contre le faux vert rassurant — le **faux rouge
+permanent** est l'autre façon de n'être plus écouté, et la plus insidieuse :
+personne ne décide de l'ignorer, on cesse simplement de le lire.
+
+La règle du dépôt aggrave le coût : chaque survivant doit être ou éprouvé, ou
+consigné par écrit. Dix consignations d'équivalence sur des lignes triviales,
+c'est dix commentaires que tout lecteur futur devra traverser pour rien.
+
+### La règle
+
+> Ajouter un opérateur de mutation est une hypothèse, pas une amélioration. On
+> la vérifie en le lançant sur une base épinglée et en comptant la part de ses
+> désignations qui sont ACTIONNABLES. Faible, on RESSERRE l'opérateur jusqu'à ce
+> qu'il ne parle que là où il mord — ou on le retire.
+
+Resserré ici au seul repli **truthy littéral** (`?? true`, `?? 1`, `?? 2_000`),
+`??` redevient précieux et silencieux ailleurs : il ne désigne plus que les
+gardes qui **échouent en s'ouvrant** — `nodeOnShift.get(n.id) ?? true` (une
+ouvrière hors service redevient disponible), `opts.uid ?? 1000` (`uid` 0 est
+root), `code ?? 1` (un code de sortie 0 devient 1).
+
+### Le corollaire qui coûte, et qu'on assume
+
+Resserrer PERD des cas réels : `x ?? null` mord vraiment si `x` peut être la
+chaîne vide. On préfère le rater plutôt que noyer chaque passe sous 107
+désignations qu'on ne saurait pas trancher — et **on l'écrit**, dans le code de
+l'instrument, pour que la prochaine personne sache que ce trou est un choix et
+non un oubli.
+
+---
+
 ## 9 tertrigies. « Couverture PLEINE » est une mesure DATÉE, pas un état acquis
 
 Le carnet portait, au 11 août : « la loupe à couverture PLEINE sur le diff

@@ -127,44 +127,87 @@ describe('une borne se mute DANS LES DEUX SENS — resserrer ET relâcher', () =
   });
 });
 
-describe('`??` n’est pas `||` — le repli sur ABSENCE, muté en repli sur FAUSSETÉ', () => {
-  // ─── POURQUOI CET OPÉRATEUR MÉRITE SA PLACE ─────────────────────────────────
+describe('`??` ne se mute QUE là où il peut mordre — un repli TRUTHY', () => {
+  // ─── L'OPÉRATEUR A D'ABORD ÉTÉ TROP LARGE, ET ÇA S'EST MESURÉ ───────────────
   //
-  // `a ?? b` ne prend `b` que si `a` est `null` ou `undefined`. `a || b` le prend
-  // aussi quand `a` vaut `0`, `''` ou `false`. L'échange est donc un vrai
-  // changement de sens — et un sens qui se casse en silence, puisqu'il ne se
-  // manifeste que sur les valeurs « fausses mais présentes ».
+  // `a ?? b` ne prend `b` que si `a` est `null`/`undefined` ; `a || b` le prend
+  // AUSSI sur `0`, `''`, `false`. Le premier jet mutait donc TOUS les `??`.
   //
-  // Le dépôt compte 652 `??` en production, et plusieurs portent des décisions :
+  // Résultat mesuré sur un balayage à base épinglée : 12 désignations neuves,
+  // dont DIX équivalentes — parce que le TYPE interdisait le cas :
   //
-  //     (nodeOnShift.get(n.id) ?? true)      un nœud HORS SERVICE (false)
-  //                                          redeviendrait de service ;
-  //     MATRICE[role]?.includes(action) ?? false
-  //                                          une permission refusée resterait
-  //                                          refusée, mais la table devient
-  //                                          indistinguable d'une absence.
+  //     antecedents.get(k) ?? { … }   un objet n'est jamais falsy
+  //     n.modeles ?? []               un tableau non plus
+  //     row?.echelon ?? null          l'union de trois littéraux non vides
+  //     essais ?? 0                   la valeur falsy possible EST le repli
+  //     c?.actif ?? false             `false || false` vaut `false`
   //
-  // Aucun n'était mutable jusqu'ici : la loupe rendait ZÉRO candidat sur ces
-  // lignes, et imprimait son verdict rassurant par-dessus.
+  // La loupe ne voit pas les types : elle aurait re-désigné ces dix à CHAQUE
+  // passe, et son verdict serait rouge pour toujours. Un instrument qui ne peut
+  // plus rendre vert n'est plus une porte, c'est un mur — et personne ne lit un
+  // mur (voir son en-tête : le pire mensonge est celui qui rassure, mais un
+  // verdict qui crie sans cesse ne se lit plus du tout).
+  //
+  // ─── LA RESTRICTION, ET POURQUOI ELLE EST SÛRE ──────────────────────────────
+  //
+  // On ne mute que si le repli est un littéral TRUTHY primitif : `true`, ou un
+  // nombre non nul. Là, une valeur « fausse mais présente » à gauche est
+  // remplacée par quelque chose de DIFFÉRENT, donc la mutation mord toujours.
+  //
+  // Ce que ça garde, sur ce dépôt (707 `??` en production) :
+  //
+  //     nodeOnShift.get(n.id) ?? true   une ouvrière HORS SERVICE redevient
+  //                                     disponible — la garde échoue en
+  //                                     s'OUVRANT ;
+  //     opts.uid ?? 1000                `uid` 0 est ROOT : le conteneur
+  //                                     changerait d'utilisateur en silence ;
+  //     code ?? 1                       un code de sortie 0 (succès) devient
+  //                                     1 (échec) — famille § 9 quaterdecies ;
+  //     config.tickMs ?? 2_000          un 0 explicite écrasé par le défaut.
+  //
+  // ─── CE QU'ELLE PERD, ET IL FAUT LE DIRE ────────────────────────────────────
+  //
+  // `x ?? null` mord VRAIMENT si `x` peut être la chaîne vide — mais seul le
+  // type le dit, et la loupe ne l'a pas. On préfère rater ce cas plutôt que
+  // noyer chaque passe sous 107 désignations dont on ne saura rien. Un repli
+  // `0.5` est perdu aussi (le motif exige un premier chiffre non nul).
 
-  it('`??` se relâche en `||` — le repli mord alors sur zéro, vide et faux', () => {
+  it('`?? true` se mute — la garde qui échoue en s’ouvrant', () => {
     expect(quoi('    const service = nodeOnShift.get(id) ?? true;')).toEqual(['?? → ||']);
   });
 
+  it('un repli NOMBRE NON NUL se mute — le zéro explicite écrasé par le défaut', () => {
+    expect(quoi('  const limite = req.query.limit ?? 200;')).toEqual(['?? → ||']);
+    // Les séparateurs de milliers ne doivent pas casser la reconnaissance.
+    expect(quoi('  const tick = config.tickMs ?? 2_000;')).toEqual(['?? → ||']);
+  });
+
   it('la mutation garde la forme : un seul jeton change', () => {
-    const [m] = mutationsDeLigne('  return MATRICE[role]?.includes(action) ?? false;');
-    expect(m.apres).toBe('  return MATRICE[role]?.includes(action) || false;');
+    const [m] = mutationsDeLigne('    `--user=${opts.uid ?? 1000}`,');
+    expect(m.apres).toBe('    `--user=${opts.uid || 1000}`,');
+  });
+
+  it('LES REPLIS QUI NE PEUVENT PAS MORDRE NE SONT PAS DÉSIGNÉS', () => {
+    // Chacun a été mesuré équivalent sur un vrai balayage ; les re-désigner à
+    // chaque passe ne coûterait pas seulement du bruit, ça rendrait le verdict
+    // rouge à perpétuité.
+    expect(quoi('  const a = antecedents.get(k) ?? { essais: 0 };'), 'objet').toEqual([]);
+    expect(quoi('  for (const m of n.modeles ?? []) union.add(m);'), 'tableau').toEqual([]);
+    expect(quoi('  return row?.echelon ?? null;'), 'null').toEqual([]);
+    expect(quoi('  const n = a?.essais ?? 0;'), 'zéro = le repli').toEqual([]);
+    expect(quoi('  actif: c?.actif ?? false,'), 'faux ou faux').toEqual([]);
+    expect(quoi('  const s = brut ?? autreChose;'), 'expression : type inconnu').toEqual([]);
   });
 
   it('`??=` n’est PAS un `??` — l’affectation ne se mute pas', () => {
     // Piège de forme : ` ??= ` ne contient pas ` ?? ` (le second `?` y est suivi
     // d'un `=`). Sans cette précaution la loupe écrirait `a ||= b` — valide en
     // JavaScript, donc SILENCIEUX, et le verdict porterait sur autre chose.
-    expect(quoi('  compteurs[cle] ??= 0;')).toEqual([]);
+    expect(quoi('  compteurs[cle] ??= 1;')).toEqual([]);
   });
 
   it('deux `??` sur une ligne : on s’abstient, comme partout ailleurs', () => {
-    expect(quoi('  const x = a ?? b ?? c;')).toEqual([]);
+    expect(quoi('  const x = a ?? 1 ?? 2;')).toEqual([]);
   });
 });
 
