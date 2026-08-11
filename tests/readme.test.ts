@@ -232,7 +232,13 @@ describe('LES DEUX READMES DISENT LA MÊME CHOSE', () => {
       //    pas de garde : elle rassure.
       //
       // On accepte donc n'importe quel millier, quel que soit son séparateur.
-      const comptes = [...source.matchAll(/\b\d{1,2}[  ,]?\d{3}\b\s+tests?\b/gi)];
+      //
+      // 3. La classe s'écrivait `[  ,]` — DEUX espaces ASCII identiques, et
+      //    pas un insécable. Or la typographie française insère d'elle-même
+      //    U+202F ou U+00A0 devant un millier : « 3 524 tests » serait passé
+      //    sous le nez de la garde qui vient d'être élargie pour la virgule.
+      //    Mesuré avant correction : la garde n'a rien vu. `\s` les couvre.
+      const comptes = [...source.matchAll(/\b\d{1,2}[\s,]?\d{3}\b\s+tests?\b/gi)];
       expect(
         comptes.map((m) => m[0]),
         `${nom} répète le compte de tests`,

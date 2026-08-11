@@ -51,12 +51,13 @@ compris au deuxième.
 
 Trois étapes, et vous gardez la main.
 
-1. **Vous décrivez le projet.** Quelques phrases suffisent. Hive propose une
-   liste de tâches ordonnée — vous la corrigez avant de lancer.
+1. **Vous décrivez le projet.** Quelques phrases suffisent. Hive vous propose
+   une liste de tâches ordonnées — vous la corrigez avant de lancer.
 2. **Les IA travaillent en parallèle.** Chaque tâche part sur l'ordinateur d'un
-   membre, qui y fait tourner son IA dans un dossier isolé. Vous suivez en direct.
-3. **Vous validez, puis ça fusionne.** Chaque résultat s'arrête devant vous. Vous
-   lisez, vous approuvez ou vous refusez. Rien ne passe sans votre accord.
+   membre, qui fait tourner son IA dans un dossier isolé. Vous voyez
+   l'avancement en direct.
+3. **Vous validez, puis ça fusionne.** Chaque résultat s'arrête devant vous.
+   Vous lisez, vous validez ou vous refusez. Rien ne passe sans votre accord.
 
 ## ⚡ Installation
 
