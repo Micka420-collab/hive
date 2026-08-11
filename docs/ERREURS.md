@@ -4164,6 +4164,41 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 novievicies. Un EPERM de nettoyage peut être la CONSÉQUENCE d'un délai dépassé
+
+La CI Windows a rougi sur `preparation-merge.test.ts` avec deux échecs :
+
+    Error: EPERM, Permission denied: …\Temp\hive-prep-lSOoej   (afterAll, rmSync)
+    Error: Test timed out in 60000ms.                            (le test juste avant)
+
+Le § 6.1 bis enseigne qu'un EPERM au nettoyage désigne une ressource laissée
+OUVERTE, et que « Windows a raison » — la tentation d'ajouter `maxRetries` y est
+nommée comme un traitement du symptôme. Appliquer cette leçon telle quelle ici
+aurait envoyé chercher une fuite de handle qui n'existe pas.
+
+Car l'ordre des faits dit autre chose : c'est le TEST qui a expiré d'abord, en
+laissant ses processus git vivants ; le `afterAll` a ensuite tenté d'effacer un
+dossier encore tenu par eux. L'EPERM est la conséquence, pas la cause. Deux
+indices le confirmaient : le `maxRetries: 5` était DÉJÀ posé (donc le symptôme
+était déjà traité), et la durée du run — **413 s contre ~140 à 298 s d'habitude**
+— désignait un runner lent, pas un défaut de code. Vérifié : le commit suivant,
+identique côté code, est passé VERT sur les cinq jambes.
+
+### La règle
+
+Devant un EPERM de nettoyage sous Windows, lire d'abord **ce qui a échoué juste
+avant**. S'il y a un délai dépassé dans la même suite, l'EPERM en découle et
+corriger le nettoyage ne corrigera rien. Les deux diagnostics mènent à des
+gestes opposés — fermer une ressource, ou comprendre une lenteur — et se
+tromper de leçon coûte une chasse dans du code qui va très bien.
+
+Corollaire : ne jamais « réparer » un intermittent avant d'avoir vu s'il se
+reproduit. Un second passage vert sur le même code est une donnée ; un correctif
+posé sans elle en supprime la possibilité, et laisse croire qu'on a soigné
+quelque chose.
+
+---
+
 ## 9 octovicies. Committer pendant qu'un agent VÉRIFIE le même arbre grave sa mutation
 
 J'ai lancé un agent de vérification en lui demandant, entre autres, si mes gardes
