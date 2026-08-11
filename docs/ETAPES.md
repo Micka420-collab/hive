@@ -5340,3 +5340,50 @@ pastille muette.
 Vérifié : barrière entière verte (codes lus SANS TUBE — c'est ce qui a montré le
 typecheck rouge quand tout le reste était vert), suite **3 537** (3 530 verts,
 0 rouge), badges re-mesurés à 3 537, garde CI verte.
+
+## Balayage loupe à couverture pleine, rejoué : 41/41 était vrai, et périmé
+
+Le point n°3 du 11 août annonçait la couverture PLEINE atteinte — « 41/41 sur
+`68087bc`, tous défendus, rien de nu, plus de mutant nu qui dorme dans un
+non-examiné ». Rejoué le soir même, **sur la même base épinglée**, le balayage
+en trouve **57**.
+
+Rien n'avait été défait. L'instrument avait gagné l'opérateur
+`instanceof X → instanceof Object` le 11 août APRÈS la passe, et quatre commits
+ont atterri depuis — or le diff se mesure toujours contre la même base ancienne,
+donc il ne cesse jamais de croître. Le verdict n'était pas faux : il avait
+**expiré**. Leçon `ERREURS § 9 tertrigies` — un verdict d'exhaustivité ne vaut
+que pour le couple {instrument, surface} du jour, et un verdict partiel vieillit
+honnêtement là où un verdict d'exhaustivité vieillit en mensonge.
+
+### Le verdict de ce tour
+
+**`LOUPE_BASE=68087bc`, `LOUPE_MAX=90` — 57 mutations possibles, 57 examinées.**
+Aucun échantillonnage. Dans un arbre de travail DÉTACHÉ (`git worktree`), la base
+passée par variable d'environnement, jamais écrite dans le dépôt.
+
+- **56 défendues.**
+- **1 signalée nue, et c'est un mutant ÉQUIVALENT déjà consigné** :
+  `garde-fou.ts` — `rangEchelon(b.min) <= rangEchelon(b.max)` muté en `<`.
+
+L'équivalence n'a pas été crue sur parole du commentaire : elle a été **mesurée
+sur le domaine ENTIER**. `Bornes` est un couple de deux `Echelon`, une union
+fermée de trois valeurs — donc 3 × 3 = **9 paires possibles, et rien de plus**.
+Les deux versions rendent la même VALEUR dans les 9 cas ; elles ne diffèrent que
+par l'identité de référence de l'objet rendu, que personne n'exige. La loupe le
+re-signalera à chaque passe : c'est le comportement attendu d'un instrument qui
+ne sait pas lire un commentaire.
+
+### Ce que ce balayage ne dit PAS
+
+`site/` est **hors du champ de la loupe** — son diff est borné à `src`,
+`dashboard/src` et `scripts` (`scripts/loupe.mjs:82-94`). Aucun verdict rendu ici
+ne porte sur la vitrine, quelle que soit sa base.
+
+Et il ne dit rien non plus de ce qui n'a jamais été touché depuis `68087bc` : la
+loupe mute les lignes AJOUTÉES d'un diff, pas le dépôt. C'est ainsi qu'une boucle
+antérieure à la base a pu rester nue jusqu'à ce qu'une lecture la trouve — celle
+qui ferme les fusions d'un nœud parti, éprouvée ce même tour.
+
+Vérifié : barrière entière verte (codes lus sans tube), arbre propre, atelier
+démonté.

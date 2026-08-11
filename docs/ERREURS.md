@@ -4199,6 +4199,42 @@ quelque chose.
 
 ---
 
+## 9 tertrigies. « Couverture PLEINE » est une mesure DATÉE, pas un état acquis
+
+Le carnet portait, au 11 août : « la loupe à couverture PLEINE sur le diff
+cumulé — ATTEINTE ce tour […] 41/41, tous défendus, rien de nu — plus de mutant
+nu qui dorme dans un non-examiné ».
+
+C'était vrai. Rejoué le soir même sur **la même base épinglée**, le même
+balayage a trouvé **57 mutations**, pas 41.
+
+Rien n'avait été défait. Deux choses avaient grandi, chacune de son côté :
+
+- **l'instrument** — l'opérateur `instanceof X → instanceof Object` a été ajouté
+  à la loupe le 11 août aussi, mais APRÈS la passe. Un balayage ne voit que ce
+  que sa liste contient au moment où il tourne (§ 9 sexvicies) ;
+- **la surface** — quatre commits ont atterri depuis, et le diff se mesure
+  toujours contre la même base ancienne : il ne cesse donc jamais de croître.
+
+Le verdict n'était pas faux ; il avait **expiré**, sans que rien ne le dise.
+
+### La règle
+
+> Un verdict d'EXHAUSTIVITÉ (« tout examiné », « rien de nu », « 100 % couvert »)
+> ne vaut que pour le couple **{instrument, surface}** du jour où il a été rendu.
+> Il ne se recopie pas au tour suivant : il se re-mesure, ou il se dit périmé.
+
+Un verdict partiel vieillit honnêtement — « 13/40 échantillonnés » reste vrai et
+appelle du travail. Un verdict d'exhaustivité vieillit en MENSONGE : il dit qu'il
+n'y a plus rien à chercher, et c'est précisément ce qui empêche d'aller
+regarder. Le danger est proportionnel à la confiance qu'il inspire.
+
+Corollaire d'écriture : consigner la BASE et la version de l'instrument avec le
+chiffre. « 41/41 » ne se relit pas ; « 41/41 sur `68087bc`, avant l'opérateur
+`instanceof` » se relit et se date tout seul.
+
+---
+
 ## 9 duotrigies. Chercher des MOTS dans les tests ne dit pas ce qu'ils EXERCENT
 
 J'ai annoncé à l'utilisateur qu'une garde de `server.ts` — celle qui empêche la
