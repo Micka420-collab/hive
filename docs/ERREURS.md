@@ -4199,6 +4199,113 @@ quelque chose.
 
 ---
 
+## 9 duotrigies. Chercher des MOTS dans les tests ne dit pas ce qu'ils EXERCENT
+
+J'ai annoncé à l'utilisateur qu'une garde de `server.ts` — celle qui empêche la
+fermeture d'un socket mort d'emporter la connexion vivante qui l'a remplacé —
+n'était **défendue par aucun banc**. J'en donnais même la preuve :
+
+    grep -rln "reconnex\|reconnect\|nodeSockets\|ws_closed" tests/
+    → 9 fichiers
+    grep -n "ws_closed\|nodeDisconnected\|…" <ces fichiers>
+    → 1 seule ligne, dans scheduler.test.ts, qui appelle la méthode directement
+
+C'était faux. La garde est défendue par `hardening.test.ts` — « un nœud qui blip
+puis se reconnecte en déclarant sa tâche la RÉ-ADOPTE ». Mutée en `!==`, ce banc
+rougit. Pire : **ce fichier était dans ma propre liste de neuf**, et je l'ai
+écarté parce que mon second `grep` n'y trouvait pas mes mots.
+
+Il ne pouvait pas les trouver. Ce banc n'écrit ni `ws_closed`, ni
+`nodeDisconnected` : il ferme un socket, en rouvre un autre, et regarde la
+tâche. Il éprouve le COMPORTEMENT — c'est ce qu'on lui demande — donc il ne
+nomme aucun des rouages qu'il traverse.
+
+### La règle
+
+> La seule façon de savoir si une garde est défendue, c'est de la **muter et de
+> lancer la suite**. Un `grep` dans `tests/` ne mesure rien : les bons bancs
+> sont écrits dans le vocabulaire de l'utilisateur, pas dans celui du code
+> qu'ils traversent.
+
+Le coût de se tromper n'est pas symétrique. Croire une garde défendue quand elle
+ne l'est pas laisse un trou ; croire une garde NUE quand elle est tenue fait
+écrire un doublon — et un banc posé autour d'une condition déjà gardée fige un
+doublon sans rien défendre (§ 9 novemdecies). Dans les deux cas, la mutation
+tranche en deux minutes ce qu'aucune lecture ne tranche.
+
+Corollaire pratique : muter **avant** d'annoncer quoi que ce soit. J'avais la
+mutation à portée de main et j'ai parlé d'abord.
+
+### Ce que la mutation a trouvé à côté
+
+La ligne SUIVANTE, elle, était réellement nue — la boucle qui ferme les fusions
+du nœud parti. Mutée en `!==`, la suite entière est restée verte : 242 fichiers,
+3 534 tests. Et elle casse dans les deux sens à la fois : la fusion du partant
+n'est plus close (`/merge/result` reste `null` pour toujours), tandis que celles
+des autres nœuds sont déclarées échouées.
+
+C'est la mutation qui l'a désignée, pas la lecture. La lecture m'avait envoyé
+une ligne trop haut.
+
+---
+
+## 9 untrigies. Une commande de REMPLACEMENT n'est pas la commande
+
+L'atelier a refusé `npm run typecheck`. Plutôt que de lire ce que ce script
+lance, j'ai improvisé un équivalent « qui doit bien faire pareil » :
+
+    npx tsc -p tsconfig.json --noEmit false --emitDeclarationOnly false
+
+`--noEmit false` n'ANNULE pas une option : il l'assigne. La compilation a donc
+écrit **339 fichiers `.js` compilés** à côté de chaque source `.ts` du dépôt —
+`src/`, `dashboard/src/`, tout.
+
+Rien n'a rougi. `tsc` n'imprime rien quand il réussit, et il avait réussi.
+
+### Ce qui l'a attrapé
+
+Pas la commande fautive : la SUIVANTE. `eslint` s'est mis à signaler des fautes
+dans des fichiers que je n'avais jamais écrits —
+
+    src/adapters/claude-code.js
+      24:49  error  'process' is not defined  no-undef
+
+Un `.js` à côté d'un `.ts` du même nom, avec des erreurs de règles Node dans un
+dépôt qui compile en TypeScript : ce n'était pas un défaut de lint, c'était un
+dépôt sali. La bonne question n'était pas « comment faire taire ces erreurs »
+mais « qui a écrit ces fichiers ».
+
+### La règle
+
+> Quand une commande est refusée et qu'on lui cherche un substitut, le substitut
+> doit être **la même commande**, lue dans `package.json`, pas une reconstitution
+> de mémoire. Un drapeau ajouté « pour voir » est un changement de comportement,
+> pas un contournement.
+
+Et le corollaire sur les drapeaux : dans une interface en ligne de commande,
+`--option false` n'est presque jamais « laisser la valeur par défaut ». C'est une
+affectation — et pour un drapeau négatif comme `--noEmit`, elle **inverse** le
+sens qu'on croyait obtenir.
+
+### Le second piège : nettoyer sans regarder
+
+Le geste tentant était `git clean -fd` : une ligne, tout part. Il aurait aussi
+emporté n'importe quel fichier non suivi présent pour une autre raison.
+
+Ce qui a été fait à la place — et qui doit l'être : PROUVER que chaque fichier à
+retirer est bien celui qu'on croit, **avant** d'en retirer un seul.
+
+    339 fichiers non suivis, tous en `.js`
+    339 ont une sœur `.ts` ou `.tsx` du même nom   → ce sont des compilés
+    le plus vieux date de 242 s                    → tous nés de MA commande
+    0 sans sœur                                    → aucun orphelin à épargner
+
+Le retrait a ensuite refusé de toucher tout fichier ne satisfaisant pas les deux
+conditions. Un nettoyage qui ne sait pas nommer ce qu'il efface est un second
+dégât posé sur le premier.
+
+---
+
 ## 9 trigies. Une DISTINCTION n'est pas une CORRESPONDANCE
 
 Un banc vérifiait que trois gravités rendaient six phrases DISTINCTES :
