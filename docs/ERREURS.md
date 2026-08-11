@@ -4199,6 +4199,36 @@ quelque chose.
 
 ---
 
+## 9 trigies. Une DISTINCTION n'est pas une CORRESPONDANCE
+
+Un banc vérifiait que trois gravités rendaient six phrases DISTINCTES :
+
+    expect(new Set(dits).size).toBe(6);
+    for (const d of dits) expect(d.length).toBeGreaterThan(10);
+
+Il semblait couvrir la table des libellés. Il ne couvrait rien de ce qui
+compte : **échanger** les mots de deux gravités garde six phrases distinctes,
+toutes assez longues. Mesuré — les libellés français de « attention » et
+« info » intervertis, les douze bancs sont restés VERTS pendant qu'un quota au
+bord se disait « pour information ».
+
+L'agent de vérification l'a relevé ; la mutation l'a prouvé avant correction.
+
+### La règle
+
+Une assertion d'ENSEMBLE (tous distincts, tous non vides, la bonne longueur,
+le bon compte) ne dit rien de l'APPARIEMENT. Elle attrape les collisions et les
+oublis, jamais les permutations — et une permutation est le mode d'échec le plus
+probable d'une table de traduction, parce qu'elle survient en éditant deux
+lignes voisines.
+
+Devant une table qui associe des clés à des valeurs, se demander : « si
+j'échangeais deux lignes, quel banc rougirait ? ». S'il n'y en a pas, la table
+n'est pas gardée — elle est seulement comptée. Le remède est banal et court :
+une assertion par paire, qui nomme la clé ET son mot.
+
+---
+
 ## 9 octovicies. Committer pendant qu'un agent VÉRIFIE le même arbre grave sa mutation
 
 J'ai lancé un agent de vérification en lui demandant, entre autres, si mes gardes

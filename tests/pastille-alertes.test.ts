@@ -130,4 +130,25 @@ describe('ce que la pastille MONTRE et ce qu’elle DIT', () => {
     expect(new Set(dits).size).toBe(6);
     for (const d of dits) expect(d.length).toBeGreaterThan(10);
   });
+
+  it('CHAQUE gravité dit SON mot — la distinction ne suffit pas', () => {
+    // ─── LE TROU QUE CE BANC FERME, ET QUI A ÉTÉ MESURÉ ────────────────────
+    //
+    // Le banc ci-dessus exige six phrases distinctes. Il laisse donc passer un
+    // ÉCHANGE : intervertir les mots de `attention` et `info` garde six
+    // phrases distinctes, et rien ne rougit. Mesuré avant correction — les 12
+    // bancs sont restés verts pendant qu'un « à surveiller » se disait « pour
+    // information ».
+    //
+    // Une distinction n'est pas une correspondance. Ce qu'il faut épingler,
+    // c'est quel mot va à quelle gravité — l'utilisateur qui lit « pour
+    // information » sur un quota au bord ne remarquera rien, et c'est bien le
+    // problème.
+    expect(phraseAlertes({ total: 2, gravite: 'attention' }, 'fr')).toContain('à surveiller');
+    expect(phraseAlertes({ total: 2, gravite: 'attention' }, 'en')).toContain('needs attention');
+    expect(phraseAlertes({ total: 2, gravite: 'info' }, 'fr')).toContain('pour information');
+    expect(phraseAlertes({ total: 2, gravite: 'info' }, 'en')).toContain('informational');
+    expect(phraseAlertes({ total: 2, gravite: 'critique' }, 'fr')).toContain('critique');
+    expect(phraseAlertes({ total: 2, gravite: 'critique' }, 'en')).toContain('critical');
+  });
 });
