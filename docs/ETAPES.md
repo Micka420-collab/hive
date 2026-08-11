@@ -5134,3 +5134,39 @@ mesure vraiment ce qui compte — AUCUN sélecteur étranger ne part avec le blo
 plutôt que par un proxy fragile.
 
 Restent les lots D (archi+mission→features) et E (bandeau-agents→héros).
+
+### La loupe voyait tout, sauf les tris par `instanceof`
+
+Le balayage de contrôle du lot « messageDeSondage » a rendu **1 seul candidat** —
+et pas la garde centrale du lot. Motif : les opérateurs de la loupe étaient
+`&&`/`||`, `>=`/`>`, `<=`/`<`, `===`/`!==`. **`instanceof` n'y figurait pas.**
+L'instrument qui traque les faux verts venait d'en produire un, sur un dépôt qui
+compte **79 `instanceof` en production**.
+
+Corrigé : `mutationsDeLigne(ligne)` sortie de `candidates()` en fonction PURE et
+exportée — elle était intestable tant qu'elle lisait le disque (§ 2
+quaterdecies) — et l'opérateur `instanceof X → instanceof Object` ajouté. Pas une
+négation : nier demanderait les bornes de l'expression, donc un parseur, et une
+mutation qui casse la syntaxe passe pour un mutant tué. Élargir la classe reste
+un échange de jeton et ôte exactement ce que la garde apporte, sa capacité à
+DISTINGUER. La limite est dite au code : sur une entrée primitive, le mutant
+survit sans être faux — la loupe désigne, un humain juge.
+
+**L'opérateur a gagné sa place au premier essai.** Relancée, la loupe a trouvé
+une nudité RÉELLE dans le lot qu'elle venait de déclarer propre :
+`e instanceof Error ? e.message : String(e)` survivait à sa mutation, faute d'un
+banc passant un objet qui ne soit pas une `Error`. Pas équivalent — sur un objet
+nu, la branche livrait « [object Object] » à l'écran, exactement le charabia que
+cette fonction existe pour empêcher. Corrigé (un objet nu rend « Panne inattendue
+de la ruche. ») et éprouvé.
+
+Deux leçons consignées : `ERREURS § 9 sexvicies` (un instrument ne trouve que ce
+que sa liste d'opérateurs contient) et `§ 9 septvicies` (la loupe lit le diff
+COMMITÉ mais mute l'arbre de travail — son silence ne prouve rien tant que les
+deux ne coïncident pas ; c'est ce piège qui a failli me faire signer un « rien de
+nu » obtenu juste après une correction non commitée).
+
+Vérifié : mutation de la garde neuve de la loupe → banc ROUGE (« expected
+[ Array(1) ] to deeply equal [] »), restaurée par copie → 8/8 VERT. Barrière
+entière verte (codes lus sans tube). Suite **3 524** (3 517 verts, 7 ignorés,
+0 rouge), badges re-mesurés à 3 524 et garde CI verte.

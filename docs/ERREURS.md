@@ -4164,6 +4164,77 @@ plateforme, au lieu de deux tiers de la chaîne.
 
 ---
 
+## 9 septvicies. La loupe lit le diff COMMITÉ mais mute l'arbre DE TRAVAIL
+
+Après avoir corrigé une nudité que la loupe venait de désigner, je l'ai relancée
+sans commiter. Verdict : « LA LOUPE NE VOIT RIEN DE NU », 2 candidats. Rassurant,
+et faux des deux côtés :
+
+- la ligne que je venais d'ÉCRIRE (`if (e instanceof Error) return e.message;`)
+  n'était pas dans les candidats — `git diff origin/main...HEAD` ne voit que les
+  COMMITS, pas l'arbre de travail ;
+- la ligne que je venais de REMPLACER était, elle, dans le diff commité — mais
+  introuvable dans le fichier, donc écartée par la garde « présente une seule
+  fois ».
+
+Le verdict ne portait donc ni sur l'état commité ni sur l'état réel : il portait
+sur leur intersection, qui n'est l'état de personne. Vérifié en lisant le diff à
+la main — `mutationsDeLigne` proposait bien la mutation manquante quand on lui
+donnait la ligne.
+
+### La règle
+
+La loupe se lance sur un arbre COMMITÉ. Elle tire ses lignes de `BASE...HEAD` et
+les cherche dans les fichiers sur disque : tant que les deux ne coïncident pas,
+son silence ne prouve rien. Commiter d'abord, mesurer ensuite — et se méfier
+particulièrement du « rien de nu » obtenu juste après avoir corrigé quelque
+chose, car c'est exactement le moment où les deux états divergent.
+
+---
+
+## 9 sexvicies. Un instrument ne trouve que ce que sa liste d'opérateurs contient
+
+La loupe ne mutait que des opérateurs binaires de comparaison — `&&`, `>=`,
+`<=`, `===`, `!==`. Un lot dont la garde CENTRALE était
+
+    if (e instanceof TypeError)
+
+— le tri entre « le serveur a répondu et refusé » et « personne n'a répondu » —
+lui a donc rendu UN SEUL candidat, et pas celui-là. Elle a imprimé « LA LOUPE NE
+VOIT RIEN DE NU » sur un diff dont la seule vraie décision n'avait jamais été
+mutée.
+
+C'est le défaut que la loupe existe pour traquer, commis par la loupe, et son
+propre en-tête met en garde contre exactement ça : « la loupe mentirait dans le
+sens rassurant, le pire des deux ». L'angle mort n'était pas anecdotique — le
+dépôt compte **79 `instanceof` en production**, dont des tris de sûreté.
+
+Ajouté : `instanceof X` → `instanceof Object`. Pas une négation — nier
+demanderait les BORNES de l'expression, donc un parseur, et des parenthèses
+posées au jugé casseraient la syntaxe (un mutant qui ne compile pas passe pour
+un mutant tué). Élargir la classe reste un échange de JETON et ôte exactement ce
+que la garde apporte : sa capacité à DISTINGUER.
+
+**L'opérateur a gagné sa place au premier essai** : relancée, la loupe a trouvé
+une nudité RÉELLE dans le lot qu'elle venait de déclarer propre —
+`e instanceof Error ? e.message : String(e)` survivait, faute d'un banc passant
+un objet qui ne soit pas une `Error`. Le mutant n'était pas équivalent : sur un
+objet nu, la branche livrait « [object Object] » à l'utilisateur.
+
+### La règle
+
+Un balayage par mutation ne mesure pas « le code est-il défendu » mais « le code
+est-il défendu CONTRE LES MUTATIONS QUE JE SAIS ÉCRIRE ». Les deux se
+confondent tant qu'on ne regarde pas la liste. Quand un verdict « rien de nu »
+tombe sur un lot dont la décision centrale est d'une forme INHABITUELLE
+(`instanceof`, `typeof`, `Array.isArray`, `?.`, `??`, un `switch`), le réflexe
+juste n'est pas de se réjouir : c'est d'aller vérifier que cette forme-là figure
+dans la liste des opérateurs. Corollaire : la logique qui décide des mutations
+doit être une fonction PURE et EXPORTÉE (`mutationsDeLigne`), sans quoi on ne
+peut pas éprouver l'instrument qui juge tout le reste.
+
+---
+
 ## 9 quinvicies. Chercher un MOT dans le code ne dit pas ce que l'écran AFFICHE
 
 Mission : « corriger les états vides du tableau de bord, ils font amateur ».

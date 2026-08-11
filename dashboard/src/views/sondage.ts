@@ -52,5 +52,22 @@ export function messageDeSondage(e: unknown): string {
       'The hive did not answer — the orchestrator may be stopped or restarting.',
     );
   }
-  return e instanceof Error ? e.message : String(e);
+  if (e instanceof Error) return e.message;
+  // ─── CE QU'ON JETTE QUI N'EST PAS UNE ERREUR ───────────────────────────────
+  //
+  // Une valeur PRIMITIVE porte encore quelque chose de lisible : `String(e)`
+  // rend « boum », « 404 », « false ». On la montre.
+  //
+  // Un OBJET NU, non : `String({})` rend « [object Object] ». C'est du charabia,
+  // et le laisser passer trahirait la raison d'être de cette fonction — ne
+  // jamais livrer à l'utilisateur un texte qui ne lui apprend rien. On dit alors
+  // ce qu'on sait vraiment : il y a eu une panne, et on ne sait pas laquelle.
+  //
+  // Cette branche a été débusquée par la loupe : muté en `instanceof Object`, le
+  // `instanceof Error` ci-dessus SURVIVAIT, parce qu'aucun banc ne passait un
+  // objet qui ne soit pas une Error.
+  if (typeof e === 'object' && e !== null) {
+    return t('Panne inattendue de la ruche.', 'Unexpected hive failure.');
+  }
+  return String(e);
 }

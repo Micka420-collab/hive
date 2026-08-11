@@ -79,7 +79,26 @@ describe('un sondage qui échoue — ce que l’écran a le droit de dire', () =
     expect(messageDeSondage(new SyntaxError('Unexpected token < in JSON'))).toBe(
       'Unexpected token < in JSON',
     );
-    // Et ce qui n'est même pas une erreur ne doit pas faire tomber l'écran.
+    // Et ce qui n'est même pas une erreur ne doit pas faire tomber l'écran. Une
+    // valeur PRIMITIVE porte encore quelque chose de lisible : on la montre.
     expect(messageDeSondage('boum')).toBe('boum');
+    expect(messageDeSondage(404)).toBe('404');
+  });
+
+  it('un OBJET NU ne fait jamais fuir « [object Object] » à l’écran', () => {
+    // Débusqué par la loupe : `instanceof Error` muté en `instanceof Object`
+    // SURVIVAIT, faute d'un banc passant un objet qui ne soit pas une Error.
+    // Le mutant n'était pas équivalent — il changeait le sort de ce cas-ci.
+    //
+    // `String({})` rend « [object Object] » : du charabia, et le laisser passer
+    // trahirait la raison d'être de cette fonction.
+    setLang('fr');
+    const msg = messageDeSondage({ code: 'ECONNRESET' });
+    expect(msg, 'du charabia a fui à l’écran').not.toContain('[object Object]');
+    expect(msg).toBe('Panne inattendue de la ruche.');
+
+    setLang('en');
+    expect(messageDeSondage({})).toBe('Unexpected hive failure.');
+    setLang('fr');
   });
 });
