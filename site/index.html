@@ -1227,84 +1227,6 @@
         color: var(--text);
       }
 
-      /* Architecture */
-      .archi-grid {
-        display: grid;
-        grid-template-columns: 1fr auto 1fr;
-        gap: 18px;
-        align-items: center;
-        background: var(--panel-2);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 34px 26px;
-      }
-      .node-box {
-        background: var(--panel);
-        border: 1px solid var(--border-2);
-        border-radius: 10px;
-        padding: 18px;
-        text-align: center;
-      }
-      .node-box .t {
-        font-weight: 700;
-        margin-top: 6px;
-      }
-      .node-box .id {
-        font-family: var(--mono);
-        font-size: 12px;
-        color: var(--gold-2);
-        margin-top: 2px;
-      }
-      .node-box .d {
-        font-size: 12px;
-        color: var(--muted);
-        margin-top: 6px;
-      }
-      .archi-center {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 14px;
-      }
-      .wire {
-        font-family: var(--mono);
-        font-size: 11px;
-        color: var(--muted);
-      }
-      .queen-box {
-        background: linear-gradient(180deg, #2f2410, var(--panel));
-        border: 1px solid var(--orange);
-        border-radius: 10px;
-        padding: 20px 30px;
-        text-align: center;
-        box-shadow: 0 0 28px rgba(246, 185, 59, 0.12);
-      }
-      .queen-box .t {
-        font-weight: 700;
-        font-size: 17px;
-        color: var(--gold);
-        margin-top: 4px;
-      }
-      .queen-box .d {
-        font-size: 12.5px;
-        color: var(--muted);
-        margin-top: 6px;
-      }
-      .view-box {
-        background: var(--panel);
-        border: 1px solid var(--border-2);
-        border-radius: 10px;
-        padding: 12px 24px;
-        text-align: center;
-      }
-      .view-box .t {
-        font-weight: 700;
-        font-size: 14px;
-      }
-      .view-box .d {
-        font-size: 12px;
-        color: var(--muted);
-      }
       .pill-row {
         display: flex;
         gap: 10px;
@@ -1475,23 +1397,6 @@
           display: none;
         }
       }
-      .views {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-        gap: 12px;
-      }
-      .view-card {
-        display: flex;
-        gap: 12px;
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 16px;
-        transition: border-color 0.15s;
-      }
-      .view-card:hover {
-        border-color: var(--gold);
-      }
       .hexico {
         width: 40px;
         height: 36px;
@@ -1505,14 +1410,6 @@
       }
       .hexico.hot {
         background: linear-gradient(180deg, var(--orange), var(--gold));
-      }
-      .view-card .t {
-        font-weight: 700;
-        font-size: 15px;
-      }
-      .view-card .d {
-        font-size: 13px;
-        color: var(--muted);
       }
 
       /* Security */
@@ -2244,14 +2141,6 @@
         }
       }
 
-      @media (max-width: 860px) {
-        .archi-grid {
-          grid-template-columns: 1fr;
-        }
-        .archi-center {
-          order: -1;
-        }
-      }
       /* ─── LE TÉLÉPHONE ───────────────────────────────────────────────────
          Mesuré à un viewport réel de 390 px : rien ne débordait, mais la page
          n'était pas PENSÉE pour un pouce. Dix liens de navigation se
@@ -2422,9 +2311,6 @@
            devine ; ce sont pourtant les seuls mots qui disent comment la ruche
            est faite. */
         .card p code.tag,
-        .node-box .id,
-        .node-box .d,
-        .archi-center .wire,
         #journal .ts,
         .swarm-head .online span,
         .barre-install button,
@@ -2463,8 +2349,6 @@
       </div>
       <nav class="main" aria-label="Navigation principale">
         <a href="#features" data-i18n="nav.features">Fonctionnalités</a>
-        <a href="#archi">Architecture</a>
-        <a href="#mission">Mission Control</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
         <a href="#communaute" data-i18n="nav.community">Communauté</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
@@ -2584,7 +2468,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >3 524 tests ✓</span
+              >3 522 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -3394,40 +3278,6 @@
           </div>
         </details>
       </div>
-    </section>
-
-    <section id="archi" class="section">
-      <p class="kicker">Architecture</p>
-      <h2 class="headline" data-i18n="archi.headline">
-        Hub-and-spoke : une Queen, N nœuds membres.
-      </h2>
-      <div class="archi-grid">
-        <div class="node-box">
-          <div aria-hidden="true" style="font-size: 22px">🖥️</div>
-          <div class="t" data-i18n="archi.node">Node membre</div>
-          <div class="id">ruche-alpha</div>
-          <div class="d" data-i18n="archi.node.d">agents + sandbox<br />clés locales 🔑</div>
-        </div>
-        <div class="archi-center">
-          <div class="wire">◄─ WebSocket ─►</div>
-          <div class="queen-box">
-            <div aria-hidden="true" style="font-size: 26px">👑</div>
-            <div class="t" data-i18n="archi.queen">Orchestrateur (Queen)</div>
-            <div class="d">Fastify · ws · SQLite<br />scheduler · journal · Queen Bee</div>
-          </div>
-          <div class="wire">│ HTTP :7777</div>
-          <div class="view-box">
-            <div class="t">🐝 Swarm View</div>
-            <div class="d">React · 2D/3D</div>
-          </div>
-        </div>
-        <div class="node-box">
-          <div aria-hidden="true" style="font-size: 22px">💻</div>
-          <div class="t" data-i18n="archi.node2">Node membre</div>
-          <div class="id">ruche-beta</div>
-          <div class="d" data-i18n="archi.node2.d">agents + sandbox<br />clés locales 🔑</div>
-        </div>
-      </div>
       <div class="pill-row">
         <span class="pill" data-i18n="archi.p1">⚡ Temps réel via WebSocket</span>
         <span class="pill" data-i18n="archi.p2"
@@ -3437,18 +3287,7 @@
           >🔑 Les clés API ne quittent jamais la machine du membre</span
         >
       </div>
-    </section>
-
-    <section id="mission" class="section">
-      <p class="kicker">Mission Control</p>
-      <h2 class="headline tight" data-i18n="mc.headline">
-        13 vues navigables au clavier, interface bilingue FR/EN.
-      </h2>
-      <p class="lede" data-i18n="mc.lede">
-        Sidebar alvéolaire, touches <kbd class="key">1</kbd>–<kbd class="key">0</kbd>, deep-links
-        <code class="inline">#/vue/id</code>. Les décisions de revue sont partagées entre tous les
-        opérateurs, en temps réel.
-      </p>
+      <h3 class="rc-sous" data-i18n="feat.ecran">L'écran de pilotage</h3>
       <p class="apercu-legende" data-i18n="ap.legende">
         Les cinq écrans qu'on ouvre le plus, tels qu'ils se présentent. Les chiffres sont un exemple
         : ce sont vos ouvrières qui les remplissent.
@@ -3646,132 +3485,9 @@
           </div>
         </div>
       </div>
-      <div class="views">
-        <div class="view-card">
-          <div class="hexico hot" aria-hidden="true">🐝</div>
-          <div>
-            <div class="t" data-i18n="mc.1.t">1 · Ruche</div>
-            <div class="d" data-i18n="mc.1.d">
-              Swarm View 2D/3D, KPIs, rayon de miel cliquable, file d'attente, journal.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">👑</div>
-          <div>
-            <div class="t" data-i18n="mc.2.t">2 · Reine</div>
-            <div class="d" data-i18n="mc.2.d">
-              Dialoguer avec la ruche dans votre langue : avancement, santé, classement.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🍯</div>
-          <div>
-            <div class="t" data-i18n="mc.3.t">3 · Miellerie</div>
-            <div class="d" data-i18n="mc.3.d">
-              Diffs par fichier, logs, consensus, approbation (a/x) au clavier, merge Honeycomb.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">⬡</div>
-          <div>
-            <div class="t" data-i18n="mc.4.t">4 · Projets</div>
-            <div class="d" data-i18n="mc.4.d">
-              Rapports, atelier brief→DAG (Queen Bee), plan de merge, conflits Sting.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🕺</div>
-          <div>
-            <div class="t" data-i18n="mc.5.t">5 · Essaim</div>
-            <div class="d" data-i18n="mc.5.d">
-              Cartes des nœuds membres + Waggle Board (podium nectar).
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">💓</div>
-          <div>
-            <div class="t" data-i18n="mc.6.t">6 · Santé</div>
-            <div class="d" data-i18n="mc.6.d">
-              Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">📜</div>
-          <div>
-            <div class="t" data-i18n="mc.7.t">7 · Chronique</div>
-            <div class="d" data-i18n="mc.7.d">
-              Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🧠</div>
-          <div>
-            <div class="t" data-i18n="mc.8.t">8 · Mémoire</div>
-            <div class="d" data-i18n="mc.8.d">
-              Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque OpenAlex.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🍯</div>
-          <div>
-            <div class="t" data-i18n="mc.9.t">9 · Rayon</div>
-            <div class="d" data-i18n="mc.9.d">
-              Le code du projet, en lecture complète : arbre du dépôt, éditeur de la Reine, et
-              aperçu de ce que la ruche construit.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🪪</div>
-          <div>
-            <div class="t" data-i18n="mc.10.t">0 · Mon espace</div>
-            <div class="d" data-i18n="mc.10.d">
-              Vos projets, votre quota, vos abonnements — et ce qui réclame votre attention, classé
-              par urgence.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🏗</div>
-          <div>
-            <div class="t" data-i18n="mc.13.t">h · Chantiers</div>
-            <div class="d" data-i18n="mc.13.d">
-              Les travaux que le dépôt DÉCLARE, lançables d’un clic : ses scripts sur un nœud de la
-              ruche, ses workflows sur GitHub. La ruche choisit dans cette liste et n’invente jamais
-              une commande — et ce qui sort de la machine porte sa raison de rester à un humain.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🖥</div>
-          <div>
-            <div class="t" data-i18n="mc.11.t">i · Intendance</div>
-            <div class="d" data-i18n="mc.11.d">
-              Administrateurs seulement : les machines démarrées pour les abonnés, et les comptes de
-              la ruche.
-            </div>
-          </div>
-        </div>
-        <div class="view-card">
-          <div class="hexico" aria-hidden="true">🧠</div>
-          <div>
-            <div class="t" data-i18n="mc.12.t">c · Cerveau</div>
-            <div class="d" data-i18n="mc.12.d">
-              Le savoir de la ruche en graphe vivant, à la manière d’Obsidian : les notes se
-              repoussent, les liens les rapprochent, un halo respire sur ce qui a servi récemment.
-              Un point creux n’a jamais servi.
-            </div>
-          </div>
-        </div>
-      </div>
+      <p class="apercu-legende" data-i18n="mc.headline">
+        13 vues navigables au clavier, interface bilingue FR/EN.
+      </p>
     </section>
 
     <section id="securite" class="section">
@@ -4108,8 +3824,6 @@
           <div class="pied-col">
             <p class="pied-t" data-i18n="f.produit">Le produit</p>
             <a href="#features" data-i18n="f.fonctions">Fonctionnalités</a>
-            <a href="#archi" data-i18n="f.archi">Architecture</a>
-            <a href="#mission" data-i18n="f.mc">Mission Control</a>
             <a href="#securite" data-i18n="f.secu">Sécurité</a>
           </div>
           <div class="pied-col">
@@ -4186,7 +3900,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '3,524 tests ✓',
+          'badge.tests': '3,522 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -4232,6 +3946,7 @@
           'et.etape3.p':
             'Every result stops in front of you. You read it, you approve or refuse. Nothing passes without your say-so.',
           'feat.kicker': 'At a glance',
+          'feat.ecran': 'The control screen',
           'feat.lede':
             'Twenty-three features, sorted into four families. Read the four promises; unfold the one that concerns you.',
           'fam.rep.l':
@@ -4320,12 +4035,6 @@
           'feat.aa.t': 'Agent-agnostic',
           'feat.aa':
             '<code class="tag">claude-code</code> <code class="tag">codex</code> <code class="tag">hermes</code> — or your own AgentAdapter.',
-          'archi.headline': 'Hub-and-spoke: one Queen, N member nodes.',
-          'archi.node': 'Member node',
-          'archi.node.d': 'agents + sandbox<br />local keys 🔑',
-          'archi.node2': 'Member node',
-          'archi.node2.d': 'agents + sandbox<br />local keys 🔑',
-          'archi.queen': 'Orchestrator (Queen)',
           'archi.p1': '⚡ Real-time over WebSocket',
           'archi.p2': '💾 Persistent state in SQLite — survives restarts',
           'archi.p3': '🔑 API keys never leave the member’s machine',
@@ -4382,40 +4091,6 @@
           'ap.atelier.2.d': 'waits for task 1',
           'ap.atelier.2.e': 'waiting',
           'mc.headline': '13 keyboard-navigable views, bilingual FR/EN interface.',
-          'mc.lede':
-            'Honeycomb sidebar, keys <kbd class="key">1</kbd>–<kbd class="key">0</kbd>, deep-links <code class="inline">#/view/id</code>. Review decisions are shared between all operators, in real time.',
-          'mc.1.t': '1 · Hive',
-          'mc.1.d': 'Swarm View 2D/3D, KPIs, clickable honeycomb, queue, journal.',
-          'mc.2.t': '2 · Queen',
-          'mc.2.d': 'Talk to the hive in your language: progress, health, leaderboard.',
-          'mc.3.t': '3 · Honey House',
-          'mc.3.d': 'Per-file diffs, logs, consensus, keyboard approval (a/x), Honeycomb merge.',
-          'mc.4.t': '4 · Projects',
-          'mc.4.d': 'Reports, brief→DAG workshop (Queen Bee), merge plan, Sting conflicts.',
-          'mc.5.t': '5 · Swarm',
-          'mc.5.d': 'Member node cards + Waggle Board (nectar podium).',
-          'mc.6.t': '6 · Health',
-          'mc.6.d': 'Hive pulse (throughput, p50/p95 latency, success) + Ghost anomalies.',
-          'mc.7.t': '7 · Chronicle',
-          'mc.7.d':
-            'Filterable journal + Time-Lapse Replay (sepia “you’re watching the past” mode).',
-          'mc.8.t': '8 · Memory',
-          'mc.8.d': 'Search the hive’s knowledge (Hive Mind) + OpenAlex library.',
-          'mc.9.t': '9 · Comb',
-          'mc.9.d':
-            'The project’s code, read in full: repository tree, the Queen’s editor, and a preview of what the hive is building.',
-          'mc.10.t': '0 · My space',
-          'mc.10.d':
-            'Your projects, your quota, your subscriptions — and whatever needs your attention, ranked by urgency.',
-          'mc.11.t': 'i · Stewardship',
-          'mc.11.d':
-            'Administrators only: the machines started for subscribers, and the hive’s accounts.',
-          'mc.12.t': 'c · Brain',
-          'mc.12.d':
-            'The hive’s knowledge as a living graph, Obsidian-style: notes repel each other, links pull them together, and a halo breathes on whatever was used recently. A hollow dot has never been used.',
-          'mc.13.t': 'h · Works',
-          'mc.13.d':
-            'The works the repository DECLARES, one click away: its scripts on a hive node, its workflows on GitHub. The hive picks from that list and never invents a command — and whatever leaves the machine carries its reason for needing a human.',
           'sec.kicker': 'Security',
           'sec.headline': 'Safe by default. Never a merge without human review.',
           'sec.1':
@@ -4490,8 +4165,6 @@
             'Put several AIs to work on your project, at the same time. Open source, MIT licence, on your own machines.',
           'f.produit': 'The product',
           'f.fonctions': 'Features',
-          'f.archi': 'Architecture',
-          'f.mc': 'Mission Control',
           'f.secu': 'Security',
           'f.commencer': 'Get started',
           'f.demarrer': 'Get started',

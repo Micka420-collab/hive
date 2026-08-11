@@ -889,7 +889,11 @@ describe('site vitrine — l’échelle relevée dans la maquette', () => {
     const sections = [
       ...vitrine.matchAll(/<section id="[^"]+" class="section">[\s\S]*?<\/section>/g),
     ];
-    expect(sections.length, 'aucune section trouvée').toBeGreaterThan(6);
+    // Le plancher suit la consolidation 13→7 (lot D : archi+mission fondues
+    // dans features) : CINQ sections porteuses d'id restent — etapes, features,
+    // securite, communaute, raccourcis. Héros, bandeau et appel complètent les
+    // 7 bandes sans porter class="section".
+    expect(sections.length, 'aucune section trouvée').toBeGreaterThan(4);
     for (const [bloc] of sections) {
       const id = /<section id="([^"]+)"/.exec(bloc)?.[1] ?? '?';
       expect((bloc.match(/<h2\b/g) ?? []).length, `section #${id} : compte de h2`).toBe(1);
@@ -925,7 +929,9 @@ describe('site vitrine — l’échelle relevée dans la maquette', () => {
     // « ✨ En bref », « 🔒 Sécurité »… La maquette n'en pose aucun : un émoji
     // devant chaque section fait une table des matières décorée, pas une page.
     const surtitres = [...vitrine.matchAll(/<p class="kicker"[^>]*>([^<]+)</g)].map((m) => m[1]);
-    expect(surtitres.length, 'aucun surtitre trouvé').toBeGreaterThan(6);
+    // Cinq surtitres depuis le lot D (archi et mission fondues dans features) :
+    // le plancher suit la consolidation, la garde reste sur le CONTENU.
+    expect(surtitres.length, 'aucun surtitre trouvé').toBeGreaterThan(4);
     for (const t of surtitres) {
       expect(t, `émoji dans un surtitre : ${t}`).not.toMatch(/\p{Extended_Pictographic}/u);
     }
@@ -1262,7 +1268,9 @@ describe('site vitrine — le plan du pied de page', () => {
     expect(pied, 'pied de page introuvable').not.toBe('');
     const colonnes = (pied.match(/class="pied-col"/g) ?? []).length;
     expect(colonnes, 'les colonnes du plan ont disparu').toBeGreaterThanOrEqual(3);
-    expect(liens.length, 'le plan a moins de liens qu’une rangée').toBeGreaterThanOrEqual(12);
+    // Onze liens depuis le lot D (Architecture et Mission Control n'existent
+    // plus comme destinations) : toujours un plan sur 3 colonnes titrées.
+    expect(liens.length, 'le plan a moins de liens qu’une rangée').toBeGreaterThanOrEqual(10);
     // Chaque colonne porte un titre : sans lui, il faut essayer les liens un
     // par un pour savoir de quel côté chercher.
     expect((pied.match(/class="pied-t"/g) ?? []).length).toBe(colonnes);
@@ -1273,7 +1281,9 @@ describe('site vitrine — le plan du pied de page', () => {
       [...vitrine.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1] ?? ''),
     );
     const ancres = liens.filter((h) => h.startsWith('#')).map((h) => h.slice(1));
-    expect(ancres.length, 'le pied ne renvoie plus à aucune section').toBeGreaterThan(4);
+    // Trois ancres internes depuis le lot D — le reste du plan pointe vers
+    // GitHub et les pages sœurs, et chaque ancre restante doit viser juste.
+    expect(ancres.length, 'le pied ne renvoie plus à aucune section').toBeGreaterThan(2);
     for (const a of ancres) {
       expect(sections.has(a), `ancre morte dans le pied de page : #${a}`).toBe(true);
     }
