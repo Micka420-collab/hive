@@ -11,6 +11,7 @@ import {
   PART_QUOTA_ALERTE,
   alertesDe,
   composerTableau,
+  graviteLaPlusHaute,
   rendreProjet,
   trier,
 } from '../src/orchestrator/tableau.js';
@@ -242,6 +243,62 @@ describe('tableau — la phrase est RECOMPOSABLE ailleurs', () => {
       rendu({ serveurs: [{ id: 's', etat: 'arrete', joursAvantSuppression: 1 }] }),
     );
     for (const x of a) expect(x.message.length).toBeGreaterThan(10);
+  });
+});
+
+describe('tableau — la gravité la plus haute, pour la pastille de navigation', () => {
+  /** Une alerte fabriquée : seuls la clé et la gravité comptent ici. */
+  const alerte = (cle: Alerte['cle'], gravite: Alerte['gravite']): Alerte => ({
+    cle,
+    gravite,
+    projectId: 'p',
+    projet: 'Projet',
+    message: 'peu importe, ce banc ne juge que le classement',
+    jours: -1,
+    details: {},
+  });
+
+  it('CE N’EST PAS LA GRAVITÉ DE LA PREMIÈRE ALERTE', () => {
+    // LE cas qui justifie que ce calcul existe. `trier()` classe par NATURE
+    // d'abord : une `fin_de_periode` (nature 2, ATTENTION) passe devant un
+    // `quota_epuise` (nature 3, CRITIQUE). Prendre la tête de liste peindrait
+    // donc la pastille en orange alors qu'un critique attend dessous.
+    const rangees = trier([
+      alerte('quota_epuise', 'critique'),
+      alerte('fin_de_periode', 'attention'),
+    ]);
+    expect(rangees[0]?.cle, 'le tri ne classe plus par nature').toBe('fin_de_periode');
+    expect(rangees[0]?.gravite).toBe('attention');
+    expect(graviteLaPlusHaute(rangees), 'la pastille suivrait la mauvaise alerte').toBe('critique');
+  });
+
+  it('SANS ALERTE, il n’y a pas de gravité — et surtout pas « info »', () => {
+    // `null` et « info » ne se ressemblent pas : l'un n'allume aucune pastille,
+    // l'autre en allume une bleue. Confondre les deux ferait clignoter un
+    // tableau parfaitement sain.
+    expect(graviteLaPlusHaute([])).toBeNull();
+    expect(composerTableau([], NOW).graviteMax).toBeNull();
+  });
+
+  it('l’ordre des alertes ne change pas le verdict', () => {
+    // La fonction lit une LISTE, pas une liste triée : elle doit rendre le même
+    // maximum quel que soit l'ordre, sinon elle dépendrait de `trier()`.
+    const trois = [
+      alerte('fin_de_periode', 'attention'),
+      alerte('effacement_imminent', 'critique'),
+      alerte('quota_presque_epuise', 'attention'),
+    ];
+    expect(graviteLaPlusHaute(trois)).toBe('critique');
+    expect(graviteLaPlusHaute([...trois].reverse())).toBe('critique');
+  });
+
+  it('un tableau qui PORTE des alertes annonce leur pire gravité', () => {
+    const t = composerTableau(
+      [projet({ projectId: 'p1', nom: 'A', etatAbonnement: 'impaye', actif: false })],
+      NOW,
+    );
+    expect(t.alertes.length, 'aucune alerte : le banc ne prouve rien').toBeGreaterThan(0);
+    expect(t.graviteMax).toBe(graviteLaPlusHaute(t.alertes));
   });
 });
 

@@ -5231,3 +5231,66 @@ pied ≥10, ancres internes >2), chacun avec son commentaire.
 
 **La consolidation 13→7 est ACHEVÉE** : héros, bandeau, étapes,
 fonctionnalités & écran, sécurité, communauté & modèle, démarrer (+ appel).
+
+### Alertes visuelles : la moitié serveur livrée, le badge en lot suivant (décision agent Fable 5)
+
+L'utilisateur demandait des « alertes visuelles non-bloquantes, discriminantes,
+basées sur Guetteuses / La Dérive / Fantômes ». Un agent Fable 5 a tranché, et il
+a corrigé DEUX de mes prémisses — que j'avais annoncées à l'utilisateur :
+
+1. **Faux : « ces trois signaux n'ont pas de gravité serveur ».** Ils en ont
+   chacun une (`NiveauGuet` calme/reniflage/balayage, `DeriveUi.etat`
+   saine/…/degradee, `GhostSeverity` low/medium/high). Ce qui manque n'est pas la
+   gravité mais son **unification** vers `Gravite` — trois échelles, aucune ne
+   passe par `tableau.ts`.
+2. **Faux : « la Dérive vit dans Santé ».** Elle vit dans l'Essaim, **par
+   projet** ; Santé polle les Gardiennes, pas la Dérive.
+
+**Option retenue : A′** — poll global de `/api/moi/tableau` (et non
+`/api/mon-tableau`, autre correction) + badge sur « Mon espace ».
+
+**Option B (porter les alertes dans le snapshot WebSocket) est REJETÉE, et pas
+seulement pour le risque :** elle est fausse. Les alertes sont **par personne**
+(`server.ts:6486`) alors que `broadcastState` sérialise **une seule fois pour N
+sockets** (`server.ts:660-669`). Les y verser ferait fuiter les projets d'autrui,
+ou détruirait l'optimisation « 1 sérialisation pour N tableaux ».
+
+Le coût de A′ est moindre que je ne le croyais : `useApiPoll` **suspend déjà**
+quand l'onglet est caché (`shared.tsx:364-366`), et App.tsx polle **déjà**
+`/api/pulse` toutes les 20 s pour l'ECG de la barre latérale.
+
+#### Ce qui est livré ce tour : `graviteMax`, calculé AU SERVEUR
+
+Le point fin, et la raison d'être du champ : **ce n'est pas
+`alertes[0].gravite`**. `trier()` classe par NATURE d'abord (`RANG_CLE`,
+`tableau.ts:299`) — l'irréversible avant le réversible — donc une
+`fin_de_periode` en « attention » précède un `quota_epuise` « critique ». Une
+pastille qui suivrait la tête de liste peindrait la mauvaise couleur.
+
+Le calculer dans l'écran aurait demandé d'y recopier `RANG` : une SECONDE
+décision de classement, qui divergerait — exactement ce que
+`MonEspace.tsx:11` interdit (« l'écran ne reclasse RIEN »). D'où
+`graviteLaPlusHaute()`, pure et exportée, appelée par `composerTableau()`.
+
+Vérifié : mutation `<` → `>` → **2 bancs ROUGES** (« la pastille suivrait la
+mauvaise alerte : expected 'attention' to be 'critique' »), restauré → 35/35.
+
+#### Ce qui NE l'est pas, et pourquoi la coupe est là
+
+Le câblage du badge dans `App.tsx` bute sur un fait de conception : `user` y est
+une **ref** (`userRef`, l.145), pas un état. Un poll conditionné dessus ne se
+réveillerait pas à la connexion — le monter proprement demande de comprendre le
+flux d'authentification, ce qui n'est plus « quinze lignes ». Le lot serveur est
+juste, éprouvé et utile seul ; le badge vient dessus, avec sa forme déjà
+tranchée : nombre + `data-gravite` + `aria-label` complet (« Mon espace, 3
+alertes, la plus grave : critique »), trois modificateurs CSS distingués par la
+FORME autant que par la couleur, et surtout **pas** d'`aria-live`, pas d'état
+« vu » côté client, pas de modale.
+
+**Portée dite franchement** : le badge ne portera que les alertes de
+`tableau.ts`. Unifier Guetteuses/Dérive/Fantômes vers `Gravite` est une décision
+de classement — donc serveur, donc éprouvée — avec un vrai débat de
+correspondances (un `balayage` vaut-il un `effacement_imminent` ? non : l'un est
+irréversible) et un problème de périmètre non résolu (`/api/moi/tableau` est
+borné aux projets dont on est membre, alors que Guetteuses et Fantômes sont des
+signaux de ruche entière). C'est un lot d'après-sortie.

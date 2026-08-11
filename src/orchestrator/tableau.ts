@@ -133,6 +133,15 @@ export interface Tableau {
   version: number;
   projets: ProjetRendu[];
   alertes: Alerte[];
+  /**
+   * La gravité la plus haute des alertes, ou `null` s'il n'y en a aucune.
+   *
+   * Sert la pastille de navigation, qui doit annoncer l'URGENCE sans ouvrir
+   * l'écran. Ce n'est PAS `alertes[0].gravite` : le tri classe par nature
+   * d'abord (voir `graviteLaPlusHaute`). Champ AJOUTÉ, jamais requis d'un
+   * client ancien — le contrat porte déjà `version` pour ça.
+   */
+  graviteMax: Gravite | null;
   /** Totaux de la personne, tous projets confondus. */
   totaux: {
     projets: number;
@@ -307,6 +316,31 @@ export function trier(alertes: readonly Alerte[]): Alerte[] {
   });
 }
 
+/**
+ * La gravité la plus haute d'une liste — et POURQUOI elle est calculée ici.
+ *
+ * ─── CE N'EST PAS `alertes[0].gravite` ───────────────────────────────────────
+ *
+ * `trier()` classe par NATURE d'abord (`RANG_CLE`), la gravité ne départageant
+ * qu'à nature égale : l'irréversible passe avant le réversible, même moins
+ * grave. Une `fin_de_periode` en « attention » peut donc précéder un
+ * `quota_epuise` « critique », et prendre la tête de liste annoncerait la
+ * mauvaise couleur.
+ *
+ * ─── ET POURQUOI PAS DANS L'ÉCRAN ────────────────────────────────────────────
+ *
+ * La calculer côté client demanderait d'y recopier `RANG` — une SECONDE
+ * décision de classement, qui divergera de celle-ci le jour où l'une des deux
+ * bougera. C'est exactement ce que l'écran s'interdit (« l'écran ne reclasse
+ * RIEN », `dashboard/src/views/MonEspace.tsx`). Le rang est une décision : elle
+ * se prend une fois, au serveur, là où elle est éprouvée.
+ */
+export function graviteLaPlusHaute(alertes: readonly Alerte[]): Gravite | null {
+  let pire: Gravite | null = null;
+  for (const a of alertes) if (pire === null || RANG[a.gravite] < RANG[pire]) pire = a.gravite;
+  return pire;
+}
+
 /** Assemble le tableau complet d'une personne. */
 export function composerTableau(projets: readonly ProjetVu[], now: number): Tableau {
   const rendus = projets.map((p) => rendreProjet(p, now));
@@ -316,6 +350,7 @@ export function composerTableau(projets: readonly ProjetVu[], now: number): Tabl
     version: VERSION_TABLEAU,
     projets: rendus,
     alertes,
+    graviteMax: graviteLaPlusHaute(alertes),
     totaux: {
       projets: rendus.length,
       serveursActifs: rendus.reduce((n, p) => n + p.serveursFacturables, 0),
