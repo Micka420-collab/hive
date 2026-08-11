@@ -92,6 +92,35 @@ connus : le lot d'après-sortie COMMENCE par fermer ces huit points, puis
 implémente l'Épreuve en déclenchement manuel, et seulement ensuite la relie
 aux courses et au Cerveau.
 
+## Les primitives de sécurité demandées, une par une
+
+La demande d'auto-amélioration s'accompagne d'une liste de garde-fous : bac à
+sable à deux couches / anneaux de confiance, kill-switch indépendant, budget de
+risque par nœud, jetons à usage unique, traçabilité cryptographique, réseau
+sortant fermé par défaut, détection d'anomalies, métriques d'évolution. Chacune
+est cartographiée ici sur ce qui existe — car une partie est **déjà livrée**, et
+le reste est indissociable de la boucle différée.
+
+| Primitive demandée                                                       | État réel                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Jetons à usage unique**                                                | ✅ **LIVRÉ.** Les billets (`hive2_…`) sont éphémères, à usage compté ou **unique**, et révocables (`identite-noeud.ts:107` « un billet est à usage UNIQUE » ; `cli.ts:1036`, `cli.ts:1089`). Un billet consommé ne se rejoue pas.                                                                                                                                                                    |
+| **Kill-switch indépendant**                                              | ✅ **LIVRÉ, en partie.** Révocation d'un billet (`cmdRevoquerBillet`, commande `revoquer`) et d'une clé de nœud ; un nœud sans moteur de conteneurs sous `HIVE_ISOLEMENT=exige` **refuse** de travailler (`CODE.REFUS_SECURITE=5`). Ce qui manque pour un vrai kill-switch d'évolution — couper une LIGNÉE en cours — dépend de la boucle (il n'y a pas encore de lignée).                           |
+| **Détection d'anomalies**                                                | ✅ **LIVRÉ, sous trois noms.** Les Guetteuses (reconnaissance rendue bruyante + historique : nœuds, billets révoqués, plafonds — `guetteuses.ts:223`), La Dérive (borne la dégradation en autonomie longue), les Fantômes/Ghost de la vue Santé (anomalies de débit/latence). Ce qui MANQUE est une anomalie propre à l'évolution (mutation qui désarme sa garde) — voir T5.                         |
+| **Budget de risque par nœud**                                            | ⚠️ **PARTIEL.** La Balance pose un plafond de dépense **par PROJET** (`balance.ts:68`, doublement opt-in, fail-open) ; ce n'est pas un quota d'échecs **par nœud** avant révocation. Et un tel quota n'a de sens qu'avec un **verdict indépendant** : compté sur le `success` auto-déclaré, il serait contournable par le nœud lui-même. **Il suit l'Épreuve, donc différé.**                        |
+| **Réseau sortant fermé par défaut**                                      | ❌ **COLLISION FRONTALE, dite au code.** Le sortant est ouvert **à dessein** : `isolement.ts:320` — « sauf le réseau : l'agent doit joindre son modèle ». Un agent EST un appel d'API de modèle ; le couper par défaut le tue. Un default-deny + liste blanche des points de terminaison suppose de **séparer** l'appel-modèle de l'exécution-du-code — c'est-à-dire les deux zones, donc la boucle. |
+| **Anneaux de confiance L1 (exécution) / L2 (évolution)**                 | ❌ **= la boucle différée.** C'est exactement l'architecture à deux zones : runtime confiné (existe : `isolement.ts`) vs zone d'évolution (n'existe pas). La séparer proprement suppose de fermer les 8 failles bloquantes de la § « pourquoi différé ».                                                                                                                                             |
+| **Traçabilité cryptographique** (signature + horodatage de chaque modif) | ❌ **DIFFÉRÉ.** N'existe pas. Une lignée signée n'a d'objet qu'une fois la lignée créée (la table `lignee` du plan). Prématuré tant que la boucle n'est pas là — et l'horodatage doit venir d'une source que le nœud ne contrôle pas, sous peine de retomber dans T5.                                                                                                                                |
+| **Métriques d'évolution** (taux de succès des mutations, complexité)     | ❌ **DIFFÉRÉ.** Suppose des mutations d'évolution à mesurer. La ruche mesure DÉJÀ ses mutations de TEST (`loupe.mjs`) et la dérive (`derive.ts`) ; une métrique de succès d'évolution attend qu'il y ait une évolution.                                                                                                                                                                              |
+
+**Le fil qui relie les ❌ :** aucun n'est un simple réglage. Chacun suppose soit
+un **verdict que le producteur du diff ne contrôle pas** (T5), soit la
+**séparation en deux zones** — c'est-à-dire la boucle, avec ses 8 failles. On ne
+livre pas la moitié d'un anneau de confiance : un kill-switch qui ne coupe rien,
+une signature sans lignée, un budget de risque comptant un succès auto-déclaré
+sont pires que rien, parce qu'ils **donnent l'illusion** d'une garde. C'est la
+règle du dépôt (`gardiennes.ts:61` : un faux positif brûle une tentative
+légitime ; une garde qui ment est pire que pas de garde).
+
 ## Conséquences immédiates (avant la sortie)
 
 Rien de la boucle n'entre avant le 2 septembre. Les 22 jours restent sur ce
@@ -99,3 +128,12 @@ qui ferme des ❌ du DoD : la vitrine consolidée, l'accueil du tableau de bord,
 et les gardes déjà en chantier. Ce document est la référence : toute PR qui
 invoque « l'évolution DGM » doit citer l'invariant qu'elle sert et la faille
 bloquante qu'elle ferme.
+
+Le premier lot d'après-sortie a donc un ordre imposé, et il n'est pas
+négociable : **(1)** fermer les 8 failles bloquantes ; **(2)** l'Épreuve en
+déclenchement manuel, sous l'invariant « le juge n'entre pas dans la ruche qu'il
+inspecte » ; **(3)** la lignée signée + la traçabilité ; **(4)** le budget de
+risque par nœud, adossé au verdict de l'Épreuve, pas au `success` auto-déclaré ;
+**(5)** la séparation réseau des deux zones. Tant que (1) et (2) ne sont pas
+verts et éprouvés par mutation, aucun des suivants ne se construit — sous peine
+d'empiler des gardes qui mentent.
