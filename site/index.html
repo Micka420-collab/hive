@@ -1135,6 +1135,18 @@
         color: var(--orange);
         font-family: var(--texte);
       }
+      /* Les deux jalons de la section « Démarrer » (D'abord la démo, ensuite
+         ta ruche) : discrets, en petites capitales par le CSS — jamais dans le
+         texte, que les lecteurs d'écran épelleraient lettre par lettre. */
+      .rc-sous {
+        margin: 34px 0 12px;
+        font-size: 12.5px;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-family: var(--texte);
+      }
       .headline {
         margin: 0 0 34px;
         font-size: clamp(28px, 5vw, 48px);
@@ -2632,9 +2644,8 @@
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
         <a href="#tarifs" data-i18n="nav.pricing">Tarifs</a>
         <a href="#communaute" data-i18n="nav.community">Communauté</a>
-        <a href="#raccourcis" data-i18n="nav.shortcuts">Raccourcis</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
-        <a href="#demarrer" data-i18n="nav.start">Démarrer</a>
+        <a href="#raccourcis" data-i18n="nav.start">Démarrer</a>
       </nav>
       <div class="lang-toggle" role="group" aria-label="Langue / Language">
         <button id="btn-fr" aria-pressed="true" lang="fr">FR</button>
@@ -4033,7 +4044,7 @@
             <li data-i18n="pr.1.f3">Aucune clé d'API à fournir</li>
             <li data-i18n="pr.1.f4">Licence MIT</li>
           </ul>
-          <p class="cta"><a href="#demarrer" data-i18n="pr.1.cta">Installer</a></p>
+          <p class="cta"><a href="#raccourcis" data-i18n="pr.1.cta">Installer</a></p>
         </article>
 
         <article class="plan encre">
@@ -4170,10 +4181,25 @@
     </section>
 
     <section id="raccourcis" class="section">
-      <p class="kicker" data-i18n="rc.kicker">Raccourcis</p>
+      <p class="kicker" data-i18n="rc.kicker">Démarrer</p>
       <h2 class="headline tight" data-i18n="rc.headline">
-        Connecter un dépôt, inviter un ami : deux clics chacun.
+        Une démo en deux commandes, votre ruche en deux clics.
       </h2>
+
+      <h3 class="rc-sous" data-i18n="rc.s1">D’abord, la démo</h3>
+      <div class="term rc-demo">
+        <div class="term-bar" aria-hidden="true">
+          <span class="r"></span><span class="y"></span><span class="g"></span
+          ><span class="t" data-i18n="go.t1">démo locale</span>
+        </div>
+        <pre><code data-i18n="go.demo"><span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrateur + 2 nœuds simulés<br />   7 tâches en DAG · 1 retry · 1 ⚔ course</span></code></pre>
+        <div class="term-note" data-i18n="go.n1">
+          Testez la persistance : <kbd class="key">Ctrl+C</kbd> en pleine exécution, relancez — tout
+          est encore là.
+        </div>
+      </div>
+
+      <h3 class="rc-sous" data-i18n="rc.s2">Ensuite, votre ruche</h3>
       <p class="lede" data-i18n="rc.lede">
         Ces boutons ouvrent <strong>VOTRE</strong> ruche, sur votre machine. Cette page ne voit rien
         et n’envoie rien : elle ne fait que composer la bonne adresse et copier la bonne commande.
@@ -4276,35 +4302,6 @@
       </p>
     </section>
 
-    <section id="demarrer" class="section">
-      <p class="kicker" data-i18n="go.kicker">Démarrer</p>
-      <h2 class="headline" data-i18n="go.headline">Une démo complète en deux commandes.</h2>
-      <div class="term-grid">
-        <div class="term">
-          <div class="term-bar" aria-hidden="true">
-            <span class="r"></span><span class="y"></span><span class="g"></span
-            ><span class="t" data-i18n="go.t1">démo locale</span>
-          </div>
-          <pre><code data-i18n="go.demo"><span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrateur + 2 nœuds simulés<br />   7 tâches en DAG · 1 retry · 1 ⚔ course</span></code></pre>
-          <div class="term-note" data-i18n="go.n1">
-            Testez la persistance : <kbd class="key">Ctrl+C</kbd> en pleine exécution, relancez —
-            tout est encore là.
-          </div>
-        </div>
-        <div class="term">
-          <div class="term-bar" aria-hidden="true">
-            <span class="r"></span><span class="y"></span><span class="g"></span
-            ><span class="t" data-i18n="go.t2">🤝 inviter un ami — 30 s</span>
-          </div>
-          <pre><code data-i18n="go.invite"><span class="c"># vous (hôte)</span><br /><span class="p">$ </span>npm run cli -- invite<br /><span class="c"># votre ami colle la commande reçue</span><br /><span class="p">$ </span>npm run join -- hive1_eyJ2IjoxLCJ1cmw…<br /><span class="o">🐝 Connexion à la ruche : Ruche de Micka<br />✔ Nœud démarré — vous butinez pour la ruche.</span></code></pre>
-          <div class="term-note" data-i18n="go.n2">
-            Son Claude Code / Codex est détecté automatiquement. ⚠️ L'invitation contient le token :
-            partagez-la par un canal privé.
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- ══ LA BANDE D'APPEL ═════════════════════════════════════════════════
          La maquette la pose juste avant le pied de page, sur son propre aplat
          (`--chip`, relevé à rgb(239,231,215)), 416 px de haut. C'est la seule
@@ -4318,7 +4315,7 @@
           <code class="inline">--dry-run</code> pour voir ce qu'il ferait sans rien créer.
         </p>
         <div class="appel-actions">
-          <a class="btn primary" href="#demarrer" data-i18n="ap.cta1">Voir les commandes</a>
+          <a class="btn primary" href="#raccourcis" data-i18n="ap.cta1">Voir les commandes</a>
           <a
             class="btn ghost"
             href="https://github.com/Micka420-collab/hive/blob/main/docs/INSTALLATION.md"
@@ -4371,7 +4368,7 @@
           </div>
           <div class="pied-col">
             <p class="pied-t" data-i18n="f.commencer">Commencer</p>
-            <a href="#demarrer" data-i18n="f.demarrer">Démarrer</a>
+            <a href="#raccourcis" data-i18n="f.demarrer">Démarrer</a>
             <a
               href="https://github.com/Micka420-collab/hive/blob/main/docs/INSTALLATION.md"
               target="_blank"
@@ -4379,7 +4376,6 @@
               data-i18n="f.install"
               >Installation</a
             >
-            <a href="#raccourcis" data-i18n="f.raccourcis">Raccourcis</a>
             <a href="presentation/" data-i18n="f.presentation">Présentation à imprimer</a>
             <a href="rush/" data-i18n="f.rush">Rush</a>
           </div>
@@ -4688,7 +4684,6 @@
           'sec.warn':
             '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
           'nav.community': 'Community',
-          'nav.shortcuts': 'Shortcuts',
           'nav.rush': 'Rush',
           'nav.pricing': 'Pricing',
           'pr.kicker': 'Pricing',
@@ -4749,8 +4744,10 @@
             'Hive is and will remain <strong>free and self-hosted</strong>: your hive runs at home, your keys never leave. For those who cannot keep a machine running, a paid hosting offer is being considered \u2014 nodes rented by the hour, to move a project forward without hardware.',
           'co.cloud.h':
             'This does not exist yet. It is written here because the direction is decided, not because it is available.',
-          'rc.kicker': 'Shortcuts',
-          'rc.headline': 'Connect a repo, invite a friend: two clicks each.',
+          'rc.kicker': 'Get started',
+          'rc.headline': 'A demo in two commands, your hive in two clicks.',
+          'rc.s1': 'First, the demo',
+          'rc.s2': 'Then, your hive',
           'rc.lede':
             'These buttons open <strong>YOUR</strong> hive, on your machine. This page sees nothing and sends nothing: all it does is build the right address and copy the right command.',
           'rc.adresse': 'Your hive’s address',
@@ -4768,18 +4765,11 @@
             '<code class="inline">npm run setup</code> generates your token, writes the <code class="inline">.env</code> and tells you what is left to do. Nothing is sent anywhere: it all lives on your machine.',
           'rc.note':
             '“Open my hive” only works if it is already running — it is a link to your own machine, not to a service. If nothing opens, start <code class="inline">npm run dev</code> first, or fix the address above.',
-          'go.kicker': 'Get started',
-          'go.headline': 'A full demo in two commands.',
           'go.t1': 'local demo',
           'go.demo':
             '<span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrator + 2 simulated nodes<br />   7-task DAG · 1 retry · 1 ⚔ race</span>',
           'go.n1':
             'Test persistence: <kbd class="key">Ctrl+C</kbd> mid-run, restart — everything is still there.',
-          'go.t2': '🤝 invite a friend — 30 s',
-          'go.invite':
-            '<span class="c"># you (host)</span><br /><span class="p">$ </span>npm run cli -- invite<br /><span class="c"># your friend pastes the command</span><br /><span class="p">$ </span>npm run join -- hive1_eyJ2IjoxLCJ1cmw…<br /><span class="o">🐝 Joining the hive: Micka’s Hive<br />✔ Node started — you’re foraging for the hive.</span>',
-          'go.n2':
-            'Their Claude Code / Codex is auto-detected. ⚠️ The invite contains the hive token: share it over a private channel.',
           'ap.headline': 'Try it in one command.',
           'ap.p':
             'The script installs everything and asks three questions at most. Add <code class="inline">--dry-run</code> to see what it would do without creating anything.',
@@ -4796,7 +4786,6 @@
           'f.commencer': 'Get started',
           'f.demarrer': 'Get started',
           'f.install': 'Installation',
-          'f.raccourcis': 'Shortcuts',
           'f.presentation': 'Printable one-pager',
           'f.rush': 'Rush',
           'f.projet': 'The project',
