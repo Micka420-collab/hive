@@ -4961,13 +4961,17 @@ livré :
 - **Barrière entière rejouée verte**, mesurée (pas de tête) : `typecheck` (×2),
   `lint`, `vitest run` → **3 511 (3 504 verts, 7 ignorés, 0 rouge)**. Badge juste
   sans re-mesure (aucun banc ajouté/retiré).
-- **Balayage loupe ÉLARGI**, base épinglée `68087bc` (le diff cumulé de ~2
-  semaines, jamais commitée), échantillon porté à 20 : **14 des 41 mutants
-  examinés, tous ✔ défendus** sur 9 fichiers (GardeFous, cerveau-designation,
-  modeles, aiguillage, garde-fou, scheduler, server, store, protocol) — « LA
-  LOUPE NE VOIT RIEN DE NU ». **Couverture PARTIELLE et dite comme telle : 27
-  mutants laissés de côté** (la loupe échantillonne). Ce tour la porte à 41/41
-  (§ point 3.3), pour que « rien de nu » cesse d'être un échantillon.
+- **Balayage loupe à couverture PLEINE**, base épinglée `68087bc` (le diff
+  cumulé de ~2 semaines, jamais commitée) : d'abord 14/41 échantillonnés, puis
+  **les 41 sur 41 examinés — tous ✔ défendus**, sur 12 fichiers (GardeFous,
+  cerveau-designation, rayon-affichage, client, modeles, aiguillage, garde-fou,
+  gardiennes, scheduler, server, store, protocol) — « LA LOUPE NE VOIT RIEN DE
+  NU ». **Plus d'échantillon, plus de caveat** : le diff cumulé entier est
+  défendu. Les mutants que l'échantillon de 14 avait laissés de côté et que la
+  passe pleine a couverts incluent des cibles nommées de la checklist —
+  `gardiennes.ts` `taskId === … && nodeId === …` (la corrélation de livraison),
+  `rayon-affichage.ts` `e.type === 'dossier'` (l'icône dossier), le seuil
+  `<= SEUIL_GLISSE` du glisser au canevas : chacun mord un banc.
 - **Vitrine lot B (#204) reste TENUE**, pas fusionnée : CI 5-vertes,
   `mergeable_state clean`, inchangée depuis son ouverture. « Mesuré dans l'arbre »,
   **pas en ligne** — la mise en ligne est ta décision, comme lot A.
@@ -4987,11 +4991,12 @@ lever** (car deux des trois premiers ne sont pas les miens à trancher).
    donné) — pas contre elle.
 2. **README GitHub au design de la vitrine** — première impression côté dépôt, en
    aval de #63. **Décision d'édition**, non atteint.
-3. **La loupe à couverture PLEINE sur le diff cumulé.** Le seul point de cette
-   liste **entièrement mien**, sans décision humaine : le balayage d'hier et de ce
-   tour ÉCHANTILLONNENT (14/41). Un mutant nu peut dormir dans les 27 non
-   examinés. **Actionnable, je reprends dessus maintenant** — 41/41, base
-   `68087bc`, dans l'atelier.
+3. **La loupe à couverture PLEINE sur le diff cumulé — ATTEINTE ce tour.** Le
+   seul point de cette liste entièrement mien : le balayage échantillonnait
+   (14/41). Repris en 41/41 (base `68087bc`, atelier), **tous défendus, rien de
+   nu** — plus de mutant nu qui dorme dans un non-examiné. C'est le point que « je
+   reprends dessus » désignait, et il est clos ; le diff cumulé entier est
+   maintenant vérifié GARDÉ, pas seulement exécuté.
 4. **Le seuil de couverture — délibérément PAS un gate.** Le DoD (§ D) pose que la
    couverture se mesure mais ne barre rien ; le verdict qui BARRE est la loupe.
    Câbler un seuil qui rougit serait **changer la définition de sortie** — une
