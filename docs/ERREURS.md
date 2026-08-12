@@ -5122,3 +5122,46 @@ trouvés :
    plafond, c'est un blocage » a tranché sans discussion au run suivant.
 5. **Dire ce qu'on ne peut pas vérifier**, plutôt que de le taire ou de le
    simuler.
+
+---
+
+## 9 sextrigies. Le correctif existait, et la porte d'à côté ne l'avait jamais reçu
+
+`bornerConcurrence()` borne `HIVE_MAX_CONCURRENCY` entre 1 et 16 et fait retomber
+tout ce qui n'est pas un entier lisible sur le défaut. Son commentaire décrit la
+panne qu'elle empêche, mot pour mot :
+
+> un `NaN` propagé jusqu'à la boucle de travail donnerait un nœud connecté qui
+> n'accepte jamais rien, et l'invité verrait « ✔ Nœud démarré » sans qu'il ne se
+> passe jamais rien.
+
+Elle est écrite, commentée, éprouvée — et appelée par UNE des deux portes du
+nœud. L'autre, `main.ts`, faisait `Number.parseInt(… ?? '2', 10)` : la panne
+exacte, décrite juste à côté, vivante depuis toujours.
+
+### Ce que ça dit du geste « corriger »
+
+Corriger un défaut, c'est le corriger LÀ OÙ IL PEUT SE PRODUIRE, pas là où on
+l'a vu. Un correctif posé sur un seul chemin d'entrée laisse le défaut intact
+sur les autres — et il fait pire que rien : le commentaire qui explique la panne
+rassure le lecteur suivant, qui croit le sujet clos.
+
+> Après avoir extrait une règle pour réparer un appelant, chercher TOUS les
+> autres appelants de la même valeur. La question n'est pas « où était le
+> bug ? » mais « qui d'autre lit ça ? ».
+
+Le grep qui le trouve est trivial et tient en une ligne — regrouper les lectures
+de `process.env.X` par variable et regarder celles qui en ont plusieurs. Sur ce
+dépôt : 32 variables `HIVE_*`, **16 lues dans plusieurs fichiers**, et quatre
+règles divergentes dedans (le port, le runner, les gardiennes, la concurrence).
+
+### Le corollaire pour le docteur
+
+Trois des quatre divergences opposaient la ruche à son propre docteur, et l'une
+était muette au pire moment : avec `HIVE_RUNNER=on ` — une espace de fin de ligne,
+ce qu'un `.env` récolte tout seul — l'essaim travaillait en autonomie pendant que
+le relevé rangeait `'on '`, et l'avertissement « l'essaim travaille seul » ne se
+déclenchant que sur `=== 'on'`, il ne sortait pas.
+
+Le seul réglage dont le rôle est de prévenir qu'on dépense sans surveillance
+était le plus facile à faire taire — par une espace.

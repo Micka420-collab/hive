@@ -3,6 +3,7 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
+import { bornerConcurrence } from './identite-noeud.js';
 import {
   agentCredentialEnv,
   detectAllAgents,
@@ -20,7 +21,11 @@ try {
   // Pas de fichier .env : les valeurs par défaut / variables d'environnement s'appliquent.
 }
 
-const maxConcurrency = Number.parseInt(process.env.HIVE_MAX_CONCURRENCY ?? '2', 10);
+// La MÊME borne que l'autre porte (`join.ts`). Elle existait déjà et disait
+// pourquoi : un `NaN` propagé jusqu'à la boucle de travail donnerait un nœud
+// connecté qui n'accepte jamais rien, et l'invité verrait « ✔ Nœud démarré »
+// sans qu'il ne se passe jamais rien. Cette porte-ci ne l'avait jamais reçue.
+const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
 
 // Les modèles déclarés par l'opérateur pour l'Aiguillage appris, sanitisés.
 const modelesDeclares = parseModeles(process.env.HIVE_MODELES);

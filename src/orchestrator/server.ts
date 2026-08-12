@@ -25,6 +25,7 @@ import {
 } from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { portDepuisEnv } from '../shared/port.js';
+import { gardiennesDepuisEnv } from '../shared/reglages.js';
 import {
   TTL_BILLET_MAX_MS,
   USAGES_MAX,
@@ -508,10 +509,9 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
     // Même règle : une faute de frappe retombe sur le défaut NON contraignant,
     // jamais sur `strict`. Se tromper de valeur ne doit pas pouvoir fermer le
     // trou de vol.
-    gardiennes:
-      env.HIVE_GARDIENNES === 'off' || env.HIVE_GARDIENNES === 'strict'
-        ? env.HIVE_GARDIENNES
-        : 'consultatif',
+    // La règle vit dans `shared/reglages.ts` — le docteur la LIT aussi, plutôt
+    // que d'en écrire une seconde qui divergerait.
+    gardiennes: gardiennesDepuisEnv(env),
     // Idem : le défaut `consignes` encadre sans jamais retenir de production.
     polyethisme:
       env.HIVE_POLYETHISME === 'off' || env.HIVE_POLYETHISME === 'strict'
