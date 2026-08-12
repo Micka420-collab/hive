@@ -27,7 +27,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { verdictDeLErreur } from '../scripts/loupe.mjs';
+import {
+  cheminsDuBalayage,
+  HORS_PORTEE,
+  PORTEE_PAR_DEFAUT,
+  verdictDeLErreur,
+} from '../scripts/loupe.mjs';
 
 const lire = (chemin) => readFileSync(new URL(chemin, import.meta.url), 'utf8');
 
@@ -114,5 +119,61 @@ describe('LA LOUPE NE PASSE PLUS PAR UN SHIM', () => {
     // défaut. Un outil qui n'a pas pu regarder ne dit pas « c'est défendu ».
     expect(source).toContain('LA LOUPE N’A PAS PU REGARDER');
     expect(source).toContain('process.exit(2)');
+  });
+});
+
+// ─── LE PÉRIMÈTRE DU BALAYAGE ────────────────────────────────────────────────
+//
+// D'où vient ce bloc : un balayage élargi à 597 candidates est mort au bout de
+// quatre heures en étant arrivé à `src/installer-assistant.ts`. Tout le cœur —
+// `src/orchestrator`, `src/shared`, `src/tui` — n'avait jamais été atteint, et
+// relancer à l'identique aurait repassé les mêmes heures sur le terrain déjà
+// jugé. `LOUPE_CHEMINS` resserre le périmètre ; ses deux gardes sont éprouvées
+// ici parce qu'elles coûtent cher en silence si elles sautent.
+
+describe('cheminsDuBalayage — ce que la loupe a le droit de regarder', () => {
+  it('SANS RÉGLAGE, c’est le périmètre complet — et surtout PAS le vide', () => {
+    // Un pathspec vide ne veut pas dire « rien » pour git : il veut dire TOUT.
+    // La loupe muterait alors les bancs eux-mêmes, et un banc muté qui fait
+    // rougir la suite ne prouve rigoureusement rien.
+    for (const rien of [undefined, '', '   ', ',', ' , , ']) {
+      expect(cheminsDuBalayage(rien), JSON.stringify(rien)).toEqual([
+        ...PORTEE_PAR_DEFAUT,
+        HORS_PORTEE,
+      ]);
+    }
+  });
+
+  it('LE JUGE RESTE DEHORS, MÊME QUAND ON DEMANDE `scripts`', () => {
+    // La demande la plus naturelle est aussi la plus dangereuse : elle
+    // remettrait la loupe sous sa propre lame, et son verdict ne mesurerait
+    // plus rien de connaissable.
+    expect(cheminsDuBalayage('scripts')).toEqual(['scripts', HORS_PORTEE]);
+    expect(cheminsDuBalayage('src,scripts,dashboard/src')).toEqual([
+      'src',
+      'scripts',
+      'dashboard/src',
+      HORS_PORTEE,
+    ]);
+  });
+
+  it('UN PÉRIMÈTRE DEMANDÉ REMPLACE le défaut — sinon le réglage ne sert à rien', () => {
+    const c = cheminsDuBalayage('src/orchestrator,src/shared,src/tui');
+    expect(c).toEqual(['src/orchestrator', 'src/shared', 'src/tui', HORS_PORTEE]);
+    expect(c, 'le défaut ne doit pas se rajouter par-dessus').not.toContain('dashboard/src');
+  });
+
+  it('LES ESPACES ET LES VIRGULES EN TROP SONT ABSORBÉS', () => {
+    // Un réglage se tape à la main dans un terminal, à une heure tardive.
+    expect(cheminsDuBalayage('  src/tui , , src/shared  ')).toEqual([
+      'src/tui',
+      'src/shared',
+      HORS_PORTEE,
+    ]);
+  });
+
+  it('L’EXCLUSION EST EN DERNIER — l’ordre du pathspec compte pour git', () => {
+    expect(cheminsDuBalayage('src').at(-1)).toBe(HORS_PORTEE);
+    expect(cheminsDuBalayage(undefined).at(-1)).toBe(HORS_PORTEE);
   });
 });

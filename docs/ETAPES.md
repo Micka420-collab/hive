@@ -5663,3 +5663,37 @@ inverser.
 La moitié du travail a consisté à ne PAS écrire de garde : cinq équivalences
 mesurées, dont une qui a réfuté ma propre prédiction de panne. Un balayage qui ne
 rendrait que des gardes serait un balayage qu'on n'a pas assez interrogé.
+
+## Le périmètre du balayage se règle — `LOUPE_CHEMINS`
+
+**Décision prise seule, la nuit du 12 au 13 août.** Le balayage élargi à
+597 candidates (base épinglée `1169399`) est mort au bout de quatre heures, en
+étant arrivé à `src/installer-assistant.ts`. Ordre alphabétique oblige, il avait
+passé l'essentiel de son temps sur `dashboard/` — 51 nudités dans le seul
+`Cerveau.tsx` — et n'avait JAMAIS atteint `src/orchestrator`, `src/shared` ni
+`src/tui`, c'est-à-dire le cœur.
+
+Relancer à l'identique aurait repassé les mêmes heures sur le terrain déjà jugé
+avant d'y revenir. L'alternative — bricoler un filtre dans l'atelier, sans le
+commettre — est exactement ce que le § 9 quadraquadragies interdit : un
+instrument modifié à la main ment sans le savoir.
+
+`LOUPE_CHEMINS` remplace donc le périmètre par défaut, et se donne par
+l'ENVIRONNEMENT comme `LOUPE_BASE` — un périmètre est le réglage d'UN balayage,
+pas une propriété du dépôt ; écrit dans le dépôt, il deviendrait un angle mort
+permanent, ce que la loupe existe précisément pour empêcher.
+
+Deux gardes, toutes deux éprouvées par mutation (verdicts au commit) :
+
+- **vide ⇒ périmètre complet.** Un pathspec vide ne veut pas dire « rien » pour
+  git : il veut dire TOUT. La loupe muterait alors les bancs eux-mêmes — et un
+  banc muté qui fait rougir la suite ne prouve rigoureusement rien.
+- **le juge reste dehors, quoi qu'on demande.** `LOUPE_CHEMINS=scripts` est une
+  demande légitime et ne doit pas remettre `scripts/loupe.mjs` sous sa propre
+  lame. Vérifié contre le vrai git, et pas seulement en table : avec
+  l'exclusion, `scripts/loupe.mjs` est absent du diff ; sans elle, il revient.
+
+Le balayage du cœur se lance donc ainsi, depuis l'atelier :
+
+    LOUPE_BASE=<sha épinglé> LOUPE_CHEMINS=src/orchestrator,src/shared,src/tui \
+      LOUPE_MAX=<assez grand pour tout voir> node scripts/loupe.mjs

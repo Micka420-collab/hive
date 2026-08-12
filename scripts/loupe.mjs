@@ -156,19 +156,57 @@ const REPLI_QUI_MORD = /^(?:true\b|[1-9][\d_]*\b)/;
  * `scripts/loupe.mjs` reste dehors, et c'est le seul : muter le juge pendant
  * qu'il juge rend un verdict dont on ne saurait pas ce qu'il mesure.
  */
+
+/** Le périmètre par défaut : tout le code qui s'exécute, et rien d'autre. */
+export const PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts'];
+
+/** Le juge ne se mute pas lui-même. Cette exclusion ne se négocie pas. */
+export const HORS_PORTEE = ':(exclude)scripts/loupe.mjs';
+
+/**
+ * Le périmètre du balayage, en `pathspec` git.
+ *
+ * ─── POURQUOI CE RÉGLAGE EXISTE ──────────────────────────────────────────────
+ *
+ * Un balayage ÉLARGI (base épinglée loin en arrière) rend des centaines de
+ * candidates, et la loupe les parcourt dans l'ordre des chemins. Le 12 août, un
+ * balayage à 597 candidates est mort au bout de quatre heures en étant arrivé à
+ * `src/installer-assistant.ts` : tout `src/orchestrator`, `src/shared` et
+ * `src/tui` — le cœur — n'avait jamais été atteint. Relancer à l'identique
+ * aurait repassé des heures sur le terrain déjà jugé avant de revenir là.
+ *
+ * `LOUPE_CHEMINS` resserre donc le périmètre à ce qu'on veut vraiment voir. Il
+ * se donne par l'ENVIRONNEMENT, comme `LOUPE_BASE`, et pour la même raison : un
+ * périmètre est le réglage D'UN balayage, pas une propriété du dépôt. Écrit
+ * dans le dépôt, il deviendrait un angle mort permanent — exactement ce que la
+ * loupe existe pour empêcher.
+ *
+ * ─── LES DEUX GARDES, ET CE QU'ELLES COÛTENT SI ELLES SAUTENT ────────────────
+ *
+ * 1. VIDE ⇒ LE PÉRIMÈTRE COMPLET. Une liste vide passée à `git diff -- …` ne
+ *    veut pas dire « rien » : elle veut dire « TOUT ». La loupe muterait alors
+ *    les bancs eux-mêmes — muter un test et constater que la suite rougit ne
+ *    prouve rigoureusement rien — et les documents. Un réglage absent ou fait
+ *    de virgules doit rendre le périmètre par défaut, jamais le vide.
+ *
+ * 2. LE JUGE RESTE DEHORS, QUOI QU'ON DEMANDE. `LOUPE_CHEMINS=scripts` est une
+ *    demande légitime ; elle ne doit pas remettre `scripts/loupe.mjs` sous sa
+ *    propre lame. L'exclusion s'ajoute APRÈS, toujours, et pas seulement quand
+ *    on s'en remet au périmètre par défaut.
+ */
+export function cheminsDuBalayage(brut) {
+  const demandes = (brut ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+  const portee = demandes.length > 0 ? demandes : PORTEE_PAR_DEFAUT;
+  return [...portee, HORS_PORTEE];
+}
+
 function lignesAjoutees() {
   const diff = execFileSync(
     'git',
-    [
-      'diff',
-      '-U0',
-      `${BASE}...HEAD`,
-      '--',
-      'src',
-      'dashboard/src',
-      'scripts',
-      ':(exclude)scripts/loupe.mjs',
-    ],
+    ['diff', '-U0', `${BASE}...HEAD`, '--', ...cheminsDuBalayage(process.env.LOUPE_CHEMINS)],
     {
       cwd: RACINE,
       encoding: 'utf8',
