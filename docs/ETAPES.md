@@ -5454,3 +5454,102 @@ Trois nudités restent, réelles mais à faible conséquence, et je ne les ai pa
 
 Aucune n'est un mutant équivalent : les trois changent un comportement
 observable. Elles attendent leur banc.
+
+## POINT DE SORTIE — 12 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**21 jours.**
+
+### 2. Livré ET vérifié depuis hier
+
+**Honnêteté d'abord : RIEN n'a été fusionné.** `main` est toujours à `d39e166`
+(PR #208, 11 août). Les **16 commits** de cette nuit vivent dans #209, ouverte,
+CI 5/5 verte, `mergeable_state clean` — et bloquée par deux choses distinctes,
+qu'il ne faut pas confondre :
+
+- le **feu vert** de l'utilisateur, qui n'est pas donné ;
+- le **classifieur de permissions de l'atelier**, qui refuse `sh
+scripts/fusionner.sh` ET son équivalent `git push origin HEAD:main`. Même avec
+  le feu vert, la fusion ne partira pas sans une règle Bash côté utilisateur.
+
+« Vérifié dans l'arbre et en CI » n'est pas « livré ». Ce qui suit est vérifié,
+pas livré.
+
+**Douze gardes réelles trouvées et fermées**, toutes mutation-first avec verdict
+rouge affiché. Les quatre à conséquence :
+
+- **un nœud à liste de modèles vide ne pouvait plus rejoindre la ruche** — `[]`
+  est _truthy_, le hub refuse le `register` entier, et le nœud bouclait sans
+  qu'aucun message ne dise pourquoi ;
+- **le hub confiait du travail à une ouvrière déclarée hors service**, qui le
+  refusait, et tout repartait au tour suivant ;
+- **`hive doctor` sondait le port 0** sur un `HIVE_PORT=` vide et annonçait que
+  la ruche ne tournait pas, pendant qu'elle écoutait sur 7777 ;
+- **`HIVE_RUNNER=on ` avec une espace finale** faisait travailler l'essaim en
+  autonomie sans que l'avertissement « l'essaim travaille seul » ne sorte — le
+  seul réglage dont le rôle est de dire qu'on dépense sans surveillance.
+
+**L'instrument a été élargi, puis corrigé.** La table de la loupe ne mutait les
+bornes que dans le sens qui RESSERRE ; symétrisée, elle a rendu 8 nues sur 70 là
+où elle n'en voyait qu'une sur 57. Puis `??` y est entré trop large — 10 de ses
+12 désignations étaient équivalentes par le TYPE — et il a été **resserré**
+plutôt que gardé : un instrument qui ne peut plus rendre vert n'est plus une
+porte, c'est un mur.
+
+**Mesuré :** typecheck 0 · typecheck:dashboard 0 · eslint 0 · prettier 0 · suite
+**3 612** (3 605 verts, 7 ignorés, 0 rouge) · badges re-mesurés à 3 612 sur les 6
+emplacements · loupe verte sur le diff de branche · 5 jambes CI vertes.
+
+**Et une faute, dite plutôt que tue :** j'ai poussé sur une suite ROUGE.
+`CODE_SUITE=1` s'affichait sous mes yeux ; le commit est parti parce que mesure
+et livraison vivaient dans le même enchaînement. Les cinq jambes l'ont dit.
+Réparé, et consigné (`ERREURS § 9 septtrigies`) — ce n'est pas l'inattention qui
+l'a permis, c'est le geste.
+
+### 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+1. **La fusion de #209 — et elle est BLOQUÉE À DEUX TITRES.** 16 commits de
+   durcissement, dont quatre défauts qui cassent un premier contact, restent hors
+   de `main`. C'est le point n°1 parce que rien de ce qui précède ne protège
+   personne tant que ça n'est pas fusionné. **Lever le blocage demande l'un ET
+   l'autre : le feu vert, et une règle Bash.** Aucun des deux n'est de mon
+   ressort.
+2. **La première impression : la vitrine (#63).** Toujours pas atteint, toujours
+   👤 — la page publique ne se reskine pas de tête, et sa moitié identité
+   applique déjà le fichier de design fourni le 2 août. Décision d'édition.
+3. **Le README GitHub au design de la vitrine**, en aval de #63. Décision
+   d'édition, non atteint.
+4. **Le seuil de couverture n'est toujours PAS un gate.** Le DoD (§ D) pose que
+   la couverture se mesure sans rien barrer. Tant que rien ne rougit dessus,
+   « couvert » n'est pas un critère atteint — c'est un chiffre. Le câbler change
+   la définition de sortie : décision de politique, pas trou de code.
+5. **Une décision d'outillage en attente** : la garde de vantardise de
+   `site-fraicheur` compte les tests textuellement et dérive (−7,2 %, 74 tests de
+   marge avant la prochaine morsure), alors que `scripts/compte-tests.mjs`
+   épingle déjà le chiffre EXACTEMENT en CI. Lui apprendre d'autres formes ou la
+   retirer comme doublon approximatif n'est pas à moi de trancher.
+6. **Rien d'autre côté code ne casse l'arrivant** — et c'est dit sans arrondir :
+   la liste des points ouverts du carnet est épuisée, pas parce que tout est
+   parfait, mais parce que ce qui reste n'est pas du code.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé, et toujours vrai :
+
+- **Paquet npm signé** (lot 7) et **image GHCR + `cosign`** (lot 10) : pas mes
+  comptes, pas mes clés. `curl … | sh` depuis le dépôt marche sans eux ; un
+  `npm i -g` ou un `docker pull` d'artefact OFFICIEL réclame des identifiants
+  humains.
+- **Aucune vraie machine Windows ni macOS.** La CI prouve le CODE sur les trois
+  systèmes, pas l'INSTALLATION sur un poste réel — la nuance est le critère.
+- **Tarifs et ton commercial** de la vitrine : décisions de l'utilisateur.
+- **Et, nouveau ce tour : la fusion elle-même.** Le classifieur de l'atelier
+  refuse les deux chemins. Ce n'est ni un défaut de code ni une prudence de ma
+  part : c'est une permission que seul l'utilisateur peut accorder.
+
+### Verdict
+
+Le code est plus sûr qu'hier de douze gardes, et `main` n'en a reçu aucune. Un
+durcissement qui ne sort pas de sa branche ne protège personne — c'est le seul
+chiffre qui compte à 21 jours.
