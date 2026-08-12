@@ -95,6 +95,16 @@ export default defineConfig({
     env: {
       HIVE_JWT_SECRET: 'secret-de-session-des-tests-pas-un-secret-reel',
     },
+    // ─── LE WEB STORAGE NATIF DE NODE, ET POURQUOI IL EST COUPÉ ────────────────
+    //
+    // Depuis Node 22+, `localStorage` existe en global, hors de tout DOM. Sous
+    // happy-dom, ce global de Node passe AVANT le `localStorage` simulé par
+    // l'environnement de test — et le sien n'est pas relié à un fichier
+    // (`--localstorage-file` absent), donc ses méthodes n'existent pas :
+    // `TypeError: localStorage.getItem is not a function`, dans TOUT fichier
+    // qui touche le stockage de préférence (langue, etc.), avant même le
+    // premier test. Couper le global de Node laisse happy-dom fournir le sien.
+    execArgv: ['--no-experimental-webstorage'],
     testTimeout: 20_000,
     // ─── LA COUVERTURE, MESURABLE EN UNE COMMANDE ────────────────────────────
     //
