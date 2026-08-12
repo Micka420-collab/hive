@@ -48,6 +48,38 @@ const JETON_GH = 'jeton-github-de-test';
  */
 const DEPOTS = new Map<string, Record<string, unknown>>();
 
+/**
+ * La base des URL de CLONE que sert le faux GitHub — la boucle locale, fixée au
+ * démarrage du serveur (`beforeAll`).
+ *
+ * ─── POURQUOI CE N'EST PAS UN DÉTAIL ─────────────────────────────────────────
+ *
+ * L'en-tête de ce fichier promet de ne pas dépendre du réseau, et le faux
+ * GitHub tenait cette promesse pour l'API… mais servait une `clone_url` VRAIE
+ * (`https://github.com/micka/…`). Or `GET /api/projects/:id/rayon` rafraîchit
+ * le miroir, et le miroir CLONE : un seul test faisait donc sortir un
+ * `git clone` de la machine, vers un dépôt qui n'existe pas.
+ *
+ * Sous Linux ce clone échoue en un souffle (1,3 s pour le fichier entier). Sur
+ * la CI Windows du 12 août, il a dépassé les 20 000 ms du délai et fait rougir
+ * une PR qui ne touchait pas à cette ligne. Ce n'est pas de la lenteur : c'est
+ * une durée qui dépend de la vitesse à laquelle un réseau tiers dit non — donc
+ * d'une chose que ce banc n'a jamais voulu mesurer.
+ *
+ * La `clone_url` reste donc sur `127.0.0.1`. Elle reste en `https:` — non par
+ * décoration, mais parce que `lireDepot` REFUSE une URL de clone en clair, et
+ * cette garde-là est juste : la ruche ne doit pas cloner en HTTP. Le port visé
+ * est celui du faux GitHub, qui ne parle pas TLS : git y échoue à la poignée de
+ * main, tout de suite, sur la boucle locale — pas de DNS, pas de sortie
+ * réseau, et pas de 401 non plus, donc rien qui puisse réveiller Git Credential
+ * Manager et son attente sans fin (voir le commentaire à 30 000 ms plus bas).
+ *
+ * Le clone échoue toujours, et c'est voulu : la route rend alors 409, ce que ce
+ * banc tolère explicitement. Ce qu'il éprouve — « l'administrateur PEUT lire un
+ * projet importé » — ne dépend pas de la réussite du clone.
+ */
+let baseDeClone = '';
+
 /** Déclare un dépôt au faux GitHub et rend sa fiche. */
 function declarerDepot(fullName: string): Record<string, unknown> {
   const [, name = fullName] = fullName.split('/');
@@ -56,19 +88,45 @@ function declarerDepot(fullName: string): Record<string, unknown> {
     id: DEPOTS.size + 1,
     full_name: fullName,
     name,
-    clone_url: `https://github.com/${fullName}.git`,
     html_url: `https://github.com/${fullName}`,
   };
   DEPOTS.set(fullName, fiche);
   return fiche;
 }
 
+/**
+ * La fiche telle qu'elle part sur le fil : `clone_url` recollée à la boucle
+ * locale au moment de servir, parce que le port du faux GitHub n'est connu
+ * qu'après son démarrage.
+ */
+function ficheServie(fiche: Record<string, unknown>): Record<string, unknown> {
+  return { ...fiche, clone_url: `${baseDeClone}/${String(fiche.full_name)}.git` };
+}
+
+// GIT N'ATTEINT JAMAIS CE SERVEUR, et c'est ce qui rend l'attente impossible.
+//
+// Premier jet : un branchement répondait 404 aux chemins de git AVANT le
+// contrôle du jeton, pour qu'un 401 ne puisse pas réveiller Git Credential
+// Manager. Mesuré, ce branchement était MORT — neutralisé (`return false`), les
+// treize cas restaient verts. La raison est en amont : l'URL est en `https:`
+// alors que ce serveur ne parle que HTTP en clair, si bien que git échoue à la
+// POIGNÉE DE MAIN et n'émet jamais la moindre requête. Pas de requête, pas de
+// statut, pas de 401, pas d'invite d'identifiants — sur les trois systèmes.
+//
+// Le branchement est donc retiré (§ 9 sexquadragies : une garde qui ne peut pas
+// se déclencher fait croire que le vrai gardien est ailleurs). Ce qui tient la
+// promesse, et rougit quand on y touche, c'est « AUCUN CLONE NE SORT DE LA
+// MACHINE » plus bas.
+
 const DEPOT = {
   id: 1,
   full_name: 'micka/ma-ruche',
   name: 'ma-ruche',
   private: false,
-  clone_url: 'https://github.com/micka/ma-ruche.git',
+  // Pas de `clone_url` ici, et c'est délibéré : chaque faux GitHub pose la
+  // sienne au moment de servir (`ficheServie`). Une URL de clone écrite dans ce
+  // modèle serait partagée par TOUS les dépôts déclarés — le second import se
+  // heurterait à « déjà importé », et elle repartirait vers le vrai github.com.
   html_url: 'https://github.com/micka/ma-ruche',
   description: 'La ruche',
   default_branch: 'main',
@@ -104,21 +162,21 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
 
   beforeAll(async () => {
     faux = creerHttp((req, res) => {
+      const u = new URL(req.url ?? '/', 'http://x');
       if (req.headers.authorization !== `Bearer ${JETON_GH}`) {
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end('{"message":"Bad credentials"}');
         return;
       }
-      const u = new URL(req.url ?? '/', 'http://x');
       if (u.pathname === '/user/repos') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify([...DEPOTS.values()]));
+        res.end(JSON.stringify([...DEPOTS.values()].map(ficheServie)));
         return;
       }
       const demande = DEPOTS.get(u.pathname.replace(/^\/repos\//, ''));
       if (demande) {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(demande));
+        res.end(JSON.stringify(ficheServie(demande)));
         return;
       }
       res.writeHead(404, { 'content-type': 'application/json' });
@@ -126,6 +184,7 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
     });
     await new Promise<void>((r) => faux.listen(0, '127.0.0.1', r));
     portFaux = (faux.address() as { port: number }).port;
+    baseDeClone = `https://127.0.0.1:${portFaux}`;
 
     avant = process.env.HIVE_GITHUB_TOKEN;
     avantApi = process.env.HIVE_GITHUB_API;
@@ -196,7 +255,27 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
 
   it('l’import crée le projet', async () => {
     const { fullName, projet } = await importerUnDepotNeuf('import-cree-le-projet');
-    expect(projet.repoUrl).toBe(`https://github.com/${fullName}.git`);
+    expect(projet.repoUrl).toBe(`https://127.0.0.1:${portFaux}/${fullName}.git`);
+  });
+
+  it('AUCUN CLONE NE SORT DE LA MACHINE — la promesse de l’en-tête, tenue', async () => {
+    // Ce banc existe parce que la promesse était écrite et pas tenue : le faux
+    // GitHub servait une `clone_url` vers le vrai github.com, et la route du
+    // rayon la clonait pour de bon. La CI Windows du 12 août a expiré à
+    // 20 000 ms sur ce seul test, dans une PR qui ne touchait pas à cette ligne.
+    //
+    // On éprouve les DEUX portes par lesquelles une URL sort : la fiche d'un
+    // dépôt, et la liste entière. Une seule des deux suffirait à rouvrir la
+    // fuite — l'import lit la fiche, l'écran lit la liste.
+    const fiche = await fetch(`${base}/api/github/repos`, { headers: hive });
+    const { depots } = (await fiche.json()) as { depots: { cloneUrl?: string }[] };
+    const dehors = depots.filter(
+      (d) => d.cloneUrl !== undefined && !d.cloneUrl.includes('127.0.0.1'),
+    );
+    expect(dehors, 'aucune URL de clone hors de la boucle locale').toEqual([]);
+
+    const { projet } = await importerUnDepotNeuf('jamais-sur-le-reseau');
+    expect(projet.repoUrl.startsWith('https://127.0.0.1:'), projet.repoUrl).toBe(true);
   });
 
   it('LE PROJET IMPORTÉ EST LISIBLE PAR L’ADMINISTRATEUR', async () => {
@@ -310,15 +389,20 @@ describe('connecter un dépôt depuis un COMPTE', () => {
       const fiche = DEPOTS.get(u.pathname.replace(/^\/repos\//, ''));
       const corps =
         u.pathname === '/user/repos'
-          ? JSON.stringify([...DEPOTS.values()])
+          ? JSON.stringify([...DEPOTS.values()].map(ficheServie))
           : fiche
-            ? JSON.stringify(fiche)
+            ? JSON.stringify(ficheServie(fiche))
             : null;
       res.writeHead(corps ? 200 : 404, { 'content-type': 'application/json' });
       res.end(corps ?? '{"message":"Not Found"}');
     });
     await new Promise<void>((r) => faux2.listen(0, '127.0.0.1', r));
     const port2 = (faux2.address() as { port: number }).port;
+    // CE bloc-ci est celui où la CI Windows avait bloqué à 30 000 ms : c'est son
+    // faux GitHub qui doit servir SES propres URL de clone, sinon les deux
+    // dépôts qu'il déclare partagent celle du modèle et le second import se
+    // heurte à « déjà importé ».
+    baseDeClone = `https://127.0.0.1:${port2}`;
 
     avant2 = process.env.HIVE_GITHUB_TOKEN;
     avantApi2 = process.env.HIVE_GITHUB_API;
