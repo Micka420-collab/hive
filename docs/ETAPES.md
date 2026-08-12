@@ -5294,3 +5294,262 @@ correspondances (un `balayage` vaut-il un `effacement_imminent` ? non : l'un est
 irréversible) et un problème de périmètre non résolu (`/api/moi/tableau` est
 borné aux projets dont on est membre, alors que Guetteuses et Fantômes sont des
 signaux de ruche entière). C'est un lot d'après-sortie.
+
+### La pastille d'alertes câblée — et l'obstacle que j'avais inventé
+
+Suite de `graviteMax` : le badge est posé sur « Mon espace ».
+
+**Une correction contre moi.** J'avais annoncé un obstacle bloquant : « `user`
+est une REF dans App.tsx, donc un poll conditionné dessus ne se réveillerait pas
+à la connexion ». **C'est faux** : `user` est un ÉTAT (`useState<AuthUser |
+null>`, App.tsx:138) ; le `userRef` (l.145-146) n'en est qu'un miroir, pour que
+le gestionnaire de raccourcis clavier n'ait pas à se recréer. J'avais lu la ref
+sans voir l'état juste au-dessus. Le câblage ne demandait pas de comprendre le
+flux d'authentification — il demandait de lire sept lignes plus haut.
+
+Mécanique : un module PUR `pastille-alertes.ts` (décide d'allumer, plafonne le
+compte, rend la phrase du lecteur d'écran) ; un sondage BORNÉ à la session dans
+App.tsx, réveillé par un tic de session ; trois modificateurs CSS distingués par
+la FORME autant que par la couleur (plein+halo / plein / creux) ; `data-gravite`
+pour que les bancs puissent lire l'état ailleurs que dans un pixel.
+
+Deux pièges fermés au module pur, chacun éprouvé : **`null` n'est pas « info »**
+(une ruche saine ne porte aucune pastille — une pastille toujours allumée
+n'attire plus l'œil), et **un serveur ancien n'invente pas de couleur** (le
+contrat porte un `version` ; sans `graviteMax`, on n'allume pas plutôt que de
+mentir sur l'urgence). Mutation `||` → `&&` : 2 bancs ROUGES, dont le cas du
+serveur ancien (« expected { total: 5, gravite: null } to be null »).
+
+#### Deux défauts que la barrière a attrapés, et qu'un tube aurait cachés
+
+1. **`typecheck` racine = 2** alors que la suite était verte et
+   `typecheck:dashboard` à 0. Le banc du module pur importait sans extension
+   `.js` — la convention du dépôt (`moduleResolution: node16`), que les bancs
+   voisins respectent déjà.
+2. **Importer `Gravite` depuis `../api.js` a tiré TOUT `api.ts` dans le graphe
+   du typecheck RACINE**, révélant quatre erreurs d'extension préexistantes dans
+   ce fichier — invisibles jusque-là parce qu'`api.ts` n'était compilé que par
+   le tsconfig du tableau de bord, qui a d'autres règles. Corrigé en important le
+   type depuis SA SOURCE (`src/orchestrator/tableau.js`) : un module pur ne
+   devrait pas dépendre d'un module d'API pour un type de trois littéraux.
+
+Le `switch` des libellés porte un `const jamais: never` : le jour où une
+quatrième gravité naît, la compilation s'arrête là plutôt que de rendre une
+pastille muette.
+
+Vérifié : barrière entière verte (codes lus SANS TUBE — c'est ce qui a montré le
+typecheck rouge quand tout le reste était vert), suite **3 537** (3 530 verts,
+0 rouge), badges re-mesurés à 3 537, garde CI verte.
+
+## Balayage loupe à couverture pleine, rejoué : 41/41 était vrai, et périmé
+
+Le point n°3 du 11 août annonçait la couverture PLEINE atteinte — « 41/41 sur
+`68087bc`, tous défendus, rien de nu, plus de mutant nu qui dorme dans un
+non-examiné ». Rejoué le soir même, **sur la même base épinglée**, le balayage
+en trouve **57**.
+
+Rien n'avait été défait. L'instrument avait gagné l'opérateur
+`instanceof X → instanceof Object` le 11 août APRÈS la passe, et quatre commits
+ont atterri depuis — or le diff se mesure toujours contre la même base ancienne,
+donc il ne cesse jamais de croître. Le verdict n'était pas faux : il avait
+**expiré**. Leçon `ERREURS § 9 tertrigies` — un verdict d'exhaustivité ne vaut
+que pour le couple {instrument, surface} du jour, et un verdict partiel vieillit
+honnêtement là où un verdict d'exhaustivité vieillit en mensonge.
+
+### Le verdict de ce tour
+
+**`LOUPE_BASE=68087bc`, `LOUPE_MAX=90` — 57 mutations possibles, 57 examinées.**
+Aucun échantillonnage. Dans un arbre de travail DÉTACHÉ (`git worktree`), la base
+passée par variable d'environnement, jamais écrite dans le dépôt.
+
+- **56 défendues.**
+- **1 signalée nue, et c'est un mutant ÉQUIVALENT déjà consigné** :
+  `garde-fou.ts` — `rangEchelon(b.min) <= rangEchelon(b.max)` muté en `<`.
+
+L'équivalence n'a pas été crue sur parole du commentaire : elle a été **mesurée
+sur le domaine ENTIER**. `Bornes` est un couple de deux `Echelon`, une union
+fermée de trois valeurs — donc 3 × 3 = **9 paires possibles, et rien de plus**.
+Les deux versions rendent la même VALEUR dans les 9 cas ; elles ne diffèrent que
+par l'identité de référence de l'objet rendu, que personne n'exige. La loupe le
+re-signalera à chaque passe : c'est le comportement attendu d'un instrument qui
+ne sait pas lire un commentaire.
+
+### Ce que ce balayage ne dit PAS
+
+`site/` est **hors du champ de la loupe** — son diff est borné à `src`,
+`dashboard/src` et `scripts` (`scripts/loupe.mjs:82-94`). Aucun verdict rendu ici
+ne porte sur la vitrine, quelle que soit sa base.
+
+Et il ne dit rien non plus de ce qui n'a jamais été touché depuis `68087bc` : la
+loupe mute les lignes AJOUTÉES d'un diff, pas le dépôt. C'est ainsi qu'une boucle
+antérieure à la base a pu rester nue jusqu'à ce qu'une lecture la trouve — celle
+qui ferme les fusions d'un nœud parti, éprouvée ce même tour.
+
+Vérifié : barrière entière verte (codes lus sans tube), arbre propre, atelier
+démonté.
+
+## L'instrument élargi trouve sept gardes que personne n'éprouvait
+
+La table d'échanges de la loupe était asymétrique : `>= → >` et `<= → <`
+existaient, leurs inverses non. Elle ne savait donc muter une borne que dans le
+sens qui RESSERRE — jamais dans celui qui RELÂCHE, qui est pourtant le plus
+dangereux : resserrer fait refuser du travail légitime et quelqu'un s'en plaint
+le jour même, relâcher fait ACCEPTER ce qui devait être refusé et personne ne
+vient le dire. `|| → &&` manquait de même.
+
+Table symétrisée (commit « La loupe ne savait relâcher aucune borne »), puis le
+MÊME balayage, sur la MÊME base épinglée `68087bc` :
+
+| instrument                   | mutations | nues            |
+| ---------------------------- | --------- | --------------- |
+| avant `instanceof` (11 août) | 41        | 0               |
+| avec `instanceof`            | 57        | 1 (équivalente) |
+| avec les bornes relâchées    | **70**    | **8**           |
+
+Sept nudités réelles qu'aucun balayage précédent ne pouvait produire.
+
+### Livré ce tour — les deux à conséquence
+
+**`client.ts` — un nœud à liste de modèles VIDE ne pouvait plus rejoindre la
+ruche.** En JavaScript `[]` est TRUTHY : le `&&` ne filtre rien, et `.length > 0`
+est SEUL à empêcher d'envoyer `modeles: []`. Or le hub exige `v.length >= 1` et
+refuse le `register` ENTIER quand la liste est malformée — le nœud aurait bouclé
+sans qu'aucun message ne dise pourquoi. Mutée, la suite entière restait verte
+(243 fichiers, 3 542 tests). Banc de bout en bout sur un vrai serveur ;
+verdict rouge : « une liste de modèles VIDE a empêché le nœud de rejoindre ».
+
+**`modeles.ts` — la borne de longueur n'était tenue que d'un côté.** Le banc
+existant éprouvait `LIMITS.name + 1` (rejeté) et jamais `LIMITS.name` (accepté).
+Mutée en `>=`, un nom de longueur MAXIMALE était écarté en silence : le nœud
+déclarait un modèle de moins que ce qu'il sait faire tourner, et l'Aiguillage n'y
+envoyait plus rien. Aucune panne — juste un modèle qui cesse d'exister pour la
+ruche.
+
+### Consigné ÉQUIVALENT, et mesuré comme tel
+
+Trois mutants ne peuvent pas rougir, et c'est écrit à côté de la ligne plutôt
+qu'entouré d'un banc de décor :
+
+- `garde-fou.ts`, `normaliserBornes` (`<= → <`) — déjà consigné ; 9 paires de
+  bornes possibles, 0 divergence de valeur.
+- `garde-fou.ts`, `elireEchelon` (`< → <=`) — `comparerRangs` ne rend `0` qu'à
+  score ET échelon égaux, or `rangs` porte au plus une entrée par échelon.
+  **Mesuré : 90 paires distinctes, 0 comparaison nulle.**
+- `tableau.ts`, `graviteLaPlusHaute` (`< → <=`) — `RANG` est injectif, donc rangs
+  égaux ⟹ gravités égales ⟹ réaffectation sans effet. **Mesuré : 364 suites de
+  gravités de longueur ≤ 5, 0 divergence.**
+
+### PAS fait, et dit plutôt que maquillé
+
+Trois nudités restent, réelles mais à faible conséquence, et je ne les ai pas
+éprouvées cette nuit — bâcler trois bancs en fin de tour aurait produit du décor :
+
+1. `dashboard/src/GardeFous.tsx` — `etat.classement.length > 0` : muté, un
+   `<table>` d'en-têtes sans une seule ligne s'affiche. Cosmétique, visible.
+2. `src/orchestrator/scheduler.ts` — `Object.keys(modeleParDrone).length > 0` :
+   muté, `race.modeleParDrone` reçoit `{}` au lieu de rester absent.
+3. `src/orchestrator/store.ts` — `staleNodes`, `n.lastSeen < ?` : muté, un nœud
+   dont le heartbeat vaut EXACTEMENT la limite devient périmé. La documentation
+   de la méthode dit « antérieur à », donc le contrat est du côté du `<` strict.
+
+Aucune n'est un mutant équivalent : les trois changent un comportement
+observable. Elles attendent leur banc.
+
+## POINT DE SORTIE — 12 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**21 jours.**
+
+### 2. Livré ET vérifié depuis hier
+
+**Honnêteté d'abord : RIEN n'a été fusionné.** `main` est toujours à `d39e166`
+(PR #208, 11 août). Les **16 commits** de cette nuit vivent dans #209, ouverte,
+CI 5/5 verte, `mergeable_state clean` — et bloquée par deux choses distinctes,
+qu'il ne faut pas confondre :
+
+- le **feu vert** de l'utilisateur, qui n'est pas donné ;
+- le **classifieur de permissions de l'atelier**, qui refuse `sh
+scripts/fusionner.sh` ET son équivalent `git push origin HEAD:main`. Même avec
+  le feu vert, la fusion ne partira pas sans une règle Bash côté utilisateur.
+
+« Vérifié dans l'arbre et en CI » n'est pas « livré ». Ce qui suit est vérifié,
+pas livré.
+
+**Douze gardes réelles trouvées et fermées**, toutes mutation-first avec verdict
+rouge affiché. Les quatre à conséquence :
+
+- **un nœud à liste de modèles vide ne pouvait plus rejoindre la ruche** — `[]`
+  est _truthy_, le hub refuse le `register` entier, et le nœud bouclait sans
+  qu'aucun message ne dise pourquoi ;
+- **le hub confiait du travail à une ouvrière déclarée hors service**, qui le
+  refusait, et tout repartait au tour suivant ;
+- **`hive doctor` sondait le port 0** sur un `HIVE_PORT=` vide et annonçait que
+  la ruche ne tournait pas, pendant qu'elle écoutait sur 7777 ;
+- **`HIVE_RUNNER=on ` avec une espace finale** faisait travailler l'essaim en
+  autonomie sans que l'avertissement « l'essaim travaille seul » ne sorte — le
+  seul réglage dont le rôle est de dire qu'on dépense sans surveillance.
+
+**L'instrument a été élargi, puis corrigé.** La table de la loupe ne mutait les
+bornes que dans le sens qui RESSERRE ; symétrisée, elle a rendu 8 nues sur 70 là
+où elle n'en voyait qu'une sur 57. Puis `??` y est entré trop large — 10 de ses
+12 désignations étaient équivalentes par le TYPE — et il a été **resserré**
+plutôt que gardé : un instrument qui ne peut plus rendre vert n'est plus une
+porte, c'est un mur.
+
+**Mesuré :** typecheck 0 · typecheck:dashboard 0 · eslint 0 · prettier 0 · suite
+**3 612** (3 605 verts, 7 ignorés, 0 rouge) · badges re-mesurés à 3 612 sur les 6
+emplacements · loupe verte sur le diff de branche · 5 jambes CI vertes.
+
+**Et une faute, dite plutôt que tue :** j'ai poussé sur une suite ROUGE.
+`CODE_SUITE=1` s'affichait sous mes yeux ; le commit est parti parce que mesure
+et livraison vivaient dans le même enchaînement. Les cinq jambes l'ont dit.
+Réparé, et consigné (`ERREURS § 9 septtrigies`) — ce n'est pas l'inattention qui
+l'a permis, c'est le geste.
+
+### 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+1. **La fusion de #209 — et elle est BLOQUÉE À DEUX TITRES.** 16 commits de
+   durcissement, dont quatre défauts qui cassent un premier contact, restent hors
+   de `main`. C'est le point n°1 parce que rien de ce qui précède ne protège
+   personne tant que ça n'est pas fusionné. **Lever le blocage demande l'un ET
+   l'autre : le feu vert, et une règle Bash.** Aucun des deux n'est de mon
+   ressort.
+2. **La première impression : la vitrine (#63).** Toujours pas atteint, toujours
+   👤 — la page publique ne se reskine pas de tête, et sa moitié identité
+   applique déjà le fichier de design fourni le 2 août. Décision d'édition.
+3. **Le README GitHub au design de la vitrine**, en aval de #63. Décision
+   d'édition, non atteint.
+4. **Le seuil de couverture n'est toujours PAS un gate.** Le DoD (§ D) pose que
+   la couverture se mesure sans rien barrer. Tant que rien ne rougit dessus,
+   « couvert » n'est pas un critère atteint — c'est un chiffre. Le câbler change
+   la définition de sortie : décision de politique, pas trou de code.
+5. **Une décision d'outillage en attente** : la garde de vantardise de
+   `site-fraicheur` compte les tests textuellement et dérive (−7,2 %, 74 tests de
+   marge avant la prochaine morsure), alors que `scripts/compte-tests.mjs`
+   épingle déjà le chiffre EXACTEMENT en CI. Lui apprendre d'autres formes ou la
+   retirer comme doublon approximatif n'est pas à moi de trancher.
+6. **Rien d'autre côté code ne casse l'arrivant** — et c'est dit sans arrondir :
+   la liste des points ouverts du carnet est épuisée, pas parce que tout est
+   parfait, mais parce que ce qui reste n'est pas du code.
+
+### 4. Hors d'atteinte — à DIRE, pas à simuler
+
+Inchangé, et toujours vrai :
+
+- **Paquet npm signé** (lot 7) et **image GHCR + `cosign`** (lot 10) : pas mes
+  comptes, pas mes clés. `curl … | sh` depuis le dépôt marche sans eux ; un
+  `npm i -g` ou un `docker pull` d'artefact OFFICIEL réclame des identifiants
+  humains.
+- **Aucune vraie machine Windows ni macOS.** La CI prouve le CODE sur les trois
+  systèmes, pas l'INSTALLATION sur un poste réel — la nuance est le critère.
+- **Tarifs et ton commercial** de la vitrine : décisions de l'utilisateur.
+- **Et, nouveau ce tour : la fusion elle-même.** Le classifieur de l'atelier
+  refuse les deux chemins. Ce n'est ni un défaut de code ni une prudence de ma
+  part : c'est une permission que seul l'utilisateur peut accorder.
+
+### Verdict
+
+Le code est plus sûr qu'hier de douze gardes, et `main` n'en a reçu aucune. Un
+durcissement qui ne sort pas de sa branche ne protège personne — c'est le seul
+chiffre qui compte à 21 jours.

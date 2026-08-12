@@ -4199,6 +4199,284 @@ quelque chose.
 
 ---
 
+## 9 quintrigies. Une règle de configuration lue à DEUX endroits est DEUX règles
+
+`HIVE_PORT` était lu par la ruche et par son docteur. Chacun avait écrit sa
+propre lecture, et elles ne disaient pas la même chose :
+
+    server.ts         Number.parseInt('', 10) → NaN, puis une garde
+                      (`Number.isInteger && 0 ≤ p ≤ 65535`) → 7777
+    doctor-releve.ts  Number('')              → 0, et aucune garde
+
+Il suffisait d'une ligne `HIVE_PORT=` laissée vide dans un `.env` — l'accident le
+plus banal qui soit — pour que le docteur parte sonder le port **0**. Or écouter
+le port 0 réussit toujours : le système en attribue un au hasard. Il le trouvait
+donc LIBRE, et annonçait que la ruche ne tournait pas, pendant qu'elle écoutait
+tranquillement sur 7777.
+
+### Pourquoi celle-ci pique plus que les autres
+
+Ce n'est pas n'importe quel code qui divergeait : c'est l'outil dont le SEUL rôle
+est d'être cru quand plus rien ne marche. Un docteur qui se trompe de patient
+n'est pas neutre — il envoie chercher une panne inventée, et fait rater la vraie.
+
+Et le défaut ne se voit jamais sur le chemin heureux : avec un `HIVE_PORT` bien
+écrit, ou absent, les deux lectures coïncident. Il n'apparaît qu'au moment exact
+où l'on a le plus besoin du docteur — quand la configuration est cassée.
+
+### La règle
+
+> Une valeur de configuration a UN lecteur. Les autres l'appellent. Poser « la
+> même » garde à deux endroits marche le jour où on l'écrit et diverge au premier
+> changement — c'est la faute, pas le remède.
+
+Un troisième lecteur existait, et il avait raison : `installer-assistant.ts`
+écrivait `Number(…) || PORT_DEFAUT`, précisément parce qu'il connaissait le piège
+du `Number('')`. Trois lecteurs, trois comportements, une seule variable.
+
+### Le banc qui prétendait garder l'accord, et qui était du DÉCOR
+
+Écrit d'abord, il comparait `loadConfigFromEnv()` à `portDepuisEnv()` — c'est-à-
+dire une fonction à celle qu'elle appelle. Remise au docteur sa lecture
+d'origine, il restait **VERT** : le docteur n'était même pas dans son graphe
+d'imports. Il éprouvait l'accord de la règle avec elle-même.
+
+> Un banc qui éprouve un ACCORD doit importer les DEUX parties qui doivent
+> s'accorder. S'il n'en importe qu'une, il mesure une tautologie — et la
+> mutation le dit tout de suite, à condition de la jouer sur l'autre côté.
+
+Corollaire de méthode : quand une mutation ne fait rien rougir, la première
+question n'est pas « le banc est-il faible ? » mais « le banc TOUCHE-t-il ce que
+je viens de muter ? ».
+
+---
+
+## 9 quattuortrigies. Un opérateur de mutation se juge à son RENDEMENT, jamais à son idée
+
+Deux opérateurs ajoutés à la loupe le même soir, sur le même raisonnement — « la
+liste ne le contient pas, donc l'instrument est aveugle » (§ 9 sexvicies). Deux
+résultats opposés, et seule la MESURE les distinguait :
+
+| ajouté                                             | désignations neuves | dont actionnables    |
+| -------------------------------------------------- | ------------------- | -------------------- |
+| bornes relâchées (`> → >=`, `< → <=`, `\|\| → &&`) | 8                   | **7**                |
+| `?? →                                              |                     | `, sur tous les `??` | 12  | **2** |
+
+Les dix autres étaient équivalentes **par le type** : `get(k) ?? {…}` — un objet
+n'est jamais _falsy_ ; `n.modeles ?? []` ; `row?.echelon ?? null` — une union de
+littéraux non vides ; `essais ?? 0` et `c?.actif ?? false` — la valeur _falsy_
+possible EST le repli.
+
+La loupe ne lit pas les types. Elle aurait donc re-désigné ces dix **à chaque
+passe**, pour toujours.
+
+### Pourquoi c'est grave, et pas seulement bruyant
+
+Un instrument qui ne peut plus rendre vert n'est plus une porte, c'est un mur.
+Son en-tête met en garde contre le faux vert rassurant — le **faux rouge
+permanent** est l'autre façon de n'être plus écouté, et la plus insidieuse :
+personne ne décide de l'ignorer, on cesse simplement de le lire.
+
+La règle du dépôt aggrave le coût : chaque survivant doit être ou éprouvé, ou
+consigné par écrit. Dix consignations d'équivalence sur des lignes triviales,
+c'est dix commentaires que tout lecteur futur devra traverser pour rien.
+
+### La règle
+
+> Ajouter un opérateur de mutation est une hypothèse, pas une amélioration. On
+> la vérifie en le lançant sur une base épinglée et en comptant la part de ses
+> désignations qui sont ACTIONNABLES. Faible, on RESSERRE l'opérateur jusqu'à ce
+> qu'il ne parle que là où il mord — ou on le retire.
+
+Resserré ici au seul repli **truthy littéral** (`?? true`, `?? 1`, `?? 2_000`),
+`??` redevient précieux et silencieux ailleurs : il ne désigne plus que les
+gardes qui **échouent en s'ouvrant** — `nodeOnShift.get(n.id) ?? true` (une
+ouvrière hors service redevient disponible), `opts.uid ?? 1000` (`uid` 0 est
+root), `code ?? 1` (un code de sortie 0 devient 1).
+
+### Le corollaire qui coûte, et qu'on assume
+
+Resserrer PERD des cas réels : `x ?? null` mord vraiment si `x` peut être la
+chaîne vide. On préfère le rater plutôt que noyer chaque passe sous 107
+désignations qu'on ne saurait pas trancher — et **on l'écrit**, dans le code de
+l'instrument, pour que la prochaine personne sache que ce trou est un choix et
+non un oubli.
+
+---
+
+## 9 tertrigies. « Couverture PLEINE » est une mesure DATÉE, pas un état acquis
+
+Le carnet portait, au 11 août : « la loupe à couverture PLEINE sur le diff
+cumulé — ATTEINTE ce tour […] 41/41, tous défendus, rien de nu — plus de mutant
+nu qui dorme dans un non-examiné ».
+
+C'était vrai. Rejoué le soir même sur **la même base épinglée**, le même
+balayage a trouvé **57 mutations**, pas 41.
+
+Rien n'avait été défait. Deux choses avaient grandi, chacune de son côté :
+
+- **l'instrument** — l'opérateur `instanceof X → instanceof Object` a été ajouté
+  à la loupe le 11 août aussi, mais APRÈS la passe. Un balayage ne voit que ce
+  que sa liste contient au moment où il tourne (§ 9 sexvicies) ;
+- **la surface** — quatre commits ont atterri depuis, et le diff se mesure
+  toujours contre la même base ancienne : il ne cesse donc jamais de croître.
+
+Le verdict n'était pas faux ; il avait **expiré**, sans que rien ne le dise.
+
+### La règle
+
+> Un verdict d'EXHAUSTIVITÉ (« tout examiné », « rien de nu », « 100 % couvert »)
+> ne vaut que pour le couple **{instrument, surface}** du jour où il a été rendu.
+> Il ne se recopie pas au tour suivant : il se re-mesure, ou il se dit périmé.
+
+Un verdict partiel vieillit honnêtement — « 13/40 échantillonnés » reste vrai et
+appelle du travail. Un verdict d'exhaustivité vieillit en MENSONGE : il dit qu'il
+n'y a plus rien à chercher, et c'est précisément ce qui empêche d'aller
+regarder. Le danger est proportionnel à la confiance qu'il inspire.
+
+Corollaire d'écriture : consigner la BASE et la version de l'instrument avec le
+chiffre. « 41/41 » ne se relit pas ; « 41/41 sur `68087bc`, avant l'opérateur
+`instanceof` » se relit et se date tout seul.
+
+---
+
+## 9 duotrigies. Chercher des MOTS dans les tests ne dit pas ce qu'ils EXERCENT
+
+J'ai annoncé à l'utilisateur qu'une garde de `server.ts` — celle qui empêche la
+fermeture d'un socket mort d'emporter la connexion vivante qui l'a remplacé —
+n'était **défendue par aucun banc**. J'en donnais même la preuve :
+
+    grep -rln "reconnex\|reconnect\|nodeSockets\|ws_closed" tests/
+    → 9 fichiers
+    grep -n "ws_closed\|nodeDisconnected\|…" <ces fichiers>
+    → 1 seule ligne, dans scheduler.test.ts, qui appelle la méthode directement
+
+C'était faux. La garde est défendue par `hardening.test.ts` — « un nœud qui blip
+puis se reconnecte en déclarant sa tâche la RÉ-ADOPTE ». Mutée en `!==`, ce banc
+rougit. Pire : **ce fichier était dans ma propre liste de neuf**, et je l'ai
+écarté parce que mon second `grep` n'y trouvait pas mes mots.
+
+Il ne pouvait pas les trouver. Ce banc n'écrit ni `ws_closed`, ni
+`nodeDisconnected` : il ferme un socket, en rouvre un autre, et regarde la
+tâche. Il éprouve le COMPORTEMENT — c'est ce qu'on lui demande — donc il ne
+nomme aucun des rouages qu'il traverse.
+
+### La règle
+
+> La seule façon de savoir si une garde est défendue, c'est de la **muter et de
+> lancer la suite**. Un `grep` dans `tests/` ne mesure rien : les bons bancs
+> sont écrits dans le vocabulaire de l'utilisateur, pas dans celui du code
+> qu'ils traversent.
+
+Le coût de se tromper n'est pas symétrique. Croire une garde défendue quand elle
+ne l'est pas laisse un trou ; croire une garde NUE quand elle est tenue fait
+écrire un doublon — et un banc posé autour d'une condition déjà gardée fige un
+doublon sans rien défendre (§ 9 novemdecies). Dans les deux cas, la mutation
+tranche en deux minutes ce qu'aucune lecture ne tranche.
+
+Corollaire pratique : muter **avant** d'annoncer quoi que ce soit. J'avais la
+mutation à portée de main et j'ai parlé d'abord.
+
+### Ce que la mutation a trouvé à côté
+
+La ligne SUIVANTE, elle, était réellement nue — la boucle qui ferme les fusions
+du nœud parti. Mutée en `!==`, la suite entière est restée verte : 242 fichiers,
+3 534 tests. Et elle casse dans les deux sens à la fois : la fusion du partant
+n'est plus close (`/merge/result` reste `null` pour toujours), tandis que celles
+des autres nœuds sont déclarées échouées.
+
+C'est la mutation qui l'a désignée, pas la lecture. La lecture m'avait envoyé
+une ligne trop haut.
+
+---
+
+## 9 untrigies. Une commande de REMPLACEMENT n'est pas la commande
+
+L'atelier a refusé `npm run typecheck`. Plutôt que de lire ce que ce script
+lance, j'ai improvisé un équivalent « qui doit bien faire pareil » :
+
+    npx tsc -p tsconfig.json --noEmit false --emitDeclarationOnly false
+
+`--noEmit false` n'ANNULE pas une option : il l'assigne. La compilation a donc
+écrit **339 fichiers `.js` compilés** à côté de chaque source `.ts` du dépôt —
+`src/`, `dashboard/src/`, tout.
+
+Rien n'a rougi. `tsc` n'imprime rien quand il réussit, et il avait réussi.
+
+### Ce qui l'a attrapé
+
+Pas la commande fautive : la SUIVANTE. `eslint` s'est mis à signaler des fautes
+dans des fichiers que je n'avais jamais écrits —
+
+    src/adapters/claude-code.js
+      24:49  error  'process' is not defined  no-undef
+
+Un `.js` à côté d'un `.ts` du même nom, avec des erreurs de règles Node dans un
+dépôt qui compile en TypeScript : ce n'était pas un défaut de lint, c'était un
+dépôt sali. La bonne question n'était pas « comment faire taire ces erreurs »
+mais « qui a écrit ces fichiers ».
+
+### La règle
+
+> Quand une commande est refusée et qu'on lui cherche un substitut, le substitut
+> doit être **la même commande**, lue dans `package.json`, pas une reconstitution
+> de mémoire. Un drapeau ajouté « pour voir » est un changement de comportement,
+> pas un contournement.
+
+Et le corollaire sur les drapeaux : dans une interface en ligne de commande,
+`--option false` n'est presque jamais « laisser la valeur par défaut ». C'est une
+affectation — et pour un drapeau négatif comme `--noEmit`, elle **inverse** le
+sens qu'on croyait obtenir.
+
+### Le second piège : nettoyer sans regarder
+
+Le geste tentant était `git clean -fd` : une ligne, tout part. Il aurait aussi
+emporté n'importe quel fichier non suivi présent pour une autre raison.
+
+Ce qui a été fait à la place — et qui doit l'être : PROUVER que chaque fichier à
+retirer est bien celui qu'on croit, **avant** d'en retirer un seul.
+
+    339 fichiers non suivis, tous en `.js`
+    339 ont une sœur `.ts` ou `.tsx` du même nom   → ce sont des compilés
+    le plus vieux date de 242 s                    → tous nés de MA commande
+    0 sans sœur                                    → aucun orphelin à épargner
+
+Le retrait a ensuite refusé de toucher tout fichier ne satisfaisant pas les deux
+conditions. Un nettoyage qui ne sait pas nommer ce qu'il efface est un second
+dégât posé sur le premier.
+
+---
+
+## 9 trigies. Une DISTINCTION n'est pas une CORRESPONDANCE
+
+Un banc vérifiait que trois gravités rendaient six phrases DISTINCTES :
+
+    expect(new Set(dits).size).toBe(6);
+    for (const d of dits) expect(d.length).toBeGreaterThan(10);
+
+Il semblait couvrir la table des libellés. Il ne couvrait rien de ce qui
+compte : **échanger** les mots de deux gravités garde six phrases distinctes,
+toutes assez longues. Mesuré — les libellés français de « attention » et
+« info » intervertis, les douze bancs sont restés VERTS pendant qu'un quota au
+bord se disait « pour information ».
+
+L'agent de vérification l'a relevé ; la mutation l'a prouvé avant correction.
+
+### La règle
+
+Une assertion d'ENSEMBLE (tous distincts, tous non vides, la bonne longueur,
+le bon compte) ne dit rien de l'APPARIEMENT. Elle attrape les collisions et les
+oublis, jamais les permutations — et une permutation est le mode d'échec le plus
+probable d'une table de traduction, parce qu'elle survient en éditant deux
+lignes voisines.
+
+Devant une table qui associe des clés à des valeurs, se demander : « si
+j'échangeais deux lignes, quel banc rougirait ? ». S'il n'y en a pas, la table
+n'est pas gardée — elle est seulement comptée. Le remède est banal et court :
+une assertion par paire, qui nomme la clé ET son mot.
+
+---
+
 ## 9 octovicies. Committer pendant qu'un agent VÉRIFIE le même arbre grave sa mutation
 
 J'ai lancé un agent de vérification en lui demandant, entre autres, si mes gardes
@@ -4844,3 +5122,98 @@ trouvés :
    plafond, c'est un blocage » a tranché sans discussion au run suivant.
 5. **Dire ce qu'on ne peut pas vérifier**, plutôt que de le taire ou de le
    simuler.
+
+---
+
+## 9 sextrigies. Le correctif existait, et la porte d'à côté ne l'avait jamais reçu
+
+`bornerConcurrence()` borne `HIVE_MAX_CONCURRENCY` entre 1 et 16 et fait retomber
+tout ce qui n'est pas un entier lisible sur le défaut. Son commentaire décrit la
+panne qu'elle empêche, mot pour mot :
+
+> un `NaN` propagé jusqu'à la boucle de travail donnerait un nœud connecté qui
+> n'accepte jamais rien, et l'invité verrait « ✔ Nœud démarré » sans qu'il ne se
+> passe jamais rien.
+
+Elle est écrite, commentée, éprouvée — et appelée par UNE des deux portes du
+nœud. L'autre, `main.ts`, faisait `Number.parseInt(… ?? '2', 10)` : la panne
+exacte, décrite juste à côté, vivante depuis toujours.
+
+### Ce que ça dit du geste « corriger »
+
+Corriger un défaut, c'est le corriger LÀ OÙ IL PEUT SE PRODUIRE, pas là où on
+l'a vu. Un correctif posé sur un seul chemin d'entrée laisse le défaut intact
+sur les autres — et il fait pire que rien : le commentaire qui explique la panne
+rassure le lecteur suivant, qui croit le sujet clos.
+
+> Après avoir extrait une règle pour réparer un appelant, chercher TOUS les
+> autres appelants de la même valeur. La question n'est pas « où était le
+> bug ? » mais « qui d'autre lit ça ? ».
+
+Le grep qui le trouve est trivial et tient en une ligne — regrouper les lectures
+de `process.env.X` par variable et regarder celles qui en ont plusieurs. Sur ce
+dépôt : 32 variables `HIVE_*`, **16 lues dans plusieurs fichiers**, et quatre
+règles divergentes dedans (le port, le runner, les gardiennes, la concurrence).
+
+### Le corollaire pour le docteur
+
+Trois des quatre divergences opposaient la ruche à son propre docteur, et l'une
+était muette au pire moment : avec `HIVE_RUNNER=on ` — une espace de fin de ligne,
+ce qu'un `.env` récolte tout seul — l'essaim travaillait en autonomie pendant que
+le relevé rangeait `'on '`, et l'avertissement « l'essaim travaille seul » ne se
+déclenchant que sur `=== 'on'`, il ne sortait pas.
+
+Le seul réglage dont le rôle est de prévenir qu'on dépense sans surveillance
+était le plus facile à faire taire — par une espace.
+
+---
+
+## 9 septtrigies. Lire un code de sortie ne suffit pas : il faut S'ARRÊTER dessus
+
+La barrière a fait exactement son travail. Elle a imprimé, sous mes yeux :
+
+    CODE_SUITE=1
+
+Et le commit est parti quand même, puis le push, puis les cinq jambes de la CI
+sont devenues rouges. La suite était rouge AVANT le push, localement, et je l'ai
+VU.
+
+### Ce qui a permis ça
+
+Le geste, pas l'inattention. J'avais écrit la mesure et la livraison dans le même
+bloc :
+
+    npm test … ; echo "CODE_SUITE=$?"
+    node scripts/compte-tests.mjs … ; echo "CODE_GARDE=$?"
+    git add -A && git commit -F - <<'FIN' … FIN
+    git push …
+
+Un `;` entre une mesure et un commit n'est pas une ponctuation : c'est une
+décision prise d'avance, celle de livrer quoi que dise la mesure. Le code de
+sortie était affiché, donc « lu » au sens où il traversait l'écran — mais rien
+dans l'enchaînement ne pouvait s'en servir.
+
+C'est le pendant exact du § 9 quaterdecies. Là, un tube AVALAIT le code de
+sortie ; ici, il était bien rendu, et c'est la STRUCTURE de la commande qui
+l'ignorait. Le premier défaut rend le verdict invisible ; le second le rend
+inopérant. Le résultat est le même — livrer du rouge.
+
+### La règle
+
+> Une mesure et la livraison qui en dépend ne vivent JAMAIS dans le même
+> enchaînement. On mesure, on lit, PUIS on décide. Un `git commit` qui suit une
+> mesure dans le même bloc s'exécutera quel que soit son verdict.
+
+En pratique : la barrière rend son code dans un appel qui ne fait QUE ça, et le
+commit part dans un appel séparé, écrit après avoir lu le chiffre. Deux gestes,
+deux moments — c'est le seul endroit où la décision peut exister.
+
+### Le corollaire qui pique
+
+Ce dépôt a une barrière, une loupe, un tamis d'ordres, un compteur de badges et
+cinq jambes de CI. Aucun de ces filets n'a manqué : tous ont vu le rouge. Ce qui
+a manqué, c'est l'instant entre voir et faire.
+
+Ajouter un filet de plus n'aurait rien changé. La discipline qui compte n'est pas
+d'en poser davantage, c'est de laisser à chacun le pouvoir d'ARRÊTER le geste
+suivant.

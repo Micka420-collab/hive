@@ -413,5 +413,11 @@ export function classerEchelons(
  */
 export function elireEchelon(bornes: Bornes, antecedents: Map<Echelon, Antecedent>): Echelon {
   const rangs = classerEchelons(echelonsPermis(bornes), antecedents);
+  // `< 0` et `<= 0` sont ICI un mutant ÉQUIVALENT, et c'est CONSIGNÉ :
+  // `comparerRangs` ne rend `0` que si le score ET le rang d'échelon coïncident,
+  // or `rangs` porte au plus UNE entrée par échelon — deux entrées distinctes ne
+  // peuvent donc jamais être à égalité. Mesuré plutôt que raisonné : sur les 9
+  // bornes possibles croisées avec des antécédents variés, 90 paires distinctes,
+  // zéro comparaison nulle. Le départage n'a donc pas de cas d'égalité à trancher.
   return rangs.reduce((meilleur, r) => (comparerRangs(r, meilleur) < 0 ? r : meilleur)).echelon;
 }

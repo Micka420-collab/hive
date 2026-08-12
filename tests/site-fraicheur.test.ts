@@ -57,11 +57,83 @@ function chiffre(texte: string): number {
 
 describe('le bandeau ne ment pas sur le nombre de tests', () => {
   /**
+   * Le nombre d'éléments d'un littéral de tableau, à profondeur 0.
+   *
+   * `['a', 'b']` → 2 ; `[['a', 1], ['b', 2]]` → 2. On ne compte que les virgules
+   * qui séparent les éléments du tableau lui-même, jamais celles de ce qu'ils
+   * contiennent — sinon un tableau de paires compterait double.
+   */
+  /**
+   * Le littéral de tableau qui COMMENCE à `debut`, crochets appariés.
+   *
+   * Une expression régulière ne sait pas faire ça : gourmande elle avale le
+   * fichier, non gourmande elle s'arrête au premier `]` — donc au premier
+   * élément d'un tableau de paires. On apparie à la main, en sautant ce qui est
+   * entre guillemets.
+   */
+  const litteral = (src: string, debut: number): string => {
+    if (debut < 0 || src[debut] !== '[') return '[]';
+    let profondeur = 0;
+    let chaine: string | null = null;
+    for (let i = debut; i < src.length; i++) {
+      const c = src[i];
+      if (chaine !== null) {
+        if (c === chaine && src[i - 1] !== '\\') chaine = null;
+        continue;
+      }
+      if (c === "'" || c === '"' || c === '`') chaine = c;
+      else if (c === '[') profondeur++;
+      else if (c === ']') {
+        profondeur--;
+        if (profondeur === 0) return src.slice(debut, i + 1);
+      }
+    }
+    return '[]';
+  };
+
+  const cardinalite = (litteral: string): number => {
+    let profondeur = 0;
+    let n = 1;
+    let chaine: string | null = null;
+    for (let i = 1; i < litteral.length - 1; i++) {
+      const c = litteral[i];
+      if (chaine !== null) {
+        if (c === chaine && litteral[i - 1] !== '\\') chaine = null;
+        continue;
+      }
+      if (c === "'" || c === '"' || c === '`') chaine = c;
+      else if (c === '[' || c === '{' || c === '(') profondeur++;
+      else if (c === ']' || c === '}' || c === ')') profondeur--;
+      else if (c === ',' && profondeur === 0) n++;
+    }
+    return litteral.replace(/\s/g, '') === '[]' ? 0 : n;
+  };
+
+  /**
    * Les tests DÉCLARÉS dans `tests/`, comptés dans le texte.
    *
-   * Ce n'est pas le compte de vitest — le lancer ici doublerait la suite. Le
-   * comptage textuel sous-estime légèrement (`it.each` déroule une boucle),
-   * ce qui est le bon sens de l'erreur pour une garde de vantardise.
+   * Ce n'est pas le compte de vitest — le lancer ici doublerait la suite.
+   *
+   * ─── L'ANGLE MORT QUI A FINI PAR MORDRE ──────────────────────────────────
+   *
+   * Ce compteur ne voyait qu'une déclaration par `it(` écrit. Un banc
+   * PARAMÉTRÉ — `for (const v of LISTE) it(…)` — en déclare autant que la liste
+   * a d'entrées, et il n'en comptait qu'une.
+   *
+   * Tant que ces bancs étaient rares, l'écart tenait dans les 10 % de jeu, et
+   * le commentaire d'origine appelait ça « sous-estimer légèrement ». Trois
+   * fichiers paramétrés plus tard, l'écart est passé à 10,3 % et la garde a
+   * rougi — sur un chiffre de badge pourtant JUSTE, mesuré sur le rapport de
+   * vitest.
+   *
+   * La garde avait raison de mordre : son compte était faux. On le lui apprend
+   * plutôt que d'élargir sa tolérance — élargir aurait fait taire le symptôme
+   * en gardant le compteur menteur.
+   *
+   * Ce qu'il ne sait toujours PAS voir, et c'est dit : une liste construite
+   * ailleurs qu'en littéral (`Object.keys(…)`, un import) ne se compte pas. Le
+   * repli reste 1, donc l'erreur reste du bon côté pour une garde de
+   * vantardise.
    */
   const declares = (): number => {
     let n = 0;
@@ -83,6 +155,45 @@ describe('le bandeau ne ment pas sur le nombre de tests', () => {
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/^\s*\/\/.*$/gm, '');
       n += (src.match(/^[ \t]*(?:it|test)(?:\.\w+)?\s*\(/gm) ?? []).length;
+
+      // ─── LES BANCS PARAMÉTRÉS ─────────────────────────────────────────────
+      //
+      // Une boucle ou un `.each` qui contient un `it(` en déclare autant que sa
+      // liste a d'entrées. On en a déjà compté 1 au-dessus : on ajoute le reste.
+      //
+      // Le premier jet cherchait la liste par `\[[\s\S]*?\]` — NON GOURMAND,
+      // donc il s'arrêtait au premier `]`. Sur un tableau de paires, il ne
+      // voyait que la première paire, et rendait 1. On apparie les crochets
+      // pour de vrai.
+      const listes = new Map<string, number>();
+      for (const m of src.matchAll(/(?:^|\n)\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*\[/g)) {
+        const debut = src.indexOf('[', m.index + m[0].length - 1);
+        listes.set(m[1] ?? '', cardinalite(litteral(src, debut)));
+      }
+
+      /** Combien de cas cette source d'itération déclare-t-elle ? */
+      const combien = (source: string, apres: number): number => {
+        if (source.startsWith('[')) return cardinalite(litteral(src, apres));
+        return listes.get(source) ?? 1;
+      };
+
+      for (const m of src.matchAll(
+        /for\s*\(\s*const\s+[^)]*?\s+of\s+([\s\S]*?)\)\s*\{([\s\S]*?)\n\s*\}/g,
+      )) {
+        if (!/^[ \t]*(?:it|test)(?:\.\w+)?\s*\(/m.test(m[2] ?? '')) continue;
+        const source = (m[1] ?? '').trim();
+        n += Math.max(0, combien(source, src.indexOf('[', m.index)) - 1);
+      }
+
+      // `it.each` / `test.each` / `describe.each` : même chose, autre écriture.
+      for (const m of src.matchAll(/(?:it|test|describe)\.each\s*\(\s*/g)) {
+        const apres = m.index + m[0].length;
+        const source = src.slice(apres).trimStart();
+        n += Math.max(
+          0,
+          combien(source.startsWith('[') ? '[' : (source.split(/[\s,)]/)[0] ?? ''), apres) - 1,
+        );
+      }
     }
     return n;
   };

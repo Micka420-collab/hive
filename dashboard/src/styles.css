@@ -1803,6 +1803,34 @@ h3 {
   text-align: center;
 }
 
+/* ── LES TROIS GRAVITÉS DE LA PASTILLE D'ALERTES ─────────────────────────────
+   Trois FORMES, pas seulement trois teintes. Un daltonien — ou un écran mal
+   réglé, ou un mode contraste élevé — ne doit pas perdre l'information la plus
+   utile de la barre : « est-ce urgent ? ». La couleur double la forme, elle ne
+   la remplace pas.
+
+   Le nom accessible complet (« Mon espace, 3 alertes, la plus grave :
+   critique ») vit sur l'`aria-label` du badge, pas ici : une pastille qui ne
+   parle qu'en pixels ne dit rien à qui écoute la page. */
+.mc-nav-badge--critique {
+  /* Plein + halo : la seule des trois à porter un contour lumineux. */
+  background: var(--rouge, #e5573f);
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(229, 87, 63, 0.35);
+}
+.mc-nav-badge--attention {
+  /* Plein, sans halo — c'est l'aspect du badge historique. */
+  background: var(--miel);
+  color: var(--encre);
+}
+.mc-nav-badge--info {
+  /* Creux : fond transparent, cerné d'un trait. Se distingue des deux autres
+     même en niveaux de gris. */
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border-2);
+}
+
 .mc-sidebar-pulse {
   display: flex;
   flex-direction: column;

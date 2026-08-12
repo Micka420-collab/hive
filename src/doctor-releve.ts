@@ -33,6 +33,9 @@ import path from 'node:path';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
+import { portDepuisEnv } from './shared/port.js';
+import { gardiennesDepuisEnv } from './shared/reglages.js';
+import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
 import { FOURNISSEURS } from './node-client/isolement.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -322,7 +325,9 @@ export async function relever(
   detecter: (e: NodeJS.ProcessEnv) => Promise<{ agent: string }> = detectBestAgent,
 ): Promise<Releve> {
   const lieux = emplacements(racine, env);
-  const port = Number(env.HIVE_PORT ?? 7777);
+  // MÊME règle que la ruche (`shared/port.ts`) : un docteur qui sonderait un
+  // autre port que celui où elle écoute enverrait chercher une panne inventée.
+  const port = portDepuisEnv(env);
   const hote = env.HIVE_HOST ?? '127.0.0.1';
   const sondage = hoteDeSondage(hote);
 
@@ -404,9 +409,11 @@ export async function relever(
     isolement: await isolementDisponible().catch(() => null),
     wsJoignable: ws,
     reglages: {
-      runner: env.HIVE_RUNNER ?? 'off',
+      // MÊMES règles que la ruche : un docteur qui annonce autre chose que ce
+      // qui tourne est pire qu'un docteur muet, parce qu'on le croit.
+      runner: modeRunnerDepuisEnv(env),
       bindPublic: (env.HIVE_HOST ?? '127.0.0.1') === '0.0.0.0',
-      gardiennes: env.HIVE_GARDIENNES ?? 'consultatif',
+      gardiennes: gardiennesDepuisEnv(env),
       corsOuvert: (env.HIVE_CORS_ORIGIN ?? '') === '*',
     },
     espace: {

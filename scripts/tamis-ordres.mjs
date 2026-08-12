@@ -35,6 +35,27 @@ import { fileURLToPath } from 'node:url';
 /** Les ordres rejoués par la CI. Ajouter une graine, c'est fermer une porte. */
 export const GRAINES = [23757, 15838, 7919];
 
+/**
+ * Le code de sortie d'un fils, ramené à un entier.
+ *
+ * `close` rend `null` quand le processus a été TUÉ par un signal : il n'a pas
+ * choisi de s'arrêter, donc on ne peut rien conclure de bon — c'est un échec.
+ *
+ * ─── POURQUOI `??` ET SURTOUT PAS `||` ───────────────────────────────────────
+ *
+ * `0` est le code du SUCCÈS, et `0` est *falsy*. Avec `||`, un ordre qui passe
+ * serait rapporté comme rouge : la CI barrerait une suite verte, on apprendrait
+ * à ne plus la croire, et le tamis se ferait désarmer par lassitude. C'est la
+ * famille du § 9 quaterdecies — un code de sortie ne se manipule pas de tête.
+ *
+ * Cette décision vivait dans le rappel de `spawn`, donc hors d'atteinte du banc
+ * (§ 2 quaterdecies) : l'éprouver aurait demandé de relancer la suite DEPUIS la
+ * suite. Sortie ici, elle s'éprouve pour rien.
+ */
+export function codeDeSortie(code) {
+  return code ?? 1;
+}
+
 /** Lance la suite sur une graine. Rend le code de sortie. */
 function unOrdre(graine) {
   return new Promise((resolve) => {
@@ -50,7 +71,7 @@ function unOrdre(graine) {
       ],
       { stdio: 'inherit', shell: false },
     );
-    fils.on('close', (code) => resolve(code ?? 1));
+    fils.on('close', (code) => resolve(codeDeSortie(code)));
     fils.on('error', () => resolve(1));
   });
 }

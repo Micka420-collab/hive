@@ -54,14 +54,91 @@ const MAX_MUTATIONS = Number(process.env.LOUPE_MAX ?? 12);
  * Chacun change le SENS sans toucher à la forme : le fichier reste analysable,
  * donc un échec de la suite est bien un test qui a mordu, pas un parseur qui a
  * renoncé.
+ *
+ * ─── LA TABLE ÉTAIT ASYMÉTRIQUE, ET DU MAUVAIS CÔTÉ ──────────────────────────
+ *
+ * `===` ↔ `!==` allait dans les deux sens. Les bornes, non : `>=` → `>` et
+ * `<=` → `<` RESSERRENT, et leurs inverses — ceux qui RELÂCHENT — manquaient.
+ *
+ * Le sens absent était le plus dangereux des deux. Resserrer une borne fait
+ * refuser du travail légitime : quelqu'un s'en plaint le jour même. La relâcher
+ * fait ACCEPTER ce qui devait être refusé, et personne ne vient le dire.
+ *
+ * Ce n'était pas théorique : le carnet raconte `aSupprimer`, le geste le plus
+ * irréversible du dépôt — `s.arreteA > 0` muté en `>= 0` faisait entrer une
+ * ligne incohérente (état « arrêté », aucune date d'arrêt) dans les candidates à
+ * l'effacement DÉFINITIF, immédiatement, puisque `now - 0` dépasse toute
+ * rétention. Cette mutation-là avait été posée À LA MAIN, faute que la loupe
+ * sache la produire.
+ *
+ * ─── POURQUOI CES ÉCHANGES NE SE MARCHENT PAS DESSUS ─────────────────────────
+ *
+ * Chaque motif porte ses espaces : ` >= ` ne contient pas ` > ` (le `>` y est
+ * suivi d'un `=`), et ` => ` non plus (le `>` y est précédé d'un `=`). Sans
+ * cette précaution, une même ligne rendrait deux mutations dont l'une casserait
+ * la syntaxe — `a >== b`, ou toutes les fonctions fléchées du fichier — et un
+ * fichier qui ne s'analyse plus fait échouer la suite entière : le mutant
+ * passerait pour tué, et la loupe mentirait dans le sens rassurant.
+ *
+ * `??` ne figure PAS dans cette table : il a sa propre règle, plus étroite, juste
+ * en dessous.
  */
 const ECHANGES = [
   [' && ', ' || '],
+  [' || ', ' && '],
   [' >= ', ' > '],
+  [' > ', ' >= '],
   [' <= ', ' < '],
+  [' < ', ' <= '],
   [' === ', ' !== '],
   [' !== ', ' === '],
 ];
+
+/**
+ * `?? repli` → `|| repli`, mais SEULEMENT quand le repli est un littéral TRUTHY.
+ *
+ * ─── POURQUOI PAS TOUS LES `??` : C'EST MESURÉ, PAS SUPPOSÉ ──────────────────
+ *
+ * `a ?? b` ne prend `b` que si `a` est `null`/`undefined` ; `a || b` le prend
+ * AUSSI sur `0`, `''`, `false`. Le premier jet mutait donc tous les `??`.
+ *
+ * Un balayage à base épinglée a rendu son verdict : 12 désignations neuves, dont
+ * DIX ÉQUIVALENTES — parce que le TYPE interdisait le cas. `get(k) ?? {…}` (un
+ * objet n'est jamais falsy), `n.modeles ?? []`, `row?.echelon ?? null` (union de
+ * littéraux non vides), `essais ?? 0` et `c?.actif ?? false` (la valeur falsy
+ * possible EST le repli).
+ *
+ * La loupe ne voit pas les types : elle aurait re-désigné ces dix à CHAQUE passe,
+ * et son verdict serait rouge à perpétuité. Or un instrument qui ne peut plus
+ * rendre vert n'est plus une porte, c'est un mur — et un mur ne se lit pas.
+ * L'en-tête met en garde contre le faux vert rassurant ; le faux rouge permanent
+ * est l'autre façon de n'être plus écouté.
+ *
+ * ─── CE QUE LA RESTRICTION GARDE ─────────────────────────────────────────────
+ *
+ * Avec un repli truthy, une valeur « fausse mais présente » à gauche est
+ * remplacée par quelque chose de DIFFÉRENT : la mutation mord toujours.
+ *
+ *     nodeOnShift.get(n.id) ?? true   une ouvrière HORS SERVICE redevient
+ *                                     disponible — la garde échoue en S'OUVRANT
+ *     opts.uid ?? 1000                `uid` 0 est ROOT : le conteneur changerait
+ *                                     d'utilisateur, en silence
+ *     code ?? 1                       un code de sortie 0 (succès) devient 1
+ *     config.tickMs ?? 2_000          un 0 explicite écrasé par le défaut
+ *
+ * ─── CE QU'ELLE PERD, ET IL FAUT LE DIRE ─────────────────────────────────────
+ *
+ * `x ?? null` mord VRAIMENT si `x` peut être la chaîne vide — mais seul le type
+ * le dit. On préfère rater ce cas plutôt que noyer chaque passe sous 107
+ * désignations qu'on ne saurait pas trancher. Un repli `0.5` est perdu aussi
+ * (le motif exige un premier chiffre non nul).
+ *
+ * Le motif porte ses espaces, comme les autres : ` ??= ` ne contient pas ` ?? `
+ * (le second `?` y est suivi d'un `=`). Sans cela la loupe écrirait `a ||= b` —
+ * du JavaScript VALIDE, donc silencieux, et le verdict porterait sur autre chose
+ * que ce qu'on croit mesurer.
+ */
+const REPLI_QUI_MORD = /^(?:true\b|[1-9][\d_]*\b)/;
 
 /**
  * Les lignes AJOUTÉES par la branche, fichier par fichier.
@@ -167,6 +244,18 @@ export function mutationsDeLigne(ligne) {
       apres: ligne.replace(de, vers),
       quoi: `${de.trim()} → ${vers.trim()}`,
     });
+  }
+  // `??` : le repli sur ABSENCE devient un repli sur FAUSSETÉ — mais seulement
+  // là où les deux peuvent différer (voir `REPLI_QUI_MORD`).
+  if (ligne.split(' ?? ').length - 1 === 1) {
+    const apresRepli = ligne.slice(ligne.indexOf(' ?? ') + 4);
+    if (REPLI_QUI_MORD.test(apresRepli)) {
+      out.push({
+        avant: ligne,
+        apres: ligne.replace(' ?? ', ' || '),
+        quoi: '?? → ||',
+      });
+    }
   }
   // `instanceof` : la classe de droite s'élargit, la garde cesse de trier.
   const m = / instanceof ([A-Za-z_$][\w$]*)/.exec(ligne);
