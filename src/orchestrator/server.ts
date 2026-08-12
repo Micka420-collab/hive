@@ -24,6 +24,7 @@ import {
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
+import { portDepuisEnv } from '../shared/port.js';
 import {
   TTL_BILLET_MAX_MS,
   USAGES_MAX,
@@ -486,9 +487,10 @@ export function detectLanWsUrl(port: number): string {
 }
 
 export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const port = Number.parseInt(env.HIVE_PORT ?? '7777', 10);
   return {
-    port: Number.isInteger(port) && port >= 0 && port <= 65_535 ? port : 7777,
+    // La règle du port vit dans `shared/port.ts` — le docteur la LIT aussi,
+    // plutôt que d'en écrire une seconde qui divergerait.
+    port: portDepuisEnv(env),
     host: env.HIVE_HOST ?? '127.0.0.1',
     token: env.HIVE_TOKEN ?? DEFAULT_TOKEN,
     corsOrigins: (env.HIVE_CORS_ORIGIN ?? 'http://localhost:5173')

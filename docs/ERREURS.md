@@ -4199,6 +4199,58 @@ quelque chose.
 
 ---
 
+## 9 quintrigies. Une règle de configuration lue à DEUX endroits est DEUX règles
+
+`HIVE_PORT` était lu par la ruche et par son docteur. Chacun avait écrit sa
+propre lecture, et elles ne disaient pas la même chose :
+
+    server.ts         Number.parseInt('', 10) → NaN, puis une garde
+                      (`Number.isInteger && 0 ≤ p ≤ 65535`) → 7777
+    doctor-releve.ts  Number('')              → 0, et aucune garde
+
+Il suffisait d'une ligne `HIVE_PORT=` laissée vide dans un `.env` — l'accident le
+plus banal qui soit — pour que le docteur parte sonder le port **0**. Or écouter
+le port 0 réussit toujours : le système en attribue un au hasard. Il le trouvait
+donc LIBRE, et annonçait que la ruche ne tournait pas, pendant qu'elle écoutait
+tranquillement sur 7777.
+
+### Pourquoi celle-ci pique plus que les autres
+
+Ce n'est pas n'importe quel code qui divergeait : c'est l'outil dont le SEUL rôle
+est d'être cru quand plus rien ne marche. Un docteur qui se trompe de patient
+n'est pas neutre — il envoie chercher une panne inventée, et fait rater la vraie.
+
+Et le défaut ne se voit jamais sur le chemin heureux : avec un `HIVE_PORT` bien
+écrit, ou absent, les deux lectures coïncident. Il n'apparaît qu'au moment exact
+où l'on a le plus besoin du docteur — quand la configuration est cassée.
+
+### La règle
+
+> Une valeur de configuration a UN lecteur. Les autres l'appellent. Poser « la
+> même » garde à deux endroits marche le jour où on l'écrit et diverge au premier
+> changement — c'est la faute, pas le remède.
+
+Un troisième lecteur existait, et il avait raison : `installer-assistant.ts`
+écrivait `Number(…) || PORT_DEFAUT`, précisément parce qu'il connaissait le piège
+du `Number('')`. Trois lecteurs, trois comportements, une seule variable.
+
+### Le banc qui prétendait garder l'accord, et qui était du DÉCOR
+
+Écrit d'abord, il comparait `loadConfigFromEnv()` à `portDepuisEnv()` — c'est-à-
+dire une fonction à celle qu'elle appelle. Remise au docteur sa lecture
+d'origine, il restait **VERT** : le docteur n'était même pas dans son graphe
+d'imports. Il éprouvait l'accord de la règle avec elle-même.
+
+> Un banc qui éprouve un ACCORD doit importer les DEUX parties qui doivent
+> s'accorder. S'il n'en importe qu'une, il mesure une tautologie — et la
+> mutation le dit tout de suite, à condition de la jouer sur l'autre côté.
+
+Corollaire de méthode : quand une mutation ne fait rien rougir, la première
+question n'est pas « le banc est-il faible ? » mais « le banc TOUCHE-t-il ce que
+je viens de muter ? ».
+
+---
+
 ## 9 quattuortrigies. Un opérateur de mutation se juge à son RENDEMENT, jamais à son idée
 
 Deux opérateurs ajoutés à la loupe le même soir, sur le même raisonnement — « la

@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NODE_MINIMUM } from '../src/shared/doctor.js';
+import { PORT_PAR_DEFAUT } from '../src/shared/port.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
@@ -356,9 +357,14 @@ describe('LA SONDE DE SANTÉ INTERROGE LA RUCHE, PAS LE PORT', () => {
   it('le port du conteneur est celui que le serveur écoute par défaut', () => {
     // Une image qui expose 8787 pendant que le serveur écoute 7777 démarre,
     // passe pour saine, et ne répond à personne.
-    const serveur = lire('src/orchestrator/server.ts');
-    const defaut = /HIVE_PORT\s*\?\?\s*'(\d+)'/.exec(serveur)?.[1];
-    expect(defaut, 'le défaut de HIVE_PORT est introuvable dans le serveur').toBeTruthy();
+    //
+    // Ce banc CHERCHAIT ce défaut par une expression régulière dans le texte de
+    // `server.ts`. Il a rougi le jour où la règle du port a déménagé dans
+    // `shared/port.ts` — à juste titre, mais pour la mauvaise raison : rien
+    // n'avait changé de COMPORTEMENT, seulement d'adresse. Il lit désormais la
+    // constante elle-même. Une garde qui suit un fichier suit un déménagement ;
+    // une garde qui suit une valeur suit le sens.
+    const defaut = String(PORT_PAR_DEFAUT);
     expect(DOCKERFILE_NU, `EXPOSE devrait valoir ${defaut}`).toMatch(
       new RegExp(`^EXPOSE\\s+${defaut}\\s*$`, 'm'),
     );
