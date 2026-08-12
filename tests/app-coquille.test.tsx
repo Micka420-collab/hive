@@ -136,6 +136,52 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
       'Aucun projet dans la ruche.',
     );
   });
+
+  it('LE CERVEAU NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
+    // ─── LA MÊME SURVIVANTE, TREIZE FOIS ───────────────────────────────────
+    //
+    // Deux mutations de la ligne de routage du Cerveau laissaient la suite
+    // VERTE, et elles cassent dans deux sens opposés :
+    //
+    //   `&&` → `||`   `false || <Cerveau/>` rend le Cerveau : il vivrait sous
+    //                 TOUTES les autres vues.
+    //   `===` → `!==` il s'affiche partout SAUF chez lui, et sa propre route
+    //                 est vide.
+    //
+    // On assure donc les DEUX sens : absent ailleurs, présent chez lui. Une
+    // seule des deux moitiés laisserait l'autre mutation en vie.
+    //
+    // Le marqueur est la classe de la racine, pas une phrase de l'interface :
+    // une copie se réécrit sans prévenir, une racine structurelle non.
+    //
+    // ─── ET CE BANC NE RÈGLE QU'UN TREIZIÈME DU PROBLÈME ───────────────────
+    //
+    // `App.tsx` porte TREIZE lignes de cette forme exacte. Trois sont
+    // désormais défendues — Rayon, Miellerie, Cerveau — chacune fermée par un
+    // balayage différent, une à la fois. C'est un tapis roulant : le vrai
+    // remède est une racine commune à toutes les vues, qui permettrait un banc
+    // parcourant `NAV` au lieu d'un banc par vue. Il demande de toucher aux
+    // treize fichiers de vue et n'est pas de ce lot — il est nommé dans
+    // `ERREURS § 9 duoquadragies` pour ne pas se perdre.
+    const accueil = await monter();
+    expect(
+      accueil.querySelector('section.cerveau'),
+      'le Cerveau s’affiche sous une vue qui n’est pas la sienne',
+    ).toBeNull();
+
+    act(() => racine?.unmount());
+    location.hash = '#/cerveau';
+    const cerveau = await monter();
+    for (let i = 0; i < 50 && !cerveau.querySelector('section.cerveau'); i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+    expect(
+      cerveau.querySelector('section.cerveau'),
+      'la route du Cerveau n’affiche pas le Cerveau',
+    ).not.toBeNull();
+  });
 });
 
 describe('la coquille de l’App — les survivantes du balayage du soir', () => {

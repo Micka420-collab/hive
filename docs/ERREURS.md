@@ -5570,3 +5570,74 @@ trop large ; ici, il emprunte un chemin qui neutralise ce qu'il croit mesurer. E
 c'est le § 9 octotrigies appliqué à la lettre — la loupe désignait un LIEU, et le
 défaut qu'elle nommait n'était pas celui qui comptait : ce n'est pas la division
 qui casse, c'est le tableau que personne ne regarde.
+
+## 9 duoquadragies. Fermer une nudité par instance sur un motif RÉPÉTÉ, c'est un tapis roulant
+
+`dashboard/src/App.tsx` porte treize lignes de la même forme, une par vue :
+
+```tsx
+{route.view === 'ruche' && <Ruche {...viewProps} />}
+{route.view === 'miellerie' && <Miellerie {...viewProps} />}
+…
+{route.view === 'cerveau' && <Cerveau {...viewProps} />}
+```
+
+Chacune casse dans deux sens. `&&` → `||` fait vivre la vue sous TOUTES les
+autres routes ; `===` → `!==` la fait apparaître partout SAUF chez elle. Sur une
+table de routage, c'est le défaut le plus visible qui soit — et il ne coûte qu'un
+caractère.
+
+### Ce que l'historique montre
+
+Trois de ces treize lignes sont défendues aujourd'hui : le Rayon, la Miellerie,
+le Cerveau. **Chacune a été fermée par un balayage différent**, à des semaines
+d'écart, chaque fois avec le même geste : la loupe en désigne une, on écrit le
+banc de CETTE vue, on repart.
+
+Et le balayage suivant en désigne une autre. Pendant que j'écrivais le banc du
+Cerveau, la loupe a sorti `chantiers`.
+
+### Pourquoi le geste est mauvais même quand chaque banc est bon
+
+Chacun de ces bancs est juste, mutation-first, verdict affiché. Le problème n'est
+pas leur qualité : c'est que **le nombre de gestes est proportionnel au nombre
+d'instances**, et qu'aucun d'eux ne protège la QUATORZIÈME vue qu'on ajoutera. La
+couverture avance d'un treizième par nuit et recule d'un treizième à chaque
+fonctionnalité.
+
+> Quand une nudité apparaît sur un motif répété N fois, la question n'est pas
+> « comment défendre celle-ci ? » mais « qu'est-ce qui me permettrait de les
+> défendre TOUTES par un seul banc ? ». Écrire le banc de l'instance est un
+> acompte, pas une réparation — et il faut le DIRE, sinon on croit avoir fermé
+> le trou.
+
+### Ce qui manque ici, précisément
+
+Un banc qui parcourrait `NAV` — la liste des treize vues, déjà présente dans le
+fichier — et vérifierait pour chaque route qu'une vue et une seule est montée.
+Il fermerait les treize d'un coup et couvrirait la quatorzième le jour où on
+l'ajoutera, sans que personne y pense.
+
+Deux choses l'en empêchent, et aucune n'est un obstacle de principe :
+
+1. `NAV` n'est pas exporté. C'est le § 2 quaterdecies dans sa forme la plus
+   simple — hors d'atteinte du banc, donc au mauvais endroit.
+2. Les treize vues n'ont **aucune racine commune** : `mc-view` pour quatre
+   d'entre elles, `view` pour deux, et pour les autres une classe propre à leur
+   contenu (`cerveau`, `mi-files`, `mc-chantiers`…). Sans marqueur partagé, un
+   banc générique ne peut pas compter les vues montées.
+
+Le remède est donc une CONVENTION — une racine commune à toutes les vues — et
+non un test de plus. C'est un lot à part entière, qui touche treize fichiers, et
+il est nommé ici plutôt que fait à la hâte en fin de nuit : un refactor de
+markup qu'on ne peut pas vérifier proprement est exactement le genre de geste que
+ce journal existe pour décourager.
+
+### La forme générale
+
+Ce motif n'a rien de propre au routage. Partout où une décision est copiée N
+fois — N gardes d'autorisation, N branches de sérialisation, N cas d'un
+`switch` — un balayage les désignera une par une, indéfiniment, et chaque banc
+écrit donnera l'impression d'avancer. Le signal à reconnaître est celui-ci :
+**la loupe désigne une ligne qui ressemble beaucoup à une ligne déjà défendue.**
+Ce jour-là, il faut arrêter d'écrire des bancs et aller chercher la liste.
