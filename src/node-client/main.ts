@@ -3,7 +3,8 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
-import { bornerConcurrence } from './identite-noeud.js';
+import path from 'node:path';
+import { bornerConcurrence, identiteStable } from './identite-noeud.js';
 import {
   agentCredentialEnv,
   detectAllAgents,
@@ -94,14 +95,27 @@ if (aDire) console.log(aDire);
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
 
+// Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
+// lire/écrire l'identité stable AVANT de construire le client.
+const name = process.env.HIVE_NODE_NAME ?? os.hostname();
+const workRoot =
+  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+
+// L'identité survit au redémarrage — même mécanisme que `join.ts`
+// (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`
+// mintait un nouvel id et laissait le précédent affiché « hors ligne »
+// pour toujours dans le dashboard : un fantôme par redémarrage.
+const nodeId = identiteStable(workRoot);
+
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',
   token: process.env.HIVE_TOKEN ?? 'change-me',
-  name: process.env.HIVE_NODE_NAME ?? os.hostname(),
+  name,
   ownerName: process.env.HIVE_OWNER_NAME ?? os.userInfo().username,
   agentType,
   maxConcurrency: Number.isInteger(maxConcurrency) ? Math.min(Math.max(maxConcurrency, 1), 16) : 2,
-  workRoot: process.env.HIVE_WORKDIR,
+  workRoot,
+  nodeId,
   keepEnv: variables,
   // Les modèles que l'opérateur déclare (HIVE_MODELES), pour l'Aiguillage appris.
   ...(modelesDeclares ? { modeles: modelesDeclares } : {}),
