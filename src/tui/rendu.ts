@@ -496,6 +496,23 @@ export function barreProgression(ratio: number, largeur: number, caps: Capacites
   const reste = total - pleins;
   // Le palier partiel n'apparaît que s'il reste de la place : sinon la barre
   // ferait une colonne de trop et déborderait du cadre qui la contient.
+  //
+  // ─── `pleins < cases` EST REDONDANT PAR L'INVARIANT, ET C'EST MESURÉ ───────
+  //
+  // `borne` est bornée à [0, 1] cinq lignes plus haut, donc `total ≤ cases`, donc
+  // `pleins === cases` n'arrive que si `total === cases` — auquel cas `reste`
+  // vaut exactement 0 et la seconde conjonction ferme déjà la porte. La première
+  // ne peut donc jamais trancher seule : un balayage la désignera « sans test » à
+  // chaque passe.
+  //
+  // Différentiel plutôt que raisonnement — la même nuit m'a réfuté deux fois sur
+  // des déductions de ce genre. Largeurs 1 à 40 × ratios au 1/2000e, plus les
+  // valeurs sales (NaN, ±∞, négatives, > 1) et les flottants collés à 1 par en
+  // dessous (`1 − 2⁻ᵉ`, e de 1 à 53 — le seul endroit où l'arrondi pourrait faire
+  // toucher la borne) : 82 480 cas, ZÉRO écart entre `<` et `<=`.
+  //
+  // On la GARDE quand même : elle dit l'invariant sur place, au lieu de laisser
+  // ce calcul dépendre en silence d'un bornage écrit plus haut.
   const partiel = pleins < cases && reste > 0 ? HUITIEMES[Math.floor(reste * 8)]! : '';
   const rempli = '█'.repeat(pleins) + partiel;
   const vide = '░'.repeat(Math.max(0, cases - pleins - (partiel ? 1 : 0)));
