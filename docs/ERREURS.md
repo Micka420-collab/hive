@@ -5165,3 +5165,55 @@ déclenchant que sur `=== 'on'`, il ne sortait pas.
 
 Le seul réglage dont le rôle est de prévenir qu'on dépense sans surveillance
 était le plus facile à faire taire — par une espace.
+
+---
+
+## 9 septtrigies. Lire un code de sortie ne suffit pas : il faut S'ARRÊTER dessus
+
+La barrière a fait exactement son travail. Elle a imprimé, sous mes yeux :
+
+    CODE_SUITE=1
+
+Et le commit est parti quand même, puis le push, puis les cinq jambes de la CI
+sont devenues rouges. La suite était rouge AVANT le push, localement, et je l'ai
+VU.
+
+### Ce qui a permis ça
+
+Le geste, pas l'inattention. J'avais écrit la mesure et la livraison dans le même
+bloc :
+
+    npm test … ; echo "CODE_SUITE=$?"
+    node scripts/compte-tests.mjs … ; echo "CODE_GARDE=$?"
+    git add -A && git commit -F - <<'FIN' … FIN
+    git push …
+
+Un `;` entre une mesure et un commit n'est pas une ponctuation : c'est une
+décision prise d'avance, celle de livrer quoi que dise la mesure. Le code de
+sortie était affiché, donc « lu » au sens où il traversait l'écran — mais rien
+dans l'enchaînement ne pouvait s'en servir.
+
+C'est le pendant exact du § 9 quaterdecies. Là, un tube AVALAIT le code de
+sortie ; ici, il était bien rendu, et c'est la STRUCTURE de la commande qui
+l'ignorait. Le premier défaut rend le verdict invisible ; le second le rend
+inopérant. Le résultat est le même — livrer du rouge.
+
+### La règle
+
+> Une mesure et la livraison qui en dépend ne vivent JAMAIS dans le même
+> enchaînement. On mesure, on lit, PUIS on décide. Un `git commit` qui suit une
+> mesure dans le même bloc s'exécutera quel que soit son verdict.
+
+En pratique : la barrière rend son code dans un appel qui ne fait QUE ça, et le
+commit part dans un appel séparé, écrit après avoir lu le chiffre. Deux gestes,
+deux moments — c'est le seul endroit où la décision peut exister.
+
+### Le corollaire qui pique
+
+Ce dépôt a une barrière, une loupe, un tamis d'ordres, un compteur de badges et
+cinq jambes de CI. Aucun de ces filets n'a manqué : tous ont vu le rouge. Ce qui
+a manqué, c'est l'instant entre voir et faire.
+
+Ajouter un filet de plus n'aurait rien changé. La discipline qui compte n'est pas
+d'en poser davantage, c'est de laisser à chacun le pouvoir d'ARRÊTER le geste
+suivant.
