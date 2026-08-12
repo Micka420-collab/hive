@@ -327,3 +327,61 @@ describe('injecterEnVol — le troupeau borné : le +∞ s’éteint au premier 
     expect(m.get(cle('code', 'grok'))?.essais, 'deux en vol, deux essais').toBe(2);
   });
 });
+
+// ─── LE JOUR OÙ LA RUCHE N'A ENCORE RIEN VÉCU ────────────────────────────────
+//
+// `moyenne` porte une garde anti-division par zéro : `a.essais > 0 ? … : 0`.
+// Mutée en `>=`, un antécédent jamais servi calcule `0 / 0` — donc `NaN` — et les
+// cinquante cas d'`aiguillage` et de `garde-fou` restaient VERTS. Mesuré, verdict
+// affiché.
+//
+// Ils ne pouvaient pas la voir : `scoreUCB` intercepte `essais === 0` AVANT
+// d'appeler `moyenne`, et c'est par lui que passent presque tous les bancs. Mais
+// `classer` — et `classerEchelons`, son jumeau des Garde-Fous — appelle `moyenne`
+// DIRECTEMENT sur un antécédent construit par défaut :
+//
+//     const a = antecedents.get(cle(categorie, modele)) ?? { essais: 0, … };
+//     return { …, moyenne: moyenne(a), score: scoreUCB(a, totalGenre) };
+//
+// Ce tableau existe pour « rendre le choix relisible ». Sur une ruche fraîchement
+// installée, AUCUN antécédent n'existe : chaque ligne vaudrait `NaN`. Et
+// `JSON.stringify(NaN)` rend `null` — l'API enverrait donc des trous, et l'écran
+// afficherait du vide là où il doit afficher zéro. Le pire moment possible : le
+// premier.
+
+describe('UNE RUCHE SANS PASSÉ AFFICHE ZÉRO, JAMAIS NaN', () => {
+  it('la moyenne d’un antécédent JAMAIS SERVI vaut 0', () => {
+    // La division par zéro ne rend pas une erreur en JavaScript : elle rend
+    // `NaN`, qui se propage en silence et rate toutes les comparaisons.
+    expect(moyenne({ essais: 0, recompenseTotale: 0 })).toBe(0);
+  });
+
+  it('LE TABLEAU DE TRANSPARENCE D’UNE RUCHE NEUVE EST LISIBLE', () => {
+    // Aucun antécédent : exactement l'état d'une ruche le jour de l'installation.
+    const rangs = classer('code', ['opus', 'sonnet', 'grok'], new Map<string, Antecedent>());
+    expect(rangs.length).toBe(3);
+    for (const r of rangs) {
+      expect(
+        Number.isNaN(r.moyenne),
+        `${r.modele} : la moyenne affichée est NaN — l’API l’enverrait en null`,
+      ).toBe(false);
+      expect(r.moyenne, `${r.modele} : une moyenne sans vécu doit être 0`).toBe(0);
+      expect(r.essais, `${r.modele} : aucun essai`).toBe(0);
+    }
+  });
+
+  it('UN MODÈLE NEUF À CÔTÉ D’UN MODÈLE VÉCU garde une moyenne lisible', () => {
+    // Le cas mixte : la ruche a du vécu sur `opus`, rien sur `grok`. C'est celui
+    // qu'on voit vraiment, une fois passé le premier jour.
+    const m = replierAntecedents([
+      obs('code', 'opus', 'appliquer'),
+      obs('code', 'opus', 'appliquer'),
+    ]);
+    const rangs = classer('code', ['opus', 'grok'], m);
+    const grok = rangs.find((r) => r.modele === 'grok');
+    expect(grok?.moyenne, 'le modèle jamais essayé doit afficher 0, pas NaN').toBe(0);
+    expect(grok?.score, 'et il reste à +∞ — inconnu n’est pas mauvais').toBe(
+      Number.POSITIVE_INFINITY,
+    );
+  });
+});

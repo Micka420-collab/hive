@@ -244,6 +244,26 @@ describe("l'élection — UCB1, le même moteur que l'Aiguillage", () => {
     const rangs = classerEchelons(ECHELONS, new Map());
     expect(rangs.every((r) => r.score === Number.POSITIVE_INFINITY)).toBe(true);
     expect(elireEchelon(BORNES_DEFAUT, new Map())).toBe('strict');
+
+    // ─── ET LA MOYENNE AFFICHÉE, QUE CE BANC NE REGARDAIT PAS ──────────────
+    //
+    // Il ne vérifiait que le SCORE. Or `classerEchelons` appelle `moyenne`
+    // DIRECTEMENT sur un antécédent construit par défaut — `scoreUCB`, lui,
+    // intercepte `essais === 0` avant. La garde `a.essais > 0` mutée en `>=`
+    // rendait donc `0 / 0`, soit NaN, et les 50 cas d'`aiguillage` et de
+    // `garde-fou` restaient VERTS : mesuré, verdict affiché.
+    //
+    // Ce tableau existe pour rendre le choix relisible — « strict : 0.71 sur
+    // 12 ». Sur un projet neuf il n'y a AUCUN antécédent, donc chaque ligne
+    // vaudrait NaN, et `JSON.stringify(NaN)` rend `null` : l'écran montrerait
+    // des trous au moment précis où l'on cherche à comprendre.
+    for (const r of rangs) {
+      expect(
+        Number.isNaN(r.moyenne),
+        `${r.echelon} : moyenne NaN — l’API l’enverrait en null`,
+      ).toBe(false);
+      expect(r.moyenne, `${r.echelon} : sans vécu, la moyenne affichée est 0`).toBe(0);
+    }
   });
 
   it('un échelon éprouvé et bon est préféré à un mauvais — une fois tous essayés', () => {

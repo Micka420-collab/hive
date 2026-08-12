@@ -5422,3 +5422,74 @@ Et le coût de ne pas le savoir n'est pas symétrique non plus. Un mutant qui
 survit à tort fait écrire un test de trop. Un mutant qui relance le harnais
 prend la machine — celle de qui aura lancé `npm run loupe` en confiance avant de
 fusionner.
+
+## 9 unquadragies. Une garde que l'appelant PRINCIPAL rend inatteignable n'est éprouvée par personne
+
+`moyenne` porte une garde anti-division par zéro :
+
+```ts
+export function moyenne(a: Antecedent): number {
+  return a.essais > 0 ? a.recompenseTotale / a.essais : 0;
+}
+```
+
+Mutée en `>=`, un antécédent jamais servi calcule `0 / 0` — donc **NaN**. Les
+cinquante cas d'`aiguillage.test.ts` et de `garde-fou.test.ts` sont restés VERTS.
+
+### Pourquoi ils ne pouvaient pas la voir
+
+Presque tous passent par `scoreUCB`, qui intercepte le cas AVANT :
+
+```ts
+export function scoreUCB(a: Antecedent, totalGenre: number): number {
+  if (a.essais === 0) return Number.POSITIVE_INFINITY;   // ← le zéro s'arrête ici
+  return moyenne(a) + C_EXPLORATION * Math.sqrt(…);
+}
+```
+
+L'appelant principal garantit la précondition. Vue de lui, la garde de `moyenne`
+est du code mort — et un banc qui n'emprunte que ce chemin ne peut pas la faire
+rougir, quoi qu'on lui fasse.
+
+Sauf que `moyenne` a d'AUTRES appelants, et eux ne garantissent rien :
+
+```ts
+const a = antecedents.get(cle(categorie, modele)) ?? { essais: 0, recompenseTotale: 0 };
+return { modele, essais: a.essais, moyenne: moyenne(a), score: scoreUCB(a, totalGenre) };
+```
+
+`classer`, et son jumeau `classerEchelons` des Garde-Fous, construisent
+l'antécédent par DÉFAUT pour un modèle jamais essayé — puis appellent `moyenne`
+directement. C'est exactement le cas que la garde existe pour tenir.
+
+### Ce que ça cassait, et quand
+
+Ces deux fonctions produisent le tableau de transparence — celui dont la
+docstring dit qu'il « rend le choix relisible » : _strict : 0.71 sur 12 / léger :
+0.66 sur 9_. Sur une ruche fraîchement installée, il n'y a AUCUN antécédent :
+chaque ligne aurait valu NaN. Et `JSON.stringify(NaN)` rend `null` — l'API aurait
+envoyé des trous, l'écran affiché du vide.
+
+Le pire moment possible : le premier. Quelqu'un qui installe la ruche et ouvre le
+tableau censé lui expliquer les choix y trouve des cases vides, et n'a aucun
+moyen de savoir si c'est « pas encore de données » ou « c'est cassé ».
+
+### La règle
+
+> Quand une garde protège une précondition que son appelant PRINCIPAL vérifie
+> déjà, elle n'est atteignable que par les AUTRES appelants. Ce sont eux qu'il
+> faut éprouver — et ce sont presque toujours les chemins d'AFFICHAGE, ceux
+> qu'on teste le moins parce qu'ils « ne décident rien ».
+
+Le réflexe qui manque : devant une garde, ne pas se demander « est-elle juste ? »
+mais **« qui peut encore l'atteindre ? »**. Si la réponse est « personne », c'est
+soit du code mort à retirer, soit — bien plus souvent — un appelant oublié.
+
+### Le lien avec les deux leçons voisines
+
+C'est la même famille que le § 9 nonatrigies (un point d'observation qui ne peut
+pas voir l'absence) vue de l'autre bout : là, le banc regardait par une lentille
+trop large ; ici, il emprunte un chemin qui neutralise ce qu'il croit mesurer. Et
+c'est le § 9 octotrigies appliqué à la lettre — la loupe désignait un LIEU, et le
+défaut qu'elle nommait n'était pas celui qui comptait : ce n'est pas la division
+qui casse, c'est le tableau que personne ne regarde.
