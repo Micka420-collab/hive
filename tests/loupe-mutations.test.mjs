@@ -228,3 +228,56 @@ describe('les échanges d’origine tiennent toujours', () => {
     expect(quoi('  const x = 1;')).toEqual([]);
   });
 });
+
+// ─── CE QU'ELLE REFUSE DE MUTER, ET POURQUOI ELLE A DÛ L'APPRENDRE ────────────
+//
+// Un balayage a muté la garde de point d'entrée de `scripts/tamis-ordres.mjs` —
+// celle qui empêche le fichier de s'exécuter à l'import :
+//
+//     if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(…))
+//
+// `&&` devenu `||`, et sous vitest `process.argv[1]` est toujours vrai : la
+// garde tire À L'IMPORT. Le test qui importe `principal` a donc fait ce que ce
+// fichier fait — relancer la suite ENTIÈRE trois fois — et chacune des trois a
+// réimporté le même module muté.
+//
+// Mesuré : charge moyenne 57, une soixantaine de vitest vivants, des processus
+// de onze minutes. Le butoir de 15 minutes de la loupe n'y peut rien : le
+// `timeout` d'`execFileSync` tue l'enfant DIRECT, jamais sa descendance.
+//
+// La règle qui en sort n'est pas « exclure ce fichier » mais « ne pas muter ce
+// qui décide QU'ON S'EXÉCUTE » — c'est une propriété du harnais, pas du code
+// sous examen, et le mutant n'est jamais un signal utile.
+
+describe('LA LOUPE NE MUTE PAS CE QUI DÉCIDE QU’ON S’EXÉCUTE', () => {
+  it('la ligne EXACTE qui a noyé la machine ne produit plus rien', () => {
+    expect(
+      quoi(
+        'if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {',
+      ),
+    ).toEqual([]);
+  });
+
+  it('la forme en deux temps du dépôt — `MOI` contre `LANCE` — est refusée aussi', () => {
+    // `compte-tests.mjs` et `loupe.mjs` s'écrivent ainsi. La comparaison seule
+    // ne porte NI `import.meta.url` NI `process.argv[1]` : sans cette seconde
+    // règle, elles resteraient mutables.
+    expect(quoi('if (MOI === LANCE) {')).toEqual([]);
+    expect(quoi('if (MOI !== LANCE) {')).toEqual([]);
+  });
+
+  it('les deux LIGNES DE DÉFINITION de la garde sont refusées avec elle', () => {
+    // Muter `LANCE` changerait la même décision par un autre bout.
+    expect(
+      quoi("const LANCE = process.argv[1] === undefined ? '' : path.resolve(process.argv[1]);"),
+    ).toEqual([]);
+  });
+
+  it('LE REFUS RESTE ÉTROIT : une ligne ordinaire garde ses candidats', () => {
+    // Une garde trop large désarmerait la loupe en silence — c'est le défaut
+    // qu'elle existe pour trouver. `MOI` seul, ou `LANCE` seul, ne suffit pas.
+    expect(quoi('  if (moi === lance) {')).toEqual(['=== → !==']);
+    expect(quoi('  if (MOI === autre) {')).toEqual(['=== → !==']);
+    expect(quoi('  if (a === b) {')).toEqual(['=== → !==']);
+  });
+});

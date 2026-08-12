@@ -5351,3 +5351,74 @@ seulement sur l'ancien, sans quoi on livre du décor en croyant livrer une garde
 C'est la seconde fois que j'écris un banc d'accord avec lui-même (§ 9 quintrigies
 comparait une fonction à celle qu'elle appelle). La forme change, le défaut est le
 même : **choisir un point d'observation qui ne peut pas voir l'absence.**
+
+## 9 quadragies. On ne mute pas ce qui décide QU'ON S'EXÉCUTE — la loupe a noyé la machine
+
+Un balayage tournait tranquillement, 89 mutants sur 230. Puis il a cessé
+d'avancer. Onze minutes plus tard, la machine était à genoux :
+
+    load average: 57.28    une soixantaine de vitest vivants
+                           des processus de 680 secondes
+
+Ce n'était pas un blocage. C'était une bombe.
+
+### Ce que la loupe avait muté
+
+`scripts/tamis-ordres.mjs` se termine sur la garde qui l'empêche de s'exécuter à
+l'import — et son commentaire, écrit longtemps avant, disait déjà exactement ce
+qui allait se passer :
+
+```js
+// Point d'entrée : seulement quand le fichier est LANCÉ, jamais à l'import —
+// sans quoi le test qui importe `principal` lancerait la suite entière trois
+// fois depuis l'intérieur de la suite.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+```
+
+La loupe a échangé le `&&` contre un `||`. Sous vitest, `process.argv[1]` est
+toujours vrai : la garde tire donc À L'IMPORT. Le test qui importe `principal`
+a fait ce que ce fichier fait — relancer la suite entière trois fois — et chacune
+des trois a réimporté le même module muté, pour en relancer trois autres.
+
+### Pourquoi aucun des filets existants n'a tenu
+
+`suiteRougit` porte un butoir de quinze minutes. Il n'a rien pu faire : le
+`timeout` d'`execFileSync` tue l'enfant DIRECT, jamais sa descendance. Les
+petits-enfants continuaient de se multiplier pendant que le parent attendait sa
+mort.
+
+Le verrou d'exclusivité n'a rien pu faire non plus — il empêche DEUX loupes de se
+marcher dessus, pas une loupe de se faire relancer par sa propre mutation.
+
+Et l'en-tête de la loupe met en garde contre le cas voisin, celui de la mutation
+qui casse la SYNTAXE : « un fichier qui ne s'analyse plus fait échouer la suite
+entière, le mutant passerait pour tué ». Le raisonnement était bon et le cas
+frère lui manquait : une mutation peut aussi faire s'EXÉCUTER ce qui ne devait
+pas.
+
+### La règle
+
+> Une ligne qui décide « suis-je le fichier qu'on a lancé ? » ne se mute pas.
+> Elle n'exprime aucun comportement du programme : elle règle si le module
+> S'EXÉCUTE À L'IMPORT, ce qui est une propriété du HARNAIS. Le mutant n'est
+> jamais un signal utile — au mieux il tue le worker et passe pour « défendu »,
+> au pire il fait s'appeler la suite elle-même.
+
+C'est le raisonnement qui gardait déjà `scripts/loupe.mjs` hors du champ — « muter
+le juge pendant qu'il juge » — étendu à ce qu'il aurait dû couvrir dès le départ.
+Le dépôt compte TROIS de ces gardes, sous trois formes ; une seule était protégée,
+et c'était par accident de périmètre, pas par la règle.
+
+### Ce que ça dit de plus général
+
+Un outil de mutation ne manipule pas seulement du sens : il manipule du CODE QUI
+S'EXÉCUTE. La frontière qu'il doit respecter n'est donc pas « la syntaxe reste
+valide » mais **« le programme muté reste le même programme »**. Un fichier qui
+choisit de se lancer, un fichier qui choisit de se charger, un fichier qui
+choisit d'ouvrir un port — muter cette décision-là ne mesure pas la couverture,
+ça change ce qu'on mesure.
+
+Et le coût de ne pas le savoir n'est pas symétrique non plus. Un mutant qui
+survit à tort fait écrire un test de trop. Un mutant qui relance le harnais
+prend la machine — celle de qui aura lancé `npm run loupe` en confiance avant de
+fusionner.

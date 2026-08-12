@@ -228,12 +228,58 @@ function lignesAjoutees() {
 const CLASSE_LA_PLUS_LARGE = 'Object';
 
 /**
+ * Une ligne qui décide « SUIS-JE LE FICHIER QU'ON A LANCÉ ? ».
+ *
+ * ─── LA MUTATION QUI A NOYÉ LA MACHINE ───────────────────────────────────────
+ *
+ * `scripts/tamis-ordres.mjs` termine sur la garde qui l'empêche de s'exécuter à
+ * l'import :
+ *
+ *     if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(…))
+ *
+ * La loupe l'a mutée en `||`. Sous vitest, `process.argv[1]` est toujours vrai :
+ * la garde tire donc À L'IMPORT. Or le test qui importe `principal` fait alors
+ * ce que ce fichier fait — RELANCER LA SUITE ENTIÈRE TROIS FOIS. Chacune des
+ * trois réimporte le même module muté, et en relance trois autres.
+ *
+ * Mesuré : charge moyenne 57, une soixantaine de vitest vivants, des processus
+ * de onze minutes. Le butoir de 15 minutes de `suiteRougit` n'y peut rien —
+ * `timeout` d'`execFileSync` tue l'enfant DIRECT, jamais sa descendance.
+ *
+ * ─── POURQUOI C'EST UNE RÈGLE, PAS UN RUSTINE SUR UN FICHIER ─────────────────
+ *
+ * Trois fichiers du dépôt portent cette garde, sous trois formes. Muter l'une
+ * d'elles n'éprouve AUCUN comportement du programme : ça change si le module
+ * S'EXÉCUTE À L'IMPORT, ce qui est une propriété du harnais, pas du code sous
+ * examen. Le mutant n'est jamais un signal utile — au mieux il tue le worker et
+ * passe pour « défendu », au pire il fait s'appeler la suite elle-même.
+ *
+ * C'est le même raisonnement qui garde `scripts/loupe.mjs` hors du champ, étendu
+ * à ce qu'il aurait dû couvrir dès le départ : on ne mute pas ce qui décide
+ * QU'ON S'EXÉCUTE.
+ *
+ * ─── CE QUE CETTE RÈGLE COÛTE, ET IL FAUT LE DIRE ────────────────────────────
+ *
+ * `MOI` et `LANCE` sont la convention de nommage de ce dépôt pour les deux côtés
+ * de la comparaison. Les renommer rendrait cette garde aveugle sans que rien ne
+ * le signale. Le couplage est réel : il est écrit ici plutôt que caché.
+ */
+export function estGardeDePointDEntree(ligne) {
+  if (ligne.includes('import.meta.url') || ligne.includes('process.argv[1]')) return true;
+  // La forme en deux temps : `const MOI = …` / `const LANCE = …` puis la
+  // comparaison, qui ne porte plus aucun des deux marqueurs ci-dessus.
+  return /\bMOI\b/.test(ligne) && /\bLANCE\b/.test(ligne);
+}
+
+/**
  * Les mutations d'UNE ligne. PURE, donc éprouvable — et elle l'est
  * (`tests/loupe-mutations.test.mjs`), ce qui n'était pas le cas tant qu'elle
  * vivait enfouie dans `candidates()`.
  */
 export function mutationsDeLigne(ligne) {
   const out = [];
+  // Une garde de point d'entrée ne se mute pas : voir `estGardeDePointDEntree`.
+  if (estGardeDePointDEntree(ligne)) return out;
   for (const [de, vers] of ECHANGES) {
     if (!ligne.includes(de)) continue;
     // Une seule occurrence de l'opérateur : sinon on ne saurait pas laquelle on
