@@ -228,4 +228,43 @@ describe('le Cerveau — les deux dernières survivantes du balayage', () => {
     expect(dormante?.querySelector('.dort'), 'la dormante porte son habit').toBeTruthy();
     expect(servie?.querySelector('.dort'), 'la servie ne le porte pas').toBeNull();
   });
+
+  it('LA FICHE LE DIT AUSSI — la même vérité au même moment, aux deux endroits', async () => {
+    // ─── LE MÊME PRÉDICAT À CINQ ENDROITS, UN SEUL DÉFENDU ─────────────────
+    //
+    // `serviIlYaJours === null` est écrit CINQ fois dans cette vue : la boucle
+    // du canevas, la bulle, la colonne du tableau, l'habit `dort`, et la fiche.
+    // Le cas du dessus n'en éprouve que le tableau — muter celui de la FICHE
+    // laissait les 20 cas de ce fichier VERTS : mesuré, verdict affiché.
+    //
+    // Ce n'est pas un doublon. Le tableau sert à BALAYER, la fiche à DÉCIDER :
+    // on y arrive après avoir choisi une note, et c'est là qu'on tranche si on
+    // la ressort. Les deux affichages inversés se contrediraient à l'écran —
+    // le pire état pour un outil qui existe pour être cru.
+    //
+    // ─── CE QUI RESTE HORS DE PORTÉE, ET C'EST DIT ─────────────────────────
+    //
+    // Le cinquième site vit dans la boucle de dessin du canevas
+    // (`if (p.n.serviIlYaJours === null)`, teinte des bulles). happy-dom ne
+    // fournit pas de contexte 2D : ce banc-là ne peut pas exister ici, et le
+    // simuler donnerait une couverture de façade. Consigné plutôt que joué.
+    const dom = await monter();
+    cliquer(boutonMode(dom, 'Liste'));
+
+    const ligne = (titre: string) =>
+      [...dom.querySelectorAll('.cerveau-liste tbody tr')].find((r) =>
+        (r.textContent ?? '').includes(titre),
+      );
+
+    cliquer(ligne('L’épisode du port occupé') as Element);
+    const dormante = dom.querySelector('.cerveau-fiche');
+    expect(dormante?.textContent, 'la fiche d’une note jamais servie dit « jamais »').toContain(
+      'jamais',
+    );
+
+    cliquer(ligne('La leçon des tubes') as Element);
+    const servie = dom.querySelector('.cerveau-fiche');
+    expect(servie?.textContent, 'la fiche d’une note servie donne son âge').toContain('il y a 2 j');
+    expect(servie?.textContent, 'une note servie n’est pas « jamais »').not.toContain('jamais');
+  });
 });
