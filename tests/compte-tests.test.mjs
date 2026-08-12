@@ -260,6 +260,63 @@ describe('LE GESTE COMPLET', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // ─── « ILLISIBLE » NE DIT PAS POURQUOI, ET C'EST LE MOT QUI COMPTE ──────────
+  //
+  // La garde du dessus n'exigeait que le mot « illisible ». Retirer la RAISON du
+  // message — `${e instanceof Error ? e.message : String(e)}` remplacé par rien —
+  // la laissait VERTE, avec les 31 autres : mesuré, verdict affiché.
+  //
+  // Or ce message est ce qu'un mainteneur lit quand la CI barre sa livraison, et
+  // les deux causes n'ont pas la même réparation :
+  //
+  //     fichier absent    → la suite n'a pas produit son rapport, on la relance
+  //                         avec `--reporter=json --outputFile.json=…` ;
+  //     JSON malformé     → le rapport EXISTE et il est cassé, relancer ne sert
+  //                         à rien, il faut regarder ce qui l'a écrit.
+  //
+  // Confondre les deux, c'est envoyer chercher une panne inexistante — la faute
+  // exacte du docteur qui sondait le port 0 (`ERREURS § 9 duotrigies` et la
+  // famille de `src/shared/port.ts`). Un outil de diagnostic qui ne diagnostique
+  // pas est pire qu'un outil muet : on le croit.
+  //
+  // Ce banc n'épingle donc AUCUN texte : il exige que les deux causes restent
+  // DISTINGUABLES l'une de l'autre. Épingler « ENOENT » ferait rougir sur un
+  // changement de Node qui n'a rien cassé — la garde deviendrait un piège.
+  it('rapport illisible : le message dit POURQUOI, pas seulement que', () => {
+    const dir = racineJetable(1, { numTotalTests: 9 });
+
+    const absent = lancer(dir, ['rapport-qui-n-existe-pas.json']);
+
+    // Le fichier existe, et n'est pas du JSON : la lecture passe, l'analyse casse.
+    writeFileSync(path.join(dir, 'pas-du-json.json'), 'ceci n’est pas du JSON', 'utf8');
+    const casse = lancer(dir, ['pas-du-json.json']);
+
+    expect(absent.code, 'un rapport absent a été traité autrement qu’en 2').toBe(2);
+    expect(casse.code, 'un rapport cassé a été traité autrement qu’en 2').toBe(2);
+
+    // Chaque message porte plus que le constat : le nom du fichier ET une raison.
+    for (const [quoi, r] of [
+      ['absent', absent],
+      ['cassé', casse],
+    ]) {
+      const apresLeNom = r.sortie.slice(r.sortie.indexOf(')') + 1).trim();
+      expect(
+        apresLeNom.length,
+        `rapport ${quoi} : le message s’arrête au constat, sans dire pourquoi`,
+      ).toBeGreaterThan(0);
+    }
+
+    // Et surtout : les deux ne se ressemblent pas. C'est CE qui rend le message
+    // utile — deux pannes différentes ne peuvent pas se lire pareil.
+    const raison = (s) => s.slice(s.indexOf(')') + 1).replace(/[^a-zA-Z]/g, '');
+    expect(
+      raison(casse.sortie),
+      'le rapport cassé et le rapport absent racontent la même chose',
+    ).not.toBe(raison(absent.sortie));
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('badge périmé, SANS --corriger : il refuse et n’écrit rien', () => {
     const dir = racineJetable(1, { numTotalTests: 42 });
     const r = lancer(dir, ['rapport.json']);

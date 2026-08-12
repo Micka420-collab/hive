@@ -5217,3 +5217,56 @@ a manqué, c'est l'instant entre voir et faire.
 Ajouter un filet de plus n'aurait rien changé. La discipline qui compte n'est pas
 d'en poser davantage, c'est de laisser à chacun le pouvoir d'ARRÊTER le geste
 suivant.
+
+## 9 octotrigies. Un mutant ÉQUIVALENT désigne un ENDROIT, pas une absence de défaut
+
+La loupe a rendu, sur `scripts/compte-tests.mjs` :
+
+    🔴 SANS TEST · instanceof Error → instanceof Object
+       ecrire(`rapport illisible (${chemin}) : ${e instanceof Error ? e.message : String(e)}`)
+
+Ce mutant-là est ÉQUIVALENT, et la lecture le montre en trois lignes : le `try`
+n'enveloppe que `readFileSync` et `JSON.parse`, qui ne jettent l'un et l'autre
+que des `Error`. Or toute `Error` est un `Object`. Aucune entrée que ce code peut
+produire ne distingue les deux versions.
+
+### Le réflexe qui coûte cher
+
+Le geste naturel, à ce moment, est d'écrire « équivalent » et de passer au
+suivant. Il est faux, et voici pourquoi : la loupe ne mute qu'un JETON à la fois,
+parce qu'une mutation plus large casserait la syntaxe (son propre en-tête le
+dit). Elle ne peut donc désigner qu'une fraction de ce qu'un humain pourrait
+retirer au même endroit. « Ce jeton-là est indifférent » ne dit RIEN sur
+« ce que ce site est capable de perdre en silence ».
+
+Question posée à la place — et mesurée, pas supposée : _quelle est la mutation la
+plus FORTE que ce site accepte encore ?_ Ici, retirer entièrement la raison :
+
+    `rapport illisible (${chemin}) : ${e instanceof Error ? …}`  →  `rapport illisible (${chemin})`
+
+VERDICT : **VERT sur 32 tests.** Le banc du dessus n'exigeait que le mot
+« illisible ». L'outil pouvait donc annoncer qu'un rapport est illisible sans
+jamais dire pourquoi, et rien ne mordait.
+
+Ce n'est pas cosmétique. C'est le message que lit un mainteneur quand la CI barre
+sa livraison, et les deux causes n'ont pas la même réparation : un rapport ABSENT
+veut dire que la suite n'a pas produit son fichier (on la relance) ; un rapport
+CASSÉ veut dire qu'il existe et qu'il est corrompu (relancer ne sert à rien). Les
+confondre envoie chercher une panne inexistante — la faute exacte du docteur qui
+sondait le port 0.
+
+### La règle
+
+> Un mutant survivant jugé équivalent ferme la question de CE JETON, jamais celle
+> de CE SITE. Avant de le classer, écrire la mutation la plus forte que l'endroit
+> accepte encore, et la MESURER. La loupe désigne un lieu ; c'est à l'humain d'y
+> chercher ce qu'elle n'a pas les moyens de formuler.
+
+### Ce que ça change dans la façon de lire un balayage
+
+Un balayage ne rend pas deux catégories — « nudités » et « faux positifs à
+écarter ». Il en rend une seule : **des adresses**. Certaines portent un défaut
+que la loupe a su nommer ; d'autres portent un défaut qu'elle ne pouvait pas
+formuler et qui est là quand même. Compter les secondes comme du bruit, c'est
+retirer à l'instrument la moitié de ce qu'il rapporte — et cette moitié-là est
+justement celle qu'aucun outil ne trouvera à notre place.
