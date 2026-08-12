@@ -194,6 +194,57 @@ describe('L’ÉLAGUEUR DES TÂCHES SUPPRIME VRAIMENT', () => {
     ]);
   });
 
+  it('UNE SURVIVANTE PILE À LA BORNE PROTÈGE ENCORE SA DÉPENDANCE', () => {
+    // ─── DEUX BORNES QUI DOIVENT RESTER ACCORDÉES ──────────────────────────
+    //
+    // `pruneTasks` écrit DEUX fois la même comparaison, et il le faut :
+    //
+    //     WHERE status IN ('done','failed') AND updatedAt < ?          ← condamnées
+    //     WHERE NOT (t.status IN ('done','failed') AND t.updatedAt < ?) ← survivantes
+    //
+    // La seconde définit « survivante » par NÉGATION de la première. Les
+    // désaccorder d'un seul caractère ouvre une fissure d'une milliseconde :
+    // une tâche terminée pile au seuil SURVIT (la première dit `<`, donc faux)
+    // mais cesse d'être comptée comme survivante (la seconde dirait `<=`, donc
+    // vrai, donc niée). Ses citations ne protègent plus rien.
+    //
+    // Le banc du dessus éprouvait la borne du côté CONDAMNÉ, celui d'à côté la
+    // protection des dépendances par une survivante NON TERMINALE. Aucun ne
+    // croisait les deux — et la mutation `<` → `<=` sur la seconde ligne
+    // laissait les vingt cas de ce fichier VERTS. Mesuré, verdict affiché.
+    //
+    // Ce que ça coûte quand ça casse est écrit dans la docstring de
+    // `pruneTasks` : « une tâche qui attend un id disparu n'est jamais prête —
+    // elle reste bloquée sans que rien ne le dise ».
+    //
+    // Horloge FIXÉE, comme pour l'autre cas limite : un élagage qui rappellerait
+    // l'heure quelques millisecondes plus tard ferait basculer le seuil au
+    // hasard — un intermittent qu'on fabrique soi-même.
+    const maintenant = Date.now();
+
+    const socle = poser({ titre: 'socle', statut: 'done', ageJours: 40 });
+    store.patchTask(socle.id, { status: 'done' }, maintenant - 40 * JOUR);
+
+    const pile = poser({
+      titre: 'terminée pile à la borne, et elle cite le socle',
+      statut: 'done',
+      ageJours: 30,
+      dependsOn: [socle.id],
+    });
+    store.patchTask(pile.id, { status: 'done' }, maintenant - 30 * JOUR);
+
+    expect(
+      store.pruneTasks(30 * JOUR, maintenant),
+      'le socle d’une survivante pile à la borne a été effacé',
+    ).toBe(0);
+    expect(store.getTask(pile.id), 'la survivante elle-même a disparu').toBeDefined();
+    expect(store.getTask(socle.id), 'le socle a disparu sous une survivante').toBeDefined();
+    expect(
+      store.getTask(pile.id)?.dependsOn,
+      'la dépendance de la survivante ne pointe plus nulle part',
+    ).toEqual([socle.id]);
+  });
+
   it('la borne est IDEMPOTENTE : un second passage ne supprime rien', () => {
     poser({ titre: 'vieille', statut: 'done', ageJours: 40 });
     expect(store.pruneTasks(30 * JOUR)).toBe(1);

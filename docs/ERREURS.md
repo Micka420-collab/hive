@@ -5187,6 +5187,42 @@ trouvés :
 5. **Dire ce qu'on ne peut pas vérifier**, plutôt que de le taire ou de le
    simuler.
 
+### La même faute sans variable d'environnement : DEUX PRÉDICATS QUI SE NIENT
+
+`pruneTasks` écrit la même comparaison deux fois, et il le FAUT — la seconde
+définit « survivante » par négation de la première :
+
+```sql
+WHERE status IN ('done','failed') AND updatedAt < ?            -- les condamnées
+EXCEPT
+SELECT j.value FROM tasks t, json_each(t.dependsOn) j
+ WHERE NOT (t.status IN ('done','failed') AND t.updatedAt < ?) -- les survivantes
+```
+
+Ce n'est pas une valeur lue à deux endroits : c'est une RÈGLE écrite à deux
+endroits, avec la même conséquence. La loupe a muté la seconde en `<=`, et les
+vingt cas du fichier sont restés VERTS.
+
+La fissure fait une milliseconde. Une tâche terminée PILE au seuil survit (le
+premier prédicat dit `<`, donc faux) mais cesse d'être comptée comme survivante
+(le second dirait `<=`, donc vrai, donc nié). Ses `dependsOn` ne protègent plus
+rien : le socle part, et la tâche qui l'attend reste bloquée pour toujours —
+exactement ce que la docstring de `pruneTasks` promet d'empêcher.
+
+Le fichier éprouvait pourtant les deux moitiés SÉPARÉMENT : un cas limite du côté
+condamné (« pile à la borne, à l'âge exact la rétention n'est pas écoulée ») et
+une protection de dépendance par une survivante NON TERMINALE. Aucun ne les
+croisait — et c'est au croisement que vit le défaut.
+
+> Quand deux prédicats doivent rester ACCORDÉS, les éprouver l'un après l'autre
+> ne prouve rien sur leur accord. Le banc qui compte est celui qui met un cas
+> DANS les deux à la fois.
+
+Le remède structurel serait le même qu'ici — un seul endroit qui dit la règle —
+mais SQLite n'a pas de prédicat nommé réutilisable dans un `EXCEPT`. Faute de
+pouvoir l'unifier, on le GARDE : le banc croisé rougit au premier caractère de
+travers.
+
 ---
 
 ## 9 sextrigies. Le correctif existait, et la porte d'à côté ne l'avait jamais reçu
