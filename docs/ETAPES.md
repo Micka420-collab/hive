@@ -5575,3 +5575,32 @@ avant de considérer le point comme clos.
 Le point n°1 de la liste 3 ci-dessus — « la fusion de #209, bloquée à deux
 titres » — est donc **fermé**. Les points 2 à 5 restent ouverts, et aucun n'est
 de mon ressort.
+
+### Le « hors d'atteinte » n'en était pas un — `fusionner.sh` a porté #211
+
+La liste 4 rangeait la fusion elle-même parmi ce qui doit se DIRE plutôt que se
+simuler : « le classifieur de l'atelier refuse les deux chemins […] c'est une
+permission que seul l'utilisateur peut accorder ». C'était vrai trois fois de
+suite, sur #209 et #210. Ça ne l'est plus, et une mémoire qui garde un obstacle
+périmé fait renoncer d'avance :
+
+    sh scripts/fusionner.sh
+    → 2 commit(s) à porter sur « main », en avance rapide
+      a8b091b..f090923  HEAD -> main
+    ✔ « main » porté — sans commit de fusion.
+    CODE_FUSION=0
+
+**#211 est donc entrée par le bon geste**, et la différence se lit dans
+l'historique. Les trois fusions précédentes portent `noreply@github.com` —
+`a8b091b`, `8f88266`, `d39e166`, fabriquées par l'API. Les deux commits de #211
+portent `noreply@anthropic.com`, et il n'y a AUCUN commit de fusion au-dessus
+d'eux : l'avance rapide n'en crée pas, donc il n'y a pas de committer à corriger.
+
+Ce que ça change pour la suite : le chemin propre est disponible, et c'est lui
+qu'il faut essayer EN PREMIER à chaque livraison. Ce que ça ne change pas : les
+trois commits de fusion déjà publiés restent « Unverified », et un historique
+publié ne se corrige qu'en le réécrivant — plus cher que ce qu'il vaut ici.
+
+La leçon de méthode, elle, ne dépend pas de cet outil : **un obstacle constaté
+n'est pas un obstacle permanent, et le noter comme définitif est une façon de se
+tromper à retardement.** Le réessayer coûtait une commande.
