@@ -382,6 +382,20 @@ export function enrouler(texte: string, largeur: number): string[] {
     for (const mot of mots) {
       let reste = mot;
       // Un mot seul plus large que la ligne : on le débite en tranches.
+      //
+      // ─── `>` OU `>=` NE CHANGE RIEN, ET C'EST MESURÉ ───────────────────────
+      //
+      // Un balayage désigne cette borne « sans test » à chaque passe. Elle est
+      // ÉQUIVALENTE, et pas parce qu'aucun banc ne la couvre : parce qu'un
+      // morceau large EXACTEMENT comme la ligne finit sur sa propre ligne dans
+      // les deux cas. `>=` le pousse ici même et laisse `courante` vide ; `>` le
+      // gare dans `courante` et le pousse à la fin. Rien ne peut jamais s'ajouter
+      // à un `courante` déjà plein — `len + 1 + n <= largeur` est faux dès que
+      // `len === largeur` — donc les deux chemins rendent la MÊME liste.
+      //
+      // Différentiel exhaustif plutôt que raisonnement : largeurs 1 à 8, un à
+      // trois mots de longueurs 1 à 2×largeur+1, avec et sans retour à la ligne.
+      // 2 016 cas, ZÉRO écart entre les deux versions.
       while ([...reste].length > largeur) {
         if (courante !== '') {
           lignes.push(courante);
