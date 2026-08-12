@@ -34,11 +34,15 @@ describe('les adaptateurs à CLI connue posent le terminateur `--`', () => {
   it('claude-code : le prompt est le DERNIER argument, derrière `--`', () => {
     const src = lire('../src/adapters/claude-code.ts');
     // La forme exacte compte : `--` doit précéder immédiatement le prompt, et
-    // TOUTES les options doivent être avant — y compris `--model` de l'Aiguillage.
-    // La construction vit maintenant dans `argvClaude` (pur) : `...drapeauxModele`
-    // (les options du modèle) PUIS `--` PUIS le prompt. Cet ordre précis est ce
-    // qui empêche le prompt — ou un nom de modèle — d'être lu comme une option.
-    expect(src).toContain("...drapeauxModele, '--', prompt");
+    // TOUTES les options doivent être avant — y compris `--model` de l'Aiguillage
+    // et `--permission-mode` (sans lequel `claude -p` refuse tout Edit/Write en
+    // silence, cf. le commentaire d'`argvClaude`). La construction vit dans
+    // `argvClaude` (pur) : `...drapeauxModele` (les options du modèle) PUIS `--`
+    // PUIS le prompt. Cet ordre précis est ce qui empêche le prompt — ou un nom
+    // de modèle — d'être lu comme une option. Prettier étale le tableau sur
+    // plusieurs lignes (au-delà de son print width) : la chaîne cherchée suit
+    // exactement cette mise en forme plutôt qu'une ligne unique.
+    expect(src).toContain("...drapeauxModele,\n    '--',\n    prompt,");
     expect(src, "le prompt ne doit plus suivre '-p' directement").not.toContain("'-p', prompt");
   });
 

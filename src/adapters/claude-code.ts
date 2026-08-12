@@ -16,6 +16,16 @@ const CLAUDE_TIMEOUT_MS = 15 * 60_000;
  * Les arguments de `claude -p`, avec le modèle de l'Aiguillage en option s'il y
  * en a un.
  *
+ * `--permission-mode acceptEdits` : SANS lui, `claude -p` sans terminal refuse
+ * silencieusement chaque `Edit`/`Write` (« you haven't granted it yet »,
+ * `is_error: true`) — l'agent tourne, propose de vraies corrections, le process
+ * sort en code 0, et le nœud calcule un diff VIDE. `success: true` masquait la
+ * panne : mesuré en double sur ce dépôt (deux tâches, 0 octet de diff malgré 8
+ * `Edit` tentés sur la seconde). `acceptEdits` — pas `bypassPermissions` — reste
+ * scopé aux fichiers : la tâche s'exécute déjà dans un clone jetable, un
+ * répertoire dédié, un environnement épuré (`buildSandboxEnv`, ni HOME ni
+ * variables du membre), donc autoriser l'écriture n'ouvre rien de plus large.
+ *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
  * prompt reste donc en TOUT DERNIER, derrière `--`. Un nom de modèle n'est pas un
@@ -24,7 +34,17 @@ const CLAUDE_TIMEOUT_MS = 15 * 60_000;
  */
 export function argvClaude(prompt: string, modele?: string): string[] {
   const drapeauxModele = modele ? ['--model', modele] : [];
-  return ['-p', '--output-format', 'stream-json', '--verbose', ...drapeauxModele, '--', prompt];
+  const drapeauxPermission = ['--permission-mode', 'acceptEdits'];
+  return [
+    '-p',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    ...drapeauxPermission,
+    ...drapeauxModele,
+    '--',
+    prompt,
+  ];
 }
 
 export function createClaudeCodeAdapter(
