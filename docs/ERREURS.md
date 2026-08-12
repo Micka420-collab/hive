@@ -5890,3 +5890,65 @@ gagnée. S'ils sont le même, je l'ignore. S'ils reviennent en CI sur une machin
 de quelqu'un d'autre, je n'aurai rien à lui dire — et un intermittent qu'on ne
 sait pas nommer finit par se faire relancer plutôt que lire, ce qui est la
 première marche vers une suite qu'on ne croit plus.
+
+## 9 sexquadragies. Un test écrit contre le MÉCANISME meurt avec lui ; écrit contre la GARANTIE, il survit
+
+En sortant les étiquettes du graphe du Cerveau (`etiquettesPosees`), j'ai porté
+la garde d'origine telle quelle :
+
+```ts
+if (heurte && !estActif) continue; // « le nœud actif passe TOUJOURS »
+```
+
+Neuf mutations sur les règles voisines ont rougi. Celle-ci, non : ôter
+l'exception (`if (heurte) continue;`) laissait le banc VERT.
+
+### Pourquoi elle ne pouvait pas rougir
+
+Deux lignes plus haut, `ordreDePose` place la note active **en tête**. Elle est
+donc posée la première, quand `posees` est encore vide — `heurte` y vaut
+toujours `false`. La seconde condition n'est jamais consultée.
+
+C'est le § 9 unquadragies (« qui peut encore l'atteindre ? ») dont la réponse est
+« personne », et dont la cause n'est pas un appelant extérieur mais **une étape
+antérieure de la même fonction**. Le tri ne se contentait pas de trier : il
+tenait déjà, seul, la promesse que la garde prétendait tenir.
+
+Et le commentaire aggravait le cas. « Le nœud actif passe TOUJOURS » désignait la
+mauvaise ligne : un lecteur en concluait que l'ordre de pose est indifférent,
+alors qu'il est la SEULE chose qui protège ce nom-là. Une garde morte ne se
+contente pas d'être inutile — elle déplace l'attention loin du vrai gardien.
+
+### Ce que j'ai failli écrire
+
+Mon premier banc disait :
+
+```ts
+it('la note ACTIVE passe MÊME en recouvrant une déjà posée', …)
+```
+
+Un titre qui décrit le CHEMIN. Il passait aussi bien avec la garde qu'après son
+retrait — non pas parce qu'il était robuste, mais parce qu'il n'avait jamais
+éprouvé ce qu'il annonçait. Un test qui nomme un mécanisme et n'en dépend pas est
+du décor à retardement : le jour où le mécanisme part, il reste vert et laisse
+croire qu'il veille encore.
+
+Réécrit contre la garantie — « la note ACTIVE garde son nom face à une note qui
+la recouvre » — il ne dit plus PAR QUEL CHEMIN elle le garde. Vérifié par
+mutation, l'exception ôtée : casser le tri (`a.id === actif` → `!==`) le fait
+rougir. Il défend donc la promesse par le seul mécanisme qui reste, et aurait
+défendu l'autre s'il avait été le seul.
+
+### La règle
+
+> Avant de porter une garde d'un endroit à un autre, demander ce qui la rend
+> vraie — pas si elle est juste. Si une étape antérieure la garantit déjà, la
+> garde est morte : on la retire, et on écrit la **promesse** dans le titre du
+> banc, jamais le chemin qui la réalise. Un banc nommé d'après un mécanisme ne
+> protège que ce mécanisme ; nommé d'après la garantie, il protège l'utilisateur
+> — et reste debout quand l'implémentation change sous lui.
+
+Corollaire pour l'extraction (§ 2 quaterdecies) : sortir une décision du canevas
+ne consiste pas à déménager les lignes. La mutation, appliquée à la version
+SORTIE, dit ce que le canevas cachait — ici, qu'une des trois règles n'en était
+pas une.

@@ -266,3 +266,149 @@ export function deplacementDuGlisse(prise: {
   if (prise.id !== null) return { traine: true, id: prise.id };
   return { traine: false, fond: prise.fond };
 }
+
+// ─── LES ÉTIQUETTES DU GRAPHE ────────────────────────────────────────────────
+//
+// Qui a droit à son nom écrit sur la toile, dans quel ordre on les pose, et
+// laquelle saute quand deux se recouvrent.
+//
+// Troisième application du même motif (§ 2 quaterdecies) : le balayage par
+// mutation a montré la règle NUE. `if (heurte && p.id !== actif) continue;`
+// muté en `||` laissait la suite ENTIÈRE verte — et faisait disparaître TOUS
+// les noms du graphe sauf celui de la note regardée. Un graphe de savoir dont
+// les nœuds n'ont plus de nom : l'écran répond, il ne dit plus rien.
+//
+// Le canevas ne garde ici qu'un rôle, et c'est le bon : celui de RÈGLE. Lui
+// seul sait combien de pixels prend un titre dans une fonte donnée
+// (`measureText`), et cette mesure lui est rendue par le paramètre `boiteDe`.
+// La POLITIQUE — qui, dans quel ordre, et qui cède — n'a jamais eu besoin de
+// savoir dessiner.
+
+/** Un rectangle de la toile, en coordonnées du graphe. */
+export interface Boite {
+  x: number;
+  y: number;
+  /** Largeur. */
+  l: number;
+  /** Hauteur. */
+  h: number;
+}
+
+/** La part d'une note dont dépend son droit à porter son nom. */
+export interface NoteNommable {
+  genre: string;
+  /** Nombre de liens qui l'attachent au reste du savoir. */
+  degre: number;
+}
+
+/**
+ * Une note est-elle de la CHARPENTE — la structure du savoir, par opposition à
+ * ce qui n'en est qu'une trace ?
+ *
+ * Deux conditions, et aucune ne suffit. Un `episode` est le récit d'UNE panne :
+ * il y en a des centaines, et les nommer tous couvrirait la toile d'un texte
+ * que personne ne lit. Une note de degré 0 n'est reliée à rien : nommée, elle
+ * occuperait la place d'une note qui, elle, tient le graphe ensemble.
+ *
+ * VU À L'ÉCRAN, PAS DÉDUIT. La première version nommait tout ce qui dépassait
+ * un certain rayon. Sur un cerveau réel, trente « épisode 12 — fetch failed »
+ * se chevauchaient et cachaient exactement les notes qu'il fallait lire. Les
+ * épisodes se lisent au survol, un par un.
+ */
+export function estCharpente(n: NoteNommable): boolean {
+  return n.genre !== 'episode' && n.degre > 0;
+}
+
+/**
+ * Cette note a-t-elle droit à son nom ?
+ *
+ * La note ACTIVE passe toujours — c'est celle qu'on regarde, et un graphe qui
+ * refuse de nommer ce qu'on désigne est un graphe qui ne répond pas. Une note
+ * ÉTEINTE ne passe jamais, fût-elle de la charpente : elle est déjà retirée du
+ * regard, et son nom la ferait revenir au premier plan alors que tout le reste
+ * de l'écran vient de l'en écarter.
+ */
+export function porteSonNom(
+  id: string,
+  n: NoteNommable,
+  actif: string | null,
+  eteinte: boolean,
+): boolean {
+  if (eteinte) return false;
+  return id === actif || estCharpente(n);
+}
+
+/**
+ * L'ordre de POSE — et c'est un ordre de PRIORITÉ, pas un ordre d'affichage :
+ * qui est posé en premier garde son nom, qui vient après le perd s'il recouvre.
+ *
+ * La note active d'abord (on ne perd jamais le nom de ce qu'on regarde), puis
+ * les mieux reliées — perdre le nom d'un carrefour du savoir coûte plus cher
+ * que perdre celui d'une feuille. À degré égal, l'identifiant départage : sans
+ * lui l'ordre dépendrait de celui du tableau, et deux images successives ne
+ * poseraient pas les mêmes noms — le graphe clignoterait.
+ */
+export function ordreDePose(
+  a: { id: string; degre: number },
+  b: { id: string; degre: number },
+  actif: string | null,
+): number {
+  if (a.id === actif) return -1;
+  if (b.id === actif) return 1;
+  return b.degre - a.degre || a.id.localeCompare(b.id);
+}
+
+/**
+ * Deux rectangles se recouvrent-ils ? Test d'axes séparateurs, strict sur les
+ * quatre bords : deux libellés qui se touchent EXACTEMENT ne se recouvrent pas,
+ * et refuser le second ferait perdre un nom pour rien.
+ */
+export function seChevauchent(a: Boite, b: Boite): boolean {
+  return a.x < b.x + b.l && a.x + a.l > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/**
+ * Les étiquettes RÉELLEMENT posées, dans l'ordre où le canevas doit les écrire.
+ *
+ * Deux libellés voisins superposés deviennent illisibles TOUS LES DEUX — on perd
+ * deux informations au lieu d'une. On les pose donc par priorité, et celui qui
+ * recouvrirait un déjà posé est SAUTÉ. Mieux vaut un nom manquant qu'une
+ * bouillie : le nom manquant se retrouve au survol.
+ *
+ * LA NOTE ACTIVE NE PEUT PAS PERDRE SON NOM, et c'est le TRI qui l'assure, pas
+ * une exception dans la collision. `ordreDePose` la pose en premier : rien n'est
+ * encore posé, donc rien ne peut la recouvrir. Le code d'origine portait bien
+ * une exception (`if (heurte && p.id !== actif)`), et le balayage par mutation
+ * a montré qu'elle était MORTE — l'ôter ne faisait rougir personne, parce que
+ * sa condition n'est jamais atteinte. Une garde qui ne peut pas se déclencher
+ * est pire que pas de garde : elle fait croire que l'ordre de pose est
+ * indifférent, alors qu'il est la SEULE chose qui protège ce nom-là.
+ *
+ * Ce que les bancs tiennent, du coup, c'est la GARANTIE et non le mécanisme :
+ * casser le tri fait rougir « la note active garde son nom », qui n'a jamais
+ * eu besoin de savoir par quel chemin elle l'obtenait.
+ *
+ * `boiteDe` est la seule chose que le canevas apporte — la largeur d'un titre
+ * dans sa fonte. Elle reçoit aussi `actif`, parce que le libellé actif est écrit
+ * en gras et prend donc plus de place que les autres.
+ */
+export function etiquettesPosees<T extends { id: string; n: NoteNommable }>(
+  corps: readonly T[],
+  actif: string | null,
+  eteinte: (id: string) => boolean,
+  boiteDe: (p: T, estActif: boolean) => Boite,
+): { corps: T; boite: Boite }[] {
+  const candidats = corps
+    .filter((p) => porteSonNom(p.id, p.n, actif, eteinte(p.id)))
+    .sort((a, b) =>
+      ordreDePose({ id: a.id, degre: a.n.degre }, { id: b.id, degre: b.n.degre }, actif),
+    );
+
+  const posees: { corps: T; boite: Boite }[] = [];
+  for (const p of candidats) {
+    const boite = boiteDe(p, p.id === actif);
+    if (posees.some((d) => seChevauchent(boite, d.boite))) continue;
+    posees.push({ corps: p, boite });
+  }
+  return posees;
+}

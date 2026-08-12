@@ -53,6 +53,7 @@ import {
   corpsSousLePoint,
   deplacementDuGlisse,
   estEteinte,
+  etiquettesPosees,
   rayon,
   priseAuDoigt,
   selectionAuRelacher,
@@ -319,53 +320,33 @@ export default function Cerveau(_props: ViewProps) {
 
       // ─── LES LIBELLÉS, EN UNE PASSE À PART ────────────────────────────────
       //
-      // Deux raisons de les sortir de la boucle des nœuds.
-      //
-      // D'ABORD, QUI EN PORTE UN. Première version : tout ce qui dépassait un
-      // certain rayon. Sur un cerveau réel, les épisodes sont l'écrasante
-      // majorité — trente « épisode 12 — fetch failed » se chevauchaient et
-      // cachaient exactement les notes qu'il fallait lire. Vu à l'écran, pas
-      // déduit. Seule la CHARPENTE est nommée ; les épisodes se lisent au
-      // survol, un par un.
-      //
-      // ENSUITE, LES COLLISIONS. Même réduits à la charpente, deux libellés
-      // voisins se superposent et deviennent illisibles TOUS LES DEUX — on
-      // perd deux informations au lieu d'une. On les pose donc par ordre de
-      // priorité (le nœud actif d'abord, puis les mieux reliés), et un
-      // libellé qui recouvrirait un déjà posé est SAUTÉ. Mieux vaut un nom
-      // manquant qu'une bouillie : le nom manquant se retrouve au survol.
-      const boites: { x: number; y: number; l: number; h: number }[] = [];
-      const candidats = liste
-        .filter((p) => {
-          const eteint = estEteinte(p.id, actif, proches);
-          const charpente = p.n.genre !== 'episode' && p.n.degre > 0;
-          return !eteint && (p.id === actif || charpente);
-        })
-        .sort((a, b) => {
-          if (a.id === actif) return -1;
-          if (b.id === actif) return 1;
-          return b.n.degre - a.n.degre || a.id.localeCompare(b.id);
-        });
-
+      // QUI en porte un, DANS QUEL ORDRE on les pose, et QUI CÈDE quand deux se
+      // recouvrent : tout cela vit dans `etiquettesPosees`, pure et éprouvée
+      // hors canevas (§ 2 quaterdecies, troisième application dans ce fichier).
+      // Ne reste ici que la RÈGLE — combien de pixels prend ce titre dans cette
+      // fonte, que seul `measureText` connaît — et l'écriture elle-même.
       const taille = 11 / vue.current.zoom;
-      for (const p of candidats) {
-        const r = rayon(p.n) * p.naissance;
+      const posees = etiquettesPosees(
+        liste,
+        actif,
+        (id) => estEteinte(id, actif, proches),
+        (p, estActif) => {
+          ctx.font = `${estActif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
+          const l = ctx.measureText(p.n.titre.slice(0, 34)).width;
+          return {
+            x: p.x + rayon(p.n) * p.naissance + 6,
+            y: p.y + 3.5 - taille,
+            l,
+            h: taille * 1.35,
+          };
+        },
+      );
+
+      for (const { corps: p, boite } of posees) {
         const mot = p.n.titre.slice(0, 34);
-        ctx.font = `${p.id === actif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
-        const l = ctx.measureText(mot).width;
-        const x = p.x + r + 6;
+        const x = boite.x;
         const y = p.y + 3.5;
-        const boite = { x, y: y - taille, l, h: taille * 1.35 };
-        const heurte = boites.some(
-          (b) =>
-            boite.x < b.x + b.l &&
-            boite.x + boite.l > b.x &&
-            boite.y < b.y + b.h &&
-            boite.y + boite.h > b.y,
-        );
-        // Le nœud actif passe TOUJOURS : c'est celui qu'on regarde.
-        if (heurte && p.id !== actif) continue;
-        boites.push(boite);
+        ctx.font = `${p.id === actif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
 
         ctx.globalAlpha = p.id === actif ? 1 : 0.78;
         // Un liseré sombre sous le texte : sans lui, un libellé posé sur une

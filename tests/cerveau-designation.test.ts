@@ -27,14 +27,20 @@ import {
   chaleur,
   corpsSousLePoint,
   deplacementDuGlisse,
+  estCharpente,
   estEteinte,
   estUnClic,
+  etiquettesPosees,
   FENETRE_CHALEUR_JOURS,
   MARGE_DOIGT,
+  ordreDePose,
+  porteSonNom,
   priseAuDoigt,
   rayon,
+  seChevauchent,
   selectionAuRelacher,
   SEUIL_GLISSE,
+  type Boite,
   type CorpsPointable,
 } from '../dashboard/src/views/cerveau-designation.js';
 
@@ -282,5 +288,192 @@ describe('deplacementDuGlisse — ce qu’un glisser accomplit selon la prise', 
     // Pas de corps et fond faux : l'appui n'a rien retenu, le déplacement ne
     // fait que survoler — ni traîne, ni panoramique.
     expect(deplacementDuGlisse({ id: null, fond: false })).toEqual({ traine: false, fond: false });
+  });
+});
+
+// ─── LES ÉTIQUETTES DU GRAPHE ────────────────────────────────────────────────
+//
+// D'où vient ce bloc : `if (heurte && p.id !== actif) continue;` muté en `||`
+// laissait la suite ENTIÈRE verte (247 fichiers, 3 641 cas) — et faisait
+// disparaître TOUS les noms du graphe sauf celui de la note regardée.
+//
+// La règle de mesure du canevas est injectée : ici, une fonte imaginaire où
+// chaque caractère vaut 10 points de large. Ce n'est pas une simulation du
+// canevas — c'est la seule chose que le canevas apportait (une largeur), rendue
+// par un paramètre. Les trois décisions, elles, sont les vraies.
+
+/** Une note nommable, réduite au strict nécessaire. */
+const note = (id: string, genre: string, degre: number) => ({ id, n: { genre, degre } });
+
+/** Une fonte imaginaire : 10 points par caractère, hauteur 12. */
+const regleFixe =
+  (largeurs: Record<string, number>) =>
+  (p: { id: string }): Boite => ({
+    x: largeurs[`${p.id}.x`] ?? 0,
+    y: 0,
+    l: largeurs[p.id] ?? 10,
+    h: 12,
+  });
+
+const jamaisEteinte = () => false;
+
+describe('estCharpente — qui tient le graphe, et qui n’en est qu’une trace', () => {
+  it('une note reliée et non-épisode EST de la charpente', () => {
+    expect(estCharpente({ genre: 'lecon', degre: 2 })).toBe(true);
+  });
+
+  it('un ÉPISODE n’en est pas, même bien relié', () => {
+    // `genre !== 'episode'` muté en `===` : seuls les épisodes seraient nommés
+    // — exactement le texte illisible que cette règle existe pour éviter.
+    expect(estCharpente({ genre: 'episode', degre: 9 })).toBe(false);
+  });
+
+  it('une note ISOLÉE n’en est pas, même d’un genre structurant', () => {
+    // `degre > 0` muté en `>= 0` : les feuilles orphelines prendraient la place
+    // des carrefours du savoir.
+    expect(estCharpente({ genre: 'invariant', degre: 0 })).toBe(false);
+  });
+});
+
+describe('porteSonNom — le droit au nom, et ses deux exceptions', () => {
+  it('la note ACTIVE porte son nom même si elle n’est PAS de la charpente', () => {
+    // `id === actif` muté en `!==` : l'unique note qu'on regarde serait la
+    // seule à ne pas être nommée.
+    expect(porteSonNom('ep1', { genre: 'episode', degre: 0 }, 'ep1', false)).toBe(true);
+  });
+
+  it('une note ÉTEINTE ne porte pas son nom, même de la charpente ET active', () => {
+    // La garde `if (eteinte) return false` supprimée : une note écartée du
+    // regard reviendrait au premier plan par son nom.
+    expect(porteSonNom('n1', { genre: 'lecon', degre: 5 }, 'n1', true)).toBe(false);
+  });
+
+  it('une note ordinaire de la charpente porte son nom', () => {
+    expect(porteSonNom('n1', { genre: 'lecon', degre: 5 }, 'autre', false)).toBe(true);
+  });
+
+  it('un épisode ni actif ni éteint ne porte PAS son nom', () => {
+    expect(porteSonNom('ep1', { genre: 'episode', degre: 3 }, 'autre', false)).toBe(false);
+  });
+});
+
+describe('ordreDePose — l’ordre est une PRIORITÉ, pas un affichage', () => {
+  const A = { id: 'a', degre: 1 };
+  const B = { id: 'b', degre: 5 };
+
+  it('la note ACTIVE passe devant, quel que soit son degré', () => {
+    // `a.id === actif ? -1` muté : la note regardée perdrait sa priorité et
+    // c'est SON nom qui sauterait au premier chevauchement.
+    expect(ordreDePose(A, B, 'a')).toBeLessThan(0);
+    expect(ordreDePose(A, B, 'b')).toBeGreaterThan(0);
+  });
+
+  it('à défaut d’active, le MIEUX RELIÉ passe devant', () => {
+    // `b.degre - a.degre` inversé : les feuilles évinceraient les carrefours.
+    expect(ordreDePose(A, B, null)).toBeGreaterThan(0);
+    expect(ordreDePose(B, A, null)).toBeLessThan(0);
+  });
+
+  it('à degré ÉGAL, l’identifiant départage — sinon le graphe clignoterait', () => {
+    // Sans ce départage, l'ordre dépendrait de celui du tableau : deux images
+    // successives ne poseraient pas les mêmes noms.
+    expect(ordreDePose({ id: 'a', degre: 3 }, { id: 'b', degre: 3 }, null)).toBeLessThan(0);
+    expect(ordreDePose({ id: 'b', degre: 3 }, { id: 'a', degre: 3 }, null)).toBeGreaterThan(0);
+  });
+});
+
+describe('seChevauchent — strict sur les quatre bords', () => {
+  const REF: Boite = { x: 0, y: 0, l: 10, h: 10 };
+
+  it('deux boîtes franchement superposées se chevauchent', () => {
+    expect(seChevauchent(REF, { x: 5, y: 5, l: 10, h: 10 })).toBe(true);
+  });
+
+  it('deux boîtes qui se TOUCHENT exactement ne se chevauchent pas', () => {
+    // Les quatre comparaisons mutées en `<=`/`>=` : deux libellés jointifs se
+    // croiraient en collision, et on perdrait un nom pour rien.
+    expect(seChevauchent(REF, { x: 10, y: 0, l: 10, h: 10 })).toBe(false);
+    expect(seChevauchent(REF, { x: 0, y: 10, l: 10, h: 10 })).toBe(false);
+    expect(seChevauchent({ x: 10, y: 0, l: 10, h: 10 }, REF)).toBe(false);
+    expect(seChevauchent({ x: 0, y: 10, l: 10, h: 10 }, REF)).toBe(false);
+  });
+
+  it('décalées sur UN seul axe, elles ne se chevauchent pas', () => {
+    // Chacun des quatre bords compte : sans le test en Y, deux libellés
+    // superposés en X mais à des hauteurs différentes s'évinceraient.
+    expect(seChevauchent(REF, { x: 0, y: 40, l: 10, h: 10 })).toBe(false);
+    expect(seChevauchent(REF, { x: 40, y: 0, l: 10, h: 10 })).toBe(false);
+  });
+});
+
+describe('etiquettesPosees — qui garde son nom quand la toile est serrée', () => {
+  it('SANS collision, tous les candidats de la charpente sont posés', () => {
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 2), note('b', 'lecon', 1)],
+      null,
+      jamaisEteinte,
+      regleFixe({ 'a.x': 0, 'b.x': 100 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['a', 'b']);
+  });
+
+  it('les ÉPISODES et les ÉTEINTES ne sont pas candidats', () => {
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 2), note('ep', 'episode', 4), note('off', 'lecon', 3)],
+      null,
+      (id) => id === 'off',
+      regleFixe({ 'a.x': 0, 'ep.x': 100, 'off.x': 200 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['a']);
+  });
+
+  it('EN COLLISION, le mieux relié garde son nom et l’autre le perd', () => {
+    // Les deux boîtes au même endroit : une seule peut être posée, et ce doit
+    // être celle qui tient le graphe.
+    const posees = etiquettesPosees(
+      [note('faible', 'lecon', 1), note('fort', 'lecon', 9)],
+      null,
+      jamaisEteinte,
+      regleFixe({ 'faible.x': 0, 'fort.x': 0 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['fort']);
+  });
+
+  it('la note ACTIVE garde son nom face à une note qui la recouvre', () => {
+    // LA GARANTIE, PAS LE MÉCANISME. Le code d'origine portait une exception
+    // dans la collision (`heurte && p.id !== actif`) ; la mesure a montré
+    // qu'elle était MORTE — c'est le TRI qui protège l'actif, puisqu'il le pose
+    // en premier, quand rien ne peut encore le recouvrir. Cette assertion ne
+    // dit pas par quel chemin l'actif garde son nom : elle dit qu'il le garde.
+    // Elle rougit donc si l'on casse le tri, comme elle aurait rougi si l'on
+    // avait cassé l'exception — c'est ce qui la rend indifférente à la
+    // suppression d'un mécanisme redondant.
+    const posees = etiquettesPosees(
+      [note('fort', 'lecon', 9), note('vu', 'episode', 0)],
+      'vu',
+      jamaisEteinte,
+      regleFixe({ 'fort.x': 0, 'vu.x': 0 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['vu']);
+  });
+
+  it('la boîte MESURÉE est rendue avec l’étiquette — le canevas n’a plus à la refaire', () => {
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 2)],
+      null,
+      jamaisEteinte,
+      regleFixe({ 'a.x': 7, a: 42 }),
+    );
+    expect(posees[0]?.boite).toEqual({ x: 7, y: 0, l: 42, h: 12 });
+  });
+
+  it('l’ordre RENDU est l’ordre de pose — l’actif écrit en dernier serait recouvert', () => {
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 1), note('vu', 'lecon', 1), note('z', 'lecon', 9)],
+      'vu',
+      jamaisEteinte,
+      regleFixe({ 'a.x': 0, 'vu.x': 100, 'z.x': 200 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['vu', 'z', 'a']);
   });
 });
