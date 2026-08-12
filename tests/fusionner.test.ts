@@ -126,6 +126,77 @@ describe('fusionner.sh — les portes qu’il ferme', () => {
     expect(r.sortie, 'et le geste exact pour corriger').toMatch(/--reset-author/);
   });
 
+  it.runIf(POSIX)('LE CONSEIL QU’IL DONNE MARCHE VRAIMENT', { timeout: 60_000 }, () => {
+    // ─── UN CONSEIL FAUX EST PIRE QU'UN SILENCE ────────────────────────────
+    //
+    // La garde du dessus vérifiait que le refus NOMME le coupable et cite
+    // `--reset-author`. Elle ne regardait jamais la PREMIÈRE ligne du remède.
+    // Y remplacer `&&` par `||` — une seule touche — laissait les 7 cas VERTS :
+    // mesuré, verdict affiché.
+    //
+    // Et la conséquence n'est pas cosmétique. Avec `||`, `git config user.email`
+    // réussit, donc `git config user.name` NE TOURNE JAMAIS. Le nom reste faux.
+    // Or le script ne filtre les intrus que sur `%ce`, l'adresse : il laisserait
+    // ensuite passer des commits au nom de committer erroné, sur `main`, sans un
+    // mot. Le remède désarmerait la garde qui l'a prescrit.
+    //
+    // C'est la famille du § « le cp que le docteur conseille désarme
+    // l'installeur ». La réponse est la même : on n'épingle pas le TEXTE du
+    // conseil — un texte figé rougit au premier reformulage sans rien protéger —
+    // on le LANCE, et on regarde s'il a fait ce qu'il promet.
+    const { local } = depot();
+    commiter(local, 'b.txt', 'quelquun@autre.part');
+
+    const r = lancer(local);
+    expect(r.code).toBe(3);
+
+    const conseil = r.sortie
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.startsWith('git config user.email'));
+    expect(conseil, 'le refus ne propose plus de remède à l’identité').toBeDefined();
+
+    // `sh -c` avec la ligne en ARGUMENT : rien ne traverse d'interpréteur côté
+    // Node (`shell: false` reste la règle). C'est précisément ce qu'un humain
+    // ferait — coller la ligne dans son terminal — donc c'est ce qu'on éprouve.
+    execFileSync('sh', ['-c', conseil as string], { cwd: local, stdio: 'ignore' });
+
+    // ─── `--local`, ET C'EST TOUTE LA DIFFÉRENCE ───────────────────────────
+    //
+    // Première version de ce banc : `git config --get`. Il est resté VERT sur la
+    // mutation, donc décor. `--get` seul lit la configuration FUSIONNÉE — locale,
+    // globale, système — et la machine qui fait tourner ce dépôt porte déjà
+    // `user.name=Claude` et `user.email=noreply@anthropic.com` en global. Les
+    // deux assertions lisaient donc un réglage que le conseil n'avait pas posé :
+    // elles auraient passé même si le remède ne faisait RIEN.
+    //
+    // `--local` ne regarde que le `.git/config` du dépôt — exactement là où
+    // `git config <clé> <valeur>` écrit quand on le lance dedans. C'est la seule
+    // lecture qui distingue « le remède a agi » de « la machine l'était déjà ».
+    //
+    // `git config` sort en 1 quand la clé n'existe pas : l'absence se lit à
+    // l'échec, jamais à une chaîne vide (§ 9 quaterdecies).
+    const reglageLocal = (cle: string): string | null => {
+      try {
+        return execFileSync('git', ['config', '--local', '--get', cle], {
+          cwd: local,
+          encoding: 'utf8',
+        }).trim();
+      } catch {
+        return null;
+      }
+    };
+
+    expect(reglageLocal('user.email'), 'le remède n’a pas posé l’adresse').toBe(
+      'noreply@anthropic.com',
+    );
+    expect(
+      reglageLocal('user.name'),
+      'le remède s’est arrêté à l’adresse : le nom du committer resterait faux, ' +
+        'et le script ne filtre que sur l’adresse — il le laisserait passer',
+    ).not.toBeNull();
+  });
+
   it.runIf(POSIX)('UNE BASE QUI A BOUGÉ REND LA MAIN', { timeout: 60_000 }, () => {
     // ─── LE REFUS QUI ÉVITE UN COMMIT DE FUSION ────────────────────────────
     //

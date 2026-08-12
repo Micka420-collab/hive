@@ -4385,6 +4385,29 @@ du nœud parti. Mutée en `!==`, la suite entière est restée verte : 242 fichi
 n'est plus close (`/merge/result` reste `null` pour toujours), tandis que celles
 des autres nœuds sont déclarées échouées.
 
+### Recommise, et sous une forme plus bête encore
+
+Sur `scripts/fusionner.sh`, j'ai annoncé : « une seule garde, et c'est un contrôle
+de SYNTAXE — le script qui garde le geste le plus irréversible du dépôt n'a aucun
+banc de comportement. » Preuve à l'appui :
+
+    grep -n "  it(\|describe(" tests/fusionner.test.ts
+    → describe(…) + 1 seul it(…)
+
+Le fichier en contient **sept**, tous sur de vrais dépôts git : arbre sale,
+committer intrus, base qui a bougé, `--essai`, cas nominal, rien à porter. Mon
+motif exigeait `it(` précédé de deux espaces ; ils sont écrits `it.runIf(POSIX)(…)`.
+
+La première version de cette faute cherchait les mauvais MOTS. Celle-ci cherche
+la bonne intention avec une mauvaise FORME — et le résultat est identique : un
+fichier bien fourni déclaré vide, sur la foi d'un motif que personne n'a éprouvé.
+Un `grep` qui rend peu ne dit jamais « il y a peu » ; il dit « mon motif a trouvé
+peu ». Les deux se ressemblent à l'écran et n'ont rien à voir.
+
+Le remède est le même qu'au-dessus, et il est moins cher que la prudence : ouvrir
+le fichier. Douze secondes de lecture contre une affirmation fausse livrée à
+quelqu'un qui dort.
+
 C'est la mutation qui l'a désignée, pas la lecture. La lecture m'avait envoyé
 une ligne trop haut.
 
@@ -5270,3 +5293,61 @@ que la loupe a su nommer ; d'autres portent un défaut qu'elle ne pouvait pas
 formuler et qui est là quand même. Compter les secondes comme du bruit, c'est
 retirer à l'instrument la moitié de ce qu'il rapporte — et cette moitié-là est
 justement celle qu'aucun outil ne trouvera à notre place.
+
+## 9 nonatrigies. Un banc qui lit par une lentille que la MACHINE alimente aussi ne prouve rien
+
+`scripts/fusionner.sh` refuse de porter des commits au mauvais committer, et il
+imprime le remède :
+
+    git config user.email $ATTENDU && git config user.name Claude
+
+Le banc du fichier vérifiait que le refus NOMME le coupable et cite
+`--reset-author`. Il ne regardait jamais cette ligne-là. Muté en `||`, les sept
+cas restaient VERTS — et la conséquence n'est pas cosmétique : `git config
+user.email` réussit, donc `git config user.name` ne tourne JAMAIS. Le nom reste
+faux, et comme le script ne filtre les intrus que sur `%ce`, il laisse ensuite
+passer. Le remède désarmerait la garde qui l'a prescrit (famille du § « le `cp`
+que le docteur conseille désarme l'installeur »).
+
+J'ai donc écrit le banc qui LANCE le conseil au lieu d'en épingler le texte —
+un texte figé rougit au premier reformulage sans rien protéger. Puis j'ai vérifié
+ce que lisent ses assertions :
+
+    git config --get user.email   → 'noreply@anthropic.com'  ✔
+    git config --get user.name    → 'Claude'                 ✔
+
+**Et le banc est resté VERT sur la mutation.** Il était donc du décor.
+
+### La cause, et elle est générale
+
+`git config --get` lit la configuration FUSIONNÉE — locale, globale, système. La
+machine qui fait tourner ce dépôt porte déjà `user.name=Claude` et
+`user.email=noreply@anthropic.com` en global. Mes deux assertions lisaient un
+réglage que le conseil n'avait pas eu besoin de poser : elles auraient passé si
+le remède ne faisait strictement RIEN.
+
+Ce n'est pas une bizarrerie de git. C'est un motif :
+
+> Quand un banc lit une valeur par un canal que l'ENVIRONNEMENT alimente aussi —
+> configuration fusionnée, variable d'environnement héritée, cache partagé, état
+> global d'un module — il ne peut pas distinguer « le code l'a fait » de « la
+> machine l'était déjà ». Il mesure la machine, et il en tire un verdict sur le
+> code.
+
+La correction tient en un mot : `--local`, la seule portée où `git config <clé>
+<valeur>` écrit quand on le lance dans un dépôt. Mutation rejouée :
+
+    ROUGE — « le remède s'est arrêté à l'adresse : le nom du committer resterait
+             faux, et le script ne filtre que sur l'adresse » (expected null not
+             to be null)
+
+### Le réflexe que ça impose
+
+Un banc neuf est vert deux fois pour deux raisons opposées : parce qu'il tient,
+ou parce qu'il ne touche rien. Les deux verts sont IDENTIQUES à l'écran. Le seul
+geste qui les sépare est la mutation — et il faut la jouer sur le banc NEUF, pas
+seulement sur l'ancien, sans quoi on livre du décor en croyant livrer une garde.
+
+C'est la seconde fois que j'écris un banc d'accord avec lui-même (§ 9 quintrigies
+comparait une fonction à celle qu'elle appelle). La forme change, le défaut est le
+même : **choisir un point d'observation qui ne peut pas voir l'absence.**
