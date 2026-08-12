@@ -652,6 +652,33 @@ describe('LA MARQUE EN LETTRES DE BLOCS', () => {
     expect(etroit.replace(ECHAPPEMENT, '')).toMatch(/H I V E/);
   });
 
+  it('ET À LA COLONNE PRÈS, ELLE TIENT — la marque apparaît dès qu’elle rentre', () => {
+    // ─── L'AUTRE CÔTÉ DE LA MÊME BORNE ─────────────────────────────────────
+    //
+    // Le cas du dessus prouve qu'à `besoin + 3` la marque s'efface. Il ne dit
+    // rien de la largeur où elle tient TOUT JUSTE — et c'est celle-là qui se
+    // perd à la première faute d'inégalité. `largeur < besoin` muté en `<=`
+    // laissait les 124 cas TUI VERTS : mesuré, verdict affiché.
+    //
+    // La conséquence n'est pas décorative. `interieur = largeur - 4`, donc la
+    // marque rentre à partir de 26 colonnes — le chiffre que le commentaire de
+    // `banniere` annonce déjà (« elle tient dès 26 colonnes »). Muté, ce chiffre
+    // devient faux en silence, et le premier écran de quelqu'un dans un terminal
+    // étroit retombe sur le titre d'une ligne alors que la marque tenait.
+    //
+    // Une borne ne s'éprouve jamais d'un seul côté : le test qui dit « ça ne
+    // tient pas ici » et celui qui dit « ça tient là » sont deux gardes, et la
+    // seconde est celle qu'on oublie.
+    const besoin = Math.max(...BLOCS_HIVE.map((l) => [...l].length));
+    const pile = besoin + 4; // deux bordures + une marge de chaque côté
+    const juste = banniere('9.9.9', { ...base, couleur: 16777216, largeur: pile }).join('\n');
+    expect(juste, `à ${String(pile)} colonnes la marque doit tenir`).toMatch(/█/);
+    expect(
+      juste.replace(ECHAPPEMENT, ''),
+      'la marque est là, donc le titre de repli ne doit PAS y être',
+    ).not.toMatch(/H I V E/);
+  });
+
   it('LA BANNIÈRE RESTE COURTE — la charte la plafonne', () => {
     // ─── CE QUE MES PROPRES TESTS ONT TROUVÉ ─────────────────────────────────
     //
