@@ -5604,3 +5604,62 @@ publié ne se corrige qu'en le réécrivant — plus cher que ce qu'il vaut ici.
 La leçon de méthode, elle, ne dépend pas de cet outil : **un obstacle constaté
 n'est pas un obstacle permanent, et le noter comme définitif est une façon de se
 tromper à retardement.** Le réessayer coûtait une commande.
+
+## Balayage à couverture PLEINE sur le terrain jamais vu par la table symétrique
+
+Base épinglée `1dca6d4` (29 juillet), jamais dans le dépôt, dans un worktree
+détaché. **225 mutants possibles, 225 examinés** — aucun échantillonnage.
+
+Pourquoi cette base : la table de la loupe a été symétrisée APRÈS les balayages
+`946b36b` et `HEAD~80`. Tout le terrain d'avant `68087bc` n'avait donc jamais été
+regardé par l'instrument actuel.
+
+### Le chiffre
+
+    225 mutants · 207 défendus · 18 nus (17 lignes distinctes)
+
+Répartis : `tui/rendu.ts` 8, `store.ts` 4, `garde-fou.ts` 2, `tableau.ts` 1,
+`aiguillage.ts` 1, `ruche.mjs` 1, `compte-tests.mjs` 1.
+
+### Ce que les 18 ont réellement donné
+
+**Six vrais défauts, tous fermés mutation-first avec verdict rouge affiché :**
+
+| ce qui cassait                                 | la conséquence                                                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `moyenne` sur un antécédent jamais servi       | `0/0` = NaN, et `JSON.stringify(NaN)` rend `null` — le tableau qui explique les choix était VIDE le jour de l'installation |
+| les deux prédicats de `pruneTasks` désaccordés | une tâche pile au seuil survit sans que ses dépendances soient protégées : le socle part, elle reste bloquée pour toujours |
+| `compte-tests` : la raison retirée du message  | « rapport illisible » sans dire POURQUOI — deux pannes opposées, une seule phrase                                          |
+| `marqueBlocs` : la largeur minimale            | la marque disparaissait à 26 colonnes, là où elle tient exactement                                                         |
+| `dureeCourte(0)` et les bascules 10 s / 60 s   | un pas instantané s'affichait comme un pas qui n'a pas tourné                                                              |
+| le dégradé de la marque                        | les espaces teintés, les blocs nus — le logo en négatif                                                                    |
+
+**Cinq équivalences MESURÉES, consignées sur place** pour qu'aucun balayage futur
+ne refasse l'enquête : la coupe des mots longs (2 016 cas, zéro écart), la garde
+du palier partiel (82 480 cas, zéro écart), la boucle par lots de l'élagueur (une
+prédiction de panne totale RÉFUTÉE — SQLite accepte `IN ()`), le départage de
+`tachesPourEcran` (clé primaire), le pire d'`alertes` (`RANG` injectif).
+
+**Deux équivalences déjà écrites dans le code** avant cette nuit — celles de
+`normaliserBornes` et `elireEchelon` — reconnues d'un coup d'œil. La discipline
+de les consigner a payé exactement comme prévu.
+
+### Ce que le balayage a coûté, et qu'il faut dire
+
+Il a **noyé la machine** au premier essai : charge 57, une soixantaine de vitest,
+la loupe ayant muté la garde de point d'entrée de `tamis-ordres.mjs` et déclenché
+une récursion de suites. L'instrument a été réparé (`ERREURS § 9 quadragies`), et
+la même base rend depuis 225 candidats au lieu de 230 — les cinq retirés sont
+exactement les gardes de point d'entrée.
+
+### Le rapport signal/bruit, sans arrondir
+
+Six défauts pour 225 mutants, c'est **2,7 %**. Sur du code MÛR, après quatre
+balayages antérieurs, c'est un rendement honnête — et il tient surtout à
+l'élargissement de la table, pas à la profondeur de la base : sept des huit
+désignations de `rendu.ts` viennent de bornes que l'ancienne table ne savait pas
+inverser.
+
+La moitié du travail a consisté à ne PAS écrire de garde : cinq équivalences
+mesurées, dont une qui a réfuté ma propre prédiction de panne. Un balayage qui ne
+rendrait que des gardes serait un balayage qu'on n'a pas assez interrogé.

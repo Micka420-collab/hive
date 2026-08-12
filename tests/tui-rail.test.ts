@@ -299,6 +299,23 @@ describe('AUCUNE LIGNE NE DÉBORDE, SUR AUCUN TERMINAL', () => {
 describe('LE PANNEAU DE FIN', () => {
   it('encadre, et met les commandes en évidence', () => {
     const caps = capacites({ COLORTERM: 'truecolor' }, { isTTY: true, columns: 100 });
+    const vide = panneau('Rien à faire', [], caps);
+    // ─── UN PANNEAU SANS COMMANDE N'A PAS DE LIGNE BLANCHE ─────────────────
+    //
+    // La ligne vide est un SÉPARATEUR entre le titre et les commandes : sans
+    // commande, elle ne sépare rien. `lignes.length > 0` muté en `>= 0` est
+    // toujours vrai et la posait quand même — un cadre au titre suivi d'un
+    // trou.
+    //
+    // Aujourd'hui aucun appelant ne peut l'atteindre : `prochainesEtapes`, le
+    // seul, rend toujours cinq lignes. Mais `panneau` est EXPORTÉ, donc c'est un
+    // contrat, pas un détail interne — et un banc le ferme pour de bon là où un
+    // commentaire obligerait chaque balayage futur à refaire l'enquête.
+    expect(
+      vide.filter((l) => l.replace(/[│|╭╮╰╯─\-+\s]/g, '') === '').length,
+      'un panneau sans commande porte une ligne vide de trop',
+    ).toBe(2); // les deux bordures du cadre, et rien d'autre
+
     const p = panneau('La ruche est prête', ['npm run ruche'], caps);
     expect(p[0]).toContain('╭');
     expect(p[p.length - 1]).toContain('╰');
