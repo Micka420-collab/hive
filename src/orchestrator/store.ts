@@ -1524,6 +1524,22 @@ export class HiveStore {
       if (condamnees.length === 0) return 0;
       let partis = 0;
       const LOT = 900; // sous la limite de variables liées de SQLite
+      // La borne de cette boucle est un mutant ÉQUIVALENT — MESURÉ, pas déduit,
+      // et c'est l'inverse de ce que la lecture annonçait.
+      //
+      // Le raisonnement naturel : avec `<=`, un compte de condamnées multiple
+      // EXACT de `LOT` ajoute un tour où `slice` rend `[]`, donc `trous` est vide,
+      // donc `IN ()` — que l'on croit être une erreur de syntaxe qui ferait jeter
+      // toute la transaction et cesser l'élagage pour de bon.
+      //
+      // Sondé à 899 et à 900 condamnées, sur source saine puis mutée : les quatre
+      // passes suppriment tout, sans rien jeter. SQLite ACCEPTE `expr IN ()` —
+      // c'est une extension documentée, qui vaut toujours faux. Le tour de trop ne
+      // coûte qu'une requête sans effet.
+      //
+      // Le laisser en `<` reste juste : on n'écrit pas une requête pour rien. Mais
+      // un balayage le re-signalera « sans test » à chaque passe, et le prochain
+      // lecteur refera exactement ma prédiction — elle est fausse, elle est ici.
       for (let i = 0; i < condamnees.length; i += LOT) {
         const lot = condamnees.slice(i, i + LOT);
         const trous = lot.map(() => '?').join(', ');
