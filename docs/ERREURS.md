@@ -4411,6 +4411,47 @@ quelqu'un qui dort.
 C'est la mutation qui l'a désignée, pas la lecture. La lecture m'avait envoyé
 une ligne trop haut.
 
+### Trois fois la même nuit — ce n'est plus un accident, c'est une habitude
+
+Troisième occurrence, le même soir. Sur `store.ts`, j'ai écrit :
+« `tachesPourEcran` n'a **aucun banc** — un seul appelant, `getSnapshot` ».
+Preuve à l'appui :
+
+    grep -rn "tachesPourEcran" tests/
+    → rien
+
+Ce n'était pas rien. `tests/taches-bornees.test.ts` porte **six** cas dessus —
+« les tâches vivantes passent toutes, même les plus anciennes », « la fenêtre ne
+change pas l'ORDRE promis », « parmi les terminées, ce sont les plus récentes qui
+restent » — et l'un d'eux documente DEUX versions antérieures de lui-même qui
+étaient du décor. Ce site est parmi les mieux défendus du dépôt.
+
+Les bancs ne nomment pas `tachesPourEcran` parce qu'ils passent par
+`getSnapshot`, la porte PUBLIQUE. C'est la bonne façon d'écrire un test : on
+éprouve ce que l'appelant obtient, pas le nom de la fonction interne qui le
+calcule. La méthode qui échoue n'est donc pas celle des bancs — c'est la mienne.
+
+### Pourquoi je recommence, et le geste qui l'arrête
+
+Le `grep` est à portée de main et rend en une seconde ; la mutation demande de
+lancer la suite. À chaque fois je prends le moins cher, et à chaque fois il
+répond à une AUTRE question que celle que je pose.
+
+> « Est-ce défendu ? » ne se demande jamais à un moteur de recherche. Chercher le
+> nom d'une fonction dans `tests/` mesure le VOCABULAIRE des bancs, pas leur
+> couverture — et un bon banc est écrit dans les mots de l'utilisateur, donc il ne
+> contient presque jamais le nom qu'on cherche.
+
+Le geste qui remplace : partir du site, remonter à ses APPELANTS (`grep` sert très
+bien à ça — c'est une question de structure, pas de couverture), et éprouver la
+porte publique. Ou, plus court et sans appel : muter, lancer, lire le verdict.
+
+Le coût de la recommise est asymétrique et il faut le dire : quand je me trompe
+dans le sens « c'est nu », j'écris un doublon inutile — désagréable, réparable.
+Quand je me trompe dans le sens « c'est couvert », je laisse un trou. C'est
+pourtant le premier sens qui m'a fait parler trois fois de suite, à voix haute,
+à quelqu'un qui dormait.
+
 ---
 
 ## 9 untrigies. Une commande de REMPLACEMENT n'est pas la commande

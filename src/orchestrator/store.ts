@@ -1457,6 +1457,17 @@ export class HiveStore {
           LIMIT ?`,
       )
       .all(limite) as TaskRow[];
+    // Les DEUX bornes du départage — `a.id < b.id` et `a.id > b.id` — sont des
+    // mutants ÉQUIVALENTS, et c'est CONSIGNÉ, pas un test qui manque : elles ne
+    // diffèrent de `<=` / `>=` que pour `a.id === b.id`, et `id` est la clé
+    // primaire de `tasks`. Deux lignes d'un même `SELECT` ne peuvent donc pas
+    // porter le même `id` — le cas qui distinguerait n'existe pas.
+    //
+    // Un balayage élargi de la loupe les re-signalera « sans test » à chaque
+    // fois. Ce qu'il faut lire alors, ce n'est pas ce départage — c'est l'ORDRE
+    // et la FENÊTRE au-dessus, éprouvés en six cas par `taches-bornees.test.ts`
+    // à travers `getSnapshot`, la porte publique (ERREURS § 9 duotrigies : un
+    // banc bien écrit ne nomme pas la fonction interne qu'il traverse).
     return rows
       .map(rowToTask)
       .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
