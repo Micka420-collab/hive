@@ -5641,3 +5641,77 @@ fois — N gardes d'autorisation, N branches de sérialisation, N cas d'un
 écrit donnera l'impression d'avancer. Le signal à reconnaître est celui-ci :
 **la loupe désigne une ligne qui ressemble beaucoup à une ligne déjà défendue.**
 Ce jour-là, il faut arrêter d'écrire des bancs et aller chercher la liste.
+
+## 9 triquadragies. La CI d'une PR juge un arbre que vous n'avez JAMAIS eu
+
+Cinq jambes rouges d'un coup, construction Docker comprise, toutes sur le même
+point :
+
+```
+npm error code EUSAGE
+npm error `npm ci` can only install packages when your package.json and
+          package-lock.json are in sync.
+npm error Missing: @emnapi/core@1.11.3 from lock file
+npm error Invalid: lock file's @emnapi/wasi-threads@1.2.2 does not satisfy 1.2.3
+```
+
+Mon commit ne touchait que deux README, deux pages du site, le carnet et un
+fichier de banc — **aucun fichier de dépendances**. Et sur ma tête, éprouvé dans
+les deux versions de npm, le verrou passait : `CODE=0` des deux côtés.
+
+Panne réelle, cause absente de mon arbre. Le premier réflexe — « c'est un
+intermittent de la CI » — était faux, et le second — « c'est forcément moi
+puisque c'est ma PR » — aussi.
+
+### Ce qui manquait à ma tête
+
+**La CI d'une pull request ne teste pas votre commit. Elle teste la FUSION de
+votre commit avec la branche cible**, telle qu'elle serait après merge. C'est le
+bon choix — c'est l'état qui sera livré — mais il a une conséquence qu'on oublie
+tant qu'on travaille seul :
+
+> L'arbre jugé par la CI n'existe sur AUCUNE machine. Ni la vôtre, ni celle de
+> l'auteur d'en face. Il est fabriqué au moment du contrôle.
+
+Ici, un autre auteur avait poussé sur `main` un commit qui élaguait
+`package-lock.json` de 36 lignes. Son arbre à lui était cohérent ; le mien
+aussi ; **leur fusion ne l'était pas** — parce que les entrées supprimées étaient
+des optionnelles transitives (`@emnapi/*`, les replis wasm de
+`@napi-rs/wasm-runtime`) dont la présence dépend de la plateforme qui installe,
+et qu'aucun des deux arbres ne pouvait donc juger seul.
+
+### Le geste qui trouve, et il est court
+
+Reproduire sur l'arbre RÉEL, pas sur le sien :
+
+```sh
+git worktree add --detach /tmp/temoin <sha-de-la-fusion>
+cd /tmp/temoin && npx npm@<version-du-runner> ci --dry-run --ignore-scripts
+```
+
+Deux détails qui comptent, tous deux payés cette nuit :
+
+- **`--ignore-scripts`.** Sans lui, mon premier essai a échoué sur le script
+  `prepare` faute de `node_modules` — un échec qui ne dit RIEN sur le verrou, et
+  que j'ai failli lire comme une reproduction.
+- **La version de npm du runner**, lue dans le journal (`npm: 11.16.0`), pas
+  celle de sa propre machine (ici 10.9.7). Un verrou peut satisfaire l'une et
+  pas l'autre.
+
+### La règle
+
+> Devant un rouge en CI qu'on ne reproduit pas, la question n'est pas « qu'est-ce
+> que j'ai cassé ? » mais **« sur quel arbre exactement ce contrôle a-t-il
+> tourné ? »**. Tant qu'on n'a pas cet arbre-là sous la main, on ne mesure rien —
+> on devine.
+
+### Le corollaire, quand on n'est pas seul sur le dépôt
+
+Ce piège n'existe que parce qu'un autre auteur pousse en parallèle. C'était le
+cas cette nuit sans que je le sache, et ça change deux hypothèses tacites :
+`main` peut bouger ENTRE deux mesures, et une PR verte hier peut être rouge
+aujourd'hui sans qu'une ligne de son diff ait changé.
+
+La conclusion n'est pas de se méfier de l'autre — son commit était juste et
+réparait un vrai défaut. C'est de **relire `main` avant de conclure**, à chaque
+fois, plutôt qu'une fois au début de la nuit.
