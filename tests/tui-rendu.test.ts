@@ -679,6 +679,46 @@ describe('LA MARQUE EN LETTRES DE BLOCS', () => {
     ).not.toMatch(/H I V E/);
   });
 
+  it('LE DÉGRADÉ TEINTE LES LETTRES, PAS LES INTERSTICES', () => {
+    // ─── L'INVERSION QUE RIEN N'ATTRAPAIT ──────────────────────────────────
+    //
+    // `degradeDepuis` saute les espaces : `c === ' ' ? c : rvb(…) + c`. Muté en
+    // `!==`, il colore les ESPACES et laisse les blocs nus — la marque devient
+    // un « HIVE » sans couleur sur des interstices teintés. Les 102 cas de
+    // `tui-rendu`, `tui-rail` et `vitrine-jetons` restaient VERTS : mesuré,
+    // verdict affiché.
+    //
+    // Ils ne pouvaient pas le voir : `vitrine-jetons` vérifie que les COULEURS
+    // employées sont bien celles de la vitrine, et les autres dénudent la sortie
+    // avant de chercher un mot. Aucun ne regarde À QUOI la couleur est
+    // attachée — or c'est tout ce que fait cette ligne.
+    //
+    // Colorer le vide ne coûte pas qu'en laideur : sur un fond clair, des
+    // espaces teintés en ambre dessinent le NÉGATIF de la marque, et le premier
+    // écran du produit affiche son logo à l'envers.
+    // ─── LE MOTIF DOIT VISER LA POSE DE COULEUR, PAS N'IMPORTE QUEL `m` ────
+    //
+    // Première version : `not.toMatch(/m {2}/)`. Elle rougissait sur la source
+    // SAINE — donc fausse. `m` termine aussi la remise à zéro, que le cadre pose
+    // avant son remplissage d'espaces : le motif attrapait la marge, pas le
+    // dégradé. On vise donc la pose d'une couleur 24 bits, la seule que
+    // `degradeDepuis` écrit — et on réemploie la constante du fichier, qui
+    // fabrique l'échappement par son point de code (la règle `no-control-regex`
+    // interdit de l'écrire en clair, et ma deuxième version l'avait oublié).
+    const POSE_COULEUR = VINGT_QUATRE_BITS.source;
+    const vu = banniere('9.9.9', { ...base, couleur: 16777216 });
+    const blocs = vu.filter((l) => l.includes('█'));
+    expect(blocs.length, 'aucune ligne de blocs : la prémisse a disparu').toBeGreaterThan(0);
+    for (const ligne of blocs) {
+      expect(ligne, 'aucun bloc n’est précédé d’une couleur').toMatch(
+        new RegExp(`${POSE_COULEUR}█`),
+      );
+      expect(ligne, 'une couleur est posée sur un espace au lieu d’un bloc').not.toMatch(
+        new RegExp(`${POSE_COULEUR} `),
+      );
+    }
+  });
+
   it('LA BANNIÈRE RESTE COURTE — la charte la plafonne', () => {
     // ─── CE QUE MES PROPRES TESTS ONT TROUVÉ ─────────────────────────────────
     //

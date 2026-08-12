@@ -73,6 +73,38 @@ describe('UNE DURÉE SE LIT D’UN COUP D’ŒIL', () => {
     expect(dureeCourte(1_500)).not.toContain('.');
   });
 
+  it('UNE DURÉE NULLE S’AFFICHE — « instantané » n’est pas « rien »', () => {
+    // ─── L'AUTRE CÔTÉ DE LA MÊME BORNE ─────────────────────────────────────
+    //
+    // Le cas d'à côté éprouve les durées IMPOSSIBLES — `NaN`, `+∞`, `-1` — et
+    // exige la chaîne vide. Il ne dit rien de zéro, qui est la première valeur
+    // POSSIBLE. `ms < 0` muté en `<= 0` laissait les 125 cas TUI VERTS :
+    // mesuré, verdict affiché.
+    //
+    // Et zéro arrive vraiment : un pas déjà fait, un cache chaud, une
+    // vérification qui n'avait rien à vérifier. Rendre `''` afficherait ce
+    // pas-là comme un pas qui N'A PAS TOURNÉ, au milieu d'une liste où tous les
+    // autres portent leur durée. C'est la famille du docteur qui ne dit pas
+    // pourquoi : l'écran ment dans le sens rassurant, et on cherche une panne
+    // ailleurs.
+    expect(dureeCourte(0), 'zéro milliseconde est une durée, pas une absence').toBe('0,0 s');
+  });
+
+  it('LES DEUX CHANGEMENTS D’UNITÉ SE FONT PILE OÙ ILS SONT ÉCRITS', () => {
+    // Le cas du dessus éprouve les paliers par des valeurs qui tombent bien au
+    // milieu — 4 240, 12 138, 59 400. Aucune ne touche les DEUX bascules, et
+    // `s < 10` comme `s < 60` mutés en `<=` laissaient la suite verte.
+    //
+    // À dix secondes pile, la décimale ne dit plus rien d'utile et disparaît ; à
+    // soixante, on passe aux minutes. Ces deux chiffres sont la règle même de
+    // cette fonction : les décaler d'une unité, c'est afficher « 10,0 s » là où
+    // la charte demande « 10 s », et « 60 s » là où elle demande « 1 min ».
+    expect(dureeCourte(9_999), 'juste avant, la décimale reste').toBe('10,0 s');
+    expect(dureeCourte(10_000), 'à dix secondes pile, la décimale part').toBe('10 s');
+    expect(dureeCourte(59_999), 'juste avant, on reste en secondes').toBe('60 s');
+    expect(dureeCourte(60_000), 'à soixante secondes pile, on passe aux minutes').toBe('1 min');
+  });
+
   it('une durée impossible ne rend RIEN, plutôt qu’un « NaN s »', () => {
     // Une soustraction d'horodatages peut donner un négatif si l'horloge
     // recule. Afficher « -3,2 s » ferait douter de tout le reste de l'écran.
