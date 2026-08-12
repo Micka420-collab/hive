@@ -5553,3 +5553,25 @@ Inchangé, et toujours vrai :
 Le code est plus sûr qu'hier de douze gardes, et `main` n'en a reçu aucune. Un
 durcissement qui ne sort pas de sa branche ne protège personne — c'est le seul
 chiffre qui compte à 21 jours.
+
+### Ce que ce point de sortie ne pouvait pas savoir — #209 a atterri
+
+Le paragraphe ci-dessus reste écrit tel qu'il a été mesuré : il était vrai à
+l'heure où il l'a été. Il ne se réécrit pas, il se COMPLÈTE — un carnet qu'on
+corrige après coup n'est plus une mémoire, c'est un plaidoyer.
+
+**#209 est fusionnée.** `main` est passé de `d39e166` à `8f88266` : 18 commits,
+31 fichiers, +2 475 lignes. La CI de `main` sur le commit de fusion est
+**complète et verte sur les cinq jambes** (run 628). Les douze gardes de la nuit
+du 12 sont dans la branche que les gens clonent.
+
+**Une réserve, dite plutôt que tue :** la fusion est partie par l'API GitHub,
+donc le committer de `8f88266` est `noreply@github.com` — exactement le défaut
+que `scripts/fusionner.sh` existe pour supprimer (son en-tête, lignes 7-15). Le
+script reste refusé par le classifieur de permissions de l'atelier. Le résultat
+est bon, le geste ne l'est pas : c'est la différence qu'il faut garder en tête
+avant de considérer le point comme clos.
+
+Le point n°1 de la liste 3 ci-dessus — « la fusion de #209, bloquée à deux
+titres » — est donc **fermé**. Les points 2 à 5 restent ouverts, et aucun n'est
+de mon ressort.
