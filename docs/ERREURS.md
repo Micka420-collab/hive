@@ -5715,3 +5715,71 @@ aujourd'hui sans qu'une ligne de son diff ait changé.
 La conclusion n'est pas de se méfier de l'autre — son commit était juste et
 réparait un vrai défaut. C'est de **relire `main` avant de conclure**, à chaque
 fois, plutôt qu'une fois au début de la nuit.
+
+## 9 quadraquadragies. Un atelier épinglé fait tourner un HARNAIS périmé, et la loupe ment sans le savoir
+
+Un balayage relancé a rendu **55 nudités sur 100 mutants joués**. Le précédent, la
+même nuit, en rendait **6 sur 225** — soit 2,7 %.
+
+Vingt fois plus, d'un coup, sur du code du même dépôt. Ce chiffre-là ne se croit
+pas : il s'explique ou on jette la mesure.
+
+### L'explication, et elle était à deux commandes
+
+L'atelier — un `git worktree --detach` — avait été monté sur `HEAD` **avant**
+qu'un autre auteur ne pousse ce commit :
+
+    fb317b1  Sous Node 24+, le localStorage natif coupait 18 fichiers de test
+             avant le premier test
+
+Son correctif vit dans `vitest.config.ts`. Mesuré :
+
+    atelier   grep -c localStorage vitest.config.ts  →  0
+    main      grep -c localStorage vitest.config.ts  →  3
+
+Dix-huit fichiers de banc ne s'exécutaient donc PAS dans l'atelier. Toute mutation
+couverte uniquement par eux survivait — et la loupe l'imprimait « SANS TEST »,
+avec le même aplomb que pour une vraie nudité. Les désignations portaient
+d'ailleurs presque toutes sur `dashboard/src/views/Cerveau.tsx`, une vue dont les
+bancs touchent le DOM : exactement la famille que ces 18 fichiers couvrent.
+
+### Ce que ça dit de l'outil
+
+La loupe ne mesure pas la couverture. Elle mesure **ce que la suite qu'on lui
+donne fait quand on abîme le code**. Un harnais amputé lui fait rendre des
+verdicts faux dans le sens le plus coûteux qui soit : elle DÉSIGNE du code
+correctement défendu, et l'on va écrire des bancs qui ne servent à rien.
+
+C'est le miroir du § 9 quadragies. Là, une mutation cassait le harnais et la
+machine s'écroulait — bruyant, donc trouvé en onze minutes. Ici, le harnais était
+déjà cassé AVANT la première mutation, et rien ne le disait : la suite passait,
+les mutants survivaient, tout avait l'air normal.
+
+> Un atelier détaché fige le CODE **et** le HARNAIS. Le second est celui qu'on
+> oublie, parce qu'on croit n'avoir épinglé qu'une base de diff.
+
+### Le geste
+
+Avant de lancer un balayage dans un atelier, vérifier que sa tête est celle
+d'aujourd'hui — pas celle d'il y a deux heures :
+
+```sh
+git -C "$ATELIER" log --oneline -1     # la même que `main` ?
+git fetch origin main && git log --oneline -1 origin/main
+```
+
+Et le contrôle qui aurait tout évité, en une ligne : **compter les fichiers que
+la suite joue dans l'atelier, et le comparer au compte de l'arbre principal.** Un
+écart de dix-huit fichiers se voit immédiatement ; une nudité de plus, non.
+
+### Le signal qui doit alerter, et il est gratuit
+
+Le rendement d'un balayage est stable sur un dépôt donné : quelques pour cent sur
+du code mûr. **Un taux qui décuple n'est pas une bonne nouvelle, c'est un
+symptôme.** Le réflexe juste n'est pas de se réjouir d'avoir trouvé un filon,
+c'est de se demander ce qui a changé dans l'instrument — parce que le code, lui,
+n'a pas pu se dégrader de vingt fois en une nuit.
+
+J'ai failli passer la nuit à écrire cinquante-cinq gardes inutiles. Ce qui m'a
+arrêté n'est pas une inspection minutieuse : c'est un CHIFFRE qui ne ressemblait
+à rien de connu.
