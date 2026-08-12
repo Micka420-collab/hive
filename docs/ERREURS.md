@@ -5783,3 +5783,55 @@ n'a pas pu se dégrader de vingt fois en une nuit.
 J'ai failli passer la nuit à écrire cinquante-cinq gardes inutiles. Ce qui m'a
 arrêté n'est pas une inspection minutieuse : c'est un CHIFFRE qui ne ressemblait
 à rien de connu.
+
+### CORRECTION — la thèse ci-dessus était FAUSSE, et voici la mesure
+
+Tout ce qui précède décrit un vrai défaut : l'atelier faisait bien tourner un
+harnais amputé, et il fallait le réparer. **Mais ce n'était pas la cause du taux
+de nudités**, et je l'ai écrit comme si ça l'était.
+
+Le balayage relancé sur l'atelier CORRIGÉ rend le même taux : 34 nudités sur 63
+mutants joués. La réparation n'a rien changé au chiffre.
+
+Ce que la répartition disait, et que je n'avais pas regardée :
+
+    32 nudités sur 34  →  dashboard/src/views/Cerveau.tsx
+    NodesPanel, GardeFous, App, StatTiles  →  majoritairement DÉFENDUS
+
+Le harnais marchait donc. Vérifié pour de bon dans l'arbre PRINCIPAL, où il n'y a
+aucun doute sur la configuration :
+
+    if (mode !== 'graphe') return;   muté en ===
+    → suite ENTIÈRE verte : 247 fichiers, 3 629 tests
+
+`Cerveau.tsx` est réellement nu. C'est une vue à canevas — force dirigée,
+`requestAnimationFrame`, `devicePixelRatio`, glisser au pointeur — dont happy-dom
+ne peut pas jouer l'essentiel.
+
+### La faute de raisonnement, qui est la vraie leçon
+
+Je venais de trouver un défaut RÉEL — le harnais périmé — et il expliquait le
+symptôme de façon élégante. J'ai arrêté de mesurer là.
+
+> **Une cause plausible trouvée juste après un vrai défaut est la forme la plus
+> séduisante de l'erreur.** Le défaut est réel, l'explication est cohérente,
+> l'enchaînement est satisfaisant — et rien de tout cela ne la rend vraie.
+
+Le contrôle qui manquait tient en une commande, et il était à portée : REGARDER
+LA RÉPARTITION des nudités avant d'en expliquer le nombre. Trente-deux sur
+trente-quatre dans un seul fichier ne dit pas « le harnais est cassé », ça dit
+« ce fichier-là n'est pas testé ». Les deux hypothèses prédisent un taux élevé ;
+une seule prédit qu'il se concentre.
+
+Et le second contrôle, celui qui tranche : rejouer UNE désignation dans l'arbre
+principal, où la configuration est certaine. Trois minutes. Je les ai payées
+après avoir écrit la leçon plutôt qu'avant.
+
+### Ce qui reste vrai, et ce qui est corrigé
+
+- **Vrai** : un atelier détaché fige le code ET le harnais ; le contrôle de tête
+  d'atelier reste nécessaire, et il a trouvé un défaut réel.
+- **Vrai** : un taux qui décuple est un symptôme qu'il faut expliquer.
+- **FAUX** : que ce symptôme-ci venait du harnais. Il venait du code.
+- **Ajouté** : expliquer un NOMBRE sans regarder sa RÉPARTITION, c'est deviner
+  avec des chiffres à l'appui.
