@@ -304,3 +304,39 @@ export function horsDuDossier(ctx: Contexte): Emplacement[] {
   };
   return empreinte(ctx).filter((e) => !dedans(e.chemin));
 }
+
+/**
+ * Ce qui a été TROUVÉ hors du dossier d'installation — et rien d'autre.
+ *
+ * ─── POURQUOI CETTE DÉCISION VIT ICI ET PLUS DANS LA COMMANDE ────────────────
+ *
+ * Elle était écrite en ligne dans `hive desinstaller`, entre deux `console.log`,
+ * donc hors d'atteinte du banc (§ 2 quaterdecies). Un balayage l'a désignée nue :
+ * son `&&` muté en `||` laissait la suite ENTIÈRE verte — 247 fichiers, 3 630
+ * cas.
+ *
+ * Ce que la mutation faisait n'est pas cosmétique. Le `||` fait entrer dans
+ * « Hors du dossier d'installation » TOUT ce qui a des fichiers présents, y
+ * compris ce qui est bien rangé DEDANS. Or la commande imprime ensuite, pour
+ * chaque ligne affichée, un `rm -rf` prêt à coller : quelqu'un qui suit l'écran
+ * efface son installation en croyant balayer des restes égarés.
+ *
+ * ─── LES DEUX CONDITIONS, ET POURQUOI AUCUNE NE SUFFIT ───────────────────────
+ *
+ * `clesDehors.has(…)` seul listerait des emplacements annoncés mais ABSENTS —
+ * on inquiéterait sur des chemins qui n'existent pas. `presents.length > 0` seul
+ * listerait tout ce qui existe, dedans compris. C'est leur conjonction qui dit
+ * la seule chose utile : « ceci est là, et ce n'est pas chez nous ».
+ *
+ * Générique plutôt que typée sur `Trouvaille` : ce module est dans `shared`, et
+ * importer un type de `desinstallation.ts` inverserait la dépendance pour un
+ * confort d'écriture.
+ */
+export function trouvaillesDehors<
+  T extends {
+    readonly emplacement: { readonly cle: string };
+    readonly presents: readonly string[];
+  },
+>(trouve: readonly T[], clesDehors: ReadonlySet<string>): T[] {
+  return trouve.filter((t) => clesDehors.has(t.emplacement.cle) && t.presents.length > 0);
+}

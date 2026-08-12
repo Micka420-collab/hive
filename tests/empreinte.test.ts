@@ -38,6 +38,7 @@ import {
   PREFIXE_FUSION,
   empreinte,
   horsDuDossier,
+  trouvaillesDehors,
 } from '../src/shared/empreinte.js';
 import { DISQUE, contexteReel, relever, retirer, taillelisible } from '../src/desinstallation.js';
 
@@ -795,5 +796,54 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
         expect(appel[0], `${f.chemin} écrit dans un chemin système`).not.toMatch(dangereux);
       }
     }
+  });
+});
+
+// ─── CE QUI EST TROUVÉ DEHORS, ET RIEN D'AUTRE ───────────────────────────────
+//
+// La décision vivait en ligne dans `hive desinstaller`, entre deux `console.log`.
+// Un balayage l'a désignée nue : son `&&` muté en `||` laissait la suite ENTIÈRE
+// verte — 247 fichiers, 3 630 cas. Sortie ici (§ 2 quaterdecies), elle s'éprouve.
+//
+// L'enjeu n'est pas cosmétique : la commande imprime, pour chaque ligne de cette
+// section, un `rm -rf` prêt à coller. Élargir la liste, c'est proposer d'effacer
+// une installation en règle en la faisant passer pour des restes égarés.
+
+describe('CE QUI EST TROUVÉ DEHORS — les deux conditions, et aucune ne suffit', () => {
+  const t = (cle: string, presents: string[]) => ({ emplacement: { cle }, presents });
+
+  it('ne retient que ce qui est DEHORS **et** PRÉSENT', () => {
+    const trouve = [
+      t('dedans-plein', ['/hive/data']),
+      t('dehors-plein', ['/home/moi/.hive-work']),
+      t('dehors-vide', []),
+      t('dedans-vide', []),
+    ];
+    const vu = trouvaillesDehors(trouve, new Set(['dehors-plein', 'dehors-vide']));
+    expect(vu.map((x) => x.emplacement.cle)).toEqual(['dehors-plein']);
+  });
+
+  it('UN EMPLACEMENT BIEN RANGÉ N’EST JAMAIS ANNONCÉ DEHORS', () => {
+    // Le `||` de la mutation faisait exactement ça : tout ce qui a des fichiers
+    // entrait dans la section, y compris l'installation elle-même.
+    const trouve = [t('dedans', ['/hive/data', '/hive/.env'])];
+    expect(
+      trouvaillesDehors(trouve, new Set(['ailleurs'])),
+      'le dedans est passé pour du dehors',
+    ).toEqual([]);
+  });
+
+  it('UN EMPLACEMENT DEHORS MAIS ABSENT N’INQUIÈTE PERSONNE', () => {
+    // L'autre moitié : sans `presents.length > 0`, on annoncerait des chemins
+    // qui n'existent pas — et on ferait chercher un reste imaginaire.
+    const trouve = [t('dehors', [])];
+    expect(trouvaillesDehors(trouve, new Set(['dehors'])), 'un absent a été annoncé').toEqual([]);
+  });
+
+  it('rend les trouvailles ENTIÈRES, pas seulement leurs clés', () => {
+    // La commande a besoin de `presents` pour afficher les chemins réels : un
+    // filtre qui ne rendrait que les clés obligerait l'appelant à re-chercher.
+    const trouve = [t('dehors', ['/a', '/b'])];
+    expect(trouvaillesDehors(trouve, new Set(['dehors']))[0]?.presents).toEqual(['/a', '/b']);
   });
 });

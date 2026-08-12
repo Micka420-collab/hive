@@ -541,7 +541,7 @@ async function cmdDoctor(...args: string[]): Promise<void> {
  */
 async function cmdDesinstaller(...args: string[]): Promise<void> {
   const { contexteReel, relever, retirer, taillelisible } = await import('./desinstallation.js');
-  const { horsDuDossier } = await import('./shared/empreinte.js');
+  const { horsDuDossier, trouvaillesDehors } = await import('./shared/empreinte.js');
 
   const racine = path.resolve(args.find((a) => !a.startsWith('--')) ?? process.cwd());
   const ctx = contexteReel(racine);
@@ -601,7 +601,7 @@ async function cmdDesinstaller(...args: string[]): Promise<void> {
   // « /tmp » ici ferait croire que la ruche revendique tout le dossier
   // temporaire.
   const clesDehors = new Set(horsDuDossier(ctx).map((e) => e.cle));
-  const dehors = trouve.filter((t) => clesDehors.has(t.emplacement.cle) && t.presents.length > 0);
+  const dehors = trouvaillesDehors(trouve, clesDehors);
   if (dehors.length > 0) {
     console.log('  Hors du dossier d’installation :');
     for (const t of dehors) {

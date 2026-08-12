@@ -5835,3 +5835,58 @@ après avoir écrit la leçon plutôt qu'avant.
 - **FAUX** : que ce symptôme-ci venait du harnais. Il venait du code.
 - **Ajouté** : expliquer un NOMBRE sans regarder sa RÉPARTITION, c'est deviner
   avec des chiffres à l'appui.
+
+## 9 quinquadragies. Une mesure dont on jette la sortie n'est pas une mesure
+
+Deux fois dans la même nuit, la barrière a rendu `CODE_SUITE=1`. Deux fois, je
+n'ai pas su dire QUEL banc avait rougi. La raison est la même les deux fois, et
+elle est écrite dans ma propre commande :
+
+```sh
+npm test -- --reporter=json --outputFile.json=rapport.json > /dev/null 2>&1
+echo "CODE_SUITE=$?"
+```
+
+Le code de sortie survit. Le NOM du test, non.
+
+### Pourquoi ce geste est si tentant
+
+La sortie de vitest fait des centaines de lignes, et les tours de chantier
+s'enchaînent. Rediriger vers `/dev/null` garde l'écran lisible, et l'on se dit
+que le code de sortie suffit — il suffit, en effet, pour DÉCIDER de ne pas
+livrer. Il ne suffit pas pour COMPRENDRE, et c'est précisément quand il vaut 1
+qu'on a besoin de comprendre.
+
+Au rejeu, la suite était verte. Un intermittent, donc — et le § 9 novievicies
+interdit de réparer un intermittent qu'on n'a pas vu se reproduire. Sauf qu'ici
+je ne peux même pas le RECONNAÎTRE s'il revient : je n'ai jamais eu son nom.
+
+> Une sortie jetée ne se rattrape pas. Le rejeu ne rejoue pas le même
+> ordonnancement, la même charge, le même instant — c'est justement ce qui fait
+> l'intermittent. La seule occasion de le nommer était la première.
+
+### La règle
+
+> Toute mesure qui peut rougir écrit sa sortie dans un FICHIER. On y dirige le
+> flux, on lit le code de sortie, et on ne lit le fichier que si le code n'est
+> pas 0. L'écran reste propre sans qu'on perde la trace.
+
+```sh
+npm test … > "$JOURNAL" 2>&1
+echo "CODE_SUITE=$?"      # décider
+grep -E "FAIL|AssertionError" "$JOURNAL" | head   # comprendre, si besoin
+```
+
+C'est ce que je fais pour les mutations depuis le début de la nuit — chaque
+verdict rouge y est capturé et cité. La barrière, elle, était restée au
+`/dev/null`, parce qu'elle est censée être verte. **Les mesures qu'on croit
+verdoyantes sont celles qu'on instrumente le moins, et ce sont donc celles dont
+on ne sait rien le jour où elles ne le sont pas.**
+
+### Ce que ça coûte, concrètement
+
+Deux rouges cette nuit, deux intermittents non identifiés, zéro information
+gagnée. S'ils sont le même, je l'ignore. S'ils reviennent en CI sur une machine
+de quelqu'un d'autre, je n'aurai rien à lui dire — et un intermittent qu'on ne
+sait pas nommer finit par se faire relancer plutôt que lire, ce qui est la
+première marche vers une suite qu'on ne croit plus.
