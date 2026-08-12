@@ -5952,3 +5952,70 @@ Corollaire pour l'extraction (§ 2 quaterdecies) : sortir une décision du canev
 ne consiste pas à déménager les lignes. La mutation, appliquée à la version
 SORTIE, dit ce que le canevas cachait — ici, qu'une des trois règles n'en était
 pas une.
+
+## 9 septquadragies. Un banc qui promet de ne pas toucher au réseau doit le PROUVER, sinon un tiers fixe sa durée
+
+`github-parcours.test.ts` monte un faux GitHub local. Son en-tête l'annonce
+sans détour :
+
+> Un vrai jeton GitHub ne peut pas vivre dans une suite de tests, et **dépendre
+> du réseau rendrait la CI rouge un jour sur dix pour des raisons qui ne nous
+> regardent pas**.
+
+La promesse était tenue pour l'API. Elle ne l'était pas pour le CLONE : le faux
+GitHub servait une `clone_url` vers le vrai `github.com`, et
+`GET /api/projects/:id/rayon` rafraîchit le miroir, qui clone pour de bon. Un
+seul test faisait donc sortir un `git clone` de la machine, vers un dépôt qui
+n'existe pas.
+
+### Pourquoi personne ne l'a vu pendant des semaines
+
+Sous Linux, ce clone échoue en un souffle : 1,3 s pour le fichier entier. La
+promesse paraissait tenue parce que la punition était invisible. Sur la CI
+Windows du 12 août, le même clone a dépassé les 20 000 ms du délai — et fait
+rougir une pull request qui ne touchait pas à cette ligne.
+
+Le coût réel n'est pas le rouge. C'est le DIAGNOSTIC : devant un échec dans un
+fichier étranger à son diff, on soupçonne d'abord un intermittent, puis la
+machine, puis on relance. Trois raisonnements faux avant le bon, et une leçon
+(§ 9 novievicies, « ne pas réparer un intermittent avant de le voir se
+reproduire ») qui pousse justement à attendre — alors qu'ici la cause était
+LISIBLE, pas aléatoire.
+
+### Le signe qui distingue les deux
+
+Un intermittent varie sans raison qu'on puisse nommer. Ici la durée avait une
+cause nommable : **elle dépendait de la vitesse à laquelle un tiers dit non**.
+Ce n'est pas de la lenteur, c'est une mesure qui porte sur autre chose que ce
+qu'on croit mesurer.
+
+> **Le réflexe** — devant un banc qui expire sur une machine et pas sur une
+> autre, ne pas chercher « qu'est-ce qui est lent ? » mais **« qui, en dehors de
+> cette machine, a le droit de fixer cette durée ? »**. Un DNS, un TLS, un dépôt
+> distant, une invite d'identifiants : chacun est un tiers qui décide quand le
+> test finit.
+
+### La promesse doit avoir un banc, sinon elle vieillit
+
+Une promesse écrite en commentaire ne se défend pas toute seule : celle-ci a
+survécu des mois à sa propre violation. Elle porte désormais une assertion —
+« AUCUN CLONE NE SORT DE LA MACHINE » — qui éprouve les DEUX portes par
+lesquelles une URL sort (la fiche d'un dépôt, et la liste entière), et qui
+rougit dès qu'on ramène la `clone_url` vers `github.com` (VERDICT :
+`expected 'https://github.com/micka/import-cree-…' to be
+'https://127.0.0.1:42131/micka/…'`).
+
+### Et la garde que j'ai failli laisser
+
+Mon premier correctif ajoutait un branchement répondant 404 aux chemins de git
+AVANT le contrôle du jeton, pour qu'un 401 ne puisse pas réveiller Git
+Credential Manager. Muté (`return false`), les treize cas restaient VERTS : la
+branche était morte. La raison est en amont — l'URL est en `https:` et ce
+serveur ne parle que HTTP en clair, donc git échoue à la poignée de main et
+n'émet jamais de requête. Retirée, avec la mesure en commentaire.
+
+> C'est le § 9 sexquadragies appliqué à sa propre écriture, une heure après
+> l'avoir écrit. Une garde ajoutée « au cas où » dans le même geste que le
+> correctif n'est pas plus dispensée de mesure qu'une autre — et c'est même là
+> qu'elle est le plus facile à laisser passer, parce qu'on croit savoir
+> pourquoi on l'a mise.
