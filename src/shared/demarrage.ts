@@ -177,3 +177,78 @@ export function prefixe(nom: string, largeurNom: number): string {
 export function largeurEtiquettes(liste: readonly Piece[]): number {
   return liste.reduce((m, p) => Math.max(m, [...p.nom].length), 0);
 }
+
+/**
+ * Les points d'entrée qui MANQUENT sur le disque, avant qu'on lance quoi que ce soit.
+ *
+ * ─── POURQUOI CE CONTRÔLE EXISTE ─────────────────────────────────────────────
+ *
+ * Un `spawn` sur un fichier absent échoue par un ENOENT laconique, plusieurs
+ * lignes plus bas, mêlé à la sortie des processus qui, eux, ont démarré. Sur une
+ * copie fraîche sans `npm install`, c'est le premier écran qu'on voit — et il ne
+ * dit pas ce qui manque. Regarder d'abord permet de dire la seule phrase utile :
+ * « les dépendances ne sont pas installées ».
+ *
+ * ─── POURQUOI IL VIT ICI, ET PAS DANS LE LANCEUR ─────────────────────────────
+ *
+ * Il y vivait, et il était NU : muté en `f === undefined`, la liste des absents
+ * devenait toujours vide, le contrôle ne trouvait plus jamais rien, et les trois
+ * bancs du lanceur restaient VERTS — ils tournent sur un dépôt installé, où il
+ * n'y a rien à trouver. Le seul cas qui distingue est celui qu'on ne peut pas
+ * fabriquer sans désinstaller le dépôt sous les pieds du banc.
+ *
+ * « Hors d'atteinte du banc » est presque toujours « au mauvais endroit »
+ * (§ 2 quaterdecies). La présence sur le disque se passe en ARGUMENT : la
+ * décision devient pure, et le cas « un fichier manque » s'éprouve pour rien.
+ */
+export function entreesAbsentes(
+  liste: readonly Piece[],
+  estPresent: (fichier: string) => boolean,
+): string[] {
+  return liste
+    .map((p) => p.argv[0])
+    .filter((f): f is string => f !== undefined)
+    .filter((f) => !estPresent(f));
+}
+
+/** Ce qu'un morceau de flux libère de lignes ENTIÈRES, et ce qu'il laisse en tampon. */
+export interface Debit {
+  /** Les lignes complètes, sans leur `\n`. */
+  readonly lignes: string[];
+  /** Le début de ligne qui n'est pas encore terminé. */
+  readonly reste: string;
+}
+
+/**
+ * Le découpage d'un flux en lignes, morceau par morceau.
+ *
+ * `stdout` arrive en fragments qui ne s'alignent pas sur les fins de ligne :
+ * préfixer les morceaux couperait des lignes en deux et en collerait d'autres.
+ * On ne rend donc que ce qui est terminé, et on garde le reste pour le morceau
+ * suivant.
+ */
+export function decouperLignes(tampon: string, bout: string): Debit {
+  const morceaux = (tampon + bout).split('\n');
+  const reste = morceaux.pop() ?? '';
+  return { lignes: morceaux, reste };
+}
+
+/**
+ * Ce qu'il reste à écrire quand le flux se ferme.
+ *
+ * ─── LA LIGNE QU'ON PERDAIT EST LA PLUS IMPORTANTE ───────────────────────────
+ *
+ * Un processus qui meurt écrit souvent sa dernière phrase SANS `\n` final — une
+ * trace d'exception tronquée, un « command not found », un prompt resté ouvert.
+ * Cette phrase-là dort dans le tampon, et c'est précisément celle qu'on cherche
+ * quand on remonte une panne.
+ *
+ * La garde `reste !== ''` existe pour ne pas imprimer une étiquette toute seule
+ * quand le flux se termine proprement sur un `\n`. Mutée en `===`, elle inverse
+ * exactement les deux : la dernière ligne est PERDUE, et une étiquette vide est
+ * imprimée à sa place. Les trois bancs du lanceur y restaient verts — ils lisent
+ * des marqueurs qui, eux, sont suivis d'un retour à la ligne.
+ */
+export function reliquat(tampon: string): string[] {
+  return tampon === '' ? [] : [tampon];
+}

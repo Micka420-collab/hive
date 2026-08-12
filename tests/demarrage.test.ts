@@ -23,10 +23,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ENTREES,
+  type Piece,
   SCRIPTS,
+  decouperLignes,
+  entreesAbsentes,
   largeurEtiquettes,
   pieces,
   prefixe,
+  reliquat,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
 
@@ -204,5 +208,92 @@ describe('LES DRAPEAUX SE CUMULENT — ils retirent, ils n’aiguillent pas', ()
     expect(
       pieces('/n', voeuDepuisArgv(['--sans-noeud', '--ecran-seul'])).map((p) => p.nom),
     ).toEqual(['écran']);
+  });
+});
+
+// ─── CE QUI VIVAIT DANS LE LANCEUR, ET Y ÉTAIT NU ──────────────────────────────
+//
+// Deux décisions dormaient dans `scripts/ruche.mjs`, entre un `spawn` et un
+// gestionnaire d'événement. Le balayage loupe les a désignées, et les trois
+// bancs du lanceur — qui lancent pourtant le VRAI fichier — sont restés verts
+// sur chacune : mesuré, verdicts affichés.
+//
+// Ils ne pouvaient pas les voir. Le premier cas demande un dépôt SANS
+// dépendances, qu'on ne peut pas fabriquer sans désinstaller le dépôt sous les
+// pieds du banc ; le second demande un enfant qui meurt en écrivant sa dernière
+// phrase SANS retour à la ligne, alors que tous leurs marqueurs en portent un.
+//
+// « Hors d'atteinte du banc » est presque toujours « au mauvais endroit »
+// (§ 2 quaterdecies). Sorties d'ici, les deux s'éprouvent pour rien.
+
+describe('CE QUI MANQUE SE DIT AVANT DE LANCER', () => {
+  const piece = (nom: string, entree: string): Piece => ({
+    nom,
+    bin: '/n',
+    argv: [entree],
+    role: 'pour le banc',
+  });
+
+  it('nomme les entrées absentes, et ELLES SEULES', () => {
+    const liste = [piece('reine', 'a.js'), piece('ouvrière', 'b.js'), piece('écran', 'c.js')];
+    // La présence passe en argument : le banc décide quel monde il éprouve.
+    expect(entreesAbsentes(liste, (f) => f !== 'b.js')).toEqual(['b.js']);
+  });
+
+  it('un dépôt complet ne fait accuser PERSONNE', () => {
+    // Le faux positif serait pire que le silence : il enverrait réinstaller un
+    // dépôt qui va bien, à chaque démarrage.
+    const liste = [piece('reine', 'a.js'), piece('ouvrière', 'b.js')];
+    expect(entreesAbsentes(liste, () => true)).toEqual([]);
+  });
+
+  it('un dépôt SANS DÉPENDANCES les nomme toutes', () => {
+    // C'est le premier écran d'une copie fraîche : le contrôle doit rendre la
+    // liste entière, pas la première trouvée.
+    const liste = [piece('reine', 'a.js'), piece('ouvrière', 'b.js'), piece('écran', 'c.js')];
+    expect(entreesAbsentes(liste, () => false)).toEqual(['a.js', 'b.js', 'c.js']);
+  });
+
+  it('une pièce SANS entrée n’est pas comptée comme absente', () => {
+    // `argv[0]` peut manquer ; ce n'est pas un fichier introuvable, c'est
+    // l'absence de fichier à chercher. Les confondre ferait accuser le disque
+    // d'une pièce qui ne demandait rien.
+    const liste: Piece[] = [{ nom: 'vide', bin: '/n', argv: [], role: 'pour le banc' }];
+    expect(entreesAbsentes(liste, () => false)).toEqual([]);
+  });
+});
+
+describe('LE PRÉFIXAGE PAR LIGNE, MORCEAU PAR MORCEAU', () => {
+  it('ne rend que les lignes TERMINÉES, et garde le début de la suivante', () => {
+    expect(decouperLignes('', 'une\ndeux\ntro')).toEqual({
+      lignes: ['une', 'deux'],
+      reste: 'tro',
+    });
+  });
+
+  it('recolle un morceau au tampon qui le précède', () => {
+    // Le cas qui casse un flux mal recollé : la ligne arrive en DEUX bouts.
+    expect(decouperLignes('tro', 'is\n')).toEqual({ lignes: ['trois'], reste: '' });
+  });
+
+  it('un morceau sans aucun `\\n` ne rend RIEN et grossit le tampon', () => {
+    // Rendre ici couperait la ligne en deux dans le terminal, avec une étiquette
+    // au milieu — exactement ce que le tampon existe pour empêcher.
+    expect(decouperLignes('a', 'bc')).toEqual({ lignes: [], reste: 'abc' });
+  });
+
+  it('LA DERNIÈRE PHRASE D’UN MOURANT SORT, MÊME SANS RETOUR À LA LIGNE', () => {
+    // ─── LA LIGNE QU'ON PERDAIT EST CELLE QU'ON CHERCHE ──────────────────
+    //
+    // Un processus qui meurt écrit souvent sa dernière phrase sans `\n` : une
+    // trace tronquée, un « command not found », un prompt resté ouvert. Elle
+    // dort dans le tampon, et c'est précisément celle qu'on lit pour comprendre.
+    expect(reliquat('Error: EADDRINUSE')).toEqual(['Error: EADDRINUSE']);
+  });
+
+  it('un flux qui se termine PROPREMENT n’imprime pas d’étiquette toute seule', () => {
+    // L'autre moitié de la même garde. Sans elle, chaque processus laisserait
+    // une ligne vide préfixée derrière lui — trois pièces, trois faux départs.
+    expect(reliquat('')).toEqual([]);
   });
 });

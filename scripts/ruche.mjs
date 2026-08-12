@@ -59,8 +59,15 @@ exigerAmorce(RACINE);
 const { register } = await import('tsx/esm/api');
 register();
 
-const { largeurEtiquettes, pieces, prefixe, voeuDepuisArgv } =
-  await import('../src/shared/demarrage.ts');
+const {
+  decouperLignes,
+  entreesAbsentes,
+  largeurEtiquettes,
+  pieces,
+  prefixe,
+  reliquat,
+  voeuDepuisArgv,
+} = await import('../src/shared/demarrage.ts');
 
 const liste = pieces(process.execPath, voeuDepuisArgv(process.argv.slice(2)));
 
@@ -69,9 +76,11 @@ const liste = pieces(process.execPath, voeuDepuisArgv(process.argv.slice(2)));
 // Un `spawn` sur un fichier absent échoue par un ENOENT laconique, plusieurs
 // lignes plus bas, mêlé à la sortie des processus qui ont démarré. On regarde
 // d'abord.
-const absents = liste
-  .map((p) => p.argv[0])
-  .filter((f) => f !== undefined && !existsSync(path.join(RACINE, f)));
+//
+// La DÉCISION vit dans `demarrage.ts` et s'y éprouve : ici elle était nue, parce
+// qu'un banc qui tourne sur un dépôt installé n'a jamais rien à trouver
+// (§ 2 quaterdecies). Ne reste que l'impur — regarder le disque.
+const absents = entreesAbsentes(liste, (f) => existsSync(path.join(RACINE, f)));
 if (absents.length > 0) {
   console.error(`✘ Fichier(s) introuvable(s) : ${absents.join(', ')}`);
   console.error('');
@@ -99,20 +108,20 @@ let onFerme = false;
 /**
  * Préfixe chaque LIGNE, pas chaque morceau.
  *
- * `stdout` arrive en fragments qui ne s'alignent pas sur les fins de ligne :
- * préfixer les morceaux couperait des lignes en deux et en collerait d'autres.
- * On garde donc le reste en tampon jusqu'au prochain `\n`.
+ * Le découpage et le sort du tampon final vivent dans `demarrage.ts`, où ils
+ * s'éprouvent sans processus. Ici il ne reste que le branchement : ce qui n'est
+ * pas une décision.
  */
 function brancher(flux, etiquette, vers) {
   let reste = '';
   flux.setEncoding('utf8');
   flux.on('data', (bout) => {
-    const lignes = (reste + bout).split('\n');
-    reste = lignes.pop() ?? '';
-    for (const l of lignes) vers.write(`${etiquette}${l}\n`);
+    const debit = decouperLignes(reste, bout);
+    reste = debit.reste;
+    for (const l of debit.lignes) vers.write(`${etiquette}${l}\n`);
   });
   flux.on('end', () => {
-    if (reste !== '') vers.write(`${etiquette}${reste}\n`);
+    for (const l of reliquat(reste)) vers.write(`${etiquette}${l}\n`);
   });
 }
 
