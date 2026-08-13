@@ -6019,3 +6019,76 @@ n'émet jamais de requête. Retirée, avec la mesure en commentaire.
 > correctif n'est pas plus dispensée de mesure qu'une autre — et c'est même là
 > qu'elle est le plus facile à laisser passer, parce qu'on croit savoir
 > pourquoi on l'a mise.
+
+## 9 octoquadragies. Un banc qui parie sur l'heure perd ce pari, et le jour où il le perd n'est pas le vôtre
+
+`chantier-execution.test.ts` éprouve qu'un nœud hors heures de service refuse un
+chantier. Pour être hors service, il posait la fenêtre à `00:00-00:01`, et son
+commentaire assumait le risque :
+
+> quelle que soit l'heure à laquelle cette suite tourne, on est hors service
+> (sauf une minute par jour, et c'est pourquoi la minute retenue est celle qui
+> suit minuit UTC — la plus improbable pour une CI, **et le test le dit plutôt
+> que de faire semblant d'être déterministe**).
+
+L'honnêteté était réelle, et elle a coûté quand même. Dans la nuit du 12 au
+13 août, une CI a démarré à 23:59:59 : macOS **et** Windows ont rougi ensemble
+sur cette minute-là, dans une pull request qui ne touchait à rien de tout cela.
+
+### Ce que coûte un pari assumé
+
+Le rouge n'est pas le vrai prix. Le vrai prix est que **le pari se paie chez
+quelqu'un d'autre** : celui qui pousse à 23:59 hérite d'un échec dans un fichier
+étranger à son diff, et doit refaire tout le raisonnement — intermittent ?
+machine ? mon changement ? — avant de retomber sur un commentaire qui, au fond,
+lui dit « pas de chance ».
+
+Assumer un pari dans un commentaire ne le rend pas moins coûteux. Ça le rend
+seulement plus difficile à reprocher.
+
+### La troisième voie, celle qu'on n'avait pas cherchée
+
+Le débat était posé comme un choix entre deux options : parier sur une heure
+improbable, ou faire semblant d'être déterministe (figer l'horloge, simuler).
+Il y en avait une troisième, ni l'une ni l'autre : **calculer une prémisse qui
+ne peut pas être fausse**.
+
+La fenêtre est désormais dérivée de l'heure courante — trente minutes plus tard,
+une minute de large. Rien n'est simulé : l'horloge reste la vraie, le nœud
+consulte la vraie règle. Simplement, la prémisse est vraie par CONSTRUCTION
+plutôt que par probabilité.
+
+Et elle est **mesurée**, pas raisonnée : rejouée sur les 1 440 minutes de la
+journée contre la vraie `isOnShift`, la fenêtre calculée rend « hors service »
+1 440 fois sur 1 440.
+
+La prémisse est enfin ÉNONCÉE dans le banc, avec la fonction que le nœud
+consulte lui-même :
+
+```ts
+expect(isOnShift(nightShiftFromEnv({ HIVE_SHIFT: fenetre }), maintenant)).toBe(false);
+```
+
+Le jour où elle cesserait d'être vraie, le banc dit « prémisse » au lieu
+d'échouer trois assertions plus loin sur une cause qui n'a rien à voir.
+
+### Ce qui reste éprouvé
+
+Le risque d'une prémisse plus confortable est d'amollir ce qu'on mesure. Vérifié
+par mutation : le refus ôté du nœud (`if (true) return null;` dans
+`node-client/client.ts`), le banc rougit — `expected true to be false`. Le même
+rouge qu'avant, mais qui dit maintenant « la garde a sauté » et non « il est
+minuit ».
+
+### La règle
+
+> Un banc ne doit jamais dépendre de QUAND il tourne. Devant une prémisse
+> temporelle, ne pas choisir entre parier et simuler : chercher la valeur qui
+> rend la prémisse vraie sur les vingt-quatre heures, la DÉRIVER de l'horloge
+> plutôt que la deviner, et l'énoncer en assertion pour qu'elle se dénonce
+> elle-même si elle tombe.
+
+C'est le § 9 septquadragies, écrit deux heures plus tôt, sur un autre tiers :
+là, la durée était fixée par un réseau ; ici, le verdict est fixé par l'horloge.
+Même question à se poser — **qui, en dehors de ce banc, a le droit de décider
+de son issue ?**

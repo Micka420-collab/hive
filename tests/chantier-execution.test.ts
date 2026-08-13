@@ -29,12 +29,35 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
 import { nomDeChantierValide } from '../src/shared/chantier.js';
+import { isOnShift, nightShiftFromEnv } from '../src/shared/night-shift.js';
+
 import { parseClientMessage, parseServerMessage } from '../src/shared/protocol.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
 const TOKEN = 'jeton-chantier-suffisamment-long-pour-passer';
+
+/**
+ * Une fenêtre de service d'UNE minute, posée trente minutes plus tard que
+ * maintenant — donc une fenêtre qui ne peut pas contenir l'instant présent.
+ *
+ * L'heure est LOCALE, comme `minutesOfDay` dans `night-shift.ts` : comparer un
+ * réglage local à une horloge UTC rendrait le décalage horaire de la machine
+ * responsable du verdict, ce qui est exactement le défaut qu'on répare.
+ *
+ * Trente minutes de marge pour un banc qui a trois minutes de délai : le
+ * chevauchement n'est pas seulement improbable, il est impossible.
+ */
+function fenetreSansService(maintenant: Date): string {
+  const MINUTES_PAR_JOUR = 24 * 60;
+  const actuelle = maintenant.getHours() * 60 + maintenant.getMinutes();
+  const debut = (actuelle + 30) % MINUTES_PAR_JOUR;
+  const fin = (debut + 1) % MINUTES_PAR_JOUR;
+  const hhmm = (m: number): string =>
+    `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  return `${hhmm(debut)}-${hhmm(fin)}`;
+}
 
 /** Le `package.json` que le miroir servira. */
 const PAQUET = JSON.stringify({
@@ -643,13 +666,34 @@ describe('UN HUB COMPROMIS NE PEUT DÉSIGNER QUE CE QUE LE DÉPÔT DÉCLARE', ()
     // pareil. La loupe l'a demandé — sans ce test, retirer le refus laissait
     // tout vert.
     //
-    // La fenêtre est posée à 00:00-00:01 : quelle que soit l'heure à laquelle
-    // cette suite tourne, on est hors service (sauf une minute par jour, et
-    // c'est pourquoi la minute retenue est celle qui suit minuit UTC — la plus
-    // improbable pour une CI, et le test le dit plutôt que de faire semblant
-    // d'être déterministe).
+    // ─── LA FENÊTRE ÉTAIT UN PARI, ET IL A ÉTÉ PERDU ───────────────────────
+    //
+    // Elle était posée à `00:00-00:01` : hors service quelle que soit l'heure,
+    // « sauf une minute par jour ». Le commentaire l'assumait — mieux vaut le
+    // dire que faire semblant d'être déterministe. Dans la nuit du 12 au
+    // 13 août, la CI a démarré à 23:59:59 : macOS ET Windows ont rougi
+    // ensemble sur cette minute-là, dans une PR qui ne touchait à rien de tout
+    // cela.
+    //
+    // Il y avait pourtant une troisième voie, ni pari ni faux-semblant :
+    // CALCULER une fenêtre qui ne peut pas contenir l'instant présent. Trente
+    // minutes plus tard, une minute de large — le nœud est hors service par
+    // CONSTRUCTION, sur les vingt-quatre heures, et le banc ne mesure plus
+    // l'heure qu'il est.
+    //
+    // La prémisse est ÉNONCÉE plutôt que supposée : `isOnShift` est la
+    // fonction que le nœud consulte lui-même, et on lui demande de confirmer
+    // qu'avec cette fenêtre, maintenant, il n'est pas de service. Si un jour
+    // ce n'est plus vrai, le banc dit « prémisse » au lieu d'échouer ailleurs.
+    const maintenant = new Date();
+    const fenetre = fenetreSansService(maintenant);
+    expect(
+      isOnShift(nightShiftFromEnv({ HIVE_SHIFT: fenetre }), maintenant),
+      `prémisse : avec « ${fenetre} », le nœud ne doit pas être de service`,
+    ).toBe(false);
+
     const avant = process.env.HIVE_SHIFT;
-    process.env.HIVE_SHIFT = '00:00-00:01';
+    process.env.HIVE_SHIFT = fenetre;
     try {
       const recus = await hubHostile('typecheck');
       const v = await verdictDuNoeud(recus);
