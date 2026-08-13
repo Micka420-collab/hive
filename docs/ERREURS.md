@@ -6387,3 +6387,60 @@ VERDICTS (banc ciblé, restauration par copie entre chaque)
 msDe   typeof !== → ===   ROUGE (1) expected +0 to be 1785319200000
 chemin typeof === → !==   ROUGE (2) expected '' to be '.github/workflows/nuit.yml'
 ```
+
+## 9 quadraquinquagies. Un banc de canal temporel ne peut pas être déterministe — mais il peut cesser d'être un pari
+
+`billet-motifs.test.ts` vérifie que le temps de réponse ne trahit pas
+l'existence d'un billet. Il chronométrait UN appel par chemin et comparait le
+rapport à 4. Son commentaire assumait déjà le risque :
+
+> La borne est volontairement LARGE (facteur 4) : une CI partagée est bruyante,
+> et un test qui rougit au hasard finit désactivé — ce qui vaut moins que pas de
+> test du tout.
+
+La borne était large ; le pari est resté. Il a perdu sur une CI chargée :
+« inconnu 129,1 ms · mauvais 14,3 ms », rapport 9. Un coup d'ordonnanceur, pas
+une fuite.
+
+### La différence avec les deux autres pièges de la même famille
+
+Pour la fenêtre de service (§ 9 octoquadragies) et pour le clone réseau
+(§ 9 septquadragies), il existait une troisième voie : rendre la prémisse vraie
+PAR CONSTRUCTION. Ici, non — le temps d'exécution est statistique par nature, et
+prétendre le rendre déterministe serait un faux-semblant.
+
+Ce qui reste possible n'est pas de supprimer le pari, mais de le **réduire au
+point qu'il ne décide plus** : plusieurs tours, et la MÉDIANE, qu'un pic unique
+ne déplace pas.
+
+Deux détails font la moitié du travail :
+
+- **entrelacer les tours.** Mesurer cinq inconnus puis cinq mauvais ferait
+  porter une période de lenteur sur un seul groupe — donc fabriquerait l'écart
+  qu'on cherche à réfuter ;
+- **montrer TOUTES les mesures dans le message d'échec.** Une médiane seule ne
+  dit pas si l'on regarde une fuite ou un accident. Les cinq valeurs le disent
+  d'un coup d'œil.
+
+### Ce qu'il faut vérifier après avoir rendu un banc plus robuste
+
+Le danger d'assouplir, c'est d'obtenir un banc qui ne rougit plus DU TOUT. La
+robustesse ne vaut que si la garde mord encore : la fuite a donc été
+réintroduite dans le serveur — renoncer avant PBKDF2 pour un billet inconnu,
+c'est-à-dire exactement la version « AVANT » que la docstring décrit — et le
+banc a rougi.
+
+```
+médianes sur 5 tours — inconnu 1,3 ms · mauvais 16,0 ms
+inconnus [1, 1, 1, 1, 1] · mauvais [16, 17, 16, 16, 1]   rapport 12,5 > 4
+```
+
+Les cinq valeurs racontent l'histoire mieux que le rapport : un chemin coûte
+1 ms cinq fois de suite, l'autre 16. Ça, aucun ordonnanceur ne le fabrique.
+
+> **La règle** — quand une prémisse ne peut pas être rendue vraie par
+> construction, ne pas élargir la borne : AUGMENTER LE NOMBRE DE MESURES et
+> passer par une statistique robuste. Élargir la borne affaiblit la garde ;
+> mesurer plus la renforce. Et vérifier ensuite, par mutation, que le banc
+> assoupli rougit toujours sur le vrai défaut — sans quoi on a troqué un test
+> instable contre un test décoratif.

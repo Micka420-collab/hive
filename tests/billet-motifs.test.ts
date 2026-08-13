@@ -171,10 +171,25 @@ describe('ce qu’on NE DIT PAS, et ne dira jamais', () => {
     // refusé sans que PBKDF2 tourne, donc en une fraction du temps. On vérifie
     // que les deux chemins coûtent maintenant le même ordre de grandeur.
     //
-    // La borne est volontairement LARGE (facteur 4) : une CI partagée est
-    // bruyante, et un test qui rougit au hasard finit désactivé — ce qui vaut
-    // moins que pas de test du tout. Un retour à l'ancien comportement donnait
-    // un facteur de plusieurs dizaines, très au-delà de cette borne.
+    // ─── POURQUOI DES MÉDIANES, ET PAS UNE MESURE ─────────────────────────
+    //
+    // La borne reste LARGE (facteur 4) : un test qui rougit au hasard finit
+    // désactivé, ce qui vaut moins que pas de test du tout. Un retour à
+    // l'ancien comportement donne un facteur de plusieurs DIZAINES.
+    //
+    // Mais la largeur de la borne ne suffisait pas. Ce banc a rougi sur une CI
+    // partagée avec « inconnu 129,1 ms · mauvais 14,3 ms » — un rapport de 9
+    // produit par UN coup d'ordonnanceur, pas par une fuite. Une seule mesure
+    // par chemin donne à la machine hôte le dernier mot sur le verdict.
+    //
+    // On ne peut pas rendre cette prémisse vraie par construction : le temps
+    // est statistique, et le prétendre déterministe serait un faux-semblant.
+    // On peut en revanche réduire le pari — plusieurs tours, et la MÉDIANE,
+    // qu'un unique pic ne déplace pas.
+    //
+    // Les tours sont ENTRELACÉS. Mesurer cinq inconnus puis cinq mauvais ferait
+    // porter une période de lenteur sur un seul groupe, ce qui fabriquerait
+    // précisément l'écart qu'on cherche à réfuter.
     const billet = await creerBillet();
     const chrono = async (b: string): Promise<number> => {
       const debut = performance.now();
@@ -184,12 +199,23 @@ describe('ce qu’on NE DIT PAS, et ne dira jamais', () => {
     // Un tour à blanc : il paie le calcul du leurre et la mise en cache JIT.
     await chrono(avecAutreId(billet));
 
-    const tInconnu = await chrono(avecAutreId(billet));
-    const tMauvais = await chrono(avecAutreSecret(billet));
+    const TOURS = 5;
+    const inconnus: number[] = [];
+    const mauvais: number[] = [];
+    for (let i = 0; i < TOURS; i++) {
+      inconnus.push(await chrono(avecAutreId(billet)));
+      mauvais.push(await chrono(avecAutreSecret(billet)));
+    }
+    const mediane = (xs: number[]): number => [...xs].sort((x, y) => x - y)[xs.length >> 1]!;
+    const tInconnu = mediane(inconnus);
+    const tMauvais = mediane(mauvais);
     const rapport = Math.max(tInconnu, tMauvais) / Math.max(1, Math.min(tInconnu, tMauvais));
     expect(
       rapport,
-      `inconnu ${tInconnu.toFixed(1)}ms · mauvais ${tMauvais.toFixed(1)}ms`,
+      `médianes sur ${TOURS} tours — inconnu ${tInconnu.toFixed(1)}ms · ` +
+        `mauvais ${tMauvais.toFixed(1)}ms · ` +
+        `inconnus [${inconnus.map((x) => x.toFixed(0)).join(', ')}] · ` +
+        `mauvais [${mauvais.map((x) => x.toFixed(0)).join(', ')}]`,
     ).toBeLessThan(4);
   });
 });
