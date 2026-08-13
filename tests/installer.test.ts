@@ -216,7 +216,10 @@ describe('installation — la version de Node', () => {
 
 describe('installation — les prochaines étapes', () => {
   it('donnent des commandes réelles du dépôt', () => {
-    const etapes = prochainesEtapes('Claude Code');
+    // Plateforme explicite : sur un poste Windows le défaut rend `npm.cmd`, et
+    // ce cas-là a son propre test plus bas. Sans ce paramètre, la suite passait
+    // ou échouait selon la machine qui la lance.
+    const etapes = prochainesEtapes('Claude Code', 'linux');
     expect(etapes.join('\n')).toContain('npm run dev');
     expect(etapes.join('\n')).toContain('npm run node');
     expect(etapes.join('\n')).toContain('Claude Code');
