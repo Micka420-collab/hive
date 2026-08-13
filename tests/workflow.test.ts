@@ -467,3 +467,57 @@ describe('LE MOTIF DU REFUS — l’humain doit chercher au bon endroit', () => 
     expect(m).not.toMatch(/à la main|inactivité/);
   });
 });
+
+// ─── LE CHEMIN NOMINAL, CELUI QU'ON N'ÉCRIT PAS ──────────────────────────────
+//
+// D'où vient ce bloc : deux gardes `typeof` sont restées nues, et pour la même
+// raison — les bancs n'éprouvaient que les entrées MALFORMÉES.
+//
+//   · « une date illisible ne devient pas NaN » passe `'jamais'`. Muté, le
+//     `typeof v !== 'string'` rend 0 dans les DEUX sens pour cette entrée : le
+//     cas ne peut pas mordre.
+//   · le tri « le plus récent d'abord » utilise bien des dates valides, mais
+//     n'affirme QUE l'ordre. Si toutes les dates deviennent 0 ensemble, l'ordre
+//     peut survivre par le départage.
+//   · `chemin` n'était affirmé nulle part depuis `lireWorkflow`.
+//
+// On teste ce qu'on CRAINT — l'entrée hostile, le NaN — et pas ce qu'on
+// PROMET : que la valeur normale traverse intacte. Une garde `typeof` inversée
+// ne casse alors rien de visible ; elle vide juste le champ, en silence.
+
+describe('CE QUE LA RUCHE LIT QUAND GITHUB RÉPOND NORMALEMENT', () => {
+  it('LA DATE VALIDE TRAVERSE — pas seulement l’illisible qui retombe à zéro', () => {
+    // `typeof v !== 'string'` muté en `===` : toute date, même parfaite, rend 0.
+    // Les runs auraient tous le même instant, et « le plus récent d'abord »
+    // n'aurait plus de sens — sans qu'aucun écran ne signale quoi que ce soit.
+    const quand = '2026-07-29T10:00:00Z';
+    const brutRun = {
+      id: 7,
+      workflow_id: 161_335,
+      name: 'CI',
+      run_number: 42,
+      status: 'completed',
+      conclusion: 'success',
+      head_branch: 'main',
+      html_url: 'https://github.com/o/r/actions/runs/7',
+      run_started_at: quand,
+    };
+    expect(lireRun(brutRun)?.demarreA).toBe(Date.parse(quand));
+  });
+
+  it('LE CHEMIN DU WORKFLOW TRAVERSE — c’est lui qu’on montre à l’humain', () => {
+    // `typeof o.path === 'string'` muté en `!==` : le chemin d'un workflow bien
+    // formé devient vide, et celui d'un workflow malformé passe tel quel dans
+    // l'assainisseur — un mensonge de type à la frontière des données tierces.
+    expect(lireWorkflow(brut({ path: '.github/workflows/nuit.yml' }))?.chemin).toBe(
+      '.github/workflows/nuit.yml',
+    );
+  });
+
+  it('…et un chemin que GitHub renverrait mal typé ne devient pas un objet', () => {
+    // L'autre moitié de la même garde : le repli est une CHAÎNE VIDE, pas la
+    // valeur douteuse laissée telle quelle.
+    expect(lireWorkflow(brut({ path: { malicieux: true } }))?.chemin).toBe('');
+    expect(lireWorkflow(brut({ path: 42 }))?.chemin).toBe('');
+  });
+});

@@ -6336,3 +6336,54 @@ le MOTIF à l'humain  === → !==   ROUGE (2) « … GitHub le rapporte dans un 
                                             que la ruche ne connaît pas » au lieu
                                             de « à la main »
 ```
+
+## 9 triquinquagies. On éprouve ce qu'on CRAINT, jamais ce qu'on PROMET — et la garde nominale reste nue
+
+Deux gardes `typeof` de `workflow.ts` sont restées nues alors que des bancs les
+entouraient. La cause est la même pour les deux, et elle n'a rien d'un oubli :
+les bancs n'éprouvaient que les entrées MALFORMÉES.
+
+```ts
+function msDe(v: unknown): number {
+  if (typeof v !== 'string') return 0;      // ← nue
+  …
+}
+chemin: champSurUneLigne(typeof o.path === 'string' ? o.path : '', MAX)  // ← nue
+```
+
+Le banc voisin s'appelle « une date illisible ne devient pas NaN » et passe
+`'jamais'`. Muter `!==` en `===` rend 0 **dans les deux sens** pour cette entrée :
+le cas ne peut pas mordre. Il éprouve le repli, pas la garde.
+
+Le tri « le plus récent d'abord » utilise pourtant de vraies dates — mais il
+n'affirme que l'ORDRE. Quand toutes les dates deviennent 0 ensemble, l'ordre
+peut survivre par le départage, et le banc reste vert.
+
+### Le pli qui produit ça
+
+Devant une frontière de données tierces, on écrit d'instinct les cas hostiles :
+le `null`, l'objet inattendu, la date illisible, l'injection. C'est le danger
+qu'on avait en tête. Le cas qu'on n'écrit pas est le plus ordinaire — **la
+valeur normale traverse-t-elle intacte ?** — parce qu'il paraît acquis.
+
+Or une garde `typeof` inversée ne casse rien de visible : elle VIDE le champ.
+Un chemin de workflow devient `''`, une date devient `0`, et l'écran affiche
+sereinement du vide là où il y avait une information. Personne ne signale un
+champ vide ; on suppose que GitHub ne l'a pas rempli.
+
+> **La règle** — pour toute garde de forme (`typeof`, `Array.isArray`, un
+> schéma), écrire DEUX cas : l'entrée malformée retombe sur le repli, ET
+> l'entrée normale ressort **inchangée**. Le second est celui qui manque
+> toujours, et c'est lui qui tient la garde : le premier ne fait souvent que
+> reprendre le chemin du repli par un autre bout.
+
+C'est la même famille que le § 9 unquinquagies (une borne dont seul le côté
+refusé est éprouvé) : dans les deux cas, la moitié testée est celle qui dit
+NON, et la moitié nue est celle qui dit OUI. Une garde promet les deux.
+
+VERDICTS (banc ciblé, restauration par copie entre chaque)
+
+```
+msDe   typeof !== → ===   ROUGE (1) expected +0 to be 1785319200000
+chemin typeof === → !==   ROUGE (2) expected '' to be '.github/workflows/nuit.yml'
+```
