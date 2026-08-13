@@ -72,7 +72,9 @@ function monter(ui: React.ReactElement): HTMLElement {
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
   act(() => racine?.render(ui));
-  return conteneur;
+  // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
+  // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
+  return document.body;
 }
 
 /** Tape dans un champ contrôlé comme un humain : la valeur PUIS l'évènement. */

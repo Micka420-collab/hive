@@ -19,7 +19,7 @@
 
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { candidates, detectBestAgent } from '../src/node-client/agent-detect.js';
+import { candidates, cheminsNatifs, detectBestAgent } from '../src/node-client/agent-detect.js';
 
 describe('LES VARIANTES DE BINAIRE, PAR PLATEFORME', () => {
   it('sur un système POSIX, le nom est pris tel quel', () => {
@@ -146,6 +146,37 @@ describe('LE CHOIX DE L’AGENT', () => {
     // retombe exactement où on était. Le correctif ne fabrique pas d'agent.
     const absent = await detectBestAgent({ APPDATA }, sonde, 'win32', () => false);
     expect(absent.agent).toBe('shell');
+  });
+
+  it('L’INSTALLEUR NATIF EST TROUVÉ MÊME QUAND LE PATH L’IGNORE', async () => {
+    // ─── LE DÉFAUT QUE CE TEST FERME ───────────────────────────────────────
+    //
+    // L'installeur natif de Claude Code pose son binaire dans `~/.local/bin` et
+    // n'ajoute ce dossier qu'au PATH du shell de connexion. Un nœud lancé
+    // autrement ne le voit pas : `spawn('claude')` rend ENOENT, la détection
+    // conclut « aucun agent », et la ruche simule — sur une machine où l'agent
+    // est pourtant installé.
+    const NATIF = path.posix.join('/home/moi', '.local', 'bin', 'claude');
+    const sonde = async (argv: readonly string[]): Promise<boolean> => argv[0] === NATIF;
+
+    const trouve = await detectBestAgent({ HOME: '/home/moi' }, sonde, 'linux', (c) => c === NATIF);
+    expect(trouve.agent, 'un vrai agent, pas le repli simulé').toBe('claude-code');
+
+    // Et la promesse tenue : sans le fichier, rien n'est inventé.
+    const absent = await detectBestAgent({ HOME: '/home/moi' }, sonde, 'linux', () => false);
+    expect(absent.agent).toBe('shell');
+  });
+
+  it('les chemins natifs suivent la plateforme, et se taisent sans maison', () => {
+    expect(cheminsNatifs('claude', { HOME: '/home/moi' }, 'linux')).toEqual([
+      '/home/moi/.local/bin/claude',
+      '/home/moi/.claude/local/claude',
+    ]);
+    expect(cheminsNatifs('claude', { USERPROFILE: 'C:\\Users\\moi' }, 'win32')).toContain(
+      'C:\\Users\\moi\\.local\\bin\\claude.exe',
+    );
+    // Sans HOME (service, conteneur épuré), on ne fabrique pas un `/…` bancal.
+    expect(cheminsNatifs('claude', {}, 'linux')).toEqual([]);
   });
 
   it('HIVE_AGENT_CMD court-circuite la sonde — elle n’est même pas appelée', async () => {

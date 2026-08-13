@@ -7,6 +7,7 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
 
 export type AgentType = 'claude-code' | 'codex' | 'grok' | 'custom' | 'shell';
@@ -62,6 +63,34 @@ const PROBES: AgentProbe[] = [
 export function candidates(bin: string, plateforme: string = process.platform): string[] {
   if (plateforme === 'win32') return [`${bin}.exe`, bin];
   return [bin];
+}
+
+/**
+ * Les emplacements où un agent s'installe SANS passer par le PATH du nœud.
+ *
+ * ─── CE QUE LE SONDAGE PAR PATH RATE ─────────────────────────────────
+ *
+ * L'installeur natif de Claude Code dépose son binaire dans `~/.local/bin`, et
+ * ajoute ce dossier au PATH DU SHELL de connexion. Un nœud lancé autrement —
+ * double-clic, service, terminal intégré d'un éditeur — hérite d'un PATH qui
+ * ne le contient pas : `spawn('claude')` rend ENOENT, la détection conclut
+ * « aucun agent », et la ruche produit des diffs SIMULÉS sur une machine où
+ * l'agent est pourtant installé. C'est exactement le symptôme rapporté :
+ * « il détecte mal Claude Code ».
+ *
+ * On sonde donc AUSSI ces chemins absolus. `env` et `plateforme` sont des
+ * paramètres : sans eux la branche Windows ne serait vérifiable que sur
+ * Windows, c'est-à-dire jamais.
+ */
+export function cheminsNatifs(bin: string, env: NodeJS.ProcessEnv, plateforme: string): string[] {
+  const maison = (plateforme === 'win32' ? env.USERPROFILE : env.HOME)?.trim();
+  if (!maison) return [];
+  const p = plateforme === 'win32' ? path.win32 : path.posix;
+  const exe = plateforme === 'win32' ? `${bin}.exe` : bin;
+  const lieux = [p.join(maison, '.local', 'bin', exe)];
+  // L'installation « locale » de Claude Code, hors PATH par construction.
+  if (bin === 'claude') lieux.push(p.join(maison, '.claude', 'local', exe));
+  return lieux;
 }
 
 /**
@@ -211,6 +240,12 @@ async function firstPresent(
   for (const bin of bins) {
     for (const candidate of candidates(bin, plateforme)) {
       if (await sonder([candidate])) return true;
+    }
+    // Le PATH n'a rien donné : l'agent peut vivre à un endroit connu qu'il
+    // n'expose qu'au shell de connexion (voir `cheminsNatifs`). On ne sonde que
+    // ce qui existe — lancer un chemin absent ne dirait rien de plus.
+    for (const chemin of cheminsNatifs(bin, env, plateforme)) {
+      if (existe(chemin) && (await sonder([chemin]))) return true;
     }
     // ─── LE SHIM `.cmd`, CONTOURNÉ PAR LE HAUT ─────────────────────────────
     //

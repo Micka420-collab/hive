@@ -149,7 +149,9 @@ async function monter(ui: React.ReactElement): Promise<HTMLElement> {
   racine = createRoot(conteneur);
   await act(async () => racine?.render(ui));
   await act(async () => {});
-  return conteneur;
+  // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
+  // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
+  return document.body;
 }
 
 function props(snapshot: StateSnapshot): ViewProps {

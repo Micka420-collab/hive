@@ -15,7 +15,14 @@ const SwarmView3D = lazy(() => import('../SwarmView3D'));
 
 type SwarmMode = '2d' | '3d';
 
-export default function Ruche({ snapshot, events, agentsByTask, deferred, onOpenTask }: ViewProps) {
+export default function Ruche({
+  snapshot,
+  events,
+  agentsByTask,
+  deferred,
+  onOpenTask,
+  onNewProject,
+}: ViewProps) {
   const t = useT();
   const [mode, setMode] = useState<SwarmMode>(
     () => (localStorage.getItem('hive.view') as SwarmMode) ?? '2d',
@@ -46,6 +53,27 @@ export default function Ruche({ snapshot, events, agentsByTask, deferred, onOpen
 
   return (
     <div className="mc-view mc-ruche">
+      {/* ─── LA RUCHE VIDE NE DISAIT PAS PAR OÙ COMMENCER ────────────────────
+          Sans projet, cette vue montrait un essaim au repos, une file vide et
+          rien à cliquer : le seul départ possible vivait dans l'en-tête d'une
+          AUTRE vue. On y arrivait donc en croyant qu'il fallait d'abord un
+          ami, ou une configuration de plus. Le premier projet se lance ici,
+          seul, sur ce nœud-ci. */}
+      {snapshot.projects.length === 0 && (
+        <section className="card ruche-depart">
+          <h2>🐝 {t('Votre ruche est prête', 'Your hive is ready')}</h2>
+          <p>
+            {t(
+              'Lancez un projet dès maintenant : ce nœud travaille seul, personne d’autre n’est requis. Vous pourrez inviter des amis plus tard.',
+              'Start a project right away: this node works on its own, nobody else is required. You can invite friends later.',
+            )}
+          </p>
+          <button className="btn primary" onClick={onNewProject}>
+            {t('Démarrer un projet', 'Start a project')}
+          </button>
+        </section>
+      )}
+
       <div className="mc-ruche-stats card">
         <StatTiles snapshot={snapshot} throughput={throughput} />
       </div>
@@ -137,7 +165,12 @@ export default function Ruche({ snapshot, events, agentsByTask, deferred, onOpen
                 <li className="empty">🍯 {t('Tout est butiné !', 'Everything is foraged!')}</li>
               )}
               {total === 0 && (
-                <li className="empty">{t('Aucune tâche en attente.', 'No tasks waiting.')}</li>
+                <li className="empty">
+                  {t('Aucune tâche en attente.', 'No tasks waiting.')}{' '}
+                  <button className="lien-bouton" onClick={onNewProject}>
+                    {t('Démarrer un projet', 'Start a project')}
+                  </button>
+                </li>
               )}
             </ul>
           </section>

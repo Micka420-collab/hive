@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
 import { useT } from './i18n';
+import { Voile } from './ui';
 
 /** Repli de copie pour les contextes non sécurisés (http LAN) via une zone de texte hors écran. */
 function fallbackCopy(text: string): boolean {
@@ -94,7 +95,7 @@ export function InvitePanel() {
       </button>
 
       {open && (
-        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+        <Voile onClose={() => setOpen(false)}>
           <div
             className="modal"
             role="dialog"
@@ -116,6 +117,21 @@ export function InvitePanel() {
             </header>
 
             {error && <p className="modal-error">{error}</p>}
+
+            {/* La commande est correcte, mais elle ne mènerait nulle part : le
+                dire ICI, avant que l'ami ne la colle et n'attende une ruche
+                qui n'écoute pas sur cette adresse. */}
+            {invite?.injoignable && (
+              <p className="modal-error invite-unreachable">
+                ⚠{' '}
+                {t(
+                  invite.injoignable,
+                  'This hive only listens on its own machine: nobody else can reach the advertised ' +
+                    'address. Restart it with HIVE_HOST=0.0.0.0 to open the local network, then ' +
+                    'regenerate the invitation.',
+                )}
+              </p>
+            )}
 
             <ol className="invite-steps">
               <li>
@@ -179,7 +195,7 @@ export function InvitePanel() {
               )}
             </details>
           </div>
-        </div>
+        </Voile>
       )}
     </>
   );

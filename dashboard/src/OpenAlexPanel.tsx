@@ -5,6 +5,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useT, t as tStatic } from './i18n';
 import type { Translate } from './i18n';
+import { Voile } from './ui';
 
 /** Résultat formaté renvoyé par le backend. */
 interface Paper {
@@ -108,7 +109,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
   const totalPages = Math.ceil(total / 20);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <Voile onClose={onClose}>
       <div
         className="modal wide openalex-panel"
         role="dialog"
@@ -221,6 +222,6 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </Voile>
   );
 }

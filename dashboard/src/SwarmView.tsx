@@ -4,7 +4,8 @@
 // temps réel par les snapshots WebSocket.
 
 import type { HiveNode, SubAgent, Task } from '../../src/shared/types';
-import { useT } from './i18n';
+import { useLang, useT } from './i18n';
+import { libelleAgent } from '../../src/shared/agent-libelle';
 
 interface Props {
   tasks: Task[];
@@ -52,6 +53,7 @@ function neededHeight(taskCount: number): number {
 
 export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
   const tr = useT();
+  const lang = useLang();
   const taskIndex = new Map(tasks.map((t, i) => [t.id, i]));
   const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
   const H = neededHeight(tasks.length);
@@ -126,7 +128,7 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
               {n.name}
             </text>
             <text x={x} y={y + 12} className="node-info">
-              {n.running}/{n.maxConcurrency} · {n.agentType}
+              {n.running}/{n.maxConcurrency} · {libelleAgent(n.agentType, lang === 'en')}
             </text>
             {pulses.slice(0, 8).map((sa, j) => {
               const angle = (Math.PI * 2 * j) / Math.max(pulses.length, 1) - Math.PI / 2;

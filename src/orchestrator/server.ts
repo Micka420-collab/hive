@@ -24,6 +24,7 @@ import {
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
+import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
 import { gardiennesDepuisEnv } from '../shared/reglages.js';
 import {
@@ -1819,11 +1820,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       const label = req.query.label ?? `Ruche Hive (${config.host}:${port})`;
       const invite = encodeInvite({ url: wsUrl, token: config.token, label });
+      // Une invitation vers une adresse sur laquelle on n'écoute pas ne mène
+      // nulle part : on la fabrique quand même (l'hôte peut avoir un routage
+      // qu'on ignore), mais on ne la laisse plus passer pour joignable.
+      const injoignable = inviteInjoignable(config.host, wsUrl);
       return {
         invite,
         url: wsUrl,
         label,
         joinCommand: `npm run join -- ${invite}`,
+        ...(injoignable ? { injoignable } : {}),
         note: "Cette invitation contient le token de la ruche : ne la partagez qu'avec des personnes de confiance.",
         // L'ancien format donne un accès TOTAL et DÉFINITIF. On ne le retire
         // pas (des ruches tournent avec), mais on ne le laisse plus passer pour
@@ -1889,6 +1895,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         });
       }
 
+      // Même garde que pour `/api/invite` : un billet parfait vers une adresse
+      // où la ruche n'écoute pas fait chercher l'erreur partout sauf là.
+      const injoignableBillet = inviteInjoignable(config.host, wsUrl);
+
       const now = Date.now();
       const id = `bil-${randomUUID()}`.slice(0, LIMITS.id);
       const secret = tirerSecret();
@@ -1916,6 +1926,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         expiresAt: now + ttl,
         uses,
         joinCommand: `npm run join -- ${billet}`,
+        ...(injoignableBillet ? { injoignable: injoignableBillet } : {}),
         note:
           uses === 1
             ? 'Billet à usage UNIQUE : il devient inutile dès que votre ami a rejoint.'
