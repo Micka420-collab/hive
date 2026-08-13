@@ -381,17 +381,20 @@ export function creerTerminal(opts: {
     sortie.write(CURSEUR_CACHE);
     curseurCache = true;
     peindre(true);
-    const battement = setInterval(peindre, CADENCE_SPINNER_MS);
+    // `() => peindre(false)` et pas `peindre` : `peindre` exige un argument,
+    // que `setInterval` ne lui passerait jamais. Écrit d'abord en le passant
+    // nu, ce qui MARCHAIT (Node appelle sans argument, donc `premier` valait
+    // `undefined`) et ne compilait pas — `tsc -p tsconfig.build.json` refusait
+    // l'appel, donc `npm install` échouait à l'étape `prepare` : plus aucune
+    // installation neuve possible, pour un défaut invisible à l'exécution.
+    const battement = setInterval(() => peindre(false), CADENCE_SPINNER_MS);
     try {
       return await travail;
     } finally {
       clearInterval(battement);
       // La ligne s'efface : le pas définitif, avec sa durée, prend sa place.
       sortie.write(effacerLignes(1));
-      if (curseurCache) {
-        sortie.write(CURSEUR_MONTRE);
-        curseurCache = false;
-      }
+      restaurer();
     }
   };
 

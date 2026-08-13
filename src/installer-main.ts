@@ -143,6 +143,20 @@ async function main(): Promise<void> {
     sortie: process.stdout,
     env: process.env,
   });
+  // ─── UN ^C HORS QUESTION PASSE PAR LE SIGNAL, PAS PAR LE CLAVIER ───────────
+  //
+  // Pendant une question, l'entrée est en mode brut : le `^C` arrive comme un
+  // octet, `choisir` le reconnaît et lève `Interrompu`. Pendant une ATTENTE,
+  // l'entrée est normale : le `^C` est un signal, et sans ce gestionnaire Node
+  // tue le processus séance tenante — en laissant le curseur caché par le
+  // spinner. Le shell rendu ensuite n'a plus de caret. Trouvé en interrompant
+  // une vraie installation, pas en relisant le code.
+  process.on('SIGINT', () => {
+    t.restaurer();
+    process.stdout.write('\nAnnulé.\n');
+    process.exit(CODE.INTERROMPU);
+  });
+
   // `--non-interactive` et `CI` retirent l'interactivité même sur un vrai
   // terminal : c'est ce qui rend l'installeur scriptable depuis un poste.
   const caps = muet ? { ...t.caps, interactif: false, cadres: false } : t.caps;

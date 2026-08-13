@@ -439,6 +439,42 @@ describe('PATIENTER — l’attente se voit, puis ne laisse pas de trace', () =>
     expect(ecran.ecrit.endsWith('\x1b[?25h')).toBe(true);
   });
 
+  it('UN ^C EN PLEINE ATTENTE REND LE CURSEUR — mesuré sur une vraie interruption', async () => {
+    // ─── CE QUE LE BANC PRÉCÉDENT NE VOYAIT PAS ──────────────────────────────
+    //
+    // Les bancs ci-dessus laissent le travail se terminer, donc le `finally`
+    // rend toujours le curseur. En interrompant une VRAIE installation, le
+    // curseur ne revenait pas : pendant une attente l'entrée n'est pas en mode
+    // brut, le `^C` est donc un signal, et Node tuait le processus avant tout
+    // `finally` — le shell rendu ensuite n'avait plus de caret.
+    //
+    // La sortie de secours est `restaurer()`, appelée depuis le gestionnaire
+    // SIGINT de l'installeur : elle doit rendre le curseur PENDANT l'attente,
+    // sans attendre que le travail finisse.
+    const ecran = new Ecran();
+    const t = creerTerminal({
+      entree: new Clavier(),
+      sortie: ecran,
+      env: { TERM: 'xterm-256color' },
+      horloge: tic(),
+    });
+
+    let finir = (): void => {};
+    const attente = t.patienter(
+      'Vérifications',
+      new Promise<void>((r) => {
+        finir = r;
+      }),
+    );
+
+    expect(ecran.ecrit, 'le curseur devrait être caché à ce stade').toContain('\x1b[?25l');
+    t.restaurer(); // ce que fait le gestionnaire SIGINT
+    expect(ecran.ecrit.endsWith('\x1b[?25h'), 'le curseur est resté caché').toBe(true);
+
+    finir();
+    await attente;
+  });
+
   it('HORS TERMINAL, ELLE N’ÉCRIT RIEN — une CI n’a que faire d’un spinner', async () => {
     const ecran = new Ecran(false, undefined);
     const t = creerTerminal({
