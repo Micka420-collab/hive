@@ -633,6 +633,107 @@ function pidVivant(pid) {
 // donnerait deux chaînes différentes pour le même fichier.
 const MOI = fileURLToPath(import.meta.url);
 const LANCE = process.argv[1] === undefined ? '' : path.resolve(process.argv[1]);
+/**
+ * La marque qui dit « ce mutant a DÉJÀ été jugé équivalent, et voici pourquoi ».
+ *
+ * Elle se pose dans un commentaire, JUSTE AU-DESSUS de la ligne concernée.
+ */
+export const MARQUE = /loupe\s*:\s*équivalent/i;
+
+/**
+ * ─── LA MARQUE NOMME LA MUTATION, ET CE N'EST PAS UN DÉTAIL ──────────────────
+ *
+ * Première version : la marque valait pour la LIGNE. Vérifiée de bout en bout
+ * sur `tableau.ts`, elle s'est effondrée immédiatement.
+ *
+ *     for (const a of alertes) if (pire === null || RANG[a] < RANG[pire]) …
+ *
+ * Cette ligne porte TROIS mutations — `||` → `&&`, `<` → `<=`, `===` → `!==`.
+ * La consignation n'en juge qu'UNE équivalente ; les deux autres sont tuées par
+ * la suite, ce qui est parfaitement normal et sain. Une marque de ligne les
+ * couvrait toutes, et mon propre détecteur de « marque fausse » criait alors au
+ * loup sur deux mutants défendus, en faisant sortir la loupe en 1.
+ *
+ * J'avais donc écrit un contrôle contre les marques abusives, et le contrôle
+ * était lui-même abusif. La leçon tient en une phrase : **l'unité de jugement
+ * de la loupe est la MUTATION, pas la ligne** — tout ce qui prétend juger doit
+ * se dire dans la même unité.
+ *
+ * La marque porte donc le libellé exact du mutant, celui-là même que la loupe
+ * imprime : `loupe : équivalent — < → <=`. Bénéfice de bord, plus important que
+ * la mécanique : la consignation doit maintenant DIRE ce qu'elle a jugé, au
+ * lieu de laisser un lecteur le deviner.
+ */
+
+/**
+ * Cette ligne porte-t-elle, au-dessus d'elle, une consignation d'équivalence ?
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE ──────────────────────────────────────────
+ *
+ * Un balayage de `src/orchestrator` a rendu six survivants. Les SIX étaient
+ * déjà tranchés et consignés sur place, avec leur raisonnement mesuré — et
+ * quatre fichiers différents portaient littéralement la même phrase :
+ *
+ *     « Un balayage élargi de la loupe le re-signalera « sans test » à chaque
+ *       fois. »
+ *
+ * La connaissance existait, elle était au bon endroit, et l'instrument ne
+ * savait pas la lire. Chaque passe redemandait donc six jugements humains
+ * strictement identiques aux précédents.
+ *
+ * ─── CE QUE CETTE MARQUE N'EST PAS, ET LA GARDE QUI L'EN EMPÊCHE ─────────────
+ *
+ * Ce n'est PAS une liste d'exclusion. Une liste d'exclusion est un endroit où
+ * une vraie nudité peut se cacher pour toujours — le mensonge rassurant, celui
+ * que la loupe existe entièrement pour empêcher.
+ *
+ * Deux choses l'en distinguent, et elles ne sont pas cosmétiques :
+ *
+ * 1. **LA MUTATION EST QUAND MÊME JOUÉE.** Marquer n'économise pas l'exécution
+ *    de la suite. Ça n'économise que le JUGEMENT, qui est ce qui se répétait.
+ *
+ * 2. **UNE MARQUE FAUSSE SE DÉNONCE TOUTE SEULE.** Si un mutant marqué
+ *    « équivalent » se fait TUER par la suite, c'est que quelque chose le
+ *    distingue — la marque est donc fausse, ou le code a changé sous elle. La
+ *    loupe le crie au lieu de s'en réjouir. C'est le sens de l'erreur choisi,
+ *    pas subi (§ 9 unseptuagies) : la marque ne peut pas rendre un verdict plus
+ *    rassurant qu'il ne devrait, seulement plus alarmant.
+ *
+ * La marque vit DANS LA SOURCE, collée à la ligne, et pas dans un fichier à
+ * part : une liste séparée dérive du code qu'elle décrit, et personne ne la
+ * relit en revue. Ici, déplacer la ligne sans sa justification saute aux yeux.
+ *
+ * ─── LA REMONTÉE S'ARRÊTE AU PREMIER NON-COMMENTAIRE ─────────────────────────
+ *
+ * Sans cet arrêt, une marque posée trente lignes plus haut couvrirait tout un
+ * bloc de code — et le jour où quelqu'un insère une garde neuve au milieu, elle
+ * naîtrait marquée sans que personne l'ait jugée. Le bloc de commentaire
+ * CONTIGU est la seule portée dont on puisse dire qu'elle a été écrite pour
+ * cette ligne-là.
+ *
+ * @param {string} contenu le fichier entier
+ * @param {string} ligne la ligne mutée, telle que le diff l'a rendue
+ * @param {string} quoi le libellé du mutant, ex. `< → <=`
+ */
+export function marqueeEquivalente(contenu, ligne, quoi) {
+  // Sans libellé, aucune marque ne peut s'appliquer : une consignation qui ne
+  // nomme pas son mutant ne juge rien.
+  if (typeof quoi !== 'string' || quoi.trim() === '') return false;
+  const lignes = contenu.split('\n');
+  const i = lignes.indexOf(ligne);
+  // Ligne introuvable : on ne suppose RIEN. Ne pas trouver la ligne est déjà
+  // anormal, et répondre « marquée » sur une inconnue serait la pire réponse.
+  if (i < 0) return false;
+  for (let j = i - 1; j >= 0; j--) {
+    const texte = lignes[j];
+    if (texte.trim() === '') return false;
+    if (ligneMutable(texte, '')) return false; // du code : la remontée s'arrête
+    // Les DEUX conditions : nommer l'instrument, et nommer le mutant jugé.
+    if (MARQUE.test(texte) && texte.includes(quoi)) return true;
+  }
+  return false;
+}
+
 if (MOI !== LANCE) {
   // Importée : on n'expose que les fonctions, on ne mute rien.
 } else {
@@ -690,9 +791,12 @@ function principal() {
   console.log('');
 
   const survivants = [];
+  const consignes = [];
+  const marquesFausses = [];
   for (const m of retenues) {
     const chemin = RACINE + m.fichier;
     const original = readFileSync(chemin, 'utf8');
+    const marquee = marqueeEquivalente(original, m.avant, m.quoi);
     writeFileSync(chemin, original.replace(m.avant, m.apres));
     let mord;
     try {
@@ -700,13 +804,53 @@ function principal() {
     } finally {
       writeFileSync(chemin, original);
     }
-    const etiquette = mord ? '  ✔ défendue' : '🔴 SANS TEST';
+    // Quatre issues, et une seule est un problème NEUF. La marque ne dispense
+    // JAMAIS de jouer la mutation : elle ne dispense que de rejuger.
+    let etiquette;
+    if (mord && marquee) {
+      // Un test distingue une ligne réputée indistinguable. La consignation est
+      // fausse, ou le code a bougé sous elle — dans les deux cas il faut aller
+      // voir, et c'est le seul cas que la marque peut créer.
+      etiquette = '⚠ MARQUE FAUSSE';
+      marquesFausses.push(m);
+    } else if (mord) {
+      etiquette = '  ✔ défendue';
+    } else if (marquee) {
+      etiquette = '  ✔ équivalent consigné';
+      consignes.push(m);
+    } else {
+      etiquette = '🔴 SANS TEST';
+      survivants.push(m);
+    }
     console.log(`${etiquette} · ${m.fichier} · ${m.quoi}`);
     console.log(`             ${m.avant.trim().slice(0, 100)}`);
-    if (!mord) survivants.push(m);
   }
 
   console.log('');
+  // DIT, jamais tu : une équivalence honorée en silence se lirait comme « tout
+  // est couvert », et c'est exactement ce que l'en-tête de ce fichier interdit.
+  if (consignes.length > 0) {
+    console.log(
+      `${consignes.length} mutation(s) survivante(s) portaient une équivalence CONSIGNÉE au-dessus d'elles.`,
+    );
+    console.log(
+      '   Elles ont été jouées quand même — la marque épargne le jugement, pas la mesure.',
+    );
+    console.log('');
+  }
+
+  if (marquesFausses.length > 0) {
+    console.log('════ UNE MARQUE D’ÉQUIVALENCE EST FAUSSE ════');
+    console.log('Un test DISTINGUE une ligne réputée indistinguable : la consignation');
+    console.log('ment, ou le code a changé sous elle. Les deux se corrigent sur place.');
+    for (const f of marquesFausses) {
+      console.log(`· ${f.fichier} — ${f.quoi}`);
+      console.log(`    ${f.avant.trim().slice(0, 120)}`);
+    }
+    console.log('');
+    process.exit(1);
+  }
+
   if (survivants.length === 0) {
     console.log('════ LA LOUPE NE VOIT RIEN DE NU ════');
     console.log('Chaque ligne examinée est défendue par au moins un test.');

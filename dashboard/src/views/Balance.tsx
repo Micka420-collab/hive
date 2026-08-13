@@ -704,7 +704,8 @@ function ControlePlafond({
               {t('Annuler', 'Cancel')}
             </button>
           </div>
-          {/* ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas être faux ici
+          {/* loupe : équivalent — !== → === ; loupe : équivalent — === → !==
+              ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas être faux ici
               (§ 2.16 ter). `arme` ne devient vrai que dans `poser`, qui rend la
               main tôt quand `cible === null` ; et `cible` ne dépend que de
               `saisie`, dont le `onChange` DÉSARME. Il n'existe donc aucune

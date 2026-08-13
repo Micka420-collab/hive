@@ -367,3 +367,93 @@ describe('le marqueur de commentaire suit le langage du fichier', () => {
     expect(ligneMutable('  if (a === b) {', 'scripts/essai-installation.sh')).toBe(true);
   });
 });
+
+// ─── UNE ÉQUIVALENCE DÉJÀ TRANCHÉE NE SE REJUGE PAS À CHAQUE PASSE ───────────
+//
+// Un balayage de `src/orchestrator` (54 candidates, 54 examinées) a rendu SIX
+// survivants. Les six étaient déjà tranchés et consignés sur place, avec leur
+// raisonnement mesuré — et quatre fichiers portaient littéralement la même
+// phrase : « un balayage élargi le re-signalera sans test à chaque fois ».
+//
+// La connaissance existait, au bon endroit, et l'instrument ne savait pas la
+// lire. Chaque passe redemandait donc six jugements humains identiques.
+//
+// CE N'EST PAS UNE LISTE D'EXCLUSION, et les bancs ci-dessous sont écrits pour
+// que ça reste vrai : la mutation est jouée quand même (la marque épargne le
+// jugement, pas la mesure), et une marque fausse se dénonce toute seule. La
+// marque ne peut donc rendre un verdict que PLUS alarmant, jamais plus
+// rassurant — le sens de l'erreur est choisi, pas subi.
+
+import { marqueeEquivalente } from '../scripts/loupe.mjs';
+
+describe('la marque d’équivalence nomme SA mutation, pas seulement sa ligne', () => {
+  it('LE DÉFAUT QUI A ÉTÉ MESURÉ : une ligne porte PLUSIEURS mutants', () => {
+    // `tableau.ts` en porte trois : `||`, `<`, `===`. La consignation n'en juge
+    // qu'un équivalent ; les deux autres sont tués par la suite, ce qui est
+    // sain. Une marque de LIGNE les couvrait tous et faisait crier au loup sur
+    // deux mutants défendus. L'unité de jugement est la MUTATION.
+    const ligne = '  for (const a of alertes) if (pire === null || RANG[a] < RANG[pire]) pire = a;';
+    const contenu = ['  // loupe : équivalent — < → <=', ligne].join('\n');
+    expect(marqueeEquivalente(contenu, ligne, '< → <='), 'le mutant NOMMÉ est couvert').toBe(true);
+    expect(marqueeEquivalente(contenu, ligne, '|| → &&'), 'les autres ne le sont PAS').toBe(false);
+    expect(marqueeEquivalente(contenu, ligne, '=== → !=='), 'les autres ne le sont PAS').toBe(
+      false,
+    );
+  });
+
+  it('sans marque, une ligne reste un survivant ordinaire', () => {
+    const contenu = [
+      '  // un commentaire qui explique autre chose',
+      '  if (a === b) return 1;',
+    ].join('\n');
+    expect(marqueeEquivalente(contenu, '  if (a === b) return 1;', '=== → !==')).toBe(false);
+  });
+
+  it('LA REMONTÉE S’ARRÊTE AU PREMIER CODE — une marque ne couvre pas un bloc', () => {
+    // Sans cet arrêt, une garde neuve insérée sous une consignation naîtrait
+    // marquée sans que personne l'ait jugée. C'est la porte par laquelle une
+    // vraie nudité entrerait pour de bon.
+    const contenu = [
+      '  // loupe : équivalent — === → !==',
+      '  const x = a === b;',
+      '  if (c === d) return 2;',
+    ].join('\n');
+    expect(marqueeEquivalente(contenu, '  const x = a === b;', '=== → !==')).toBe(true);
+    expect(
+      marqueeEquivalente(contenu, '  if (c === d) return 2;', '=== → !=='),
+      'la seconde ligne n’est PAS couverte',
+    ).toBe(false);
+  });
+
+  it('une ligne VIDE coupe aussi la remontée', () => {
+    const ligne = '  if (a === b) return 1;';
+    const contenu = ['  // loupe : équivalent — === → !==', '', ligne].join('\n');
+    expect(marqueeEquivalente(contenu, ligne, '=== → !==')).toBe(false);
+  });
+
+  it('une ligne INTROUVABLE n’est jamais réputée marquée', () => {
+    // Ne pas retrouver la ligne est déjà anormal ; répondre « marquée » sur une
+    // inconnue serait la pire des deux réponses possibles.
+    expect(marqueeEquivalente('  if (a === b) return 1;', '  absente();', '=== → !==')).toBe(false);
+  });
+
+  it('un libellé de mutant ABSENT ne peut rien couvrir', () => {
+    const ligne = '  if (a === b) return 1;';
+    const contenu = ['  // loupe : équivalent — === → !==', ligne].join('\n');
+    expect(marqueeEquivalente(contenu, ligne, ''), 'chaîne vide').toBe(false);
+    expect(marqueeEquivalente(contenu, ligne, undefined), 'rien du tout').toBe(false);
+  });
+
+  it('la marque tolère la casse et les espaces, pas l’à-peu-près', () => {
+    const ligne = '  if (a === b) return 1;';
+    const marquee = (tete) => marqueeEquivalente([tete, ligne].join('\n'), ligne, '=== → !==');
+    expect(marquee('  // LOUPE:ÉQUIVALENT — === → !==')).toBe(true);
+    expect(marquee('  // loupe   :   équivalent — === → !==')).toBe(true);
+    expect(marquee('  // ce mutant est équivalent — === → !=='), 'le mot seul ne suffit pas').toBe(
+      false,
+    );
+    expect(marquee('  // loupe : équivalent'), 'nommer l’instrument ne suffit pas non plus').toBe(
+      false,
+    );
+  });
+});

@@ -7864,3 +7864,79 @@ l'autre de répéter le même geste jusqu'à ce que la variance se voie.
 Ce qu'il ne faut PAS conclure : « le plafond est inutile ». Il n'a rien changé
 sur une machine qui ne montrait pas le symptôme. Mesurer un remède là où il n'y
 a pas de maladie ne dit rien du remède.
+
+## 9 sexseptuagies. L'unité de jugement de la loupe est la MUTATION, pas la ligne — j'ai écrit un contrôle anti-abus qui était lui-même abusif
+
+Un balayage de `src/orchestrator` (54 candidates, 54 examinées) a rendu six
+survivants. **Les six étaient déjà tranchés et consignés sur place**, chacun
+avec son raisonnement mesuré — et quatre fichiers portaient littéralement la
+même phrase :
+
+> « Un balayage élargi de la loupe le re-signalera « sans test » à chaque fois. »
+
+La connaissance existait, elle était au bon endroit, et l'instrument ne savait
+pas la lire. Chaque passe redemandait six jugements humains identiques aux
+précédents.
+
+D'où une marque, `loupe : équivalent`, posée dans le commentaire au-dessus de la
+ligne. Avec deux gardes contre l'usage abusif, parce qu'une liste d'exclusion
+est un endroit où une vraie nudité se cache pour toujours :
+
+1. **la mutation est jouée quand même** — la marque épargne le jugement, pas la
+   mesure ;
+2. **une marque fausse se dénonce** — si un mutant réputé équivalent se fait
+   TUER, la consignation ment ou le code a bougé sous elle.
+
+Bancs verts, trois mutations rouges sur les gardes, tout en règle. Puis la
+vérification de bout en bout, sur un vrai fichier :
+
+```
+⚠ MARQUE FAUSSE · tableau.ts · || → &&
+  ✔ équivalent consigné · tableau.ts · < → <=
+⚠ MARQUE FAUSSE · tableau.ts · === → !==
+```
+
+### Ce que le contrôle avait de faux
+
+Une LIGNE porte plusieurs mutations. Celle-ci en porte trois :
+
+```js
+for (const a of alertes) if (pire === null || RANG[a.gravite] < RANG[pire]) pire = a.gravite;
+//                                     ^^                  ^                ^^^
+//                                  || → &&            < → <=          === → !==
+```
+
+La consignation n'en juge qu'UNE équivalente. Les deux autres sont tuées par la
+suite — ce qui est parfaitement sain, et exactement ce qu'on veut. Ma marque,
+posée sur la LIGNE, les couvrait toutes ; mon détecteur de marque abusive
+criait donc au loup sur deux mutants défendus, et faisait sortir la loupe en 1.
+
+**J'avais écrit un contrôle contre les marques abusives, et le contrôle était
+lui-même abusif.**
+
+> **Tout ce qui prétend juger doit se dire dans l'unité où le jugement se
+> rend.** La loupe juge des MUTATIONS ; une annotation qui parle de LIGNES ne
+> peut donc pas être exacte, quel que soit le soin mis à l'écrire. Le décalage
+> d'unité ne se rattrape pas par de la prudence — il se corrige en changeant
+> l'unité.
+
+La marque nomme désormais son mutant : `loupe : équivalent — < → <=`, avec le
+libellé exact que la loupe imprime. Bénéfice de bord plus important que la
+mécanique : **la consignation doit maintenant DIRE ce qu'elle a jugé**, au lieu
+de laisser un lecteur le deviner d'un paragraphe de prose.
+
+### Ce qui a trouvé le défaut, et ce qui ne l'aurait pas trouvé
+
+Ni les bancs — 37 verts, tous justes — ni les trois mutations de vérification,
+qui mordaient toutes. Ils éprouvaient la fonction pure, et la fonction pure
+était correcte : elle répondait exactement la question qu'on lui posait. **La
+question elle-même était mal posée**, et aucune mesure de la réponse ne pouvait
+le dire.
+
+Ce qui l'a trouvé : avoir rejoué l'instrument complet sur un vrai fichier du
+dépôt, une fois. Trois minutes.
+
+> Un banc vert sur un module ne dit rien de la question que l'appelant lui pose.
+> Le seul contrôle qui attrape une erreur d'unité est l'exécution de bout en
+> bout sur une entrée réelle — parce qu'elle est la seule à faire se rencontrer
+> les deux.

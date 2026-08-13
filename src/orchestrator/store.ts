@@ -1468,9 +1468,13 @@ export class HiveStore {
     // et la FENÊTRE au-dessus, éprouvés en six cas par `taches-bornees.test.ts`
     // à travers `getSnapshot`, la porte publique (ERREURS § 9 duotrigies : un
     // banc bien écrit ne nomme pas la fonction interne qu'il traverse).
-    return rows
-      .map(rowToTask)
-      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return (
+      rows
+        .map(rowToTask)
+        // loupe : équivalent — < → <= ; loupe : équivalent — > → >=
+        // (voir la consignation au-dessus de ce `return`.)
+        .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    );
   }
 
   /**
@@ -1524,6 +1528,7 @@ export class HiveStore {
       if (condamnees.length === 0) return 0;
       let partis = 0;
       const LOT = 900; // sous la limite de variables liées de SQLite
+      // loupe : équivalent — < → <=
       // La borne de cette boucle est un mutant ÉQUIVALENT — MESURÉ, pas déduit,
       // et c'est l'inverse de ce que la lecture annonçait.
       //

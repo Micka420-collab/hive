@@ -337,6 +337,7 @@ export function trier(alertes: readonly Alerte[]): Alerte[] {
  */
 export function graviteLaPlusHaute(alertes: readonly Alerte[]): Gravite | null {
   let pire: Gravite | null = null;
+  // loupe : équivalent — < → <=
   // `<` et `<=` sont ICI un mutant ÉQUIVALENT, et c'est CONSIGNÉ, pas un test qui
   // manque : `RANG` est injectif (0, 1, 2 sur trois gravités distinctes), donc
   // RANG[a] == RANG[pire] ⟹ a == pire, et la réaffectation ne change rien.

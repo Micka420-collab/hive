@@ -333,6 +333,7 @@ export const BORNES_DEFAUT: Bornes = { min: 'leger', max: 'strict' };
  * manque.
  */
 export function normaliserBornes(b: Bornes): Bornes {
+  // loupe : équivalent — <= → <
   // `<=` et `<` sont ICI un mutant ÉQUIVALENT, et c'est CONSIGNÉ, pas un test qui
   // manque : `rangEchelon` est injectif (index sur trois échelons distincts), donc
   // rang(min) == rang(max) ⟹ min == max ; la reconstruction `{ min, min }` ci-dessous
@@ -413,6 +414,7 @@ export function classerEchelons(
  */
 export function elireEchelon(bornes: Bornes, antecedents: Map<Echelon, Antecedent>): Echelon {
   const rangs = classerEchelons(echelonsPermis(bornes), antecedents);
+  // loupe : équivalent — < → <=
   // `< 0` et `<= 0` sont ICI un mutant ÉQUIVALENT, et c'est CONSIGNÉ :
   // `comparerRangs` ne rend `0` que si le score ET le rang d'échelon coïncident,
   // or `rangs` porte au plus UNE entrée par échelon — deux entrées distinctes ne
