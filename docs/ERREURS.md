@@ -7722,3 +7722,69 @@ Ce qui reste ouvert, et se dit comme tel : **pourquoi** le runner Windows est
 affamé n'est pas répondu. Le lot suivant a maintenant l'outil pour le chercher —
 plusieurs exécutions du même arbre, avec et sans plafond de forks, et une
 comparaison des temps plutôt qu'une intuition.
+
+## 9 quaterseptuagies. J'ai livré un instrument en affirmant qui pourrait s'en servir — sans l'avoir essayé une seule fois
+
+Le § 9 terseptuagies raconte pourquoi `workflow_dispatch` a été ajouté : sans
+lui, une jambe rouge ne peut pas être rejouée sur le même arbre, et la seule
+question qui compte — déterministe ou intermittent ? — reste sans réponse.
+
+L'ajout était juste. Le commentaire qui l'accompagnait ne l'était pas :
+
+> « il ne coûte rien : un déclencheur manuel ne s'exécute que lorsqu'un humain
+> **— ou un agent qui rend des comptes —** le demande. »
+
+Fusionné. Puis, au tour suivant, en voulant mener l'expérience :
+
+```
+POST …/actions/workflows/ci.yml/dispatches → 403
+« Resource not accessible by integration »
+```
+
+Un jeton d'intégration n'a pas `actions: write` sur ce dépôt. **Je ne peux pas
+déclencher l'instrument que je venais de construire pour moi-même.**
+
+### Ce qui rend cette faute particulière
+
+Ce n'est pas un défaut de code : le déclencheur marche, et un humain s'en sert en
+deux clics. C'est une **affirmation de capacité livrée sans mesure**, dans un
+dépôt dont la règle d'ouverture est « vérifié ne veut pas dire écrit ».
+
+Et l'information était déjà là. Dix minutes plus tôt, dans le même tour, j'avais
+reçu :
+
+```
+POST …/actions/runs/{id}/rerun-failed-jobs → 403
+« Resource not accessible by integration »
+```
+
+J'ai lu ce 403 comme « le rejeu n'est pas accessible », et j'en ai conclu qu'il
+fallait un autre chemin — sans voir qu'il disait quelque chose de plus général :
+**cette intégration n'écrit pas sur les Actions.** Le refus portait sur la
+famille entière, pas sur une route. J'ai construit la route voisine et je l'ai
+annoncée ouverte.
+
+> **Un refus de permission parle du DROIT, pas de la porte.** Lire « cette
+> route-ci m'est fermée » là où le message dit « je n'ai pas ce droit » conduit
+> à construire une seconde porte dans le même mur — et à la déclarer praticable
+> sans l'avoir poussée.
+
+### Le contrôle qui manquait, et il coûtait une commande
+
+Essayer le déclencheur AVANT d'écrire ce qu'il permet. Un appel, dix secondes,
+et la phrase se serait écrite juste du premier coup.
+
+C'est la version « capacité » du § 2.16 ter : on ne conclut pas qu'un mutant est
+équivalent parce que c'est plausible, on cherche l'entrée qui tranche. Ici
+l'entrée qui tranche était un `POST`.
+
+### Ce qui reste vrai, et ce qui est corrigé
+
+- **Vrai** : sans `workflow_dispatch`, la question ne peut pas être posée du
+  tout, et relancer imposait de pousser — donc de modifier le code qu'on juge.
+- **Vrai** : l'instrument fonctionne, et il est opérable en deux clics.
+- **FAUX** : qu'un agent puisse s'en servir. Corrigé dans `ci.yml`, avec les
+  deux 403 mesurés cités à l'appui.
+- **Conséquence de conduite** : devant un rouge de plateforme, un agent DIT que
+  la seconde mesure est nécessaire et qui peut la lancer. Il ne promet pas de la
+  produire lui-même.

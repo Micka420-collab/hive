@@ -50,7 +50,26 @@ name: CI
 #
 # La chasse du § « trois exécutions CI-identiques » avait déjà payé ce manque.
 # Il est réparé ici, et il ne coûte rien : un déclencheur manuel ne s'exécute
-# que lorsqu'un humain — ou un agent qui rend des comptes — le demande.
+# que lorsqu'on le demande.
+#
+# ─── QUI PEUT S'EN SERVIR, ET QUI NE PEUT PAS ────────────────────────────────
+#
+# Cette section disait « un humain — ou un agent qui rend des comptes ». La
+# seconde moitié était FAUSSE, et écrite sans avoir été essayée. Mesuré depuis,
+# deux fois, avec le même verdict :
+#
+#     POST …/actions/runs/{id}/rerun-failed-jobs   → 403
+#     POST …/actions/workflows/ci.yml/dispatches   → 403
+#     « Resource not accessible by integration »
+#
+# Un jeton d'intégration n'a pas `actions: write` ici. **Ce déclencheur est donc
+# opérable par un humain, depuis l'onglet Actions — et par personne d'autre.**
+#
+# Ça ne le rend pas inutile : la question qu'il sert à trancher (déterministe ou
+# intermittent ?) reste sans réponse sans lui, et une seconde mesure demandée en
+# deux clics vaut mieux qu'un commit vide poussé pour relancer une CI. Mais un
+# agent qui rencontre un rouge de plateforme doit le DIRE plutôt que de croire
+# pouvoir le rejouer lui-même.
 on:
   push:
     branches: [main]
