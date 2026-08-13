@@ -31,7 +31,12 @@
 set -eu
 
 NODE_MIN=24
-DEPOT="https://github.com/Micka420-collab/hive.git"
+# Le dépôt d'où l'on tire Hive. Surchargeable par l'environnement pour UNE
+# raison : éprouver l'installation SUR L'ARBRE QU'ON VIENT D'ÉCRIRE. Sans cela,
+# la CI ne pourrait vérifier que `main`, c'est-à-dire du code déjà fusionné —
+# elle dirait « l'installation marche » d'une version qui n'est pas celle qu'on
+# s'apprête à livrer. Un chemin local est un dépôt valide pour git.
+DEPOT="${HIVE_DEPOT:-https://github.com/Micka420-collab/hive.git}"
 DOSSIER="${HIVE_DIR:-$HOME/hive}"
 REF="${HIVE_REF:-main}"
 
@@ -333,6 +338,8 @@ for arg in "$@"; do
       dire ""
       dire "  --dir=CHEMIN   où installer          (défaut : \$HOME/hive)"
       dire "  --ref=REF      branche ou tag        (défaut : main)"
+      dire ""
+      dire "  HIVE_DEPOT     dépôt d'où tirer Hive (défaut : GitHub)"
       dire "  --dry-run      montre, n'écrit rien"
       dire ""
       dire "Tout autre drapeau est transmis à l'installeur de Hive"

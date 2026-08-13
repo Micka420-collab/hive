@@ -302,6 +302,59 @@ jobs:
       - name: Rejouer la suite dans trois ordres
         run: npm run tamis-ordres
 
+  # ═══ LE SEUIL, FRANCHI ══════════════════════════════════════════════════════
+  #
+  # La matrice ci-dessus exerce `install.sh --dry-run`, et rien d'autre. Or le
+  # mode sec s'arrête AVANT `npm install` — donc avant tout ce qui peut
+  # réellement échouer chez un inconnu : la résolution des dépendances, le
+  # module natif SQLite, la construction du tableau de bord, la ruche qui
+  # démarre. L'unique commande du README était exercée JUSQU'AU SEUIL, jamais
+  # franchie.
+  #
+  # ─── `--depot "$PWD"` : ON ÉPROUVE L'ARBRE QU'ON S'APPRÊTE À LIVRER ─────────
+  #
+  # Tirer de GitHub ferait vérifier `main`, c'est-à-dire du code DÉJÀ fusionné :
+  # la CI dirait « l'installation marche » d'une version qui n'est pas celle de
+  # la PR. On clone donc le dépôt local. `install.sh` clone par `--branch`, qui
+  # veut un nom — or `actions/checkout` laisse une HEAD détachée : d'où la
+  # branche posée juste avant.
+  #
+  # ─── UN SEUL SYSTÈME, ET C'EST DIT ─────────────────────────────────────────
+  #
+  # Ce pas ne tourne que sous Linux. Windows et macOS resteront exercés au
+  # SEUIL seulement, par `--dry-run`. Ce n'est pas une couverture : c'est ce
+  # qu'on peut mesurer, et le reste se dit plutôt que de se faire passer pour
+  # vérifié (`docs/ETAPES.md`, « hors d'atteinte »).
+  seuil:
+    name: L'installation en une commande va jusqu'à une ruche qui répond
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+
+      - name: Nommer la révision à éprouver
+        run: git branch -f essai-du-seuil HEAD
+
+      # 78 = « je n'ai pas pu conclure » : un service tenait le port par défaut.
+      # Sur un runner neuf ce cas ne devrait jamais arriver ; le confondre avec
+      # un rouge apprendrait à relancer plutôt qu'à lire, alors il se signale.
+      - name: L'installation, menée à son terme
+        run: |
+          set +e
+          sh scripts/essai-installation.sh --depot "$PWD" --ref essai-du-seuil
+          code=$?
+          set -e
+          if [ "$code" = 78 ]; then
+            echo "::warning::essai non concluant — le port par défaut était tenu sur le runner"
+            exit 0
+          fi
+          exit "$code"
+
   # ═══ L'IMAGE, CONSTRUITE POUR DE VRAI ═══════════════════════════════════════
   #
   # Un Dockerfile qu'on ne construit jamais est une promesse de plus que rien
