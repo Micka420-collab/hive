@@ -7078,23 +7078,28 @@ tuent.
 
 ### Ce qui reste dans `src/cli.ts`, et pourquoi ce n'est pas « équivalent »
 
-Sur les neuf survivants, six sont refermés — quatre décisions d'affichage et
-deux décisions d'envoi, toutes descendues dans des modules purs. **Trois
-restent, et aucun n'est équivalent** : ce sont de vraies gardes, dont un mutant
-change le comportement pour de bon.
+**Huit des neuf sont refermés** — six décisions d'affichage et deux décisions
+d'envoi, toutes descendues dans des modules purs. Ce que leurs mutants faisaient,
+mis bout à bout, dit assez pourquoi ça valait la peine :
 
-| Survivant                            | Ce que le mutant ferait                        |
-| ------------------------------------ | ---------------------------------------------- |
-| `avant.genre === 'refus'` (service)  | installer un service que le plan a REFUSÉ      |
-| `r.elaguees.length > 0` (sauvegarde) | annoncer « 0 plus ancienne(s) retirée(s) »     |
-| `r.billets.length === 0`             | dire « — aucun. » au-dessus d'une liste pleine |
+| Survivant                    | Ce que le mutant faisait                                    |
+| ---------------------------- | ----------------------------------------------------------- |
+| `board.nodes.length === 0`   | un tableau PLEIN disait « aucune contribution encore »      |
+| `v.sansSurface > 0`          | « 0 bulletin(s) sans diff lisible » à l'écran               |
+| `v.surfaces.length > 1`      | une surface unique annoncée comme un désaccord              |
+| `uses !== undefined`         | `--uses 3` n'atteignait jamais la ruche                     |
+| `j === 1`                    | « hier » pour 2, 29 et 364 jours                            |
+| `m.cle !== 'local'`          | le repli d'un téléchargement raté ne proposait que lui-même |
+| `res.suggestions.length > 0` | « À demander ensuite : » suivi de rien                      |
+| `r.elaguees.length > 0`      | « 0 plus ancienne(s) retirée(s) » — un ménage jamais fait   |
+| `r.billets.length === 0`     | « — aucun. » au-dessus d'une liste pleine                   |
 
-Les deux derniers se refermeront comme leurs voisins — extraire le bloc de
-rendu, muter, écrire. Le premier est d'une autre nature : ce n'est pas de
-l'affichage, c'est du CONTRÔLE DE FLUX au milieu d'une commande qui pose un
-fichier de service sur la machine. L'atteindre demande de rendre la commande
-elle-même invocable — entrées/sorties injectées, système de fichiers simulé —
-c'est-à-dire un lot à soi, pas une retouche de fin de tour.
+**UN seul reste, et il n'est pas équivalent** : `avant.genre === 'refus'`, dans
+la commande de service. Son mutant installerait un service que le plan a
+REFUSÉ. Ce n'est pas de l'affichage, c'est du CONTRÔLE DE FLUX au milieu d'une
+commande qui pose un fichier sur la machine ; l'atteindre demande de rendre la
+commande elle-même invocable — entrées/sorties injectées, système de fichiers
+simulé —, c'est-à-dire un lot à soi, pas une retouche de fin de tour.
 
 Cette ligne est écrite ici parce que ne rien dire aurait été la seule vraie
 faute : un survivant qu'on n'a ni tué ni déclaré équivalent redevient invisible

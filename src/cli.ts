@@ -46,7 +46,14 @@ import {
 } from './shared/night-shift.js';
 import { aLeDrapeau, choisirDansListe, valeurApres } from './choix-cli.js';
 import { corpsDuBillet } from './shared/cli-billet.js';
-import { depuis, lignesReponseReine, lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
+import {
+  depuis,
+  lignesMembres,
+  lignesReponseReine,
+  lignesSauvegarde,
+  lignesSurfaces,
+  lignesWaggle,
+} from './shared/cli-rendu.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -912,14 +919,11 @@ async function cmdSauvegarde(...args: string[]): Promise<void> {
     return;
   }
 
-  console.log(`\n  ✔ ${r.fichier}`);
-  console.log(`    ${taillelisible(r.octets)} — copie complète, WAL compris\n`);
-  if (r.elaguees.length > 0) {
-    console.log(`  ◦ ${r.elaguees.length} plus ancienne(s) retirée(s) — borne : ${garder}\n`);
-  }
-  if (r.restes.length > 0) {
-    console.log(`  ◦ ${r.restes.length} reste(s) d’un processus interrompu, ramassé(s)\n`);
-  }
+  // Ce qui s'affiche — y compris les deux compte-rendus qui ne doivent PAS
+  // s'écrire quand il n'y a rien à annoncer — est décidé par `lignesSauvegarde`,
+  // pur et éprouvé.
+  for (const l of lignesSauvegarde({ ...r, taille: taillelisible(r.octets) }, garder))
+    console.log(l);
 }
 
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
@@ -1090,26 +1094,12 @@ async function cmdMembres(): Promise<void> {
     }[];
   }>('/api/membres');
 
-  console.log('\n🔑 Membres (clés de nœud)');
-  if (r.noeuds.length === 0) {
-    console.log('  — aucun. Les nœuds connectés utilisent encore le token maître.');
-  }
-  for (const n of r.noeuds) {
-    const vu = n.lastSeenAt ? new Date(n.lastSeenAt).toLocaleString() : 'jamais';
-    console.log(
-      `  ${n.revoque ? '⛔' : '✔'} ${n.nodeId}  ${n.label ?? ''}  · vu ${vu}${n.revoque ? '  (RÉVOQUÉ)' : ''}`,
-    );
-  }
-
-  console.log('\n🎫 Billets');
-  if (r.billets.length === 0) console.log('  — aucun.');
-  for (const b of r.billets) {
-    const icone = { vivant: '✔', expire: '⌛', epuise: '∅', revoque: '⛔' }[b.etat] ?? '?';
-    console.log(
-      `  ${icone} ${b.id}  ${b.etat}  · ${b.usesLeft} usage(s) restant(s) · expire ${new Date(b.expiresAt).toLocaleString()}`,
-    );
-  }
-  console.log('');
+  // Les deux « — aucun. » ne se valent pas, et aucun ne doit apparaître au-dessus
+  // d'une liste pleine : la décision vit dans `lignesMembres`, pur et éprouvé.
+  // La mise en forme de la date lui est PASSÉE — `toLocaleString` dépend du
+  // fuseau et de la langue de la machine.
+  for (const l of lignesMembres(r.noeuds, r.billets, (ms) => new Date(ms).toLocaleString()))
+    console.log(l);
 }
 
 /** Exclure un membre — sans toucher aux autres. */

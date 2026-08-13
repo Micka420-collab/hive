@@ -182,3 +182,98 @@ export function lignesReponseReine(res: ReponseReine): string[] {
   }
   return lignes;
 }
+
+/** Le compte-rendu d'une sauvegarde, réduit à ce que l'affichage consulte. */
+export interface RapportSauvegarde {
+  fichier: string;
+  taille: string;
+  elaguees: readonly unknown[];
+  restes: readonly unknown[];
+}
+
+/**
+ * Les lignes d'une sauvegarde réussie.
+ *
+ * Les deux compte-rendus du bas ne s'écrivent QUE s'ils ont un nombre à
+ * annoncer : « 0 plus ancienne(s) retirée(s) » et « 0 reste(s) ramassé(s) »
+ * décriraient un ménage qui n'a pas eu lieu. Sur une commande dont le rôle est
+ * de dire ce qui a été FAIT au disque, annoncer un geste qu'on n'a pas fait est
+ * pire qu'un silence.
+ */
+export function lignesSauvegarde(r: RapportSauvegarde, garder: number): string[] {
+  const lignes = ['', `  ✔ ${r.fichier}`, `    ${r.taille} — copie complète, WAL compris`, ''];
+  if (r.elaguees.length > 0) {
+    lignes.push(`  ◦ ${r.elaguees.length} plus ancienne(s) retirée(s) — borne : ${garder}`, '');
+  }
+  if (r.restes.length > 0) {
+    lignes.push(`  ◦ ${r.restes.length} reste(s) d’un processus interrompu, ramassé(s)`, '');
+  }
+  return lignes;
+}
+
+/** Une clé de nœud, réduite à ce que l'affichage consulte. */
+export interface LigneMembre {
+  nodeId: string;
+  label: string | null;
+  lastSeenAt: number | null;
+  revoque: boolean;
+}
+
+/** Un billet d'invitation, réduit à ce que l'affichage consulte. */
+export interface LigneBillet {
+  id: string;
+  etat: string;
+  usesLeft: number;
+  expiresAt: number;
+}
+
+const ICONES_BILLET: Record<string, string> = {
+  vivant: '✔',
+  expire: '⌛',
+  epuise: '∅',
+  revoque: '⛔',
+};
+
+/**
+ * Les lignes de « qui peut entrer » : les clés de nœud, puis les billets.
+ *
+ * ─── LES DEUX « — aucun. » NE SE VALENT PAS ──────────────────────────────────
+ *
+ * Celui des NŒUDS dit une conséquence de sécurité : pas de clé par nœud veut
+ * dire que tout le monde entre encore avec le jeton maître, celui qui ne se
+ * révoque pas individuellement. Celui des BILLETS ne dit qu'une absence.
+ *
+ * Les deux doivent apparaître SEULEMENT quand la liste est vide : un « — aucun. »
+ * au-dessus d'une liste pleine est un mensonge que l'œil ne rattrape pas — on
+ * lit la phrase, on referme.
+ *
+ * `dateHumaine` est un paramètre : `toLocaleString` dépend du fuseau et de la
+ * langue de la machine, et un banc qui la lirait parierait sur le runner.
+ */
+export function lignesMembres(
+  membres: readonly LigneMembre[],
+  billets: readonly LigneBillet[],
+  dateHumaine: (ms: number) => string,
+): string[] {
+  const lignes = ['', '🔑 Membres (clés de nœud)'];
+  if (membres.length === 0) {
+    lignes.push('  — aucun. Les nœuds connectés utilisent encore le token maître.');
+  }
+  for (const n of membres) {
+    const vu = n.lastSeenAt ? dateHumaine(n.lastSeenAt) : 'jamais';
+    lignes.push(
+      `  ${n.revoque ? '⛔' : '✔'} ${n.nodeId}  ${n.label ?? ''}  · vu ${vu}${n.revoque ? '  (RÉVOQUÉ)' : ''}`,
+    );
+  }
+
+  lignes.push('', '🎫 Billets');
+  if (billets.length === 0) lignes.push('  — aucun.');
+  for (const b of billets) {
+    const icone = ICONES_BILLET[b.etat] ?? '?';
+    lignes.push(
+      `  ${icone} ${b.id}  ${b.etat}  · ${b.usesLeft} usage(s) restant(s) · expire ${dateHumaine(b.expiresAt)}`,
+    );
+  }
+  lignes.push('');
+  return lignes;
+}
