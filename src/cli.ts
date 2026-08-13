@@ -634,7 +634,7 @@ async function cmdDesinstaller(...args: string[]): Promise<void> {
 async function cmdService(...args: string[]): Promise<void> {
   const { CODE } = await import('./codes-sortie.js');
   const svc = await import('./service-reel.js');
-  const { AVERTISSEMENT_LINGER, codeJournal, planifier, rendreGestes } =
+  const { AVERTISSEMENT_LINGER, avantDePoser, codeJournal, planifier, rendreGestes } =
     await import('./shared/service.js');
 
   const sous = args.find((a) => !a.startsWith('--')) ?? 'status';
@@ -706,9 +706,13 @@ async function cmdService(...args: string[]): Promise<void> {
     // duplication : ce texte n'existe qu'à un seul endroit — le module pur, où
     // il est testé. La loupe avait fait survivre un `if (niveau === 'systeme')`
     // ici, sur une bannière qui redisait ce que le plan disait déjà.
-    const avant = planifier(ctx);
-    if (avant.genre === 'refus') return dire(avant);
-    for (const a of avant.avertissements) console.log(`\n  ⚠ ${a}`);
+    // « On ne pose rien quand le plan refuse, et les avertissements précèdent
+    // l'action » : l'invariant vit dans `avantDePoser`, pur et éprouvé. Ici il
+    // ne reste que l'impression — c'était la dernière décision de ce fichier
+    // qu'aucun banc ne pouvait atteindre.
+    const suite = avantDePoser(planifier(ctx));
+    if (!suite.poser) return dire({ motif: suite.motif });
+    for (const a of suite.avertissements) console.log(`\n  ⚠ ${a}`);
 
     const r = svc.installer(ctx);
     if ('motif' in r) return dire(r);

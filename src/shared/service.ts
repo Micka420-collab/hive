@@ -583,6 +583,39 @@ function planWindows(ctx: Contexte): Plan | Refus {
  * Le fichier, les commandes, et ce qu'il faut savoir avant. La moitié impure
  * (`src/service-reel.ts`) se contente d'exécuter ce plan.
  */
+/**
+ * Ce qu'il faut faire d'un plan AVANT de poser quoi que ce soit sur la machine.
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE ──────────────────────────────────────────
+ *
+ * `planifier` est pure et éprouvée. Son EMPLOI ne l'était pas : la commande de
+ * service décidait sur place, dans `src/cli.ts`, un fichier qui n'exporte rien.
+ * Un balayage élargi y a montré `avant.genre === 'refus'` muté en `!==` sans
+ * qu'une seule assertion bouge — et c'est le survivant le plus lourd des neuf :
+ *
+ *   · un plan VALIDE serait pris pour un refus, et `dire(avant)` afficherait
+ *     `undefined` en guise de motif ;
+ *   · un REFUS traverserait, et `installer()` poserait sur la machine un
+ *     fichier de service que le plan venait d'interdire — celui-là même dont le
+ *     motif est « selon le format, cette valeur y ajouterait une directive ».
+ *
+ * L'invariant tient en une phrase, et c'est elle qu'on éprouve : **on ne pose
+ * rien quand le plan refuse, et les avertissements précèdent l'action.**
+ *
+ * Les avertissements viennent AVANT parce que les afficher après reviendrait à
+ * prévenir quelqu'un d'une conséquence qu'il vient de subir : que le niveau
+ * système réclame l'administrateur, que `systemd --user` s'arrête à la
+ * fermeture de session.
+ */
+export type AvantDePoser =
+  | { readonly poser: false; readonly motif: string }
+  | { readonly poser: true; readonly avertissements: readonly string[] };
+
+export function avantDePoser(plan: Plan | Refus): AvantDePoser {
+  if (plan.genre === 'refus') return { poser: false, motif: plan.motif };
+  return { poser: true, avertissements: plan.avertissements };
+}
+
 export function planifier(ctx: Contexte): Plan | Refus {
   // ─── ON REFUSE PLUTÔT QUE D'ÉCHAPPER L'INÉCHAPPABLE ────────────────────────
   //

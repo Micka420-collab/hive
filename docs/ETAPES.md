@@ -5787,8 +5787,13 @@ arbre cassé → CODE=1 · le journal dit « Dashboard : http://127.0.0.1:7778 �
 ```
 
 **Ce qui n'est PAS couvert, et se dit :** ce travail ne tourne que sous Linux.
-Windows et macOS restent exercés **au seuil seulement**, par `--dry-run`. Le
-critère 1 est donc mesuré sur un système sur trois — pas sur trois.
+Windows et macOS restent exercés **au seuil seulement**, par `--dry-run`.
+
+_Depuis, un rapport de terrain a mené l'installation à son terme sur une vraie
+machine Windows 11 (§ 3). Le critère 1 se lit donc : **mesuré en continu sous
+Linux, mesuré une fois sous Windows, jamais sous macOS.** Pas trois sur trois,
+et pas non plus un sur trois — la formulation exacte compte plus que le
+raccourci._
 
 **Un défaut trouvé en chemin, non corrigé, consigné :** l'installeur sonde
 `PORT_DEFAUT`, pas le port qu'il va réellement écrire. Sur une réinstallation
@@ -5864,10 +5869,30 @@ sans ce mot-là.
 - **npm (lot 7) et GHCR/cosign (lot 10)** : comptes qui ne sont pas les miens.
   Le code est prêt, la publication non. Bonne nouvelle mesurée en 2.1 : ça ne
   bloque pas l'installation.
-- **Une machine Windows 11 et une macOS réelles.** L'installation complète est
-  désormais mesurée sous Linux, à chaque PR (§ 2.1). Sur les deux autres, elle
-  s'arrête au seuil : le runner GitHub y lance `--dry-run`, et personne ici n'a
-  de quoi aller plus loin. Un système sur trois, dit comme tel.
+- **Une machine macOS réelle.** L'installation complète est mesurée sous Linux à
+  chaque PR (§ 2.1) ; sous macOS elle s'arrête au seuil (`--dry-run`), et
+  personne ici n'a de quoi aller plus loin.
+
+  **Windows n'est plus dans cette liste, et c'est le terrain qui l'en a sorti.**
+  Une installation réelle sur Windows 11 / Node 26 a été rapportée, et elle est
+  allée jusqu'au bout : clone, dépendances, module natif, écran d'accueil,
+  `.env` en 0600, premier projet. Ce que la CI vérifie a tenu sur une vraie
+  machine de bureau.
+
+  Elle a aussi trouvé ce qu'aucune de nos courses ne pouvait trouver — la
+  PREMIÈRE commande de l'écran de fin ne marchait pas là-bas (§ 9 duosexagies) :
+  le shell n'est plus dans le dossier de la ruche, et `npm` passe par un
+  `npm.ps1` que la stratégie d'exécution refuse. Corrigé, et gardé par des bancs
+  qui nomment leur plateforme.
+
+  Ce que ça change pour la sortie : le critère 1 n'est plus « mesuré sur un
+  système sur trois » mais **« mesuré en continu sur Linux, mesuré une fois sur
+  Windows, jamais sur macOS »**. C'est plus fort qu'hier, et ce n'est toujours
+  pas trois sur trois — il faut le dire dans cet ordre.
+
+  Un rapport de terrain vaut mille exécutions de CI, parce qu'il est le seul à
+  contenir le pas que personne n'a pensé à automatiser.
+
 - **Le démarrage effectif du service** : demande un bus de session utilisateur.
 - **L'intermittent d'origine** : jamais reproduit, invisible en huit ordres
   mélangés et trois exécutions identiques. Pas fermé — introuvable d'ici.
