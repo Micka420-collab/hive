@@ -7465,3 +7465,56 @@ et rien dans son résultat ne le signale.
 Corollaire, applicable à tout le tableau de bord : **compter les sites avant
 d'écrire le banc**. Cinq occurrences de la même ligne, c'est cinq mutations à
 jouer, pas une.
+
+## 9 septuagies. Un crochet qui dit « commite tes changements » pendant qu'un instrument tient une mutation est un piège — et j'ai créé la fenêtre moi-même
+
+`npm run loupe` lancée dans l'arbre **principal** pour éprouver une PR avant
+fusion. Trente secondes plus tard, le crochet de fin de tour :
+
+> There are uncommitted changes in the repository. Please commit and push these
+> changes to the remote branch.
+
+Et de fait, `git status` montrait un fichier modifié :
+
+```diff
+-    const estActif = p.id === actif;
++    const estActif = p.id !== actif;
+```
+
+C'était la garde que je venais d'éprouver **ce tour-là**, retournée par la loupe
+pendant qu'elle jouait la suite dessus. Obéir au crochet aurait commité — et
+poussé — une garde délibérément cassée, sous un message de commit qui affirme
+l'avoir défendue.
+
+### Les deux gestes qui auraient aggravé, et pourquoi
+
+1. **Commiter.** Le fichier « modifié » n'est pas un travail en attente, c'est
+   l'état transitoire d'une mesure en cours. Un arbre sale n'est pas toujours un
+   arbre à ranger.
+2. **Tuer la loupe pour nettoyer.** C'est le § 9 octoquinquagies mot pour mot :
+   la restauration vit dans un `finally`, donc un processus tué laisse la
+   mutation EN PLACE. Le geste « je nettoie » est exactement celui qui salit.
+
+Le bon geste est le troisième, et il ne ressemble pas à une action : **attendre
+la fin de l'instrument**, puis vérifier que l'arbre est redevenu propre et que
+le verrou est libéré.
+
+### La faute qui précède, et c'est elle qui compte
+
+Rien de tout cela n'aurait eu lieu si j'avais lancé la loupe dans un **atelier
+détaché**, comme je le fais depuis le § 9 octoquinquagies — et comme je l'avais
+fait une heure plus tôt dans le même tour, pour le balayage élargi. Pour un
+diff court, j'ai jugé le `git worktree add` disproportionné et tapé
+`npm run loupe` à la racine.
+
+C'est un raisonnement en coût, appliqué à une règle de sûreté. La règle ne dit
+pas « quand c'est long » : elle dit que **muter dans l'arbre où l'on commite
+crée une fenêtre pendant laquelle le dépôt ment sur son propre contenu**. Une
+fenêtre de deux minutes est une fenêtre. Ce qui la rend dangereuse n'est pas sa
+durée, c'est ce qui peut tomber dedans — un crochet, une coupure, un autre
+processus, moi.
+
+> **La règle** — la loupe se joue TOUJOURS dans un atelier détaché, quelle que
+> soit la taille du diff. Et un avertissement automatique qui décrit un arbre
+> sale ne dit pas d'où vient la saleté : avant d'obéir, on regarde le diff et on
+> demande qui le tient.
