@@ -110,6 +110,15 @@ describe('les méthodes d’installation', () => {
     expect(apt(linuxArm), 'sur arm64, aucune moitié ne parle d’amd64').not.toContain('amd64');
     expect(apt(linux)).toContain('amd64.deb');
     expect(apt(linux), 'sur x64, aucune moitié ne parle d’arm64').not.toContain('arm64');
+
+    // ET LE CONNECTEUR ENTRE LES DEUX MOITIÉS. Le balayage élargi a montré
+    // qu'on pouvait passer `&&` à `||` sans qu'une assertion bouge : la
+    // commande devient alors « télécharge, et si ça ÉCHOUE, installe ». Un
+    // téléchargement réussi n'installerait donc rien, et l'étape se
+    // présenterait comme faite. C'est une ligne que quelqu'un copie et lance
+    // avec `sudo` — elle ne peut pas être approximative.
+    expect(apt(linux), 'les deux moitiés s’enchaînent sur un succès').toContain('.deb && sudo');
+    expect(apt(linux), 'jamais « si le téléchargement échoue, installe »').not.toContain('||');
   });
 
   it('une plateforme non couverte ne propose pas de binaire fantôme', () => {
@@ -141,6 +150,41 @@ describe('le nom d’hôte du tunnel nommé', () => {
     ]) {
       expect(hoteValide(h), JSON.stringify(h)).toBe(false);
     }
+  });
+
+  // ─── LA BORNE ELLE-MÊME, DES DEUX CÔTÉS ─────────────────────────────────────
+  //
+  // Le cas ci-dessus, `'x'.repeat(254)`, ne dit RIEN de la borne : il est refusé
+  // parce qu'il n'a pas de point, donc moins de deux labels. Il aurait été
+  // refusé tout autant à 10 caractères. Un balayage élargi de `src/node-client`
+  // l'a montré sans détour — `hote.length > 253` mutée en `>= 253` restait
+  // verte (§ 9 unquinquagies : un test qui refuse « bien au-delà » de la borne
+  // ne dit rien de la borne, et refuser pour une AUTRE raison encore moins).
+  //
+  // Les deux noms ci-dessous ne diffèrent que par UN caractère, et passent
+  // toutes les autres gardes : labels de 63 au plus, alphanumériques, quatre
+  // labels. Seule la longueur totale les sépare.
+  const hoteDeLongueur = (n: number): string => {
+    // 63 + 1 + 63 + 1 + 63 + 1 = 192 ; le dernier label complète.
+    const dernier = n - 192;
+    return ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(dernier)].join('.');
+  };
+
+  it('253 CARACTÈRES PASSENT, 254 NON — la borne, pas « bien au-delà »', () => {
+    const juste = hoteDeLongueur(253);
+    const unDeTrop = hoteDeLongueur(254);
+
+    // Les prémisses : sans elles, un test vert ne prouverait que sa propre
+    // arithmétique.
+    expect(juste.length, 'la prémisse : le nom fait bien 253').toBe(253);
+    expect(unDeTrop.length, 'la prémisse : le nom fait bien 254').toBe(254);
+    expect(
+      unDeTrop.split('.').every((l) => l.length <= 63),
+      'la prémisse : aucun label ne dépasse 63, seule la longueur TOTALE fautive',
+    ).toBe(true);
+
+    expect(hoteValide(juste), '253 est la dernière longueur acceptable').toBe(true);
+    expect(hoteValide(unDeTrop), '254 est la première refusée').toBe(false);
   });
 });
 

@@ -6853,3 +6853,48 @@ ici ; quand elles ne le sont pas, le survivant est équivalent et se consigne.
 > les trancher. Trois survivants n'appelaient pas trois tests — un seul en
 > appelait un, et écrire les deux autres aurait ajouté du décor tout en donnant
 > l'impression d'avoir refermé trois trous.
+
+### Deuxième tiers : la borne refusée POUR UNE AUTRE RAISON
+
+`hoteValide` refuse un nom d'hôte au-delà de 253 caractères. Le banc avait bien
+un cas long — et il ne disait rien de la borne :
+
+```ts
+'x'.repeat(254),          // refusé… parce qu'il n'a AUCUN point
+```
+
+Moins de deux labels : ce nom aurait été refusé tout autant à dix caractères. La
+mutation `> 253` → `>= 253` restait donc verte, et `> 254` aussi. C'est le
+§ 9 unquinquagies aggravé d'un cran : non seulement le cas était « bien au-delà »
+de la borne, mais il échouait sur une garde ENTIÈREMENT DIFFÉRENTE — un vert qui
+ne mesure même pas ce qu'on croit qu'il mesure.
+
+Le remède est un couple qui ne diffère que d'un caractère et passe toutes les
+autres gardes (quatre labels, aucun au-delà de 63, alphanumériques). Avec ses
+prémisses affirmées, sans quoi un vert ne prouverait que sa propre arithmétique :
+
+```
+`> 253` → `>= 253`  →  « 253 est la dernière longueur acceptable » : expected false to be true
+`> 253` → `> 254`   →  « 254 est la première refusée » : expected true to be false
+```
+
+### Et un `&&` qui n'était pas du JavaScript
+
+```ts
+`curl -fsSLO …${arch}.deb` + ` && sudo dpkg -i …${arch}.deb`;
+```
+
+La loupe mute le texte comme le code, et ce `&&`-ci vit dans une chaîne : c'est
+du SHELL. Le banc voisin vérifiait déjà les deux moitiés de la commande — il
+avait été écrit pour ça, après qu'un `toContain('arm64.deb')` s'était laissé
+satisfaire par la moitié `curl` seule. Mais il ne regardait pas CE QUI LES RELIE.
+
+Muté en `||`, la ligne devient « télécharge, et si ça ÉCHOUE, installe » : un
+téléchargement réussi n'installe alors rien, et l'étape se présente comme faite.
+C'est une ligne que quelqu'un copie et lance avec `sudo`.
+
+> **La règle (suite)** — une candidate dans une chaîne de caractères n'est pas
+> d'office du décor (§ 9 novemquadragies). Il faut demander ce que la chaîne
+> DEVIENT : un message affiché, oui, c'est du décor ; une commande qu'un humain
+> exécutera, non — c'est du code qui tourne ailleurs, et son connecteur porte
+> autant de sens que n'importe quel `if`.
