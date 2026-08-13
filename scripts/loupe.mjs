@@ -235,12 +235,53 @@ export function cheminsDuBalayage(brut) {
  * devinette qui se trompe ÉCARTE du code réel — le mensonge rassurant, le pire
  * des deux. Deux faux survivants sur dix, jugés à la main en dix secondes,
  * coûtent moins cher qu'une nudité tue.
+ *
+ * ─── POURQUOI LE NOM DU FICHIER, ET PAS SEULEMENT LE TEXTE ───────────────────
+ *
+ * La version précédente ne prenait que `texte`, et elle a été corrigée POUR LE
+ * JSX parce que c'est du JSX que je regardais ce jour-là. Le balayage suivant,
+ * sur `scripts/`, a rendu ceci :
+ *
+ *     🔴 SANS TEST · scripts/essai-installation.sh · < → <=
+ *                # < 60 s ») avait été mesuré sur un dépôt DÉJÀ cloné
+ *
+ * Un commentaire SHELL. Le périmètre par défaut de la loupe contient `scripts/`
+ * depuis toujours, et `scripts/` contient du shell et du PowerShell : le filtre
+ * n'a jamais connu qu'une seule famille de langages. Corriger `{/*` sans se
+ * demander « et dans les autres langages du périmètre ? », c'était réparer
+ * l'instance sous les yeux plutôt que la classe.
+ *
+ * ET `#` NE PEUT PAS ÊTRE AJOUTÉ À LA LISTE COMMUNE. En TypeScript moderne,
+ * `#compteur = 0` est un CHAMP PRIVÉ — du code exécutable, qui porte des
+ * comparaisons comme n'importe quel autre. Un `^\s*#` global écarterait du code
+ * réel : cette fois-ci le mensonge serait le RASSURANT, celui qui cache. Le
+ * marqueur de commentaire est une propriété du LANGAGE, donc la décision a
+ * besoin de savoir dans quel fichier elle se prend.
+ *
+ * Un fichier inconnu retombe sur la famille C/JS — la plus large et la plus
+ * prudente : elle n'écarte que ce qui est du commentaire dans presque tous les
+ * langages qu'on écrira ici.
+ *
+ * @param {string} texte  la ligne, sans le `+` du diff
+ * @param {string} [fichier]  son chemin, pour connaître le langage
  */
-export function ligneMutable(texte) {
+export function ligneMutable(texte, fichier = '') {
   if (texte.trim() === '') return false;
-  // `{/*` d'abord : c'est celui qui manquait, et il est le plus fréquent ici.
-  return !/^\s*(\{\/\*|\/\/|\*|\/\*)/.test(texte);
+  // `{/*` d'abord : c'est celui qui manquait au tableau de bord.
+  if (/^\s*(\{\/\*|\/\/|\*|\/\*)/.test(texte)) return false;
+  // `#` ne vaut QUE là où il ouvre un commentaire. Ailleurs il porte du code.
+  if (DIESE_COMMENTE.test(fichier) && /^\s*#/.test(texte)) return false;
+  return true;
 }
+
+/**
+ * Les fichiers où `#` ouvre un commentaire : shell, PowerShell, YAML, Docker,
+ * et les fichiers sans extension du dossier `scripts` (des scripts shell à
+ * shebang). Volontairement une liste FERMÉE : ajouter une extension est un
+ * geste conscient, alors qu'une règle « tout ce qui n'est pas du JS » finirait
+ * par écarter du code d'un langage auquel personne n'aura pensé.
+ */
+const DIESE_COMMENTE = /\.(sh|bash|zsh|ps1|psm1|ya?ml|toml|conf)$|(^|\/)Dockerfile[^/]*$/i;
 
 function lignesAjoutees() {
   const diff = execFileSync(
@@ -262,8 +303,9 @@ function lignesAjoutees() {
     }
     if (!fichier || !ligne.startsWith('+') || ligne.startsWith('+++')) continue;
     const texte = ligne.slice(1);
-    // Les commentaires ne s'exécutent pas : les muter ne prouverait rien.
-    if (!ligneMutable(texte)) continue;
+    // Les commentaires ne s'exécutent pas : les muter ne prouverait rien. Le
+    // NOM du fichier accompagne le texte — `#` commente en shell, pas en TS.
+    if (!ligneMutable(texte, fichier)) continue;
     if (!par.has(fichier)) par.set(fichier, []);
     par.get(fichier).push(texte);
   }

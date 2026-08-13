@@ -323,3 +323,47 @@ describe('la loupe ne mute pas les commentaires — y compris ceux du JSX', () =
     expect(ligneMutable('  {liste.map((x) => x.id === actif && <li />)}')).toBe(true);
   });
 });
+
+// ─── LE MARQUEUR DE COMMENTAIRE DÉPEND DU LANGAGE ────────────────────────────
+//
+// La garde `{/*` ci-dessus a été posée en regardant du JSX. Le balayage suivant,
+// sur `scripts/` (46 candidates, 46 examinées), a rendu une ligne de commentaire
+// SHELL comme « code neuf que rien ne défend » :
+//
+//     # < 60 s ») avait été mesuré sur un dépôt DÉJÀ cloné
+//
+// `scripts/` est dans le périmètre par défaut depuis toujours, et il contient du
+// shell. Le filtre n'avait jamais connu qu'une famille de langages : la première
+// correction réparait l'instance sous les yeux, pas la classe.
+//
+// LES DEUX SENS DE L'ERREUR SONT ÉPROUVÉS ICI, et ce n'est pas symétrique :
+// rater un commentaire shell coûte une suite entière pour rien (mensonge
+// ALARMANT) ; écarter un champ privé `#compteur` cacherait une garde réelle
+// (mensonge RASSURANT, le pire). Le second banc est donc le plus important.
+
+describe('le marqueur de commentaire suit le langage du fichier', () => {
+  it('LE CAS MESURÉ : `#` commente en shell — la ligne n’est pas mutable', () => {
+    const ligne = '# < 60 s ») avait été mesuré sur un dépôt DÉJÀ cloné';
+    expect(ligneMutable(ligne, 'scripts/essai-installation.sh')).toBe(false);
+    expect(ligneMutable('  # commentaire indenté', 'scripts/x.ps1')).toBe(false);
+    expect(ligneMutable('# clé: valeur', '.github/workflows/ci.yml')).toBe(false);
+  });
+
+  it('L’AUTRE SENS, CELUI QUI CACHE : `#` porte du CODE en TypeScript', () => {
+    // `#compteur` est un champ privé. L’écarter tairait une garde réelle —
+    // exactement le mensonge rassurant que la loupe existe pour empêcher.
+    expect(ligneMutable('  #total = a === b;', 'src/orchestrator/store.ts')).toBe(true);
+    expect(ligneMutable('  #total = a === b;', 'dashboard/src/api.ts')).toBe(true);
+  });
+
+  it('un fichier INCONNU retombe sur la famille C/JS, la plus prudente', () => {
+    // Sans extension connue, on ne suppose pas que `#` commente.
+    expect(ligneMutable('  #champ = 1;', 'scripts/machin')).toBe(true);
+    expect(ligneMutable('  // vrai commentaire', 'scripts/machin')).toBe(false);
+  });
+
+  it('la garde JSX tient toujours, quel que soit le fichier', () => {
+    expect(ligneMutable('  {/* consigné */}', 'dashboard/src/views/Balance.tsx')).toBe(false);
+    expect(ligneMutable('  if (a === b) {', 'scripts/essai-installation.sh')).toBe(true);
+  });
+});
