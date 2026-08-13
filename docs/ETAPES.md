@@ -5812,6 +5812,33 @@ Trois choses réparées du même coup : la sonde vise la bonne porte, le rapport
 supervision surveillait ailleurs), et un `HIVE_PORT` illisible se dit au lieu
 d'être ignoré. Leçon au carnet, § 9 novemquinquagies.
 
+### 2.1 bis — Le reste du balayage : mesuré sur HEAD, pas cru sur parole
+
+Trois items traînaient de liste en liste. Aucun n'a été pris pour argent
+comptant ; les trois ont été mutés sur HEAD. **Un seul demandait un geste, et ce
+n'était pas celui que la liste suggérait.**
+
+| Item                               | Verdict mesuré                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `server.ts` — `taskId && nodeId`   | **déjà défendu** — `inspectionDeProduction`, mutant `&&` → `\|\|` : 2 cas rouges                       |
+| Cerveau — le glisser au canevas    | **injouable, et mesuré** — happy-dom rend `getContext('2d') → null`, rect `0×0`                        |
+| Balance — `arme && cible !== null` | **une moitié vive, une équivalente** — `arme` retiré : 1 rouge ; `cible !== null` neutralisé : 3 verts |
+
+Le glisser ne se simulera pas : sans contexte 2D ni géométrie, un `mousemove`
+de banc ne jouerait que ses propres bouchons. Les trois décisions qu'il porte
+sont déjà sorties du composant (`priseAuDoigt`, `deplacementDuGlisse`,
+`selectionAuRelacher`), pures et éprouvées hors canevas — c'est tout ce qu'on
+peut tenir, et ça se dit plutôt que de se maquiller.
+
+L'équivalence de la Balance est consignée SUR PLACE avec ses deux verdicts, pas
+retirée : elle porte le rétrécissement de type qui autorise `formatDuree(cible)`
+en dessous. Leçon au carnet, § 9 sexagies.
+
+Deux points de la liste du jour étaient périmés eux aussi, et le sont depuis
+plus longtemps : `getSnapshot()` **a** une limite (`LIMITE_TACHES_INSTANTANE`,
+paramètre par défaut) et la table `tasks` **a** son élagueur (`pruneTasks`, avec
+les bornes référentielles câblées derrière lui).
+
 ### 2.2 — Le service est ACCEPTÉ, il n'est pas DÉMARRÉ (lot 9)
 
 `systemd-analyze verify`, `plutil -lint` et `schtasks /Create /XML` valident les

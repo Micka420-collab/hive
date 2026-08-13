@@ -6714,3 +6714,76 @@ démarrait ensuite sur on ne sait quoi. `portRetenu` rend `null`, et l'écran le
 dit : « HIVE_PORT=abc — valeur illisible ». Retomber sur le défaut aurait sondé
 une porte que personne n'a demandée et l'aurait déclarée libre : un vert
 emprunté, la pire des réponses.
+
+---
+
+## 9 sexagies. Trois « restes de balayage » repris de liste en liste — deux étaient déjà faits, le troisième était équivalent
+
+Une liste de points ouverts se recopie d'un tour à l'autre plus vite qu'elle ne
+se vérifie. Trois items y figuraient depuis plusieurs tours ; aucun n'a été cru
+sur parole, tous ont été MESURÉS sur HEAD. Résultat : un seul demandait un
+geste, et ce n'était pas celui qu'on croyait.
+
+### 1. `server.ts` — `find` sur `taskId && nodeId` : DÉJÀ DÉFENDU
+
+La recherche vit dans `inspectionDeProduction` (`gardiennes.ts`), extraite pour
+être tenue en un seul endroit — deux copies, route HTTP et livraison autonome,
+pouvaient dériver. Mutant `&&` → `||` :
+
+```
+2 cas rouges — « la tâche doit correspondre » et « l’ouvrière doit correspondre »
+               expected 'hollow' to be 'clean'
+39 verts après restauration
+```
+
+Les deux moitiés sont nommées par leur banc. Rien à faire.
+
+### 2. Le glisser au canevas du Cerveau : INJOUABLE, et c'est mesuré
+
+Les trois décisions du glisser sont déjà sorties du composant — `priseAuDoigt`,
+`deplacementDuGlisse`, `selectionAuRelacher` — pures et éprouvées hors canevas.
+Ce qui reste dans `Cerveau.tsx` est de la tuyauterie : `sous()`, `auGraphe()`,
+la mutation de `corps.current`.
+
+Ce reste ne peut pas être joué sous banc, et la raison se mesure plutôt que de
+s'affirmer :
+
+```
+happy-dom · canvas.getContext('2d')      → null
+happy-dom · getBoundingClientRect()      → 0×0 @ 0,0
+```
+
+Sans contexte 2D et sans géométrie, un `mousemove` simulé ne peut ni trouver le
+corps sous le curseur ni vérifier où il atterrit. Un banc qui « jouerait » ce
+glisser ne jouerait que ses propres bouchons.
+
+**On le DIT plutôt que de le simuler.** C'est la seule réponse honnête, et elle
+est déjà écrite dans les gestionnaires : « les booléens sont NUS à dessein —
+aucune comparaison ne retombe dans ce gestionnaire injouable sous banc ».
+
+### 3. Balance — `arme && cible !== null` : une moitié vive, une moitié équivalente
+
+Deux mutants opposés, et ils ne disent pas la même chose :
+
+```
+`arme` retiré               → 1 cas rouge (« au repos, aucun avertissement
+                               d’engagement » : expected <p …> to be null)
+`cible !== null` neutralisé → 3 verts — SURVIVANT
+```
+
+Le survivant est ÉQUIVALENT, et la preuve est structurelle : `arme` ne devient
+vrai que dans `poser`, qui rend la main tôt quand `cible === null` ; et `cible`
+ne dépend que de `saisie`, dont le `onChange` DÉSARME. Aucune entrée ne
+distingue l'original du mutant.
+
+**Mais on ne la retire pas**, contrairement à la branche morte du § 2.16 ter.
+La différence compte : ce `cible !== null` n'est pas du décor, c'est le
+rétrécissement de type qui autorise `formatDuree(cible)` juste en dessous. La
+retirer casserait la compilation. Elle se consigne donc SUR PLACE, avec les
+deux verdicts, pour que le prochain balayage ne rouvre pas l'enquête.
+
+> **La règle** — un item de liste n'est pas un fait. Avant de prendre le geste
+> qu'il suggère, le mesurer sur HEAD : ici, deux items sur trois étaient déjà
+> clos, et le seul vivant demandait le contraire de ce que la liste laissait
+> croire (consigner, pas écrire un test). Une liste qu'on recopie sans mesurer
+> finit par décrire un dépôt qui n'existe plus.

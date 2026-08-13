@@ -704,6 +704,23 @@ function ControlePlafond({
               {t('Annuler', 'Cancel')}
             </button>
           </div>
+          {/* ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas être faux ici
+              (§ 2.16 ter). `arme` ne devient vrai que dans `poser`, qui rend la
+              main tôt quand `cible === null` ; et `cible` ne dépend que de
+              `saisie`, dont le `onChange` DÉSARME. Il n'existe donc aucune
+              entrée qui distingue l'original du mutant.
+
+              On la garde quand même : ce n'est pas du décor, c'est le
+              rétrécissement de type qui autorise `formatDuree(cible)` juste
+              en dessous. La retirer casserait la compilation, pas seulement
+              la lecture.
+
+              Mesuré, deux mutants opposés :
+                `arme` retiré            → 1 cas rouge (le banc BALANCE
+                                            « le geste ARMÉ dit ce qu'il va
+                                            faire » : au repos, l'avertissement
+                                            ne doit pas exister)
+                `cible !== null` neutralisé → 3 verts, survivant équivalent */}
           {arme && cible !== null && (
             <p className="bal-plafond-avert" role="status">
               {t(
