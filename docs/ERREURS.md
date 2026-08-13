@@ -7518,3 +7518,102 @@ processus, moi.
 > soit la taille du diff. Et un avertissement automatique qui décrit un arbre
 > sale ne dit pas d'où vient la saleté : avant d'obéir, on regarde le diff et on
 > demande qui le tient.
+
+## 9 unseptuagies. J'ai corrigé la langue que je regardais, pas la classe de défaut — et le balayage suivant me l'a rendu en deux heures
+
+Le § 9 octosexagies raconte la loupe mutant sa propre prose : des lignes de
+commentaire JSX rendues « code neuf que rien ne défend ». Correction posée,
+éprouvée, fusionnée — `{/*` rejoint `//`, `*` et `/*` dans le filtre.
+
+Deux heures plus tard, balayage sur `scripts/`, jamais vu jusque-là :
+
+```
+🔴 SANS TEST · scripts/essai-installation.sh · < → <=
+           # < 60 s ») avait été mesuré sur un dépôt DÉJÀ cloné
+```
+
+Un commentaire **shell**. Le même défaut, dans une autre langue, sur un terrain
+qui est dans le périmètre par défaut de la loupe **depuis le premier jour**.
+
+### Ce qui était fautif dans la correction précédente
+
+Pas le code : `{/*` était juste, sûr et nécessaire. Ce qui manquait est une
+question, et elle tient en huit mots : **« et dans les autres langages du
+périmètre ? »**
+
+`PORTEE_PAR_DEFAUT` vaut `['src', 'dashboard/src', 'scripts']`. Le troisième
+n'est pas du TypeScript — c'est du shell, du PowerShell, du YAML. L'information
+était sur la même page du même fichier, à quarante lignes de la fonction que je
+corrigeais. Je ne l'ai pas lue parce que je regardais un survivant JSX, et que
+le survivant JSX était expliqué.
+
+> **Un filtre qui traverse plusieurs langages ne se corrige pas dans la langue
+> du symptôme.** Quand on répare une règle, la question n'est pas « ce cas-ci
+> est-il couvert ? » mais « quel est l'ENSEMBLE sur lequel cette règle
+> s'applique, et l'ai-je parcouru ? ».
+
+### Le piège de la correction évidente, et pourquoi il fallait résister
+
+`#` ouvre un commentaire en shell. Le geste réflexe est de l'ajouter à la liste :
+une alternance de plus, trois caractères, fini.
+
+Il aurait été FAUX. En TypeScript moderne, `#compteur = 0` est un **champ
+privé** — du code exécutable, qui porte des comparaisons comme n'importe quelle
+autre ligne. Un `^\s*#` global aurait écarté du code réel, en silence.
+
+Et ce n'est pas une erreur du même genre que celle qu'on soigne. Muter un
+commentaire ment dans le sens **alarmant** : ça coûte une suite entière pour
+rien, mais ça ne cache rien. Écarter un champ privé ment dans le sens
+**rassurant** : la garde n'est jamais examinée, et la loupe dit « rien de nu ».
+
+> **Quand on corrige un instrument, le sens de l'erreur résiduelle se choisit —
+> il ne se subit pas.** Une correction qui échange un mensonge alarmant contre
+> un mensonge rassurant est une régression, même quand elle ferme le symptôme
+> qu'on avait sous les yeux.
+
+Le marqueur de commentaire est une propriété du LANGAGE : la décision a donc
+besoin du nom du fichier, pas seulement du texte. Et la liste des extensions où
+`#` commente est **fermée** — l'élargir sera un geste conscient, là où une règle
+« tout ce qui n'est pas du JS » finirait par écarter le code d'un langage auquel
+personne n'aura pensé.
+
+## 9 duoseptuagies. Un avertissement qui crie sur une machine saine est pire qu'un avertissement absent
+
+`scripts/deps-optionnelles.mjs` existe pour une raison mesurée : sous Windows,
+`npm ci` sortait en **0** pendant que `better-sqlite3` n'était pas installé, et
+**68 fichiers de test sur 135** mouraient à l'import sans que rien ne dise
+pourquoi. Le script rapporte ce qui manque, pour que la ligne suivante du
+journal explique les 68 échecs.
+
+Le balayage a trouvé sa borne nue :
+
+```
+🔴 SANS TEST · scripts/deps-optionnelles.mjs · > → >=
+           if (absentes.length > 0) {
+```
+
+Avec `>=`, une installation **parfaitement saine** affiche « ⚠ Ces paquets
+manquent » et conseille de relancer `npm ci --foreground-scripts`.
+
+### Pourquoi ce mutant-là n'est pas cosmétique
+
+Un diagnostic n'a qu'un seul capital : **qu'on le lise**. Un avertissement qui
+se déclenche sur une machine en bon état est lu deux fois, ignoré la troisième,
+et filtré la quatrième. Le jour où il dit vrai, il ne reste rien.
+
+Ce script-ci ne serait pas seulement inutile : il serait **contre-productif**,
+parce qu'il a été écrit pour être le premier endroit où quelqu'un regarde quand
+une CI verte cache 68 morts. L'entraîner à être du bruit, c'est défaire
+exactement ce pour quoi il existe.
+
+> **Un faux positif de diagnostic ne coûte pas un affichage de trop : il coûte
+> la crédibilité de tous les vrais positifs qui suivront.** Une borne
+> d'avertissement mérite donc le même soin qu'une garde de sécurité — et le
+> banc qui la tient doit épingler le cas SILENCIEUX, pas seulement le cas
+> bruyant.
+
+### Et la raison pour laquelle elle n'était pas tenue
+
+Rien n'était exporté : tout vivait au niveau du module. « Hors d'atteinte du
+banc » est presque toujours « au mauvais endroit » (§ 2 quaterdecies) — la
+troisième fois que ce paragraphe se vérifie sur un script de `scripts/`.
