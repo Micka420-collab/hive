@@ -5,7 +5,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useT, t as tStatic } from './i18n';
 import type { Translate } from './i18n';
-import { Voile } from './ui';
+import { useDialog, Voile } from './ui';
 
 /** Résultat formaté renvoyé par le backend. */
 interface Paper {
@@ -104,6 +104,11 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
     [search],
   );
 
+  // Échap ferme, et le focus revient d'où il venait — comme les quatre autres
+  // overlays. C'était le seul à ne pas répondre à la touche : une modale qui se
+  // ferme autrement que ses voisines s'apprend deux fois.
+  const dialogRef = useDialog<HTMLDivElement>(onClose, inputRef);
+
   const nextPage = () => search(query, page + 1);
   const prevPage = () => search(query, Math.max(1, page - 1));
   const totalPages = Math.ceil(total / 20);
@@ -112,6 +117,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
     <Voile onClose={onClose}>
       <div
         className="modal wide openalex-panel"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="oa-title"
@@ -137,7 +143,6 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
               'Rechercher un article, un auteur, un concept… (ex: transformer attention mechanism, CRISPR, dark matter)',
               'Search for a paper, an author, a concept… (e.g. transformer attention mechanism, CRISPR, dark matter)',
             )}
-            autoFocus
           />
           {loading && (
             <span className="openalex-spinner">🔍 {t('Recherche en cours…', 'Searching…')}</span>

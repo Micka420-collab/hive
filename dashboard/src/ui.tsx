@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
 import type { BandeThermo, Domaine } from './api';
 import { useLang, useT } from './i18n';
@@ -16,8 +16,16 @@ import type { Translate, UiLang } from './i18n';
  *  - déplace le focus dans l'overlay à l'ouverture ;
  *  - restaure le focus sur l'élément déclencheur à la fermeture.
  * Retourne un ref à poser sur le conteneur (avec role="dialog" aria-modal).
+ *
+ * `focusInitial` désigne l'élément à focaliser à l'ouverture quand le premier
+ * focusable du DOM n'est pas le bon point de départ : dans un panneau de
+ * recherche, la croix de fermeture précède le champ, et focaliser la croix
+ * offre d'abord de partir.
  */
-export function useDialog<T extends HTMLElement>(onClose: () => void) {
+export function useDialog<T extends HTMLElement>(
+  onClose: () => void,
+  focusInitial?: RefObject<HTMLElement | null>,
+) {
   const ref = useRef<T>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -26,9 +34,9 @@ export function useDialog<T extends HTMLElement>(onClose: () => void) {
     const trigger = document.activeElement as HTMLElement | null;
     const el = ref.current;
     // Focus le 1er élément focusable, sinon le conteneur lui-même.
-    const focusable = el?.querySelector<HTMLElement>(
-      'input, textarea, button, [tabindex]:not([tabindex="-1"])',
-    );
+    const focusable =
+      focusInitial?.current ??
+      el?.querySelector<HTMLElement>('input, textarea, button, [tabindex]:not([tabindex="-1"])');
     (focusable ?? el)?.focus();
 
     const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
