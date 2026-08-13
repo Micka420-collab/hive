@@ -382,18 +382,80 @@ export function conseilServeur(): string[] {
   ];
 }
 
-/** Les prochaines étapes, dans l'ordre où elles servent. */
-export function prochainesEtapes(agent: string | null): string[] {
+/**
+ * Les prochaines étapes, dans l'ordre où elles servent.
+ *
+ * ─── CE QUE LE TERRAIN A APPRIS, ET QUE CE PANNEAU IGNORAIT ──────────────────
+ *
+ * Une installation réelle sur Windows 11 (Node 26) est allée jusqu'au bout —
+ * clone, dépendances, `.env` en 0600, écran d'accueil — puis a buté sur la
+ * PREMIÈRE commande que ce panneau conseille :
+ *
+ *     PS C:\WINDOWS\system32> npm run dev
+ *     npm : Impossible de charger le fichier C:\Program Files\nodejs\npm.ps1,
+ *     car l'exécution de scripts est désactivée sur ce système.
+ *
+ * DEUX défauts dans une seule ligne, et le panneau portait les deux :
+ *
+ *   1. LE DOSSIER. `install.ps1` fait `Push-Location $Dir` … `Pop-Location` :
+ *      quand l'installeur rend la main, le shell est REVENU d'où il venait —
+ *      ici `system32`. `install.sh` a le même comportement (le clone est dans
+ *      `$HOME/hive`, le shell de l'appelant n'a pas bougé). Le panneau
+ *      conseillait donc `npm run dev` depuis un endroit où il n'y a pas de
+ *      `package.json`. Le mode `--dry-run` d'`install.ps1`, lui, écrivait bien
+ *      `cd $Dir; npm run install:hive` — la bonne forme existait à trois mètres.
+ *
+ *   2. LE `.ps1`. Sous PowerShell, `npm` résout vers `npm.ps1`, et la stratégie
+ *      d'exécution par défaut de Windows le REFUSE. `npm.cmd` ne passe pas par
+ *      là : c'est le shim batch, que la stratégie ne gouverne pas. On ne change
+ *      PAS la stratégie de la machine — Hive n'écrit rien hors de son dossier —
+ *      on donne la commande qui marche sans rien changer.
+ *
+ * La CI exerçait `install.ps1 -DryRun` sur les deux PowerShell. Elle ne pouvait
+ * pas voir ça : le dry-run s'arrête avant l'installeur, et surtout personne
+ * n'exécutait la commande que l'installeur CONSEILLE. C'est le pli du `| iex`,
+ * une fois de plus — le script est éprouvé, la phrase qui dit quoi taper ne
+ * l'est pas.
+ *
+ * `plateforme` et `dossier` sont des paramètres, pas des lectures directes :
+ * c'est ce qui permet d'éprouver les deux systèmes depuis n'importe lequel.
+ */
+export function prochainesEtapes(
+  agent: string | null,
+  plateforme: string = process.platform,
+  dossier: string = process.cwd(),
+): string[] {
+  const windows = plateforme === 'win32';
+  const npm = windows ? 'npm.cmd' : 'npm';
+  const colonne = (libelle: string, commande: string): string =>
+    `${libelle.padEnd(24)} :  ${commande}`;
   return [
-    'Lancer la ruche          :  npm run dev',
+    // La ruche ne se lance pas d'où l'on est : l'installeur a rendu la main au
+    // shell de départ, et ce n'est pas là que vit le `package.json`.
+    colonne('Aller dans la ruche', `cd ${dossier}`),
+    colonne('Lancer la ruche', `${npm} run dev`),
     // L'adresse vient de la MÊME constante que l'origine CORS proposée par
     // l'assistant. Écrite deux fois, elle a divergé une fois — et un écran
     // envoyait alors vers une adresse que l'autre venait d'interdire.
-    `Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://localhost:${PORT_DASHBOARD_DEV})`,
+    colonne(
+      'Ouvrir Mission Control',
+      `${npm} run dev:dashboard   (puis http://localhost:${PORT_DASHBOARD_DEV})`,
+    ),
     agent
-      ? `Brancher votre agent     :  npm run node        (${agent} détecté)`
-      : 'Brancher un agent        :  npm run node        (aucun agent détecté — le mode simulé prendra le relais)',
-    'Inviter quelqu’un        :  npm run cli -- invite',
-    'Voir une démo complète   :  npm run demo',
+      ? colonne('Brancher votre agent', `${npm} run node        (${agent} détecté)`)
+      : colonne(
+          'Brancher un agent',
+          `${npm} run node        (aucun agent détecté — le mode simulé prendra le relais)`,
+        ),
+    colonne('Inviter quelqu’un', `${npm} run cli -- invite`),
+    colonne('Voir une démo complète', `${npm} run demo`),
+    ...(windows
+      ? [
+          '',
+          '`npm.cmd` et pas `npm` : sous PowerShell, `npm` passe par `npm.ps1`,',
+          'que la stratégie d’exécution de Windows refuse par défaut. Le shim',
+          '`.cmd` marche sans rien changer à votre machine.',
+        ]
+      : []),
   ];
 }

@@ -6935,3 +6935,81 @@ qu'aucun rouge ne le signale. Elle a donc SA garde, qui la nomme.
 > tient à un détail que personne n'a promis de conserver : elle se réécrit pour
 > elle-même. Une couverture qu'on ne peut pas expliquer est une couverture qu'on
 > perdra sans s'en apercevoir.
+
+---
+
+## 9 duosexagies. La CI exerçait l'installeur ; personne n'exerçait la commande qu'il CONSEILLE
+
+Une installation réelle sur Windows 11 (Node 26), rapportée depuis le terrain,
+est allée jusqu'au bout : clone, dépendances, module natif, écran d'accueil,
+`.env` en 0600, premier projet. Tout ce que la CI vérifie a tenu.
+
+Puis la personne a tapé la première commande de l'écran de fin, et :
+
+```
+PS C:\WINDOWS\system32> npm run dev
+npm : Impossible de charger le fichier C:\Program Files\nodejs\npm.ps1,
+car l'exécution de scripts est désactivée sur ce système.
+```
+
+**Deux défauts dans une seule ligne**, et l'écran de fin portait les deux.
+
+### 1. Le dossier — le shell n'est jamais resté dans la ruche
+
+`install.ps1` fait `Push-Location $Dir` … `Pop-Location`. `install.sh` clone
+dans `$HOME/hive` et lance npm depuis un sous-shell. Dans les deux cas, quand
+l'installeur rend la main, **la personne est là où elle était** — ici
+`C:\WINDOWS\system32`. L'écran conseillait `npm run dev` depuis un endroit sans
+`package.json`.
+
+Le plus embarrassant : la bonne forme existait à trois mètres. Le mode
+`--dry-run` d'`install.ps1` écrit `cd $Dir; npm run install:hive`. Le chemin
+sec savait ; le chemin réel ne savait pas.
+
+### 2. Le `.ps1` — PowerShell refuse le shim que `npm` utilise
+
+Sous PowerShell, `npm` résout vers `npm.ps1`, et la stratégie d'exécution par
+défaut de Windows le refuse. `npm.cmd` — le shim batch — n'est pas gouverné par
+cette stratégie.
+
+On ne change PAS la stratégie de la machine : Hive n'écrit rien hors de son
+dossier, et une stratégie d'exécution est un réglage de sécurité du système, pas
+du produit. On donne la commande qui marche sans rien changer.
+
+### Pourquoi la CI ne pouvait pas le voir
+
+Elle exerce `install.ps1 -DryRun` sous les DEUX PowerShell (7 et 5.1), et elle
+le fait bien. Mais :
+
+- le dry-run s'arrête AVANT l'installeur, donc avant l'écran de fin ;
+- et surtout, **rien n'exécutait la commande que l'installeur conseille**.
+
+C'est le pli du `| iex`, une troisième fois (§ 9, et la CI exerçait « le SCRIPT,
+jamais la PHRASE qui dit comment l'appeler »). Le script est éprouvé de bout en
+bout ; la phrase qu'il imprime pour dire quoi taper ensuite ne l'est pas. Les
+deux sont cohérents avec eux-mêmes et incohérents entre eux, et rien ne regarde
+l'écart.
+
+### Ce qui rendait ce défaut invisible ICI en particulier
+
+`prochainesEtapes` était pure et testée — mais testée sur ce qu'elle CONTIENT
+(« npm run dev » apparaît), jamais sur ce qu'elle SUPPOSE : que le shell soit
+dans le bon dossier, et que `npm` soit lançable. Une garde de contenu ne dit
+rien d'un contexte.
+
+Elle prend désormais `plateforme` et `dossier` en paramètres — pas par élégance :
+c'est ce qui permet d'éprouver Windows depuis Linux, alors qu'aucun runner ne
+peut jouer la stratégie d'exécution d'une machine de bureau.
+
+```
+mutant : `npm.cmd` redevient `npm`  →  1 cas rouge (la panne du terrain, rejouée)
+mutant : la ligne `cd` retirée      →  2 cas rouges
+mutant : `plateforme === 'win32'` inversé → 3 cas rouges
+après restauration par copie        →  34 verts
+```
+
+> **La règle** — tout texte qu'un produit imprime pour dire QUOI FAIRE ENSUITE
+> est du code qu'un humain exécutera. Il se teste comme du code, et il se teste
+> avec son CONTEXTE : d'où on le lance, et avec quel interpréteur. Un rapport de
+> terrain vaut mille exécutions de CI, parce qu'il est le seul à contenir le pas
+> que personne n'a pensé à automatiser.

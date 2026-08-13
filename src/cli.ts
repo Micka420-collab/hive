@@ -45,6 +45,7 @@ import {
   nightShiftFromEnv,
 } from './shared/night-shift.js';
 import { aLeDrapeau, choisirDansListe, valeurApres } from './choix-cli.js';
+import { lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -399,24 +400,10 @@ async function cmdReplay(sinceId = '0'): Promise<void> {
 /** Waggle Board : classement des nœuds par contribution (nectar). */
 async function cmdWaggle(): Promise<void> {
   const board = await api<WaggleBoard>('/api/waggle');
-  if (board.nodes.length === 0) {
-    console.log('Aucune contribution encore : la danse frétillante attend le premier nectar.');
-    return;
-  }
-  console.log(
-    `🍯 Waggle Board — ${board.totalTasksDone} tâche(s) butinée(s), ${board.totalTasksFailed} échec(s)\n`,
-  );
-  const medals = ['🥇', '🥈', '🥉'];
-  board.nodes.forEach((n, i) => {
-    const rank = medals[i] ?? `${i + 1}.`;
-    const rate = `${Math.round(n.successRate * 100)}%`;
-    const avg = n.avgDurationMs > 0 ? `${(n.avgDurationMs / 1000).toFixed(1)}s/tâche` : '—';
-    const wins = n.raceWins > 0 ? ` ⚔${n.raceWins}` : '';
-    console.log(
-      `  ${rank} ${n.name} [${n.agentType}] — ${n.score} nectar ` +
-        `(✔${n.tasksDone} ✘${n.tasksFailed}${wins}, ${rate}, ${avg})`,
-    );
-  });
+  // Les décisions d'affichage — tableau vide, médailles, durée inconnue — vivent
+  // dans `shared/cli-rendu.ts`, pur et éprouvé : ce fichier n'exporte rien, donc
+  // rien de ce qu'il décide ne peut être interrogé par un banc (§ 2 quaterdecies).
+  for (const l of lignesWaggle(board)) console.log(l);
 }
 
 /** Parlement des Agents : consensus par vote sur les résultats d'une tâche. */
@@ -440,23 +427,9 @@ async function cmdConsensus(taskId: string): Promise<void> {
     );
   });
 
-  // La SURFACE : le seul accord mesurable sur du code. Elle ne dit pas que
-  // deux agents ont écrit la même chose, mais qu'ils sont allés au même
-  // endroit — et deux surfaces distinctes sont un désaccord RÉEL.
-  if (v.surfaces.length > 0 || v.sansSurface > 0) {
-    console.log('\n📍 Où le changement a été fait');
-    if (v.surfaces.length > 1) {
-      console.log('   ⚠ les agents ne sont pas d’accord sur l’ENDROIT.');
-    }
-    v.surfaces.forEach((s) => {
-      console.log(`   ${s.votes} voix (${s.agentTypes.join(', ')}) — ${s.fichiers.join(', ')}`);
-    });
-    if (v.sansSurface > 0) {
-      console.log(
-        `   ${v.sansSurface} bulletin(s) sans diff lisible — écarté(s), pas comptés comme d’accord.`,
-      );
-    }
-  }
+  // La SURFACE : le seul accord mesurable sur du code. Le bloc entier — y
+  // compris son existence — est décidé par `lignesSurfaces`, pur et éprouvé.
+  for (const l of lignesSurfaces(v)) console.log(l);
 }
 
 /**
