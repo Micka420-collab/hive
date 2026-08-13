@@ -397,18 +397,44 @@ export function etiquettesPosees<T extends { id: string; n: NoteNommable }>(
   actif: string | null,
   eteinte: (id: string) => boolean,
   boiteDe: (p: T, estActif: boolean) => Boite,
-): { corps: T; boite: Boite }[] {
+): { corps: T; boite: Boite; estActif: boolean }[] {
   const candidats = corps
     .filter((p) => porteSonNom(p.id, p.n, actif, eteinte(p.id)))
     .sort((a, b) =>
       ordreDePose({ id: a.id, degre: a.n.degre }, { id: b.id, degre: b.n.degre }, actif),
     );
 
-  const posees: { corps: T; boite: Boite }[] = [];
+  const posees: { corps: T; boite: Boite; estActif: boolean }[] = [];
   for (const p of candidats) {
-    const boite = boiteDe(p, p.id === actif);
+    const estActif = p.id === actif;
+    const boite = boiteDe(p, estActif);
     if (posees.some((d) => seChevauchent(boite, d.boite))) continue;
-    posees.push({ corps: p, boite });
+    posees.push({ corps: p, boite, estActif });
   }
   return posees;
+}
+
+/**
+ * La fonte d'une étiquette — celle qu'on MESURE et celle qu'on ÉCRIT.
+ *
+ * ─── POURQUOI CETTE CHAÎNE N'A PLUS LE DROIT D'EXISTER EN DEUX EXEMPLAIRES ───
+ *
+ * `Cerveau.tsx` la composait DEUX FOIS, à deux endroits, avec deux littéraux
+ * séparés : une fois pour `measureText` (la largeur de la boîte) et une fois
+ * pour `fillText` (le texte réellement posé). Elles s'accordaient par chance,
+ * pas par construction.
+ *
+ * Le jour où l'une des deux change — une taille, une graisse, une famille — la
+ * ruche MESURE une fonte et en DESSINE une autre. Les boîtes deviennent
+ * fausses, donc les collisions aussi : des noms se superposent, d'autres
+ * disparaissent pour un chevauchement qui n'a pas lieu. Et rien ne casse : le
+ * graphe s'affiche, il ment juste sur ce qu'il montre.
+ *
+ * Une seule source pour les deux usages retire la possibilité même de l'écart.
+ * Le `600 ` est la graisse semi-grasse de l'active — le seul état qui change la
+ * largeur d'un titre, et donc la seule raison pour laquelle `boiteDe` a besoin
+ * de savoir qui est actif.
+ */
+export function policeEtiquette(taille: number, estActif: boolean): string {
+  return `${estActif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
 }

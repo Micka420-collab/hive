@@ -31,6 +31,7 @@ import {
   estEteinte,
   estUnClic,
   etiquettesPosees,
+  policeEtiquette,
   FENETRE_CHALEUR_JOURS,
   MARGE_DOIGT,
   ordreDePose,
@@ -475,5 +476,107 @@ describe('etiquettesPosees — qui garde son nom quand la toile est serrée', ()
       regleFixe({ 'a.x': 0, 'vu.x': 100, 'z.x': 200 }),
     );
     expect(posees.map((d) => d.corps.id)).toEqual(['vu', 'z', 'a']);
+  });
+
+  // ─── C'EST BIEN L'ACTIVE QU'ON MESURE EN GRAS ──────────────────────────────
+  //
+  // Balayage loupe du 13 août : `boiteDe(p, p.id === actif)` muté en `!==`,
+  // suite ENTIÈRE verte. Les bancs au-dessus passent tous `regleFixe`, qui
+  // IGNORE son second paramètre — aucun d'eux ne pouvait donc voir le drapeau
+  // partir à la mauvaise note.
+  //
+  // Ce que le mutant fait à l'écran : l'active est mesurée comme si elle était
+  // maigre (donc plus étroite qu'elle n'est, et elle chevauchera ses voisines
+  // en vrai), pendant que TOUTES les autres sont mesurées en gras — plus larges
+  // qu'elles ne sont, donc évincées pour des collisions qui n'existent pas. Le
+  // graphe perd des noms d'un côté et en superpose de l'autre.
+  //
+  // L'entrée qui tranche est une règle dont la largeur DÉPEND du gras : la
+  // largeur est la seule chose que le canevas apporte ici, et c'est justement
+  // celle que le drapeau commande.
+  const regleSelonGras =
+    (x: Record<string, number>) =>
+    (p: { id: string }, estActif: boolean): Boite => ({
+      x: x[p.id] ?? 0,
+      y: 0,
+      l: estActif ? 30 : 10,
+      h: 12,
+    });
+
+  it('LE GRAS SUIT L’ACTIVE : sa boîte est la large, et elle évince sa voisine', () => {
+    // `vu` est posée en premier (le tri met l'active devant). Mesurée en GRAS
+    // elle couvre 0→30 et recouvre `a` (20→30), qui perd son nom.
+    // Le drapeau inversé la mesurerait maigre (0→10) et laisserait passer `a`.
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 1), note('vu', 'lecon', 1)],
+      'vu',
+      jamaisEteinte,
+      regleSelonGras({ vu: 0, a: 20 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['vu']);
+    expect(posees[0]?.boite.l, 'l’active est mesurée en gras, donc large').toBe(30);
+  });
+
+  it('ET LES AUTRES RESTENT MAIGRES — sinon elles s’évinceraient pour rien', () => {
+    // Sans note active : personne n'est en gras, les deux tiennent côte à côte.
+    // Le drapeau inversé les mettrait TOUTES en gras (30 de large), et `b`
+    // (20→50 contre 0→30) disparaîtrait sans qu'aucun pixel ne se touche.
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 2), note('b', 'lecon', 1)],
+      null,
+      jamaisEteinte,
+      regleSelonGras({ a: 0, b: 20 }),
+    );
+    expect(posees.map((d) => d.corps.id)).toEqual(['a', 'b']);
+    expect(posees.map((d) => d.boite.l)).toEqual([10, 10]);
+  });
+
+  it('L’ÉTIQUETTE DIT SI ELLE EST ACTIVE — la boucle de dessin n’a plus à le recalculer', () => {
+    // Le canevas relisait `p.id === actif` pour choisir sa fonte et son alpha.
+    // `getContext` rend `null` sous happy-dom : cette comparaison-là ne pouvait
+    // pas être éprouvée là où elle vivait. Elle est rendue ici, avec la boîte.
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 2), note('vu', 'lecon', 1)],
+      'vu',
+      jamaisEteinte,
+      regleFixe({ 'a.x': 0, 'vu.x': 100 }),
+    );
+    expect(posees.map((d) => [d.corps.id, d.estActif])).toEqual([
+      ['vu', true],
+      ['a', false],
+    ]);
+  });
+
+  it('SANS active, aucune étiquette ne se dit active', () => {
+    const posees = etiquettesPosees(
+      [note('a', 'lecon', 2)],
+      null,
+      jamaisEteinte,
+      regleFixe({ 'a.x': 0 }),
+    );
+    expect(posees[0]?.estActif).toBe(false);
+  });
+});
+
+// ─── LA FONTE : UNE SEULE SOURCE POUR LA MESURE ET POUR L'ÉCRITURE ───────────
+//
+// `Cerveau.tsx` composait cette chaîne DEUX FOIS, à deux endroits, avec deux
+// littéraux séparés — un pour `measureText`, un pour `fillText`. Elles
+// s'accordaient par chance. Le jour où l'une change, la ruche mesure une fonte
+// et en dessine une autre : les boîtes deviennent fausses, donc les collisions
+// aussi, et le graphe ment sur ce qu'il montre sans que rien ne casse.
+describe('policeEtiquette — ce qu’on mesure est ce qu’on écrit', () => {
+  it('L’ACTIVE est SEMI-GRASSE — c’est ce `600` qui la fait plus large', () => {
+    expect(policeEtiquette(11, true)).toBe('600 11px ui-monospace, monospace');
+  });
+
+  it('LES AUTRES sont maigres — aucune graisse devant la taille', () => {
+    expect(policeEtiquette(11, false)).toBe('11px ui-monospace, monospace');
+  });
+
+  it('la TAILLE traverse telle quelle — le zoom la divise en amont', () => {
+    // `11 / zoom` : à fort zoom la fonte est fractionnaire, et le canevas
+    // l'accepte. L'arrondir ici ferait sauter le texte d'un cran à l'autre.
+    expect(policeEtiquette(5.5, false)).toBe('5.5px ui-monospace, monospace');
   });
 });

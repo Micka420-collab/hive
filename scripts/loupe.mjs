@@ -203,6 +203,45 @@ export function cheminsDuBalayage(brut) {
   return [...portee, HORS_PORTEE];
 }
 
+/**
+ * Cette ligne mérite-t-elle d'être mutée ?
+ *
+ * ─── LE MENSONGE QUE CETTE FONCTION EXISTE POUR EMPÊCHER ─────────────────────
+ *
+ * Une mutation posée dans un COMMENTAIRE ne peut pas être tuée : le texte ne
+ * s'exécute pas, la suite reste verte, et la loupe imprime « CODE NEUF QUE RIEN
+ * NE DÉFEND » sur une phrase française. Elle ment alors dans le sens ALARMANT —
+ * moins grave que le sens rassurant (§ en-tête), mais elle coûte deux minutes
+ * de suite par occurrence et salit un verdict qu'on lit pour décider.
+ *
+ * Le filtre existait déjà, et il ratait la forme la plus courante du tableau de
+ * bord. Mesuré le 13 août sur `dashboard/src` : sur dix survivants, TROIS
+ * étaient des lignes de commentaire JSX de `Balance.tsx` — dont, ironie exacte,
+ * les trois lignes qui CONSIGNENT une équivalence trouvée par la loupe. Elle
+ * s'est dénoncée elle-même en relisant sa propre note.
+ *
+ * ─── POURQUOI `{/*` ET PAS PLUS ──────────────────────────────────────────────
+ *
+ * Un commentaire JSX s'ouvre par `{` puis `/*`. Aucune ligne dont les premiers
+ * caractères non blancs sont `{/*` ne peut porter du code exécutable : ce qui
+ * suit est du texte jusqu'à la fermeture du commentaire. La règle est donc SÛRE
+ * au sens qui compte ici — elle n'écarte jamais une ligne de code.
+ *
+ * Ce qu'elle ne fait PAS, et qu'il faut dire plutôt que sous-entendre : les
+ * lignes de CONTINUATION d'un commentaire multi-lignes qui ne commencent pas
+ * par `*` restent invisibles. Le filtre travaille ligne par ligne, sur des
+ * lignes que `git diff -U0` rend par morceaux non contigus : suivre l'état
+ * « dans un commentaire » d'un morceau à l'autre serait une devinette, et une
+ * devinette qui se trompe ÉCARTE du code réel — le mensonge rassurant, le pire
+ * des deux. Deux faux survivants sur dix, jugés à la main en dix secondes,
+ * coûtent moins cher qu'une nudité tue.
+ */
+export function ligneMutable(texte) {
+  if (texte.trim() === '') return false;
+  // `{/*` d'abord : c'est celui qui manquait, et il est le plus fréquent ici.
+  return !/^\s*(\{\/\*|\/\/|\*|\/\*)/.test(texte);
+}
+
 function lignesAjoutees() {
   const diff = execFileSync(
     'git',
@@ -224,7 +263,7 @@ function lignesAjoutees() {
     if (!fichier || !ligne.startsWith('+') || ligne.startsWith('+++')) continue;
     const texte = ligne.slice(1);
     // Les commentaires ne s'exécutent pas : les muter ne prouverait rien.
-    if (/^\s*(\/\/|\*|\/\*)/.test(texte) || texte.trim() === '') continue;
+    if (!ligneMutable(texte)) continue;
     if (!par.has(fichier)) par.set(fichier, []);
     par.get(fichier).push(texte);
   }

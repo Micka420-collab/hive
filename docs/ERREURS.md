@@ -7352,3 +7352,116 @@ npx prettier --check . > /tmp/p.log 2>&1; CODE=$?   → 1
 > **La règle** — le lint d'un dépôt couvre le dépôt, pas « les fichiers
 > sérieux ». Et un code de sortie ne se lit jamais à travers un tube : la seule
 > mesure valable est celle qu'on prend sans intermédiaire.
+
+## 9 octosexagies. La loupe mutait sa propre prose — et un mutant posé dans un commentaire ne peut PAS être tué
+
+Balayage du 13 août sur `dashboard/src` (base épinglée `74fc316`, 72 candidates,
+72 examinées, aucun échantillonnage). Dix survivants. **Trois d'entre eux
+étaient des lignes de commentaire**, et pas n'importe lesquelles :
+
+```
+🔴 SANS TEST · dashboard/src/views/Balance.tsx · !== → ===
+             {/* ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas être faux ici
+🔴 SANS TEST · dashboard/src/views/Balance.tsx · === → !==
+             main tôt quand `cible === null` ; et `cible` ne dépend que de
+🔴 SANS TEST · dashboard/src/views/Balance.tsx · !== → ===
+             `cible !== null` neutralisé → 3 verts, survivant équivalent */}
+```
+
+Ce sont les trois lignes qui **consignent une équivalence trouvée par un
+balayage précédent**. La loupe s'est dénoncée en relisant sa propre note.
+
+### Ce n'est PAS le § 9 quinsexagies, et la différence est le tout
+
+Le § 9 quinsexagies dit qu'une équivalence consignée est légitimement
+re-désignée à chaque passe, et qu'il ne faut surtout pas donner à la loupe de
+quoi la taire — parce qu'une équivalence peut cesser d'en être une.
+
+Ici, rien de tel. Le mutant n'est pas posé sur la GARDE, il est posé sur la
+PHRASE qui en parle. Du texte ne s'exécute pas : la suite reste verte quoi qu'il
+arrive, le mutant est increvable **par construction**, et son verdict ne porte
+sur rien. Les deux cas se ressemblent à l'écran ; l'un est un fait qui se
+rejuge, l'autre est un bruit qui se répétera à l'identique pour toujours.
+
+### Le sens du mensonge, et pourquoi il compte quand même
+
+L'en-tête de la loupe met en garde contre le mensonge RASSURANT — une mutation
+qui casse la syntaxe fait échouer la suite et passe pour un mutant tué. Celui-ci
+est son exact opposé : le mensonge ALARMANT. Il ne cache rien, donc il est moins
+grave, et c'est précisément pourquoi il avait survécu si longtemps.
+
+Il n'est pas gratuit pour autant : **chaque faux survivant coûte une exécution
+complète de la suite** — deux minutes ici — et il salit un verdict qu'on lit
+pour décider de fusionner. Un instrument qui rend trois faux positifs sur dix
+apprend à son opérateur à survoler la liste. C'est l'autre façon de n'être plus
+écouté (§ REPLI_QUI_MORD : « un mur ne se lit pas »).
+
+### La correction, et surtout ce qu'elle ne fait pas
+
+Le filtre existait (`^\s*(//|\*|/\*)`) et ratait la forme la plus courante du
+tableau de bord : un commentaire JSX s'ouvre par `{` PUIS `/*`. Il est sorti de
+`candidates()` en `ligneMutable(texte)`, pure et éprouvée — même geste que
+`mutationsDeLigne` avant lui (§ 2 quaterdecies), et pour la même raison : la
+règle vivait dans une fonction qui lit le disque et le dépôt.
+
+**Ce qu'elle ne fait pas, et il faut le dire plutôt que le sous-entendre** : les
+lignes de CONTINUATION d'un commentaire multi-lignes qui ne commencent pas par
+`*` restent invisibles. Deux des trois faux survivants ci-dessus sont dans ce
+cas. Le filtre travaille ligne par ligne, sur des lignes que `git diff -U0` rend
+par morceaux NON CONTIGUS : suivre l'état « je suis dans un commentaire » d'un
+morceau à l'autre serait une devinette.
+
+Et une devinette qui se trompe ÉCARTE du code réel — elle rend le mensonge
+rassurant, celui qui cache. J'ai donc préféré une garde étroite et sûre à une
+garde large et probable.
+
+> **La règle** — quand on corrige un instrument de mesure, le sens de l'erreur
+> résiduelle se choisit, il ne se subit pas. Deux faux survivants jugés à la
+> main en dix secondes coûtent moins cher qu'une seule nudité tue.
+
+## 9 novensexagies. Un banc qui monte l'écran sans jouer le geste couvre deux sites sur trois en ayant l'air d'en couvrir trois
+
+Cinq des dix survivants du même balayage portaient la MÊME ligne, recopiée dans
+trois fichiers :
+
+```
+libelleAgent(n.agentType, lang === 'en')
+```
+
+`libelleAgent` est bien défendu depuis toujours, drapeau `anglais` compris. Ce
+que rien ne tenait, c'était le CÂBLAGE — le drapeau que les vues lui passent.
+Inversé, l'ouvrière de repli s'annonce « Shell (simulated) » à un francophone :
+la seule ligne de l'écran qui prévient que les diffs produits sont SIMULÉS
+devient du bruit dans une langue étrangère.
+
+J'ai écrit un banc pour les cinq sites, il est passé **vert du premier coup**,
+et j'ai failli m'arrêter là.
+
+### Ce que le rejeu SITE PAR SITE a montré
+
+```
+dashboard/src/NodesPanel.tsx:106 → CODE=0  VERT ⚠ NU
+dashboard/src/NodesPanel.tsx:190 → CODE=1  ROUGE ✔ défendu
+dashboard/src/NodesPanel.tsx:200 → CODE=1  ROUGE ✔ défendu
+dashboard/src/SwarmView.tsx:131  → CODE=1  ROUGE ✔ défendu
+dashboard/src/views/Essaim.tsx:61 → CODE=1  ROUGE ✔ défendu
+```
+
+Le site 106 est dans la FICHE de la coéquipière, qui ne se rend qu'après un clic
+sur la carte. Mon banc montait le panneau et lisait son texte — il n'ouvrait
+jamais la fiche. Il couvrait donc quatre sites sur cinq, en ayant toutes les
+apparences d'en couvrir cinq : même fichier, même assertion, même vert.
+
+Un banc qui monte un écran voit ce que l'écran montre AU REPOS. Tout ce qui
+n'apparaît qu'après un geste — clic, survol, ouverture — est hors de sa portée,
+et rien dans son résultat ne le signale.
+
+> **La règle** — un banc de rendu ne se déclare pas couvrant parce qu'il est
+> vert : il se déclare couvrant quand chaque site qu'il prétend tenir a été muté
+> SÉPARÉMENT et l'a fait rougir. Muter le fichier en bloc aurait affiché un
+> rouge franc et laissé la garde manquante intacte — le bloc masque ce que le
+> site par site expose.
+
+Corollaire, applicable à tout le tableau de bord : **compter les sites avant
+d'écrire le banc**. Cinq occurrences de la même ligne, c'est cinq mutations à
+jouer, pas une.

@@ -281,3 +281,45 @@ describe('LA LOUPE NE MUTE PAS CE QUI DÉCIDE QU’ON S’EXÉCUTE', () => {
     expect(quoi('  if (a === b) {')).toEqual(['=== → !==']);
   });
 });
+
+// ─── CE QUE LA LOUPE NE DOIT PAS MUTER : SA PROPRE PROSE ─────────────────────
+//
+// Un mutant posé dans un COMMENTAIRE ne peut pas être tué — le texte ne
+// s'exécute pas. La suite reste verte, et la loupe imprime « CODE NEUF QUE RIEN
+// NE DÉFEND » sur une phrase française. C'est le mensonge ALARMANT : il ne
+// cache rien, mais il coûte une exécution de suite entière par occurrence et il
+// salit un verdict qu'on lit pour décider de fusionner.
+//
+// LE FILTRE RATAIT LA FORME LA PLUS COURANTE DU TABLEAU DE BORD. Mesuré le
+// 13 août sur `dashboard/src` (72 candidates, 72 examinées) : sur dix
+// survivants, TROIS étaient des lignes de commentaire JSX de `Balance.tsx` —
+// et précisément les trois lignes qui CONSIGNENT une équivalence trouvée par un
+// balayage précédent. La loupe s'est dénoncée en relisant sa propre note.
+
+import { ligneMutable } from '../scripts/loupe.mjs';
+
+describe('la loupe ne mute pas les commentaires — y compris ceux du JSX', () => {
+  it('LE CAS QUI A ÉTÉ MESURÉ : `{/*` ouvre un commentaire JSX, pas du code', () => {
+    // Les trois lignes RÉELLES rendues survivantes par le balayage du 13 août.
+    expect(
+      ligneMutable('          {/* ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas'),
+      'la ligne d’ouverture d’un commentaire JSX ne doit jamais être mutée',
+    ).toBe(false);
+  });
+
+  it('les formes déjà connues restent refusées — la garde ne s’est pas déplacée', () => {
+    expect(ligneMutable('  // un commentaire de ligne')).toBe(false);
+    expect(ligneMutable('   * une continuation de bloc')).toBe(false);
+    expect(ligneMutable('  /* un bloc ouvert */')).toBe(false);
+    expect(ligneMutable('   ')).toBe(false);
+    expect(ligneMutable('')).toBe(false);
+  });
+
+  it('LE REFUS RESTE ÉTROIT : du code qui commence par `{` garde sa place', () => {
+    // Une garde trop large écarterait du code RÉEL — le mensonge rassurant,
+    // celui qui cache. `{` seul ne dit rien ; c'est `{/*` qui tranche.
+    expect(ligneMutable('  { valeur: a === b },')).toBe(true);
+    expect(ligneMutable('  if (a === b) {')).toBe(true);
+    expect(ligneMutable('  {liste.map((x) => x.id === actif && <li />)}')).toBe(true);
+  });
+});

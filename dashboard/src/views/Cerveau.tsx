@@ -54,6 +54,7 @@ import {
   deplacementDuGlisse,
   estEteinte,
   etiquettesPosees,
+  policeEtiquette,
   rayon,
   priseAuDoigt,
   selectionAuRelacher,
@@ -331,7 +332,7 @@ export default function Cerveau(_props: ViewProps) {
         actif,
         (id) => estEteinte(id, actif, proches),
         (p, estActif) => {
-          ctx.font = `${estActif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
+          ctx.font = policeEtiquette(taille, estActif);
           const l = ctx.measureText(p.n.titre.slice(0, 34)).width;
           return {
             x: p.x + rayon(p.n) * p.naissance + 6,
@@ -342,13 +343,21 @@ export default function Cerveau(_props: ViewProps) {
         },
       );
 
-      for (const { corps: p, boite } of posees) {
+      // `estActif` vient de `etiquettesPosees`, il n'est PAS recalculé ici : le
+      // balayage du 13 août a montré `p.id === actif` nu à cette ligne — et il
+      // le restait nécessairement, puisque `getContext` rend `null` sous banc.
+      // Une décision hors d'atteinte de la mesure est presque toujours au
+      // mauvais endroit (§ 2 quaterdecies) : celle-ci vit maintenant dans le
+      // module pur, où elle est éprouvée, et la boucle de dessin ne fait que la
+      // LIRE. Bénéfice qui dépasse la couverture : la fonte mesurée et la fonte
+      // écrite ne peuvent plus se contredire, puisqu'il n'y a plus deux avis.
+      for (const { corps: p, boite, estActif } of posees) {
         const mot = p.n.titre.slice(0, 34);
         const x = boite.x;
         const y = p.y + 3.5;
-        ctx.font = `${p.id === actif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
+        ctx.font = policeEtiquette(taille, estActif);
 
-        ctx.globalAlpha = p.id === actif ? 1 : 0.78;
+        ctx.globalAlpha = estActif ? 1 : 0.78;
         // Un liseré sombre sous le texte : sans lui, un libellé posé sur une
         // arête ou un halo devient illisible.
         ctx.lineWidth = 3 / vue.current.zoom;
