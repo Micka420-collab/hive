@@ -32,8 +32,44 @@ import { describe, expect, it } from 'vitest';
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const CONFIG = readFileSync(path.join(RACINE, 'vitest.config.ts'), 'utf8');
 
-/** Sans les commentaires — sinon la prose de ce choix ferait passer la garde. */
-const nu = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+/**
+ * Sans les commentaires — sinon la prose de ce choix ferait passer la garde.
+ *
+ * Le retrait se fait en LISANT le fichier, pas en le tamisant à l'expression
+ * régulière : un glob d'exclusion contient la suite `/` `*` `*`, qu'un
+ * `replace(/\/\*[\s\S]*?\*\//g, '')` prend pour un début de bloc — il avalait
+ * alors tout le reste du fichier et la garde annonçait un `testTimeout` absent
+ * qui était écrit deux lignes plus bas. Neutraliser les chaînes d'abord ne
+ * marche pas non plus : la prose française est pleine d'apostrophes.
+ */
+const nu = (s: string): string => {
+  let sortie = '';
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i]!;
+    const suivant = s[i + 1];
+    if (c === '/' && suivant === '/') {
+      while (i < s.length && s[i] !== '\n') i++;
+    } else if (c === '/' && suivant === '*') {
+      i += 2;
+      while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++;
+      i += 2;
+    } else if (c === "'" || c === '"' || c === '`') {
+      sortie += c;
+      i++;
+      while (i < s.length && s[i] !== c) {
+        if (s[i] === '\\') i++;
+        i++;
+      }
+      sortie += c;
+      i++;
+    } else {
+      sortie += c;
+      i++;
+    }
+  }
+  return sortie;
+};
 const CONFIG_NU = nu(CONFIG);
 
 /** `20_000` → 20000. Le séparateur numérique de TypeScript n'est pas un chiffre. */

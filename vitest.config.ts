@@ -88,10 +88,24 @@
 // n'attend plus un disque, on attend quelque chose qui ne viendra pas. Le
 // geste sera alors de trouver CE QUI bloque, pas de passer à 30.
 
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // ─── LE BAC À SABLE DE LA RUCHE N'EST PAS UNE SUITE DE TESTS ───────────
+    //
+    // Quand un nœud Hive travaille sur CE dépôt, il copie l'arbre dans
+    // `.hive-work/tasks/<tâche>/` pour y butiner à l'écart. La copie contient
+    // `tests/`, mais ni `node_modules/` ni les fichiers ignorés — vitest la
+    // ramassait donc, et la suite passait de 507 à 731 fichiers dont 224
+    // rouges sur des `ERR_MODULE_NOT_FOUND` qui ne parlent que de la copie.
+    // Mesuré en faisant tourner Hive sur son propre code : `npm test` devenait
+    // illisible tant qu'une tâche restait en cours.
+    //
+    // Le dossier est déjà dans `.gitignore` ; l'exclusion par défaut de vitest
+    // ne suit pas `.gitignore`, elle liste ses propres dossiers. On ajoute
+    // celui-ci, sans toucher aux autres.
+    exclude: [...configDefaults.exclude, '**/.hive-work/**'],
     env: {
       HIVE_JWT_SECRET: 'secret-de-session-des-tests-pas-un-secret-reel',
     },

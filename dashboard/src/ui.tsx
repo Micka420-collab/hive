@@ -10,10 +10,23 @@ import type { BandeThermo, Domaine } from './api';
 import { useLang, useT } from './i18n';
 import type { Translate, UiLang } from './i18n';
 
+const SELECTEUR_FOCUSABLE =
+  'a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), ' +
+  'button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/** Les focusables de l'overlay, dans l'ordre du DOM, sans les éléments cachés. */
+function focusables(el: HTMLElement | null): HTMLElement[] {
+  if (!el) return [];
+  return [...el.querySelectorAll<HTMLElement>(SELECTEUR_FOCUSABLE)].filter(
+    (n) => n.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
 /**
  * Accessibilité d'un overlay (tiroir/modale) :
  *  - ferme sur Échap ;
  *  - déplace le focus dans l'overlay à l'ouverture ;
+ *  - RETIENT la tabulation à l'intérieur tant qu'il est ouvert ;
  *  - restaure le focus sur l'élément déclencheur à la fermeture.
  * Retourne un ref à poser sur le conteneur (avec role="dialog" aria-modal).
  *
@@ -21,6 +34,15 @@ import type { Translate, UiLang } from './i18n';
  * focusable du DOM n'est pas le bon point de départ : dans un panneau de
  * recherche, la croix de fermeture précède le champ, et focaliser la croix
  * offre d'abord de partir.
+ *
+ * ─── POURQUOI RETENIR LA TABULATION ──────────────────────────────────────────
+ *
+ * `aria-modal="true"` annonce aux lecteurs d'écran que le reste de la page est
+ * inerte ; il ne l'inertise pas pour le clavier. Sans piège, une deuxième
+ * tabulation quittait la modale pour la page derrière le voile : le focus se
+ * posait alors sur des commandes recouvertes, invisibles, et le seul retour
+ * était de tabuler à l'aveugle jusqu'au bout du document. La modale se ferme
+ * au clic dehors — donc au clavier, le « dehors » ne doit pas être atteignable.
  */
 export function useDialog<T extends HTMLElement>(
   onClose: () => void,
@@ -34,13 +56,36 @@ export function useDialog<T extends HTMLElement>(
     const trigger = document.activeElement as HTMLElement | null;
     const el = ref.current;
     // Focus le 1er élément focusable, sinon le conteneur lui-même.
-    const focusable =
-      focusInitial?.current ??
-      el?.querySelector<HTMLElement>('input, textarea, button, [tabindex]:not([tabindex="-1"])');
+    const focusable = focusInitial?.current ?? focusables(el)[0];
     (focusable ?? el)?.focus();
 
     const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') closeRef.current();
+      if (e.key === 'Escape') {
+        closeRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !ref.current) return;
+
+      const cibles = focusables(ref.current);
+      // Overlay sans aucun focusable : le conteneur garde la main, sinon la
+      // tabulation partirait derrière le voile.
+      if (cibles.length === 0) {
+        e.preventDefault();
+        ref.current.focus();
+        return;
+      }
+      const premier = cibles[0]!;
+      const dernier = cibles[cibles.length - 1]!;
+      const actif = document.activeElement;
+      const dedans = ref.current.contains(actif);
+
+      if (e.shiftKey && (actif === premier || !dedans)) {
+        e.preventDefault();
+        dernier.focus();
+      } else if (!e.shiftKey && (actif === dernier || !dedans)) {
+        e.preventDefault();
+        premier.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {

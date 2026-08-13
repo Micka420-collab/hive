@@ -20,7 +20,7 @@ import { fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
-import { activateProps, ProgressBar, STATUS_ICON, Voile } from './ui';
+import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
 
 const AGENT_ICON: Record<string, string> = {
   shell: '🐚',
@@ -61,6 +61,7 @@ function FicheOuvriere({
 }) {
   const t = useT();
   const lang = useLang();
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
   const missions = missionsDe(noeud, tasks);
   const butinees = missions.filter((m) => m.status === 'done').length;
   const echouees = missions.filter((m) => m.status === 'failed').length;
@@ -87,10 +88,12 @@ function FicheOuvriere({
   return (
     <Voile onClose={onClose}>
       <div
+        ref={dialogRef}
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="fiche-ouvriere-titre"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
