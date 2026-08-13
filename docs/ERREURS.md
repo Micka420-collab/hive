@@ -6624,6 +6624,37 @@ n'interprète pas les échappements, et une chaîne JSON y a déposé un `\n`
 littéral — le port lu valait `36465\nHIVE_TOKEN`. Les heredocs entre quotes
 règlent les deux.
 
+### Ce que la règle protège vraiment : une ÉCHÉANCE, pas un accident
+
+Cette leçon s'est longtemps lue comme une prudence contre l'imprévu — une
+coupure de courant, un `Ctrl-C` malheureux, une session qui tombe. Mesuré le
+13 août au soir, c'est faux, et la nuance change la force de la règle.
+
+Un balayage ciblé sur `scripts/essai-installation.sh` a été tué par le plafond
+de dix minutes de l'outil qui le lançait, au beau milieu d'une mutation. État
+laissé derrière :
+
+```
+atelier :  M scripts/essai-installation.sh   ← la mutation, en place
+           .loupe-verrou                     ← tenu par un pid mort
+arbre principal : propre
+```
+
+Dix mutations à jouer, chacune une suite complète : le dépassement n'était pas
+un risque, c'était une CERTITUDE arithmétique. Le même balayage lancé à la
+racine aurait laissé une garde retournée dans l'arbre où l'on commite — et le
+crochet de fin de tour aurait demandé de la commiter (§ 9 septuagies).
+
+> **La règle de l'atelier ne protège pas d'un incident exceptionnel : elle
+> protège d'un événement qui arrive À L'HEURE.** Tout instrument qui mute
+> l'arbre et tourne plus longtemps qu'un plafond d'exécution SERA interrompu au
+> milieu — pas « pourrait l'être ». Une règle de sûreté dont on croit qu'elle
+> couvre le rare est appliquée mollement ; la même règle, sachant qu'elle
+> couvre le régulier, ne se négocie plus.
+
+Le nettoyage, lui, reste manuel et le restera : restaurer par copie dans
+l'atelier, retirer le verrou. Ça ne coûte rien PARCE QUE c'est dans l'atelier.
+
 > **La règle** — un procédé qui mute des fichiers doit être considéré comme
 > laissant l'arbre sale dès qu'il ne se termine pas de lui-même : `git status`
 > AVANT de croire quoi que ce soit, et le verrou d'exclusivité vérifié contre
