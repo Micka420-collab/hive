@@ -7788,3 +7788,79 @@ l'entrée qui tranche était un `POST`.
 - **Conséquence de conduite** : devant un rouge de plateforme, un agent DIT que
   la seconde mesure est nécessaire et qui peut la lancer. Il ne promet pas de la
   produire lui-même.
+
+## 9 quinseptuagies. La PREMIÈRE exécution d'un banc n'est pas comparable aux suivantes — et j'ai failli publier l'artefact
+
+L'hypothèse de la sur-souscription (§ 9 terseptuagies) enfin mesurable, j'ai
+lancé la comparaison : même arbre, même machine à quatre cœurs, une exécution
+sans plafond de processus puis une avec `HIVE_VITEST_FORKS=2`.
+
+```
+sans plafond : mur 146,3 s   tests 255,9 s
+plafond = 2  : mur 116,0 s   tests 233,1 s
+```
+
+Vingt et un pour cent plus RAPIDE avec moins de processus. Contre-intuitif,
+spectaculaire, et parfaitement cohérent avec l'hypothèse : la machine thrashait,
+on l'a soulagée. J'avais la conclusion, elle était belle, et elle était FAUSSE.
+
+### Ce que la répétition a rendu
+
+| exécution       |      témoin | plafond = 2 |
+| --------------- | ----------: | ----------: |
+| 1               |     146,3 s |     116,0 s |
+| 2               |     117,7 s |     115,3 s |
+| 3               |     112,0 s |     115,0 s |
+| moyenne à chaud | **114,9 s** | **115,4 s** |
+
+Un demi pour cent d'écart. **Du bruit.**
+
+La différence entière venait de la première exécution du témoin, et la colonne
+qui la dénonce était sous mes yeux dès le premier tableau :
+
+```
+témoin  #1 : transform 25,61 s      ← cache FROID
+témoin  #2 : transform 11,30 s
+témoin  #3 :  transform 9,19 s
+plafond #1 :  transform 9,47 s      ← cache déjà chaud, rempli par le témoin
+```
+
+Vitest met en cache ses transformations. La première exécution les paie toutes ;
+les suivantes n'en paient aucune. J'avais mesuré le témoin EN PREMIER, donc le
+témoin a payé le cache, et le plafond en a hérité gratuitement.
+
+### La faute, et elle n'est pas dans l'analyse
+
+Elle est dans le PROTOCOLE, décidé sans y penser : mesurer A puis B, une fois
+chacun. Cet ordre à lui seul avantage systématiquement B, quel que soit B — on
+aurait « démontré » la même chose en comparant le témoin à lui-même.
+
+> **Un banc dont le premier échantillon porte un cache froid favorise
+> mécaniquement ce qui est mesuré ensuite.** Une comparaison à un échantillon
+> par bras ne mesure donc pas ce qu'on croit : elle mesure l'ordre dans lequel
+> on s'y est pris.
+
+Le contrôle qui manquait ne demandait ni outil ni idée : **répéter**. Quatre
+minutes de plus, et l'artefact s'effondre tout seul.
+
+### Ce que ça dit sur le § 9 quadraquadragies, qui n'est pas le même piège
+
+Là-bas, une cause plausible arrivait juste après un vrai défaut, et je m'étais
+arrêté de mesurer. Ici je n'ai pas arrêté de mesurer : **j'ai mesuré une seule
+fois**, et une seule fois est un chiffre, pas une mesure. Les deux se ressemblent
+et se soignent différemment — l'un demande de continuer à chercher la cause,
+l'autre de répéter le même geste jusqu'à ce que la variance se voie.
+
+### Le résultat, celui qu'on garde
+
+- **Sur Linux, quatre cœurs : plafonner les processus à 2 ne change RIEN**
+  (114,9 s contre 115,4 s). L'hypothèse de la sur-souscription n'est ni
+  confirmée ni infirmée pour Windows — elle n'est simplement pas visible ici.
+- **Bonne nouvelle utile quand même** : le plafond ne coûte rien. Une expérience
+  Windows peut donc être lancée sans craindre de tripler le temps de CI.
+- **La question reste ouverte**, et elle ne peut être tranchée que sur Windows,
+  par quelqu'un qui a le droit de déclencher le workflow (§ 9 quaterseptuagies).
+
+Ce qu'il ne faut PAS conclure : « le plafond est inutile ». Il n'a rien changé
+sur une machine qui ne montrait pas le symptôme. Mesurer un remède là où il n'y
+a pas de maladie ne dit rien du remède.
