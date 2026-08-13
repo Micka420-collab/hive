@@ -6569,3 +6569,64 @@ gratuit, et surtout : il apprend à pousser d'abord et à lire le rouge ensuite.
 > **La règle** — le compte se re-mesure APRÈS le dernier changement de la
 > branche, pas au moment où on y pense. Une correction automatique n'est pas
 > un acquis : c'est un instantané, et il périme au commit suivant.
+
+---
+
+## 9 octoquinquagies. La loupe interrompue laisse l'arbre MUTÉ — et le mutant qu'elle avait planté était un vrai trou
+
+Un balayage lancé avec un `timeout` a été tué au bout de dix minutes. Il
+restaurait chaque mutant après l'avoir jugé ; tué entre les deux, il a laissé
+le dernier en place :
+
+```
+ M scripts/essai-installation.sh
+-[ -f "$CIBLE/.env" ] || { echo "✘ .env absent" >&2; exit 1; }
++[ -f "$CIBLE/.env" ] && { echo "✘ .env absent" >&2; exit 1; }
+```
+
+Le verrou `.loupe-verrou` est resté lui aussi, alors qu'aucun processus ne le
+tenait — un verrou d'exclusivité posé par un procédé mortel doit être vérifié
+avant d'être cru.
+
+### Ce que la restauration doit être
+
+Pas `git checkout` : § 9 quattuorvicies. Une copie du fichier, et rien d'autre
+que ce fichier. Ici tout le reste était commis, mais le réflexe se prend quand
+il ne coûte rien, pas le jour où il coûte.
+
+### Le vrai enseignement est ailleurs
+
+Le mutant planté par accident **ne pouvait tuer aucun cas de la suite**. Rien
+ne relisait `scripts/essai-installation.sh` — c'est-à-dire que le seul
+instrument du dépôt qui mène l'installation jusqu'au bout n'était lui-même
+gardé par personne. Un gardien que rien ne garde a la forme exacte du défaut
+qu'il existe pour attraper : s'il cessait silencieusement d'affirmer quoi que
+ce soit, la CI resterait verte et dirait « l'installation marche » sans l'avoir
+vérifiée — pire que si le pas n'existait pas.
+
+`tests/essai-installation.test.ts` répond à ça : le VRAI script, lancé par
+`sh`, dans un dossier où l'on plante un faux `install.sh` dont on décide le
+code de sortie et le `.env`. Verdict affiché :
+
+```
+mutant `||` → `&&` sur le garde du .env  →  4 cas rouges
+mutant CODE_INCONCLUANT 78 → 1           →  1 cas rouge, « 78, pas 1 »
+après restauration par copie             →  9 verts
+```
+
+### Et une erreur de banc, mesurée plutôt que devinée
+
+Première version du montage : les fichiers du faux chantier étaient écrits dans
+le dossier de travail du banc, pas dans le `--dir` que le script choisit. Le
+pas 3 lance `npm run ruche` DEPUIS l'installation ; il est mort sur un
+`package.json` introuvable. Deuxième erreur, dans la foulée : `printf '%s'`
+n'interprète pas les échappements, et une chaîne JSON y a déposé un `\n`
+littéral — le port lu valait `36465\nHIVE_TOKEN`. Les heredocs entre quotes
+règlent les deux.
+
+> **La règle** — un procédé qui mute des fichiers doit être considéré comme
+> laissant l'arbre sale dès qu'il ne se termine pas de lui-même : `git status`
+> AVANT de croire quoi que ce soit, et le verrou d'exclusivité vérifié contre
+> les processus vivants, pas contre sa seule existence. Et le mutant trouvé
+> dans cet état-là se traite comme n'importe quel survivant (§ 2.16 ter) : il
+> a désigné un trou réel.
