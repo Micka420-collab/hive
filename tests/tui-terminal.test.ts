@@ -386,6 +386,108 @@ describe('restaurer', () => {
   });
 });
 
+describe('PATIENTER — l’attente se voit, puis ne laisse pas de trace', () => {
+  // ─── POURQUOI CE DÉROULÉ MÉRITE UN BANC ────────────────────────────────────
+  //
+  // Les sondes de l'installeur lancent de vrais binaires : sur une machine sans
+  // agent installé, l'écran ne bouge pas pendant plusieurs secondes. Un premier
+  // écran figé se lit comme un plantage, et la réaction est `^C` — sur
+  // l'installeur, donc avant la première impression du produit.
+  //
+  // Ce qui doit être garanti tient en trois points : ça BOUGE, ça S'EFFACE, et
+  // le curseur revient — y compris si le travail échoue.
+  const tic = () => {
+    let t = 0;
+    return () => (t += 500);
+  };
+
+  it('anime pendant le travail, puis efface sa ligne et rend le curseur', async () => {
+    const ecran = new Ecran();
+    const t = creerTerminal({
+      entree: new Clavier(),
+      sortie: ecran,
+      env: { TERM: 'xterm-256color' },
+      horloge: tic(),
+    });
+    await t.patienter('Vérifications', Promise.resolve(42));
+
+    expect(ecran.ecrit).toContain('Vérifications');
+    expect(ecran.ecrit, 'le curseur doit disparaître pendant l’animation').toContain('\x1b[?25l');
+    expect(ecran.ecrit, 'et revenir après').toContain('\x1b[?25h');
+    // La ligne est ÉPHÉMÈRE : le pas définitif, avec sa durée, prend sa place.
+    // Un spinner arrêté laissé dans le défilement a l'air d'attendre encore.
+    expect(ecran.ecrit.endsWith('\x1b[?25h'), 'la ligne n’a pas été effacée').toBe(true);
+    // Remonter d'une ligne, c'est CE QUI EFFACE : sans ce déplacement, chaque
+    // image du spinner s'empilerait dans le défilement. (La règle
+    // `no-control-regex` interdit d'écrire l'échappement en clair.)
+    expect(ecran.ecrit).toContain(`${String.fromCharCode(27)}[1A`);
+  });
+
+  it('rend la valeur du travail, et laisse passer son échec', async () => {
+    const ecran = new Ecran();
+    const t = creerTerminal({
+      entree: new Clavier(),
+      sortie: ecran,
+      env: { TERM: 'xterm-256color' },
+      horloge: tic(),
+    });
+    await expect(t.patienter('Sondes', Promise.resolve('valeur'))).resolves.toBe('valeur');
+    // Une sonde qui casse ne doit pas laisser le curseur caché : c'est
+    // exactement le cas où l'on rend la main à un shell.
+    await expect(t.patienter('Sondes', Promise.reject(new Error('cassé')))).rejects.toThrow(
+      'cassé',
+    );
+    expect(ecran.ecrit.endsWith('\x1b[?25h')).toBe(true);
+  });
+
+  it('UN ^C EN PLEINE ATTENTE REND LE CURSEUR — mesuré sur une vraie interruption', async () => {
+    // ─── CE QUE LE BANC PRÉCÉDENT NE VOYAIT PAS ──────────────────────────────
+    //
+    // Les bancs ci-dessus laissent le travail se terminer, donc le `finally`
+    // rend toujours le curseur. En interrompant une VRAIE installation, le
+    // curseur ne revenait pas : pendant une attente l'entrée n'est pas en mode
+    // brut, le `^C` est donc un signal, et Node tuait le processus avant tout
+    // `finally` — le shell rendu ensuite n'avait plus de caret.
+    //
+    // La sortie de secours est `restaurer()`, appelée depuis le gestionnaire
+    // SIGINT de l'installeur : elle doit rendre le curseur PENDANT l'attente,
+    // sans attendre que le travail finisse.
+    const ecran = new Ecran();
+    const t = creerTerminal({
+      entree: new Clavier(),
+      sortie: ecran,
+      env: { TERM: 'xterm-256color' },
+      horloge: tic(),
+    });
+
+    let finir = (): void => {};
+    const attente = t.patienter(
+      'Vérifications',
+      new Promise<void>((r) => {
+        finir = r;
+      }),
+    );
+
+    expect(ecran.ecrit, 'le curseur devrait être caché à ce stade').toContain('\x1b[?25l');
+    t.restaurer(); // ce que fait le gestionnaire SIGINT
+    expect(ecran.ecrit.endsWith('\x1b[?25h'), 'le curseur est resté caché').toBe(true);
+
+    finir();
+    await attente;
+  });
+
+  it('HORS TERMINAL, ELLE N’ÉCRIT RIEN — une CI n’a que faire d’un spinner', async () => {
+    const ecran = new Ecran(false, undefined);
+    const t = creerTerminal({
+      entree: new Clavier(),
+      sortie: ecran,
+      env: { TERM: 'xterm-256color' },
+    });
+    await expect(t.patienter('Vérifications', Promise.resolve(7))).resolves.toBe(7);
+    expect(ecran.ecrit, 'des milliers de lignes dans un fichier de log').toBe('');
+  });
+});
+
 describe('effacer des lignes — « remonte de zéro » n’efface rien', () => {
   // ─── CE QUE `\x1b[0J` FAIT VRAIMENT ─────────────────────────────────────────
   //

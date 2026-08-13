@@ -22,6 +22,7 @@ import {
   rendreEnv,
 } from '../src/installer.js';
 import { MIN_TOKEN_LENGTH } from '../src/shared/types.js';
+import { LARGEUR_MAX, largeurVisible, panneau, type Capacites } from '../src/tui/rendu.js';
 
 describe('installation — le jeton', () => {
   it('dépasse confortablement le minimum exigé par la ruche', () => {
@@ -294,6 +295,39 @@ describe('installation — les prochaines étapes', () => {
     // Et on DIT pourquoi : une commande bizarre sans explication se fait
     // « corriger » par la première personne qui la relit.
     expect(texte).toContain('npm.ps1');
+  });
+
+  it('ET LE PANNEAU LES AFFICHE EN ENTIER — l’adresse ne tombe pas dans la coupe', () => {
+    // ─── LES DEUX MOITIÉS D'UN MÊME ÉCRAN ──────────────────────────────────
+    //
+    // Ces étapes sont justes, et le cadre qui les affiche les tronquait :
+    //
+    //     Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://loc…
+    //
+    // Aucun des tests au-dessus ne pouvait le voir — ils lisent les ÉTAPES,
+    // jamais le panneau. Une ligne juste rendue par un cadre qui coupe reste
+    // une adresse que personne ne peut ouvrir.
+    const caps: Capacites = {
+      couleur: 0,
+      unicode: true,
+      cadres: true,
+      interactif: true,
+      largeur: LARGEUR_MAX,
+    };
+    const rendu = panneau(
+      'Et maintenant',
+      prochainesEtapes('Claude Code', 'linux', '/home/x/hive'),
+      caps,
+    );
+    const texte = rendu.join('\n');
+    expect(texte, 'une étape a été tronquée').not.toContain('…');
+    const ligne = prochainesEtapes(null, 'linux', '/home/x/hive').find((e) =>
+      e.includes('Mission Control'),
+    );
+    const adresse = /(https?:\/\/[^\s)]+)/.exec(ligne ?? '')?.[1];
+    expect(adresse, 'l’installeur doit annoncer une adresse').toBeTruthy();
+    expect(texte, `« ${adresse ?? ''} » est annoncée mais coupée`).toContain(adresse);
+    for (const l of rendu) expect(largeurVisible(l)).toBeLessThanOrEqual(caps.largeur);
   });
 
   it('AILLEURS, C’EST `npm` — on n’impose pas un shim Windows à tout le monde', () => {

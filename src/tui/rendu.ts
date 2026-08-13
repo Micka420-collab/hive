@@ -635,21 +635,28 @@ export function banniere(version: string, caps: Capacites): string[] {
  * marque absente. Le repli est le titre d'une ligne, qui n'a jamais démérité.
  */
 export const BLOCS_HIVE: readonly string[] = [
-  '█  █  ███  █   █  ████',
-  '████   █    █ █   ███ ',
-  '█  █  ███    █    ████',
+  '█   █  ▀█▀  █   █  █▀▀▀',
+  '█████   █   ▀▄ ▄▀  ███ ',
+  '█   █  ▄█▄   ▀▄▀   █▄▄▄',
 ];
 
 function marqueBlocs(largeur: number, caps: Capacites): string[] {
   if (!caps.unicode || !caps.cadres || caps.couleur < 16777216) return [];
   const besoin = Math.max(...BLOCS_HIVE.map((l) => [...l].length));
   if (largeur < besoin) return [];
+  // ─── ELLE EST CENTRÉE, ET CE N'EST PAS UN DÉTAIL ─────────────────────────
+  //
+  // Collée à gauche dans un cadre de 76 colonnes, la marque laisse cinquante
+  // colonnes de vide à sa droite : l'œil ne lit plus un logo, il lit une ligne
+  // qui s'arrête trop tôt. Le comble est posé EN DEHORS du dégradé — teinter
+  // des espaces dessinerait le négatif de la marque sur un fond clair.
+  const comble = ' '.repeat(Math.max(0, Math.floor((largeur - besoin) / 2)));
   // Le dégradé descend d'une ligne à l'autre : chaque ligne part d'un point
   // différent de la rampe, sinon les trois seraient identiques et le relief
   // disparaîtrait.
   return BLOCS_HIVE.map((ligne, i) => {
     const depart = i / (BLOCS_HIVE.length * 2);
-    return degradeDepuis(ligne, depart, caps);
+    return comble + degradeDepuis(ligne, depart, caps);
   });
 }
 
@@ -785,12 +792,27 @@ export function recapEcritures(chemins: readonly string[], caps: Capacites): str
   if (chemins.length === 0) {
     return [`  ${teinter('Rien à écrire — tout est déjà en place.', 'discret', caps)}`];
   }
+  // ─── ON ENROULE, ON NE COUPE PLUS ─────────────────────────────────────
+  //
+  // Ces lignes portent une valeur ET la raison de la poser :
+  //
+  //     HIVE_HOST=127.0.0.1   (la ruche n'écoute que cette machine — rien ne s…
+  //
+  // Coupée, il ne reste que la valeur — or c'est justement le récapitulatif
+  // qu'on lit AVANT de répondre « poser ces réglages ». On demandait un
+  // consentement en cachant la moitié de la phrase.
+  const tete = `  ${symbole('avenir', caps)}  `;
+  const marge = largeurVisible(tete);
   return [
     ...titreSection('Ce qui va être écrit, et rien d’autre', caps),
     '',
-    ...chemins.map(
-      (c) => `  ${symbole('avenir', caps)}  ${tronquer(c, caps.largeur - 5, caps.unicode)}`,
-    ),
+    // Une ligne qui tient est rendue telle quelle : `enrouler` recompose les
+    // mots, donc écraserait les blancs qui alignent `cle=valeur   (pourquoi)`.
+    ...chemins.flatMap((c) => {
+      const place = Math.max(1, caps.largeur - marge);
+      const parts = largeurVisible(c) <= place ? [c] : enrouler(c, place);
+      return parts.map((l, i) => (i === 0 ? tete : ' '.repeat(marge)) + l);
+    }),
   ];
 }
 
@@ -1001,6 +1023,29 @@ export function railPas(pas: Pas, caps: Capacites): string[] {
 }
 
 /**
+ * Le pas EN COURS, animé — une perle qui tourne, et le temps qui passe.
+ *
+ * ─── POURQUOI UNE IMAGE, ET PAS UNE LIGNE DE PLUS ────────────────────────────
+ *
+ * Les sondes de l'installeur lancent de vrais binaires : sur une machine où
+ * aucun agent n'est installé, elles prennent plusieurs secondes pendant
+ * lesquelles l'écran ne bouge pas. Un écran figé au premier lancement d'un
+ * programme se lit comme un plantage, et la réaction est `^C`.
+ *
+ * Cette fonction rend UNE image d'une animation : c'est l'appelant qui compte
+ * les tours et qui réécrit la ligne. Elle reste donc pure, et l'animation se
+ * vérifie image par image plutôt qu'en regardant tourner.
+ *
+ * Le chrono s'affiche dès la première seconde : avant, il dirait « 0,1 s » et
+ * ferait clignoter un chiffre qui n'apprend rien.
+ */
+export function ligneAttente(nom: string, tour: number, ecoule: number, caps: Capacites): string {
+  const image = degradeDepuis(imageSpinner(tour, caps), 0.5, caps);
+  const chrono = ecoule >= 1000 ? teinter(dureeCourte(ecoule), 'discret', caps) : '';
+  return `  ${ligneAFuite(`${image}  ${nom}`, chrono, caps.largeur - 2, caps)}`;
+}
+
+/**
  * La colonne entière : les pas, reliés, sans rupture.
  *
  * ─── POURQUOI LA LIAISON N'EST PAS UNE LIGNE VIDE ────────────────────────────
@@ -1034,11 +1079,43 @@ export function rail(pas: readonly Pas[], caps: Capacites): string[] {
  */
 export function panneau(titre: string, lignes: readonly string[], caps: Capacites): string[] {
   const hexagone = caps.unicode ? '⬢' : '#';
+  const marge = 3;
+  const place = Math.max(1, caps.largeur - 4 - marge);
+  // ─── ON N'ENROULE QUE CE QUI DÉBORDE ──────────────────────────────────────
+  //
+  // `enrouler` recompose les mots, donc NORMALISE les blancs — et ces lignes
+  // sont alignées en colonnes par des blancs multiples. Les passer toutes à
+  // l'enrouleur écrasait la colonne des « : » et rendait le panneau moins
+  // lisible qu'avant la correction. Une ligne qui tient est donc rendue TELLE
+  // QUELLE, au caractère près.
+  const decouper = (l: string): string[] => {
+    if (largeurVisible(l) <= place) return [l];
+    // Le libellé et son deux-points restent intacts : c'est la commande, à
+    // droite, qui s'enroule sous elle-même.
+    const coupe = l.indexOf(':  ');
+    if (coupe < 0) return enrouler(l, place);
+    const tete = l.slice(0, coupe + 3);
+    const creux = largeurVisible(tete);
+    const suites = enrouler(l.slice(coupe + 3), Math.max(8, place - creux));
+    return suites.map((s, i) => (i === 0 ? tete + s : ' '.repeat(creux) + s));
+  };
+  // ─── LE PANNEAU DE FIN NE COUPE PLUS SES COMMANDES ──────────────────────
+  //
+  // `cadre` tronque ce qui dépasse, et une de ces lignes dépassait :
+  //
+  //     Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://loc…
+  //
+  // L'ADRESSE À OUVRIR — la seule chose que ce panneau existe pour donner —
+  // tombait dans la coupe. La suite est alignée sous la COMMANDE, jamais sous
+  // le libellé : une deuxième ligne à ras de marge se lirait comme une
+  // septième étape.
   return cadre(
     [
       degrade(`${hexagone}  ${titre}`, caps),
       ...(lignes.length > 0 ? [''] : []),
-      ...lignes.map((l) => `   ${teinter(l, 'accent', caps)}`),
+      ...lignes.flatMap((l) =>
+        decouper(l).map((part) => ' '.repeat(marge) + teinter(part, 'accent', caps)),
+      ),
     ],
     caps,
   );
