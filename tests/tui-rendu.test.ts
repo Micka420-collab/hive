@@ -134,6 +134,23 @@ describe('les capacités du terminal (§6.4)', () => {
     expect(capacites({}, { isTTY: true, columns: 64 }).largeur).toBe(64);
   });
 
+  it('UN TERMINAL QUI ANNONCE ZÉRO COLONNE EST UN TERMINAL QUI NE SAIT PAS', () => {
+    // `columns: 0` n'est pas une largeur, c'est une absence d'information — un
+    // tuyau, un journal de CI, une console qui n'a pas encore été dimensionnée.
+    // La traiter comme un nombre donne 20 (le plancher), c'est-à-dire un écran
+    // où plus rien ne tient ; le repli à 80 est la seule lecture honnête.
+    //
+    // Un balayage élargi de `src/tui` a désigné cette borne sans test :
+    // `columns > 0` muté en `>= 0` passait, parce qu'aucun cas ne donnait zéro.
+    expect(capacites({}, { isTTY: true, columns: 0 }).largeur, 'zéro colonne ⇒ repli 80').toBe(76);
+    expect(capacites({}, { isTTY: true, columns: undefined }).largeur, 'absente aussi').toBe(76);
+
+    // Et une largeur RÉELLE, même petite, reste respectée jusqu'au plancher :
+    // le repli ne doit pas avaler les terminaux étroits mais valides.
+    expect(capacites({}, { isTTY: true, columns: 30 }).largeur).toBe(30);
+    expect(capacites({}, { isTTY: true, columns: 5 }).largeur, 'plancher à 20').toBe(20);
+  });
+
   it('REPLI 16 COULEURS quand rien n’annonce la palette 256', () => {
     // ConHost — la console Windows historique — n'affiche pas les 256
     // couleurs. Lui envoyer `\x1b[38;5;214m` ne donne pas de l'ambre

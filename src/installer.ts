@@ -420,6 +420,41 @@ export function conseilServeur(): string[] {
  * `plateforme` et `dossier` sont des paramètres, pas des lectures directes :
  * c'est ce qui permet d'éprouver les deux systèmes depuis n'importe lequel.
  */
+/**
+ * Un chemin, cité pour être COLLÉ dans un shell.
+ *
+ * ─── POURQUOI TOUJOURS CITER, ET PAS « SEULEMENT SI ÇA CONTIENT UNE ESPACE »
+ *
+ * Parce que la condition serait juste et le résultat faux un jour sur dix. Sur
+ * Windows, un compte s'appelle très souvent « Jean Dupont » : `cd
+ * C:\Users\Jean Dupont\hive` échoue, PowerShell y voyant deux paramètres
+ * positionnels. Sous sh, `cd` reçoit deux arguments et n'en garde qu'un.
+ *
+ * Une ligne collable « seulement quand le nom d'utilisateur est simple » n'est
+ * pas collable. On cite toujours : une citation inutile ne coûte rien, une
+ * citation manquante coûte le premier geste après l'installation.
+ *
+ * ─── LES DEUX CONVENTIONS NE SONT PAS LA MÊME ────────────────────────────────
+ *
+ * L'apostrophe existe dans les noms — « O'Brien ». Elle ferme la citation, et
+ * les deux mondes la rouvrent différemment :
+ *
+ *   PowerShell : on la DOUBLE            'O''Brien'
+ *   sh         : on SORT de la citation  'o'\''brien'
+ *
+ * Se tromper de convention rend une ligne qui a l'air juste et qui ne l'est
+ * pas — le pire des deux, puisque personne ne la relit.
+ *
+ * Les guillemets simples plutôt que doubles, des deux côtés : sous PowerShell
+ * comme sous sh, ils sont LITTÉRAUX. Un chemin contenant `$` ou un accent grave
+ * ne sera pas interprété.
+ */
+export function citerChemin(chemin: string, plateforme: string): string {
+  const echappee =
+    plateforme === 'win32' ? chemin.replace(/'/g, "''") : chemin.replace(/'/g, `'\\''`);
+  return `'${echappee}'`;
+}
+
 export function prochainesEtapes(
   agent: string | null,
   plateforme: string = process.platform,
@@ -432,7 +467,7 @@ export function prochainesEtapes(
   return [
     // La ruche ne se lance pas d'où l'on est : l'installeur a rendu la main au
     // shell de départ, et ce n'est pas là que vit le `package.json`.
-    colonne('Aller dans la ruche', `cd ${dossier}`),
+    colonne('Aller dans la ruche', `cd ${citerChemin(dossier, plateforme)}`),
     colonne('Lancer la ruche', `${npm} run dev`),
     // L'adresse vient de la MÊME constante que l'origine CORS proposée par
     // l'assistant. Écrite deux fois, elle a divergé une fois — et un écran

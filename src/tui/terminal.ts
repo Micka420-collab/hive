@@ -236,8 +236,20 @@ export interface Terminal {
 const CURSEUR_CACHE = '\x1b[?25l';
 const CURSEUR_MONTRE = '\x1b[?25h';
 
-/** Remonte de `n` lignes et efface tout ce qui suit. */
-function effacerLignes(n: number): string {
+/**
+ * Remonte de `n` lignes et efface tout ce qui suit.
+ *
+ * ─── POURQUOI `<= 0` ET PAS `< 0` ────────────────────────────────────────────
+ *
+ * Exporté pour être éprouvé : un balayage élargi a montré la borne mutable sans
+ * qu'une assertion bouge, et le cas ZÉRO n'est pas anodin. `\x1b[0A` ne remonte
+ * de rien — mais `\x1b[0J` EFFACE du curseur jusqu'au bas de l'écran. Rendre la
+ * séquence pour `n === 0`, c'est effacer ce qui suit alors qu'on n'avait rien à
+ * reprendre : l'écran perd du texte que personne n'a demandé à retirer.
+ *
+ * Une chaîne vide est la seule réponse juste à « remonte de zéro ligne ».
+ */
+export function effacerLignes(n: number): string {
   return n <= 0 ? '' : `\x1b[${n}A\x1b[0J`;
 }
 

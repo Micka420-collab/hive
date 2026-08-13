@@ -20,6 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import { CODE } from '../src/codes-sortie.js';
 import {
+  effacerLignes,
   Interrompu,
   decouper,
   ReponseManquante,
@@ -484,5 +485,31 @@ describe('PATIENTER — l’attente se voit, puis ne laisse pas de trace', () =>
     });
     await expect(t.patienter('Vérifications', Promise.resolve(7))).resolves.toBe(7);
     expect(ecran.ecrit, 'des milliers de lignes dans un fichier de log').toBe('');
+  });
+});
+
+describe('effacer des lignes — « remonte de zéro » n’efface rien', () => {
+  // ─── CE QUE `\x1b[0J` FAIT VRAIMENT ─────────────────────────────────────────
+  //
+  // Un balayage élargi a montré `n <= 0` mutable en `n < 0` sans qu'une
+  // assertion bouge. Le cas ZÉRO n'est pas anodin : `\x1b[0A` ne remonte de
+  // rien, mais `\x1b[0J` EFFACE du curseur jusqu'au bas de l'écran. Rendre la
+  // séquence pour zéro, c'est retirer du texte que personne n'a demandé à
+  // retirer — et sur un écran d'installation, ce texte est le récapitulatif.
+
+  it('ZÉRO ligne ⇒ chaîne vide, jamais une séquence d’effacement', () => {
+    expect(effacerLignes(0), 'zéro ne doit rien émettre').toBe('');
+    expect(effacerLignes(0), 'surtout pas l’effacement de bas d’écran').not.toContain('0J');
+  });
+
+  it('un nombre NÉGATIF ne remonte pas non plus', () => {
+    // Un compte de lignes négatif est un défaut d'appelant : on ne le traduit
+    // pas en séquence, on ne fait rien.
+    expect(effacerLignes(-3)).toBe('');
+  });
+
+  it('à partir d’UNE ligne, on remonte et on efface', () => {
+    expect(effacerLignes(1)).toBe('\x1b[1A\x1b[0J');
+    expect(effacerLignes(12)).toBe('\x1b[12A\x1b[0J');
   });
 });
