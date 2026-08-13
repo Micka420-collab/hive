@@ -7094,12 +7094,34 @@ mis bout à bout, dit assez pourquoi ça valait la peine :
 | `r.elaguees.length > 0`      | « 0 plus ancienne(s) retirée(s) » — un ménage jamais fait   |
 | `r.billets.length === 0`     | « — aucun. » au-dessus d'une liste pleine                   |
 
-**UN seul reste, et il n'est pas équivalent** : `avant.genre === 'refus'`, dans
-la commande de service. Son mutant installerait un service que le plan a
-REFUSÉ. Ce n'est pas de l'affichage, c'est du CONTRÔLE DE FLUX au milieu d'une
-commande qui pose un fichier sur la machine ; l'atteindre demande de rendre la
-commande elle-même invocable — entrées/sorties injectées, système de fichiers
-simulé —, c'est-à-dire un lot à soi, pas une retouche de fin de tour.
+**LE NEUVIÈME EST TOMBÉ AUSSI**, et pas comme prévu. Je l'avais annoncé comme
+un lot à soi — rendre la commande invocable, entrées/sorties injectées, système
+de fichiers simulé. C'était surdimensionné : ce qui manquait n'était pas de
+pouvoir LANCER la commande, c'était d'avoir nommé son INVARIANT.
+
+    on ne pose rien quand le plan refuse,
+    et les avertissements précèdent l'action.
+
+Une fois la phrase écrite, la fonction qui la porte tient en trois lignes —
+`avantDePoser(plan)`, à côté de `planifier`, dans le module qui décide déjà de
+tout le reste. Aucune injection, aucun système de fichiers simulé.
+
+Les deux sens du mutant étaient graves. Un plan VALIDE pris pour un refus
+afficherait `undefined` en guise de motif et n'installerait rien ; un REFUS
+traversant poserait sur la machine le fichier de service que le plan venait
+d'interdire — celui dont le motif dit « selon le format, cette valeur y
+ajouterait une directive ».
+
+```
+`plan.genre === 'refus'` → `!==`   →  4 cas rouges
+`poser: false` → `poser: true`     →  2 cas rouges
+après restauration par copie       →  50 verts
+```
+
+> **La règle** — « ça demande un gros lot » mérite d'être vérifié avant d'être
+> écrit. Souvent, ce qui coûte cher est de rendre le CODE testable ; ce qui
+> suffit est de nommer la DÉCISION qu'il prend. J'ai estimé le premier, et
+> c'était le second.
 
 Cette ligne est écrite ici parce que ne rien dire aurait été la seule vraie
 faute : un survivant qu'on n'a ni tué ni déclaré équivalent redevient invisible

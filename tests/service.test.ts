@@ -30,6 +30,7 @@ import {
   AVERTISSEMENT_LINGER,
   type Contexte,
   type Plan,
+  avantDePoser,
   citerArgumentSystemd,
   valeurSystemd,
   echapperXml,
@@ -605,5 +606,70 @@ describe('LES OCTETS ÉCRITS DISENT CE QUE LE DOCUMENT DÉCLARE', () => {
         `${plateforme} : le document déclare « ${declare} » et le plan écrit en « ${p.fichier.encodage} »`,
       ).toBe(normalise);
     }
+  });
+});
+
+describe('avant de poser — on ne pose rien quand le plan refuse', () => {
+  // ─── LE DERNIER SURVIVANT DU BALAYAGE DE `src/cli.ts` ────────────────────────
+  //
+  // La commande de service décidait sur place, dans un fichier qui n'exporte
+  // rien : `if (avant.genre === 'refus') return dire(avant)`. Muté en `!==`,
+  // aucune assertion ne bougeait, et les deux sens sont graves.
+  //
+  // C'est le seul des neuf qui ne soit pas de l'affichage : ce qui suit cette
+  // ligne POSE UN FICHIER DE SERVICE sur la machine.
+
+  it('UN REFUS NE POSE RIEN, et son motif remonte tel quel', () => {
+    // Le refus le plus parlant est celui des caractères de contrôle : le motif
+    // dit que la valeur AJOUTERAIT une directive au fichier d'unité. Passer
+    // outre écrirait précisément ce fichier-là.
+    const suite = avantDePoser({ genre: 'refus', motif: 'contient un caractère de contrôle' });
+
+    expect(suite.poser, 'un refus ne pose rien').toBe(false);
+    expect(suite.poser === false && suite.motif).toContain('caractère de contrôle');
+  });
+
+  it('UN PLAN VALIDE POSE, et rend SES avertissements — pas `undefined`', () => {
+    // L'autre sens du mutant : un plan valide pris pour un refus. `dire` aurait
+    // affiché le `motif` d'un objet qui n'en a pas, c'est-à-dire « undefined »,
+    // et l'installation n'aurait jamais eu lieu.
+    const plan = {
+      genre: 'plan',
+      nom: 'hive.service',
+      fichier: { chemin: '/tmp/hive.service', contenu: '', mode: 0o644 },
+      installer: [],
+      desinstaller: [],
+      statut: { bin: 'systemctl', args: [] },
+      journal: { bin: 'journalctl', args: [] },
+      avertissements: [AVERTISSEMENT_LINGER],
+    } as unknown as Plan;
+
+    const suite = avantDePoser(plan);
+
+    expect(suite.poser, 'un plan valide doit poser').toBe(true);
+    expect(suite.poser === true && suite.avertissements).toEqual([AVERTISSEMENT_LINGER]);
+  });
+
+  it('un plan SANS avertissement pose quand même — la liste vide n’est pas un refus', () => {
+    const plan = { genre: 'plan', avertissements: [] } as unknown as Plan;
+    const suite = avantDePoser(plan);
+
+    expect(suite.poser).toBe(true);
+    expect(suite.poser === true && suite.avertissements).toEqual([]);
+  });
+
+  it('LA CHAÎNE COMPLÈTE : un contexte hostile ne pose rien', () => {
+    // Bout à bout avec le vrai `planifier`, sur l'entrée qui l'a fait naître —
+    // sans quoi on n'éprouverait que le branchement, jamais son emploi.
+    const hostile: Contexte = {
+      racine: '/home/x/hive\nExecStart=/bin/sh',
+      home: '/home/x',
+      execNode: '/usr/bin/node',
+      plateforme: 'linux',
+      niveau: 'utilisateur',
+    } as unknown as Contexte;
+
+    const suite = avantDePoser(planifier(hostile));
+    expect(suite.poser, 'un retour à la ligne dans la racine ne pose pas de service').toBe(false);
   });
 });
