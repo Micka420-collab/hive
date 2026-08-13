@@ -20,6 +20,7 @@ import {
   choisirCritiques,
   consigneDeCritique,
   lireAvis,
+  productionAContreExpertiser,
 } from '../src/shared/contre-expertise.js';
 
 const production = (o: Partial<Production> = {}): Production => ({
@@ -298,5 +299,51 @@ describe('REPLIER LES AVIS', () => {
     const v = agreger([]);
     expect(v.conteste).toBe(false);
     expect(v.modeles).toBe(0);
+  });
+});
+
+// ─── CE QU'IL FAUT SAVOIR POUR OUVRIR UNE CONTRE-EXPERTISE ───────────────────
+//
+// D'où vient ce bloc : le balayage du cœur a muté `!task || !producteur` en
+// `&&` dans `server.ts` sans faire rougir personne. La garde vivait dans une
+// fermeture au milieu d'un fichier de sept mille lignes ; aucun banc ne
+// l'atteignait. Mutée, on ne renonce que si les DEUX manquent — et s'il n'en
+// manque qu'un, la ligne suivante lit `task.title` ou `producteur.agentType`
+// sur `undefined`.
+
+describe('productionAContreExpertiser — il faut les DEUX, et aucune ne suffit', () => {
+  const TACHE = { id: 't1', title: 'Poser la garde', projectId: 'p1' };
+  const NOEUD = { id: 'n1', agentType: 'claude' };
+
+  it('les deux présentes : la production se compose, et porte les deux origines', () => {
+    const o = productionAContreExpertiser(TACHE, NOEUD, 'le diff', 'les logs');
+    expect(o).not.toBeNull();
+    expect(o?.production).toEqual({
+      taskId: 't1',
+      titre: 'Poser la garde',
+      nodeId: 'n1',
+      agentType: 'claude',
+      diff: 'le diff',
+      logs: 'les logs',
+    });
+    expect(o?.projectId, 'le projet vient de la TÂCHE').toBe('p1');
+  });
+
+  it('LA TÂCHE MANQUE ⇒ RIEN — le titre n’aurait aucune source', () => {
+    // `||` muté en `&&` : on irait composer, et `task.title` lèverait sur
+    // `undefined` au lieu de renoncer proprement.
+    expect(productionAContreExpertiser(undefined, NOEUD, 'd', 'l')).toBeNull();
+  });
+
+  it('LE NŒUD MANQUE ⇒ RIEN — et c’est le cas qui arrive vraiment', () => {
+    // Le nœud est cherché quand son résultat arrive. Entre la production et
+    // l'arrivée, il a pu être EXCLU de la ruche ou son billet révoqué, sa
+    // socket vivant encore le temps du dernier message. C'est exactement la
+    // fenêtre où le producteur manque alors que la tâche est là.
+    expect(productionAContreExpertiser(TACHE, undefined, 'd', 'l')).toBeNull();
+  });
+
+  it('les deux manquent ⇒ rien', () => {
+    expect(productionAContreExpertiser(undefined, undefined, 'd', 'l')).toBeNull();
   });
 });

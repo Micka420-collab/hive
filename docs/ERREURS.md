@@ -6092,3 +6092,54 @@ C'est le § 9 septquadragies, écrit deux heures plus tôt, sur un autre tiers :
 là, la durée était fixée par un réseau ; ici, le verdict est fixé par l'horloge.
 Même question à se poser — **qui, en dehors de ce banc, a le droit de décider
 de son issue ?**
+
+## 9 novemquadragies. La loupe mute aussi le texte des messages, et ces candidates-là ne prouvent rien
+
+Le balayage du cœur a rendu, parmi ses désignations :
+
+```
+🔴 SANS TEST · src/orchestrator/github.ts · > → >=
+   'Un identifiant de workflow est un entier > 0 — jamais un nom de fichier.'
+```
+
+Le `>` muté est celui d'une PHRASE, dans une chaîne de caractères. Aucun test
+n'affirme ce libellé au mot près — la loupe le compte donc « sans test », et
+elle a raison au sens strict : la ligne a changé, la suite est restée verte.
+
+Mais ce n'est pas une NUDITÉ. Une nudité désigne une décision que rien ne
+défend ; ici il n'y a pas de décision, seulement du texte d'aide. La loupe
+dépense un lancement de suite complet — trente à soixante secondes — pour une
+candidate qui ne peut rien apprendre, et pose dans son rapport une ligne rouge
+que le prochain lecteur devra écarter à la main.
+
+### Pourquoi ce n'est pas anodin sur un balayage élargi
+
+Un balayage du cœur pèse 304 candidates. Chaque fausse candidate coûte une
+minute de machine ET une décision humaine — et les décisions humaines à écarter
+sont exactement ce qui fait qu'un rapport long finit par être lu en diagonale.
+C'est le mécanisme par lequel un outil de mesure devient décoratif : non pas en
+mentant, mais en noyant.
+
+### Ce qui distingue les deux, et pourquoi c'est réparable
+
+La loupe travaille sur les LIGNES AJOUTÉES du diff, en texte brut. Elle sait
+déjà écarter les commentaires (`^\s*(//|\*|/\*)`), et pour la même raison : ce
+qui ne s'exécute pas ne se mute pas utilement. Le contenu d'une chaîne est le
+même cas — il s'exécute au sens où il s'affiche, mais aucun opérateur n'y
+DÉCIDE de rien.
+
+> **La règle** — avant d'ajouter une famille de mutations à un outil, se
+> demander non pas « cette mutation change-t-elle la ligne ? » mais **« cette
+> mutation change-t-elle une DÉCISION ? »**. Un opérateur dans un littéral de
+> chaîne, une valeur dans un message, un nombre dans une phrase d'aide : la
+> ligne change, le comportement non — et le verdict « sans test » y est
+> techniquement juste et pratiquement faux.
+
+Noté ici plutôt que corrigé dans l'instrument : écarter les chaînes demande de
+savoir où elles commencent et finissent, donc un analyseur, et l'en-tête de la
+loupe explique pourquoi elle s'en passe (une mutation qui casse la syntaxe fait
+échouer toute la suite, et le mutant passerait pour tué — la loupe mentirait
+dans le sens rassurant, le pire des deux). Un découpage naïf sur les guillemets
+tomberait sur les apostrophes françaises, dont ce dépôt est plein. La bonne
+version de ce correctif est un lot à part entière ; en attendant, ces
+candidates se reconnaissent à l'œil et se consignent ici.

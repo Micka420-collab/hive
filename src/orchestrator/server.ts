@@ -206,6 +206,7 @@ import {
   choisirCritiques,
   consigneDeCritique,
   lireAvis,
+  productionAContreExpertiser,
 } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext } from './hive-mind.js';
@@ -726,18 +727,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     diff: string,
     logs: string,
   ): void => {
-    const task = store.getTask(taskId);
-    const producteur = store.getNode(nodeId);
-    if (!task || !producteur) return;
-
-    const production = {
-      taskId,
-      titre: task.title,
-      nodeId,
-      agentType: producteur.agentType,
+    // Les deux recherches sont nécessaires PARCE QUE la production se compose
+    // des deux — son titre vient de la tâche, son modèle vient du nœud. Ce lien
+    // vit désormais dans `productionAContreExpertiser`, avec ses bancs : ici, la
+    // garde était injoignable, et le balayage l'a montrée nue.
+    const ouverture = productionAContreExpertiser(
+      store.getTask(taskId),
+      store.getNode(nodeId),
       diff,
       logs,
-    };
+    );
+    if (!ouverture) return;
+    const { production, projectId } = ouverture;
 
     const choix = choisirCritiques(
       production,
@@ -757,7 +758,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       emitEvent('contre_expertise', {
         taskId,
         possible: false,
-        producteur: producteur.agentType,
+        producteur: production.agentType,
         motif: choix.motif,
       });
       return;
@@ -779,8 +780,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const lancees: string[] = [];
     for (const relecteur of choix.relecteurs) {
       const relecture = store.createTask({
-        projectId: task.projectId,
-        title: `Contre-expertise — ${champSurUneLigne(task.title, 120)}`,
+        projectId,
+        title: `Contre-expertise — ${champSurUneLigne(production.titre, 120)}`,
         prompt: consigneDeCritique(production),
       });
       // Le lien AVANT l'assignation : si le résultat revenait entre les deux,
@@ -791,7 +792,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         productionTaskId: taskId,
         relecteurNodeId: relecteur.nodeId,
         relecteurAgent: relecteur.agentType,
-        producteurAgent: producteur.agentType,
+        producteurAgent: production.agentType,
       });
       const assignee = store.patchTask(relecture.id, {
         status: 'assigned',
@@ -806,7 +807,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     emitEvent('contre_expertise', {
       taskId,
       possible: true,
-      producteur: producteur.agentType,
+      producteur: production.agentType,
       modeles: choix.modeles,
       relecteurs: choix.relecteurs.map((r) => r.nom),
       relectures: lancees,

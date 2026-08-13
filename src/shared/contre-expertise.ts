@@ -53,6 +53,58 @@ export interface Production {
   readonly logs: string;
 }
 
+/**
+ * La production à relire, composée depuis ce que la ruche sait ENCORE.
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE ──────────────────────────────────────────
+ *
+ * Le serveur assemblait la `Production` juste après deux recherches en base :
+ *
+ *     const task = store.getTask(taskId);
+ *     const producteur = store.getNode(nodeId);
+ *     if (!task || !producteur) return;
+ *
+ * Le balayage par mutation a muté ce `||` en `&&` sans faire rougir personne :
+ * la garde vit dans une fermeture au milieu d'un fichier de sept mille lignes,
+ * qu'aucun banc n'atteint. Or muté, on ne renonce QUE si les deux manquent —
+ * et s'il n'en manque qu'un, la ligne suivante lit `task.title` ou
+ * `producteur.agentType` sur `undefined`.
+ *
+ * LE CAS N'EST PAS THÉORIQUE. Le nœud est cherché par son identifiant au moment
+ * où son résultat arrive ; entre la production et l'arrivée, il a pu être EXCLU
+ * de la ruche (`hive exclure`) ou son billet révoqué. Sa socket, elle, vit
+ * encore le temps de pousser son dernier message. C'est précisément la fenêtre
+ * où `producteur` manque alors que `task` est là.
+ *
+ * ─── CE QUI EST DÉPLACÉ, ET POURQUOI ÇA SUFFIT ───────────────────────────────
+ *
+ * L'ASSEMBLAGE rejoint la GARDE. Les deux recherches sont nécessaires parce que
+ * la production se compose des DEUX — son titre vient de la tâche, son modèle
+ * vient du nœud. Tant que la garde était une ligne et l'assemblage une autre,
+ * rien dans le code ne DISAIT ce lien ; il tenait dans un commentaire. Ici, la
+ * nécessité est structurelle : sans l'une des deux sources, il n'y a rien à
+ * rendre.
+ */
+export function productionAContreExpertiser(
+  task: { readonly id: string; readonly title: string; readonly projectId: string } | undefined,
+  producteur: { readonly id: string; readonly agentType: string } | undefined,
+  diff: string,
+  logs: string,
+): { readonly production: Production; readonly projectId: string } | null {
+  if (!task || !producteur) return null;
+  return {
+    production: {
+      taskId: task.id,
+      titre: task.title,
+      nodeId: producteur.id,
+      agentType: producteur.agentType,
+      diff,
+      logs,
+    },
+    projectId: task.projectId,
+  };
+}
+
 export interface Refus {
   readonly genre: 'refus';
   readonly motif: string;
