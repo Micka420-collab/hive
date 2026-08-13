@@ -20,6 +20,10 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  depuis,
+  lignesMembres,
+  lignesReponseReine,
+  lignesSauvegarde,
   lignesSurfaces,
   lignesWaggle,
   type LigneNectar,
@@ -166,5 +170,159 @@ describe('le Parlement — le bloc des surfaces', () => {
     const lignes = lignesSurfaces({ surfaces: [], sansSurface: 3 }).join('\n');
     expect(lignes).toContain('📍');
     expect(lignes).toContain('3 bulletin(s) sans diff lisible');
+  });
+});
+
+describe('« depuis » — quatre seuils, et chacun a deux côtés', () => {
+  // L'horloge est un PARAMÈTRE : sans lui, aucune de ces bornes ne pourrait
+  // être éprouvée sans parier sur la vitesse de la machine.
+  const MAINTENANT = Date.parse('2026-08-13T09:00:00Z');
+  const jours = (n: number): number => MAINTENANT - n * 86_400_000;
+
+  it('une date absente ne s’invente pas', () => {
+    // Un dépôt jamais poussé n'a pas de date. « il y a 20 000 j » serait pire
+    // que le tiret.
+    expect(depuis(0, MAINTENANT)).toBe('—');
+  });
+
+  it('aujourd’hui / hier : la première borne, des deux côtés', () => {
+    expect(depuis(jours(0), MAINTENANT)).toBe("aujourd'hui");
+    expect(depuis(jours(1), MAINTENANT), '1 jour est « hier », pas « il y a 1 j »').toBe('hier');
+    expect(depuis(jours(2), MAINTENANT), 'et 2 jours retombe dans le compte').toBe('il y a 2 j');
+  });
+
+  it('une date dans le FUTUR rend « aujourd’hui », jamais un nombre négatif', () => {
+    // Horloge de travers, fuseau mal lu : ça arrive, et « il y a -3 j » n'aide
+    // personne.
+    expect(depuis(MAINTENANT + 86_400_000, MAINTENANT)).toBe("aujourd'hui");
+  });
+
+  it('le seuil du mois : 29 jours se comptent en jours, 30 en mois', () => {
+    expect(depuis(jours(29), MAINTENANT)).toBe('il y a 29 j');
+    expect(depuis(jours(30), MAINTENANT)).toBe('il y a 1 mois');
+  });
+
+  it('le seuil de l’an : 364 jours se comptent en mois, 365 en années', () => {
+    expect(depuis(jours(364), MAINTENANT)).toBe('il y a 12 mois');
+    expect(depuis(jours(365), MAINTENANT)).toBe('il y a 1 an(s)');
+  });
+});
+
+describe('la réponse de la Reine', () => {
+  it('LE BADGE DISTINGUE UNE MESURE D’UNE INVENTION', () => {
+    // « état réel » est calculé sur la ruche ; « IA » est engendré par un
+    // modèle. Confondre les deux ferait prendre une invention pour une mesure,
+    // et c'est toute la valeur de cette commande.
+    expect(
+      lignesReponseReine({ reply: 'x', source: 'live', suggestions: [] }).join('\n'),
+    ).toContain('📡 état réel');
+    expect(lignesReponseReine({ reply: 'x', source: 'llm', suggestions: [] }).join('\n')).toContain(
+      '✨ IA',
+    );
+  });
+
+  it('SANS SUGGESTION, PAS D’INVITATION VIDE', () => {
+    // « À demander ensuite : » suivi de rien laisse croire que la Reine a été
+    // interrompue. C'est le mutant `> 0` → `>= 0` du balayage.
+    const lignes = lignesReponseReine({ reply: 'x', source: 'live', suggestions: [] }).join('\n');
+    expect(lignes).not.toContain('À demander ensuite');
+  });
+
+  it('avec des suggestions, elles sont là et séparées', () => {
+    const lignes = lignesReponseReine({
+      reply: 'x',
+      source: 'live',
+      suggestions: ['où en est la tâche 3 ?', 'qui butine le plus ?'],
+    }).join('\n');
+    expect(lignes).toContain('où en est la tâche 3 ? · qui butine le plus ?');
+  });
+
+  it('la réponse est INDENTÉE ligne à ligne — pas seulement la première', () => {
+    // Une réponse multi-lignes dont seule la première est décalée se lit comme
+    // deux blocs différents.
+    const lignes = lignesReponseReine({
+      reply: 'première\nseconde',
+      source: 'live',
+      suggestions: [],
+    }).join('\n');
+    expect(lignes).toContain('  première');
+    expect(lignes).toContain('  seconde');
+  });
+});
+
+describe('la sauvegarde — ne jamais annoncer un ménage qu’on n’a pas fait', () => {
+  const base = { fichier: 'hive-2026-08-13.db', taille: '4,2 Mo' };
+
+  it('RIEN D’ÉLAGUÉ, RIEN DE DIT', () => {
+    // « 0 plus ancienne(s) retirée(s) » décrit un ménage qui n'a pas eu lieu.
+    // Sur une commande dont le rôle est de dire ce qui a été FAIT au disque,
+    // annoncer un geste qu'on n'a pas fait est pire qu'un silence.
+    const lignes = lignesSauvegarde({ ...base, elaguees: [], restes: [] }, 7).join('\n');
+
+    expect(lignes).toContain('hive-2026-08-13.db');
+    expect(lignes).not.toContain('plus ancienne');
+    expect(lignes).not.toContain('reste(s)');
+  });
+
+  it('ce qui A ÉTÉ élagué se dit, avec sa borne', () => {
+    const lignes = lignesSauvegarde({ ...base, elaguees: ['a', 'b'], restes: ['c'] }, 7).join('\n');
+
+    expect(lignes).toContain('2 plus ancienne(s) retirée(s) — borne : 7');
+    expect(lignes).toContain('1 reste(s)');
+  });
+});
+
+describe('« qui peut entrer » — les deux listes, et leurs deux vides', () => {
+  const date = (ms: number): string => `le ${ms}`;
+  const membre = { nodeId: 'n1', label: 'poste-lea', lastSeenAt: 42, revoque: false };
+  const billet = { id: 'b1', etat: 'vivant', usesLeft: 2, expiresAt: 99 };
+
+  it('SANS CLÉ DE NŒUD, on dit la CONSÉQUENCE — pas juste « aucun »', () => {
+    // Pas de clé par nœud veut dire que tout le monde entre encore avec le
+    // jeton maître, celui qui ne se révoque pas individuellement.
+    const lignes = lignesMembres([], [billet], date).join('\n');
+    expect(lignes).toContain('token maître');
+  });
+
+  it('UNE LISTE PLEINE NE PORTE JAMAIS « — aucun. » — on lit la phrase, on referme', () => {
+    // C'est le mutant du balayage : `r.billets.length === 0` inversé mettait
+    // « — aucun. » au-dessus d'une liste de billets bien vivants.
+    const lignes = lignesMembres([membre], [billet], date).join('\n');
+
+    expect(lignes, 'aucune des deux listes ne se dit vide').not.toContain('— aucun');
+    expect(lignes).toContain('poste-lea');
+    expect(lignes).toContain('b1');
+  });
+
+  it('les deux vides sont INDÉPENDANTS', () => {
+    const sansBillet = lignesMembres([membre], [], date).join('\n');
+    expect(sansBillet).toContain('— aucun.');
+    expect(sansBillet, 'la liste des nœuds, elle, est pleine').not.toContain('token maître');
+  });
+
+  it('un nœud RÉVOQUÉ se voit — c’est toute l’utilité de la liste', () => {
+    const lignes = lignesMembres([{ ...membre, revoque: true }], [], date).join('\n');
+    expect(lignes).toContain('⛔');
+    expect(lignes).toContain('(RÉVOQUÉ)');
+  });
+
+  it('un nœud jamais vu le dit, plutôt qu’une date inventée', () => {
+    const lignes = lignesMembres([{ ...membre, lastSeenAt: null }], [], date).join('\n');
+    expect(lignes).toContain('vu jamais');
+  });
+
+  it('chaque état de billet a son icône, et l’inconnu a la sienne', () => {
+    const etats = ['vivant', 'expire', 'epuise', 'revoque', 'martien'];
+    const lignes = lignesMembres(
+      [],
+      etats.map((etat, i) => ({ ...billet, id: `b${i}`, etat })),
+      date,
+    ).join('\n');
+
+    expect(lignes).toContain('✔ b0');
+    expect(lignes).toContain('⌛ b1');
+    expect(lignes).toContain('∅ b2');
+    expect(lignes).toContain('⛔ b3');
+    expect(lignes, 'un état inconnu ne se déguise pas en état connu').toContain('? b4');
   });
 });

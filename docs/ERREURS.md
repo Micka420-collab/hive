@@ -7013,3 +7013,140 @@ après restauration par copie        →  34 verts
 > avec son CONTEXTE : d'où on le lance, et avec quel interpréteur. Un rapport de
 > terrain vaut mille exécutions de CI, parce qu'il est le seul à contenir le pas
 > que personne n'a pensé à automatiser.
+
+---
+
+## 9 trisexagies. Un fichier qui n'exporte rien est un fichier que personne ne garde
+
+Un balayage élargi sur `src/adapters` + `src/cli.ts` (base épinglée sur le
+commit d'origine) a rendu **157 candidates, 23 examinées, 14 défendues, 9
+survivants**. Les neuf sont dans le MÊME fichier : `src/cli.ts`.
+
+Ce n'est pas une coïncidence, c'est une propriété. `src/cli.ts` n'exporte
+rien : ses commandes sont des fonctions internes qui appellent l'API puis
+`console.log`. Aucun banc ne peut les interroger, donc aucune de leurs décisions
+n'est gardée — et la loupe le dit sans ambiguïté, neuf fois de suite.
+
+« Hors d'atteinte du banc » est presque toujours « au mauvais endroit »
+(§ 2 quaterdecies). Le remède n'est pas d'écrire des bancs contorsionnés autour
+d'un `console.log` : c'est de faire DESCENDRE les décisions dans des modules
+purs, et de ne laisser en surface que l'impression.
+
+### Ce que les décisions descendues valaient vraiment
+
+| Mutant                             | Ce qui passait                                            |
+| ---------------------------------- | --------------------------------------------------------- |
+| `board.nodes.length === 0` → `!==` | un tableau PLEIN affichait « aucune contribution encore » |
+| `v.sansSurface > 0` → `>= 0`       | « 0 bulletin(s) sans diff lisible » écrit à l'écran       |
+| `v.surfaces.length > 1` → `> 0`    | une surface unique annoncée comme un désaccord            |
+| `avgDurationMs > 0` → `>= 0`       | « 0.0s/tâche » annoncé comme une mesure                   |
+| `uses !== undefined` → `===`       | `--uses 3` n'atteignait jamais la ruche                   |
+| `j === 1` → `!==`                  | « hier » pour 2, 29 et 364 jours                          |
+
+Le premier et le cinquième ne sont pas du même ordre que les autres. Le premier
+fait disparaître de l'écran tout le travail de l'essaim, sans rien signaler. Le
+cinquième touche un **droit d'entrée compté** : la personne demande un billet à
+trois usages, la ruche applique son défaut, et rien ne dit que la demande a été
+perdue.
+
+### Le défaut trouvé EN ÉCRIVANT le banc, pas en lisant le code
+
+```ts
+Number(''); // 0
+Number('  '); // 0
+```
+
+`--uses ""` posait donc un billet à **zéro usage** — inutilisable, et sans un
+mot. Personne ne l'avait vu, et je ne l'ai pas vu non plus : il est tombé sur un
+cas que je croyais acquis en écrivant `for (const brut of ['abc', '', …])`. Le
+banc a rougi sur MA supposition, et c'est le code qui avait raison de rougir.
+
+Une chaîne vide n'est pas un nombre que quelqu'un a tapé : c'est une absence, et
+une absence laisse la ruche décider.
+
+### Une équivalence, consignée
+
+`j === 1` muté en `<= 1` survit : la ligne au-dessus a déjà repris la main pour
+tout `j <= 0`, donc `j >= 1` est acquis. Le `===` fait le travail d'un `<=`
+grâce à sa voisine. Le mutant du balayage, lui, était `!==`, et trois cas le
+tuent.
+
+> **La règle** — quand une campagne de mutation concentre ses survivants dans UN
+> fichier, ne pas les traiter un par un : lire ce que le fichier a de
+> particulier. Ici, il n'exportait rien. Le nombre de survivants ne mesurait pas
+> neuf oublis, il mesurait une frontière mal placée.
+
+### Ce qui reste dans `src/cli.ts`, et pourquoi ce n'est pas « équivalent »
+
+**Huit des neuf sont refermés** — six décisions d'affichage et deux décisions
+d'envoi, toutes descendues dans des modules purs. Ce que leurs mutants faisaient,
+mis bout à bout, dit assez pourquoi ça valait la peine :
+
+| Survivant                    | Ce que le mutant faisait                                    |
+| ---------------------------- | ----------------------------------------------------------- |
+| `board.nodes.length === 0`   | un tableau PLEIN disait « aucune contribution encore »      |
+| `v.sansSurface > 0`          | « 0 bulletin(s) sans diff lisible » à l'écran               |
+| `v.surfaces.length > 1`      | une surface unique annoncée comme un désaccord              |
+| `uses !== undefined`         | `--uses 3` n'atteignait jamais la ruche                     |
+| `j === 1`                    | « hier » pour 2, 29 et 364 jours                            |
+| `m.cle !== 'local'`          | le repli d'un téléchargement raté ne proposait que lui-même |
+| `res.suggestions.length > 0` | « À demander ensuite : » suivi de rien                      |
+| `r.elaguees.length > 0`      | « 0 plus ancienne(s) retirée(s) » — un ménage jamais fait   |
+| `r.billets.length === 0`     | « — aucun. » au-dessus d'une liste pleine                   |
+
+**UN seul reste, et il n'est pas équivalent** : `avant.genre === 'refus'`, dans
+la commande de service. Son mutant installerait un service que le plan a
+REFUSÉ. Ce n'est pas de l'affichage, c'est du CONTRÔLE DE FLUX au milieu d'une
+commande qui pose un fichier sur la machine ; l'atteindre demande de rendre la
+commande elle-même invocable — entrées/sorties injectées, système de fichiers
+simulé —, c'est-à-dire un lot à soi, pas une retouche de fin de tour.
+
+Cette ligne est écrite ici parce que ne rien dire aurait été la seule vraie
+faute : un survivant qu'on n'a ni tué ni déclaré équivalent redevient invisible
+au balayage suivant, et se recompte comme neuf.
+
+> **La règle** — un survivant qu'on ne referme pas dans le tour se NOMME, avec
+> ce que son mutant ferait et ce qu'il faudrait pour l'atteindre. « Pas encore »
+> est une réponse acceptable ; « pas vu » ne l'est pas.
+
+---
+
+## 9 quadrasexagies. Un paramètre par défaut lu dans l'environnement transforme un banc déterministe en pari sur la machine
+
+`prochainesEtapes(agent)` ignorait la plateforme. Deux bancs l'appelaient sans
+rien préciser, et c'était sans conséquence.
+
+Le jour où la fonction a cessé de l'ignorer — `plateforme: string =
+process.platform` —, ces deux bancs sont devenus **dépendants de la machine qui
+les lance**. Verts sous Linux, rouges sur le runner Windows :
+
+```
+AssertionError: expected 'Aller dans la ruche  :  cd D:\a\hive\hive…'
+                to contain 'npm run dev'
++ Lancer la ruche          :  npm.cmd run dev
+```
+
+La CI l'a dit avant la fusion, et c'est exactement son travail. La leçon n'est
+pas « la CI a bien fonctionné », c'est **ce que j'ai omis en ajoutant le
+paramètre** : un défaut qui lit l'environnement ne se contente pas d'être
+pratique, il déplace une décision hors du banc. Le banc croyait éprouver un
+contenu ; il éprouvait le contenu **sur la machine du jour**.
+
+### Le remède, et sa preuve
+
+Les deux cas NOMMENT désormais leur plateforme. Ce n'est pas un affaiblissement
+— l'assertion est inchangée —, c'est le banc qui reprend la main sur ce qu'il
+exerce.
+
+```
+défaut forcé à 'win32', cas corrigés  →  59 verts
+défaut forcé à 'win32', ancienne forme →  1 rouge (ce que la CI a vu)
+```
+
+La simulation vaut mieux que l'attente : forcer le défaut reproduit le runner
+Windows en une seconde, là où pousser et attendre coûte huit minutes.
+
+> **La règle** — quand on ajoute un paramètre par défaut qui lit
+> l'environnement (`process.platform`, `process.cwd()`, `Date.now()`), relire
+> TOUS les appels existants : ceux qui l'omettaient viennent de changer de
+> nature sans changer d'une lettre. Un banc nomme ce qu'il éprouve.

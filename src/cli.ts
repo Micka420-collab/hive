@@ -45,7 +45,15 @@ import {
   nightShiftFromEnv,
 } from './shared/night-shift.js';
 import { aLeDrapeau, choisirDansListe, valeurApres } from './choix-cli.js';
-import { lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
+import { corpsDuBillet } from './shared/cli-billet.js';
+import {
+  depuis,
+  lignesMembres,
+  lignesReponseReine,
+  lignesSauvegarde,
+  lignesSurfaces,
+  lignesWaggle,
+} from './shared/cli-rendu.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -69,6 +77,7 @@ import {
   estArchive,
   etapesTunnelNomme,
   hoteValide,
+  methodesDeRepli,
   methodesInstallation,
   urlStable,
   urlTelechargement,
@@ -910,14 +919,11 @@ async function cmdSauvegarde(...args: string[]): Promise<void> {
     return;
   }
 
-  console.log(`\n  ✔ ${r.fichier}`);
-  console.log(`    ${taillelisible(r.octets)} — copie complète, WAL compris\n`);
-  if (r.elaguees.length > 0) {
-    console.log(`  ◦ ${r.elaguees.length} plus ancienne(s) retirée(s) — borne : ${garder}\n`);
-  }
-  if (r.restes.length > 0) {
-    console.log(`  ◦ ${r.restes.length} reste(s) d’un processus interrompu, ramassé(s)\n`);
-  }
+  // Ce qui s'affiche — y compris les deux compte-rendus qui ne doivent PAS
+  // s'écrire quand il n'y a rien à annoncer — est décidé par `lignesSauvegarde`,
+  // pur et éprouvé.
+  for (const l of lignesSauvegarde({ ...r, taille: taillelisible(r.octets) }, garder))
+    console.log(l);
 }
 
 /** Ghost in the Hive : rapport d'anomalies (nœuds/tâches douteux). */
@@ -1011,22 +1017,10 @@ interface BilletResponse {
  * Usage : invite [urlWS] [--uses N] [--hours H] [--insecure]
  */
 async function cmdInvite(...args: string[]): Promise<void> {
-  const drapeaux = new Set(args.filter((a) => a.startsWith('--')));
-  const positionnels = args.filter((a) => !a.startsWith('--'));
-  const valeur = (nom: string): number | undefined => {
-    const i = args.indexOf(nom);
-    if (i < 0) return undefined;
-    const n = Number(args[i + 1]);
-    return Number.isFinite(n) ? n : undefined;
-  };
-  const heures = valeur('--hours');
-  const body: Record<string, unknown> = {};
-  const url = positionnels.find((a) => a.startsWith('ws'));
-  if (url) body.url = url;
-  const uses = valeur('--uses');
-  if (uses !== undefined) body.uses = uses;
-  if (heures !== undefined) body.ttlMs = Math.round(heures * 3_600_000);
-  if (drapeaux.has('--insecure')) body.insecure = true;
+  // Ce qui part sur le fil est décidé par `corpsDuBillet`, pur et éprouvé : un
+  // billet est un droit d'entrée COMPTÉ, et se tromper sur le compte est une
+  // faille, pas un détail (§ 2 quaterdecies).
+  const body = corpsDuBillet(args);
 
   let inv: BilletResponse;
   try {
@@ -1100,26 +1094,12 @@ async function cmdMembres(): Promise<void> {
     }[];
   }>('/api/membres');
 
-  console.log('\n🔑 Membres (clés de nœud)');
-  if (r.noeuds.length === 0) {
-    console.log('  — aucun. Les nœuds connectés utilisent encore le token maître.');
-  }
-  for (const n of r.noeuds) {
-    const vu = n.lastSeenAt ? new Date(n.lastSeenAt).toLocaleString() : 'jamais';
-    console.log(
-      `  ${n.revoque ? '⛔' : '✔'} ${n.nodeId}  ${n.label ?? ''}  · vu ${vu}${n.revoque ? '  (RÉVOQUÉ)' : ''}`,
-    );
-  }
-
-  console.log('\n🎫 Billets');
-  if (r.billets.length === 0) console.log('  — aucun.');
-  for (const b of r.billets) {
-    const icone = { vivant: '✔', expire: '⌛', epuise: '∅', revoque: '⛔' }[b.etat] ?? '?';
-    console.log(
-      `  ${icone} ${b.id}  ${b.etat}  · ${b.usesLeft} usage(s) restant(s) · expire ${new Date(b.expiresAt).toLocaleString()}`,
-    );
-  }
-  console.log('');
+  // Les deux « — aucun. » ne se valent pas, et aucun ne doit apparaître au-dessus
+  // d'une liste pleine : la décision vit dans `lignesMembres`, pur et éprouvé.
+  // La mise en forme de la date lui est PASSÉE — `toLocaleString` dépend du
+  // fuseau et de la langue de la machine.
+  for (const l of lignesMembres(r.noeuds, r.billets, (ms) => new Date(ms).toLocaleString()))
+    console.log(l);
 }
 
 /** Exclure un membre — sans toucher aux autres. */
@@ -1332,8 +1312,10 @@ async function installerCloudflared(plateforme: {
     console.error(
       `\n✘ Téléchargement impossible : ${err instanceof Error ? err.message : String(err)}\n\n` +
         '  Repli — installez-le à la main :\n' +
-        methodesInstallation(plateforme)
-          .filter((m) => m.cle !== 'local')
+        // La méthode `local` EST le téléchargement qui vient d'échouer : la
+        // proposer en repli reviendrait à dire « refaites ce qui n'a pas
+        // marché ». Le choix vit dans `methodesDeRepli`, pur et éprouvé.
+        methodesDeRepli(plateforme)
           .map((m) => `    ${m.commande}`)
           .join('\n') +
         '\n',
@@ -1464,17 +1446,6 @@ interface DepotListe {
   archive: boolean;
   importe: boolean;
   htmlUrl: string;
-}
-
-/** « il y a 3 jours » — un horodatage brut n'aide pas à choisir. */
-function depuis(ms: number): string {
-  if (!ms) return '—';
-  const j = Math.floor((Date.now() - ms) / 86_400_000);
-  if (j <= 0) return "aujourd'hui";
-  if (j === 1) return 'hier';
-  if (j < 30) return `il y a ${j} j`;
-  if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
-  return `il y a ${Math.floor(j / 365)} an(s)`;
 }
 
 function afficherDepots(depots: DepotListe[], tronque: boolean): void {
@@ -1672,12 +1643,7 @@ async function cmdAsk(question: string, projectId?: string): Promise<void> {
       body: JSON.stringify({ message: question, ...(projectId ? { projectId } : {}) }),
     },
   );
-  const badge = res.source === 'llm' ? '✨ IA' : '📡 état réel';
-  console.log(`\n👑 La Reine (${badge}) :\n`);
-  console.log(res.reply.replace(/^/gm, '  '));
-  if (res.suggestions.length > 0) {
-    console.log(`\n  💡 À demander ensuite : ${res.suggestions.join(' · ')}`);
-  }
+  for (const l of lignesReponseReine(res)) console.log(l);
 }
 
 /** Drone Wars : lance une course compétitive sur une tâche prête. */

@@ -127,3 +127,153 @@ export function lignesSurfaces(v: SurfacesDuVerdict): string[] {
   }
   return lignes;
 }
+
+/**
+ * « hier », « il y a 3 j », « il y a 2 mois » — un horodatage brut n'aide pas
+ * à choisir un dépôt dans une liste de trente.
+ *
+ * `maintenant` est un PARAMÈTRE : sans lui, la fonction lit l'horloge et
+ * aucune borne ne peut être éprouvée sans parier sur la vitesse de la machine
+ * (§ 9 octoquadragies). Les quatre seuils — aujourd'hui, hier, le mois, l'an —
+ * sont des bornes comme les autres, et elles se mesurent des deux côtés.
+ */
+export function depuis(ms: number, maintenant: number = Date.now()): string {
+  // `!ms` attrape le 0 comme l'absence : un dépôt jamais poussé n'a pas de date
+  // à afficher, et « il y a 20 000 j » serait pire que rien.
+  if (!ms) return '—';
+  const j = Math.floor((maintenant - ms) / 86_400_000);
+  // Une date dans le FUTUR (horloge de travers, fuseau) rend « aujourd'hui »
+  // plutôt qu'un nombre négatif : c'est la seule réponse qui ne ment pas trop.
+  if (j <= 0) return "aujourd'hui";
+  // ÉQUIVALENCE CONSIGNÉE : `=== 1` muté en `<= 1` ne change rien — la ligne
+  // au-dessus a déjà repris la main pour tout `j <= 0`, donc `j >= 1` est acquis
+  // ici. Le `===` fait le travail d'un `<=` grâce à sa voisine, et aucune entrée
+  // ne les distingue. Le mutant du balayage, lui, était `!==` : il rend « hier »
+  // pour 2, 29 et 364 jours, et trois cas le tuent.
+  if (j === 1) return 'hier';
+  if (j < 30) return `il y a ${j} j`;
+  if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
+  return `il y a ${Math.floor(j / 365)} an(s)`;
+}
+
+/** Ce que la Reine a répondu, réduit à ce que l'affichage consulte. */
+export interface ReponseReine {
+  reply: string;
+  source: 'live' | 'llm';
+  suggestions: readonly string[];
+}
+
+/**
+ * Les lignes de la réponse de la Reine.
+ *
+ * Le badge distingue une réponse CALCULÉE sur l'état réel d'une réponse
+ * ENGENDRÉE par un modèle : confondre les deux ferait prendre une invention
+ * pour une mesure.
+ *
+ * Et la ligne des suggestions n'existe QUE s'il y en a — « À demander ensuite : »
+ * suivi de rien est une invitation vide, qui laisse croire que la Reine a été
+ * interrompue.
+ */
+export function lignesReponseReine(res: ReponseReine): string[] {
+  const badge = res.source === 'llm' ? '✨ IA' : '📡 état réel';
+  const lignes = ['', `👑 La Reine (${badge}) :`, '', res.reply.replace(/^/gm, '  ')];
+  if (res.suggestions.length > 0) {
+    lignes.push('', `  💡 À demander ensuite : ${res.suggestions.join(' · ')}`);
+  }
+  return lignes;
+}
+
+/** Le compte-rendu d'une sauvegarde, réduit à ce que l'affichage consulte. */
+export interface RapportSauvegarde {
+  fichier: string;
+  taille: string;
+  elaguees: readonly unknown[];
+  restes: readonly unknown[];
+}
+
+/**
+ * Les lignes d'une sauvegarde réussie.
+ *
+ * Les deux compte-rendus du bas ne s'écrivent QUE s'ils ont un nombre à
+ * annoncer : « 0 plus ancienne(s) retirée(s) » et « 0 reste(s) ramassé(s) »
+ * décriraient un ménage qui n'a pas eu lieu. Sur une commande dont le rôle est
+ * de dire ce qui a été FAIT au disque, annoncer un geste qu'on n'a pas fait est
+ * pire qu'un silence.
+ */
+export function lignesSauvegarde(r: RapportSauvegarde, garder: number): string[] {
+  const lignes = ['', `  ✔ ${r.fichier}`, `    ${r.taille} — copie complète, WAL compris`, ''];
+  if (r.elaguees.length > 0) {
+    lignes.push(`  ◦ ${r.elaguees.length} plus ancienne(s) retirée(s) — borne : ${garder}`, '');
+  }
+  if (r.restes.length > 0) {
+    lignes.push(`  ◦ ${r.restes.length} reste(s) d’un processus interrompu, ramassé(s)`, '');
+  }
+  return lignes;
+}
+
+/** Une clé de nœud, réduite à ce que l'affichage consulte. */
+export interface LigneMembre {
+  nodeId: string;
+  label: string | null;
+  lastSeenAt: number | null;
+  revoque: boolean;
+}
+
+/** Un billet d'invitation, réduit à ce que l'affichage consulte. */
+export interface LigneBillet {
+  id: string;
+  etat: string;
+  usesLeft: number;
+  expiresAt: number;
+}
+
+const ICONES_BILLET: Record<string, string> = {
+  vivant: '✔',
+  expire: '⌛',
+  epuise: '∅',
+  revoque: '⛔',
+};
+
+/**
+ * Les lignes de « qui peut entrer » : les clés de nœud, puis les billets.
+ *
+ * ─── LES DEUX « — aucun. » NE SE VALENT PAS ──────────────────────────────────
+ *
+ * Celui des NŒUDS dit une conséquence de sécurité : pas de clé par nœud veut
+ * dire que tout le monde entre encore avec le jeton maître, celui qui ne se
+ * révoque pas individuellement. Celui des BILLETS ne dit qu'une absence.
+ *
+ * Les deux doivent apparaître SEULEMENT quand la liste est vide : un « — aucun. »
+ * au-dessus d'une liste pleine est un mensonge que l'œil ne rattrape pas — on
+ * lit la phrase, on referme.
+ *
+ * `dateHumaine` est un paramètre : `toLocaleString` dépend du fuseau et de la
+ * langue de la machine, et un banc qui la lirait parierait sur le runner.
+ */
+export function lignesMembres(
+  membres: readonly LigneMembre[],
+  billets: readonly LigneBillet[],
+  dateHumaine: (ms: number) => string,
+): string[] {
+  const lignes = ['', '🔑 Membres (clés de nœud)'];
+  if (membres.length === 0) {
+    lignes.push('  — aucun. Les nœuds connectés utilisent encore le token maître.');
+  }
+  for (const n of membres) {
+    const vu = n.lastSeenAt ? dateHumaine(n.lastSeenAt) : 'jamais';
+    lignes.push(
+      `  ${n.revoque ? '⛔' : '✔'} ${n.nodeId}  ${n.label ?? ''}  · vu ${vu}${n.revoque ? '  (RÉVOQUÉ)' : ''}`,
+    );
+  }
+
+  lignes.push('', '🎫 Billets');
+  if (billets.length === 0) lignes.push('  — aucun.');
+  for (const b of billets) {
+    const icone = ICONES_BILLET[b.etat] ?? '?';
+    lignes.push(
+      `  ${icone} ${b.id}  ${b.etat}  · ${b.usesLeft} usage(s) restant(s) · expire ${dateHumaine(b.expiresAt)}`,
+    );
+  }
+  lignes.push('');
+  return lignes;
+}
