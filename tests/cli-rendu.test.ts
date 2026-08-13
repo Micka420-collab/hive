@@ -20,6 +20,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  depuis,
   lignesSurfaces,
   lignesWaggle,
   type LigneNectar,
@@ -166,5 +167,40 @@ describe('le Parlement — le bloc des surfaces', () => {
     const lignes = lignesSurfaces({ surfaces: [], sansSurface: 3 }).join('\n');
     expect(lignes).toContain('📍');
     expect(lignes).toContain('3 bulletin(s) sans diff lisible');
+  });
+});
+
+describe('« depuis » — quatre seuils, et chacun a deux côtés', () => {
+  // L'horloge est un PARAMÈTRE : sans lui, aucune de ces bornes ne pourrait
+  // être éprouvée sans parier sur la vitesse de la machine.
+  const MAINTENANT = Date.parse('2026-08-13T09:00:00Z');
+  const jours = (n: number): number => MAINTENANT - n * 86_400_000;
+
+  it('une date absente ne s’invente pas', () => {
+    // Un dépôt jamais poussé n'a pas de date. « il y a 20 000 j » serait pire
+    // que le tiret.
+    expect(depuis(0, MAINTENANT)).toBe('—');
+  });
+
+  it('aujourd’hui / hier : la première borne, des deux côtés', () => {
+    expect(depuis(jours(0), MAINTENANT)).toBe("aujourd'hui");
+    expect(depuis(jours(1), MAINTENANT), '1 jour est « hier », pas « il y a 1 j »').toBe('hier');
+    expect(depuis(jours(2), MAINTENANT), 'et 2 jours retombe dans le compte').toBe('il y a 2 j');
+  });
+
+  it('une date dans le FUTUR rend « aujourd’hui », jamais un nombre négatif', () => {
+    // Horloge de travers, fuseau mal lu : ça arrive, et « il y a -3 j » n'aide
+    // personne.
+    expect(depuis(MAINTENANT + 86_400_000, MAINTENANT)).toBe("aujourd'hui");
+  });
+
+  it('le seuil du mois : 29 jours se comptent en jours, 30 en mois', () => {
+    expect(depuis(jours(29), MAINTENANT)).toBe('il y a 29 j');
+    expect(depuis(jours(30), MAINTENANT)).toBe('il y a 1 mois');
+  });
+
+  it('le seuil de l’an : 364 jours se comptent en mois, 365 en années', () => {
+    expect(depuis(jours(364), MAINTENANT)).toBe('il y a 12 mois');
+    expect(depuis(jours(365), MAINTENANT)).toBe('il y a 1 an(s)');
   });
 });

@@ -45,7 +45,8 @@ import {
   nightShiftFromEnv,
 } from './shared/night-shift.js';
 import { aLeDrapeau, choisirDansListe, valeurApres } from './choix-cli.js';
-import { lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
+import { corpsDuBillet } from './shared/cli-billet.js';
+import { depuis, lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -1011,22 +1012,10 @@ interface BilletResponse {
  * Usage : invite [urlWS] [--uses N] [--hours H] [--insecure]
  */
 async function cmdInvite(...args: string[]): Promise<void> {
-  const drapeaux = new Set(args.filter((a) => a.startsWith('--')));
-  const positionnels = args.filter((a) => !a.startsWith('--'));
-  const valeur = (nom: string): number | undefined => {
-    const i = args.indexOf(nom);
-    if (i < 0) return undefined;
-    const n = Number(args[i + 1]);
-    return Number.isFinite(n) ? n : undefined;
-  };
-  const heures = valeur('--hours');
-  const body: Record<string, unknown> = {};
-  const url = positionnels.find((a) => a.startsWith('ws'));
-  if (url) body.url = url;
-  const uses = valeur('--uses');
-  if (uses !== undefined) body.uses = uses;
-  if (heures !== undefined) body.ttlMs = Math.round(heures * 3_600_000);
-  if (drapeaux.has('--insecure')) body.insecure = true;
+  // Ce qui part sur le fil est décidé par `corpsDuBillet`, pur et éprouvé : un
+  // billet est un droit d'entrée COMPTÉ, et se tromper sur le compte est une
+  // faille, pas un détail (§ 2 quaterdecies).
+  const body = corpsDuBillet(args);
 
   let inv: BilletResponse;
   try {
@@ -1464,17 +1453,6 @@ interface DepotListe {
   archive: boolean;
   importe: boolean;
   htmlUrl: string;
-}
-
-/** « il y a 3 jours » — un horodatage brut n'aide pas à choisir. */
-function depuis(ms: number): string {
-  if (!ms) return '—';
-  const j = Math.floor((Date.now() - ms) / 86_400_000);
-  if (j <= 0) return "aujourd'hui";
-  if (j === 1) return 'hier';
-  if (j < 30) return `il y a ${j} j`;
-  if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
-  return `il y a ${Math.floor(j / 365)} an(s)`;
 }
 
 function afficherDepots(depots: DepotListe[], tronque: boolean): void {

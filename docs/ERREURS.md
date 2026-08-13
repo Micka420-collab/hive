@@ -7013,3 +7013,65 @@ après restauration par copie        →  34 verts
 > avec son CONTEXTE : d'où on le lance, et avec quel interpréteur. Un rapport de
 > terrain vaut mille exécutions de CI, parce qu'il est le seul à contenir le pas
 > que personne n'a pensé à automatiser.
+
+---
+
+## 9 trisexagies. Un fichier qui n'exporte rien est un fichier que personne ne garde
+
+Un balayage élargi sur `src/adapters` + `src/cli.ts` (base épinglée sur le
+commit d'origine) a rendu **157 candidates, 23 examinées, 14 défendues, 9
+survivants**. Les neuf sont dans le MÊME fichier : `src/cli.ts`.
+
+Ce n'est pas une coïncidence, c'est une propriété. `src/cli.ts` n'exporte
+rien : ses commandes sont des fonctions internes qui appellent l'API puis
+`console.log`. Aucun banc ne peut les interroger, donc aucune de leurs décisions
+n'est gardée — et la loupe le dit sans ambiguïté, neuf fois de suite.
+
+« Hors d'atteinte du banc » est presque toujours « au mauvais endroit »
+(§ 2 quaterdecies). Le remède n'est pas d'écrire des bancs contorsionnés autour
+d'un `console.log` : c'est de faire DESCENDRE les décisions dans des modules
+purs, et de ne laisser en surface que l'impression.
+
+### Ce que les décisions descendues valaient vraiment
+
+| Mutant                             | Ce qui passait                                            |
+| ---------------------------------- | --------------------------------------------------------- |
+| `board.nodes.length === 0` → `!==` | un tableau PLEIN affichait « aucune contribution encore » |
+| `v.sansSurface > 0` → `>= 0`       | « 0 bulletin(s) sans diff lisible » écrit à l'écran       |
+| `v.surfaces.length > 1` → `> 0`    | une surface unique annoncée comme un désaccord            |
+| `avgDurationMs > 0` → `>= 0`       | « 0.0s/tâche » annoncé comme une mesure                   |
+| `uses !== undefined` → `===`       | `--uses 3` n'atteignait jamais la ruche                   |
+| `j === 1` → `!==`                  | « hier » pour 2, 29 et 364 jours                          |
+
+Le premier et le cinquième ne sont pas du même ordre que les autres. Le premier
+fait disparaître de l'écran tout le travail de l'essaim, sans rien signaler. Le
+cinquième touche un **droit d'entrée compté** : la personne demande un billet à
+trois usages, la ruche applique son défaut, et rien ne dit que la demande a été
+perdue.
+
+### Le défaut trouvé EN ÉCRIVANT le banc, pas en lisant le code
+
+```ts
+Number(''); // 0
+Number('  '); // 0
+```
+
+`--uses ""` posait donc un billet à **zéro usage** — inutilisable, et sans un
+mot. Personne ne l'avait vu, et je ne l'ai pas vu non plus : il est tombé sur un
+cas que je croyais acquis en écrivant `for (const brut of ['abc', '', …])`. Le
+banc a rougi sur MA supposition, et c'est le code qui avait raison de rougir.
+
+Une chaîne vide n'est pas un nombre que quelqu'un a tapé : c'est une absence, et
+une absence laisse la ruche décider.
+
+### Une équivalence, consignée
+
+`j === 1` muté en `<= 1` survit : la ligne au-dessus a déjà repris la main pour
+tout `j <= 0`, donc `j >= 1` est acquis. Le `===` fait le travail d'un `<=`
+grâce à sa voisine. Le mutant du balayage, lui, était `!==`, et trois cas le
+tuent.
+
+> **La règle** — quand une campagne de mutation concentre ses survivants dans UN
+> fichier, ne pas les traiter un par un : lire ce que le fichier a de
+> particulier. Ici, il n'exportait rien. Le nombre de survivants ne mesurait pas
+> neuf oublis, il mesurait une frontière mal placée.

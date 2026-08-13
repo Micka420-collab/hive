@@ -127,3 +127,31 @@ export function lignesSurfaces(v: SurfacesDuVerdict): string[] {
   }
   return lignes;
 }
+
+/**
+ * « hier », « il y a 3 j », « il y a 2 mois » — un horodatage brut n'aide pas
+ * à choisir un dépôt dans une liste de trente.
+ *
+ * `maintenant` est un PARAMÈTRE : sans lui, la fonction lit l'horloge et
+ * aucune borne ne peut être éprouvée sans parier sur la vitesse de la machine
+ * (§ 9 octoquadragies). Les quatre seuils — aujourd'hui, hier, le mois, l'an —
+ * sont des bornes comme les autres, et elles se mesurent des deux côtés.
+ */
+export function depuis(ms: number, maintenant: number = Date.now()): string {
+  // `!ms` attrape le 0 comme l'absence : un dépôt jamais poussé n'a pas de date
+  // à afficher, et « il y a 20 000 j » serait pire que rien.
+  if (!ms) return '—';
+  const j = Math.floor((maintenant - ms) / 86_400_000);
+  // Une date dans le FUTUR (horloge de travers, fuseau) rend « aujourd'hui »
+  // plutôt qu'un nombre négatif : c'est la seule réponse qui ne ment pas trop.
+  if (j <= 0) return "aujourd'hui";
+  // ÉQUIVALENCE CONSIGNÉE : `=== 1` muté en `<= 1` ne change rien — la ligne
+  // au-dessus a déjà repris la main pour tout `j <= 0`, donc `j >= 1` est acquis
+  // ici. Le `===` fait le travail d'un `<=` grâce à sa voisine, et aucune entrée
+  // ne les distingue. Le mutant du balayage, lui, était `!==` : il rend « hier »
+  // pour 2, 29 et 364 jours, et trois cas le tuent.
+  if (j === 1) return 'hier';
+  if (j < 30) return `il y a ${j} j`;
+  if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
+  return `il y a ${Math.floor(j / 365)} an(s)`;
+}
