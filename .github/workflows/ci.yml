@@ -57,6 +57,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      forks:
+        description: >-
+          Plafond de processus vitest (entier ≥ 1). Vide = défaut de vitest.
+          Sert à MESURER la sur-souscription en rejouant le même arbre avec et
+          sans plafond ; une valeur illisible fait échouer le démarrage plutôt
+          que de mesurer sans le plafond annoncé.
+        required: false
+        default: ''
 
 # ─── LA VERSION DE NODE, DÉCLARÉE UNE SEULE FOIS ─────────────────────────────
 #
@@ -171,6 +180,12 @@ jobs:
           echo "✔ $outil"
 
       - name: Tests (vitest, unitaires + e2e)
+        # `HIVE_VITEST_FORKS` est VIDE sur push et sur PR : `inputs.forks`
+        # n'existe que pour un déclenchement manuel, et une chaîne vide laisse
+        # vitest décider. Le comportement ordinaire de la CI est donc inchangé,
+        # et le plafond ne s'applique que lorsqu'on mesure exprès.
+        env:
+          HIVE_VITEST_FORKS: ${{ inputs.forks }}
         run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json
 
       # ─── LE COMPTE ANNONCÉ PAR LES BADGES ───────────────────────────────────

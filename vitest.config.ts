@@ -90,6 +90,20 @@
 
 import { defineConfig } from 'vitest/config';
 
+import { reglageDesForks } from './scripts/vitest-forks.mjs';
+
+// ─── LE PLAFOND DE PROCESSUS, RÉGLABLE POUR ÊTRE MESURABLE ───────────────────
+//
+// `null` par défaut : vitest garde EXACTEMENT le comportement qu'il avait, et
+// ce fichier ne décide de rien. La variable n'existe que pour rejouer le même
+// arbre avec et sans plafond quand on cherche ce qui affame le runner Windows
+// (§ 9 terseptuagies) — une hypothèse plausible ne se code pas, elle se mesure.
+//
+// L'appel est ICI, au chargement, et pas caché derrière une condition : une
+// valeur illisible doit faire échouer le démarrage AVANT le premier test, pas
+// au milieu d'une mesure qu'on croirait valide.
+const FORKS = reglageDesForks(process.env.HIVE_VITEST_FORKS);
+
 export default defineConfig({
   test: {
     env: {
@@ -128,5 +142,9 @@ export default defineConfig({
     // diverger, c'est donner 20 s pour interroger un serveur et 10 pour le
     // construire.
     hookTimeout: 20_000,
+    // Étalé en DERNIER et seulement s'il existe : `...null` est illégal, et
+    // `...{}` écrirait `pool: undefined` — deux façons de casser le défaut
+    // qu'on voulait justement préserver.
+    ...(FORKS ?? {}),
   },
 });
