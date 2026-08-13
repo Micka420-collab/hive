@@ -7693,6 +7693,31 @@ Windows compris, sur les mêmes trois fichiers.** Intermittent confirmé.
 > d'un aléa — et toute correction posée dans cet état est un pari, y compris
 > quand elle rend le vert.
 
+### Le chiffre qui a suivi, et ce qu'il exclut
+
+Les deux exécutions Windows, sur des arbres identiques à UNE LIGNE de YAML près :
+
+|             |   rouge |   verte |
+| ----------- | ------: | ------: |
+| CPU de test | 833,8 s | 662,7 s |
+| mur         | 303,7 s | 247,4 s |
+| fichiers    |     255 |     255 |
+
+**Le même travail a coûté 26 % de CPU en plus sur l'exécution rouge.** C'est la
+machine qui variait, pas le code — la démonstration est faite, et elle ferme
+définitivement la piste « ma modification a rendu la suite plus lourde ».
+
+Mais elle ne suffit PAS, et c'est le point qu'il ne faut pas glisser sous le
+tapis : 26 % ne fait pas passer un hook de 200 ms à 20 secondes. C'est un
+facteur CENT. La variance globale explique la fragilité — une suite qui court
+déjà près du plafond —, elle n'explique pas le DÉCROCHAGE.
+
+> Une mesure qui confirme une hypothèse peut rester insuffisante pour la
+> conclure. « La machine était 26 % plus lente » et « un hook a mis cent fois
+> son temps » sont deux faits compatibles, et le premier ne démontre pas le
+> second. S'arrêter là serait accepter un ordre de grandeur de trou dans le
+> raisonnement parce que le sens général est plaisant.
+
 Ce qui reste ouvert, et se dit comme tel : **pourquoi** le runner Windows est
 affamé n'est pas répondu. Le lot suivant a maintenant l'outil pour le chercher —
 plusieurs exécutions du même arbre, avec et sans plafond de forks, et une
