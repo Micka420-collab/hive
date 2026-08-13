@@ -7172,3 +7172,58 @@ Windows en une seconde, là où pousser et attendre coûte huit minutes.
 > l'environnement (`process.platform`, `process.cwd()`, `Date.now()`), relire
 > TOUS les appels existants : ceux qui l'omettaient viennent de changer de
 > nature sans changer d'une lettre. Un banc nomme ce qu'il éprouve.
+
+---
+
+## 9 quinsexagies. La loupe redésigne les équivalences consignées à chaque passe — et il ne faut PAS lui donner de quoi les taire
+
+Le balayage de `src/tui` a rendu deux survivants. Le second était déjà tranché,
+et sa consignation est écrite dans le code, à la ligne au-dessus :
+
+```
+🔴 SANS TEST · src/tui/rendu.ts · > → >=
+             while ([...reste].length > largeur) {
+```
+
+```ts
+// ─── `>` OU `>=` NE CHANGE RIEN, ET C'EST MESURÉ ───────────────────────
+//
+// Un balayage désigne cette borne « sans test » à chaque passe. Elle est
+// ÉQUIVALENTE […] Différentiel exhaustif plutôt que raisonnement :
+// largeurs 1 à 8, un à trois mots […] 2 016 cas, ZÉRO écart.
+```
+
+La loupe ne lit pas les commentaires. Elle mute, elle lance la suite, elle
+constate qu'aucun cas ne rougit, et elle le dit — c'est exactement son travail,
+et elle a raison de le refaire : une équivalence peut cesser d'en être une le
+jour où le code autour change.
+
+### La tentation, et pourquoi il faut y résister
+
+Un marqueur — `// loupe:équivalent` — ferait disparaître cette redite. Le coût
+serait dérisoire à écrire et énorme à porter : **tout commentaire deviendrait un
+moyen de faire taire l'instrument**. Un survivant gênant, une ligne au-dessus,
+et le balayage suivant ne le voit plus. La loupe ne mesurerait plus le code,
+elle mesurerait la discipline de ceux qui l'annotent.
+
+Ce qu'on paie sans marqueur est petit et borné : un emplacement de balayage sur
+`LOUPE_MAX`, et une relecture du commentaire déjà écrit. Ce qu'on paierait avec
+est illimité, et invisible.
+
+> **La règle** — un instrument de mesure ne prend pas d'instructions du code
+> qu'il mesure. Quand il redit une chose déjà tranchée, la bonne réponse est de
+> relire la consignation — pas de lui apprendre à se taire.
+
+### Et le premier survivant, lui, était un vrai trou
+
+`sortie.columns > 0` muté en `>= 0`. Un terminal qui annonce ZÉRO colonne — un
+tuyau, un journal de CI, une console pas encore dimensionnée — n'annonce pas une
+largeur : il annonce qu'il n'en sait rien. Le mutant le prend au mot, retombe
+sur le plancher de 20, et rend un écran où plus rien ne tient.
+
+```
+`columns > 0` → `>= 0`  →  « zéro colonne ⇒ repli 80 » : expected 20 to be 76
+```
+
+Le cas manquait parce que les bancs donnaient des largeurs PLAUSIBLES — 200, 64, 100. Zéro n'est pas une largeur plausible, et c'est précisément pour ça que
+personne ne l'avait écrit.
