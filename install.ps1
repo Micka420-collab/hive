@@ -327,17 +327,21 @@ function Banniere {
   # installation. Deux marques pour un produit, c'est zéro marque.
   #
   # `tests/installeurs.test.ts` confronte ces trois lignes à `BLOCS_HIVE`.
-  if ($Unicode -and $VraieCouleur -and $interieur -ge 22) {
+  if ($Unicode -and $VraieCouleur -and $interieur -ge 23) {
     # Le dégradé est posé PAR LIGNE : trois octets d'échappement au lieu de
     # soixante-six, et sur trois lignes l'œil lit une transition tout aussi bien.
     $blocs = @(
-      @('166;92;8',   '█  █  ███  █   █  ████'),
-      @('230;154;20', '████   █    █ █   ███ '),
-      @('250;205;96', '█  █  ███    █    ████')
+      @('166;92;8',   '█   █  ▀█▀  █   █  █▀▀▀'),
+      @('230;154;20', '█████   █   ▀▄ ▄▀  ███ '),
+      @('250;205;96', '█   █  ▄█▄   ▀▄▀   █▄▄▄')
     )
+    # Centrée, comme `marqueBlocs` : à gauche d'un cadre de 76 colonnes, la
+    # marque laisse cinquante colonnes de vide et ne se lit plus comme un logo.
+    $gauche = [Math]::Floor(($interieur - 23) / 2)
     foreach ($b in $blocs) {
       $teinte = "$([char]27)[38;2;$($b[0])m"
-      Write-Host "$($BORD.v) $teinte$($b[1])$REPRISE$(' ' * ($interieur - 22)) $($BORD.v)"
+      $droite = $interieur - 23 - $gauche
+      Write-Host "$($BORD.v) $(' ' * $gauche)$teinte$($b[1])$REPRISE$(' ' * $droite) $($BORD.v)"
     }
   } else {
     Ecrire "$($BORD.v) $($titre.PadRight($interieur)) $($BORD.v)" 'accent'

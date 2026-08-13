@@ -35,8 +35,10 @@ import {
   etapeLineaire,
   imageSpinner,
   largeurVisible,
+  ligneAttente,
   ligneVerification,
   menu,
+  panneau,
   recapEcritures,
   symbole,
   teinter,
@@ -742,5 +744,121 @@ describe('LA MARQUE EN LETTRES DE BLOCS', () => {
         }
       }
     }
+  });
+});
+
+describe('CE QUI DÉBORDE S’ENROULE — le cadre ne mange plus la moitié des phrases', () => {
+  const caps = capacites({ TERM: 'xterm-256color' }, { isTTY: true, columns: 76 });
+
+  it('LE PANNEAU DE FIN GARDE L’ADRESSE À OUVRIR', () => {
+    // ─── LE DÉFAUT QUE CE TEST FERME ───────────────────────────────────────
+    //
+    // Trouvé en LANÇANT l'installeur sous un vrai pty. `cadre` tronque, et la
+    // ligne la plus longue du panneau final était :
+    //
+    //     Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://loc…
+    //
+    // L'ADRESSE — la seule chose que cette ligne existe pour donner — tombait
+    // dans la coupe. Le panneau réussissait sa mise en page et échouait son
+    // travail, et rien ne pouvait le voir : les tests lisaient les ÉTAPES,
+    // jamais le panneau qui les affiche.
+    const ligne =
+      'Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://localhost:5173)';
+    const rendu = panneau('Et maintenant', [ligne], caps).join('\n').replace(ECHAPPEMENT, '');
+    expect(rendu, 'l’adresse a été coupée').toContain('http://localhost:5173');
+    expect(rendu, 'rien ne doit être tronqué').not.toContain('…');
+  });
+
+  it('…et la suite est alignée sous la commande, pas sous le libellé', () => {
+    // Une seconde ligne à ras de marge se lirait comme une étape de plus —
+    // exactement le contresens que `constatEnroule` évite déjà côté constats.
+    const ligne = `Faire ceci   :  ${'commande '.repeat(12)}`;
+    const rendu = panneau('Titre', [ligne], caps).map((l) => l.replace(ECHAPPEMENT, ''));
+    const suites = rendu.filter((l) => l.includes('commande') && !l.includes('Faire ceci'));
+    expect(suites.length, 'la ligne devait bien s’enrouler').toBeGreaterThan(0);
+    const creux = /^.\s+/.exec(suites[0]!)?.[0].length ?? 0;
+    expect(creux, 'la suite doit être décalée vers la droite').toBeGreaterThan(6);
+  });
+
+  it('CE QUI TIENT N’EST PAS TOUCHÉ — les blancs d’alignement survivent', () => {
+    // ─── LA RÉGRESSION QUE MA PREMIÈRE VERSION A CAUSÉE ────────────────────
+    //
+    // Vue en LANÇANT l'installeur, pas en relisant le diff. Enrouler TOUTES
+    // les lignes réglait la troncature et cassait la colonne : `enrouler`
+    // recompose les mots, donc normalise les blancs, et
+    //
+    //     Aller dans la ruche      :  cd /tmp/demo
+    //
+    // devenait « Aller dans la ruche : cd /tmp/demo ». Six lignes alignées
+    // sont devenues six lignes en escalier — le panneau était moins lisible
+    // APRÈS la correction qu'avant.
+    const courte = 'Aller dans la ruche      :  cd /tmp/demo';
+    const rendu = panneau('Et maintenant', [courte], caps).map((l) => l.replace(ECHAPPEMENT, ''));
+    expect(
+      rendu.some((l) => l.includes(courte)),
+      'la ligne a été recomposée',
+    ).toBe(true);
+  });
+
+  it('LE RÉCAPITULATIF DIT AUSSI LE POURQUOI, pas seulement la valeur', () => {
+    // On lit ce récapitulatif AVANT de répondre « poser ces réglages ». Coupé,
+    // il demandait un consentement en cachant la moitié de la phrase.
+    const ligne =
+      'HIVE_CORS_ORIGIN=http://localhost:7777,http://localhost:5173   (les origines autorisées à parler à la ruche)';
+    const rendu = recapEcritures([ligne], caps).join('\n').replace(ECHAPPEMENT, '');
+    // La phrase change de ligne — c'est le principe — mais elle est ENTIÈRE :
+    // on la recompose plutôt que de la chercher telle quelle.
+    expect(rendu.replace(/\s+/g, ' ')).toContain('les origines autorisées à parler à la ruche');
+    expect(rendu).not.toContain('…');
+  });
+
+  it('aucune ligne ne dépasse la largeur, panneau comme récapitulatif', () => {
+    for (const largeur of [60, 68, 76]) {
+      const etroit = capacites({ TERM: 'xterm-256color' }, { isTTY: true, columns: largeur });
+      const lignes = [
+        ...panneau(
+          'Et maintenant',
+          ['Ouvrir Mission Control   :  npm run dev:dashboard   (puis http://localhost:5173)'],
+          etroit,
+        ),
+        ...recapEcritures(['HIVE_HOST=127.0.0.1   (la ruche n’écoute que cette machine)'], etroit),
+      ];
+      for (const l of lignes) {
+        expect(largeurVisible(l), `${String(largeur)} colonnes : « ${l} »`).toBeLessThanOrEqual(
+          largeur,
+        );
+      }
+    }
+  });
+});
+
+describe('L’ATTENTE SE VOIT — la ligne animée des sondes', () => {
+  const caps = capacites({ TERM: 'xterm-256color' }, { isTTY: true, columns: 76 });
+
+  it('elle tourne : deux tours successifs ne donnent pas la même image', () => {
+    // Une animation dont l'image ne change pas est un écran figé avec un
+    // caractère bizarre — le contraire de ce que cette ligne promet.
+    const a = ligneAttente('Vérifications', 0, 0, caps).replace(ECHAPPEMENT, '');
+    const b = ligneAttente('Vérifications', 1, 0, caps).replace(ECHAPPEMENT, '');
+    expect(a).not.toBe(b);
+    expect(a).toContain('Vérifications');
+  });
+
+  it('LE CHRONO N’APPARAÎT QU’APRÈS LA PREMIÈRE SECONDE', () => {
+    // Avant, il afficherait « 0,1 s » et ferait clignoter un chiffre qui
+    // n'apprend rien — trois fois par seconde, à côté d'un spinner.
+    expect(ligneAttente('Sondes', 0, 400, caps).replace(ECHAPPEMENT, '')).not.toMatch(/\d\ss/);
+    expect(ligneAttente('Sondes', 0, 2400, caps).replace(ECHAPPEMENT, '')).toMatch(/2,4 s/);
+  });
+
+  it('elle tient dans la largeur, et se replie en ASCII', () => {
+    const pauvre = capacites({ NO_COLOR: '1', TERM: 'dumb' }, { isTTY: true, columns: 40 });
+    for (const c of [caps, pauvre]) {
+      for (const tour of [0, 3, 7]) {
+        const l = ligneAttente('Vérifications', tour, 3000, c);
+        expect(largeurVisible(l)).toBeLessThanOrEqual(c.largeur);
+      }
+    }
+    expect(ligneAttente('Sondes', 0, 0, pauvre)).not.toMatch(ECHAPPEMENT);
   });
 });

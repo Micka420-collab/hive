@@ -31,7 +31,15 @@
 // « pas de couleur » — pas « pas de terminal ».
 
 import { CODE } from '../codes-sortie.js';
-import { aideTouches, capacites, menu, type Capacites, type Option } from './rendu.js';
+import {
+  CADENCE_SPINNER_MS,
+  aideTouches,
+  capacites,
+  ligneAttente,
+  menu,
+  type Capacites,
+  type Option,
+} from './rendu.js';
 
 // ─── Les touches ─────────────────────────────────────────────────────────────
 
@@ -209,6 +217,18 @@ export interface Terminal {
     question: string,
     opts: { quoi: string; defaut?: string; obligatoire?: boolean },
   ) => Promise<string>;
+  /**
+   * Attend un travail en montrant qu'il se passe quelque chose.
+   *
+   * La ligne d'attente est ÉPHÉMÈRE : elle s'efface quand le travail finit,
+   * et c'est l'appelant qui écrit ensuite le pas définitif. Laisser la trace
+   * d'un spinner arrêté dans le défilement, c'est laisser une ligne qui a l'air
+   * d'attendre encore.
+   *
+   * Hors terminal, elle n'écrit RIEN et se contente d'attendre : dans une CI ou
+   * un fichier de log, une animation ne donne que des milliers de lignes.
+   */
+  patienter: <T>(nom: string, travail: Promise<T>) => Promise<T>;
   /** Rend le terminal à son propriétaire. Idempotent. */
   restaurer: () => void;
 }
@@ -238,6 +258,8 @@ export function creerTerminal(opts: {
    * par `join.ts` et `cli.ts`.
    */
   lireLigne?: (question: string) => Promise<string>;
+  /** L'heure. Injectée pour que l'attente s'éprouve sans dépendre de l'horloge. */
+  horloge?: () => number;
 }): Terminal {
   const { entree, sortie } = opts;
   const caps = capacites(opts.env ?? {}, { isTTY: sortie.isTTY, columns: sortie.columns });
@@ -343,6 +365,36 @@ export function creerTerminal(opts: {
     }
   };
 
+  const patienter = async <T>(nom: string, travail: Promise<T>): Promise<T> => {
+    if (!caps.interactif) return travail;
+
+    const depart = opts.horloge ? opts.horloge() : Date.now();
+    let tour = 0;
+    const peindre = (premier: boolean): void => {
+      const ecoule = (opts.horloge ? opts.horloge() : Date.now()) - depart;
+      sortie.write(
+        (premier ? '' : effacerLignes(1)) + ligneAttente(nom, tour, ecoule, caps) + '\n',
+      );
+      tour += 1;
+    };
+
+    sortie.write(CURSEUR_CACHE);
+    curseurCache = true;
+    peindre(true);
+    const battement = setInterval(peindre, CADENCE_SPINNER_MS);
+    try {
+      return await travail;
+    } finally {
+      clearInterval(battement);
+      // La ligne s'efface : le pas définitif, avec sa durée, prend sa place.
+      sortie.write(effacerLignes(1));
+      if (curseurCache) {
+        sortie.write(CURSEUR_MONTRE);
+        curseurCache = false;
+      }
+    }
+  };
+
   const lireLigne =
     opts.lireLigne ??
     (async (question: string): Promise<string> => {
@@ -394,5 +446,5 @@ export function creerTerminal(opts: {
     }
   };
 
-  return { caps, ecrire, choisir, demander, restaurer };
+  return { caps, ecrire, choisir, demander, patienter, restaurer };
 }

@@ -243,22 +243,28 @@ cadre() {
 #
 # `tests/installeurs.test.ts` confronte ces trois lignes à `BLOCS_HIVE` : si
 # l'une des deux marques dérive, l'autre le dit.
-BLOC_1='█  █  ███  █   █  ████'
-BLOC_2='████   █    █ █   ███ '
-BLOC_3='█  █  ███    █    ████'
+BLOC_1='█   █  ▀█▀  █   █  █▀▀▀'
+BLOC_2='█████   █   ▀▄ ▄▀  ███ '
+BLOC_3='█   █  ▄█▄   ▀▄▀   █▄▄▄'
 
 marque_blocs() {
   interieur=$1
-  comble=$((interieur - 22))
+  comble=$((interieur - 23))
   [ "$comble" -lt 0 ] && comble=0
-  vide=$(printf "%${comble}s" '')
+  # Centrée, comme dans `marqueBlocs` : collée à gauche dans un cadre de 76
+  # colonnes, la marque laisse cinquante colonnes de vide à sa droite et cesse
+  # de se lire comme un logo.
+  gauche=$((comble / 2))
+  droite=$((comble - gauche))
+  avant=$(printf "%${gauche}s" '')
+  vide=$(printf "%${droite}s" '')
   # Du brun-miel au jaune pâle — la rampe de `RAMPE_MIEL`, échantillonnée aux
   # trois hauteurs de la lettre.
   for paire in "166;92;8 $BLOC_1" "230;154;20 $BLOC_2" "250;205;96 $BLOC_3"; do
     teinte=${paire%% *}
     dessin=${paire#* }
-    printf '%s %s%s%s%s %s\n' \
-      "$B_V" "$(printf '\033[38;2;%sm' "$teinte")" "$dessin" "$ZERO" "$vide" "$B_V"
+    printf '%s %s%s%s%s%s %s\n' \
+      "$B_V" "$avant" "$(printf '\033[38;2;%sm' "$teinte")" "$dessin" "$ZERO" "$vide" "$B_V"
   done
 }
 
@@ -298,7 +304,7 @@ banniere() {
   # était en retard — `install.sh` est ce qu'on voit en premier.
   #
   # Les trois conditions sont donc les mêmes des deux côtés, à la lettre.
-  if [ "$UNICODE" = 1 ] && [ "$VRAIE_COULEUR" = 1 ] && [ "$interieur" -ge 22 ]; then
+  if [ "$UNICODE" = 1 ] && [ "$VRAIE_COULEUR" = 1 ] && [ "$interieur" -ge 23 ]; then
     marque_blocs "$interieur"
   else
     printf '%s %s%s%s%s %s\n' \

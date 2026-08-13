@@ -193,12 +193,27 @@ async function main(): Promise<void> {
   // qu'à la queue leu leu économise plusieurs secondes sur une machine où
   // aucun n'est installé (chaque sonde a son propre délai d'attente).
   const departSondes = Date.now();
-  const [libre, go, agentDetecte, fournisseur] = await Promise.all([
+  // ─── L'ATTENTE SE VOIT ────────────────────────────────────────────────────
+  //
+  // Ces quatre sondes lancent de vrais binaires ; sur une machine où aucun
+  // agent n'est installé, elles tiennent l'écran plusieurs secondes sans qu'une
+  // ligne bouge. Un premier écran figé se lit comme un plantage, et la réaction
+  // est `^C` — sur l'installeur, donc avant même la première impression.
+  //
+  // La ligne d'attente s'efface d'elle-même : le pas définitif, avec sa durée,
+  // prend exactement sa place.
+  const sondes = Promise.all([
     portVise === null ? Promise.resolve(false) : portLibre(portVise),
     espaceLibreGo(),
     detectBestAgent().catch(() => null),
     modeDepuisEnv(process.env) === 'off' ? Promise.resolve(null) : trouverFournisseur(),
   ]);
+  // `caps`, pas `t.caps` : `--json` et `--non-interactive` retirent
+  // l'interactivité même sur un vrai terminal, et une animation au milieu d'une
+  // sortie machine la rendrait inanalysable.
+  const [libre, go, agentDetecte, fournisseur] = caps.interactif
+    ? await t.patienter('Vérifications', sondes)
+    : await sondes;
 
   const agent = agentDetecte && agentDetecte.agent !== 'shell' ? agentDetecte.label : null;
   const isolement = decider(modeDepuisEnv(process.env), fournisseur);
@@ -301,6 +316,11 @@ async function main(): Promise<void> {
     action: neuf ? 'cree' : ajoutees.length === 0 ? 'inchange' : 'complete',
     clesAjoutees: ajoutees,
   };
+
+  // Le rail ne s'arrête pas après les vérifications : chaque phase porte sa
+  // perle, sinon la colonne se rompt au moment où l'installation commence
+  // vraiment — et une colonne qui se rompt ne dit plus où l'on en est.
+  if (caps.interactif) bloc(railPas({ nom: 'Votre ruche', etat: 'curseur' }, caps));
 
   if (!neuf && ajoutees.length === 0) {
     bloc([constat({ etat: 'fait', libelle: '.env déjà complet — rien touché' }, caps)]);

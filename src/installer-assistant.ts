@@ -38,7 +38,7 @@ import {
   type ReglagePropose,
 } from './assistant.js';
 import { PORT_DEFAUT } from './installer.js';
-import { constat, recapEcritures, titreSection, type Capacites } from './tui/rendu.js';
+import { constat, constatEnroule, railPas, recapEcritures, type Capacites } from './tui/rendu.js';
 import type { Terminal } from './tui/terminal.js';
 
 /** Les quatre façons d'être joignable, dans l'ordre du §8. */
@@ -83,7 +83,7 @@ export async function assistant(ctx: ContexteAssistant): Promise<{ arrets: numbe
   const port = Number(existant.get('HIVE_PORT') ?? PORT_DEFAUT) || PORT_DEFAUT;
   const jeton = existant.get('HIVE_TOKEN') ?? '';
 
-  bloc(titreSection('Qui pourra joindre votre ruche ?', caps));
+  bloc(railPas({ nom: 'Qui pourra joindre votre ruche ?', etat: 'curseur' }, caps));
   const choix = await demander(() =>
     t.choisir(
       EXPOSITIONS.map((e) => OFFRES_EXPOSITION[e]),
@@ -158,11 +158,13 @@ export async function assistant(ctx: ContexteAssistant): Promise<{ arrets: numbe
       }
     }
 
+    // Un avertissement réseau fait deux à quatre lignes, et sa seconde moitié
+    // est toujours celle qui dit QUOI FAIRE : `constat` la coupait.
     for (const a of plan.avertissements) {
-      bloc([constat({ etat: 'alerte', libelle: a }, caps)]);
+      bloc(constatEnroule({ etat: 'alerte', libelle: a }, caps));
     }
     if (plan.etapes.length > 0) {
-      bloc(titreSection('Ce qu’il reste à faire, une fois pour toutes', caps));
+      bloc(railPas({ nom: 'Ce qu’il reste à faire, une fois pour toutes', etat: 'curseur' }, caps));
       for (const e of plan.etapes) {
         bloc([
           `  ${e.titre}`,
@@ -176,7 +178,7 @@ export async function assistant(ctx: ContexteAssistant): Promise<{ arrets: numbe
   }
 
   // ─── Le premier projet ──────────────────────────────────────────────────
-  bloc(titreSection('Votre premier projet', caps));
+  bloc(railPas({ nom: 'Votre premier projet', etat: 'curseur' }, caps));
   const nom = await demander(() =>
     t.demander('  Son nom (⏎ pour passer) :', { quoi: 'le nom du projet' }),
   );
@@ -190,7 +192,7 @@ export async function assistant(ctx: ContexteAssistant): Promise<{ arrets: numbe
     bloc([constat({ etat: 'echec', libelle: projet.refus }, caps)]);
     return { arrets };
   }
-  for (const a of projet.avertissements) bloc([constat({ etat: 'alerte', libelle: a }, caps)]);
+  for (const a of projet.avertissements) bloc(constatEnroule({ etat: 'alerte', libelle: a }, caps));
   bloc([
     '  Une fois la ruche démarrée (« npm run dev »), créez-le avec :',
     '',
