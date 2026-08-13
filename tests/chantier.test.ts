@@ -12,7 +12,14 @@
 //      famille que « jamais de fusion sans revue humaine ».
 
 import { describe, expect, it } from 'vitest';
-import { argvDe, chantiersDe, jugerChantier, nature } from '../src/shared/chantier.js';
+import {
+  argvDe,
+  chantiersDe,
+  jugerChantier,
+  nature,
+  nomDeChantierValide,
+  NOM_MAX,
+} from '../src/shared/chantier.js';
 
 const SCRIPTS = {
   test: 'vitest run',
@@ -206,5 +213,65 @@ describe('LA LISTE PROPOSÉE', () => {
 
   it('un dépôt sans script rend une liste vide, pas une erreur', () => {
     expect(chantiersDe({})).toEqual([]);
+  });
+});
+
+// ─── LA BORNE DU NOM, TENUE AUX TROIS PORTES ─────────────────────────────────
+//
+// D'où vient ce bloc : le balayage du cœur a muté DEUX des trois gardes de
+// longueur sans faire rougir personne —
+//
+//     jugerChantier   `nom.length > NOM_MAX`   → `>=`
+//     chantiersDe     `nom.length <= NOM_MAX`  → `<`
+//
+// Le banc « un nom démesuré est refusé » plus haut emploie 200 caractères : il
+// passe si loin de la borne qu'il ne la touche jamais. Le côté REFUSÉ était
+// donc éprouvé, et le côté ACCEPTÉ — la valeur que la borne promet d'admettre —
+// ne l'était nulle part. C'est le motif du § 9 (la borne acceptée d'
+// `isModeleList`), et il revient parce qu'il est naturel : on écrit le test qui
+// montre que la garde refuse, pas celui qui montre ce qu'elle laisse passer.
+//
+// TROIS PORTES, UNE SEULE BORNE. `nomDeChantierValide` dit si un nom est
+// utilisable, `chantiersDe` décide ce que la ruche PROPOSE, `jugerChantier`
+// décide ce qu'elle LANCE. Elles doivent s'accorder : si l'une dérive d'un
+// caractère, un chantier apparaît à l'écran et se fait refuser au clic — ou
+// l'inverse, plus grave : il est jugé bon sans avoir jamais été proposé.
+
+describe('la borne du nom de chantier — les trois portes disent la même chose', () => {
+  /** Un nom de longueur voulue, conforme au motif (lettres seulement). */
+  const nomDe = (n: number): string => 'a'.repeat(n);
+
+  /** Les trois verdicts pour un nom donné, avec le script déclaré. */
+  const troisPortes = (nom: string): [boolean, boolean, boolean] => {
+    const scripts = { [nom]: 'echo bonjour' };
+    return [
+      nomDeChantierValide(nom),
+      chantiersDe(scripts).some((c) => c.nom === nom),
+      jugerChantier(scripts, nom).ok,
+    ];
+  };
+
+  it('LA BORNE EXACTE EST ACCEPTÉE — c’est ce qu’une borne promet', () => {
+    // `>` muté en `>=` dans `jugerChantier`, ou `<=` muté en `<` dans
+    // `chantiersDe` : un nom de NOM_MAX caractères, licite, serait rejeté.
+    expect(troisPortes(nomDe(NOM_MAX))).toEqual([true, true, true]);
+  });
+
+  it('UN CARACTÈRE DE PLUS EST REFUSÉ — aux trois portes', () => {
+    expect(troisPortes(nomDe(NOM_MAX + 1))).toEqual([false, false, false]);
+  });
+
+  it('LES TROIS PORTES NE PEUVENT PAS SE CONTREDIRE, de part et d’autre de la borne', () => {
+    // La garde vraie n'est pas « chacune refuse les noms trop longs » : c'est
+    // « elles refusent LES MÊMES ». Une dérive d'un seul caractère entre deux
+    // d'entre elles fait apparaître un chantier qu'on ne peut pas lancer.
+    for (let n = NOM_MAX - 2; n <= NOM_MAX + 2; n++) {
+      const [valide, propose, juge] = troisPortes(nomDe(n));
+      expect([valide, propose, juge], `longueur ${n}`).toEqual([valide, valide, valide]);
+    }
+  });
+
+  it('la borne vaut bien ce que la table annonce', () => {
+    expect(NOM_MAX).toBe(100);
   });
 });

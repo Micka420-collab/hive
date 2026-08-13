@@ -143,7 +143,7 @@ export function nature(nom: string): Nature {
 }
 
 /** Longueur au-delà de laquelle un nom de script n'est plus un nom. */
-const NOM_MAX = 100;
+export const NOM_MAX = 100;
 
 /**
  * Un nom de script utilisable.

@@ -6202,3 +6202,58 @@ aConsolider || → &&   ROUGE (3) la tête doit être la plus récurrente: expec
 aretes      || → &&   ROUGE (2) ['c→a','a→z'] ≠ ['a→z','c→a']
 liensMorts  || → &&   ROUGE (1) ['c→fantome-a','a→fantome-z'] ≠ ['a→fantome-z','c→fantome-a']
 ```
+
+## 9 unquinquagies. Un test qui refuse « bien au-delà » de la borne ne dit rien de la borne
+
+`chantier.ts` borne la longueur d'un nom de script à `NOM_MAX`. Le banc qui
+l'éprouvait :
+
+```ts
+it('un nom démesuré est refusé', () => {
+  const long = 'a'.repeat(200); // NOM_MAX vaut 100
+  expect(jugerChantier({ [long]: 'x' }, long).ok).toBe(false);
+});
+```
+
+Deux cents contre cent : le cas passe si loin de la borne qu'il ne la touche
+jamais. `> NOM_MAX` muté en `>= NOM_MAX` reste vert, et un nom de cent
+caractères — licite — se fait refuser sans que rien ne proteste.
+
+### Le réflexe qui produit ce trou
+
+On écrit le test qui montre que la garde REFUSE, parce que c'est le danger qu'on
+avait en tête en l'écrivant. Le cas qu'on n'écrit pas est celui qui montre ce
+qu'elle LAISSE PASSER — or une borne est une promesse dans les deux sens :
+« jusqu'ici, oui ; au-delà, non ». Un banc qui n'éprouve qu'un seul des deux
+côtés laisse la borne libre de glisser d'un cran.
+
+C'est la deuxième fois dans ce dépôt (voir la borne acceptée d'`isModeleList`),
+et la répétition dit que ce n'est pas une distraction : c'est le pli naturel de
+l'écriture.
+
+> **La règle** — devant une garde de borne, écrire DEUX cas et un seul jeu de
+> valeurs : `borne` doit passer, `borne + 1` doit être refusé. Un jeu d'essai
+> éloigné de la borne (« 200 pour une limite à 100 ») ne mesure pas la limite,
+> il mesure qu'il existe une limite quelque part.
+
+### Le cas plus grave : une borne tenue à PLUSIEURS portes
+
+Ici la même borne vit à trois endroits — `nomDeChantierValide` (est-ce un nom
+utilisable ?), `chantiersDe` (que propose-t-on ?), `jugerChantier` (que
+lance-t-on ?). Le balayage en a trouvé deux nues sur trois.
+
+La propriété vraie n'est pas « chacune refuse les noms trop longs ». C'est
+**« elles refusent les MÊMES »**. Une dérive d'un seul caractère entre deux
+d'entre elles produit un défaut qu'aucune ne contient : un chantier apparaît à
+l'écran et se fait refuser au clic — ou, pire, il est jugé lançable sans avoir
+jamais été proposé, donc atteignable seulement par une requête forgée.
+
+Le banc éprouve donc les trois ENSEMBLE, sur une fenêtre autour de la borne, et
+son assertion est l'ACCORD, pas la valeur. C'est ce qui rend son rouge
+descriptif : chaque mutation dit laquelle des trois portes a bougé.
+
+```
+jugerChantier        > → >=   [true, true, false]  ← valide, proposé… refusé au lancement
+chantiersDe         <= → <    [true, false, true]  ← valide, lançable… jamais proposé
+nomDeChantierValide <= → <    [false, true, true]  ← proposé, lançable… déclaré invalide
+```
