@@ -144,6 +144,16 @@ export function basculer(actuel: Mode, demande: string, accorde = false): Bascul
     };
   }
 
+  // ÉQUIVALENCE CONSIGNÉE, PAS UN TEST QUI MANQUE. Le balayage rend `>` → `>=`
+  // survivant ici, et c'est juste : la garde d'égalité est DIX LIGNES PLUS HAUT
+  // (`demande === actuel` sort en bascule sans élargissement), donc les deux
+  // rangs diffèrent forcément quand on arrive ici. `rang` étant
+  // `MODES.indexOf` sur quatre littéraux distincts, il est injectif : aucune
+  // paire ne peut rendre `rang(demande) === rang(actuel)`.
+  //
+  // Mesuré, pas déduit : les douze paires de modes distincts donnent le même
+  // verdict avec `>` et avec `>=`. Écrire un test pour tuer ce mutant
+  // demanderait une entrée qui n'existe pas — ce serait du décor.
   const monte = rang(demande) > rang(actuel);
   if (monte && !accorde) {
     const p = palierDe(demande);

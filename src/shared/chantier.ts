@@ -138,6 +138,17 @@ export function nature(nom: string): Nature {
   // liste qui exige un humain — tandis que « vérification » ne regarde que le
   // premier, celui qui dit ce que le script fait.
   if (parts.some((p) => SORT.includes(p))) return 'sortant';
+  // ÉQUIVALENCE CONSIGNÉE. Le balayage rend `> 0` → `>= 0` survivant. La garde
+  // n'est pourtant pas vacue — `segments` filtre les vides, donc un nom fait
+  // que de séparateurs (« - », « :. ») rend bien un tableau VIDE. Mais avec
+  // `>= 0`, on lit alors `parts[0]`, qui vaut `undefined`, et
+  // `VERIFIE.includes(undefined)` est faux : on retombe sur « inconnu », comme
+  // le court-circuit d'origine.
+  //
+  // Mesuré sur dix-neuf noms dont plusieurs à segments vides, les deux bornes
+  // rendent la même nature. Le `> 0` reste pour dire au lecteur que le tableau
+  // peut être vide — mais il ne protège de rien, et aucun test ne peut le
+  // prouver.
   if (parts.length > 0 && VERIFIE.includes(parts[0]!)) return 'verification';
   return 'inconnu';
 }
