@@ -183,6 +183,29 @@ describe('la préparation dans un vrai merge', () => {
     expect(existsSync(path.join(repoDir, TEMOIN))).toBe(false);
   }, 60_000);
 
+  it('UNE PRÉPARATION VIDE VAUT « PAS DE PRÉPARATION » — elle ne se REFUSE pas', async () => {
+    // Le cas voisin ne passe AUCUNE préparation : le `opts.prepareCommand &&`
+    // court-circuite, et la garde de longueur n'est jamais atteinte. Un tableau
+    // VIDE, lui, est truthy — il traverse la première moitié et se fait juger
+    // par la seconde.
+    //
+    // Un balayage élargi de `src/node-client` a montré que `length > 0` muté en
+    // `>= 0` restait vert : le mutant appelle alors `jugerPreparation([])`, qui
+    // rend « la commande de préparation est vide », et `runMerge` LÈVE pour une
+    // demande qui ne demandait rien. Le reste du fichier traite pourtant `[]`
+    // comme une absence (`opts.prepareCommand?.length`) : les deux lectures
+    // doivent s'accorder.
+    const res = await runMerge({
+      repoDir,
+      diffs: [{ taskId: 't1', diff: patch }],
+      prepareCommand: [],
+      testCommand: ['node', '-e', 'process.exit(0)'],
+    });
+    expect(res.preparedOk, 'rien n’a été préparé, donc rien à rapporter').toBeNull();
+    expect(res.testsRun, 'et les tests tournent quand même').toBe(true);
+    expect(res.testsPassed).toBe(true);
+  }, 60_000);
+
   it('UNE PRÉPARATION HORS RÈGLE EST REFUSÉE AVANT LA MOINDRE ÉCRITURE', async () => {
     // La garde du nœud est celle qui fait foi : le hub refuse déjà, mais un
     // nœud ne doit pas tenir pour acquis que le hub est bien celui qu'il croit.

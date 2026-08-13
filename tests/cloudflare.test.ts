@@ -186,6 +186,22 @@ describe('le nom d’hôte du tunnel nommé', () => {
     expect(hoteValide(juste), '253 est la dernière longueur acceptable').toBe(true);
     expect(hoteValide(unDeTrop), '254 est la première refusée').toBe(false);
   });
+
+  it('UN LABEL DE 63 PASSE, 64 NON — la borne PAR LABEL, dite pour elle-même', () => {
+    // Le banc précédent refusait `'r'.repeat(64) + '.exemple.com'` : il prouvait
+    // que 64 est refusé, jamais que 63 est ACCEPTÉ. La mutation `<= 63` → `< 63`
+    // y survivait.
+    //
+    // Elle meurt aussi, aujourd'hui, par le cas des 253 caractères — dont les
+    // labels font 63. C'est un ACCIDENT de son montage, pas une garde : le jour
+    // où ce montage prendrait des labels plus courts, la borne redeviendrait
+    // nue sans que rien ne le dise. Elle se défend donc pour elle-même.
+    expect(
+      hoteValide(`${'r'.repeat(63)}.exemple.com`),
+      '63 est la dernière longueur de label',
+    ).toBe(true);
+    expect(hoteValide(`${'r'.repeat(64)}.exemple.com`), '64 est la première refusée').toBe(false);
+  });
 });
 
 describe('les étapes du tunnel nommé', () => {
@@ -232,6 +248,26 @@ describe('l’intégrité de ce qui est téléchargé', () => {
     expect(enTeteValide(mac, new Uint8Array([0x1f, 0x8b, 0x08]))).toBe(true);
     // Un ELF servi à Windows, et réciproquement.
     expect(enTeteValide(win, new Uint8Array([0x7f, 0x45, 0x4c, 0x46]))).toBe(false);
+  });
+
+  it('LA SIGNATURE SEULE SUFFIT, ET UN OCTET DE MOINS NE SUFFIT PAS', () => {
+    // Tous les cas ci-dessus donnent des octets EN PLUS de la signature (5 pour
+    // 4 attendus, 3 pour 2). Aucun ne se tenait sur la borne, et la mutation
+    // `octets.length < magie.length` → `<=` y survivait : elle ne se voit qu'à
+    // longueur EXACTE.
+    //
+    // Le cas exact n'est pas artificiel : c'est le plus petit contenu qu'on
+    // doive accepter, et le refuser signifierait qu'un fichier légitime mais
+    // minuscule serait pris pour un portail captif.
+    expect(
+      enTeteValide(linux, new Uint8Array([0x7f, 0x45, 0x4c, 0x46])),
+      'la signature exacte, sans un octet de plus, est valide',
+    ).toBe(true);
+    expect(
+      enTeteValide(linux, new Uint8Array([0x7f, 0x45, 0x4c])),
+      'un octet de moins ne peut pas être jugé — donc refusé',
+    ).toBe(false);
+    expect(enTeteValide(win, new Uint8Array([0x4d, 0x5a])), 'MZ nu est un PE valide').toBe(true);
     expect(enTeteValide(linux, new Uint8Array([0x4d, 0x5a]))).toBe(false);
     // Vide ou tronqué.
     expect(enTeteValide(linux, new Uint8Array([]))).toBe(false);

@@ -6898,3 +6898,40 @@ C'est une ligne que quelqu'un copie et lance avec `sudo`.
 > DEVIENT : un message affiché, oui, c'est du décor ; une commande qu'un humain
 > exécutera, non — c'est du code qui tourne ailleurs, et son connecteur porte
 > autant de sens que n'importe quel `if`.
+
+### Le bilan, une fois les 24 verdicts tranchés
+
+**14 défendues, 10 survivants.** Sur les dix : **cinq tests écrits**, **cinq
+équivalences consignées**. Aucun laissé en suspens — c'est la seule façon de
+pouvoir rejouer le balayage sans rouvrir les mêmes enquêtes.
+
+Les cinq tests, et ce qu'ils défendaient vraiment :
+
+| Mutant                             | Ce qui passait                                           |
+| ---------------------------------- | -------------------------------------------------------- |
+| `optionBac` : `\|\|` → `&&`        | `fournisseur: null` transmis au client                   |
+| `hoteValide` : `> 253` → `>= 253`  | la borne, jamais dite (cas long refusé POUR AUTRE CHOSE) |
+| `hoteValide` : `<= 63` → `< 63`    | la borne PAR LABEL, jamais dite                          |
+| `enTeteValide` : `<` → `<=`        | la signature EXACTE, refusée comme trop courte           |
+| `runMerge` : `length > 0` → `>= 0` | `prepareCommand: []` refusé au lieu d'être ignoré        |
+
+Les cinq équivalences, toutes consignées SUR PLACE avec leur preuve :
+`parNode.length > 1` (une sonde dont la réponse est déjà connue), trois
+`instanceof` (`client.ts`, `join.ts`, `merge-runner.ts` — les levées possibles
+sont toutes du type testé), et le `<= 63` initialement tué par accident.
+
+### L'accident qu'il ne faut pas prendre pour une garde
+
+Le mutant `<= 63` → `< 63` mourait déjà, sans qu'on ait rien écrit pour lui :
+le cas des 253 caractères est monté avec des labels de 63 — la longueur MAXIMALE
+— et refuser 63 le fait échouer. Vert par ricochet.
+
+C'est fragile, et il fallait le dire plutôt que de l'encaisser : le jour où ce
+montage prendrait des labels plus courts, la borne des 63 redeviendrait nue sans
+qu'aucun rouge ne le signale. Elle a donc SA garde, qui la nomme.
+
+> **La règle** — quand un mutant meurt sans qu'on ait visé, vérifier POURQUOI.
+> Si c'est le montage d'un autre test qui l'a tué par ricochet, la protection
+> tient à un détail que personne n'a promis de conserver : elle se réécrit pour
+> elle-même. Une couverture qu'on ne peut pas expliquer est une couverture qu'on
+> perdra sans s'en apercevoir.

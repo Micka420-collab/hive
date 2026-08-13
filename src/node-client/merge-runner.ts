@@ -146,6 +146,18 @@ export function runProc(
       } catch (e) {
         // Un refus MOTIVÉ vaut mieux qu'un `spawn ENOENT` : c'est la même
         // panne, mais celle-ci se lit.
+        //
+        // ÉQUIVALENCE CONSIGNÉE : muté en `instanceof Object`, rien ne bouge —
+        // `resoudreLanceur` n'a que deux points de levée et les deux font
+        // `throw new LanceurIndisponible(…)`. Il n'existe donc, par la surface
+        // publique, aucune entrée qui produise ici une erreur d'un autre genre,
+        // et le `throw e` d'en dessous n'est atteignable par aucun banc.
+        //
+        // La garde reste, et elle n'est pas décorative : sans elle, une panne
+        // étrangère — un défaut de programmation, demain — serait avalée en
+        // `{ code: 1, output: '[hive] undefined' }`, c'est-à-dire maquillée en
+        // verdict de test. Un bug qui se présente comme un résultat est le pire
+        // des deux.
         if (e instanceof LanceurIndisponible) {
           resolve({ code: 1, output: `${output}\n[hive] ${e.motif}` });
           return;

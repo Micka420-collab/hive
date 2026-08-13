@@ -87,6 +87,13 @@ async function echangerBillet(
     const data = (await rep.json()) as { cle?: unknown };
     return typeof data.cle === 'string' && data.cle.length > 0 ? data.cle : null;
   } catch (err) {
+    // ÉQUIVALENCE CONSIGNÉE : `instanceof Error` muté en `instanceof Object` ne
+    // change rien ici. Ce `try` n'enferme que `fetch` et `rep.json()`, qui
+    // rejettent l'un et l'autre par des `Error` (`TypeError`, `SyntaxError`, et
+    // `DOMException` sur abandon — toutes des Error). Aucune entrée ne
+    // distingue l'original du mutant. Même raisonnement, même conclusion que la
+    // garde jumelle de `client.ts` : on garde le ternaire, parce que `err` est
+    // typé `unknown` et qu'une levée d'ailleurs afficherait « undefined ».
     console.error(
       `\n✘ Ruche injoignable à ${base} : ${err instanceof Error ? err.message : String(err)}\n` +
         '  Vérifiez que l’hôte a bien lancé la ruche et que l’URL du billet est atteignable.',
