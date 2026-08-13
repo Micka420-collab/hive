@@ -6,7 +6,7 @@ import { addTasks, createProject, planBrief } from './api';
 import type { NewTaskInput } from './api';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
-import { useDialog } from './ui';
+import { useDialog, Voile } from './ui';
 
 const j = (v: unknown) => JSON.stringify(v, null, 2);
 
@@ -194,7 +194,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={closeIfIdle}>
+    <Voile onClose={closeIfIdle}>
       <div
         className="modal wide"
         ref={dialogRef}
@@ -312,6 +312,6 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
-    </div>
+    </Voile>
   );
 }

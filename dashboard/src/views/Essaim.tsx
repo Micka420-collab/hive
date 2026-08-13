@@ -3,7 +3,8 @@
 
 import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
 import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
-import { useT } from '../i18n';
+import { useLang, useT } from '../i18n';
+import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -34,6 +35,7 @@ function NodeCard({
   racing: boolean;
 }) {
   const t = useT();
+  const lang = useLang();
   return (
     <article className={`es-node ${node.status}`}>
       <header className="es-node-head">
@@ -56,7 +58,7 @@ function NodeCard({
         </span>
       </header>
       <div className="es-node-meta">
-        <span className="chip es-chip">{node.agentType}</span>
+        <span className="chip es-chip">{libelleAgent(node.agentType, lang === 'en')}</span>
         <span>{node.ownerName}</span>
       </div>
       <div className="es-node-load">

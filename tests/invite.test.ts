@@ -144,6 +144,31 @@ describe("flux complet d'invitation", () => {
     expect(body.joinCommand).toContain('npm run join');
   });
 
+  it('UNE INVITATION VERS UNE ADRESSE OÙ L’ON N’ÉCOUTE PAS SE DÉNONCE', async () => {
+    // La ruche de ce test n'écoute que sur `127.0.0.1` — le défaut, et le cas
+    // de tout le monde tant que `HIVE_HOST` n'est pas posé. Demander une
+    // invitation vers l'IP du réseau local produit une commande PARFAITE et
+    // inutilisable : l'ami la colle, sa connexion expire, et rien ne dit
+    // pourquoi. C'est ce silence-là qu'on ferme.
+    const base = `http://127.0.0.1:${server.port}`;
+    const lan = `ws://192.168.1.20:${server.port}/ws`;
+    const res = await fetch(`${base}/api/invite?url=${encodeURIComponent(lan)}`, {
+      headers: { 'x-hive-token': TOKEN },
+    });
+    const body = (await res.json()) as { invite: string; injoignable?: string };
+    expect(body.invite, 'on fabrique quand même l’invitation').toBeTruthy();
+    expect(body.injoignable, 'le piège doit être nommé').toBeTruthy();
+    expect(body.injoignable, 'et le remède donné').toContain('HIVE_HOST=0.0.0.0');
+
+    // L'autre moitié : une invitation vers la machine elle-même est un usage
+    // normal (travail solo), et ne doit déclencher aucune alarme.
+    const local = `ws://127.0.0.1:${server.port}/ws`;
+    const sain = await fetch(`${base}/api/invite?url=${encodeURIComponent(local)}`, {
+      headers: { 'x-hive-token': TOKEN },
+    });
+    expect(((await sain.json()) as { injoignable?: string }).injoignable).toBeUndefined();
+  });
+
   it('un nœud construit depuis une invitation rejoint et exécute une tâche', async () => {
     const base = `http://127.0.0.1:${server.port}`;
     const url = `ws://127.0.0.1:${server.port}/ws`;

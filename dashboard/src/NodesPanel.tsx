@@ -18,8 +18,9 @@ import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
 import { fetchWaggle } from './api';
 import type { NodeNectar } from './api';
-import { useT } from './i18n';
-import { activateProps, ProgressBar, STATUS_ICON } from './ui';
+import { useLang, useT } from './i18n';
+import { libelleAgent } from '../../src/shared/agent-libelle';
+import { activateProps, ProgressBar, STATUS_ICON, Voile } from './ui';
 
 const AGENT_ICON: Record<string, string> = {
   shell: '🐚',
@@ -59,6 +60,7 @@ function FicheOuvriere({
   onClose: () => void;
 }) {
   const t = useT();
+  const lang = useLang();
   const missions = missionsDe(noeud, tasks);
   const butinees = missions.filter((m) => m.status === 'done').length;
   const echouees = missions.filter((m) => m.status === 'failed').length;
@@ -83,7 +85,7 @@ function FicheOuvriere({
   }, [noeud.id]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <Voile onClose={onClose}>
       <div
         className="modal"
         role="dialog"
@@ -101,7 +103,7 @@ function FicheOuvriere({
         </header>
 
         <p className="fo-identite">
-          {t('Chez', 'At')} {noeud.ownerName} · {noeud.agentType}
+          {t('Chez', 'At')} {noeud.ownerName} · {libelleAgent(noeud.agentType, lang === 'en')}
           {noeud.plateforme && (
             <span className="node-plateforme" title={noeud.plateforme}>
               {' '}
@@ -149,7 +151,7 @@ function FicheOuvriere({
           </ul>
         )}
       </div>
-    </div>
+    </Voile>
   );
 }
 
@@ -164,6 +166,7 @@ export function NodesPanel({
   onOpenTask?: (id: string) => void;
 }) {
   const t = useT();
+  const lang = useLang();
   const online = nodes.filter((n) => n.status === 'online').length;
   const [ouverte, setOuverte] = useState<string | null>(null);
   const fiche =
@@ -184,7 +187,7 @@ export function NodesPanel({
             className={`node-card ${n.status}`}
             {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
           >
-            <div className="node-avatar" title={n.agentType}>
+            <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
               {initials(n.name)}
               <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
             </div>
@@ -194,7 +197,7 @@ export function NodesPanel({
                 <span className={`dot ${n.status}`} title={n.status} />
               </div>
               <div className="node-meta">
-                {n.ownerName} · {n.agentType}
+                {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
                 {/* La machine derrière l'ouvrière — « quelles ouvrières
                     tournent sous Windows ? » se lit ici, pas dans un log.
                     Absente (nœud d'une version antérieure) : rien, plutôt

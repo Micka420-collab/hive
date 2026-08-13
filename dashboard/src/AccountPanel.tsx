@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { authLogin, authMe, authRegister, clearJwt, saveJwt } from './api';
 import type { AuthUser } from './api';
 import { useT } from './i18n';
-import { useDialog } from './ui';
+import { useDialog, Voile } from './ui';
 import type { LONGUEUR_MIN } from '../../src/orchestrator/comptes';
 
 /**
@@ -110,7 +110,7 @@ function AccountModal({
       : password.length >= MDP_MIN && displayName.length >= 2);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <Voile onClose={onClose}>
       <div
         className="modal"
         ref={dialogRef}
@@ -215,6 +215,6 @@ function AccountModal({
           </button>
         </div>
       </div>
-    </div>
+    </Voile>
   );
 }

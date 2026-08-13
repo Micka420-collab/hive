@@ -156,6 +156,9 @@ export default function Partage({ projectId }: { projectId: string }) {
                 agentsByTask: {},
                 deferred: new Set<string>(),
                 onOpenTask: () => undefined,
+                // Une vue publique ne crée rien : le point d'entrée existe pour
+                // satisfaire le contrat, et ne mène nulle part.
+                onNewProject: () => undefined,
                 onNavigate: () => undefined,
                 selectedId: projectId,
                 refreshTick: 0,

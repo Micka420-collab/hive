@@ -3,7 +3,8 @@
 // irréversible.
 
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import type { KeyboardEvent, ReactNode } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
 import type { BandeThermo, Domaine } from './api';
 import { useLang, useT } from './i18n';
@@ -41,6 +42,35 @@ export function useDialog<T extends HTMLElement>(onClose: () => void) {
   }, []);
 
   return ref;
+}
+
+/**
+ * LE VOILE D'UNE MODALE — et pourquoi il est monté à la racine du document.
+ *
+ * ─── LA PANNE ───────────────────────────────────────────────────────────────
+ *
+ * `InvitePanel` et `AccountPanel` vivent DANS la barre du haut. Or `.topbar`
+ * porte un `backdrop-filter: blur(14px)` : d'après la spec, un filtre fait de
+ * l'élément le BLOC CONTENEUR de ses descendants en `position: fixed`. Le
+ * `inset: 0` du voile ne visait donc plus la fenêtre mais la barre — mesuré
+ * dans Chrome, voile 1057×78 px et modale à y = −129 px, c'est-à-dire hors
+ * de l'écran, par le haut. « Inviter un ami » ouvrait une popup illisible
+ * dont on ne pouvait pas copier la commande : la fonction était inatteignable.
+ *
+ * ─── LE CHOIX ───────────────────────────────────────────────────────────────
+ *
+ * Retirer le flou de la barre aurait remis les modales d'aplomb aujourd'hui,
+ * et la même panne serait revenue au premier ancêtre qui reprend un filtre,
+ * un `transform` ou un `contain`. Le portail supprime la question : une
+ * surface modale n'est plus la descendante de rien.
+ */
+export function Voile({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return createPortal(
+    <div className="modal-backdrop" onClick={onClose}>
+      {children}
+    </div>,
+    document.body,
+  );
 }
 
 /** Un dialogue modal (tiroir, modale) est-il ouvert ? Neutralise les raccourcis globaux. */

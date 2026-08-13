@@ -67,7 +67,9 @@ async function monter(nodes: HiveNode[]): Promise<HTMLElement> {
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
   await act(async () => racine?.render(<NodesPanel nodes={nodes} />));
-  return conteneur;
+  // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
+  // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
+  return document.body;
 }
 
 function mission(id: string, titre: string, nodeId: string, statut: Task['status']): Task {
@@ -101,7 +103,9 @@ async function monterAvecFiche(
   await act(async () =>
     racine?.render(<NodesPanel nodes={nodes} tasks={tasks} onOpenTask={onOpenTask} />),
   );
-  return conteneur;
+  // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
+  // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
+  return document.body;
 }
 
 function cliquer(el: Element): void {

@@ -340,6 +340,7 @@ export function App() {
     agentsByTask,
     deferred,
     onOpenTask: setOpenTaskId,
+    onNewProject: () => setShowNewProject(true),
     onNavigate: navigate,
     selectedId: route.selectedId,
     refreshTick,

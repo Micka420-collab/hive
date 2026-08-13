@@ -365,6 +365,8 @@ export interface InviteResponse {
   label: string;
   joinCommand: string;
   note: string;
+  /** Présent quand la ruche n'écoute pas sur l'adresse annoncée (voir `shared/joignable`). */
+  injoignable?: string;
 }
 
 /** Demande une invitation à l'orchestrateur (URL WS optionnelle à annoncer). */

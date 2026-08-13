@@ -11,6 +11,7 @@ import {
   messageAgent,
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
+import { libelleAgent } from '../shared/agent-libelle.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
@@ -74,11 +75,13 @@ if (bac.refuse) {
 // `HIVE_AGENT` garde le dernier mot : le forcer à `shell` reste la façon
 // d'avoir un nœud de test qui n'exécute rien pour de vrai.
 const forceAgent = (process.env.HIVE_AGENT ?? '').trim() as AgentType | '';
-const detecte = forceAgent ? { agent: forceAgent, label: forceAgent } : await detectBestAgent();
+const detecte = forceAgent
+  ? { agent: forceAgent, label: libelleAgent(forceAgent) }
+  : await detectBestAgent();
 const agentType: AgentType = detecte.agent;
 const tousAgents = await detectAllAgents();
 
-console.log(`   Agents détectés : ${tousAgents.join(', ')}`);
+console.log(`   Agents détectés : ${tousAgents.map((a) => libelleAgent(a)).join(', ')}`);
 console.log(`   Agent utilisé   : ${detecte.label}`);
 // Le dire ICI, et pas seulement dans `hive doctor` : personne ne lance le
 // docteur avant de voir sa ruche « travailler ». Un simulacre silencieux

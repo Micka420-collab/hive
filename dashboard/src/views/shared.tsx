@@ -42,6 +42,16 @@ export interface ViewProps {
   /** Ouvre le tiroir de détail d'une tâche (global, au-dessus de toute vue). */
   onOpenTask: (taskId: string) => void;
   /**
+   * Ouvre la modale de création de projet (globale, comme le tiroir).
+   *
+   * Le bouton « + Projet » de l'en-tête reste réservé à la vue Projets : une
+   * action de gestion n'a pas à suivre les treize vues. Mais la Ruche VIDE
+   * n'offrait alors aucun départ — on y voit une ruche prête, sans rien à
+   * cliquer pour lui donner du travail, et il faut deviner qu'il faut passer
+   * par une autre vue. C'est ce que fait ce point d'entrée, et lui seul.
+   */
+  onNewProject: () => void;
+  /**
    * Navigue vers une vue (met à jour le hash) ; selectedId optionnel.
    * `replace: true` pour les sélections intra-vue (pas d'entrée d'historique).
    */
