@@ -457,3 +457,55 @@ describe('L’ÉTAT DU CERVEAU', () => {
     expect(sante(notes).orphelines).toEqual(['seule']);
   });
 });
+
+// ─── L'ORDRE DES PROPOSITIONS EST LEUR SENS ──────────────────────────────────
+//
+// D'où vient ce bloc : le balayage du cœur a muté le `||` du comparateur en
+// `&&` sans faire rougir personne. Les bancs de `aConsolider` ci-dessus ne
+// produisent JAMAIS qu'un seul paquet — `[0]` y est trivialement le seul
+// élément, et l'ordre n'était donc éprouvé nulle part.
+//
+// Or `A || B` muté en `&&` dans un comparateur ne dégrade pas le tri : il
+// l'INVERSE de nature. Quand `A` est non nul — c'est-à-dire chaque fois qu'il
+// départage — `A && B` rend `B`. Le critère principal cesse d'exister, et c'est
+// le départage qui gouverne. Ici : les propositions ne sortiraient plus par
+// récurrence décroissante mais par ordre alphabétique d'une signature opaque.
+//
+// Ce que ça coûte : la ruche promet qu'« une panne revue trois fois propose une
+// leçon ». Devant dix propositions, celle qui est arrivée cinquante fois doit
+// être la première — c'est tout ce qui distingue une liste utile d'un tas.
+
+describe('aConsolider — ce qui revient le plus se lit en PREMIER', () => {
+  /** N épisodes d'une même panne, donc une signature commune. */
+  const panne = (quoi: string, combien: number): Note[] =>
+    Array.from({ length: combien }, (_, i) =>
+      note({ id: `${quoi}-${i}`, genre: 'episode', titre: quoi, corps: 'la même cause' }),
+    );
+
+  it('LA PLUS RÉCURRENTE D’ABORD — pas la première venue, pas l’alphabet', () => {
+    // « zebre » revient 5 fois, « alpha » 3 : c'est « zebre » qui doit sortir en
+    // tête, alors même que son nom le placerait dernier dans l'alphabet. Le
+    // mutant `&&` rend exactement l'inverse.
+    const r = aConsolider([...panne('alpha', 3), ...panne('zebre', 5)]);
+    expect(r).toHaveLength(2);
+    expect(r[0]?.recurrences, 'la tête doit être la plus récurrente').toBe(5);
+    expect(r[1]?.recurrences).toBe(3);
+  });
+
+  it('L’ÉCART SE LIT DANS LES DEUX SENS — l’ordre d’arrivée n’y change rien', () => {
+    // Même mesure, entrée inversée : un tri qui dépendrait de l'ordre d'arrivée
+    // passerait l'un des deux cas et pas l'autre.
+    const r = aConsolider([...panne('zebre', 5), ...panne('alpha', 3)]);
+    expect(r.map((c) => c.recurrences)).toEqual([5, 3]);
+  });
+
+  it('À RÉCURRENCE ÉGALE, LA SIGNATURE DÉPARTAGE — deux lectures donnent la même liste', () => {
+    // Sans départage, l'ordre dépendrait de celui de la `Map`, et deux appels
+    // successifs pourraient rendre deux listes différentes : l'opérateur qui
+    // relit son écran croirait que quelque chose a bougé.
+    const a = aConsolider([...panne('bravo', 3), ...panne('alpha', 3)]);
+    const b = aConsolider([...panne('alpha', 3), ...panne('bravo', 3)]);
+    expect(a.map((c) => c.signature)).toEqual(b.map((c) => c.signature));
+    expect(a[0]?.signature.localeCompare(a[1]?.signature ?? ''), 'croissant').toBeLessThan(0);
+  });
+});

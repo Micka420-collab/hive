@@ -6143,3 +6143,62 @@ dans le sens rassurant, le pire des deux). Un découpage naïf sur les guillemet
 tomberait sur les apostrophes françaises, dont ce dépôt est plein. La bonne
 version de ce correctif est un lot à part entière ; en attendant, ces
 candidates se reconnaissent à l'œil et se consignent ici.
+
+## 9 quinquagies. Un banc qui vérifie le CONTENU d'une liste ne dit rien de son ORDRE — et l'ordre est souvent le sens
+
+Le balayage du cœur a rendu trois désignations de la même forme, dans deux
+fichiers, toutes trois nues :
+
+```
+src/shared/cerveau.ts        · || → &&  b.recurrences - a.recurrences || a.signature.localeCompare(…)
+src/shared/cerveau-graphe.ts · || → &&  a.de.localeCompare(b.de) || a.vers.localeCompare(b.vers)   (aretes)
+src/shared/cerveau-graphe.ts · || → &&  a.de.localeCompare(b.de) || a.vers.localeCompare(b.vers)   (liensMorts)
+```
+
+### Ce que fait vraiment ce mutant
+
+`A || B` muté en `&&` **ne dégrade pas** le tri : il en change la CLÉ. Quand `A`
+départage — donc chaque fois qu'il sert — `A && B` rend `B`. Le critère
+principal cesse purement d'exister, et c'est le départage, prévu pour les
+égalités, qui gouverne tout le classement.
+
+Concrètement : `aConsolider` ne sort plus les propositions par récurrence
+décroissante mais par ordre alphabétique d'une signature opaque. La ruche promet
+qu'« une panne revue trois fois propose une leçon » ; devant dix propositions,
+celle survenue cinquante fois n'est plus la première. La liste reste JUSTE — tout
+y est, rien n'est inventé — et devient inutile.
+
+### Pourquoi aucune suite ne pouvait le voir
+
+Les bancs de `aConsolider` ne construisaient jamais qu'UN seul paquet. `[0]` y
+était trivialement le seul élément : l'ordre n'était éprouvé nulle part, et il
+suffisait de deux paquets pour que le mutant tombe. Ceux du graphe vérifiaient
+le CONTENU d'`aretes` (les bonnes arêtes, en bon nombre) sans jamais regarder
+dans quel ordre elles sortaient.
+
+C'est un angle mort structurel, pas un oubli local : `toEqual` sur un tableau
+compare l'ordre, mais seulement si le cas de test comporte assez d'éléments pour
+qu'un ordre existe. Un banc à un élément, ou qui teste par `toContain` / par
+longueur, passe indifféremment sur toutes les permutations.
+
+### La règle
+
+> Devant une fonction qui TRIE, se demander non pas « rend-elle les bons
+> éléments ? » mais **« un banc verrait-il la différence si je permutais le
+> résultat ? »**. S'il faut deux éléments distincts pour que la question ait un
+> sens, alors un banc à un élément ne mesure rien du tri — et un comparateur non
+> éprouvé est le lieu le plus discret où une liste peut cesser de vouloir dire
+> quelque chose.
+
+Corollaire pratique : un banc d'ordre se construit avec des éléments dont les
+deux critères S'OPPOSENT. Ici, « zebre » revient cinq fois et « alpha » trois :
+par récurrence c'est zebre d'abord, par alphabet ce serait alpha. Un jeu où les
+deux critères concordent laisse passer le mutant sans rien dire.
+
+VERDICTS (bancs ciblés, restauration par copie entre chaque)
+
+```
+aConsolider || → &&   ROUGE (3) la tête doit être la plus récurrente: expected 3 to be 5
+aretes      || → &&   ROUGE (2) ['c→a','a→z'] ≠ ['a→z','c→a']
+liensMorts  || → &&   ROUGE (1) ['c→fantome-a','a→fantome-z'] ≠ ['a→fantome-z','c→fantome-a']
+```

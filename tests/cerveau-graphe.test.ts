@@ -295,3 +295,48 @@ describe('LES VOISINS D’UNE NOTE', () => {
     expect(voisins(g, 'inconnue')).toEqual([]);
   });
 });
+
+// ─── L'ORDRE DES ARÊTES ──────────────────────────────────────────────────────
+//
+// Même défaut, même forme, deux sites de plus : le balayage du cœur a muté les
+// deux `||` de comparateur en `&&` sans faire rougir personne. Aucun banc
+// n'affirmait l'ORDRE d'`aretes` ni de `liensMorts` — ils n'en regardaient que
+// le contenu et le nombre.
+//
+// `A || B` muté en `&&` n'affaiblit pas le tri, il en change la clé : dès que
+// `A` départage (non nul), `A && B` rend `B`. Les arêtes se rangeraient par
+// CIBLE au lieu de par SOURCE.
+//
+// Ce que ça coûte : l'ordre est ce qui rend deux lectures comparables. La vue
+// dessine et le tableau liste dans cet ordre ; s'il change sans raison, un
+// opérateur qui relit son écran croit que le graphe a bougé.
+
+describe('l’ordre des arêtes — par SOURCE d’abord, puis par cible', () => {
+  it('les arêtes sortent triées par SOURCE, pas par cible', () => {
+    // « c → a » et « a → z » : par source c'est a→z d'abord ; par cible ce
+    // serait c→a. Le mutant rend exactement le second ordre.
+    const g = graphe(
+      [note('c', { corps: 'voir [[a]]' }), note('a', { corps: 'voir [[z]]' }), note('z')],
+      MAINTENANT,
+    );
+    expect(g.aretes.map((e) => `${e.de}→${e.vers}`)).toEqual(['a→z', 'c→a']);
+  });
+
+  it('à SOURCE ÉGALE, la cible départage — sinon deux lectures diffèrent', () => {
+    const g = graphe(
+      [note('a', { corps: 'voir [[z]] et [[b]]' }), note('b'), note('z')],
+      MAINTENANT,
+    );
+    expect(g.aretes.map((e) => `${e.de}→${e.vers}`)).toEqual(['a→b', 'a→z']);
+  });
+
+  it('les LIENS MORTS suivent la même règle — par source d’abord', () => {
+    // Un lien mort pointe vers une note qui n'existe pas : c'est la liste que
+    // l'écran met en alerte, et elle se relit d'un battement à l'autre.
+    const g = graphe(
+      [note('c', { corps: 'voir [[fantome-a]]' }), note('a', { corps: 'voir [[fantome-z]]' })],
+      MAINTENANT,
+    );
+    expect(g.liensMorts.map((e) => `${e.de}→${e.vers}`)).toEqual(['a→fantome-z', 'c→fantome-a']);
+  });
+});
