@@ -29,11 +29,34 @@ name: CI
 # `fail-fast: false` : si plusieurs cassent, on veut TOUS les rapports. Arrêter
 # les autres au premier échec transformerait trois diagnostics en un seul.
 
+# ─── POURQUOI `workflow_dispatch` — UN INSTRUMENT, PAS UN CONFORT ────────────
+#
+# Sans lui, une jambe rouge ne peut PAS être rejouée sur le même commit : la
+# seule façon de relancer la CI est de pousser, donc de changer le code qu'on
+# essaie de juger. C'est fatal pour la seule question qui compte devant un
+# échec de plateforme :
+#
+#     est-ce DÉTERMINISTE, ou est-ce l'intermittent connu ?
+#
+# Les deux réponses appellent des gestes opposés — corriger le code, ou trouver
+# ce qui affame le runner — et rien ne les distingue en une seule exécution.
+#
+# Le 13 août, la jambe Windows a rendu quatre `Hook timed out in 20000ms` dans
+# TROIS fichiers sans rapport, dont un hook SYNCHRONE (`store.close()` puis
+# `rmSync`) — du code qui n'attend rien et ne peut donc qu'être privé de CPU.
+# `main` était vert au commit précédent. Il fallait une seconde mesure sur le
+# MÊME arbre ; le dépôt ne savait pas la produire, et l'API refuse le rejeu aux
+# intégrations (403).
+#
+# La chasse du § « trois exécutions CI-identiques » avait déjà payé ce manque.
+# Il est réparé ici, et il ne coûte rien : un déclencheur manuel ne s'exécute
+# que lorsqu'un humain — ou un agent qui rend des comptes — le demande.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # ─── LA VERSION DE NODE, DÉCLARÉE UNE SEULE FOIS ─────────────────────────────
 #
