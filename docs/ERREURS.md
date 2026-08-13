@@ -7617,3 +7617,83 @@ exactement ce pour quoi il existe.
 Rien n'était exporté : tout vivait au niveau du module. « Hors d'atteinte du
 banc » est presque toujours « au mauvais endroit » (§ 2 quaterdecies) — la
 troisième fois que ce paragraphe se vérifie sur un script de `scripts/`.
+
+## 9 terseptuagies. L'intermittent Windows est CONFIRMÉ intermittent — et ce qui l'a prouvé n'est pas un correctif, c'est un instrument qui manquait
+
+Le 13 août, la jambe Windows d'une PR est tombée sur quatre `Hook timed out in
+20000ms`, dans **trois fichiers sans rapport entre eux** :
+
+```
+tests/essaim-livraison.test.ts   afterEach   ×2
+tests/serveurs-endpoint.test.ts  afterEach
+tests/taches-bornees.test.ts     afterEach
+```
+
+La PR ne touchait ni ces fichiers, ni rien qu'ils importent : elle modifiait
+deux scripts et ajoutait un banc de sept tests purs. `main` était vert sur
+Windows au commit précédent.
+
+### L'indice qui interdisait la lecture facile
+
+`tests/taches-bornees.test.ts:51` est un `afterEach` **SYNCHRONE** —
+`store.close()` puis `rmSync` d'un dossier temporaire.
+
+Du code synchrone ne peut pas se bloquer sur un événement qui ne vient pas. Il
+ne peut qu'être **privé de CPU**. Cette seule ligne écarte toute la famille
+d'explications « un handle reste ouvert », « une connexion ne se ferme pas » —
+qui aurait pourtant très bien collé aux deux autres fichiers, où l'on attend
+bien un `server.stop()`.
+
+Les temps confirment :
+
+|                   | test CPU |   mur | cœurs |
+| ----------------- | -------- | ----: | ----: |
+| Windows           | 833 s    | 304 s |     4 |
+| Linux, même arbre | 267 s    | 117 s |     — |
+
+2,7 de parallélisme effectif sur quatre cœurs : les workers se disputaient la
+machine.
+
+### La question qui tranche, et l'outil qui n'existait pas
+
+Devant un rouge de plateforme, une seule question commande la suite :
+**déterministe, ou intermittent ?** Les deux réponses appellent des gestes
+opposés — corriger le code d'un côté, chercher ce qui affame le runner de
+l'autre — et **aucune exécution unique ne les distingue.**
+
+Y répondre demande de rejouer le MÊME arbre. Or :
+
+- la CI n'avait pas de `workflow_dispatch` : relancer exigeait de **pousser**,
+  donc de modifier le code qu'on essaie de juger ;
+- l'API refuse le rejeu aux intégrations (`403 Resource not accessible by
+integration`).
+
+Le dépôt était donc structurellement incapable de répondre à sa propre question.
+La chasse « trois exécutions CI-identiques » consignée plus haut avait déjà payé
+ce manque sans le nommer.
+
+`workflow_dispatch` ajouté, seconde exécution lancée : **les six jambes vertes,
+Windows compris, sur les mêmes trois fichiers.** Intermittent confirmé.
+
+### Les deux gestes que je n'ai PAS faits, et pourquoi ils étaient tentants
+
+1. **Relever `hookTimeout` à 30 s.** `vitest.config.ts` porte son propre
+   déclencheur d'escalade, écrit avant d'en avoir besoin : à 20 s pour une
+   opération mesurée à 200 ms, on n'attend plus un disque. Le fichier interdit
+   explicitement ce geste, et c'est la troisième fois qu'il évite un plafond.
+2. **Plafonner les forks sur Windows.** C'est mon hypothèse principale, elle est
+   cohérente avec les chiffres, et je ne peux pas la mesurer d'ici. Une cause
+   plausible trouvée juste après un vrai symptôme est la forme la plus séduisante
+   de l'erreur (§ 9 quadraquadragies) — la retenir sans mesure, c'est deviner
+   avec des chiffres à l'appui.
+
+> **Quand un échec ne se reproduit pas sur commande, le premier lot n'est pas de
+> le corriger : c'est de se donner les moyens de le REJOUER.** Un dépôt qui ne
+> sait pas relancer la même CI sur le même arbre ne peut pas distinguer un défaut
+> d'un aléa — et toute correction posée dans cet état est un pari, y compris
+> quand elle rend le vert.
+
+Ce qui reste ouvert, et se dit comme tel : **pourquoi** le runner Windows est
+affamé n'est pas répondu. Le lot suivant a maintenant l'outil pour le chercher —
+plusieurs exécutions du même arbre, avec et sans plafond de forks, et une
+comparaison des temps plutôt qu'une intuition.
