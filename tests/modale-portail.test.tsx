@@ -41,6 +41,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 
 import { InvitePanel } from '../dashboard/src/InvitePanel';
 import { AccountPanel } from '../dashboard/src/AccountPanel';
+import { OpenAlexPanel } from '../dashboard/src/OpenAlexPanel';
 import { setLang } from '../dashboard/src/i18n';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -126,5 +127,23 @@ describe('les surfaces modales sortent de la barre du haut', () => {
 
     cliquer(document.querySelector('.modal-backdrop') as Element);
     expect(document.querySelector('.modal-backdrop'), 'un clic sur le voile ferme').toBeNull();
+  });
+
+  // OpenAlex se fermait à la croix et au voile, mais restait sourd à Échap :
+  // seul des cinq overlays, il obligeait à viser. Une seule modale qui répond
+  // autrement suffit à faire douter de la touche partout.
+  it('OPENALEX : Échap ferme, comme partout ailleurs', async () => {
+    const fermer = vi.fn();
+    await monterDansLaBarre(<OpenAlexPanel onClose={fermer} />);
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(fermer).toHaveBeenCalledTimes(1);
+  });
+
+  it('OPENALEX : le champ de recherche prend le focus, pas la croix', async () => {
+    await monterDansLaBarre(<OpenAlexPanel onClose={() => {}} />);
+    expect(document.activeElement).toBe(document.querySelector('.openalex-input'));
   });
 });
