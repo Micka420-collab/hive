@@ -6444,3 +6444,128 @@ Les cinq valeurs racontent l'histoire mieux que le rapport : un chemin coûte
 > mesurer plus la renforce. Et vérifier ensuite, par mutation, que le banc
 > assoupli rougit toujours sur le vrai défaut — sans quoi on a troqué un test
 > instable contre un test décoratif.
+
+---
+
+## 9 quinquinquagies. Un `--dry-run` en intégration continue n'éprouve pas une installation : il s'arrête avant tout ce qui peut échouer
+
+La CI de ce dépôt lançait `install.sh --dry-run` sur les trois systèmes, et
+depuis des semaines cette ligne se lisait « l'installation en une commande
+marche partout ». Elle ne le disait pas.
+
+Le mode sec s'arrête AVANT le clone, avant `npm install`, avant l'installeur.
+Ce qu'il vérifie est réel — un script qui ne démarre pas, une syntaxe refusée
+par le shell de la plateforme — mais c'est la première marche. Tout ce qui
+casse chez un inconnu vit APRÈS : la résolution des dépendances, le module
+natif SQLite qui doit trouver un binaire prébuilt pour son ABI, la
+construction du tableau de bord, la ruche qui démarre et qui écoute au bon
+endroit.
+
+### Ce que ça avait masqué exactement
+
+Le critère 1 du definition of done — « une commande, ≤ 3 décisions, < 60 s » —
+était noté MESURÉ. Il l'avait été, mais sur un dépôt DÉJÀ cloné, avec les
+dépendances DÉJÀ installées : c'est-à-dire pas depuis la commande qu'un
+arrivant copie du README. Deux choses différentes portaient le même nom, et le
+tableau de bord des critères comptait la plus facile.
+
+### La forme générale
+
+Un pas de CI qui exerce une VERSION RÉDUITE de ce qu'on promet est plus
+dangereux qu'un pas absent. Absent, le trou se voit ; réduit, il se lit comme
+une couverture. C'est le même pli que « la CI exerçait le SCRIPT, jamais la
+PHRASE qui dit comment l'appeler » (§ 9 : `| iex`) — à chaque fois, deux
+artefacts cohérents avec eux-mêmes, incohérents entre eux, et rien qui
+regarde l'écart.
+
+### Ce qui remplace
+
+`scripts/essai-installation.sh` mène l'installation à son terme et affirme
+trois choses, dont la dernière ne peut pas être simulée :
+
+1. l'installation sort en 0 ;
+2. le `.env` est en `-rw-------` ;
+3. la ruche RÉPOND sur `/api/pulse`.
+
+Le troisième distingue « les fichiers sont là » de « ça marche ». Il a été
+éprouvé par mutation, sur un arbre cassé exprès — `app.listen({ port:
+config.port + 1 })`, la ruche qui écoute à CÔTÉ du port qu'elle annonce :
+
+```
+arbre sain    → CODE=0 · installation sortie en 0, 15 s · .env en -rw------- · répond sur :7777 après 2 s
+arbre cassé   → CODE=1 · le journal dit « Dashboard : http://127.0.0.1:7778 » quand le .env dit 7777
+```
+
+> **La règle** — avant d'écrire qu'un critère est mesuré, demander SUR QUOI.
+> Un pas de CI qui s'arrête au seuil ne dit rien de la pièce. Et si le pas
+> complet est trop cher pour les trois systèmes, en faire tourner un et DIRE
+> que les deux autres restent au seuil : une couverture partielle annoncée
+> vaut mieux qu'une couverture totale supposée.
+
+---
+
+## 9 sexquinquagies. Tuer un processus par son PID, par son groupe, par sa session — trois façons plausibles, deux mesurées fausses
+
+Un banc d'installation lance la ruche, l'interroge, puis doit rendre la place.
+Trois versions du ménage ont été écrites. Les deux premières se lisent bien et
+ne marchent pas.
+
+**Version 1 — `kill "$RUCHE_PID"`.** Un signal au père ne descend pas
+(§ 9 quadragies). `npm run ruche` lance `node scripts/ruche.mjs`, qui lance
+tsx, qui lance esbuild : tuer le premier laisse les autres tenir le port. Une
+ruche a survécu et fait rougir `installeur-porte.test.ts` — un banc qui a
+besoin de POUVOIR occuper 7777 pour simuler l'occupation. Le symptôme est
+apparu dans un fichier qui n'a aucun rapport avec l'installation.
+
+**Version 2 — `setsid` puis `kill -- -$!`.** Élégant sur le papier : le
+lanceur devient chef de session, son PID EST l'identifiant du groupe, un seul
+signal atteint toute la descendance. Sans effet en pratique ; mesuré, le port
+était encore tenu vingt secondes après. La théorie était juste, la
+correspondance entre `$!` et le groupe réellement créé ne l'était pas.
+
+**Version 3 — viser le `cwd`.** Tout ce qui travaille dans notre dossier
+d'essai nous appartient. `/proc/PID/cwd` ne ment pas, et il survit aux ré-exec
+successifs de npm → node → tsx. C'est la seule chose qu'on connaisse avec
+certitude, alors c'est sur elle qu'on tire.
+
+### Le vrai enseignement n'est pas le `cwd`
+
+C'est le pas qui manquait aux trois : **attendre que le port soit rendu, et le
+dire s'il ne l'est pas.** Sans cette attente, une fuite reste muette et
+empoisonne la course suivante — et le rouge apparaît ailleurs, plus tard, dans
+un banc innocent. Les deux premières versions ne sont pas tombées parce
+qu'elles étaient fausses ; elles sont tombées parce que rien ne vérifiait
+qu'elles avaient marché.
+
+Détail qui compte : la sonde d'attente est un `curl` SANS `-f`. On demande
+« quelqu'un décroche-t-il ? », pas « répond-il bien ? ». Un 401 sans jeton
+prouve que le port est TENU ; le prendre pour un échec ferait sortir de la
+boucle en croyant la place libre — soit exactement le silence qu'on cherchait
+à supprimer.
+
+> **La règle** — un nettoyage n'est pas fait parce qu'on a envoyé le signal.
+> Il est fait quand on a VÉRIFIÉ que la ressource est rendue. Tant que la
+> vérification manque, chaque version successive du `kill` n'est qu'une
+> hypothèse mieux habillée.
+
+---
+
+## 9 septenquinquagies. Un badge corrigé par outil redevient faux dès que l'arbre bouge
+
+`scripts/compte-tests.mjs --corriger` avait porté les six annonces à 3 692.
+Le chiffre était juste au moment où il a été écrit. Puis un banc a été retiré
+— celui d'une correction elle-même annulée — et personne n'a rejoué le compte.
+Les six annonces sont restées à 3 692 pendant que la suite en rendait 3 691.
+
+C'est le contraire du piège habituel. La règle « badges JAMAIS écrits de tête »
+avait été respectée : le chiffre venait bien d'une mesure. Ce qui manquait,
+c'est que la mesure était PLUS VIEILLE que l'arbre qu'elle décrit.
+
+Le pas de CI, lui, aurait rougi — il rejoue `compte-tests.mjs` sans
+`--corriger` sur le rapport de la course. Le défaut aurait donc coûté un
+aller-retour rouge, pas une sortie fausse. Mais l'aller-retour n'est pas
+gratuit, et surtout : il apprend à pousser d'abord et à lire le rouge ensuite.
+
+> **La règle** — le compte se re-mesure APRÈS le dernier changement de la
+> branche, pas au moment où on y pense. Une correction automatique n'est pas
+> un acquis : c'est un instantané, et il périme au commit suivant.

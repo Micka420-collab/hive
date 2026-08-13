@@ -5743,34 +5743,58 @@ nuits sur `dashboard/` sans jamais atteindre `src/orchestrator`. Le cœur du dé
 exhaustivement plutôt que déduites. Elles ne valent pas un test : les tuer
 demanderait une entrée qui n'existe pas.
 
-**Huit leçons au carnet**, § 9 sexquadragies à quadraquinquagies.
+**Onze leçons au carnet**, § 9 sexquadragies à septenquinquagies.
 
 ## 2. Ce qui reste entre la ruche et une sortie présentable
 
 Classé par ce qui casse l'expérience d'un arrivant EN PREMIER.
 
-### 2.1 — L'unique commande du README n'a jamais été menée à son terme par une machine
+### 2.1 — L'unique commande du README n'avait jamais été menée à son terme par une machine → FRANCHI
 
-**C'est le premier point, et de loin.** Mesuré ce matin :
+**C'était le premier point, et de loin.** Mesuré ce matin :
 
 - `curl` sur les deux URL du README → **HTTP 200**, contenu **identique** au
   dépôt. Le chemin est vivant et autonome : `install.sh` CLONE, il ne dépend ni
   de npm ni d'une Release. Les blocages des lots 7 et 10 ne barrent donc PAS la
   porte d'entrée ;
-- mais la CI ne lance que `sh install.sh --dry-run`. **Le mode sec s'arrête
+- mais la CI ne lançait que `sh install.sh --dry-run`. **Le mode sec s'arrête
   avant `npm install`**, donc avant tout ce qui peut réellement échouer chez un
   inconnu : la résolution des dépendances, le module natif SQLite, le lancement
   de l'installeur interactif, la ruche qui démarre.
 
-Autrement dit : ce que le README promet en une ligne est **exercé jusqu'au
+Autrement dit : ce que le README promet en une ligne était **exercé jusqu'au
 seuil, jamais franchi**. Le critère 1 (« une commande, ≤ 3 décisions, < 60 s »)
-a été mesuré sur un dépôt DÉJÀ cloné, pas depuis la commande que lit un
+avait été mesuré sur un dépôt DÉJÀ cloné, pas depuis la commande que lit un
 arrivant.
 
-Vérifié aussi ce matin, et c'est le bon comportement : sur ce conteneur
-(**Node 22**), le script refuse proprement, sort en **2**, n'écrit **rien**, et
-donne le remède exact. La garde de version fonctionne. C'est justement pourquoi
-le reste n'a pas pu être mesuré d'ici.
+**Le seuil est franchi.** Node 24 a été récupéré sur ce conteneur — ce qui
+lève le blocage noté plus bas —, l'installation a été menée de bout en bout
+depuis l'URL du README (code 0 en 27 s, `.env` en 0600, `/api/pulse` en 7 ms,
+`hive doctor` « tout est en ordre »), puis la mesure a été rendue REJOUABLE :
+
+- `scripts/essai-installation.sh` affirme trois choses — sortie 0, `.env` en
+  `-rw-------`, et la ruche RÉPOND. La troisième ne peut pas être simulée ;
+- un travail `seuil` la rejoue à chaque PR, sur **l'arbre de la PR** et non sur
+  `main` (`--depot "$PWD"`), sans quoi la CI dirait « l'installation marche »
+  d'une version qui n'est pas celle qu'on livre.
+
+Verdict affiché, par mutation sur un arbre cassé exprès (`app.listen({ port:
+config.port + 1 })` — la ruche écoute à côté du port qu'elle annonce) :
+
+```
+arbre sain  → CODE=0 · sortie en 0, 15 s · .env en -rw------- · répond sur :7777 après 2 s
+arbre cassé → CODE=1 · le journal dit « Dashboard : http://127.0.0.1:7778 » quand le .env dit 7777
+```
+
+**Ce qui n'est PAS couvert, et se dit :** ce travail ne tourne que sous Linux.
+Windows et macOS restent exercés **au seuil seulement**, par `--dry-run`. Le
+critère 1 est donc mesuré sur un système sur trois — pas sur trois.
+
+**Un défaut trouvé en chemin, non corrigé, consigné :** l'installeur sonde
+`PORT_DEFAUT`, pas le port qu'il va réellement écrire. Sur une réinstallation
+par-dessus un `.env` existant qui porte un port personnalisé, la sonde regarde
+la mauvaise porte — faux négatif silencieux. Le réparer proprement demande de
+lire le `.env` AVANT les sondes : c'est un lot à soi, pas une retouche hâtive.
 
 ### 2.2 — Le service est ACCEPTÉ, il n'est pas DÉMARRÉ (lot 9)
 
@@ -5797,9 +5821,10 @@ sans ce mot-là.
 - **npm (lot 7) et GHCR/cosign (lot 10)** : comptes qui ne sont pas les miens.
   Le code est prêt, la publication non. Bonne nouvelle mesurée en 2.1 : ça ne
   bloque pas l'installation.
-- **Une VM Windows 11 et une Ubuntu 24.04 vierges, avec Node 24**, pour mener
-  l'installation réelle de bout en bout. Ce conteneur a Node 22 — la garde
-  refuse, correctement.
+- **Une machine Windows 11 et une macOS réelles.** L'installation complète est
+  désormais mesurée sous Linux, à chaque PR (§ 2.1). Sur les deux autres, elle
+  s'arrête au seuil : le runner GitHub y lance `--dry-run`, et personne ici n'a
+  de quoi aller plus loin. Un système sur trois, dit comme tel.
 - **Le démarrage effectif du service** : demande un bus de session utilisateur.
 - **L'intermittent d'origine** : jamais reproduit, invisible en huit ordres
   mélangés et trois exécutions identiques. Pas fermé — introuvable d'ici.
