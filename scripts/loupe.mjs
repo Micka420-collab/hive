@@ -713,9 +713,23 @@ export const MARQUE = /loupe\s*:\s*équivalent/i;
  *
  * @param {string} contenu le fichier entier
  * @param {string} ligne la ligne mutée, telle que le diff l'a rendue
+ * ─── LE NOM DU FICHIER VOYAGE JUSQU'ICI, ET IL A FAILLI NE PAS LE FAIRE ──────
+ *
+ * Première version : la remontée appelait `ligneMutable(texte, '')` — sans nom
+ * de fichier. Conséquence mesurée : dans un `.sh`, un commentaire `#` n'était
+ * pas reconnu comme tel, la remontée le prenait pour du CODE et s'arrêtait sur
+ * la marque même qu'elle cherchait. La marque ne pouvait PAS fonctionner en
+ * shell — et `scripts/` est dans le périmètre par défaut depuis le premier jour.
+ *
+ * La faute est précise : `ligneMutable` venait d'être élargie avec un paramètre
+ * PORTEUR DE SENS (§ 9 unseptuagies), et je l'ai appelée depuis un site neuf en
+ * lui passant sa valeur neutre. J'ai jeté la connaissance que je venais
+ * d'ajouter, dans le même fichier, à cent lignes d'écart.
+ *
  * @param {string} quoi le libellé du mutant, ex. `< → <=`
+ * @param {string} [fichier] son chemin — `#` ne commente pas dans tous les langages
  */
-export function marqueeEquivalente(contenu, ligne, quoi) {
+export function marqueeEquivalente(contenu, ligne, quoi, fichier = '') {
   // Sans libellé, aucune marque ne peut s'appliquer : une consignation qui ne
   // nomme pas son mutant ne juge rien.
   if (typeof quoi !== 'string' || quoi.trim() === '') return false;
@@ -727,7 +741,7 @@ export function marqueeEquivalente(contenu, ligne, quoi) {
   for (let j = i - 1; j >= 0; j--) {
     const texte = lignes[j];
     if (texte.trim() === '') return false;
-    if (ligneMutable(texte, '')) return false; // du code : la remontée s'arrête
+    if (ligneMutable(texte, fichier)) return false; // du code : la remontée s'arrête
     // Les DEUX conditions : nommer l'instrument, et nommer le mutant jugé.
     if (MARQUE.test(texte) && texte.includes(quoi)) return true;
   }
@@ -796,7 +810,7 @@ function principal() {
   for (const m of retenues) {
     const chemin = RACINE + m.fichier;
     const original = readFileSync(chemin, 'utf8');
-    const marquee = marqueeEquivalente(original, m.avant, m.quoi);
+    const marquee = marqueeEquivalente(original, m.avant, m.quoi, m.fichier);
     writeFileSync(chemin, original.replace(m.avant, m.apres));
     let mord;
     try {

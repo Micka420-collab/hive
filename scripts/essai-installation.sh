@@ -96,6 +96,12 @@ menage() {
   if [ -d /proc ]; then
     for entree in /proc/[0-9]*; do
       p=${entree#/proc/}
+      # loupe : équivalent — || → &&
+      # Mesuré dans CE contexte — un `[ … ]`, pas une affectation : sous
+      # `set -eu`, `cmd || true` et `cmd && true` rendent la même chaîne vide
+      # et le script survit aux deux. (L'affectation d'une commande SIMPLE,
+      # elle, TUE le script en `&&` — mais cette forme-là n'existe pas ici.
+      # C'est la mesure qui l'a dit ; ma lecture disait le contraire.)
       [ "$(readlink "/proc/$p/cwd" 2>/dev/null || true)" = "$CIBLE" ] &&
         kill -9 "$p" 2>/dev/null
     done
@@ -106,6 +112,14 @@ menage() {
       # Sans `-f` : on demande « quelqu'un décroche-t-il ? », pas « répond-il
       # bien ? ». Un 401 sans jeton prouve que le port est TENU ; le prendre
       # pour un échec ferait sortir de la boucle en croyant la place libre.
+      # PAS équivalent, et PAS défendu.
+      # `|| break` sort quand curl ÉCHOUE, c'est-à-dire quand le port est enfin
+      # LIBRE : la boucle attend tant que la ruche répond encore. Muté en `&&`,
+      # elle sort dès qu'elle répond et attend quinze secondes quand le port est
+      # déjà libre — l'inverse exact, et silencieux.
+      # L'entrée qui tranche : un port encore tenu APRÈS le ménage. La produire
+      # demande de garder un processus vivant au bon moment ; le banc ne sait pas
+      # encore le faire, et je préfère le dire que le couvrir d'un test qui simule.
       curl -sS -o /dev/null -m 1 "http://127.0.0.1:$PORT/api/pulse" 2>/dev/null || break
       attente=$((attente + 1))
       sleep 1
@@ -120,6 +134,15 @@ trap menage EXIT INT TERM
 
 
 echo "→ installation réelle dans $CIBLE"
+# PAS équivalent, et PAS défendu — il faut le dire dans cet ordre.
+# Muté en `||`, la ligne DISPARAÎT quand un dépôt est donné et s'affiche vide
+# quand il ne l'est pas : exactement à l'envers. La CI passe toujours
+# `--depot`, donc le journal perdrait la seule trace de CE QUI a été installé.
+# L'entrée qui tranche est simple — lancer avec puis sans `--depot`. Ce qui ne
+# l'est pas, c'est le prix : chaque cas est une installation complète.
+# Mesuré au passage, parce que la lecture faisait peur : sous `set -eu`, une
+# liste `&&` dont le test échoue ne tue PAS le script. Le chemin sans dépôt
+# est sain.
 [ -n "$DEPOT_ESSAI" ] && echo "  depuis : $DEPOT_ESSAI ($REF_ESSAI)"
 
 DEBUT=$(date +%s)
@@ -156,6 +179,11 @@ esac
 # Le port est tiré du `.env` écrit par l'installeur, jamais supposé : c'est LUI
 # qui décide, et le supposer ferait passer un test sur une ruche qu'on n'a pas
 # installée.
+# loupe : équivalent — || → &&
+# Le statut d'un pipeline est celui de son DERNIER maillon, et `cut` réussit
+# même sans entrée (`pipefail` n'est pas armé). Mesuré `.env` absent : les deux
+# formes rendent PORT vide et survivent. Le `|| true` est une ceinture, pas une
+# garde — on la garde, elle ne coûte rien.
 PORT=$(grep -m1 '^HIVE_PORT=' "$CIBLE/.env" | cut -d= -f2 || true)
 [ -n "$PORT" ] || { echo "✘ .env sans HIVE_PORT" >&2; exit 1; }
 JETON=$(grep -m1 '^HIVE_TOKEN=' "$CIBLE/.env" | cut -d= -f2)
@@ -182,5 +210,8 @@ done
 
 echo "✘ la ruche n'a pas répondu sur :$PORT en 60 s" >&2
 echo "--- son journal ---" >&2
+# loupe : équivalent — || → &&
+# Instruction seule : mesuré fichier absent, `set -e` ne se déclenche PAS sur
+# une liste `&&` dont le côté gauche échoue. Les deux formes survivent.
 tail -30 "$CIBLE/ruche.log" >&2 2>/dev/null || true
 exit 1

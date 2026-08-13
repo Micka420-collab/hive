@@ -457,3 +457,29 @@ describe('la marque d’équivalence nomme SA mutation, pas seulement sa ligne',
     );
   });
 });
+
+describe('la marque voyage avec le LANGAGE du fichier, pas seulement le texte', () => {
+  const LIGNE = 'tail -30 "$CIBLE/ruche.log" >&2 2>/dev/null || true';
+  const CONTENU = ['# loupe : équivalent — || → &&', LIGNE].join('\n');
+
+  it('LE CAS MESURÉ : dans un `.sh`, `#` commente — la remontée le traverse', () => {
+    // Sans le nom du fichier, `#` passe pour du code et la remontée s'arrête
+    // SUR la marque qu'elle cherche. La marque était donc inopérante en shell,
+    // et `scripts/` est dans le périmètre par défaut depuis le premier jour.
+    expect(marqueeEquivalente(CONTENU, LIGNE, '|| → &&', 'scripts/essai-installation.sh')).toBe(
+      true,
+    );
+  });
+
+  it('sans le nom du fichier, la marque shell reste hors d’atteinte — et c’est normal', () => {
+    // On ne DEVINE pas le langage : un `#` en tête de ligne porte du code dans
+    // la famille C/JS (`#compteur` est un champ privé). Le défaut est prudent.
+    expect(marqueeEquivalente(CONTENU, LIGNE, '|| → &&')).toBe(false);
+  });
+
+  it('et un `#` dans un fichier TypeScript ne devient pas un commentaire par magie', () => {
+    const ligne = '  if (a === b) return 1;';
+    const contenu = ['  #loupe : équivalent — === → !==', ligne].join('\n');
+    expect(marqueeEquivalente(contenu, ligne, '=== → !==', 'src/x.ts')).toBe(false);
+  });
+});
