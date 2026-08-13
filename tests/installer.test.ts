@@ -226,6 +226,55 @@ describe('installation — les prochaines étapes', () => {
     // Ne pas avoir d'agent ne doit jamais ressembler à un échec d'installation.
     expect(prochainesEtapes(null).join('\n')).toMatch(/simulé/);
   });
+
+  // ═══ CE QUE LE TERRAIN A APPRIS ══════════════════════════════════════════════
+  //
+  // Une installation réelle sur Windows 11 est allée jusqu'au bout, puis a buté
+  // sur la PREMIÈRE commande de ce panneau :
+  //
+  //     PS C:\WINDOWS\system32> npm run dev
+  //     npm : Impossible de charger le fichier …\npm.ps1, car l'exécution de
+  //     scripts est désactivée sur ce système.
+  //
+  // Deux défauts dans une ligne : le shell n'est PAS dans le dossier de la
+  // ruche (les deux installeurs y entrent puis en ressortent), et sous
+  // PowerShell `npm` passe par un `.ps1` que la stratégie d'exécution refuse.
+
+  it('DISENT OÙ ALLER — le shell n’est pas resté dans la ruche', () => {
+    // `install.ps1` fait `Push-Location $Dir` … `Pop-Location`, `install.sh`
+    // clone dans `$HOME/hive` sans déplacer le shell de l'appelant : dans les
+    // deux cas, la personne se retrouve là où elle était. Conseiller
+    // `npm run dev` depuis cet endroit-là, c'est conseiller un ENOENT.
+    const chemin = '/home/quelquun/hive';
+    const etapes = prochainesEtapes('Claude Code', 'linux', chemin);
+
+    expect(etapes[0], 'la toute première étape est d’y aller').toContain(`cd ${chemin}`);
+    // Le dossier vient du paramètre, jamais d'une constante : deux personnes
+    // n'installent pas au même endroit.
+    expect(prochainesEtapes(null, 'linux', '/opt/ruche')[0]).toContain('cd /opt/ruche');
+  });
+
+  it('SOUS WINDOWS, C’EST `npm.cmd` — jamais `npm`, que PowerShell refuse', () => {
+    const etapes = prochainesEtapes('Claude Code', 'win32', 'C:\\Users\\Evan\\hive');
+    const texte = etapes.join('\n');
+
+    expect(texte).toContain('cd C:\\Users\\Evan\\hive');
+    expect(texte).toContain('npm.cmd run dev');
+    // La garde qui compte : AUCUNE commande conseillée ne doit passer par le
+    // shim `.ps1`. Un seul `npm ` nu suffirait à rejouer la panne du terrain.
+    expect(texte, 'aucune commande nue ne doit rester').not.toMatch(/(^|[^.\w])npm run /);
+    // Et on DIT pourquoi : une commande bizarre sans explication se fait
+    // « corriger » par la première personne qui la relit.
+    expect(texte).toContain('npm.ps1');
+  });
+
+  it('AILLEURS, C’EST `npm` — on n’impose pas un shim Windows à tout le monde', () => {
+    const texte = prochainesEtapes('Claude Code', 'darwin', '/Users/x/hive').join('\n');
+
+    expect(texte).toContain('npm run dev');
+    expect(texte, 'le shim `.cmd` n’existe pas hors de Windows').not.toContain('npm.cmd');
+    expect(texte, 'et l’explication PowerShell n’a rien à y faire').not.toContain('npm.ps1');
+  });
 });
 
 describe('installation — le port que la ruche ouvrira RÉELLEMENT', () => {

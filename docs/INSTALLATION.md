@@ -22,6 +22,38 @@ irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -Out
 Le script vérifie Node, récupère Hive dans `~/hive`, installe les dépendances,
 puis passe la main à l'installeur qui vous pose **au plus trois questions**.
 
+### Une fois l'installeur terminé
+
+L'installeur **entre** dans le dossier de la ruche, puis en ressort : votre
+shell est resté là où il était. Il faut donc y aller :
+
+```sh
+cd ~/hive
+npm run dev
+```
+
+**Sous PowerShell, écrivez `npm.cmd` et non `npm`.** Une installation réelle
+sur Windows 11 s'est arrêtée exactement là :
+
+```
+PS C:\WINDOWS\system32> npm run dev
+npm : Impossible de charger le fichier C:\Program Files\nodejs\npm.ps1,
+car l'exécution de scripts est désactivée sur ce système.
+```
+
+`npm` résout vers `npm.ps1`, que la stratégie d'exécution de Windows refuse par
+défaut. `npm.cmd` est le shim batch : la stratégie ne le gouverne pas, et il
+marche **sans rien changer à votre machine**.
+
+```powershell
+cd $HOME\hive
+npm.cmd run dev
+```
+
+Hive ne modifiera jamais votre stratégie d'exécution à votre place — c'est un
+réglage de sécurité de votre système, pas le nôtre. L'écran de fin de
+l'installeur donne désormais ces deux lignes telles quelles.
+
 ---
 
 ## Lisez-le avant de l'exécuter
