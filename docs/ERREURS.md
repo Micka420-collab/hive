@@ -6275,3 +6275,64 @@ jugerChantier        > → >=   [true, true, false]  ← valide, proposé… ref
 chantiersDe         <= → <    [true, false, true]  ← valide, lançable… jamais proposé
 nomDeChantierValide <= → <    [false, true, true]  ← proposé, lançable… déclaré invalide
 ```
+
+## 9 duoquinquagies. Un banc qui FABRIQUE l'état final saute l'étape qui le calcule
+
+`workflow.ts` traduit l'état que GitHub donne (`active`, `disabled_manually`,
+`disabled_inactivity`) en un état de la ruche, et cet état décide du MOTIF qu'un
+humain lit quand un workflow refuse de partir. Les trois correspondances étaient
+nues, et la branche du motif aussi.
+
+Deux bancs existaient pourtant, et chacun ratait la garde pour une raison
+différente — les deux valent d'être nommées.
+
+### Le banc qui vérifie qu'on lève, sans regarder pourquoi
+
+```ts
+it('un workflow désactivé n’est pas lancé', async () => {
+  const { f, appels } = faux([{ corps: { workflows: [brut({ state: 'disabled_manually' })] } }]);
+  await expect(lancerWorkflow(…)).rejects.toThrow(ErreurGithub);
+  expect(appels).toHaveLength(1);
+});
+```
+
+Il fait bien passer `disabled_manually` par la lecture. Mais il n'affirme QUE le
+refus — pas l'état lu, pas le motif rendu. Or toutes les correspondances mènent
+au refus : le banc verdit quelle que soit celle qui a servi.
+
+### Le banc qui se fabrique la réponse
+
+```ts
+const v = jugerWorkflow([wf({ etat: 'desactive_inactivite' })], 161_335);
+expect(v.motif).toMatch(/inactivité/);
+```
+
+Celui-ci regarde bien le motif — mais il POSE l'état lui-même, `etat` déjà
+traduit. La fonction qui traduit n'est jamais appelée. Le banc éprouve la moitié
+aval d'une chaîne dont la moitié amont est justement celle qui était nue.
+
+> **La règle** — quand un banc construit son entrée avec la valeur que
+> produirait l'étape d'avant, il a sauté cette étape. Se demander devant chaque
+> montage : **« cette valeur, qui la calcule en vrai ? »** Si la réponse est
+> « une fonction du dépôt », le banc doit partir de CE QU'ELLE REÇOIT, pas de ce
+> qu'elle rend.
+
+### Ce que le défaut coûtait
+
+Rien de visible, et c'est le pire. La docstring du module dit pourquoi ces états
+existent : « refuser LOCALEMENT vaut mieux qu'un 403 dont personne ne déduira :
+ce workflow est désactivé depuis six mois pour inactivité ». Une correspondance
+inversée ne casse aucun écran — elle fait dire à la ruche « quelqu'un l'a
+désactivé à la main » d'un workflow que GitHub a éteint tout seul. L'humain part
+chercher un coupable qui n'existe pas, et la ruche a l'air sûre d'elle.
+
+VERDICTS (banc ciblé, restauration par copie entre chaque)
+
+```
+etatDe 'à la main'   === → !==   ROUGE (2) expected 'inconnu' to be 'desactive_a_la_main'
+etatDe 'inactivité'  === → !==   ROUGE (2) expected 'inconnu' to be 'desactive_inactivite'
+etatDe 'actif'       === → !==   ROUGE (5) workflow refusé (le lancement casse)
+le MOTIF à l'humain  === → !==   ROUGE (2) « … GitHub le rapporte dans un état
+                                            que la ruche ne connaît pas » au lieu
+                                            de « à la main »
+```

@@ -397,3 +397,73 @@ describe('LA RÉFÉRENCE GIT — sa longueur, des deux côtés de la borne', () 
     expect(REF_MAX).toBe(255);
   });
 });
+
+// ─── L'ÉTAT LU, ET LE MOTIF QU'IL FAIT DIRE ──────────────────────────────────
+//
+// D'où vient ce bloc : le balayage a trouvé nues les correspondances d'état de
+// `etatDe`, et la branche du motif qui s'en sert.
+//
+// Le seul cas qui passait `disabled_manually` (« un workflow désactivé n'est pas
+// lancé ») vérifie qu'on lève et qu'un seul appel part — jamais QUEL état est lu,
+// ni QUEL motif l'humain reçoit. Et le cas de l'inactivité construit son
+// workflow avec `etat: 'desactive_inactivite'` déjà posé, ce qui court-circuite
+// la lecture. La correspondance n'était donc éprouvée nulle part.
+//
+// Ce que ça coûte : la docstring du module dit pourquoi ces états existent —
+// « refuser LOCALEMENT vaut mieux qu'un 403 dont personne ne déduira : ce
+// workflow est désactivé depuis six mois pour inactivité ». Une correspondance
+// inversée ne casse rien de visible : elle fait dire à la ruche « quelqu'un l'a
+// désactivé à la main » d'un workflow que GitHub a éteint tout seul. L'humain
+// part alors chercher un coupable qui n'existe pas.
+
+describe('L’ÉTAT D’UN WORKFLOW — chaque état de GitHub a le SIEN', () => {
+  const etatLu = (state: string): string | undefined =>
+    lireWorkflow({
+      id: 161_335,
+      name: 'CI',
+      path: '.github/workflows/ci.yml',
+      state,
+      html_url: 'https://github.com/o/r/blob/main/.github/workflows/ci.yml',
+    })?.etat;
+
+  it('les trois états connus sont lus DISTINCTEMENT', () => {
+    // Chaque `===` muté en `!==` fait glisser un état sur son voisin. Les
+    // affirmer ensemble empêche qu'une correspondance en avale une autre.
+    expect(etatLu('active')).toBe('actif');
+    expect(etatLu('disabled_manually')).toBe('desactive_a_la_main');
+    expect(etatLu('disabled_inactivity')).toBe('desactive_inactivite');
+  });
+
+  it('un état que GitHub inventerait demain est « inconnu », jamais deviné', () => {
+    // Le repli ne doit pas se faire passer pour un état connu : la ruche dira
+    // qu'elle ne sait pas, ce qui est une information.
+    expect(etatLu('disabled_fork')).toBe('inconnu');
+    expect(etatLu('')).toBe('inconnu');
+  });
+});
+
+describe('LE MOTIF DU REFUS — l’humain doit chercher au bon endroit', () => {
+  const motifPour = (etat: Workflow['etat']): string => {
+    const v = jugerWorkflow([wf({ etat })], 161_335);
+    return v.ok ? '' : v.motif;
+  };
+
+  it('DÉSACTIVÉ À LA MAIN : on dit que quelqu’un l’a fait', () => {
+    // `w.etat === 'desactive_a_la_main'` muté en `!==` : la ruche annoncerait
+    // « un état que la ruche ne connaît pas » pour un état qu'elle connaît
+    // parfaitement — ou l'inverse pour l'inactivité.
+    expect(motifPour('desactive_a_la_main')).toMatch(/à la main/);
+  });
+
+  it('DÉSACTIVÉ POUR INACTIVITÉ : on ne fait chercher personne', () => {
+    const m = motifPour('desactive_inactivite');
+    expect(m).toMatch(/inactivité/);
+    expect(m, 'et surtout pas un coupable humain').not.toMatch(/à la main/);
+  });
+
+  it('ÉTAT INCONNU : la ruche l’avoue au lieu d’inventer', () => {
+    const m = motifPour('inconnu');
+    expect(m).toMatch(/ne connaît pas/);
+    expect(m).not.toMatch(/à la main|inactivité/);
+  });
+});
