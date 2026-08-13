@@ -7227,3 +7227,128 @@ sur le plancher de 20, et rend un écran où plus rien ne tient.
 
 Le cas manquait parce que les bancs donnaient des largeurs PLAUSIBLES — 200, 64, 100. Zéro n'est pas une largeur plausible, et c'est précisément pour ça que
 personne ne l'avait écrit.
+
+---
+
+## 9 sexsexagies. Un chemin imprimé pour être collé se cite TOUJOURS — « Jean Dupont » n'est pas un cas limite
+
+Le correctif du rapport de terrain Windows ajoutait une ligne à l'écran de fin :
+
+```
+Aller dans la ruche      :  cd C:\Users\Evan\hive
+```
+
+Elle est juste, et elle casse dès que le compte s'appelle « Jean Dupont » —
+c'est-à-dire pour une bonne part des machines Windows du monde :
+
+```
+cd C:\Users\Jean Dupont\hive
+→ PowerShell : deux paramètres positionnels, refus
+→ sh         : `cd` reçoit deux arguments et n'en garde qu'un
+```
+
+Le défaut a vécu quelques heures, entre le correctif du matin et cet audit. Il
+est instructif pour une raison précise : **j'ai écrit la ligne en pensant à la
+COMMANDE, pas au CHEMIN**. Le contenu était le sujet ; la citation, un détail
+de forme. C'est l'inverse — une ligne destinée à être collée est du code, et
+son argument est une donnée non maîtrisée.
+
+### Pourquoi on cite TOUJOURS, et pas « si ça contient une espace »
+
+Parce que la condition serait juste et le résultat faux un jour sur dix. Une
+ligne collable « seulement quand le nom d'utilisateur est simple » n'est pas
+collable. Une citation inutile ne coûte rien ; une citation manquante coûte le
+premier geste après l'installation.
+
+### Les deux conventions ne sont pas la même, et c'est le piège suivant
+
+L'apostrophe existe dans les noms — « O'Brien ». Elle ferme la citation, et les
+deux mondes la rouvrent différemment :
+
+```
+PowerShell : on la DOUBLE            'O''Brien'
+sh         : on SORT de la citation  'o'\''brien'
+```
+
+Se tromper de convention rend une ligne qui a l'air juste et qui ne l'est pas —
+le pire des deux, puisque personne ne la relit.
+
+Guillemets SIMPLES des deux côtés, et pas doubles : sous PowerShell comme sous
+sh, ils sont littéraux. Un chemin contenant `$` ou un accent grave ne sera pas
+interprété.
+
+```
+citation retirée                        →  4 cas rouges
+convention Windows appliquée sous sh    →  1 cas rouge, « sh la sort de la citation »
+```
+
+> **La règle** — tout ce qu'un produit imprime pour être COLLÉ doit résister aux
+> données de la machine de quelqu'un d'autre : espaces, apostrophes, accents,
+> `$`. Le contenu de la commande est ce qu'on relit ; la citation de ses
+> arguments est ce qu'on oublie.
+
+### Et le troisième survivant du balayage : `\x1b[0J` n'est pas une opération neutre
+
+`effacerLignes(n)` rendait `''` pour `n <= 0`. Muté en `n < 0`, le cas ZÉRO
+émet `\x1b[0A\x1b[0J` : `0A` ne remonte de rien, mais **`0J` efface du curseur
+jusqu'au bas de l'écran**. Rendre la séquence pour zéro, c'est retirer du texte
+que personne n'a demandé à retirer — et sur un écran d'installation, ce texte
+est le récapitulatif de ce qui vient d'être écrit.
+
+La fonction était privée au module. L'exporter était le prix à payer, et il est
+faible : c'est une fonction pure de trois lignes dont le seul appelant est un
+rendu.
+
+```
+`n <= 0` → `n < 0`  →  « zéro ne doit rien émettre » :
+                        expected '\u001b[0A\u001b[0J' to be ''
+```
+
+---
+
+## 9 septensexagies. Une italique en `*…*` a mis `main` au rouge sur trois systèmes — et le lint de la CI ne pardonne pas les fichiers qu'on croit hors sujet
+
+`npm run lint` vaut `eslint . && prettier --check .`. Le point, c'est le POINT :
+`prettier --check .` regarde TOUT le dépôt, y compris ce que personne ne
+considère comme du code.
+
+Une branche voisine a ajouté une compétence d'agent, `.agents/skills/…/SKILL.md`,
+avec une italique écrite `*fallback*` là où la configuration du dépôt veut
+`_fallback_`. Un caractère. Les trois jambes de la matrice sont tombées, et
+elles y sont restées : `main` était rouge quand ce défaut a été trouvé.
+
+```
+eslint .            → 0
+prettier --check .  → 1   .agents/skills/testing-hive-dashboard/SKILL.md
+```
+
+### Ce qui rend ce défaut particulier
+
+Il n'est ni dans `src/`, ni dans `tests/`, ni dans la documentation lue par
+quelqu'un. C'est un fichier d'outillage, et c'est exactement pour ça qu'il est
+passé : on relit le code qu'on écrit, on ne relit pas le Markdown d'une
+compétence. La CI, elle, ne fait pas cette différence — et elle a raison.
+
+Correction : `prettier --write` sur le fichier. Une ligne, et les trois jambes
+repartent.
+
+### Le piège d'instrument que je me suis tendu en le mesurant
+
+Premier sondage :
+
+```sh
+npx prettier --check . 2>&1 | tail -5; echo "PRETTIER=$?"
+→ PRETTIER=0
+```
+
+**Zéro.** Alors que la commande venait d'afficher son avertissement. `$?` lit le
+code de `tail`, pas celui de `prettier` — c'est le § 9 terdecies, écrit dans ce
+même carnet, et je l'ai refait en le cherchant. Sans tube :
+
+```sh
+npx prettier --check . > /tmp/p.log 2>&1; CODE=$?   → 1
+```
+
+> **La règle** — le lint d'un dépôt couvre le dépôt, pas « les fichiers
+> sérieux ». Et un code de sortie ne se lit jamais à travers un tube : la seule
+> mesure valable est celle qu'on prend sans intermédiaire.

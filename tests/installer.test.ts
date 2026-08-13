@@ -248,17 +248,45 @@ describe('installation — les prochaines étapes', () => {
     const chemin = '/home/quelquun/hive';
     const etapes = prochainesEtapes('Claude Code', 'linux', chemin);
 
-    expect(etapes[0], 'la toute première étape est d’y aller').toContain(`cd ${chemin}`);
+    expect(etapes[0], 'la toute première étape est d’y aller').toContain(`cd '${chemin}'`);
     // Le dossier vient du paramètre, jamais d'une constante : deux personnes
     // n'installent pas au même endroit.
-    expect(prochainesEtapes(null, 'linux', '/opt/ruche')[0]).toContain('cd /opt/ruche');
+    expect(prochainesEtapes(null, 'linux', '/opt/ruche')[0]).toContain(`cd '/opt/ruche'`);
+  });
+
+  it('UN CHEMIN AVEC UNE ESPACE RESTE COLLABLE — « C:\\Users\\Jean Dupont »', () => {
+    // Défaut introduit par le correctif du rapport de terrain lui-même : la
+    // ligne `cd` était écrite NUE. Sur Windows, un compte s'appelle très
+    // souvent « Jean Dupont », et `cd C:\Users\Jean Dupont\hive` échoue —
+    // PowerShell y voit deux paramètres positionnels. Sous sh, `cd` reçoit
+    // deux arguments et n'en garde qu'un.
+    //
+    // La première commande de l'écran de fin ne peut pas être collable
+    // « seulement quand le nom d'utilisateur est simple ».
+    const w = prochainesEtapes('Claude Code', 'win32', 'C:\\Users\\Jean Dupont\\hive');
+    expect(w[0]).toContain(`cd 'C:\\Users\\Jean Dupont\\hive'`);
+
+    const l = prochainesEtapes('Claude Code', 'linux', '/home/jean dupont/hive');
+    expect(l[0]).toContain(`cd '/home/jean dupont/hive'`);
+  });
+
+  it('UNE APOSTROPHE DANS LE CHEMIN NE CASSE PAS LA CITATION — « O’Brien »', () => {
+    // Un compte Windows « O'Brien » existe, et l'apostrophe ferme la citation.
+    // Les deux systèmes ne l'échappent pas de la même façon : PowerShell double
+    // l'apostrophe, sh la sort de la citation. Se tromper de convention rend
+    // une ligne qui a l'air juste et qui ne l'est pas.
+    const w = prochainesEtapes(null, 'win32', "C:\\Users\\O'Brien\\hive");
+    expect(w[0], 'PowerShell double l’apostrophe').toContain(`cd 'C:\\Users\\O''Brien\\hive'`);
+
+    const l = prochainesEtapes(null, 'linux', "/home/o'brien/hive");
+    expect(l[0], 'sh la sort de la citation').toContain(`cd '/home/o'\\''brien/hive'`);
   });
 
   it('SOUS WINDOWS, C’EST `npm.cmd` — jamais `npm`, que PowerShell refuse', () => {
     const etapes = prochainesEtapes('Claude Code', 'win32', 'C:\\Users\\Evan\\hive');
     const texte = etapes.join('\n');
 
-    expect(texte).toContain('cd C:\\Users\\Evan\\hive');
+    expect(texte).toContain(`cd 'C:\\Users\\Evan\\hive'`);
     expect(texte).toContain('npm.cmd run dev');
     // La garde qui compte : AUCUNE commande conseillée ne doit passer par le
     // shim `.ps1`. Un seul `npm ` nu suffirait à rejouer la panne du terrain.

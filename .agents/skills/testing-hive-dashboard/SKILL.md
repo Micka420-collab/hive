@@ -76,7 +76,7 @@ exact URL" section with `ws://localhost:7777/ws`.
 ## Testing the CLI installer's rendering
 
 `src/tui/rendu.ts` adapts to terminal capabilities, so a piped run (non-TTY) exercises the
-*fallback* path and hides every regression in the real one — no banner, no spinner, no frames.
+_fallback_ path and hides every regression in the real one — no banner, no spinner, no frames.
 Drive it through a pty instead, with a chosen width, and strip the escapes only when reading:
 
 ```python
