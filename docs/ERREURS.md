@@ -7940,3 +7940,65 @@ dépôt, une fois. Trois minutes.
 > Le seul contrôle qui attrape une erreur d'unité est l'exécution de bout en
 > bout sur une entrée réelle — parce qu'elle est la seule à faire se rencontrer
 > les deux.
+
+## 9 septenseptuagies. Une annotation ne vaut pas par ce qu'elle dit, mais par ce que l'instrument peut en ATTEINDRE
+
+La marque `loupe : équivalent` (§ 9 sexseptuagies) posée, bancs verts, mécanique
+vérifiée de bout en bout sur `tableau.ts`. Je l'ai alors posée sur les six
+consignations existantes, dont celle de `Balance.tsx`, en tête de son bloc de
+commentaire JSX.
+
+Le rejeu suivant, sur le diff de la PR elle-même :
+
+```
+✔ équivalent consigné · Balance.tsx · !== → ===
+          ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas être faux ici
+```
+
+La ligne « couverte » est de la **prose**. Pas la ligne de code.
+
+### Pourquoi la marque n'atteignait pas ce qu'elle visait
+
+Un commentaire JSX de quinze lignes ressemble à ceci :
+
+```jsx
+{/* ─── ÉQUIVALENCE CONSIGNÉE : … ← la marque était ICI
+    (§ 2.16 ter). `arme` ne devient vrai que dans `poser`, …
+    … quinze lignes de prose sans `*` en tête …
+    `cible !== null` neutralisé → 3 verts, survivant équivalent */}
+{arme && cible !== null && (   ← et elle devait couvrir CECI
+```
+
+Les lignes de continuation ne commencent ni par `//` ni par `*` : `ligneMutable`
+les prend donc pour du CODE — c'est sa limitation connue, déjà consignée dans
+son propre en-tête. La remontée depuis la ligne de code s'arrêtait donc à la
+toute première d'entre elles, quinze lignes avant la marque.
+
+Deux limitations parfaitement documentées, chacune sans danger, dont la
+composition produit une annotation muette. Aucune des deux notes ne pouvait le
+prédire : elles décrivaient chacune leur propre comportement.
+
+> **Deux angles morts connus qui se croisent font un angle mort neuf, et
+> personne ne l'a écrit nulle part.** Documenter une limitation ne protège que
+> de son effet direct ; il faut la rejouer AVEC les autres pour voir ce qu'elle
+> produit en composition.
+
+### Ce qui l'a trouvé, et ce que ça confirme
+
+Le même geste qu'au § 9 sexseptuagies, une heure plus tôt : rejouer l'instrument
+COMPLET sur une entrée réelle. Deux défauts en deux rejeux, et zéro trouvé par
+les bancs — qui étaient verts, justes, et sans rapport avec la question.
+
+La marque descend donc sur sa PROPRE ligne, collée à ce qu'elle juge. Vérifié
+plutôt que supposé, les quatre cas :
+
+```
+ligne de code, !== → === : true
+ligne de code, === → !== : true
+ligne de code, || → &&   : false   ← jamais jugé, donc jamais couvert
+ligne de prose            : false
+```
+
+> Une annotation destinée à un outil se vérifie EN LA LISANT AVEC L'OUTIL. La
+> relire soi-même ne prouve que sa lisibilité par un humain — c'est-à-dire
+> précisément ce dont l'outil ne fait rien.
