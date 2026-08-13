@@ -161,8 +161,17 @@ export function jugerWorkflow(declares: readonly Workflow[], id: unknown): Verdi
  * légales. Un nom de branche exotique sera refusé — c'est le bon sens de
  * l'erreur.
  */
+/**
+ * Longueur maximale d'une référence git acceptée ici.
+ *
+ * Exportée pour que le banc ne la recopie pas : une borne écrite deux fois est
+ * une seconde source de vérité, libre de dériver de la première
+ * (§ 9 unquinquagies du carnet).
+ */
+export const REF_MAX = 255;
+
 export function estRefPlausible(ref: string): boolean {
-  if (ref === '' || ref.length > 255) return false;
+  if (ref === '' || ref.length > REF_MAX) return false;
   if (!/^[A-Za-z0-9._/-]+$/.test(ref)) return false;
   // `..` sert à git pour les plages de révisions, et `.lock` est réservé.
   if (ref.includes('..') || ref.endsWith('.lock')) return false;

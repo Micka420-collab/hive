@@ -27,6 +27,7 @@ import {
 import {
   estIdWorkflow,
   estRefPlausible,
+  REF_MAX,
   jugerWorkflow,
   lireRun,
   lireWorkflow,
@@ -360,5 +361,39 @@ describe('RELIRE LES RUNS', () => {
   it('une réponse sans `workflow_runs` rend une liste vide, pas une erreur', async () => {
     const { f } = faux([{ corps: { message: 'Not Found' } }]);
     expect(await lireRuns({ jeton: JETON, fetcheur: f }, 'o/r')).toEqual([]);
+  });
+});
+
+// ─── LA LONGUEUR D'UNE RÉFÉRENCE ─────────────────────────────────────────────
+//
+// D'où vient ce bloc : le balayage a trouvé nues les DEUX gardes de la ligne
+// `if (ref === '' || ref.length > REF_MAX) return false;`.
+//
+// Le bloc « REFUSE ce qui casserait une ligne ou une commande git » ci-dessus
+// éprouve bien la chaîne vide — mais muter `||` en `&&` n'y change rien : pour
+// `''`, la ligne SUIVANTE refuse déjà (le motif exige `+`, donc au moins un
+// caractère). Le mutant survit ailleurs, là où aucun cas ne regardait : sur la
+// LONGUEUR. Avec `&&`, une référence de trois cents caractères passe.
+//
+// Troisième occurrence du même pli dans ce dépôt (§ 9 unquinquagies) : on écrit
+// les cas qui montrent ce que la garde refuse, jamais celui qui montre ce
+// qu'elle laisse passer.
+
+describe('LA RÉFÉRENCE GIT — sa longueur, des deux côtés de la borne', () => {
+  it('LA BORNE EXACTE PASSE — c’est ce qu’une borne promet', () => {
+    // `>` muté en `>=` : une référence de REF_MAX caractères, licite, serait
+    // refusée sans que rien ne l'explique à celui qui la lance.
+    expect(estRefPlausible('a'.repeat(REF_MAX))).toBe(true);
+  });
+
+  it('UN CARACTÈRE DE PLUS EST REFUSÉ', () => {
+    // `||` muté en `&&` : la garde ne se déclencherait que pour une chaîne à la
+    // fois VIDE et trop longue — donc jamais. Une référence démesurée passerait
+    // jusqu'au dispatch, où elle produit un 422 illisible.
+    expect(estRefPlausible('a'.repeat(REF_MAX + 1))).toBe(false);
+  });
+
+  it('la borne vaut bien ce que le module annonce', () => {
+    expect(REF_MAX).toBe(255);
   });
 });

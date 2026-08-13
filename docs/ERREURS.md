@@ -6236,6 +6236,24 @@ l'écriture.
 > éloigné de la borne (« 200 pour une limite à 100 ») ne mesure pas la limite,
 > il mesure qu'il existe une limite quelque part.
 
+### Troisième occurrence, une heure plus tard
+
+Cette leçon a resservi dans l'heure. `estRefPlausible` (`workflow.ts`) borne une
+référence git à 255 caractères ; ses deux gardes étaient nues, et le banc qui
+prétendait les couvrir énumérait onze références refusées — dont la chaîne vide
+— sans **aucun** cas de longueur.
+
+Le détail vaut d'être noté, parce qu'il montre comment un banc peut couvrir la
+bonne intention et rater la garde : muter `||` en `&&` ne change rien pour `''`,
+puisque la ligne SUIVANTE (`/^[A-Za-z0-9._/-]+$/`, motif à `+`) refuse déjà une
+chaîne vide. Le mutant survit là où personne ne regardait — sur la longueur — et
+une référence de trois cents caractères passe jusqu'au dispatch.
+
+> **Corollaire** — quand plusieurs gardes se suivent, un cas d'essai peut être
+> attrapé par la MAUVAISE. Il verdit, et la garde qu'on croyait éprouver reste
+> nue. Le seul moyen de le savoir est de muter CELLE-LÀ et de regarder si le
+> rouge vient.
+
 ### Le cas plus grave : une borne tenue à PLUSIEURS portes
 
 Ici la même borne vit à trois endroits — `nomDeChantierValide` (est-ce un nom
