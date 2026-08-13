@@ -6630,3 +6630,87 @@ règlent les deux.
 > les processus vivants, pas contre sa seule existence. Et le mutant trouvé
 > dans cet état-là se traite comme n'importe quel survivant (§ 2.16 ter) : il
 > a désigné un trou réel.
+
+---
+
+## 9 novemquinquagies. Deux endroits décidaient du même port, et l'ordre du programme les faisait diverger
+
+L'installeur sondait le port AVANT de lire le `.env`, et retenait le port du
+`.env` pour l'écrire. Les deux gestes étaient justes séparément ; c'est leur
+ordre qui mentait.
+
+```
+ligne 186  portLibre(PORT_DEFAUT)                     ← la sonde
+ligne 274  existant = lireEnv(readFileSync(CHEMIN_ENV))  ← la lecture
+ligne 130  garde('HIVE_PORT', String(PORT_DEFAUT))    ← ce qui sera écrit
+```
+
+Sur une PREMIÈRE installation les deux coïncident, et c'est tout ce que la
+suite exerçait. Sur une réinstallation par-dessus un `.env` portant un port
+personnalisé — le cas de quiconque a déjà 7777 pris par autre chose — la sonde
+répondait sur une porte que la ruche n'ouvrira pas :
+
+- **faux calme** : le port réel est tenu, la sonde dit « Port 7777 libre » et
+  `hive` sort en 0. La panne se découvre au démarrage ;
+- **fausse alerte** : 7777 est tenu par un tiers, la ruche irait sur 9000 sans
+  gêne, et l'installeur rend `PORT_OCCUPE`. Une alerte sans objet apprend à
+  ignorer les alertes.
+
+Le rapport `--json` mentait de la même façon : `fait.port.numero` valait
+`PORT_DEFAUT`, pas le port retenu — donc un script de supervision surveillait
+la mauvaise porte.
+
+### Ce que ce défaut n'était PAS
+
+Ce n'était pas « `garde()` devrait lire l'environnement ». Une version
+antérieure de ce travail avait modifié `installer-main` pour sonder
+`portDepuisEnv()` : elle a introduit une divergence là où il n'y en avait pas.
+`garde()` ne lit QUE le `.env` existant, délibérément — c'est ce qui rend une
+réinstallation idempotente. La correction est de faire lire à la sonde la même
+source que l'écriture, pas de donner une source de plus à l'écriture.
+
+### La forme générale
+
+Deux endroits qui décident de la même chose finissent toujours par diverger ;
+ce qui décide QUAND ils divergent, c'est l'ordre des instructions — et l'ordre
+ne se lit pas dans une revue, parce que les deux lignes sont à quatre-vingt-dix
+lignes l'une de l'autre et que chacune est correcte.
+
+La réparation est celle du § 2 quaterdecies : la décision sort dans une
+fonction PURE (`portRetenu`), les deux appelants la lisent, et une garde
+compare les deux plutôt que de recopier la règle :
+
+```ts
+const ecrit = composerReglages(existant).find((r) => r.cle === 'HIVE_PORT')?.valeur;
+expect(String(portRetenu(existant))).toBe(ecrit);
+```
+
+### Verdict affiché
+
+```
+AVANT correction — les deux nouveaux cas ROUGISSENT
+  « le port du .env est occupé »  →  la sonde dit « Port 7777 — déjà occupé »
+                                      quand le .env dit un autre port
+  « le port du .env est libre »   →  [ATTENTION] Port 7777 — déjà occupé,
+                                      pour une ruche qui n'ira jamais sur 7777
+
+mutants sur portRetenu, après correction
+  `brut === undefined → null`            →  2 cas rouges
+  `n >= 1 && n <= 65535` → `||`          →  1 cas rouge, « pour « 0 » »
+  ignorer le .env (const brut = undefined) →  4 cas rouges
+  après restauration par copie            →  31 verts
+```
+
+> **La règle** — quand deux chemins doivent s'accorder sur une valeur, ne pas
+> les écrire deux fois : extraire la décision, et faire ROUGIR l'écart plutôt
+> que de le relire. Et se méfier du cas nominal qui les fait coïncider : c'est
+> lui qui garde le désaccord invisible.
+
+### Un troisième état, qui n'existait pas
+
+`HIVE_PORT=abc` n'est ni libre ni occupé. Avant, la valeur était simplement
+ignorée par la sonde et recopiée telle quelle dans le `.env` — la ruche
+démarrait ensuite sur on ne sait quoi. `portRetenu` rend `null`, et l'écran le
+dit : « HIVE_PORT=abc — valeur illisible ». Retomber sur le défaut aurait sondé
+une porte que personne n'a demandée et l'aurait déclarée libre : un vert
+emprunté, la pire des réponses.

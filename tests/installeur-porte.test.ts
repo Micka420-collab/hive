@@ -33,7 +33,15 @@
 //   qu'un spawn sans shell ne sait pas lancer (§ 6.2).
 
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -226,4 +234,74 @@ describe.runIf(NODE_OK !== null)('l’installeur — les chemins complets, sous 
       await new Promise((resoudre) => bouchon.close(resoudre));
     }
   });
+
+  // ═══ LA SONDE DOIT REGARDER LA PORTE QU'ON VA OUVRIR ════════════════════════
+  //
+  // L'installeur n'écrase jamais un `.env` : le port qu'il retient est celui du
+  // fichier existant, et `PORT_DEFAUT` seulement à défaut. La sonde, elle,
+  // regardait `PORT_DEFAUT` sans condition — parce qu'elle court AVANT que le
+  // `.env` ne soit lu.
+  //
+  // Sur une première installation les deux coïncident, et c'est tout ce que la
+  // suite exerçait. Sur une RÉINSTALLATION avec un port personnalisé — le cas
+  // de quiconque a déjà 7777 pris par autre chose — la sonde répond sur une
+  // porte que la ruche n'ouvrira pas. Les deux cas ci-dessous vont dans les
+  // deux sens : faux calme, puis fausse alerte.
+
+  /** Un port que personne ne tient. Demandé au système, jamais deviné. */
+  async function portLibre(): Promise<number> {
+    const sonde = createServer();
+    const port = await new Promise<number>((resoudre, rejeter) => {
+      sonde.once('error', rejeter);
+      sonde.listen(0, '127.0.0.1', () => {
+        const a = sonde.address();
+        if (a === null || typeof a === 'string') rejeter(new Error('adresse inattendue'));
+        else resoudre(a.port);
+      });
+    });
+    await new Promise((resoudre) => sonde.close(resoudre));
+    return port;
+  }
+
+  /** Occupe un port pour la durée d'un cas, et le rend quoi qu'il arrive. */
+  async function occuper<T>(port: number, faire: () => Promise<T>): Promise<T> {
+    const bouchon: Server = createServer();
+    await new Promise<void>((resoudre, rejeter) => {
+      bouchon.once('error', rejeter);
+      bouchon.listen(port, '127.0.0.1', resoudre);
+    });
+    try {
+      return await faire();
+    } finally {
+      await new Promise((resoudre) => bouchon.close(resoudre));
+    }
+  }
+
+  it('LE PORT DU .env EST OCCUPÉ : la sonde le voit, même si 7777 est libre', async () => {
+    const cwd = dossier();
+    const pris = await portLibre();
+    writeFileSync(path.join(cwd, '.env'), `HIVE_PORT=${pris}\n`);
+
+    const r = await occuper(pris, () => lancer(bin(), ['--dry-run'], cwd));
+
+    expect(r.sortie, 'la sonde doit nommer le port RETENU').toContain(String(pris));
+    expect(r.sortie).toContain('occupé');
+    expect(r.code, 'un script de supervision ne lit pas la prose').toBe(CODE.PORT_OCCUPE);
+  }, 120_000);
+
+  it('LE PORT DU .env EST LIBRE : pas d’alerte, même si 7777 est pris', async () => {
+    // Le sens inverse, et il compte autant : une fausse alerte apprend à
+    // ignorer les alertes. Ici la ruche n'ira jamais sur 7777 — s'en plaindre
+    // serait un rouge sans objet.
+    const cwd = dossier();
+    const choisi = await portLibre();
+    writeFileSync(path.join(cwd, '.env'), `HIVE_PORT=${choisi}\n`);
+
+    const r = await occuper(PORT_DEFAUT, () => lancer(bin(), ['--dry-run'], cwd));
+
+    expect(r.sortie, 'la sonde ne doit pas parler d’un port qu’on n’ouvrira pas').not.toContain(
+      'occupé',
+    );
+    expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
+  }, 120_000);
 });

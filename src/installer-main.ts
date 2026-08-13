@@ -38,6 +38,7 @@ import {
   lireEnv,
   messagePrerequisNode,
   nodeSuffisant,
+  portRetenu,
   prochainesEtapes,
   rendreEnv,
 } from './installer.js';
@@ -178,12 +179,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ─── ON LIT LE `.env` AVANT DE SONDER, ET C'EST TOUT LE POINT ──────────────
+  //
+  // L'installeur n'écrase jamais un `.env` : le port qu'il retiendra est celui
+  // du fichier existant. Sonder `PORT_DEFAUT` sans condition — ce qu'on faisait
+  // — revient à répondre sur une porte que la ruche n'ouvrira pas dès qu'on
+  // réinstalle par-dessus un port personnalisé. La décision vit dans
+  // `portRetenu`, pure et éprouvée ; ici on ne fait que la respecter.
+  const existant = existsSync(CHEMIN_ENV) ? lireEnv(readFileSync(CHEMIN_ENV, 'utf8')) : new Map();
+  const portVise = portRetenu(existant);
+
   // Les trois sondes lancent des binaires ; les faire en parallèle plutôt
   // qu'à la queue leu leu économise plusieurs secondes sur une machine où
   // aucun n'est installé (chaque sonde a son propre délai d'attente).
   const departSondes = Date.now();
   const [libre, go, agentDetecte, fournisseur] = await Promise.all([
-    portLibre(PORT_DEFAUT),
+    portVise === null ? Promise.resolve(false) : portLibre(portVise),
     espaceLibreGo(),
     detectBestAgent().catch(() => null),
     modeDepuisEnv(process.env) === 'off' ? Promise.resolve(null) : trouverFournisseur(),
@@ -194,9 +205,17 @@ async function main(): Promise<void> {
 
   const verifs: Verification[] = [
     { etat: 'fait', libelle: `Node ${process.version}`, note: `(${NODE_MIN} minimum)` },
-    libre
-      ? { etat: 'fait', libelle: `Port ${PORT_DEFAUT} libre` }
-      : { etat: 'alerte', libelle: `Port ${PORT_DEFAUT}`, valeur: 'déjà occupé' },
+    // Une valeur illisible n'est ni « libre » ni « occupé » : la taire ferait
+    // démarrer une ruche sur un port que personne n'a choisi.
+    portVise === null
+      ? {
+          etat: 'alerte',
+          libelle: `HIVE_PORT=${existant.get('HIVE_PORT') ?? ''}`,
+          valeur: 'valeur illisible',
+        }
+      : libre
+        ? { etat: 'fait', libelle: `Port ${portVise} libre` }
+        : { etat: 'alerte', libelle: `Port ${portVise}`, valeur: 'déjà occupé' },
     ...(go === null
       ? []
       : [{ etat: 'fait' as const, libelle: 'Espace disque', valeur: `${go.toFixed(1)} Go` }]),
@@ -233,7 +252,7 @@ async function main(): Promise<void> {
   if (!libre) process.exitCode = CODE.PORT_OCCUPE;
 
   fait.node = process.version;
-  fait.port = { numero: PORT_DEFAUT, libre };
+  fait.port = { numero: portVise ?? PORT_DEFAUT, libre };
   fait.agent = agent;
   fait.isolement = { isole: isolement.isole, moteur: fournisseur?.nom ?? null };
 
@@ -271,7 +290,8 @@ async function main(): Promise<void> {
   }
 
   // ─── 3. Chemin A : ouvrir sa propre ruche ─────────────────────────────────
-  const existant = existsSync(CHEMIN_ENV) ? lireEnv(readFileSync(CHEMIN_ENV, 'utf8')) : new Map();
+  // `existant` a été lu avant les sondes (voir plus haut) : le relire ici
+  // ouvrirait la porte à deux vérités pour un même fichier.
   const neuf = !existsSync(CHEMIN_ENV);
   const reglages = composerReglages(existant);
   const ajoutees = reglages.filter((r) => !existant.has(r.cle)).map((r) => r.cle);

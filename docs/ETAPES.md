@@ -5796,6 +5796,22 @@ par-dessus un `.env` existant qui porte un port personnalisé, la sonde regarde
 la mauvaise porte — faux négatif silencieux. Le réparer proprement demande de
 lire le `.env` AVANT les sondes : c'est un lot à soi, pas une retouche hâtive.
 
+**Fait dans la foulée** (PR suivante). La décision est sortie dans une fonction
+pure, `portRetenu`, que la sonde et l'écriture lisent toutes les deux ; une
+garde compare les deux plutôt que de recopier la règle. Deux bancs en
+comportement, écrits AVANT la correction et vus rougir :
+
+```
+« le port du .env est occupé » → la sonde disait « Port 7777 libre »
+« le port du .env est libre »  → [ATTENTION] Port 7777 — pour une ruche
+                                  qui n'ira jamais sur 7777
+```
+
+Trois choses réparées du même coup : la sonde vise la bonne porte, le rapport
+`--json` nomme le port RETENU (il annonçait `PORT_DEFAUT`, donc un script de
+supervision surveillait ailleurs), et un `HIVE_PORT` illisible se dit au lieu
+d'être ignoré. Leçon au carnet, § 9 novemquinquagies.
+
 ### 2.2 — Le service est ACCEPTÉ, il n'est pas DÉMARRÉ (lot 9)
 
 `systemd-analyze verify`, `plutil -lint` et `schtasks /Create /XML` valident les

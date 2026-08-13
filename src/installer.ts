@@ -96,6 +96,35 @@ export function lireEnv(contenu: string): Map<string, string> {
 }
 
 /**
+ * Le port que la ruche ouvrira RÉELLEMENT — celui du `.env` existant, et
+ * `PORT_DEFAUT` seulement à défaut. `null` quand la valeur trouvée n'est pas un
+ * port : on ne peut alors rien sonder, et il faut le dire plutôt que de sonder
+ * autre chose.
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE ────────────────────────────────────────
+ *
+ * `composerReglages` retient `garde('HIVE_PORT', …)` ; la sonde de
+ * `installer-main` regardait `PORT_DEFAUT` sans condition, parce qu'elle court
+ * AVANT que le `.env` ne soit lu. Sur une première installation les deux
+ * coïncident — c'est tout ce que la suite exerçait. Sur une réinstallation
+ * avec un port personnalisé, la sonde répondait sur une porte que la ruche
+ * n'ouvre pas : faux calme dans un sens, fausse alerte dans l'autre.
+ *
+ * La décision est ici, pure, plutôt que dans le fichier qui s'exécute à
+ * l'import et qu'aucun banc ne peut interroger (§ 2 quaterdecies).
+ *
+ * On refuse le port 0 : le système y répondrait « libre » en attribuant un
+ * port éphémère, c'est-à-dire une sonde toujours verte et sans objet.
+ */
+export function portRetenu(existant: Map<string, string>): number | null {
+  const brut = existant.get('HIVE_PORT');
+  if (brut === undefined) return PORT_DEFAUT;
+  if (!/^\d+$/.test(brut.trim())) return null;
+  const n = Number(brut.trim());
+  return n >= 1 && n <= 65535 ? n : null;
+}
+
+/**
  * Les réglages qu'une ruche neuve doit avoir, avec ceux qui existent déjà
  * PRÉSERVÉS tels quels.
  *

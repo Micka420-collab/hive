@@ -15,7 +15,9 @@ import {
   composerReglages,
   engendrerJeton,
   lireEnv,
+  PORT_DEFAUT,
   nodeSuffisant,
+  portRetenu,
   prochainesEtapes,
   rendreEnv,
 } from '../src/installer.js';
@@ -223,5 +225,49 @@ describe('installation — les prochaines étapes', () => {
   it('sans agent, disent que la ruche tourne quand même', () => {
     // Ne pas avoir d'agent ne doit jamais ressembler à un échec d'installation.
     expect(prochainesEtapes(null).join('\n')).toMatch(/simulé/);
+  });
+});
+
+describe('installation — le port que la ruche ouvrira RÉELLEMENT', () => {
+  // Cette fonction existe parce que la sonde et l'écriture divergeaient : la
+  // première regardait `PORT_DEFAUT` sans condition, la seconde retenait le
+  // port du `.env`. Les deux doivent désormais lire la MÊME décision, sinon
+  // l'installeur répond sur une porte qu'il n'ouvrira pas.
+
+  it('sans .env, c’est le port par défaut', () => {
+    expect(portRetenu(new Map())).toBe(PORT_DEFAUT);
+  });
+
+  it('avec un HIVE_PORT existant, c’est LUI — pas le défaut', () => {
+    expect(portRetenu(new Map([['HIVE_PORT', '9000']]))).toBe(9000);
+    expect(portRetenu(new Map([['HIVE_PORT', '9000']]))).not.toBe(PORT_DEFAUT);
+  });
+
+  it('la décision suit `composerReglages` — une seule vérité pour un port', () => {
+    // La garde qui compte : si l'une des deux dérivait, l'installeur
+    // annoncerait un port et en écrirait un autre. On les compare plutôt que
+    // de recopier la règle ici, où elle pourrait vieillir en silence.
+    for (const existant of [
+      new Map<string, string>(),
+      new Map([['HIVE_PORT', '9000']]),
+      new Map([['HIVE_PORT', String(PORT_DEFAUT)]]),
+    ]) {
+      const ecrit = composerReglages(existant).find((r) => r.cle === 'HIVE_PORT')?.valeur;
+      expect(String(portRetenu(existant)), `pour ${JSON.stringify([...existant])}`).toBe(ecrit);
+    }
+  });
+
+  it('une valeur qui n’est pas un port rend `null` — on ne sonde pas au hasard', () => {
+    // `null` n'est pas « libre » : c'est « je ne peux pas conclure ». Retomber
+    // sur le défaut sonderait une porte que personne n'a demandée, et le dirait
+    // libre — un vert emprunté, la pire des réponses.
+    for (const brut of ['abc', '', '  ', '80.5', '-1', '0', '65536', '7777abc']) {
+      expect(portRetenu(new Map([['HIVE_PORT', brut]])), `pour « ${brut} »`).toBeNull();
+    }
+  });
+
+  it('les bornes du domaine sont acceptées', () => {
+    expect(portRetenu(new Map([['HIVE_PORT', '1']]))).toBe(1);
+    expect(portRetenu(new Map([['HIVE_PORT', '65535']]))).toBe(65535);
   });
 });
