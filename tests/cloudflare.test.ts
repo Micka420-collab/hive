@@ -17,6 +17,7 @@ import {
   estArchive,
   etapesTunnelNomme,
   hoteValide,
+  methodesDeRepli,
   methodesInstallation,
   urlStable,
   urlTelechargement,
@@ -119,6 +120,23 @@ describe('les méthodes d’installation', () => {
     // avec `sudo` — elle ne peut pas être approximative.
     expect(apt(linux), 'les deux moitiés s’enchaînent sur un succès').toContain('.deb && sudo');
     expect(apt(linux), 'jamais « si le téléchargement échoue, installe »').not.toContain('||');
+  });
+
+  it('LE REPLI NE PROPOSE JAMAIS CE QUI VIENT D’ÉCHOUER', () => {
+    // Ce repli s'affiche après « Téléchargement impossible ». La méthode
+    // `local` EST ce téléchargement : la garder reviendrait à répondre
+    // « pour réparer ce téléchargement, refaites ce téléchargement ».
+    //
+    // Le balayage de `src/cli.ts` avait montré `m.cle !== 'local'` muté en
+    // `===` sans qu'une assertion bouge — le repli n'aurait alors proposé QUE
+    // la méthode fautive.
+    const repli = methodesDeRepli(linux);
+    expect(
+      repli.find((m) => m.cle === 'local'),
+      'la méthode fautive est écartée',
+    ).toBeUndefined();
+    expect(repli.length, 'et il reste quelque chose à proposer').toBeGreaterThan(0);
+    expect(repli.map((m) => m.cle)).toContain('apt');
   });
 
   it('une plateforme non couverte ne propose pas de binaire fantôme', () => {

@@ -216,7 +216,7 @@ describe('installation — la version de Node', () => {
 
 describe('installation — les prochaines étapes', () => {
   it('donnent des commandes réelles du dépôt', () => {
-    const etapes = prochainesEtapes('Claude Code');
+    const etapes = prochainesEtapes('Claude Code', 'linux', '/home/x/hive');
     expect(etapes.join('\n')).toContain('npm run dev');
     expect(etapes.join('\n')).toContain('npm run node');
     expect(etapes.join('\n')).toContain('Claude Code');

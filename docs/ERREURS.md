@@ -7075,3 +7075,73 @@ tuent.
 > fichier, ne pas les traiter un par un : lire ce que le fichier a de
 > particulier. Ici, il n'exportait rien. Le nombre de survivants ne mesurait pas
 > neuf oublis, il mesurait une frontière mal placée.
+
+### Ce qui reste dans `src/cli.ts`, et pourquoi ce n'est pas « équivalent »
+
+Sur les neuf survivants, six sont refermés — quatre décisions d'affichage et
+deux décisions d'envoi, toutes descendues dans des modules purs. **Trois
+restent, et aucun n'est équivalent** : ce sont de vraies gardes, dont un mutant
+change le comportement pour de bon.
+
+| Survivant                            | Ce que le mutant ferait                        |
+| ------------------------------------ | ---------------------------------------------- |
+| `avant.genre === 'refus'` (service)  | installer un service que le plan a REFUSÉ      |
+| `r.elaguees.length > 0` (sauvegarde) | annoncer « 0 plus ancienne(s) retirée(s) »     |
+| `r.billets.length === 0`             | dire « — aucun. » au-dessus d'une liste pleine |
+
+Les deux derniers se refermeront comme leurs voisins — extraire le bloc de
+rendu, muter, écrire. Le premier est d'une autre nature : ce n'est pas de
+l'affichage, c'est du CONTRÔLE DE FLUX au milieu d'une commande qui pose un
+fichier de service sur la machine. L'atteindre demande de rendre la commande
+elle-même invocable — entrées/sorties injectées, système de fichiers simulé —
+c'est-à-dire un lot à soi, pas une retouche de fin de tour.
+
+Cette ligne est écrite ici parce que ne rien dire aurait été la seule vraie
+faute : un survivant qu'on n'a ni tué ni déclaré équivalent redevient invisible
+au balayage suivant, et se recompte comme neuf.
+
+> **La règle** — un survivant qu'on ne referme pas dans le tour se NOMME, avec
+> ce que son mutant ferait et ce qu'il faudrait pour l'atteindre. « Pas encore »
+> est une réponse acceptable ; « pas vu » ne l'est pas.
+
+---
+
+## 9 quadrasexagies. Un paramètre par défaut lu dans l'environnement transforme un banc déterministe en pari sur la machine
+
+`prochainesEtapes(agent)` ignorait la plateforme. Deux bancs l'appelaient sans
+rien préciser, et c'était sans conséquence.
+
+Le jour où la fonction a cessé de l'ignorer — `plateforme: string =
+process.platform` —, ces deux bancs sont devenus **dépendants de la machine qui
+les lance**. Verts sous Linux, rouges sur le runner Windows :
+
+```
+AssertionError: expected 'Aller dans la ruche  :  cd D:\a\hive\hive…'
+                to contain 'npm run dev'
++ Lancer la ruche          :  npm.cmd run dev
+```
+
+La CI l'a dit avant la fusion, et c'est exactement son travail. La leçon n'est
+pas « la CI a bien fonctionné », c'est **ce que j'ai omis en ajoutant le
+paramètre** : un défaut qui lit l'environnement ne se contente pas d'être
+pratique, il déplace une décision hors du banc. Le banc croyait éprouver un
+contenu ; il éprouvait le contenu **sur la machine du jour**.
+
+### Le remède, et sa preuve
+
+Les deux cas NOMMENT désormais leur plateforme. Ce n'est pas un affaiblissement
+— l'assertion est inchangée —, c'est le banc qui reprend la main sur ce qu'il
+exerce.
+
+```
+défaut forcé à 'win32', cas corrigés  →  59 verts
+défaut forcé à 'win32', ancienne forme →  1 rouge (ce que la CI a vu)
+```
+
+La simulation vaut mieux que l'attente : forcer le défaut reproduit le runner
+Windows en une seconde, là où pousser et attendre coûte huit minutes.
+
+> **La règle** — quand on ajoute un paramètre par défaut qui lit
+> l'environnement (`process.platform`, `process.cwd()`, `Date.now()`), relire
+> TOUS les appels existants : ceux qui l'omettaient viennent de changer de
+> nature sans changer d'une lettre. Un banc nomme ce qu'il éprouve.

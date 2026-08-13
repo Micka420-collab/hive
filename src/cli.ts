@@ -46,7 +46,7 @@ import {
 } from './shared/night-shift.js';
 import { aLeDrapeau, choisirDansListe, valeurApres } from './choix-cli.js';
 import { corpsDuBillet } from './shared/cli-billet.js';
-import { depuis, lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
+import { depuis, lignesReponseReine, lignesSurfaces, lignesWaggle } from './shared/cli-rendu.js';
 import { decouperMergeArgv } from './shared/preparation.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
@@ -70,6 +70,7 @@ import {
   estArchive,
   etapesTunnelNomme,
   hoteValide,
+  methodesDeRepli,
   methodesInstallation,
   urlStable,
   urlTelechargement,
@@ -1321,8 +1322,10 @@ async function installerCloudflared(plateforme: {
     console.error(
       `\n✘ Téléchargement impossible : ${err instanceof Error ? err.message : String(err)}\n\n` +
         '  Repli — installez-le à la main :\n' +
-        methodesInstallation(plateforme)
-          .filter((m) => m.cle !== 'local')
+        // La méthode `local` EST le téléchargement qui vient d'échouer : la
+        // proposer en repli reviendrait à dire « refaites ce qui n'a pas
+        // marché ». Le choix vit dans `methodesDeRepli`, pur et éprouvé.
+        methodesDeRepli(plateforme)
           .map((m) => `    ${m.commande}`)
           .join('\n') +
         '\n',
@@ -1650,12 +1653,7 @@ async function cmdAsk(question: string, projectId?: string): Promise<void> {
       body: JSON.stringify({ message: question, ...(projectId ? { projectId } : {}) }),
     },
   );
-  const badge = res.source === 'llm' ? '✨ IA' : '📡 état réel';
-  console.log(`\n👑 La Reine (${badge}) :\n`);
-  console.log(res.reply.replace(/^/gm, '  '));
-  if (res.suggestions.length > 0) {
-    console.log(`\n  💡 À demander ensuite : ${res.suggestions.join(' · ')}`);
-  }
+  for (const l of lignesReponseReine(res)) console.log(l);
 }
 
 /** Drone Wars : lance une course compétitive sur une tâche prête. */

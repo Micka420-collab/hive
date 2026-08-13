@@ -155,3 +155,30 @@ export function depuis(ms: number, maintenant: number = Date.now()): string {
   if (j < 365) return `il y a ${Math.floor(j / 30)} mois`;
   return `il y a ${Math.floor(j / 365)} an(s)`;
 }
+
+/** Ce que la Reine a répondu, réduit à ce que l'affichage consulte. */
+export interface ReponseReine {
+  reply: string;
+  source: 'live' | 'llm';
+  suggestions: readonly string[];
+}
+
+/**
+ * Les lignes de la réponse de la Reine.
+ *
+ * Le badge distingue une réponse CALCULÉE sur l'état réel d'une réponse
+ * ENGENDRÉE par un modèle : confondre les deux ferait prendre une invention
+ * pour une mesure.
+ *
+ * Et la ligne des suggestions n'existe QUE s'il y en a — « À demander ensuite : »
+ * suivi de rien est une invitation vide, qui laisse croire que la Reine a été
+ * interrompue.
+ */
+export function lignesReponseReine(res: ReponseReine): string[] {
+  const badge = res.source === 'llm' ? '✨ IA' : '📡 état réel';
+  const lignes = ['', `👑 La Reine (${badge}) :`, '', res.reply.replace(/^/gm, '  ')];
+  if (res.suggestions.length > 0) {
+    lignes.push('', `  💡 À demander ensuite : ${res.suggestions.join(' · ')}`);
+  }
+  return lignes;
+}

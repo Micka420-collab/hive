@@ -93,7 +93,12 @@ describe('la mise en ligne — ce qui est posé', () => {
     const cors = planExposition(BASE).reglages.find((r) => r.cle === 'HIVE_CORS_ORIGIN')?.valeur;
     const origines = (cors ?? '').split(',').map((s) => s.trim());
 
-    const ligne = prochainesEtapes(null).find((e) => e.includes('Mission Control')) ?? '';
+    // La plateforme est DITE : le défaut `process.platform` rendrait ce banc
+    // dépendant de la machine qui le lance, et l'adresse annoncée n'a rien à
+    // voir avec le système.
+    const ligne =
+      prochainesEtapes(null, 'linux', '/home/x/hive').find((e) => e.includes('Mission Control')) ??
+      '';
     const affichee = /(https?:\/\/[^\s)]+)/.exec(ligne)?.[1];
     expect(affichee, 'l’installeur doit annoncer une adresse de dashboard').toBeTruthy();
     expect(origines, `« ${affichee} » est annoncée mais pas autorisée`).toContain(affichee);

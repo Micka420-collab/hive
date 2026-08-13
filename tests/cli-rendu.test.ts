@@ -21,6 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   depuis,
+  lignesReponseReine,
   lignesSurfaces,
   lignesWaggle,
   type LigneNectar,
@@ -202,5 +203,47 @@ describe('« depuis » — quatre seuils, et chacun a deux côtés', () => {
   it('le seuil de l’an : 364 jours se comptent en mois, 365 en années', () => {
     expect(depuis(jours(364), MAINTENANT)).toBe('il y a 12 mois');
     expect(depuis(jours(365), MAINTENANT)).toBe('il y a 1 an(s)');
+  });
+});
+
+describe('la réponse de la Reine', () => {
+  it('LE BADGE DISTINGUE UNE MESURE D’UNE INVENTION', () => {
+    // « état réel » est calculé sur la ruche ; « IA » est engendré par un
+    // modèle. Confondre les deux ferait prendre une invention pour une mesure,
+    // et c'est toute la valeur de cette commande.
+    expect(
+      lignesReponseReine({ reply: 'x', source: 'live', suggestions: [] }).join('\n'),
+    ).toContain('📡 état réel');
+    expect(lignesReponseReine({ reply: 'x', source: 'llm', suggestions: [] }).join('\n')).toContain(
+      '✨ IA',
+    );
+  });
+
+  it('SANS SUGGESTION, PAS D’INVITATION VIDE', () => {
+    // « À demander ensuite : » suivi de rien laisse croire que la Reine a été
+    // interrompue. C'est le mutant `> 0` → `>= 0` du balayage.
+    const lignes = lignesReponseReine({ reply: 'x', source: 'live', suggestions: [] }).join('\n');
+    expect(lignes).not.toContain('À demander ensuite');
+  });
+
+  it('avec des suggestions, elles sont là et séparées', () => {
+    const lignes = lignesReponseReine({
+      reply: 'x',
+      source: 'live',
+      suggestions: ['où en est la tâche 3 ?', 'qui butine le plus ?'],
+    }).join('\n');
+    expect(lignes).toContain('où en est la tâche 3 ? · qui butine le plus ?');
+  });
+
+  it('la réponse est INDENTÉE ligne à ligne — pas seulement la première', () => {
+    // Une réponse multi-lignes dont seule la première est décalée se lit comme
+    // deux blocs différents.
+    const lignes = lignesReponseReine({
+      reply: 'première\nseconde',
+      source: 'live',
+      suggestions: [],
+    }).join('\n');
+    expect(lignes).toContain('  première');
+    expect(lignes).toContain('  seconde');
   });
 });

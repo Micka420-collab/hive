@@ -147,6 +147,24 @@ export interface EtapeSetup {
 }
 
 /**
+ * Les méthodes à proposer QUAND LE TÉLÉCHARGEMENT VIENT D'ÉCHOUER.
+ *
+ * ─── POURQUOI C'EST UNE FONCTION, ET PAS UN `.filter` SUR PLACE ──────────────
+ *
+ * Le repli vivait en ligne dans `src/cli.ts`, qui n'exporte rien. Un balayage
+ * élargi y a montré `m.cle !== 'local'` muté en `===` sans qu'une assertion
+ * bouge — et ce mutant-là est cruel : après « Téléchargement impossible », il
+ * ne proposerait plus QUE la méthode qui vient d'échouer, c'est-à-dire
+ * « pour réparer ce téléchargement, refaites ce téléchargement ».
+ *
+ * La méthode `local` EST le téléchargement. Elle n'a rien à faire dans le repli
+ * de son propre échec.
+ */
+export function methodesDeRepli(p: Plateforme): MethodeInstallation[] {
+  return methodesInstallation(p).filter((m) => m.cle !== 'local');
+}
+
+/**
  * Vrai si `hote` ressemble à un nom d'hôte qualifié utilisable pour un tunnel.
  *
  * Volontairement STRICT : une faute ici ne se voit qu'à l'étape DNS, plusieurs
