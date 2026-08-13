@@ -123,6 +123,44 @@ describe('le refus, et ce qui part au client', () => {
     expect(option.bac.variables).toEqual(variables);
   });
 
+  // ─── LES DEUX MOITIÉS DU DERNIER VERROU ────────────────────────────────────
+  //
+  // `optionBac` est la DERNIÈRE porte avant que l'option de bac n'atteigne le
+  // client. Sa garde a deux moitiés, et un balayage élargi (base épinglée sur
+  // le commit d'origine, `LOUPE_CHEMINS=src/node-client`) a montré qu'on
+  // pouvait la muter en `&&` sans qu'une seule assertion bouge.
+  //
+  // Rien ne l'exerçait parce que TOUS les cas passaient par `bacDe`, qui
+  // construit un `Bac` COHÉRENT via `decider` : là, `isole` est vrai si et
+  // seulement si un fournisseur existe. Les deux moitiés étaient donc toujours
+  // d'accord, et leur désaccord — le seul cas où la garde sert — n'était jamais
+  // joué.
+  //
+  // Le type, lui, autorise le désaccord : `Bac.fournisseur` est
+  // `Fournisseur | null`, et `optionBac` est exporté. Ce n'est pas un état
+  // théorique qu'on invente pour tuer un mutant : c'est ce que la signature
+  // promet de supporter, sur la frontière que ce module existe pour tenir
+  // (« mieux vaut un nœud qui ne prend aucune tâche qu'un nœud qui en prend une
+  // sans bac à sable en croyant le contraire »).
+  it('UN BAC INCOHÉRENT NE PASSE PAS — les deux moitiés de la garde, séparément', () => {
+    // Moitié 1 — isolé, mais sans moteur. Muté en `&&`, on transmettrait
+    // `fournisseur: null` au client : une option de bac qui ne borne rien,
+    // sous un nom qui promet le contraire.
+    const sansMoteur: Bac = { ...bacDe('auto', PODMAN), fournisseur: null };
+    expect(sansMoteur.decision.isole, 'la prémisse : la décision dit ISOLÉ').toBe(true);
+    expect(optionBac(sansMoteur, ['HOME']), 'un moteur absent ne se transmet pas').toEqual({});
+
+    // Moitié 2 — un moteur est là, mais la décision dit NON isolé. Muté en
+    // `&&`, on mettrait le travail en conteneur alors que la décision — donc
+    // l'humain, par `HIVE_ISOLEMENT=off` — a dit non.
+    const nonIsole: Bac = { ...bacDe('off', null), fournisseur: PODMAN };
+    expect(nonIsole.decision.isole, 'la prémisse : la décision dit NON isolé').toBe(false);
+    expect(
+      optionBac(nonIsole, ['HOME']),
+      'une décision négative prime sur un moteur présent',
+    ).toEqual({});
+  });
+
   it('la liste transmise est une COPIE, pas la liste de l’appelant', () => {
     // Sinon une mutation ultérieure du `keepEnv` changerait, à distance et
     // sans le dire, ce que le conteneur laisse entrer.

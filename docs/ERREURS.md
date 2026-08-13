@@ -6787,3 +6787,69 @@ deux verdicts, pour que le prochain balayage ne rouvre pas l'enquête.
 > clos, et le seul vivant demandait le contraire de ce que la liste laissait
 > croire (consigner, pas écrire un test). Une liste qu'on recopie sans mesurer
 > finit par décrire un dépôt qui n'existe plus.
+
+---
+
+## 9 unsexagies. Un balayage sur du terrain jamais vu : trois survivants, et un seul appelait un test
+
+`src/node-client` n'avait jamais été balayé — les campagnes précédentes avaient
+couvert `src/orchestrator`, `src/shared`, `src/tui`. Base épinglée sur le commit
+d'origine du dépôt, `LOUPE_CHEMINS=src/node-client` : **95 candidates**, sur
+2 541 lignes ajoutées. Terrain neuf, pas un rejeu.
+
+Trois survivants dans le premier tiers. Ils ne demandaient pas la même chose,
+et c'est tout l'intérêt de les TRANCHER un par un plutôt que de les compter.
+
+### Le seul vrai trou — `optionBac`, dernière porte avant le bac à sable
+
+```ts
+if (!bac.decision.isole || !bac.fournisseur) return {};
+```
+
+Muté en `&&`, aucune assertion ne bougeait. La cause est instructive : **tous
+les cas de la suite passaient par un constructeur qui rend un `Bac` COHÉRENT**
+(`decider` pose `isole` vrai si et seulement si un fournisseur existe). Les deux
+moitiés de la garde étaient donc toujours d'accord — et leur désaccord, le seul
+cas où la garde sert, n'était jamais joué.
+
+Le type, lui, autorise le désaccord : `Bac.fournisseur` est
+`Fournisseur | null`, et `optionBac` est exporté. Ce n'est pas un état théorique
+qu'on invente pour tuer un mutant ; c'est ce que la signature promet de
+supporter, sur la frontière que ce module existe pour tenir. Le message d'échec
+du banc dit le danger mieux qu'un paragraphe :
+
+```
+expected { bac: { fournisseur: null, …(1) } } to deeply equal {}
+```
+
+Une option de bac qui ne borne rien, sous un nom qui promet le contraire. Et
+l'autre moitié est pire encore : décision NON isolée + moteur présent, le mutant
+mettrait le travail en conteneur alors que l'humain a écrit `HIVE_ISOLEMENT=off`.
+
+### Deux équivalences, consignées sur place
+
+- `parNode.length > 1` muté en `>= 1` (`agent-detect.ts`). `argvAgent` ne rend
+  que `['node', script]` ou `[bin]`, et `candidates()` contient TOUJOURS `bin` :
+  quand la longueur vaut 1, `sonder([bin])` vient d'être appelé et a rendu faux.
+  Le mutant ajoute une sonde dont la réponse est déjà connue. L'écrire en test
+  éprouverait le NOMBRE d'appels à `sonder` — un détail que personne n'exige.
+- `err instanceof Error` muté en `instanceof Object` (`client.ts`).
+  `nightShiftFromEnv` ne lève que par `parseWindows`, dont les trois points de
+  levée font `throw new Error(…)` : les deux tests sont vrais ensemble, toujours.
+  On garde la garde — `err` est typé `unknown`, et le jour où une levée d'ailleurs
+  remonte, `instanceof Object` afficherait « invalide (undefined) ».
+
+### Ce que ce balayage apprend au-delà de ses trois verdicts
+
+Un survivant sur une garde à DEUX MOITIÉS signale presque toujours la même
+chose : **le banc construit ses entrées par le constructeur légitime**, celui
+qui maintient l'invariant. C'est bien pour tester le chemin nominal, et c'est
+exactement ce qui rend les gardes défensives invisibles. Les atteindre demande
+de fabriquer l'état incohérent À LA MAIN — ce qui n'est légitime que si le TYPE
+l'autorise et si la fonction est exportée. Les deux conditions étaient réunies
+ici ; quand elles ne le sont pas, le survivant est équivalent et se consigne.
+
+> **La règle** — sur du terrain jamais balayé, ne pas compter les survivants :
+> les trancher. Trois survivants n'appelaient pas trois tests — un seul en
+> appelait un, et écrire les deux autres aurait ajouté du décor tout en donnant
+> l'impression d'avoir refermé trois trous.

@@ -258,6 +258,20 @@ export class HiveNodeClient {
     } catch (err) {
       if (!this.shiftWarned) {
         this.shiftWarned = true;
+        // ─── ÉQUIVALENCE CONSIGNÉE : `instanceof Error` muté en
+        //     `instanceof Object` ne change rien ICI ────────────────────────
+        //
+        // `nightShiftFromEnv` ne lève que par `parseWindows`, qui a trois
+        // points de levée et les trois font `throw new Error(…)`. Sur ce
+        // `catch`, les deux tests sont donc vrais ensemble, toujours : aucune
+        // entrée ne distingue l'original du mutant (balayage élargi,
+        // `LOUPE_CHEMINS=src/node-client`).
+        //
+        // On la garde quand même, et pas par superstition : `err` est typé
+        // `unknown`, et le jour où une levée d'ailleurs remonte ici — un
+        // rejet de chaîne, un objet nu — `instanceof Object` afficherait
+        // « invalide (undefined) » là où `String(err)` dit encore quelque
+        // chose. La garde est écrite pour ce jour-là.
         this.log(
           `⚠ HIVE_SHIFT invalide (${err instanceof Error ? err.message : String(err)}) — le nœud refuse le travail tant que la config n'est pas corrigée.`,
         );

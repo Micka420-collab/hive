@@ -221,6 +221,26 @@ async function firstPresent(
     //
     // En DERNIER, jamais en premier : quand un vrai binaire existe, c'est lui
     // qui a raison. On n'ajoute un chemin que là où il n'y en avait aucun.
+    // ─── ÉQUIVALENCE CONSIGNÉE : `> 1` muté en `>= 1` ne change rien ─────────
+    //
+    // Un balayage élargi (base épinglée sur le commit d'origine,
+    // `LOUPE_CHEMINS=src/node-client`) l'a laissé survivre. Il est ÉQUIVALENT,
+    // et la preuve tient en deux pas :
+    //
+    //   · `argvAgent` ne rend que deux formes — `['node', script]` (2) quand il
+    //     a trouvé le script réel, ou `[bin]` (1) quand il n'a rien trouvé ;
+    //   · `candidates(bin, …)` contient TOUJOURS `bin` — sur win32 comme
+    //     ailleurs. Donc quand `argvAgent` rend `[bin]`, `sonder([bin])` vient
+    //     d'être appelé dans la boucle ci-dessus et a rendu faux, sans quoi on
+    //     aurait déjà quitté par `return true`.
+    //
+    // Le mutant ajoute donc une sonde de plus dont la réponse est déjà connue.
+    // L'écrire en test éprouverait le NOMBRE d'appels à `sonder` — un détail
+    // d'implémentation que personne n'exige : du décor déguisé en couverture.
+    //
+    // Ce que la longueur teste vraiment n'est pas une borne, c'est « argvAgent
+    // a-t-il trouvé quelque chose ? ». Elle en est un proxy, et c'est ce proxy
+    // qui rend le mutant indistinguable.
     const parNode = argvAgent(bin, env, plateforme, existe);
     if (parNode.length > 1 && (await sonder(parNode))) return true;
   }
