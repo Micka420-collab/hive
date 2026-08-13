@@ -5697,3 +5697,111 @@ Le balayage du cœur se lance donc ainsi, depuis l'atelier :
 
     LOUPE_BASE=<sha épinglé> LOUPE_CHEMINS=src/orchestrator,src/shared,src/tui \
       LOUPE_MAX=<assez grand pour tout voir> node scripts/loupe.mjs
+
+# POINT DE SORTIE — 13 août 2026, J−20
+
+Vingt jours avant le 2 septembre. Ce point ne coche rien : un critère non mesuré
+n'est pas atteint, et il se dit comme tel.
+
+## 1. Ce qui est LIVRÉ ET VÉRIFIÉ depuis hier
+
+Quarante-quatre commits, neuf pull requests fusionnées en avance rapide (#221 à
+#230), CI verte sur cinq jambes à chaque fois. Suite : **3 691** cas mesurés,
+jamais annoncés de tête.
+
+Ne comptent ici que les choses **vues rougir** ou **lancées pour de vrai**.
+
+**Neuf défauts corrigés, chacun avec sa mutation jouée et son verdict affiché :**
+
+| Ce qui était cassé                                         | Ce que la mutation a montré                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| Le graphe du Cerveau pouvait perdre TOUS ses noms          | `heurte && p.id !== actif` → `\|\|` laissait 3 641 cas verts |
+| Un nœud exclu faisait lire `agentType` sur `undefined`     | `!task \|\| !producteur` → `&&` : `TypeError` réel           |
+| Le Cerveau classait ses leçons par ordre alphabétique      | la plus récurrente n'était plus en tête, suite verte         |
+| Un nom de chantier de 100 caractères : proposé puis refusé | 3 portes sur une borne, 2 nues                               |
+| Une référence git de 300 caractères passait au dispatch    | la garde de longueur cessait d'exister                       |
+| La ruche accusait un humain d'une extinction de GitHub     | le motif du refus s'inversait sans casser d'écran            |
+| Le chemin d'un workflow et la date d'un run se vidaient    | garde `typeof` inversée : champ vide, en silence             |
+| La désinstallation proposait d'effacer l'installation      | `&&` → `\|\|` sur le filtre « hors du dossier »              |
+| Le Cerveau se contredisait : fiche contre tableau          | deux vérités pour `serviIlYaJours === null`                  |
+
+**Deux rouges de CI réparés, tous deux ÉTRANGERS au diff qui les a révélés :**
+
+- un `git clone` partait vers le vrai `github.com` depuis un banc dont l'en-tête
+  promettait de ne pas toucher au réseau — 1,3 s sous Linux, plus de 20 000 ms
+  sur la CI Windows ;
+- un banc de canal temporel pariait sur l'ordonnanceur (une mesure par chemin) ;
+  il a perdu à 129 ms contre 14 ms. Passé aux médianes de cinq tours entrelacés,
+  **et vérifié qu'il mord encore** en réintroduisant la fuite : 1 ms contre
+  16 ms, cinq fois de suite.
+
+**Un instrument amélioré.** `LOUPE_CHEMINS` : sans lui, le balayage passait ses
+nuits sur `dashboard/` sans jamais atteindre `src/orchestrator`. Le cœur du dépôt
+— **520 candidates sur trois segments** — a été examiné pour la première fois.
+
+**Deux équivalences consignées** (`mode.ts`, `chantier.ts`), mesurées
+exhaustivement plutôt que déduites. Elles ne valent pas un test : les tuer
+demanderait une entrée qui n'existe pas.
+
+**Huit leçons au carnet**, § 9 sexquadragies à quadraquinquagies.
+
+## 2. Ce qui reste entre la ruche et une sortie présentable
+
+Classé par ce qui casse l'expérience d'un arrivant EN PREMIER.
+
+### 2.1 — L'unique commande du README n'a jamais été menée à son terme par une machine
+
+**C'est le premier point, et de loin.** Mesuré ce matin :
+
+- `curl` sur les deux URL du README → **HTTP 200**, contenu **identique** au
+  dépôt. Le chemin est vivant et autonome : `install.sh` CLONE, il ne dépend ni
+  de npm ni d'une Release. Les blocages des lots 7 et 10 ne barrent donc PAS la
+  porte d'entrée ;
+- mais la CI ne lance que `sh install.sh --dry-run`. **Le mode sec s'arrête
+  avant `npm install`**, donc avant tout ce qui peut réellement échouer chez un
+  inconnu : la résolution des dépendances, le module natif SQLite, le lancement
+  de l'installeur interactif, la ruche qui démarre.
+
+Autrement dit : ce que le README promet en une ligne est **exercé jusqu'au
+seuil, jamais franchi**. Le critère 1 (« une commande, ≤ 3 décisions, < 60 s »)
+a été mesuré sur un dépôt DÉJÀ cloné, pas depuis la commande que lit un
+arrivant.
+
+Vérifié aussi ce matin, et c'est le bon comportement : sur ce conteneur
+(**Node 22**), le script refuse proprement, sort en **2**, n'écrit **rien**, et
+donne le remède exact. La garde de version fonctionne. C'est justement pourquoi
+le reste n'a pas pu être mesuré d'ici.
+
+### 2.2 — Le service est ACCEPTÉ, il n'est pas DÉMARRÉ (lot 9)
+
+`systemd-analyze verify`, `plutil -lint` et `schtasks /Create /XML` valident les
+fichiers à chaque CI. Aucun runner n'a le bus de session qu'exige
+`systemctl --user enable --now`. La ligne reste 🟡, et elle doit le rester.
+
+### 2.3 — Empreintes et Release (lot 8)
+
+`install.sh` et `install.ps1` existent et sont exercés (PowerShell 7 **et** 5.1).
+Les empreintes publiées et la Release n'existent pas. Conséquence pour un
+arrivant prudent : rien à vérifier avant d'exécuter un script téléchargé.
+
+### 2.4 — Première impression : README et vitrine (#63)
+
+Le README n'est pas au design de la vitrine, et le carrousel d'agents n'existe
+pas — le bandeau est statique. **Ces deux points sont en aval de #63**, dont le
+plan est écrit et attend un arbitrage d'édition qui n'est pas le mien (ton,
+montants, ce qui part en docs). Je ne les ai pas pris, et je ne les prendrai pas
+sans ce mot-là.
+
+## 3. Hors d'atteinte — à dire, pas à simuler
+
+- **npm (lot 7) et GHCR/cosign (lot 10)** : comptes qui ne sont pas les miens.
+  Le code est prêt, la publication non. Bonne nouvelle mesurée en 2.1 : ça ne
+  bloque pas l'installation.
+- **Une VM Windows 11 et une Ubuntu 24.04 vierges, avec Node 24**, pour mener
+  l'installation réelle de bout en bout. Ce conteneur a Node 22 — la garde
+  refuse, correctement.
+- **Le démarrage effectif du service** : demande un bus de session utilisateur.
+- **L'intermittent d'origine** : jamais reproduit, invisible en huit ordres
+  mélangés et trois exécutions identiques. Pas fermé — introuvable d'ici.
+- **Les tarifs et le ton commercial** (#63) : décision humaine.
+- **Encaisser un paiement** avant le 2 septembre : décision humaine.
