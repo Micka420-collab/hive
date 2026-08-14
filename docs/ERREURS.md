@@ -8411,3 +8411,73 @@ et que c'est le sondage qui enveloppe.
 C'est le § 9 octoseptuagies vu d'un autre angle : j'avais lu le type au site
 d'USAGE au lieu du site de DÉFINITION. Le bouchon doit imiter ce que la
 fonction rend, jamais ce que son appelant en fait.
+
+---
+
+## 9 quinoctogies. La PORTÉE d'une garde fait partie de la garde — et elle se mesure, comme le reste
+
+`tests/security-invariants.test.ts` est un beau fichier : 400 lignes qui
+verrouillent des propriétés de tout le code source plutôt qu'un comportement.
+Il interdit `shell: true`, exige que les lanceurs déclarent `shell: false`,
+refuse un CORS `*`, refuse un jeton trivial.
+
+Il ne servait à rien sur la moitié du terrain, et personne ne l'avait vu.
+
+### La preuve, avant le correctif
+
+```text
+planté   : shell: true  dans scripts/ruche.mjs
+le garde : Tests 28 passed (28)   CODE=0
+```
+
+Le fichier qui DÉMARRE la ruche pouvait passer par un interpréteur, et le garde
+des invariants de sécurité restait vert.
+
+### Trois dimensions, et les trois étaient courtes
+
+| dimension       | ce que la garde couvrait      | ce qu'il fallait                        |
+| --------------- | ----------------------------- | --------------------------------------- |
+| **portée**      | `src/**/*.ts`                 | + `scripts/*.mjs` (ruche, tamis, loupe) |
+| **motif**       | `\bspawn\s*\(`                | toute la famille `child_process`        |
+| **granularité** | un `shell: false` par FICHIER | un par LANCEMENT                        |
+
+Le motif est mesuré, pas supposé : `/\bspawn\s*\(/.test('spawnSync(')` rend
+**`false`**. `spawnSync` et `execFileSync` échappaient à la règle depuis
+toujours — `src/service-reel.ts` déclare `shell: false` par bonne pratique, pas
+parce qu'on l'y obligeait.
+
+### Ce que la garde élargie a trouvé du premier coup
+
+`src/doctor-releve.ts` lance `docker --version` puis `podman --version` par
+`execFile`. Sûr — liste fermée, argument constant, environnement filtré. Mais
+son propre en-tête affirmait, depuis des semaines :
+
+> « Ce fichier n'exécute d'ailleurs AUCUN binaire externe. »
+
+C'est faux. La prose avait survécu au code qu'elle décrivait, et elle mentait
+précisément sur la propriété que le fichier voisin existe pour garantir.
+
+### Et ma propre correction avait le même défaut, un cran plus bas
+
+La règle élargie, écrite et vue verte, a été mutée aussitôt. Retirer le
+`shell: false` de l'UN des deux lancements de `scripts/loupe.mjs` : **30 passed,
+sortie 0**. Ma règle disait « tout FICHIER qui ouvre un processus », et c'est
+exactement ce qu'elle vérifiait — l'intention était « tout LANCEMENT ».
+
+Corrigée en comptant les deux côtés, et l'approximation est dite sur place :
+rien n'empêche deux `shell: false` de porter sur le même appel. Le jour où ça ne
+suffira plus, il faudra un vrai analyseur syntaxique, pas une regex de plus.
+
+### La règle
+
+> **Une garde a une portée, un motif et une granularité. Les trois sont la
+> garde.** Vérifier qu'elle est verte ne dit rien ; il faut lui présenter la
+> faute qu'elle prétend interdire, à l'endroit le plus éloigné de là où on l'a
+> écrite.
+
+Le raisonnement existait déjà, écrit, dans `scripts/loupe.mjs` : `scripts/` est
+entré dans son périmètre parce qu'« un outil qui existe pour débusquer le code
+que rien ne défend ne peut pas avoir d'angle mort sur le chemin que TOUT LE
+MONDE emprunte en premier ». La garde de sécurité n'avait jamais reçu le même
+traitement — et c'est le § 9 nonseptuagies sous un autre jour : la doctrine d'un
+dépôt ne s'applique pas toute seule.

@@ -43,22 +43,130 @@ function fileEndingWith(suffix: string): string {
   return match ? read(match) : '';
 }
 
+// ─── LA PORTÉE DU GARDE ET SON MOTIF : DEUX TROUS DE LA MÊME CLASSE ──────────
+//
+// Ce fichier scannait `src/**/*.ts`, et rien d'autre. Deux mesures l'ont pris
+// en défaut le 14 août, et les deux disent la même chose sous deux angles :
+//
+// 1. LA PORTÉE. `scripts/` lance de vrais processus — `ruche.mjs` démarre la
+//    ruche, `tamis-ordres.mjs` rejoue la suite, `loupe.mjs` appelle vitest. Un
+//    `shell: true` planté dans `scripts/ruche.mjs` a laissé ce fichier VERT :
+//    28 passed, sortie 0. Le garde ne regardait pas là.
+//
+//    C'est exactement le raisonnement qui a fait entrer `scripts/` dans le
+//    périmètre de la loupe : « un outil qui existe pour débusquer le code que
+//    rien ne défend ne peut pas avoir d'angle mort sur le chemin que TOUT LE
+//    MONDE emprunte en premier ». Le garde de sécurité n'avait jamais reçu le
+//    même traitement.
+//
+// 2. LE MOTIF. La règle cherchait `\bspawn\s*\(`, qui ne matche NI `spawnSync(`
+//    NI `execFileSync(` — mesuré : `/\bspawn\s*\(/.test('spawnSync(')` rend
+//    `false`. `src/service-reel.ts` déclare `shell: false` par bonne pratique,
+//    pas parce qu'on l'y obligeait ; `scripts/loupe.mjs` ne déclarait rien.
+//
+// Une garde qui ne couvre pas tout ce qu'elle prétend couvrir ment dans le sens
+// RASSURANT — le pire des deux, et celui que ce dépôt traque partout ailleurs.
+
+const SCRIPTS = fileURLToPath(new URL('../scripts', import.meta.url));
+
+/**
+ * Tout le code du dépôt qui peut ouvrir un processus : `src/**\/*.ts` ET les
+ * scripts Node de `scripts/`.
+ *
+ * Les `.sh` et `.ps1` en sont exclus À DESSEIN : un script shell EST un
+ * interpréteur, la question « passe-t-il par un shell » n'y a pas de sens. Ce
+ * garde-ci parle de `child_process`, pas de tout ce qui exécute.
+ *
+ * `scripts/loupe.mjs` n'est PAS excluse ici, alors qu'elle l'est du périmètre
+ * de la loupe. Les deux exclusions n'ont rien à voir : on ne mute pas le juge
+ * pendant qu'il juge, mais on lui demande la même sûreté qu'aux autres.
+ */
+function fichiersQuiLancent(): string[] {
+  const scripts = readdirSync(SCRIPTS, { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.(mjs|cjs|js)$/.test(f))
+    .map((f) => join(SCRIPTS, f));
+  return [...files, ...scripts];
+}
+
+const lanceurs = fichiersQuiLancent();
+const contenuLanceurs = new Map(
+  lanceurs.map((f) => [f, content.get(f) ?? stripComments(readFileSync(f, 'utf8'))]),
+);
+const lire = (f: string): string => contenuLanceurs.get(f) ?? '';
+
+/**
+ * Toute la famille `child_process`, pas seulement `spawn`.
+ *
+ * Le `(?<![.\w])` écarte `motif.exec(texte)` et `regex.exec(…)`, qui n'ouvrent
+ * aucun processus — sans lui, la moitié du dépôt serait accusée à tort.
+ */
+const OUVRE_UN_PROCESSUS =
+  /(?<![.\w])(spawn|spawnSync|fork|exec|execSync|execFile|execFileSync)\s*\(/;
+
+/** Les deux qui passent TOUJOURS par un interpréteur, quoi qu'on leur donne. */
+const TOUJOURS_UN_SHELL = /(?<![.\w])(exec|execSync)\s*\(/;
+
 describe('invariants de sécurité (§5)', () => {
   it('scanne effectivement l’arborescence source', () => {
     expect(files.length).toBeGreaterThan(5);
   });
 
-  it('§5.1 — aucun spawn en shell:true dans src/', () => {
-    const offenders = files.filter((f) => /shell\s*:\s*true/.test(read(f)));
+  it('§5.1 — le garde regarde AUSSI les scripts Node, pas seulement src/', () => {
+    // Sans cette assertion, élargir la portée pourrait se défaire en silence :
+    // il suffirait que `fichiersQuiLancent` rende `files` pour que les règles
+    // ci-dessous redeviennent aveugles à `scripts/` sans que rien ne rougisse.
+    const scripts = lanceurs.filter((f) => f.replace(/\\/g, '/').includes('/scripts/'));
+    expect(scripts.length, 'les scripts Node sont dans la portée').toBeGreaterThan(3);
+    expect(
+      scripts.some((f) => f.endsWith('ruche.mjs')),
+      'y compris celui qui démarre la ruche',
+    ).toBe(true);
+  });
+
+  it('§5.1 — aucun shell:true, ni dans src/ ni dans les scripts', () => {
+    const offenders = lanceurs.filter((f) => /shell\s*:\s*true/.test(lire(f)));
     expect(offenders).toEqual([]);
   });
 
-  it('§5.1 — tout fichier qui appelle spawn() force explicitement shell:false', () => {
-    const spawners = files.filter((f) => /\bspawn\s*\(/.test(read(f)));
+  it('§5.1 — CHAQUE lancement déclare shell:false, pas seulement le fichier', () => {
+    // ─── LA GRANULARITÉ DE LA RÈGLE EST SA FORCE RÉELLE ──────────────────────
+    //
+    // Première version, écrite le 14 août : `expect(lire(f)).toMatch(/shell:
+    // false/)`. Un seul `shell: false` QUELQUE PART dans le fichier suffisait.
+    //
+    // Mutée aussitôt pour voir : retirer le `shell: false` de l'UN des deux
+    // lancements de `scripts/loupe.mjs` a laissé le garde VERT — 30 passed,
+    // sortie 0. La règle disait « tout fichier qui ouvre un processus », et
+    // c'est exactement ce qu'elle vérifiait ; l'intention était « tout
+    // lancement ». Un fichier à deux lancements pouvait n'en protéger qu'un.
+    //
+    // On compte donc les deux côtés. C'est une APPROXIMATION, et il faut le
+    // dire : rien n'empêche deux `shell: false` de porter sur le même appel.
+    // Elle est strictement plus forte que la version précédente sans demander
+    // un parseur — et le jour où elle ne suffira plus, c'est un vrai analyseur
+    // syntaxique qu'il faudra, pas une regex de plus.
+    const compte = (texte: string, motif: RegExp): number =>
+      (texte.match(new RegExp(motif.source, 'g')) ?? []).length;
+
+    const spawners = lanceurs.filter((f) => OUVRE_UN_PROCESSUS.test(lire(f)));
     expect(spawners.length).toBeGreaterThan(0); // le sondage d'agents / l'exec réelle
     for (const f of spawners) {
-      expect(read(f), `${f} appelle spawn sans shell:false`).toMatch(/shell\s*:\s*false/);
+      const lancements = compte(lire(f), OUVRE_UN_PROCESSUS);
+      const declares = compte(lire(f), /shell\s*:\s*false/);
+      expect(
+        declares,
+        `${f} : ${lancements} lancement(s) pour ${declares} « shell: false »`,
+      ).toBeGreaterThanOrEqual(lancements);
     }
+  });
+
+  it('§5.1 — `exec` et `execSync` sont BANNIS : ils passent toujours par un shell', () => {
+    // `shell: false` ne les sauve pas — ces deux-là n'ont pas d'option, ils
+    // construisent une ligne de commande et la donnent à un interpréteur. Le
+    // dépôt n'en utilise aucun aujourd'hui (mesuré) ; cette règle empêche
+    // qu'un s'y glisse en croyant faire comme les autres.
+    const coupables = lanceurs.filter((f) => TOUJOURS_UN_SHELL.test(lire(f)));
+    expect(coupables, 'utiliser spawn/execFile, jamais exec/execSync').toEqual([]);
   });
 
   it('§5.1 — le garde d’exécution réelle refuse un token trivial', () => {

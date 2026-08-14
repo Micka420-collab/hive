@@ -23,9 +23,19 @@
 // ─── AUCUN SHELL ─────────────────────────────────────────────────────────────
 //
 // Invariant du dépôt (MISSION-ACCUEIL §11.1) : aucun `shell: true`, aucune
-// concaténation dans une commande. Ce fichier n'exécute d'ailleurs AUCUN
-// binaire externe — il lit le système de fichiers, ouvre une socket, et parle
-// HTTP. Rien qui puisse être détourné par un nom de fichier.
+// concaténation dans une commande.
+//
+// CE QUE CETTE NOTE DISAIT DE FAUX, et qui a tenu jusqu'au 14 août : « ce
+// fichier n'exécute d'ailleurs AUCUN binaire externe ». Il en exécute un —
+// `isolementDisponible()` lance `docker --version` puis `podman --version`
+// pour savoir lequel est là. C'est le garde des invariants, élargi à toute la
+// famille `child_process`, qui l'a dit ; sa règle ne cherchait auparavant que
+// `spawn(`, et `execFile(` lui échappait.
+//
+// Le lancement est sûr — binaire d'une liste fermée, argument constant,
+// environnement filtré par `envSonde` —, et il DÉCLARE maintenant `shell: false`
+// au lieu de s'en remettre au défaut d'`execFile`. Une prose qui survit au code
+// qu'elle décrit est un mensonge à retardement : celle-ci en était un.
 
 import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs';
 import { createServer as creerServeurTcp } from 'node:net';
@@ -295,12 +305,16 @@ export async function isolementDisponible(): Promise<string | null> {
   const { execFile } = await import('node:child_process');
   const essaye = (bin: string): Promise<boolean> =>
     new Promise((resolve) => {
-      // `shell: false` par défaut avec `execFile`, et l'argument est une
-      // constante : rien d'interpolé, rien à détourner.
-      // Aucun secret ne part au binaire qu'on éprouve — même garde que la
-      // sonde d'agent, portée ici aussi.
-      execFile(bin, ['--version'], { timeout: 3_000, env: envSonde(process.env) }, (err) =>
-        resolve(!err),
+      // `shell: false` est DIT, pas seulement subi : c'est déjà le défaut
+      // d'`execFile`, mais un défaut ne se relit pas en revue et peut basculer
+      // sous une refonte. L'argument est une constante — rien d'interpolé,
+      // rien à détourner — et aucun secret ne part au binaire qu'on éprouve
+      // (`envSonde`), même garde que la sonde d'agent, portée ici aussi.
+      execFile(
+        bin,
+        ['--version'],
+        { timeout: 3_000, shell: false, env: envSonde(process.env) },
+        (err) => resolve(!err),
       );
     });
   for (const f of FOURNISSEURS) {

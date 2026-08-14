@@ -428,6 +428,10 @@ function lignesAjoutees() {
     ['diff', '-U0', `${BASE}...HEAD`, '--', ...cheminsDuBalayage(process.env.LOUPE_CHEMINS)],
     {
       cwd: RACINE,
+      // DIT, alors que c'est déjà le défaut d'`execFileSync` : le garde des
+      // invariants exige l'explicite, pour qu'un futur `shell: true` soit un
+      // geste visible et non un défaut qui bascule.
+      shell: false,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     },
@@ -641,6 +645,7 @@ function suiteRougit() {
   try {
     execFileSync(process.execPath, [VITEST, 'run', '--bail', '1'], {
       cwd: RACINE,
+      shell: false,
       stdio: 'pipe',
       timeout: 900_000,
     });
