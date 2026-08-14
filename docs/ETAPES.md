@@ -7249,3 +7249,70 @@ pas Chrome.
 
 Ce n'est pas non plus « la vitrine est jolie » : § E du definition of done
 (identité visuelle, #63) reste une décision de l'utilisateur, intacte.
+
+---
+
+## Balance : le balayage complet de l'écran de l'argent, et son premier lot
+
+`dashboard/src/views` reste le plus gros écart mesuré — **57 sur 440**. Plutôt
+que d'attaquer les 440 d'un bloc (≈ 13 h de machine), la taille a été mesurée
+par fichier :
+
+| Vue           | Candidates |
+| ------------- | ---------- |
+| `Projets.tsx` | 88         |
+| `Balance.tsx` | 43         |
+| `Ruche.tsx`   | 8          |
+
+`Balance.tsx` fait exactement la taille du balayage de la vitrine — donc un lot
+qui finit — et c'est l'écran où une garde fausse coûte de l'argent.
+
+### Le choix, assumé
+
+Le critère d'arrêt posé plus tôt interdisait de **ré-échantillonner** un terrain
+déjà vu ; il n'interdisait pas de le **balayer entièrement**. La différence est
+réelle : un échantillon de plus n'aurait rien appris, un balayage complet rend
+un nombre défendable — et sur la vitrine, il a rendu 33 vrais défauts.
+
+### À mi-parcours : 11 nues sur 22 rendues
+
+Dont trois qui portent le même geste, et c'est le lot d'aujourd'hui.
+
+```js
+const bloque = solde.bloque === true;          // ===  →  !==
+{bloque && (…)}                                // &&   →  ||
+{!bloque && etat === 'bloque' && (…)}          // ===  →  !==
+```
+
+Les deux bandeaux ne disent PAS la même chose :
+
+| Bandeau     | Ce qu'il annonce                                         |
+| ----------- | -------------------------------------------------------- |
+| « ARRÊTÉE » | l'assignation est stoppée — « strict » + plafond atteint |
+| « atteint » | le plafond est atteint, mais **rien n'est arrêté**       |
+
+Les confondre, c'est annoncer à quelqu'un que son projet est à l'arrêt quand il
+tourne — ou se taire quand il est vraiment stoppé.
+
+### Trois états, parce que deux ne suffisent pas
+
+Le banc monte les trois : arrêté, atteint-sans-arrêt, et **sous le plafond**.
+Sans ce troisième, un mutant qui montrerait TOUJOURS un bandeau passerait les
+deux premiers.
+
+```text
+VERDICT AFFICHÉ   const bloque = … === true       → !==   1 failed | 36 passed
+                  {bloque && (…)}                 → ||    1 failed | 36 passed
+                  {!bloque && etat === 'bloque'}  → !==   1 failed | 36 passed
+                  source saine                            37 passed (37)
+```
+
+### Le montage empilait, et c'est corrigé DANS le mécanisme
+
+Le banc a rougi sur source saine au deuxième état : la vue semblait annoncer
+« ARRÊTÉE » sur un projet qui ne l'était pas. Elle ne le faisait pas —
+`monter()` n'effaçait pas le montage précédent, et le bandeau venait d'avant.
+
+Le réflexe rapide aurait été de découper en trois bancs séparés : le symptôme
+aurait disparu, le piège serait resté armé pour le suivant. `monter()` démonte
+désormais le précédent, et tout le fichier y gagne (§ 9 nonagies).

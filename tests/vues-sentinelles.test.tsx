@@ -150,6 +150,20 @@ function instantane(over: Partial<StateSnapshot> = {}): StateSnapshot {
 }
 
 async function monter(ui: React.ReactElement): Promise<HTMLElement> {
+  // ─── ON DÉMONTE LE PRÉCÉDENT, ET C'EST UN DÉFAUT MESURÉ ────────────────────
+  //
+  // `monter` rend `document.body` (les modales se montent par PORTAIL, hors du
+  // conteneur). Sans ce nettoyage, deux appels dans un MÊME banc laissaient
+  // deux arbres empilés dans le corps : le second cherchait ses éléments et
+  // trouvait aussi ceux du premier.
+  //
+  // Le premier banc à monter trois états d'affilée l'a payé — il accusait la
+  // vue de montrer « ARRÊTÉE » sur un projet qui ne l'était pas, alors que le
+  // bandeau venait du montage PRÉCÉDENT. L'`afterEach` ne rattrapait rien : il
+  // ne connaît que le DERNIER conteneur, les autres fuyaient jusqu'à la fin du
+  // fichier.
+  if (racine) act(() => racine?.unmount());
+  conteneur?.remove();
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -761,6 +775,85 @@ describe('les sentinelles du balayage du soir', () => {
     });
     expect(entree('miel.txt')?.className, 'le fichier ouvert est actif').toContain('active');
     expect(entree('cire.txt')?.className, 'un autre fichier ne l’est pas').not.toContain('active');
+  });
+
+  it('BALANCE : « ARRÊTÉE » ne se dit QUE si l’assignation est vraiment arrêtée', async () => {
+    // ─── TROIS GARDES NUES SUR L'ÉCRAN DE L'ARGENT ─────────────────────────
+    //
+    //     const bloque = solde.bloque === true;      ===  →  !==
+    //     {bloque && (…)}                            &&   →  ||
+    //     {!bloque && etat === 'bloque' && (…)}      ===  →  !==
+    //
+    // Les deux bandeaux ne disent PAS la même chose :
+    //
+    //   « ARRÊTÉE »  l'assignation est stoppée pour de bon — la ruche tourne en
+    //                « strict » et le plafond est atteint ;
+    //   « atteint »  le plafond est atteint mais RIEN n'est arrêté.
+    //
+    // Les confondre, c'est annoncer à quelqu'un que son projet est à l'arrêt
+    // quand il tourne — ou se taire quand il est vraiment stoppé. Sur l'écran
+    // qui parle de plafonds et de dépense, c'est la pire des deux erreurs
+    // possibles, dans les deux sens.
+    const soldeAvec = (bloque: boolean, etat: string) =>
+      ({
+        projectId: 'p1',
+        depenseMs: 90_000,
+        tentatives: 0,
+        plafondMs: 100_000,
+        etat,
+        bloque,
+      }) as never;
+
+    const bandeaux = (dom: HTMLElement) => ({
+      arretee: dom.querySelector('.bal-plafond-badge.bloque') !== null,
+      atteint: dom.querySelector('.bal-plafond-badge.atteint') !== null,
+    });
+
+    // 1. VRAIMENT arrêtée : le bandeau « ARRÊTÉE », et lui seul.
+    let dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={soldeAvec(true, 'bloque')}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    expect(bandeaux(dom), 'arrêtée : « ARRÊTÉE » seul').toEqual({ arretee: true, atteint: false });
+
+    // 2. Plafond atteint mais RIEN d'arrêté : l'autre bandeau, et lui seul.
+    dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={soldeAvec(false, 'bloque')}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    expect(bandeaux(dom), 'atteint sans arrêt : « atteint » seul').toEqual({
+      arretee: false,
+      atteint: true,
+    });
+
+    // 3. Rien d'atteint : aucun bandeau. Sans ce cas, un mutant qui montrerait
+    //    TOUJOURS un bandeau passerait les deux premiers.
+    dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={soldeAvec(false, 'passe')}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    expect(bandeaux(dom), 'sous le plafond : aucun bandeau').toEqual({
+      arretee: false,
+      atteint: false,
+    });
   });
 
   it('BALANCE : le geste ARMÉ dit ce qu’il va faire — sinon on confirme à l’aveugle', async () => {

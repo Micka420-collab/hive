@@ -9194,3 +9194,45 @@ C'est le quatrième montage fautif de la même série, et le fil ne varie pas : 
 garde accusait du code sain, et c'est la garde qui avait tort. Les quatre fois,
 chercher la cause a rendu un banc meilleur ; assouplir l'assertion aurait rendu
 un banc muet.
+
+### Cinquième montage fautif : un `monter()` qui EMPILE au lieu de remplacer
+
+Le banc devait vérifier trois états successifs du bandeau de plafond : arrêté,
+atteint-sans-arrêt, sous le plafond. Il a rougi sur source SAINE au deuxième :
+
+    atteint sans arrêt : attendu { arretee: false, atteint: true }
+                         reçu   { arretee: true,  atteint: true }
+
+La vue semblait annoncer « ARRÊTÉE » sur un projet qui ne l'était pas — un défaut
+grave, sur l'écran de l'argent. Il n'existait pas.
+
+`monter()` crée un conteneur, l'ajoute au corps, et rend `document.body` — à bon
+droit : les modales se montent par PORTAIL, donc hors du conteneur. Mais il ne
+démontait pas le précédent. Deux appels dans un même banc laissaient **deux
+arbres empilés**, et le second cherchait ses éléments en trouvant aussi ceux du
+premier. Le bandeau « ARRÊTÉE » venait du montage d'AVANT.
+
+L'`afterEach` ne rattrapait rien : il ne connaît que le DERNIER conteneur, les
+autres fuyaient jusqu'à la fin du fichier.
+
+> **Un utilitaire de montage qui rend le document entier doit démonter le
+> précédent, sinon les montages s'ADDITIONNENT.** Et l'addition ne se voit pas :
+> elle produit un faux positif qui ressemble trait pour trait à un défaut du
+> produit.
+
+### La correction est allée dans le MÉCANISME, pas dans le cas
+
+Le réflexe rapide aurait été de découper le banc en trois `it` séparés — chacun
+aurait eu son `afterEach`, et le symptôme aurait disparu. Le piège serait resté
+armé pour le banc suivant qui monte deux fois.
+
+`monter()` démonte désormais le précédent. Le banc a pu garder sa forme (trois
+états lus d'affilée, ce qui se relit mieux qu'un état par banc), et tout le
+fichier y gagne.
+
+C'est le cinquième montage fautif de la série — après `<br />` contre `<br>`,
+les attributs oubliés, le tableau empoisonné par le rangement et l'horloge
+factice qui ne gèle pas les promesses. Le fil est identique à chaque fois, et
+c'est ce qui en fait une règle plutôt qu'une anecdote : **une garde neuve qui
+accuse du code sain a presque toujours tort.** Cinq fois sur cinq, chercher la
+cause a rendu un banc — ou un utilitaire — meilleur.
