@@ -6348,3 +6348,122 @@ Deux suites possibles, et **aucune des deux n'est la mienne à trancher** :
 En attendant l'arbitrage, c'est la seconde qui s'applique par défaut, parce que
 c'est la seule qui ne prétende rien : le tableau ci-dessus part dans le
 definition of done, chiffres nus.
+
+---
+
+## Liste 3, point 3.2 : `curl … | sh` s'exécutait AU FUR ET À MESURE
+
+Le point 3.1 (macOS) est fermé depuis le 14 août. Le 3.5 (dette du balayage)
+vient d'être tranché. Le 3.4 est réservé à l'utilisateur. Reste le **3.2**, et
+il contenait un défaut qui ne demande **aucune clé, aucun compte, aucune
+décision humaine** — donc qui était à moi.
+
+### Ce que le point 3.2 disait, et ce qu'il ne voyait pas
+
+Il disait : ni Release, ni empreinte publiée, ni signature — un arrivant prudent
+s'arrête, et il a raison. Vrai, et hors d'atteinte (§ 4 : clés et numéro de
+version). Ce qu'il ne disait pas, c'est que **la forme de la commande** posait un
+problème distinct, entièrement en atteinte.
+
+`sh` ne lit pas un script d'un bloc. Il lit ce qui arrive, l'exécute, et
+redemande la suite. `install.sh` étant une suite d'ordres de premier niveau,
+toute coupure du tuyau laissait derrière elle tout ce qui était déjà arrivé.
+
+### Mesuré AVANT d'écrire quoi que ce soit
+
+```text
+$ head -416 install.sh | sh
+CODE=0
+
+  +----------------------------------------------------------------+
+  | <>  H I V E                                        installation |
+  +----------------------------------------------------------------+
+    o  Vérification des prérequis
+    |  + Node 24 (≥ 24 exigé)
+    |  + git 2.43.0
+```
+
+**Code 0.** Une bannière, deux coches vertes, et rien d'installé. C'est le pire
+des trois résultats possibles : un utilisateur croit que c'est fini, un script
+appelant croit que ça a marché. Un échec bruyant vaudrait mieux.
+
+### Le remède, et ce qu'il garantit EXACTEMENT
+
+Tout le travail entre dans `principal()`, appelée à la dernière ligne. `sh` ne
+peut alors plus rien lancer avant d'avoir lu le fichier entier.
+
+| Point de coupure | Avant                     | Après                            |
+| ---------------- | ------------------------- | -------------------------------- |
+| dans le corps    | tout le préfixe s'exécute | `end of file unexpected`         |
+| après l'accolade | tout le préfixe s'exécute | fonction définie, jamais appelée |
+
+Re-mesuré au même point de coupure : **`CODE=2`, 0 octet sur la sortie standard,
+aucun dossier créé.**
+
+La propriété gardée est **« jamais d'exécution PARTIELLE »**, et elle s'écrit
+comme ça, pas autrement. Couper sur la toute dernière ligne rend encore 0 sans
+rien faire — ne rien faire est sans danger, faire la moitié ne l'est pas. Le banc
+le dit dans son en-tête plutôt que de promettre « toute coupure est signalée ».
+
+### Le banc joue le geste, pas l'orthographe
+
+`tests/installeur-tuyau-coupe.test.ts` coupe `install.sh` à dix endroits et le
+donne à `sh` **par l'entrée standard** — le geste exact de `curl | sh` — puis
+exige que rien ne sorte. Il porte aussi son propre témoin : le script joué en
+ENTIER doit, lui, parler. Sans ce témoin, un `install.sh` qui ne ferait plus
+rien du tout passerait les dix assertions.
+
+**Verdict affiché.** Avant le correctif : `7 failed | 5 passed (12)`. Après :
+`12 passed (12)`. Les cinq verts d'avance sont les coupures qui tombent dans
+l'en-tête de commentaires — elles n'écrivaient déjà rien, et le dire est plus
+honnête que de choisir dix points qui rougissent tous.
+
+### Deux bornes, dites plutôt que maquillées
+
+- **`install.ps1` n'est pas concerné, et le banc ne le regarde pas.** Le README
+  ne canalise rien vers PowerShell : il télécharge dans un fichier (`-OutFile`)
+  puis lance `powershell -File`. PowerShell analyse le fichier entier avant la
+  première ligne — la forme de la commande protège déjà. Étendre le banc là-bas
+  garderait une propriété que personne ne peut casser depuis le chemin
+  recommandé.
+- **Ça ne remplace pas une Release signée.** Un attaquant qui sert le fichier
+  sert un fichier COMPLET ; cette garde ne parle que des accidents de transport.
+  Le point 3.2 reste ouvert pour ce qu'il visait d'abord.
+
+### L'installation, re-mesurée de bout en bout
+
+Un correctif d'installeur qui casse l'installation ne vaut rien :
+
+```text
+✔ 1/3 — installation sortie en 0, 25 s
+✔ 2/3 — .env en -rw-------
+✔ 3/3 — la ruche répond sur :7777 après 2s
+```
+
+### Ce que la loupe dit de ce lot, et les deux raisons qu'il ne faut pas confondre
+
+```text
+LOUPE : aucune ligne mutable ajoutée par cette branche.
+        (rien à conclure — ce n’est PAS un feu vert.)
+```
+
+L'instrument refuse de donner un verdict, et il a raison deux fois plutôt
+qu'une. Les deux raisons sont distinctes, et les confondre ferait passer une
+borne de l'outil pour une propriété du lot :
+
+1. **Ce diff n'a rien à muter.** Il ajoute des commentaires, une enveloppe
+   `principal() { … }` et un fichier de banc. Aucun opérateur. Forcée sur
+   `install.sh` par `LOUPE_CHEMINS`, la loupe rend la même phrase — ce n'est
+   donc pas un effet de périmètre ici.
+2. **Mais `install.sh` n'est PAS dans le périmètre par défaut.**
+   `PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts']` : le fichier que
+   tout arrivant exécute en premier n'est regardé par la loupe que si on l'y
+   met à la main. Aujourd'hui ça ne change rien ; le jour où une ligne de
+   décision y sera ajoutée, ça changera tout.
+
+Le point 2 est un trou dans la PORTÉE de l'instrument, pas dans ce lot — c'est
+exactement le § 9 quinoctogies (« la portée d'une garde fait partie de la
+garde »), appliqué à la garde qui juge toutes les autres. Il est noté ici et
+non refermé : les opérateurs de la loupe sont ceux de JavaScript, et les lâcher
+sur du `sh` demande d'abord de savoir lesquels ont un sens là-bas. C'est un lot,
+pas une rustine de fin de tour.

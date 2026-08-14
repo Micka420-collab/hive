@@ -8684,3 +8684,65 @@ of done, plutôt que de laisser un ✅ de lot donner à croire qu'ils sont plein
 > côté il tombera.** Après, ce n'est plus un critère — et le seul moyen de
 > savoir si on l'a écrit trop tard, c'est de se demander si on serait prêt à
 > l'appliquer au résultat inverse.
+
+---
+
+## 9 octooctogies. J'avais audité le CONTENU du script d'installation, jamais la FORME par laquelle il arrive
+
+`install.sh` est le fichier le plus relu du dépôt. Son en-tête énumère ce qu'il
+s'interdit — aucun `sudo`, aucune installation de Node à la place de
+l'utilisateur, aucun port ouvert —, ses codes de sortie sont alignés sur ceux du
+produit, son `.env` naît en 0600, et une jambe de CI mène l'installation
+jusqu'à une ruche qui répond, sur deux systèmes.
+
+Tout cela porte sur ce que le fichier CONTIENT. Le défaut, lui, vivait dans la
+façon dont il ARRIVE.
+
+### Le défaut
+
+La commande du README est `curl … | sh`. `sh` ne lit pas le script d'un bloc :
+il lit ce qui arrive, l'exécute, et redemande la suite. Une coupure du tuyau —
+wifi, mandataire, CDN — laissait donc s'exécuter tout ce qui était déjà arrivé,
+et `sh` rendait **0**, parce que le dernier ordre complet avait réussi.
+
+    head -416 install.sh | sh   →   CODE=0, bannière, deux coches vertes,
+                                    et rien d'installé.
+
+Aucune relecture du contenu ne pouvait trouver ça. Le fichier est correct ligne
+à ligne ; c'est le COUPLE fichier + tuyau qui ne l'est pas.
+
+### Pourquoi je ne l'avais pas vu
+
+Parce que j'avais lu le script comme un programme, et qu'un programme est ce
+qu'on lit. Mais un script canalisé dans un shell n'est pas un programme : c'est
+un FLUX d'ordres, et son unité d'exécution n'est pas le fichier, c'est la ligne
+arrivée. Le modèle mental était faux, pas la lecture.
+
+C'est la même famille que le § 9 quinoctogies (la portée d'une garde fait partie
+de la garde) et que le constat de la loupe — ses quatre défauts vivaient dans la
+COLLE entre ses fonctions pures, pas dans les fonctions. À chaque fois, la faute
+est au JOINT : entre une garde et son périmètre, entre deux fonctions, entre un
+fichier et son canal.
+
+### La règle
+
+> **Un artefact qu'on livre a deux propriétés : ce qu'il contient, et la façon
+> dont il arrive. Auditer la première et pas la seconde, c'est vérifier une
+> serrure sans regarder si la porte est posée.**
+
+Le test qui la garde ne relit pas la source : il COUPE le fichier et le donne à
+`sh` par l'entrée standard — le geste exact du README — puis regarde ce qui est
+sorti. Un banc qui aurait cherché `principal()` dans le texte aurait gardé une
+orthographe ; celui-là garde le comportement dans les conditions réelles de
+livraison.
+
+### Et le corollaire, qui coûte moins cher que la leçon
+
+Pour chaque chose que le projet demande à quelqu'un d'exécuter, la question à
+poser une fois est : **par quel chemin arrive-t-elle, et que se passe-t-il si ce
+chemin se coupe au milieu ?** Elle a rendu ici un défaut de gravité réelle en
+dix minutes de mesure. Posée sur `install.ps1`, elle a rendu « rien à faire » en
+deux minutes — le README y télécharge dans un fichier avant d'exécuter, et
+PowerShell analyse le tout avant la première ligne. Une question qui répond
+« rien à faire » n'est pas une question perdue : c'est une borne qu'on peut
+écrire au lieu de la supposer.

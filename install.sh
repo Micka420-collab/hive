@@ -30,6 +30,42 @@
 
 set -eu
 
+# ─── POURQUOI TOUT LE SCRIPT TIENT DANS UNE FONCTION ─────────────────────────
+#
+# La commande d'entrée de Hive est `curl … | sh`. Or `sh` ne lit PAS le script
+# d'un bloc : il lit ce qui arrive, l'exécute, et redemande la suite. Tant que
+# le travail était une suite d'ordres de premier niveau, une coupure du tuyau —
+# wifi qui tombe, mandataire qui expire, CDN qui hoquette — laissait derrière
+# elle tout ce qui était déjà arrivé. Mesuré sur cet arbre, en coupant juste
+# avant le clone :
+#
+#     head -416 install.sh | sh   →   CODE=0, une bannière, deux coches vertes,
+#                                     et rien d'installé.
+#
+# Code 0. L'utilisateur croit que c'est fini ; un script appelant croit que ça a
+# marché. C'est le pire des trois résultats possibles — pire qu'un échec bruyant.
+#
+# Avec l'appel en DERNIÈRE ligne, `sh` ne peut plus rien lancer avant d'avoir lu
+# le fichier entier : coupé dans le corps, il meurt sur « end of file
+# unexpected » ; coupé après l'accolade, il définit une fonction qu'il n'appelle
+# jamais. Dans les deux cas, RIEN n'a tourné.
+#
+# Ce que ça garantit, exactement : jamais d'exécution PARTIELLE. Pas « toute
+# coupure est signalée » — couper sur la toute dernière ligne rend encore 0 sans
+# rien faire. Ne rien faire est sans danger ; faire la moitié ne l'est pas.
+#
+# ─── ET POURQUOI LE CORPS N'EST PAS INDENTÉ ──────────────────────────────────
+#
+# Décaler 580 lignes de deux espaces rendrait CHAQUE ligne modifiée dans le
+# diff, et noierait le seul changement qui compte — celui-ci — dans du bruit.
+# Sur un script qu'on demande aux gens d'exécuter en aveugle, un diff relisible
+# vaut mieux qu'une indentation conforme. `sh` ne lit pas les espaces.
+#
+# Le banc qui garde tout ça : `tests/installeur-tuyau-coupe.test.ts`. Il coupe
+# ce fichier en dix endroits et le donne à `sh` par l'entrée standard — le geste
+# exact de `curl | sh` — puis exige que rien ne sorte.
+principal() {
+
 NODE_MIN=24
 # Le dépôt d'où l'on tire Hive. Surchargeable par l'environnement pour UNE
 # raison : éprouver l'installation SUR L'ARBRE QU'ON VIENT D'ÉCRIRE. Sans cela,
@@ -610,3 +646,9 @@ else
   accent "    cd $DOSSIER && npm run build:dashboard"
   dire ""
 fi
+
+}
+
+# La dernière ligne du fichier, et c'est tout l'intérêt : rien ne s'exécute
+# avant que `sh` ait lu jusqu'ici.
+principal "$@"
