@@ -6123,3 +6123,56 @@ J'ai failli en conclure « Windows pend », ce qui aurait été le § 9 terseptu
 invoqué à tort. La règle qui a servi est celle qui sert toujours : **la pastille
 n'est pas la mesure — le journal l'est.** Elle vaut dans les deux sens, pas
 seulement quand le vert est suspect.
+
+---
+
+## Le même terrain, rebalayé après les dix sentinelles : 25 jouées, zéro nue
+
+`dashboard/src/views` avait rendu **25 survivantes sur 42 examinées** au premier
+balayage — la plus forte densité de nudité du dépôt. Les dix nommées ont été
+tranchées une par une (PR #256 à #262), dont neuf par extraction en modules purs
+ou par sentinelle de rendu React.
+
+Rebalayé sur la même base épinglée, avec un pas différent :
+
+```text
+LOUPE : 440 mutation(s) possible(s) sur le diff, 25 examinée(s).
+        415 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas.
+
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+**25 jouées, 0 survivante**, réparties sur quinze fichiers :
+
+| fichier          | mutations jouées |
+| ---------------- | ---------------- |
+| `Projets.tsx`    | 5                |
+| `Balance.tsx`    | 3                |
+| `Cerveau.tsx`    | 3                |
+| `Essaim.tsx`     | 2                |
+| `Intendance.tsx` | 2                |
+| `Sante.tsx`      | 2                |
+| huit autres      | 1 chacun         |
+
+### Ce que ce zéro dit, et ce qu'il ne dit PAS
+
+Il dit que le pas 18 — une candidate sur dix-huit, réparties sur tout le
+dossier — ne trouve plus rien de nu. C'est un vrai changement : le même terrain
+rendait plus d'une survivante sur deux examinées.
+
+Il ne dit PAS que le dossier est couvert. **415 candidates restent hors de
+vue**, et les deux échantillons (42 à pas 11, puis 25 à pas 18) se recouvrent
+partiellement : je ne connais pas la taille exacte de leur union et je ne vais
+pas la deviner. L'ordre de grandeur honnête est **une soixantaine de candidates
+distinctes sur 440**, soit moins de 15 %.
+
+### La leçon de méthode, qui vaut au-delà de ce dossier
+
+Les neuf survivantes sur dix ont été fermées non pas en ajoutant un test là où
+elles étaient, mais en DÉPLAÇANT la décision : sortie du JSX vers un module pur,
+ou montée de la vue dans un banc `happy-dom`. Aucune n'a demandé de changer le
+comportement du produit.
+
+C'est le § 2 quaterdecies dans sa forme la plus économique : la nudité n'était
+pas un manque de tests, c'était un mauvais emplacement. Les tests manquants
+étaient impossibles à écrire tant que le code restait là où il était.
