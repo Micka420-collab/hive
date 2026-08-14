@@ -54,6 +54,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
   fetchCles: vi.fn(() => Promise.resolve({ noeuds: [], billets: [] })),
+  setMembreRole: vi.fn(() => Promise.resolve({ userId: 'u', role: 'admin' })),
   fetchMembres: vi.fn(() =>
     Promise.resolve({
       membres: [],
@@ -64,6 +65,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import {
+  fetchApercu,
   fetchChantiers,
   fetchEssaim,
   fetchProjectBalance,
@@ -73,7 +75,10 @@ import {
   fetchMemories,
   fetchMonTableau,
   fetchRayon,
+  fetchMembres,
+  fetchRuns,
   fetchServeurs,
+  setMembreRole,
   fetchVerdictChantier,
 } from '../dashboard/src/api';
 import { PleinEssaim } from '../dashboard/src/PleinEssaim';
@@ -1344,5 +1349,232 @@ describe('les sentinelles du balayage du soir', () => {
       inconnu?.querySelector('.ch-refus')?.textContent ?? '',
       'ce qu’on n’a pas su classer se corrige en renommant',
     ).toContain('Nature inconnue');
+  });
+  // ─── LA FAMILLE « SECTION VIDE », ET UNE QUI N'EN EST PAS UNE ──────────────
+  //
+  // Les quatre derniers survivants nommés du balayage. Trois sont des sections
+  // qui s'afficheraient à vide ; la première n'est PAS cosmétique du tout, et
+  // je l'avais rangée là par erreur dans la PR précédente.
+
+  it('INTENDANCE : pas de fausse alerte d’effacement DÉFINITIF', async () => {
+    // `vue.bientotSupprimes.length > 0` mutée en `>= 0` rend le paragraphe même
+    // quand la liste est VIDE. Ce n'est pas une section disgracieuse : c'est un
+    // `role="status"` — donc ANNONCÉ À VOIX HAUTE par un lecteur d'écran — qui
+    // dit « Effacement définitif imminent — le travail de ces machines part
+    // avec elles : » et ne nomme AUCUNE machine.
+    //
+    // Une fausse alerte sur un effacement irréversible est le pire message que
+    // cet écran puisse produire : elle appelle un geste de panique (payer,
+    // sauvegarder en urgence) pour un danger qui n'existe pas.
+    const sansMachine = {
+      total: 0,
+      facturables: 0,
+      parEtat: { demande: 0, provisionnement: 0, pret: 0, arrete: 0, supprime: 0, echoue: 0 },
+    };
+    vi.mocked(fetchServeurs).mockResolvedValue({
+      vue: { ...sansMachine, bientotSupprimes: [] },
+      serveurs: [],
+      fournisseur: 'manuel',
+      retentionJours: 30,
+      serveursMax: 8,
+    } as never);
+    const calme = await monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    // Sur la CLASSE seule, ce banc rougirait le jour où l'avertissement
+    // d'inscription — qui porte le même `.in-alerte` dans la section des
+    // comptes — devient non vide. On vise donc la PHRASE.
+    const alertes = (dom: HTMLElement) =>
+      [...dom.querySelectorAll('.in-alerte')].filter((e) =>
+        (e.textContent ?? '').includes('Effacement définitif'),
+      );
+    expect(alertes(calme), 'aucune machine en sursis ⇒ AUCUNE alerte annoncée').toHaveLength(0);
+
+    act(() => racine?.unmount());
+    vi.mocked(fetchServeurs).mockResolvedValue({
+      vue: { ...sansMachine, bientotSupprimes: [{ id: 'srv-condamne', jours: 2 }] },
+      serveurs: [],
+      fournisseur: 'manuel',
+      retentionJours: 30,
+      serveursMax: 8,
+    } as never);
+    const alarme = await monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    const texte = alertes(alarme)[0]?.textContent ?? '';
+    expect(texte, 'une vraie alerte NOMME la machine').toContain('srv-condamne');
+    expect(texte, 'et son délai').toContain('2');
+  });
+
+  it('CHANTIERS : aucune exécution ⇒ pas de liste vide', async () => {
+    // `runs.length > 0` mutée en `>= 0` rend un `<ul className="ch-runs">` vide.
+    // Un projet neuf n'a jamais rien lancé : c'est l'état de départ de tout le
+    // monde, et l'écran y montrerait une liste d'exécutions sans exécution.
+    vi.mocked(fetchRuns).mockResolvedValue({ runs: [] } as never);
+    const dom = await monter(
+      <Chantiers
+        {...props(
+          instantane({
+            projects: [
+              {
+                id: 'p1',
+                name: 'Rucher',
+                repoUrl: null,
+                description: null,
+                visibility: 'private',
+                ownerId: null,
+                createdAt: 1,
+              },
+            ] as never,
+          }),
+        )}
+      />,
+    );
+    expect(dom.querySelector('.ch-runs'), 'rien lancé ⇒ aucune liste').toBeNull();
+  });
+
+  it('RAYON : au repos, AUCUN avertissement — et une vraie erreur garde son habit', async () => {
+    // `{apercuErreur && …}` mutée en `||` casse les deux sens :
+    //   · au repos (`null`), le court-circuit rend le `<p>` : un « ⚠ » nu
+    //     s'affiche en permanence, sans rien dire ;
+    //   · avec une VRAIE erreur, l'expression rend la CHAÎNE seule — le
+    //     paragraphe, sa classe et le pictogramme disparaissent, et le message
+    //     tombe cru dans la page.
+    vi.mocked(fetchApercu).mockRejectedValue(new Error('Aucun index.html à la racine'));
+    const dom = await monter(
+      <Rayon
+        {...props(
+          instantane({
+            projects: [
+              {
+                id: 'p1',
+                name: 'Rucher',
+                repoUrl: null,
+                description: null,
+                visibility: 'private',
+                ownerId: null,
+                createdAt: 1,
+              },
+            ] as never,
+          }),
+        )}
+      />,
+    );
+    expect(
+      dom.querySelector('.ry-erreur'),
+      'personne n’a demandé d’aperçu : rien à avertir',
+    ).toBeNull();
+
+    const btn = dom.querySelector('.ry-apercu-btn');
+    expect(btn, 'le bouton d’aperçu existe').toBeTruthy();
+    await act(async () => {
+      btn?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    const erreur = dom.querySelector('.ry-erreur');
+    expect(erreur, 'le refus s’affiche DANS son paragraphe').toBeTruthy();
+    expect(erreur?.textContent ?? '', 'avec le pictogramme et le motif').toContain('⚠');
+    expect(erreur?.textContent ?? '').toContain('index.html');
+  });
+
+  it('BALANCE : un poste à ZÉRO ne pose pas de segment invisible', async () => {
+    // `s.pct > 0` mutée en `>= 0` pose un `<span style="width: 0%">` pour chaque
+    // poste vide. Invisible à l'œil, mais il porte un `title` — donc une cible
+    // de survol de largeur nulle — et la légende en dessous liste DÉJÀ les
+    // quatre postes avec leurs millisecondes. Le segment nul n'ajoute rien et
+    // encombre la barre de trois éléments morts.
+    //
+    // C'est le survivant le moins grave des dix, et il se dit comme tel : la
+    // conséquence est du DOM inutile, pas un mensonge à l'écran.
+    const peseeUnPoste = {
+      version: 1,
+      mode: 'strict',
+      aJour: true,
+      fenetre: 100,
+      pesee: {
+        version: 1,
+        global: {
+          utileMs: 60_000,
+          repriseMs: 0,
+          echecMs: 0,
+          rebuteMs: 0,
+          totalMs: 60_000,
+          tentatives: 4,
+          rendement: 1,
+        },
+        parProjet: [],
+        parNoeud: [],
+        reprises: { taches: 0, tentatives: 0 },
+        corpus: { taches: 3, tentatives: 4, ignorees: 0 },
+      },
+      soldes: [],
+    } as never;
+    const dom = await monter(
+      <CarteBalance balance={peseeUnPoste} erreur={null} snapshot={instantane()} />,
+    );
+    const segments = [...dom.querySelectorAll('.bal-seg')];
+    expect(segments, 'un seul poste porte du miel ⇒ un seul segment').toHaveLength(1);
+    expect(
+      [...dom.querySelectorAll('.bal-legend-item')].length,
+      'la légende, elle, nomme bien les QUATRE postes',
+    ).toBe(4);
+  });
+  it('INTENDANCE : le « … » ne se pose que sur la ligne qu’on vient de toucher', async () => {
+    // `busy === m.id` mutée en `!==` retourne l'écran : la ligne qu'on vient de
+    // cliquer retrouve son libellé, et TOUTES LES AUTRES affichent « … ».
+    //
+    // On croit alors avoir manqué son clic — donc on reclique —, ou que la
+    // ruche s'occupe de comptes qu'on n'a jamais touchés. Les boutons sont
+    // désactivés pendant l'envoi (`disabled={busy !== null}`), donc le geste ne
+    // part pas deux fois ; ce qui est cassé, c'est ce que l'écran RACONTE.
+    //
+    // Le monde « pendant l'envoi » se fabrique sans réseau : une promesse qui
+    // ne se résout jamais laisse `busy` posé.
+    vi.mocked(fetchMembres).mockResolvedValue({
+      membres: [
+        { id: 'u-alice', displayName: 'Alice', email: 'a@x', role: 'membre' },
+        { id: 'u-bob', displayName: 'Bob', email: 'b@x', role: 'membre' },
+      ],
+      admins: 1,
+      inscription: { mode: 'ouverte', avertissement: '' },
+    } as never);
+    vi.mocked(setMembreRole).mockImplementation(() => new Promise(() => {}) as never);
+    const dom = await monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { id: 'u-moi', displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    const lignes = [...dom.querySelectorAll('.in-table tbody tr')];
+    const ligneDe = (nom: string) => lignes.find((l) => (l.textContent ?? '').includes(nom));
+    const gesteDe = (nom: string) => ligneDe(nom)?.querySelector('.in-geste');
+    expect(gesteDe('Alice'), 'le geste d’Alice existe').toBeTruthy();
+    expect(gesteDe('Bob'), 'le geste de Bob existe').toBeTruthy();
+
+    await act(async () => {
+      gesteDe('Alice')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+
+    expect(gesteDe('Alice')?.textContent, 'la ligne TOUCHÉE attend').toBe('…');
+    expect(
+      gesteDe('Bob')?.textContent,
+      'la ligne qu’on n’a pas touchée garde son libellé',
+    ).not.toBe('…');
+    expect(gesteDe('Bob')?.textContent ?? '').toContain('administrateur');
   });
 });
