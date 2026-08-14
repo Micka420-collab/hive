@@ -30,7 +30,7 @@
 // TROIS scripts la portent — c'est la seule formulation qui aurait montré le
 // trou, puisque chacun pris séparément avait l'air complet.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -46,6 +46,72 @@ const SCRIPTS = ['install.sh', 'install.ps1', 'examples/deploiement-sans-ecran.s
 function nu(source: string): string {
   return source.replace(/^\s*#.*$/gm, '');
 }
+
+// ─── ET LA LISTE CI-DESSUS, QUI LA GARDE ? ───────────────────────────────────
+//
+// `SCRIPTS` est écrite à la main. C'est exactement la forme qui a laissé
+// `irm … | iex` survivre dans deux documents que sa propre garde ne regardait
+// pas (§ 9 nonoctogies) : une liste garde ce à quoi on a pensé le jour où on
+// l'a écrite, et un quatrième script né demain serait DEHORS par défaut.
+//
+// On ne bascule pas pour autant sur une découverte pure. « Un script qui promet
+// une ruche qui démarre » ne se détecte pas proprement : `essai-installation.sh`
+// mentionne `npm install` dans un COMMENTAIRE, et `deploiement-sans-ecran.sh` le
+// fait dire par un `dire "…"` au lieu de le lancer. Un critère qu'il faut border
+// à coups d'exceptions vaudrait moins qu'une liste honnête.
+//
+// D'où la forme retenue : la liste RESTE, et une garde de COMPLÉTUDE lui est
+// adossée. La découverte ne remplace pas la liste, elle exige que la liste la
+// couvre — et le défaut par défaut s'inverse.
+
+const OU_CHERCHER = ['.', 'examples', 'scripts', 'docker'];
+const EXECUTABLES = /\.(sh|ps1)$/;
+/** Ce qui fait d'un script une PROMESSE : il pose des dépendances. */
+const IL_INSTALLE = /npm\s+(install|ci)\b|npm\s+run\s+install:hive/;
+
+/** Tout script du dépôt qui installe des dépendances, hors commentaires. */
+function scriptsQuiInstallent(): string[] {
+  const trouves: string[] = [];
+  for (const dossier of OU_CHERCHER) {
+    const abs = path.join(RACINE, dossier);
+    let entrees: string[];
+    try {
+      entrees = readdirSync(abs);
+    } catch {
+      continue;
+    }
+    for (const nom of entrees) {
+      if (!EXECUTABLES.test(nom)) continue;
+      const rel = dossier === '.' ? nom : `${dossier}/${nom}`;
+      if (IL_INSTALLE.test(nu(lire(rel)))) trouves.push(rel);
+    }
+  }
+  return trouves;
+}
+
+describe('LA LISTE DES SCRIPTS GARDÉS EST COMPLÈTE', () => {
+  it('aucun script n’installe des dépendances sans être dans la liste', () => {
+    // ─── L'ASSERTION QUI INVERSE LE DÉFAUT PAR DÉFAUT ──────────────────────
+    //
+    // Aujourd'hui la découverte rend EXACTEMENT les trois de la liste : ce lot
+    // ne change donc rien d'observable, et il faut le dire ainsi plutôt que de
+    // le vendre comme une correction. Ce qu'il change est le comportement
+    // FUTUR — un quatrième script qui pose des dépendances rougira ici au lieu
+    // d'entrer sans être vu (§ 9 octogies : une liste d'admission et une liste
+    // de refus ne se trompent pas dans le même sens).
+    const oublies = scriptsQuiInstallent().filter((f) => !SCRIPTS.includes(f as never));
+    expect(
+      oublies,
+      'ces scripts posent des dépendances mais aucune garde ne vérifie qu’elles se chargent',
+    ).toEqual([]);
+  });
+
+  it('et la découverte voit vraiment quelque chose', () => {
+    // Une découverte qui ne trouve rien rendrait l'assertion ci-dessus verte à
+    // vide — le défaut qu'on ferme, reproduit un cran plus haut.
+    expect(scriptsQuiInstallent().sort()).toEqual([...SCRIPTS].sort());
+  });
+});
 
 describe('LES TROIS SCRIPTS VÉRIFIENT QUE LA RUCHE PEUT DÉMARRER', () => {
   it.each(SCRIPTS)('%s charge les deux dépendances optionnelles pour de vrai', (f) => {

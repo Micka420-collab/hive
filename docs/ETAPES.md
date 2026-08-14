@@ -6555,3 +6555,75 @@ MUTANT  trouves.push(...fichiersDuDepot(…))  →  supprimé
 
 RESTAURÉ  10 passed (10)
 ```
+
+---
+
+## La même forme, cherchée ailleurs — et ce que ça n'a PAS donné
+
+La leçon § 9 nonoctogies dit qu'une garde née d'un incident hérite du périmètre
+de l'incident. Une leçon qui ne sert qu'une fois est une anecdote ; elle a donc
+été retournée contre le reste du dépôt.
+
+### Le décompte, d'abord
+
+**Quatorze bancs découvrent déjà** (`readdirSync`) : `security-invariants`,
+`rien-de-mort`, `ordre-declare`, `sondes-sans-secret`, `site-fraicheur`,
+`isolement-couverture` et huit autres. Les listes écrites à la main qui restent
+sont, pour la plupart, des ensembles réellement CLOS — deux README, trois
+fichiers Docker, quatre chemins d'`index.html`. Une liste de deux README n'a pas
+de troisième README à rater.
+
+**Une seule avait la mauvaise forme**, et son propre en-tête la désignait :
+
+```ts
+// tests/installeurs-demarrable.test.ts
+const SCRIPTS = ['install.sh', 'install.ps1', 'examples/deploiement-sans-ecran.sh'];
+```
+
+Le fichier existe parce qu'un `npm install` peut sortir avec 0 sans avoir posé
+le binaire natif de SQLite — la ruche meurt alors très loin de là. Trois scripts
+promettent une ruche qui démarre ; un quatrième né demain serait DEHORS.
+
+### Pourquoi la liste RESTE
+
+Le réflexe aurait été de basculer sur une découverte pure. Mesuré, le critère ne
+tient pas : `scripts/essai-installation.sh` mentionne `npm install` **dans un
+commentaire**, et `deploiement-sans-ecran.sh` le fait dire par un `dire "…"` au
+lieu de le lancer. Un critère qu'il faut border à coups d'exceptions vaut moins
+qu'une liste honnête.
+
+D'où la forme retenue : **la liste reste, une garde de COMPLÉTUDE lui est
+adossée.** La découverte ne remplace pas la liste — elle exige que la liste la
+couvre. Le défaut par défaut s'inverse sans que le critère ait à être parfait.
+
+### Ce que ce lot ne change pas, et il faut le dire ainsi
+
+Aujourd'hui la découverte rend **exactement les trois de la liste**. Le lot ne
+corrige donc **rien d'observable** : aucun script n'était oublié. Ce qu'il change
+est le comportement FUTUR, et c'est tout — le vendre comme une correction serait
+un arrondi.
+
+### Verdict affiché, deux mutations
+
+Un banc vert du premier coup est du décor tant qu'on ne l'a pas vu rougir. La
+première mutation éprouve la propriété réellement revendiquée : un quatrième
+script.
+
+```text
+MUTATION 1  examples/deploiement-mutant.sh, qui lance « npm install »
+            × aucun script n’installe des dépendances sans être dans la liste
+            × et la découverte voit vraiment quelque chose
+              [ 'examples/deploiement-mutant.sh' ] ≠ []
+            2 failed | 24 passed (26)
+
+MUTATION 2  « install.ps1 » retiré de SCRIPTS
+            [ 'install.ps1' ] ≠ []
+            2 failed | 21 passed (23)
+
+RESTAURÉ    26 passed (26)      (restauration PAR COPIE)
+```
+
+La seconde assertion — « la découverte voit vraiment quelque chose » — est là
+pour la raison qui a fait tout ce fil : une découverte qui ne trouverait rien
+rendrait la première verte à vide, c'est-à-dire le défaut qu'on ferme, reproduit
+un cran plus haut.

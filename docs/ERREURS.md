@@ -8838,3 +8838,33 @@ le correctif a **amélioré** ce qu'il touchait : le message d'échec dit
 maintenant pourquoi, et ce paragraphe-ci se suffit à lui-même au lieu de
 renvoyer implicitement à huit mille lignes de distance. Une garde qu'on ne peut
 pas satisfaire sans écrire mieux est une garde bien posée.
+
+### Retournée contre le reste du dépôt — et le décompte compte autant que la prise
+
+Une leçon qui ne sert qu'une fois est une anecdote. Celle-ci a donc été passée
+sur tous les bancs. **Quatorze découvrent déjà.** Les listes écrites à la main
+qui restent sont, pour la plupart, des ensembles réellement CLOS : deux README,
+trois fichiers Docker. Une liste de deux README n'a pas de troisième README à
+rater — y voir un défaut serait appliquer la règle sans la comprendre.
+
+Une seule avait la mauvaise forme : `tests/installeurs-demarrable.test.ts`, trois
+scripts qui promettent une ruche qui démarre, et rien pour un quatrième.
+
+Deux choses en sont sorties, qui prolongent la règle :
+
+**1. Ne pas basculer sur une découverte quand le critère ne tient pas.** « Un
+script qui promet une ruche qui démarre » ne se détecte pas proprement : l'un
+mentionne `npm install` dans un commentaire, l'autre le fait dire par un `dire
+"…"`. La forme retenue garde la LISTE et lui adosse une garde de COMPLÉTUDE — la
+découverte n'a plus à être exacte, seulement à ne rien laisser passer
+silencieusement. Le défaut par défaut s'inverse sans exiger un critère parfait.
+
+**2. Dire quand ça ne change rien.** La découverte rend aujourd'hui exactement
+les trois de la liste : aucun script n'était oublié, le lot ne corrige rien
+d'observable, il ne change que le comportement futur. C'est écrit tel quel dans
+le carnet.
+
+> **Une garde qu'on pose « au cas où » et qu'on présente comme une correction
+> est un arrondi.** Le seul moyen de ne pas se mentir est de dire, au moment de
+> la poser, ce qu'elle aurait attrapé — et « rien, aujourd'hui » est une réponse
+> honnête et suffisante.
