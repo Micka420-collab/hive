@@ -8304,3 +8304,60 @@ fois, le verdict portait sur autre chose que ce qu'on croyait mesurer.
 Ce qui l'a trouvée : rien de délibéré. C'est un effet de bord d'un changement de
 `PATH` fait pour une tout autre raison. Une garde qui n'existe pas se découvre
 par accident ou pas du tout — et compter sur l'accident n'est pas une méthode.
+
+---
+
+## 9 teroctogies. Une mesure sur un montage à moi ne mesure que mon montage
+
+En vérifiant qu'un ménage par `lsof` reconnaîtrait bien les processus de
+l'essai, j'ai voulu aller vite : plutôt qu'une installation complète, un
+dossier bricolé à la main — `package.json`, `src`, `scripts`, un lien vers
+`node_modules`, un `.env` écrit à la main — puis `npm run ruche`.
+
+Le résultat imprimé :
+
+```text
+ruche debout après 40s
+  pids : aucun
+PORT RENDU
+```
+
+« PORT RENDU » a l'air d'un succès. C'en est l'inverse exact : **la ruche
+n'avait jamais démarré** (`Exit 1`, avalé par le `&`), donc aucun processus ne
+tenait le port, donc la sortie ne disait rien du mécanisme que je prétendais
+mesurer. Le « après 40s » était la boucle d'attente arrivée au bout.
+
+### C'est la même faute que le `sed` qui n'avait pas mordu
+
+Quelques heures plus tôt, une mutation posée par `sed` avec des `||` non
+échappés ne s'était jamais appliquée, et son `CODE=0` avait été lu comme
+« le mutant survit ». Même forme :
+
+> **Une mesure dont le SUJET n'a pas été mis en place rend un résultat qui a
+> l'air d'en être un.** Elle ne rate pas bruyamment ; elle répond à côté, avec
+> aplomb.
+
+### Ce qui l'a rattrapée, et qui doit devenir un réflexe
+
+Une seule chose : avoir regardé la ligne `[1]+ Exit 1` au lieu de sauter au
+verdict. Le contrôle qui manquait est trivial et se pose AVANT le verdict —
+**vérifier que le sujet est bien là** : la ruche répond-elle, la mutation
+est-elle bien dans le fichier, le port est-il bien tenu au départ ?
+
+Refait sur une VRAIE installation (`install.sh`, code 0, ruche debout en 2 s),
+la mesure a enfin porté sur quelque chose :
+
+```text
+pid 2461  cwd=/tmp/mesure-lsof-reel  → RECONNU
+pid 2462  cwd=/tmp/mesure-lsof-reel  → RECONNU
+un cwd étranger sur le même port     → ÉPARGNÉ
+après kill : port rendu après 0s
+```
+
+### Le corollaire, qui vaut au-delà de ce cas
+
+Un banc qui monte son propre décor plutôt que d'utiliser le vrai chemin
+d'installation éprouve le décor. C'est acceptable quand le décor EST le sujet
+(une fonction pure et ses entrées) ; ça ne l'est jamais quand le sujet est
+« est-ce que ça marche pour de vrai ». Là, le seul montage honnête est celui
+que l'utilisateur subira.

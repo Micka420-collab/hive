@@ -18,16 +18,27 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `b166399`, 7 août 2026)
+## A. Le code tient — ✅ mesuré (arbre `cf84422`, 14 août 2026)
 
-| Critère                  | Comment on le mesure                                     | Verdict                                            |
-| ------------------------ | -------------------------------------------------------- | -------------------------------------------------- |
-| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                     |
-| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                            |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **3501** (3494 verts, 7 ignorés, **0 rouge**)   |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ 5 jambes vertes (run `31133288061`)             |
-| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                           |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » (base `946b36b`, 8 mutants tués) |
+| Critère                  | Comment on le mesure                                     | Verdict                                          |
+| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **3900** (3893 verts, 7 ignorés, **0 rouge**) |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31776537105`)                    |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » sur les lots de ce jour        |
+
+- ⚠️ **Ce que « rien de neuf n'est nu » couvre, et pas plus** : la loupe
+  ÉCHANTILLONNE. Sur le dernier balayage large (`dashboard/src/views`, base
+  épinglée `f0fc005`), **42 candidates ont été examinées sur 440** — dix
+  survivants nommés, 398 jamais regardées. Le ✅ porte sur le diff de chaque
+  lot, pas sur le dépôt.
+- ⚠️ **La barrière LOCALE tournait sous Node 22** jusqu'au 14 août — la version
+  que l'installeur refuse (le produit exige `>=24`). Aucun défaut n'est passé,
+  la CI mesurant sous 24 sur chaque lot ; mais le filet a tenu parce qu'il n'y
+  avait rien à attraper, pas parce que la barrière locale le garantissait
+  (§ 9 duooctogies).
 
 ## B. On l'installe — ✅ mesuré, avec une réserve DITE
 
@@ -39,11 +50,38 @@ bout en bout : `sh install.sh` sur Node 24 dans un dossier vide → **23,3 s,
 code 0**, `.env` en 0600, `hive doctor` rend **10 ✔** ; **3** décisions en
 interactif, **0** avec `--non-interactive`.
 
-- 🔒 **Réserve, à ne pas maquiller** : le banc du critère 1 est un conteneur
-  Linux Node 24, **PAS une VM Windows ni macOS vierge**. « Marche sur les 3 OS »
-  veut dire _le code passe la CI sur les trois_, **pas** _l'installation réussit
-  sur le poste réel d'un utilisateur_. La nuance est le critère, pas une note en
-  bas de page.
+### Le critère 1 par système — la seule formulation qui soit vraie
+
+La phrase « marche sur les 3 OS » ne veut PAS dire ce qu'elle a l'air de dire.
+La matrice à trois systèmes mesure que _le code compile et que les bancs
+passent_. L'installation, elle, est une autre affaire, et elle se dit système
+par système :
+
+| Système     | Ce qui est mesuré                                  | Depuis quand              |
+| ----------- | -------------------------------------------------- | ------------------------- |
+| **Linux**   | ✅ installation complète → ruche qui RÉPOND        | en continu, à chaque PR   |
+| **macOS**   | ✅ installation complète → ruche qui RÉPOND        | **14 août, à chaque PR**  |
+| **Windows** | ⚠️ complète UNE FOIS (terrain) ; en CI, seuil seul | rapport de terrain unique |
+
+**macOS a basculé le 14 août** (`seuil` devient une matrice, run
+`31776537105`). Première fois que la commande du README y était menée à son
+terme — nulle part auparavant, ni en CI ni sur une machine :
+
+```
+✔ 1/3 — installation sortie en 0, 9 s
+✔ 2/3 — .env en -rw-------
+✔ 3/3 — la ruche répond sur :7777 après 2s
+```
+
+Ce n'est **pas** un code 78 (« non concluant », câblé pour le cas d'un port déjà
+tenu) : les trois affirmations ont réellement mordu.
+
+- 🔒 **Ce qui reste une réserve, et qu'il ne faut pas maquiller** : un runner CI
+  n'est pas le poste de bureau d'un utilisateur, avec ses réglages, son
+  antivirus et son shell à lui. Et **Windows n'est mesuré de bout en bout que
+  par un rapport de terrain unique** — `install.ps1` est un chemin distinct
+  (PowerShell 7 et 5.1), exercé en CI au seuil seulement. Deux systèmes sur
+  trois en continu, pas trois.
 
 ## C. C'est défendu — ✅ mesuré et gardé (le gate a mordu à sa naissance)
 

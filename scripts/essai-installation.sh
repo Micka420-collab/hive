@@ -116,8 +116,33 @@ menage() {
       [ "$(readlink "/proc/$p/cwd" 2>/dev/null || true)" = "$CIBLE" ] &&
         kill -9 "$p" 2>/dev/null
     done
+  elif [ -n "${PORT:-}" ] && command -v lsof >/dev/null 2>&1; then
+    # ─── LE MÊME CRITÈRE, PAR UN AUTRE CHEMIN ────────────────────────────────
+    #
+    # On ne relâche PAS la règle : on ne tue que ce qui travaille dans NOTRE
+    # dossier. `lsof -ti` dit qui tient le port ; `lsof -d cwd` dit d'où. Sans
+    # cette seconde question, on tuerait la ruche personnelle d'un développeur
+    # qui aurait par hasard le même port — un script d'essai qui abat le
+    # serveur de son hôte est pire que le désordre qu'il vient ranger.
+    #
+    # Le chemin physique compte autant que le logique : sous macOS, `$TMPDIR`
+    # vit sous `/var/folders/…`, et `/var` est un lien vers `/private/var`.
+    # `lsof` rend le chemin RÉSOLU ; comparer à la seule forme logique ne
+    # reconnaîtrait jamais rien, et le ménage échouerait en silence — c'est-à-
+    # dire exactement le défaut qu'on est en train de corriger.
+    CIBLE_REEL=$(cd "$CIBLE" 2>/dev/null && pwd -P || echo "$CIBLE")
+    for p in $(lsof -ti "tcp:$PORT" 2>/dev/null || true); do
+      ou=$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+      case "$ou" in
+        "$CIBLE" | "$CIBLE"/* | "$CIBLE_REEL" | "$CIBLE_REEL"/*)
+          kill -9 "$p" 2>/dev/null
+          ;;
+      esac
+    done
   else
-    echo "  (pas de /proc : le ménage par cwd ne s'applique pas ici)" >&2
+    # Ni l'un ni l'autre : on le DIT. Un ménage qui ne peut pas ranger et se
+    # tait laisse croire que la place est rendue.
+    echo "  ⚠ ni /proc ni lsof : le ménage ne peut viser aucun processus" >&2
   fi
   if [ -n "${PORT:-}" ]; then
     attente=0
