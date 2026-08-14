@@ -6066,3 +6066,60 @@ phrases qu'il ne faut pas raccourcir :
 2. « Rien de neuf n'est nu » vaut **sur les 42 candidates examinées**, pas sur
    les 440.
 3. Le critère « présentable » n'est pas atteint, et il ne dépend pas de moi.
+
+---
+
+## Balayage sur le terrain jamais vu : `src/node-client` et `src/tui`
+
+Tous les balayages précédents avaient porté sur `dashboard/src`, `scripts/`,
+`src/orchestrator`, `src/shared` et `dashboard/src/views`. Deux dossiers du
+dépôt n'avaient JAMAIS été passés à la loupe : `src/node-client` (13 fichiers,
+3 315 lignes — le code qui tourne sur la machine de chaque coéquipier) et
+`src/tui` (2 fichiers, 1 587 lignes — l'installeur interactif).
+
+### Le chiffre, et sa borne
+
+```text
+LOUPE : 192 mutation(s) possible(s) sur le diff, 20 examinée(s).
+        172 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas.
+
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+**20 mutations jouées, 0 survivante.** Base épinglée `f0fc005`, atelier détaché,
+1 h 05 de suite.
+
+Et la borne, qui compte autant : **20 sur 192**, soit un dixième. Un vert sur un
+dixième d'un terrain ne dit pas « ce terrain est défendu ». Il dit « les vingt
+lignes regardées le sont ». La différence est exactement celle que la loupe
+existe pour ne pas laisser confondre.
+
+### Pourquoi ne pas avoir tout joué
+
+Chaque mutation coûte une suite entière (~2 min). 192 mutations font **six
+heures et demie**. L'échantillon régulier (une candidate sur `ceil(192/20)`)
+est reproductible : deux passages sur le même diff regardent les mêmes lignes.
+
+### Ce que ce zéro vaut quand même
+
+C'est le deuxième terrain à rendre zéro survivant, après `src/shared` (49/49).
+Les deux ont un point commun : ce sont des modules à fonctions largement pures,
+écrits avec leurs bancs. Les terrains qui ont rendu des survivants — les vues du
+tableau de bord surtout — sont ceux où la décision vit dans du JSX, hors
+d'atteinte de tout banc qui ne monte pas l'écran.
+
+Le balayage confirme donc, par un troisième chemin, le § 2 quaterdecies :
+« hors d'atteinte du banc » est presque toujours « au mauvais endroit ».
+
+### Une pastille qui mentait sur son propre travail
+
+En attendant ce balayage, deux jambes de la CI de #262 sont restées affichées
+« en cours » vingt minutes après leur fin. Le journal du travail disait
+`✓ built in 557ms` puis `Cleaning up orphan processes` ; l'appel par JOB rendait
+`"status":"completed","conclusion":"success"` avec un `completed_at` à 08:40.
+Seule la LISTE des pastilles servait un cache périmé.
+
+J'ai failli en conclure « Windows pend », ce qui aurait été le § 9 terseptuagies
+invoqué à tort. La règle qui a servi est celle qui sert toujours : **la pastille
+n'est pas la mesure — le journal l'est.** Elle vaut dans les deux sens, pas
+seulement quand le vert est suspect.
