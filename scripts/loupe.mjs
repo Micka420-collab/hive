@@ -24,8 +24,9 @@
 // ─── CE QU'ELLE NE FAIT PAS, ET IL FAUT LE DIRE ──────────────────────────────
 //
 // · Elle ne remplace pas la barrière : elle vient APRÈS, et suppose tout vert.
-// · Elle échantillonne. Au-delà de MAX_MUTATIONS, elle DIT ce qu'elle a laissé
-//   de côté — une troncature silencieuse se lirait comme « tout est couvert ».
+// · Elle échantillonne. Au-delà du plafond (`LOUPE_MAX`, 12 par défaut), elle
+//   DIT ce qu'elle a laissé de côté — une troncature silencieuse se lirait
+//   comme « tout est couvert ».
 // · Un mutant qui survit n'est pas toujours un défaut : il peut être ÉQUIVALENT
 //   (aucune entrée ne distingue les deux versions). La loupe ne tranche pas
 //   cela — elle désigne, un humain juge.
@@ -46,7 +47,71 @@ const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const BASE = process.env.LOUPE_BASE ?? 'origin/main';
 
 /** Au-delà, on échantillonne — et on le dit. */
-const MAX_MUTATIONS = Number(process.env.LOUPE_MAX ?? 12);
+export const PLAFOND_PAR_DEFAUT = 12;
+
+/** Le message d'un plafond illisible — un seul auteur, pour que le banc l'épingle. */
+export function refusDuPlafond(brut) {
+  return (
+    `LOUPE_MAX = « ${brut} » n'est pas un nombre de mutations valide.\n` +
+    `Attendu : un entier ≥ 1, ou rien du tout pour le défaut (${PLAFOND_PAR_DEFAUT}).\n` +
+    `La loupe refuse de démarrer plutôt que de rendre un verdict sur zéro mutation.`
+  );
+}
+
+/**
+ * Combien de mutations la loupe a le droit d'examiner.
+ *
+ * ─── LE FAUX VERT ÉTAIT DANS LE DÉTECTEUR DE FAUX VERTS ──────────────────────
+ *
+ * `Number(process.env.LOUPE_MAX ?? 12)` retombait en silence sur `NaN` dès que
+ * la variable n'était pas un nombre. La suite du calcul ne s'en apercevait pas :
+ *
+ *     pas      = Math.max(1, Math.ceil(440 / NaN))   →  NaN
+ *     retenues = toutes.filter((_, i) => i % NaN === 0).slice(0, NaN)   →  []
+ *
+ * Zéro mutation retenue, la boucle ne tourne pas, `survivants` reste vide — et
+ * la loupe imprime son plus beau verdict :
+ *
+ *     ════ LA LOUPE NE VOIT RIEN DE NU ════
+ *     Chaque ligne examinée est défendue par au moins un test.
+ *
+ * La phrase est vraie au sens strict : aucune ligne n'a été examinée, donc
+ * toutes celles qui l'ont été sont défendues. Elle se lit « c'est bon, fusionne ».
+ * `LOUPE_MAX=douze` suffisait, et `LOUPE_MAX=0` aussi. Sortie 0, dans les deux cas.
+ *
+ * ─── D'OÙ IL VIENT, ET CE QUE ÇA DIT DE LA MÉTHODE ───────────────────────────
+ *
+ * Il n'a pas été trouvé par un banc. Il a été trouvé en REJOUANT la loupe de
+ * bout en bout dans l'atelier, pour vérifier un tout autre correctif — celui
+ * des combinateurs CSS. C'est le quatrième défaut de ce fichier découvert de
+ * cette façon, et le quatrième qu'aucun de ses bancs ne pouvait voir : ils
+ * éprouvent des fonctions pures, et le défaut vit à chaque fois dans la COLLE
+ * entre elles.
+ *
+ * ─── LE SENS DE L'ERREUR EST CHOISI, PAS SUBI ────────────────────────────────
+ *
+ * `scripts/vitest-forks.mjs` a déjà tranché exactement cette question, dans les
+ * mêmes termes : « une mesure qui ment est pire que pas de mesure ». Le même
+ * geste ici, à la même forme, parce que c'est la même faute — un réglage
+ * illisible ne se devine pas, il se refuse.
+ *
+ * Zéro est refusé au même titre : demander à un instrument de ne rien regarder
+ * n'est pas un réglage, c'est une contradiction. Qui veut seulement compter les
+ * candidates passe `1` et lit l'en-tête.
+ *
+ * @param {string|undefined} brut la variable d'environnement, telle quelle
+ * @throws {Error} si elle est présente mais illisible
+ */
+export function plafondDesMutations(brut) {
+  if (brut === undefined || brut.trim() === '') return PLAFOND_PAR_DEFAUT;
+  const texte = brut.trim();
+  // `Number('12abc')` rend NaN, mais `parseInt` rendrait 12 : on veut le refus,
+  // pas la lecture partielle d'une valeur que personne n'a voulu écrire.
+  if (!/^\d+$/.test(texte)) throw new Error(refusDuPlafond(brut));
+  const n = Number(texte);
+  if (n < 1) throw new Error(refusDuPlafond(brut));
+  return n;
+}
 
 /**
  * Les échanges d'opérateurs, sûrs par construction.
@@ -833,6 +898,20 @@ if (MOI !== LANCE) {
 }
 
 function principal() {
+  // LE RÉGLAGE D'ABORD, AVANT MÊME LE VERROU. Un plafond illisible ne doit ni
+  // prendre l'atelier ni lancer un balayage : il doit refuser tout de suite.
+  // Lu ici et pas au chargement du module, pour qu'`import` d'une fonction pure
+  // depuis un banc ne dépende jamais d'une variable d'environnement.
+  let plafond;
+  try {
+    plafond = plafondDesMutations(process.env.LOUPE_MAX);
+  } catch (e) {
+    console.error('');
+    console.error(`✘ ${String(e.message)}`);
+    console.error('');
+    process.exit(2);
+  }
+
   // LA GARDE, CÂBLÉE. Voir l'en-tête de `jugerVerrou` : la règle existait déjà
   // au carnet et a quand même été enfreinte, faute de quoi que ce soit pour
   // l'appliquer.
@@ -869,8 +948,8 @@ function principal() {
 
   // Échantillon RÉGULIER plutôt qu'aléatoire : deux passages sur le même diff
   // doivent regarder les mêmes lignes, sinon un verdict n'est pas reproductible.
-  const pas = Math.max(1, Math.ceil(toutes.length / MAX_MUTATIONS));
-  const retenues = toutes.filter((_, i) => i % pas === 0).slice(0, MAX_MUTATIONS);
+  const pas = Math.max(1, Math.ceil(toutes.length / plafond));
+  const retenues = toutes.filter((_, i) => i % pas === 0).slice(0, plafond);
 
   console.log(
     `LOUPE : ${toutes.length} mutation(s) possible(s) sur le diff, ${retenues.length} examinée(s).`,

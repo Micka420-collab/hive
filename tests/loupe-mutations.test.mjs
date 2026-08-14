@@ -550,3 +550,78 @@ describe('la loupe ne mute que les langages où ces jetons sont des opérateurs'
     expect(langageMutable('src/md/rendu.tsx')).toBe(true);
   });
 });
+
+// ─── LE FAUX VERT ÉTAIT DANS LE DÉTECTEUR DE FAUX VERTS ──────────────────────
+//
+// `Number(process.env.LOUPE_MAX ?? 12)` retombait en silence sur `NaN` dès que
+// la variable n'était pas un nombre. La suite du calcul ne s'en apercevait pas :
+//
+//     pas      = Math.max(1, Math.ceil(440 / NaN))                  →  NaN
+//     retenues = toutes.filter((_, i) => i % NaN === 0).slice(0, NaN)  →  []
+//
+// Zéro mutation retenue, la boucle ne tourne pas, `survivants` reste vide — et
+// la loupe imprimait son plus beau verdict, sortie 0 :
+//
+//     ════ LA LOUPE NE VOIT RIEN DE NU ════
+//     Chaque ligne examinée est défendue par au moins un test.
+//
+// La phrase est vraie au sens strict — aucune ligne n'a été examinée, donc
+// toutes celles qui l'ont été sont défendues — et elle se lit « fusionne ».
+// `LOUPE_MAX=douze` suffisait. `LOUPE_MAX=0` aussi.
+//
+// Il n'a été trouvé par AUCUN banc : en rejouant la loupe de bout en bout dans
+// l'atelier, pour vérifier un tout autre correctif. Quatrième défaut de ce
+// fichier découvert ainsi, et quatrième que ses bancs ne pouvaient pas voir —
+// ils éprouvent des fonctions pures, et le défaut vit dans la COLLE entre elles.
+
+import { PLAFOND_PAR_DEFAUT, plafondDesMutations, refusDuPlafond } from '../scripts/loupe.mjs';
+
+describe('le plafond de mutations REFUSE au lieu de deviner', () => {
+  it('LE CAS QUI TRANCHE : une variable mal orthographiée ne rend pas un verdict', () => {
+    // Avant : `LOUPE_MAX=douze` → NaN → zéro mutation examinée → « LA LOUPE NE
+    // VOIT RIEN DE NU », sortie 0. L'instrument dont le métier ENTIER est de
+    // débusquer les faux verts en produisait un sur une faute de frappe.
+    expect(() => plafondDesMutations('douze')).toThrow(/n'est pas un nombre/);
+    expect(() => plafondDesMutations('12abc')).toThrow();
+    expect(() => plafondDesMutations('1.5')).toThrow();
+    expect(() => plafondDesMutations('-3')).toThrow();
+  });
+
+  it('LE SECOND CAS QUI TRANCHE : ZÉRO est une contradiction, pas un réglage', () => {
+    // Demander à un instrument de ne rien regarder n'est pas un plafond. Qui
+    // veut seulement compter les candidates passe `1` et lit l'en-tête.
+    expect(() => plafondDesMutations('0')).toThrow();
+    expect(plafondDesMutations('1')).toBe(1);
+  });
+
+  it('`12abc` est REFUSÉ, pas lu à moitié — `parseInt` aurait rendu 12', () => {
+    // La lecture partielle d'une valeur que personne n'a voulu écrire est le
+    // même mensonge, en plus discret : on mesurerait avec un plafond qu'on n'a
+    // pas demandé, en croyant avoir demandé autre chose.
+    expect(() => plafondDesMutations('12abc')).toThrow();
+  });
+
+  it('absent ou vide ⇒ le défaut, et c’est le SEUL repli silencieux permis', () => {
+    expect(plafondDesMutations(undefined)).toBe(PLAFOND_PAR_DEFAUT);
+    expect(plafondDesMutations('')).toBe(PLAFOND_PAR_DEFAUT);
+    expect(plafondDesMutations('   ')).toBe(PLAFOND_PAR_DEFAUT);
+  });
+
+  it('un entier valide passe, espaces compris', () => {
+    expect(plafondDesMutations('40')).toBe(40);
+    expect(plafondDesMutations(' 7 ')).toBe(7);
+    expect(plafondDesMutations('600')).toBe(600);
+  });
+
+  it('le refus NOMME la valeur reçue et le défaut — sinon on cherche à l’aveugle', () => {
+    const m = refusDuPlafond('douze');
+    expect(m).toContain('douze');
+    expect(m).toContain(String(PLAFOND_PAR_DEFAUT));
+    expect(m).toContain('≥ 1');
+  });
+
+  it('le défaut est celui que l’en-tête annonce', () => {
+    // Un défaut qui dérive de sa documentation est une note qui ment.
+    expect(PLAFOND_PAR_DEFAUT).toBe(12);
+  });
+});
