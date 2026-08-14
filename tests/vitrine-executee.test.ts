@@ -615,10 +615,12 @@ describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
   // arrive au CHARGEMENT du script, avant tout clic. Ici on range une
   // préférence, on MONTE la page, et on regarde quelle langue elle a prise.
   //
-  // Note de méthode : la loupe ne balaie que `src`, `dashboard/src`, `scripts` —
-  // jamais `site/`. Les gardes du JavaScript de la vitrine (celle-ci comprise)
-  // sont donc un angle mort qu'aucun balayage automatique ne couvre ; elles ne
-  // tiennent que par des bancs comme celui-ci.
+  // Note de méthode, CORRIGÉE : cette remarque disait « la loupe ne balaie que
+  // `src`, `dashboard/src`, `scripts` — jamais `site/` », et c'était vrai. Ça ne
+  // l'est plus : `.html` était exclu EN BLOC de la loupe, il ne l'est plus, et
+  // seul son `<script>` est mutable. Le premier balayage complet de la vitrine a
+  // aussitôt rendu 43 candidates dont 33 SANS TEST — dont, précisément, la
+  // branche que ce bloc-ci NE couvrait PAS : la langue du NAVIGATEUR.
 
   /** Monte la page dans l'état courant (query + préférence rangée) et rend la langue prise. */
   function langueAuChargement(): string {
@@ -668,6 +670,65 @@ describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
     localStorage.setItem('hive.lang', 'fr');
     window.history.replaceState(null, '', '/?lang=en');
     expect(langueAuChargement(), '« ?lang=en » n’a pas imposé l’anglais').toBe('en');
+  });
+
+  /** Joue `faire()` avec une langue de navigateur imposée, puis la rend. */
+  function avecLangueDuNavigateur(valeur: string, faire: () => void): void {
+    const original = Object.getOwnPropertyDescriptor(window.navigator, 'language');
+    Object.defineProperty(window.navigator, 'language', { value: valeur, configurable: true });
+    try {
+      faire();
+    } finally {
+      if (original) Object.defineProperty(window.navigator, 'language', original);
+      else Reflect.deleteProperty(window.navigator, 'language');
+    }
+  }
+
+  it('SANS RIEN DE RANGÉ, c’est la langue du NAVIGATEUR qui tranche', () => {
+    // ─── LA BRANCHE QUE LE BALAYAGE A TROUVÉE NUE ──────────────────────────
+    //
+    // Les deux bancs au-dessus éprouvent la query et la préférence rangée. La
+    // TROISIÈME branche — celle qui décide pour quelqu'un qui arrive pour la
+    // première fois, sans rien — n'était éprouvée par rien. Le balayage complet
+    // de la vitrine a nommé ses deux gardes :
+    //
+    //     String(navigator.language || '')     ||  →  &&
+    //     …toLowerCase().indexOf('fr') !== 0   !== →  ===
+    //
+    // Le premier rend `''` pour tout le monde, donc TOUS les arrivants voient
+    // l'anglais, y compris avec un navigateur en français. Le second inverse la
+    // règle : les francophones ont l'anglais et tous les autres le français.
+    // Aucun banc ne s'en apercevait.
+    const attendus: readonly (readonly [string, string])[] = [
+      ['fr', 'fr'],
+      ['fr-FR', 'fr'],
+      ['fr-CA', 'fr'],
+      ['en-US', 'en'],
+      ['de-DE', 'en'],
+      ['', 'en'],
+    ];
+    const rendus: string[] = [];
+    for (const [navigateur, attendu] of attendus) {
+      avecLangueDuNavigateur(navigateur, () => {
+        // ─── LE PIÈGE DU MONTAGE, MESURÉ ───────────────────────────────────
+        //
+        // La page RANGE sa langue au chargement. Sans ce vidage, le premier
+        // tour (« fr ») écrivait `hive.lang=fr`, et les cinq suivants lisaient
+        // une PRÉFÉRENCE au lieu de la langue du navigateur : tout le tableau
+        // rendait « fr », y compris `en-US`. Le banc accusait la page d'un
+        // défaut qui était le sien.
+        localStorage.clear();
+        const pris = langueAuChargement();
+        rendus.push(`${navigateur || '(vide)'} → ${pris} (attendu ${attendu})`);
+      });
+    }
+    const ecarts = attendus
+      .map(([navigateur, attendu], i) => ({ navigateur, attendu, ligne: rendus[i] ?? '' }))
+      .filter(({ ligne, attendu }) => !ligne.includes(`→ ${attendu} `));
+    expect(
+      ecarts.map((e) => e.ligne),
+      'la langue du navigateur n’est pas respectée au premier contact',
+    ).toEqual([]);
   });
 
   it('« ?lang=fr » impose le français malgré la préférence « en » rangée', () => {

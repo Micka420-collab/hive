@@ -6815,3 +6815,43 @@ VERDICT AFFICHÉ   mutant sur site/rush/index.html   → 113 éléments nommés,
 
 La seconde mutation compte autant que la première : une découverte qui ne
 descendrait plus dans les sous-dossiers rendrait tout le bloc vert à vide.
+
+---
+
+## Le premier contact : la branche que personne ne regardait
+
+La vitrine résout sa langue ainsi : `?lang=` > préférence rangée > langue du
+navigateur. Deux bancs éprouvaient les deux premières. La **troisième** — celle
+qui décide pour quelqu'un qui arrive pour la première fois, sans rien — était
+nue, et le balayage complet a nommé ses deux gardes :
+
+```text
+🔴 SANS TEST   String(navigator.language || '')      ||  → &&
+🔴 SANS TEST   …toLowerCase().indexOf('fr') !== 0    !== → ===
+```
+
+Ce que chacune coûte, si elle bascule :
+
+| Mutant        | Ce que voit l'arrivant                                   |
+| ------------- | -------------------------------------------------------- |
+| `\|\|` → `&&` | l'anglais pour TOUT LE MONDE, navigateur français inclus |
+| `!==` → `===` | les francophones en anglais, tous les autres en français |
+
+Le banc pose un tableau — `fr`, `fr-FR`, `fr-CA`, `en-US`, `de-DE`, `''` — en
+imposant `navigator.language` et en vérifiant la langue réellement prise.
+
+```text
+VERDICT AFFICHÉ   « || » → « && »          → 3 lignes fausses, rouge
+                  « !== » → « === »        → 6 lignes fausses, rouge
+                  source saine             → 22 verts
+```
+
+### Une note du banc était devenue FAUSSE, et elle est corrigée
+
+Ce bloc portait : _« la loupe ne balaie que `src`, `dashboard/src`, `scripts` —
+jamais `site/`. Les gardes du JavaScript de la vitrine sont donc un angle mort
+qu'aucun balayage automatique ne couvre. »_
+
+C'était vrai ; ça ne l'est plus depuis deux lots. Une note de méthode périmée
+est pire qu'aucune note : elle décourage précisément le geste qui vient de
+devenir possible.

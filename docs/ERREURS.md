@@ -9006,3 +9006,38 @@ est restée, gardée par une complétude. Pour les pages traduites, il ne l'est 
 du tout — dictionnaire `var EN = {` plus les deux boutons — et rien ne
 justifiait la liste. Je ne me suis pas posé la question ; c'est ça, l'erreur,
 pas le résultat.
+
+### Troisième piège du même tour : un banc en TABLEAU dont le sujet ÉCRIT
+
+Le balayage avait nommé nue la troisième branche de la résolution de langue —
+celle qui décide pour un arrivant sans rien de rangé, d'après
+`navigator.language`. Le banc écrit pour la couvrir parcourt un tableau :
+`fr`, `fr-FR`, `fr-CA`, `en-US`, `de-DE`, `''`.
+
+Il a rougi sur source SAINE, et son verdict accusait la page d'un défaut
+spectaculaire :
+
+    fr     → fr (attendu fr)
+    fr-FR  → fr (attendu fr)
+    fr-CA  → fr (attendu fr)
+    en-US  → fr (attendu en)      ← un navigateur anglais verrait du français ?
+    de-DE  → fr (attendu en)
+    (vide) → fr (attendu en)
+
+C'était le banc, pas la page. **La vitrine RANGE sa langue au chargement.** Le
+premier tour, `fr`, écrivait `hive.lang=fr` ; les cinq suivants lisaient donc
+une PRÉFÉRENCE au lieu de la langue du navigateur, et rendaient « fr » quoi
+qu'on leur donne. L'ordre du tableau suffisait à fabriquer le résultat : commencé
+par `en-US`, il aurait rendu six « en » et accusé la page de l'inverse.
+
+> **Quand le sujet d'un banc en tableau ÉCRIT quelque part, chaque ligne hérite
+> de la précédente.** Le `beforeEach` ne suffit pas : il tourne une fois par
+> `it`, pas une fois par ligne. Ce qu'il faut remettre à zéro, c'est ce que le
+> SUJET écrit, à l'endroit exact où la boucle recommence.
+
+Et le fil qui relie les trois pièges de ce tour — `go.demo` (`<br />` contre
+`<br>`), les attributs oubliés, ce tableau empoisonné — est toujours le même :
+**une garde neuve qui accuse du code sain a presque toujours tort, et il faut
+CHERCHER pourquoi, pas l'assouplir jusqu'à ce qu'elle se taise.** Les trois fois,
+la recherche a rendu un banc meilleur ; une seule fois sur trois, elle aurait
+donné raison au banc.
