@@ -7082,3 +7082,78 @@ règle tient toujours : **une garde neuve qui accuse du code sain a presque
 toujours tort — on cherche pourquoi, on ne l'assouplit pas.**
 
 **Quatre survivants de plus fermés ; il en reste 9 sur les 33.**
+
+---
+
+## Quatre gardes de plus, dont une capacité et son repli
+
+### Le décompte, mesuré plutôt que soustrait
+
+Avant d'écrire, les survivants restants ont été **mutés un par un** pour savoir
+lesquels étaient encore ouverts — plutôt que de soustraire de tête sur le
+journal du balayage. Six ont survécu à la suite complète : `ResizeObserver`
+(accueil et rush), le rail de l'aperçu, le compteur d'étoiles GitHub (deux
+gardes), et le retour au repos du bouton d'installation.
+
+Ce lot en ferme **quatre**. Les deux du compteur d'étoiles restent ouvertes ;
+elles demandent un bouchon de `fetch`, et c'est un lot à part.
+
+### Le retour au repos du bouton d'installation
+
+Le pendant de celui de `rc-copier`, fermé au lot précédent :
+`lang === 'en' ? 'copy' : 'copier'`, 1800 ms après le clic. Un francophone
+voyait « copy » revenir.
+
+### Le rail de l'aperçu
+
+```js
+if (r.getAttribute('data-ecran-rail') === cle) r.setAttribute('data-vif', '');
+```
+
+Le banc de la bascule d'écran vérifiait `aria-selected` sur l'onglet et `hidden`
+sur le corps. Le RAIL — le repère latéral qui dit où l'on est — n'était vérifié
+par rien : muté, il s'allume sur tous les écrans SAUF celui qu'on regarde.
+L'assertion exige **exactement un** allumé, et que ce soit le bon.
+
+### `ResizeObserver` : une capacité, et son repli jamais exercé
+
+```js
+if (typeof ResizeObserver === 'function') { new ResizeObserver(…).observe(entete); }
+else { window.addEventListener('resize', publierHauteur); }
+```
+
+Même famille que la garde du presse-papier : tant que le banc offre TOUJOURS un
+navigateur qui sait, les deux branches sont indiscernables et le mutant passe
+pour équivalent. Ce qui départage, c'est un navigateur qui **ne sait pas**.
+
+Les deux moitiés sont gardées, et il faut les deux :
+
+- **sans** `ResizeObserver`, la page doit monter quand même et republier
+  `--h-entete` sur un `resize` — le mutant y construit un objet inexistant, donc
+  le montage entier jette et la page est morte pour ce visiteur ;
+- **avec** `ResizeObserver`, la page doit vraiment l'observer — sans quoi un
+  mutant qui prendrait toujours le repli passerait, et la page marcherait en
+  moins bien sans que rien le dise.
+
+`--h-entete` porte la hauteur de l'en-tête collante : si elle cesse d'être
+republiée, le contenu passe sous la barre au premier redimensionnement.
+
+### Verdict affiché
+
+```text
+btnInstall retour au repos    === → !==   1 failed | 44 passed
+rail de l'aperçu              === → !==   1 failed | 44 passed
+ResizeObserver (accueil)      === → !==   2 failed | 43 passed
+ResizeObserver (rush)         === → !==   2 failed | 43 passed
+source saine                              45 passed (45)
+```
+
+Les deux dernières emportent **deux** bancs chacune : c'est voulu, ce sont les
+deux moitiés de la même garde.
+
+### Sur le chiffre « il en reste N »
+
+Le décompte courant vient d'une soustraction sur le journal du balayage, et une
+soustraction n'est pas une mesure. Le nombre défendable sera celui d'un
+**nouveau balayage complet** de `site/` — désormais lançable sans réglage,
+puisque `site` est au périmètre par défaut.

@@ -502,6 +502,59 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     }
   });
 
+  it('LE BOUTON D’INSTALLATION REVIENT AU REPOS DANS LA BONNE LANGUE', async () => {
+    // Le pendant du retour au repos de `rc-copier`, sur le bouton de la barre
+    // d'installation : `lang === 'en' ? 'copy' : 'copier'`, 1800 ms après le
+    // clic. Nu jusqu'ici — un francophone voyait « copy » revenir.
+    vi.useFakeTimers();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.resolve() },
+    });
+    try {
+      for (const [bouton, repos] of [
+        ['btn-fr', 'copier'],
+        ['btn-en', 'copy'],
+      ] as const) {
+        document.getElementById(bouton)?.dispatchEvent(new Event('click', { bubbles: true }));
+        const b = document.getElementById('install-copier');
+        b?.dispatchEvent(new Event('click', { bubbles: true }));
+        // Micro-tâches d'abord, minuteurs ensuite (§ 9 nonagies).
+        await Promise.resolve();
+        await Promise.resolve();
+        vi.advanceTimersByTime(1800);
+        expect(b?.textContent, `${bouton} : retour au repos attendu`).toBe(repos);
+      }
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+      vi.useRealTimers();
+    }
+  });
+
+  it('LE RAIL DE L’APERÇU ALLUME L’ÉCRAN CHOISI — un seul, et le bon', () => {
+    // ─── CE QUE LE BANC DES ONGLETS NE REGARDAIT PAS ───────────────────────
+    //
+    //     if (r.getAttribute('data-ecran-rail') === cle) r.setAttribute('data-vif', '');
+    //
+    // Le banc de la bascule d'écran vérifie `aria-selected` sur l'onglet et
+    // `hidden` sur le corps. Le RAIL — le repère latéral qui dit où l'on est —
+    // n'était vérifié par rien : muté, il s'allume sur tous les écrans SAUF
+    // celui qu'on regarde.
+    const onglets = [...document.querySelectorAll('.apercu-onglet')];
+    expect(onglets.length, 'aucun onglet d’aperçu').toBeGreaterThan(1);
+
+    for (const onglet of onglets) {
+      const cle = onglet.getAttribute('data-ecran');
+      onglet.dispatchEvent(new Event('click', { bubbles: true }));
+      const allumes = [...document.querySelectorAll('[data-ecran-rail]')]
+        .filter((r) => r.hasAttribute('data-vif'))
+        .map((r) => r.getAttribute('data-ecran-rail'));
+      expect(allumes, `écran « ${cle ?? '?'} » : le rail n’allume pas exactement le bon`).toEqual([
+        cle,
+      ]);
+    }
+  });
+
   /** Une puce de système, retrouvée par son libellé. */
   function puce(libelle: string): HTMLElement | undefined {
     return [...document.querySelectorAll('.chip-os')].find((b) =>
@@ -1165,6 +1218,86 @@ describe.each(PAGES_TRADUITES)('%s — le tri des trois sources de langue', (che
         document.getElementById(relache)?.getAttribute('aria-pressed'),
         `${chemin} · ${clic} : ${relache} devrait être relâché`,
       ).toBe('false');
+    }
+  });
+});
+
+// ─── LA GARDE DE CAPACITÉ, ET SON REPLI QUE PERSONNE N'EXERÇAIT ──────────────
+//
+//     if (typeof ResizeObserver === 'function') {
+//       new ResizeObserver(publierHauteur).observe(entete);
+//     } else {
+//       window.addEventListener('resize', publierHauteur);
+//     }
+//
+// Même famille que la garde du presse-papier : tant que le banc offre TOUJOURS
+// un navigateur qui sait, les deux branches sont indiscernables et le mutant
+// passe pour équivalent. Ce qui départage, c'est un navigateur qui NE SAIT PAS.
+//
+// `--h-entete` porte la hauteur de l'en-tête collante ; si elle cesse d'être
+// republiée, le contenu passe sous la barre au premier redimensionnement.
+
+describe.each(
+  PAGES_TRADUITES.filter((p) =>
+    readFileSync(path.resolve(process.cwd(), p), 'utf8').includes('ResizeObserver'),
+  ),
+)('%s — la hauteur d’en-tête survit à un navigateur sans ResizeObserver', (chemin) => {
+  const source = readFileSync(path.resolve(process.cwd(), chemin), 'utf8');
+
+  function monter(): void {
+    document.documentElement.innerHTML = source
+      .replace(/^[\s\S]*?<html[^>]*>/, '')
+      .replace(/<\/html>[\s\S]*$/, '');
+    const principal = scriptsExecutes(source).reduce((a, b) =>
+      a.code.length > b.code.length ? a : b,
+    );
+    new Function(principal.code)();
+  }
+
+  it('sans ResizeObserver, la page monte quand même ET replie sur « resize »', () => {
+    const avant = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    Reflect.deleteProperty(globalThis as unknown as Record<string, unknown>, 'ResizeObserver');
+    try {
+      // Le mutant `!==` construirait un `ResizeObserver` qui n'existe pas : le
+      // montage entier jetterait, et la page serait morte pour ce visiteur.
+      expect(() => {
+        monter();
+      }, 'la page ne monte pas sans ResizeObserver').not.toThrow();
+
+      document.documentElement.style.removeProperty('--h-entete');
+      window.dispatchEvent(new Event('resize'));
+      expect(
+        document.documentElement.style.getPropertyValue('--h-entete'),
+        'le repli « resize » ne republie pas la hauteur d’en-tête',
+      ).not.toBe('');
+    } finally {
+      if (avant) Object.defineProperty(globalThis, 'ResizeObserver', avant);
+    }
+  });
+
+  it('avec ResizeObserver, la page l’OBSERVE vraiment', () => {
+    // L'autre moitié : sans elle, un mutant qui prendrait toujours le repli
+    // passerait — la page marcherait, en moins bien, sans que rien le dise.
+    const observes: unknown[] = [];
+    const avant = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      writable: true,
+      value: class {
+        observe(cible: unknown): void {
+          observes.push(cible);
+        }
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    });
+    try {
+      monter();
+      expect(observes.length, 'ResizeObserver existe mais la page ne s’en sert pas').toBe(1);
+    } finally {
+      if (avant) Object.defineProperty(globalThis, 'ResizeObserver', avant);
+      else
+        Reflect.deleteProperty(globalThis as unknown as Record<string, unknown>, 'ResizeObserver');
     }
   });
 });
