@@ -56,7 +56,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── POURQUOI `process.cwd()` ET NON `import.meta.url` ───────────────────────
 //
@@ -377,6 +377,129 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
 
   it('le journal de l’essaim se remplit — il était VIDE quand le script mourait', () => {
     expect(document.querySelectorAll('#journal li').length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Un tableau littéral du script, ÉVALUÉ — même technique que le dictionnaire.
+   *
+   * `JFR` et `JEN` sont les entrées du journal de l'essaim dans chaque langue.
+   * Les lire permet d'ancrer le banc sur la SOURCE que la page prétend utiliser,
+   * sans épingler un seul mot de la copie.
+   */
+  function tableauDuScript(nom: string): { i: string; t: string; c: string }[] {
+    const debut = VITRINE.indexOf(`var ${nom} = [`);
+    expect(debut, `tableau ${nom} introuvable`).toBeGreaterThan(-1);
+    const ouvrante = VITRINE.indexOf('[', debut);
+    let profondeur = 0;
+    let fin = -1;
+    let dansChaine: string | null = null;
+    for (let i = ouvrante; i < VITRINE.length; i++) {
+      const c = VITRINE[i];
+      if (dansChaine !== null) {
+        if (c === '\\') i++;
+        else if (c === dansChaine) dansChaine = null;
+        continue;
+      }
+      if (c === "'" || c === '"' || c === '`') dansChaine = c;
+      else if (c === '[') profondeur++;
+      else if (c === ']') {
+        profondeur--;
+        if (profondeur === 0) {
+          fin = i;
+          break;
+        }
+      }
+    }
+    expect(fin, `crochet fermant de ${nom} introuvable`).toBeGreaterThan(ouvrante);
+    return new Function(`return ${VITRINE.slice(ouvrante, fin + 1)}`)() as {
+      i: string;
+      t: string;
+      c: string;
+    }[];
+  }
+
+  it('LE JOURNAL DE L’ESSAIM PARLE LA LANGUE DE LA PAGE, ET TIENT SA BORNE', () => {
+    // ─── DEUX SURVIVANTS D'UN SEUL BLOC ────────────────────────────────────
+    //
+    //     var src = lang === 'en' ? JEN : JFR;      ===  →  !==
+    //     for (var k = 0; k < 4; k++) {             <    →  <=
+    //
+    // Le banc voisin assène `#journal li` > 0. Un journal en anglais servi à un
+    // francophone en a toujours plus de zéro ; un journal de CINQ lignes aussi.
+    // « Il se remplit » ne dit ni la langue ni la quantité.
+    //
+    // L'ancre : les messages affichés doivent tous venir du tableau que la page
+    // PRÉTEND utiliser. Aucun mot n'est épinglé — réécrire une entrée déplace
+    // le tableau et le banc suit.
+    const par = { fr: tableauDuScript('JFR'), en: tableauDuScript('JEN') } as const;
+    expect(par.fr.length, 'journal français vide').toBeGreaterThan(3);
+    expect(par.en.length, 'journal anglais vide').toBeGreaterThan(3);
+
+    for (const [bouton, langue] of [
+      ['btn-fr', 'fr'],
+      ['btn-en', 'en'],
+    ] as const) {
+      document.getElementById(bouton)?.dispatchEvent(new Event('click', { bubbles: true }));
+      const lignes = [...document.querySelectorAll('#journal li')];
+      // LA BORNE : quatre lignes, ni trois ni cinq.
+      expect(lignes.length, `${langue} : le journal ne montre pas 4 lignes`).toBe(4);
+
+      const attendus = new Set(par[langue].map((e) => e.t));
+      const etrangeres = lignes
+        .map((li) => li.querySelector('.msg')?.textContent?.trim() ?? '')
+        .filter((t) => !attendus.has(t));
+      expect(
+        etrangeres.slice(0, 3),
+        `${langue} : ces lignes ne viennent pas du journal ${langue.toUpperCase()}`,
+      ).toEqual([]);
+    }
+  });
+
+  it('« COPIER LA COMMANDE » CONFIRME, PUIS REVIENT AU REPOS, DANS LA BONNE LANGUE', async () => {
+    // ─── LES DEUX DERNIERS LIBELLÉS NUS ────────────────────────────────────
+    //
+    //     lbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+    //     lbl.textContent = (lang === 'en' ? EN : FR)['rc.copier'];
+    //
+    // Le second est le RETOUR AU REPOS, 1800 ms après le clic. Le code porte
+    // même un commentaire disant qu'il repasse par le dictionnaire « pour que le
+    // libellé revienne dans la langue COURANTE » — une intention qu'aucun banc
+    // ne vérifiait, faute de faire avancer le temps.
+    const en = dictionnaireAnglais();
+    vi.useFakeTimers();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.resolve() },
+    });
+    try {
+      for (const [bouton, confirme, repos] of [
+        ['btn-fr', 'copié ✓', 'fr'],
+        ['btn-en', 'copied ✓', 'en'],
+      ] as const) {
+        document.getElementById(bouton)?.dispatchEvent(new Event('click', { bubbles: true }));
+        const btn = document.querySelector('.rc-copier');
+        const lbl = btn?.querySelector('span');
+        btn?.dispatchEvent(new Event('click', { bubbles: true }));
+        // ─── LES HORLOGES FACTICES NE GÈLENT PAS LES PROMESSES ────────────
+        //
+        // La confirmation n'arrive qu'une fois la promesse du presse-papier
+        // tenue, et une promesse se résout en MICRO-TÂCHE :
+        // `advanceTimersByTime(0)` n'y touche pas. Première rédaction de ce
+        // banc : rouge sur source saine, « attendu copié ✓, reçu Copier la
+        // commande ». C'était le montage, pas la page.
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(lbl?.textContent, `${bouton} : confirmation attendue`).toBe(confirme);
+
+        // ET LE RETOUR AU REPOS, que personne ne regardait.
+        vi.advanceTimersByTime(1800);
+        const attendu = repos === 'en' ? (en['rc.copier'] as string) : 'Copier la commande';
+        expect(lbl?.textContent, `${bouton} : retour au repos attendu`).toBe(attendu);
+      }
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+      vi.useRealTimers();
+    }
   });
 
   /** Une puce de système, retrouvée par son libellé. */

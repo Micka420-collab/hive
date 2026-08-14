@@ -9170,3 +9170,27 @@ second relevé donne soit un `completed_at` — et la durée devient un fait —
 le même pas encore en cours, cette fois avec deux horodatages RENDUS entre
 lesquels une soustraction a un sens. C'est le seul chemin honnête vers « ça
 traîne », et il ne coûte qu'un appel de plus.
+
+### Quatrième montage fautif : une horloge factice ne gèle pas les promesses
+
+Le banc du bouton « copier la commande » devait vérifier deux choses : la
+confirmation immédiate, et le retour au repos 1800 ms plus tard. Il a donc
+installé `vi.useFakeTimers()`, cliqué, puis fait `vi.advanceTimersByTime(0)`
+avant d'assener le libellé.
+
+Rouge sur source saine : _« attendu copié ✓, reçu Copier la commande »_.
+
+La confirmation n'arrive qu'une fois la promesse du presse-papier tenue. Une
+promesse se résout en **micro-tâche**, et une horloge factice ne remplace que
+les MINUTEURS — `advanceTimersByTime(0)` ne vide aucune micro-tâche. Il fallait
+`await` avant d'avancer le temps.
+
+> **Les horloges factices gèlent les minuteurs, pas les promesses.** Un banc qui
+> mêle les deux doit vider les micro-tâches (`await`) AVANT d'avancer les
+> minuteurs, dans cet ordre — l'inverse assène sur un état que la promesse n'a
+> pas encore écrit.
+
+C'est le quatrième montage fautif de la même série, et le fil ne varie pas : la
+garde accusait du code sain, et c'est la garde qui avait tort. Les quatre fois,
+chercher la cause a rendu un banc meilleur ; assouplir l'assertion aurait rendu
+un banc muet.

@@ -7025,3 +7025,60 @@ LIT pour savoir quelle langue la page a prise. Le dire évite qu'un lecteur y
 voie un banc fragile — c'est le même signal, observé par plusieurs portes.
 
 **Douze survivants de plus fermés ; il en reste 13 sur les 33.**
+
+---
+
+## Le journal de l'essaim et « copier la commande » : quatre survivants d'un « ça se remplit »
+
+### Le journal — deux gardes sous une seule assertion trop faible
+
+```js
+var src = lang === 'en' ? JEN : JFR;   // la langue du fil d'activité
+for (var k = 0; k < 4; k++) {          // sa borne
+```
+
+Le banc existant assène `#journal li` **> 0**. Un journal en anglais servi à un
+francophone en a toujours plus de zéro ; un journal de CINQ lignes aussi. « Il
+se remplit » ne dit ni la langue, ni la quantité.
+
+L'ancre retenue : les messages affichés doivent tous venir du tableau que la
+page PRÉTEND utiliser (`JFR` ou `JEN`, lus dans la source et évalués). Aucun mot
+n'est épinglé — réécrire une entrée déplace le tableau et le banc suit.
+
+### « Copier la commande » — le retour au repos que personne ne regardait
+
+```js
+lbl.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+…
+lbl.textContent = (lang === 'en' ? EN : FR)['rc.copier'];   // 1800 ms plus tard
+```
+
+Le second est le RETOUR AU REPOS. Le code porte même un commentaire disant
+qu'il repasse par le dictionnaire « pour que le libellé revienne dans la langue
+COURANTE » — une intention qu'aucun banc ne vérifiait, faute de faire avancer le
+temps.
+
+### Verdict affiché
+
+```text
+journal   lang === 'en' ? JEN : JFR   → !==   1 failed | 38 passed
+journal   for k < 4                   → <=    1 failed | 38 passed
+rc-copier confirmation                → !==   1 failed | 38 passed
+rc-copier retour au repos             → !==   1 failed | 38 passed
+source saine                                  39 passed (39)
+```
+
+### Le piège du montage, quatrième de la série
+
+Le banc de `rc-copier` a rougi sur source SAINE : _« attendu copié ✓, reçu
+Copier la commande »_. Cause : la confirmation n'arrive qu'une fois la promesse
+du presse-papier tenue, et **une promesse se résout en micro-tâche** —
+`vi.advanceTimersByTime(0)` n'y touche pas. Les horloges factices gèlent les
+minuteurs, pas les promesses.
+
+C'est le quatrième montage fautif de cette série (`<br />` contre `<br>`, les
+attributs oubliés, le tableau empoisonné par le rangement, et celui-ci), et la
+règle tient toujours : **une garde neuve qui accuse du code sain a presque
+toujours tort — on cherche pourquoi, on ne l'assouplit pas.**
+
+**Quatre survivants de plus fermés ; il en reste 9 sur les 33.**
