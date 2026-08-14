@@ -44,8 +44,18 @@
   | `src/node-client` + `src/tui`  | 45 / 192   | 23 %      |
   | `src/adapters` + racine `src/` | 49 / 222   | 22 %      |
   | `dashboard/src/views`          | 57 / 440   | 13 %      |
+  | `site/` (les 3 pages)          | 43 / 43    | **100 %** |
 
-  Sur les quatre terrains à 100 %, « gardé » est mesuré. Sur les trois autres,
+  **`site/` a rejoint les terrains à 100 % le 14 août, et son histoire vaut
+  d'être dite** : `.html` était exclu EN BLOC de la loupe, donc la vitrine — le
+  premier écran d'un arrivant — ne pouvait rendre AUCUNE candidate. Une fois
+  l'exclusion levée et la mutation bornée aux `<script>`, le premier balayage
+  complet a rendu **33 SANS TEST sur 43**, dont l'inversion du dictionnaire qui
+  sert l'anglais aux francophones. Huit lots plus tard, le balayage rend
+  **43 / 43, zéro nu** — mesuré deux fois, la seconde parce que la première
+  précédait le dernier correctif et n'aurait donné qu'une déduction.
+
+  Sur les cinq terrains à 100 %, « gardé » est mesuré. Sur les trois autres,
   ce qui est mesuré est **l'échantillon**, et rien d'autre : 87 % de
   `dashboard/src/views` n'a jamais été regardé par la loupe. Ce n'est pas
   masqué derrière un ✅, c'est écrit ici.

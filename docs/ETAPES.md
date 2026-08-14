@@ -7204,3 +7204,48 @@ maintenant fermées. Le nombre restant ne se déduit pas : **un second balayage
 complet de `site/` tourne** au moment où ces lignes sont écrites, sur la base
 épinglée `f0fc005`, et c'est lui qui donnera le chiffre défendable — pas une
 soustraction.
+
+---
+
+## La vitrine : de « invisible » à 43/43, et le chiffre est MESURÉ
+
+Deux balayages complets encadrent ce fil de lots.
+
+```text
+PREMIER (arbre ab28e44, avant tout banc de vitrine)
+  LOUPE : 43 mutation(s) possible(s), 43 examinée(s)
+          10 défendues · 33 SANS TEST
+
+DERNIER (arbre 5ac77a6, après les huit lots)
+  LOUPE : 43 mutation(s) possible(s), 43 examinée(s)
+          43 défendues · 0 SANS TEST
+          ════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+**Trente-trois décisions nues, toutes fermées, et le zéro final est une mesure —
+pas une soustraction.**
+
+### Pourquoi il a fallu DEUX balayages de confirmation
+
+Le premier de confirmation a tourné sur `6044e68`, l'arbre juste AVANT le lot du
+compteur d'étoiles : il a rendu **42 défendues, 1 SANS TEST**, et ce survivant
+unique était exactement la garde que le lot suivant fermait.
+
+Annoncer 43/43 sur cette base aurait été une déduction. Le carnet venait
+justement d'écrire qu'« une soustraction n'est pas une mesure » ; un second
+balayage a donc été lancé sur `5ac77a6`, la tête qui porte le banc du compteur.
+C'est lui qui rend le zéro.
+
+> **Un chiffre qu'on obtient en raisonnant sur un relevé n'a pas le même statut
+> qu'un chiffre que le relevé porte.** Les deux peuvent être justes ; un seul
+> peut être défendu sans expliquer un raisonnement.
+
+### Ce que ce zéro couvre exactement, et ce qu'il ne couvre pas
+
+Il couvre les **43 lignes de décision ajoutées par le diff depuis `f0fc005`**,
+dans les `<script>` des trois pages traduites. Il ne dit rien du CSS, ni du
+balisage, ni de ce que la page fait dans un vrai navigateur — happy-dom n'est
+pas Chrome.
+
+Ce n'est pas non plus « la vitrine est jolie » : § E du definition of done
+(identité visuelle, #63) reste une décision de l'utilisateur, intacte.
