@@ -9041,3 +9041,61 @@ Et le fil qui relie les trois pièges de ce tour — `go.demo` (`<br />` contre
 CHERCHER pourquoi, pas l'assouplir jusqu'à ce qu'elle se taise.** Les trois fois,
 la recherche a rendu un banc meilleur ; une seule fois sur trois, elle aurait
 donné raison au banc.
+
+---
+
+## 9 unnonagies. Rendre une garde CAPABLE et ne pas la BRANCHER, c'est l'avoir écrite pour soi
+
+Deux lots ont été nécessaires pour que la loupe puisse voir le JavaScript de la
+vitrine : retirer l'exclusion en bloc de `.html`, puis borner la mutation à ses
+`<script>`. Le balayage lancé à la main a aussitôt rendu 43 candidates dont 33
+SANS TEST, et parmi elles l'inversion du dictionnaire qui sert l'anglais aux
+francophones.
+
+Et pourtant, après ces deux lots, `npm run loupe` — **la garde de FUSION**,
+celle qui tourne sans variable d'environnement — ne regardait toujours pas
+`site/`. Le périmètre par défaut était resté `['src', 'dashboard/src',
+'scripts']`.
+
+La prochaine décision ajoutée à la vitrine serait donc passée avec « rien à
+conclure », exactement comme avant les deux lots.
+
+### Pourquoi c'est un piège à part
+
+Parce que les deux premiers lots donnent la sensation du travail fini. Ils sont
+difficiles, mesurés, et ils rendent un résultat spectaculaire — 33 survivants.
+La troisième ligne, elle, est triviale : ajouter `'site'` à un tableau. Rien
+n'attire l'attention sur elle, et elle porte tout.
+
+> **Une capacité n'est une garde que branchée sur le chemin par défaut.** Ce
+> qu'on ne regarde qu'en tapant une variable d'environnement, on ne le regarde
+> qu'une fois — le jour où on l'a écrit.
+
+C'est la même forme que l'angle mort du DÉCLENCHEUR de `npm audit`, consigné
+dans `docs/DEFINITION-DE-SORTIE.md § C` : le gate existait, il était correct, et
+il ne tournait qu'à l'ouverture d'une PR — donc un avis publié entre deux
+livraisons restait invisible. Une garde a deux moitiés : ce qu'elle sait voir,
+et QUAND elle est appelée. Livrer la première sans la seconde ne livre rien.
+
+### Le raccord qui la rend circulaire, et qu'il faut savoir défaire
+
+L'entrée `site` avait une raison de ne pas figurer dans le périmètre : `.html`
+était muet, donc `site/` n'aurait rien rendu, donc l'y mettre était inutile. La
+raison était juste — et elle a survécu à la disparition de sa cause.
+
+> **Quand on lève une contrainte, on relit les décisions qui n'existaient QUE
+> par elle.** Elles ne se signalent pas : elles ont l'air de choix, pas de
+> conséquences.
+
+### Et la preuve, qui ne s'affirme pas
+
+Que le périmètre atteigne vraiment la vitrine se MESURE, arithmétiquement :
+
+    périmètre par défaut (nouveau)          2269 candidates
+    ancien périmètre, demandé à la main     2226
+    site/ seul                                43
+                                          ─────
+                                2269 − 2226 = 43   ✓
+
+Un banc qui aurait seulement vérifié `PORTEE_PAR_DEFAUT.includes('site')`
+garderait l'orthographe de la liste. Cette soustraction garde le comportement.

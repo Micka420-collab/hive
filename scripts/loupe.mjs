@@ -223,7 +223,21 @@ const REPLI_QUI_MORD = /^(?:true\b|[1-9][\d_]*\b)/;
  */
 
 /** Le périmètre par défaut : tout le code qui s'exécute, et rien d'autre. */
-export const PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts'];
+// ─── POURQUOI `site` Y FIGURE, ET DEPUIS QUAND ───────────────────────────────
+//
+// Il n'y était pas, pour une raison qui s'est révélée circulaire : `.html` était
+// exclu en bloc de la loupe, donc `site/` n'aurait rien rendu, donc l'y mettre
+// n'aurait servi à rien. Les deux lots précédents ont retiré l'exclusion et
+// borné la mutation aux `<script>` — la vitrine est devenue EXAMINABLE.
+//
+// Sans cette ligne-ci elle ne serait jamais EXAMINÉE. `npm run loupe` est la
+// garde de FUSION : elle tourne sans variable d'environnement, et ce qu'elle ne
+// regarde pas par défaut n'est regardé par personne. Le premier balayage
+// complet, lancé à la main, avait rendu 43 candidates dont 33 SANS TEST.
+//
+// Une garde qu'on rend capable et qu'on ne branche pas est une garde qu'on a
+// écrite pour soi.
+export const PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts', 'site'];
 
 /** Le juge ne se mute pas lui-même. Cette exclusion ne se négocie pas. */
 export const HORS_PORTEE = ':(exclude)scripts/loupe.mjs';

@@ -177,3 +177,59 @@ describe('cheminsDuBalayage — ce que la loupe a le droit de regarder', () => {
     expect(cheminsDuBalayage(undefined).at(-1)).toBe(HORS_PORTEE);
   });
 });
+
+describe('LE PÉRIMÈTRE PAR DÉFAUT COUVRE TOUT CE QUI EST LIVRÉ ET DÉCIDE', () => {
+  // ─── LE TROU, EN TROIS TEMPS ───────────────────────────────────────────────
+  //
+  // 1. `.html` était exclu EN BLOC de la loupe : la vitrine ne pouvait rendre
+  //    AUCUNE candidate. Fermé.
+  // 2. Un balayage COMPLET, lancé à la main avec `LOUPE_CHEMINS=site`, a rendu
+  //    43 candidates dont 33 SANS TEST — dont l'inversion du dictionnaire, qui
+  //    sert l'anglais aux francophones. Fermées, cinq d'entre elles.
+  // 3. Et pourtant `npm run loupe` — LA GARDE DE FUSION, celle qui tourne sans
+  //    variable d'environnement — ne regardait toujours pas `site/`.
+  //
+  // Les deux premiers lots ont rendu la vitrine EXAMINABLE. Sans ce troisième,
+  // elle ne serait jamais EXAMINÉE : la prochaine décision ajoutée à la page
+  // passerait la garde avec « rien à conclure », exactement comme avant.
+  //
+  // Une garde qu'on rend capable et qu'on ne branche pas est une garde qu'on a
+  // écrite pour soi.
+
+  it('la VITRINE est dans le périmètre par défaut', () => {
+    expect(PORTEE_PAR_DEFAUT, 'site/ hors de la garde de fusion').toContain('site');
+    expect(cheminsDuBalayage(undefined)).toContain('site');
+  });
+
+  it('AUCUN chemin du périmètre n’est mort — chacun porte du mutable', async () => {
+    // ─── LA GARDE QUI EMPÊCHE LA LISTE DE POURRIR ───────────────────────────
+    //
+    // Un dossier renommé laisserait une entrée qui ne désigne plus rien, et la
+    // loupe rendrait « rien à conclure » sans que personne s'en aperçoive — le
+    // silence, encore. On exige donc que chaque entrée ramène au moins un
+    // fichier que la loupe accepterait de muter.
+    const { readdirSync } = await import('node:fs');
+    const { langageMutable } = await import('../scripts/loupe.mjs');
+    const morts = [];
+    for (const dossier of PORTEE_PAR_DEFAUT) {
+      let vivant = false;
+      const marcher = (d) => {
+        if (vivant) return;
+        for (const e of readdirSync(new URL(`../${d}/`, import.meta.url), {
+          withFileTypes: true,
+        })) {
+          if (vivant) return;
+          if (e.isDirectory()) marcher(`${d}/${e.name}`);
+          else if (langageMutable(e.name)) vivant = true;
+        }
+      };
+      try {
+        marcher(dossier);
+      } catch {
+        /* dossier absent : mort, et c'est ce qu'on veut dire */
+      }
+      if (!vivant) morts.push(dossier);
+    }
+    expect(morts, 'chemin(s) du périmètre qui ne désignent plus rien de mutable').toEqual([]);
+  });
+});

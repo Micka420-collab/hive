@@ -6855,3 +6855,57 @@ qu'aucun balayage automatique ne couvre. »_
 C'était vrai ; ça ne l'est plus depuis deux lots. Une note de méthode périmée
 est pire qu'aucune note : elle décourage précisément le geste qui vient de
 devenir possible.
+
+---
+
+## La vitrine passe d'EXAMINABLE à EXAMINÉE
+
+Deux lots l'avaient rendue visible à la loupe. Ce troisième la met dans le
+périmètre par défaut — sans quoi elle ne serait jamais regardée.
+
+```diff
+-export const PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts'];
++export const PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts', 'site'];
+```
+
+`npm run loupe` est la garde de FUSION : elle tourne sans variable
+d'environnement. Ce qu'elle ne regarde pas par défaut n'est regardé par
+personne, et la prochaine décision ajoutée à la page serait passée avec « rien à
+conclure » — exactement comme avant les deux lots précédents.
+
+### La preuve est arithmétique, pas déclarative
+
+```text
+périmètre par défaut (nouveau)         2269 candidates
+ancien périmètre, demandé à la main    2226
+site/ seul                               43
+                                     ─────
+                           2269 − 2226 = 43   ✓
+```
+
+Un banc qui se contenterait de `PORTEE_PAR_DEFAUT.includes('site')` garderait
+l'orthographe d'une liste. Cette soustraction, mesurée dans l'atelier sur trois
+lancements, garde le comportement.
+
+### Une seconde garde, contre la pourriture de la liste
+
+Chaque entrée du périmètre doit ramener au moins un fichier que la loupe
+accepterait de muter. Un dossier renommé laisserait sinon une entrée qui ne
+désigne plus rien, et la loupe rendrait « rien à conclure » sans que personne
+s'en aperçoive.
+
+```text
+VERDICT AFFICHÉ   « site » retiré du périmètre        → rouge
+                  entrée « vitrine-renommee » ajoutée → rouge, chemin mort nommé
+                  source saine                        → 17 verts
+```
+
+### Le raccord circulaire, et ce qu'il enseigne
+
+`site` avait une RAISON de ne pas figurer au périmètre : `.html` était muet,
+donc `site/` n'aurait rien rendu, donc l'y mettre était inutile. La raison était
+juste — et elle a survécu à la disparition de sa cause.
+
+C'est le § 9 unnonagies : quand on lève une contrainte, on relit les décisions
+qui n'existaient QUE par elle. Elles ne se signalent pas, parce qu'elles ont
+l'air de choix et non de conséquences.
