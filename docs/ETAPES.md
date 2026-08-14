@@ -6176,3 +6176,50 @@ comportement du produit.
 C'est le § 2 quaterdecies dans sa forme la plus économique : la nudité n'était
 pas un manque de tests, c'était un mauvais emplacement. Les tests manquants
 étaient impossibles à écrire tant que le code restait là où il était.
+
+---
+
+## Adaptateurs et entrées : deux échantillons, 49 candidates distinctes sur 222
+
+Le terrain le plus exposé du dépôt — `src/adapters` (les lanceurs d'agents) et
+les dix-sept fichiers à la racine de `src/` (installeur, CLI, désinstallation,
+sauvegarde) — n'avait jamais été balayé avant le 14 août. Deux échantillons y
+ont été joués, à des pas différents pour ne pas relire les mêmes lignes.
+
+```text
+1er passage  LOUPE_MAX=25 → pas ceil(222/25)=9  → 25 mutations, 0 survivante
+2e  passage  LOUPE_MAX=30 → pas ceil(222/30)=8  → 28 mutations, 0 survivante
+```
+
+### L'union se calcule, et elle se calcule exactement
+
+Les deux passages portent sur le MÊME total (222) et l'échantillon est
+RÉGULIER : les indices retenus sont donc connus, et leur recouvrement aussi.
+
+|                                        |                           |
+| -------------------------------------- | ------------------------- |
+| indices du pas 9                       | 0, 9, 18 … 216 — **25**   |
+| indices du pas 8                       | 0, 8, 16 … 216 — **28**   |
+| communs (multiples de `lcm(9,8) = 72`) | 0, 72, 144, 216 — **4**   |
+| **union distincte**                    | **49 sur 222, soit 22 %** |
+
+C'est la première fois qu'on peut dire ce chiffre sans l'estimer. Sur
+`dashboard/src/views`, les deux passages avaient des totaux différents (454 puis
+440, la correction des combinateurs CSS étant passée entre les deux) : les
+indices n'y sont pas comparables, et l'union n'y a donc été donnée qu'en ordre
+de grandeur. La différence entre « environ soixante » et « 49 exactement » n'est
+pas cosmétique — l'un est une estimation, l'autre une mesure.
+
+### Le second `LOUPE_MAX=30` n'a joué que 28 mutations
+
+Ce n'est pas une troncature silencieuse : le pas est `ceil(222/30) = 8`, et
+`0..216` par pas de 8 fait 28 indices. Le plafond borne l'échantillon par le
+haut, il ne le remplit pas. La loupe imprime toujours les deux nombres —
+« 222 possibles, 28 examinées » — et c'est le second qu'il faut citer.
+
+### Ce que ces deux zéros valent
+
+Quatre-vingt-dix-huit pour cent du terrain reste hors de vue, et un vert sur
+22 % ne dit rien du reste. Ce qu'il dit, en revanche, se tient : sur les 49
+lignes regardées de ce terrain-là — dont dix de `cli.ts`, le point d'entrée que
+tout le monde emprunte — aucune n'était nue.
