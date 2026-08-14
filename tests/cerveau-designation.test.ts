@@ -39,6 +39,9 @@ import {
   priseAuDoigt,
   rayon,
   seChevauchent,
+  LIBELLE_GENRE,
+  noteCreuse,
+  resumeDeNote,
   selectionAuRelacher,
   SEUIL_GLISSE,
   type Boite,
@@ -578,5 +581,58 @@ describe('policeEtiquette — ce qu’on mesure est ce qu’on écrit', () => {
     // `11 / zoom` : à fort zoom la fonte est fractionnaire, et le canevas
     // l'accepte. L'arrondir ici ferait sauter le texte d'un cran à l'autre.
     expect(policeEtiquette(5.5, false)).toBe('5.5px ui-monospace, monospace');
+  });
+});
+
+describe('noteCreuse — la décision que le canevas ne faisait que dessiner', () => {
+  it('JAMAIS servie ⇒ creuse ; servie AUJOURD’HUI ⇒ pleine', () => {
+    // `null` et `0` sont aux deux extrêmes, et les confondre est le défaut que
+    // cet écran existe pour éviter. C'est l'entrée qui tranche le mutant
+    // `=== null` → `!== null`, rendu nu par un balayage élargi : la ligne
+    // vivait dans la boucle de dessin, où `getContext` rend `null` sous
+    // happy-dom — donc aucun banc ne pouvait l'atteindre.
+    expect(noteCreuse({ serviIlYaJours: null })).toBe(true);
+    expect(noteCreuse({ serviIlYaJours: 0 })).toBe(false);
+    expect(noteCreuse({ serviIlYaJours: 400 }), 'vieille n’est pas jamais').toBe(false);
+  });
+});
+
+describe('resumeDeNote — ce que la bulle de survol dit, sans passer par le canevas', () => {
+  const fr = (f: string) => f;
+  const en = (_f: string, e: string) => e;
+
+  it('une note JAMAIS servie le dit, dans les deux langues', () => {
+    const n = { genre: 'lecon', degre: 3, serviIlYaJours: null };
+    expect(resumeDeNote(n, fr)).toBe('leçons · 3 liens · jamais servie');
+    expect(resumeDeNote(n, en)).toBe('lessons · 3 links · never used');
+  });
+
+  it('une note SERVIE porte son ancienneté — c’est l’entrée qui tranche', () => {
+    // Avec le mutant `!== null`, une note servie il y a 5 jours s'annoncerait
+    // « jamais servie » : l'écran dirait dormant ce qui vient de servir.
+    const n = { genre: 'invariant', degre: 12, serviIlYaJours: 5 };
+    expect(resumeDeNote(n, fr)).toBe('invariants · 12 liens · servie il y a 5 j');
+    expect(resumeDeNote(n, en)).toBe('invariants · 12 links · used 5 d ago');
+  });
+
+  it('SERVIE AUJOURD’HUI (0 jour) n’est pas « jamais servie »', () => {
+    expect(resumeDeNote({ genre: 'carte', degre: 1, serviIlYaJours: 0 }, fr)).toContain(
+      'servie il y a 0 j',
+    );
+  });
+
+  it('un genre INCONNU rend une chaîne vide, pas sa clé interne', () => {
+    // La bulle nomme déjà la note juste au-dessus : afficher `episode_bis`
+    // n'apprendrait rien et trahirait un identifiant interne.
+    expect(resumeDeNote({ genre: 'inexistant', degre: 0, serviIlYaJours: null }, fr)).toBe(
+      ' · 0 liens · jamais servie',
+    );
+  });
+
+  it('les cinq genres connus ont bien leurs deux langues', () => {
+    for (const g of Object.keys(LIBELLE_GENRE)) {
+      expect(resumeDeNote({ genre: g, degre: 1, serviIlYaJours: 1 }, fr)).not.toMatch(/^ ·/);
+      expect(resumeDeNote({ genre: g, degre: 1, serviIlYaJours: 1 }, en)).not.toMatch(/^ ·/);
+    }
   });
 });

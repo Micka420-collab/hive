@@ -58,6 +58,9 @@ import {
   rayon,
   priseAuDoigt,
   selectionAuRelacher,
+  LIBELLE_GENRE,
+  noteCreuse,
+  resumeDeNote,
 } from './cerveau-designation';
 
 /** Une couleur par genre — l'ordre des genres EST leur priorité. */
@@ -69,13 +72,10 @@ const COULEUR: Record<string, string> = {
   episode: '#a2957d',
 };
 
-const LIBELLE: Record<string, { fr: string; en: string }> = {
-  invariant: { fr: 'invariants', en: 'invariants' },
-  lecon: { fr: 'leçons', en: 'lessons' },
-  decision: { fr: 'décisions', en: 'decisions' },
-  carte: { fr: 'cartes', en: 'maps' },
-  episode: { fr: 'épisodes', en: 'episodes' },
-};
+// Les noms des genres vivent dans le module pur : la bulle et la liste des
+// filtres les lisaient chacune de leur côté, et deux sources finissent toujours
+// par diverger. `LIBELLE_GENRE` est celle qui reste.
+const LIBELLE = LIBELLE_GENRE;
 
 const GENRES_ORDRE: Genre[] = ['invariant', 'lecon', 'decision', 'carte', 'episode'];
 
@@ -301,8 +301,9 @@ export default function Cerveau(_props: ViewProps) {
         ctx.fill();
 
         // Une note JAMAIS servie est creuse : du savoir stocké sans usage,
-        // visible au premier coup d'œil.
-        if (p.n.serviIlYaJours === null) {
+        // visible au premier coup d'œil. La DÉCISION vit dans `noteCreuse`,
+        // pure et éprouvée hors canevas ; ici il ne reste que le dessin.
+        if (noteCreuse(p.n)) {
           ctx.beginPath();
           ctx.arc(p.x, p.y, Math.max(1, r - 2.6), 0, Math.PI * 2);
           ctx.fillStyle = '#14100b';
@@ -607,16 +608,11 @@ export default function Cerveau(_props: ViewProps) {
               {bulle && (
                 <div className="cerveau-bulle" style={{ left: bulle.x, top: bulle.y }}>
                   <b>{bulle.n.titre}</b>
-                  <span>
-                    {t(LIBELLE[bulle.n.genre]?.fr ?? '', LIBELLE[bulle.n.genre]?.en ?? '')} ·{' '}
-                    {bulle.n.degre} {t('liens', 'links')} ·{' '}
-                    {bulle.n.serviIlYaJours === null
-                      ? t('jamais servie', 'never used')
-                      : t(
-                          `servie il y a ${bulle.n.serviIlYaJours} j`,
-                          `used ${bulle.n.serviIlYaJours} d ago`,
-                        )}
-                  </span>
+                  {/* Le TEXTE se décide dans `resumeDeNote`, pure et éprouvée : on
+                      n'atteint cette bulle qu'en survolant le canevas, et le
+                      survol dépend d'une géométrie dont la phrase, elle, ne
+                      dépend pas. */}
+                  <span>{resumeDeNote(bulle.n, t)}</span>
                 </div>
               )}
               {rienDeFiltre && (

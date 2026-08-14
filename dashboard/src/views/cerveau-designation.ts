@@ -438,3 +438,67 @@ export function etiquettesPosees<T extends { id: string; n: NoteNommable }>(
 export function policeEtiquette(taille: number, estActif: boolean): string {
   return `${estActif ? '600 ' : ''}${taille}px ui-monospace, monospace`;
 }
+
+/**
+ * Une note qui n'a JAMAIS servi — du savoir stocké sans usage.
+ *
+ * ─── POURQUOI CE PRÉDICAT EXISTE, ALORS QU'IL TIENT EN QUATRE MOTS ───────────
+ *
+ * `serviIlYaJours === null` vivait dans la boucle de dessin du canevas, où il
+ * décide de creuser l'anneau d'une note. Un balayage élargi l'a rendu nu, et il
+ * ne pouvait pas en être autrement : `getContext` rend `null` sous happy-dom,
+ * donc AUCUN banc ne peut atteindre cette ligne.
+ *
+ * Une décision hors d'atteinte de la mesure est presque toujours au mauvais
+ * endroit (§ 2 quaterdecies). Sortie ici, elle s'éprouve ; ce qui reste dans la
+ * boucle n'est plus que « si creuse, dessine l'anneau ».
+ *
+ * `null` (jamais servie) et `0` (servie aujourd'hui) sont aux deux extrêmes, et
+ * les confondre est le défaut que cet écran existe pour éviter — c'est le même
+ * raisonnement que `chaleur` ci-dessus, et c'est pour ça qu'ils vivent côte à
+ * côte : une seule idée, deux usages.
+ */
+export function noteCreuse(n: NoteServie): boolean {
+  return n.serviIlYaJours === null;
+}
+
+/** Les noms lisibles des genres de notes — UNE seule source pour tout l'écran. */
+export const LIBELLE_GENRE: Readonly<Record<string, { fr: string; en: string }>> = {
+  invariant: { fr: 'invariants', en: 'invariants' },
+  lecon: { fr: 'leçons', en: 'lessons' },
+  decision: { fr: 'décisions', en: 'decisions' },
+  carte: { fr: 'cartes', en: 'maps' },
+  episode: { fr: 'épisodes', en: 'episodes' },
+};
+
+/** Ce que la bulle de survol dit d'une note. */
+export interface NoteResumee extends NoteServie {
+  genre: string;
+  degre: number;
+}
+
+/**
+ * La ligne de la bulle : genre, nombre de liens, dernier usage.
+ *
+ * ─── CE QUI SE JOUE DANS UN TEXTE D'INFOBULLE ────────────────────────────────
+ *
+ * La bulle est du DOM ordinaire — happy-dom sait la rendre. Mais on ne l'ATTEINT
+ * qu'en survolant le canevas, et le survol passe par `getBoundingClientRect` et
+ * par des positions calculées à `requestAnimationFrame`. Le texte était donc nu
+ * pour une raison purement géométrique, alors qu'il ne dépend d'aucune géométrie.
+ *
+ * Séparé, il redevient ce qu'il est : une phrase déduite de trois champs.
+ *
+ * Un genre INCONNU rend une chaîne vide plutôt que sa clé brute — c'est le choix
+ * déjà fait dans la vue, et il se défend : la bulle nomme déjà la note juste
+ * au-dessus, donc afficher `episode_bis` n'apprendrait rien et trahirait un
+ * identifiant interne. (La liste des filtres, elle, retombe sur la clé : là,
+ * elle est la seule chose qui distingue deux boutons.)
+ */
+export function resumeDeNote(n: NoteResumee, t: (fr: string, en: string) => string): string {
+  const genre = t(LIBELLE_GENRE[n.genre]?.fr ?? '', LIBELLE_GENRE[n.genre]?.en ?? '');
+  const usage = noteCreuse(n)
+    ? t('jamais servie', 'never used')
+    : t(`servie il y a ${n.serviIlYaJours} j`, `used ${n.serviIlYaJours} d ago`);
+  return `${genre} · ${n.degre} ${t('liens', 'links')} · ${usage}`;
+}
