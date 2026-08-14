@@ -4,6 +4,7 @@
 // temps réel via le snapshot WS reçu en props.
 
 import { useEffect, useMemo, useState } from 'react';
+import { nomDeLivraison, suffixeEnVol, verdictDesTests } from './projets-rendu';
 import {
   addTasks,
   admettreMembre,
@@ -306,15 +307,10 @@ function MergeReport({
   // tourné du tout : afficher « tests non lancés » sans dire pourquoi enverrait
   // chercher une régression dans du code qui va très bien.
   const envRate = result.preparedOk === false;
-  const tests = envRate
-    ? t('environnement non préparé — tests non lancés', 'environment not prepared — tests not run')
-    : !result.testsRun
-      ? t('tests non lancés', 'tests not run')
-      : result.testsPassed === true
-        ? t('✔ tests verts', '✔ tests green')
-        : result.testsPassed === false
-          ? t('✘ tests rouges', '✘ tests red')
-          : t('tests sans verdict', 'tests without a verdict');
+  // Les CINQ issues vivent dans `verdictDesTests`, pure et éprouvée : ce
+  // message est lu pour décider de fusionner, et son mutant le plus grave
+  // annonce « ✔ tests verts » sur une suite rouge.
+  const tests = verdictDesTests(result, t);
   return (
     <div className="pj-merge-report">
       <p>
@@ -1034,7 +1030,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
             {t(`Tour ${session.tour}`, `Round ${session.tour}`)} ·{' '}
             {t(ISSUE[session.issue].fr, ISSUE[session.issue].en)}
             {!session.closedAt && ` — ${t('provisoire', 'provisional')}`}
-            {session.enVol > 0 && ` · ${session.enVol} ${t('en vol', 'in flight')}`}
+            {suffixeEnVol(session.enVol, t)}
           </p>
           {session.danses.length === 0 ? (
             <p className="muted-text">
@@ -1079,6 +1075,11 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
                         ⛔ {r.raison}
                       </p>
                     ))}
+                  {/* PAS défendu, et c'est l'idiome JSX « rends si présent ».
+                  Muté en `||`, le bloc s'affiche VIDE quand il n'y a aucune
+                  source — une section « sources » sans source. L'entrée qui
+                  tranche est un dépôt à zéro source ; l'extraire en fonction
+                  pure serait de la cérémonie pour une garde d'une ligne. */}
                   {d.sources.length > 0 && (
                     <p className="pj-cs-sources">
                       {/* AFFICHÉES, jamais suivies par la ruche. */}
@@ -1377,6 +1378,9 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
                 {d.archive && <span className="pj-gh-tag">{t('archivé', 'archived')}</span>}
                 {d.langage && <span className="pj-gh-tag">{d.langage}</span>}
               </div>
+              {/* Même famille : muté en `||`, une description absente rend un
+                  `<span>` vide et stylé plutôt que rien. L'entrée qui tranche
+                  est un dépôt sans description. */}
               {d.description && <span className="pj-gh-desc">{d.description}</span>}
               {d.importe ? (
                 <span className="pj-gh-etat">{t('déjà connecté', 'already connected')}</span>
@@ -1599,7 +1603,7 @@ export function LivraisonsProjet({ project }: { project: Project }) {
               >
                 #{l.pr}
               </a>
-              <span className="pj-liv-titre">{l.titre || l.taskId}</span>
+              <span className="pj-liv-titre">{nomDeLivraison(l)}</span>
               {/* Une PR illisible le DIT. Une ligne muette laisserait croire
                   qu'il ne se passe rien, alors qu'on n'a pas pu regarder. */}
               <span className="pj-liv-etat">{l.illisible ? `⚠ ${l.illisible}` : l.dit}</span>
