@@ -8868,3 +8868,42 @@ le carnet.
 > est un arrondi.** Le seul moyen de ne pas se mentir est de dire, au moment de
 > la poser, ce qu'elle aurait attrapé — et « rien, aujourd'hui » est une réponse
 > honnête et suffisante.
+
+### Le miroir de cette leçon : une portée trop LARGE en exclusion
+
+Le § ci-dessus décrit une garde qui regardait trop peu. Le même tour en a
+produit l'exact miroir, et il est plus vicieux.
+
+`scripts/loupe.mjs` refuse de muter les langages où `>` n'est pas une
+comparaison — juste, et mesuré : dans une feuille de style, muter un
+combinateur rend un survivant que rien ne peut ni tuer ni juger équivalent.
+Mais `.html` a été jeté dans cette liste avec le CSS, « parce que `<` ouvre une
+balise ». Vrai du balisage. Faux de la PAGE, qui porte aussi du JavaScript.
+
+Conséquence, mesurée :
+
+    langageMutable('site/index.html')  →  false
+
+La vitrine — 828 lignes de script, le premier écran que voit un arrivant — n'a
+jamais été balayée, et ne pouvait pas l'être. Pas « aucune candidate » : aucune
+candidate POSSIBLE, à jamais.
+
+### Pourquoi l'exclusion trop large est PIRE que l'inclusion trop étroite
+
+Une garde qui regarde trop peu laisse passer un défaut ; on finit par le
+trouver ailleurs. Une garde qui exclut trop produit un SILENCE, et le silence
+d'un instrument se lit comme une absence de défaut. Sur un balayage par
+mutation, ça donne « LA LOUPE NE VOIT RIEN DE NU » sur un terrain que la loupe
+ne pouvait pas regarder — la phrase exacte que cet instrument existe pour
+empêcher.
+
+> **Une liste de refus se juge sur ce qu'elle refuse À TORT, et cette
+> erreur-là ne se signale jamais d'elle-même.** L'inclusion trop étroite finit
+> par produire un incident ; l'exclusion trop large ne produit rien du tout, et
+> c'est précisément pour ça qu'on ne la trouve pas.
+
+Le remède n'est pas d'annuler l'exclusion — la raison qui l'a fait naître tient
+toujours. C'est de la rendre plus FINE que l'extension : on ne regarde que ce
+que le navigateur exécuterait. La question à poser à toute liste de refus est
+donc : « qu'est-ce que je jette avec, et est-ce que je saurais jamais que je
+l'ai jeté ? »

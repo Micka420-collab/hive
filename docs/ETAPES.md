@@ -6627,3 +6627,82 @@ La seconde assertion — « la découverte voit vraiment quelque chose » — es
 pour la raison qui a fait tout ce fil : une découverte qui ne trouverait rien
 rendrait la première verte à vide, c'est-à-dire le défaut qu'on ferme, reproduit
 un cran plus haut.
+
+---
+
+## Le seul terrain jamais vu par la loupe : la vitrine — et elle lui était INTERDITE
+
+Le balayage par échantillon sur terrain déjà vu est arrêté (critère posé avant le
+huitième tirage). Restait à chercher du terrain JAMAIS vu. Il y en avait, à
+l'endroit le plus gênant possible.
+
+### La mesure qui ouvre le lot
+
+```text
+langageMutable('site/index.html')             →  false
+langageMutable('site/presentation/index.html') →  false
+
+site/index.html               697 lignes de script,  24 portant un opérateur
+site/presentation/index.html  131 lignes de script,   8 portant un opérateur
+```
+
+La vitrine — **le premier écran que voit un arrivant**, avec sa bascule de
+langue, son bouton copier et ses puces d'OS — n'était pas « non balayée ». Elle
+était **impossible à balayer** : `SANS_OPERATEURS` excluait `.html` en bloc.
+
+### Et la garde fautive est la mienne, posée ce tour-ci
+
+`SANS_OPERATEURS` a été ajoutée pour une raison juste : dans une feuille de
+style, `>` est un combinateur, et le muter rend un survivant ni tuable ni
+jugeable équivalent. Mais `.html` y a été jeté avec le CSS, « parce que `<`
+ouvre une balise ». Vrai du balisage ; faux de la page, qui porte aussi du
+JavaScript.
+
+C'est le § 9 nonoctogies **retourné** : là-bas une portée trop étroite laissait
+passer, ici une portée trop large empêche de voir. Les deux sont vertes, et la
+seconde est pire — elle rassure sur un terrain où l'instrument ne peut RIEN
+trouver, jamais.
+
+### Le remède, et ce qu'il refuse de faire
+
+Pas « rendre `.html` mutable » : ses attributs et son `<style>` rendraient
+exactement les faux survivants que la garde évitait. La borne devient
+`lignesDeScript`, qui ne retient que **ce que le navigateur exécuterait** —
+même règle de `type` que `tests/vitrine-executee.test.ts`, à laquelle un
+`type="application/json"` est une donnée et non du code.
+
+Trois choses restent dehors, et le banc les nomme une par une : le combinateur
+CSS d'un `<style>`, le JSON non exécuté, et l'attribut qui CONTIENT un opérateur
+sans en être un.
+
+### Verdict affiché, et deux bancs réécrits plutôt que supprimés
+
+```text
+avant : 3 failed | 55 passed (58)     (lignesDeScript is not a function)
+après : 59 passed (59)
+```
+
+Deux bancs PRÉEXISTANTS ont rougi au passage : ils encodaient l'ancienne règle
+(« `site/index.html` → false », « `site/INDEX.HTML` → false »). Les supprimer
+aurait effacé une garde ; ils sont **réécrits sur la règle nouvelle**, et la
+garde de casse a simplement changé de porte — `EST_UNE_PAGE` doit attraper
+`.HTML`, `.HtM` et `.htm` indifféremment, et c'est éprouvé.
+
+### Le rejeu de bout en bout, obligatoire après toute modification de la loupe
+
+```text
+sh /tmp/atelier.sh /tmp/at-vitrine ab28e44 f0fc005 site 1
+
+LOUPE : 43 mutation(s) possible(s) sur le diff, 1 examinée(s).
+  ✔ défendue · site/index.html · === → !==
+             lang = next === 'en' ? 'en' : 'fr';
+```
+
+**43 candidates là où il n'y en avait aucune de possible.** Et la première jouée
+est bien une décision, pas du décor.
+
+### Le balayage lancé est COMPLET, et c'est le premier
+
+`pas = ceil(43 / 43) = 1` : chaque candidate est jouée. Ce n'est pas un
+échantillon — c'est le premier terrain du dépôt balayé **en entier** depuis
+`src/shared`. Son résultat est consigné au tour suivant, quel qu'il soit.

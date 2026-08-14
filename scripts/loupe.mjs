@@ -406,7 +406,76 @@ const DIESE_COMMENTE = /\.(sh|bash|zsh|ps1|psm1|ya?ml|toml|conf)$|(^|\/)Dockerfi
  * n'est donc pas le volume : c'est qu'aucun des trois ne peut plus revenir
  * s'asseoir dans une liste de survivants qu'on lit pour décider.
  */
-const SANS_OPERATEURS = /\.(css|scss|sass|less|styl|md|markdown|json|jsonc|html?|svg|txt)$/i;
+const SANS_OPERATEURS = /\.(css|scss|sass|less|styl|md|markdown|json|jsonc|svg|txt)$/i;
+
+/**
+ * ─── LE HTML A ÉTÉ EXCLU EN BLOC, ET C'ÉTAIT TROP LARGE ──────────────────────
+ *
+ * `.html` figurait dans la liste ci-dessus, pour une bonne raison : ses
+ * attributs et ses `<style>` rendraient des survivants ni tuables ni jugeables.
+ * Mais une page porte aussi du JAVASCRIPT, et l'exclure en bloc a rendu la
+ * VITRINE — 828 lignes de script, le premier écran que voit un arrivant —
+ * structurellement invisible à la loupe :
+ *
+ *     langageMutable('site/index.html')  →  false
+ *
+ * Pas « aucune candidate » : aucune candidate POSSIBLE, à jamais. Une garde
+ * dont la portée exclut trop est aussi aveugle qu'une garde qui n'existe pas,
+ * et elle est PIRE, parce qu'elle rassure (§ 9 nonoctogies, retourné).
+ *
+ * D'où : le HTML redevient mutable, et c'est `lignesDeScript` qui borne — on ne
+ * regarde QUE ce que le navigateur exécuterait.
+ */
+const OUVRE_UN_SCRIPT = /<script([^>]*)>([\s\S]*?)<\/script>/g;
+const TYPE_EXECUTE = /^(text\/javascript|application\/javascript|module)$/;
+
+/**
+ * Les lignes qu'un navigateur EXÉCUTERAIT dans cette page, et elles seules.
+ *
+ * Même règle de sélection que `tests/vitrine-executee.test.ts` : un
+ * `type="application/json"` est une donnée, pas du code, et le muter ne
+ * prouverait rien. Le `<style>` et les attributs restent dehors — c'est
+ * exactement ce que l'exclusion en bloc protégeait, et on le garde.
+ *
+ * Rend un ensemble de TEXTES et non de numéros de ligne : la loupe travaille au
+ * texte de bout en bout (`original.replace(avant, apres)`), et lui donner ici
+ * une autre unité créerait deux vérités à tenir ensemble.
+ */
+export function lignesDeScript(html) {
+  const vues = new Set();
+  for (const m of html.matchAll(OUVRE_UN_SCRIPT)) {
+    const type = /type\s*=\s*["']([^"']+)["']/.exec(m[1])?.[1] ?? 'text/javascript';
+    if (!TYPE_EXECUTE.test(type)) continue;
+    for (const ligne of m[2].split('\n')) vues.add(ligne);
+  }
+  return vues;
+}
+
+/** Une page : mutable, mais seulement dans ses `<script>`. */
+const PAGE = /\.html?$/i;
+export const EST_UNE_PAGE = (fichier) => PAGE.test(fichier);
+
+/**
+ * Les `<script>` d'une page du dépôt, lus UNE fois.
+ *
+ * Sans mémoire, chaque ligne ajoutée relirait la vitrine entière — 3 000 lignes
+ * par candidate. Une page absente (supprimée par le diff) rend un ensemble vide
+ * plutôt que de faire tomber tout le balayage : on ne mute pas ce qui n'est
+ * plus là, ce n'est pas une raison de ne rien muter ailleurs.
+ */
+const MEMOIRE_DES_PAGES = new Map();
+function scriptsDeLaPage(fichier) {
+  let vues = MEMOIRE_DES_PAGES.get(fichier);
+  if (vues === undefined) {
+    try {
+      vues = lignesDeScript(readFileSync(RACINE + fichier, 'utf8'));
+    } catch {
+      vues = new Set();
+    }
+    MEMOIRE_DES_PAGES.set(fichier, vues);
+  }
+  return vues;
+}
 
 /**
  * Ce fichier est-il écrit dans un langage où les échanges ont un sens ?
@@ -450,6 +519,15 @@ function lignesAjoutees() {
     // sens — un survivant que rien ne peut ni tuer ni juger équivalent.
     if (!langageMutable(fichier)) continue;
     const texte = ligne.slice(1);
+    // ─── UNE PAGE : SEULEMENT CE QUE LE NAVIGATEUR EXÉCUTE ──────────────────
+    //
+    // Le HTML est mutable depuis qu'il portait la vitrine entière hors de vue,
+    // mais il ne l'est PAS en bloc : un `>` d'attribut ou de `<style>` rendrait
+    // le survivant ni tuable ni jugeable que l'exclusion d'origine évitait. On
+    // lit donc la page une fois, et on ne retient que ses `<script>`.
+    if (EST_UNE_PAGE(fichier)) {
+      if (!scriptsDeLaPage(fichier).has(texte)) continue;
+    }
     // Les commentaires ne s'exécutent pas : les muter ne prouverait rien. Le
     // NOM du fichier accompagne le texte — `#` commente en shell, pas en TS.
     if (!ligneMutable(texte, fichier)) continue;

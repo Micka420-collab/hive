@@ -501,7 +501,8 @@ describe('la marque voyage avec le LANGAGE du fichier, pas seulement le texte', 
 // l'autre (la règle disparaît vraiment). Un survivant sans issue revient à
 // chaque passe et ne s'éteint jamais : c'est le faux rouge perpétuel.
 
-import { langageMutable } from '../scripts/loupe.mjs';
+import { readFileSync } from 'node:fs';
+import { EST_UNE_PAGE, langageMutable, lignesDeScript } from '../scripts/loupe.mjs';
 
 describe('la loupe ne mute que les langages où ces jetons sont des opérateurs', () => {
   it('LE CAS QUI TRANCHE : une feuille de style n’est pas mutée', () => {
@@ -532,15 +533,25 @@ describe('la loupe ne mute que les langages où ces jetons sont des opérateurs'
   });
 
   it('les autres langages sans ces opérateurs sont nommés eux aussi', () => {
-    // `>` cite en Markdown, `<` ouvre une balise en HTML/SVG, et JSON n'a aucun
-    // opérateur du tout : muter n'y change jamais un SENS.
-    for (const f of ['docs/A.md', 'site/index.html', 'src/x.json', 'site/logo.svg']) {
+    // `>` cite en Markdown, JSON n'a aucun opérateur du tout, et un `.svg` n'est
+    // que des balises : muter n'y change jamais un SENS.
+    for (const f of ['docs/A.md', 'src/x.json', 'site/logo.svg']) {
       expect(langageMutable(f), f).toBe(false);
     }
+    // ─── LE HTML A QUITTÉ CETTE LISTE, ET C'EST DÉLIBÉRÉ ────────────────────
+    //
+    // Il y figurait « parce que `<` ouvre une balise ». Vrai du balisage, faux
+    // de la page entière : une page porte aussi du JavaScript, et l'exclure en
+    // bloc a rendu la vitrine invisible à la loupe POUR TOUJOURS. La borne est
+    // désormais `lignesDeScript`, plus fine que l'extension — voir le bloc
+    // « le HTML n'est pas muet » plus bas, qui garde les deux moitiés.
+    expect(langageMutable('site/index.html'), 'la page est redevenue muette').toBe(true);
   });
 
   it('la casse de l’extension ne fait pas passer un fichier sous la lame', () => {
-    expect(langageMutable('site/INDEX.HTML')).toBe(false);
+    // `site/INDEX.HTML` n'est plus ici : une page est mutable dans les deux
+    // casses, et c'est `EST_UNE_PAGE` qui doit l'attraper indifféremment — ce
+    // que le bloc « le HTML n'est pas muet » vérifie.
     expect(langageMutable('dashboard/src/A.CSS')).toBe(false);
   });
 
@@ -623,5 +634,84 @@ describe('le plafond de mutations REFUSE au lieu de deviner', () => {
   it('le défaut est celui que l’en-tête annonce', () => {
     // Un défaut qui dérive de sa documentation est une note qui ment.
     expect(PLAFOND_PAR_DEFAUT).toBe(12);
+  });
+});
+
+describe('le HTML n’est pas muet : son `<script>` est du JavaScript', () => {
+  // ─── LE TROU, MESURÉ ───────────────────────────────────────────────────────
+  //
+  // `SANS_OPERATEURS` a été posé pour empêcher la mutation des combinateurs CSS,
+  // et il excluait `.html` EN BLOC. Conséquence non voulue : la vitrine —
+  // 828 lignes de script, dont 32 portant un opérateur, et le premier écran que
+  // voit un arrivant — était STRUCTURELLEMENT invisible à la loupe.
+  //
+  //     langageMutable('site/index.html')  →  false
+  //
+  // Pas « aucune candidate » : aucune candidate POSSIBLE, à jamais. C'est la
+  // forme du § 9 nonoctogies retournée : une garde dont la portée exclut trop.
+  //
+  // Le remède n'est pas de rendre `.html` mutable en bloc — ses attributs et son
+  // `<style>` rendraient exactement les faux survivants que la garde évitait. Il
+  // est de ne regarder QUE ce que le navigateur exécute.
+
+  it('un `.html` est mutable — mais seul son script fournira des lignes', () => {
+    expect(langageMutable('site/index.html')).toBe(true);
+    expect(langageMutable('site/presentation/index.html')).toBe(true);
+  });
+
+  it('et la casse ne fait passer aucune page à côté de la borne', () => {
+    // La garde de casse a changé de porte, pas disparu : ce qui doit être
+    // insensible à la casse pour une page, c'est désormais `EST_UNE_PAGE`.
+    for (const f of ['site/INDEX.HTML', 'site/a.HtM', 'site/b.htm', 'site/c.html']) {
+      expect(EST_UNE_PAGE(f), f).toBe(true);
+    }
+    expect(EST_UNE_PAGE('src/x.ts'), 'un module n’est pas une page').toBe(false);
+  });
+
+  it('le CSS reste muet : c’est la raison d’être de la garde', () => {
+    expect(langageMutable('dashboard/src/views/balance.css')).toBe(false);
+    expect(langageMutable('docs/ETAPES.md')).toBe(false);
+    expect(langageMutable('paquet.json')).toBe(false);
+  });
+
+  it('lignesDeScript ne retient que ce que le NAVIGATEUR exécuterait', () => {
+    const html = [
+      '<style>',
+      '  .a > .b { color: red; }',
+      '</style>',
+      '<script>',
+      '  const vif = a === b;',
+      '</script>',
+      '<script type="application/json">',
+      '  {"pas": "du code"}',
+      '</script>',
+      '<script type="module">',
+      '  const aussi = c !== d;',
+      '</script>',
+      '<div data-x="e >= f"></div>',
+    ].join('\n');
+    const vues = lignesDeScript(html);
+
+    expect(vues.has('  const vif = a === b;'), 'le script nu est ignoré').toBe(true);
+    expect(vues.has('  const aussi = c !== d;'), 'le `type=module` est ignoré').toBe(true);
+    // ─── LES TROIS QUI DOIVENT RESTER DEHORS ─────────────────────────────────
+    //
+    // Le combinateur CSS est la raison d'être de toute cette garde ; le JSON
+    // n'est pas exécuté ; et un attribut qui CONTIENT un opérateur n'en est pas
+    // un — le muter changerait une chaîne de caractères, pas une décision.
+    expect(vues.has('  .a > .b { color: red; }'), 'un combinateur CSS est entré').toBe(false);
+    expect(vues.has('  {"pas": "du code"}'), 'du JSON non exécuté est entré').toBe(false);
+    expect(vues.has('<div data-x="e >= f"></div>'), 'un attribut est entré').toBe(false);
+  });
+
+  it('sur la VRAIE vitrine, la récolte n’est ni vide ni totale', () => {
+    // Une garde qui ramènerait tout le fichier, ou rien, serait verte à vide.
+    const html = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
+    const vues = lignesDeScript(html);
+    const total = html.split('\n').length;
+    expect(vues.size, 'la vitrine ne rend aucune ligne de script').toBeGreaterThan(100);
+    expect(vues.size, 'la vitrine rend TOUT le fichier — le filtre ne filtre pas').toBeLessThan(
+      total / 2,
+    );
   });
 });
