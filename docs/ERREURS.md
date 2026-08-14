@@ -8033,3 +8033,55 @@ ligne de prose            : false
 > Une annotation destinée à un outil se vérifie EN LA LISANT AVEC L'OUTIL. La
 > relire soi-même ne prouve que sa lisibilité par un humain — c'est-à-dire
 > précisément ce dont l'outil ne fait rien.
+
+## 9 octoseptuagies. Un type structurel qui INVENTE une valeur fabrique des tests qui ne peuvent rien prouver
+
+Les modules purs de ce dépôt déclarent leurs formes plutôt que de les importer
+(`src/shared/cli-rendu.ts` en donne la règle) : un module pur ne doit rien tirer
+derrière lui, sinon il n'est pur que de nom. En sortant les décisions de
+`Balance.tsx`, j'ai suivi ce patron — et j'ai écrit :
+
+```ts
+export type ModeBalance = 'leger' | 'observation' | 'strict';
+```
+
+Le mode de repli ne s'appelle pas `leger`. Il s'appelle **`off`**.
+
+Le banc a donc éprouvé `effetDuMode('leger', …)`, et il est **passé au vert**,
+sur une entrée que la ruche ne produira jamais. Une assertion parfaitement
+juste, sur un cas qui n'existe pas.
+
+### Ce qui ne pouvait PAS le dire
+
+- Le typecheck du module : content, `'leger'` étant membre du type que je venais
+  d'inventer.
+- Le banc : vert, pour la même raison.
+- La loupe : elle mute des opérateurs, pas des littéraux de type.
+
+Ce qui l'a dit : le typecheck du **tableau de bord**, au site d'appel, là où le
+vrai type et le mien se sont enfin rencontrés. Deux fichiers plus loin.
+
+### La règle, et elle n'est pas « n'utilisez pas de types structurels »
+
+Le découplage reste juste, et il a été payé cher deux commandes plus tôt :
+importer `Compte` de `../api` tirait `dashboard/src/api.ts` et toute sa chaîne
+dans le programme du typecheck RACINE, plus strict — quatre erreurs `TS2835`
+dans des fichiers que je n'avais pas touchés.
+
+> **Un type structurel doit être un MIROIR, pas une paraphrase.** Il rend un
+> module indépendant, et c'est sa raison d'être ; mais dès qu'il s'écarte de
+> l'original — un membre en trop, un nom approché, un champ optionnel qui ne
+> l'est pas — il cesse de décrire le monde et se met à décrire ce qu'on croyait.
+> Les tests écrits contre lui deviennent alors invérifiables : verts, précis,
+> et sans objet.
+
+Le contrôle qui manquait tient en une commande : **lire le type d'origine avant
+de le recopier**, et non après que le compilateur a protesté. Trente secondes.
+
+### Le corollaire qui vaut pour la relecture
+
+Un banc vert sur une valeur inventée ne se voit à AUCUNE relecture du banc — la
+valeur y est cohérente, nommée, commentée. Elle ne se voit qu'en confrontant le
+type à sa source. C'est la même famille que le § 9 sexseptuagies : ni les bancs
+ni les mutations ne peuvent attraper une erreur sur la QUESTION posée, seule la
+rencontre avec le vrai appelant le peut.

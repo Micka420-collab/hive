@@ -33,18 +33,17 @@
 // n'en fournit).
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { POSTES, decouper, effetDuMode, peutPoser } from './balance-rendu';
+import type { Segment } from './balance-rendu';
 import { useEffect, useRef, useState } from 'react';
 import { fetchProjectBalance, setProjectPlafond } from '../api';
 import type { BalanceState, Compte, DevisPlan, Poste, SoldeProjet } from '../api';
 import { useT } from '../i18n';
-import type { Translate } from '../i18n';
 import { DOMAINE_LABEL, formatDuree } from '../ui';
 import type { StateSnapshot } from '../../../src/shared/types';
 import './balance.css';
 
 /** Ordre de lecture des postes : du travail qui a servi à celui qui a été jeté. */
-const POSTES: Poste[] = ['utile', 'reprise', 'echec', 'rebute'];
-
 /** Double libellé fr/en (constante de module) — résolu via `t` au rendu. */
 const POSTE_LABEL: Record<Poste, { fr: string; en: string }> = {
   utile: { fr: 'utile', en: 'useful' },
@@ -79,33 +78,6 @@ const POSTE_AIDE: Record<Poste, { fr: string; en: string }> = {
 };
 
 /** Poste → champ de `Compte`. Une seule table, comme côté serveur. */
-const POSTE_MS: Record<Poste, 'utileMs' | 'repriseMs' | 'echecMs' | 'rebuteMs'> = {
-  utile: 'utileMs',
-  reprise: 'repriseMs',
-  echec: 'echecMs',
-  rebute: 'rebuteMs',
-};
-
-interface Segment {
-  poste: Poste;
-  ms: number;
-  /** Part exacte du total, en pourcentage (la largeur de la barre). */
-  pct: number;
-  libelle: string;
-}
-
-function decouper(compte: Compte, libelle: (poste: Poste) => string): Segment[] {
-  return POSTES.map((poste) => {
-    const ms = compte[POSTE_MS[poste]];
-    return {
-      poste,
-      ms,
-      pct: compte.totalMs > 0 ? (ms / compte.totalMs) * 100 : 0,
-      libelle: libelle(poste),
-    };
-  });
-}
-
 /** Part utile, en points de pourcentage entiers (le chiffre de tête). */
 function rendementPct(compte: Compte): number {
   return Math.round(compte.rendement * 100);
@@ -404,22 +376,6 @@ function heuresEnMs(heures: number): number {
  * aucun solde, donc aucune carte n'affiche de plafond ni son contrôle. Si cela
  * changeait, l'écran dirait la vérité plutôt que de promettre un blocage.
  */
-function effetDuMode(mode: BalanceState['mode'], t: Translate): string {
-  if (mode === 'strict')
-    return t(
-      'la ruche cessera d’assigner de nouvelles tâches de ce projet ; celles déjà en vol iront à leur terme.',
-      'the hive will stop assigning new tasks for this project; those already in flight will run to completion.',
-    );
-  if (mode === 'observation')
-    return t(
-      'la ruche est en « observation » : le franchissement sera journalisé, mais RIEN ne sera arrêté.',
-      'the hive runs in “observation”: the crossing will be journaled, but NOTHING will be stopped.',
-    );
-  return t(
-    'la ruche est en « off » : le grand livre ne tourne pas, le plafond est enregistré mais ne sera pas évalué.',
-    'the hive runs in “off”: the ledger is not running, the cap is recorded but will not be evaluated.',
-  );
-}
 
 /**
  * L'état d'un projet plafonné, EN TOUTES LETTRES.
@@ -593,7 +549,7 @@ function ControlePlafond({
   };
 
   const poser = (): void => {
-    if (cible === null || busy) return;
+    if (!peutPoser(cible, busy)) return;
     if (!arme) {
       setArme(true);
       window.clearTimeout(armTimer.current);
