@@ -8481,3 +8481,49 @@ que rien ne défend ne peut pas avoir d'angle mort sur le chemin que TOUT LE
 MONDE emprunte en premier ». La garde de sécurité n'avait jamais reçu le même
 traitement — et c'est le § 9 nonseptuagies sous un autre jour : la doctrine d'un
 dépôt ne s'applique pas toute seule.
+
+### Le même trou, sur une deuxième garde, trouvé par la même méthode
+
+La règle ci-dessus a été appliquée le jour même au verrou voisin — celui qui
+interdit à la Balance d'entrer dans le choix du nœud. Il inspecte les imports
+de `scheduler.ts` depuis `./balance.js` et refuse les noms d'imputation.
+
+Faute plantée au point le plus éloigné de là où il a été écrit, en deux lignes,
+sans qu'aucun nom interdit n'apparaisse dans le fichier surveillé :
+
+```text
+store.ts      export { estimerCout as coutIndicatif } from './balance.js';
+scheduler.ts  import { coutIndicatif } from './store.js';
+
+le verrou :   Tests 30 passed (30)   CODE=0
+```
+
+Le scheduler routerait au moins-cher — la doctrine qu'il existe pour tenir —
+et la CI resterait verte. Le chemin n'était pas hypothétique : `store.ts`
+importe déjà la Balance, et le scheduler importe déjà `store.ts`. Seul le
+contenu qui transite les séparait, et rien ne le gardait.
+
+Fermé en fermant le MÉCANISME plutôt qu'en énumérant les chemins : **personne
+ne ré-exporte la Balance.** Le scheduler ne peut plus l'atteindre qu'en la
+nommant, ce que le verrou d'origine voit.
+
+### Ce qu'un verrou de source peut attraper, et ce qu'il ne peut pas
+
+La nouvelle règle ne couvre PAS une enveloppe écrite à la main :
+
+```ts
+// store.ts — passe le verrou, et le passera toujours
+export function coutIndicatif(d: Domaine, t: number[]) {
+  return estimerCout(d, t);
+}
+```
+
+Aucune expression régulière n'attrapera ça, et prétendre le contraire serait le
+mensonge rassurant. La distinction mérite d'être écrite parce qu'elle dit à quoi
+sert vraiment ce genre de verrou :
+
+> **Un verrou de source couvre l'ACCIDENT, pas l'INTENTION.** Ré-exporter est un
+> geste d'une ligne qu'on fait « puisque c'est déjà là » ; écrire une enveloppe
+> qui blanchit un coût est une décision prise en connaissance de cause. Le
+> premier se prévient par une garde, le second par une relecture humaine — et
+> confondre les deux fait attendre d'une regex ce qu'elle ne peut pas donner.

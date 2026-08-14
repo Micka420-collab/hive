@@ -263,6 +263,46 @@ describe('invariants de la Balance', () => {
     }
   });
 
+  it('la Balance ne se RÉ-EXPORTE pas — sinon le verrou d’au-dessus se contourne', () => {
+    // ─── LE VERROU D'AU-DESSUS N'INSPECTE QU'UN FICHIER ──────────────────────
+    //
+    // Il lit les imports de `scheduler.ts` depuis `./balance.js`, et refuse les
+    // noms d'imputation qui y apparaissent. Mesuré le 14 août, il se contourne
+    // en deux lignes et SANS qu'aucun nom interdit n'apparaisse chez lui :
+    //
+    //     store.ts     export { estimerCout as coutIndicatif } from './balance.js';
+    //     scheduler.ts import { coutIndicatif } from './store.js';
+    //
+    //     le verrou : Tests 30 passed (30)   CODE=0
+    //
+    // Le scheduler router-ait au moins-cher, la doctrine serait violée, et la
+    // CI resterait verte. C'est le § 9 quinoctogies sur une autre garde : la
+    // PORTÉE fait partie du verrou, et celle-ci s'arrêtait à un fichier.
+    //
+    // On ferme le MÉCANISME plutôt que d'énumérer les chemins : personne ne
+    // ré-exporte la Balance. Le scheduler ne peut alors l'atteindre qu'en la
+    // nommant lui-même, ce que le verrou d'au-dessus voit.
+    //
+    // ─── CE QUE CETTE RÈGLE NE COUVRE PAS, ET IL FAUT LE DIRE ────────────────
+    //
+    // Une enveloppe ÉCRITE À LA MAIN — `export function coutIndicatif(…) {
+    // return estimerCout(…) }` dans store.ts — n'est pas une ré-exportation et
+    // passe. Aucune regex de source ne l'attrapera, et prétendre le contraire
+    // serait le mensonge rassurant.
+    //
+    // La différence est réelle et vaut d'être écrite : ré-exporter est un
+    // geste d'une ligne qu'on fait « puisque c'est déjà là » ; écrire une
+    // enveloppe qui blanchit un coût est une DÉCISION, prise en connaissance
+    // de cause, que la relecture humaine doit attraper. Ce verrou couvre
+    // l'accident, pas l'intention.
+    const orchestrateur = files.filter((f) => f.replace(/\\/g, '/').includes('/orchestrator/'));
+    expect(orchestrateur.length, 'l’orchestrateur est bien dans la portée').toBeGreaterThan(5);
+    const relais = orchestrateur.filter((f) =>
+      /export\s*(?:\*|\{[^}]*\})\s*from\s*'\.\/balance\.js'/.test(read(f)),
+    );
+    expect(relais, 'aucun module ne relaie la Balance vers ses voisins').toEqual([]);
+  });
+
   it('`budgets` n’a pas d’élagage — et personne ne peut en ajouter un par distraction', () => {
     // Doctrine, règle 3 : une table nouvelle arrive avec sa borne dans le même
     // commit, et la borne de `budgets` est STRUCTURELLE (1:1 avec `projects`).
