@@ -6909,3 +6909,69 @@ juste — et elle a survécu à la disparition de sa cause.
 C'est le § 9 unnonagies : quand on lève une contrainte, on relit les décisions
 qui n'existaient QUE par elle. Elles ne se signalent pas, parce qu'elles ont
 l'air de choix et non de conséquences.
+
+---
+
+## Le bouton « copier » : trois survivants d'un seul geste
+
+L'appel à l'action principal de la page. Le balayage complet en avait nommé
+trois gardes nues, et chacune a une raison DIFFÉRENTE d'avoir survécu à un banc
+qui, pourtant, exerçait déjà ce bouton.
+
+### 1. Le libellé de confirmation — la forme au lieu de l'identité
+
+```js
+btnInstall.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+```
+
+Le banc existant assène `toContain('✓')` et « le libellé a changé ». Les DEUX
+branches portent le ✓ et diffèrent du libellé d'origine : le mutant `===` →
+`!==` y survit intact, et un anglophone lirait « copié ✓ ». C'est le § 9
+nonagies — une assertion de forme ne départage pas.
+
+Le banc neuf clique la langue, puis « copier », et exige le libellé **exact**
+dans les deux sens.
+
+### 2. Le presse-papier — le montage rendait les deux branches identiques
+
+```js
+if (navigator.clipboard && navigator.clipboard.writeText) {
+```
+
+Le banc existant injecte un presse-papier COMPLET. `&&` et `||` y prennent alors
+la même branche : le mutant est équivalent **sous ce montage-là**, et seulement
+sous celui-là.
+
+L'entrée qui les départage est un navigateur où `clipboard` EXISTE mais
+`writeText` NON — contexte non sécurisé, vieux Safari, Firefox sans le drapeau.
+Avec `&&` la page replie sur `textarea` + `execCommand` ; avec `||` elle appelle
+une fonction qui n'existe pas.
+
+> **Un mutant « équivalent » ne l'est parfois que sous le montage du banc.**
+> Avant de consigner une équivalence (§ 2.16 ter), il faut se demander si c'est
+> le CODE qui rend les deux branches indiscernables, ou seulement le décor qu'on
+> a planté autour.
+
+L'observable retenu est « le repli a-t-il tourné », pas « ça a jeté » : une
+exception dans un écouteur d'événement ne remonte pas au `dispatchEvent`.
+
+### 3. `aria-pressed` du bouton FR — la moitié qu'on ne regardait pas
+
+```js
+document.getElementById('btn-fr').setAttribute('aria-pressed', String(lang === 'fr'));
+```
+
+Le banc du dictionnaire, écrit deux lots plus tôt, vérifie `aria-pressed` sur
+`btn-en` seulement. Muté, les deux boutons annoncent le même état — et un
+lecteur d'écran n'a plus aucun moyen de savoir quelle langue est active.
+
+### Verdict affiché
+
+```text
+libellé de confirmation   ===  → !==   → rouge
+presse-papier             &&   → ||    → rouge
+aria-pressed du bouton FR ===  → !==   → rouge
+source saine                           → 25 verts
+```
+
+**Trois survivants de plus fermés ; il en reste 25 sur les 33.**

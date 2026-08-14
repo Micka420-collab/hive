@@ -9099,3 +9099,74 @@ Que le périmètre atteigne vraiment la vitrine se MESURE, arithmétiquement :
 
 Un banc qui aurait seulement vérifié `PORTEE_PAR_DEFAUT.includes('site')`
 garderait l'orthographe de la liste. Cette soustraction garde le comportement.
+
+### Et un mutant « équivalent » qui ne l'était que sous le décor du banc
+
+Le balayage avait nommé nue la garde du presse-papier :
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+
+Le banc qui exerce ce bouton injecte un presse-papier COMPLET. Sous ce montage,
+`&&` et `||` prennent la même branche : le mutant est indiscernable, et la
+tentation est de le consigner « équivalent » au titre du § 2.16 ter.
+
+Il ne l'est pas. Il l'est **sous ce décor-là**. L'entrée qui départage existe et
+elle est banale : un navigateur où `navigator.clipboard` existe mais
+`writeText` non — contexte non sécurisé, vieux Safari, Firefox sans le drapeau.
+Avec `&&` la page replie sur `textarea` + `execCommand` ; avec `||` elle appelle
+une fonction qui n'existe pas, et la copie est perdue en silence.
+
+> **Avant de consigner une équivalence, demander : est-ce le CODE qui rend les
+> deux branches indiscernables, ou seulement ce que j'ai planté autour ?** Les
+> deux se ressemblent exactement — dans les deux cas le mutant survit — et une
+> seule des deux réponses autorise à classer l'affaire.
+
+Le raccourci utile : une garde de CAPACITÉ (`si le navigateur sait faire X`) n'a
+jamais d'entrée distinguante tant que le banc donne toujours un navigateur qui
+sait. Ce sont précisément les branches de repli — celles qu'on n'exerce jamais
+parce qu'elles sont « le cas rare » — qui accumulent les faux équivalents.
+
+---
+
+## 9 duononagies. Je n'ai pas d'horloge — « ça traîne » est une conclusion que je ne peux pas tirer seul
+
+Sur une PR, six jambes de CI étaient vertes et Windows encore `in_progress`. Le
+point de mesure fiable (`get_workflow_job`) montrait le pas 16, « Build », commencé
+à 17:39:48 et toujours en cours. J'ai écrit : _« huit minutes là où il en prend
+seize secondes d'ordinaire »_, et j'ai commencé à raisonner sur un blocage.
+
+Le relevé final dit autre chose : le travail a conclu **success à 17:40:14**, et
+le pas Build a duré **22 secondes**. Rien n'a traîné.
+
+### D'où venait l'erreur — et ce que je ne peux PAS établir
+
+Deux causes sont possibles et je ne sais pas les départager : ou bien le point
+de mesure me servait un instantané périmé (le cache de GitHub retarde, mesuré
+plus tôt sur la LISTE des check-runs), ou bien mon estimation de l'heure était
+fausse — probablement les deux. Prétendre savoir laquelle serait exactement le
+genre d'arrondi que ce carnet refuse.
+
+Ce que je peux établir, en revanche : **je n'observe pas de montre.** Ce dont je
+dispose, ce sont les horodatages que les outils me rendent ; entre deux appels,
+je n'ai aucune mesure de ce qui s'est écoulé, seulement l'impression d'avoir
+fait beaucoup de choses. Cette impression n'est pas une durée. La conclusion
+« huit minutes » ne reposait sur rien de mesuré, quelle que soit la fraîcheur de
+la donnée.
+
+> **« Ça fait longtemps » n'est pas une observation, c'est un ressenti — et le
+> mien n'est calibré sur rien.** Une durée se calcule entre deux horodatages
+> RENDUS, jamais entre un horodatage et le sentiment d'être arrivé à maintenant.
+
+### Ce que ça aurait coûté
+
+La suite naturelle d'un « ça bloque » est de repousser pour déclencher une
+exécution neuve — c'est-à-dire jeter une CI complète à quinze pas sur seize,
+exactement le gaspillage du § 9 sexoctogies, et pour une panne imaginaire.
+
+### La règle pratique
+
+Quand un travail paraît long : ne pas conclure, **attendre et re-mesurer**. Le
+second relevé donne soit un `completed_at` — et la durée devient un fait — soit
+le même pas encore en cours, cette fois avec deux horodatages RENDUS entre
+lesquels une soustraction a un sens. C'est le seul chemin honnête vers « ça
+traîne », et il ne coûte qu'un appel de plus.

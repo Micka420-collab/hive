@@ -469,6 +469,106 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     }
   });
 
+  it('LA CONFIRMATION DE COPIE EST DANS LA LANGUE DE LA PAGE', async () => {
+    // ─── CE QUE LE BALAYAGE A TROUVÉ NU ────────────────────────────────────
+    //
+    //     btnInstall.textContent = lang === 'en' ? 'copied ✓' : 'copié ✓';
+    //
+    // Le banc au-dessus assène `toContain('✓')` et « le libellé a changé ». Les
+    // DEUX branches portent le ✓ et diffèrent du libellé d'origine : le mutant
+    // `===` → `!==` y survit intact, et un anglophone lirait « copié ✓ ».
+    // C'est le § 9 nonagies encore — une assertion de forme ne départage pas.
+    // On COLLECTE au lieu de remettre à zéro : « une copie de plus à ce tour »
+    // est plus strict que « la dernière capture n'est pas nulle », et ça évite
+    // une affectation que rien ne relit.
+    const captures: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (t: string) => {
+          captures.push(t);
+          return Promise.resolve();
+        },
+      },
+    });
+    try {
+      const cas = [
+        ['btn-fr', 'copié ✓'],
+        ['btn-en', 'copied ✓'],
+      ] as const;
+      for (const [i, [bouton, attendu]] of cas.entries()) {
+        document.getElementById(bouton)?.dispatchEvent(new Event('click', { bubbles: true }));
+        const b = document.getElementById('install-copier');
+        b?.dispatchEvent(new Event('click', { bubbles: true }));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(captures.length, `${bouton} : ce clic n’a rien copié`).toBe(i + 1);
+        expect(b?.textContent, `confirmation attendue « ${attendu} »`).toBe(attendu);
+      }
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it('UN PRESSE-PAPIER SANS `writeText` REPLIE — il n’explose pas', () => {
+    // ─── L'AUTRE SURVIVANT DU MÊME GESTE ───────────────────────────────────
+    //
+    //     if (navigator.clipboard && navigator.clipboard.writeText) {
+    //
+    // Le banc voisin injecte un presse-papier COMPLET : `&&` et `||` y prennent
+    // la même branche, donc le mutant survit. L'entrée qui les départage est un
+    // navigateur où `clipboard` EXISTE mais `writeText` NON — contexte non
+    // sécurisé, vieux Safari, Firefox sans le drapeau. Avec `&&` la page replie
+    // sur le `textarea` + `execCommand` ; avec `||` elle appelle une fonction
+    // qui n'existe pas.
+    //
+    // L'observable est donc « le repli a-t-il tourné », pas « ça a jeté » : une
+    // exception dans un écouteur d'événement ne remonte pas au `dispatchEvent`.
+    let repliJoue = false;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {}, // il existe, il ne sait pas écrire
+    });
+    const execAvant = (document as unknown as { execCommand?: unknown }).execCommand;
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => {
+        repliJoue = true;
+        return true;
+      },
+    });
+    try {
+      document
+        .getElementById('install-copier')
+        ?.dispatchEvent(new Event('click', { bubbles: true }));
+      expect(repliJoue, 'le repli n’a pas tourné : la copie est perdue en silence').toBe(true);
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+      if (execAvant === undefined) Reflect.deleteProperty(document, 'execCommand');
+      else Object.defineProperty(document, 'execCommand', { configurable: true, value: execAvant });
+    }
+  });
+
+  it('LES DEUX BOUTONS DE LANGUE S’ANNONCENT, ET JAMAIS LES DEUX ENSEMBLE', () => {
+    // Le balayage a nommé nu `String(lang === 'fr')` sur le bouton FR. Muté, les
+    // deux boutons annoncent le même état à un lecteur d'écran — qui n'a plus
+    // aucun moyen de savoir quelle langue est active.
+    for (const [clic, presse, relache] of [
+      ['btn-fr', 'btn-fr', 'btn-en'],
+      ['btn-en', 'btn-en', 'btn-fr'],
+    ] as const) {
+      document.getElementById(clic)?.dispatchEvent(new Event('click', { bubbles: true }));
+      expect(
+        document.getElementById(presse)?.getAttribute('aria-pressed'),
+        `${clic} : ${presse} devrait s’annoncer pressé`,
+      ).toBe('true');
+      expect(
+        document.getElementById(relache)?.getAttribute('aria-pressed'),
+        `${clic} : ${relache} devrait s’annoncer relâché`,
+      ).toBe('false');
+    }
+  });
+
   it('« OUVRIR MA RUCHE » : CHAQUE BOUTON COPIE SA PROPRE COMMANDE, ET CONFIRME', async () => {
     // La section « Ouvrir ma ruche » offre plusieurs gestes (github, invite,
     // installer-et-lancer) ; chacun a SA commande, dans son `data-cmd`. Un
