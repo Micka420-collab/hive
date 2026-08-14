@@ -483,3 +483,70 @@ describe('la marque voyage avec le LANGAGE du fichier, pas seulement le texte', 
     expect(marqueeEquivalente(contenu, ligne, '=== → !==', 'src/x.ts')).toBe(false);
   });
 });
+
+// ─── LE LANGAGE AVANT LA LIGNE ───────────────────────────────────────────────
+//
+// Un balayage de `dashboard/src/views` a rendu ceci parmi ses survivants :
+//
+//     🔴 SANS TEST · dashboard/src/views/balance.css · > → >=
+//                  .bal-noeuds > summary {
+//
+// En CSS, `>` est le COMBINATEUR ENFANT, pas une comparaison. Muté en `>=`, le
+// sélecteur ne s'analyse plus et le navigateur jette la règle — la FORME casse,
+// or l'en-tête de la loupe garantit l'inverse. Et comme aucun banc ne lit de
+// feuille de style, rien ne rougit : le mutant n'est ni tué ni tuable.
+//
+// La § 2.16 ter ne laisse que deux issues à un survivant — écrire le test, ou
+// consigner l'équivalence. Celui-ci n'a ni l'une (vitest ne lit pas le CSS) ni
+// l'autre (la règle disparaît vraiment). Un survivant sans issue revient à
+// chaque passe et ne s'éteint jamais : c'est le faux rouge perpétuel.
+
+import { langageMutable } from '../scripts/loupe.mjs';
+
+describe('la loupe ne mute que les langages où ces jetons sont des opérateurs', () => {
+  it('LE CAS QUI TRANCHE : une feuille de style n’est pas mutée', () => {
+    // `.bal-noeuds > summary` muté en `>=` casse le sélecteur. Le mutant
+    // survivrait à jamais, sans qu'aucune des deux issues soit ouverte.
+    expect(langageMutable('dashboard/src/views/balance.css')).toBe(false);
+    expect(langageMutable('dashboard/src/views/partage.css')).toBe(false);
+  });
+
+  it('LE SECOND CAS QUI TRANCHE : le code, lui, reste sous la lame', () => {
+    // La garde est un REFUS, pas une admission. Si elle s'inversait, elle
+    // écarterait tout le code du dépôt en rendant la loupe silencieusement
+    // verte — le mensonge rassurant, celui que ce fichier existe pour empêcher.
+    expect(langageMutable('src/orchestrator/server.ts')).toBe(true);
+    expect(langageMutable('dashboard/src/views/Balance.tsx')).toBe(true);
+    expect(langageMutable('scripts/amorce.mjs')).toBe(true);
+    expect(langageMutable('scripts/essai-installation.sh')).toBe(true);
+  });
+
+  it('UN LANGAGE INCONNU EST MUTÉ — la liste refuse, elle n’admet pas', () => {
+    // C'est la décision de conception, et son sens d'erreur est choisi : une
+    // liste d'ADMISSION rendrait un `.py` ajouté demain invisible à la loupe,
+    // sans rien dire et pour toujours. Une liste de REFUS le mute et rend un
+    // survivant bruyant — qui se voit en dix secondes.
+    expect(langageMutable('scripts/outil.py')).toBe(true);
+    expect(langageMutable('src/moteur.rb')).toBe(true);
+    expect(langageMutable('scripts/lanceur')).toBe(true);
+  });
+
+  it('les autres langages sans ces opérateurs sont nommés eux aussi', () => {
+    // `>` cite en Markdown, `<` ouvre une balise en HTML/SVG, et JSON n'a aucun
+    // opérateur du tout : muter n'y change jamais un SENS.
+    for (const f of ['docs/A.md', 'site/index.html', 'src/x.json', 'site/logo.svg']) {
+      expect(langageMutable(f), f).toBe(false);
+    }
+  });
+
+  it('la casse de l’extension ne fait pas passer un fichier sous la lame', () => {
+    expect(langageMutable('site/INDEX.HTML')).toBe(false);
+    expect(langageMutable('dashboard/src/A.CSS')).toBe(false);
+  });
+
+  it('l’extension se lit à la FIN, pas au milieu du chemin', () => {
+    // Un dossier nommé `css` ne fait pas de son contenu une feuille de style.
+    expect(langageMutable('dashboard/src/css/theme.ts')).toBe(true);
+    expect(langageMutable('src/md/rendu.tsx')).toBe(true);
+  });
+});

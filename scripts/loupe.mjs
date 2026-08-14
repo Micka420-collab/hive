@@ -283,6 +283,80 @@ export function ligneMutable(texte, fichier = '') {
  */
 const DIESE_COMMENTE = /\.(sh|bash|zsh|ps1|psm1|ya?ml|toml|conf)$|(^|\/)Dockerfile[^/]*$/i;
 
+/**
+ * Les langages où ces jetons ne sont PAS des opérateurs.
+ *
+ * ─── LE MUTANT QUI N'AVAIT AUCUNE ISSUE ──────────────────────────────────────
+ *
+ * Un balayage de `dashboard/src/views` a rendu ceci, et la loupe l'a compté
+ * parmi ses survivants comme n'importe quelle garde nue :
+ *
+ *     🔴 SANS TEST · dashboard/src/views/balance.css · > → >=
+ *                  .bal-noeuds > summary {
+ *
+ * En CSS, `>` n'est pas une comparaison : c'est le COMBINATEUR ENFANT. Muté en
+ * `>=`, le sélecteur ne s'analyse plus, et le navigateur jette la règle entière.
+ *
+ * L'en-tête de ce fichier pose l'invariant que cette mutation viole :
+ *
+ *   « Chacun change le SENS sans toucher à la FORME : le fichier reste
+ *     analysable, donc un échec de la suite est bien un test qui a mordu, pas
+ *     un parseur qui a renoncé. »
+ *
+ * Ici la forme casse. Et comme aucun banc n'analyse le CSS, rien ne rougit :
+ * le mutant n'est ni tué ni tuable.
+ *
+ * ─── POURQUOI CE N'EST PAS « UN SURVIVANT DE PLUS » ──────────────────────────
+ *
+ * La § 2.16 ter du carnet ne laisse que DEUX issues à un survivant : ou bien une
+ * entrée le distingue — on écrit ce test —, ou bien il est équivalent — on le
+ * consigne sur place. Celui-ci n'a ni l'une ni l'autre :
+ *
+ *   · il n'est PAS équivalent — la règle disparaît vraiment, à l'écran ;
+ *   · il n'est PAS testable — vitest ne lit pas de feuille de style.
+ *
+ * C'est une troisième issue, que le contrat de la loupe n'a pas. Un survivant
+ * sans issue revient à CHAQUE passe et ne peut jamais s'éteindre : c'est le
+ * faux rouge perpétuel dont la règle du `??` dit déjà, dix-huit lignes plus
+ * haut, qu'« un instrument qui ne peut plus rendre vert n'est plus une porte,
+ * c'est un mur — et un mur ne se lit pas ».
+ *
+ * ─── UNE LISTE DE REFUS, JAMAIS UNE LISTE D'ADMISSION ────────────────────────
+ *
+ * La tentation était d'écrire l'inverse : « ne muter QUE `.ts`, `.tsx`, `.mjs`,
+ * `.sh` ». C'est la même faute que `DIESE_COMMENTE` évite juste au-dessus, dans
+ * l'autre sens. Le jour où quelqu'un ajoute un `.py` ou un `.rb` au périmètre,
+ * une liste d'admission le rendrait INVISIBLE à la loupe — sans rien dire, et
+ * pour toujours. C'est le mensonge RASSURANT, celui que ce fichier existe
+ * entièrement pour empêcher.
+ *
+ * Une liste de refus se trompe dans l'autre sens : un langage inconnu est muté,
+ * et s'il n'a pas ces opérateurs il rend un survivant bruyant. Bruyant se voit
+ * en dix secondes et se corrige d'une extension. Muet ne se voit jamais.
+ *
+ * ─── CE QUE ÇA COÛTE, MESURÉ ─────────────────────────────────────────────────
+ *
+ * Sur tout le périmètre : 2365 mutations en `.ts`, 967 en `.tsx`, 90 en `.mjs`,
+ * 14 en `.sh` — et 3 en `.css`, les trois combinateurs enfant du dépôt. Le gain
+ * n'est donc pas le volume : c'est qu'aucun des trois ne peut plus revenir
+ * s'asseoir dans une liste de survivants qu'on lit pour décider.
+ */
+const SANS_OPERATEURS = /\.(css|scss|sass|less|styl|md|markdown|json|jsonc|html?|svg|txt)$/i;
+
+/**
+ * Ce fichier est-il écrit dans un langage où les échanges ont un sens ?
+ *
+ * La question se pose UNE fois par fichier, pas par ligne : le langage est une
+ * propriété du chemin. Et elle se pose à part de `ligneMutable`, qui répond à
+ * une tout autre question — « cette ligne est-elle du commentaire ? ». Les
+ * confondre casserait la remontée de `marqueeEquivalente`, qui s'appuie sur
+ * `ligneMutable` pour savoir où s'arrêter : un `ligneMutable` devenu faux sur
+ * TOUT un fichier ferait remonter la marque à l'infini.
+ */
+export function langageMutable(fichier) {
+  return !SANS_OPERATEURS.test(fichier);
+}
+
 function lignesAjoutees() {
   const diff = execFileSync(
     'git',
@@ -302,6 +376,10 @@ function lignesAjoutees() {
       continue;
     }
     if (!fichier || !ligne.startsWith('+') || ligne.startsWith('+++')) continue;
+    // Le LANGAGE d'abord : dans une feuille de style, `>` est un combinateur,
+    // pas une comparaison. Le muter casse le sélecteur au lieu d'en changer le
+    // sens — un survivant que rien ne peut ni tuer ni juger équivalent.
+    if (!langageMutable(fichier)) continue;
     const texte = ligne.slice(1);
     // Les commentaires ne s'exécutent pas : les muter ne prouverait rien. Le
     // NOM du fichier accompagne le texte — `#` commente en shell, pas en TS.
