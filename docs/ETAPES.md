@@ -6764,3 +6764,54 @@ détection de la langue du navigateur, presse-papier, rail des écrans,
 NUS. Ils sont nommés dans le journal du balayage et seront traités par lots.
 Prétendre que la vitrine est défendue parce que le plus grave est fermé serait
 exactement l'arrondi que ce carnet refuse.
+
+---
+
+## Le balayage a fini, et il a nommé une TROISIÈME page
+
+```text
+LOUPE : 43 mutation(s) possible(s) sur le diff, 43 examinée(s).
+        BALAYAGE COMPLET — pas = ceil(43/43) = 1
+
+FINAL : 10 défendues, 33 SANS TEST
+
+  site/index.html               16 survivants
+  site/presentation/index.html   8 survivants
+  site/rush/index.html           9 survivants
+```
+
+**33 sur 43, soit 77 % des décisions de la vitrine, ne sont défendues par aucun
+banc.** Le chiffre du lot précédent (26 sur 36) était celui de l'instant du
+commit et le disait ; voici le définitif.
+
+### Et la troisième page était DEHORS de ma propre garde
+
+La garde posée une heure plus tôt portait :
+
+```ts
+const PAGES_TRADUITES = ['site/index.html', 'site/presentation/index.html'];
+```
+
+Les deux pages que le balayage avait rendues **à ce moment-là**. Il en a nommé
+une troisième — `site/rush/index.html`, 115 éléments traduits, 9 survivants —
+qui serait restée invisible.
+
+C'est le § 9 nonoctogies commis **dans le geste même qui le consignait** : le
+périmètre de l'INCIDENT au lieu de celui du RISQUE. La leçon ne dit pas « faire
+attention », elle dit **ne pas lister** — et je l'ai listée quand même, une heure
+après l'avoir écrite.
+
+### Ce que ça vaut comme mesure
+
+Le critère est ici sans ambiguïté, contrairement au cas des installeurs : une
+page traduite porte un dictionnaire `var EN = {` ET les deux boutons de langue.
+Rien à border à coups d'exceptions — donc rien qui justifie une liste.
+
+```text
+VERDICT AFFICHÉ   mutant sur site/rush/index.html   → 113 éléments nommés, rouge
+                  découverte bornée à la racine     → la garde-de-la-garde mord
+                  source saine                      → 21 verts
+```
+
+La seconde mutation compte autant que la première : une découverte qui ne
+descendrait plus dans les sous-dossiers rendrait tout le bloc vert à vide.

@@ -8979,3 +8979,30 @@ garder que la page d'accueil aurait refait, le soir même, la faute du § 9
 nonoctogies — garder les endroits où le défaut a été TROUVÉ plutôt que ceux où
 il peut VIVRE. La garde couvre les deux pages, et constate l'absence d'attributs
 traduits sur la seconde au lieu de l'exiger.
+
+### Commise une seconde fois, dans l'heure, par celui qui venait de l'écrire
+
+Le § ci-dessus a été écrit à 13 h. À 14 h, en posant une garde sur la vitrine,
+j'ai écrit :
+
+    const PAGES_TRADUITES = ['site/index.html', 'site/presentation/index.html'];
+
+— les deux pages que le balayage avait rendues À CE MOMENT-LÀ. Il a fini une
+heure plus tard et en a nommé une troisième, `site/rush/index.html`, 115
+éléments traduits et 9 survivants, qui serait restée dehors.
+
+Le périmètre de l'INCIDENT au lieu de celui du RISQUE, exactement. Et pas par
+ignorance de la règle : je venais de l'écrire.
+
+> **Une leçon qu'on connaît ne protège de rien ; seul un mécanisme protège.**
+> C'est précisément pourquoi la règle est « ne pas LISTER » et non « faire
+> attention aux listes » : la seconde formulation demande une vigilance qui
+> échoue une heure après avoir été rédigée, la première se vérifie par un banc.
+
+Le rappel utile, quand on hésite : **une liste écrite à la main n'est justifiée
+que si le critère de découverte serait ambigu.** Pour les installeurs, il
+l'était (`npm install` en commentaire, ou affiché par un `dire "…"`) et la liste
+est restée, gardée par une complétude. Pour les pages traduites, il ne l'est pas
+du tout — dictionnaire `var EN = {` plus les deux boutons — et rien ne
+justifiait la liste. Je ne me suis pas posé la question ; c'est ça, l'erreur,
+pas le résultat.

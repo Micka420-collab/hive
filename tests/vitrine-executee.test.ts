@@ -54,7 +54,7 @@
 // 3. Il MONTE la page et clique, parce qu'un script qui s'analyse peut encore
 //    ne rien faire.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -692,9 +692,50 @@ describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
 // la garde le constate au lieu de l'exiger, sans quoi elle rougirait sur une
 // page parfaitement saine.
 
-const PAGES_TRADUITES = ['site/index.html', 'site/presentation/index.html'] as const;
+// ─── ET CETTE LISTE-CI ÉTAIT ÉCRITE À LA MAIN, UNE HEURE PLUS TÔT ───────────
+//
+// Elle a nommé `site/index.html` et `site/presentation/index.html` : les deux
+// pages que le balayage avait rendues à ce moment-là. Le balayage a fini, et il
+// en a nommé une TROISIÈME — `site/rush/index.html`, 115 éléments traduits, 9
+// survivants — qui serait restée dehors.
+//
+// C'est le § 9 nonoctogies commis DANS le geste qui le consignait : le
+// périmètre de l'incident, pas celui du risque. La leçon ne dit pas « faire
+// attention » ; elle dit NE PAS LISTER.
+//
+// Le critère est ici sans ambiguïté, contrairement au cas des installeurs : une
+// page traduite est une page qui porte un dictionnaire `var EN = {` ET les deux
+// boutons de langue. Pas d'exception à border.
+
+function pagesTraduites(): string[] {
+  const trouvees: string[] = [];
+  const marcher = (dossier: string): void => {
+    for (const e of readdirSync(path.resolve(process.cwd(), dossier), { withFileTypes: true })) {
+      const rel = `${dossier}/${e.name}`;
+      if (e.isDirectory()) marcher(rel);
+      else if (/\.html?$/i.test(e.name)) {
+        const src = readFileSync(path.resolve(process.cwd(), rel), 'utf8');
+        if (src.includes('var EN = {') && src.includes('id="btn-en"')) trouvees.push(rel);
+      }
+    }
+  };
+  marcher('site');
+  return trouvees.sort();
+}
+
+const PAGES_TRADUITES = pagesTraduites();
 
 describe('CHAQUE PAGE TRADUITE APPLIQUE LE DICTIONNAIRE QU’ELLE ANNONCE', () => {
+  it('la découverte trouve les pages connues — sinon elle ne garde rien', () => {
+    // Une découverte qui ne ramènerait rien rendrait tout ce bloc vert à vide :
+    // le défaut qu'on ferme, reproduit un cran plus haut.
+    expect(PAGES_TRADUITES).toEqual([
+      'site/index.html',
+      'site/presentation/index.html',
+      'site/rush/index.html',
+    ]);
+  });
+
   it.each(PAGES_TRADUITES)('%s', (chemin) => {
     const source = readFileSync(path.resolve(process.cwd(), chemin), 'utf8');
     document.documentElement.innerHTML = source
