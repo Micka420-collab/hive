@@ -8527,3 +8527,51 @@ sert vraiment ce genre de verrou :
 > qui blanchit un coût est une décision prise en connaissance de cause. Le
 > premier se prévient par une garde, le second par une relecture humaine — et
 > confondre les deux fait attendre d'une regex ce qu'elle ne peut pas donner.
+
+### Cinq verrous éprouvés, quatre trous — et un qu'on ne ferme PAS
+
+La méthode appliquée aux cinq verrous de source du dépôt, chacun sondé au point
+le plus éloigné de là où il a été écrit :
+
+| verrou                       | sonde                                                     | avant     |
+| ---------------------------- | --------------------------------------------------------- | --------- |
+| `shell: true` interdit       | planté dans `scripts/ruche.mjs`                           | 28 passed |
+| chaque lancement le déclare  | un des deux appels de `loupe.mjs` dénudé                  | 30 passed |
+| la Balance hors du scheduler | ré-exportée par `store.ts` sous un autre nom              | 30 passed |
+| `budgets` sans élagage       | `DELETE FROM budgets` de masse dans `serveurs.ts`         | 31 passed |
+| pas de migration dans `src/` | `'ALTER' + ' TABLE tasks ADD COLUMN cout'` dans `exec.ts` | 31 passed |
+
+Quatre sur cinq ont été fermés. **Le cinquième ne le sera pas, et c'est une
+décision, pas un oubli.**
+
+### Pourquoi le SQL en morceaux reste dehors
+
+`'ALTER' + ' TABLE …'` échappe au motif `\bALTER\s+TABLE\b`. On pourrait
+poursuivre — concaténations, gabarits, `String.fromCharCode`. Chaque tour de
+vis attraperait le tour précédent et raterait le suivant.
+
+Les formes ACCIDENTELLES, elles, sont déjà couvertes : `\s+` prend le saut de
+ligne et l'espace double, donc une migration écrite normalement, même mise en
+forme par prettier, est vue. Écrire `'ALTER' + ' TABLE'` n'est pas une
+distraction — c'est une phrase qu'on ne compose que pour n'être pas vu.
+
+C'est la frontière déjà posée plus haut, mesurée une seconde fois : **le verrou
+couvre l'accident, pas l'intention.** La reconnaître évite l'erreur inverse, qui
+serait de faire grossir une expression régulière jusqu'à croire qu'elle garde ce
+qu'elle ne garde pas.
+
+### Une liste avait dix-sept fichiers de retard
+
+`CONSTRUCTEURS_DE_PROMPT` nomme trois fichiers. Mesuré : **vingt** fichiers de
+`src/` importent le helper d'encapsulation. La liste n'était donc pas ce que son
+nom laissait croire — pas un inventaire des constructeurs de prompt, mais une
+règle plus stricte sur trois d'entre eux.
+
+Aucun défaut réel derrière : les vingt appellent bien le helper (mesuré, zéro
+import muet). Mais une liste qui a dix-sept fichiers de retard se lit comme une
+couverture qu'elle n'a pas.
+
+Ajouté à côté, et c'est ce que le cas suggérait plutôt qu'une liste rallongée :
+**un fichier qui importe le helper doit l'appeler.** Zéro coût aujourd'hui, et
+ça attrape l'oubli qui viendra — quelqu'un retire l'encapsulation dans une
+refonte et laisse la ligne d'import derrière lui.

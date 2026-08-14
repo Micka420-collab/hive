@@ -320,10 +320,28 @@ describe('invariants de la Balance', () => {
     expect(brut).toMatch(/PAS de pruneBudgets/);
     // …et aucune suppression de masse sur la table (seul `setBudget(…, null)`,
     // sur UN projet nommé, retire un plafond).
-    const store = fileEndingWith('orchestrator/store.ts');
-    const suppressions = store.match(/DELETE\s+FROM\s+budgets[^']*/gi) ?? [];
+    //
+    // ─── CETTE RECHERCHE NE REGARDAIT QUE `store.ts` ─────────────────────────
+    //
+    // Mesuré le 14 août : une suppression de masse posée dans un AUTRE fichier
+    // de `src/` passait sans rien faire rougir —
+    //
+    //     src/orchestrator/serveurs.ts
+    //     'DELETE FROM budgets WHERE projectId IN (SELECT id FROM projects)'
+    //     le verrou : Tests 31 passed (31)   CODE=0
+    //
+    // Le SQL vit dans `store.ts` aujourd'hui, et c'est pour ça que le verrou y
+    // était écrit. Mais « c'est là que ça vit aujourd'hui » n'est pas une
+    // garde : c'est l'accident type — quelqu'un ajoute le nettoyage là où il
+    // travaille. On cherche donc dans tout `src/`, et chaque occurrence doit
+    // porter sa clause nominative.
+    const suppressions = files.flatMap((f) =>
+      (read(f).match(/DELETE\s+FROM\s+budgets[^']*/gi) ?? []).map((sql) => [f, sql] as const),
+    );
     expect(suppressions).toHaveLength(1);
-    expect(suppressions[0]).toMatch(/WHERE\s+projectId\s*=\s*\?/i);
+    for (const [f, sql] of suppressions) {
+      expect(sql, `${f} : suppression de masse sur budgets`).toMatch(/WHERE\s+projectId\s*=\s*\?/i);
+    }
   });
 
   it('aucune migration dans src/ : ni ALTER TABLE, ni PRAGMA user_version', () => {
@@ -392,6 +410,34 @@ describe('invariants d’encapsulation des données non fiables (§5.2)', () => 
       // `appel(` ou `appel<Type>(` : l'annotation générique s'intercale.
       expect(src, `${fichier} n’appelle pas ${appel}()`).toMatch(
         new RegExp(`\\b${appel}\\s*(<[^>]*>)?\\s*\\(`),
+      );
+    }
+  });
+
+  it('§5.2 — importer le helper sans jamais l’appeler est une encapsulation oubliée', () => {
+    // ─── LA LISTE CI-DESSUS A DIX-SEPT FICHIERS DE RETARD ────────────────────
+    //
+    // `CONSTRUCTEURS_DE_PROMPT` nomme trois fichiers. Mesuré le 14 août :
+    // VINGT fichiers de `src/` importent le helper. La liste n'est donc pas un
+    // inventaire des constructeurs de prompt — c'est une règle PLUS STRICTE sur
+    // trois d'entre eux, dont on sait quel point d'entrée ils doivent appeler.
+    //
+    // Un quatrième constructeur qui n'importerait jamais le helper reste
+    // invisible à ces deux verrous, et aucun scan de source ne le verra : rien
+    // ne distingue « je construis un prompt » de « je construis une chaîne ».
+    // Ça se dit, ça se relit à la main, ça ne se garde pas.
+    //
+    // Ce qui SE garde, et qui couvre les vingt : un fichier qui importe le
+    // helper doit l'appeler. Un import sans appel est le résidu d'une refonte —
+    // quelqu'un a retiré l'encapsulation et laissé la ligne d'import derrière.
+    // La garde ne coûte rien aujourd'hui (mesuré : zéro fichier dans ce cas) et
+    // attrape exactement cet oubli-là demain.
+    const APPELS_DU_HELPER = /\b(blocDonnees|encapsulerDonnees|champSurUneLigne)\s*(<[^>]*>)?\s*\(/;
+    const importeurs = files.filter((f) => read(f).includes('donnees-non-fiables.js'));
+    expect(importeurs.length, 'le helper est bien utilisé quelque part').toBeGreaterThan(3);
+    for (const f of importeurs) {
+      expect(read(f), `${f} importe le helper d’encapsulation sans jamais l’appeler`).toMatch(
+        APPELS_DU_HELPER,
       );
     }
   });
