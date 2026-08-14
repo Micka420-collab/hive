@@ -6706,3 +6706,61 @@ est bien une décision, pas du décor.
 `pas = ceil(43 / 43) = 1` : chaque candidate est jouée. Ce n'est pas un
 échantillon — c'est le premier terrain du dépôt balayé **en entier** depuis
 `src/shared`. Son résultat est consigné au tour suivant, quel qu'il soit.
+
+---
+
+## Le balayage complet de la vitrine : la moitié des décisions étaient nues
+
+Le lot précédent a rendu la vitrine VISIBLE à la loupe. Celui-ci lit ce qu'elle
+y a trouvé, et ce n'est pas rassurant.
+
+```text
+LOUPE : 43 mutation(s) possible(s) sur le diff, 43 examinée(s).
+        (balayage COMPLET — pas = ceil(43/43) = 1)
+
+au moment du commit : 36 rendues — 10 défendues, 26 SANS TEST
+(le balayage complet tourne encore ; le total final part au tour suivant)
+```
+
+**Environ deux décisions sur trois de la vitrine ne sont défendues par aucun
+banc** — et ce n'est pas faute de bancs : la vitrine en a **140**. Ils ne
+mordaient simplement pas.
+
+### Le survivant qui fait mal, reproduit à la main
+
+```text
+MUTANT   var dict = lang === 'en' ? EN : FR;   →   lang !== 'en'
+         (l'anglais servi au francophone, le français à l'anglophone)
+
+         149 bancs de vitrine — TOUS VERTS.
+```
+
+### Pourquoi 140 bancs laissent passer ça
+
+Parce que celui qui aurait dû mordre assène une DIFFÉRENCE, pas une identité :
+il clique FR, clique EN, et exige que les deux textes diffèrent. Échanger les
+deux dictionnaires laisse la différence intacte.
+
+Et il avait de bonnes raisons d'être ainsi — sa première version épinglait le
+mot « essaim » et rougissait sur un changement de copie légitime. En cessant
+d'être fragile, il a cessé de départager. C'est le § 9 nonagies.
+
+### Ce qui est LIVRÉ ici, et ce qui ne l'est pas
+
+Livré : la page doit appliquer le dictionnaire qu'elle ANNONCE — texte ET
+attributs, sur LES DEUX pages traduites. Le dictionnaire est son propre oracle,
+donc aucun mot n'est épinglé et une réécriture de la copie ne rougit pas.
+
+```text
+VERDICT AFFICHÉ   dictionnaire inversé (accueil)   →  219 éléments nommés, rouge
+                  attributs inversés               →    6 attributs nommés, rouge
+                  dictionnaire inversé (présentation) →  45 éléments nommés, rouge
+                  source saine                      →   19 verts
+```
+
+**Pas livré, et ça se dit :** ce lot ferme **trois** survivants. Les autres —
+détection de la langue du navigateur, presse-papier, rail des écrans,
+`ResizeObserver`, le compteur d'étoiles GitHub, une borne de boucle — restent
+NUS. Ils sont nommés dans le journal du balayage et seront traités par lots.
+Prétendre que la vitrine est défendue parce que le plus grave est fermé serait
+exactement l'arrondi que ce carnet refuse.

@@ -8907,3 +8907,75 @@ toujours. C'est de la rendre plus FINE que l'extension : on ne regarde que ce
 que le navigateur exécuterait. La question à poser à toute liste de refus est
 donc : « qu'est-ce que je jette avec, et est-ce que je saurais jamais que je
 l'ai jeté ? »
+
+---
+
+## 9 nonagies. « Différent » est SYMÉTRIQUE — un banc qui assène la différence ne peut pas départager
+
+La vitrine choisit sa langue ainsi :
+
+    var dict = lang === 'en' ? EN : FR;
+
+Un banc s'appelle « LE BASCULEMENT CHANGE VRAIMENT LE TEXTE, DANS LES DEUX
+SENS ». Il clique FR, clique EN, et exige que les deux titres diffèrent, qu'ils
+soient longs, et qu'ils partagent peu de mots.
+
+Le mutant qui échange les deux dictionnaires — donc qui sert l'anglais au
+francophone et le français à l'anglophone — lui survit. Mesuré à la main, mutant
+posé puis restauré par copie : **149 bancs verts.**
+
+### Ce banc avait de BONNES raisons d'être ainsi, et c'est le cœur
+
+Sa première rédaction exigeait le mot « essaim » dans le titre français. Elle a
+rougi le jour où le titre est passé à « Faites coder plusieurs IA sur votre
+projet » — un changement de copie légitime, et même meilleur. Un banc qui
+interdit d'améliorer un texte se fait désarmer ; il a donc été réécrit pour ne
+plus épingler aucun mot.
+
+C'était juste. Mais en cessant d'épingler, il a cessé de DÉPARTAGER. « fr ≠ en »
+reste vrai quand on échange fr et en. La propriété choisie pour être robuste
+était symétrique, et une propriété symétrique est aveugle à une inversion.
+
+> **Fuir la fragilité et perdre le pouvoir de discriminer sont le même geste, à
+> un cran près.** Un banc qui n'assène plus qu'une DIFFÉRENCE ne peut pas dire
+> laquelle est laquelle.
+
+### Ce qui répare, sans revenir à la fragilité
+
+Ni « le titre contient essaim », ni « les deux diffèrent », mais : **la page
+applique le dictionnaire qu'elle prétend appliquer.** Le dictionnaire est son
+propre oracle — pour chaque élément traduit, quand le bouton EN s'annonce
+pressé, le contenu doit être EXACTEMENT `EN[clé]`.
+
+Aucun mot n'est choisi par nous : une réécriture de la copie déplace le
+dictionnaire et l'élément ensemble, et le banc suit sans broncher. Une inversion
+les sépare, et il mord.
+
+    VERDICT AFFICHÉ   dictionnaire inversé   →  219 éléments nommés, rouge
+                      attributs inversés     →   6 attributs nommés, rouge
+                      page de présentation   →   45 éléments nommés, rouge
+                      source saine           →  19 verts
+
+### Deux pièges rencontrés en le posant, tous deux instructifs
+
+**1. La garde a d'abord rougi sur du sain, et elle avait tort.** Un élément —
+`go.demo` — ne correspondait pas. Cause mesurée : le dictionnaire écrit
+`<br />`, et `innerHTML` relu rend `<br>`. La garde comparait la façon dont un
+analyseur écrit une balise vide, pas du contenu. Corrigé en normalisant LES DEUX
+côtés par le même aller-retour. La règle : quand une garde neuve accuse du code
+sain, on cherche d'abord l'erreur dans la garde — mais on la CHERCHE, on ne
+l'assouplit pas jusqu'à ce qu'elle se taise.
+
+**2. Elle ne regardait que le TEXTE.** Le mutant voisin, sur les ATTRIBUTS
+traduits (`title`, `aria-label`), lui survivait : 17 verts. Un lecteur d'écran
+anglophone se serait fait annoncer les libellés en français sans qu'un banc
+bronche. Une ancre posée sur le contenu visible n'ancre pas ce qui n'est lu que
+par les outils d'accessibilité.
+
+### Et la portée, encore
+
+Le balayage a nommé le MÊME survivant sur `site/presentation/index.html`. Ne
+garder que la page d'accueil aurait refait, le soir même, la faute du § 9
+nonoctogies — garder les endroits où le défaut a été TROUVÉ plutôt que ceux où
+il peut VIVRE. La garde couvre les deux pages, et constate l'absence d'attributs
+traduits sur la seconde au lieu de l'exiger.

@@ -122,7 +122,8 @@ describe('CHAQUE SCRIPT DE LA VITRINE S’ANALYSE', () => {
  * passer une clé sans valeur : la régulière voyait `'mc.12.d':` et concluait
  * « traduite ». Un objet, lui, ne peut pas avoir une clé sans valeur.
  */
-function dictionnaireAnglais(): Record<string, unknown> {
+function dictionnaireAnglais(source: string = VITRINE): Record<string, unknown> {
+  const VITRINE = source;
   const debut = VITRINE.indexOf('var EN = {');
   expect(debut, 'dictionnaire EN introuvable').toBeGreaterThan(-1);
   const ouvrante = VITRINE.indexOf('{', debut);
@@ -245,6 +246,124 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
       distincts.length,
       'les deux langues se ressemblent trop pour être deux langues',
     ).toBeGreaterThan(2);
+  });
+
+  it('LA PAGE APPLIQUE LE DICTIONNAIRE QU’ELLE PRÉTEND APPLIQUER', () => {
+    // ─── LE TROU QUE LE BALAYAGE PAR MUTATION A OUVERT ─────────────────────
+    //
+    // Le test au-dessus assène que les deux langues DIFFÈRENT. C'était un bon
+    // choix — il remplaçait une assertion qui épinglait le mot « essaim » et
+    // rougissait sur un changement de copie légitime.
+    //
+    // Mais « différent » est SYMÉTRIQUE. Le mutant qui échange les deux
+    // dictionnaires…
+    //
+    //     var dict = lang === 'en' ? EN : FR;   →   lang !== 'en'
+    //
+    // …montre l'anglais au francophone et le français à l'anglophone, et il
+    // laissait 149 bancs verts (mesuré à la main, mutant posé puis restauré).
+    // Les deux textes diffèrent toujours, sont toujours longs, et partagent
+    // toujours peu de mots : rien de ce qui était assené ne pouvait les
+    // DÉPARTAGER.
+    //
+    // ─── CE QUI DÉPARTAGE SANS ÉPINGLER LA COPIE ───────────────────────────
+    //
+    // Le dictionnaire lui-même est l'oracle. On n'exige aucun mot choisi par
+    // nous : on exige que la page, quand elle dit « je suis en anglais »,
+    // affiche EXACTEMENT ce que `EN` contient pour cette clé. Un changement de
+    // copie déplace les deux ensemble et ce banc suit ; une inversion des
+    // dictionnaires les sépare et il mord.
+    const en = dictionnaireAnglais();
+
+    // ─── ON COMPARE APRÈS LE MÊME ALLER-RETOUR, ET C'EST MESURÉ ────────────
+    //
+    // Le dictionnaire écrit `<br />` ; une fois posé dans le DOM et relu,
+    // `innerHTML` rend `<br>`. Mesuré :
+    //
+    //     '<span class="p">a </span>b<br />c'  →  '<span class="p">a </span>b<br>c'
+    //
+    // La première rédaction de ce banc a rougi là-dessus, sur `go.demo`, et
+    // c'était la garde qui avait tort — pas la page. Normaliser les DEUX côtés
+    // par le même chemin n'affaiblit rien : ça compare du contenu au lieu de
+    // comparer la façon dont un analyseur écrit une balise vide.
+    const normaliser = (html: string): string => {
+      const bac = document.createElement('div');
+      bac.innerHTML = html;
+      return bac.innerHTML.trim();
+    };
+
+    /** La valeur anglaise d'une clé, ou rien — le dictionnaire est typé `unknown`. */
+    const anglais = (cle: string | null | undefined): string | undefined => {
+      if (cle == null) return undefined;
+      const v = en[cle];
+      return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+    };
+
+    // Une clé qui existe VRAIMENT dans la page, sinon on garderait le vide.
+    const porteuses = [...document.querySelectorAll('[data-i18n]')].filter(
+      (el) => anglais(el.getAttribute('data-i18n')) !== undefined,
+    );
+    expect(porteuses.length, 'aucun élément traduit — la garde ne garderait rien').toBeGreaterThan(
+      5,
+    );
+
+    basculer('btn-en');
+    // Le bouton PRÉTEND l'anglais…
+    expect(
+      document.getElementById('btn-en')?.getAttribute('aria-pressed'),
+      'le bouton EN ne s’annonce pas pressé',
+    ).toBe('true');
+
+    // …et le texte doit le TENIR, sur chaque élément traduit.
+    const menteuses = porteuses
+      .filter(
+        (el) =>
+          normaliser(el.innerHTML) !== normaliser(anglais(el.getAttribute('data-i18n')) ?? ''),
+      )
+      .map((el) => el.getAttribute('data-i18n'));
+    expect(
+      menteuses.slice(0, 5),
+      `la page annonce l’anglais et affiche autre chose (${String(menteuses.length)} élément(s))`,
+    ).toEqual([]);
+
+    // ─── LES ATTRIBUTS AUSSI, ET C'EST UN SECOND SURVIVANT ─────────────────
+    //
+    // `data-i18n-attr="attr:cle"` traduit un `title`, un `aria-label`, un
+    // `placeholder` — ce que lisent une infobulle et un lecteur d'écran. La
+    // première rédaction de ce banc ne regardait que le TEXTE, et le mutant
+    //
+    //     var val = lang === 'en' ? EN[spec[1]] : ATTR_FR[spec[1]];   →   !==
+    //
+    // lui a survécu : 17 verts. Un lecteur d'écran anglophone se serait fait
+    // annoncer les libellés en français sans qu'un seul banc s'en aperçoive.
+    const attrs = [...document.querySelectorAll('[data-i18n-attr]')]
+      .map((el) => {
+        const [ou, cle] = (el.getAttribute('data-i18n-attr') ?? '').split(':');
+        return { el, ou, attendu: anglais(cle), nom: `${ou ?? '?'}:${cle ?? '?'}` };
+      })
+      .filter(
+        (a): a is typeof a & { ou: string; attendu: string } =>
+          a.ou !== undefined && a.attendu !== undefined,
+      );
+    expect(attrs.length, 'aucun attribut traduit — la garde ne garderait rien').toBeGreaterThan(0);
+
+    const attrsMenteurs = attrs
+      .filter(({ el, ou, attendu }) => el.getAttribute(ou) !== attendu)
+      .map(({ nom }) => nom);
+    expect(
+      attrsMenteurs.slice(0, 5),
+      `l’anglais est annoncé, l’attribut dit autre chose (${String(attrsMenteurs.length)})`,
+    ).toEqual([]);
+
+    // Et le sens inverse, sans quoi un mutant qui figerait TOUT sur l'anglais
+    // passerait : en français, ces mêmes éléments ne doivent PLUS dire l'anglais.
+    basculer('btn-fr');
+    const restees = porteuses.filter(
+      (el) => normaliser(el.innerHTML) === normaliser(anglais(el.getAttribute('data-i18n')) ?? ''),
+    );
+    expect(restees.length, 'le retour en français laisse tout le monde en anglais').toBeLessThan(
+      porteuses.length,
+    );
   });
 
   it('et le retour en FR remet EXACTEMENT le français d’origine', () => {
@@ -558,5 +677,67 @@ describe('LA LANGUE INITIALE SUIT LA PRÉFÉRENCE ENREGISTRÉE', () => {
     localStorage.setItem('hive.lang', 'en');
     window.history.replaceState(null, '', '/?lang=fr');
     expect(langueAuChargement(), '« ?lang=fr » n’a pas imposé le français').toBe('fr');
+  });
+});
+
+// ─── ET LA SECONDE PAGE, PARCE QUE LE BALAYAGE L'A NOMMÉE AUSSI ──────────────
+//
+// Le balayage complet de `site/` a rendu le MÊME survivant sur
+// `site/presentation/index.html` : son dictionnaire s'inverse sans qu'un banc
+// bronche. N'en garder qu'une des deux aurait été refaire, le soir même, la
+// faute que § 9 nonoctogies vient de consigner — garder les endroits où le
+// défaut a été TROUVÉ plutôt que ceux où il peut VIVRE.
+//
+// La page de présentation n'a pas d'attribut traduit (`data-i18n-attr` : 0) ;
+// la garde le constate au lieu de l'exiger, sans quoi elle rougirait sur une
+// page parfaitement saine.
+
+const PAGES_TRADUITES = ['site/index.html', 'site/presentation/index.html'] as const;
+
+describe('CHAQUE PAGE TRADUITE APPLIQUE LE DICTIONNAIRE QU’ELLE ANNONCE', () => {
+  it.each(PAGES_TRADUITES)('%s', (chemin) => {
+    const source = readFileSync(path.resolve(process.cwd(), chemin), 'utf8');
+    document.documentElement.innerHTML = source
+      .replace(/^[\s\S]*?<html[^>]*>/, '')
+      .replace(/<\/html>[\s\S]*$/, '');
+    const principal = scriptsExecutes(source).reduce((a, b) =>
+      a.code.length > b.code.length ? a : b,
+    );
+    new Function(principal.code)();
+
+    const en = dictionnaireAnglais(source);
+    const normaliser = (html: string): string => {
+      const bac = document.createElement('div');
+      bac.innerHTML = html;
+      return bac.innerHTML.trim();
+    };
+
+    const anglais = (cle: string | null | undefined): string | undefined => {
+      if (cle == null) return undefined;
+      const v = en[cle];
+      return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+    };
+    const porteuses = [...document.querySelectorAll('[data-i18n]')].filter(
+      (el) => anglais(el.getAttribute('data-i18n')) !== undefined,
+    );
+    expect(porteuses.length, `${chemin} : aucun élément traduit`).toBeGreaterThan(5);
+
+    document.getElementById('btn-en')?.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(
+      document.getElementById('btn-en')?.getAttribute('aria-pressed'),
+      `${chemin} : le bouton EN ne s’annonce pas pressé`,
+    ).toBe('true');
+
+    const menteuses = porteuses
+      .filter(
+        (el) =>
+          normaliser(el.innerHTML) !==
+          normaliser(en[el.getAttribute('data-i18n') as string] as string),
+      )
+      .map((el) => el.getAttribute('data-i18n'));
+    expect(
+      menteuses.slice(0, 5),
+      `${chemin} : annonce l’anglais et affiche autre chose (${String(menteuses.length)})`,
+    ).toEqual([]);
   });
 });
