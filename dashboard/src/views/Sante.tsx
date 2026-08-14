@@ -1,6 +1,7 @@
 // Vue Santé — signes vitaux de la ruche (Hive Pulse) et anomalies détectées
 // dans le journal (Ghost in the Hive). Tout est lu via REST, poll léger.
 
+import { jamaisRienRecu } from './etat-sondage';
 import { useEffect, useState } from 'react';
 import {
   fetchBalance,
@@ -194,10 +195,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
   // premier appel), la carte est simplement masquée — pas d'erreur criarde
   // pour une fonctionnalité absente. Une panne SURVENUE ensuite garde le
   // dernier relevé à l'écran et l'annote « relevé figé ».
-  const thermoHidden = thermo.data === null && thermo.error !== null;
+  const thermoHidden = jamaisRienRecu(thermo);
   // Même règle pour la Balance : route absente (orchestrateur d'avant le
   // pèse-ruche) ⇒ la carte n'existe pas, la vue Santé reste entière.
-  const balanceHidden = balance.data === null && balance.error !== null;
+  const balanceHidden = jamaisRienRecu(balance);
 
   return (
     <div className="mc-view es-view">
@@ -379,7 +380,7 @@ const GRIEF_LABEL: Record<string, { fr: string; en: string }> = {
 function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: StateSnapshot }) {
   const t = useT();
   const g = useApiPoll(fetchGardiennes, 30_000, refreshTick);
-  if (g.data === null && g.error !== null) return null;
+  if (jamaisRienRecu(g)) return null;
   const v = g.data;
   const nom = (nodeId: string) => snapshot.nodes.find((n) => n.id === nodeId)?.name ?? nodeId;
 
@@ -510,7 +511,7 @@ function Guetteuses({ refreshTick }: { refreshTick: number }) {
   // Orchestrateur plus ancien, sans la route : le panneau n'existe pas, plutôt
   // qu'une erreur criarde pour une fonctionnalité absente. Même règle que la
   // thermorégulation et la Balance au-dessus.
-  if (guet.data === null && guet.error !== null) return null;
+  if (jamaisRienRecu(guet)) return null;
   const v = guet.data;
   const n = NIVEAU_GUET[v?.niveau ?? 'calme'];
 

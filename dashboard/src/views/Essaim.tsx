@@ -1,6 +1,7 @@
 // Vue Essaim — les ouvrières : cartes des nœuds membres (charge, sous-agents
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
+import { jamaisRienRecu } from './etat-sondage';
 import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
 import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
 import { useLang, useT } from '../i18n';
@@ -507,7 +508,7 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
           {/* Dégradation propre : si /api/pheromones n'a JAMAIS répondu et est
               en erreur (orchestrateur plus ancien sans la route, ou réseau),
               la carte disparaît — la vue Essaim, elle, reste intacte. */}
-          {!(pheromones.data === null && pheromones.error !== null) && (
+          {!jamaisRienRecu(pheromones) && (
             <PheromonesCard traces={pheromones.data?.traces ?? null} snapshot={snapshot} />
           )}
           {/* Même dégradation propre : un orchestrateur plus ancien n'a pas la
