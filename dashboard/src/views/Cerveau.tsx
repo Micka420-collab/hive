@@ -59,6 +59,7 @@ import {
   priseAuDoigt,
   selectionAuRelacher,
   LIBELLE_GENRE,
+  densiteEcran,
   noteCreuse,
   resumeDeNote,
 } from './cerveau-designation';
@@ -159,7 +160,7 @@ export default function Cerveau(_props: ViewProps) {
       t0 = temps;
       tours += 1;
 
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = densiteEcran(window.devicePixelRatio);
       const L = c.clientWidth;
       const H = c.clientHeight;
       if (c.width !== L * dpr || c.height !== H * dpr) {

@@ -32,7 +32,7 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
-import { icone } from './rayon-affichage';
+import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import { useT } from '../i18n';
@@ -45,13 +45,6 @@ import type { CodeLang } from '../CodeEditor';
 interface Noeud {
   entrees: EntreeRayon[];
   ouvert: boolean;
-}
-
-/** Une taille lisible : « 1,2 ko » vaut mieux que « 1234 ». */
-function taille(octets: number, t: (fr: string, en: string) => string): string {
-  if (octets < 1024) return `${octets} ${t('o', 'B')}`;
-  if (octets < 1024 * 1024) return `${(octets / 1024).toFixed(1)} ${t('ko', 'kB')}`;
-  return `${(octets / (1024 * 1024)).toFixed(1)} ${t('Mo', 'MB')}`;
 }
 
 export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {

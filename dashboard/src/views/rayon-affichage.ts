@@ -33,3 +33,26 @@ export function icone(e: EntreeRayon, ouvert: boolean): string {
   if (/\.(png|jpe?g|gif|svg|ico|webp)$/.test(n)) return '🖼';
   return '📄';
 }
+
+/**
+ * Une taille lisible : « 1,2 ko » vaut mieux que « 1234 ».
+ *
+ * ─── TROIS BORNES, ET C'EST LA PREMIÈRE QUI A ÉTÉ TROUVÉE NUE ────────────────
+ *
+ * `octets < 1024` muté en `<=` fait afficher **« 1024 o »** au lieu de « 1,0 ko »
+ * — le seul cas de tout le barème où l'unité saute d'un cran. Ce n'est pas
+ * faux au sens arithmétique, c'est faux au sens de ce que la fonction promet :
+ * dire une taille comme un humain l'écrirait. Personne n'écrit « 1024 o ».
+ *
+ * Le mutant ne casse rien, ne lève rien, et ne se voit que sur un fichier dont
+ * la taille tombe exactement sur la borne. C'est la définition d'une garde que
+ * rien ne défend.
+ *
+ * `toFixed(1)` et non `Math.round` : « 1,5 ko » et « 1,4 ko » se distinguent,
+ * là où l'arrondi entier les écraserait tous les deux sur « 1 ko ».
+ */
+export function taille(octets: number, t: (fr: string, en: string) => string): string {
+  if (octets < 1024) return `${octets} ${t('o', 'B')}`;
+  if (octets < 1024 * 1024) return `${(octets / 1024).toFixed(1)} ${t('ko', 'kB')}`;
+  return `${(octets / (1024 * 1024)).toFixed(1)} ${t('Mo', 'MB')}`;
+}

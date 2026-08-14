@@ -502,3 +502,28 @@ export function resumeDeNote(n: NoteResumee, t: (fr: string, en: string) => stri
     : t(`servie il y a ${n.serviIlYaJours} j`, `used ${n.serviIlYaJours} d ago`);
   return `${genre} · ${n.degre} ${t('liens', 'links')} · ${usage}`;
 }
+
+/**
+ * La densité de l'écran, jamais zéro.
+ *
+ * ─── UN REPLI QUI PROTÈGE DEUX PANNES DIFFÉRENTES ────────────────────────────
+ *
+ * `window.devicePixelRatio` vaut `undefined` là où personne ne l'implémente
+ * (happy-dom, un vieux navigateur), et le canevas s'y dessine alors à une
+ * échelle `undefined` — c'est-à-dire nulle part.
+ *
+ * Le mutant `||` → `&&` casse les DEUX sens à la fois, et c'est ce qui le rend
+ * intéressant :
+ *
+ *   · densité absente  ⇒ `undefined && 1` vaut `undefined` : le repli disparaît
+ *     exactement quand il servait.
+ *   · densité de 2     ⇒ `2 && 1` vaut `1` : sur un écran haute densité, le
+ *     graphe se dessine à moitié résolution et paraît flou. Rien ne casse, rien
+ *     n'avertit — l'écran est juste moins bon, sans raison visible.
+ *
+ * Le second est le plus vicieux : il ne se voit que côte à côte avec un écran
+ * qui marche.
+ */
+export function densiteEcran(dpr: number | undefined): number {
+  return dpr || 1;
+}

@@ -40,6 +40,7 @@ import {
   rayon,
   seChevauchent,
   LIBELLE_GENRE,
+  densiteEcran,
   noteCreuse,
   resumeDeNote,
   selectionAuRelacher,
@@ -634,5 +635,27 @@ describe('resumeDeNote — ce que la bulle de survol dit, sans passer par le can
       expect(resumeDeNote({ genre: g, degre: 1, serviIlYaJours: 1 }, fr)).not.toMatch(/^ ·/);
       expect(resumeDeNote({ genre: g, degre: 1, serviIlYaJours: 1 }, en)).not.toMatch(/^ ·/);
     }
+  });
+});
+
+describe('densiteEcran — un repli qui protège deux pannes différentes', () => {
+  it('LE CAS QUI TRANCHE : une densité ABSENTE retombe sur 1', () => {
+    // `window.devicePixelRatio` vaut `undefined` là où personne ne
+    // l'implémente. Le mutant `||` → `&&` fait disparaître le repli exactement
+    // quand il servait : le canevas se dessine à une échelle `undefined`.
+    expect(densiteEcran(undefined)).toBe(1);
+    expect(densiteEcran(0), 'zéro n’est pas une densité').toBe(1);
+  });
+
+  it('LE SECOND CAS, LE PLUS VICIEUX : un écran à 2 reste à 2', () => {
+    // Sous le mutant, `2 && 1` vaut 1 : le graphe se dessine à moitié
+    // résolution et paraît flou. Rien ne casse, rien n'avertit — l'écran est
+    // juste moins bon, et ça ne se voit que côte à côte avec un écran qui marche.
+    expect(densiteEcran(2)).toBe(2);
+    expect(densiteEcran(3)).toBe(3);
+  });
+
+  it('les densités fractionnaires passent telles quelles', () => {
+    expect(densiteEcran(1.5)).toBe(1.5);
   });
 });

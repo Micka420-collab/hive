@@ -19,7 +19,7 @@
 // sortie du rendu (§ 2 quaterdecies) exprès pour s'éprouver au retour près.
 
 import { describe, expect, it } from 'vitest';
-import { icone } from '../dashboard/src/views/rayon-affichage.js';
+import { icone, taille } from '../dashboard/src/views/rayon-affichage.js';
 import type { Entree } from '../src/shared/rayon.js';
 
 function dossier(nom: string): Entree {
@@ -44,5 +44,49 @@ describe('l’icône du rayon départage le dossier AVANT l’extension', () => 
     expect(icone(fichier('index.ts'), false), 'un .ts est un parchemin').toBe('📜');
     expect(icone(fichier('README.md'), false), 'un .md est une note').toBe('📝');
     expect(icone(fichier('LICENSE'), false), 'sans extension, un fichier quelconque').toBe('📄');
+  });
+});
+
+// ─── LA TAILLE LISIBLE, ET LA BORNE QUE PERSONNE NE DÉFENDAIT ────────────────
+//
+// `taille` était une fonction PURE posée dans `Rayon.tsx`, sans `export` — donc
+// hors d'atteinte de tout banc qui ne monte pas la vue. Un balayage échantillonné
+// de `dashboard/src/views` (base épinglée `f0fc005`) l'a rendue nue.
+
+describe('taille — dire une taille comme un humain l’écrirait', () => {
+  const fr = (f: string) => f;
+  const en = (_f: string, e: string) => e;
+
+  it('LE CAS QUI TRANCHE : 1024 octets font UN kilo, pas « 1024 o »', () => {
+    // `octets < 1024` muté en `<=` fait afficher « 1024 o » — le seul point de
+    // tout le barème où l'unité saute d'un cran. Ce n'est pas faux
+    // arithmétiquement ; c'est faux au sens de ce que la fonction promet.
+    // Personne n'écrit « 1024 o ».
+    expect(taille(1024, fr)).toBe('1.0 ko');
+    expect(taille(1023, fr), 'juste en dessous, on reste en octets').toBe('1023 o');
+  });
+
+  it('les petites tailles restent en octets, sans décimale inutile', () => {
+    expect(taille(0, fr)).toBe('0 o');
+    expect(taille(1, fr)).toBe('1 o');
+    expect(taille(999, fr)).toBe('999 o');
+  });
+
+  it('la SECONDE borne est la même histoire, un cran plus haut', () => {
+    expect(taille(1024 * 1024 - 1, fr)).toContain('ko');
+    expect(taille(1024 * 1024, fr)).toBe('1.0 Mo');
+  });
+
+  it('la décimale distingue ce qu’un arrondi entier écraserait', () => {
+    // `toFixed(1)` et non `Math.round` : « 1,5 ko » et « 1,4 ko » se
+    // distinguent, là où l'arrondi les mettrait tous deux sur « 1 ko ».
+    expect(taille(1536, fr)).toBe('1.5 ko');
+    expect(taille(1434, fr)).toBe('1.4 ko');
+  });
+
+  it('les trois unités existent dans les deux langues', () => {
+    expect(taille(10, en)).toBe('10 B');
+    expect(taille(2048, en)).toBe('2.0 kB');
+    expect(taille(5 * 1024 * 1024, en)).toBe('5.0 MB');
   });
 });
