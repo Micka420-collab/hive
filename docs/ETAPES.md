@@ -6467,3 +6467,91 @@ garde »), appliqué à la garde qui juge toutes les autres. Il est noté ici et
 non refermé : les opérateurs de la loupe sont ceux de JavaScript, et les lâcher
 sur du `sh` demande d'abord de savoir lesquels ont un sens là-bas. C'est un lot,
 pas une rustine de fin de tour.
+
+---
+
+## Une garde née d'un défaut avait hérité de son angle mort
+
+Le corollaire du § 9 octooctogies — _« pour chaque chose que le projet demande
+d'exécuter, par quel chemin arrive-t-elle ? »_ — a été passé sur tout le dépôt
+au lieu de rester une phrase. Il a rendu une prise.
+
+### Ce que la balayée a trouvé
+
+`tests/commande-annoncee.test.ts` existe depuis qu'un utilisateur a signalé que
+`irm …/install.ps1 | iex` ne pouvait fonctionner sur aucune machine — `iex`
+évalue une expression, `param()` n'est valide qu'au début d'un script. La garde
+née ce jour-là porte une liste écrite à la main :
+
+```ts
+const ANNONCES = ['README.md', 'README.en.md', 'docs/INSTALLATION.md', 'install.ps1'];
+```
+
+Ces quatre-là sont tenus. Mais le motif fautif vit encore, mesuré, dans **deux
+documents que la liste ne regarde pas** :
+
+| Fichier                                    | Ce que c'est                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| `MISSION-ACCUEIL.md` § 7.2.1               | le cahier des charges — « tous les points ci-dessous sont exigés » |
+| `docs/adr/0002-distribution-one-liners.md` | **l'ADR des one-liners eux-mêmes**                                 |
+
+Le second est le plus parlant : c'est le dossier de décision de cette question
+précise, et il portait encore la forme impossible.
+
+### Pourquoi la liste ne pouvait pas les voir
+
+Parce qu'elle a été écrite avec les quatre endroits où le défaut avait été
+**trouvé**, pas avec l'ensemble des endroits où il pouvait **vivre**. Une garde
+née d'un incident hérite du périmètre de l'incident — et c'est invisible, parce
+qu'elle est verte et qu'elle a de bonnes raisons de l'être.
+
+### La règle retenue, et ce qu'elle n'est PAS
+
+On ne bascule pas sur « ce motif est interdit ». Trois documents le citent à bon
+droit : la CI raconte l'histoire, `docs/ERREURS.md` en tire la leçon, et le banc
+le décrit. L'interdire ferait mentir le dossier.
+
+> **`| iex` ne peut apparaître qu'à CÔTÉ de la raison qui le condamne.**
+
+La borne est mesurée, pas choisie. Sur les trois documents légitimes, la cause
+(`param(`) est à **3 lignes** (`ci.yml`), **7** (le banc) et **10**
+(`ERREURS.md`). Sur les deux fautifs, elle était à l'**infini**. Le seuil est
+posé à 15 : de la marge pour le plus éloigné des trois, rien pour les deux
+autres.
+
+Et la liste écrite à la main devient une **découverte** : le banc marche le
+dépôt. Un document écrit demain est dedans par défaut, au lieu d'être dehors par
+défaut.
+
+### Ni la mission ni l'ADR ne se réécrivent
+
+Les deux fautifs **conservent la phrase d'origine**. Une mission se cite, un ADR
+ne se réécrit pas — falsifier le dossier pour faire passer un banc serait pire
+que le défaut. Chacun reçoit la correction **à côté** : ce qui échoue, pourquoi,
+et la commande réellement servie.
+
+### Verdict affiché, et une prise inattendue
+
+```text
+avant : 1 failed | 9 passed (10)   →   3 fichiers nommés
+après : 10 passed (10)
+```
+
+Le troisième nommé était **le banc lui-même** : son message d'échec montrait
+`install.ps1 | iex` sans le mot `param(` à moins de 15 lignes. Deux issues —
+l'exempter, ou s'y conformer. L'exempter aurait rouvert exactement le trou en
+train d'être fermé ; le message dit désormais _« sans dire que `param()` le rend
+impossible »_, ce qui le rend au passage plus utile à qui le déclenche.
+
+### La découverte est porteuse, et c'est muté
+
+Une marche de dossiers qui ne descend plus rendrait tout le bloc vert sans rien
+voir. Mutation posée, verdict, restauration par copie :
+
+```text
+MUTANT  trouves.push(...fichiersDuDepot(…))  →  supprimé
+        × la découverte ratisse vraiment le dépôt
+        1 failed | 9 passed (10)
+
+RESTAURÉ  10 passed (10)
+```

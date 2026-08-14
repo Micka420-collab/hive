@@ -178,6 +178,18 @@ C'est ici que « pour Windows et les autres serveurs » se concrétise. **Tous l
 
 ### 7.2 Windows
 
+> **Note de livraison (2026-08-14) — la forme demandée au point 1 ci-dessous ne
+> peut fonctionner sur aucune machine, et elle est conservée telle quelle parce
+> qu'une mission se cite, elle ne se réécrit pas.** `iex` évalue une EXPRESSION,
+> et le `param()` d'`install.ps1` n'est valide qu'au début d'un SCRIPT ; un
+> utilisateur l'a signalé avec sa trace de `ParserError`. S'y ajoute que le
+> script appelle `exit` sept fois, ce qui sous `iex` fermerait la session de
+> l'utilisateur au lieu de rendre un code. La commande livrée télécharge donc le
+> fichier d'abord (`-OutFile`) et le lance par `-File` — voir le README, et
+> `docs/adr/0002-distribution-one-liners.md` pour le dossier complet. Tout le
+> reste du point 1 (rien en douce, 5.1 et 7+, empreinte, pas d'élévation) est
+> tenu inchangé.
+
 1. **One-liner PowerShell** — `irm https://hive.<domaine>/install.ps1 | iex` :
    - vérifie/installe **rien** en douce : si Node < 20 manque, il **affiche** la marche à suivre (winget/nodejs.org) et sort avec un code net ;
    - PowerShell **5.1 et 7+** tous les deux supportés ;

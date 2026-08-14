@@ -38,7 +38,7 @@
 // c'est la leçon § 9 ter, et ici elles ont dérivé de la RÉALITÉ toutes
 // ensemble.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -48,6 +48,70 @@ const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
 
 /** Tous les endroits qui disent à quelqu'un comment installer sous Windows. */
 const ANNONCES = ['README.md', 'README.en.md', 'docs/INSTALLATION.md', 'install.ps1'] as const;
+
+// ─── LA PORTÉE, QUI FAISAIT PARTIE DU TROU ───────────────────────────────────
+//
+// Cette garde est née avec une liste de QUATRE fichiers écrite à la main. Elle
+// a tenu ces quatre-là — et `irm … | iex` a survécu dans deux autres, mesurés :
+//
+//   · MISSION-ACCUEIL.md   § 7.2.1, un document qui dit « tous les points
+//                          ci-dessous sont exigés » ;
+//   · docs/adr/0002        l'ADR des one-liners eux-mêmes, c'est-à-dire le
+//                          dossier de décision de cette question précise.
+//
+// Une liste écrite à la main garde ce qu'on a pensé à y mettre, le jour où on
+// l'a écrite. Elle ne garde rien de ce qui naîtra ensuite. C'est le § 9
+// quinoctogies (« la portée d'une garde fait partie de la garde ») appliqué à
+// la garde qui existait DÉJÀ pour ce défaut-là.
+//
+// D'où la bascule : on ne liste plus, on DÉCOUVRE.
+
+const IGNORES = new Set(['node_modules', '.git', 'dist', 'coverage', 'data', '.hive-work']);
+const LISIBLES = /\.(md|ps1|sh|ya?ml|html?|tsx?|txt)$/i;
+
+/** Tout fichier du dépôt qui pourrait porter une commande d'installation. */
+function fichiersDuDepot(depuis = RACINE, relatif = ''): string[] {
+  const trouves: string[] = [];
+  for (const e of readdirSync(depuis, { withFileTypes: true })) {
+    if (e.name.startsWith('.') && e.name !== '.github') continue;
+    const rel = relatif === '' ? e.name : `${relatif}/${e.name}`;
+    if (e.isDirectory()) {
+      if (IGNORES.has(e.name)) continue;
+      trouves.push(...fichiersDuDepot(path.join(depuis, e.name), rel));
+    } else if (LISIBLES.test(e.name)) {
+      trouves.push(rel);
+    }
+  }
+  return trouves;
+}
+
+/** Le motif fautif, et la RAISON pour laquelle il l'est. */
+const TUYAU_FAUTIF = /install\.ps1\s*\|\s*iex/;
+const LA_RAISON = /param\(/;
+
+/**
+ * Distance, en lignes, entre le motif fautif et l'explication la plus proche.
+ *
+ * `Infinity` quand le fichier montre la commande sans jamais dire pourquoi elle
+ * ne peut pas marcher.
+ */
+function distanceALaRaison(source: string): number {
+  const lignes = source.split('\n');
+  const fautives = lignes.flatMap((l, i) => (TUYAU_FAUTIF.test(l) ? [i] : []));
+  const raisons = lignes.flatMap((l, i) => (LA_RAISON.test(l) ? [i] : []));
+  if (fautives.length === 0) return 0;
+  if (raisons.length === 0) return Infinity;
+  return Math.max(...fautives.map((f) => Math.min(...raisons.map((r) => Math.abs(r - f)))));
+}
+
+/**
+ * La borne est MESURÉE, pas choisie. Sur les trois documents qui racontent
+ * légitimement le défaut, la cause se trouve à 3 lignes (`ci.yml`), 7
+ * (ce fichier-ci) et 10 (`docs/ERREURS.md`). Sur les deux qui l'annonçaient
+ * sans rien dire, elle était à l'infini. 15 laisse de la marge au plus éloigné
+ * des trois sans rien rapprocher des deux autres.
+ */
+const PORTEE_DE_L_EXPLICATION = 15;
 
 /** La ligne qui mentionne `install.ps1` et qu'on va copier-coller. */
 function commandes(source: string): string[] {
@@ -111,5 +175,48 @@ describe('LA COMMANDE D’INSTALLATION WINDOWS ANNONCÉE', () => {
     // Et sous les DEUX PowerShell : 5.1 est celui que les gens ont.
     expect(ci).toMatch(/pwsh\b/);
     expect(ci).toMatch(/shell: powershell/);
+  });
+});
+
+describe('`| iex` NE PEUT APPARAÎTRE QU’À CÔTÉ DE LA RAISON QUI LE CONDAMNE', () => {
+  const TOUS = fichiersDuDepot();
+
+  it('la découverte ratisse vraiment le dépôt', () => {
+    // ─── LA GARDE QUI GARDE LA GARDE ───────────────────────────────────────
+    //
+    // Une découverte qui ne trouve rien rendrait tout le reste de ce bloc vert
+    // sans rien vérifier — exactement le défaut qu'on est en train de fermer,
+    // reproduit un cran plus haut. Elle doit donc PROUVER qu'elle voit les
+    // fichiers connus, y compris ceux que la liste écrite à la main manquait.
+    expect(TOUS.length, 'la marche du dépôt ne ramène presque rien').toBeGreaterThan(100);
+    for (const attendu of [
+      'README.md',
+      'install.ps1',
+      'MISSION-ACCUEIL.md',
+      'docs/adr/0002-distribution-one-liners.md',
+      '.github/workflows/ci.yml',
+    ]) {
+      expect(TOUS, `la découverte ne voit pas ${attendu}`).toContain(attendu);
+    }
+  });
+
+  it('aucun fichier ne montre le tuyau fautif sans dire pourquoi il l’est', () => {
+    // ─── L'ASSERTION QUI PORTE LE BLOC ─────────────────────────────────────
+    //
+    // On n'INTERDIT pas le motif : trois documents le citent à bon droit — la
+    // CI raconte l'histoire, `docs/ERREURS.md` en tire la leçon, et ce fichier
+    // le décrit. Interdire ferait mentir le dossier ; ce qui compte, c'est que
+    // personne ne puisse le montrer SEUL.
+    //
+    // Un ADR ne se réécrit pas : sa section « Contexte » cite fidèlement ce que
+    // la mission demandait, et c'est bien qu'elle le fasse. Ce qu'on exige,
+    // c'est qu'elle porte la correction à côté.
+    const muets = TOUS.filter((f) => distanceALaRaison(lire(f)) > PORTEE_DE_L_EXPLICATION).map(
+      (f) => `${f} (cause à ${String(distanceALaRaison(lire(f)))} lignes)`,
+    );
+    expect(
+      muets,
+      'ces fichiers montrent `install.ps1 | iex` sans dire que `param()` le rend impossible',
+    ).toEqual([]);
   });
 });

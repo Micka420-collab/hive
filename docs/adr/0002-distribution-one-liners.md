@@ -13,6 +13,25 @@ irm https://hive.<domaine>/install.ps1 | iex          # Windows
 curl -fsSL https://hive.<domaine>/install.sh | sh     # Linux, macOS
 ```
 
+> **Amendement du 2026-08-14 — la forme Windows ci-dessus ne fonctionne sur
+> aucune machine, et le bloc la conserve parce qu'un ADR ne se réécrit pas.**
+>
+> `iex` évalue une EXPRESSION ; le `param()` d'`install.ps1` n'est valide qu'au
+> début d'un SCRIPT. Un utilisateur l'a signalé avec sa trace de `ParserError`.
+> Et même sans ça, `install.ps1` appelle `exit` sept fois : sous `iex`, `exit`
+> s'évalue au niveau de la SESSION et fermerait la fenêtre — les sept codes de
+> sortie, qui sont toute l'interface du script, deviendraient inobservables.
+>
+> La commande réellement servie télécharge le fichier avant de l'exécuter :
+>
+> ```
+> irm …/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
+> ```
+>
+> `tests/commande-annoncee.test.ts` garde les deux moitiés : que la commande
+> annoncée soit celle que la CI exécute, et que ce tuyau-là ne puisse jamais
+> réapparaître ailleurs sans la raison qui le condamne juste à côté.
+
 Il n'existe aujourd'hui aucun domaine `hive.*`. Le dépôt publie déjà une
 vitrine statique sur GitHub Pages (`micka420-collab.github.io/hive/`), déployée
 par `.github/workflows/pages.yml` depuis le dossier `site/`, qui ne contient

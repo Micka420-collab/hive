@@ -8746,3 +8746,95 @@ deux minutes — le README y télécharge dans un fichier avant d'exécuter, et
 PowerShell analyse le tout avant la première ligne. Une question qui répond
 « rien à faire » n'est pas une question perdue : c'est une borne qu'on peut
 écrire au lieu de la supposer.
+
+---
+
+## 9 nonoctogies. Une garde née d'un défaut hérite du périmètre de ce défaut — et reste verte en le prouvant
+
+Un utilisateur avait signalé que `irm …/install.ps1 | iex` ne pouvait marcher
+sur aucune machine : `iex` évalue une EXPRESSION, et le `param()` du script
+n'est valide qu'au début d'un SCRIPT. La correction fut bonne : les documents
+ont été réparés, et un banc — `tests/commande-annoncee.test.ts` — a été écrit
+pour que ça ne revienne pas.
+
+Ce banc porte une liste écrite à la main :
+
+    const ANNONCES = ['README.md', 'README.en.md', 'docs/INSTALLATION.md', 'install.ps1'];
+
+Quatre fichiers. Exactement les quatre où le défaut avait été TROUVÉ.
+
+Il vivait dans deux autres, et il y vit encore aujourd'hui — mesuré :
+`MISSION-ACCUEIL.md` § 7.2.1, un cahier des charges qui dit « tous les points
+ci-dessous sont exigés », et `docs/adr/0002-distribution-one-liners.md`,
+c'est-à-dire **l'ADR des one-liners eux-mêmes**.
+
+### Pourquoi c'est invisible
+
+Parce que la garde est verte, et qu'elle a raison de l'être. Elle tient
+parfaitement la promesse qu'elle fait. Le problème n'est pas qu'elle mente,
+c'est que sa promesse est plus étroite qu'on ne la lit : on lit « `| iex` ne
+peut plus revenir », elle dit « `| iex` ne peut plus revenir dans ces quatre
+fichiers ».
+
+Et l'écart ne se voit pas de l'extérieur, parce qu'un banc vert ne dit jamais
+ce qu'il n'a pas regardé.
+
+### La forme générale, qui vaut au-delà de ce cas
+
+> **Quand un incident produit une garde, le périmètre par défaut de cette garde
+> est celui de l'incident — pas celui du risque.** Les endroits où un défaut a
+> été trouvé sont un ÉCHANTILLON des endroits où il peut vivre, et on écrit la
+> garde le jour où on ne connaît que l'échantillon.
+
+C'est le § 9 quinoctogies (« la portée d'une garde fait partie de la garde »)
+avec une cause nommée : ce n'est pas de l'étourderie, c'est une conséquence
+mécanique du moment où la garde est écrite. Le remède n'est donc pas « faire
+attention » — c'est de ne pas LISTER.
+
+### Lister contre découvrir
+
+Une liste garde ce à quoi on a pensé, le jour où on y a pensé. Une découverte
+garde aussi ce qui naîtra après. La bascule tient en quelques lignes : le banc
+marche le dépôt au lieu de lire quatre chemins, et un document écrit demain est
+DEDANS par défaut au lieu d'être DEHORS par défaut (§ 9 octogies : une liste de
+refus et une liste d'admission ne se trompent pas dans le même sens).
+
+Une découverte a son propre risque, symétrique : ne rien trouver et rendre tout
+le bloc vert. Elle demande donc sa propre garde — le banc exige de voir les
+fichiers connus, et cette exigence a été MUTÉE (marche non récursive → rouge,
+restaurée → vert). Une garde-de-la-garde qu'on n'a pas vue rougir n'est qu'une
+ligne de plus.
+
+### Et ce qu'il ne faut PAS faire au passage
+
+Le réflexe facile aurait été d'interdire le motif partout. Trois documents le
+citent à bon droit — la CI raconte l'histoire, ce fichier-ci en tire la leçon,
+le banc le décrit. Interdire aurait effacé le dossier pour faire passer un
+banc.
+
+La règle retenue est donc « le motif ne peut apparaître qu'à CÔTÉ de la raison
+qui le condamne », avec une borne **mesurée** : la cause est à 3, 7 et 10 lignes
+dans les documents légitimes, à l'infini dans les fautifs. Ni la mission ni
+l'ADR n'ont été réécrits — une mission se cite, un ADR ne se réécrit pas ; ils
+reçoivent la correction à côté.
+
+### La prise la plus instructive
+
+Le banc élargi a nommé trois fichiers, pas deux. Le troisième était **lui-même** :
+son message d'échec montrait `install.ps1 | iex` sans la cause à moins de quinze
+lignes. L'exempter aurait rouvert le trou exact qu'il ferme. Il s'y est conformé.
+
+> **Le premier fichier qu'une garde élargie doit pouvoir accuser, c'est celui
+> qui la contient.**
+
+Et elle a récidivé sur-le-champ : la première rédaction de CETTE leçon citait
+`irm …/install.ps1 | iex` dans son premier paragraphe sans énoncer la cause à
+moins de quinze lignes — le `param(` le plus proche était **8 439 lignes** plus
+haut, dans le § qui raconte l'incident d'origine. La barrière complète l'a
+attrapée, pas la relecture.
+
+Deux fois en un lot, la règle a mordu la main qui l'écrivait, et les deux fois
+le correctif a **amélioré** ce qu'il touchait : le message d'échec dit
+maintenant pourquoi, et ce paragraphe-ci se suffit à lui-même au lieu de
+renvoyer implicitement à huit mille lignes de distance. Une garde qu'on ne peut
+pas satisfaire sans écrire mieux est une garde bien posée.
