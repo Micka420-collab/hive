@@ -6270,3 +6270,81 @@ additionne des pommes et le souvenir de pommes.
 
 Le chiffre défendable reste donc **57 sur 440**. Les 383 autres candidates n'ont
 jamais été regardées, et trois zéros d'affilée ne changent rien à ce nombre-là.
+
+---
+
+## Huitième échantillon, et le critère d'arrêt qui avait été posé AVANT
+
+`src/node-client` + `src/tui`, base épinglée `f0fc005`, arbre `34d0b12`, second
+passage à un pas différent du premier.
+
+```text
+LOUPE : 192 mutation(s) possible(s) sur le diff, 28 examinée(s).
+        164 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas.
+
+════ LA LOUPE NE VOIT RIEN DE NU ════
+BALAYAGE=0
+```
+
+**28 jouées, 28 défendues, 0 `SANS TEST`.** Répartition : `tui/rendu.ts` 9,
+`tui/terminal.ts` 4, `merge-runner.ts` 3, `cloudflare.ts` 3, `client.ts` 3,
+`agent-detect.ts` 2, puis `tunnel.ts`, `join.ts`, `isolement.ts`,
+`annonces-join.ts` une chacune.
+
+### L'union, calculable ici parce que les deux totaux coïncident
+
+|                                         |                           |
+| --------------------------------------- | ------------------------- |
+| pas 10 (`LOUPE_MAX=20`, total 192)      | 20 indices                |
+| pas 7 (`LOUPE_MAX=28`, total 192)       | 28 indices                |
+| communs (multiples de `lcm(10,7) = 70`) | 0, 70, 140 — **3**        |
+| **union distincte**                     | **45 sur 192, soit 23 %** |
+
+Les deux en-têtes disent **192**. C'est la condition — et la seule — qui rend
+l'addition licite : les indices désignent des positions dans une liste, et la
+liste n'a pas bougé entre les deux passages.
+
+### Le critère d'arrêt, énoncé avant de connaître le résultat
+
+Avant de lancer ce huitième échantillon, la règle avait été posée : _si celui-ci
+rend zéro comme les sept précédents, l'échantillonnage sur terrain déjà vu
+s'arrête._ Il rend zéro. **Il s'arrête.**
+
+Ce n'est pas une victoire, c'est la fin d'un instrument. Huit tirages réguliers
+sur des terrains différents, tous à zéro, ne disent pas « le dépôt est gardé » :
+ils disent que **cet échantillonnage-là ne trouve plus rien**, et un instrument
+qui ne discrimine plus n'apporte plus d'information. Un neuvième passage
+coûterait de la machine pour un résultat dont la valeur attendue est nulle —
+c'est chercher ses clés sous le lampadaire parce que c'est là qu'il y a de la
+lumière.
+
+> **Un critère d'arrêt posé après coup n'est pas un critère, c'est une
+> justification.** Celui-ci a été écrit avant le tirage, et il est appliqué tel
+> quel — il aurait été appliqué de la même façon si le résultat avait déplu.
+
+### Ce qui reste, et à qui la décision appartient
+
+La couverture mesurée par mutation, terrain par terrain, à ce jour :
+
+| Terrain                        | Vu / total | Part      |
+| ------------------------------ | ---------- | --------- |
+| `src/shared`                   | 49 / 49    | **100 %** |
+| `dashboard/src` (hors `views`) | 72 / 72    | **100 %** |
+| `scripts/`                     | 46 / 46    | **100 %** |
+| `src/orchestrator`             | 54 / 54    | **100 %** |
+| `src/node-client` + `src/tui`  | 45 / 192   | 23 %      |
+| `src/adapters` + racine `src/` | 49 / 222   | 22 %      |
+| `dashboard/src/views`          | 57 / 440   | 13 %      |
+
+Deux suites possibles, et **aucune des deux n'est la mienne à trancher** :
+
+1. **Un balayage COMPLET** d'un ou plusieurs terrains partiels — environ six
+   heures et demie de machine par terrain, à mener hors de l'atelier de nuit.
+   C'est le seul chemin vers un chiffre qui ne soit pas un échantillon.
+2. **L'acceptation de la couverture mesurée**, écrite telle quelle dans
+   `docs/DEFINITION-DE-SORTIE.md` — avec ses 13 %, ses 22 % et ses 23 % en
+   toutes lettres, et non derrière un ✅ qui les cacherait.
+
+En attendant l'arbitrage, c'est la seconde qui s'applique par défaut, parce que
+c'est la seule qui ne prétende rien : le tableau ci-dessus part dans le
+definition of done, chiffres nus.

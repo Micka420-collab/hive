@@ -30,10 +30,34 @@
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » sur les lots de ce jour        |
 
 - ⚠️ **Ce que « rien de neuf n'est nu » couvre, et pas plus** : la loupe
-  ÉCHANTILLONNE. Sur le dernier balayage large (`dashboard/src/views`, base
-  épinglée `f0fc005`), **42 candidates ont été examinées sur 440** — dix
-  survivants nommés, 398 jamais regardées. Le ✅ porte sur le diff de chaque
-  lot, pas sur le dépôt.
+  ÉCHANTILLONNE. Le ✅ ci-dessus porte sur le diff de chaque lot, **pas sur le
+  dépôt**. La couverture par mutation du dépôt, elle, se dit terrain par
+  terrain, et voici les chiffres nus (base épinglée `f0fc005`, union des
+  échantillons dont les totaux coïncident) :
+
+  | Terrain                        | Vu / total | Part      |
+  | ------------------------------ | ---------- | --------- |
+  | `src/shared`                   | 49 / 49    | **100 %** |
+  | `dashboard/src` (hors `views`) | 72 / 72    | **100 %** |
+  | `scripts/`                     | 46 / 46    | **100 %** |
+  | `src/orchestrator`             | 54 / 54    | **100 %** |
+  | `src/node-client` + `src/tui`  | 45 / 192   | 23 %      |
+  | `src/adapters` + racine `src/` | 49 / 222   | 22 %      |
+  | `dashboard/src/views`          | 57 / 440   | 13 %      |
+
+  Sur les quatre terrains à 100 %, « gardé » est mesuré. Sur les trois autres,
+  ce qui est mesuré est **l'échantillon**, et rien d'autre : 87 % de
+  `dashboard/src/views` n'a jamais été regardé par la loupe. Ce n'est pas
+  masqué derrière un ✅, c'est écrit ici.
+
+- ⚠️ **L'échantillonnage sur terrain déjà vu est ARRÊTÉ** (14 août). Huit
+  tirages réguliers successifs, sur des terrains différents, ont tous rendu
+  zéro survivant. Le critère d'arrêt avait été posé AVANT le huitième, et il
+  est appliqué tel quel : un instrument qui ne discrimine plus n'apporte plus
+  d'information. Les deux suites — un balayage COMPLET (~6 h 30 de machine par
+  terrain) ou l'acceptation des chiffres ci-dessus — sont 👤 **une décision de
+  l'utilisateur**. Par défaut c'est la seconde qui s'applique, parce qu'elle
+  ne prétend rien.
 - ⚠️ **La barrière LOCALE tournait sous Node 22** jusqu'au 14 août — la version
   que l'installeur refuse (le produit exige `>=24`). Aucun défaut n'est passé,
   la CI mesurant sous 24 sur chaque lot ; mais le filet a tenu parce qu'il n'y

@@ -8628,3 +8628,59 @@ Ce que j'ai fait de mieux ce tour-là, et qui vaut d'être noté aussi : m'être
 arrêté quand je l'ai vu, plutôt que d'écrire cette leçon tout de suite — la
 committer aurait relancé la CI une cinquième fois, pour dire dans le carnet
 qu'il ne fallait pas le faire.
+
+---
+
+## 9 septoctogies. Un critère d'arrêt posé APRÈS le résultat n'est pas un critère, c'est une justification
+
+Huit balayages par échantillon, sur des terrains différents, ont rendu zéro
+survivant d'affilée. Avant de lancer le huitième, j'ai écrit la règle noir sur
+blanc : _si celui-ci rend zéro comme les sept précédents, l'échantillonnage sur
+terrain déjà vu s'arrête._
+
+Il a rendu zéro. Il s'est arrêté.
+
+### Pourquoi l'ordre compte plus que la règle elle-même
+
+La règle aurait été exactement aussi défendable écrite dix minutes plus tard.
+Ce qui aurait changé, c'est ma capacité à la défendre — et surtout ma capacité
+à ne PAS la changer.
+
+Un critère énoncé après coup se plie tout seul au résultat qu'il doit expliquer.
+Si le huitième avait sorti trois survivants, un critère écrit ensuite serait
+devenu « on continue tant que ça trouve » ; il a sorti zéro, et écrit ensuite il
+serait devenu « huit zéros, c'est concluant ». Les deux phrases sonnent bien.
+Aucune des deux n'est une décision : ce sont des commentaires sur un résultat
+déjà connu, déguisés en méthode.
+
+> **Une règle qu'on écrit en connaissant le résultat qu'elle doit trancher ne
+> tranche rien. Elle habille.**
+
+### La faute que ça évite, et elle est concrète
+
+Sans critère préalable, la pente est de continuer à échantillonner. Chaque tour
+est peu cher, chaque zéro rassure, et l'ensemble ressemble à du travail. C'est
+la version méthodique de chercher ses clés sous le lampadaire : on cherche là
+où c'est éclairé, pas là où on a perdu les clés. Huit zéros ne disent pas « le
+dépôt est gardé » ; ils disent que **cet instrument-là ne discrimine plus** — et
+un instrument qui ne discrimine plus n'apporte aucune information, quel que
+soit le nombre de fois qu'on le relance.
+
+Le coût du neuvième passage n'est pas la machine. C'est qu'il aurait produit un
+neuvième zéro, qui aurait eu l'air d'une confirmation.
+
+### Ce qui reste à dire, et qui n'est pas à moi
+
+L'arrêt ne remplit pas le trou : trois terrains restent à 13 %, 22 % et 23 % de
+couverture par mutation. La suite — un balayage complet à environ six heures et
+demie de machine par terrain, ou l'acceptation des chiffres tels quels — est un
+arbitrage de coût, donc une décision de l'utilisateur. Ce que je peux faire sans
+lui, et que j'ai fait : écrire les trois pourcentages **nus** dans le definition
+of done, plutôt que de laisser un ✅ de lot donner à croire qu'ils sont pleins.
+
+### La règle générale
+
+> **Le moment d'écrire un critère d'arrêt est celui où on ignore encore de quel
+> côté il tombera.** Après, ce n'est plus un critère — et le seul moyen de
+> savoir si on l'a écrit trop tard, c'est de se demander si on serait prêt à
+> l'appliquer au résultat inverse.
