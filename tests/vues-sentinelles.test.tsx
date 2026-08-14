@@ -64,6 +64,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import {
+  fetchChantiers,
   fetchEssaim,
   fetchProjectBalance,
   fetchWorkflows,
@@ -1188,5 +1189,160 @@ describe('les sentinelles du balayage du soir', () => {
       'Rattrapage du grand livre',
     );
     expect(tenu.textContent, 'et surtout pas « à l’arrêt »').not.toContain('Grand livre à l’arrêt');
+  });
+  // ─── LES SURVIVANTES DU BALAYAGE DE `dashboard/src/views` ──────────────────
+  //
+  // Base épinglée `f0fc005`. Trois de plus, choisies sur un critère : le mutant
+  // fait DIRE quelque chose de faux à l'écran, pas seulement quelque chose de
+  // laid. Une section vide qui s'affiche est disgracieuse ; une file d'attente
+  // qui montre l'inverse de son titre est un mensonge.
+
+  it('RUCHE : la file d’attente montre ce qui ATTEND, pas ce qui est fini', async () => {
+    // `task.status !== 'done'` mutée en `===` retourne l'écran principal d'un
+    // arrivant : le panneau s'appelle « File d'attente », et il n'y montrerait
+    // QUE les tâches terminées, en cachant tout ce qui reste à faire.
+    //
+    // Rien ne casse, rien n'avertit. Sur une ruche neuve où tout est en attente,
+    // la file paraîtrait VIDE — donc « il n'y a rien à faire », alors que tout
+    // est à faire. C'est le contresens le plus cher que cet écran puisse dire.
+    const dom = await monter(
+      <Ruche
+        {...props(
+          instantane({
+            tasks: [
+              tache('t-attente', 'Fermer la faille du jeton', 'pending'),
+              tache('t-finie', 'Butinée hier', 'done'),
+            ],
+            tasksTotal: 2,
+          }),
+        )}
+      />,
+    );
+    const file = dom.querySelector('.queue');
+    expect(file, 'la file existe').toBeTruthy();
+    const texte = file?.textContent ?? '';
+    expect(texte, 'ce qui ATTEND s’y trouve').toContain('Fermer la faille du jeton');
+    expect(texte, 'ce qui est FINI n’y est pas').not.toContain('Butinée hier');
+  });
+
+  it('MON ESPACE : le motif d’arrêt ne s’affiche que là où il EXISTE', async () => {
+    // `p.etatAbonnement !== 'aucun'` mutée en `===` inverse exactement les deux
+    // cartes : le projet ARRÊTÉ perd la phrase qui dit POURQUOI il l'est, et le
+    // projet sans abonnement gagne un paragraphe stylé au contenu vide.
+    //
+    // La phrase perdue est celle qu'on cherche quand plus rien ne butine. Sans
+    // elle, l'écran montre un projet inactif sans un mot d'explication —
+    // exactement l'état où l'on croit à une panne alors que c'est un impayé.
+    const projet = (id: string, actif: boolean, etat: string, motif: string) =>
+      ({
+        projectId: id,
+        nom: id,
+        role: 'owner',
+        plan: 'essaim',
+        etatAbonnement: etat,
+        finPeriode: null,
+        actif,
+        motifDroits: motif,
+        heures: 0,
+        plafondMs: null,
+        depenseMs: 0,
+        partConsommee: null,
+        serveurs: [],
+        autonomie: 'off',
+      }) as never;
+    vi.mocked(fetchMonTableau).mockResolvedValue({
+      version: 1,
+      projets: [
+        projet('rucher-arrete', false, 'echu', 'période échue'),
+        projet('rucher-sans-abo', false, 'aucun', ''),
+      ],
+      alertes: [],
+      totaux: { projets: 2, serveursActifs: 0, heuresIncluses: 0, depenseMs: 0 },
+      balanceAJour: true,
+      balanceMode: 'off',
+    } as never);
+    const dom = await monter(
+      <MonEspace
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          onNavigate: () => {},
+          user: { displayName: 'apicultrice' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    const cartes = [...dom.querySelectorAll('article')];
+    const arrete = cartes.find((c) => (c.textContent ?? '').includes('rucher-arrete'));
+    const sansAbo = cartes.find((c) => (c.textContent ?? '').includes('rucher-sans-abo'));
+    expect(arrete, 'la carte du projet arrêté est rendue').toBeTruthy();
+    expect(sansAbo, 'la carte du projet sans abonnement est rendue').toBeTruthy();
+    expect(
+      arrete?.querySelector('.me-motif')?.textContent ?? '',
+      'le projet ARRÊTÉ dit pourquoi',
+    ).toContain('période échue');
+    expect(
+      sansAbo?.querySelector('.me-motif'),
+      'le projet SANS abonnement n’a aucun motif à afficher',
+    ).toBeNull();
+  });
+
+  it('CHANTIERS : les deux refus ne se confondent pas — ils appellent des gestes différents', async () => {
+    // `c.nature === 'sortant'` mutée en `!==` échange les deux phrases. Elles
+    // ne disent pas la même chose et n'appellent pas le même geste :
+    //
+    //   « Sort de la machine — demande un humain »  se contourne, quelqu'un le fait
+    //   « Nature inconnue — non automatisable »     se corrige, on renomme le script
+    //
+    // Échangées, on cherche à renommer un script qu'aucun renommage ne rendra
+    // automatisable, et on attend un humain pour un chantier que personne n'a
+    // su classer. Deux impasses, et l'écran a l'air sûr de lui dans les deux.
+    vi.mocked(fetchChantiers).mockResolvedValue({
+      chantiers: [
+        {
+          nom: 'deployer',
+          commande: 'npm run deploy',
+          nature: 'sortant',
+          automatisable: false,
+        },
+        {
+          nom: 'mystere',
+          commande: './fait-quelque-chose',
+          nature: 'inconnu',
+          automatisable: false,
+        },
+      ],
+    } as never);
+    const dom = await monter(
+      <Chantiers
+        {...props(
+          instantane({
+            projects: [
+              {
+                id: 'p1',
+                name: 'Rucher',
+                repoUrl: null,
+                description: null,
+                visibility: 'private',
+                ownerId: null,
+                createdAt: 1,
+              },
+            ] as never,
+          }),
+        )}
+      />,
+    );
+    const items = [...dom.querySelectorAll('.ch-item')];
+    const sortant = items.find((l) => (l.textContent ?? '').includes('deployer'));
+    const inconnu = items.find((l) => (l.textContent ?? '').includes('mystere'));
+    expect(sortant, 'le chantier sortant est rendu').toBeTruthy();
+    expect(inconnu, 'le chantier de nature inconnue est rendu').toBeTruthy();
+    expect(
+      sortant?.querySelector('.ch-refus')?.textContent ?? '',
+      'ce qui sort de la machine demande un humain',
+    ).toContain('demande un humain');
+    expect(
+      inconnu?.querySelector('.ch-refus')?.textContent ?? '',
+      'ce qu’on n’a pas su classer se corrige en renommant',
+    ).toContain('Nature inconnue');
   });
 });
