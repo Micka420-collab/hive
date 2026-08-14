@@ -8098,7 +8098,7 @@ const MAX_MUTATIONS = Number(process.env.LOUPE_MAX ?? 12);
 
 `Number('douze')` rend `NaN`. Et rien, ensuite, ne s'en aperçoit :
 
-```js
+```text
 pas      = Math.max(1, Math.ceil(440 / NaN))                     // NaN
 retenues = toutes.filter((_, i) => i % NaN === 0).slice(0, NaN)  // []
 ```
@@ -8201,3 +8201,51 @@ Le même fichier portait déjà ce raisonnement, dans l'autre sens, vingt lignes
 plus haut : `DIESE_COMMENTE` est une liste fermée précisément pour ne jamais
 écarter du code d'un langage auquel personne n'aura pensé. Les deux gardes se
 lisent maintenant l'une à côté de l'autre, et c'est voulu.
+
+---
+
+## 9 unoctogies. La barrière est un INSTANTANÉ — j'ai poussé un fichier qu'elle n'avait jamais vu
+
+Ordre réel des gestes, dans le lot qui a corrigé la loupe :
+
+```text
+1. correctifs de scripts/loupe.mjs + bancs
+2. npm run typecheck · typecheck:dashboard · lint · suite      ← TOUT VERT
+3. ajout de deux leçons dans docs/ERREURS.md
+4. mesure des badges, commit, push
+5. CI ROUGE sur les TROIS jambes : prettier, docs/ERREURS.md
+```
+
+La barrière du pas 2 était verte, et elle disait vrai — sur l'arbre du pas 2. Le
+fichier du pas 3 n'existait pas encore quand elle a regardé.
+
+### Pourquoi ça s'est glissé là précisément
+
+Parce que la barrière est longue (la suite prend deux minutes) et que je l'avais
+lancée EN TÂCHE DE FOND pour écrire le carnet pendant qu'elle tournait. Le
+parallélisme est bon pour le temps ; il est mauvais pour la vérité, parce qu'il
+sépare le moment où l'on mesure du moment où l'on écrit.
+
+Et la faute a une signature reconnaissable : j'ai considéré `docs/` comme
+« hors barrière », parce que c'est de la prose. Or `npm run lint` fait
+`eslint . && prettier --check .` — le point veut dire le dépôt ENTIER. Un
+document est un fichier du dépôt comme un autre.
+
+### La règle, et elle est plus étroite qu'« relancer la barrière »
+
+> **Le dernier geste avant `git add` est la barrière, pas l'écriture.** Si on
+> touche quoi que ce soit après l'avoir lancée — du code, un test, un document,
+> un badge — elle est périmée et son verdict ne porte plus sur ce qu'on pousse.
+
+C'est la même forme que la règle des badges (« jamais de tête, mesurer avant »),
+appliquée à la mesure elle-même : une mesure n'est valable que pour l'état
+qu'elle a effectivement lu. Le lancement en tâche de fond reste utile, à une
+condition — que rien ne bouge pendant qu'elle regarde.
+
+### Le détail qui vaut d'être gardé
+
+Prettier ne s'est pas contenté de signaler : il REFORMATE les blocs de code
+`js` dans le Markdown. Le bloc ci-dessus est une trace de valeurs alignées en
+colonnes, pas du code exécutable ; le laisser en `js` aurait fait écraser
+l'alignement qui le rend lisible. La clôture est donc `text`, et c'est plus
+honnête : ce n'est pas du code, c'est ce que le code a donné.
