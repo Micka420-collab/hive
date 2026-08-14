@@ -382,9 +382,36 @@ jobs:
   # SEUIL seulement, par `--dry-run`. Ce n'est pas une couverture : c'est ce
   # qu'on peut mesurer, et le reste se dit plutôt que de se faire passer pour
   # vérifié (`docs/ETAPES.md`, « hors d'atteinte »).
+  # ═══ LE SEUIL, SUR CHAQUE SYSTÈME OÙ ON PROMET QU'IL SE FRANCHIT ════════════
+  #
+  # Ce travail tournait sur `ubuntu-latest`, et seulement là. Sur macOS et
+  # Windows, la CI n'exerçait que `install.sh --dry-run` — or le mode sec
+  # s'arrête AVANT `npm install`, donc avant la résolution des dépendances,
+  # avant le module natif SQLite, avant que la ruche démarre.
+  #
+  # La matrice à trois OS du travail principal mesure que LE CODE COMPILE ET QUE
+  # LES BANCS PASSENT. Ce n'est pas la même phrase que « l'installation réussit »,
+  # et les confondre était la façon la plus discrète de croire trois systèmes
+  # couverts quand un seul l'était.
+  #
+  # macOS entre ici parce que c'est une plateforme de développeur très commune,
+  # et que la commande du README n'y avait JAMAIS été menée à son terme — ni en
+  # CI, ni sur une machine de terrain. Un arrivant qui la lance y fait quelque
+  # chose que personne n'a vu réussir.
+  #
+  # Windows n'y entre PAS, et ce n'est pas un oubli : `install.ps1` est un
+  # chemin distinct (PowerShell 7 et 5.1, tous deux déjà exercés au seuil), et
+  # ce script-ci est du shell POSIX. Lui faire croire qu'il couvre Windows
+  # serait le mensonge rassurant.
   seuil:
-    name: L'installation en une commande va jusqu'à une ruche qui répond
-    runs-on: ubuntu-latest
+    name: L'installation va jusqu'à une ruche qui répond · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Pas de `fail-fast` : si Linux tombe, on veut quand même savoir ce que
+      # macOS a dit. Un arrêt anticipé transformerait deux mesures en une.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4

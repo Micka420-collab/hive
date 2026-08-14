@@ -8249,3 +8249,58 @@ Prettier ne s'est pas contenté de signaler : il REFORMATE les blocs de code
 colonnes, pas du code exécutable ; le laisser en `js` aurait fait écraser
 l'alignement qui le rend lisible. La clôture est donc `text`, et c'est plus
 honnête : ce n'est pas du code, c'est ce que le code a donné.
+
+---
+
+## 9 duooctogies. Ma barrière tournait sous un Node que le produit REFUSE d'installer
+
+En voulant mesurer l'installation de bout en bout, j'ai mis Node 24 en tête du
+`PATH`. La suite, verte cinq minutes plus tôt, a rendu **549 rouges** :
+
+```text
+The module 'better_sqlite3.node' was compiled against a different Node.js
+version using NODE_MODULE_VERSION 127. This version of Node.js requires
+NODE_MODULE_VERSION 137.
+```
+
+127 est Node 22, 137 est Node 24. Le module natif avait été construit pour le
+Node par défaut du conteneur.
+
+### Ce que ça révèle, et qui n'est pas le rouge
+
+Le rouge n'est qu'un symptôme. Le fait est celui-ci :
+
+|                                       | version                             |
+| ------------------------------------- | ----------------------------------- |
+| ce que `package.json` exige           | `"node": ">=24"`                    |
+| ce que la CI mesure                   | `NODE: '24'`                        |
+| ce que l'installeur REFUSE            | Node 22 — « Hive exige 24 ou plus » |
+| **ce sous quoi ma barrière tournait** | **v22.22.2**                        |
+
+L'installeur refuse Node 22 explicitement, avec un message soigné expliquant que
+le module natif devrait être compilé. Et la barrière locale — celle qui décide si
+un lot part — tournait sous ce Node-là depuis le début de la session.
+
+### Ce que ça N'A PAS coûté, et il faut le dire dans cet ordre
+
+Aucun défaut n'est passé : chaque lot a été mesuré par la CI sous Node 24 avant
+d'être fusionné, et les six jambes étaient vertes. Le filet a tenu.
+
+Mais il a tenu parce qu'il n'y avait rien à attraper, pas parce que la barrière
+locale le garantissait. **Une barrière qui tourne sur un autre moteur que le
+produit peut rendre vert sur du code qui échoue chez tout le monde.** Aujourd'hui
+les deux étaient d'accord ; c'est de la chance, pas de la conception.
+
+### La règle
+
+> **Un instrument de mesure doit tourner sur la même chose que ce qu'il mesure.**
+> Une suite verte sous un runtime que le produit rejette ne dit rien du produit —
+> elle dit qu'un autre programme, sur une autre machine, passe ses tests.
+
+C'est la même faute que le § 9 unoctogies, un cran plus profond : là, la barrière
+avait lu le mauvais ARBRE ; ici, elle tournait sur le mauvais MOTEUR. Les deux
+fois, le verdict portait sur autre chose que ce qu'on croyait mesurer.
+
+Ce qui l'a trouvée : rien de délibéré. C'est un effet de bord d'un changement de
+`PATH` fait pour une tout autre raison. Une garde qui n'existe pas se découvre
+par accident ou pas du tout — et compter sur l'accident n'est pas une méthode.

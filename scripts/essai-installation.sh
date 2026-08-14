@@ -91,6 +91,17 @@ RUCHE_PID=""
 # Enfin on ATTEND que le port soit rendu. Sans cette attente, une fuite reste
 # muette et empoisonne la course suivante : c'est exactement le piège dans
 # lequel les deux versions précédentes sont tombées.
+#
+# ─── ET CE QU'IL NE PEUT PAS FAIRE AILLEURS QUE SOUS LINUX ───────────────────
+#
+# La reconnaissance par `cwd` passe par `/proc`, qui n'existe pas sous macOS.
+# La garde `[ -d /proc ]` était donc un SAUT SILENCIEUX : sur un système sans
+# `/proc`, la fonction s'appelait « ménage » et ne rangeait rien, sans le dire.
+#
+# Tant que ce script ne tournait que sur `ubuntu-latest`, la branche morte ne
+# coûtait rien. Elle cesse de l'être le jour où le travail `seuil` s'étend à
+# macOS — et une garde qui devient fausse en changeant de plateforme doit se
+# DIRE, pas se taire : c'est la seule façon qu'un rouge de macOS soit lisible.
 menage() {
   [ -n "$RUCHE_PID" ] && kill "$RUCHE_PID" 2>/dev/null
   if [ -d /proc ]; then
@@ -105,6 +116,8 @@ menage() {
       [ "$(readlink "/proc/$p/cwd" 2>/dev/null || true)" = "$CIBLE" ] &&
         kill -9 "$p" 2>/dev/null
     done
+  else
+    echo "  (pas de /proc : le ménage par cwd ne s'applique pas ici)" >&2
   fi
   if [ -n "${PORT:-}" ]; then
     attente=0

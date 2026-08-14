@@ -5898,3 +5898,171 @@ sans ce mot-là.
   mélangés et trois exécutions identiques. Pas fermé — introuvable d'ici.
 - **Les tarifs et le ton commercial** (#63) : décision humaine.
 - **Encaisser un paiement** avant le 2 septembre : décision humaine.
+
+---
+
+# POINT DE SORTIE — 14 août 2026, J−19
+
+## 1. Le temps
+
+**19 jours** avant le 2 septembre.
+
+## 2. Livré ET VÉRIFIÉ depuis hier
+
+« Vérifié » veut dire : lancé, mesuré, ou couvert par un banc qu'on a VU rougir
+avant de l'écrire. Rien de ce qui suit n'est là au titre d'« écrit ».
+
+### 2.1 L'instrument qui juge tout le reste avait quatre défauts
+
+`scripts/loupe.mjs` est ce qui décide si un lot est défendu. Quatre défauts y ont
+été trouvés et fermés, et **aucun par ses propres bancs** — tous les quatre en la
+rejouant de bout en bout dans l'atelier.
+
+| Défaut                                                        | Ce qu'il produisait                                  | Verdict après           |
+| ------------------------------------------------------------- | ---------------------------------------------------- | ----------------------- |
+| la marque d'équivalence valait pour la LIGNE, pas la mutation | criait « marque fausse » sur deux mutants défendus   | l'unité est la mutation |
+| la marque posée hors d'atteinte de la remontée                | consignation invisible à l'instrument                | remontée corrigée       |
+| les combinateurs CSS mutés comme des comparaisons             | un survivant ni tuable ni équivalent, à chaque passe | 443 → 440 candidates    |
+| `LOUPE_MAX` illisible → `NaN` → zéro mutation examinée        | **« LA LOUPE NE VOIT RIEN DE NU », sortie 0**        | refus, `CODE=2`         |
+
+Le dernier est le grave : `LOUPE_MAX=douze` suffisait à faire rendre un feu vert
+à l'instrument dont le métier entier est de débusquer les faux verts. Mesuré
+dans l'atelier, pas déduit.
+
+Le constat structurel qui les relie, et qui vaut plus que les quatre correctifs :
+**ses bancs éprouvent des fonctions pures, et les quatre défauts vivaient dans la
+COLLE entre elles** — lire une variable d'environnement, passer un nom de
+fichier, parcourir un diff. Extraire des fonctions pures les rend éprouvables ;
+ça ne rend pas éprouvable ce qui les appelle.
+
+### 2.2 Onze décisions d'écran sorties du JSX et éprouvées
+
+Chacune était hors d'atteinte de tout banc, chacune a été mutée AVANT que son
+banc existe, chacune a un verdict affiché au commit :
+
+- `verdictDesTests` — pouvait annoncer « ✔ tests verts » sur une suite ROUGE,
+  et cette phrase est lue pour décider de fusionner ;
+- `jamaisRienRecu` — **le même test écrit cinq fois dans deux vues, nommé zéro
+  fois** ; trois des cinq sont tombés nus d'un coup, ce qui n'est pas une
+  coïncidence : une idée réécrite à chaque usage n'est éprouvée à aucun ;
+- `decouper` — le mutant `> 0` → `>= 0` fait `0 / 0`, donc **NaN** dans un
+  `width: ${pct}%` : la barre disparaît, et c'est l'état initial de TOUT LE MONDE
+  (un projet neuf n'a aucune milliseconde) ;
+- `effetDuMode`, `peutPoser`, `nomDeLivraison`, `suffixeEnVol`, `noteCreuse`,
+  `resumeDeNote`, `taille`, `densiteEcran`.
+
+`Balance.tsx` perd 44 lignes nettes au passage.
+
+### 2.3 Une hypothèse tuée par sa propre mesure
+
+Le plafond de processus vitest (`HIVE_VITEST_FORKS`) devait expliquer
+l'intermittent Windows. Mesuré 3 fois par bras : **114,9 s contre 115,4 s** — du
+bruit. La première mesure qui disait « 21 % plus rapide » était un artefact de
+cache de transformation froid, et j'avais mesuré le témoin en premier.
+Publié comme résultat négatif au lieu d'être enterré. L'instrument reste en
+place ; **l'expérience Windows elle-même n'est pas faite** (§ 4).
+
+### 2.4 Les chiffres, mesurés aujourd'hui
+
+| Mesure           | Aujourd'hui                                               | Référence         |
+| ---------------- | --------------------------------------------------------- | ----------------- |
+| Suite            | **3900** (`compte-tests`, sans `--corriger`, comme la CI) | 3501 au 7 août    |
+| Lignes couvertes | 76,46 % (9410 / 12307)                                    | 75,43 % au 8 août |
+| Branches         | 70,94 % (7655 / 10790)                                    | 69,48 % au 8 août |
+| Fonctions        | 75,55 % (2293 / 3035)                                     | 74,33 % au 8 août |
+| CI               | 6 jambes vertes sur `c45385f`                             | —                 |
+
+La couverture n'est **pas** un critère de sortie et ne barre rien ; elle est
+remesurée ici parce que la valeur du carnet datait du 8 août.
+
+### 2.5 Ce qui a échoué aujourd'hui, et se dit
+
+CI rouge sur les **trois** jambes : `prettier --check docs/ERREURS.md`. Pas
+l'intermittent — les trois tombaient au même endroit en huit secondes. Cause :
+j'avais lancé la barrière en tâche de fond POUR écrire le carnet pendant qu'elle
+tournait. Elle disait vrai sur l'arbre qu'elle avait lu ; le fichier suivant
+n'existait pas encore. § 9 unoctogies : **le dernier geste avant `git add` est la
+barrière, pas l'écriture.**
+
+## 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+### 3.1 — macOS : la commande du README n'a JAMAIS été menée à son terme, nulle part
+
+C'est le premier point, et il est net. Le travail `seuil` — celui qui affirme que
+l'installation va jusqu'à une ruche qui RÉPOND — tourne sur `ubuntu-latest`, et
+seulement là. Sur macOS, la CI ne fait que `install.sh --dry-run` : **le mode sec
+s'arrête avant `npm install`**, donc avant la résolution des dépendances, avant
+le module natif SQLite, avant que la ruche démarre.
+
+Le critère 1 se lit donc, exactement : **mesuré en continu sous Linux, mesuré une
+fois sous Windows (rapport de terrain), jamais sous macOS.** Pas « trois OS
+verts » — la matrice à trois OS mesure que _le code compile et que les bancs
+passent_, ce qui n'est pas la même phrase.
+
+macOS est une plateforme de développeur très commune. Un arrivant qui y lance la
+commande du README fait quelque chose que personne n'a jamais vu réussir.
+
+**C'est en atteinte** : le runner `macos-latest` existe déjà dans la matrice.
+C'est le lot repris tout de suite après ce point.
+
+### 3.2 — Rien à vérifier avant d'exécuter un script téléchargé
+
+Le README dit `curl … | sh`. Il n'y a **ni Release, ni empreinte publiée, ni
+signature** (`list_releases` sur le dépôt : liste vide, mesuré aujourd'hui). Un
+arrivant prudent s'arrête ici, et il a raison.
+
+Publier une empreinte DANS le dépôt qui sert le script ne protège de rien : un
+dépôt compromis sert les deux. Le vrai geste est une Release signée, et il
+demande une décision de version et des clés (§ 4).
+
+### 3.3 — Le service est ACCEPTÉ, il n'est pas DÉMARRÉ
+
+`systemd-analyze verify`, `plutil -lint` et `schtasks /Create /XML` valident les
+fichiers à chaque CI. Aucun runner n'a le bus de session qu'exige
+`systemctl --user enable --now`. Deuxième jour d'un arrivant, pas le premier —
+d'où le rang 3.
+
+### 3.4 — Première impression côté dépôt (#63)
+
+Le README n'est pas au design de la vitrine, le bandeau est statique. **Réservé
+à l'utilisateur** : ton, montants, ce qui part en docs. Non pris, et ne le sera
+pas sans ce mot-là.
+
+### 3.5 — La dette du balayage, dite en chiffres plutôt qu'en impression
+
+Sur `dashboard/src/views`, base épinglée `f0fc005` : **440 candidates, 42
+examinées**. Il reste 10 survivants nommés (Chantiers 2, Intendance 2, Rayon 1,
+Ruche 1, MonEspace 1, Miellerie 1, plus `s.pct > 0` dans Balance) et **398
+candidates jamais regardées**.
+
+Invisible pour un arrivant, d'où le rang 5. Mais c'est la seule ligne de cette
+liste qui mesure ce qu'on ne sait PAS.
+
+## 4. Hors d'atteinte — à dire, pas à simuler
+
+- **Une machine macOS réelle.** Le runner CI en est une, et c'est ce qui rend 3.1
+  faisable ; un poste de bureau macOS avec ses réglages à lui, non.
+- **npm (lot 7) et GHCR/cosign (lot 10)** : comptes et clés qui ne sont pas les
+  miens. Mesuré et rassurant : ça ne bloque pas l'installation, qui clone.
+- **Une Release signée** : demande un numéro de version et des clés — décision
+  humaine.
+- **Le démarrage effectif du service** : demande un bus de session utilisateur.
+- **`workflow_dispatch` et le rejeu d'un job** : `403 Resource not accessible by
+integration`, mesuré deux fois. **Conséquence directe : l'expérience Windows
+  `HIVE_VITEST_FORKS` ne peut pas être menée d'ici.** L'instrument est en place,
+  la mesure attend l'utilisateur. Je ne la promettrai pas.
+- **L'intermittent Windows d'origine** : jamais reproduit, invisible en huit
+  ordres mélangés et trois exécutions identiques. Pas fermé — introuvable d'ici.
+- **Identité de vitrine, tarifs, ton commercial** (#63) : décision d'édition.
+- **Encaisser un paiement avant le 2 septembre** : décision humaine.
+
+## Verdict
+
+Le code, l'installation sous Linux et le socle de sûreté sont mesurés. Trois
+phrases qu'il ne faut pas raccourcir :
+
+1. « Marche sur trois OS » veut dire **le code passe la CI sur trois OS**. Pour
+   l'installation, c'est Linux en continu, Windows une fois, macOS jamais.
+2. « Rien de neuf n'est nu » vaut **sur les 42 candidates examinées**, pas sur
+   les 440.
+3. Le critère « présentable » n'est pas atteint, et il ne dépend pas de moi.
