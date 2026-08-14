@@ -8575,3 +8575,56 @@ Ajouté à côté, et c'est ce que le cas suggérait plutôt qu'une liste rallon
 **un fichier qui importe le helper doit l'appeler.** Zéro coût aujourd'hui, et
 ça attrape l'oubli qui viendra — quelqu'un retire l'encapsulation dans une
 refonte et laisse la ligne d'import derrière lui.
+
+---
+
+## 9 sexoctogies. Pousser pendant que la CI tourne la relance depuis zéro — j'ai jeté trois exécutions sur quatre
+
+La liste du tour de chantier commence par « la PR en cours : CI verte ? ». Quand
+la réponse est « elle tourne encore », j'ai quatre fois de suite fait le geste
+qui paraît productif — prendre le lot suivant, le finir, le pousser — sans voir
+qu'il annulait la question à laquelle j'attendais une réponse.
+
+Mesuré sur la PR #265 :
+
+```text
+09:09  f79e342  run 31786871797
+09:17  96f8d48  run 31787436553
+09:23  cd6937a  run 31787855475
+09:27  76edaab  run 31788147077
+
+→ 4 exécutions, 3 JETÉES, une seule a rendu un verdict
+→ 21 travaux CI lancés pour rien (7 par exécution, sur 3 systèmes)
+```
+
+La PR n'a jamais été rouge. Elle n'a simplement jamais eu le temps de finir.
+
+### Ce que ça a coûté, et ce que ça n'a PAS coûté
+
+Ça n'a rien cassé : les quatre lots sont bons, ils sont tous entrés, et la
+dernière exécution les a tous validés ensemble. Ce n'est pas une faute de
+correction — c'est une faute de RYTHME, et elle a deux prix.
+
+Le premier se mesure : vingt et un travaux de CI, dont trois installations
+complètes sous macOS et trois sous Windows, calculés puis jetés.
+
+Le second se voit moins et pèse plus : **la fenêtre entre « je pousse » et « je
+sais » ne s'est jamais refermée.** Pendant vingt minutes, quatre lots empilés
+attendaient un verdict qu'aucun n'obtenait. Si le premier avait été rouge, je
+l'aurais appris avec trois lots de plus par-dessus — et trier lequel a cassé
+quoi coûte bien plus cher que d'attendre cinq minutes.
+
+### La règle, et elle est étroite
+
+> **Une CI qui tourne est une question posée. On n'en pose pas une deuxième
+> avant d'avoir la réponse à la première.**
+
+Ça ne veut pas dire ne rien faire : préparer le lot suivant, le mesurer, le
+mettre au point localement — tout cela est libre et se fait très bien pendant
+l'attente. C'est le `git push` qui doit attendre, parce que lui seul remet le
+compteur à zéro.
+
+Ce que j'ai fait de mieux ce tour-là, et qui vaut d'être noté aussi : m'être
+arrêté quand je l'ai vu, plutôt que d'écrire cette leçon tout de suite — la
+committer aurait relancé la CI une cinquième fois, pour dire dans le carnet
+qu'il ne fallait pas le faire.
