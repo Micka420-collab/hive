@@ -109,7 +109,7 @@ export function decouper(compte: Compte, libelle: (poste: Poste) => string): Seg
  *
  * ─── TROIS MODES, ET LA PHRASE ENGAGE LA RUCHE ───────────────────────────────
  *
- * `strict` arrête d'assigner, `observation` ne fait que journaliser, `leger`
+ * `strict` arrête d'assigner, `observation` ne fait que journaliser, `off`
  * (le repli) ne promet rien de plus qu'un avertissement. Confondre les deux
  * premiers est le pire des trois échanges possibles : l'écran promettrait un
  * blocage à quelqu'un qui n'en aura pas, ou l'inverse — et cette phrase est lue
