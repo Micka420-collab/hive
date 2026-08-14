@@ -41,7 +41,13 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   postReview: vi.fn(() => Promise.resolve()),
 }));
 
-import { fetchMergePlan, fetchMergeResult, fetchResults, runMerge } from '../dashboard/src/api';
+import {
+  fetchConflicts,
+  fetchMergePlan,
+  fetchMergeResult,
+  fetchResults,
+  runMerge,
+} from '../dashboard/src/api';
 import Miellerie from '../dashboard/src/views/Miellerie';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -448,5 +454,89 @@ describe('la Miellerie — le plan de fusion appartient à SON projet', () => {
       dom.textContent,
       'le plan du PREMIER projet ne doit pas s’afficher sous le second',
     ).not.toContain('7/9');
+  });
+});
+// ─── LE DARD QUI SE TROMPE DE GRAVITÉ ────────────────────────────────────────
+//
+// Dernière survivante du balayage de `dashboard/src/views` (base épinglée
+// `f0fc005`) qui INVERSE UN JUGEMENT plutôt que d'enlaidir un écran. Les cinq
+// autres encore nues sont des sections vides ou des étiquettes cosmétiques ;
+// celle-ci change ce que l'humain croit savoir avant de couler le miel.
+
+describe('la Miellerie — la gravité d’un dard ne s’échange pas', () => {
+  it('LE CAS QUI TRANCHE : un conflit FORT ne s’annonce jamais « faible »', async () => {
+    // `c.severity === 'high'` mutée en `!==` échange les deux étiquettes : le
+    // conflit qui touche les mêmes fichiers s'affiche « · faible », et celui
+    // qui ne partage qu'un mot s'affiche « ⚡ fort ».
+    //
+    // Ce n'est pas une nuance de style. Cette liste se lit AVANT de couler le
+    // miel, pour décider quoi relire d'abord. Échangée, elle envoie relire ce
+    // qui ne risque rien et laisse passer ce qui écrase du travail — et rien à
+    // l'écran ne dit qu'elle s'est trompée.
+    vi.mocked(fetchConflicts).mockResolvedValue({
+      conflicts: [
+        {
+          a: 't-active',
+          b: 't-meme-fichier',
+          severity: 'high',
+          sharedPaths: ['src/orchestrator/server.ts'],
+          sharedTerms: [],
+        },
+        {
+          a: 't-active',
+          b: 't-juste-un-mot',
+          severity: 'low',
+          sharedPaths: [],
+          sharedTerms: ['jeton'],
+        },
+      ],
+    } as never);
+    const dom = await monter(
+      instantane(
+        [{ id: 'p1', name: 'Rucher' }],
+        [
+          tache('t-active', 'Fermer la faille du jeton', 'p1', 3),
+          tache('t-meme-fichier', 'Réécrire le serveur', 'p1', 2),
+          tache('t-juste-un-mot', 'Renommer un jeton d’UI', 'p1', 1),
+        ],
+      ),
+      't-active',
+    );
+    const dards = [...dom.querySelectorAll('.mi-sting-item')];
+    expect(dards, 'les deux dards sont rendus').toHaveLength(2);
+    const fort = dards.find((d) => (d.textContent ?? '').includes('Réécrire le serveur'));
+    const faible = dards.find((d) => (d.textContent ?? '').includes('Renommer un jeton'));
+    expect(
+      fort?.querySelector('.mi-sting-sev')?.textContent ?? '',
+      'le conflit sur le MÊME FICHIER se dit fort',
+    ).toContain('fort');
+    expect(
+      faible?.querySelector('.mi-sting-sev')?.textContent ?? '',
+      'le conflit sur un simple mot se dit faible',
+    ).toContain('faible');
+  });
+
+  it('les deux gravités ne disent JAMAIS la même chose', async () => {
+    // Garde de bord : si les deux libellés convergeaient un jour, le test
+    // ci-dessus passerait sans rien distinguer.
+    vi.mocked(fetchConflicts).mockResolvedValue({
+      conflicts: [
+        { a: 't-active', b: 't-x', severity: 'high', sharedPaths: ['a.ts'], sharedTerms: [] },
+        { a: 't-active', b: 't-y', severity: 'low', sharedPaths: [], sharedTerms: ['m'] },
+      ],
+    } as never);
+    const dom = await monter(
+      instantane(
+        [{ id: 'p1', name: 'Rucher' }],
+        [
+          tache('t-active', 'Active', 'p1', 3),
+          tache('t-x', 'X', 'p1', 2),
+          tache('t-y', 'Y', 'p1', 1),
+        ],
+      ),
+      't-active',
+    );
+    const libelles = [...dom.querySelectorAll('.mi-sting-sev')].map((e) => e.textContent);
+    expect(new Set(libelles).size, 'deux gravités, deux phrases').toBe(2);
   });
 });

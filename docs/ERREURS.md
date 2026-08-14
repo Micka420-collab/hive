@@ -8361,3 +8361,53 @@ d'installation éprouve le décor. C'est acceptable quand le décor EST le sujet
 (une fonction pure et ses entrées) ; ça ne l'est jamais quand le sujet est
 « est-ce que ça marche pour de vrai ». Là, le seul montage honnête est celui
 que l'utilisateur subira.
+
+---
+
+## 9 quateroctogies. Un bouchon `vi.mock` et la portée du banc sont deux endroits différents
+
+Deux fois dans la même journée, sur deux fichiers de banc sans rapport :
+
+```text
+ReferenceError: fetchChantiers is not defined
+```
+
+La fonction ÉTAIT bouchonnée — la fabrique `vi.mock('../dashboard/src/api', …)`
+la remplace bien. Mais `vi.mocked(fetchChantiers)` a besoin du SYMBOLE, et le
+symbole vient de l'`import`, qui ne liste que les fonctions dont on s'était
+servi jusque-là.
+
+La confusion est facile parce que les deux blocs se ressemblent et se suivent :
+
+```text
+vi.mock('…/api', … ({ fetchChantiers: vi.fn(…), fetchRayon: vi.fn(…), … }))
+     ↑ ce qui est REMPLACÉ à l'exécution
+
+import { fetchRayon } from '…/api';
+     ↑ ce qui est NOMMÉ dans ce fichier
+```
+
+Deux listes, deux rôles, et rien ne dit qu'elles doivent coïncider : on ne
+nomme que ce qu'on manipule.
+
+### Pourquoi ça mérite une entrée malgré la trivialité
+
+Parce que l'erreur est BRUYANTE et instantanée — `ReferenceError` au premier
+appel — et que je l'ai quand même refaite trois heures plus tard sur un autre
+fichier. Une faute qui échoue bien n'est pas une faute qu'on retient : elle
+coûte deux minutes, on la corrige sans y penser, et rien ne l'inscrit.
+
+Le réflexe à garder tient en une phrase : **avant d'écrire `vi.mocked(x)`,
+vérifier que `x` est dans l'`import` du fichier, pas seulement dans la
+fabrique.**
+
+### Le cousin, rencontré dans la foulée
+
+Même banc, cinq minutes plus tard : j'ai bouchonné `fetchConflicts` avec la
+forme `{ id, list }` — celle que le composant CONSOMME
+(`conflictsPoll.data.list`) — alors que la fonction PRODUIT `{ conflicts }`,
+et que c'est le sondage qui enveloppe.
+
+C'est le § 9 octoseptuagies vu d'un autre angle : j'avais lu le type au site
+d'USAGE au lieu du site de DÉFINITION. Le bouchon doit imiter ce que la
+fonction rend, jamais ce que son appelant en fait.
