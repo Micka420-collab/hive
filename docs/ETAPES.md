@@ -6223,3 +6223,50 @@ Quatre-vingt-dix-huit pour cent du terrain reste hors de vue, et un vert sur
 22 % ne dit rien du reste. Ce qu'il dit, en revanche, se tient : sur les 49
 lignes regardées de ce terrain-là — dont dix de `cli.ts`, le point d'entrée que
 tout le monde emprunte — aucune n'était nue.
+
+---
+
+## Troisième échantillon sur les vues, et un chiffre qu'on refuse d'additionner
+
+`dashboard/src/views` a été rebalayé une troisième fois, à un pas encore
+différent pour recouvrir le moins possible les deux passages précédents.
+
+```text
+LOUPE : 440 mutation(s) possible(s) sur le diff, 34 examinée(s).
+        406 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas.
+
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+**34 jouées, 0 survivante**, sur dix fichiers : Projets 7, Cerveau 4, Balance 4,
+Intendance 3, Essaim 3, Santé 2, Miellerie 2, et trois modules purs.
+
+### L'union des deux échantillons comparables
+
+|                                           |                           |
+| ----------------------------------------- | ------------------------- |
+| pas 18 (`LOUPE_MAX=25`)                   | 25 indices                |
+| pas 13 (`LOUPE_MAX=35`)                   | 34 indices                |
+| communs (multiples de `lcm(18,13) = 234`) | 2 — les indices 0 et 234  |
+| **union**                                 | **57 sur 440, soit 13 %** |
+
+### Ce qu'on REFUSE d'y ajouter, et c'est le point de cette section
+
+Le premier échantillon des vues avait examiné **42 candidates sur 454**. La
+tentation est d'écrire « 42 + 57 = 99 vues sur 440 », soit 23 % — un chiffre
+deux fois plus flatteur.
+
+Il serait faux. Ce passage-là portait sur un total DIFFÉRENT : 454, avant que la
+correction des combinateurs CSS n'en retire trois et que l'arbre ne bouge. Les
+indices d'un échantillon régulier désignent des positions dans une liste ; si la
+liste change, les mêmes positions ne désignent plus les mêmes lignes. Deux
+échantillons ne s'additionnent que si leur total est le même — sinon on
+additionne des pommes et le souvenir de pommes.
+
+> **Une mesure et une mesure d'avant ne font pas une mesure double.** Les
+> additionner quand même est la façon la plus facile de fabriquer un chiffre
+> qu'on ne peut plus défendre — et c'est d'autant plus tentant que le résultat
+> va dans le sens qui arrange.
+
+Le chiffre défendable reste donc **57 sur 440**. Les 383 autres candidates n'ont
+jamais été regardées, et trois zéros d'affilée ne changent rien à ce nombre-là.
