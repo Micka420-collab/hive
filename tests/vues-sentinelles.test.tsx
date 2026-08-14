@@ -777,6 +777,54 @@ describe('les sentinelles du balayage du soir', () => {
     expect(entree('cire.txt')?.className, 'un autre fichier ne l’est pas').not.toContain('active');
   });
 
+  it('BALANCE : LE CAS ZÉRO ne rend jamais NaN sur l’écran de l’argent', async () => {
+    // ─── TROIS BORNES NUES, UN SEUL CAS ────────────────────────────────────
+    //
+    //     plafondMs > 0 ? Math.floor((depenseMs * 100) / plafondMs) : 100   > → >=
+    //     total > 0 ? `${Math.round((n.totalMs / total) * 100)} %` : '—'    > → >=
+    //
+    // Les deux gardes protègent la MÊME chose : une division par zéro. Mutées
+    // en `>=`, le zéro passe dans la formule et l'écran affiche « NaN % » —
+    // sur la page qui parle de plafonds et de dépense.
+    //
+    // `partPlafond` porte même son intention en commentaire : « un plafond de
+    // zéro est atteint par définition, pas une division par zéro ». L'intention
+    // était écrite ; rien ne la vérifiait.
+
+    // 1. PLAFOND DE ZÉRO — atteint par définition : 100 %, pas NaN.
+    const soldeZero = {
+      projectId: 'p1',
+      depenseMs: 0,
+      tentatives: 0,
+      plafondMs: 0,
+      etat: 'bloque',
+      bloque: true,
+    } as never;
+    const dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={soldeZero}
+        mode="observation"
+        aJour={true}
+      />,
+    );
+    const jauge = dom.querySelector('.bal-plafond-chiffres')?.textContent ?? '';
+    expect(jauge, 'un plafond de zéro rend NaN').not.toContain('NaN');
+    expect(jauge, 'un plafond de zéro vaut 100 % par définition').toContain('100');
+
+    // ─── LE SECOND MUTANT EST ÉQUIVALENT, ET C'EST CONSIGNÉ SUR PLACE ──────
+    //
+    // `total > 0 ? … : '—'` dans `TableauNoeuds` ne peut PAS être éprouvé :
+    // `CarteBalance` court-circuite sur `global.totalMs === 0` et n'affiche
+    // jamais le tableau dans ce cas. Aucune entrée ne distingue `>` de `>=`.
+    //
+    // La consignation est dans `Balance.tsx`, à la ligne même (§ 2.16 ter) —
+    // pas ici, parce qu'un lecteur du code doit la trouver sans chercher le
+    // banc qui l'a établie.
+  });
+
   it('BALANCE : « ARRÊTÉE » ne se dit QUE si l’assignation est vraiment arrêtée', async () => {
     // ─── TROIS GARDES NUES SUR L'ÉCRAN DE L'ARGENT ─────────────────────────
     //

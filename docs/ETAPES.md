@@ -7316,3 +7316,77 @@ Le banc a rougi sur source saine au deuxième état : la vue semblait annoncer
 Le réflexe rapide aurait été de découper en trois bancs séparés : le symptôme
 aurait disparu, le piège serait resté armé pour le suivant. `monter()` démonte
 désormais le précédent, et tout le fichier y gagne (§ 9 nonagies).
+
+---
+
+## Balance, le cas zéro — un mutant tué, un mutant CONSIGNÉ
+
+Deux gardes protègent la même chose sur l'écran de l'argent : une division par
+zéro.
+
+```js
+plafondMs > 0 ? Math.floor((depenseMs * 100) / plafondMs) : 100; // > → >=
+total > 0 ? `${Math.round((n.totalMs / total) * 100)} %` : '—'; // > → >=
+```
+
+Mutées en `>=`, le zéro passe dans la formule et l'écran affiche **« NaN % »**.
+`partPlafond` porte même son intention en commentaire — _« un plafond de zéro est
+atteint par définition, pas une division par zéro »_. L'intention était écrite ;
+rien ne la vérifiait.
+
+### Le premier est éprouvable, et il est éprouvé
+
+Un projet plafonné à zéro : la jauge doit dire **100 %**, jamais `NaN`.
+
+### Le second est ÉQUIVALENT, et c'est mesuré, pas supposé
+
+`CarteBalance` court-circuite sur `global.totalMs === 0` et n'affiche **pas** le
+tableau dans ce cas. `total` est ce même `totalMs`, et une durée n'est jamais
+négative : aucune entrée ne distingue `>` de `>=`.
+
+La preuve n'est pas un raisonnement seul — le banc monte `CarteBalance` avec un
+`totalMs` nul et n'obtient **aucun `<td>`** : le tableau n'est pas rendu.
+
+```text
+VERDICT AFFICHÉ   plafondMs > 0  → >=   1 failed | 37 passed   (tué)
+                  total > 0      → >=   38 passed (38)         (survit — équivalent)
+                  source saine          38 passed (38)
+```
+
+Un mutant équivalent doit SURVIVRE au rejeu : c'est ce qui distingue une
+équivalence établie d'une équivalence espérée.
+
+### La garde reste, et on dit pourquoi
+
+Elle protège la division si quelqu'un rendait un jour ce tableau sans le
+court-circuit au-dessus. La retirer déplacerait la sûreté d'ici vers un
+appelant — et les appelants changent. La consignation est **à la ligne** dans
+`Balance.tsx`, pas dans le banc : un lecteur du code doit la trouver sans
+chercher le banc qui l'a établie.
+
+---
+
+## Le balayage de Balance est mort à 22/43, et je l'ai annoncé vivant
+
+Correction du relevé précédent. La PR du lot d'avant affirmait : _« Le balayage
+complet de `Balance.tsx` tourne encore. »_ Mesuré au tour suivant :
+
+```text
+ps aux | grep -c "[l]oupe.mjs"     →  0
+/tmp/at-balance/.loupe-verrou      →  présent, daté 21:35
+dernière écriture du journal        →  22:00
+(la PR a été créée à 22:47)
+```
+
+Le processus avait été **fauché** à 22 mutations sur 43 — le gestionnaire de
+sortie n'avait pas tourné, puisque le verrou est resté. J'ai annoncé l'état d'un
+processus sans le regarder, alors qu'une commande suffisait (§ 9 ternonagies).
+
+**Ce qui reste vrai :** les 22 mutations jouées sont une mesure valide, et leurs
+11 survivants sont nommés. Six sont désormais fermés (trois au lot précédent,
+un ici, un consigné équivalent). **Ce qui n'est plus affirmé :** aucun verdict
+sur les 21 mutations jamais jouées.
+
+**Ce qui a bien tenu :** `jugerVerrou` demande si le PID est vivant et traite le
+verrou d'un cadavre comme périmé. Un instrument qui pourrait rester bloqué par
+son propre corps aurait transformé une panne en panne durable.

@@ -198,6 +198,22 @@ function TableauNoeuds({
                 {nomDe(n.nodeId)}
               </th>
               <td>{formatDuree(n.totalMs)}</td>
+              {/* ─── ÉQUIVALENCE CONSIGNÉE : `total > 0` ne peut pas être faux ici
+                  (§ 2.16 ter). `CarteBalance` court-circuite sur
+                  `global.totalMs === 0` et n'affiche PAS ce tableau dans ce
+                  cas ; `total` est ce même `pesee.global.totalMs`, et une
+                  durée n'est jamais négative. Il n'existe donc aucune entrée
+                  qui distingue `>` de `>=`.
+
+                  On garde la garde quand même : elle protège la division si
+                  quelqu'un rendait un jour ce tableau sans le court-circuit
+                  au-dessus. La retirer déplacerait la sûreté d'ici vers un
+                  appelant — et les appelants changent.
+
+                  Mesuré : le banc « LE CAS ZÉRO » monte `CarteBalance` avec un
+                  `totalMs` nul et n'obtient AUCUN `<td>` — le tableau n'est
+                  pas rendu. */}
+              {/* loupe : équivalent — > → >= */}
               <td>{total > 0 ? `${Math.round((n.totalMs / total) * 100)} %` : '—'}</td>
               <td>{n.tentatives}</td>
             </tr>

@@ -9236,3 +9236,49 @@ factice qui ne gèle pas les promesses. Le fil est identique à chaque fois, et
 c'est ce qui en fait une règle plutôt qu'une anecdote : **une garde neuve qui
 accuse du code sain a presque toujours tort.** Cinq fois sur cinq, chercher la
 cause a rendu un banc — ou un utilitaire — meilleur.
+
+---
+
+## 9 ternonagies. J'ai écrit « le balayage tourne encore » sans regarder s'il tournait
+
+Un balayage complet de 43 mutations avait été lancé en tâche de fond. Deux tours
+plus tard, j'ai livré une PR dont le corps affirmait : _« Le balayage complet de
+`Balance.tsx` tourne encore ; son verdict final viendra au tour suivant. »_
+
+Mesuré au tour d'après :
+
+    ps aux | grep -c "[l]oupe.mjs"      →  0
+    /tmp/at-balance/.loupe-verrou        →  présent, daté 21:35
+    dernière écriture du journal          →  22:00
+    (la PR a été créée à 22:47)
+
+Le processus était mort à 22 mutations sur 43, tué net — le gestionnaire de
+sortie n'avait pas tourné, puisque le verrou est resté. J'ai annoncé l'état d'un
+processus que je n'avais pas regardé, alors qu'UNE commande suffisait.
+
+### Ce que ça a de différent du § 9 duononagies
+
+Là, je concluais « ça traîne » d'un ressenti de durée que je n'ai pas les moyens
+d'avoir. Ici, c'est pire et plus simple : l'information était disponible, à un
+appel de distance, et je ne l'ai pas demandée. Je n'ai pas mal raisonné — je n'ai
+pas mesuré du tout.
+
+> **« Ça tourne » est une observation, pas un souvenir.** Un processus lancé au
+> tour précédent n'est pas un processus vivant : entre les deux, il a pu finir,
+> mourir, ou être fauché. Avant d'écrire son état dans quoi que ce soit de
+> durable — carnet, corps de PR, commit — on le regarde.
+
+### La contrainte d'environnement, qui se dit aussi
+
+Le balayage n'a pas échoué : il a été FAUCHÉ. Une tâche de fond longue ne
+survit pas nécessairement d'un tour à l'autre ici. La conséquence pratique n'est
+pas « ne plus lancer de tâches longues », c'est de les **dimensionner pour
+qu'elles finissent** — et de vérifier leur pouls avant de parler d'elles.
+
+### Ce qui a bien tenu, et mérite d'être noté
+
+Le verrou d'exclusivité de la loupe n'est PAS un piège : `jugerVerrou` demande
+si le PID est vivant, et traite le verrou d'un cadavre comme périmé. Un
+instrument qui pourrait rester bloqué par son propre corps aurait transformé
+cette panne en panne durable. Ce n'est pas le cas, et c'est le fruit d'une garde
+écrite avant d'en avoir besoin.
