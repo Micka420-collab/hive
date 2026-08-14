@@ -6975,3 +6975,53 @@ source saine                           → 25 verts
 ```
 
 **Trois survivants de plus fermés ; il en reste 25 sur les 33.**
+
+---
+
+## La même machinerie, trois fois — et deux fois sans garde
+
+La liste complète des 33 survivants, relue au lieu d'être devinée, change la
+priorité : `presentation` et `rush` portent **exactement les mêmes gardes** que
+l'accueil — le tri `?lang=` > préférence rangée > navigateur, et l'`aria-pressed`
+des deux boutons. Les bancs écrits jusqu'ici ne montaient que
+`site/index.html`.
+
+Ce n'est pas une découverte de plus : c'est la MÊME (§ 9 nonoctogies). Cette
+fois elle est prise en compte AVANT d'écrire — le banc tourne sur les pages
+**découvertes**, pas sur une liste.
+
+### Une nuance mesurée, et le banc n'en dépend pas
+
+`rush` écrit `(navigator.language || '').slice(0, 2) !== 'fr'` là où les deux
+autres écrivent `.toLowerCase().indexOf('fr') !== 0`. Les deux disent la même
+règle. Le tableau du banc ne suppose ni l'une ni l'autre : il n'observe que la
+langue PRISE.
+
+### Verdict affiché — douze mutations, deux pages
+
+```text
+site/presentation/index.html
+  qs === 'en' || qs === 'fr'          → &&    1 failed | 36 passed
+  saved === 'en' || saved === 'fr'    → &&    1 failed | 36 passed
+  String(navigator.language || '')    → &&    1 failed | 36 passed
+  .indexOf('fr') !== 0                → ===   1 failed | 36 passed
+  btn-fr aria-pressed                 → !==   1 failed | 36 passed
+  lang = next === 'en'                → !==   5 failed | 32 passed
+
+site/rush/index.html
+  q === 'en' || q === 'fr'            → &&    1 failed | 36 passed
+  saved === 'en' || saved === 'fr'    → &&    1 failed | 36 passed
+  (navigator.language || '').slice    → &&    1 failed | 36 passed
+  .slice(0, 2) !== 'fr'               → ===   1 failed | 36 passed
+  btn-en aria-pressed                 → !==   5 failed | 32 passed
+  lang = next === 'en'                → !==   5 failed | 32 passed
+
+RESTAURÉ                                      37 passed (37)
+```
+
+Les mutations qui emportent **cinq** bancs plutôt qu'un touchent
+`aria-pressed` de `btn-en` ou la bascule elle-même : c'est ce que le montage
+LIT pour savoir quelle langue la page a prise. Le dire évite qu'un lecteur y
+voie un banc fragile — c'est le même signal, observé par plusieurs portes.
+
+**Douze survivants de plus fermés ; il en reste 13 sur les 33.**

@@ -943,3 +943,105 @@ describe('CHAQUE PAGE TRADUITE APPLIQUE LE DICTIONNAIRE QU’ELLE ANNONCE', () =
     ).toEqual([]);
   });
 });
+
+// ─── LA MÊME MACHINERIE, TROIS FOIS — ET DEUX FOIS SANS GARDE ────────────────
+//
+// Le balayage complet a nommé, sur `presentation` et `rush`, EXACTEMENT les
+// mêmes gardes que sur l'accueil : le tri `?lang=` > préférence > navigateur, et
+// l'`aria-pressed` des deux boutons. Les bancs écrits jusqu'ici ne montaient que
+// `site/index.html` ; les deux autres pages portaient la même logique, non
+// gardée.
+//
+// Ce n'est pas une découverte de plus : c'est la MÊME (§ 9 nonoctogies), et
+// cette fois elle est prise en compte AVANT d'écrire plutôt qu'après. Le banc
+// tourne sur les pages DÉCOUVERTES, pas sur une liste.
+//
+// Une nuance mesurée : `rush` écrit `(navigator.language || '').slice(0, 2) !==
+// 'fr'` là où les deux autres écrivent `.toLowerCase().indexOf('fr') !== 0`. Les
+// deux disent la même règle, et le tableau ci-dessous ne suppose ni l'une ni
+// l'autre — il n'observe que la langue PRISE.
+
+describe.each(PAGES_TRADUITES)('%s — le tri des trois sources de langue', (chemin) => {
+  const source = readFileSync(path.resolve(process.cwd(), chemin), 'utf8');
+
+  /** Monte la page dans l'état courant et rend la langue qu'elle a prise. */
+  function languePrise(): string {
+    document.documentElement.innerHTML = source
+      .replace(/^[\s\S]*?<html[^>]*>/, '')
+      .replace(/<\/html>[\s\S]*$/, '');
+    const principal = scriptsExecutes(source).reduce((a, b) =>
+      a.code.length > b.code.length ? a : b,
+    );
+    new Function(principal.code)();
+    return document.getElementById('btn-en')?.getAttribute('aria-pressed') === 'true' ? 'en' : 'fr';
+  }
+
+  /** Remet à zéro TOUT ce que la page écrit — sans quoi un cas empoisonne le suivant. */
+  function neuf(query = '', range: string | null = null): void {
+    localStorage.clear();
+    window.history.replaceState(null, '', query === '' ? '/' : `/?${query}`);
+    if (range !== null) localStorage.setItem('hive.lang', range);
+  }
+
+  afterEach(() => {
+    localStorage.clear();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('le lien partagé « ?lang= » prime sur tout le reste', () => {
+    for (const [q, range, attendu] of [
+      ['lang=en', 'fr', 'en'],
+      ['lang=fr', 'en', 'fr'],
+    ] as const) {
+      neuf(q, range);
+      expect(languePrise(), `${chemin} : ?${q} ignoré malgré « ${range} » rangé`).toBe(attendu);
+    }
+  });
+
+  it('sans query, la PRÉFÉRENCE rangée décide', () => {
+    for (const range of ['en', 'fr']) {
+      neuf('', range);
+      expect(languePrise(), `${chemin} : préférence « ${range} » ignorée`).toBe(range);
+    }
+  });
+
+  it('sans query ni préférence, c’est la langue du NAVIGATEUR', () => {
+    const original = Object.getOwnPropertyDescriptor(window.navigator, 'language');
+    try {
+      for (const [navigateur, attendu] of [
+        ['fr-FR', 'fr'],
+        ['en-US', 'en'],
+        ['de-DE', 'en'],
+      ] as const) {
+        Object.defineProperty(window.navigator, 'language', {
+          value: navigateur,
+          configurable: true,
+        });
+        neuf();
+        expect(languePrise(), `${chemin} : navigateur « ${navigateur} »`).toBe(attendu);
+      }
+    } finally {
+      if (original) Object.defineProperty(window.navigator, 'language', original);
+      else Reflect.deleteProperty(window.navigator, 'language');
+    }
+  });
+
+  it('les deux boutons s’annoncent, et jamais ensemble', () => {
+    neuf();
+    languePrise();
+    for (const [clic, presse, relache] of [
+      ['btn-fr', 'btn-fr', 'btn-en'],
+      ['btn-en', 'btn-en', 'btn-fr'],
+    ] as const) {
+      document.getElementById(clic)?.dispatchEvent(new Event('click', { bubbles: true }));
+      expect(
+        document.getElementById(presse)?.getAttribute('aria-pressed'),
+        `${chemin} · ${clic} : ${presse} devrait être pressé`,
+      ).toBe('true');
+      expect(
+        document.getElementById(relache)?.getAttribute('aria-pressed'),
+        `${chemin} · ${clic} : ${relache} devrait être relâché`,
+      ).toBe('false');
+    }
+  });
+});
