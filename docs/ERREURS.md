@@ -8085,3 +8085,119 @@ valeur y est cohérente, nommée, commentée. Elle ne se voit qu'en confrontant 
 type à sa source. C'est la même famille que le § 9 sexseptuagies : ni les bancs
 ni les mutations ne peuvent attraper une erreur sur la QUESTION posée, seule la
 rencontre avec le vrai appelant le peut.
+
+---
+
+## 9 nonseptuagies. Un instrument doit REFUSER un réglage illisible, jamais le deviner — la loupe rendait un feu vert sur une faute de frappe
+
+La loupe échantillonne, et son plafond se donne par l'environnement :
+
+```js
+const MAX_MUTATIONS = Number(process.env.LOUPE_MAX ?? 12);
+```
+
+`Number('douze')` rend `NaN`. Et rien, ensuite, ne s'en aperçoit :
+
+```js
+pas      = Math.max(1, Math.ceil(440 / NaN))                     // NaN
+retenues = toutes.filter((_, i) => i % NaN === 0).slice(0, NaN)  // []
+```
+
+Zéro mutation retenue. La boucle ne tourne pas. `survivants` reste vide. Et la
+loupe imprime son plus beau verdict, sortie 0 :
+
+```
+════ LA LOUPE NE VOIT RIEN DE NU ════
+Chaque ligne examinée est défendue par au moins un test.
+```
+
+### Pourquoi c'est le pire endroit possible pour ce défaut
+
+La phrase n'est même pas fausse. Aucune ligne n'a été examinée, donc toutes
+celles qui l'ont été sont défendues — c'est vrai par vacuité. Elle se lit
+« fusionne ».
+
+L'en-tête de ce fichier met en garde, depuis le premier jour, contre le faux vert
+rassurant. Il en produisait un, sur une variable mal orthographiée. `LOUPE_MAX=0`
+faisait pareil.
+
+### La règle existait déjà, écrite, dans le même dépôt
+
+`scripts/vitest-forks.mjs` avait tranché exactement cette question quelques jours
+plus tôt, et sa docstring dit la chose mot pour mot :
+
+> Une valeur illisible pourrait retomber en silence sur le défaut. Ce serait le
+> pire comportement possible POUR UN INSTRUMENT : on croirait mesurer avec un
+> plafond, on mesurerait sans. **Une mesure qui ment est pire que pas de mesure.**
+
+Je l'avais écrite. Je ne l'avais pas généralisée. La leçon n'est donc pas
+« valider les entrées » — c'est que **la doctrine d'un dépôt ne s'applique pas
+toute seule** : un réglage qui se lit par `Number(x ?? défaut)` est un réglage
+qui devine, et il y en avait un autre à trois fichiers de là.
+
+Corollaire sur le zéro : demander à un instrument de ne rien regarder n'est pas
+un réglage, c'est une contradiction. Elle se refuse au même titre.
+
+### Ce qui l'a trouvé, et c'est le point qui compte
+
+Aucun banc. Le défaut a été trouvé en REJOUANT la loupe de bout en bout dans
+l'atelier, pour vérifier un tout autre correctif.
+
+C'est le **quatrième** défaut de `scripts/loupe.mjs` découvert de cette façon
+(§ 9 sexseptuagies, § 9 septenseptuagies, les combinateurs CSS, celui-ci), et le
+quatrième qu'aucun de ses bancs ne pouvait voir. La raison est structurelle et
+mérite d'être nommée : **ses bancs éprouvent des fonctions pures, et chacun de
+ces défauts vivait dans la COLLE entre elles** — la lecture d'une variable
+d'environnement, le passage d'un nom de fichier, le parcours d'un diff.
+
+Extraire des fonctions pures les rend éprouvables ; ça ne rend pas éprouvable ce
+qui les appelle. Un instrument doit être rejoué sur du vrai, chaque fois qu'on y
+touche.
+
+---
+
+## 9 octogies. Une liste de REFUS et une liste d'ADMISSION ne se trompent pas dans le même sens — et un seul des deux sens est acceptable
+
+Un balayage a rendu ce survivant :
+
+```
+🔴 SANS TEST · dashboard/src/views/balance.css · > → >=
+             .bal-noeuds > summary {
+```
+
+En CSS, `>` n'est pas une comparaison : c'est le combinateur enfant. Muté, le
+sélecteur ne s'analyse plus et le navigateur jette la règle.
+
+### Le mutant n'avait AUCUNE des deux issues
+
+Le § 2.16 ter n'en laisse que deux : une entrée le distingue — on écrit ce test —
+ou il est équivalent — on le consigne. Celui-ci :
+
+- n'est **pas** équivalent : la règle disparaît vraiment, à l'écran ;
+- n'est **pas** testable : aucun banc ne lit de feuille de style.
+
+C'est une troisième issue, que le contrat de la loupe n'a pas. Et un survivant
+sans issue revient à chaque passe sans jamais pouvoir s'éteindre : le faux rouge
+perpétuel, l'autre façon de n'être plus écouté.
+
+### La faute que j'ai failli commettre en le corrigeant
+
+Le premier réflexe était d'écrire une liste d'ADMISSION : « ne muter que `.ts`,
+`.tsx`, `.mjs`, `.sh` ». Elle aurait marché ce jour-là, sur ce dépôt-là.
+
+Le jour où quelqu'un ajoute un `.py` au périmètre, une liste d'admission le rend
+**invisible** à la loupe. Sans rien dire. Pour toujours. C'est le mensonge
+rassurant — celui que ce fichier existe entièrement pour empêcher.
+
+Une liste de REFUS se trompe dans l'autre sens : un langage inconnu est muté, et
+s'il n'a pas ces opérateurs il rend un survivant bruyant. Bruyant se voit en dix
+secondes et se corrige d'une extension. Muet ne se voit jamais.
+
+> **La règle : quand une garde peut se tromper dans les deux sens, on choisit
+> celui qui FAIT DU BRUIT.** Le silence n'est pas la version prudente d'une
+> erreur, c'en est la version définitive.
+
+Le même fichier portait déjà ce raisonnement, dans l'autre sens, vingt lignes
+plus haut : `DIESE_COMMENTE` est une liste fermée précisément pour ne jamais
+écarter du code d'un langage auquel personne n'aura pensé. Les deux gardes se
+lisent maintenant l'une à côté de l'autre, et c'est voulu.
