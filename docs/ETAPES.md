@@ -7157,3 +7157,50 @@ Le décompte courant vient d'une soustraction sur le journal du balayage, et une
 soustraction n'est pas une mesure. Le nombre défendable sera celui d'un
 **nouveau balayage complet** de `site/` — désormais lançable sans réglage,
 puisque `site` est au périmètre par défaut.
+
+---
+
+## Le compteur d'étoiles : deux mutants, une seule entrée pour les tuer
+
+Les deux dernières gardes identifiées du balayage :
+
+```js
+if (j && typeof j.stargazers_count === 'number') {
+  var nb = document.querySelector('#gh-btn .gh-nb');
+  if (nb) nb.textContent = String(j.stargazers_count);
+}
+```
+
+Deux mutants y survivaient — `===` → `!==` et `&&` → `||` — et une réponse
+**sans** `stargazers_count` les départage tous les deux d'un coup :
+
+| Version  | Ce qu'elle fait d'une réponse sans compte                   |
+| -------- | ----------------------------------------------------------- |
+| original | n'écrit rien — le libellé statique reste                    |
+| `!==`    | la garde s'inverse, le corps écrit **« undefined »**        |
+| `\|\|`   | `j` truthy court-circuite, le corps écrit **« undefined »** |
+
+Un visiteur verrait **« undefined ★ »** sur la première page du produit.
+
+### Trois cas, parce qu'un seul ne prouve rien
+
+Le banc en joue trois : une réponse saine (le compte s'affiche — sans quoi un
+mutant qui n'écrirait jamais passerait), la réponse sans compte (l'entrée qui
+tranche), et une réponse refusée (`ok: false`). `fetch` est une frontière
+externe : elle est **injectée**, pas simulée à moitié, et aucune requête ne part.
+
+### Verdict affiché
+
+```text
+stargazers_count === 'number'   → !==   1 failed | 45 passed
+j && typeof …                   → ||    1 failed | 45 passed
+source saine                            46 passed (46)
+```
+
+### Ce qui reste, et pourquoi je ne donne pas de chiffre ici
+
+Toutes les gardes que la mutation-par-mutation avait trouvées ouvertes sont
+maintenant fermées. Le nombre restant ne se déduit pas : **un second balayage
+complet de `site/` tourne** au moment où ces lignes sont écrites, sur la base
+épinglée `f0fc005`, et c'est lui qui donnera le chiffre défendable — pas une
+soustraction.

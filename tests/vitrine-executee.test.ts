@@ -555,6 +555,64 @@ describe('LA PAGE MONTÉE FAIT CE QU’ELLE PROMET', () => {
     }
   });
 
+  it('LE COMPTEUR D’ÉTOILES N’ÉCRIT QUE DES NOMBRES — et rien du tout sinon', async () => {
+    // ─── LES DEUX DERNIÈRES GARDES DU BALAYAGE, ET UNE SEULE ENTRÉE LES TUE ─
+    //
+    //     if (j && typeof j.stargazers_count === 'number') {
+    //
+    // Deux mutants y survivaient : `===` → `!==` et `&&` → `||`. Une réponse
+    // SANS `stargazers_count` les départage tous les deux d'un coup :
+    //
+    //   · l'original n'écrit rien — le libellé statique reste ;
+    //   · avec `!==`, la garde s'inverse et le corps écrit « undefined » ;
+    //   · avec `||`, `j` truthy court-circuite et le corps écrit « undefined ».
+    //
+    // Un visiteur verrait « undefined ★ » sur la première page du produit.
+    //
+    // `fetch` est une frontière externe : on l'INJECTE, on ne la simule pas à
+    // moitié. Aucune requête ne part.
+    const avantFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+
+    async function monterAvecReponse(corps: unknown, ok = true): Promise<string> {
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        writable: true,
+        value: () => Promise.resolve({ ok, json: () => Promise.resolve(corps) }),
+      });
+      document.documentElement.innerHTML = VITRINE.replace(/^[\s\S]*?<html[^>]*>/, '').replace(
+        /<\/html>[\s\S]*$/,
+        '',
+      );
+      const principal = scriptsExecutes(VITRINE).reduce((a, b) =>
+        a.code.length > b.code.length ? a : b,
+      );
+      new Function(principal.code)();
+      // Deux promesses enchaînées (`.then().then()`) : on vide assez de
+      // micro-tâches pour que l'écriture ait eu lieu si elle doit avoir lieu.
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      return document.querySelector('#gh-btn .gh-nb')?.textContent ?? '';
+    }
+
+    try {
+      // 1. Une réponse SAINE : le compte s'affiche.
+      expect(await monterAvecReponse({ stargazers_count: 1234 }), 'le compte ne s’écrit pas').toBe(
+        '1234',
+      );
+
+      // 2. L'ENTRÉE QUI TRANCHE : pas de `stargazers_count`.
+      const sansCompte = await monterAvecReponse({});
+      expect(sansCompte, 'une réponse sans compte a quand même écrit').not.toContain('undefined');
+      expect(sansCompte, 'une réponse sans compte a quand même écrit').not.toBe('NaN');
+
+      // 3. Et une réponse refusée n'écrit rien non plus.
+      const refusee = await monterAvecReponse(null, false);
+      expect(refusee, 'une réponse refusée a quand même écrit').not.toContain('undefined');
+    } finally {
+      if (avantFetch) Object.defineProperty(globalThis, 'fetch', avantFetch);
+      else Reflect.deleteProperty(globalThis as unknown as Record<string, unknown>, 'fetch');
+    }
+  });
+
   /** Une puce de système, retrouvée par son libellé. */
   function puce(libelle: string): HTMLElement | undefined {
     return [...document.querySelectorAll('.chip-os')].find((b) =>
