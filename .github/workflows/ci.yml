@@ -476,11 +476,25 @@ jobs:
       # le script chez la plupart des gens. C'est le plus exigeant des deux.
       - name: L'installation, menée à son terme
         shell: powershell
+        # ─── CE BLOC EST EN ASCII PUR, ET C'EST OBLIGATOIRE ──────────────────
+        #
+        # GitHub écrit le contenu de `run:` dans un `.ps1` temporaire SANS BOM,
+        # et `shell: powershell` le donne à 5.1, qui décode alors en ANSI. Le
+        # premier essai est mort là-dessus, AVANT d'exécuter quoi que ce soit :
+        #
+        #     + ... ssai non concluant â€” le port par dÃ©faut Ã©tait tenu ...
+        #     The string is missing the terminator: ".
+        #
+        # Le tiret cadratin devient trois octets dont un GUILLEMET, et la chaîne
+        # ne se referme plus. On ne peut pas poser de BOM sur un fichier que
+        # GitHub fabrique : on n'y met donc aucun caractère accentué. Le SCRIPT,
+        # lui, est un vrai fichier du dépôt et porte son BOM (garde dans
+        # `tests/installeurs.test.ts`).
         run: |
           .\scripts\essai-installation.ps1 -Depot "$PWD" -Ref essai-du-seuil
           $code = $LASTEXITCODE
           if ($code -eq 78) {
-            Write-Host "::warning::essai non concluant — le port par défaut était tenu sur le runner"
+            Write-Host "::warning::essai non concluant - port par defaut tenu sur le runner"
             exit 0
           }
           exit $code

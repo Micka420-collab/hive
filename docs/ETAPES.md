@@ -8371,3 +8371,54 @@ La jambe est écrite ; **elle n'a pas encore tourné**. Tant que la CI ne l'a pa
 rendue verte, le tableau du definition of done reste à `⚠️` pour Windows — un
 critère qui n'est pas mesuré n'est pas atteint, et l'écrire vert avant la
 mesure serait exactement le badge de tête qu'on s'interdit.
+
+---
+
+## La jambe Windows a rougi à son premier tour, et c'est ce qu'on lui demandait
+
+```text
++ ... ssai non concluant â€” le port par dÃ©faut Ã©tait tenu sur le runner"
+The string is missing the terminator: ".
+```
+
+Elle n'a pas échoué à installer : elle n'a **jamais démarré**. Windows
+PowerShell 5.1 décode un fichier sans BOM avec la page ANSI ; le tiret cadratin
+y devient trois octets dont un GUILLEMET, la chaîne ne se referme plus, et
+l'analyse syntaxique meurt à la ligne 4.
+
+C'est la démonstration exacte de ce que ce lot existait pour obtenir : un chemin
+que personne n'exécutait, exécuté, dit ce qu'il vaut au premier coup.
+
+### Deux endroits, et un seul remède possible pour chacun
+
+Le SCRIPT est un fichier du dépôt : il reçoit un BOM, comme `install.ps1` — qui
+en porte un depuis toujours, pour cette raison écrite noir sur blanc dans son
+en-tête.
+
+Le bloc `run:` du workflow est écrit par GitHub dans un `.ps1` temporaire sur
+lequel on n'a aucune prise. Aucun BOM possible : le seul remède est qu'il ne
+contienne **aucun octet non-ASCII**. Vérifié après coup — zéro.
+
+### Et la garde du BOM avait, pour la troisième fois, la portée de l'incident
+
+`tests/installeurs.test.ts` vérifiait le BOM d'`install.ps1`, **nommé à la
+main**. Le second `.ps1` du dépôt est entré sans BOM sans que rien ne bronche.
+
+Elle découvre désormais tous les `.ps1` — et, symétriquement, exige qu'aucun
+`.sh` n'en porte : un BOM devant un `#!` fait disparaître le shebang.
+
+### Rejeu, verdict affiché
+
+```text
+le BOM retiré du nouvel essai      1 failed  (« PowerShell 5.1 lira ces fichiers en ANSI »)
+un BOM POSÉ sur install.sh         1 failed  (« un BOM casserait le shebang de : install.sh »)
+source saine, restaurée par copie  30 passed (30)
+```
+
+### Ce qui reste à mesurer
+
+Le correctif n'est pas une preuve : la jambe doit maintenant tourner et aller
+au bout. Tant qu'elle ne l'a pas fait, `docs/DEFINITION-DE-SORTIE.md` reste à
+`⚠️` pour Windows. Et si elle sort en 78 — « le port par défaut était tenu » —
+ce n'est **pas** une réussite du seuil : c'est un essai non concluant, et il se
+lit comme tel.

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Le seuil, franchi sous Windows — l'installation menée jusqu'à une ruche qui

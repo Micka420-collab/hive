@@ -9739,3 +9739,58 @@ l'a rendu inaccessible au seul endroit qui en avait besoin le jour même.
 Ici la forme PowerShell se borne en une ligne (`/<#[\s\S]*?#>/g`), donc on l'a
 close sur place. Le lot qui rendrait le scanner utilisable des deux côtés reste
 nommé, et non fait.
+
+## 9 uncenties. Le mojibake n'est pas cosmétique : il peut empêcher un script d'exister
+
+La toute première exécution de la jambe « L'installation va jusqu'à une ruche qui
+répond · windows-latest » est morte avant d'avoir rien lancé :
+
+```text
++ ... ssai non concluant â€” le port par dÃ©faut Ã©tait tenu sur le runner"
+The string is missing the terminator: ".
+At line:4 char:19
++ if ($code -eq 78) {
+Missing closing '}' in statement block or type definition.
+```
+
+Le dépôt connaissait déjà la cause : Windows PowerShell **5.1** décode un
+fichier SANS BOM avec la page ANSI. `install.ps1` porte un BOM pour cette raison
+exacte, et le carnet le dit depuis des semaines.
+
+### Ce que cette occurrence ajoute
+
+Jusqu'ici le mojibake était décrit comme un défaut d'AFFICHAGE — « détecté »
+devient « dÃ©tectÃ© », l'écran d'accueil est laid. Ici il est bien pire :
+
+Le tiret cadratin `—` (E2 80 94 en UTF-8) relu en cp1252 devient `â€"`. Le
+troisième caractère est un **GUILLEMET**. Il ferme la chaîne en cours au milieu
+d'un mot, l'accolade suivante ne trouve plus sa paire, et l'analyseur meurt.
+
+> **Un octet mal décodé dans un langage interprété ne dégrade pas la sortie : il
+> change le PROGRAMME.** Tant qu'on ne voit le mojibake que dans des messages,
+> on le classe en cosmétique et on le remet à plus tard. Il suffit que le texte
+> mal décodé contienne un délimiteur — guillemet, apostrophe, accolade — pour
+> que le fichier cesse d'être analysable.
+
+### Deux endroits, deux remèdes, et un seul est possible
+
+Le SCRIPT (`scripts/essai-installation.ps1`) est un fichier du dépôt : il reçoit
+un BOM, comme son aîné.
+
+Le bloc `run:` du workflow, lui, est écrit par GitHub dans un `.ps1` temporaire
+sur lequel on n'a aucune prise. Aucun BOM n'est possible. Le seul remède est
+qu'il ne contienne **aucun octet non-ASCII** — ce que le dépôt avait déjà appris
+ailleurs (le pas voisin lance un `throw "mojibake: …"` en anglais), sans que la
+règle ait été écrite nulle part.
+
+### Et la garde, pour la troisième fois, avait la portée de l'incident
+
+`tests/installeurs.test.ts` vérifiait le BOM… d'`install.ps1`, nommé à la main.
+Le second fichier PowerShell du dépôt est entré sans BOM sans que rien ne
+bronche. La garde découvre désormais **tous** les `.ps1` — et, symétriquement,
+exige qu'aucun `.sh` n'en porte, un BOM devant un `#!` faisant disparaître le
+shebang.
+
+C'est le § 9 quinoctogies pour la troisième fois. La leçon n'est plus « pense à
+la portée » — elle est devenue : **quand on écrit une garde qui nomme un
+fichier, écrire à côté ce qui se passera pour le deuxième.**

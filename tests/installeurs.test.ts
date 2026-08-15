@@ -19,7 +19,15 @@
 //     trois plateformes.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -280,22 +288,69 @@ describe('`install.ps1` COMMENCE PAR UN BOM UTF-8', () => {
   // remarque sa disparition, et le premier éditeur qui réenregistre le fichier
   // « sans rien changer » peut l'ôter.
 
-  it('ses trois premiers octets sont EF BB BF', () => {
-    const octets = readFileSync(new URL('install.ps1', RACINE));
-    expect(
-      [...octets.subarray(0, 3)],
-      'BOM UTF-8 absent : PowerShell 5.1 lira ce fichier en ANSI et affichera du mojibake',
-    ).toEqual([0xef, 0xbb, 0xbf]);
+  // ─── ET LA PORTÉE, QUI FAISAIT PARTIE DU DÉFAUT ────────────────────────────
+  //
+  // Cette garde nommait `install.ps1` À LA MAIN. Le jour où un SECOND fichier
+  // PowerShell est né — `scripts/essai-installation.ps1`, l'essai du seuil
+  // Windows — il est entré sans BOM, sans que rien ne bronche.
+  //
+  // La CI l'a dit à sa façon, en refusant de démarrer :
+  //
+  //     + ... ssai non concluant â€” le port par dÃ©faut Ã©tait tenu sur le runner"
+  //     The string is missing the terminator: ".
+  //
+  // 5.1 avait décodé le fichier en ANSI ; le tiret cadratin y devient trois
+  // octets dont un GUILLEMET, et l'analyse syntaxique meurt avant la première
+  // instruction. Le mojibake n'était donc pas cosmétique : il empêchait le
+  // script d'exister.
+  //
+  // C'est le § 9 quinoctogies pour la troisième fois — la portée d'une garde
+  // fait partie de la garde. On ne liste plus : on DÉCOUVRE.
+  const RACINE_FS = process.cwd();
+  const IGNORES = new Set(['node_modules', '.git', 'dist', 'coverage', 'data', '.hive-work']);
+
+  function tousLes(extension: string, depuis = RACINE_FS, relatif = ''): string[] {
+    const trouves: string[] = [];
+    for (const e of readdirSync(depuis, { withFileTypes: true })) {
+      if (e.name.startsWith('.') && e.name !== '.github') continue;
+      const rel = relatif === '' ? e.name : `${relatif}/${e.name}`;
+      if (e.isDirectory()) {
+        if (IGNORES.has(e.name)) continue;
+        trouves.push(...tousLes(extension, path.join(depuis, e.name), rel));
+      } else if (e.name.endsWith(extension)) {
+        trouves.push(rel);
+      }
+    }
+    return trouves;
+  }
+
+  const aLeBom = (f: string): boolean => {
+    const o = readFileSync(path.resolve(RACINE_FS, f));
+    return o[0] === 0xef && o[1] === 0xbb && o[2] === 0xbf;
+  };
+
+  it('la découverte voit vraiment les fichiers PowerShell du dépôt', () => {
+    // Une découverte qui ne trouve rien rendrait la garde suivante verte sans
+    // rien regarder — le défaut qu'on est en train de fermer, un cran plus haut.
+    const ps = tousLes('.ps1');
+    expect(ps, 'la marche du dépôt ne voit pas install.ps1').toContain('install.ps1');
+    expect(ps.length, 'un seul .ps1 trouvé : la découverte est trop étroite').toBeGreaterThan(1);
   });
 
-  it('…et install.sh, lui, n’en a PAS', () => {
+  it('TOUT fichier .ps1 du dépôt commence par EF BB BF', () => {
+    const sansBom = tousLes('.ps1').filter((f) => !aLeBom(f));
+    expect(
+      sansBom,
+      `PowerShell 5.1 lira ces fichiers en ANSI : mojibake, et l’analyse syntaxique peut en mourir — ${sansBom.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('…et AUCUN fichier .sh n’en a', () => {
     // Symétrie inverse, et elle compte : un BOM en tête d'un script `sh` est
     // envoyé à l'interpréteur AVANT le `#!`. Le noyau ne reconnaît plus le
     // shebang, et l'on obtient un « command not found » sur la première ligne.
-    const octets = readFileSync(new URL('install.sh', RACINE));
-    expect([...octets.subarray(0, 3)], 'un BOM casserait le shebang').not.toEqual([
-      0xef, 0xbb, 0xbf,
-    ]);
+    const avecBom = tousLes('.sh').filter(aLeBom);
+    expect(avecBom, `un BOM casserait le shebang de : ${avecBom.join(', ')}`).toEqual([]);
   });
 });
 
