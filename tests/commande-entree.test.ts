@@ -82,6 +82,24 @@ describe('un billet collable, et rien d’autre', () => {
       false,
     );
   });
+
+  it('LA BORNE DE LONGUEUR EST EXACTEMENT 4 000, ET C’EST MESURÉ AU CARACTÈRE', () => {
+    // ─── LA NUE QUE LA LOUPE A TROUVÉE : `>` → `>=` ────────────────────────
+    //
+    // Le cas des 5 000 caractères ne départage rien : les deux formes le
+    // refusent. Seule la longueur EXACTE de la borne distingue `>` de `>=` —
+    // c'est la définition même d'une borne, et c'est le seul endroit où il faut
+    // regarder.
+    //
+    // Le choix de la borne, lui, est arbitraire et assumé : il ne protège de
+    // rien de précis, il évite qu'une chaîne absurde devienne une commande. Ce
+    // qui doit être STABLE, c'est qu'un billet réel — quelques centaines de
+    // caractères — passe, et qu'on sache où l'on a mis la limite.
+    const juste = PREFIXE_BILLET + 'a'.repeat(4_000 - PREFIXE_BILLET.length);
+    expect(juste.length, 'le cas ne vise pas la borne').toBe(4_000);
+    expect(billetCollable(juste), 'un billet PILE à la borne est refusé').toBe(true);
+    expect(billetCollable(juste + 'a'), 'un billet d’un caractère de trop passe').toBe(false);
+  });
 });
 
 describe('la commande, par système', () => {

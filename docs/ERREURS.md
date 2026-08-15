@@ -10381,3 +10381,54 @@ Le défaut trouvé était en plus **intermittent** — `taskkill` ne se plaint q
 un enfant est déjà parti, une course. Le tour précédent était vert avec le même
 code. Un rouge intermittent dans un rangement est le plus cher de tous : on le
 relance, il passe, et on apprend à relancer au lieu de lire.
+
+---
+
+## 9 quaterdecicenties. Un mutant qui ne s'applique pas rend « 14 passed » — et ce vert-là ne veut RIEN dire
+
+En jouant cinq mutants d'affilée, le premier a échoué à s'appliquer :
+
+```text
+=== M1 : habit de la puce active ===
+syntax error at -e line 1, near "!=="
+Execution of -e aborted due to compilation errors.
+      Tests  14 passed (14)
+```
+
+`perl -0pi -e` a refusé mon échappement. Le fichier n'a donc **pas** été muté —
+et la suite a tourné sur la source SAINE, qui passe évidemment. Le « 14 passed »
+sous le message d'erreur ressemble trait pour trait à un mutant SURVIVANT.
+
+### Les deux lectures possibles, et pourquoi elles s'opposent
+
+| ce que dit le vert         | ce qu'il faudrait en conclure          |
+| -------------------------- | -------------------------------------- |
+| le mutant survit           | **écrire le test qui manque**          |
+| le mutant n'a pas été posé | **rejouer, la mesure n'a pas eu lieu** |
+
+Sans regarder l'erreur de `perl` deux lignes plus haut, on prend la première —
+et on va écrire un test pour un défaut qui n'existe pas, ou pire, on consigne
+une « équivalence » sur un mutant jamais joué.
+
+### Le remède, qui coûte une ligne
+
+**Un poseur de mutant doit AFFIRMER qu'il a mordu.** La reprise est passée par
+Python avec une assertion :
+
+```python
+assert avant in s, "la ligne visée est introuvable — le mutant n'aurait rien muté"
+```
+
+puis un `grep` de la ligne mutée avant de lancer la suite. Le mutant s'est alors
+révélé **tué**, verdict à l'appui — l'inverse de ce que le premier vert
+laissait croire.
+
+### La forme, encore la même
+
+C'est le § 9 quincenties d'un cran plus bas : là, la loupe concluait sur une
+suite déjà rouge ; ici, je conclus sur une mutation jamais appliquée. Dans les
+deux cas, **l'instrument n'a pas regardé, et son silence se lit comme un
+résultat**. La règle générale se resserre donc :
+
+> Toute mesure différentielle doit prouver **deux** choses avant de conclure —
+> que le point zéro est sain, et que la perturbation a bien eu lieu.
