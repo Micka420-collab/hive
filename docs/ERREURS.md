@@ -10912,3 +10912,54 @@ AssertionError: une validation IME a été prise pour un envoi:
 ne se voit que chez quelqu'un dont on ne lit pas la langue. C'est exactement le
 genre de ligne qu'un balayage machinal supprimerait comme « redondante », et
 c'est pourquoi elle méritait un banc avant tout le reste de la vue.
+
+---
+
+## 9 duovicicenties. Un écouteur posé sur `window` reçoit ce qui ne lui est pas destiné
+
+Deux vues, deux gardes de la même famille, et aucune des deux n'était défendue :
+
+| vue       | la garde                                  | ce qu'elle protège                        |
+| --------- | ----------------------------------------- | ----------------------------------------- |
+| Reine     | `!isComposing && keyCode !== 229`         | l'Entrée qui VALIDE un caractère japonais |
+| Chronique | `if (isTyping() \|\| modalOpen()) return` | l'espace tapé DANS un champ               |
+
+Un raccourci clavier s'installe sur `window` parce qu'il doit marcher partout.
+Mais `window` reçoit **tout** — y compris les frappes destinées à un champ, à un
+bouton focalisé, à une modale ouverte. La garde est donc la seule chose qui
+sépare « raccourci » de « touche volée ».
+
+### Pourquoi cette famille survit à tous les balayages
+
+Elle ne casse **rien de visible pour celui qui la relit**. Mutée, l'écran
+continue de fonctionner exactement comme avant — pour qui tape en français, sans
+champ focalisé, sans modale. Le défaut n'apparaît que dans une situation que le
+relecteur n'est pas en train de vivre :
+
+```text
+isTyping() neutralisée   ✘ la barre d'espace a été volée au champ
+                           expected 'Pause' to be 'Lecture'
+!isComposing retirée     ✘ une validation IME a été prise pour un envoi
+                           expected [ 'にほんご' ] to deeply equal []
+```
+
+**Une garde dont la mutation ne change rien pour son auteur est exactement celle
+qu'un nettoyage supprimera comme « redondante ».** C'est la marque de la
+famille : chercher, dans les vues restantes, tout `addEventListener` posé sur
+`window` ou `document`, et regarder qui garde sa porte.
+
+### Et les bornes qui ne sont pas des politesses
+
+Dans le même écouteur :
+
+```ts
+setIdx((i) => Math.min(i + 1, last));
+setIdx((i) => Math.max(i - 1, 0));
+```
+
+Mutées, l'index sort de la frise, `frames[idx]` devient `undefined`, et le
+panneau **perd son cadre** : mesuré, la position affichée passe de `3/3` à la
+chaîne vide. L'écran se vide en silence sur une flèche de trop.
+
+Une borne d'index dans une vue n'est pas une précaution de style : c'est ce qui
+maintient la moitié du panneau rendue.
