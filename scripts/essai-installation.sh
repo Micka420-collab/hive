@@ -55,13 +55,18 @@
 
 set -eu
 
-# ─── OÙ EST LE DÉPÔT, VU DE CE SCRIPT ────────────────────────────────────────
+# ─── OÙ EST L'INSTRUMENT DU PARCOURS ─────────────────────────────────────────
 #
-# Déduit de `$0`, pas du répertoire courant : l'essai s'installe DANS un dossier
-# temporaire et le `cd` d'un pas ne doit pas décider où l'on retrouve
-# l'instrument du pas suivant. `CDPATH=` désarme un `cd` qui partirait ailleurs
-# parce que l'utilisateur a un CDPATH.
-RACINE_DEPOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# À CÔTÉ DE CE SCRIPT, et c'est un défaut mesuré qui l'a décidé. Première
+# version : `$(dirname $0)/..`, en supposant que l'essai tourne depuis le dépôt.
+# `tests/essai-installation.test.ts` COPIE le script dans un dossier temporaire
+# pour l'éprouver — la remontée d'un cran y désigne `/tmp`, l'instrument est
+# introuvable, et l'essai sortait en 1 sur un chantier parfaitement sain.
+#
+# Chercher à côté de soi vaut dans les deux mondes, et c'est déjà ce que fait le
+# jumeau PowerShell (`Join-Path $PSScriptRoot`). `CDPATH=` désarme un `cd` qui
+# partirait ailleurs parce que l'utilisateur a un CDPATH.
+MES_SCRIPTS=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 DEPOT_ESSAI=""
 REF_ESSAI="main"
@@ -271,7 +276,7 @@ while [ "$i" -lt 60 ]; do
     #
     # La racine est passée en argument ; le JETON, jamais. Il est relu là-bas
     # dans le `.env` que l'installeur vient d'écrire.
-    node "$RACINE_DEPOT/scripts/essai-parcours.mjs" --racine "$CIBLE" || exit 1
+    node "$MES_SCRIPTS/essai-parcours.mjs" --racine "$CIBLE" || exit 1
     exit 0
   fi
   i=$((i + 1))

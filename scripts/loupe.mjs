@@ -1036,6 +1036,44 @@ function principal() {
     }
   });
 
+  // ─── LA SUITE DOIT ÊTRE VERTE AVANT QU'ON MUTE QUOI QUE CE SOIT ────────────
+  //
+  // DÉFAUT MESURÉ, et il a produit exactement le mensonge que cet outil existe
+  // pour empêcher. Un lot avait cassé `tests/essai-installation.test.ts` ; la
+  // loupe, lancée là-dessus, a rendu :
+  //
+  //     LOUPE : 17 mutation(s) possible(s), 9 examinée(s).
+  //       ✔ défendue · … (× 9)
+  //     ════ LA LOUPE NE VOIT RIEN DE NU ════
+  //
+  // Neuf sur neuf « défendues » — dont des lignes d'un fichier qu'AUCUN test
+  // n'importe. La raison est mécanique : `suiteRougit()` rend « rouge » pour
+  // n'importe quel rouge. Quand la suite rougit DÉJÀ, chaque mutant est déclaré
+  // tué par une panne qui ne le concerne pas, et le balayage entier ne mesure
+  // plus rien en annonçant que tout va bien.
+  //
+  // C'est le pire faux vert du dépôt : il est rendu par l'instrument dont le
+  // métier est de les débusquer, et il est d'autant plus convaincant qu'il
+  // arrive au bout d'un quart d'heure de calcul.
+  //
+  // Un tour de suite en plus est le prix. Il est petit devant un balayage qui
+  // conclut à l'envers.
+  console.log('LOUPE : la suite doit être verte avant de muter quoi que ce soit…');
+  if (suiteRougit()) {
+    console.error('');
+    console.error('✘ LA SUITE ROUGIT DÉJÀ, SANS AUCUNE MUTATION.');
+    console.error('');
+    console.error('  Aucun verdict n’est rendu. Sur une suite rouge, CHAQUE mutant');
+    console.error('  passerait pour « défendu » — tué par une panne qui n’est pas la');
+    console.error('  sienne — et la loupe conclurait « rien de nu » en n’ayant rien vu.');
+    console.error('');
+    console.error('  Réparez la suite, puis relancez.');
+    console.error('');
+    process.exit(2);
+  }
+  console.log('        verte. On peut muter.');
+  console.log('');
+
   const toutes = candidates();
   if (toutes.length === 0) {
     console.log('LOUPE : aucune ligne mutable ajoutée par cette branche.');
