@@ -9794,3 +9794,50 @@ shebang.
 C'est le § 9 quinoctogies pour la troisième fois. La leçon n'est plus « pense à
 la portée » — elle est devenue : **quand on écrit une garde qui nomme un
 fichier, écrire à côté ce qui se passera pour le deuxième.**
+
+## 9 duocenties. PowerShell referme une chaîne sur une apostrophe COURBE
+
+Second rouge de la jambe Windows, le BOM une fois posé — et une cause
+entièrement différente :
+
+```text
++ ...  (la permission 0600 n’a PAS d’équivalent Windows — voir l’en-tête)'
+The Try statement is missing its Catch or Finally block.
+Unexpected token ')' in expression or statement.
+```
+
+PowerShell traite les apostrophes **courbes** (U+2018, U+2019) comme des
+délimiteurs de chaîne, au même titre que l'apostrophe droite. Dans
+« n’a PAS d’équivalent », la chaîne se referme au milieu du mot ; le reste de la
+ligne devient du code ; le `try` du dessus perd son bloc ; et le fichier ENTIER
+cesse d'être analysable.
+
+### Pourquoi c'était invisible
+
+Le texte est parfaitement correct en français. Aucun caractère ne paraît
+suspect, la relecture ne signale rien, et — le pire — **un éditeur qui
+« corrige » les apostrophes en typographiques casse le script sans rien
+afficher**. C'est un défaut qu'on peut introduire en ne touchant à rien.
+
+> **Un caractère qui a un rôle dans la syntaxe ne se choisit pas pour sa
+> beauté.** En français on écrit « n'a » avec une apostrophe courbe ; dans une
+> chaîne PowerShell, ce caractère FERME la chaîne. La règle n'est pas « écris
+> mal le français » — c'est : les CHAÎNES d'un script restent en ASCII, les
+> commentaires font ce qu'ils veulent.
+
+### Ce que la répétition enseigne
+
+Trois rouges de suite sur la même jambe, trois causes distinctes, aucune
+détectable sans exécuter :
+
+1. le mojibake d'un `run:` sans BOM (§ 9 uncenties) ;
+2. le mojibake du script lui-même, corrigé par un BOM ;
+3. l'apostrophe courbe, qui n'a rien à voir avec l'encodage.
+
+Chacune aurait pu être « corrigée » en croyant traiter la précédente. La seule
+chose qui les a départagées est un journal lu ligne à ligne, à chaque tour.
+
+> **Une jambe de CI qui rougit trois fois de suite n'est pas une jambe
+> instable : c'est une jambe qui trouve.** Un chemin que personne n'exécutait
+> depuis des mois n'a aucune raison d'être correct du premier coup, et sa
+> première verte vaudra ce que valent les trois rouges qui l'ont précédée.

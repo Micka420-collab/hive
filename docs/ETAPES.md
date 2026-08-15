@@ -8422,3 +8422,47 @@ au bout. Tant qu'elle ne l'a pas fait, `docs/DEFINITION-DE-SORTIE.md` reste à
 `⚠️` pour Windows. Et si elle sort en 78 — « le port par défaut était tenu » —
 ce n'est **pas** une réussite du seuil : c'est un essai non concluant, et il se
 lit comme tel.
+
+---
+
+## Second rouge de la jambe Windows : l'apostrophe courbe
+
+Le BOM tient — le journal affiche désormais les accents correctement. Le second
+rouge a une cause entièrement différente :
+
+```text
++ ...  (la permission 0600 n’a PAS d’équivalent Windows — voir l’en-tête)'
+The Try statement is missing its Catch or Finally block.
+```
+
+PowerShell traite `’` (U+2019) comme un DÉLIMITEUR de chaîne. Dans « n’a PAS
+d’équivalent », la chaîne se referme au milieu du mot, le reste de la ligne
+devient du code, et le fichier entier cesse d'être analysable.
+
+Invisible à la relecture : le texte est du français correct. Pire, un éditeur
+qui « corrige » les apostrophes casserait le script sans rien afficher.
+
+### La garde
+
+`tests/installeurs.test.ts` refuse désormais toute apostrophe courbe dans une
+ligne de CODE d'un `.ps1` — les commentaires et les blocs `<# … #>` gardent leur
+liberté, PowerShell les ignore.
+
+```text
+apostrophe courbe remise dans la chaîne  1 failed
+source saine, restaurée par copie        31 passed (31)
+```
+
+### Trois rouges, trois causes, et ce que ça dit
+
+| #   | Cause                             | Détectable sans exécuter ? |
+| --- | --------------------------------- | -------------------------- |
+| 1   | `run:` sans BOM, écrit par GitHub | non                        |
+| 2   | script sans BOM                   | non                        |
+| 3   | apostrophe courbe dans une chaîne | non                        |
+
+Chacune aurait pu être « corrigée » en croyant traiter la précédente. Une jambe
+qui rougit trois fois n'est pas instable : **elle trouve**. Un chemin que
+personne n'exécutait depuis des mois n'a aucune raison d'être correct du premier
+coup — et sa première verte vaudra ce que valent les trois rouges qui l'ont
+précédée. § 9 duocenties.

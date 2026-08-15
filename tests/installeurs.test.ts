@@ -345,6 +345,49 @@ describe('`install.ps1` COMMENCE PAR UN BOM UTF-8', () => {
     ).toEqual([]);
   });
 
+  it('AUCUNE apostrophe TYPOGRAPHIQUE dans une ligne de code PowerShell', () => {
+    // ─── LE SECOND DÉFAUT, DISTINCT DU BOM, ET INVISIBLE SANS EXÉCUTION ────
+    //
+    // Le BOM posé, la jambe Windows a rougi une SECONDE fois — pour une autre
+    // raison :
+    //
+    //     + ...  (la permission 0600 n’a PAS d’équivalent Windows — voir …)'
+    //     The Try statement is missing its Catch or Finally block.
+    //     Unexpected token ')' in expression or statement.
+    //
+    // PowerShell traite les apostrophes COURBES (U+2018, U+2019) comme des
+    // délimiteurs de chaîne, exactement comme l'apostrophe droite. Dans
+    // « n’a PAS d’équivalent », la chaîne se referme au milieu du mot, le reste
+    // de la ligne devient du code, et le fichier ENTIER cesse d'être
+    // analysable.
+    //
+    // Rien ne le voit à la lecture : le texte est parfaitement correct en
+    // français, et un éditeur qui « corrige » les apostrophes en typographiques
+    // casserait le script sans qu'aucun caractère ne paraisse suspect.
+    //
+    // Les COMMENTAIRES, eux, peuvent tout se permettre : PowerShell ignore la
+    // ligne entière après un `#`, et l'intérieur d'un bloc `<# … #>`.
+    const fautives: string[] = [];
+    for (const f of tousLes('.ps1')) {
+      let dansBloc = false;
+      readFileSync(path.resolve(RACINE_FS, f), 'utf8')
+        .split('\n')
+        .forEach((ligne, i) => {
+          const ouvre = /<#/.test(ligne);
+          if (ouvre) dansBloc = true;
+          const estDuCode = !dansBloc && !/^\s*#/.test(ligne);
+          if (/#>/.test(ligne)) dansBloc = false;
+          if (estDuCode && /[\u2018\u2019]/.test(ligne)) {
+            fautives.push(`${f}:${i + 1} ${ligne.trim().slice(0, 60)}`);
+          }
+        });
+    }
+    expect(
+      fautives,
+      'PowerShell referme une chaîne sur une apostrophe courbe : ces lignes rendent le fichier inanalysable',
+    ).toEqual([]);
+  });
+
   it('…et AUCUN fichier .sh n’en a', () => {
     // Symétrie inverse, et elle compte : un BOM en tête d'un script `sh` est
     // envoyé à l'interpréteur AVANT le `#!`. Le noyau ne reconnaît plus le

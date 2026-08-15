@@ -154,7 +154,20 @@ try {
     exit 1
   }
   Write-Host "✔ 2/3 — .env écrit, port $Port et jeton présents"
-  Write-Host '  (la permission 0600 n’a PAS d’équivalent Windows — voir l’en-tête)'
+  # ─── PAS D'APOSTROPHE TYPOGRAPHIQUE DANS UNE CHAINE POWERSHELL ─────────────
+  #
+  # Cette ligne portait « n'a PAS d'equivalent » avec des apostrophes courbes.
+  # PowerShell 5.1 les traite comme des DELIMITEURS de chaine, au meme titre que
+  # l'apostrophe droite : la chaine s'est refermee au milieu du mot, et le
+  # fichier entier a cesse d'etre analysable.
+  #
+  #     The Try statement is missing its Catch or Finally block.
+  #     Unexpected token ')' in expression or statement.
+  #
+  # Le BOM avait reparu l'encodage ; ceci est un defaut DISTINCT, invisible tant
+  # qu'on ne lance pas le script pour de vrai. Les chaines de ce fichier restent
+  # donc en ASCII — les commentaires, eux, peuvent tout se permettre.
+  Write-Host '  (la permission 0600 n a pas d equivalent Windows - voir l en-tete)'
 
   # ─── 3. LA RUCHE RÉPOND ────────────────────────────────────────────────────
   $Ruche = Start-Process -FilePath 'npm.cmd' -ArgumentList @('run', 'ruche') `
