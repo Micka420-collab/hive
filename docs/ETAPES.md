@@ -8770,3 +8770,66 @@ l'initialisation n'atteint jamais la ligne. Un banc qui prétendrait éprouver c
 écouteur mesurerait son propre bouchon. **Reste ouvert, et documenté comme tel**
 (§ 2.16 ter : on ne bénit pas ce qu'on ne peut pas départager) plutôt que couvert
 pour la forme.
+
+## La Santé : le thermostat montrait deux vérités, et personne ne vérifiait laquelle
+
+Première vue jamais examinée de la liste (568 lignes). Le panneau des fantômes y
+était déjà défendu (`vues-sentinelles`, `gardiennes-vue`) ; la Thermorégulation
+et les Signes vitaux ne l'étaient pas.
+
+### Ce que le panneau fait, et pourquoi il est piégeux
+
+La Thermorégulation affiche VOLONTAIREMENT deux états qui peuvent se
+contredire — le commentaire du code le dit :
+
+- la **lecture** instantanée (`instantane.bande`) — où en est le thermomètre ;
+- l'état **appliqué** (`applique.bande`), hystérésé : il ne suit la lecture
+  qu'après un second relevé concordant.
+
+> « Leur divergence est la chose la plus utile à montrer — elle explique
+> pourquoi la concurrence n'a pas encore bougé alors que le thermomètre, lui, a
+> déjà grimpé. »
+
+C'est donc le seul écran où **afficher la mauvaise des deux** est une panne
+complète : l'opérateur lit « normale », voit la concurrence à plein régime, et
+conclut que tout va bien pendant que la ruche surchauffe.
+
+### Nudité mesurée avant d'écrire
+
+Quatre gardes mutées ensemble, chaque mutant vérifié posé, suite entière verte —
+**276 fichiers, 4 120 tests**.
+
+```text
+const diverge = lecture.bande !== regime.bande;   →  = false;
+b === lecture.bande ? 'on' : undefined            →  b === regime.bande
+applique.facteur < 1 ? 'panel-count warn' : …     →  'panel-count'
+successPct < 50 ? 'tile danger' : 'tile'          →  'tile'
+```
+
+### Rejeu, verdict affiché — six mutants, dont DEUX de borne
+
+```text
+T1  ×  LA DIVERGENCE EST ANNONCÉE            expected null not to be null
+T2  ×  L’ÉCHELLE MARQUE LA LECTURE           expected 'normale' to be 'surchauffe'
+T3  ×  LA VENTILATION SE SIGNALE             expected 'panel-count' to contain 'warn'
+T4  ×  UN TAUX EFFONDRÉ ROUGIT               expected 'tile' to contain 'danger'
+T5  ×  ×1 N’EST PAS UNE VENTILATION          expected 'panel-count warn' not to contain 'warn'
+T6  ×  50 % EST LA BORNE EXCLUE              expected 'tile danger' not to contain 'danger'
+source restaurée PAR COPIE                   5 passed (5)
+```
+
+`T5` et `T6` sont le décalage d'un cran (`<` → `<=`). Les cas de SENS les
+laissent tous deux verts — seuls les cas de BORNE les tuent. C'est
+§ 9 trigicenties, et c'est le mutant qui se produit vraiment : personne ne
+remplace une classe conditionnelle par une constante, tout le monde hésite entre
+`<` et `<=`.
+
+L'entrée qui départage `T2` mérite d'être notée : il faut un relevé où lecture
+et régime **diffèrent**. Sur un relevé concordant — le cas ordinaire — les deux
+versions allument la même case et le banc bénirait la mutation.
+
+### Reste de la vue, non pris
+
+Les panneaux Gardiennes et Guet portent encore des décisions non éprouvées
+(`v.mode === 'consultatif' && v.verdicts.hollow > v.refusees`, `v.inspections === 0`).
+Lot suivant possible ; la Santé n'est pas close.

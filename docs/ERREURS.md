@@ -11371,3 +11371,60 @@ dans la signature de la fonction appelée ne le dit.
 n'est pas une valeur fausse, c'est un sujet faux — et un sujet faux accuse
 presque toujours le montage du banc, pas le produit. J'ai d'abord soupçonné le
 tri de la file : le tri était juste, c'est mon `beforeEach` qui mentait.
+
+## 9 trigicenties. Un seuil se mesure à sa BORNE, pas à son sens
+
+La Santé porte deux seuils d'alarme, tous deux nus :
+
+```tsx
+className={thermo.data.applique.facteur < 1 ? 'panel-count warn' : 'panel-count'}
+<div className={successPct < 50 ? 'tile danger' : 'tile'}>
+```
+
+Le réflexe est d'écrire un cas par sens : « la ruche bride la concurrence →
+l'alarme se porte », « le taux s'effondre → la tuile rougit ». Deux cas, deux
+mutants tués — `'panel-count'` constant et `'tile'` constant. On se croit
+quitte.
+
+### Les deux mutants qui restent debout
+
+```text
+facteur < 1   →   facteur <= 1
+successPct < 50   →   successPct <= 50
+```
+
+Un cran. Rien d'autre. Et les cas de sens les laissent **tous les deux verts** :
+`facteur = 0.5` alarme dans les deux versions, `successPct = 49` rougit dans les
+deux. La direction ne départage pas la borne.
+
+Ce qui les tue, c'est la valeur EXACTE du seuil :
+
+```text
+T5  ×  ×1 est le plein régime : l’alarme portée au repos ne veut plus rien dire
+       expected 'panel-count warn' not to contain 'warn'
+T6  ×  50 % est la borne EXCLUE : la faire rougir déplace l’alarme d’un cran
+       expected 'tile danger' not to contain 'danger'
+```
+
+### Pourquoi c'est le mutant qui se produit vraiment
+
+Un développeur ne remplace pas une classe conditionnelle par une constante —
+cela se voit à la relecture. Il hésite entre `<` et `<=`, et il se trompe une
+fois sur deux. **Le mutant réaliste est le décalage d'un cran, et c'est
+précisément celui qu'un banc « par sens » ne voit pas.**
+
+Le coût n'est pas symétrique non plus. `facteur <= 1` porte l'alarme de
+ventilation **en permanence**, y compris au repos où `facteur` vaut 1 : ce n'est
+pas une alarme de plus, c'est la fin de l'alarme — l'opérateur apprend en trois
+jours à ne plus la voir, et le jour où la ruche bride vraiment, plus personne ne
+regarde. Une alarme toujours allumée est strictement pire qu'aucune alarme.
+
+> **Règle** — devant `<`, `<=`, `>`, `>=`, un banc doit poser la valeur qui EST
+> le seuil, pas seulement une de chaque côté. Trois points, pas deux : au-dessus,
+> **à la borne**, au-dessous. Le cas de la borne est le seul qui distingue les
+> deux opérateurs, et c'est le seul que le réflexe oublie.
+
+C'est le § 9 octovicicenties appliqué aux nombres : là-bas il fallait le cas qui
+ne bouge pas pour prouver que les autres mesuraient le signal ; ici il faut le
+cas qui ne franchit pas pour prouver que la garde est posée AU BON ENDROIT et
+pas un cran plus loin.
