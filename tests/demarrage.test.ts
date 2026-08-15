@@ -29,10 +29,12 @@ import {
   entreesAbsentes,
   largeurEtiquettes,
   pieces,
+  portAnnonce,
   prefixe,
   reliquat,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
+import { PORT_PAR_DEFAUT } from '../src/shared/port.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const NODE = '/usr/bin/node';
@@ -84,6 +86,79 @@ describe('CE QU’ON LANCE, ET DANS QUEL ORDRE', () => {
     // Trois processus dans un terminal sans rien qui les présente, c'est trois
     // sources de bruit. Le rôle est ce qui les rend lisibles.
     for (const p of pieces(NODE)) expect(p.role.length, p.nom).toBeGreaterThan(10);
+  });
+});
+
+describe('LA BANNIÈRE ANNONCE LE PORT OÙ LA RUCHE ÉCOUTE VRAIMENT', () => {
+  // ─── LE DÉFAUT, MESURÉ SUR UNE RUCHE VIVANTE ───────────────────────────────
+  //
+  // Le rôle de la Reine portait `http://127.0.0.1:7777` ÉCRIT EN DUR. Sur un
+  // `.env` qui dit autre chose, la sortie de démarrage se contredisait
+  // elle-même, à cinq lignes d'intervalle :
+  //
+  //     reine  projets, tâches, journal · http://127.0.0.1:7777   ← la bannière
+  //     reine │    Dashboard : http://127.0.0.1:7911              ← la ruche
+  //
+  // Mesuré, `.env` à `HIVE_PORT=7911` : `:7911` rend 200, `:7777` refuse la
+  // connexion. La PREMIÈRE ligne — la grande, celle qu'on lit — était la
+  // fausse. Un lien mort au démarrage envoie chercher une panne inexistante ;
+  // c'est le même défaut que le docteur qui se trompait de patient, et pour
+  // lequel `portDepuisEnv` avait justement été écrit.
+  //
+  // La règle vit désormais à un seul endroit, et la bannière la LIT.
+
+  it('LE PORT ANNONCÉ EST CELUI DU `.env`, PAS 7777 EN DUR', () => {
+    const reine = (port?: number) => pieces(NODE, {}, port).find((p) => p.nom === 'reine');
+    expect(reine(7911)?.role, 'la bannière annonce un port qu’elle n’écoute pas').toContain(
+      ':7911',
+    );
+    expect(reine(7911)?.role, 'le port codé en dur survit').not.toContain('7777');
+  });
+
+  it('sans rien de demandé, c’est le port par défaut — et il est NOMMÉ', () => {
+    // Le défaut n'est pas « 7777 partout » : c'est `PORT_PAR_DEFAUT`, la même
+    // constante que lit la ruche. Les deux ne peuvent plus diverger.
+    expect(pieces(NODE).find((p) => p.nom === 'reine')?.role).toContain(`:${PORT_PAR_DEFAUT}`);
+  });
+
+  it('L’ENVIRONNEMENT PRIME SUR LE FICHIER — la règle de la ruche, pas une autre', () => {
+    // ─── CE QUI SE PASSERAIT SI ON LES INVERSAIT ─────────────────────────────
+    //
+    // La ruche lit son `.env` par `process.loadEnvFile`, qui — MESURÉ, pas
+    // supposé — n'écrase JAMAIS une variable déjà posée dans l'environnement.
+    // Un `HIVE_PORT=8080 npm run ruche` sur un `.env` qui dit 7911 fait donc
+    // écouter la ruche sur 8080.
+    //
+    // La bannière doit trancher pareil. Inversée, elle annoncerait 7911 pendant
+    // que la ruche écoute sur 8080 — le défaut d'origine, déplacé d'un cran et
+    // devenu invisible : il ne se voit plus qu'en posant la variable à la main.
+    expect(portAnnonce({ HIVE_PORT: '7911' }, { HIVE_PORT: '8080' })).toBe(8080);
+    expect(portAnnonce({ HIVE_PORT: '7911' }, {})).toBe(7911);
+    expect(portAnnonce({}, {})).toBe(PORT_PAR_DEFAUT);
+  });
+
+  it('PORT 0 : on n’invente pas une adresse que personne ne connaît encore', () => {
+    // ─── LE PIÈGE DE LA CORRECTION ELLE-MÊME ─────────────────────────────────
+    //
+    // `HIVE_PORT=0` est accepté EXPRÈS — c'est « tire-m'en un au hasard », et
+    // les bancs de la ruche s'en servent. Passer ce zéro tel quel au gabarit
+    // aurait rendu `http://127.0.0.1:0` : un lien mort, remplaçant l'autre.
+    //
+    // La Reine, elle, annonce son vrai port dès qu'elle l'a. La bannière dit
+    // donc d'attendre plutôt que de mentir plus discrètement.
+    const reine0 = pieces(NODE, {}, 0).find((p) => p.nom === 'reine');
+    expect(reine0?.role, 'la bannière annonce le port 0 comme une adresse').not.toContain(':0');
+    expect(reine0?.role).toContain('annoncée au démarrage');
+  });
+
+  it('un `.env` illisible ou absurde ne DÉPLACE pas la ruche en silence', () => {
+    // `portDepuisEnv` porte déjà cette garde et elle est éprouvée chez elle. Ce
+    // qu'on tient ici, c'est que la bannière PASSE PAR elle plutôt que de
+    // refaire un `Number()` de son côté — la divergence exacte qui avait fait
+    // mentir le docteur.
+    expect(portAnnonce({ HIVE_PORT: '' }, {})).toBe(PORT_PAR_DEFAUT);
+    expect(portAnnonce({ HIVE_PORT: '7911abc' }, {})).toBe(PORT_PAR_DEFAUT);
+    expect(portAnnonce({ HIVE_PORT: '99999' }, {})).toBe(PORT_PAR_DEFAUT);
   });
 });
 

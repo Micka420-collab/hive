@@ -10575,3 +10575,104 @@ résoluble. Le nom promettait plus que le contenu.
 
 **Une phrase vraie sur un point et lue sur un autre est plus dangereuse qu'une
 phrase fausse** : rien ne la contredit quand on la relit.
+
+---
+
+## 9 octodecicenties. La première ligne de l'écran de démarrage était la seule à mentir
+
+`scripts/ruche.mjs` imprime une bannière avant que quoi que ce soit ne démarre.
+Le rôle de la Reine y était écrit **en dur** :
+
+```ts
+role: 'projets, tâches, journal · http://127.0.0.1:7777',
+```
+
+Sur une ruche dont le `.env` disait `HIVE_PORT=7911`, la sortie se contredisait
+elle-même à cinq lignes d'intervalle :
+
+```text
+      reine  projets, tâches, journal · http://127.0.0.1:7777   ← la bannière
+reine │    Dashboard : http://127.0.0.1:7911                    ← la Reine
+```
+
+Mesuré au même instant : `:7911` rend 200, `:7777` refuse la connexion. La
+**grande** ligne — celle qu'on lit, celle qui accueille — était la fausse.
+
+### Ce que ce défaut avait de particulier
+
+Il ne pouvait pas se voir chez celui qui l'a écrit. Le port par défaut EST 7777 :
+sur toute machine qui n'a jamais touché à `HIVE_PORT`, la ligne codée en dur dit
+vrai par coïncidence. Elle ne devient fausse que chez quelqu'un qui a déplacé sa
+ruche — c'est-à-dire souvent quelqu'un dont le 7777 était déjà pris, donc
+quelqu'un qui verra un lien mort pointer vers **le service d'un autre**.
+
+**Une constante qui coïncide avec le défaut est un défaut invisible en
+développement et visible en clientèle.**
+
+### Pourquoi personne ne l'avait trouvé
+
+`demarrage.ts` est pur et abondamment éprouvé — treize cas, l'ordre des pièces,
+l'absence de shim, la forme de l'`argv`. Le seul cas qui touchait au rôle disait
+ceci :
+
+```ts
+for (const p of pieces(NODE)) expect(p.role.length, p.nom).toBeGreaterThan(10);
+```
+
+Il mesure qu'une phrase EXISTE, jamais qu'elle est VRAIE. Un banc peut être
+dense, précis, et laisser nue la seule chose que l'utilisateur lit.
+
+### Le piège de la correction elle-même
+
+`HIVE_PORT=0` est accepté volontairement — « tire-m'en un au hasard », et les
+bancs de la ruche s'en servent. Passer ce zéro au gabarit rendait
+`http://127.0.0.1:0` : **un lien mort remplaçant un lien mort**, et celui-là
+serait passé, puisque le banc du lanceur tourne précisément avec `HIVE_PORT=0`.
+
+On dit donc « adresse annoncée au démarrage » quand le port est 0. Corriger un
+mensonge par un autre plus discret n'est pas corriger.
+
+### La précédence, mesurée et non lue
+
+Le lanceur devait rejouer la règle de la Reine, qui lit son `.env` par
+`process.loadEnvFile`. Mesuré plutôt que supposé :
+
+```text
+$ CIBLE_A=de_l_environnement node -e "process.loadEnvFile('.env.mesure'); …"
+après loadEnvFile, CIBLE_A = de_l_environnement
+```
+
+`loadEnvFile` **n'écrase jamais** une variable déjà posée. La précédence est donc
+l'environnement au-dessus du fichier, et l'ordre du `{ ...fichier, ...env }` est
+la règle, pas une commodité. Inversé, on aurait le défaut d'origine déplacé d'un
+cran — donc plus rare, donc plus long à croire.
+
+Et le lanceur **lit** le `.env` sans le **charger** : `loadEnvFile` poserait le
+jeton, le secret de session et les clés d'API dans son environnement, dont tous
+les enfants héritent — l'écran Vite compris, qui n'a rien à en faire.
+`util.parseEnv` est le même analyseur sans l'effet de bord.
+
+### Comment il a été trouvé
+
+Pas par une relecture : en **montant une ruche pour autre chose**. Je sondais si
+le parcours d'entrée d'un invité était jouable, j'ai posé un port libre pour ne
+pas gêner, et la bannière a annoncé l'autre.
+
+**Un défaut d'affichage ne se trouve qu'en regardant l'affichage.** Aucune
+relecture de `demarrage.ts` ne me l'aurait donné : le code était cohérent avec
+lui-même.
+
+### La garde, et où elle vit
+
+La composition est éprouvée partout (`demarrage.test.ts`), mais un module juste
+appelé sans son argument reste une bannière fausse — c'est le § 9 tercenties. Le
+câblage est donc gardé sur le **vrai lanceur**, dans le seul cas qui lui impose
+un port connu :
+
+```text
+lanceur sans portAnnonce   1 failed  (« la bannière n'annonce pas le port imposé »)
+source restaurée par copie 37 passed (37)
+```
+
+Ce cas est POSIX seulement, comme tout `lanceur-ruche.test.ts` : le câblage est
+mesuré sur deux systèmes sur trois, et c'est dit plutôt qu'oublié.

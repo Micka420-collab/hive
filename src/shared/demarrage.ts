@@ -36,6 +36,7 @@
 // n'importe laquelle.
 
 import path from 'node:path';
+import { PORT_PAR_DEFAUT, portDepuisEnv } from './port.js';
 
 /** Un membre de l'essaim à démarrer. */
 export interface Piece {
@@ -90,7 +91,7 @@ export const ENTREES = {
  * celui du PATH, qui peut être un autre — et pas un shim, donc lançable sans
  * interpréteur sur les trois plateformes.
  */
-export function pieces(noeud: string, voeu: Voeu = {}): Piece[] {
+export function pieces(noeud: string, voeu: Voeu = {}, port: number = PORT_PAR_DEFAUT): Piece[] {
   const tout = voeu.hub === undefined && voeu.noeud === undefined && voeu.ecran === undefined;
   const veut = (q: boolean | undefined): boolean => (tout ? true : q === true);
 
@@ -100,7 +101,14 @@ export function pieces(noeud: string, voeu: Voeu = {}): Piece[] {
       nom: 'reine',
       bin: noeud,
       argv: [SCRIPTS.tsx, ENTREES.hub],
-      role: 'projets, tâches, journal · http://127.0.0.1:7777',
+      // Le port 0 veut dire « le système en choisira un » : personne ne le
+      // connaît encore, pas même la Reine. Écrire `http://127.0.0.1:0` serait
+      // remplacer un lien mort par un autre — on dit donc ce qu'on sait, à
+      // savoir qu'il faut attendre deux lignes.
+      role:
+        port === 0
+          ? 'projets, tâches, journal · adresse annoncée au démarrage'
+          : `projets, tâches, journal · http://127.0.0.1:${port}`,
     });
   }
   if (veut(voeu.noeud)) {
@@ -120,6 +128,40 @@ export function pieces(noeud: string, voeu: Voeu = {}): Piece[] {
     });
   }
   return liste;
+}
+
+/**
+ * Le port que la BANNIÈRE doit annoncer, sachant ce que dit le `.env` et ce que
+ * dit l'environnement.
+ *
+ * ─── POURQUOI CE CALCUL NE PEUT PAS ÊTRE DEVINÉ ────────────────────────────
+ *
+ * Le lanceur ne charge pas le `.env` — c'est la Reine qui le fait, dans son
+ * propre processus, par `process.loadEnvFile`. Le lanceur, lui, doit ANNONCER
+ * l'adresse avant que la Reine n'ait dit un mot. Il lui faut donc rejouer la
+ * règle exactement, et « exactement » a un piège :
+ *
+ *     `loadEnvFile` n'écrase JAMAIS une variable déjà posée dans
+ *     l'environnement.
+ *
+ * MESURÉ, pas lu dans une documentation : `CIBLE_A=de_l_environnement node`
+ * sur un `.env` qui dit `CIBLE_A=du_fichier` laisse `de_l_environnement`. La
+ * précédence est donc l'environnement AU-DESSUS du fichier, et l'ordre de ce
+ * `{ ...fichier, ...env }` est la règle elle-même, pas une commodité.
+ *
+ * Inversé, on retomberait dans le défaut d'origine d'un cran plus bas : la
+ * bannière annoncerait le port du fichier pendant que la ruche écoute celui de
+ * l'environnement. Plus rare, donc plus long à croire.
+ *
+ * Le reste — vide, faute de frappe, hors bornes — n'est PAS retranché ici :
+ * `portDepuisEnv` porte déjà cette garde, et la réécrire est précisément la
+ * divergence qui avait fait mentir `hive doctor`.
+ */
+export function portAnnonce(
+  fichier: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return portDepuisEnv({ ...fichier, ...env });
 }
 
 /**

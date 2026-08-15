@@ -170,6 +170,25 @@ describe('le lanceur de la ruche — vie et mort', () => {
             /* rien : la mort du hub EST le geste */
           },
         );
+        // ─── ET LA BANNIÈRE ANNONCE CE PORT-LÀ ──────────────────────────────
+        //
+        // C'est la garde de CÂBLAGE, et elle vit ici parce que ce cas est le
+        // seul qui impose un port CONNU au vrai lanceur. `demarrage.ts` sait
+        // composer la bonne ligne ; ce qu'il ne peut pas prouver, c'est que
+        // `ruche.mjs` la lui demande. Le port était écrit en dur, et un module
+        // juste appelé sans son argument reste une bannière fausse (§ 9
+        // tercenties : un vert ne prouve pas que la mesure a mordu).
+        //
+        // Le port vient d'un `listen(0)` : jamais 7777, donc l'égalité
+        // départage sans ambiguïté. Sur le code d'avant, cette ligne annonçait
+        // 7777 quoi qu'il arrive.
+        //
+        // POSIX seulement, comme tout ce fichier — c'est dit, pas oublié : le
+        // câblage est mesuré sur deux systèmes sur trois, et la composition,
+        // elle, l'est partout par `demarrage.test.ts`.
+        expect(r.sortie, 'la bannière n’annonce pas le port imposé').toContain(
+          `http://127.0.0.1:${porte}`,
+        );
         expect(r.sortie).toContain('arrêté');
         expect(r.code, `une ruche amputée n’est pas un succès :\n${r.sortie}`).not.toBe(0);
       } finally {

@@ -30,9 +30,14 @@ import { spawn } from 'node:child_process';
 // ne traite pas comme un module Node — les globales du navigateur n'y sont pas
 // déclarées, et `no-undef` a raison de le dire.
 import { setTimeout as differer } from 'node:timers';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// `parseEnv` est LE lecteur de `.env` de Node — celui-là même qui sert à
+// `--env-file` et à `process.loadEnvFile`. On le prend plutôt que d'écrire un
+// troisième analyseur : les guillemets, les lignes vides et les `#` s'y traitent
+// déjà, et exactement comme la Reine les traitera.
+import { parseEnv } from 'node:util';
 import { exigerAmorce } from './amorce.mjs';
 
 // `fileURLToPath`, jamais `.pathname` : sous Windows ce dernier rend `/D:/…`,
@@ -64,12 +69,41 @@ const {
   entreesAbsentes,
   largeurEtiquettes,
   pieces,
+  portAnnonce,
   prefixe,
   reliquat,
   voeuDepuisArgv,
 } = await import('../src/shared/demarrage.ts');
 
-const liste = pieces(process.execPath, voeuDepuisArgv(process.argv.slice(2)));
+// ─── OÙ LA RUCHE ÉCOUTE, ET COMMENT ON LE SAIT AVANT ELLE ────────────────────
+//
+// La bannière annonçait `http://127.0.0.1:7777` ÉCRIT EN DUR. Mesuré sur une
+// ruche vivante dont le `.env` disait `HIVE_PORT=7911`, la sortie de démarrage
+// se contredisait à cinq lignes d'intervalle :
+//
+//     reine  projets, tâches, journal · http://127.0.0.1:7777   ← ici
+//     reine │    Dashboard : http://127.0.0.1:7911              ← la Reine
+//
+// `:7911` rendait 200, `:7777` refusait la connexion. La grande ligne — celle
+// qu'on lit — était la fausse.
+//
+// On LIT donc le `.env`, sans le CHARGER : `loadEnvFile` poserait le jeton, le
+// secret de session et les clés d'API dans l'environnement de ce processus, que
+// TOUS les enfants héritent — l'écran Vite compris, qui n'a rien à en faire. Le
+// lanceur n'a besoin que d'un numéro de port.
+let envFichier = {};
+try {
+  envFichier = parseEnv(readFileSync(path.join(RACINE, '.env'), 'utf8'));
+} catch {
+  // Pas de `.env`, ou illisible : le défaut fera l'affaire, et la Reine dira
+  // elle-même ce qui manque. Ce n'est pas au lanceur de refuser de lancer.
+}
+
+const liste = pieces(
+  process.execPath,
+  voeuDepuisArgv(process.argv.slice(2)),
+  portAnnonce(envFichier),
+);
 
 // ─── Ce qui manque se dit AVANT de lancer quoi que ce soit ────────────────────
 //
