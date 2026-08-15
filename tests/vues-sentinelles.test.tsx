@@ -69,6 +69,7 @@ import {
   fetchApercu,
   fetchChantiers,
   fetchEssaim,
+  fetchCles,
   fetchProjectBalance,
   setProjectPlafond,
   fetchWorkflows,
@@ -2202,6 +2203,216 @@ describe('les sentinelles du balayage du soir', () => {
       'la légende, elle, nomme bien les QUATRE postes',
     ).toBe(4);
   });
+  // ─── L'ÉCRAN QUI DISTRIBUE L'AUTORITÉ ──────────────────────────────────────
+  //
+  // Le balayage COMPLET d'`Intendance.tsx` (38 mutations candidates, toutes
+  // jouées) a laissé six lignes nues, mesurées survivantes de la suite ENTIÈRE.
+  // Quatre d'entre elles vivent dans le tableau des membres — celui où l'on
+  // donne et retire le droit de démarrer, éteindre et effacer des machines.
+  const intendance = async (
+    membres: readonly { id: string; displayName: string; email: string; role: string }[],
+    moiId = 'u-moi',
+  ): Promise<HTMLElement> => {
+    vi.mocked(fetchMembres).mockResolvedValue({
+      membres,
+      admins: membres.filter((m) => m.role === 'admin').length,
+      inscription: { mode: 'ouverte', avertissement: '' },
+    } as never);
+    return monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { id: moiId, displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+  };
+  const ligneDeNom = (dom: HTMLElement, nom: string): Element | undefined =>
+    [...dom.querySelectorAll('.in-table tbody tr')].find((l) =>
+      (l.textContent ?? '').includes(nom),
+    );
+
+  it('INTENDANCE : le BADGE de rôle dit le rôle qu’on a, pas l’autre', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {role === 'admin' ? t('administrateur') : t('membre')}
+    //
+    // Mutée en `!==`, les deux libellés s'échangent : chaque administrateur est
+    // annoncé « membre » et chaque membre « administrateur ». Sur l'écran qui
+    // sert précisément à savoir QUI détient l'autorité, la colonne qui le dit
+    // ment sur toutes les lignes à la fois — et rien ne le trahit, puisque
+    // l'écran reste parfaitement cohérent avec lui-même.
+    const dom = await intendance([
+      { id: 'u-alice', displayName: 'Alice', email: 'a@x', role: 'admin' },
+      { id: 'u-bob', displayName: 'Bob', email: 'b@x', role: 'membre' },
+    ]);
+    const badge = (nom: string): string =>
+      ligneDeNom(dom, nom)?.querySelector('.in-role')?.textContent ?? '';
+
+    expect(badge('Alice'), 'une administratrice n’est pas annoncée comme telle').toBe(
+      'administrateur',
+    );
+    expect(badge('Bob'), 'un membre est annoncé administrateur').toBe('membre');
+  });
+
+  it('INTENDANCE : « vous » se pose sur VOTRE ligne, jamais sur celle des autres', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     const moi = m.id === moiId;
+    //
+    // Mutée en `!==`, le repère « vous » se pose sur TOUTES les autres lignes
+    // et disparaît de la sienne. C'est le repère qu'on cherche avant de cliquer
+    // sur un geste qui retire un droit : se tromper de ligne ici, c'est se
+    // retirer soi-même l'intendance en croyant la retirer à quelqu'un d'autre.
+    const dom = await intendance(
+      [
+        { id: 'u-moi', displayName: 'Gardienne', email: 'g@x', role: 'admin' },
+        { id: 'u-bob', displayName: 'Bob', email: 'b@x', role: 'membre' },
+      ],
+      'u-moi',
+    );
+    expect(
+      ligneDeNom(dom, 'Gardienne')?.querySelector('.in-moi'),
+      'ma propre ligne ne porte pas « vous »',
+    ).toBeTruthy();
+    expect(
+      ligneDeNom(dom, 'Bob')?.querySelector('.in-moi'),
+      'la ligne d’un autre porte « vous »',
+    ).toBeNull();
+  });
+
+  it('INTENDANCE : le bouton ANNONCE ce qu’il va faire, pas le contraire', async () => {
+    // ─── LA GARDE NUE, ET LA PLUS LOURDE DU FICHIER ────────────────────────
+    //
+    //     const cible: Role = role === 'admin' ? 'membre' : 'admin';   (défendue)
+    //     …
+    //     {busy === m.id ? '…' : cible === 'admin' ? t('Nommer administrateur')
+    //                                              : t('Rendre membre')}
+    //
+    // `cible` décide de l'action ET du libellé. La première moitié est déjà
+    // défendue ; la SECONDE était nue. Mutée en `!==`, le calcul de `cible` ne
+    // bouge pas — le geste fait toujours la bonne chose — mais le bouton et son
+    // infobulle annoncent l'INVERSE : sur un membre, il propose « Rendre
+    // membre » et promeut ; sur un administrateur, il propose « Nommer
+    // administrateur » et rétrograde.
+    //
+    // C'est le pire des deux mondes : un écran qui fait ce qu'il faut en
+    // disant le contraire apprend à ne plus lire les boutons.
+    const dom = await intendance([
+      { id: 'u-alice', displayName: 'Alice', email: 'a@x', role: 'admin' },
+      { id: 'u-bob', displayName: 'Bob', email: 'b@x', role: 'membre' },
+    ]);
+    const geste = (nom: string): Element | null | undefined =>
+      ligneDeNom(dom, nom)?.querySelector('.in-geste');
+
+    // Sur un MEMBRE, le geste disponible est la promotion.
+    expect(geste('Bob')?.textContent, 'le geste offert à un membre n’est pas la promotion').toBe(
+      'Nommer administrateur',
+    );
+    expect(
+      geste('Bob')?.getAttribute('title') ?? '',
+      'l’infobulle d’une promotion ne décrit pas ce qu’elle donne',
+    ).toContain('Donner le droit');
+
+    // Sur une ADMINISTRATRICE, c'est le retrait.
+    expect(
+      geste('Alice')?.textContent,
+      'le geste offert à une administratrice n’est pas le retrait',
+    ).toBe('Rendre membre');
+    expect(
+      geste('Alice')?.getAttribute('title') ?? '',
+      'l’infobulle d’un retrait ne dit pas ce qu’elle retire',
+    ).toContain('Retirer l’accès');
+  });
+
+  it('INTENDANCE : le compte à rebours d’effacement s’affiche JUSQU’AU DERNIER JOUR', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {s.joursAvantSuppression >= 0 && ( ⏳ … j avant effacement )}
+    //
+    // `-1` veut dire « cette machine n'est pas concernée » (api.ts l. 1233) ;
+    // `0` veut dire « elle part aujourd'hui ». Mutée en `>`, le zéro disparaît :
+    // le DERNIER avertissement avant un effacement définitif est justement celui
+    // qu'on n'affiche plus. Mutée en `||`, le sablier se colle aux machines qui
+    // ne risquent rien, et un avertissement permanent ne s'avertit plus.
+    const avec = (jours: number): Promise<HTMLElement> => {
+      vi.mocked(fetchServeurs).mockResolvedValue({
+        vue: { total: 1, parEtat: {}, facturables: 0, bientotSupprimes: [] },
+        serveurs: [
+          {
+            id: 'srv-1',
+            projet: 'Rucher',
+            etat: 'arrete',
+            gabarit: 'petit',
+            refMachine: null,
+            motif: null,
+            transitions: [],
+            joursAvantSuppression: jours,
+          },
+        ],
+        fournisseur: 'manuel',
+        retentionJours: 30,
+        serveursMax: 8,
+      } as never);
+      return monter(
+        <Intendance
+          {...({
+            snapshot: instantane(),
+            refreshTick: 0,
+            user: { id: 'u-moi', displayName: 'gardienne', role: 'admin' },
+          } as unknown as ViewProps)}
+        />,
+      );
+    };
+    const sablier = (dom: HTMLElement): string =>
+      dom.querySelector('.in-retention')?.textContent ?? '';
+
+    expect(sablier(await avec(3)), 'un sursis de 3 jours ne s’annonce pas').toContain('3');
+    expect(sablier(await avec(0)), 'le DERNIER jour avant effacement ne s’annonce plus').toContain(
+      '0',
+    );
+    expect(sablier(await avec(-1)), 'une machine hors sursis porte un compte à rebours').toBe('');
+  });
+
+  it('INTENDANCE : un billet MORT se voit comme mort, pas comme vivant', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     <li className={b.etat === 'vivant' ? '' : 'in-cle-morte'}>
+    //
+    // Mutée en `!==`, l'habit s'inverse : les billets vivants sont barrés, les
+    // révoqués ont l'air valides. Un billet est une clé d'entrée dans la ruche —
+    // croire morte celle qui ouvre encore, c'est laisser une porte qu'on pense
+    // fermée.
+    vi.mocked(fetchCles).mockResolvedValue({
+      noeuds: [],
+      billets: [
+        { id: 'b-vivant', label: 'Le vivant', etat: 'vivant', usesLeft: 2, usesTotal: 3 },
+        { id: 'b-mort', label: 'Le révoqué', etat: 'revoque', usesLeft: 0, usesTotal: 3 },
+      ],
+    } as never);
+    const dom = await monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { id: 'u-moi', displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+    const billet = (nom: string): Element | undefined =>
+      [...dom.querySelectorAll('.in-cles li')].find((l) => (l.textContent ?? '').includes(nom));
+
+    expect(billet('Le vivant'), 'le billet vivant est absent de la liste').toBeTruthy();
+    expect(
+      billet('Le vivant')?.className,
+      'un billet qui ouvre encore est montré comme mort',
+    ).not.toContain('in-cle-morte');
+    expect(billet('Le révoqué')?.className, 'un billet révoqué est montré comme vivant').toContain(
+      'in-cle-morte',
+    );
+  });
+
   it('INTENDANCE : le « … » ne se pose que sur la ligne qu’on vient de toucher', async () => {
     // `busy === m.id` mutée en `!==` retourne l'écran : la ligne qu'on vient de
     // cliquer retrouve son libellé, et TOUTES LES AUTRES affichent « … ».

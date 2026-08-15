@@ -7850,3 +7850,86 @@ DÉJÀ vue quand on regarde, donc aucune entrée locale ne distingue une attente
 bornée d'une attente nulle. Il ne mordrait que là où la course existe. Ce n'est
 pas une équivalence vraie — c'est une équivalence SUR CETTE PLATEFORME, et la
 nuance est exactement celle que le défaut vient d'illustrer.
+
+---
+
+## Intendance : l'écran qui distribue l'autorité, balayé et défendu
+
+Deuxième fichier de `dashboard/src/views` passé à l'instrument à deux passes
+(tâche #87). `Intendance.tsx` administre les membres, les clés, les billets et
+les machines — c'est là qu'on donne et qu'on retire le droit de démarrer,
+éteindre et effacer.
+
+### Le relevé
+
+```text
+38 mutations candidates sur tout le fichier
+  12 tuées par les bancs qui touchent le fichier
+  26 survivantes de la passe rapide
+```
+
+Ajouter `cles-ecran` et `serveurs-endpoint` à la passe rapide n'a rien tué de
+plus : ces bancs ne montent pas la vue. La passe rapide d'`Intendance` se réduit
+donc à `vues-sentinelles`, et l'écart avec `Balance` (36 tuées sur 39) mesure
+exactement la dette de la tâche #87.
+
+**Huit** survivantes ont été rejouées sur la suite ENTIÈRE — celles qu'on
+comptait défendre, pour pouvoir dire « nue » à bon droit plutôt que de le
+supposer. Deux étaient tuées ailleurs, **six étaient nues**.
+
+### Ce qui était nu, et ce que ça coûtait
+
+**Le badge de rôle.** `{role === 'admin' ? 'administrateur' : 'membre'}` muté :
+chaque administrateur est annoncé « membre » et chaque membre
+« administrateur ». Sur l'écran qui sert précisément à savoir qui détient
+l'autorité, la colonne qui le dit ment sur toutes les lignes — et rien ne le
+trahit, puisque l'écran reste cohérent avec lui-même.
+
+**Le repère « vous ».** `const moi = m.id === moiId` muté : le repère se pose
+sur toutes les AUTRES lignes et disparaît de la sienne. C'est le repère qu'on
+cherche avant de cliquer sur un geste qui retire un droit.
+
+**Le libellé du geste, et son infobulle.** `cible` décide de l'action ET du
+texte. La première moitié était déjà défendue ; la seconde était nue. Mutée, le
+calcul ne bouge pas — le geste fait toujours la bonne chose — mais le bouton
+annonce l'INVERSE : sur un membre il propose « Rendre membre » et promeut ; sur
+un administrateur il propose « Nommer administrateur » et rétrograde. Un écran
+qui fait ce qu'il faut en disant le contraire apprend à ne plus lire les
+boutons.
+
+**Le compte à rebours d'effacement.** `joursAvantSuppression >= 0` : `-1`
+signifie « pas concernée », `0` signifie « elle part aujourd'hui ». Muté en `>`,
+le zéro disparaît — le DERNIER avertissement avant un effacement définitif est
+justement celui qu'on n'affiche plus.
+
+**L'habit d'un billet mort.** Muté, les billets vivants sont barrés et les
+révoqués ont l'air valides. Un billet est une clé d'entrée : croire morte celle
+qui ouvre encore, c'est laisser une porte qu'on pense fermée.
+
+### Rejeu, verdict affiché
+
+```text
+role === 'admin'          → !==   1 failed  (« une administratrice n'est pas annoncée comme telle »)
+m.id === moiId            → !==   1 failed  (« ma propre ligne ne porte pas “vous” »)
+cible === 'admin' (texte) → !==   1 failed  (« le geste offert à un membre n'est pas la promotion »)
+cible === 'admin' (titre) → !==   1 failed  (« l'infobulle ne décrit pas ce qu'elle donne »)
+joursAvantSuppression >= → >      1 failed  (« le DERNIER jour ne s'annonce plus »)
+joursAvantSuppression && → ||     1 failed  (« un sursis de 3 jours ne s'annonce pas »)
+b.etat === 'vivant'       → !==   1 failed  (« un billet qui ouvre encore est montré comme mort »)
+source saine, restaurée par copie  56 passed (56)
+```
+
+### Ce qui reste, chiffré
+
+Vingt survivantes de la passe rapide n'ont pas encore été rejouées sur la suite
+entière : aucun verdict n'est porté sur elles. Et l'inventaire complet des vues
+est désormais mesuré, fichier par fichier :
+
+```text
+Projets 143 · Miellerie 126 · Cerveau 50 · Essaim 46 · Santé 39 · Balance 39 (0 nue)
+Intendance 38 · Chronique 34 · Reine 24 · shared 22 · Chantiers 21 · …
+```
+
+`Cerveau.tsx` demandera un traitement à part : une bonne moitié de ses
+candidates vit dans la boucle du canevas, hors d'atteinte du banc — et c'est
+mesuré (`tests/canevas-hors-portee.test.tsx`).
