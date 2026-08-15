@@ -18,8 +18,14 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `34a6eb7`, 15 août 2026, 09 h 15)
+## A. Le code tient — ✅ mesuré (arbre `d5fcdff`, 15 août 2026, 09 h 15)
 
+> **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
+> peut pas contenir son propre condensé : le stamper puis rectifier le commit
+> change le condensé qu'on vient d'écrire. Le hash ci-dessus est donc celui du
+> commit qui PORTE le code mesuré ; ce commit-ci ne fait que l'inscrire. Une
+> tentative de « corriger » cet écart le recréerait à l'identique.
+>
 > **UN TABLEAU DATÉ DOIT DIRE QU'IL EST DATÉ.** Cette section annonçait 3900
 > bancs, mesurés la veille sur l'arbre `cf84422`. Le chiffre était juste ce
 > jour-là et faux le lendemain — c'est-à-dire un badge écrit de tête avec un
