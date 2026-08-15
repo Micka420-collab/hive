@@ -186,6 +186,48 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
     ).toEqual([]);
   });
 
+  it('LES DEUX ESSAIS DE SEUIL MÈNENT LE MÊME PARCOURS', () => {
+    // ─── LA DIVERGENCE QUE CETTE GARDE FERME AVANT QU'ELLE N'ARRIVE ────────
+    //
+    // Les deux essais d'installation s'arrêtaient à « la ruche répond ». Ils
+    // vont maintenant jusqu'à « j'ouvre le tableau, je crée mon premier
+    // projet » — les deux pas que le point de sortie classait sans aucune
+    // mesure.
+    //
+    // Ces deux pas sont en Node, PARTAGÉS, précisément parce que ce fichier
+    // existe : les installeurs avaient déjà divergé en silence, et les réécrire
+    // dans les deux langages aurait refait le même trou en plus cher.
+    //
+    // Mais partager l'instrument ne suffit pas — encore faut-il que les deux
+    // s'en servent. Le jour où l'un des deux essais perdrait son appel, sa
+    // jambe resterait VERTE en ne mesurant plus que trois pas sur cinq. C'est
+    // la forme exacte du défaut d'origine : une couverture qui rétrécit sans
+    // que rien ne le dise.
+    const INSTRUMENT = 'essai-parcours.mjs';
+    const essaiPosix = lire('scripts/essai-installation.sh');
+    const essaiWindows = lire('scripts/essai-installation.ps1');
+
+    // Une MENTION ne compte pas, ici non plus : le nom apparaît dans les
+    // commentaires des deux fichiers. On exige la forme qui LANCE.
+    expect(
+      new RegExp(`node[^\\n]*${INSTRUMENT.replace('.', '\\.')}`).test(sansCommentaires(essaiPosix)),
+      'scripts/essai-installation.sh ne lance plus le parcours : sa jambe mesure 3 pas sur 5',
+    ).toBe(true);
+    expect(
+      new RegExp(`\\$parcours|${INSTRUMENT.replace('.', '\\.')}`).test(
+        sansCommentaires(essaiWindows),
+      ),
+      'scripts/essai-installation.ps1 ne lance plus le parcours : sa jambe mesure 3 pas sur 5',
+    ).toBe(true);
+
+    // Et l'instrument lui-même doit exister — une garde qui vérifie qu'on
+    // appelle un fichier absent ne garde rien.
+    expect(
+      lire(`scripts/${INSTRUMENT}`).length,
+      'l’instrument du parcours est vide',
+    ).toBeGreaterThan(0);
+  });
+
   it('et TOUT réglage lu est nommé dans la doc d’installation', () => {
     // ─── UN CAS QUI A FAILLI ÊTRE DU DÉCOR ─────────────────────────────────
     //

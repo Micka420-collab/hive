@@ -26,9 +26,23 @@
 #                                                une fuite, pas un réglage
 #   3. la ruche RÉPOND sur /api/pulse          — « installé » ne veut rien dire
 #                                                si rien ne démarre
+#   4. le TABLEAU est servi et charge          — « la ruche répond » n'est pas
+#                                                « je peux m'en servir »
+#   5. je CRÉE MON PREMIER PROJET, et le       — le premier geste réel d'un
+#      tableau le voit                           arrivant, jamais mesuré avant
 #
 # Le troisième est le seul qui ne peut pas être simulé : il faut que le code
 # tourne. C'est lui qui distingue « les fichiers sont là » de « ça marche ».
+#
+# ─── LES DEUX DERNIERS SONT NÉS D'UN AVEU ────────────────────────────────────
+#
+# Le point de sortie du 15 août classait en 3c, sans arrondir : « je n'ai PAS de
+# mesure bout-en-bout j'installe → j'ouvre le tableau → je crée mon premier
+# projet. Des morceaux sont éprouvés, le PARCOURS ne l'est pas. »
+#
+# Ils sont en Node (`scripts/essai-parcours.mjs`) et PARTAGÉS avec l'essai
+# Windows : les réécrire dans les deux langages aurait refabriqué la divergence
+# que `tests/installeurs-jumeaux.test.ts` avait trouvée entre les installeurs.
 #
 # ─── USAGE ───────────────────────────────────────────────────────────────────
 #
@@ -40,6 +54,14 @@
 # qui n'est pas celle qu'on livre.
 
 set -eu
+
+# ─── OÙ EST LE DÉPÔT, VU DE CE SCRIPT ────────────────────────────────────────
+#
+# Déduit de `$0`, pas du répertoire courant : l'essai s'installe DANS un dossier
+# temporaire et le `cd` d'un pas ne doit pas décider où l'on retrouve
+# l'instrument du pas suivant. `CDPATH=` désarme un `cd` qui partirait ailleurs
+# parce que l'utilisateur a un CDPATH.
+RACINE_DEPOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 DEPOT_ESSAI=""
 REF_ESSAI="main"
@@ -240,6 +262,16 @@ while [ "$i" -lt 60 ]; do
   if curl -fsS -m 2 -H "x-hive-token: $JETON" \
        "http://127.0.0.1:$PORT/api/pulse" >/dev/null 2>&1; then
     echo "✔ 3/3 — la ruche répond sur :$PORT après ${i}s"
+    # ─── ET MAINTENANT LE PARCOURS ────────────────────────────────────────
+    #
+    # « La ruche répond » n'est pas « je peux m'en servir ». Les deux pas
+    # suivants — j'ouvre le tableau, je crée mon premier projet — sont en Node
+    # et PARTAGÉS avec l'essai Windows : les réécrire dans les deux langages
+    # aurait refabriqué la divergence que `installeurs-jumeaux` a trouvée.
+    #
+    # La racine est passée en argument ; le JETON, jamais. Il est relu là-bas
+    # dans le `.env` que l'installeur vient d'écrire.
+    node "$RACINE_DEPOT/scripts/essai-parcours.mjs" --racine "$CIBLE" || exit 1
     exit 0
   fi
   i=$((i + 1))

@@ -23,9 +23,18 @@
     2. le `.env` est écrit, et c'est LE vrai (port + jeton)
     3. la ruche RÉPOND sur /api/pulse  — « installé » ne veut rien dire si rien
                                          ne démarre
+    4. le TABLEAU est servi et charge  — « la ruche répond » n'est pas « je peux
+                                         m'en servir »
+    5. je CRÉE MON PREMIER PROJET, et le tableau le voit — le premier geste réel
+                                         d'un arrivant, jamais mesuré avant
 
   Le troisième est le seul qui ne puisse pas être simulé : il faut que le code
   tourne.
+
+  Les deux derniers sont en Node (`scripts/essai-parcours.mjs`) et PARTAGÉS avec
+  l'essai POSIX. Les réécrire ici, avec du JSON à analyser en PowerShell, aurait
+  refabriqué exactement la divergence que `tests/installeurs-jumeaux.test.ts`
+  avait trouvée entre les deux installeurs.
 
   ─── CE QU'IL N'AFFIRME PAS, ET POURQUOI ───────────────────────────────────
 
@@ -184,6 +193,20 @@ try {
         -Uri "http://127.0.0.1:$Port/api/pulse"
       if ($r.StatusCode -eq 200) {
         Write-Host "✔ 3/3 — la ruche répond sur :$Port après $i s"
+        # ─── ET MAINTENANT LE PARCOURS ────────────────────────────────────
+        #
+        # « La ruche répond » n'est pas « je peux m'en servir ». Les deux pas
+        # suivants — j'ouvre le tableau, je crée mon premier projet — sont en
+        # Node et PARTAGÉS avec l'essai POSIX. Les réécrire ici, avec du JSON à
+        # analyser en PowerShell, aurait refabriqué exactement la divergence
+        # que `tests/installeurs-jumeaux.test.ts` a trouvée entre les deux
+        # installeurs.
+        #
+        # La racine passe en argument ; le JETON, jamais — il est relu là-bas
+        # dans le .env que l'installeur vient d'écrire.
+        $parcours = Join-Path $PSScriptRoot 'essai-parcours.mjs'
+        & node.exe $parcours '--racine' $Cible
+        if ($LASTEXITCODE -ne 0) { exit 1 }
         exit 0
       }
     } catch {

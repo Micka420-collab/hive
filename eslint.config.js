@@ -27,7 +27,15 @@ export default tseslint.config(
     // justement la dépendance dont il constate l'absence.
     files: ['scripts/**/*.mjs', 'tests/**/*.mjs'],
     languageOptions: {
-      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+      // `fetch` est natif depuis Node 18 et le dépôt exige Node 24 — le déclarer
+      // ici est un constat, pas une permission. `scripts/essai-parcours.mjs` s'en
+      // sert pour interroger la ruche que l'installation vient de démarrer.
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+      },
     },
   },
 );
