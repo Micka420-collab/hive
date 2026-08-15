@@ -2326,6 +2326,121 @@ describe('les sentinelles du balayage du soir', () => {
     ).toContain('Retirer l’accès');
   });
 
+  // ─── LES MACHINES : QUATRE LIGNES NUES DU BALAYAGE COMPLET ────────────────
+  //
+  // `Intendance.tsx` est désormais mesuré en entier : 38 candidates, toutes
+  // jouées. Douze survivent à la suite ENTIÈRE, et celles-ci sont les plus
+  // lourdes — elles décident de la couleur d'un geste qui DÉTRUIT, du nom d'une
+  // machine, et du ton des tuiles qu'on lit en premier.
+  const machines = (
+    serveurs: readonly unknown[],
+    vue: Record<string, unknown> = {},
+  ): Promise<HTMLElement> => {
+    vi.mocked(fetchServeurs).mockResolvedValue({
+      vue: {
+        total: 1,
+        parEtat: { pret: 0, echoue: 0 },
+        facturables: 0,
+        bientotSupprimes: [],
+        ...vue,
+      },
+      serveurs,
+      fournisseur: 'manuel',
+      retentionJours: 30,
+      serveursMax: 8,
+    } as never);
+    return monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { id: 'u-moi', displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+  };
+  const MACHINE = {
+    id: 'srv-1',
+    projet: 'Rucher',
+    etat: 'arrete',
+    gabarit: 'petit',
+    refMachine: null,
+    motif: null,
+    transitions: [],
+    joursAvantSuppression: -1,
+  };
+
+  it('INTENDANCE : SEUL le geste qui détruit porte l’habit du danger', async () => {
+    // ─── LA GARDE NUE, ET LA PLUS LOURDE DES DOUZE ─────────────────────────
+    //
+    //     className={`btn ghost in-geste${vers === 'supprime' ? ' danger' : ''}`}
+    //
+    // La couleur est le DERNIER avertissement avant un acte irréversible — la
+    // confirmation, elle, vient après le clic. Mutée en `!==`, l'habit rouge
+    // passe sur tous les gestes ANODINS (démarrer, arrêter) et quitte celui qui
+    // efface définitivement une machine.
+    //
+    // Deux dégâts d'un coup : on apprend à cliquer à travers du rouge, et le
+    // seul geste qui méritait qu'on hésite ne se distingue plus.
+    // `transitions` porte les états VISÉS, et le bouton s'intitule
+    // « → <état> » (`ETAT_LABEL` : supprime ⇒ « supprimé », pret ⇒ « prêt »).
+    const dom = await machines([{ ...MACHINE, transitions: ['pret', 'supprime'] }]);
+    const geste = (libelle: string): Element | undefined =>
+      [...dom.querySelectorAll('.in-geste')].find((b) => (b.textContent ?? '').includes(libelle));
+
+    expect(geste('supprimé'), 'le geste d’effacement est absent du banc').toBeTruthy();
+    expect(geste('prêt'), 'le geste anodin est absent du banc').toBeTruthy();
+    expect(
+      geste('supprimé')?.className,
+      'le geste qui EFFACE ne porte pas l’habit du danger',
+    ).toContain('danger');
+    expect(geste('prêt')?.className, 'un geste anodin porte l’habit du danger').not.toContain(
+      'danger',
+    );
+  });
+
+  it('INTENDANCE : une machine dont le projet vit ne s’annonce pas « projet effacé »', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     <span className="in-projet">{s.projet || t('(projet effacé)')}</span>
+    //
+    // Mutée en `&&`, la logique s'inverse : TOUTE machine dont le projet existe
+    // affiche « (projet effacé) », et celle dont le projet a vraiment disparu
+    // n'affiche rien du tout. Sur la table où l'on décide quelle machine
+    // éteindre, plus rien ne dit à quoi elle sert.
+    const vivant = await machines([MACHINE]);
+    expect(
+      vivant.querySelector('.in-projet')?.textContent,
+      'une machine perd le nom de son projet',
+    ).toBe('Rucher');
+
+    // Le repli garde son sens : un projet vraiment disparu se dit.
+    const orphelin = await machines([{ ...MACHINE, projet: '' }]);
+    expect(
+      orphelin.querySelector('.in-projet')?.textContent,
+      'une machine orpheline ne le dit pas',
+    ).toContain('effacé');
+  });
+
+  it('INTENDANCE : une tuile ne s’allume QUE s’il y a quelque chose à voir', async () => {
+    // ─── DEUX GARDES NUES, UN SEUL CAS ─────────────────────────────────────
+    //
+    //     ton={vue.facturables > 0 ? 'chaud' : 'calme'}
+    //     ton={vue.parEtat.echoue > 0 ? 'chaud' : 'calme'}
+    //
+    // Mutées en `>=`, les deux tuiles sont chaudes EN PERMANENCE — y compris
+    // sur une ruche qui ne facture rien et n'a aucun échec. Une alerte qui ne
+    // s'éteint jamais cesse d'être lue, et le jour où elle a raison, elle
+    // ressemble à la veille.
+    const calme = await machines([MACHINE]);
+    const tons = (dom: HTMLElement): string =>
+      [...dom.querySelectorAll('.in-tuile')].map((t) => t.className).join(' | ');
+    expect(tons(calme), 'une ruche au repos allume ses tuiles').not.toContain('chaud');
+
+    const vif = await machines([MACHINE], { facturables: 2, parEtat: { pret: 1, echoue: 3 } });
+    expect(tons(vif), 'une ruche qui facture et échoue n’allume rien').toContain('chaud');
+  });
+
   it('INTENDANCE : le compte à rebours d’effacement s’affiche JUSQU’AU DERNIER JOUR', async () => {
     // ─── LA GARDE NUE ──────────────────────────────────────────────────────
     //

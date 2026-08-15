@@ -8011,3 +8011,71 @@ capable de lire les plages de commentaires reste un lot à part : il touche
 l'instrument qui juge tout le reste, donc il demande sa propre mutation et un
 rejeu de bout en bout. En attendant, la contrainte est portée par la prose — et
 elle est désormais vérifiée à chaque exécution.
+
+---
+
+## Intendance entièrement mesurée : 38 candidates, toutes jouées, 12 nues
+
+Les vingt survivantes que la passe rapide avait laissées sans verdict sont
+rejouées. `Intendance.tsx` est le deuxième fichier des vues dont **toutes** les
+mutations candidates ont un verdict.
+
+### Le relevé, complet
+
+```text
+38 mutations candidates sur tout le fichier
+  21 tuées par `vues-sentinelles` (passe rapide)
+   5 tuées par un autre banc (passe lente)
+  12 NUES — survivantes de la suite ENTIÈRE
+```
+
+Le rebalayage rapide, refait sur l'état courant, montre au passage ce que le lot
+précédent a rapporté : les six bancs écrits alors ont fait tomber les
+survivantes de 26 à 17.
+
+### Quatre nues fermées — les plus lourdes
+
+**L'habit du danger.** `vers === 'supprime' ? ' danger' : ''`. La couleur est le
+DERNIER avertissement avant un acte irréversible : la confirmation, elle, vient
+après le clic. Mutée en `!==`, le rouge passe sur tous les gestes anodins
+(démarrer, arrêter) et quitte celui qui efface définitivement une machine. Deux
+dégâts d'un coup : on apprend à cliquer à travers du rouge, et le seul geste qui
+méritait qu'on hésite ne se distingue plus.
+
+**Le nom du projet.** `{s.projet || t('(projet effacé)')}` mutée en `&&` inverse
+la logique : toute machine dont le projet EXISTE affiche « (projet effacé) », et
+celle dont le projet a vraiment disparu n'affiche rien. Sur la table où l'on
+décide quelle machine éteindre, plus rien ne dit à quoi elle sert.
+
+**Les deux tuiles.** `facturables > 0` et `echoue > 0` mutées en `>=` : les
+tuiles sont chaudes EN PERMANENCE, y compris sur une ruche qui ne facture rien
+et n'a aucun échec. Une alerte qui ne s'éteint jamais cesse d'être lue, et le
+jour où elle a raison, elle ressemble à la veille.
+
+### Rejeu, verdict affiché
+
+```text
+vers === 'supprime' → !==   1 failed  (« le geste qui EFFACE ne porte pas l'habit du danger »)
+s.projet || …       → &&    1 failed  (« une machine perd le nom de son projet »)
+facturables > 0     → >=    1 failed  (« une ruche au repos allume ses tuiles »)
+echoue > 0          → >=    1 failed  (« une ruche au repos allume ses tuiles »)
+source saine, restaurée par copie  59 passed (59)
+```
+
+### Les huit qui restent, nommées
+
+```text
+{s.motif && <small className="in-motif">…                     && → ||
+{s.etat === 'provisionnement' &&                              === → !==
+(billet === null ? (                                          === → !==
+{erreur && <span className="panel-error">…                    && → ||
+{note && <span className="muted-text">…                       && → ||
+{cles.error && <p className="panel-error">…                   && → ||
+{data.inscription.avertissement && (                          && → ||
+e instanceof Error → instanceof Object
+```
+
+Six sont de la même famille — `{x && <élément>}` muté en `||` rend un élément
+VIDE en permanence (React n'affiche rien pour `true`, mais bien la balise
+lorsqu'elle est rendue avec un contenu nul). Elles se fermeront ensemble, avec
+un banc qui vérifie qu'un bandeau sans message ne s'affiche pas.
