@@ -203,9 +203,23 @@ jobs:
         # n'existe que pour un déclenchement manuel, et une chaîne vide laisse
         # vitest décider. Le comportement ordinaire de la CI est donc inchangé,
         # et le plafond ne s'applique que lorsqu'on mesure exprès.
+        #
+        # ─── ET LA COUVERTURE, SUR UBUNTU SEULEMENT ─────────────────────────
+        #
+        # `vitest.config` porte un CLIQUET de couverture (voir son commentaire).
+        # Il ne mord que sous `--coverage` — sans ce drapeau, le seuil était
+        # écrit et jamais exercé, c'est-à-dire du décor. C'est exactement ce que
+        # le point 3e du point de sortie appelait « pas câblé ».
+        #
+        # Sur `ubuntu-latest` seulement, et pour la même raison que le badge :
+        # le pourcentage est le même partout, et l'instrumentation v8 coûte du
+        # temps qu'on ne paie pas trois fois pour un chiffre identique.
+        #
+        # Dans le MÊME pas que les tests, pas dans un second : rejouer la suite
+        # entière pour la mesurer doublerait la jambe la plus longue.
         env:
           HIVE_VITEST_FORKS: ${{ inputs.forks }}
-        run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json
+        run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json ${{ matrix.os == 'ubuntu-latest' && '--coverage' || '' }}
 
       # ─── LE COMPTE ANNONCÉ PAR LES BADGES ───────────────────────────────────
       #

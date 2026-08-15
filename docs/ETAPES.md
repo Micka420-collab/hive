@@ -8626,3 +8626,70 @@ atteint le port ; les DONNÉES, elles, restent gardées. Sur une ruche locale
 c'est sans conséquence ; sur une ruche exposée, cela dit « Hive tourne ici » à un
 visiteur non authentifié. Ce n'est pas le sujet de ce lot — c'est écrit dans le
 script, et ça reste ouvert.
+
+---
+
+## Point 3e : le seuil de couverture est câblé — et il a été vu rougir
+
+Le point de sortie le classait ainsi, et la formulation contenait déjà le
+critère : « 75,43 % de lignes, mesuré le 14 août et **pas remesuré depuis**.
+Sans cible qui rougit d'elle-même, "couvert" n'est pas un critère, c'est une
+anecdote. »
+
+### D'abord remesurer, ensuite seulement écrire un chiffre
+
+```text
+statements  75.81 %   (10803 / 14250)     branches   71.88 %   ( 7774 / 10814)
+functions   76.43 %   ( 2323 /  3039)     lines      76.97 %   ( 9484 / 12321)
+```
+
+Les lignes sont passées de 75,43 % à **76,97 %** en un jour — les lots du
+parcours, de l'entrée et du panneau d'invitation. Le chiffre du document était
+donc faux par défaut, pas par excès ; il n'en était pas moins périmé.
+
+### Il manquait DEUX choses, et n'en avoir qu'une aurait laissé du décor
+
+1. **Des seuils** dans `vitest.config`, posés **sur la mesure** et pas sur un
+   chiffre rond. Un seuil sous la mesure laisse éroder en silence, ce qui est
+   exactement ce qu'on veut interdire.
+2. **Une exécution qui les atteigne.** La CI lance `npm test` — sans
+   `--coverage`, les seuils n'auraient jamais été évalués. Écrits, jamais
+   exercés : la définition même du décor, et le mot « câblé » du point 3e
+   désignait précisément ce second morceau.
+
+Le drapeau est posé sur la jambe `ubuntu`, **dans le même pas que les tests** :
+rejouer la suite entière pour la mesurer aurait doublé la jambe la plus longue.
+Vérifié que le rapport JSON des badges est toujours écrit dans ce mode — les
+deux gardes tiennent en un seul passage.
+
+### Poser le seuil exactement sur la mesure est SÛR, et voici pourquoi
+
+Istanbul **tronque** au lieu d'arrondir : 2323/3039 vaut 76,4396 % et s'affiche
+« 76.43 ». La valeur écrite dans la config est donc toujours **≤ la vraie**,
+jamais au-dessus — vérifié sur les quatre dimensions. Sans cette propriété, un
+seuil posé sur l'affichage aurait pu rougir sur un arbre inchangé.
+
+### Le gate a été vu rougir AVANT d'être cru
+
+```text
+lines: 76.97 → 77.07
+ERROR: Coverage for lines (76.97%) does not meet global threshold (77.07%)
+CODE=1
+```
+
+### La règle, écrite à côté du chiffre
+
+**Ce seuil monte et ne descend pas.** S'il faut le baisser — un retrait de code
+bien couvert peut légitimement faire tomber le pourcentage — la raison s'écrit
+dans `vitest.config`, à la ligne. Le baisser en silence pour faire passer un lot
+rendrait l'anecdote à sa place de critère.
+
+### Ce que ce gate ne dit pas, et qu'il ne faut pas lui faire dire
+
+La couverture mesure ce qui est **exécuté**, jamais ce qui est **gardé** : une
+ligne traversée par un banc sans assertion y compte pour couverte. C'est
+précisément la raison d'être de la loupe. Les deux gates sont complémentaires,
+et le second ne remplace pas le premier — le lot d'aujourd'hui en est
+l'illustration : `InvitePanel.tsx` était largement « couvert » par les bancs qui
+montent le tableau, et la loupe y a trouvé **cinq lignes nues** sur le chemin
+qui remet la commande à l'invité.

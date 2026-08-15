@@ -136,6 +136,45 @@ export default defineConfig({
       exclude: ['**/*.d.ts', 'dashboard/src/main.tsx'],
       reporter: ['text-summary', 'json-summary'],
       reportsDirectory: 'coverage',
+      // ─── LE CLIQUET — un seuil qui ne descend jamais ────────────────────
+      //
+      // Le point de sortie classait ceci en 3e : « le seuil de couverture n'est
+      // pas câblé. 75,43 % mesuré le 14 août, jamais remesuré. Sans cible qui
+      // rougit d'elle-même, "couvert" n'est pas un critère, c'est une
+      // anecdote. »
+      //
+      // Les valeurs ci-dessous ne sont pas choisies : elles sont MESURÉES, le
+      // 15 août, sur l'arbre de ce lot —
+      //
+      //     statements  75.81 %   (10803 / 14250)
+      //     branches    71.88 %   ( 7774 / 10814)
+      //     functions   76.43 %   ( 2323 /  3039)
+      //     lines       76.97 %   ( 9484 / 12321)
+      //
+      // ─── POURQUOI EXACTEMENT LA MESURE, ET PAS UN CHIFFRE ROND ──────────
+      //
+      // Un seuil sous la mesure laisse de la place pour éroder EN SILENCE :
+      // c'est précisément ce qu'on veut interdire. Posé sur la mesure, il
+      // rougit dès qu'une ligne neuve arrive sans banc — et c'est le geste
+      // qu'on cherche à provoquer, pas un accident.
+      //
+      // Le poser exactement est SÛR parce qu'istanbul TRONQUE : 2323/3039 vaut
+      // 76,4396 % et s'affiche « 76.43 ». La valeur écrite ici est donc
+      // toujours ≤ la vraie, jamais au-dessus. (Vérifié sur les quatre.)
+      //
+      // ─── LA RÈGLE, ET LA SEULE FAÇON DE LA DESCENDRE ────────────────────
+      //
+      // Ce seuil MONTE avec la mesure et ne descend pas. S'il faut le baisser —
+      // un retrait de code bien couvert peut légitimement faire tomber le
+      // pourcentage — cela se fait avec la raison ÉCRITE ici même. Le baisser
+      // en silence pour faire passer un lot, c'est rendre l'anecdote à sa place
+      // de critère.
+      thresholds: {
+        statements: 75.81,
+        branches: 71.88,
+        functions: 76.43,
+        lines: 76.97,
+      },
     },
     // Le MÊME plafond que ci-dessus : c'est le hook qui monte le serveur et
     // efface l'arborescence, donc le travail lourd est ici. Les laisser

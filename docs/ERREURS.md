@@ -10432,3 +10432,71 @@ résultat**. La règle générale se resserre donc :
 
 > Toute mesure différentielle doit prouver **deux** choses avant de conclure —
 > que le point zéro est sain, et que la perturbation a bien eu lieu.
+
+---
+
+## 9 quindecicenties. Un seuil écrit et une commande qui ne l'atteint pas font deux moitiés de rien
+
+`vitest.config` portait un bloc `coverage` complet — fournisseur, périmètre,
+rapports — et **aucun `thresholds`**. Le point de sortie appelait ça « le seuil
+n'est pas câblé », et le mot était juste : il manquait le seuil.
+
+En l'ajoutant, j'ai failli m'arrêter là. Or la CI lance `npm test`, **sans
+`--coverage`** : les seuils auraient été présents dans le fichier, jamais
+évalués nulle part. Un lecteur du dépôt aurait vu un gate ; il n'y en aurait pas
+eu.
+
+### Les deux moitiés, et pourquoi aucune ne suffit
+
+| ce qu'on a                  | ce que ça vaut                                      |
+| --------------------------- | --------------------------------------------------- |
+| un seuil, pas d'exécution   | du décor — le fichier promet ce que rien ne vérifie |
+| une exécution, pas de seuil | une mesure — informative, mais elle ne barre rien   |
+| les deux                    | un gate                                             |
+
+C'est la même forme que le § 9 unnonagies (« rendre une garde CAPABLE et ne pas
+la BRANCHER, c'est l'avoir écrite pour soi ») — et le fait qu'elle revienne
+montre que le réflexe manquant n'est pas « écrire la garde » mais **remonter
+jusqu'à la commande qui la déclenche, et vérifier qu'elle existe**.
+
+### Le test qui départage, pour une garde d'outillage
+
+Une garde de code se mute. Un gate d'outillage, lui, se prouve en le faisant
+rougir SUR L'ARBRE SAIN — ici en montant le seuil d'un dixième :
+
+```text
+ERROR: Coverage for lines (76.97%) does not meet global threshold (77.07%)
+CODE=1
+```
+
+Sans ce geste, « le seuil est câblé » aurait été une phrase, pas un fait. Et il
+a fallu le faire APRÈS avoir ajouté `--coverage` à la commande : avant, monter
+le seuil n'aurait rien changé — le rouge serait venu de la config locale, pas du
+chemin que la CI emprunte.
+
+---
+
+## 9 sexdecicenties. Poser un seuil sur un pourcentage AFFICHÉ n'est sûr que si l'outil tronque
+
+Poser les seuils exactement sur la mesure est le choix qui n'autorise aucune
+érosion silencieuse. Mais il porte un piège arithmétique : si l'outil ARRONDIT,
+une vraie valeur de 75,8051 % s'affiche « 75.81 », et un seuil écrit à 75,81
+rougirait sur un arbre **inchangé**.
+
+Vérifié plutôt que supposé, sur les quatre dimensions :
+
+```text
+2323 / 3039 = 76,4396 %   affiché « 76.43 »   → istanbul TRONQUE
+9484 / 12321 = 76,9743 %  affiché « 76.97 »
+```
+
+La valeur affichée est donc toujours **≤ la vraie**, et le seuil posé dessus est
+sûr par construction.
+
+### La règle générale
+
+**Avant de poser une borne sur un nombre qu'on a lu, savoir comment il a été
+formaté.** Arrondi, troncature et affichage à N décimales ne se valent pas quand
+la borne est l'égalité. C'est un cas particulier d'une chose déjà consignée
+ailleurs : un chiffre qu'on recopie sans savoir d'où il vient est un chiffre
+qu'on ne mesure pas.

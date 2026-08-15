@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `5eb3131`, 15 août 2026, 09 h 40)
+## A. Le code tient — ✅ mesuré (arbre `90c1694`, 15 août 2026, 14 h 00)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -32,14 +32,15 @@
 > jour de retard. La date et l'arbre sont désormais dans le titre : un lecteur
 > peut vérifier si la mesure est encore la sienne.
 
-| Critère                  | Comment on le mesure                                     | Verdict                                            |
-| ------------------------ | -------------------------------------------------------- | -------------------------------------------------- |
-| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                     |
-| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                            |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4051** (4043 verts, 8 ignorés, **0 rouge**)   |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                      |
-| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                           |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 4 nus trouvés sur ce lot — 3 fermés, 1 consigné |
+| Critère                  | Comment on le mesure                                     | Verdict                                          |
+| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4071** (4063 verts, 8 ignorés, **0 rouge**) |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                    |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
+| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                 |
 
 - ⚠️ **CE QUE VALAIENT LES « RIEN DE NU » D'AVANT LE 15 AOÛT.** La loupe ne
   vérifiait pas que la suite était VERTE avant de muter. Sur une suite déjà
@@ -262,21 +263,46 @@ par un banc (`tests/couverture-reproductible.test.ts`, muté rouge : il lie le
 fournisseur déclaré au `provider` de `vitest.config.ts` et exige qu'il se
 résolve).
 
-**Mesure datée, depuis le fournisseur fraîchement installé (8 août 2026,
-arbre `1f0a71d` + ce lot) :**
+**Mesure datée (15 août 2026, arbre `90c1694` + ce lot) :**
 
-| Dimension    | Couverture  | Détail          |
-| ------------ | ----------- | --------------- |
-| Lignes       | **75,43 %** | 9 138 / 12 113  |
-| Branches     | 69,48 %     | 7 402 / 10 652  |
-| Fonctions    | 74,33 %     | 2 207 / 2 969   |
-| Instructions | 74,19 %     | 10 384 / 13 995 |
+| Dimension    | Couverture  | Détail          | 14 août |
+| ------------ | ----------- | --------------- | ------- |
+| Lignes       | **76,97 %** | 9 484 / 12 321  | 75,43 % |
+| Branches     | 71,88 %     | 7 774 / 10 814  | 69,48 % |
+| Fonctions    | 76,43 %     | 2 323 / 3 039   | 74,33 % |
+| Instructions | 75,81 %     | 10 803 / 14 250 | 74,19 % |
 
-**Aucun seuil de couverture n'est défini comme condition de sortie.** La
-couverture n'est pas un gate : elle se mesure (et le fait, maintenant, de façon
-reproductible), elle ne barre rien. Le verdict qui BARRE reste le balayage par
-mutation (`npm run loupe`), qui dit ce qui est GARDÉ là où la couverture ne dit
-que ce qui est EXÉCUTÉ.
+### ✅ LE SEUIL EST CÂBLÉ — un cliquet, mesuré et exercé
+
+C'était le dernier gate manquant du point de sortie (3e) : « sans cible qui
+rougit d'elle-même, "couvert" n'est pas un critère, c'est une anecdote ». Il
+manquait DEUX choses, et n'en avoir qu'une aurait laissé du décor :
+
+1. **des seuils** dans `vitest.config` — posés sur la mesure, pas sur un chiffre
+   rond. Un seuil sous la mesure laisse éroder en silence ;
+2. **une exécution** qui les atteigne. La CI lançait `npm test` sans
+   `--coverage` : le seuil aurait été écrit et jamais exercé. Le drapeau est
+   désormais posé sur la jambe `ubuntu`, dans le MÊME pas que les tests — le
+   rejouer entier pour le mesurer doublerait la jambe la plus longue.
+
+**Le gate a été vu rougir avant d'être cru** — seuil des lignes monté d'un
+dixième :
+
+```text
+ERROR: Coverage for lines (76.97%) does not meet global threshold (77.07%)
+CODE=1
+```
+
+**La règle : ce seuil MONTE et ne descend pas.** S'il faut le baisser — un
+retrait de code bien couvert peut légitimement faire tomber le pourcentage — la
+raison s'écrit dans `vitest.config`, à côté du chiffre. Le baisser en silence
+pour faire passer un lot rendrait l'anecdote à sa place de critère.
+
+- ⚠️ **Ce que ce gate NE dit pas.** La couverture mesure ce qui est EXÉCUTÉ,
+  jamais ce qui est GARDÉ : une ligne traversée par un banc sans assertion y
+  compte pour couverte. Le verdict qui juge la garde reste le balayage par
+  mutation (`npm run loupe`). Les deux sont complémentaires et aucun ne remplace
+  l'autre.
 
 ## E. Présentable — ❌ / 🔒 / 👤 : ce qui n'est pas du code
 
@@ -297,6 +323,6 @@ Le **code**, l'**installation** (en CI) et le **socle de sûreté** — désorma
 gardé par `npm audit --audit-level=high` en CI — sont mesurés et tenus. Ce qui
 manque à une sortie « présentable » n'est pas du code : c'est **(1)** une
 identité de vitrine tranchée, **(2)** des artefacts publiés sous des comptes qui
-ne sont pas les miens, et **(3)** UN gate encore non câblé — un seuil de
-couverture — si l'on veut que « couvert » ait, lui aussi, une cible qui rougit
-d'elle-même. Aucun de ces manques n'est caché derrière un ✅.
+ne sont pas les miens. **Le troisième manque — le seuil de couverture non
+câblé — est fermé le 15 août** : seuils posés sur la mesure, exercés par la CI,
+et vus rougir. Aucun des manques restants n'est caché derrière un ✅.
