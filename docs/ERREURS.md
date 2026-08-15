@@ -9282,3 +9282,56 @@ si le PID est vivant, et traite le verrou d'un cadavre comme périmé. Un
 instrument qui pourrait rester bloqué par son propre corps aurait transformé
 cette panne en panne durable. Ce n'est pas le cas, et c'est le fruit d'une garde
 écrite avant d'en avoir besoin.
+
+---
+
+## 9 quaternonagies. La loupe a muté ma PROSE — et elle avait raison de mordre
+
+Une consignation d'équivalence (§ 2.16 ter) a été écrite dans un commentaire
+JSX multi-ligne. L'une de ses lignes de continuation énonçait la condition du
+court-circuit en toutes lettres, sans marque en tête. Au passage suivant :
+
+    ════ CODE NEUF QUE RIEN NE DÉFEND ════
+    · dashboard/src/views/Balance.tsx — === → !==
+        `global.totalMs === 0` et n'affiche PAS ce tableau dans ce
+
+La loupe a muté un commentaire, l'a trouvé survivant, et a rendu un verdict
+rouge sur de la prose.
+
+### Pourquoi le détecteur ne pouvait pas la voir
+
+`ligneMutable` reconnaît `{/*`, `//`, `*` et `/*` **en tête de ligne**. C'est
+une décision de conception, pas un oubli : `lignesAjoutees` travaille sur les
+lignes AJOUTÉES d'un diff `-U0`, dont les fragments sont discontinus. « Suis-je
+à l'intérieur d'un bloc ? » ne se déduit pas d'une ligne isolée — un fragment
+peut commencer au milieu d'un commentaire.
+
+Le détecteur est donc de forme LIGNE, et une continuation sans marque lui
+échappe. La limite est réelle et elle est nommée ici.
+
+### Deux façons de réagir, et pourquoi j'ai choisi celle-là
+
+On pouvait **lever la limite** — lire le fichier entier et calculer les plages
+de commentaires, comme la loupe le fait déjà pour les `<script>` d'une page.
+C'est faisable, c'est le bon geste, et c'est un lot à part : il touche
+l'instrument qui juge tout le reste, donc il demande sa propre mutation et un
+rejeu de bout en bout.
+
+En attendant, les lignes de continuation portent la marque que le détecteur
+connaît. Ce n'est PAS assouplir une garde jusqu'à ce qu'elle se taise : la garde
+disait vrai — cette ligne ressemblait à du code. Ce qui change, c'est la prose,
+pas la règle.
+
+> **Un faux positif se corrige par le haut ou par le bas, et il faut savoir
+> lequel on fait.** Par le haut : rendre l'instrument plus fin. Par le bas :
+> retirer ce qui le trompe. Le second est légitime quand ce qui trompe n'a
+> aucune raison d'exister — ici, une ligne de commentaire qui commence par du
+> code apparent. Il ne l'est pas quand on retire ce qui trompe en retirant AUSSI
+> ce que l'instrument gardait.
+
+### Le détail qui rend l'anecdote utile
+
+Cette consignation était elle-même le fruit d'une équivalence bien établie. Une
+garde qui rend rouge la DOCUMENTATION d'une autre garde est le genre de boucle
+qu'on ne voit qu'en la vivant : l'instrument avait raison sur la forme et tort
+sur le fond, et les deux méritaient d'être dits.
