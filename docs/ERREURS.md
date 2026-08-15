@@ -10840,3 +10840,75 @@ mesure, et ce qu'il fait autour. La seconde n'a aucun banc — on ne mute pas un
 
 **Tout ce qui vit après la dernière assertion doit être incapable de la
 contredire.**
+
+---
+
+## 9 unvicicenties. Le champ contrôlé faisait passer quatre gardes nues pour défendues
+
+En écrivant le premier banc de comportement de `Reine.tsx`, les trois cas
+NÉGATIFS sont passés du premier coup, et le cas NOMINAL a rougi :
+
+```text
+× ENTRÉE ENVOIE — sinon tout le reste de ce fichier ne mesure rien
+  AssertionError: une Entrée simple n'envoie rien: expected [] to deeply equal
+  [ 'Où en est le projet ?' ]
+✓ MAJ+ENTRÉE N'ENVOIE PAS
+✓ UNE AUTRE TOUCHE N'ENVOIE PAS
+✓ UN BROUILLON VIDE N'ENVOIE RIEN
+```
+
+Trois verts, et **aucun ne mesurait quoi que ce soit** : rien ne partait jamais,
+donc « rien n'est parti » était vrai pour une raison qui n'avait aucun rapport
+avec la garde.
+
+### La cause
+
+Le champ est **contrôlé** par React. Écrire `ta.value = …` puis émettre un
+`input` ne déclenche pas `onChange` : React garde un traqueur de valeur sur le
+nœud, constate que sa dernière valeur connue est déjà celle-là, et conclut qu'il
+ne s'est rien passé. Le brouillon restait vide, et `if (!text || pending)`
+arrêtait tout.
+
+Le remède est le mutateur natif du prototype, que le traqueur ne surveille pas :
+
+```ts
+const poserValeur = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+poserValeur.call(ta, texte);
+ta.dispatchEvent(new Event('input', { bubbles: true }));
+```
+
+### La leçon, qui n'est pas « React est piégeux »
+
+**Un banc de gardes NÉGATIVES doit toujours porter son cas POSITIF, et l'écrire
+en premier.** Sans lui, un banc entier peut être vert parce que le geste qu'il
+prétend interdire n'a jamais eu lieu — et il le restera le jour où la garde
+disparaîtra.
+
+C'est le même défaut de forme que la loupe qui avait rapporté « 9/9 défendues »
+sur une suite DÉJÀ ROUGE, et que le mutant qui ne s'appliquait pas (§ 9
+quaterdecicenties). Trois fois la même famille : **une mesure qui ne peut pas
+distinguer les deux mondes n'est pas une mesure.**
+
+### Ce que ces gardes protégeaient, et qui ne l'aurait jamais vu
+
+Deux des quatre conditions de la touche Entrée n'existent que pour les langues à
+composition :
+
+```ts
+!e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229;
+```
+
+En japonais, chinois ou coréen, la touche Entrée sert d'abord à **valider le
+caractère en cours de composition**. Mutée, cette Entrée-là envoie : la Reine
+reçoit une phrase à moitié écrite, et l'utilisateur voit partir ce qu'il n'avait
+pas fini. Mesuré, mutant posé :
+
+```text
+AssertionError: une validation IME a été prise pour un envoi:
+  expected [ 'にほんご' ] to deeply equal []
+```
+
+**Un défaut de cette famille ne se voit jamais chez celui qui l'introduit** — il
+ne se voit que chez quelqu'un dont on ne lit pas la langue. C'est exactement le
+genre de ligne qu'un balayage machinal supprimerait comme « redondante », et
+c'est pourquoi elle méritait un banc avant tout le reste de la vue.
