@@ -116,6 +116,23 @@ const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
 function parseHash(): { view: ViewId; selectedId: string | null } {
   const parts = location.hash.replace(/^#\/?/, '').split('/');
   const view = VIEW_IDS.has(parts[0] ?? '') ? (parts[0] as ViewId) : 'ruche';
+  // ─── ÉQUIVALENCE CONSIGNÉE (§ 2.16 ter) — `decodeURIComponent` ─────────────
+  //
+  // Le mutant qui retire le décodage SURVIT, et c'est mesuré. Il n'y a
+  // aujourd'hui AUCUNE entrée qui le départage : les trois consommateurs de
+  // `selectedId` — Projets, Chantiers, Miellerie — n'y mettent que des
+  // identifiants de projet ou de tâche, c'est-à-dire des UUID. Or
+  // `encodeURIComponent` d'un UUID est l'UUID.
+  //
+  // C'est une équivalence CONDITIONNELLE, et la condition est ailleurs : elle
+  // tient tant que les identifiants restent alphanumériques. Le jour où une
+  // route portera un chemin — un fichier du Rayon, un nom de branche — le
+  // mutant cessera d'être équivalent, et cette ligne redeviendra une garde.
+  //
+  // On la garde pour cette raison, et parce qu'elle est la moitié d'une paire :
+  // `navigate` écrit `encodeURIComponent`. Retirer un seul côté d'un
+  // aller-retour est le genre de dette qui se paie loin de l'endroit où on l'a
+  // contractée.
   return { view, selectedId: parts[1] ? decodeURIComponent(parts[1]) : null };
 }
 

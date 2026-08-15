@@ -11139,3 +11139,65 @@ Quand un banc trouve une instance, la question suivante n'est pas « est-ce
 corrigé ? » mais **« combien de frères a-t-elle, et qu'est-ce qui les compte ? »**
 Ici, cinq frères allaient bien et un seul manquait — sans l'inventaire, on
 n'aurait jamais su lequel.
+
+---
+
+## 9 sexvicicenties. Le bouton Précédent n'appartient pas au produit, et personne ne l'essaie
+
+`app-coquille` montait l'App sur un hash POSÉ AVANT le montage : c'est le
+premier chargement, et chaque route y affichait bien sa vue. Ce que personne
+n'avait jamais joué, c'est le hash qui **change pendant que l'écran vit** :
+
+```ts
+window.addEventListener('hashchange', onHash);
+```
+
+C'est-à-dire le bouton Précédent, le suivant, et un signet collé dans la barre
+d'adresse d'un onglet déjà ouvert. **Trois gestes que personne ne pense à
+essayer parce qu'ils n'appartiennent pas au produit — et que tout le monde
+fait.**
+
+Débranché, l'adresse change et l'écran reste :
+
+```text
+écouteur hashchange débranché  ✘ le bouton Précédent ne change pas d'écran
+                                 expected 'Ruche' to be 'Chronique'
+repli sur la Ruche retiré      ✘ un hash inconnu laisse l'écran nulle part
+                                 expected '' to be 'Ruche'
+VIEW_IDS réduit aux visibles   ✘ le signet d'un administrateur a été renvoyé
+                                 sur la Ruche avant que la session réponde
+```
+
+### Une raison écrite dans un commentaire n'est pas une garde
+
+Le troisième mutant est le plus instructif. `VIEW_IDS` contient TOUTES les vues,
+y compris celles dont la case de navigation est masquée, et le code disait
+pourquoi :
+
+> _« un administrateur qui ouvre son signet arrive AVANT que `/api/auth/me` ait
+> répondu, et le renvoyer sur la Ruche à cet instant-là serait un bug qu'on ne
+> saurait pas reproduire »_
+
+Une phrase juste, précise, qui nomme même sa propre difficulté de reproduction —
+et rien ne la tenait. C'est le § 9 tervicicenties dans l'autre sens : là-bas un
+commentaire énonçait la règle que le code d'à côté violait ; ici il énonçait une
+raison que rien ne vérifiait.
+
+**Un commentaire qui explique POURQUOI une ligne existe est une bonne raison
+d'écrire un test, pas un substitut.**
+
+### Et un mutant survivant qui était une équivalence CONDITIONNELLE
+
+Le `decodeURIComponent` de `parseHash` survit : aucune entrée ne le départage
+aujourd'hui, parce que les trois consommateurs de `selectedId` — Projets,
+Chantiers, Miellerie — n'y mettent que des UUID, dont l'encodage est l'identité.
+
+Écrire un cas avec un chemin accentué aurait **béni une situation qui ne peut
+pas se produire**, et le banc aurait eu l'air de garder ce qu'il ne garde pas.
+Consigné à la ligne, avec la condition qui le ferait cesser : le jour où une
+route portera un chemin — un fichier du Rayon, un nom de branche — le mutant
+redeviendra une garde.
+
+**Une équivalence se consigne AVEC sa condition.** « Équivalent » tout court est
+une affirmation qui vieillit sans prévenir ; « équivalent tant que les
+identifiants sont des UUID » se relit et se vérifie.
