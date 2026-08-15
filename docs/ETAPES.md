@@ -7449,3 +7449,76 @@ Trois lignes nues nommées par les 22 mutations mesurées : `pesee.corpus.ignore
 > 0`, `e instanceof Error`, et `trace.updatedAt !== null` (deux mutants). Et
 > toujours **aucun verdict** sur les 21 mutations que le balayage fauché n'a
 > jamais jouées.
+
+---
+
+## Balance : les trois dernières lignes nues nommées
+
+Le balayage fauché de `Balance.tsx` avait laissé cinq lignes nues nommées. Deux
+ont été fermées au lot précédent ; voici les trois autres. Six mutants joués,
+six tués — la vue n'a plus de survivant NOMMÉ.
+
+### La phrase des ignorées
+
+```js
+{
+  pesee.corpus.ignorees > 0 && ` ${t('… ignorée(s) : leur tâche a disparu du corpus …')}`;
+}
+```
+
+Le commentaire au-dessus porte l'intention : _« un chiffre qui ne dit pas ce
+qu'il n'a pas vu ment »_. La borne tient les DEUX moitiés de cette promesse.
+Mutée en `>=`, l'écran annonce « 0 ignorée(s) : leur tâche a disparu du corpus »
+sur un relevé complet — il INVENTE une perte. Mutée en `<`, il se tait quand des
+tentatives ont vraiment été écartées — il la CACHE.
+
+### La forme du refus
+
+```js
+.catch((e: unknown) => setErreur(e instanceof Error ? e.message : String(e)))
+```
+
+Le seul endroit où l'opérateur apprend que son geste a échoué. Mutée en `true`,
+un rejet nu (une chaîne, pas une `Error`) donne `e.message === undefined` : le
+bandeau s'affiche VIDE — « Plafond refusé : » suivi de rien. Mutée en `false`,
+une vraie `Error` passe par `String(e)` et l'écran montre « Error: quota de ruche
+dépassé » : le bruit de la plomberie collé devant le motif.
+
+### La date que la trace n'a pas
+
+```js
+{
+  trace.updatedAt !== null && ` · ${new Date(trace.updatedAt).toLocaleString()}`;
+}
+```
+
+La vue admet que le « quand » puisse manquer — son commentaire dit « mieux vaut
+“qui ?” manquant que le plafond caché ». Neutralisée, la garde produit
+exactement ceci, relevé au banc :
+
+```text
+Posé par abcdef12 · 1/1/1970, 12:00:00
+```
+
+`new Date(null)` vaut l'époque. L'écran daterait d'il y a cinquante-six ans un
+plafond posé ce matin — et rien, à l'œil, ne dit que c'est une absence plutôt
+qu'une valeur.
+
+### Rejeu, verdict affiché
+
+```text
+ignorees > 0        → >=          1 failed  (« l'écran invente une perte qui n'a pas eu lieu »)
+ignorees > 0        → <           1 failed  (« l'écran cache des tentatives réellement écartées »)
+e instanceof Error  → true        1 failed  (« un rejet nu laisse le bandeau muet »)
+e instanceof Error  → false       1 failed  (« la plomberie remonte jusqu'à l'écran »)
+updatedAt !== null  → ===         1 failed  (« la date réelle de pose a disparu »)
+updatedAt !== null  → neutralisée 1 failed  (« l'écran a inventé une date de pose »)
+source saine, restaurée par copie  43 passed (43)
+```
+
+### Ce qui reste, et ce qu'on n'affirme pas
+
+Les onze survivants des 22 mutations MESURÉES sont tous traités : dix par un
+banc, un consigné équivalent. Il reste **21 mutations jamais jouées** — le
+balayage était mort avant de les atteindre. Aucun verdict n'est porté sur elles,
+et `Balance.tsx` ne sera dit « défendu » qu'après un balayage qui va au bout.

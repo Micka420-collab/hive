@@ -50,6 +50,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
   fetchMonTableau: vi.fn(() => Promise.resolve(null)),
   fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
+  setProjectPlafond: vi.fn(() => Promise.resolve({ definiPar: null, updatedAt: null })),
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
@@ -69,6 +70,7 @@ import {
   fetchChantiers,
   fetchEssaim,
   fetchProjectBalance,
+  setProjectPlafond,
   fetchWorkflows,
   fetchGhosts,
   fetchGuet,
@@ -896,6 +898,159 @@ describe('les sentinelles du balayage du soir', () => {
     expect(poser('2'), 'un plafond de 2 heures devrait être posable').toBe(true);
     // Et le refus garde son sens : une saisie vide ou négative ne s'arme pas.
     expect(poser('-1'), 'un plafond négatif ne devrait PAS être posable').toBe(false);
+  });
+
+  it('BALANCE : la phrase des IGNORÉES ne se dit que s’il y en a', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {pesee.corpus.ignorees > 0 && ` ${t('… ignorée(s) : leur tâche a
+    //                                          disparu du corpus …')}`}
+    //
+    // Le commentaire au-dessus dit l'intention : « un chiffre qui ne dit pas ce
+    // qu'il n'a pas vu ment ». La borne porte les DEUX moitiés de cette phrase.
+    //
+    // Mutée en `>=`, l'écran annonce « 0 ignorée(s) : leur tâche a disparu du
+    // corpus » sur un relevé complet — il invente une perte. Mutée en `<`, il
+    // se tait quand des tentatives ont VRAIMENT été écartées — il cache la
+    // perte. Les deux sens abîment la même promesse.
+    const avec = (ignorees: number) =>
+      ({
+        pesee: {
+          global: { totalMs: 300, tentatives: 3 },
+          parNoeud: [],
+          corpus: { taches: 2, tentatives: 3, ignorees },
+          reprises: { taches: 0, tentatives: 0 },
+        },
+        fenetre: 200,
+        mode: 'strict',
+      }) as never;
+    const vue = { ...instantane(), nodes: [] } as never;
+
+    const texte = async (ignorees: number): Promise<string> => {
+      const dom = await monter(
+        <CarteBalance balance={avec(ignorees)} erreur={null} snapshot={vue} />,
+      );
+      return dom.querySelector('.bal-corpus')?.textContent ?? '';
+    };
+
+    const muet = await texte(0);
+    expect(muet, 'le relevé du corpus est introuvable').toContain('Lu :');
+    expect(muet, 'l’écran invente une perte qui n’a pas eu lieu').not.toContain('ignorée');
+
+    const parlant = await texte(4);
+    expect(parlant, 'l’écran cache des tentatives réellement écartées').toContain('4 ignorée');
+  });
+
+  it('BALANCE : un plafond refusé dit POURQUOI, quelle que soit la forme du refus', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     .catch((e: unknown) => setErreur(e instanceof Error ? e.message : String(e)))
+    //
+    // C'est le seul endroit où l'opérateur apprend que son geste a échoué. Deux
+    // formes de refus arrivent ici : une `Error` (le cas courant), et tout le
+    // reste — un rejet nu que rien n'oblige à être une `Error`.
+    //
+    // Mutée en `true`, `e.message` vaut `undefined` sur un rejet nu : le
+    // bandeau s'affiche VIDE, et l'opérateur voit « Plafond refusé : » suivi de
+    // rien. Mutée en `false`, une `Error` passe par `String(e)` et l'utilisateur
+    // lit « Error: … » — le bruit de la plomberie au lieu du motif.
+    const solde = { projectId: 'p1', depenseMs: 0, tentatives: 0, plafondMs: null } as never;
+
+    const refusPar = async (jete: unknown): Promise<string> => {
+      vi.mocked(setProjectPlafond).mockRejectedValueOnce(jete);
+      const dom = await monter(
+        <BalanceProjet
+          projectId="p1"
+          projectName="Rucher"
+          compte={null}
+          solde={solde}
+          mode="strict"
+          aJour={true}
+        />,
+      );
+      const clic = (b: Element | null | undefined) =>
+        act(() => {
+          b?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+      clic(
+        [...dom.querySelectorAll('button')].find((b) =>
+          (b.textContent ?? '').includes('Poser un plafond'),
+        ),
+      );
+      const champ = dom.querySelector('.bal-plafond-input') as HTMLInputElement;
+      const ecrire = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      act(() => {
+        ecrire?.call(champ, '2');
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const envoi = () =>
+        dom.querySelector('.bal-plafond-form .bal-plafond-actions button.btn.primary');
+      // Le geste demande une CONFIRMATION : un premier clic arme, le second pose.
+      clic(envoi());
+      clic(envoi());
+      await act(async () => {});
+      return dom.querySelector('.bal-plafond-form .panel-error')?.textContent ?? '';
+    };
+
+    const surErreur = await refusPar(new Error('quota de ruche dépassé'));
+    expect(surErreur, 'le refus ne dit pas son motif').toContain('quota de ruche dépassé');
+    // Le motif SEUL : pas la classe de l'objet qui l'a transporté.
+    expect(surErreur, 'la plomberie remonte jusqu’à l’écran').not.toContain('Error:');
+
+    // Un rejet nu — ce que rend un `reject('…')` ou une couche qui jette une
+    // chaîne. Le bandeau doit rester PARLANT.
+    const surChaine = await refusPar('la ruche a coupé');
+    expect(surChaine, 'un rejet nu laisse le bandeau muet').toContain('la ruche a coupé');
+  });
+
+  it('BALANCE : la trace du plafond n’invente pas une date qu’elle n’a pas', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {trace.updatedAt !== null && ` · ${new Date(trace.updatedAt).toLocaleString()}`}
+    //
+    // La trace répond à « qui a posé ce plafond, et quand ». Le « quand » peut
+    // manquer : le commentaire de la vue l'admet — « mieux vaut “qui ?” manquant
+    // que le plafond caché ».
+    //
+    // Mutée en `===`, le « quand » s'affiche PRÉCISÉMENT quand il n'existe pas :
+    // `new Date(null)` vaut le 1ᵉʳ janvier 1970, et l'écran daterait d'il y a
+    // cinquante-six ans un plafond posé ce matin. Mutée dans l'autre sens, la
+    // date réelle disparaît.
+    const solde = {
+      projectId: 'p1',
+      depenseMs: 0,
+      tentatives: 0,
+      plafondMs: 7_200_000,
+    } as never;
+
+    const trace = async (updatedAt: number | null): Promise<string> => {
+      vi.mocked(fetchProjectBalance).mockResolvedValueOnce({
+        definiPar: 'abcdef1234567890',
+        updatedAt,
+      } as never);
+      const dom = await monter(
+        <BalanceProjet
+          projectId="p1"
+          projectName="Rucher"
+          compte={null}
+          solde={solde}
+          mode="strict"
+          aJour={true}
+        />,
+      );
+      await act(async () => {});
+      return dom.querySelector('.bal-plafond-trace')?.textContent ?? '';
+    };
+
+    const datee = await trace(Date.UTC(2026, 0, 15, 12));
+    expect(datee, 'la trace du plafond est introuvable').toContain('abcdef12');
+    expect(datee, 'la date réelle de pose a disparu').toContain('2026');
+
+    const sansDate = await trace(null);
+    expect(sansDate, 'la trace a disparu quand la date manque').toContain('abcdef12');
+    // Ni 1970, ni « Invalid Date », ni séparateur orphelin : RIEN.
+    expect(sansDate, 'l’écran a inventé une date de pose').not.toContain('1970');
+    expect(sansDate, 'un séparateur pend sans rien derrière').not.toContain(' · ');
   });
 
   it('BALANCE : LE CAS ZÉRO ne rend jamais NaN sur l’écran de l’argent', async () => {
