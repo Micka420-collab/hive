@@ -8171,3 +8171,72 @@ rougit d'elle-même, « couvert » n'est pas un critère, c'est une anecdote.
   — pas le code, qui tient.
 
 Aucun de ces manques n'est caché derrière un ✅.
+
+---
+
+## Point 3a, premier verrou : les deux installeurs ne connaissaient pas les mêmes mots
+
+Le point de sortie a classé « le chemin réel d'installation Windows n'est mesuré
+nulle part » en tête de ce qui casse l'expérience d'un arrivant. En attaquant ce
+lot, une mesure a montré un verrou EN AMONT.
+
+```text
+install.sh   lit HIVE_DEPOT, HIVE_DIR, HIVE_REF
+install.ps1  lit           HIVE_DIR, HIVE_REF
+```
+
+`HIVE_DEPOT` était inconnu de l'installeur Windows. Deux conséquences, et la
+première n'est pas un détail de banc :
+
+- **Pour un utilisateur** : quelqu'un qui a forké Hive peut installer depuis son
+  fork sous Linux et macOS, et pas sous Windows. Rien ne le lui dit — le réglage
+  est simplement ignoré. C'est pire qu'une option absente, qui, elle, se signale.
+- **Pour la ruche** : c'est ce réglage qui permet à la CI d'éprouver L'ARBRE
+  QU'ON VIENT D'ÉCRIRE. Sans lui, l'essai Windows n'aurait pas su viser la bonne
+  révision et aurait mesuré du code déjà fusionné en croyant mesurer le nôtre.
+
+### Et la doc avait le même trou
+
+`docs/INSTALLATION.md` nommait `HIVE_DIR` et `HIVE_REF`, pas `HIVE_DEPOT` —
+pourtant honoré par `install.sh` depuis toujours. Un réglage qui marche et que
+rien n'annonce n'existe que pour celui qui a lu le code.
+
+### La garde, par découverte et pas par liste
+
+`tests/installeurs-jumeaux.test.ts` lit les DEUX fichiers et compare les
+ensembles. Elle exige une LECTURE (`$env:NOM`, `${NOM…}`), pas une mention : on
+ne doit pas pouvoir la satisfaire en écrivant une phrase. Et elle exige que tout
+réglage lu soit nommé dans la doc d'installation.
+
+### Rejeu, verdict affiché
+
+```text
+install.ps1 perd sa lecture de HIVE_DEPOT   1 failed  (« ignore en silence des réglages qu'install.sh honore »)
+la doc ne nomme plus le réglage (4 mentions) 1 failed  (« honorés mais absents de docs/INSTALLATION.md »)
+le filtre des commentaires retiré            1 failed  (« une lecture COMMENTÉE est comptée comme réelle »)
+la lecture PowerShell rend le vide           3 failed
+source saine, restaurée par copie            4 passed (4)
+```
+
+### Deux cas qui ne mesuraient rien, corrigés
+
+Le cas « une mention ne compte pas » ne posait que des mentions SANS la forme
+qui lit — retirer le filtre des commentaires le laissait vert. Il fallait
+`# $env:HIVE_FANTOME`, c'est-à-dire une lecture COMMENTÉE.
+
+Et le cas « chaque installeur documente ce qu'il lit » était vrai par
+construction : le bloc `param` contient le nom qu'il lit. Remplacé par ce qui
+peut rougir — la page que l'arrivant va lire.
+
+### Ce que ce lot NE fait PAS
+
+Il ne mesure toujours pas le chemin réel d'installation Windows. Il en retire le
+verrou. Restent à écrire `scripts/essai-installation.ps1` (les trois mêmes
+affirmations que la version POSIX : sortie en 0, `.env` écrit, la ruche RÉPOND)
+et la jambe CI qui l'exécute sur `windows-latest`.
+
+**Et je ne peux pas lancer PowerShell ici.** La vérification locale se borne à
+un contrôle d'équilibre des accolades et à la présence du paramètre ; c'est la
+CI, qui exerce `install.ps1` sous PowerShell 5.1 ET 7, qui dira si le script
+tient. Le dire est plus utile que de présenter un contrôle faible comme une
+preuve.

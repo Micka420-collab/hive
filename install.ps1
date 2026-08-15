@@ -87,6 +87,18 @@ param(
   [string]$Dir = $(if ($env:HIVE_DIR) { $env:HIVE_DIR } else { Join-Path $HOME 'hive' }),
   # Branche ou tag à récupérer.
   [string]$Ref = $(if ($env:HIVE_REF) { $env:HIVE_REF } else { 'main' }),
+  # ─── D'OÙ TIRER HIVE ────────────────────────────────────────────────────────
+  #
+  # `install.sh` honore `HIVE_DEPOT` depuis toujours (l. 75) ; ce script-ci ne
+  # le connaissait pas. Un utilisateur qui a forké Hive pouvait donc installer
+  # depuis son fork sous Linux et macOS, et pas sous Windows — sans qu'aucun
+  # message ne le lui dise : le réglage était simplement ignoré.
+  #
+  # C'est aussi ce qui bloquait, en amont, l'essai d'installation Windows en
+  # CI : sans ce réglage, il n'aurait pas su viser l'arbre qu'on vient
+  # d'écrire, et aurait éprouvé du code déjà fusionné en croyant mesurer le
+  # nôtre.
+  [string]$Depot = $(if ($env:HIVE_DEPOT) { $env:HIVE_DEPOT } else { 'https://github.com/Micka420-collab/hive.git' }),
   # Montre ce qui serait fait, n'écrit rien.
   [switch]$DryRun,
   # Tout le reste part à l'installeur de Hive (--non-interactive, --json…).
@@ -96,7 +108,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $NODE_MIN = 24
-$DEPOT = 'https://github.com/Micka420-collab/hive.git'
+# Le dépôt vient du paramètre (lui-même issu de `HIVE_DEPOT`, ou du défaut
+# public). Garder ici une CONSTANTE en plus du paramètre serait la meilleure
+# façon de les faire diverger : le clone lirait l'une, l'aide l'autre.
+$DEPOT = $Depot
 $CODE_ERREUR = 1
 $CODE_PREREQUIS = 2
 

@@ -101,12 +101,33 @@ Montre chaque étape, ne crée **rien** — pas même le dossier de destination.
 | `--dir=CHEMIN` / `-Dir` | où installer (défaut : `~/hive`) |
 | `--ref=REF` / `-Ref`    | branche ou tag (défaut : `main`) |
 | `--dry-run` / `-DryRun` | montre, n'écrit rien             |
+| `-Depot` (Windows)      | dépôt d'où tirer Hive            |
 
 Tout autre drapeau est **transmis à l'installeur** de Hive — notamment
 `--non-interactive`, pour un serveur sans écran.
 
-Les variables `HIVE_DIR` et `HIVE_REF` font la même chose que `--dir` et
-`--ref`.
+### Par l'environnement
+
+Les trois variables ci-dessous sont honorées **par les deux installeurs**, et un
+banc l'exige : un réglage que l'un accepterait et que l'autre ignorerait en
+silence serait un mensonge par omission.
+
+| Variable     | Ce qu'elle fait       | Équivalent en drapeau |
+| ------------ | --------------------- | --------------------- |
+| `HIVE_DIR`   | où installer          | `--dir` / `-Dir`      |
+| `HIVE_REF`   | branche ou tag        | `--ref` / `-Ref`      |
+| `HIVE_DEPOT` | dépôt d'où tirer Hive | `-Depot` (Windows)    |
+
+`HIVE_DEPOT` sert à installer **depuis son propre fork** plutôt que depuis le
+dépôt public :
+
+```sh
+HIVE_DEPOT=https://github.com/moi/hive.git sh install.sh
+```
+
+```powershell
+$env:HIVE_DEPOT = 'https://github.com/moi/hive.git'; .\install.ps1
+```
 
 ---
 
