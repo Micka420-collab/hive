@@ -11201,3 +11201,57 @@ redeviendra une garde.
 **Une équivalence se consigne AVEC sa condition.** « Équivalent » tout court est
 une affirmation qui vieillit sans prévenir ; « équivalent tant que les
 identifiants sont des UUID » se relit et se vérifie.
+
+---
+
+## 9 septvicicenties. Un crochet promet trois gestes ; on n'en avait défendu qu'un
+
+`useDialog` annonce, dans sa docstring, ce qu'il apporte aux six dialogues du
+tableau :
+
+```text
+ferme sur Échap ;
+déplace le focus dans l'overlay à l'ouverture ;
+restaure le focus sur l'élément déclencheur à la fermeture.
+```
+
+Le lot précédent a défendu le premier — et s'est arrêté là, parce qu'Échap était
+ce qui manquait à la fiche ouvrière. Les deux autres sont restés nus une nuit de
+plus.
+
+**Corriger le geste qui manquait n'est pas défendre le contrat.** Un crochet
+partagé est une promesse en plusieurs points ; le banc doit les compter, pas
+suivre celui qui a fait mal.
+
+### Ce que les deux promesses coûtent quand elles manquent
+
+Rien à l'écran. Tout au clavier :
+
+- sans le focus qui **entre**, la modale s'ouvre et Tab continue de parcourir la
+  page DERRIÈRE elle — au lecteur d'écran rien n'est annoncé, au clavier on
+  tabule à l'aveugle dans un contenu qu'on ne voit plus ;
+- sans le focus qui **revient**, refermer renvoie le curseur au début du
+  document. Qui consultait la douzième ouvrière refait douze tabulations, à
+  chaque fiche, sans jamais comprendre pourquoi.
+
+```text
+focus qui n'entre plus    ✘ le focus est resté DERRIÈRE la fiche
+focus qui ne revient plus ✘ expected <body> to be <li class="node-card online">
+```
+
+Les deux pannes sont **invisibles à la souris** — même famille que la garde IME
+et que `isTyping()` : ce qui ne se casse pas pour celui qui relit.
+
+### Le maillon qui rend les deux autres mesurables
+
+Le geste est joué au clavier de bout en bout : on TABULE sur la carte, on ouvre
+par Entrée (`activateProps`, nu lui aussi), on ferme par Échap.
+
+Ce n'est pas du zèle. **Un clic de souris ne pose le focus nulle part** : mesuré
+depuis un clic, « le focus revient au déclencheur » aurait comparé `body` à
+`body` et serait passé au vert sans rien mesurer. Le premier maillon n'est pas
+un décor, c'est ce qui rend les deux autres observables.
+
+C'est le § 9 unvicicenties sous un autre angle : le cas positif n'est pas
+seulement une politesse contre le décor, il est parfois la CONDITION physique de
+la mesure.
