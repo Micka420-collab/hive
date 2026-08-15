@@ -138,17 +138,32 @@ describe('le bandeau ne ment pas sur le nombre de tests', () => {
   const declares = (): number => {
     let n = 0;
     for (const f of readdirSync(DOSSIER_TESTS)) {
-      // ─── `.mjs` AUSSI, ET C'EST UNE LEÇON FRAÎCHE ─────────────────────────
+      // ─── TOUTE EXTENSION, ET C'EST LA DEUXIÈME FOIS QU'ON LE PAIE ─────────
       //
       // Ce compteur n'a longtemps lu que `.test.ts`, parce qu'il n'existait que
-      // ça. Le jour où `tests/amorce.test.mjs` est arrivé — trente et un tests
-      // écrits en JavaScript nu, parce qu'ils éprouvent le code qui doit tourner
-      // là où `tsx` n'existe pas — ils sont devenus INVISIBLES à la garde de
-      // vantardise, qui a donc continué à valider un chiffre vieilli.
+      // ça. Le jour où `tests/amorce.test.mjs` est arrivé, ses trente et un cas
+      // sont devenus INVISIBLES à la garde, qui a continué à valider un chiffre
+      // vieilli. Le commentaire posé alors disait déjà la règle :
       //
-      // Une garde dont le périmètre est figé par le dépôt d'hier se met à mentir
-      // le jour où le dépôt change de forme, et rien ne le dit.
-      if (!f.endsWith('.test.ts') && !f.endsWith('.test.mjs')) continue;
+      //     « Une garde dont le périmètre est figé par le dépôt d'hier se met à
+      //       mentir le jour où le dépôt change de forme, et rien ne le dit. »
+      //
+      // Et le correctif d'alors a AJOUTÉ UNE LIGNE À LA LISTE. Elle a vieilli
+      // une deuxième fois : les bancs de vues sont en `.test.tsx`, et il y en a
+      // vingt-quatre. MESURÉ le 15 août, sur le rouge qui a rendu ce lot :
+      //
+      //     .test.ts + .test.mjs   3 642 cas   ← tout ce que la garde voyait
+      //     .test.tsx                219 cas   ← invisibles
+      //     la suite exécutée      4 101 cas
+      //
+      // La garde a fini par accuser la vitrine de « se vanter » alors que
+      // c'était ELLE qui ne savait pas compter — et l'écart avait grandi en
+      // silence à chaque banc de vue ajouté.
+      //
+      // On ne rallonge donc pas la liste : on la SUPPRIME. Toute extension
+      // après `.test.` compte. Un `.test.snap` scanné au passage n'apporterait
+      // aucun `it(` — l'erreur reste du bon côté.
+      if (!/\.test\.[a-z]+$/i.test(f)) continue;
       // Les commentaires D'ABORD : un `it(` mis en commentaire pendant une
       // enquête gonflerait le compte et rendrait la garde complaisante.
       const src = readFileSync(new URL(f, import.meta.url), 'utf8')

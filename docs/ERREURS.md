@@ -10963,3 +10963,63 @@ chaîne vide. L'écran se vide en silence sur une flèche de trop.
 
 Une borne d'index dans une vue n'est pas une précaution de style : c'est ce qui
 maintient la moitié du panneau rendue.
+
+---
+
+## 9 tervicicenties. Le commentaire disait la règle, et le correctif d'à côté la violait
+
+La garde de vantardise de la vitrine — « le chiffre affiché reste dans 10 % du
+nombre réel de tests » — a rougi sur les trois jambes :
+
+```text
+AssertionError: la vitrine annonce 4101 tests pour 3727 déclarés : elle se vante
+  expected 4101 to be less than or equal to 4100
+```
+
+**D'une unité.** Le réflexe est d'élargir la tolérance. C'eût été faux : ce n'est
+pas la marge qui avait tort, c'est le COMPTEUR.
+
+```text
+.test.ts + .test.mjs   3 642 cas   ← tout ce que la garde voyait
+.test.tsx                219 cas   ← invisibles, dans 24 fichiers
+la suite exécutée      4 101 cas
+```
+
+Les bancs de vues sont en `.test.tsx`. La garde ne les regardait pas — et l'écart
+grandissait à chaque banc de vue ajouté, en silence, jusqu'à franchir le seuil.
+Elle a fini par accuser la vitrine de se vanter alors qu'elle-même ne savait pas
+compter.
+
+### Ce qui rend cette leçon particulière
+
+Le défaut avait DÉJÀ eu lieu, avec `.mjs`, et le commentaire posé à l'époque —
+trois lignes au-dessus du filtre — énonçait exactement la règle :
+
+> _« Une garde dont le périmètre est figé par le dépôt d'hier se met à mentir le
+> jour où le dépôt change de forme, et rien ne le dit. »_
+
+Et le correctif d'alors a **ajouté une ligne à la liste**.
+
+**Nommer la règle dans un commentaire ne la fait pas appliquer.** Le texte a
+survécu deux ans à côté d'un code qui le contredisait, et l'a même rendu
+crédible : on lit la leçon, on suppose qu'elle a été suivie, on ne regarde pas
+le `if`.
+
+### Le remède, et pourquoi c'est le même que deux lots plus tôt
+
+On ne rallonge pas la liste, **on la supprime** : toute extension après `.test.`
+compte.
+
+```text
+portée d'hier remise    ✘ expected 4101 to be less than or equal to 4100
+portée corrigée         6 passed (6)   — écart réel 6,2 % au lieu de 10,02 %
+```
+
+C'est le troisième exemplaire de la même famille en quelques jours : la liste
+des voisins du banc du seuil (§ 9 novemdecicenties), la portée d'un balayage
+(§ 9 quinoctogies), et celle-ci. La règle est stable :
+
+**Quand une énumération écrite à la main casse, la réparation n'est jamais d'y
+ajouter l'élément manquant — c'est de retirer l'énumération.** Y ajouter une
+ligne, c'est reporter le même rouge à la prochaine forme de fichier, avec la
+leçon déjà écrite juste à côté.
