@@ -8693,3 +8693,80 @@ et le second ne remplace pas le premier — le lot d'aujourd'hui en est
 l'illustration : `InvitePanel.tsx` était largement « couvert » par les bancs qui
 montent le tableau, et la loupe y a trouvé **cinq lignes nues** sur le chemin
 qui remet la commande à l'invité.
+
+## Le verdict de la Miellerie : le geste qui donne son nom à l'écran n'était joué nulle part
+
+Suite de la piste des écouteurs posés sur `window` (§ 9 duovicicenties). Le
+recensement en donnait neuf ; il en restait deux sans banc :
+
+| Fichier           | Écouteur  | Sort                                           |
+| ----------------- | --------- | ---------------------------------------------- |
+| `Miellerie.tsx`   | `keydown` | **ce lot** — les trois gardes du verdict       |
+| `SwarmView3D.tsx` | `resize`  | hors d'atteinte : moteur WebGL (voir plus bas) |
+
+`miellerie-clavier` défendait le DÉPLACEMENT dans la file (`j`, `k`, `i`, les
+gardes de saisie et de modificateur). Il s'arrêtait là. Poser un verdict — ce
+pour quoi l'écran existe — n'était éprouvé nulle part.
+
+### Nudité mesurée avant d'écrire une ligne
+
+Les trois gardes mutées ENSEMBLE, chaque mutant vérifié posé, suite entière
+verte : **275 fichiers, 4 114 tests**.
+
+```text
+if (!e.repeat) decide('approved');           →  decide('approved');
+if (state === null) return;                  →  (retiré)
+rest.find((t) => getReview(t.id) === null)   →  rest[0];
+```
+
+### Ce que chacune coûte
+
+- **`e.repeat`** — la Miellerie AVANCE toute seule après un verdict, et le
+  clavier répète tant que la touche reste enfoncée. Sans la garde, garder `a`
+  appuyé n'approuve pas une production : **il approuve toute la file**. Le rejeu
+  l'a montré tel quel — `expected ['a','b','c'] to deeply equal ['c']`. C'est la
+  seule garde du dépôt dont le défaut se compte en productions livrées à tort.
+- **le retour anticipé sur `null`** — annuler n'est pas juger. `u` sert à
+  retirer un verdict posé par erreur, le seul moment où l'on veut RESTER sur la
+  production. S'il avançait, elle quitterait l'écran à l'instant où l'on voulait
+  la reprendre.
+- **`getReview(t.id) === null`** — l'auto-avance saute ce qui est déjà jugé.
+  Sans le filtre, la file rejoue les productions revues et ne mène jamais à
+  celles qui attendent : le travail à faire devient inatteignable au clavier.
+
+### Rejeu, verdict affiché
+
+```text
+M1  ×  MAINTENIR `a` N’APPROUVE PAS TOUTE LA FILE      expected ['a','b','c'] to equal ['c']
+M2  ×  `u` ANNULE SANS AVANCER                          expected ['c'] to equal []
+M3  ×  L’AUTO-AVANCE SAUTE CE QUI EST DÉJÀ JUGÉ         expected 'a' to be 'c'
+M3  ×  QUAND TOUT EST JUGÉ, LA FILE NE BOUGE PLUS       expected ['b'] to equal []
+source restaurée PAR COPIE                              6 passed (6)
+```
+
+### Deux faux départs, une seule leçon (§ 9 novemvicicenties)
+
+Le banc a rougi deux fois pour la même raison profonde : **il mesurait un autre
+sujet que celui qu'il nommait.** D'abord parce que le cache des verdicts vit en
+mémoire (`serverReviews`) et que `localStorage.clear()` ne l'atteint pas — la
+production teintée descendait dans la file triée, et l'écran jugeait sa voisine.
+Ensuite parce qu'un verdict FAIT AVANCER : enchaîner `a` puis `u` annule sur la
+production suivante, pas sur celle qu'on venait de juger.
+
+### `SwarmView3D.tsx` — dit honnêtement, pas simulé
+
+Le `resize` de la vue 3D est posé APRÈS `await WebGLEngine.create(...)`, à
+l'intérieur du `try` qui construit le canevas. Constaté par une sonde jetable
+plutôt que supposé — on monte la vue sous happy-dom en interceptant
+`window.addEventListener` :
+
+```text
+{ ecouteurs: [], texte: '' }
+```
+
+Aucun écouteur posé, rien de rendu. Le moteur s'importe bien (« Galacean Engine
+Version: 1.6.13 » sort sur la sortie standard), mais sans contexte WebGL
+l'initialisation n'atteint jamais la ligne. Un banc qui prétendrait éprouver cet
+écouteur mesurerait son propre bouchon. **Reste ouvert, et documenté comme tel**
+(§ 2.16 ter : on ne bénit pas ce qu'on ne peut pas départager) plutôt que couvert
+pour la forme.

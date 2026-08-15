@@ -11300,3 +11300,74 @@ C'est le pendant du § 9 unvicicenties : là-bas le cas positif empêchait les c
 négatifs d'être du décor ; ici c'est un cas NÉGATIF qui empêche les positifs
 d'être une coïncidence. Les deux sont la même exigence — **une mesure doit
 pouvoir distinguer les deux mondes, dans les deux sens.**
+
+## 9 novemvicicenties. Deux fois dans le même lot, le banc a mesuré un autre sujet que celui qu'il nommait
+
+Le lot défendait trois gardes du verdict de la Miellerie (`a`, `x`, `u`). Il a
+rougi deux fois avant d'être juste, et **les deux fois, l'assertion portait sur
+la bonne valeur mais sur la mauvaise production**. C'est une famille de panne à
+elle seule, et elle ne ressemble pas à ce qu'elle est.
+
+### Première fois — la remise à zéro ne touchait pas l'état qui compte
+
+Le banc vidait `localStorage` entre deux cas et se croyait reparti de zéro. Mais
+le cache des verdicts ne vit pas là :
+
+```ts
+/** Cache hydraté depuis le serveur ; null tant que /api/reviews n'a pas répondu. */
+let serverReviews: Record<string, ReviewState> | null = null;
+
+function readReviews() {
+  return serverReviews ?? readLocalReviews(); // ← localStorage n'est QUE le repli
+}
+```
+
+Une variable de module. `localStorage.clear()` ne l'atteint pas.
+
+**Le symptôme n'a pas eu la forme d'une fuite.** Le premier cas approuvait `c` ;
+le second, qui rejetait, a échoué ainsi :
+
+```text
+expected { b: 'rejected' } to deeply equal { c: 'rejected' }
+```
+
+Ni valeur périmée, ni verdict fantôme : un **autre sujet**. Parce que la file de
+revue TRIE par état de revue — `getReview(t.id) === null ? 1 : 2` — le `c`
+resté approuvé dans le cache est descendu en bas de la file, et la production
+active est devenue `b`. Le banc a jugé `b` en croyant juger `c`.
+
+C'est ce qui rend la panne coûteuse : dans une vue TRIÉE, une fuite d'isolement
+se déguise en défaut de tri du produit. On part chercher un `sort` fautif.
+
+Mesuré, plutôt que supposé : la fuite est rouge dans l'ordre de déclaration
+**et** sur six graines de `--sequence.shuffle`. Ce n'est pas l'intermittent que
+le tamis des ordres existe pour attraper (§ 2.14) — c'est systématique, et
+ça se voit au premier essai **si on lit le sujet et pas seulement la valeur**.
+Le dépôt avait déjà la primitive : `hydrateReviews({})`, dont `revues-hors-ligne`
+se sert depuis toujours. Le banc neuf ne la connaissait pas.
+
+### Seconde fois — le produit avait bougé entre les deux gestes
+
+Le cas de `u` enchaînait : approuver, puis annuler. Sauf qu'un verdict **fait
+avancer la file** — c'est la raison d'être de l'écran. Au moment du `u`, la
+production active n'était plus celle qu'on venait de juger, mais la suivante.
+Le banc annulait un verdict qui n'existait pas.
+
+Là encore l'échec disait « il manque un verdict », quand la vérité était « tu
+n'es plus sur la même production ».
+
+La forme juste part d'une production **déjà jugée et sélectionnée**, en laissant
+ailleurs de quoi avancer — sans production en attente, l'auto-avance ne trouve
+rien et le mutant passerait pour sage.
+
+### La règle
+
+**Une remise à zéro doit couvrir là où l'état VIT, pas là où le banc l'écrit.**
+Pour chaque module qu'un banc exerce : qu'est-ce qui survit entre deux `it()` ?
+Un `let` de module survit ; `localStorage.clear()` ne l'atteint pas ; et rien
+dans la signature de la fonction appelée ne le dit.
+
+**Et devant un échec, lire le SUJET avant la valeur.** « `b` au lieu de `c` »
+n'est pas une valeur fausse, c'est un sujet faux — et un sujet faux accuse
+presque toujours le montage du banc, pas le produit. J'ai d'abord soupçonné le
+tri de la file : le tri était juste, c'est mon `beforeEach` qui mentait.
