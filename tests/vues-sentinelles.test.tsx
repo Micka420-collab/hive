@@ -1001,6 +1001,107 @@ describe('les sentinelles du balayage du soir', () => {
     // chaîne. Le bandeau doit rester PARLANT.
     const surChaine = await refusPar('la ruche a coupé');
     expect(surChaine, 'un rejet nu laisse le bandeau muet').toContain('la ruche a coupé');
+
+    // ─── LA TROISIÈME FORME, QUE LE BALAYAGE COMPLET A RÉCLAMÉE ────────────
+    //
+    // `instanceof Error` mutée en `instanceof Object` survivait aux deux cas
+    // ci-dessus : une `Error` EST un objet, une chaîne n'en est PAS un, donc
+    // les deux mondes s'y comportent pareil. Ce n'était pas une équivalence —
+    // c'était une ENTRÉE QUI MANQUAIT.
+    //
+    // Un objet nu les départage : `String(e)` rend « [object Object] », laid
+    // mais présent, là où `e.message` rendrait `undefined` et laisserait le
+    // bandeau réduit à son étiquette.
+    //
+    // On n'épingle PAS « [object Object] » : ce serait sanctifier une verrue.
+    // Ce qu'on exige, c'est qu'il reste un MOTIF derrière l'étiquette — un
+    // bandeau qui n'annonce que « Plafond refusé : » ne refuse rien, il fait
+    // douter de l'écran.
+    const surObjet = await refusPar({ code: 418 });
+    const motif = surObjet.replace('Plafond refusé :', '').trim();
+    expect(motif, 'le bandeau se réduit à son étiquette : aucun motif').not.toBe('');
+  });
+
+  it('BALANCE : « Retirer le plafond » ne s’offre QUE là où il y a un plafond', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {plafondMs !== null && ( <button …>Retirer le plafond</button> )}
+    //
+    // Mutée en `===`, la porte s'inverse : le bouton apparaît sur un projet qui
+    // n'a PAS de plafond — où il ne peut qu'appeler `appliquer(null)` pour
+    // retirer ce qui n'existe pas — et DISPARAÎT sur celui qui en a un. Or
+    // c'est le seul geste qui relâche un projet bloqué : sans lui, l'opérateur
+    // n'a plus de frein à desserrer. Mutée en `||`, il s'offre toujours.
+    const carte = async (plafondMs: number | null): Promise<HTMLElement> => {
+      const solde = { projectId: 'p1', depenseMs: 0, tentatives: 0, plafondMs } as never;
+      return monter(
+        <BalanceProjet
+          projectId="p1"
+          projectName="Rucher"
+          compte={null}
+          solde={solde}
+          mode="strict"
+          aJour={true}
+        />,
+      );
+    };
+    const retirer = (dom: HTMLElement): Element | undefined =>
+      [...dom.querySelectorAll('button')].find((b) =>
+        (b.textContent ?? '').includes('Retirer le plafond'),
+      );
+
+    const avec = await carte(7_200_000);
+    expect(retirer(avec), 'un projet plafonné ne peut plus être relâché').toBeTruthy();
+
+    const sans = await carte(null);
+    expect(retirer(sans), 'on propose de retirer un plafond qui n’existe pas').toBeUndefined();
+  });
+
+  it('BALANCE : l’aperçu du plafond CONVERTIT la saisie, il ne la répète pas', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {cible === null ? t('Un nombre d’heures — « 0 » est licite…')
+    //                     : t(`soit ${formatDuree(cible)} de temps machine prêté`)}
+    //
+    // Le commentaire de la vue dit l'enjeu : « un opérateur ne doit jamais
+    // découvrir après coup qu'il a posé 30 h en croyant poser 30 min ».
+    // L'aperçu est la seule chose qui l'en empêche.
+    //
+    // Mutée en `!==`, les deux moitiés s'échangent : une saisie valide n'est
+    // plus convertie (on retombe sur la consigne générale), et un champ VIDE
+    // passe dans `formatDuree(null)`.
+    const solde = { projectId: 'p1', depenseMs: 0, tentatives: 0, plafondMs: null } as never;
+    const dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={solde}
+        mode="strict"
+        aJour={true}
+      />,
+    );
+    act(() => {
+      [...dom.querySelectorAll('button')]
+        .find((b) => (b.textContent ?? '').includes('Poser un plafond'))
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    const champ = dom.querySelector('.bal-plafond-input') as HTMLInputElement;
+    const apercu = (): string => dom.querySelector('.bal-plafond-apercu')?.textContent ?? '';
+
+    // Champ vide : la consigne, et surtout PAS une durée fabriquée à partir de rien.
+    expect(apercu(), 'le champ vide n’explique pas ce qu’on attend').toContain('0');
+    expect(apercu(), 'une durée sort d’un champ vide').not.toContain('temps machine prêté');
+
+    // Une demi-heure saisie en HEURES doit se lire en minutes.
+    const ecrire = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    act(() => {
+      ecrire?.call(champ, '0.5');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(apercu(), 'la saisie n’est pas convertie dans l’unité de la Balance').toContain(
+      '30 min',
+    );
   });
 
   it('BALANCE : la trace du plafond n’invente pas une date qu’elle n’a pas', async () => {

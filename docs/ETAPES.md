@@ -7743,3 +7743,110 @@ le port `0`, que le système attribue et qu'aucun voisin ne devine.
 
 Le tamis des ordres a été rejoué en local, à l'identique de la CI :
 `✓ la suite tient dans les 3 ordres essayés.`
+
+---
+
+## Balance.tsx n'a plus AUCUNE ligne nue — mesuré, pas déduit
+
+Les quatre dernières mutations qui survivaient à la suite entière sont fermées.
+
+### `instanceof Error` : une entrée qui manquait, pas une équivalence
+
+```js
+.catch((e: unknown) => setErreur(e instanceof Error ? e.message : String(e)))
+```
+
+Le banc du refus tuait `true` et `false`, mais pas `instanceof Object` : une
+`Error` EST un objet, une chaîne n'en est PAS un, donc les deux mondes s'y
+comportaient pareil. Un objet NU les départage — `String(e)` rend
+« [object Object] », laid mais présent, là où `e.message` rendrait `undefined`.
+
+On n'épingle pas « [object Object] » : ce serait sanctifier une verrue. Ce
+qu'on exige, c'est qu'il reste un MOTIF derrière l'étiquette — un bandeau qui
+n'annonce que « Plafond refusé : » ne refuse rien, il fait douter de l'écran.
+
+### « Retirer le plafond » ne s'offre que là où il y a un plafond
+
+```jsx
+{
+  plafondMs !== null && <button>Retirer le plafond</button>;
+}
+```
+
+Mutée en `===`, la porte s'inverse : le bouton apparaît sur un projet SANS
+plafond — où il ne peut qu'appeler `appliquer(null)` pour retirer ce qui
+n'existe pas — et DISPARAÎT sur celui qui en a un. C'est le seul geste qui
+relâche un projet bloqué.
+
+### L'aperçu convertit la saisie, il ne la répète pas
+
+```jsx
+{
+  cible === null
+    ? t('Un nombre d’heures — « 0 » est licite…')
+    : t(`soit ${formatDuree(cible)} de temps machine prêté`);
+}
+```
+
+La vue le dit elle-même : « un opérateur ne doit jamais découvrir après coup
+qu'il a posé 30 h en croyant poser 30 min ». Mutée, les deux moitiés
+s'échangent — une saisie valide n'est plus convertie, et un champ VIDE passe
+dans `formatDuree(null)` (mesuré : « soit 0 ms de temps machine prêté »).
+
+### Rejeu, verdict affiché
+
+```text
+instanceof Error → instanceof Object  1 failed  (« le bandeau se réduit à son étiquette »)
+plafondMs !== → ===                   1 failed  (« un projet plafonné ne peut plus être relâché »)
+plafondMs && → ||                     1 failed  (« un projet plafonné ne peut plus être relâché »)
+cible === → !==                       1 failed  (« une durée sort d'un champ vide »)
+source saine, restaurée par copie     51 passed (51)
+```
+
+### Le rebalayage COMPLET, parce qu'une soustraction n'est pas une mesure
+
+```text
+39 mutations candidates (les 2 de prose ont disparu avec les marques `*`)
+  36 tuées par le banc des vues
+   3 tuées par un autre banc
+   0 NUE
+```
+
+`Balance.tsx` est le premier fichier de `dashboard/src/views` dont **toutes** les
+mutations candidates sont jouées et tuées.
+
+---
+
+## Mon propre banc a rougi sur macOS, et le vert aurait été pire
+
+`tests/bouchon-de-port.test.ts`, écrit une heure plus tôt, a rougi — sur macOS
+seulement :
+
+```text
+AssertionError: le bouchon n'a pas vu la connexion du voisin: expected +0 to be 1
+```
+
+`connect` côté CLIENT et `connection` côté SERVEUR sont deux évènements
+distincts, sur deux sockets distinctes. Attendre le premier ne dit rien du
+second. Linux les servait dans l'ordre commode ; macOS non.
+
+**Le rouge était le bon côté de la pièce.** Le mauvais aurait été un VERT : un
+cas qui ferme un bouchon sans connexion suivie ne mesure pas le remède, il le
+contourne. Sur les deux cas concernés, l'un a rougi (il comptait) et l'autre est
+passé — c'est-à-dire qu'il ne mesurait rien, en silence.
+
+Remède : `jusqua()`, une attente BORNÉE sur la condition réelle, et les deux cas
+attendent désormais que le serveur ait VU la connexion.
+
+```text
+coupe des connexions retirée   2 failed  (Test timed out in 2000ms ×2)
+attente visant `=== 2`         1 failed  (« attente vaine »)
+borne ramenée à 0              5 passed  → survivant CONDITIONNÉ À LA PLATEFORME
+source saine                   5 passed (5)
+```
+
+Le dernier mutant est consigné plutôt que masqué : sur Linux, la connexion est
+DÉJÀ vue quand on regarde, donc aucune entrée locale ne distingue une attente
+bornée d'une attente nulle. Il ne mordrait que là où la course existe. Ce n'est
+pas une équivalence vraie — c'est une équivalence SUR CETTE PLATEFORME, et la
+nuance est exactement celle que le défaut vient d'illustrer.

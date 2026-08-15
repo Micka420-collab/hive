@@ -18,7 +18,7 @@
 
 import { connect, createServer, type Socket } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { occuperPort, portLibre, retirerLeBouchon } from './harnais-bouchon.js';
+import { jusqua, occuperPort, portLibre, retirerLeBouchon } from './harnais-bouchon.js';
 
 /** Se connecter et ATTENDRE que la poignée de main soit faite. */
 async function seBrancher(port: number): Promise<Socket> {
@@ -67,8 +67,12 @@ describe('le bouchon de port', () => {
     // dans son propre `finally`, assertions déjà passées.
     const port = await portLibre();
     let voisin: Socket | null = null;
-    await occuperPort(port, async () => {
+    await occuperPort(port, async (vivants) => {
       voisin = await seBrancher(port);
+      // `connect` côté client ne dit RIEN de l'accepteur du serveur : sans
+      // cette attente, le cas fermerait un bouchon SANS connexion suivie et
+      // serait vert pour la mauvaise raison (mesuré sur macOS).
+      await jusqua(() => vivants.size === 1, 'le bouchon n’a pas vu le voisin');
     });
     // Si l'on est ici, le `finally` du harnais a rendu la main : c'est TOUT le
     // sujet. La borne de 2 s au bas de ce cas est l'assertion réelle.
@@ -99,6 +103,7 @@ describe('le bouchon de port', () => {
     });
     await new Promise<void>((r) => bouchon.listen(port, '127.0.0.1', () => r()));
     const voisin = await seBrancher(port);
+    await jusqua(() => vivants.size === 1, 'le bouchon n’a pas vu la connexion du voisin');
     expect(vivants.size, 'le bouchon n’a pas vu la connexion du voisin').toBe(1);
 
     await retirerLeBouchon(bouchon, vivants);

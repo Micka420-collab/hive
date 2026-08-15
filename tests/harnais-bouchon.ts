@@ -47,7 +47,10 @@ import { createServer, type Server, type Socket } from 'node:net';
  * ce qui est exactement ce qu'on veut simuler (une porte prise par autre chose).
  * Mais accepter crée des sockets, et ce sont elles qui retenaient `close()`.
  */
-export async function occuperPort<T>(port: number, faire: () => Promise<T>): Promise<T> {
+export async function occuperPort<T>(
+  port: number,
+  faire: (vivants: ReadonlySet<Socket>) => Promise<T>,
+): Promise<T> {
   const vivants = new Set<Socket>();
   const bouchon: Server = createServer((s) => {
     vivants.add(s);
@@ -58,9 +61,37 @@ export async function occuperPort<T>(port: number, faire: () => Promise<T>): Pro
     bouchon.listen(port, '127.0.0.1', resoudre);
   });
   try {
-    return await faire();
+    return await faire(vivants);
   } finally {
     await retirerLeBouchon(bouchon, vivants);
+  }
+}
+
+/**
+ * Attendre une condition, en temps BORNÉ.
+ *
+ * ─── POURQUOI CETTE AIDE EXISTE ──────────────────────────────────────────────
+ *
+ * Le banc de ce harnais a rougi sur macOS, et sur macOS SEULEMENT :
+ *
+ *     AssertionError: le bouchon n'a pas vu la connexion du voisin:
+ *     expected +0 to be 1
+ *
+ * `connect` côté CLIENT et `connection` côté SERVEUR sont deux évènements
+ * distincts, sur deux sockets distinctes. Attendre le premier ne dit RIEN du
+ * second : la poignée de main est finie pour l'appelant avant que la boucle
+ * d'évènements du serveur n'ait servi son accepteur. Linux les servait dans
+ * l'ordre commode ; macOS non.
+ *
+ * Le rouge était le bon côté de la pièce. Le mauvais côté aurait été un VERT :
+ * un cas qui ferme un bouchon SANS connexion suivie ne mesure pas le remède, il
+ * le contourne — et il aurait été vert pour la mauvaise raison.
+ */
+export async function jusqua(vrai: () => boolean, quoi: string, borneMs = 2_000): Promise<void> {
+  const fin = Date.now() + borneMs;
+  while (!vrai()) {
+    if (Date.now() > fin) throw new Error(`attente vaine : ${quoi}`);
+    await new Promise((r) => setTimeout(r, 5));
   }
 }
 

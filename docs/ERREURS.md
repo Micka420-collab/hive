@@ -9630,3 +9630,57 @@ lient tous le port `0`, que le système attribue et qu'aucun voisin ne peut
 deviner. Le bouchon est malgré tout sorti dans un harnais partagé — le piège
 n'a rien de propre à l'installeur, et la prochaine porte fixe n'aura pas à le
 réapprendre.
+
+## 9 nonanonagies. Une équivalence peut être vraie sur UNE plateforme seulement
+
+Mon propre banc, écrit une heure plus tôt pour fermer le blocage du bouchon de
+port, a rougi en CI — **sur macOS seulement** :
+
+```text
+AssertionError: le bouchon n'a pas vu la connexion du voisin: expected +0 to be 1
+```
+
+`connect` côté CLIENT et `connection` côté SERVEUR sont deux évènements
+distincts, sur deux sockets distinctes. Attendre le premier ne dit RIEN du
+second : la poignée de main est finie pour l'appelant avant que la boucle
+d'évènements du serveur n'ait servi son accepteur. Linux les servait dans
+l'ordre commode ; macOS non.
+
+### Le rouge était le bon côté de la pièce
+
+Deux cas du fichier dépendaient de cette course. L'un a rougi. **L'autre est
+passé** — et c'est celui-là qui doit inquiéter : il fermait un bouchon SANS
+connexion suivie, donc il ne mesurait pas le remède, il le contournait. Vert,
+et vide.
+
+> Une course de ce genre ne se manifeste pas d'un seul côté. Là où elle rougit,
+> elle vous prévient ; là où elle passe, elle vous vole une garde. Quand un banc
+> rougit pour cause d'ordonnancement, il faut relire TOUS ses voisins qui
+> dépendent du même ordre — pas seulement corriger celui qui a crié.
+
+### Et l'équivalence qui n'en est pas tout à fait une
+
+Le remède est `jusqua()`, une attente bornée sur la condition réelle. Mutée
+— borne ramenée à zéro, c'est-à-dire l'absence d'attente — la suite reste VERTE
+sur cette machine. Normal : sous Linux la connexion est déjà vue quand on
+regarde, donc aucune entrée locale ne distingue les deux versions.
+
+Ce n'est pas un mutant équivalent au sens du § 2.16 ter. C'est un mutant
+**équivalent sur cette plateforme**, et la différence n'est pas académique :
+c'est précisément l'écart qui vient de faire rougir la CI.
+
+> **« Aucune entrée ne les distingue » a un périmètre, et le périmètre fait
+> partie de l'affirmation.** Sur un seul système d'exploitation, ce n'est pas
+> une équivalence : c'est une mesure partielle, et elle se consigne comme telle.
+> Le mutant qui survit ici mordrait ailleurs — la CI des trois OS est la seule
+> à pouvoir le dire, et c'est une raison de plus pour qu'elle existe.
+
+### Ce que ça dit du geste « je corrige et je repousse »
+
+Le défaut du bouchon avait été mesuré, expliqué, éprouvé par trois mutants et
+balayé sur tout le dépôt. Il restait faux d'un côté que la machine locale ne
+pouvait pas voir. Aucune quantité de rigueur locale ne remplace l'exécution sur
+les trois plateformes — et la bonne réaction à un rouge de CI qui n'apparaît
+que sur l'une d'elles n'est ni de le rejouer en espérant, ni d'élargir une
+borne : c'est de trouver quelle HYPOTHÈSE d'ordonnancement on avait prise sans
+le dire.
