@@ -10023,3 +10023,114 @@ seul monde où je l'avais essayé**. C'est la forme récurrente des défauts de 
 dépôt — une hypothèse vraie ici, jamais énoncée, et fausse ailleurs. Le banc a
 été le seul à le dire, et il ne l'a dit que parce qu'il exécute vraiment le
 script au lieu d'en relire le texte.
+
+---
+
+## 9 septcenties. Le premier écran de Hive sous Windows était une page d'excuses — et personne ne pouvait le savoir
+
+`install.sh` a, depuis toujours, une étape « Construction de l'écran » qui lance
+`npm run build:dashboard`. `install.ps1` s'arrêtait à `install:hive`.
+
+Conséquence, jamais vue par personne : un arrivant sous Windows installait Hive,
+ouvrait l'adresse, et tombait sur
+
+> **La ruche tourne. L'écran, lui, n'est pas construit.**
+
+Le produit marchait — API, nœuds, tâches, tout répondait. Ce qu'il montrait
+était un mode d'emploi.
+
+### Pourquoi ça a tenu si longtemps
+
+Parce que **rien n'exerçait ce chemin**. Les trois jambes de seuil s'arrêtaient
+à « la ruche répond sur `/api/pulse` », qui prouve l'orchestrateur et pas
+l'écran. Le défaut vivait exactement dans l'espace entre ce qu'on mesurait et ce
+qu'on promettait.
+
+Ce n'est donc pas une régression. **Ça n'a jamais marché**, et la question utile
+n'est pas « qui l'a cassé » mais « qu'est-ce qui aurait pu le dire ». Réponse :
+seulement une mesure qui va jusqu'à l'écran. Elle a été ajoutée le 15 août au
+titre du point 3c, et elle l'a trouvé à sa **première exécution réelle sous
+Windows** :
+
+```text
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+```
+
+Une mesure neuve qui rougit au premier tour n'est pas une mesure mal réglée :
+c'est une mesure qui arrive dans une zone que personne ne regardait.
+
+### La forme du défaut, et c'est la TROISIÈME de la même famille
+
+Les deux installeurs sont des jumeaux, et ils divergent en silence :
+
+| #   | ce qui manquait à `install.ps1` | trouvé par                                    |
+| --- | ------------------------------- | --------------------------------------------- |
+| 1   | `HIVE_DEPOT`                    | une lecture comparée des deux fichiers        |
+| 2   | l'appel au parcours             | la garde écrite en même temps que le parcours |
+| 3   | **la construction de l'écran**  | le pas 4/5, en CI, sous Windows               |
+
+Trois fois le même mécanisme : une chose faite d'un côté, oubliée de l'autre, et
+**aucun message pour le dire**. Une option absente se signale ; une option
+ignorée en silence ment.
+
+La garde qui ferme le n° 3 compare les travaux npm que chaque installeur LANCE
+— par découverte, pas par liste, pour que le quatrième soit couvert sans que
+personne n'y repense. Elle a été écrite AVANT le correctif et vue rouge sur le
+défaut vivant :
+
+```text
+install.ps1 ne lance pas des travaux qu'install.sh lance : build:dashboard
+```
+
+### Et le piège qu'il a fallu ne pas retomber dedans
+
+Elle exige un LANCEMENT, pas une mention. Les deux fichiers **écrivent**
+`npm run build:dashboard` dans un message de secours (« pour réessayer plus
+tard »). Une garde qui aurait compté ces lignes-là serait restée verte sur
+l'installeur cassé, puisque le texte y était. C'est la même distinction que pour
+les réglages `HIVE_*`, et c'est la troisième fois qu'elle sert dans ce fichier.
+
+---
+
+## 9 octocenties. J'ai coché ✅ parce que la MESURE EXISTAIT, pas parce qu'elle avait mordu
+
+En ajoutant les pas 4 et 5 aux trois jambes de seuil, j'ai réécrit le tableau du
+`definition of done` :
+
+```text
+Linux    ✅ installation → tableau → premier projet
+macOS    ✅ installation → tableau → premier projet
+Windows  ✅ installation → tableau → premier projet
+```
+
+Les deux premières lignes étaient vraies : leurs journaux étaient lus. **La
+troisième était fausse**, et je l'ai écrite dans le même geste, sans m'arrêter
+sur la différence — la jambe Windows n'avait alors jamais joué ces deux pas. Une
+heure plus tard, elle les jouait et rougissait.
+
+### Le glissement, nommé précisément
+
+Ce n'est pas « j'ai écrit un badge de tête » : le pas existait vraiment, le code
+était poussé, les deux autres systèmes étaient verts. C'est plus fin et plus
+facile à refaire —
+
+> **j'ai coché la case parce que l'INSTRUMENT était en place, pas parce que le
+> RÉSULTAT était rendu.**
+
+Un instrument en place ne mesure rien tant qu'il n'a pas tourné. Et un tableau
+qui compte trois systèmes fait glisser le troisième sur la lancée des deux
+premiers : la SYMÉTRIE de la ligne fait office de preuve, alors qu'elle n'est
+qu'une mise en page.
+
+### La règle qu'on en tire, et son coût
+
+**Une case par système se coche par système, avec le numéro de run de CE
+système.** Jamais par lot, jamais par lignée. C'est plus lent d'écrire trois
+fois la même chose en attendant trois journaux — et c'est exactement ce que
+« mesuré » veut dire.
+
+Le remède appliqué : la ligne Windows redevient `⚠️`, avec la mesure qui l'a
+démentie citée en dessous. Le correctif de l'installeur est poussé ; **la case
+ne rebasculera que sur un `✔ 4/5` et un `✔ 5/5` venus de la jambe Windows
+elle-même.**

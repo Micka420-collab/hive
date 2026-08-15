@@ -116,11 +116,11 @@ La matrice à trois systèmes mesure que _le code compile et que les bancs
 passent_. L'installation, elle, est une autre affaire, et elle se dit système
 par système :
 
-| Système     | Ce qui est mesuré                           | Depuis quand             |
-| ----------- | ------------------------------------------- | ------------------------ |
-| **Linux**   | ✅ installation → tableau → premier projet  | en continu, à chaque PR  |
-| **macOS**   | ✅ installation → tableau → premier projet  | **14 août, à chaque PR** |
-| **Windows** | ✅ installation → tableau → premier projet¹ | **15 août, à chaque PR** |
+| Système     | Ce qui est mesuré                                      | Depuis quand             |
+| ----------- | ------------------------------------------------------ | ------------------------ |
+| **Linux**   | ✅ installation → tableau → premier projet             | **15 août, à chaque PR** |
+| **macOS**   | ✅ installation → tableau → premier projet             | **15 août, à chaque PR** |
+| **Windows** | ⚠️ installation → ruche qui répond ; tableau EN COURS¹ | 15 août, à chaque PR     |
 
 **Le parcours a été allongé le 15 août.** Les trois jambes s'arrêtaient à « la
 ruche répond sur `/api/pulse` » — ce qui prouve l'orchestrateur et pas l'écran.
@@ -136,6 +136,31 @@ Le pas 4 ne se contente pas d'un HTTP 200 : **quatre pages différentes rendent
 200** et trois sont des écrans blancs — le repli « l'écran n'est pas construit »,
 le gabarit de développement servi tel quel (il demande `/src/main.tsx`), et une
 coquille sans script.
+
+### ¹ Windows : ce que le pas 4 a trouvé à sa PREMIÈRE exécution
+
+> **Cette ligne a d'abord été écrite `✅` pour les trois systèmes. C'était faux
+> pour Windows, et faux au sens précis que ce document interdit : je l'ai écrite
+> à partir du fait que le pas EXISTAIT, avant que la jambe Windows ne l'ait
+> jamais joué.** Elle est corrigée ici par la mesure qui l'a démentie — run
+> `31876399994`, travail `94992678231` :
+>
+> ```text
+> ✔ 3/3 — la ruche répond sur :7777 après 1 s
+> ✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+> ```
+
+`install.ps1` **ne construisait pas le tableau de bord**, et ne l'a jamais fait :
+`install.sh` a une étape « Construction de l'écran » depuis toujours, son jumeau
+s'arrêtait à `install:hive`. Un arrivant sous Windows installait Hive, ouvrait
+l'adresse, et lisait un mode d'emploi au lieu d'utiliser le produit — **le
+premier écran de Hive sous Windows était une page d'excuses.**
+
+Ce n'est pas une régression : ce chemin n'était exercé nulle part, puisque les
+jambes de seuil s'arrêtaient avant. L'étape manquante est ajoutée, une garde de
+parité interdit qu'elle reparte (`tests/installeurs-jumeaux.test.ts`, vue rouge
+sur le défaut vivant) — mais **la case reste `⚠️` tant que la jambe Windows n'a
+pas rendu `✔ 4/5` et `✔ 5/5` en propre**, avec son numéro de run.
 
 **macOS a basculé le 14 août** (`seuil` devient une matrice, run
 `31776537105`). Première fois que la commande du README y était menée à son

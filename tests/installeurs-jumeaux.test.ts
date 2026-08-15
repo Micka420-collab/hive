@@ -70,6 +70,32 @@ function luParPowerShell(source: string): Set<string> {
   return vus;
 }
 
+/**
+ * Les travaux npm que cette source LANCE vraiment — pas ceux qu'elle affiche.
+ *
+ * Les deux installeurs écrivent `npm run build:dashboard` dans un message de
+ * secours (« pour réessayer plus tard »). Compter ces lignes rendrait la garde
+ * verte sur un installeur qui ne construit rien, puisque le TEXTE y est.
+ *
+ * On écarte donc toute occurrence précédée d'un guillemet sur sa ligne : c'est
+ * la marque d'une chaîne, donc d'un affichage. La règle est grossière — elle
+ * ignore les chaînes multi-lignes — et c'est assumé : les deux fichiers
+ * n'écrivent leurs commandes que sur une ligne, et une garde qui se trompe en
+ * REFUSANT (elle ne verrait pas un lancement caché dans un gabarit) échoue du
+ * bon côté.
+ */
+function lancesPar(source: string): Set<string> {
+  const vus = new Set<string>();
+  for (const ligne of sansCommentaires(source).split('\n')) {
+    for (const m of ligne.matchAll(/npm(?:\.cmd)? run ([a-z][\w:-]*)/g)) {
+      const avant = ligne.slice(0, m.index);
+      if (avant.includes('"') || avant.includes("'")) continue;
+      vus.add(m[1]!);
+    }
+  }
+  return vus;
+}
+
 const trie = (s: Set<string>): string[] => [...s].sort();
 
 describe('les deux installeurs connaissent les mêmes réglages', () => {
@@ -183,6 +209,66 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
     expect(
       manquants,
       `ces systèmes n'ont aucune jambe qui mène l'installation à son terme : ${manquants.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('LES DEUX INSTALLEURS LANCENT LES MÊMES TRAVAUX', () => {
+    // ─── LE DÉFAUT, TROUVÉ EN CI ET PAS À LA RELECTURE ─────────────────────
+    //
+    // `install.sh` a une étape « Construction de l'écran » qui lance
+    // `npm run build:dashboard`. `install.ps1` s'arrête après `install:hive`.
+    //
+    // Conséquence pour un arrivant sous Windows : il installe, ouvre l'adresse,
+    // et tombe sur la page « la ruche tourne, l'écran n'est pas construit ».
+    // Le produit fonctionne — l'API, les nœuds, les tâches — et il lit un mode
+    // d'emploi au lieu de s'en servir. **Le premier écran de Hive sous Windows
+    // était une page d'excuses**, et rien ne le disait.
+    //
+    // Ce n'est pas une régression : ça n'a JAMAIS marché. Le chemin n'était
+    // exercé nulle part, parce que les jambes de seuil s'arrêtaient à
+    // « la ruche répond ». Le pas 4/5 du parcours l'a trouvé à sa PREMIÈRE
+    // exécution réelle sous Windows (run 31876399994) :
+    //
+    //     ✔ 3/3 — la ruche répond sur :7777 après 1 s
+    //     ✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+    //
+    // C'est la TROISIÈME divergence entre les jumeaux, après `HIVE_DEPOT` et
+    // l'appel au parcours. D'où une garde par DÉCOUVERTE plutôt qu'une liste :
+    // le quatrième travail, celui qu'on ajoutera dans six mois, doit être
+    // couvert sans que personne n'y repense (§ 9 quinoctogies).
+    const POSIX_ = lire('install.sh');
+    const WINDOWS_ = lire('install.ps1');
+
+    expect(trie(lancesPar(POSIX_)), 'aucun travail lu dans install.sh').not.toEqual([]);
+    expect(trie(lancesPar(WINDOWS_)), 'aucun travail lu dans install.ps1').not.toEqual([]);
+
+    // ─── AFFICHER UNE COMMANDE N'EST PAS LA LANCER ─────────────────────────
+    //
+    // Les deux fichiers ÉCRIVENT `npm run build:dashboard` dans un message —
+    // « pour réessayer plus tard, sans rien réinstaller ». Une garde qui
+    // compterait ces lignes-là serait verte sur l'installeur cassé, puisque le
+    // texte y est. On éprouve donc la règle sur des sources fabriquées, comme
+    // pour les réglages ci-dessus.
+    expect(lancesPar('accent "    npm run build:dashboard"').size, 'un AFFICHAGE compte').toBe(0);
+    expect(lancesPar('$s = "cd $Dir; npm run install:hive"').size, 'un AFFICHAGE compte').toBe(0);
+    expect(lancesPar('# npm run build:dashboard — envisagé').size, 'un COMMENTAIRE compte').toBe(0);
+    expect(
+      lancesPar('npm run build:dashboard >/dev/null'),
+      'un vrai lancement doit compter',
+    ).toEqual(new Set(['build:dashboard']));
+
+    const surPosix = trie(lancesPar(POSIX_));
+    const surWindows = trie(lancesPar(WINDOWS_));
+    const manquantsWindows = surPosix.filter((n) => !surWindows.includes(n));
+    const manquantsPosix = surWindows.filter((n) => !surPosix.includes(n));
+
+    expect(
+      manquantsWindows,
+      `install.ps1 ne lance pas des travaux qu'install.sh lance : ${manquantsWindows.join(', ')}`,
+    ).toEqual([]);
+    expect(
+      manquantsPosix,
+      `install.sh ne lance pas des travaux qu'install.ps1 lance : ${manquantsPosix.join(', ')}`,
     ).toEqual([]);
   });
 

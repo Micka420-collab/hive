@@ -633,5 +633,59 @@ if ($DryRun) {
 Push-Location $Dir
 if ($Reste) { npm run install:hive -- @Reste } else { npm run install:hive }
 $code = $LASTEXITCODE
+
+# ─── 5. La construction de l'écran ──────────────────────────────────────────
+#
+# CETTE ÉTAPE MANQUAIT, ET ELLE N'A JAMAIS EXISTÉ ICI.
+#
+# `install.sh` la fait depuis toujours ; `install.ps1` s'arrêtait à
+# `install:hive`. Un arrivant sous Windows installait donc Hive, ouvrait
+# l'adresse, et tombait sur la page « la ruche tourne, l'écran n'est pas
+# construit ». Le produit marchait — API, nœuds, tâches — et le PREMIER ÉCRAN
+# de Hive sous Windows était une page d'excuses.
+#
+# Rien ne le disait, parce que rien ne l'exerçait : les jambes de seuil
+# s'arrêtaient à « la ruche répond sur /api/pulse ». Le pas 4/5 du parcours,
+# ajouté le 15 août, l'a trouvé à sa PREMIÈRE exécution réelle sous Windows
+# (run 31876399994) :
+#
+#     ✔ 3/3 — la ruche répond sur :7777 après 1 s
+#     ✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+#
+# ─── ET POURQUOI UN ÉCHEC ICI N'ARRÊTE RIEN ─────────────────────────────────
+#
+# Même raison que du côté POSIX : la ruche TOURNE sans écran. Un `vite build`
+# qui échoue ne doit pas transformer une installation réussie en installation
+# ratée. On le dit, on donne le geste, et on rend la main.
+#
+# ─── ET POURQUOI ON NE MASQUE PAS SA SORTIE, LÀ OÙ POSIX LA MASQUE ──────────
+#
+# `install.sh` écrit `>/dev/null 2>&1`. L'équivalent PowerShell (`*> $null`)
+# porte un risque que le shell n'a pas : sous `$ErrorActionPreference = 'Stop'`,
+# rediriger le flux d'erreur d'une commande NATIVE fait passer chaque ligne de
+# stderr par le mécanisme d'erreur de PowerShell, et un simple avertissement npm
+# peut y devenir une erreur TERMINANTE. L'installation mourrait alors sur un
+# `npm warn`, à l'étape la moins critique de toutes.
+#
+# Je n'ai pas de PowerShell pour trancher ce point ici, et deux jambes Windows
+# sont déjà mortes sur des subtilités de ce genre. On garde donc la forme sans
+# redirection : la sortie de `vite build` s'affiche. C'est moins net que du côté
+# POSIX, et c'est le prix assumé d'une étape qui vient précisément de prouver
+# qu'elle savait manquer en silence.
+if ($code -eq 0) {
+  Etape 'Construction de l''écran'
+  npm run build:dashboard
+  if ($LASTEXITCODE -eq 0) {
+    Ok 'tableau de bord prêt'
+  } else {
+    Alerte 'l''écran n''a pas pu être construit — la ruche tourne quand même'
+    Dire ''
+    Dire '  Pour réessayer plus tard, sans rien réinstaller :'
+    Dire ''
+    Dire "    cd $Dir; npm.cmd run build:dashboard"
+    Dire ''
+  }
+}
+
 Pop-Location
 exit $code
