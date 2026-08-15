@@ -7522,3 +7522,59 @@ Les onze survivants des 22 mutations MESURÉES sont tous traités : dix par un
 banc, un consigné équivalent. Il reste **21 mutations jamais jouées** — le
 balayage était mort avant de les atteindre. Aucun verdict n'est porté sur elles,
 et `Balance.tsx` ne sera dit « défendu » qu'après un balayage qui va au bout.
+
+---
+
+## Le canevas hors de portée : la limite est MESURÉE, plus seulement affirmée
+
+Dernier point nommé du balayage du Cerveau : `attrape.current.id`, la ligne qui
+passe à la physique le corps que le doigt tient.
+
+```js
+rappelerAuCentre(liste, { L, H, dt, attrapeId: attrape.current.id });
+```
+
+La consigne était de la DOCUMENTER honnêtement si happy-dom ne peut pas la
+jouer, plutôt que de la simuler. Fabriquer un faux contexte 2D pour faire
+tourner la boucle donnerait un banc vert qui ne dessine rien — du décor.
+
+### Ce qui manquait à la documentation existante
+
+Trois fichiers justifient une extraction par la même phrase — « `getContext`
+rend `null` sous happy-dom » — et **rien ne la vérifiait**. Une phrase de
+commentaire, écrite une fois, portait une bonne part de la forme du Cerveau.
+
+`tests/canevas-hors-portee.test.tsx` la branche, en trois blocs :
+
+1. **La limite elle-même.** `getContext('2d')` rend `null`, et ne LÈVE pas — la
+   nuance porte la vue entière, puisque `if (!ctx) return;` ne rattrape qu'un
+   `null`. Et `requestAnimationFrame` EXISTE : la cause est le contexte de
+   dessin, lui seul. On ne dit pas « intestable », on dit exactement pourquoi.
+2. **Ce que la limite coûte.** La toile est bien rendue (la vue n'est pas
+   absente, elle est muette), et **aucune image n'est demandée** : pas un tour
+   de boucle, donc `attrape.current.id` n'est jamais atteint.
+3. **La consignation ne doit pas dériver.** Les treize fonctions pures sorties
+   de la boucle sont encore APPELÉES depuis la vue. Le risque d'une zone
+   d'ombre reconnue n'est pas d'y laisser ce qui s'y trouve : c'est d'y ramener
+   une décision, « juste celle-là », où plus rien ne la verrait.
+
+### Rejeu, verdict affiché
+
+```text
+if (!ctx) return;   retiré      2 failed  (2 images demandées, puis mort sur `setTransform`)
+rappelerAuCentre(   ré-inliné   1 failed  (« la décision n'est plus appelée »)
+getContext → un contexte        2 failed  (« happy-dom sait désormais dessiner »
+                                           + 5 images demandées)
+source saine, restaurée par copie  19 passed (19)
+```
+
+Le troisième mutant est celui qui compte : il mute **l'environnement**, pas la
+source, et prouve que le jour où happy-dom saura dessiner, ce banc le dira au
+lieu de laisser une note périmée dans trois fichiers.
+
+### Ce que ce lot ne fait pas
+
+Il ne rend pas la boucle éprouvable. `attrape.current.id` reste hors d'atteinte
+du banc, et c'est écrit à l'inventaire plutôt que masqué par un faux contexte.
+Ce qui change, c'est que la limite a désormais une date de péremption mesurée à
+chaque exécution.

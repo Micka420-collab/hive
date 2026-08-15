@@ -9414,3 +9414,71 @@ une variante à peine différente — décor complet par chance, un seul bouton 
 l'écran, une valeur initiale non vide. C'est la mutation qui a tranché : les
 quatre mutants (`===`→`!==`, repli neutralisé, `>=`→`>`, garde retirée) ont tous
 rougi APRÈS correction, et seulement après.
+
+## 9 sexnonagies. La limite qui justifie une bonne part de l'architecture n'était vérifiée nulle part
+
+Trois fichiers du dépôt justifient une extraction par la même phrase :
+
+    « `getContext` rend `null` sous happy-dom »
+
+`cerveau-physique.ts`, `cerveau-designation.ts` et `Cerveau.tsx` s'appuient
+dessus pour sortir des décisions d'une boucle de rendu. C'est-à-dire qu'une
+phrase de commentaire, écrite une fois, porte une bonne part de la FORME du
+Cerveau — et rien ne la vérifiait.
+
+Elle était vraie le jour où on l'a écrite. Elle a exactement le statut d'un
+badge écrit de tête : juste jusqu'à preuve du contraire, et personne pour faire
+la preuve.
+
+### Ce que « documenter honnêtement » veut dire
+
+La consigne, sur une ligne que happy-dom ne peut pas jouer, était de la
+DOCUMENTER plutôt que de la simuler. Fabriquer un faux contexte 2D pour faire
+tourner la boucle donnerait un banc vert qui ne dessine rien : du décor.
+
+Mais une documentation qui ne peut pas rougir vaut la phrase de commentaire
+qu'elle remplace.
+
+> **Documenter une limite, c'est la MESURER et laisser la mesure branchée.**
+> La note dit ce qu'on croyait ; la garde dit ce qui est vrai à chaque
+> exécution. Ce qui distingue les deux, c'est qu'une garde peut avoir tort — et
+> le dire.
+
+Mesuré finement, l'environnement fournit `requestAnimationFrame` : une boucle
+d'animation SANS dessin serait jouable. C'est le contexte de dessin, et lui
+seul, qui manque. On ne dit donc pas « intestable », on dit exactement pourquoi
+— et la différence se voit dans le mutant : en retirant `if (!ctx) return;`,
+deux images sont demandées et la boucle meurt sur `setTransform`. La limite
+était bien là où on la disait.
+
+### Le vrai risque d'une zone d'ombre reconnue
+
+Une fois la limite admise, la tentation n'est pas d'y laisser ce qui s'y trouve.
+C'est d'y RAMENER une décision, « juste celle-là », parce que c'est plus court
+sur place. Elle y serait invisible : ni banc, ni loupe, ni relecture attentive
+ne la verraient.
+
+D'où la troisième moitié de la garde : chacune des treize fonctions pures
+sorties de la boucle doit encore être APPELÉE depuis la vue. Ré-inliner l'une
+d'elles supprime son appel, et le banc le dit.
+
+### Et le piège que le dépôt connaissait déjà
+
+Ce fichier a d'abord planté sur :
+
+    TypeError: The URL must be of scheme file
+
+Sous `happy-dom`, `import.meta.url` devient une URL `http:`. Le piège est écrit
+en toutes lettres dans `tests/vitrine-executee.test.ts`, avec sa cause et son
+remède — et il m'a repris quand même.
+
+> **Une note écrite dans le fichier qui a subi le défaut ne protège que ce
+> fichier.** Elle est au bon endroit pour celui qui relit CE code, et nulle part
+> pour celui qui écrira le suivant. C'est le § 9 ter (« quatre copies d'une
+> phrase dérivent ») pris par l'autre bout : une seule copie ne dérive pas, elle
+> reste simplement introuvable.
+
+Le remède appliqué ici est modeste et honnête : la note est recopiée à l'endroit
+qui en a besoin, avec un renvoi. Le remède complet — que le journal des erreurs
+soit consulté AVANT d'écrire un banc qui lit des fichiers, pas après — est une
+habitude, pas une garde, et se dit ici plutôt que de se prétendre résolue.
