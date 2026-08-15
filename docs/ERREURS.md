@@ -9541,3 +9541,92 @@ n'est pas une assertion n'est pas une mesure »), et elle a fonctionné les troi
 fois — le diagnostic a pris moins d'une minute. Ce qui manque n'est pas la
 leçon, c'est un décor PARTAGÉ pour ces vues, qu'on ne réinvente pas à chaque
 banc. C'est un lot à part, et il est nommé ici plutôt que prétendu fait.
+
+## 9 octononagies. `close()` attend ses visiteurs — un bouchon de port se retire, il ne se demande pas poliment
+
+La CI a rougi sur la graine 23757 :
+
+```text
+FAIL  tests/installeur-porte.test.ts > LE PORT DU .env EST LIBRE : pas d'alerte, même si 7777 est pris
+Error: Test timed out in 120000ms.
+```
+
+Le même cas dure **416 ms** en local, et la graine rejouée à l'identique passe
+(100 s pour la suite entière). Un dépassement de **290×** n'est pas de la
+lenteur : c'est un blocage.
+
+### Deux hypothèses, la première MESURÉE FAUSSE
+
+L'aide `lancer` porte `timeout: 60_000` sur `execFile` : à 60 s l'enfant est tué
+et la promesse rejetée — le cas aurait dû rougir sur une assertion, pas sur un
+chronomètre. Première hypothèse : le banc lance l'installeur À TRAVERS `tsx`,
+donc `execFile` tue l'ENVELOPPE et le petit-enfant garde le tuyau ouvert, si
+bien que la promesse ne se règle jamais (le motif du § 9 septdecies, pris par
+l'autre bout).
+
+Mesuré, sur un petit-enfant qui tient 300 s :
+
+```text
+timeout execFile = 3 000 ms · après 15 000 ms d'attente : rejetée après 3 012 ms (tuée)
+```
+
+**Hypothèse fausse.** `execFile` se règle bien à la mort du processus, quoi que
+fasse sa descendance. Le blocage n'était donc pas là — et l'écrire sans mesurer
+aurait donné une leçon parfaitement raisonnable et parfaitement fausse.
+
+### La vraie cause, mesurée
+
+Le banc occupe `PORT_DEFAUT` — **7777, une porte fixe et bien connue** — pendant
+que les autres fichiers de la suite tournent en parallèle. Il la rendait ainsi :
+
+```js
+await new Promise((resoudre) => bouchon.close(resoudre));
+```
+
+Or `close()` ferme l'ÉCOUTE, puis **attend que les connexions déjà établies se
+terminent**. Le bouchon, lui, n'a aucun gestionnaire : il accepte et se tait.
+
+```text
+connexion voisine OUVERTE  → close() rappelé après 3 000 ms ? NON
+connexions coupées         → close() rappelé ? oui (300 ms)
+```
+
+Et des voisins qui composent cette porte-là, la suite en a : le docteur demande
+`GET /api/health` au port qu'il trouve occupé (`portTenuParNous`), et deux bancs
+de billets manipulent `ws://127.0.0.1:7777/ws`. Un seul qui se branche au mauvais
+moment suffit.
+
+> **Un bouchon de port n'est pas un service : personne n'a rien à y finir
+> proprement.** On COUPE les connexions au lieu de les attendre. `close()` seul
+> est une demande polie adressée à des visiteurs qui ne répondront jamais.
+
+### Ce que le blocage coûtait EN PLUS de son temps
+
+Le banc se suspendait dans son propre `finally` — **assertions déjà passées**.
+Le rouge ne montrait donc ni valeur, ni chemin, ni cause : une ligne `it(` et un
+chronomètre. C'est le § 9 sexdecies (« un intermittent ne laisse que ce que
+l'assertion montre ») dans sa forme la plus pauvre, puisqu'il n'y avait pas
+d'assertion du tout.
+
+Le banc qui ferme le défaut est donc écrit pour rougir **vite et en disant
+quoi** : ses bornes de 2 s ne sont pas du confort, elles sont ce qui transforme
+un blocage en mesure. Rejoué sans le remède :
+
+```text
+× SE RETIRE MÊME SI UN VOISIN Y EST ACCROCHÉ        2005 ms  Test timed out in 2000ms
+× `retirerLeBouchon` n'attend PAS les visiteurs      2002 ms  Test timed out in 2000ms
+```
+
+Le symptôme de la CI, reproduit à l'identique — en deux secondes, et sous un nom
+qui dit ce qui s'est passé.
+
+### Le balayage, cette fois fait
+
+Le § 9 septnonagies venait de nommer le travers : un remède appliqué à l'endroit
+qui a fait mal n'est pas un remède appliqué. Tous les bancs qui ouvrent une
+porte ont donc été relus. Résultat mesuré : **`installeur-porte` était le seul à
+lier une porte FIXE** ; `lanceur-ruche`, `essai-installation` et `doctor-releve`
+lient tous le port `0`, que le système attribue et qu'aucun voisin ne peut
+deviner. Le bouchon est malgré tout sorti dans un harnais partagé — le piège
+n'a rien de propre à l'installeur, et la prochaine porte fixe n'aura pas à le
+réapprendre.

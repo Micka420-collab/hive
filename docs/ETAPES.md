@@ -7682,3 +7682,64 @@ La première est intéressante : le banc du refus tue `true` et `false`, mais pa
 `instanceof Object` — une `Error` EST un objet, et une chaîne n'en est pas un,
 donc les deux cas du banc se comportent pareil. Un rejet par un objet NU les
 départage. Ce n'est pas une équivalence, c'est une entrée qui manque.
+
+---
+
+## La CI a rougi : un bouchon de port qui attendait ses visiteurs
+
+`tests/installeur-porte.test.ts` a expiré en CI sur la graine 23757, à 120 s,
+sur un cas qui dure **416 ms** en local. La graine rejouée à l'identique passe.
+Un dépassement de 290× n'est pas de la lenteur.
+
+### La cause, mesurée — après une première hypothèse mesurée FAUSSE
+
+L'aide `lancer` porte `timeout: 60_000` sur `execFile` : le cas aurait dû rougir
+sur une assertion, pas sur un chronomètre. J'ai d'abord soupçonné l'enveloppe
+`tsx` (le motif du § 9 septdecies) : `execFile` tuerait l'enveloppe, et le
+petit-enfant garderait le tuyau ouvert. Mesuré sur un petit-enfant qui tient
+300 s : `rejetée après 3 012 ms (tuée)`. **Hypothèse fausse** — et l'écrire sans
+mesurer aurait donné une leçon raisonnable et fausse.
+
+La vraie cause est dans le NETTOYAGE du banc. Il occupe `PORT_DEFAUT` — 7777,
+une porte fixe — pendant que la suite tourne en parallèle, et la rendait par
+`close()` seul. Or `close()` ferme l'écoute puis **attend les connexions déjà
+établies** :
+
+```text
+connexion voisine OUVERTE  → close() rappelé après 3 000 ms ? NON
+connexions coupées         → close() rappelé ? oui (300 ms)
+```
+
+Des voisins qui composent cette porte, la suite en a : le docteur demande
+`GET /api/health` au port qu'il trouve occupé, et deux bancs de billets
+manipulent `ws://127.0.0.1:7777/ws`.
+
+Le banc se suspendait donc dans son propre `finally`, **assertions déjà
+passées** : le rouge ne montrait ni valeur, ni chemin, ni cause.
+
+### Le remède, et le banc qui le tient
+
+`tests/harnais-bouchon.ts` — `occuperPort` occupe une porte et la rend TOUJOURS,
+en coupant les connexions au lieu de les attendre. `tests/bouchon-de-port.test.ts`
+l'éprouve, avec des bornes de 2 s : elles ne sont pas du confort, elles sont ce
+qui transforme un blocage en mesure.
+
+```text
+coupe des connexions retirée   2 failed  (Test timed out in 2000ms ×2)
+sockets non suivies            1 failed
+source saine                   5 passed (5)
+```
+
+Le symptôme de la CI reproduit à l'identique — en deux secondes, sous un nom qui
+dit ce qui s'est passé.
+
+### Le balayage, cette fois fait
+
+Le § 9 septnonagies venait de nommer le travers (« un remède appliqué à
+l'endroit qui a fait mal n'est pas un remède appliqué »). Tous les bancs qui
+ouvrent une porte ont donc été relus : **`installeur-porte` était le seul à lier
+une porte FIXE**. `lanceur-ruche`, `essai-installation` et `doctor-releve` lient
+le port `0`, que le système attribue et qu'aucun voisin ne devine.
+
+Le tamis des ordres a été rejoué en local, à l'identique de la CI :
+`✓ la suite tient dans les 3 ordres essayés.`

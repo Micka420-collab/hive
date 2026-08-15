@@ -42,13 +42,13 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CODE } from '../src/codes-sortie.js';
+import { occuperPort, portLibre } from './harnais-bouchon.js';
 import { PORT_DEFAUT, nodeSuffisant } from '../src/installer.js';
 
 const execFileAsync = promisify(execFile);
@@ -219,20 +219,11 @@ describe.runIf(NODE_OK !== null)('l’installeur — les chemins complets, sous 
     // On occupe le port de la ruche DEPUIS LE TEST : le code de sortie doit le
     // rapporter (un script de supervision ne lit pas la prose), et le dry-run
     // doit quand même dérouler — un port pris n'empêche pas d'écrire un .env.
-    const bouchon: Server = createServer();
-    await new Promise<void>((resoudre, rejeter) => {
-      bouchon.once('error', rejeter);
-      bouchon.listen(PORT_DEFAUT, '127.0.0.1', resoudre);
-    });
-    try {
-      const r = await lancer(bin(), ['--dry-run'], dossier());
-      expect(r.code, 'le port occupé doit se lire dans le code de sortie').toBe(CODE.PORT_OCCUPE);
-      expect(r.sortie).toContain('occupé');
-      // …et la suite a bien déroulé : le récapitulatif est là.
-      expect(r.sortie).toContain('rien n’a été écrit');
-    } finally {
-      await new Promise((resoudre) => bouchon.close(resoudre));
-    }
+    const r = await occuperPort(PORT_DEFAUT, () => lancer(bin(), ['--dry-run'], dossier()));
+    expect(r.code, 'le port occupé doit se lire dans le code de sortie').toBe(CODE.PORT_OCCUPE);
+    expect(r.sortie).toContain('occupé');
+    // …et la suite a bien déroulé : le récapitulatif est là.
+    expect(r.sortie).toContain('rien n’a été écrit');
   });
 
   // ═══ LA SONDE DOIT REGARDER LA PORTE QU'ON VA OUVRIR ════════════════════════
@@ -248,41 +239,21 @@ describe.runIf(NODE_OK !== null)('l’installeur — les chemins complets, sous 
   // porte que la ruche n'ouvrira pas. Les deux cas ci-dessous vont dans les
   // deux sens : faux calme, puis fausse alerte.
 
-  /** Un port que personne ne tient. Demandé au système, jamais deviné. */
-  async function portLibre(): Promise<number> {
-    const sonde = createServer();
-    const port = await new Promise<number>((resoudre, rejeter) => {
-      sonde.once('error', rejeter);
-      sonde.listen(0, '127.0.0.1', () => {
-        const a = sonde.address();
-        if (a === null || typeof a === 'string') rejeter(new Error('adresse inattendue'));
-        else resoudre(a.port);
-      });
-    });
-    await new Promise((resoudre) => sonde.close(resoudre));
-    return port;
-  }
-
-  /** Occupe un port pour la durée d'un cas, et le rend quoi qu'il arrive. */
-  async function occuper<T>(port: number, faire: () => Promise<T>): Promise<T> {
-    const bouchon: Server = createServer();
-    await new Promise<void>((resoudre, rejeter) => {
-      bouchon.once('error', rejeter);
-      bouchon.listen(port, '127.0.0.1', resoudre);
-    });
-    try {
-      return await faire();
-    } finally {
-      await new Promise((resoudre) => bouchon.close(resoudre));
-    }
-  }
+  // ─── LE BOUCHON VIT AU HARNAIS, ET C'EST UN DÉFAUT MESURÉ ────────────────
+  //
+  // Ces deux aides étaient ici, écrites à la main. Celle qui occupe une porte
+  // la rendait par `close()` seul — qui ATTEND les connexions déjà établies.
+  // Sur une porte FIXE (7777) pendant que la suite tourne en parallèle, un
+  // voisin qui sonde suffit à suspendre le cas dans son propre `finally` :
+  // c'est le `Test timed out in 120000ms` de la graine 23757, sur un cas qui
+  // dure 416 ms. Voir `tests/harnais-bouchon.ts` et son banc.
 
   it('LE PORT DU .env EST OCCUPÉ : la sonde le voit, même si 7777 est libre', async () => {
     const cwd = dossier();
     const pris = await portLibre();
     writeFileSync(path.join(cwd, '.env'), `HIVE_PORT=${pris}\n`);
 
-    const r = await occuper(pris, () => lancer(bin(), ['--dry-run'], cwd));
+    const r = await occuperPort(pris, () => lancer(bin(), ['--dry-run'], cwd));
 
     expect(r.sortie, 'la sonde doit nommer le port RETENU').toContain(String(pris));
     expect(r.sortie).toContain('occupé');
@@ -297,7 +268,7 @@ describe.runIf(NODE_OK !== null)('l’installeur — les chemins complets, sous 
     const choisi = await portLibre();
     writeFileSync(path.join(cwd, '.env'), `HIVE_PORT=${choisi}\n`);
 
-    const r = await occuper(PORT_DEFAUT, () => lancer(bin(), ['--dry-run'], cwd));
+    const r = await occuperPort(PORT_DEFAUT, () => lancer(bin(), ['--dry-run'], cwd));
 
     expect(r.sortie, 'la sonde ne doit pas parler d’un port qu’on n’ouvrira pas').not.toContain(
       'occupé',
