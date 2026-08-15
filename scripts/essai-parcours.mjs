@@ -51,6 +51,19 @@ const MAL_APPELE = 64;
 
 function arguments_(argv) {
   let racine = null;
+  // ─── ÉQUIVALENCE CONSIGNÉE (§ 2.16 ter) ────────────────────────────────────
+  //
+  // `<` → `<=` ne peut être distingué par AUCUNE entrée. Au tour de trop,
+  // `argv[i]` vaut `undefined` : la seule comparaison de la boucle
+  // (`=== '--racine'`) échoue, donc rien n'est lu ni écrit, et `racine` sort
+  // inchangé. Le mutant ne coûte qu'un tour vide.
+  //
+  // Mesuré, pas supposé : mutant posé, rejeu sur les deux bancs qui exercent ce
+  // fichier — `24 passed (24)`. Il SURVIT, ce qui est ce qu'on attend d'une
+  // équivalence établie, et non ce qu'on espère d'une garde.
+  //
+  // La borne reste : elle est la condition d'arrêt de la marche.
+  // loupe : équivalent — < → <=
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--racine') {
       racine = argv[i + 1] ?? null;

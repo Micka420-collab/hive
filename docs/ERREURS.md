@@ -9924,3 +9924,102 @@ Quand un balayage laisse des survivants GROUPÉS, la question n'est pas « quel
 test manque ». C'est : **quelle condition mon décor n'a-t-il jamais réunie ?**
 Le groupe est la trace de l'angle mort, pas des lignes elles-mêmes — et l'angle
 mort se ferme d'un seul décor, pas de trois tests.
+
+---
+
+## 9 quincenties. Un balayage sur une suite DÉJÀ ROUGE conclut « rien de nu » — et c'est le pire faux vert du dépôt
+
+Lancée sur un arbre dont un banc était cassé, la loupe a rendu ceci :
+
+```text
+LOUPE : 17 mutation(s) possible(s) sur le diff, 9 examinée(s).
+  ✔ défendue · … (× 9)
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+Neuf sur neuf « défendues » — **dont des lignes d'un fichier qu'aucun test
+n'importe**. C'est ce détail qui a éveillé le soupçon, pas le résultat lui-même,
+qui était parfaitement plausible.
+
+### La mécanique
+
+`suiteRougit()` rend « rouge » pour **n'importe quel** rouge. Sur une suite déjà
+rouge, chaque mutant est donc déclaré tué par une panne qui ne le concerne pas.
+Le balayage entier cesse de mesurer quoi que ce soit — en annonçant que tout va
+bien.
+
+Une fois le banc réparé, le même diff a donné **17 examinées, 3 nues**. Le
+premier verdict n'était pas approximatif : il était à l'envers.
+
+### Pourquoi celui-ci est plus grave que les autres
+
+Trois raisons, et elles se cumulent :
+
+- il est rendu par **l'instrument dont le métier entier est de débusquer les
+  faux verts** ;
+- il arrive après un quart d'heure de calcul, et le temps passé donne à un
+  résultat une autorité qu'il n'a pas gagnée ;
+- son message est un slogan — « LA LOUPE NE VOIT RIEN DE NU » — c'est-à-dire la
+  forme la plus facile à citer et la plus difficile à rouvrir.
+
+C'est la même famille que le § 9 tercenties (« un travail de CI vert ne prouve
+pas que sa mesure a mordu ») et que le piège Windows déjà consigné dans
+`verdictDeLErreur` : un signal qui a **deux causes possibles** et qu'on lit comme
+s'il n'en avait qu'une.
+
+### Le remède, et son prix
+
+La loupe joue la suite **avant toute mutation** et refuse de conclure si elle
+rougit. Prouvé en cassant volontairement un banc :
+
+```text
+LOUPE : la suite doit être verte avant de muter quoi que ce soit…
+
+✘ LA SUITE ROUGIT DÉJÀ, SANS AUCUNE MUTATION.
+  Aucun verdict n'est rendu.
+```
+
+Le prix est un tour de suite en plus par balayage. Il est petit devant un
+balayage qui conclut à l'envers — et la loupe n'est pas une jambe de CI, donc ce
+coût n'est payé que là où on le choisit.
+
+### La règle générale
+
+**Un instrument différentiel doit vérifier son point zéro.** Toute mesure qui
+compare « avant » et « après » — mutation, performance, régression visuelle —
+est sans valeur si l'« avant » n'a pas été constaté. Ne pas le constater ne rend
+pas la mesure bruyante : ça la rend inversée, ce qui est bien pire, parce qu'une
+mesure bruyante se voit.
+
+---
+
+## 9 sexcenties. Un banc qui COPIE ce qu'il éprouve doit copier ses voisins
+
+`tests/essai-installation.test.ts` copie `essai-installation.sh` dans un dossier
+temporaire pour l'éprouver — bonne idée : le script y trouve un faux chantier et
+ne touche à rien de réel.
+
+En donnant deux pas de plus à l'essai, je les ai mis dans un fichier voisin, et
+le script l'a cherché avec `$(dirname $0)/../scripts/`. Vrai depuis le dépôt.
+Faux dans le banc, où ce chemin désigne `/tmp` : l'instrument était introuvable,
+et **l'essai sortait en 1 sur un chantier parfaitement sain**.
+
+### Les deux moitiés du remède, et pourquoi il en faut deux
+
+- Le script cherche désormais **à côté de lui-même** (`$(dirname $0)`), ce que le
+  jumeau PowerShell faisait déjà avec `$PSScriptRoot`. Un script qui se déplace
+  emporte ses voisins ; il n'emporte pas son arborescence.
+- Le banc **copie les voisins** avec le script. Sans cela, il éprouverait un
+  script amputé et le dirait sain.
+
+Corriger une seule des deux moitiés aurait donné un vert : la première seule
+suffit à faire passer le banc. Mais la seconde est celle qui empêche le banc de
+mentir la PROCHAINE fois qu'on ajoutera un voisin.
+
+### Ce qui rend ce défaut instructif
+
+Le chemin `..` n'était pas une faute d'inattention : il était **exact dans le
+seul monde où je l'avais essayé**. C'est la forme récurrente des défauts de ce
+dépôt — une hypothèse vraie ici, jamais énoncée, et fausse ailleurs. Le banc a
+été le seul à le dire, et il ne l'a dit que parce qu'il exécute vraiment le
+script au lieu d'en relire le texte.

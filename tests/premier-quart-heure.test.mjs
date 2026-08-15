@@ -18,7 +18,12 @@
 // pas de déclarations de types, et TypeScript refuse l'import (TS7016). Voir
 // `loupe-verdict`, `tamis-ordres`, `vitest-forks`, `deps-optionnelles`.
 
-import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   RAISON_ECRAN,
   lireEnv,
@@ -132,6 +137,93 @@ describe('le .env que l’installeur vient d’écrire', () => {
 
   it('une ligne sans « = », ou qui commence par « = », est ignorée', () => {
     expect(Object.keys(lireEnv('juste du texte\n=sans-nom\nA=1'))).toEqual(['A']);
+  });
+
+  it('UN RÉGLAGE COMMENTÉ reste commenté, même s’il porte un « = »', () => {
+    // ─── LA SURVIVANTE QUE LA LOUPE A TROUVÉE ──────────────────────────────
+    //
+    //     if (nu === '' || nu.startsWith('#')) continue;   mutée en `&&`
+    //
+    // Le premier banc ne la départageait pas, et la raison est instructive :
+    // son commentaire était `# la ruche`, sans `=`. Mutée, la ligne n'était
+    // plus écartée par CE test-là — mais la garde suivante (`coupe <= 0`) la
+    // rattrapait, puisqu'elle ne contient pas de `=`. Deux mondes, un seul
+    // résultat : rien à mesurer.
+    //
+    // L'entrée qui DÉPARTAGE est un réglage COMMENTÉ — la chose la plus
+    // naturelle du monde dans un `.env`, où l'on désactive une ligne en la
+    // préfixant plutôt qu'en l'effaçant. Mutée, `lireEnv` en fait une clé
+    // « # HIVE_PORT », et le fichier se met à contenir des réglages fantômes
+    // que personne n'a écrits.
+    const env = lireEnv('# HIVE_PORT=7777\nHIVE_PORT=8888');
+    expect(Object.keys(env), 'un réglage COMMENTÉ devient une clé fantôme').toEqual(['HIVE_PORT']);
+    expect(env.HIVE_PORT, 'la ligne vive doit gagner').toBe('8888');
+  });
+});
+
+describe('l’instrument refuse de conclure sur un .env incomplet', () => {
+  // ─── POURQUOI CELUI-CI LANCE VRAIMENT LE SCRIPT ────────────────────────────
+  //
+  // La survivante trouvée par la loupe est dans `essai-parcours.mjs`, hors des
+  // fonctions pures :
+  //
+  //     if (!port || !jeton) { … }        mutée en `&&`
+  //
+  // Elle ne peut se départager qu'en EXÉCUTANT le script : mutée, un `.env`
+  // sans jeton passe la garde, et l'essai part interroger la ruche avec un
+  // en-tête `x-hive-token: undefined`. Il rougirait quand même — en 401, au pas
+  // 5, en accusant la RUCHE d'un défaut qui est celui du fichier de réglages.
+  //
+  // Un essai qui accuse le mauvais coupable est pire qu'un essai qui échoue :
+  // il envoie chercher la panne là où elle n'est pas.
+  const dossiers = [];
+  afterEach(() => {
+    for (const d of dossiers.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  const INSTRUMENT = fileURLToPath(new URL('../scripts/essai-parcours.mjs', import.meta.url));
+
+  function courir(env) {
+    const dossier = mkdtempSync(path.join(os.tmpdir(), 'banc-parcours-'));
+    dossiers.push(dossier);
+    writeFileSync(path.join(dossier, '.env'), env);
+    // Aucun port n'est ouvert : si le script allait jusqu'au réseau, il
+    // échouerait AILLEURS et avec un autre message. C'est ce qui départage.
+    const v = spawnSync(process.execPath, [INSTRUMENT, '--racine', dossier], {
+      encoding: 'utf8',
+      shell: false,
+      timeout: 30_000,
+    });
+    return { code: v.status ?? -1, sortie: `${v.stdout}${v.stderr}` };
+  }
+
+  it('UN .env SANS JETON est refusé AVANT d’aller accuser la ruche', () => {
+    const { code, sortie } = courir('HIVE_PORT=7777\n');
+    expect(sortie, 'le refus ne nomme pas le bon coupable').toContain('.env sans HIVE_PORT');
+    expect(sortie, 'l’essai est allé interroger la ruche malgré un .env incomplet').not.toContain(
+      '4/5',
+    );
+    expect(code).toBe(1);
+  });
+
+  it('UN .env SANS PORT est refusé de la même façon', () => {
+    const { code, sortie } = courir('HIVE_TOKEN=un-jeton-de-banc\n');
+    expect(sortie).toContain('.env sans HIVE_PORT');
+    expect(sortie).not.toContain('4/5');
+    expect(code).toBe(1);
+  });
+
+  it('SANS --racine, l’instrument dit son usage et sort en 64', () => {
+    // 64 = « on m'a mal appelé », distinct de 1 = « la mesure a échoué ».
+    // Les confondre ferait passer une erreur d'invocation pour un défaut du
+    // produit — exactement ce que le code 78 évite de l'autre côté.
+    const v = spawnSync(process.execPath, [INSTRUMENT], {
+      encoding: 'utf8',
+      shell: false,
+      timeout: 30_000,
+    });
+    expect(`${v.stdout}${v.stderr}`).toContain('usage :');
+    expect(v.status).toBe(64);
   });
 });
 

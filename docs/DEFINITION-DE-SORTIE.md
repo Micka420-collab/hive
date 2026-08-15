@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `3044317`, 15 août 2026, 06 h 15)
+## A. Le code tient — ✅ mesuré (arbre `34a6eb7`, 15 août 2026, 09 h 15)
 
 > **UN TABLEAU DATÉ DOIT DIRE QU'IL EST DATÉ.** Cette section annonçait 3900
 > bancs, mesurés la veille sur l'arbre `cf84422`. Le chiffre était juste ce
@@ -30,10 +30,23 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4021** (4013 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4049** (4041 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » sur les lots de ce jour        |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 17/17 joués, 3 nus — 2 fermés, 1 consigné     |
+
+- ⚠️ **CE QUE VALAIENT LES « RIEN DE NU » D'AVANT LE 15 AOÛT.** La loupe ne
+  vérifiait pas que la suite était VERTE avant de muter. Sur une suite déjà
+  rouge, elle déclare chaque mutant « défendu » — tué par une panne qui ne le
+  concerne pas — et conclut « rien de nu » sans avoir rien mesuré. Le cas s'est
+  produit ce jour-là : **9 sur 9 « défendues », dont des lignes d'un fichier
+  qu'aucun test n'importe** ; le même diff, une fois le banc réparé, a rendu
+  **17 joués, 3 nus**.
+
+  La garde existe depuis (§ 9 quincenties), mais **l'état de la suite n'était
+  pas consigné lors des balayages antérieurs** : ces verdicts-là ne sont ni
+  invalidés ni confirmés, ils sont **non vérifiables**. Ils ne sont donc pas
+  recomptés ici comme des mesures.
 
 - ⚠️ **Ce que « rien de neuf n'est nu » couvre, et pas plus** : la loupe
   ÉCHANTILLONNE. Le ✅ ci-dessus porte sur le diff de chaque lot, **pas sur le
@@ -97,11 +110,26 @@ La matrice à trois systèmes mesure que _le code compile et que les bancs
 passent_. L'installation, elle, est une autre affaire, et elle se dit système
 par système :
 
-| Système     | Ce qui est mesuré                            | Depuis quand             |
-| ----------- | -------------------------------------------- | ------------------------ |
-| **Linux**   | ✅ installation complète → ruche qui RÉPOND  | en continu, à chaque PR  |
-| **macOS**   | ✅ installation complète → ruche qui RÉPOND  | **14 août, à chaque PR** |
-| **Windows** | ✅ installation complète → ruche qui RÉPOND¹ | **15 août, à chaque PR** |
+| Système     | Ce qui est mesuré                           | Depuis quand             |
+| ----------- | ------------------------------------------- | ------------------------ |
+| **Linux**   | ✅ installation → tableau → premier projet  | en continu, à chaque PR  |
+| **macOS**   | ✅ installation → tableau → premier projet  | **14 août, à chaque PR** |
+| **Windows** | ✅ installation → tableau → premier projet¹ | **15 août, à chaque PR** |
+
+**Le parcours a été allongé le 15 août.** Les trois jambes s'arrêtaient à « la
+ruche répond sur `/api/pulse` » — ce qui prouve l'orchestrateur et pas l'écran.
+Elles mènent désormais les deux pas que le point de sortie classait sans aucune
+mesure (3c) :
+
+```text
+✔ 4/5 — le tableau est servi et charge son paquet
+✔ 5/5 — premier projet créé, et visible dans l'instantané que lit le tableau
+```
+
+Le pas 4 ne se contente pas d'un HTTP 200 : **quatre pages différentes rendent
+200** et trois sont des écrans blancs — le repli « l'écran n'est pas construit »,
+le gabarit de développement servi tel quel (il demande `/src/main.tsx`), et une
+coquille sans script.
 
 **macOS a basculé le 14 août** (`seuil` devient une matrice, run
 `31776537105`). Première fois que la commande du README y était menée à son
