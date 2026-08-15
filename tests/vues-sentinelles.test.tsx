@@ -777,6 +777,127 @@ describe('les sentinelles du balayage du soir', () => {
     expect(entree('cire.txt')?.className, 'un autre fichier ne l’est pas').not.toContain('active');
   });
 
+  it('BALANCE : la dépense est attribuée au BON nœud, pas au premier venu', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId…}…`
+    //
+    // Mutée en `!==`, `find` rend le PREMIER nœud dont l'identifiant DIFFÈRE —
+    // c'est-à-dire, presque toujours, le voisin. Le tableau des dépenses
+    // attribuerait alors le temps d'une ouvrière à une autre, sur l'écran qui
+    // sert à décider qui coûte cher.
+    //
+    // Le repli `nodeId.slice(0, 8)…` compte autant : un nœud inconnu du
+    // relevé doit se reconnaître à son identifiant, pas emprunter un nom.
+    const balance = {
+      pesee: {
+        global: { totalMs: 300, tentatives: 3 },
+        parNoeud: [
+          { nodeId: 'abeille-deux', totalMs: 200, tentatives: 2 },
+          { nodeId: 'inconnue-au-releve-xyz', totalMs: 100, tentatives: 1 },
+        ],
+        corpus: { retenues: 3, ignorees: 0 },
+        // `CarteBalance` lit `reprises` au-dessus du tableau par nœud (l. 319).
+        // L'omettre faisait tomber le montage sur un `TypeError` AVANT que la
+        // garde ne regarde quoi que ce soit : un banc rouge pour une raison
+        // qui n'est pas la sienne ne mesure rien.
+        reprises: { taches: 1, tentatives: 1 },
+      },
+    } as never;
+    const vue = {
+      ...instantane(),
+      nodes: [
+        { id: 'abeille-une', name: 'Abeille UNE' },
+        { id: 'abeille-deux', name: 'Abeille DEUX' },
+      ],
+    } as never;
+
+    const dom = await monter(<CarteBalance balance={balance} erreur={null} snapshot={vue} />);
+    const lignes = [...dom.querySelectorAll('.bal-noeuds tbody tr, .bal-noeuds tr')]
+      .map((tr) => tr.querySelector('th')?.textContent?.trim() ?? '')
+      .filter((n) => n !== '');
+
+    expect(lignes, 'aucune ligne par nœud').not.toEqual([]);
+    // Le nœud CONNU porte SON nom — pas celui du voisin.
+    expect(lignes, 'la dépense est attribuée au mauvais nœud').toContain('Abeille DEUX');
+    expect(lignes, 'un nom voisin s’est glissé dans le tableau').not.toContain('Abeille UNE');
+    // Et l'inconnu se reconnaît à son identifiant tronqué, sans emprunter de nom.
+    expect(lignes.join(' | '), 'le nœud inconnu n’est pas identifiable').toContain('inconnue');
+  });
+
+  it('BALANCE : un plafond de ZÉRO heure est un geste VALIDE, pas une saisie refusée', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     const valide = saisie.trim() !== '' && Number.isFinite(heures) && heures >= 0;
+    //
+    // Mutée en `>`, une saisie de « 0 » devient invalide et le geste ne s'arme
+    // plus. Or plafonner à zéro est le geste le PLUS fort de cet écran : il
+    // arrête l'assignation du projet. Le refuser en silence retire à
+    // l'utilisateur le seul frein immédiat dont il dispose.
+    const solde = {
+      projectId: 'p1',
+      depenseMs: 0,
+      tentatives: 0,
+      plafondMs: null,
+    } as never;
+    const dom = await monter(
+      <BalanceProjet
+        projectId="p1"
+        projectName="Rucher"
+        compte={null}
+        solde={solde}
+        mode="strict"
+        aJour={true}
+      />,
+    );
+    const bouton = (libelle: string) =>
+      [...dom.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes(libelle));
+
+    act(() => {
+      bouton('Poser un plafond')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    const champ = dom.querySelector('.bal-plafond-input') as HTMLInputElement;
+    expect(champ, 'le champ de plafond n’est pas offert').toBeTruthy();
+
+    // ─── VISER LE BON BOUTON ───────────────────────────────────────────────
+    //
+    // Il y en a DEUX qui disent « Poser » : l'ouvre-formulaire (« Poser un
+    // plafond »), qui n'est jamais désarmé, et le bouton d'envoi (« Poser le
+    // plafond »), qui est le seul que `cible === null` verrouille. Chercher par
+    // libellé attrapait le premier — le banc voyait donc un bouton actif quoi
+    // qu'on saisisse, et aurait été vert même sur un produit cassé.
+    const envoi = () =>
+      dom.querySelector('.bal-plafond-form .bal-plafond-actions button.btn.primary');
+    expect(envoi(), 'le bouton d’envoi du plafond est introuvable').toBeTruthy();
+
+    // ─── ET LA SAISIE DOIT VRAIMENT ARRIVER ────────────────────────────────
+    //
+    // React pose un « traceur » sur la propriété `value` du nœud : une
+    // affectation directe met à jour le traceur EN MÊME TEMPS que la valeur, si
+    // bien que React compare deux fois la même chose et conclut que rien n'a
+    // bougé — l'`onChange` ne part pas. Le banc voyait alors une saisie vide
+    // quoi qu'on écrive. On passe donc par le mutateur du PROTOTYPE, qui écrit
+    // la valeur sans toucher au traceur (même idiome que `compte-porte`).
+    const ecrire = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    expect(ecrire, 'le mutateur natif de `value` est introuvable').toBeTypeOf('function');
+
+    const poser = (valeur: string) => {
+      act(() => {
+        ecrire?.call(champ, valeur);
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const b = envoi();
+      return b !== null && !(b as HTMLButtonElement).disabled;
+    };
+
+    expect(poser('0'), 'un plafond de 0 heure devrait être posable').toBe(true);
+    expect(poser('2'), 'un plafond de 2 heures devrait être posable').toBe(true);
+    // Et le refus garde son sens : une saisie vide ou négative ne s'arme pas.
+    expect(poser('-1'), 'un plafond négatif ne devrait PAS être posable').toBe(false);
+  });
+
   it('BALANCE : LE CAS ZÉRO ne rend jamais NaN sur l’écran de l’argent', async () => {
     // ─── TROIS BORNES NUES, UN SEUL CAS ────────────────────────────────────
     //

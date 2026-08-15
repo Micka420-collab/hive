@@ -7390,3 +7390,62 @@ sur les 21 mutations jamais jouées.
 **Ce qui a bien tenu :** `jugerVerrou` demande si le PID est vivant et traite le
 verrou d'un cadavre comme périmé. Un instrument qui pourrait rester bloqué par
 son propre corps aurait transformé une panne en panne durable.
+
+---
+
+## Balance : le nom du nœud et le plafond de zéro heure
+
+Deux des cinq lignes nues restantes nommées par le balayage de `Balance.tsx`,
+les deux plus lourdes. Quatre mutants joués, quatre tués.
+
+### La provenance de la dépense
+
+```js
+snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
+```
+
+Mutée en `!==`, `find` rend le PREMIER nœud dont l'identifiant DIFFÈRE — presque
+toujours le voisin. Le tableau de provenance attribuerait alors le temps machine
+d'une ouvrière à une autre, sur l'écran qui sert à décider qui coûte cher. Le
+repli compte autant : un nœud absent du relevé doit se reconnaître à son
+identifiant tronqué, jamais emprunter le nom d'un autre.
+
+### Le plafond de zéro heure
+
+```js
+const valide = saisie.trim() !== '' && Number.isFinite(heures) && heures >= 0;
+```
+
+Mutée en `>`, la saisie « 0 » devient invalide et le geste ne s'arme plus. Or
+plafonner à zéro est le geste le plus FORT de cet écran : il arrête l'assignation
+du projet. Le refuser en silence retirerait à l'opérateur le seul frein immédiat
+dont il dispose — et l'aperçu du formulaire promet le contraire en toutes
+lettres (« « 0 » est licite et veut dire : ce projet ne dépense plus rien »).
+
+### Rejeu, verdict affiché
+
+```text
+n.id === nodeId          → !==        1 failed  (« la dépense est attribuée au mauvais nœud »)
+?? `${nodeId.slice…}…`   → ?? ''      1 failed  (« le nœud inconnu n'est pas identifiable »)
+heures >= 0              → >          1 failed  (« un plafond de 0 heure devrait être posable »)
+&& heures >= 0           → retirée    1 failed  (« un plafond négatif ne devrait PAS être posable »)
+source saine, restaurée par copie     40 passed (40)
+```
+
+### Trois défauts de banc, aucun de produit
+
+Les deux sentinelles sont nées rouges sur une source saine, et à chaque fois
+c'est le banc qui visait à côté : un décor sans `reprises` qui faisait tomber le
+montage avant la garde ; une sélection par libellé qui attrapait
+« Poser **un** plafond » (l'ouvre-formulaire) au lieu de « Poser **le** plafond »
+(l'envoi) ; et une saisie qui n'arrivait pas jusqu'à React, dont le traceur de
+`value` avale une affectation directe. Le détail des trois est en § 9
+quinnonagies — le second aurait pu donner un banc VERT sur un produit cassé.
+
+### Ce qu'il reste sur Balance
+
+Trois lignes nues nommées par les 22 mutations mesurées : `pesee.corpus.ignorees
+
+> 0`, `e instanceof Error`, et `trace.updatedAt !== null` (deux mutants). Et
+> toujours **aucun verdict** sur les 21 mutations que le balayage fauché n'a
+> jamais jouées.

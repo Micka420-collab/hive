@@ -9335,3 +9335,82 @@ Cette consignation était elle-même le fruit d'une équivalence bien établie. 
 garde qui rend rouge la DOCUMENTATION d'une autre garde est le genre de boucle
 qu'on ne voit qu'en la vivant : l'instrument avait raison sur la forme et tort
 sur le fond, et les deux méritaient d'être dits.
+
+## 9 quinnonagies. Deux bancs neufs accusaient du code sain — et les deux visaient à côté
+
+Deux sentinelles écrites le même soir sur `Balance.tsx` sont nées ROUGES sur une
+source saine. La règle de la maison dit qu'une garde neuve qui accuse du code
+sain a presque toujours tort ; elle avait raison deux fois, et les deux causes
+sont différentes.
+
+### Premier banc — le décor manquant fait tomber le montage AVANT la garde
+
+Le banc montait `CarteBalance` avec une pesée fabriquée à la main. Verdict :
+
+    TypeError: Cannot read properties of undefined (reading 'taches')
+      dashboard/src/views/Balance.tsx:319
+
+La vue lit `pesee.reprises.taches` bien AU-DESSUS du tableau que la garde
+regarde. Mon décor n'avait pas de `reprises`. Le banc n'accusait donc rien du
+tout : il mourait avant d'arriver à son sujet.
+
+Un banc voisin, plus ancien, montait la même vue sans `reprises` et passait —
+parce qu'il exerçait le cas `totalMs === 0`, où la vue court-circuite AVANT la
+ligne 319. Deux bancs, un même décor incomplet, un seul rouge : la profondeur
+atteinte n'est pas la même.
+
+> **Un rouge qui n'est pas une assertion n'est pas une mesure.** Avant de
+> soupçonner le produit, il faut lire QUELLE ligne a rougi : une assertion
+> nomme un désaccord, une exception nomme un banc mal monté.
+
+### Second banc — le libellé attrapait le mauvais bouton
+
+    expect(poser('-1'), 'un plafond négatif ne devrait PAS être posable')
+      → reçu : true
+
+L'écran porte DEUX boutons qui contiennent « Poser » : « Poser **un** plafond »,
+qui ouvre le formulaire et n'est jamais désarmé, et « Poser **le** plafond »,
+qui est le seul que `cible === null` verrouille. Mon aide `bouton('Poser')`
+rendait le premier trouvé — l'ouvre-formulaire.
+
+Le danger n'est pas le rouge : c'est le vert. Sur les deux premières
+assertions (« 0 est posable », « 2 est posable »), le banc voyait un bouton
+actif et concluait juste — **pour une raison qui n'avait rien à voir avec le
+produit**. Il aurait été vert sur un produit cassé. C'est la troisième
+assertion, celle qui attendait un REFUS, qui a révélé la visée.
+
+> Une sélection par libellé attrape ce qui RESSEMBLE. Quand deux commandes
+> partagent un mot, la seule visée honnête est structurelle — ici
+> `.bal-plafond-form .bal-plafond-actions button.btn.primary`.
+
+### Et la saisie n'arrivait même pas
+
+Corrigée la visée, le banc restait rouge : `poser('0')` rendait `false` sur
+source saine. Cause mesurée : React pose un **traceur** sur la propriété `value`
+du nœud. Une affectation directe (`champ.value = '0'`) passe par ce traceur, qui
+met à jour SA copie en même temps que la valeur — React compare ensuite les deux,
+les trouve égales, et n'émet pas d'`onChange`. Le champ affichait `0`, l'état du
+composant restait vide.
+
+Le remède existait déjà dans le dépôt (`tests/compte-porte.test.tsx`) : écrire
+par le mutateur du PROTOTYPE, qui ne touche pas au traceur.
+
+```js
+const ecrire = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+ecrire?.call(champ, valeur);
+champ.dispatchEvent(new Event('input', { bubbles: true }));
+```
+
+> **Un banc qui « pilote » une interface doit prouver que son geste ARRIVE.**
+> Écrire dans un champ et voir l'écran ne pas bouger a deux lectures : le
+> produit ignore la saisie, ou le banc n'a rien saisi. Tant qu'on ne les a pas
+> départagées, on ne sait rien — et l'idiome qui départage était à trois
+> fichiers de là.
+
+### Ce que les trois défauts ont en commun
+
+Aucun ne venait du produit. Tous les trois auraient pu donner un banc VERT dans
+une variante à peine différente — décor complet par chance, un seul bouton sur
+l'écran, une valeur initiale non vide. C'est la mutation qui a tranché : les
+quatre mutants (`===`→`!==`, repli neutralisé, `>=`→`>`, garde retirée) ont tous
+rougi APRÈS correction, et seulement après.
