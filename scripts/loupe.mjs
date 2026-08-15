@@ -237,6 +237,75 @@ const REPLI_QUI_MORD = /^(?:true\b|[1-9][\d_]*\b)/;
 //
 // Une garde qu'on rend capable et qu'on ne branche pas est une garde qu'on a
 // écrite pour soi.
+/**
+ * Le nom du journal qui dit « un fichier est MUTÉ en ce moment ».
+ *
+ * ─── LE DÉFAUT QUI L'A FAIT NAÎTRE ───────────────────────────────────────────
+ *
+ * La restauration vivait dans un `finally`, et rien d'autre. Un `finally` ne
+ * s'exécute pas quand le processus est TUÉ : un SIGTERM, un Ctrl-C, une session
+ * fermée, un conteneur repris — et le mutant reste dans l'arbre de travail.
+ *
+ * MESURÉ, sur ce dépôt : un balayage arrêté en cours de route a laissé
+ *
+ *     -  if (!port || !jeton) {
+ *     +  if (!port && !jeton) {
+ *
+ * dans `scripts/essai-parcours.mjs`. Un défaut DÉLIBÉRÉ, déposé par l'outil,
+ * qu'un `git commit -a` distrait aurait publié. C'est le pire tour que puisse
+ * jouer un outil qui plante des défauts pour métier.
+ *
+ * ─── POURQUOI UN FICHIER, ET PAS SEULEMENT UN GESTIONNAIRE DE SIGNAL ─────────
+ *
+ * Un gestionnaire `SIGINT`/`SIGTERM` rattrape les arrêts POLIS. Il ne rattrape
+ * ni `SIGKILL`, ni une coupure de courant, ni un conteneur détruit — et c'est
+ * justement là qu'on ne saura plus quoi restaurer, puisque l'original ne vivait
+ * qu'en mémoire.
+ *
+ * Le journal porte l'original SUR LE DISQUE avant la mutation. Le balayage
+ * suivant le trouve et répare, quel que soit ce qui a tué le précédent.
+ */
+export const NOM_JOURNAL = '.loupe-en-cours';
+
+/**
+ * Répare ce qu'un balayage interrompu aurait laissé muté.
+ *
+ * Rend le chemin réparé, ou `null` s'il n'y avait rien à réparer. Un journal
+ * illisible est retiré sans bruit : mieux vaut perdre la réparation que boucler
+ * sur un fichier qu'on ne sait pas lire — et l'arbre, lui, se voit dans
+ * `git status`.
+ */
+export function reprendreApresInterruption(racine, dire = console.error) {
+  const journal = path.join(racine, NOM_JOURNAL);
+  let brut;
+  try {
+    brut = readFileSync(journal, 'utf8');
+  } catch {
+    return null; // rien en cours : le cas normal
+  }
+  let etat;
+  try {
+    etat = JSON.parse(brut);
+  } catch {
+    etat = null;
+  }
+  const bon =
+    etat !== null && typeof etat.fichier === 'string' && typeof etat.original === 'string';
+  if (bon) {
+    writeFileSync(path.join(racine, etat.fichier), etat.original);
+    dire('');
+    dire(`⚠ LOUPE : un balayage precedent a ete interrompu en pleine mutation.`);
+    dire(`  ${etat.fichier} portait un defaut DELIBERE — il vient d'etre restaure.`);
+    dire('');
+  }
+  try {
+    unlinkSync(journal);
+  } catch {
+    /* déjà parti */
+  }
+  return bon ? etat.fichier : null;
+}
+
 export const PORTEE_PAR_DEFAUT = ['src', 'dashboard/src', 'scripts', 'site'];
 
 /** Le juge ne se mute pas lui-même. Cette exclusion ne se négocie pas. */
@@ -1036,6 +1105,44 @@ function principal() {
     }
   });
 
+  // ─── UN BALAYAGE QU'ON INTERROMPT NE LAISSE PAS SON MUTANT ─────────────────
+  //
+  // Le `finally` de la boucle ne s'exécute pas quand le processus est TUÉ.
+  //
+  // ⚠ ET CES DEUX GESTIONNAIRES SERVENT MOINS QU'IL N'Y PARAÎT. `suiteRougit()`
+  // appelle `execFileSync` : pendant les ~4 minutes que dure un tour de suite,
+  // la boucle d'événements est BLOQUÉE, donc aucun gestionnaire de signal ne
+  // peut s'exécuter. Or c'est précisément là qu'on interrompt un balayage.
+  //
+  // MESURÉ, pas supposé : un `SIGTERM` envoyé pendant une mutation en vol n'a
+  // PAS été honoré — la loupe tournait encore 30 s plus tard. Le `SIGKILL` qui
+  // a suivi a laissé le mutant dans l'arbre, comme prévu.
+  //
+  // C'est le JOURNAL qui répare, pas ces gestionnaires. Ils restent parce
+  // qu'ils coûtent trois lignes et rattrapent le cas où l'on interrompt entre
+  // deux tours de suite ; ils ne sont pas le filet, ils en sont la doublure.
+  const journal = path.join(RACINE, NOM_JOURNAL);
+  let enCours = null;
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      if (enCours !== null) {
+        writeFileSync(enCours.chemin, enCours.original);
+        console.error('');
+        console.error(`⚠ LOUPE interrompue — ${enCours.chemin} restauré.`);
+        enCours = null;
+      }
+      try {
+        unlinkSync(journal);
+      } catch {
+        /* déjà parti */
+      }
+      process.exit(130);
+    });
+  }
+
+  // Et d'abord : réparer ce qu'un balayage PRÉCÉDENT aurait laissé muté.
+  reprendreApresInterruption(RACINE);
+
   // ─── LA SUITE DOIT ÊTRE VERTE AVANT QU'ON MUTE QUOI QUE CE SOIT ────────────
   //
   // DÉFAUT MESURÉ, et il a produit exactement le mensonge que cet outil existe
@@ -1103,12 +1210,22 @@ function principal() {
     const chemin = RACINE + m.fichier;
     const original = readFileSync(chemin, 'utf8');
     const marquee = marqueeEquivalente(original, m.avant, m.quoi, m.fichier);
+    // L'ORIGINAL SUR LE DISQUE AVANT LA MUTATION, jamais après : entre les deux
+    // écritures, ce qui tue le processus ne peut plus rien perdre.
+    writeFileSync(journal, JSON.stringify({ fichier: m.fichier, original }));
+    enCours = { chemin, original };
     writeFileSync(chemin, original.replace(m.avant, m.apres));
     let mord;
     try {
       mord = suiteRougit();
     } finally {
       writeFileSync(chemin, original);
+      enCours = null;
+      try {
+        unlinkSync(journal);
+      } catch {
+        /* déjà parti */
+      }
     }
     // Quatre issues, et une seule est un problème NEUF. La marque ne dispense
     // JAMAIS de jouer la mutation : elle ne dispense que de rejuger.

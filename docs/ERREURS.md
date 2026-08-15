@@ -10263,3 +10263,67 @@ Corollaire, déjà vu trois fois aujourd'hui : les lignes qu'on écrit en fin de
 lot — le point de sortie, la clause `catch`, le message d'erreur — sont celles
 qu'on éprouve le moins, parce qu'elles servent quand tout le reste a échoué. Ce
 sont donc celles qu'il faut muter en premier.
+
+---
+
+## 9 duodecicenties. L'outil qui plante des défauts en avait laissé un dans l'arbre
+
+La loupe restaurait le fichier muté dans un `finally`, et rien d'autre. Un
+`finally` ne s'exécute pas quand le processus est **tué**.
+
+Constaté sur ce dépôt, en arrêtant un balayage en cours de route :
+
+```text
+ M scripts/essai-parcours.mjs
+
+-  if (!port || !jeton) {
++  if (!port && !jeton) {
+```
+
+Un défaut **délibéré**, déposé par l'outil, resté dans l'arbre de travail. Un
+`git commit -a` distrait l'aurait publié — et il aurait inversé la garde qui
+empêche l'essai d'accuser la ruche d'un défaut du `.env`.
+
+C'est le pire tour que puisse jouer un outil dont le métier est de planter des
+défauts, et il ne demande aucune malchance : un Ctrl-C, une session fermée, un
+conteneur repris suffisent.
+
+### Le remède ÉVIDENT ne marche pas, et c'est le cœur de la leçon
+
+Le réflexe est d'ajouter `process.on('SIGINT'|'SIGTERM', …)`. Mesuré :
+**ça ne suffit pas, et pour une raison structurelle.**
+
+`suiteRougit()` appelle `execFileSync`. Pendant les ~4 minutes d'un tour de
+suite, **la boucle d'événements est bloquée** — aucun gestionnaire de signal ne
+peut s'exécuter. Or c'est exactement pendant ces 4 minutes qu'on interrompt un
+balayage ; le reste du temps, il n'y a presque rien à interrompre.
+
+Vérifié : un `SIGTERM` envoyé sur une mutation en vol n'a **pas** été honoré, la
+loupe tournant encore 30 s plus tard. Le `SIGKILL` qui a suivi a laissé le
+mutant, comme attendu.
+
+### Ce qui marche : mettre l'original SUR LE DISQUE avant de muter
+
+Un journal `.loupe-en-cours` porte `{fichier, original}`, écrit **avant** la
+mutation et retiré **après** la restauration. Le balayage suivant le trouve et
+répare — quel que soit ce qui a tué le précédent, y compris ce qu'aucun
+gestionnaire ne voit : `SIGKILL`, coupure, conteneur détruit.
+
+Rejoué contre un vrai `SIGKILL` :
+
+```text
+⚠ LOUPE : un balayage precedent a ete interrompu en pleine mutation.
+  scripts/essai-parcours.mjs portait un defaut DELIBERE — il vient d'etre restaure.
+✔ arbre propre, journal retiré
+```
+
+### La règle générale
+
+**Un état dangereux doit être réparable depuis le disque, pas depuis la
+mémoire.** Tout ce qui ne vit qu'en mémoire — l'original d'un fichier, la liste
+de ce qu'il faut défaire — disparaît avec le processus, et c'est justement la
+mort du processus qui crée le besoin de réparer.
+
+Le corollaire vaut au-delà de la loupe : un gestionnaire de signal est une
+**doublure**, jamais un filet. Il ne s'exécute que si la boucle tourne, et la
+boucle ne tourne pas quand on fait le travail long qui justifiait la précaution.

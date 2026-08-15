@@ -25,12 +25,16 @@
 // autonome en `.mjs`. L'éprouver depuis du TypeScript ajouterait une couche que
 // l'outil lui-même n'a pas.
 
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   cheminsDuBalayage,
   HORS_PORTEE,
+  NOM_JOURNAL,
   PORTEE_PAR_DEFAUT,
+  reprendreApresInterruption,
   verdictDeLErreur,
 } from '../scripts/loupe.mjs';
 
@@ -231,5 +235,96 @@ describe('LE PÉRIMÈTRE PAR DÉFAUT COUVRE TOUT CE QUI EST LIVRÉ ET DÉCIDE', 
       if (!vivant) morts.push(dossier);
     }
     expect(morts, 'chemin(s) du périmètre qui ne désignent plus rien de mutable').toEqual([]);
+  });
+});
+
+describe('un balayage interrompu ne laisse pas son mutant dans l’arbre', () => {
+  // ─── LE DÉFAUT, MESURÉ SUR CE DÉPÔT ────────────────────────────────────────
+  //
+  // La restauration vivait dans un `finally`, et rien d'autre. Un `finally` ne
+  // s'exécute pas quand le processus est TUÉ. Un balayage arrêté en cours de
+  // route a laissé ceci dans `scripts/essai-parcours.mjs` :
+  //
+  //     -  if (!port || !jeton) {
+  //     +  if (!port && !jeton) {
+  //
+  // Un défaut DÉLIBÉRÉ, déposé par l'outil, qu'un `git commit -a` distrait
+  // aurait publié. C'est le pire tour que puisse jouer un outil dont le métier
+  // est de planter des défauts — et il est arrivé.
+  //
+  // ─── POURQUOI UN JOURNAL SUR DISQUE, ET PAS UN SIGNAL ──────────────────────
+  //
+  // Un gestionnaire `SIGINT`/`SIGTERM` rattrape les arrêts POLIS. Il ne
+  // rattrape ni `SIGKILL`, ni une coupure, ni un conteneur détruit — et c'est
+  // là qu'on ne saurait plus quoi restaurer, l'original ne vivant qu'en
+  // mémoire. Le journal porte l'original AVANT la mutation : le balayage
+  // suivant répare, quel que soit ce qui a tué le précédent.
+  const ateliers = [];
+  afterEach(() => {
+    for (const d of ateliers.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  const atelier = () => {
+    const d = mkdtempSync(path.join(os.tmpdir(), 'banc-loupe-'));
+    ateliers.push(d);
+    return d;
+  };
+  const muet = () => {};
+
+  it('LE FICHIER MUTÉ EST RESTAURÉ, ET LE JOURNAL RETIRÉ', () => {
+    const racine = atelier();
+    const SAIN = 'if (!port || !jeton) {\n';
+    const MUTE = 'if (!port && !jeton) {\n';
+    writeFileSync(path.join(racine, 'garde.mjs'), MUTE);
+    writeFileSync(
+      path.join(racine, NOM_JOURNAL),
+      JSON.stringify({ fichier: 'garde.mjs', original: SAIN }),
+    );
+
+    expect(reprendreApresInterruption(racine, muet)).toBe('garde.mjs');
+    expect(
+      readFileSync(path.join(racine, 'garde.mjs'), 'utf8'),
+      'le mutant est resté dans l’arbre',
+    ).toBe(SAIN);
+    expect(
+      existsSync(path.join(racine, NOM_JOURNAL)),
+      'le journal survit — le balayage suivant réparerait un fichier déjà sain',
+    ).toBe(false);
+  });
+
+  it('SANS JOURNAL, on ne touche à RIEN — c’est le cas normal', () => {
+    // Une reprise qui écrit quand il n'y a rien à reprendre serait pire que le
+    // défaut qu'elle corrige : elle écraserait du travail en cours.
+    const racine = atelier();
+    writeFileSync(path.join(racine, 'garde.mjs'), 'du travail en cours\n');
+    expect(reprendreApresInterruption(racine, muet)).toBeNull();
+    expect(readFileSync(path.join(racine, 'garde.mjs'), 'utf8')).toBe('du travail en cours\n');
+  });
+
+  it('un journal ILLISIBLE est retiré sans rien écraser', () => {
+    // Mieux vaut perdre la réparation que boucler sur un fichier qu'on ne sait
+    // pas lire — et l'arbre, lui, se voit dans `git status`.
+    const racine = atelier();
+    writeFileSync(path.join(racine, 'garde.mjs'), 'intact\n');
+    writeFileSync(path.join(racine, NOM_JOURNAL), 'ceci n’est pas du JSON');
+
+    expect(reprendreApresInterruption(racine, muet)).toBeNull();
+    expect(readFileSync(path.join(racine, 'garde.mjs'), 'utf8')).toBe('intact\n');
+    expect(existsSync(path.join(racine, NOM_JOURNAL)), 'le journal illisible reste').toBe(false);
+  });
+
+  it('un journal INCOMPLET ne fait pas écrire « undefined » dans le fichier', () => {
+    // `JSON.parse` réussit sur `{}` : sans contrôle des deux champs, on
+    // écrirait la chaîne « undefined » par-dessus la source. Le cas départage
+    // « c'est du JSON » de « c'est le journal qu'on attend ».
+    const racine = atelier();
+    writeFileSync(path.join(racine, 'garde.mjs'), 'intact\n');
+    writeFileSync(path.join(racine, NOM_JOURNAL), JSON.stringify({ fichier: 'garde.mjs' }));
+
+    expect(reprendreApresInterruption(racine, muet)).toBeNull();
+    expect(
+      readFileSync(path.join(racine, 'garde.mjs'), 'utf8'),
+      'un journal sans `original` a écrasé la source',
+    ).toBe('intact\n');
   });
 });
