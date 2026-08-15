@@ -314,6 +314,64 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('LES DEUX ESSAIS FONT AUSSI ENTRER UN INVITÉ', () => {
+    // ─── LE MÊME TROU, UN CRAN PLUS LOIN ───────────────────────────────────
+    //
+    // Le sixième pas joue le geste que trois bancs entouraient sans jamais le
+    // faire : coller la commande d'entrée sur un poste, et entrer dans la
+    // ruche. Il est PARTAGÉ comme les deux précédents — c'est le même fichier
+    // Node des deux côtés, et c'est lui qui choisit son jumeau selon la
+    // plateforme.
+    //
+    // Cette garde ferme la même divergence que celle d'au-dessus, et elle est
+    // séparée exprès : le jour où l'un des deux essais perd CE seul appel, il
+    // resterait vert en mesurant cinq pas sur six — et le message doit dire
+    // lequel manque, pas « le parcours ».
+    const INSTRUMENT = 'essai-entree.mjs';
+
+    // ─── « LA LIGNE QUI LANCE » N'A PAS LA MÊME FORME DES DEUX CÔTÉS ────────
+    //
+    // Défaut MESURÉ sur cette garde même, à sa première écriture : elle
+    // cherchait la ligne portant le NOM du fichier. En PowerShell, l'idiome —
+    // déjà celui de `$parcours` — lie d'abord le chemin à une variable :
+    //
+    //     $entree = Join-Path $PSScriptRoot 'essai-entree.mjs'   ← le nom
+    //     & node.exe $entree '--racine' $Cible '--invite' …      ← le LANCEMENT
+    //
+    // La garde attrapait la première et concluait que l'essai ne disait pas où
+    // poser le poste de l'invité — sur un fichier parfaitement correct. Un
+    // rouge de garde mal visée coûte plus cher qu'une garde absente : on
+    // commence par soupçonner le produit.
+    //
+    // Chaque jumeau a donc sa forme, écrite pour lui.
+    const LANCEMENT = {
+      sh: { fichier: 'scripts/essai-installation.sh', motif: /node[^\n]*essai-entree\.mjs[^\n]*/ },
+      ps1: { fichier: 'scripts/essai-installation.ps1', motif: /node\.exe[^\n]*\$entree[^\n]*/ },
+    } as const;
+
+    for (const [nom, { fichier, motif }] of Object.entries(LANCEMENT)) {
+      // Sans commentaires : le nom vit aussi dans la prose des deux fichiers,
+      // et une phrase ne lance rien.
+      const appel = sansCommentaires(lire(fichier)).match(motif)?.[0];
+      expect(
+        appel,
+        `${fichier} ne lance plus l’entrée : sa jambe mesure 5 pas sur 6`,
+      ).toBeDefined();
+
+      // ─── ET LE POSTE D'INVITÉ VIT À CÔTÉ, JAMAIS DEDANS ──────────────────
+      //
+      // Le ménage des deux essais vise la CIBLE et tue tout ce qui y travaille.
+      // Un poste d'invité posé sous elle serait effacé au milieu de l'essai —
+      // une panne qui ne ressemblerait à rien de ce qu'on mesure.
+      expect(appel, `l’essai ${nom} ne dit pas où poser le poste de l’invité`).toContain('-invite');
+    }
+
+    expect(
+      lire(`scripts/${INSTRUMENT}`).length,
+      'l’instrument de l’entrée est vide',
+    ).toBeGreaterThan(0);
+  });
+
   it('LE MÉNAGE DE L’ESSAI WINDOWS NE PEUT PAS PORTER DE VERDICT', () => {
     // ─── LE DÉFAUT, MESURÉ ET INTERMITTENT ─────────────────────────────────
     //

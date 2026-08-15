@@ -30,6 +30,15 @@
 #                                                « je peux m'en servir »
 #   5. je CRÉE MON PREMIER PROJET, et le       — le premier geste réel d'un
 #      tableau le voit                           arrivant, jamais mesuré avant
+#   6. J'INVITE QUELQU'UN, et il ENTRE         — la commande d'entrée était
+#                                                composée, gardée et affichée par
+#                                                trois bancs ; aucun ne la collait
+#
+# ⚠ La numérotation est bancale et c'est ASSUMÉ : les pas de shell disent « /3 »
+# parce qu'ils étaient trois avant que le parcours n'existe. Les renuméroter
+# toucherait les deux jumeaux et leurs gardes pour ne rien mesurer de plus. Ce
+# qui compte est qu'aucun pas ne manque, et c'est `installeurs-jumeaux` qui le
+# tient — pas la beauté des étiquettes.
 #
 # Le troisième est le seul qui ne peut pas être simulé : il faut que le code
 # tourne. C'est lui qui distingue « les fichiers sont là » de « ça marche ».
@@ -277,6 +286,17 @@ while [ "$i" -lt 60 ]; do
     # La racine est passée en argument ; le JETON, jamais. Il est relu là-bas
     # dans le `.env` que l'installeur vient d'écrire.
     node "$MES_SCRIPTS/essai-parcours.mjs" --racine "$CIBLE" || exit 1
+    # ─── ET LE GESTE D'APRÈS : J'INVITE QUELQU'UN ────────────────────────
+    #
+    # Le sixième pas fabrique un poste d'invité à côté, y colle la commande
+    # d'entrée que la ruche vient de composer, et attend que l'invité
+    # apparaisse. C'était le dernier morceau du parcours à n'être mesuré
+    # nulle part — la forme exacte du trou qu'était le pas 4/5.
+    #
+    # Le dossier d'invité vit à CÔTÉ de la cible, pas dedans : le ménage de
+    # ce script vise `$CIBLE`, et un poste d'invité sous elle serait effacé
+    # au milieu de l'essai. C'est l'instrument qui range le sien.
+    node "$MES_SCRIPTS/essai-entree.mjs" --racine "$CIBLE" --invite "$CIBLE-invite" || exit 1
     exit 0
   fi
   i=$((i + 1))

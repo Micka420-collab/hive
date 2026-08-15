@@ -27,12 +27,15 @@
                                          m'en servir »
     5. je CRÉE MON PREMIER PROJET, et le tableau le voit — le premier geste réel
                                          d'un arrivant, jamais mesuré avant
+    6. J'INVITE QUELQU'UN, et il ENTRE — la commande d'entrée était composée,
+                                         gardée et affichée par trois bancs ;
+                                         aucun ne la collait
 
   Le troisième est le seul qui ne puisse pas être simulé : il faut que le code
   tourne.
 
-  Les deux derniers sont en Node (`scripts/essai-parcours.mjs`) et PARTAGÉS avec
-  l'essai POSIX. Les réécrire ici, avec du JSON à analyser en PowerShell, aurait
+  Les trois derniers sont en Node (`scripts/essai-parcours.mjs`,
+  `scripts/essai-entree.mjs`) et PARTAGÉS avec l'essai POSIX. Les réécrire ici, avec du JSON à analyser en PowerShell, aurait
   refabriqué exactement la divergence que `tests/installeurs-jumeaux.test.ts`
   avait trouvée entre les deux installeurs.
 
@@ -243,6 +246,21 @@ try {
         # dans le .env que l'installeur vient d'écrire.
         $parcours = Join-Path $PSScriptRoot 'essai-parcours.mjs'
         & node.exe $parcours '--racine' $Cible
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+
+        # ─── ET LE GESTE D'APRES : J'INVITE QUELQU'UN ────────────────────
+        #
+        # Le sixieme pas fabrique un poste d'invite a cote, y colle la
+        # commande d'entree que la ruche vient de composer, et attend que
+        # l'invite apparaisse. Partage lui aussi : c'est LE MEME fichier
+        # Node que la jambe POSIX lance, et il choisit seul le jumeau
+        # (`rejoindre.ps1` ici) selon la plateforme.
+        #
+        # Le dossier d'invite vit A COTE de la cible, jamais dedans : le
+        # menage de ce script vise $Cible, et un poste d'invite sous elle
+        # serait efface au milieu de l'essai.
+        $entree = Join-Path $PSScriptRoot 'essai-entree.mjs'
+        & node.exe $entree '--racine' $Cible '--invite' "$Cible-invite"
         if ($LASTEXITCODE -ne 0) { exit 1 }
         exit 0
       }

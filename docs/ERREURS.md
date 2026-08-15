@@ -10676,3 +10676,112 @@ source restaurée par copie 37 passed (37)
 
 Ce cas est POSIX seulement, comme tout `lanceur-ruche.test.ts` : le câblage est
 mesuré sur deux systèmes sur trois, et c'est dit plutôt qu'oublié.
+
+---
+
+## 9 novemdecicenties. Trois bancs entouraient le geste ; aucun ne le faisait
+
+La commande d'entrée en un geste était livrée, et gardée sur trois côtés :
+
+| banc                      | ce qu'il tient                                       |
+| ------------------------- | ---------------------------------------------------- |
+| `commande-entree.test.ts` | la commande se COMPOSE, sur onze billets empoisonnés |
+| `installeurs-jumeaux`     | `rejoindre.sh` et `rejoindre.ps1` restent PARALLÈLES |
+| `invite-panneau`          | le bouton la REMET vraiment au presse-papiers        |
+
+Personne ne la COLLAIT. Le seul geste qui compte — « je pose ça sur un poste, et
+j'entre dans la ruche » — n'était mesuré nulle part.
+
+**Un faisceau de bancs autour d'un geste ne remplace pas le geste.** C'est
+exactement la forme du trou qu'était le pas 4/5 avant qu'on l'écrive, et celui-là
+avait trouvé un défaut réel — `install.ps1` ne construisait pas l'écran — à sa
+toute première exécution.
+
+### Le piège que l'essai devait fermer sur lui-même
+
+`rejoindre.sh` a deux branches : reconnaître une installation, ou installer. La
+seconde va chercher `install.sh` **sur le dépôt public**. Prise par accident — un
+`node_modules` absent du poste d'invité suffit — l'essai mesurerait le code de
+`main` au lieu de celui qu'on livre.
+
+En restant **vert**. Un essai qui mesure la mauvaise version sans le dire est
+pire qu'un essai absent : il porte un verdict qu'on croit. D'où un verdict
+explicite (`verdictEntree`), et son cas au banc.
+
+### Compter les nœuds n'aurait rien mesuré
+
+L'essai de seuil lance `npm run ruche` sans drapeau : la Reine, **une ouvrière**,
+et l'écran. Il y a donc déjà un nœud quand l'invité arrive — une garde qui
+compterait les nœuds serait verte **avant** que le script d'entrée ne soit lancé.
+
+On relève les nœuds AVANT, et on cherche celui qui n'y était pas.
+
+### L'ordre de deux blocs, et le rouge qu'il aurait donné sur un produit sain
+
+Première version de la boucle d'attente :
+
+```js
+if (mort !== null) rate('… s’est arrêté sans faire entrer personne')
+const etat = await demander('/api/state', …)     // ← trop tard
+```
+
+Le vrai `rejoindre.sh` finit par `exec npm run join`, qui reste vivant : le
+défaut ne se voyait pas. Mais rien ne l'exige — **un script d'entrée qui inscrit
+le nœud puis rend la main aurait été déclaré en échec alors que l'invité ÉTAIT
+dans la ruche.**
+
+On interroge d'abord ; la mort ne se conclut que si la ruche, consultée APRÈS
+elle, ne voit toujours personne. Un essai qui rougit sur un produit sain apprend
+à ne plus croire les rouges — c'est la même leçon que le cliquet intermittent.
+
+### Deux gardes écrites faux, et ce que ça dit
+
+**La ligne qui lance n'a pas la même forme des deux côtés.** La garde de parité
+cherchait la ligne portant le NOM du fichier. En PowerShell, l'idiome lie le
+chemin d'abord :
+
+```powershell
+$entree = Join-Path $PSScriptRoot 'essai-entree.mjs'   ← le nom
+& node.exe $entree '--racine' $Cible '--invite' …      ← le LANCEMENT
+```
+
+Elle attrapait la première et accusait un fichier correct. **Un rouge de garde
+mal visée coûte plus cher qu'une garde absente : on commence par soupçonner le
+produit.**
+
+**Et l'attente du banc visait le mauvais verdict.** Le faux script d'entrée
+dormait 60 s ; l'instrument attend 90 s. La mort arrivait donc AVANT
+l'épuisement, et le cas cherchait « aucun nœud neuf » là où il obtenait « s'est
+arrêté ». Les deux verdicts étaient justes. Tracé plutôt que deviné :
+
+```text
+avant sleep 1786809093
+APRES sleep 1786809153      ← 60 s exactement, le script n'avait rien à se reprocher
+```
+
+Quatre hypothèses avaient été formées et écartées avant celle-là. **Une trace
+horodatée coûte deux minutes et remplace une heure de lecture.**
+
+### La liste de voisins qui a vieilli au lot suivant
+
+Le banc du seuil copie le script dans un dossier temporaire, avec ses
+instruments — nommés dans une **liste écrite à la main**. Le pas 6 a ajouté deux
+fichiers, et le banc est mort sur `MODULE_NOT_FOUND` : un rouge qui ne parlait
+pas du produit.
+
+C'est le § 9 quinoctogies mot pour mot — une liste garde ce qu'on a pensé à y
+mettre, LE JOUR OÙ ON L'A ÉCRITE. Remplacée par une découverte (`readdirSync`
+des `.mjs`). **Quand une liste manuelle casse, on ne l'allonge pas : on la
+supprime.**
+
+### Ce que l'essai ne mesure pas, et qui est écrit
+
+L'installation depuis zéro par le chemin de l'invité. Le poste est fabriqué par
+copie, donc la branche « déjà installé » est celle qu'on joue. L'autre moitié est
+tenue par les pas 1 à 3, qui installent pour de vrai depuis l'arbre sous essai.
+
+De même, la branche « l'attente s'épuise » du pas 6 : la jouer coûterait 90 s par
+exécution sur trois jambes.
+
+**Ce qu'un essai ne couvre pas doit être écrit DANS l'essai** — sinon la
+prochaine lecture lui prêtera une portée qu'il n'a pas.

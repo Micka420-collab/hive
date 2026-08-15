@@ -38,7 +38,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { chmodSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,9 +54,22 @@ const SCRIPT = fileURLToPath(new URL('../scripts/essai-installation.sh', import.
 // dossier temporaire : il doit donc copier ses voisins, sinon il éprouve un
 // script amputé. C'est ce qui est arrivé — l'essai sortait en 1 sur un chantier
 // sain, et le banc a été le seul à le dire.
-const VOISINS = ['essai-parcours.mjs', 'premier-quart-heure.mjs'].map((f) =>
-  fileURLToPath(new URL(`../scripts/${f}`, import.meta.url)),
-);
+// ─── LES VOISINS SE DÉCOUVRENT, ILS NE S'ÉNUMÈRENT PAS ───────────────────────
+//
+// Ce banc COPIE le script dans un dossier temporaire, donc il doit y emmener les
+// instruments que le script lance à côté de lui.
+//
+// C'était une liste écrite à la main. Elle a vieilli au premier lot suivant : le
+// pas 6 a ajouté `essai-entree.mjs`, qui importe `entree-invite.mjs`, et le banc
+// est mort sur `MODULE_NOT_FOUND` — un rouge qui ne parlait pas du produit.
+//
+// C'est le § 9 quinoctogies mot pour mot : une liste garde ce qu'on a pensé à y
+// mettre, LE JOUR OÙ ON L'A ÉCRITE. On prend donc tous les `.mjs` du dossier :
+// ce sont des fichiers de quelques kilo-octets dans un dossier temporaire, et
+// cette copie-là ne peut plus être courte.
+const VOISINS = readdirSync(fileURLToPath(new URL('../scripts', import.meta.url)))
+  .filter((f) => f.endsWith('.mjs'))
+  .map((f) => fileURLToPath(new URL(`../scripts/${f}`, import.meta.url)));
 
 describe('le banc du seuil — la syntaxe, sur tous les systèmes', () => {
   it('`sh -n` accepte le script', () => {
@@ -108,6 +121,10 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
     rucheRepond?: boolean;
     tableau?: 'construit' | 'repli';
     rangeLeProjet?: boolean;
+    /** L'invité s'inscrit-il vraiment ? Le bouton qui fait MENTIR le pas 6. */
+    inviteEntre?: boolean;
+    /** Le faux script d'entrée réinstalle-t-il au lieu de reconnaître ? */
+    inviteReinstalle?: boolean;
     args?: string[];
   }): { code: number; sortie: string } {
     const dossier = mkdtempSync(path.join(os.tmpdir(), 'banc-seuil-'));
@@ -153,6 +170,7 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             `const PAGE = ${JSON.stringify(page)};`,
             `const RANGE = ${range};`,
             'const projets = [];',
+            'const noeuds = [];',
             'createServer((q, r) => {',
             "  if (q.url === '/') {",
             "    r.writeHead(200, { 'content-type': 'text/html' });",
@@ -164,15 +182,84 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             "    r.writeHead(201, { 'content-type': 'application/json' });",
             '    return r.end(JSON.stringify({ id }));',
             '  }',
+            // ─── ET MAINTENANT LE PAS 6 : ELLE FRAPPE DES BILLETS ──────────
+            //
+            // La fausse ruche doit remettre une commande d'entrée COMPLÈTE,
+            // sans quoi l'essai s'arrête avant d'avoir rien joué. Elle expose
+            // aussi une porte que seul le faux script d'entrée pousse : c'est
+            // ainsi que « l'invité est entré » devient observable sans WebSocket
+            // ni vrai nœud.
+            "  if (q.url === '/api/billets' && q.method === 'POST') {",
+            "    const b = 'hive2_billetDeBanc-01';",
+            "    r.writeHead(200, { 'content-type': 'application/json' });",
+            '    return r.end(',
+            '      JSON.stringify({',
+            '        billet: b,',
+            "        entree: { posix: 'sh rejoindre.sh ' + b, windows: 'pwsh rejoindre.ps1 ' + b },",
+            '      }),',
+            '    );',
+            '  }',
+            "  if (q.url === '/api/faux-noeud' && q.method === 'POST') {",
+            "    noeuds.push({ id: 'node-invite-du-banc' });",
+            '    r.writeHead(201);',
+            "    return r.end('');",
+            '  }',
             "  if (q.url === '/api/state') {",
             "    r.writeHead(200, { 'content-type': 'application/json' });",
-            '    return r.end(JSON.stringify({ projects: projets }));',
+            '    return r.end(JSON.stringify({ projects: projets, nodes: noeuds }));',
             '  }',
             "  r.writeHead(200, { 'content-type': 'application/json' });",
             "  r.end('{}');",
             '})',
             "  .listen(port, '127.0.0.1');",
           ].join('\n');
+
+    // ─── LE FAUX SCRIPT D'ENTRÉE, ET SES DEUX MENSONGES POSSIBLES ────────────
+    //
+    // `inviteEntre: false` — il dit tout ce qu'il faut et n'inscrit personne.
+    //     C'est le cas qui départage un pas 6 qui MESURE d'un pas 6 qui décore :
+    //     tout le texte attendu est là, seul le résultat manque.
+    //
+    // `inviteReinstalle: true` — il annonce une installation. Le vrai script le
+    //     ferait en tirant du dépôt PUBLIC : l'essai mesurerait alors `main` et
+    //     non l'arbre livré, en restant vert.
+    //
+    // Il dort ensuite, comme le vrai qui `exec npm run join` : c'est
+    // l'instrument qui emporte son groupe de processus.
+    const faussEntree = [
+      '#!/usr/bin/env sh',
+      options.inviteReinstalle === true
+        ? 'echo "→ Installation de Hive dans $HIVE_DIR…"'
+        : 'echo "→ Hive est déjà installé dans $HIVE_DIR — on rejoint directement."',
+      // ─── QUAND IL N'INSCRIT PERSONNE, IL REND LA MAIN TOUT DE SUITE ────────
+      //
+      // Première version : il dormait 60 s comme le vrai. Mesuré — l'instrument
+      // attend 90 s, donc la mort du script arrivait AVANT l'épuisement de
+      // l'attente, et le cas rougissait sur « s'est arrêté » là où il cherchait
+      // « aucun nœud neuf ». Les deux verdicts sont justes ; c'était l'attente
+      // du banc qui visait le mauvais.
+      //
+      // On garde donc la mort immédiate : elle est déterministe, elle coûte une
+      // seconde au lieu de quatre-vingt-dix, et c'est une panne réelle — un
+      // script d'entrée qui rend la main sans avoir fait entrer personne.
+      //
+      // ⚠ CE QUI RESTE NON EXERCÉ, et c'est dit plutôt que tu : la branche
+      // « l'attente s'épuise » (un script qui vit et n'inscrit jamais rien). La
+      // jouer coûterait 90 s par exécution sur les trois jambes.
+      ...(options.inviteEntre === false
+        ? []
+        : [
+            // Le port est LU dans le `.env` que ce même banc vient d'écrire —
+            // pas reçu en second exemplaire. Deux sources pour un seul chiffre
+            // finissent toujours par diverger, et celle-ci divergerait en
+            // silence : le faux script pousserait une porte fermée, et le pas 6
+            // rougirait sur un banc mal câblé plutôt que sur le produit.
+            `curl -fsS -m 5 -X POST "http://127.0.0.1:${/^HIVE_PORT=(.*)$/m.exec(options.env ?? '')?.[1] ?? '0'}/api/faux-noeud" >/dev/null 2>&1 || true`,
+            // Puis il vit, comme le vrai qui `exec npm run join` : c'est
+            // l'instrument qui emporte son groupe de processus.
+            'sleep 60',
+          ]),
+    ];
 
     const pose =
       options.env === null || options.env === undefined
@@ -189,6 +276,20 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             'cat > "$CIBLE/ruche.mjs" <<\'RUCHEFIN\'',
             ruche,
             'RUCHEFIN',
+            // ─── CE QUE LE PAS 6 A BESOIN DE TROUVER ─────────────────────────
+            //
+            // `node_modules` : c'est à ce dossier que `rejoindre.sh` reconnaît
+            // une installation. Vide ici — l'instrument le LIE, il ne le lit
+            // pas.
+            'mkdir -p "$CIBLE/node_modules"',
+            // Et un faux script d'entrée. Le vrai ouvre un WebSocket et fait
+            // vivre un nœud ; celui-ci pousse une porte de la fausse ruche, ce
+            // qui rend « l'invité est entré » observable sans rien simuler de ce
+            // qu'on mesure — le VERDICT reste celui de l'instrument.
+            'cat > "$CIBLE/rejoindre.sh" <<\'ENTREEFIN\'',
+            ...faussEntree,
+            'ENTREEFIN',
+            'chmod 755 "$CIBLE/rejoindre.sh"',
           ];
 
     writeFileSync(
@@ -237,8 +338,55 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
     expect(sortie, 'le seul pas qui ne peut pas être simulé').toContain('✔ 3/3');
     expect(sortie, 'le tableau n’est pas ouvert').toContain('✔ 4/5');
     expect(sortie, 'le premier projet n’est pas créé').toContain('✔ 5/5');
+    expect(sortie, 'l’invité n’est pas entré').toContain('✔ 6/6');
     expect(code).toBe(0);
   });
+
+  it('UN INVITÉ QUI N’ENTRE PAS fait rougir — même s’il dit tout ce qu’il faut', async () => {
+    // ─── LE CAS QUI DÉPARTAGE LE PAS 6 ─────────────────────────────────────
+    //
+    // Le faux script d'entrée annonce exactement ce qu'annonce le vrai : « Hive
+    // est déjà installé — on rejoint directement ». Il n'inscrit simplement
+    // personne.
+    //
+    // C'est le seul monde qui distingue un pas 6 qui MESURE d'un pas 6 qui
+    // décore : tout le texte attendu est là, et il ne s'est rien passé. Sans ce
+    // cas, une garde qui se contenterait de lire la sortie du script serait
+    // verte sur une ruche où aucun invité ne peut entrer.
+    const port = await portLibre();
+    const { code, sortie } = courir({
+      codeInstall: 0,
+      env: envValide(port),
+      inviteEntre: false,
+    });
+
+    expect(sortie, 'les cinq premiers pas doivent passer').toContain('✔ 5/5');
+    expect(sortie, 'le pas 6 se déclare vert sans invité').not.toContain('✔ 6/6');
+    expect(sortie, 'l’échec ne dit pas ce qui manque').toContain('sans faire entrer personne');
+    expect(code, 'un invité qui n’entre pas n’est pas un succès').not.toBe(0);
+  }, 120_000);
+
+  it('UNE RÉINSTALLATION fait rougir — l’essai mesurerait `main`, pas l’arbre livré', async () => {
+    // ─── LE PIÈGE QUE CE CAS FERME ─────────────────────────────────────────
+    //
+    // La branche « installer » du vrai script d'entrée va chercher `install.sh`
+    // SUR LE DÉPÔT PUBLIC. Prise par accident — un `node_modules` absent du
+    // poste d'invité suffit — l'essai durerait des minutes et mesurerait le code
+    // de `main` au lieu de celui qu'on livre. En restant vert.
+    //
+    // Un essai qui mesure la mauvaise version sans le dire est pire qu'un essai
+    // absent : il porte un verdict qu'on croit.
+    const port = await portLibre();
+    const { code, sortie } = courir({
+      codeInstall: 0,
+      env: envValide(port),
+      inviteReinstalle: true,
+    });
+
+    expect(sortie, 'le pas 6 accepte une réinstallation').not.toContain('✔ 6/6');
+    expect(sortie, 'l’échec ne nomme pas le risque').toContain('REINSTALLÉ');
+    expect(code).not.toBe(0);
+  }, 120_000);
 
   it('UN TABLEAU NON CONSTRUIT fait rougir — 200 ne veut pas dire « ça marche »', async () => {
     // ─── LE CAS QUI DÉPARTAGE LE PAS 4 ─────────────────────────────────────
