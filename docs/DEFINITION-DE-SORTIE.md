@@ -97,11 +97,11 @@ La matrice à trois systèmes mesure que _le code compile et que les bancs
 passent_. L'installation, elle, est une autre affaire, et elle se dit système
 par système :
 
-| Système     | Ce qui est mesuré                                  | Depuis quand              |
-| ----------- | -------------------------------------------------- | ------------------------- |
-| **Linux**   | ✅ installation complète → ruche qui RÉPOND        | en continu, à chaque PR   |
-| **macOS**   | ✅ installation complète → ruche qui RÉPOND        | **14 août, à chaque PR**  |
-| **Windows** | ⚠️ complète UNE FOIS (terrain) ; en CI, seuil seul | rapport de terrain unique |
+| Système     | Ce qui est mesuré                            | Depuis quand             |
+| ----------- | -------------------------------------------- | ------------------------ |
+| **Linux**   | ✅ installation complète → ruche qui RÉPOND  | en continu, à chaque PR  |
+| **macOS**   | ✅ installation complète → ruche qui RÉPOND  | **14 août, à chaque PR** |
+| **Windows** | ✅ installation complète → ruche qui RÉPOND¹ | **15 août, à chaque PR** |
 
 **macOS a basculé le 14 août** (`seuil` devient une matrice, run
 `31776537105`). Première fois que la commande du README y était menée à son
@@ -113,15 +113,34 @@ terme — nulle part auparavant, ni en CI ni sur une machine :
 ✔ 3/3 — la ruche répond sur :7777 après 2s
 ```
 
-Ce n'est **pas** un code 78 (« non concluant », câblé pour le cas d'un port déjà
-tenu) : les trois affirmations ont réellement mordu.
+**Windows a basculé le 15 août** (`scripts/essai-installation.ps1`, jambe
+`seuil-windows`, run `31871739630`, travail `94981345140`) :
 
+```
+✔ 1/3 — installation sortie en 0, 115 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+```
+
+Ni l'un ni l'autre n'est un code 78 (« non concluant », câblé pour le cas d'un
+port déjà tenu) : les trois affirmations ont réellement mordu. La jambe Windows
+a d'ailleurs rougi **trois fois avant** de compter — mojibake d'encodage,
+apostrophe courbe fermant une chaîne, puis le fond —, ce qui est la preuve
+qu'elle exécute vraiment le script et ne le survole pas.
+
+- ¹ **Ce que la colonne Windows ne dit PAS, et qui n'est pas un détail** : la
+  version POSIX vérifie que le `.env` est en **0600**. La jambe Windows ne le
+  vérifie pas, parce qu'il n'y a rien à vérifier — Node n'y retient du `mode`
+  que le bit « lecture seule », aucune ACL n'est posée. Le secret y est donc
+  moins protégé qu'ailleurs. Écrire un contrôle qui passerait quand même aurait
+  donné une couverture apparente sur une protection absente ; **fermer ce trou
+  est un lot à part, qui touche l'installeur et pas son essai**, et il n'est pas
+  fait.
 - 🔒 **Ce qui reste une réserve, et qu'il ne faut pas maquiller** : un runner CI
   n'est pas le poste de bureau d'un utilisateur, avec ses réglages, son
-  antivirus et son shell à lui. Et **Windows n'est mesuré de bout en bout que
-  par un rapport de terrain unique** — `install.ps1` est un chemin distinct
-  (PowerShell 7 et 5.1), exercé en CI au seuil seulement. Deux systèmes sur
-  trois en continu, pas trois.
+  antivirus et son shell à lui. Trois systèmes mesurés en continu ne valent pas
+  trois systèmes éprouvés chez de vrais arrivants — cette réserve-là ne se lève
+  pas en CI, elle se lève à la sortie.
 
 ## C. C'est défendu — ✅ mesuré et gardé (le gate a mordu à sa naissance)
 

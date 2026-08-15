@@ -9841,3 +9841,86 @@ chose qui les a départagées est un journal lu ligne à ligne, à chaque tour.
 > instable : c'est une jambe qui trouve.** Un chemin que personne n'exécutait
 > depuis des mois n'a aucune raison d'être correct du premier coup, et sa
 > première verte vaudra ce que valent les trois rouges qui l'ont précédée.
+
+---
+
+## 9 tercenties. Un travail de CI VERT ne prouve pas que sa mesure a mordu
+
+La jambe `seuil-windows` a fini `conclusion: success`. La tentation, à ce
+moment-là, est de basculer `docs/DEFINITION-DE-SORTIE.md` de `⚠️` à `✅` et de
+passer à la suite. Elle est verte, non ?
+
+Non. **Le script sort en 0 dans deux cas différents**, et un seul est une
+réussite du seuil :
+
+```text
+exit 0   les trois affirmations ont mordu                → le seuil est franchi
+exit 78  le port par défaut était tenu par un service    → essai NON CONCLUANT
+```
+
+Le code 78 est câblé exprès, et il est câblé pour sortir en **0** — parce qu'un
+port occupé sur un runner n'est pas un défaut de l'installation, et rougir
+dessus apprendrait à relancer plutôt qu'à lire. Le prix de ce choix, c'est que
+la couleur du travail cesse d'être une preuve.
+
+### Ce que ça change dans le geste
+
+Il faut **lire le journal avant d'écrire le verdict**, à chaque fois, même quand
+la coche est verte. Ici :
+
+```text
+✔ 1/3 — installation sortie en 0, 115 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+```
+
+Trois lignes lues, et seulement ensuite la bascule — avec le numéro de run dans
+le document, pour que la prochaine relecture puisse refaire le chemin sans me
+croire sur parole.
+
+### La forme générale
+
+C'est le même défaut que « badges JAMAIS écrits de tête », déplacé d'un cran :
+là, j'inventais un chiffre ; ici, j'aurais lu un signal RÉEL en lui prêtant un
+sens qu'il n'a pas. Le second est plus dangereux, parce qu'il se défend — « la
+CI est verte » est une phrase vraie qui conclut faux.
+
+Toute sortie de secours qui rend 0 (un `skip`, un `todo`, un « rien à faire »,
+un cas non concluant) transforme un vert en signal AMBIGU. Là où il en existe
+une, le journal est la seule source, et le numéro de run est la seule preuve
+qu'on puisse relire.
+
+---
+
+## 9 quattuorcenties. Un recoin d'écran que RIEN ne rend est un angle mort, pas une zone sûre
+
+`Intendance.tsx` : 38 mutations candidates, toutes jouées, douze survivantes.
+Après neuf fermetures, les trois qui restaient étaient toutes dans le même
+recoin — le billet d'une machine en provisionnement.
+
+Ce n'est pas un hasard, et c'est le point : **atteindre ce bloc demandait deux
+conditions simultanées** — une machine dans l'état `provisionnement` ET un appel
+réseau à `billetServeur`. Le banc des machines montait des machines `arrete` et
+ne bouchonnait pas `billetServeur`. Le bloc n'était donc jamais rendu, et aucune
+mutation qui s'y trouve ne pouvait échouer.
+
+### Pourquoi ça ne se voit pas
+
+Un fichier « mesuré en entier » ne veut pas dire « rendu en entier ». Les
+survivants se concentrent là où le décor des bancs ne va pas — et le décor ne va
+pas là où il faut réunir DEUX conditions, parce qu'on écrit ses bancs à partir
+du cas normal. Plus une garde a besoin de conditions pour être atteinte, moins
+elle a de chances d'être défendue, et plus elle est probablement en train de
+protéger quelque chose de rare et de coûteux.
+
+Ici, ce qu'elle protégeait : un secret **à usage unique**. Le mutant le plus
+discret des trois (`instanceof Error` → `instanceof Object`) rendait l'écran
+MUET sur un refus. L'administrateur reclique, et le second appel rend 404 — le
+billet est perdu pour de bon. Un mutisme fabrique une perte irréversible.
+
+### La règle qu'on en tire
+
+Quand un balayage laisse des survivants GROUPÉS, la question n'est pas « quel
+test manque ». C'est : **quelle condition mon décor n'a-t-il jamais réunie ?**
+Le groupe est la trace de l'angle mort, pas des lignes elles-mêmes — et l'angle
+mort se ferme d'un seul décor, pas de trois tests.

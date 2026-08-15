@@ -54,6 +54,9 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
+  billetServeur: vi.fn(() =>
+    Promise.resolve({ billet: 'b-x', commande: 'hive node --billet b-x' }),
+  ),
   fetchCles: vi.fn(() => Promise.resolve({ noeuds: [], billets: [] })),
   setMembreRole: vi.fn(() => Promise.resolve({ userId: 'u', role: 'admin' })),
   fetchMembres: vi.fn(() =>
@@ -69,6 +72,7 @@ import {
   fetchApercu,
   fetchChantiers,
   fetchEssaim,
+  billetServeur,
   fetchCles,
   fetchProjectBalance,
   setProjectPlafond,
@@ -2668,5 +2672,124 @@ describe('les sentinelles du balayage du soir', () => {
       'la ligne qu’on n’a pas touchée garde son libellé',
     ).not.toBe('…');
     expect(gesteDe('Bob')?.textContent ?? '').toContain('administrateur');
+  });
+
+  // ─── LES TROIS DERNIÈRES NUES D'INTENDANCE ────────────────────────────────
+  //
+  // Sur 38 candidates jouées, il en restait TROIS que la suite entière ne
+  // départageait pas. Toutes les trois vivent dans le même recoin : le billet
+  // de rattachement d'une machine en cours de provisionnement.
+  //
+  // C'est un recoin qu'aucun banc n'atteignait, pour une raison mécanique — il
+  // faut à la fois une machine dans l'état `provisionnement` ET un appel réseau
+  // à `billetServeur`. Le banc des machines montait des machines `arrete`, donc
+  // ce bloc n'était jamais rendu ; les mutants y vivaient tranquilles.
+
+  it('INTENDANCE : le billet ne s’offre QUE sur une machine en provisionnement', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     {s.etat === 'provisionnement' && (billet === null ? …)}
+    //
+    // Mutée en `!==`, la porte s'inverse. Deux dégâts, et le second est le
+    // plus grave :
+    //
+    //   · la machine qui ATTEND son billet ne l'offre plus — l'administrateur
+    //     n'a plus aucun endroit où l'obtenir, et le billet ne se retrouve pas
+    //     (il vit en mémoire côté hub, le second appel rend 404) ;
+    //   · TOUTES LES AUTRES l'offrent — sur une machine déjà prête, déjà
+    //     arrêtée, déjà supprimée. Un bouton qui promet un billet là où il n'y
+    //     en a pas apprend que l'écran raconte n'importe quoi.
+    const bouton = (dom: HTMLElement): Element | undefined =>
+      [...dom.querySelectorAll('.in-geste')].find((b) => (b.textContent ?? '').includes('billet'));
+
+    const enAttente = await machines([{ ...MACHINE, etat: 'provisionnement' }]);
+    expect(
+      bouton(enAttente),
+      'la machine qui attend son billet n’a nulle part où l’obtenir',
+    ).toBeTruthy();
+
+    const arretee = await machines([{ ...MACHINE, etat: 'arrete' }]);
+    expect(
+      bouton(arretee),
+      'une machine ARRÊTÉE propose un billet qui n’existe pas',
+    ).toBeUndefined();
+  });
+
+  it('INTENDANCE : le billet remplace son bouton — on ne le redemande pas', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     billet === null ? <button…> : <code className="in-billet">…
+    //
+    // Mutée en `!==`, les deux moitiés du ternaire échangent leur tour :
+    //
+    //   · AVANT le clic, l'écran affiche un `<code>` VIDE et la phrase
+    //     « copiez-le maintenant : il ne sera plus affiché ». On croit avoir
+    //     reçu un billet qu'on n'a pas, et on cherche ce qu'on a mal copié ;
+    //   · APRÈS, le bouton revient. Or `billetServeur` NE REND LE BILLET
+    //     QU'UNE FOIS — le second appel rend 404. Le bouton invite donc
+    //     précisément au geste qui ne peut plus réussir, et il l'invite en
+    //     ayant remplacé à l'écran le seul exemplaire du billet.
+    //
+    // Le mutant fabrique ainsi le scénario que le commentaire de la vue dit
+    // vouloir empêcher : « un billet perdu ne se retrouve pas, il se remplace ».
+    vi.mocked(billetServeur).mockResolvedValue({
+      billet: 'b-42',
+      commande: 'hive node --billet b-42',
+    } as never);
+    const dom = await machines([{ ...MACHINE, etat: 'provisionnement' }]);
+    const bouton = (): Element | undefined =>
+      [...dom.querySelectorAll('.in-geste')].find((b) => (b.textContent ?? '').includes('billet'));
+
+    expect(bouton(), 'le bouton du billet est absent — le cas ne mesure rien').toBeTruthy();
+    expect(
+      dom.querySelector('.in-billet'),
+      'un billet s’affiche AVANT qu’on l’ait demandé',
+    ).toBeNull();
+
+    await act(async () => {
+      bouton()?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+
+    expect(dom.querySelector('.in-billet')?.textContent, 'le billet obtenu ne s’affiche pas').toBe(
+      'hive node --billet b-42',
+    );
+    expect(bouton(), 'le bouton redemande un billet qui ne sera plus remis').toBeUndefined();
+  });
+
+  it('INTENDANCE : un refus SANS message ne s’affiche pas « undefined »', async () => {
+    // ─── LA GARDE NUE ──────────────────────────────────────────────────────
+    //
+    //     catch (e) { setErreur(e instanceof Error ? e.message : String(e)); }
+    //
+    // Mutée en `instanceof Object`, le test devient VRAI pour tout ce qui n'est
+    // pas une primitive — et `e.message` d'un objet nu vaut `undefined`.
+    // `setErreur(undefined)` rend l'état FAUX, donc `{erreur && …}` n'affiche
+    // plus rien : le refus disparaît de l'écran.
+    //
+    // Ce n'est pas un cas d'école. Un `fetch` qui échoue au réseau, un corps de
+    // réponse mal formé, un rejet venu d'une couche qui ne construit pas
+    // d'`Error` — tous arrivent ici. L'administrateur clique, rien ne se passe,
+    // rien ne s'explique : il reclique, et le second appel rend 404 sur un
+    // billet à usage unique.
+    //
+    // Le cas qui DÉPARTAGE est donc un rejet par un objet NU. Un rejet par une
+    // vraie `Error` ne prouverait rien : les deux branches diraient la même
+    // chose (§ 9 — un cas qui ne distingue pas les deux mondes est du décor).
+    vi.mocked(billetServeur).mockRejectedValue({ code: 'ECONNRESET' } as never);
+    const dom = await machines([{ ...MACHINE, etat: 'provisionnement' }]);
+    const bouton = (): Element | undefined =>
+      [...dom.querySelectorAll('.in-geste')].find((b) => (b.textContent ?? '').includes('billet'));
+    expect(bouton(), 'le bouton du billet est absent — le cas ne mesure rien').toBeTruthy();
+
+    await act(async () => {
+      bouton()?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+
+    const dit = dom.querySelector('.panel-error')?.textContent ?? '';
+    expect(dit, 'un refus sans message ne dit RIEN à l’écran').not.toBe('');
+    expect(dit, 'le refus s’affiche « undefined »').not.toContain('undefined');
+    // `String({…})` rend « [object Object] » : laid, mais VISIBLE et honnête.
+    // Le mutant, lui, rend l'écran muet — et c'est le mutisme qu'on refuse.
+    expect(dit, 'le refus ne porte pas la trace de ce qui a été rejeté').toContain('object');
   });
 });
