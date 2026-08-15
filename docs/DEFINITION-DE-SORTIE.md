@@ -18,14 +18,20 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `cf84422`, 14 août 2026)
+## A. Le code tient — ✅ mesuré (arbre `3044317`, 15 août 2026, 06 h 15)
+
+> **UN TABLEAU DATÉ DOIT DIRE QU'IL EST DATÉ.** Cette section annonçait 3900
+> bancs, mesurés la veille sur l'arbre `cf84422`. Le chiffre était juste ce
+> jour-là et faux le lendemain — c'est-à-dire un badge écrit de tête avec un
+> jour de retard. La date et l'arbre sont désormais dans le titre : un lecteur
+> peut vérifier si la mesure est encore la sienne.
 
 | Critère                  | Comment on le mesure                                     | Verdict                                          |
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **3900** (3893 verts, 7 ignorés, **0 rouge**) |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31776537105`)                    |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4021** (4013 verts, 8 ignorés, **0 rouge**) |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » sur les lots de ce jour        |
 

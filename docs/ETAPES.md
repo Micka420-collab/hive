@@ -8079,3 +8079,95 @@ Six sont de la même famille — `{x && <élément>}` muté en `||` rend un él�
 VIDE en permanence (React n'affiche rien pour `true`, mais bien la balise
 lorsqu'elle est rendue avec un contenu nul). Elles se fermeront ensemble, avec
 un banc qui vérifie qu'un bandeau sans message ne s'affiche pas.
+
+---
+
+# POINT DE SORTIE — 15 août 2026
+
+## 1. Le temps
+
+**18 jours** avant le 2 septembre 2026.
+
+## 2. Livré ET VÉRIFIÉ depuis hier
+
+Cinquante commits sont sur `main` depuis le 14 août 00 h 00. Ce qui compte n'est
+pas leur nombre — voici ce qui est **mesuré**, pas seulement écrit.
+
+- **La vitrine est passée de structurellement invisible à 43/43.** La loupe
+  excluait `.html` en bloc ; elle voit désormais les `<script>` d'une page. Les
+  33 décisions nues qu'elle a trouvées sont fermées, et le zéro a été **remesuré
+  deux fois** — une soustraction n'est pas une mesure.
+- **`curl … | sh` ne peut plus s'exécuter à moitié.** Le script entier vit dans
+  une fonction appelée en dernière ligne ; un banc coupe `install.sh` en dix
+  points et exige le silence à chaque coupure.
+- **La commande Windows annoncée était impossible sur toute machine**
+  (`… | iex` contre `param()`). Corrigée aux six endroits, et une découverte —
+  plus une liste écrite à la main — interdit qu'elle revienne.
+- **`Balance.tsx` : 39 candidates, toutes jouées, ZÉRO nue.** Premier fichier des
+  vues dans ce cas.
+- **`Intendance.tsx` : 38 candidates, toutes jouées, 12 nues, 4 fermées.** Le
+  verdict est complet ; le travail ne l'est pas, et c'est dit en 3.
+- **Le canevas du Cerveau est hors de portée du banc, et c'est MESURÉ** —
+  `getContext('2d')` rend `null`, `requestAnimationFrame` existe, zéro image
+  demandée. La limite qui justifie une partie de l'architecture n'était affirmée
+  nulle part ; elle rougira le jour où elle changera.
+- **Un blocage de CI diagnostiqué jusqu'à sa cause** : un bouchon de port qui
+  attendait ses visiteurs (`close()` n'est jamais rappelé tant qu'une connexion
+  est ouverte). Première hypothèse mesurée FAUSSE avant d'être écrite.
+- **La prose du dépôt n'est plus mutable** : 0 ligne de commentaire que la loupe
+  prendrait pour du code, et une garde qui le maintient.
+
+Barrière mesurée à cette heure : `TYPECHECK=0 · TYPECHECK_DASH=0 · LINT=0`,
+**263 fichiers, 4013 verts | 8 sautés (4021)**.
+
+> **La table du `definition of done` est PÉRIMÉE sur un point** : sa section A
+> annonce 3900 bancs, mesurés au 14 août sur l'arbre `cf84422`. Le vrai chiffre
+> est 4021. Un tableau daté qui ne dit pas qu'il est daté est un badge écrit de
+> tête avec un jour de retard.
+
+## 3. Ce qui reste, par ordre de dégât pour un arrivant
+
+**a. Windows : le chemin réel d'installation n'est mesuré NULLE PART.**
+La CI y lance `install.ps1 -DryRun`, qui s'arrête **avant** le clone, avant
+`npm install`, avant l'installeur. Le seul essai complet est un rapport de
+terrain unique, une machine, un jour. Linux et macOS ont, eux, une jambe
+« l'installation va jusqu'à une ruche qui répond » à chaque PR. **Un arrivant
+sous Windows exécute donc un chemin que personne ne voit réussir en continu.**
+C'est le premier point, et c'est le mien.
+
+**b. L'identité visuelle de la vitrine (#63) et le README GitHub.**
+Littéralement la première image du projet. Réservés à l'utilisateur (voir 4).
+
+**c. Le premier quart d'heure après l'installation.**
+Je n'ai **pas** de mesure bout-en-bout « j'installe → j'ouvre le tableau → je
+crée mon premier projet ». Des morceaux sont éprouvés (`hive doctor`, l'écran de
+ruche vide), le PARCOURS ne l'est pas. Tant qu'il ne l'est pas, je ne peux pas
+dire qu'il marche.
+
+**d. Les huit lignes nues d'`Intendance`, et les vues jamais examinées.**
+L'inventaire est chiffré : Projets 143, Miellerie 126, Cerveau 50, Essaim 46,
+Santé 39, Chronique 34… Ça ne casse pas le premier contact ; ça entame la
+confiance dans les écrans qui distribuent l'autorité.
+
+**e. Le seuil de couverture n'est pas câblé.**
+75,43 % de lignes, **mesuré le 14 août et pas remesuré depuis**. Sans cible qui
+rougit d'elle-même, « couvert » n'est pas un critère, c'est une anecdote.
+
+## 4. Hors d'atteinte — à dire, pas à faire semblant
+
+- 🔒 **Paquet npm signé, image GHCR + `cosign`.** Ce ne sont ni mes comptes ni
+  mes clés. `curl … | sh` depuis le dépôt fonctionne sans eux ; `npm i -g hive`
+  et `docker pull ghcr.io/…` d'un artefact **officiel** demandent des
+  identifiants humains et une décision de publication.
+- 🔒 **Une vraie machine Windows ou macOS.** Je n'ai que des runners de CI.
+  macOS y est couvert en continu depuis le 14 août ; Windows ne l'est qu'au
+  seuil (point 3a). Un essai sur une machine réelle — antivirus, politique
+  d'exécution, chemins avec espaces, OneDrive — reste à faire par un humain.
+- 👤 **#63, le README au design de la vitrine, le carrousel d'agents, les
+  tarifs.** Décisions d'édition et de commerce. Une page publique ne se reskine
+  pas de tête, et un prix ne s'invente pas.
+- 👤 **La date de sortie elle-même, et ce qu'on accepte de livrer sans.** Si le
+  2 septembre est ferme, ce sont les points 3b et 4 qui décident de ce qui sort
+  — pas le code, qui tient.
+
+Aucun de ces manques n'est caché derrière un ✅.
