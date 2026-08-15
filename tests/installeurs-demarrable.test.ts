@@ -42,9 +42,27 @@ const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
 /** Les scripts qui installent ou déploient — donc qui promettent une ruche qui démarre. */
 const SCRIPTS = ['install.sh', 'install.ps1', 'examples/deploiement-sans-ecran.sh'] as const;
 
-/** La source SANS ses commentaires — la prose ne doit rien prouver (§ 2.3). */
+/**
+ * La source SANS ses commentaires — la prose ne doit rien prouver (§ 2.3).
+ *
+ * ─── LES BLOCS `<# … #>` MANQUAIENT, ET ÇA S'EST VU ──────────────────────────
+ *
+ * Cette fonction ne retirait que les lignes commençant par `#`. Or PowerShell
+ * a une SECONDE forme de commentaire, le bloc `<# … #>`, dont les lignes
+ * intérieures ne commencent par rien du tout.
+ *
+ * Mesuré à l'arrivée de `scripts/essai-installation.ps1`, dont l'en-tête
+ * explique le défaut qu'il ferme : « le mode sec s'arrête AVANT le clone, avant
+ * `npm install`, avant l'installeur ». Cette PHRASE a fait déclarer le script
+ * « poseur de dépendances », et la garde de complétude a exigé qu'on l'inscrive
+ * parmi les installeurs. Elle avait raison de mordre ; elle mordait la prose.
+ *
+ * C'est le même angle mort que le détecteur de la loupe (§ 9 quaternonagies) :
+ * un commentaire dont on ne reconnaît que la marque de LIGNE. On le ferme ici
+ * pour PowerShell, où la forme est simple à borner.
+ */
 function nu(source: string): string {
-  return source.replace(/^\s*#.*$/gm, '');
+  return source.replace(/<#[\s\S]*?#>/g, '').replace(/^\s*#.*$/gm, '');
 }
 
 // ─── ET LA LISTE CI-DESSUS, QUI LA GARDE ? ───────────────────────────────────

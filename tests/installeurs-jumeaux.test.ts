@@ -134,6 +134,58 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
     ).toEqual([]);
   });
 
+  it('LES TROIS SYSTÈMES ONT CHACUN UNE JAMBE DE SEUIL', () => {
+    // ─── LA DÉRIVE QUE CETTE GARDE FERME ───────────────────────────────────
+    //
+    // Le commentaire du travail `seuil` affirmait que Windows n'avait pas besoin
+    // d'y entrer, « PowerShell 7 et 5.1, tous deux déjà exercés AU SEUIL ».
+    // C'était vrai de l'INVOCATION et faux du SEUIL : les deux pas Windows
+    // lancent `install.ps1 -DryRun`, qui s'arrête avant le clone, avant
+    // `npm install`, avant l'installeur.
+    //
+    // Une phrase juste sur un point et fausse sur l'autre, dans le fichier même
+    // qui décide de ce qu'on mesure : c'est la forme exacte des défauts que ce
+    // dépôt sort à la chaîne. Rien ne la contredisait, parce que rien ne
+    // regardait l'écart entre ce que la CI PROMET et ce qu'elle LANCE.
+    //
+    // On ne garde pas la prose : on garde les jambes. Chaque système sur lequel
+    // le README promet une installation en une commande doit avoir un travail
+    // qui la mène jusqu'à une ruche qui répond.
+    // ─── ET LA PREMIÈRE VERSION DE CETTE GARDE ÉTAIT FAUSSE ────────────────
+    //
+    // Elle cherchait le libellé littéral « … · ubuntu-latest » dans le fichier.
+    // Or les jambes POSIX passent par une matrice : le fichier ne contient que
+    // « … · ${{ matrix.os }} ». La garde exigeait une forme que SEULE la jambe
+    // Windows a, et rougissait sur une CI parfaitement correcte.
+    //
+    // Ce qu'il faut lire, c'est ce que le travail COUVRE : son `runs-on` quand
+    // il est littéral, sa liste de matrice quand il en a une.
+    const ci = lire('.github/workflows/ci.yml');
+    const PROMESSE = "L'installation va jusqu'à une ruche qui répond";
+    const couverts = new Set<string>();
+    // Un travail = un bloc indenté de deux espaces sous `jobs:`. On découpe
+    // là-dessus plutôt que d'analyser tout le YAML : le dépôt n'a pas
+    // d'analyseur en dépendance, et en ajouter un pour une garde serait payer
+    // cher un problème qui tient en dix lignes.
+    for (const bloc of ci.split(/\n(?= {2}[a-z][\w-]*:\n)/)) {
+      if (!bloc.includes(PROMESSE)) continue;
+      for (const m of bloc.matchAll(/runs-on:\s*([a-z]+-latest)/g)) couverts.add(m[1]!);
+      const matrice = /matrix:\s*\n\s*os:\s*\[([^\]]+)\]/.exec(bloc);
+      if (matrice) for (const os of matrice[1]!.split(',')) couverts.add(os.trim());
+    }
+
+    expect(couverts.size, 'aucune jambe de seuil trouvée : la lecture est cassée').toBeGreaterThan(
+      0,
+    );
+    const manquants = ['ubuntu-latest', 'macos-latest', 'windows-latest'].filter(
+      (os) => !couverts.has(os),
+    );
+    expect(
+      manquants,
+      `ces systèmes n'ont aucune jambe qui mène l'installation à son terme : ${manquants.join(', ')}`,
+    ).toEqual([]);
+  });
+
   it('et TOUT réglage lu est nommé dans la doc d’installation', () => {
     // ─── UN CAS QUI A FAILLI ÊTRE DU DÉCOR ─────────────────────────────────
     //

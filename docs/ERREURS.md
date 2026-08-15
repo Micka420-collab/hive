@@ -9684,3 +9684,58 @@ les trois plateformes — et la bonne réaction à un rouge de CI qui n'apparaî
 que sur l'une d'elles n'est ni de le rejouer en espérant, ni d'élargir une
 borne : c'est de trouver quelle HYPOTHÈSE d'ordonnancement on avait prise sans
 le dire.
+
+## 9 centies. Une prose qui DÉCRIT un défaut peut être prise pour le défaut — dans n'importe quel outil
+
+Troisième occurrence du même angle mort, et la première hors de la loupe.
+
+`scripts/essai-installation.ps1` a été écrit pour fermer le trou « le chemin
+réel d'installation Windows n'est mesuré nulle part ». Son en-tête explique
+pourquoi il existe :
+
+> le mode sec s'arrête AVANT le clone, avant `npm install`, avant l'installeur
+
+À la première exécution de la suite, la garde de complétude des installeurs a
+rougi :
+
+```text
+ces scripts posent des dépendances mais aucune garde ne vérifie qu'elles se chargent
+  → scripts/essai-installation.ps1
+```
+
+Elle avait **raison de mordre** — sa règle est juste : tout script qui pose des
+dépendances doit avoir une garde de démarrage. Mais elle mordait une PHRASE.
+
+### La cause, précise
+
+`nu()` retirait les lignes commençant par `#`. PowerShell a une SECONDE forme de
+commentaire, le bloc `<# … #>`, dont les lignes intérieures ne commencent par
+rien. Tout l'en-tête du script était donc lu comme du code.
+
+C'est exactement le § 9 quaternonagies — un détecteur de commentaires de forme
+LIGNE — mais dans un autre outil, sur une autre syntaxe, et découvert par un
+autre chemin.
+
+> **Un détecteur de commentaires de forme LIGNE se trompe partout où le langage
+> a une forme de BLOC.** La question n'est pas « ai-je corrigé la loupe ? » mais
+> « quels autres outils du dépôt lisent du code en croyant écarter la prose ? ».
+> Chacun a son propre `nu()`, et chacun a le même trou.
+
+### Ce qui n'a PAS pu être réutilisé, et pourquoi c'est instructif
+
+Le dépôt venait pourtant de se doter de `scripts/plages-commentaires.mjs`, qui
+répond exactement à cette question sur un fichier entier. Il n'a pas servi ici :
+c'est un `.mjs` sans déclarations de types, et `tests/installeurs-demarrable`
+est un `.ts` — `tsc` refuse l'import (« implicitly has an 'any' type »).
+
+L'outil juste existait, à trois fichiers de distance, et une frontière de typage
+l'a rendu inaccessible au seul endroit qui en avait besoin le jour même.
+
+> **Un outil partagé qui n'est utilisable que depuis la moitié du dépôt est un
+> outil à moitié partagé.** Ce n'est pas une raison de tout retyper d'un coup ;
+> c'en est une de le SAVOIR, et de ne pas s'étonner que la même correction soit
+> refaite deux fois sous deux formes.
+
+Ici la forme PowerShell se borne en une ligne (`/<#[\s\S]*?#>/g`), donc on l'a
+close sur place. Le lot qui rendrait le scanner utilisable des deux côtés reste
+nommé, et non fait.

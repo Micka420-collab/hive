@@ -399,10 +399,15 @@ jobs:
   # CI, ni sur une machine de terrain. Un arrivant qui la lance y fait quelque
   # chose que personne n'a vu réussir.
   #
-  # Windows n'y entre PAS, et ce n'est pas un oubli : `install.ps1` est un
-  # chemin distinct (PowerShell 7 et 5.1, tous deux déjà exercés au seuil), et
-  # ce script-ci est du shell POSIX. Lui faire croire qu'il couvre Windows
-  # serait le mensonge rassurant.
+  # Windows n'entre pas dans CETTE matrice, et ce n'est pas un oubli :
+  # `install.ps1` est un chemin distinct, et ce script-ci est du shell POSIX.
+  # Lui faire croire qu'il couvre Windows serait le mensonge rassurant.
+  #
+  # Ce commentaire disait ensuite « PowerShell 7 et 5.1, tous deux déjà exercés
+  # au seuil » — et c'était vrai de l'invocation, pas du seuil. Les deux pas
+  # Windows lancent `install.ps1 -DryRun`, qui s'arrête AVANT le clone, avant
+  # `npm install`, avant l'installeur. Le seuil, personne ne le franchissait
+  # là-bas. D'où le travail `seuil-windows` ci-dessous, avec son propre script.
   seuil:
     name: L'installation va jusqu'à une ruche qui répond · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -438,6 +443,47 @@ jobs:
             exit 0
           fi
           exit "$code"
+
+  # ═══ LE MÊME SEUIL, SUR L'AUTRE CHEMIN ══════════════════════════════════════
+  #
+  # Un travail à part, et pas une entrée de plus dans la matrice ci-dessus : les
+  # deux essais n'exécutent pas le même script, et une matrice qui lance la même
+  # commande sur des plateformes qui n'en partagent pas l'interpréteur ne
+  # mesurerait rien de plus qu'un `if`.
+  #
+  # Il affirme les mêmes choses que son jumeau POSIX — installation sortie en 0,
+  # `.env` écrit, la ruche RÉPOND — SAUF la permission `0600`, qui n'a pas
+  # d'équivalent Windows : Node n'y retient de `mode` que le bit « lecture
+  # seule ». L'en-tête du script le dit ; simuler un contrôle d'ACL donnerait
+  # une garde verte sur une protection absente.
+  seuil-windows:
+    name: L'installation va jusqu'à une ruche qui répond · windows-latest
+    runs-on: windows-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+
+      - name: Nommer la révision à éprouver
+        run: git branch -f essai-du-seuil HEAD
+
+      # `powershell` et non `pwsh` : 5.1 est celui qu'on obtient en ouvrant
+      # « PowerShell » dans le menu Démarrer, donc celui qui exécute réellement
+      # le script chez la plupart des gens. C'est le plus exigeant des deux.
+      - name: L'installation, menée à son terme
+        shell: powershell
+        run: |
+          .\scripts\essai-installation.ps1 -Depot "$PWD" -Ref essai-du-seuil
+          $code = $LASTEXITCODE
+          if ($code -eq 78) {
+            Write-Host "::warning::essai non concluant — le port par défaut était tenu sur le runner"
+            exit 0
+          }
+          exit $code
 
   # ═══ L'IMAGE, CONSTRUITE POUR DE VRAI ═══════════════════════════════════════
   #

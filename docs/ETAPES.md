@@ -8299,3 +8299,75 @@ La troisième se ferme comme sur `Balance` — un rejet par un objet NU départa
 `instanceof Error` d'`instanceof Object`. Les deux premières tiennent au billet
 de provisionnement, qui n'est remis qu'une fois et vit en mémoire : elles
 demandent un décor plus complet, et c'est le prochain pas.
+
+---
+
+## Point 3a, terminé côté code : le seuil Windows a son essai et sa jambe
+
+`scripts/essai-installation.ps1` mène l'installation Windows jusqu'au bout, et
+`.github/workflows/ci.yml` gagne le travail `seuil-windows`. Les trois systèmes
+que le README promet ont désormais chacun une jambe qui va **jusqu'à une ruche
+qui répond** — au lieu de deux.
+
+### Ce que l'essai affirme, et ce qu'il refuse d'affirmer
+
+Les trois mêmes assertions que son jumeau POSIX : installation sortie en 0,
+`.env` écrit avec son port et son jeton, la ruche RÉPOND sur `/api/pulse`.
+
+**Pas la permission `0600`.** Le fichier est écrit par Node avec `mode: 0o600`,
+mais sous Windows ce `mode` ne pose AUCUNE ACL — Node n'en retient que le bit
+« lecture seule ». Écrire là un contrôle d'ACL donnerait une garde VERTE sur une
+protection ABSENTE : le pire des deux mondes. L'en-tête du script le dit, et
+`tests/installeur-porte.test.ts` sautait déjà cette assertion là-bas pour la même
+raison. Fermer ce trou touche l'installeur, pas son essai — c'est un lot à part.
+
+Le jeton ne passe jamais en argument : il est lu dans le `.env` que l'installeur
+vient d'écrire, et voyage dans un en-tête.
+
+### Le commentaire de la CI disait une chose vraie et une chose fausse
+
+Le travail `seuil` expliquait que Windows n'avait pas à y entrer : « PowerShell
+7 et 5.1, tous deux déjà exercés AU SEUIL ». Vrai de l'INVOCATION, faux du
+SEUIL — les deux pas Windows lancent `-DryRun`, qui s'arrête avant le clone.
+Une phrase juste sur un point et fausse sur l'autre, dans le fichier même qui
+décide de ce qu'on mesure.
+
+D'où une garde qui ne regarde plus la prose mais les JAMBES :
+`tests/installeurs-jumeaux.test.ts` exige que chacun des trois systèmes soit
+couvert par un travail portant la promesse.
+
+### Rejeu, verdict affiché
+
+```text
+la jambe Windows vraiment SUPPRIMÉE      1 failed  (« windows-latest n'a aucune jambe »)
+macOS retiré de la matrice POSIX         1 failed  (« macos-latest n'a aucune jambe »)
+la promesse renommée sur Windows         1 failed
+la clé du travail renommée               5 passed  → PAS un défaut : renommer la
+                                                     CLÉ d'un travail ne le
+                                                     désactive pas dans Actions
+source saine                             5 passed (5)
+```
+
+### Une première version de cette garde était FAUSSE
+
+Elle cherchait le libellé littéral « … · ubuntu-latest ». Or les jambes POSIX
+passent par une matrice : le fichier ne contient que « … · `${{ matrix.os }}` ».
+La garde exigeait une forme que SEULE la jambe Windows a, et rougissait sur une
+CI parfaitement correcte. Elle lit désormais ce que chaque travail COUVRE — son
+`runs-on` littéral, ou sa liste de matrice.
+
+### Et la garde de complétude a mordu ma prose
+
+`tests/installeurs-demarrable.test.ts` a déclaré le nouvel essai « poseur de
+dépendances » : son en-tête contient la phrase « avant `npm install`, avant
+l'installeur ». Cause exacte — `nu()` ne retirait que les lignes `#`, et
+PowerShell a le bloc `<# … #>`, dont les lignes intérieures ne commencent par
+rien. Corrigé, et consigné en § 9 centies : un détecteur de commentaires de
+forme LIGNE se trompe partout où le langage a une forme de BLOC.
+
+### Ce qui n'est PAS encore acquis
+
+La jambe est écrite ; **elle n'a pas encore tourné**. Tant que la CI ne l'a pas
+rendue verte, le tableau du definition of done reste à `⚠️` pour Windows — un
+critère qui n'est pas mesuré n'est pas atteint, et l'écrire vert avant la
+mesure serait exactement le badge de tête qu'on s'interdit.
