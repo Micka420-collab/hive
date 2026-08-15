@@ -402,3 +402,43 @@ Si vous aviez installé le paquet globalement :
 ```sh
 npm uninstall -g @micka420/hive
 ```
+
+## Rejoindre la ruche de quelqu'un d'autre — en une commande
+
+Celui qui invite engendre un billet (tableau de bord → **Inviter**, ou
+`npm run cli -- invite`). La ruche remet alors **une** commande, une par
+système. L'invité la colle dans un terminal, et c'est tout :
+
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/rejoindre.sh | sh -s -- hive2_…
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/Micka420-collab/hive/main/rejoindre.ps1 -OutFile "$env:TEMP\hive-rejoindre.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-rejoindre.ps1" -Billet hive2_…
+```
+
+Elle **installe si besoin**, puis rejoint. Si Hive est déjà là, rien n'est
+réinstallé. L'adresse de la ruche est dans le billet — il n'y a rien d'autre à
+saisir, et l'agent de codage de l'invité (Claude Code, Codex) est détecté seul.
+
+### Ce qu'il faut savoir sur le billet
+
+- il est **compté** : il ouvre N entrées, pas un accès permanent ;
+- il est **révocable** d'un geste par l'hôte (`npm run cli -- revoquer <id>`) ;
+- il est échangé contre une clé propre au nœud dès la première connexion, après
+  quoi il ne sert plus à rien.
+
+⚠ Le billet passe en **argument de commande** : il apparaît donc dans
+l'historique du shell de l'invité et dans sa table des processus — sur SA
+machine, pas sur le réseau ni chez l'hôte. Un billet à usage unique referme
+cette fenêtre dès l'entrée ; c'est le réglage à préférer pour inviter une seule
+personne.
+
+### Les réglages
+
+| Réglage           | Ce qu'il fait                         | Défaut       |
+| ----------------- | ------------------------------------- | ------------ |
+| `HIVE_DIR`        | où installer                          | `~/hive`     |
+| `HIVE_DEPOT_BRUT` | d'où tirer les scripts (fork, miroir) | dépôt public |

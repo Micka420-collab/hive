@@ -364,6 +364,17 @@ export interface InviteResponse {
   url: string;
   label: string;
   joinCommand: string;
+  /**
+   * LA commande d'entrée, une par système — installe si besoin, puis rejoint.
+   *
+   * `joinCommand` suppose Hive déjà installé ET le terminal déjà dans le bon
+   * dossier : deux choses qu'un invité n'a pas. Celles-ci ne demandent rien
+   * d'autre que le billet, qui porte déjà l'adresse de la ruche.
+   *
+   * `null` si la ruche a refusé de composer la commande — un billet qui n'est
+   * pas collable tel quel dans un shell n'est pas échappé, il est refusé.
+   */
+  entree?: { posix: string | null; windows: string | null };
   note: string;
   /** Présent quand la ruche n'écoute pas sur l'adresse annoncée (voir `shared/joignable`). */
   injoignable?: string;

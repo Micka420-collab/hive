@@ -353,6 +353,51 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
     ).toBe(true);
   });
 
+  it('LES DEUX SCRIPTS D’ENTRÉE SONT AUSSI DES JUMEAUX', () => {
+    // ─── UNE QUATRIÈME PAIRE, ET LA MÊME DISCIPLINE ────────────────────────
+    //
+    // `rejoindre.sh` et `rejoindre.ps1` mènent le même geste : installer si
+    // besoin, puis rejoindre avec le billet. Les trois divergences déjà payées
+    // entre les installeurs (`HIVE_DEPOT`, l'appel au parcours, la construction
+    // de l'écran) disent ce qui arrive quand personne ne compare.
+    //
+    // Ce qu'on exige ici tient en trois points, et chacun a une conséquence
+    // visible pour un invité :
+    const POSIX_E = lire('rejoindre.sh');
+    const WINDOWS_E = lire('rejoindre.ps1');
+
+    // 1. LES DEUX VALIDENT LE BILLET AVANT DE TOUCHER À QUOI QUE CE SOIT.
+    //    Sans cela, un billet tordu deviendrait autre chose qu'un argument sur
+    //    la machine de l'invité — qui l'a collé par confiance.
+    const FORME = 'hive2_[A-Za-z0-9_-]+';
+    expect(
+      POSIX_E.includes(FORME),
+      'rejoindre.sh ne valide plus la forme du billet avant de s’en servir',
+    ).toBe(true);
+    expect(
+      WINDOWS_E.includes(FORME),
+      'rejoindre.ps1 ne valide plus la forme du billet avant de s’en servir',
+    ).toBe(true);
+
+    // 2. LES DEUX RÉUTILISENT L'INSTALLEUR ANNONCÉ, sans en recopier un.
+    //    Un second installeur serait un second à maintenir, dont un jamais
+    //    éprouvé — c'est exactement ce que ce fichier existe pour empêcher.
+    expect(sansCommentaires(POSIX_E), 'rejoindre.sh n’appelle plus install.sh').toContain(
+      'install.sh',
+    );
+    expect(sansCommentaires(WINDOWS_E), 'rejoindre.ps1 n’appelle plus install.ps1').toContain(
+      'install.ps1',
+    );
+
+    // 3. LES DEUX FINISSENT PAR REJOINDRE.
+    //    Un script d'entrée qui installe sans rejoindre laisse l'invité devant
+    //    le dossier qu'on lui promettait d'éviter.
+    expect(trie(lancesPar(POSIX_E)), 'rejoindre.sh ne lance pas `npm run join`').toContain('join');
+    expect(trie(lancesPar(WINDOWS_E)), 'rejoindre.ps1 ne lance pas `npm run join`').toContain(
+      'join',
+    );
+  });
+
   it('et TOUT réglage lu est nommé dans la doc d’installation', () => {
     // ─── UN CAS QUI A FAILLI ÊTRE DU DÉCOR ─────────────────────────────────
     //

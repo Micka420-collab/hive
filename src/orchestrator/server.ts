@@ -45,6 +45,7 @@ import {
   tirerSecret,
   tokenMaitrePeutEnregistrer,
 } from '../shared/acces.js';
+import { commandeEntree } from '../shared/commande-entree.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -1926,6 +1927,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         expiresAt: now + ttl,
         uses,
         joinCommand: `npm run join -- ${billet}`,
+        // ─── LA COMMANDE D'ENTRÉE, UNE PAR SYSTÈME ─────────────────────────
+        //
+        // `joinCommand` reste — la CLI l'imprime, et il vaut pour quelqu'un qui
+        // a DÉJÀ Hive installé. Mais il suppose exactement ce qu'un invité n'a
+        // pas : le dossier. Ces deux-ci installent si besoin, puis rejoignent,
+        // et ne demandent rien d'autre que le billet.
+        entree: {
+          posix: commandeEntree(billet, 'posix'),
+          windows: commandeEntree(billet, 'windows'),
+        },
         ...(injoignableBillet ? { injoignable: injoignableBillet } : {}),
         note:
           uses === 1

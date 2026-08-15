@@ -34,6 +34,21 @@ export function InvitePanel() {
   const [customUrl, setCustomUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // ─── LE SYSTÈME DE L'INVITÉ, PAS CELUI DE L'HÔTE ───────────────────────────
+  //
+  // On ne devine pas : c'est la machine de QUELQU'UN D'AUTRE. Le défaut tombe
+  // sur POSIX parce que c'est le cas le plus fréquent, et le choix est à un
+  // clic — une commande POSIX collée dans PowerShell ne dit rien d'utile, et
+  // l'invité n'a aucun moyen de le savoir avant de l'avoir collée.
+  const [systeme, setSysteme] = useState<'posix' | 'windows'>('posix');
+
+  /**
+   * LA commande à remettre, ou `null` tant qu'il n'y en a pas.
+   *
+   * Repli sur `joinCommand` quand la ruche est d'une version antérieure : elle
+   * suppose Hive déjà installé, ce que l'écran dit alors juste en dessous.
+   */
+  const commande = invite === null ? null : (invite.entree?.[systeme] ?? invite.joinCommand);
 
   const generate = async (url?: string) => {
     setError(null);
@@ -60,8 +75,8 @@ export function InvitePanel() {
   }, [open]);
 
   const copy = async () => {
-    if (!invite) return;
-    const text = invite.joinCommand;
+    if (commande === null) return;
+    const text = commande;
     // navigator.clipboard n'existe QUE dans un contexte sécurisé (https ou
     // localhost). Hive étant LAN-first (http://192.168.x.x), on prévoit un repli
     // via une zone de texte + execCommand, sinon la copie échouerait toujours.
@@ -133,26 +148,55 @@ export function InvitePanel() {
               </p>
             )}
 
+            {/* ─── UNE SEULE ÉTAPE, ET C'EST TOUT LE SUJET ────────────────────
+                Cette liste en comptait DEUX : « votre ami récupère Hive et lance
+                npm install DANS LE DOSSIER », puis « il colle cette commande ».
+                Le dossier — celui qu'il n'a pas, puisqu'il n'a rien installé.
+                La commande ci-dessous installe si besoin, puis rejoint. */}
             <ol className="invite-steps">
               <li>
-                {t('Votre ami récupère Hive et lance ', 'Your friend grabs Hive and runs ')}
-                <code>npm install</code>
-                {t(' dans le dossier.', ' in the folder.')}
-              </li>
-              <li>
                 {t(
-                  'Il colle cette commande — son Claude Code / Codex est détecté tout seul :',
-                  'They paste this command — their Claude Code / Codex is detected automatically:',
+                  'Votre ami colle cette commande dans un terminal — rien d’autre à installer, son Claude Code / Codex est détecté tout seul :',
+                  'Your friend pastes this command into a terminal — nothing else to install, their Claude Code / Codex is detected automatically:',
                 )}
               </li>
             </ol>
 
+            {/* Le système se choisit : la commande POSIX collée dans PowerShell
+                ne dit rien d'utile, et l'invité n'a aucun moyen de le savoir
+                avant de l'avoir collée. */}
+            <div className="invite-os" role="group" aria-label={t('Système', 'System')}>
+              {(['posix', 'windows'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`invite-os-btn${systeme === s ? ' actif' : ''}`}
+                  aria-pressed={systeme === s}
+                  onClick={() => setSysteme(s)}
+                >
+                  {s === 'posix' ? 'Linux / macOS' : 'Windows'}
+                </button>
+              ))}
+            </div>
+
             <div className="invite-cmd">
-              <code>{invite ? invite.joinCommand : t('génération…', 'generating…')}</code>
-              <button className="copy-btn" onClick={copy} disabled={!invite}>
+              <code>{commande ?? t('génération…', 'generating…')}</code>
+              <button className="copy-btn" onClick={copy} disabled={commande === null}>
                 {copied ? t('✔ copié', '✔ copied') : t('copier', 'copy')}
               </button>
             </div>
+
+            {/* Le repli n'est pas décoratif : une ruche d'une version
+                antérieure ne renvoie pas `entree`, et l'écran doit rester
+                utilisable plutôt que de montrer un vide. */}
+            {invite && !invite.entree && (
+              <p className="invite-note">
+                {t(
+                  'Cette ruche est d’une version qui ne compose pas encore la commande d’entrée : votre ami devra installer Hive d’abord.',
+                  'This hive predates the one-command entry: your friend will have to install Hive first.',
+                )}
+              </p>
+            )}
 
             <p className="invite-note">
               ⚠{' '}

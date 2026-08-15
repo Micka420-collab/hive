@@ -1211,6 +1211,31 @@ h3 {
   font-family: var(--mono);
 }
 
+/* ─── LE CHOIX DU SYSTÈME DE L'INVITÉ ─────────────────────────────────────
+   Deux puces, calquées sur celles de la barre d'installation de la vitrine :
+   c'est le même geste, sur le même genre de commande. */
+.invite-os {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.invite-os-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--bordure, #3a352c);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.invite-os-btn.actif {
+  opacity: 1;
+  border-color: var(--ambre, #e0a43c);
+  color: var(--ambre, #e0a43c);
+}
+
 .invite-cmd {
   display: flex;
   gap: 8px;

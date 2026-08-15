@@ -10327,3 +10327,57 @@ mort du processus qui crée le besoin de réparer.
 Le corollaire vaut au-delà de la loupe : un gestionnaire de signal est une
 **doublure**, jamais un filet. Il ne s'exécute que si la boucle tourne, et la
 boucle ne tourne pas quand on fait le travail long qui justifiait la précaution.
+
+---
+
+## 9 terdecicenties. J'ai écrit l'avertissement pour le code NEUF sans le chercher dans le code d'à côté
+
+En ajoutant la construction de l'écran à `install.ps1`, j'ai refusé de masquer
+la sortie du build et je l'ai documenté longuement :
+
+> _« sous `$ErrorActionPreference = 'Stop'`, rediriger le flux d'erreur d'une
+> commande NATIVE fait passer chaque ligne de stderr par le mécanisme d'erreur
+> de PowerShell, et un simple avertissement npm peut y devenir une erreur
+> TERMINANTE. »_
+
+Une heure plus tard, la jambe Windows rougissait sur exactement ce défaut —
+**à trente lignes de là**, dans un fichier voisin, écrit par moi, la veille :
+
+```text
+✔ 5/5 — premier projet créé (133441c2…) et visible par le tableau
+taskkill.exe : ERROR: The process with PID 7356 could not be terminated.
++ & taskkill.exe '/T' '/F' '/PID' $Ruche.Id 2>$null | Out-Null
++ FullyQualifiedErrorId : NativeCommandError
+##[error]Process completed with exit code 1.
+```
+
+### Le geste qui manquait
+
+J'ai traité le piège comme une **décision de conception** — « voici pourquoi je
+n'écris pas ça ici » — au lieu de le traiter comme un **motif à chercher**.
+Ce sont deux gestes différents :
+
+| ce que j'ai fait                     | ce qu'il fallait faire             |
+| ------------------------------------ | ---------------------------------- |
+| décider pour la ligne que j'écrivais | `grep` le motif dans tout le dépôt |
+
+Le second coûte trente secondes. Le premier laisse le défaut là où il est déjà,
+avec en prime un commentaire qui prouve qu'on savait.
+
+### Pourquoi c'est pire qu'un oubli ordinaire
+
+Le commentaire rend le défaut voisin **plus difficile à voir**, pas moins : en
+lisant `install.ps1`, on constate que le sujet est maîtrisé, et on ne va pas
+vérifier le fichier d'à côté. Une connaissance écrite au mauvais endroit fait
+écran à son propre usage.
+
+### La règle
+
+**Quand on apprend un piège, on le cherche avant de l'éviter.** Une leçon
+consignée dans `docs/ERREURS.md` sans balayage du dépôt est une leçon à moitié
+apprise — et la moitié manquante est justement celle qui aurait servi.
+
+Le défaut trouvé était en plus **intermittent** — `taskkill` ne se plaint que si
+un enfant est déjà parti, une course. Le tour précédent était vert avec le même
+code. Un rouge intermittent dans un rangement est le plus cher de tous : on le
+relance, il passe, et on apprend à relancer au lieu de lire.
