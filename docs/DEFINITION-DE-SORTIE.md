@@ -116,11 +116,11 @@ La matrice à trois systèmes mesure que _le code compile et que les bancs
 passent_. L'installation, elle, est une autre affaire, et elle se dit système
 par système :
 
-| Système     | Ce qui est mesuré                                      | Depuis quand             |
-| ----------- | ------------------------------------------------------ | ------------------------ |
-| **Linux**   | ✅ installation → tableau → premier projet             | **15 août, à chaque PR** |
-| **macOS**   | ✅ installation → tableau → premier projet             | **15 août, à chaque PR** |
-| **Windows** | ⚠️ installation → ruche qui répond ; tableau EN COURS¹ | 15 août, à chaque PR     |
+| Système     | Ce qui est mesuré                           | Depuis quand             |
+| ----------- | ------------------------------------------- | ------------------------ |
+| **Linux**   | ✅ installation → tableau → premier projet  | **15 août, à chaque PR** |
+| **macOS**   | ✅ installation → tableau → premier projet  | **15 août, à chaque PR** |
+| **Windows** | ✅ installation → tableau → premier projet¹ | **15 août, à chaque PR** |
 
 **Le parcours a été allongé le 15 août.** Les trois jambes s'arrêtaient à « la
 ruche répond sur `/api/pulse` » — ce qui prouve l'orchestrateur et pas l'écran.
@@ -157,10 +157,30 @@ l'adresse, et lisait un mode d'emploi au lieu d'utiliser le produit — **le
 premier écran de Hive sous Windows était une page d'excuses.**
 
 Ce n'est pas une régression : ce chemin n'était exercé nulle part, puisque les
-jambes de seuil s'arrêtaient avant. L'étape manquante est ajoutée, une garde de
-parité interdit qu'elle reparte (`tests/installeurs-jumeaux.test.ts`, vue rouge
-sur le défaut vivant) — mais **la case reste `⚠️` tant que la jambe Windows n'a
-pas rendu `✔ 4/5` et `✔ 5/5` en propre**, avec son numéro de run.
+jambes de seuil s'arrêtaient avant. L'étape manquante est ajoutée, et une garde
+de parité interdit qu'elle reparte (`tests/installeurs-jumeaux.test.ts`, vue
+rouge sur le défaut vivant).
+
+**La case est repassée `✅` sur la mesure, pas sur le correctif.** Il a fallu
+deux tours de plus : le premier a construit l'écran et rendu les cinq `✔`, puis
+`process.exit()` a fait abandonner libuv sous Windows (`Assertion failed:
+!(handle->flags & UV_HANDLE_CLOSING)`) — le verdict était bon, la sortie non.
+L'essai ne coupe plus la boucle. Run `31877154772`, travail `94994483745` :
+
+```text
+✓ built in 488ms
+  ✔ tableau de bord prêt
+✔ 1/3 — installation sortie en 0, 134 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+✔ 4/5 — le tableau est servi et charge son paquet
+✔ 5/5 — premier projet créé (e0ab1d0b…) et visible par le tableau
+```
+
+Ni code 78, ni assertion : les cinq affirmations ont mordu. **Trois systèmes
+mènent maintenant l'arrivant de la commande du README à son premier projet, à
+chaque PR** — et le chemin Windows aura demandé cinq rouges successifs, chacun
+un défaut réel que personne ne voyait.
 
 **macOS a basculé le 14 août** (`seuil` devient une matrice, run
 `31776537105`). Première fois que la commande du README y était menée à son
