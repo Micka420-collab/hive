@@ -7933,3 +7933,81 @@ Intendance 38 · Chronique 34 · Reine 24 · shared 22 · Chantiers 21 · …
 `Cerveau.tsx` demandera un traitement à part : une bonne moitié de ses
 candidates vit dans la boucle du canevas, hors d'atteinte du banc — et c'est
 mesuré (`tests/canevas-hors-portee.test.tsx`).
+
+---
+
+## La prose du dépôt n'est plus mutable — et c'est une garde, plus un balayage
+
+Le § 9 septnonagies venait de nommer le travers : « un remède appliqué à
+l'endroit qui a fait mal n'est pas un remède appliqué ». Le remède en question
+— marquer d'un `*` les continuations de commentaires, pour que le détecteur de
+forme LIGNE de la loupe ne les prenne pas pour du code — restait à appliquer
+partout.
+
+### D'abord mesurer, plutôt que balayer à l'aveugle
+
+Un détecteur qui lit le fichier ENTIER (l'analyse « par le haut », impossible à
+la loupe qui ne voit que des fragments de diff) répond exactement à la question.
+Croisé avec ce que la loupe jugerait mutable, sur toute sa portée :
+
+```text
+0 mutation(s) que la loupe tirerait de la PROSE.
+```
+
+**Le remède était déjà appliqué partout.** Ce qui restait à faire n'était donc
+pas un balayage — c'était de rendre ce zéro DURABLE.
+
+### La contre-épreuve, parce qu'une découverte qui ne trouve rien ne prouve rien
+
+L'état d'avant a été remis, à l'identique :
+
+```text
+dashboard/src/views/Balance.tsx:694  [=== → !==]
+    la main tôt quand `cible === null` ; et la cible ne dépend que de
+1 mutation(s) que la loupe tirerait de la PROSE.
+```
+
+Le détecteur voit ce qu'il doit voir.
+
+### Ce qui est livré
+
+`scripts/plages-commentaires.mjs` — les plages de commentaires d'un fichier,
+chaînes et gabarits suivis (sans quoi une seule URL commentée déclarerait tout
+le reste du fichier « commentaire », et la garde deviendrait verte et aveugle).
+
+`tests/prose-non-mutable.test.mjs` — la garde permanente. Elle nomme le fichier,
+la ligne, la mutation et le texte fautif. Un balayage manuel dit ce qui est vrai
+aujourd'hui ; cette garde dit ce qui restera vrai.
+
+### Rejeu, verdict affiché
+
+```text
+suivi des CHAÎNES retiré     1 failed  (« une chaîne a ouvert un commentaire »)
+suivi des GABARITS retiré    1 failed  (« un gabarit a ouvert un commentaire qui avale le fichier »)
+marquage des lignes retiré   2 failed  (les continuations ne sont plus vues)
+marque `*` retirée d'une VRAIE consignation
+                             1 failed  (Balance.tsx:694 nommé, avec sa mutation)
+source saine                 7 passed (7)
+```
+
+### Deux défauts de banc, trouvés par la mutation
+
+**Le cas du gabarit ne mesurait rien.** Écrit d'abord avec un `/*` refermé sur
+la même ligne, il ne distinguait pas le scanner avec suivi de celui sans :
+mutant SURVIVANT, verdict `7 passed`. Un `/*` laissé OUVERT dans le gabarit
+départage. C'est exactement le motif du § 9 quinnonagies — un cas qui a l'air de
+mesurer ce qu'il annonce.
+
+**La découverte ne voyait pas les fichiers neufs.** `git ls-files` seul ne rend
+que le SUIVI, et `scripts/plages-commentaires.mjs`, créé dans le même lot, lui
+échappait — c'est-à-dire précisément au moment où sa prose est neuve et où la
+loupe la regardera pour la première fois. Corrigé par `--others
+--exclude-standard`.
+
+### Ce que ce lot ne fait pas
+
+Il ne corrige pas `ligneMutable` « par le haut ». Rendre la loupe elle-même
+capable de lire les plages de commentaires reste un lot à part : il touche
+l'instrument qui juge tout le reste, donc il demande sa propre mutation et un
+rejeu de bout en bout. En attendant, la contrainte est portée par la prose — et
+elle est désormais vérifiée à chaque exécution.
