@@ -11255,3 +11255,48 @@ un décor, c'est ce qui rend les deux autres observables.
 C'est le § 9 unvicicenties sous un autre angle : le cas positif n'est pas
 seulement une politesse contre le décor, il est parfois la CONDITION physique de
 la mesure.
+
+---
+
+## 9 octovicicenties. Le cas qui ne bouge pas est celui qui prouve les autres
+
+`useReviewTick` fait repeindre tous les écrans quand un verdict de revue change :
+
+```ts
+window.addEventListener('hive:review', bump); // ce même onglet
+window.addEventListener('storage', bump); // les AUTRES onglets
+```
+
+Deux écouteurs, deux mondes — et **aucun banc du dépôt n'émettait ni l'un ni
+l'autre**. Vérifié : `StorageEvent` et `'hive:review'` n'apparaissaient nulle
+part dans `tests/`.
+
+`storage` ne se déclenche QUE dans les autres onglets : c'est le seul signal
+qu'un navigateur donne pour dire « quelqu'un d'autre a écrit ». Le geste est
+banal sur ce produit — on surveille l'essaim d'un côté, on juge les livraisons
+de l'autre. Sans lui, le second onglet affiche un état périmé sans rien qui le
+dise, et deux opérateurs voient deux vérités.
+
+### Le quatrième cas, celui qui n'attend rien
+
+```ts
+it('SANS ÉVÉNEMENT, RIEN NE BOUGE — et c’est pour ça que les deux existent');
+```
+
+React ne surveille pas `localStorage`. Écrire dedans ne provoque **aucun**
+rendu : c'est exactement le trou que les deux écouteurs comblent.
+
+Sans ce cas, les deux précédents pourraient être verts par un **re-rendu de
+passage** — un sondage, un état voisin qui change — et l'on croirait mesurer un
+écouteur qu'on aurait débranché. Il ne coûte rien et il change la nature des
+trois autres : il établit que la seule chose capable de repeindre l'alvéole est
+l'événement.
+
+**Un banc qui vérifie qu'un signal PROVOQUE un effet doit aussi vérifier que
+l'effet ne se produit pas SANS le signal.** Sinon il mesure « ça finit par
+arriver », qui est vrai de presque tout.
+
+C'est le pendant du § 9 unvicicenties : là-bas le cas positif empêchait les cas
+négatifs d'être du décor ; ici c'est un cas NÉGATIF qui empêche les positifs
+d'être une coïncidence. Les deux sont la même exigence — **une mesure doit
+pouvoir distinguer les deux mondes, dans les deux sens.**
