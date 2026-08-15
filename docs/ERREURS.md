@@ -10500,3 +10500,78 @@ formaté.** Arrondi, troncature et affichage à N décimales ne se valent pas qu
 la borne est l'égalité. C'est un cas particulier d'une chose déjà consignée
 ailleurs : un chiffre qu'on recopie sans savoir d'où il vient est un chiffre
 qu'on ne mesure pas.
+
+---
+
+## 9 septdecicenties. Un cliquet posé à l'ÉGALITÉ sur une mesure qui tremble est un gate intermittent
+
+J'ai posé les seuils de couverture exactement sur la mesure locale, en écrivant
+que c'était le choix le plus strict — « un seuil sous la mesure laisse éroder en
+silence ». La jambe `ubuntu` a rougi au premier tour :
+
+```text
+ERROR: Coverage for branches (71.86%) does not meet global threshold (71.88%)
+```
+
+Deux centièmes de point. Sur le MÊME arbre.
+
+### Ce que la mesure a montré, en deux temps
+
+D'abord l'écart entre les deux machines :
+
+```text
+                ici            en CI
+branches   7774 / 10814   7772 / 10814     (−2)
+lines      9484 / 12321   9485 / 12321     (+1)
+```
+
+Les **dénominateurs** sont identiques — c'est bien le même code. Ce sont les
+**couverts** qui bougent, dans les deux sens.
+
+Puis, pour savoir de quelle sorte de tremblement il s'agit : **un second
+passage local**, même machine, même arbre. Chiffres strictement identiques au
+premier. Le tremblement n'est donc pas d'un tour à l'autre — il est d'une
+**machine** à l'autre, parce que des bancs ne s'exécutent que si un outil est
+présent (`describe.runIf`, `systemd-analyze`, docker…).
+
+Sans ce second passage, j'aurais mis la marge au hasard en croyant traiter une
+instabilité d'exécution. Une observation ne dit pas de quelle nature est
+l'écart ; il faut la seconde pour ça.
+
+### Pourquoi l'égalité était le mauvais choix, et pas juste un choix trop strict
+
+Un rouge intermittent **apprend à relancer au lieu de lire**. C'est déjà écrit
+ici à propos du ménage de l'essai Windows, et ça vaut doublement pour un gate de
+couverture : celui qui le voit rougir sur deux centièmes ne va pas enquêter, il
+va baisser le chiffre. Le gate se serait donc auto-détruit au premier accroc —
+en ayant l'air rigoureux jusque-là.
+
+**Une garde qui rougit sans raison est pire qu'une garde absente** : l'absente
+ne coûte que ce qu'elle ne trouve pas ; l'intermittente enseigne à ne plus
+croire les rouges.
+
+### La marge, et ce qu'elle vaut exactement
+
+0,1 point sous la plus basse des deux mesures — environ douze lignes. Assez pour
+absorber le décor d'une machine, pas assez pour loger un lot non testé.
+
+Et surtout : **elle est annoncée comme provisoire**, parce qu'elle repose sur UNE
+comparaison entre deux machines. Écrire « 0,1 suffit » serait présenter une
+prédiction comme une borne établie — exactement le § 9 decicenties, qui m'avait
+déjà coûté un « 4 s au plus » démenti par un 147 ms.
+
+### La prose qui a rendu le piège invisible
+
+Le bloc `coverage` portait ceci, écrit de bonne foi :
+
+> _« `npm run couverture` rend le même total à chaque exécution : v8 compte ce
+> que le processus exécute, sans échantillonnage. »_
+
+C'est **littéralement vrai** — les totaux, c'est-à-dire les dénominateurs, sont
+stables. Et je l'ai lu comme « le même résultat », ce qui est faux. Un banc
+existe même sous le nom `couverture-reproductible.test.ts` : vérifié, il
+n'affirme rien de numérique — seulement que le fournisseur est déclaré et
+résoluble. Le nom promettait plus que le contenu.
+
+**Une phrase vraie sur un point et lue sur un autre est plus dangereuse qu'une
+phrase fausse** : rien ne la contredit quand on la relit.

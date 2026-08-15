@@ -293,6 +293,16 @@ ERROR: Coverage for lines (76.97%) does not meet global threshold (77.07%)
 CODE=1
 ```
 
+⚠️ **Et il a rougi une seconde fois, pour de mauvaises raisons.** Posés d'abord
+à l'ÉGALITÉ sur la mesure locale, les seuils ont fait rougir la CI sur deux
+centièmes de point : la couverture n'est pas reproductible d'une **machine** à
+l'autre (branches 7774 ici / 7772 en CI, mêmes dénominateurs), parce que des
+bancs ne tournent que si un outil est présent. Deux passages locaux successifs,
+eux, rendent des chiffres identiques — le tremblement est entre machines, pas
+entre tours. Les seuils portent donc une marge d'environ **0,1 point**, annoncée
+comme provisoire tant que ce tremblement n'est pas caractérisé sur plusieurs
+runners (§ 9 septdecicenties).
+
 **La règle : ce seuil MONTE et ne descend pas.** S'il faut le baisser — un
 retrait de code bien couvert peut légitimement faire tomber le pourcentage — la
 raison s'écrit dans `vitest.config`, à côté du chiffre. Le baisser en silence

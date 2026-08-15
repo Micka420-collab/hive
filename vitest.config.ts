@@ -128,8 +128,13 @@ export default defineConfig({
     // devient une opinion datée — c'est la règle du carnet, appliquée à
     // l'instrument qui la mesure.
     //
-    // `npm run couverture` rend le même total à chaque exécution : v8 compte
-    // ce que le processus exécute, sans échantillonnage.
+    // `npm run couverture` rend les mêmes DÉNOMINATEURS à chaque exécution :
+    // v8 compte ce que le processus exécute, sans échantillonnage.
+    //
+    // ⚠ Les COUVERTS, eux, varient d'une machine à l'autre — mesuré, voir le
+    // bloc `thresholds` plus bas. Cette phrase disait « le même total » et se
+    // lisait comme « le même résultat » ; l'écart entre les deux a coûté un
+    // rouge de CI.
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts', 'dashboard/src/**/*.{ts,tsx}'],
@@ -143,24 +148,51 @@ export default defineConfig({
       // rougit d'elle-même, "couvert" n'est pas un critère, c'est une
       // anecdote. »
       //
-      // Les valeurs ci-dessous ne sont pas choisies : elles sont MESURÉES, le
-      // 15 août, sur l'arbre de ce lot —
+      // ─── LA COUVERTURE N'EST PAS REPRODUCTIBLE D'UNE MACHINE À L'AUTRE ──
       //
-      //     statements  75.81 %   (10803 / 14250)
-      //     branches    71.88 %   ( 7774 / 10814)
-      //     functions   76.43 %   ( 2323 /  3039)
-      //     lines       76.97 %   ( 9484 / 12321)
+      // Premier essai : seuils posés EXACTEMENT sur la mesure locale. La jambe
+      // `ubuntu` a rougi au premier tour —
       //
-      // ─── POURQUOI EXACTEMENT LA MESURE, ET PAS UN CHIFFRE ROND ──────────
+      //     ERROR: Coverage for branches (71.86%) does not meet global
+      //            threshold (71.88%)
       //
-      // Un seuil sous la mesure laisse de la place pour éroder EN SILENCE :
-      // c'est précisément ce qu'on veut interdire. Posé sur la mesure, il
-      // rougit dès qu'une ligne neuve arrive sans banc — et c'est le geste
-      // qu'on cherche à provoquer, pas un accident.
+      // Mesuré des deux côtés, sur le MÊME arbre :
       //
-      // Le poser exactement est SÛR parce qu'istanbul TRONQUE : 2323/3039 vaut
-      // 76,4396 % et s'affiche « 76.43 ». La valeur écrite ici est donc
-      // toujours ≤ la vraie, jamais au-dessus. (Vérifié sur les quatre.)
+      //                    ici            en CI
+      //     branches   7774 / 10814   7772 / 10814     (−2)
+      //     lines      9484 / 12321   9485 / 12321     (+1)
+      //
+      // Les DÉNOMINATEURS sont identiques — c'est bien le même code. Ce sont
+      // les COUVERTS qui bougent. Et le tremblement n'est pas d'un tour à
+      // l'autre : deux passages locaux successifs rendent des chiffres
+      // strictement identiques. Il est d'une MACHINE à l'autre, parce que des
+      // bancs ne s'exécutent que si un outil est présent (`describe.runIf`,
+      // `systemd-analyze`, docker…) — la CI n'a pas exactement ce décor-ci.
+      //
+      // ─── D'OÙ UNE MARGE, ET POURQUOI ELLE EST ASSUMÉE ───────────────────
+      //
+      // Un cliquet posé à l'ÉGALITÉ sur une mesure qui tremble est un gate
+      // INTERMITTENT. Or un rouge intermittent apprend à relancer au lieu de
+      // lire — c'est le pire état pour une garde, pire que pas de garde du
+      // tout. Les seuils portent donc une marge d'environ 0,1 point sous la
+      // PLUS BASSE des deux mesures.
+      //
+      // ⚠ Cette marge repose sur UNE seule comparaison entre machines (écart
+      // observé : 0,02 point sur les branches, 0,01 sur les lignes ; 0,1 en est
+      // ~5×). Elle est PROVISOIRE et se resserrera quand le tremblement sera
+      // caractérisé sur plusieurs runners — pas avant. L'annoncer comme une
+      // borne établie serait écrire une prédiction là où il n'y a qu'une
+      // observation (§ 9 decicenties).
+      //
+      // ─── POURQUOI PAS UN CHIFFRE ROND ───────────────────────────────────
+      //
+      // Un seuil très en dessous de la mesure laisse éroder EN SILENCE, ce
+      // qu'on veut précisément interdire. 0,1 point, c'est ~12 lignes : de quoi
+      // absorber le décor d'une machine, pas de quoi loger un lot non testé.
+      //
+      // Poser le seuil sur la valeur AFFICHÉE est sûr parce qu'istanbul
+      // TRONQUE : 2323/3039 vaut 76,4396 % et s'affiche « 76.43 ». La valeur
+      // lue est donc toujours ≤ la vraie. (Vérifié sur les quatre dimensions.)
       //
       // ─── LA RÈGLE, ET LA SEULE FAÇON DE LA DESCENDRE ────────────────────
       //
@@ -169,11 +201,17 @@ export default defineConfig({
       // pourcentage — cela se fait avec la raison ÉCRITE ici même. Le baisser
       // en silence pour faire passer un lot, c'est rendre l'anecdote à sa place
       // de critère.
+      //
+      //                  ici      en CI    seuil
+      //     statements  75.81    75.81    75.7
+      //     branches    71.88    71.86    71.7
+      //     functions   76.43    76.43    76.3
+      //     lines       76.97    76.98    76.8
       thresholds: {
-        statements: 75.81,
-        branches: 71.88,
-        functions: 76.43,
-        lines: 76.97,
+        statements: 75.7,
+        branches: 71.7,
+        functions: 76.3,
+        lines: 76.8,
       },
     },
     // Le MÊME plafond que ci-dessus : c'est le hook qui monte le serveur et
