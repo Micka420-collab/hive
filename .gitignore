@@ -18,3 +18,7 @@ rapport-tests.json
 
 # Le verrou d’exclusivité de la loupe — propre à une exécution, jamais partagé.
 .loupe-verrou
+# Le journal de reprise de la loupe : il porte l’ORIGINAL d’un fichier en cours
+# de mutation, pour qu’un balayage tué ne laisse pas son défaut dans l’arbre.
+# Propre à une exécution, jamais partagé.
+.loupe-en-cours

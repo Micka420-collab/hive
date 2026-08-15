@@ -23,9 +23,18 @@
     2. le `.env` est écrit, et c'est LE vrai (port + jeton)
     3. la ruche RÉPOND sur /api/pulse  — « installé » ne veut rien dire si rien
                                          ne démarre
+    4. le TABLEAU est servi et charge  — « la ruche répond » n'est pas « je peux
+                                         m'en servir »
+    5. je CRÉE MON PREMIER PROJET, et le tableau le voit — le premier geste réel
+                                         d'un arrivant, jamais mesuré avant
 
   Le troisième est le seul qui ne puisse pas être simulé : il faut que le code
   tourne.
+
+  Les deux derniers sont en Node (`scripts/essai-parcours.mjs`) et PARTAGÉS avec
+  l'essai POSIX. Les réécrire ici, avec du JSON à analyser en PowerShell, aurait
+  refabriqué exactement la divergence que `tests/installeurs-jumeaux.test.ts`
+  avait trouvée entre les deux installeurs.
 
   ─── CE QU'IL N'AFFIRME PAS, ET POURQUOI ───────────────────────────────────
 
@@ -75,14 +84,51 @@ $Ruche = $null
 $Port = $null
 
 function Menage {
-  # ─── RENDRE LA PLACE, QUOI QU'IL ARRIVE ────────────────────────────────────
+  # ─── LE MÉNAGE NE PEUT PAS FAIRE ROUGIR L'ESSAI ────────────────────────────
+  #
+  # DÉFAUT MESURÉ (run 31879223630) : les CINQ affirmations avaient mordu, et
+  # la jambe est quand même sortie en 1, sur ceci —
+  #
+  #     taskkill.exe : ERROR: The process with PID 7356 (child process of PID
+  #     7152) could not be terminated.
+  #     + FullyQualifiedErrorId : NativeCommandError
+  #
+  # `taskkill /T /F` écrit sur stderr quand un enfant est DÉJÀ parti. C'est une
+  # course normale entre l'arbre qu'on tue et l'arbre qui se termine, pas une
+  # panne. Mais sous `$ErrorActionPreference = 'Stop'`, la moindre ligne de
+  # stderr d'une commande NATIVE devient une erreur TERMINANTE — et le ménage
+  # tuait l'essai qu'il devait seulement ranger.
+  #
+  # Intermittent, donc pire qu'un rouge franc : le tour précédent était vert
+  # avec exactement le même code.
+  #
+  # C'est le piège déjà écrit dans `install.ps1` au sujet de `*> $null`. Je
+  # l'avais évité pour le code NEUF sans regarder s'il vivait déjà dans le code
+  # d'à côté (§ 9 terdecicenties).
+  #
+  # Un ménage a UN devoir — rendre la place — et jamais celui de porter un
+  # verdict. On neutralise donc la préférence le temps du rangement, et on
+  # avale ce qui resterait : le journal le dit, l'essai n'en meurt pas.
+  $ancienneErreur = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    Menage_ | Out-Null
+  } catch {
+    Write-Host "  (le menage n a pas tout pu ranger : $($_.Exception.Message))"
+  } finally {
+    $ErrorActionPreference = $ancienneErreur
+  }
+}
+
+function Menage_ {
+  # ─── RENDRE LA PLACE ───────────────────────────────────────────────────────
   #
   # `Stop-Process` seul ne suffit pas : `npm` lance `node`, qui lance ses
   # propres enfants. Tuer le parent laisse la ruche vivante et le port tenu —
   # et l'essai SUIVANT échouerait pour une raison qui n'est pas la sienne.
   # `taskkill /T` descend l'arbre.
   if ($null -ne $Ruche -and -not $Ruche.HasExited) {
-    & taskkill.exe '/T' '/F' '/PID' $Ruche.Id 2>$null | Out-Null
+    & taskkill.exe '/T' '/F' '/PID' $Ruche.Id 2>&1 | Out-Null
   }
   if ($null -ne $Port) {
     # On attend que la porte soit VRAIMENT rendue. Une réponse — même un 401 —
@@ -184,6 +230,20 @@ try {
         -Uri "http://127.0.0.1:$Port/api/pulse"
       if ($r.StatusCode -eq 200) {
         Write-Host "✔ 3/3 — la ruche répond sur :$Port après $i s"
+        # ─── ET MAINTENANT LE PARCOURS ────────────────────────────────────
+        #
+        # « La ruche répond » n'est pas « je peux m'en servir ». Les deux pas
+        # suivants — j'ouvre le tableau, je crée mon premier projet — sont en
+        # Node et PARTAGÉS avec l'essai POSIX. Les réécrire ici, avec du JSON à
+        # analyser en PowerShell, aurait refabriqué exactement la divergence
+        # que `tests/installeurs-jumeaux.test.ts` a trouvée entre les deux
+        # installeurs.
+        #
+        # La racine passe en argument ; le JETON, jamais — il est relu là-bas
+        # dans le .env que l'installeur vient d'écrire.
+        $parcours = Join-Path $PSScriptRoot 'essai-parcours.mjs'
+        & node.exe $parcours '--racine' $Cible
+        if ($LASTEXITCODE -ne 0) { exit 1 }
         exit 0
       }
     } catch {

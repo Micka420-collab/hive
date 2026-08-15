@@ -18,22 +18,41 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `3044317`, 15 août 2026, 06 h 15)
+## A. Le code tient — ✅ mesuré (arbre `5eb3131`, 15 août 2026, 09 h 40)
 
+> **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
+> peut pas contenir son propre condensé : le stamper puis rectifier le commit
+> change le condensé qu'on vient d'écrire. Le hash ci-dessus est donc celui du
+> commit qui PORTE le code mesuré ; ce commit-ci ne fait que l'inscrire. Une
+> tentative de « corriger » cet écart le recréerait à l'identique.
+>
 > **UN TABLEAU DATÉ DOIT DIRE QU'IL EST DATÉ.** Cette section annonçait 3900
 > bancs, mesurés la veille sur l'arbre `cf84422`. Le chiffre était juste ce
 > jour-là et faux le lendemain — c'est-à-dire un badge écrit de tête avec un
 > jour de retard. La date et l'arbre sont désormais dans le titre : un lecteur
 > peut vérifier si la mesure est encore la sienne.
 
-| Critère                  | Comment on le mesure                                     | Verdict                                          |
-| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
-| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
-| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4021** (4013 verts, 8 ignorés, **0 rouge**) |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                    |
-| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ « rien de nu » sur les lots de ce jour        |
+| Critère                  | Comment on le mesure                                     | Verdict                                            |
+| ------------------------ | -------------------------------------------------------- | -------------------------------------------------- |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                     |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                            |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4051** (4043 verts, 8 ignorés, **0 rouge**)   |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                      |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                           |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 4 nus trouvés sur ce lot — 3 fermés, 1 consigné |
+
+- ⚠️ **CE QUE VALAIENT LES « RIEN DE NU » D'AVANT LE 15 AOÛT.** La loupe ne
+  vérifiait pas que la suite était VERTE avant de muter. Sur une suite déjà
+  rouge, elle déclare chaque mutant « défendu » — tué par une panne qui ne le
+  concerne pas — et conclut « rien de nu » sans avoir rien mesuré. Le cas s'est
+  produit ce jour-là : **9 sur 9 « défendues », dont des lignes d'un fichier
+  qu'aucun test n'importe** ; le même diff, une fois le banc réparé, a rendu
+  **17 joués, 3 nus**.
+
+  La garde existe depuis (§ 9 quincenties), mais **l'état de la suite n'était
+  pas consigné lors des balayages antérieurs** : ces verdicts-là ne sont ni
+  invalidés ni confirmés, ils sont **non vérifiables**. Ils ne sont donc pas
+  recomptés ici comme des mesures.
 
 - ⚠️ **Ce que « rien de neuf n'est nu » couvre, et pas plus** : la loupe
   ÉCHANTILLONNE. Le ✅ ci-dessus porte sur le diff de chaque lot, **pas sur le
@@ -97,11 +116,71 @@ La matrice à trois systèmes mesure que _le code compile et que les bancs
 passent_. L'installation, elle, est une autre affaire, et elle se dit système
 par système :
 
-| Système     | Ce qui est mesuré                                  | Depuis quand              |
-| ----------- | -------------------------------------------------- | ------------------------- |
-| **Linux**   | ✅ installation complète → ruche qui RÉPOND        | en continu, à chaque PR   |
-| **macOS**   | ✅ installation complète → ruche qui RÉPOND        | **14 août, à chaque PR**  |
-| **Windows** | ⚠️ complète UNE FOIS (terrain) ; en CI, seuil seul | rapport de terrain unique |
+| Système     | Ce qui est mesuré                           | Depuis quand             |
+| ----------- | ------------------------------------------- | ------------------------ |
+| **Linux**   | ✅ installation → tableau → premier projet  | **15 août, à chaque PR** |
+| **macOS**   | ✅ installation → tableau → premier projet  | **15 août, à chaque PR** |
+| **Windows** | ✅ installation → tableau → premier projet¹ | **15 août, à chaque PR** |
+
+**Le parcours a été allongé le 15 août.** Les trois jambes s'arrêtaient à « la
+ruche répond sur `/api/pulse` » — ce qui prouve l'orchestrateur et pas l'écran.
+Elles mènent désormais les deux pas que le point de sortie classait sans aucune
+mesure (3c) :
+
+```text
+✔ 4/5 — le tableau est servi et charge son paquet
+✔ 5/5 — premier projet créé, et visible dans l'instantané que lit le tableau
+```
+
+Le pas 4 ne se contente pas d'un HTTP 200 : **quatre pages différentes rendent
+200** et trois sont des écrans blancs — le repli « l'écran n'est pas construit »,
+le gabarit de développement servi tel quel (il demande `/src/main.tsx`), et une
+coquille sans script.
+
+### ¹ Windows : ce que le pas 4 a trouvé à sa PREMIÈRE exécution
+
+> **Cette ligne a d'abord été écrite `✅` pour les trois systèmes. C'était faux
+> pour Windows, et faux au sens précis que ce document interdit : je l'ai écrite
+> à partir du fait que le pas EXISTAIT, avant que la jambe Windows ne l'ait
+> jamais joué.** Elle est corrigée ici par la mesure qui l'a démentie — run
+> `31876399994`, travail `94992678231` :
+>
+> ```text
+> ✔ 3/3 — la ruche répond sur :7777 après 1 s
+> ✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+> ```
+
+`install.ps1` **ne construisait pas le tableau de bord**, et ne l'a jamais fait :
+`install.sh` a une étape « Construction de l'écran » depuis toujours, son jumeau
+s'arrêtait à `install:hive`. Un arrivant sous Windows installait Hive, ouvrait
+l'adresse, et lisait un mode d'emploi au lieu d'utiliser le produit — **le
+premier écran de Hive sous Windows était une page d'excuses.**
+
+Ce n'est pas une régression : ce chemin n'était exercé nulle part, puisque les
+jambes de seuil s'arrêtaient avant. L'étape manquante est ajoutée, et une garde
+de parité interdit qu'elle reparte (`tests/installeurs-jumeaux.test.ts`, vue
+rouge sur le défaut vivant).
+
+**La case est repassée `✅` sur la mesure, pas sur le correctif.** Il a fallu
+deux tours de plus : le premier a construit l'écran et rendu les cinq `✔`, puis
+`process.exit()` a fait abandonner libuv sous Windows (`Assertion failed:
+!(handle->flags & UV_HANDLE_CLOSING)`) — le verdict était bon, la sortie non.
+L'essai ne coupe plus la boucle. Run `31877154772`, travail `94994483745` :
+
+```text
+✓ built in 488ms
+  ✔ tableau de bord prêt
+✔ 1/3 — installation sortie en 0, 134 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+✔ 4/5 — le tableau est servi et charge son paquet
+✔ 5/5 — premier projet créé (e0ab1d0b…) et visible par le tableau
+```
+
+Ni code 78, ni assertion : les cinq affirmations ont mordu. **Trois systèmes
+mènent maintenant l'arrivant de la commande du README à son premier projet, à
+chaque PR** — et le chemin Windows aura demandé cinq rouges successifs, chacun
+un défaut réel que personne ne voyait.
 
 **macOS a basculé le 14 août** (`seuil` devient une matrice, run
 `31776537105`). Première fois que la commande du README y était menée à son
@@ -113,15 +192,34 @@ terme — nulle part auparavant, ni en CI ni sur une machine :
 ✔ 3/3 — la ruche répond sur :7777 après 2s
 ```
 
-Ce n'est **pas** un code 78 (« non concluant », câblé pour le cas d'un port déjà
-tenu) : les trois affirmations ont réellement mordu.
+**Windows a basculé le 15 août** (`scripts/essai-installation.ps1`, jambe
+`seuil-windows`, run `31871739630`, travail `94981345140`) :
 
+```
+✔ 1/3 — installation sortie en 0, 115 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+```
+
+Ni l'un ni l'autre n'est un code 78 (« non concluant », câblé pour le cas d'un
+port déjà tenu) : les trois affirmations ont réellement mordu. La jambe Windows
+a d'ailleurs rougi **trois fois avant** de compter — mojibake d'encodage,
+apostrophe courbe fermant une chaîne, puis le fond —, ce qui est la preuve
+qu'elle exécute vraiment le script et ne le survole pas.
+
+- ¹ **Ce que la colonne Windows ne dit PAS, et qui n'est pas un détail** : la
+  version POSIX vérifie que le `.env` est en **0600**. La jambe Windows ne le
+  vérifie pas, parce qu'il n'y a rien à vérifier — Node n'y retient du `mode`
+  que le bit « lecture seule », aucune ACL n'est posée. Le secret y est donc
+  moins protégé qu'ailleurs. Écrire un contrôle qui passerait quand même aurait
+  donné une couverture apparente sur une protection absente ; **fermer ce trou
+  est un lot à part, qui touche l'installeur et pas son essai**, et il n'est pas
+  fait.
 - 🔒 **Ce qui reste une réserve, et qu'il ne faut pas maquiller** : un runner CI
   n'est pas le poste de bureau d'un utilisateur, avec ses réglages, son
-  antivirus et son shell à lui. Et **Windows n'est mesuré de bout en bout que
-  par un rapport de terrain unique** — `install.ps1` est un chemin distinct
-  (PowerShell 7 et 5.1), exercé en CI au seuil seulement. Deux systèmes sur
-  trois en continu, pas trois.
+  antivirus et son shell à lui. Trois systèmes mesurés en continu ne valent pas
+  trois systèmes éprouvés chez de vrais arrivants — cette réserve-là ne se lève
+  pas en CI, elle se lève à la sortie.
 
 ## C. C'est défendu — ✅ mesuré et gardé (le gate a mordu à sa naissance)
 

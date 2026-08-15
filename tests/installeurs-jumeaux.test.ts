@@ -70,6 +70,32 @@ function luParPowerShell(source: string): Set<string> {
   return vus;
 }
 
+/**
+ * Les travaux npm que cette source LANCE vraiment — pas ceux qu'elle affiche.
+ *
+ * Les deux installeurs écrivent `npm run build:dashboard` dans un message de
+ * secours (« pour réessayer plus tard »). Compter ces lignes rendrait la garde
+ * verte sur un installeur qui ne construit rien, puisque le TEXTE y est.
+ *
+ * On écarte donc toute occurrence précédée d'un guillemet sur sa ligne : c'est
+ * la marque d'une chaîne, donc d'un affichage. La règle est grossière — elle
+ * ignore les chaînes multi-lignes — et c'est assumé : les deux fichiers
+ * n'écrivent leurs commandes que sur une ligne, et une garde qui se trompe en
+ * REFUSANT (elle ne verrait pas un lancement caché dans un gabarit) échoue du
+ * bon côté.
+ */
+function lancesPar(source: string): Set<string> {
+  const vus = new Set<string>();
+  for (const ligne of sansCommentaires(source).split('\n')) {
+    for (const m of ligne.matchAll(/npm(?:\.cmd)? run ([a-z][\w:-]*)/g)) {
+      const avant = ligne.slice(0, m.index);
+      if (avant.includes('"') || avant.includes("'")) continue;
+      vus.add(m[1]!);
+    }
+  }
+  return vus;
+}
+
 const trie = (s: Set<string>): string[] => [...s].sort();
 
 describe('les deux installeurs connaissent les mêmes réglages', () => {
@@ -184,6 +210,147 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
       manquants,
       `ces systèmes n'ont aucune jambe qui mène l'installation à son terme : ${manquants.join(', ')}`,
     ).toEqual([]);
+  });
+
+  it('LES DEUX INSTALLEURS LANCENT LES MÊMES TRAVAUX', () => {
+    // ─── LE DÉFAUT, TROUVÉ EN CI ET PAS À LA RELECTURE ─────────────────────
+    //
+    // `install.sh` a une étape « Construction de l'écran » qui lance
+    // `npm run build:dashboard`. `install.ps1` s'arrête après `install:hive`.
+    //
+    // Conséquence pour un arrivant sous Windows : il installe, ouvre l'adresse,
+    // et tombe sur la page « la ruche tourne, l'écran n'est pas construit ».
+    // Le produit fonctionne — l'API, les nœuds, les tâches — et il lit un mode
+    // d'emploi au lieu de s'en servir. **Le premier écran de Hive sous Windows
+    // était une page d'excuses**, et rien ne le disait.
+    //
+    // Ce n'est pas une régression : ça n'a JAMAIS marché. Le chemin n'était
+    // exercé nulle part, parce que les jambes de seuil s'arrêtaient à
+    // « la ruche répond ». Le pas 4/5 du parcours l'a trouvé à sa PREMIÈRE
+    // exécution réelle sous Windows (run 31876399994) :
+    //
+    //     ✔ 3/3 — la ruche répond sur :7777 après 1 s
+    //     ✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+    //
+    // C'est la TROISIÈME divergence entre les jumeaux, après `HIVE_DEPOT` et
+    // l'appel au parcours. D'où une garde par DÉCOUVERTE plutôt qu'une liste :
+    // le quatrième travail, celui qu'on ajoutera dans six mois, doit être
+    // couvert sans que personne n'y repense (§ 9 quinoctogies).
+    const POSIX_ = lire('install.sh');
+    const WINDOWS_ = lire('install.ps1');
+
+    expect(trie(lancesPar(POSIX_)), 'aucun travail lu dans install.sh').not.toEqual([]);
+    expect(trie(lancesPar(WINDOWS_)), 'aucun travail lu dans install.ps1').not.toEqual([]);
+
+    // ─── AFFICHER UNE COMMANDE N'EST PAS LA LANCER ─────────────────────────
+    //
+    // Les deux fichiers ÉCRIVENT `npm run build:dashboard` dans un message —
+    // « pour réessayer plus tard, sans rien réinstaller ». Une garde qui
+    // compterait ces lignes-là serait verte sur l'installeur cassé, puisque le
+    // texte y est. On éprouve donc la règle sur des sources fabriquées, comme
+    // pour les réglages ci-dessus.
+    expect(lancesPar('accent "    npm run build:dashboard"').size, 'un AFFICHAGE compte').toBe(0);
+    expect(lancesPar('$s = "cd $Dir; npm run install:hive"').size, 'un AFFICHAGE compte').toBe(0);
+    expect(lancesPar('# npm run build:dashboard — envisagé').size, 'un COMMENTAIRE compte').toBe(0);
+    expect(
+      lancesPar('npm run build:dashboard >/dev/null'),
+      'un vrai lancement doit compter',
+    ).toEqual(new Set(['build:dashboard']));
+
+    const surPosix = trie(lancesPar(POSIX_));
+    const surWindows = trie(lancesPar(WINDOWS_));
+    const manquantsWindows = surPosix.filter((n) => !surWindows.includes(n));
+    const manquantsPosix = surWindows.filter((n) => !surPosix.includes(n));
+
+    expect(
+      manquantsWindows,
+      `install.ps1 ne lance pas des travaux qu'install.sh lance : ${manquantsWindows.join(', ')}`,
+    ).toEqual([]);
+    expect(
+      manquantsPosix,
+      `install.sh ne lance pas des travaux qu'install.ps1 lance : ${manquantsPosix.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('LES DEUX ESSAIS DE SEUIL MÈNENT LE MÊME PARCOURS', () => {
+    // ─── LA DIVERGENCE QUE CETTE GARDE FERME AVANT QU'ELLE N'ARRIVE ────────
+    //
+    // Les deux essais d'installation s'arrêtaient à « la ruche répond ». Ils
+    // vont maintenant jusqu'à « j'ouvre le tableau, je crée mon premier
+    // projet » — les deux pas que le point de sortie classait sans aucune
+    // mesure.
+    //
+    // Ces deux pas sont en Node, PARTAGÉS, précisément parce que ce fichier
+    // existe : les installeurs avaient déjà divergé en silence, et les réécrire
+    // dans les deux langages aurait refait le même trou en plus cher.
+    //
+    // Mais partager l'instrument ne suffit pas — encore faut-il que les deux
+    // s'en servent. Le jour où l'un des deux essais perdrait son appel, sa
+    // jambe resterait VERTE en ne mesurant plus que trois pas sur cinq. C'est
+    // la forme exacte du défaut d'origine : une couverture qui rétrécit sans
+    // que rien ne le dise.
+    const INSTRUMENT = 'essai-parcours.mjs';
+    const essaiPosix = lire('scripts/essai-installation.sh');
+    const essaiWindows = lire('scripts/essai-installation.ps1');
+
+    // Une MENTION ne compte pas, ici non plus : le nom apparaît dans les
+    // commentaires des deux fichiers. On exige la forme qui LANCE.
+    expect(
+      new RegExp(`node[^\\n]*${INSTRUMENT.replace('.', '\\.')}`).test(sansCommentaires(essaiPosix)),
+      'scripts/essai-installation.sh ne lance plus le parcours : sa jambe mesure 3 pas sur 5',
+    ).toBe(true);
+    expect(
+      new RegExp(`\\$parcours|${INSTRUMENT.replace('.', '\\.')}`).test(
+        sansCommentaires(essaiWindows),
+      ),
+      'scripts/essai-installation.ps1 ne lance plus le parcours : sa jambe mesure 3 pas sur 5',
+    ).toBe(true);
+
+    // Et l'instrument lui-même doit exister — une garde qui vérifie qu'on
+    // appelle un fichier absent ne garde rien.
+    expect(
+      lire(`scripts/${INSTRUMENT}`).length,
+      'l’instrument du parcours est vide',
+    ).toBeGreaterThan(0);
+  });
+
+  it('LE MÉNAGE DE L’ESSAI WINDOWS NE PEUT PAS PORTER DE VERDICT', () => {
+    // ─── LE DÉFAUT, MESURÉ ET INTERMITTENT ─────────────────────────────────
+    //
+    // Run 31879223630 : les CINQ affirmations avaient mordu, et la jambe est
+    // sortie en 1 sur la ligne de rangement —
+    //
+    //     taskkill.exe : ERROR: The process with PID 7356 could not be
+    //     terminated.  + FullyQualifiedErrorId : NativeCommandError
+    //
+    // `taskkill /T /F` écrit sur stderr quand un enfant est DÉJÀ parti : une
+    // course normale. Sous `$ErrorActionPreference = 'Stop'`, la moindre ligne
+    // de stderr d'une commande NATIVE devient une erreur TERMINANTE — et le
+    // ménage tuait l'essai qu'il devait seulement ranger.
+    //
+    // Le tour PRÉCÉDENT était vert avec le même code. Un rouge intermittent
+    // dans un rangement est le plus cher de tous : on le relance, il passe, et
+    // on apprend à relancer au lieu de lire.
+    //
+    // ─── CE QUE LA GARDE EXIGE, ET POURQUOI CETTE FORME ────────────────────
+    //
+    // Pas « le script contient taskkill » — une garde sur la présence d'un
+    // outil ne dit rien de la préférence qui le rend mortel. On exige que la
+    // fonction de ménage NEUTRALISE `$ErrorActionPreference` : c'est la seule
+    // ligne dont l'absence rend le rangement capable de tuer l'essai.
+    const essai = lire('scripts/essai-installation.ps1');
+    const menage = /function Menage \{([\s\S]*?)\n\}/.exec(essai);
+    expect(menage, 'la fonction Menage est introuvable : la garde ne garde rien').toBeTruthy();
+
+    const corps = menage![1]!;
+    expect(
+      /\$ErrorActionPreference\s*=\s*'(Continue|SilentlyContinue|Ignore)'/.test(corps),
+      'le ménage tourne sous « Stop » : un stderr de taskkill fera rougir un essai réussi',
+    ).toBe(true);
+    expect(
+      /catch\s*\{/.test(corps),
+      'le ménage ne rattrape rien : une exception y remonterait jusqu’au code de sortie',
+    ).toBe(true);
   });
 
   it('et TOUT réglage lu est nommé dans la doc d’installation', () => {

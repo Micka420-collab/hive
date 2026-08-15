@@ -8466,3 +8466,163 @@ qui rougit trois fois n'est pas instable : **elle trouve**. Un chemin que
 personne n'exécutait depuis des mois n'a aucune raison d'être correct du premier
 coup — et sa première verte vaudra ce que valent les trois rouges qui l'ont
 précédée. § 9 duocenties.
+
+---
+
+## La jambe Windows est verte — le point 3a du point de sortie est CLOS
+
+Quatrième tour, et le premier qui compte. Run `31871739630`, travail
+`94981345140`, jambe `L'installation va jusqu'à une ruche qui répond ·
+windows-latest` :
+
+```text
+✔ 1/3 — installation sortie en 0, 115 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+```
+
+Ce n'est **pas** un code 78. Le journal a été lu ligne à ligne avant de toucher
+à `docs/DEFINITION-DE-SORTIE.md`, parce qu'un 78 sort en 0 et rend la jambe
+verte à l'œil : la couleur du travail ne prouve rien, seul son journal le fait.
+
+`docs/DEFINITION-DE-SORTIE.md` passe donc Windows de `⚠️` à `✅`, avec le numéro
+de run pour preuve — et avec une note qui dit ce que cette colonne NE dit pas :
+la vérification `0600` du `.env` n'existe pas sous Windows, parce qu'il n'y a
+rien à y vérifier. Écrire un contrôle qui passerait quand même aurait donné une
+couverture apparente sur une protection absente. Le trou reste ouvert, nommé, et
+c'est un lot à part.
+
+### Ce que ce lot aura coûté, et ce qu'il a rendu
+
+Trois rouges pour une verte : mojibake d'encodage, apostrophe courbe fermant une
+chaîne, puis le fond. Chacun était un défaut RÉEL du chemin Windows, invisible
+tant que personne ne l'exécutait. Une jambe qui rougit trois fois de suite pour
+trois raisons distinctes ne mesure pas mal — elle mesure enfin.
+
+---
+
+## Intendance : les trois dernières nues, et le second fichier de vues à zéro
+
+`dashboard/src/views/Intendance.tsx` avait 38 mutations candidates, toutes
+jouées. Douze survivaient à la suite entière ; neuf ont été fermées au tour
+précédent. Les trois qui restaient vivaient toutes dans le MÊME recoin — le
+billet de rattachement d'une machine en cours de provisionnement :
+
+```text
+{s.etat === 'provisionnement' && …          ===  →  !==   ET  &&  →  ||
+  (billet === null ? <button> : <code>)     ===  →  !==
+catch (e) { setErreur(e instanceof Error …  Error  →  Object
+```
+
+Aucun banc n'atteignait ce recoin, et pour une raison mécanique : il faut à la
+fois une machine dans l'état `provisionnement` ET un appel réseau à
+`billetServeur`. Le banc des machines montait des machines `arrete` — le bloc
+n'était jamais rendu, les mutants y vivaient tranquilles. Ce n'est pas une
+négligence de rédaction : c'est ce que le balayage à deux passes est là pour
+trouver.
+
+### Ce que chaque mutant casse, dans l'ordre de gravité
+
+- **`instanceof Error → instanceof Object`** — `e.message` d'un objet nu vaut
+  `undefined`, donc `setErreur(undefined)` rend l'état FAUX et `{erreur && …}`
+  n'affiche plus rien. L'administrateur clique, **rien ne se passe et rien ne
+  s'explique**. Il reclique — et le second appel rend 404, parce que le billet
+  est à usage unique. Le mutisme fabrique la perte.
+- **`billet === null → !==`** — les deux moitiés du ternaire échangent leur
+  tour. Avant le clic, un `<code>` VIDE sous la phrase « copiez-le maintenant :
+  il ne sera plus affiché ». Après, le bouton revient — il invite précisément au
+  geste qui ne peut plus réussir, **en ayant remplacé à l'écran le seul
+  exemplaire du billet**.
+- **`s.etat === 'provisionnement' → !==`** — la machine qui attend son billet
+  n'a plus nulle part où l'obtenir, et toutes les autres l'offrent.
+
+### Rejeu, verdict affiché
+
+```text
+=== 1  provisionnement  === → !==   3 failed  (« la machine qui attend son billet
+                                                n'a nulle part où l'obtenir »)
+=== 1bis provisionnement &&  → ||   3 failed
+=== 2  billet === null  === → !==   3 failed
+=== 3  instanceof Error → Object    1 failed  (« un refus sans message ne dit
+                                                RIEN à l'écran »)
+source saine, restaurée par copie   16 passed | 48 skipped (64)
+```
+
+`git diff --stat` muet après restauration : la source est exactement celle
+d'avant.
+
+**`Intendance.tsx` est le second fichier de vues à zéro nue**, après
+`Balance.tsx`. Deux sur onze.
+
+### Le cas qui aurait pu être du décor, et ce qui l'a évité
+
+Le troisième banc rejette avec un objet NU (`{ code: 'ECONNRESET' }`). Rejeter
+avec une vraie `Error` n'aurait rien prouvé : les deux branches auraient dit la
+même chose, et le banc aurait été vert dans les deux mondes. Le cas qui
+DÉPARTAGE est le seul qui vaille — c'est la même leçon que sur `Balance.tsx`, et
+c'est la troisième fois qu'elle sert.
+
+---
+
+## Point 3c : le parcours de l'arrivant est mesuré, sur les trois systèmes
+
+Le point de sortie du 15 août classait en 3c, sans arrondir : « je n'ai **pas**
+de mesure bout-en-bout j'installe → j'ouvre le tableau → je crée mon premier
+projet. Des morceaux sont éprouvés, le PARCOURS ne l'est pas. »
+
+Les trois jambes de seuil s'arrêtaient à `/api/pulse`. Elles vont maintenant
+jusqu'au bout :
+
+```text
+4/5  le TABLEAU est servi et charge son paquet
+5/5  je CRÉE MON PREMIER PROJET, et l'instantané que lit le tableau le voit
+```
+
+### Pourquoi « la racine rend 200 » n'aurait rien mesuré
+
+Quatre pages différentes peuvent sortir de `GET /`, et **elles rendent toutes
+200** :
+
+| verdict     | ce que voit l'arrivant                                                     |
+| ----------- | -------------------------------------------------------------------------- |
+| `construit` | le tableau                                                                 |
+| `repli`     | « l'écran n'est pas construit » — un mode d'emploi, pas un produit         |
+| `source`    | le gabarit de développement : il demande `/src/main.tsx` → **écran blanc** |
+| `coquille`  | un `<div id="root">` sans script → **écran blanc**                         |
+
+`source` est le pire des quatre : il ressemble à une page qui charge, et rien
+n'apparaît jamais. Un essai qui regarde le code de statut déclare ces quatre
+mondes identiques.
+
+### Ce qui a été partagé, et pourquoi
+
+Les deux pas sont en Node (`scripts/essai-parcours.mjs`), appelés par les DEUX
+essais. Les réécrire en `sh` **et** en PowerShell, avec du JSON à analyser des
+deux côtés, aurait refabriqué exactement la divergence que
+`tests/installeurs-jumeaux.test.ts` avait trouvée entre les installeurs. Une
+garde neuve interdit qu'un des deux perde son appel en silence.
+
+### Ce que l'essai a trouvé en s'éprouvant lui-même
+
+Quatre verdicts mesurés contre une ruche réelle, pas contre une intention :
+
+```text
+ruche éteinte      ✘ la ruche ne répond plus sur :7911 (/) — ECONNREFUSED
+page de repli      ✘ 4/5 — la ruche sert « l'écran n'est pas construit »
+jeton mutilé       ✔ 4/5   puis   ✘ 5/5 — la création rend 401
+ruche saine        ✔ 4/5   ✔ 5/5 — projet créé et visible par le tableau
+```
+
+Le premier de ces quatre était **un défaut de l'essai lui-même** : il déroulait
+une pile Node de douze lignes au lieu de dire « la ruche ne répond plus ». Il
+reprochait à `projetDansInstantane`, dans son propre banc, ce qu'il faisait dans
+son corps.
+
+### ⚠ Ce qu'on a mesuré au passage et qu'on ne corrige pas ici
+
+Le pas 4 **passe avec un jeton faux**. `GET /` est servi par `fastifyStatic`,
+hors de la porte du jeton : la COQUILLE du tableau est lisible par quiconque
+atteint le port ; les DONNÉES, elles, restent gardées. Sur une ruche locale
+c'est sans conséquence ; sur une ruche exposée, cela dit « Hive tourne ici » à un
+visiteur non authentifié. Ce n'est pas le sujet de ce lot — c'est écrit dans le
+script, et ça reste ouvert.

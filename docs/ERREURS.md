@@ -9841,3 +9841,489 @@ chose qui les a départagées est un journal lu ligne à ligne, à chaque tour.
 > instable : c'est une jambe qui trouve.** Un chemin que personne n'exécutait
 > depuis des mois n'a aucune raison d'être correct du premier coup, et sa
 > première verte vaudra ce que valent les trois rouges qui l'ont précédée.
+
+---
+
+## 9 tercenties. Un travail de CI VERT ne prouve pas que sa mesure a mordu
+
+La jambe `seuil-windows` a fini `conclusion: success`. La tentation, à ce
+moment-là, est de basculer `docs/DEFINITION-DE-SORTIE.md` de `⚠️` à `✅` et de
+passer à la suite. Elle est verte, non ?
+
+Non. **Le script sort en 0 dans deux cas différents**, et un seul est une
+réussite du seuil :
+
+```text
+exit 0   les trois affirmations ont mordu                → le seuil est franchi
+exit 78  le port par défaut était tenu par un service    → essai NON CONCLUANT
+```
+
+Le code 78 est câblé exprès, et il est câblé pour sortir en **0** — parce qu'un
+port occupé sur un runner n'est pas un défaut de l'installation, et rougir
+dessus apprendrait à relancer plutôt qu'à lire. Le prix de ce choix, c'est que
+la couleur du travail cesse d'être une preuve.
+
+### Ce que ça change dans le geste
+
+Il faut **lire le journal avant d'écrire le verdict**, à chaque fois, même quand
+la coche est verte. Ici :
+
+```text
+✔ 1/3 — installation sortie en 0, 115 s
+✔ 2/3 — .env écrit, port 7777 et jeton présents
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+```
+
+Trois lignes lues, et seulement ensuite la bascule — avec le numéro de run dans
+le document, pour que la prochaine relecture puisse refaire le chemin sans me
+croire sur parole.
+
+### La forme générale
+
+C'est le même défaut que « badges JAMAIS écrits de tête », déplacé d'un cran :
+là, j'inventais un chiffre ; ici, j'aurais lu un signal RÉEL en lui prêtant un
+sens qu'il n'a pas. Le second est plus dangereux, parce qu'il se défend — « la
+CI est verte » est une phrase vraie qui conclut faux.
+
+Toute sortie de secours qui rend 0 (un `skip`, un `todo`, un « rien à faire »,
+un cas non concluant) transforme un vert en signal AMBIGU. Là où il en existe
+une, le journal est la seule source, et le numéro de run est la seule preuve
+qu'on puisse relire.
+
+---
+
+## 9 quattuorcenties. Un recoin d'écran que RIEN ne rend est un angle mort, pas une zone sûre
+
+`Intendance.tsx` : 38 mutations candidates, toutes jouées, douze survivantes.
+Après neuf fermetures, les trois qui restaient étaient toutes dans le même
+recoin — le billet d'une machine en provisionnement.
+
+Ce n'est pas un hasard, et c'est le point : **atteindre ce bloc demandait deux
+conditions simultanées** — une machine dans l'état `provisionnement` ET un appel
+réseau à `billetServeur`. Le banc des machines montait des machines `arrete` et
+ne bouchonnait pas `billetServeur`. Le bloc n'était donc jamais rendu, et aucune
+mutation qui s'y trouve ne pouvait échouer.
+
+### Pourquoi ça ne se voit pas
+
+Un fichier « mesuré en entier » ne veut pas dire « rendu en entier ». Les
+survivants se concentrent là où le décor des bancs ne va pas — et le décor ne va
+pas là où il faut réunir DEUX conditions, parce qu'on écrit ses bancs à partir
+du cas normal. Plus une garde a besoin de conditions pour être atteinte, moins
+elle a de chances d'être défendue, et plus elle est probablement en train de
+protéger quelque chose de rare et de coûteux.
+
+Ici, ce qu'elle protégeait : un secret **à usage unique**. Le mutant le plus
+discret des trois (`instanceof Error` → `instanceof Object`) rendait l'écran
+MUET sur un refus. L'administrateur reclique, et le second appel rend 404 — le
+billet est perdu pour de bon. Un mutisme fabrique une perte irréversible.
+
+### La règle qu'on en tire
+
+Quand un balayage laisse des survivants GROUPÉS, la question n'est pas « quel
+test manque ». C'est : **quelle condition mon décor n'a-t-il jamais réunie ?**
+Le groupe est la trace de l'angle mort, pas des lignes elles-mêmes — et l'angle
+mort se ferme d'un seul décor, pas de trois tests.
+
+---
+
+## 9 quincenties. Un balayage sur une suite DÉJÀ ROUGE conclut « rien de nu » — et c'est le pire faux vert du dépôt
+
+Lancée sur un arbre dont un banc était cassé, la loupe a rendu ceci :
+
+```text
+LOUPE : 17 mutation(s) possible(s) sur le diff, 9 examinée(s).
+  ✔ défendue · … (× 9)
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+Neuf sur neuf « défendues » — **dont des lignes d'un fichier qu'aucun test
+n'importe**. C'est ce détail qui a éveillé le soupçon, pas le résultat lui-même,
+qui était parfaitement plausible.
+
+### La mécanique
+
+`suiteRougit()` rend « rouge » pour **n'importe quel** rouge. Sur une suite déjà
+rouge, chaque mutant est donc déclaré tué par une panne qui ne le concerne pas.
+Le balayage entier cesse de mesurer quoi que ce soit — en annonçant que tout va
+bien.
+
+Une fois le banc réparé, le même diff a donné **17 examinées, 3 nues**. Le
+premier verdict n'était pas approximatif : il était à l'envers.
+
+### Pourquoi celui-ci est plus grave que les autres
+
+Trois raisons, et elles se cumulent :
+
+- il est rendu par **l'instrument dont le métier entier est de débusquer les
+  faux verts** ;
+- il arrive après un quart d'heure de calcul, et le temps passé donne à un
+  résultat une autorité qu'il n'a pas gagnée ;
+- son message est un slogan — « LA LOUPE NE VOIT RIEN DE NU » — c'est-à-dire la
+  forme la plus facile à citer et la plus difficile à rouvrir.
+
+C'est la même famille que le § 9 tercenties (« un travail de CI vert ne prouve
+pas que sa mesure a mordu ») et que le piège Windows déjà consigné dans
+`verdictDeLErreur` : un signal qui a **deux causes possibles** et qu'on lit comme
+s'il n'en avait qu'une.
+
+### Le remède, et son prix
+
+La loupe joue la suite **avant toute mutation** et refuse de conclure si elle
+rougit. Prouvé en cassant volontairement un banc :
+
+```text
+LOUPE : la suite doit être verte avant de muter quoi que ce soit…
+
+✘ LA SUITE ROUGIT DÉJÀ, SANS AUCUNE MUTATION.
+  Aucun verdict n'est rendu.
+```
+
+Le prix est un tour de suite en plus par balayage. Il est petit devant un
+balayage qui conclut à l'envers — et la loupe n'est pas une jambe de CI, donc ce
+coût n'est payé que là où on le choisit.
+
+### La règle générale
+
+**Un instrument différentiel doit vérifier son point zéro.** Toute mesure qui
+compare « avant » et « après » — mutation, performance, régression visuelle —
+est sans valeur si l'« avant » n'a pas été constaté. Ne pas le constater ne rend
+pas la mesure bruyante : ça la rend inversée, ce qui est bien pire, parce qu'une
+mesure bruyante se voit.
+
+---
+
+## 9 sexcenties. Un banc qui COPIE ce qu'il éprouve doit copier ses voisins
+
+`tests/essai-installation.test.ts` copie `essai-installation.sh` dans un dossier
+temporaire pour l'éprouver — bonne idée : le script y trouve un faux chantier et
+ne touche à rien de réel.
+
+En donnant deux pas de plus à l'essai, je les ai mis dans un fichier voisin, et
+le script l'a cherché avec `$(dirname $0)/../scripts/`. Vrai depuis le dépôt.
+Faux dans le banc, où ce chemin désigne `/tmp` : l'instrument était introuvable,
+et **l'essai sortait en 1 sur un chantier parfaitement sain**.
+
+### Les deux moitiés du remède, et pourquoi il en faut deux
+
+- Le script cherche désormais **à côté de lui-même** (`$(dirname $0)`), ce que le
+  jumeau PowerShell faisait déjà avec `$PSScriptRoot`. Un script qui se déplace
+  emporte ses voisins ; il n'emporte pas son arborescence.
+- Le banc **copie les voisins** avec le script. Sans cela, il éprouverait un
+  script amputé et le dirait sain.
+
+Corriger une seule des deux moitiés aurait donné un vert : la première seule
+suffit à faire passer le banc. Mais la seconde est celle qui empêche le banc de
+mentir la PROCHAINE fois qu'on ajoutera un voisin.
+
+### Ce qui rend ce défaut instructif
+
+Le chemin `..` n'était pas une faute d'inattention : il était **exact dans le
+seul monde où je l'avais essayé**. C'est la forme récurrente des défauts de ce
+dépôt — une hypothèse vraie ici, jamais énoncée, et fausse ailleurs. Le banc a
+été le seul à le dire, et il ne l'a dit que parce qu'il exécute vraiment le
+script au lieu d'en relire le texte.
+
+---
+
+## 9 septcenties. Le premier écran de Hive sous Windows était une page d'excuses — et personne ne pouvait le savoir
+
+`install.sh` a, depuis toujours, une étape « Construction de l'écran » qui lance
+`npm run build:dashboard`. `install.ps1` s'arrêtait à `install:hive`.
+
+Conséquence, jamais vue par personne : un arrivant sous Windows installait Hive,
+ouvrait l'adresse, et tombait sur
+
+> **La ruche tourne. L'écran, lui, n'est pas construit.**
+
+Le produit marchait — API, nœuds, tâches, tout répondait. Ce qu'il montrait
+était un mode d'emploi.
+
+### Pourquoi ça a tenu si longtemps
+
+Parce que **rien n'exerçait ce chemin**. Les trois jambes de seuil s'arrêtaient
+à « la ruche répond sur `/api/pulse` », qui prouve l'orchestrateur et pas
+l'écran. Le défaut vivait exactement dans l'espace entre ce qu'on mesurait et ce
+qu'on promettait.
+
+Ce n'est donc pas une régression. **Ça n'a jamais marché**, et la question utile
+n'est pas « qui l'a cassé » mais « qu'est-ce qui aurait pu le dire ». Réponse :
+seulement une mesure qui va jusqu'à l'écran. Elle a été ajoutée le 15 août au
+titre du point 3c, et elle l'a trouvé à sa **première exécution réelle sous
+Windows** :
+
+```text
+✔ 3/3 — la ruche répond sur :7777 après 1 s
+✘ 4/5 — la ruche sert la page « l'écran n'est pas construit »
+```
+
+Une mesure neuve qui rougit au premier tour n'est pas une mesure mal réglée :
+c'est une mesure qui arrive dans une zone que personne ne regardait.
+
+### La forme du défaut, et c'est la TROISIÈME de la même famille
+
+Les deux installeurs sont des jumeaux, et ils divergent en silence :
+
+| #   | ce qui manquait à `install.ps1` | trouvé par                                    |
+| --- | ------------------------------- | --------------------------------------------- |
+| 1   | `HIVE_DEPOT`                    | une lecture comparée des deux fichiers        |
+| 2   | l'appel au parcours             | la garde écrite en même temps que le parcours |
+| 3   | **la construction de l'écran**  | le pas 4/5, en CI, sous Windows               |
+
+Trois fois le même mécanisme : une chose faite d'un côté, oubliée de l'autre, et
+**aucun message pour le dire**. Une option absente se signale ; une option
+ignorée en silence ment.
+
+La garde qui ferme le n° 3 compare les travaux npm que chaque installeur LANCE
+— par découverte, pas par liste, pour que le quatrième soit couvert sans que
+personne n'y repense. Elle a été écrite AVANT le correctif et vue rouge sur le
+défaut vivant :
+
+```text
+install.ps1 ne lance pas des travaux qu'install.sh lance : build:dashboard
+```
+
+### Et le piège qu'il a fallu ne pas retomber dedans
+
+Elle exige un LANCEMENT, pas une mention. Les deux fichiers **écrivent**
+`npm run build:dashboard` dans un message de secours (« pour réessayer plus
+tard »). Une garde qui aurait compté ces lignes-là serait restée verte sur
+l'installeur cassé, puisque le texte y était. C'est la même distinction que pour
+les réglages `HIVE_*`, et c'est la troisième fois qu'elle sert dans ce fichier.
+
+---
+
+## 9 octocenties. J'ai coché ✅ parce que la MESURE EXISTAIT, pas parce qu'elle avait mordu
+
+En ajoutant les pas 4 et 5 aux trois jambes de seuil, j'ai réécrit le tableau du
+`definition of done` :
+
+```text
+Linux    ✅ installation → tableau → premier projet
+macOS    ✅ installation → tableau → premier projet
+Windows  ✅ installation → tableau → premier projet
+```
+
+Les deux premières lignes étaient vraies : leurs journaux étaient lus. **La
+troisième était fausse**, et je l'ai écrite dans le même geste, sans m'arrêter
+sur la différence — la jambe Windows n'avait alors jamais joué ces deux pas. Une
+heure plus tard, elle les jouait et rougissait.
+
+### Le glissement, nommé précisément
+
+Ce n'est pas « j'ai écrit un badge de tête » : le pas existait vraiment, le code
+était poussé, les deux autres systèmes étaient verts. C'est plus fin et plus
+facile à refaire —
+
+> **j'ai coché la case parce que l'INSTRUMENT était en place, pas parce que le
+> RÉSULTAT était rendu.**
+
+Un instrument en place ne mesure rien tant qu'il n'a pas tourné. Et un tableau
+qui compte trois systèmes fait glisser le troisième sur la lancée des deux
+premiers : la SYMÉTRIE de la ligne fait office de preuve, alors qu'elle n'est
+qu'une mise en page.
+
+### La règle qu'on en tire, et son coût
+
+**Une case par système se coche par système, avec le numéro de run de CE
+système.** Jamais par lot, jamais par lignée. C'est plus lent d'écrire trois
+fois la même chose en attendant trois journaux — et c'est exactement ce que
+« mesuré » veut dire.
+
+Le remède appliqué : la ligne Windows redevient `⚠️`, avec la mesure qui l'a
+démentie citée en dessous. Le correctif de l'installeur est poussé ; **la case
+ne rebasculera que sur un `✔ 4/5` et un `✔ 5/5` venus de la jambe Windows
+elle-même.**
+
+---
+
+## 9 nonacenties. `process.exit()` coupe la boucle — et ce qui est en vol le paie, sur Windows seulement
+
+Les cinq pas du parcours passaient. Le script mourait juste après le dernier :
+
+```text
+✔ 5/5 — premier projet créé (205955cc…) et visible par le tableau
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+```
+
+`process.exit()` arrête la boucle d'événements **sur-le-champ**, sans laisser ce
+qui est en cours se refermer. La connexion persistante que `fetch` garde ouverte
+vers la ruche était encore en vol ; quelque chose signale alors un handle déjà en
+cours de fermeture, et libuv abandonne le processus.
+
+Le verdict était juste. C'est la **sortie** qui a échoué — et un essai qui
+mesure bien puis meurt mal rend un rouge indiscernable d'un vrai rouge.
+
+### Ce qui rend ce défaut coûteux à trouver
+
+Il n'existe **que sous Windows**. Les mêmes lignes, sur Linux et macOS, sortent
+en 0 sans rien dire — mesuré des dizaines de fois avant que la jambe Windows ne
+l'exhibe. Ce n'est pas « Windows est capricieux » : c'est que POSIX tolère un
+abandon brutal là où l'implémentation Windows de libuv l'assertionne. Le code
+était fautif partout ; un seul système le disait.
+
+### Le remède, et sa forme
+
+Ne plus appeler `process.exit` du tout :
+
+- `rate()` **lève** au lieu de tuer ;
+- le corps devient un `principal()` qui **rend** un code ;
+- un seul endroit pose `process.exitCode`, et laisse Node partir quand il n'a
+  plus rien en cours.
+
+Un `throw` remonte, un `exit` coupe. La différence est de style sur trois
+systèmes et de correction sur le quatrième.
+
+Corollaire gardé au passage : ce point unique relance toute exception qui n'est
+pas un `EssaiRate`. Une panne imprévue doit garder sa pile, et non se déguiser en
+verdict d'essai.
+
+---
+
+## 9 decicenties. Une prédiction écrite dans un commentaire se lit comme un fait six mois plus tard
+
+En remplaçant `process.exit()` par `process.exitCode`, j'ai écrit ceci dans le
+source, en toute bonne foi :
+
+> _« On paie l'attente de la connexion persistante (4 s au plus, le
+> `keepAliveTimeout` d'undici). »_
+
+C'était un raisonnement plausible : undici garde ses connexions, leur délai par
+défaut est de 4 secondes, donc le processus devrait traîner. **Mesuré : 147 ms**
+entre le dernier `✔` et la main rendue, contre une ruche réelle.
+
+### Pourquoi ça vaut une entrée à part
+
+Le chiffre lui-même n'a aucune importance. Ce qui compte, c'est la **forme** :
+
+- un commentaire n'a pas de temps grammatical visible — rien ne distingue
+  « j'ai mesuré » de « je suppose » ;
+- il survit à son auteur, et se relit comme une donnée établie ;
+- il est le dernier endroit où l'on pense à vérifier, parce qu'il ne casse
+  jamais rien.
+
+C'est le même mécanisme que le § 9 septnonagies (une prose fausse traversant les
+relectures) et que le commentaire du travail `seuil` qui affirmait Windows
+« déjà exercé au seuil » — vrai de l'invocation, faux du seuil. Trois fois, le
+défaut n'était pas dans le code mais dans la phrase à côté.
+
+**La règle : dans un commentaire, un nombre est soit mesuré, soit annoncé comme
+une hypothèse.** Il n'y a pas de troisième forme, et « ça devrait coûter » n'en
+est pas une.
+
+---
+
+## 9 undecicenties. La garde qui protège des faux verdicts était elle-même sans défense
+
+Le point de sortie unique de `scripts/essai-parcours.mjs` porte cette ligne, et
+le commentaire au-dessus dit exactement ce qu'elle sert à empêcher :
+
+```js
+if (!(e instanceof EssaiRate)) throw e;
+```
+
+> _« Une panne qu'on n'a pas prévue ne doit pas se déguiser en verdict
+> d'essai. »_
+
+La loupe l'a rendue **nue** — dans le lot qui venait de l'écrire.
+
+### Ce que le mutant fabrique
+
+`instanceof EssaiRate` élargi en `instanceof Object` : toute erreur en est un.
+Un `ENOENT`, un `TypeError` dans mon propre code, une réponse mal formée —
+**tout** se met à sortir habillé en verdict, avec le `✘` et le code 1 d'un essai
+qui a vraiment mesuré. Celui qui lit le journal de la CI part alors chercher le
+défaut **dans le produit**, alors qu'il est dans l'instrument.
+
+C'est-à-dire : la ligne écrite pour empêcher un faux verdict devient, une fois
+mutée, la machine à en fabriquer.
+
+### Et ce qui départage n'est pas le code de sortie
+
+Les deux mondes sortent en **1**. Mesuré, sur un dossier sans `.env` :
+
+```text
+sain   node:fs:484 … Error: ENOENT … at readFileSync (node:fs:484:20)
+muté   ✘ ENOENT: no such file or directory, open '…/.env'
+```
+
+Un banc qui aurait comparé les codes de sortie serait resté vert sur les deux.
+Ce qu'il faut assurer, c'est la **présentation** — la présence de la pile,
+l'absence du `✘`. C'est aussi, très exactement, ce qui compte pour un humain
+devant un journal : le code dit qu'on a échoué, la forme dit **qui** a échoué.
+
+### La règle
+
+**Une garde qui trie les erreurs se mesure sur ce qu'elle AFFICHE, pas sur ce
+qu'elle rend.** Deux chemins qui rendent le même code peuvent raconter deux
+histoires opposées, et c'est l'histoire qu'on lit à 3 h du matin quand la CI est
+rouge.
+
+Corollaire, déjà vu trois fois aujourd'hui : les lignes qu'on écrit en fin de
+lot — le point de sortie, la clause `catch`, le message d'erreur — sont celles
+qu'on éprouve le moins, parce qu'elles servent quand tout le reste a échoué. Ce
+sont donc celles qu'il faut muter en premier.
+
+---
+
+## 9 duodecicenties. L'outil qui plante des défauts en avait laissé un dans l'arbre
+
+La loupe restaurait le fichier muté dans un `finally`, et rien d'autre. Un
+`finally` ne s'exécute pas quand le processus est **tué**.
+
+Constaté sur ce dépôt, en arrêtant un balayage en cours de route :
+
+```text
+ M scripts/essai-parcours.mjs
+
+-  if (!port || !jeton) {
++  if (!port && !jeton) {
+```
+
+Un défaut **délibéré**, déposé par l'outil, resté dans l'arbre de travail. Un
+`git commit -a` distrait l'aurait publié — et il aurait inversé la garde qui
+empêche l'essai d'accuser la ruche d'un défaut du `.env`.
+
+C'est le pire tour que puisse jouer un outil dont le métier est de planter des
+défauts, et il ne demande aucune malchance : un Ctrl-C, une session fermée, un
+conteneur repris suffisent.
+
+### Le remède ÉVIDENT ne marche pas, et c'est le cœur de la leçon
+
+Le réflexe est d'ajouter `process.on('SIGINT'|'SIGTERM', …)`. Mesuré :
+**ça ne suffit pas, et pour une raison structurelle.**
+
+`suiteRougit()` appelle `execFileSync`. Pendant les ~4 minutes d'un tour de
+suite, **la boucle d'événements est bloquée** — aucun gestionnaire de signal ne
+peut s'exécuter. Or c'est exactement pendant ces 4 minutes qu'on interrompt un
+balayage ; le reste du temps, il n'y a presque rien à interrompre.
+
+Vérifié : un `SIGTERM` envoyé sur une mutation en vol n'a **pas** été honoré, la
+loupe tournant encore 30 s plus tard. Le `SIGKILL` qui a suivi a laissé le
+mutant, comme attendu.
+
+### Ce qui marche : mettre l'original SUR LE DISQUE avant de muter
+
+Un journal `.loupe-en-cours` porte `{fichier, original}`, écrit **avant** la
+mutation et retiré **après** la restauration. Le balayage suivant le trouve et
+répare — quel que soit ce qui a tué le précédent, y compris ce qu'aucun
+gestionnaire ne voit : `SIGKILL`, coupure, conteneur détruit.
+
+Rejoué contre un vrai `SIGKILL` :
+
+```text
+⚠ LOUPE : un balayage precedent a ete interrompu en pleine mutation.
+  scripts/essai-parcours.mjs portait un defaut DELIBERE — il vient d'etre restaure.
+✔ arbre propre, journal retiré
+```
+
+### La règle générale
+
+**Un état dangereux doit être réparable depuis le disque, pas depuis la
+mémoire.** Tout ce qui ne vit qu'en mémoire — l'original d'un fichier, la liste
+de ce qu'il faut défaire — disparaît avec le processus, et c'est justement la
+mort du processus qui crée le besoin de réparer.
+
+Le corollaire vaut au-delà de la loupe : un gestionnaire de signal est une
+**doublure**, jamais un filet. Il ne s'exécute que si la boucle tourne, et la
+boucle ne tourne pas quand on fait le travail long qui justifiait la précaution.
