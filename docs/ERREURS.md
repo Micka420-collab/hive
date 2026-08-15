@@ -10210,3 +10210,56 @@ défaut n'était pas dans le code mais dans la phrase à côté.
 **La règle : dans un commentaire, un nombre est soit mesuré, soit annoncé comme
 une hypothèse.** Il n'y a pas de troisième forme, et « ça devrait coûter » n'en
 est pas une.
+
+---
+
+## 9 undecicenties. La garde qui protège des faux verdicts était elle-même sans défense
+
+Le point de sortie unique de `scripts/essai-parcours.mjs` porte cette ligne, et
+le commentaire au-dessus dit exactement ce qu'elle sert à empêcher :
+
+```js
+if (!(e instanceof EssaiRate)) throw e;
+```
+
+> _« Une panne qu'on n'a pas prévue ne doit pas se déguiser en verdict
+> d'essai. »_
+
+La loupe l'a rendue **nue** — dans le lot qui venait de l'écrire.
+
+### Ce que le mutant fabrique
+
+`instanceof EssaiRate` élargi en `instanceof Object` : toute erreur en est un.
+Un `ENOENT`, un `TypeError` dans mon propre code, une réponse mal formée —
+**tout** se met à sortir habillé en verdict, avec le `✘` et le code 1 d'un essai
+qui a vraiment mesuré. Celui qui lit le journal de la CI part alors chercher le
+défaut **dans le produit**, alors qu'il est dans l'instrument.
+
+C'est-à-dire : la ligne écrite pour empêcher un faux verdict devient, une fois
+mutée, la machine à en fabriquer.
+
+### Et ce qui départage n'est pas le code de sortie
+
+Les deux mondes sortent en **1**. Mesuré, sur un dossier sans `.env` :
+
+```text
+sain   node:fs:484 … Error: ENOENT … at readFileSync (node:fs:484:20)
+muté   ✘ ENOENT: no such file or directory, open '…/.env'
+```
+
+Un banc qui aurait comparé les codes de sortie serait resté vert sur les deux.
+Ce qu'il faut assurer, c'est la **présentation** — la présence de la pile,
+l'absence du `✘`. C'est aussi, très exactement, ce qui compte pour un humain
+devant un journal : le code dit qu'on a échoué, la forme dit **qui** a échoué.
+
+### La règle
+
+**Une garde qui trie les erreurs se mesure sur ce qu'elle AFFICHE, pas sur ce
+qu'elle rend.** Deux chemins qui rendent le même code peuvent raconter deux
+histoires opposées, et c'est l'histoire qu'on lit à 3 h du matin quand la CI est
+rouge.
+
+Corollaire, déjà vu trois fois aujourd'hui : les lignes qu'on écrit en fin de
+lot — le point de sortie, la clause `catch`, le message d'erreur — sont celles
+qu'on éprouve le moins, parce qu'elles servent quand tout le reste a échoué. Ce
+sont donc celles qu'il faut muter en premier.

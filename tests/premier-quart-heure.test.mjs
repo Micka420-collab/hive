@@ -213,6 +213,48 @@ describe('l’instrument refuse de conclure sur un .env incomplet', () => {
     expect(code).toBe(1);
   });
 
+  it('UNE PANNE IMPRÉVUE GARDE SA PILE — elle ne se déguise pas en verdict', () => {
+    // ─── LA SURVIVANTE QUE LA LOUPE A TROUVÉE, DANS CE LOT MÊME ────────────
+    //
+    //     if (!(e instanceof EssaiRate)) throw e;   mutée en `instanceof Object`
+    //
+    // Le point de sortie unique attrape ce que `rate()` a levé, l'affiche en
+    // « ✘ … », et pose le code. Tout le reste doit REPARTIR : une panne qu'on
+    // n'a pas prévue n'est pas un verdict d'essai.
+    //
+    // Mutée, `EssaiRate` s'élargit à `Object` — et TOUTE erreur en est un. Un
+    // `ENOENT`, un `TypeError` dans mon propre code, une réponse mal formée :
+    // tout se met à sortir habillé en verdict, avec le ✘ et le code 1 d'un
+    // essai qui a mesuré. Celui qui lit le journal de la CI part alors chercher
+    // le défaut DANS LE PRODUIT, alors qu'il est dans l'instrument.
+    //
+    // ─── CE QUI DÉPARTAGE : PAS LE CODE, LA FORME ──────────────────────────
+    //
+    // Les deux mondes sortent en 1. Mesuré, avec un dossier sans `.env` :
+    //
+    //     sain   node:fs:484 … Error: ENOENT … at readFileSync (node:fs:484:20)
+    //     muté   ✘ ENOENT: no such file or directory, open '…/.env'
+    //
+    // C'est donc la PRÉSENTATION qu'il faut assurer, pas le code de sortie —
+    // et c'est exactement ce qui compte pour qui lit un journal.
+    const dossier = mkdtempSync(path.join(os.tmpdir(), 'banc-parcours-nu-'));
+    dossiers.push(dossier);
+    // Aucun `.env` : `readFileSync` lève un ENOENT, qui n'est PAS un EssaiRate.
+    const v = spawnSync(process.execPath, [INSTRUMENT, '--racine', dossier], {
+      encoding: 'utf8',
+      shell: false,
+      timeout: 30_000,
+    });
+    const sortie = `${v.stdout}${v.stderr}`;
+
+    expect(sortie, 'le cas ne mesure rien : la panne attendue n’a pas eu lieu').toContain('ENOENT');
+    expect(
+      sortie,
+      'une panne imprévue est présentée comme un verdict d’essai (« ✘ »)',
+    ).not.toContain('✘');
+    expect(sortie, 'la pile a disparu — on ne saura pas d’où vient la panne').toMatch(/\n\s+at /);
+  });
+
   it('SANS --racine, l’instrument dit son usage et sort en 64', () => {
     // 64 = « on m'a mal appelé », distinct de 1 = « la mesure a échoué ».
     // Les confondre ferait passer une erreur d'invocation pour un défaut du
