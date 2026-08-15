@@ -84,7 +84,7 @@ import {
   fetchVerdictChantier,
 } from '../dashboard/src/api';
 import { PleinEssaim } from '../dashboard/src/PleinEssaim';
-import { BalanceProjet, CarteBalance } from '../dashboard/src/views/Balance';
+import { BalanceProjet, CarteBalance, CarteDevis } from '../dashboard/src/views/Balance';
 import Intendance from '../dashboard/src/views/Intendance';
 import Memoire from '../dashboard/src/views/Memoire';
 import { Journal } from '../dashboard/src/Journal';
@@ -1051,6 +1051,159 @@ describe('les sentinelles du balayage du soir', () => {
     // Ni 1970, ni « Invalid Date », ni séparateur orphelin : RIEN.
     expect(sansDate, 'l’écran a inventé une date de pose').not.toContain('1970');
     expect(sansDate, 'un séparateur pend sans rien derrière').not.toContain(' · ');
+  });
+
+  // ─── LES TROIS PORTES QUI DÉCIDENT QU'ON VOIT LA BALANCE D'UN PROJET ───────
+  //
+  //     const aPesee   = compte !== null && compte.totalMs > 0;
+  //     const aSolde   = mode !== 'off' && solde !== null;
+  //     const aPlafond = (solde?.plafondMs ?? null) !== null;
+  //     if (!aPesee && !aSolde && !aPlafond) return null;
+  //
+  // Le commentaire au-dessus porte l'intention entière : « ni pesée
+  // exploitable, ni solde tenu, ni plafond posé ⇒ rien à dire sur ce projet, et
+  // surtout pas un bloc vide qui laisserait croire à une panne. Un plafond, lui,
+  // se montre TOUJOURS dès qu'il existe […] c'est précisément le projet (bloqué
+  // à zéro dépense) qu'il ne faut pas rendre invisible. »
+  //
+  // Le balayage COMPLET du fichier — pas seulement ses lignes ajoutées — a
+  // trouvé ces trois-là nues, chacune survivant à la suite ENTIÈRE. Elles
+  // décident de la VISIBILITÉ d'un bloc : rien de plus silencieux qu'une
+  // information qui ne s'affiche pas.
+  const projet = (
+    compte: unknown,
+    solde: unknown,
+    mode: 'strict' | 'observation' | 'off',
+    aJour = true,
+  ): React.ReactElement => (
+    <BalanceProjet
+      projectId="p1"
+      projectName="Rucher"
+      compte={compte as never}
+      solde={solde as never}
+      mode={mode}
+      aJour={aJour}
+    />
+  );
+
+  it('BALANCE : un projet SANS RIEN À DIRE se tait — pas de bloc vide', async () => {
+    // `compte.totalMs > 0` mutée en `>=` : une pesée à zéro devient « une
+    // pesée », et la carte s'ouvre sur « 0 % de rendement · 0 s prêtées ». Ce
+    // n'est pas une information, c'est un bloc qui occupe la place et laisse
+    // croire qu'on regarde quelque chose.
+    const dom = await monter(projet({ totalMs: 0, tentatives: 0, parPoste: {} }, null, 'off'));
+    expect(
+      dom.querySelector('.bal-projet'),
+      'un projet sans dépense, sans solde et sans plafond affiche quand même un bloc',
+    ).toBeNull();
+  });
+
+  it('BALANCE : un projet PLAFONNÉ se voit, même s’il n’a jamais rien dépensé', async () => {
+    // ─── LE CAS QUE LE COMMENTAIRE NOMME EXPRESSÉMENT ──────────────────────
+    //
+    // `(solde?.plafondMs ?? null) !== null` mutée en `===` inverse la porte :
+    // le projet SANS plafond s'affiche, et celui QUI EN A UN disparaît. Or
+    // c'est exactement le projet bloqué à zéro dépense — celui qu'un opérateur
+    // cherche quand il se demande pourquoi rien n'avance.
+    const plafonne = { projectId: 'p1', depenseMs: 0, tentatives: 0, plafondMs: 7_200_000 };
+    const avec = await monter(projet(null, plafonne, 'off'));
+    expect(
+      avec.querySelector('.bal-projet'),
+      'un projet plafonné à zéro dépense est devenu invisible',
+    ).toBeTruthy();
+
+    // Et la porte garde son sens dans l'autre sens : sans plafond, sans pesée
+    // et sans grand livre, il n'y a rien à montrer.
+    const sans = { projectId: 'p1', depenseMs: 0, tentatives: 0, plafondMs: null };
+    const sansRien = await monter(projet(null, sans, 'off'));
+    expect(
+      sansRien.querySelector('.bal-projet'),
+      'un projet sans plafond ni dépense affiche un bloc',
+    ).toBeNull();
+  });
+
+  it('BALANCE : le GRAND LIVRE se tait en mode « off », où il n’existe pas', async () => {
+    // `mode !== 'off' && solde !== null` mutée en `||` : le grand livre
+    // s'affiche alors que le serveur ne le tient pas. Il montrerait « 0 s sur 0
+    // tentative(s), depuis toujours » — un zéro qui se lit « ce projet n'a rien
+    // coûté » alors qu'il veut dire « personne ne compte ».
+    const solde = { projectId: 'p1', depenseMs: 0, tentatives: 0, plafondMs: 7_200_000 };
+    const off = await monter(projet(null, solde, 'off'));
+    expect(off.querySelector('.bal-projet'), 'le plafond doit rester visible').toBeTruthy();
+    expect(
+      off.querySelector('.bal-projet-solde'),
+      'le grand livre parle alors que le mode « off » ne le tient pas',
+    ).toBeNull();
+
+    // En mode tenu, il parle — sinon la garde ci-dessus serait vraie pour la
+    // mauvaise raison (un grand livre qui ne s'affiche JAMAIS).
+    const tenu = await monter(projet(null, solde, 'strict'));
+    expect(tenu.querySelector('.bal-projet-solde'), 'le grand livre ne dit rien').toBeTruthy();
+  });
+
+  it('BALANCE : « rattrapage en cours » ne se dit QUE pendant le rattrapage', async () => {
+    // `{!aJour && ' ⏳ rattrapage en cours'}` mutée en `||` : le sablier ne
+    // s'éteint plus jamais. Un chiffre éternellement marqué « incomplet » ne se
+    // lit plus du tout — et le jour où il l'est vraiment, rien ne le distingue.
+    const solde = { projectId: 'p1', depenseMs: 60_000, tentatives: 2, plafondMs: null };
+    const aJour = await monter(projet(null, solde, 'strict', true));
+    expect(
+      aJour.querySelector('.bal-projet-solde')?.textContent ?? '',
+      'le grand livre à jour s’annonce en rattrapage',
+    ).not.toContain('rattrapage');
+
+    const enRetard = await monter(projet(null, solde, 'strict', false));
+    expect(
+      enRetard.querySelector('.bal-projet-solde')?.textContent ?? '',
+      'le grand livre en retard ne l’avoue pas',
+    ).toContain('rattrapage');
+  });
+
+  // ─── LE DEVIS : DEUX LIGNES QUI DISENT CE QU'IL NE SAIT PAS ────────────────
+  const devis = (echantillons: readonly number[]): unknown => ({
+    totalMedianeMs: 3_600_000,
+    totalP90Ms: 7_200_000,
+    parTache: echantillons.map((n, i) => ({
+      title: `Tâche ${i + 1}`,
+      // `DOMAINE_LABEL` n'a pas de clé « code » : un domaine inventé fait
+      // tomber le rendu AVANT la garde (§ 9 quinnonagies, troisième fois).
+      domaine: 'api',
+      medianeMs: 600_000,
+      p90Ms: 900_000,
+      echantillon: n,
+    })),
+  });
+
+  it('DEVIS : la PLAGE d’échantillon dit un seul chiffre quand il n’y en a qu’un', async () => {
+    // `min === max ? \`${min}\` : \`${min}–${max}\`` mutée en `!==` échange les
+    // deux : un échantillon homogène s'annonce « 4–4 », et un échantillon qui
+    // va de 2 à 90 s'annonce « 2 ». Le second est le vrai dégât — il cache
+    // l'écart, c'est-à-dire la seule chose que ce chiffre existe pour dire.
+    const egal = await monter(<CarteDevis devis={devis([4, 4]) as never} nbTaches={2} />);
+    expect(
+      egal.querySelector('.bal-devis-sample')?.textContent ?? '',
+      'un échantillon homogène s’annonce comme une plage',
+    ).toContain('4 tâche');
+
+    const etendu = await monter(<CarteDevis devis={devis([2, 90]) as never} nbTaches={2} />);
+    const texte = etendu.querySelector('.bal-devis-sample')?.textContent ?? '';
+    expect(texte, 'l’écart de l’échantillon est caché').toContain('2–90');
+  });
+
+  it('DEVIS : « chiffrées sur N » ne s’affiche que s’il MANQUE des tâches', async () => {
+    // `chiffrees < nbTaches` mutée en `<=` : la note « 3 tâche(s) chiffrée(s)
+    // sur 3 : les autres n'ont pas encore assez de tâches comparables » se
+    // contredit à l'écran. Mutée en `||`, elle ne s'éteint jamais.
+    const notes = (dom: HTMLElement): string =>
+      [...dom.querySelectorAll('.bal-note')].map((n) => n.textContent ?? '').join(' | ');
+
+    const complet = await monter(<CarteDevis devis={devis([5, 5]) as never} nbTaches={2} />);
+    expect(notes(complet), 'un devis complet se dit incomplet').not.toContain('chiffrée(s) sur');
+
+    const partiel = await monter(<CarteDevis devis={devis([5, 5]) as never} nbTaches={7} />);
+    expect(notes(partiel), 'un devis partiel ne dit pas ce qu’il ignore').toContain(
+      '2 tâche(s) chiffrée(s) sur 7',
+    );
   });
 
   it('BALANCE : LE CAS ZÉRO ne rend jamais NaN sur l’écran de l’argent', async () => {

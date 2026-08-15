@@ -7578,3 +7578,107 @@ Il ne rend pas la boucle éprouvable. `attrape.current.id` reste hors d'atteinte
 du banc, et c'est écrit à l'inventaire plutôt que masqué par un faux contexte.
 Ce qui change, c'est que la limite a désormais une date de péremption mesurée à
 chaque exécution.
+
+---
+
+## Balance.tsx, balayée EN ENTIER pour la première fois — 41 mutations, aucune sautée
+
+Le balayage précédent était mort à 22 mutations sur 43, et je n'avais aucun
+verdict sur les 21 autres. Celui-ci va au bout — et il regarde le fichier
+ENTIER, pas seulement les lignes qu'une branche a ajoutées.
+
+### L'instrument, et pourquoi il diffère de la loupe
+
+La loupe joue chaque mutant contre la suite COMPLÈTE (≈ 100 s). 41 mutations
+coûteraient une heure, ce qui est précisément ce qui avait tué le balayage
+précédent. Deux passes, sans rien concéder sur la justesse :
+
+- **passe rapide** — le banc qui touche le fichier (≈ 2 s). Un mutant qui rougit
+  là rougirait a fortiori sur la suite entière : « tué » est DÉFINITIF.
+- **passe lente** — tout survivant est rejoué sur la suite complète, parce qu'un
+  autre banc peut très bien le tuer. « Nu » ne se dit qu'APRÈS.
+
+La mesure le confirme : sur 16 survivants de la passe rapide, **3 ont été tués
+par un autre banc**. Une conclusion tirée de la seule passe rapide aurait donc
+nommé trois lignes nues qui ne l'étaient pas.
+
+L'atelier était un `git worktree` détaché, avec restauration par copie dans un
+`finally` ET sur `SIGINT`/`SIGTERM`. Le processus a été fauché une fois en cours
+de route : l'arbre principal était propre, et l'atelier aussi.
+
+### Le relevé
+
+```text
+41 mutations candidates sur tout le fichier
+  25 tuées par le banc des vues (passe rapide)
+   3 tuées par un autre banc (passe lente)
+  13 NUES — survivantes de la suite ENTIÈRE
+```
+
+Deux des treize étaient **ma propre prose** : les lignes de continuation d'une
+consignation d'équivalence, que le détecteur de commentaires de la loupe (de
+forme LIGNE, § 9 quaternonagies) ne peut pas voir. La consignation VOISINE avait
+été réécrite avec des marques `*` en tête ; celle-ci avait été oubliée. Le
+balayage complet l'a rattrapée — c'est exactement ce qu'un balayage élargi est
+censé faire.
+
+### Sept mutants fermés : ce qui décide qu'on VOIT, et ce que l'écran avoue
+
+```js
+const aPesee = compte !== null && compte.totalMs > 0;
+const aSolde = mode !== 'off' && solde !== null;
+const aPlafond = (solde?.plafondMs ?? null) !== null;
+if (!aPesee && !aSolde && !aPlafond) return null;
+```
+
+Trois portes qui décident de la VISIBILITÉ d'un bloc — rien de plus silencieux
+qu'une information qui ne s'affiche pas. `aPlafond` mutée en `===` inverse la
+porte : le projet SANS plafond s'affiche et **celui qui en a un disparaît**. Or
+c'est le projet bloqué à zéro dépense, celui qu'un opérateur cherche quand il se
+demande pourquoi rien n'avance — et le commentaire du code le nomme
+expressément.
+
+`aSolde` mutée en `||` fait parler le grand livre en mode « off », où le serveur
+ne le tient pas : « 0 s sur 0 tentative(s), depuis toujours » se lit « ce projet
+n'a rien coûté » alors qu'il veut dire « personne ne compte ».
+
+`{!aJour && ' ⏳ rattrapage en cours'}` mutée en `||` : le sablier ne s'éteint
+plus jamais. Un chiffre éternellement marqué « incomplet » ne se lit plus du
+tout — et le jour où il l'est vraiment, rien ne le distingue.
+
+Côté devis, `min === max` mutée échange les deux formes : un échantillon qui va
+de 2 à 90 s'annonce « 2 », ce qui cache l'écart — la seule chose que ce chiffre
+existe pour dire. Et `chiffrees < nbTaches`, mutée dans les deux sens, fait dire
+à l'écran « 2 tâche(s) chiffrée(s) sur 2 : les autres n'ont pas encore assez de
+tâches comparables ». Une contradiction imprimée.
+
+### Rejeu, verdict affiché
+
+```text
+aPesee    > → >=          1 failed  (« affiche quand même un bloc »)
+aPlafond  !== → ===       1 failed  (« un projet plafonné à zéro dépense est devenu invisible »)
+aSolde    && → ||         1 failed  (« le grand livre parle alors que « off » ne le tient pas »)
+!aJour    && → ||         1 failed  (« le grand livre à jour s'annonce en rattrapage »)
+plage     === → !==       1 failed  (« l'écart de l'échantillon est caché »)
+chiffrees < → <=          1 failed  (« un devis complet se dit incomplet »)
+chiffrees && → ||         1 failed  (« un devis complet se dit incomplet »)
+source saine, restaurée par copie  49 passed (49)
+```
+
+Les sept ont été REJOUÉS après une retouche de type sur le banc : une garde
+retouchée se re-prouve, même quand la retouche ne touche qu'une annotation.
+
+### Ce qui reste, nommé
+
+Quatre mutations sur trois lignes survivent encore à la suite entière :
+
+```text
+e instanceof Error → instanceof Object   .catch((e) => setErreur(…))
+{plafondMs !== null && (                 && → ||   et   !== → ===
+{cible === null                          === → !==
+```
+
+La première est intéressante : le banc du refus tue `true` et `false`, mais pas
+`instanceof Object` — une `Error` EST un objet, et une chaîne n'en est pas un,
+donc les deux cas du banc se comportent pareil. Un rejet par un objet NU les
+départage. Ce n'est pas une équivalence, c'est une entrée qui manque.

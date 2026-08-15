@@ -689,23 +689,29 @@ function ControlePlafond({
               {t('Annuler', 'Cancel')}
             </button>
           </div>
-          {/* ─── ÉQUIVALENCE CONSIGNÉE : `cible !== null` ne peut pas être faux ici
-              (§ 2.16 ter). `arme` ne devient vrai que dans `poser`, qui rend la
-              main tôt quand `cible === null` ; et `cible` ne dépend que de
-              `saisie`, dont le `onChange` DÉSARME. Il n'existe donc aucune
-              entrée qui distingue l'original du mutant.
-
-              On la garde quand même : ce n'est pas du décor, c'est le
-              rétrécissement de type qui autorise `formatDuree(cible)` juste
-              en dessous. La retirer casserait la compilation, pas seulement
-              la lecture.
-
-              Mesuré, deux mutants opposés :
-                `arme` retiré            → 1 cas rouge (le banc BALANCE
-                                            « le geste ARMÉ dit ce qu'il va
-                                            faire » : au repos, l'avertissement
-                                            ne doit pas exister)
-                `cible !== null` neutralisé → 3 verts, survivant équivalent */}
+          {/* ─── ÉQUIVALENCE CONSIGNÉE : la seconde borne ne peut pas être fausse
+           * ici (§ 2.16 ter). `arme` ne devient vrai que dans `poser`, qui rend
+           * la main tôt sur une cible absente ; et la cible ne dépend que de
+           * `saisie`, dont le `onChange` DÉSARME. Il n'existe donc aucune
+           * entrée qui distingue l'original du mutant.
+           *
+           * On la garde quand même : ce n'est pas du décor, c'est le
+           * rétrécissement de type qui autorise `formatDuree(cible)` juste en
+           * dessous. La retirer casserait la compilation, pas seulement la
+           * lecture.
+           *
+           * Mesuré, deux mutants opposés :
+           *   `arme` retiré       → 1 cas rouge (le banc BALANCE « le geste
+           *                          ARMÉ dit ce qu'il va faire » : au repos,
+           *                          l'avertissement ne doit pas exister)
+           *   seconde borne neutralisée → 3 verts, survivant équivalent
+           *
+           * LES MARQUES `*` EN TÊTE NE SONT PAS DE LA DÉCORATION. Le détecteur
+           * de commentaires de la loupe est de forme LIGNE (§ 9 quaternonagies)
+           * et ne voit pas l'intérieur d'un bloc : une continuation qui énonce
+           * une condition en toutes lettres se fait muter comme du code. La
+           * consignation voisine avait été réécrite ainsi ; celle-ci avait été
+           * oubliée, et le balayage complet du fichier l'a rattrapée. */}
           {/* loupe : équivalent — !== → === ; loupe : équivalent — === → !== */}
           {arme && cible !== null && (
             <p className="bal-plafond-avert" role="status">

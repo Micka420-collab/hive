@@ -9482,3 +9482,62 @@ Le remède appliqué ici est modeste et honnête : la note est recopiée à l'en
 qui en a besoin, avec un renvoi. Le remède complet — que le journal des erreurs
 soit consulté AVANT d'écrire un banc qui lit des fichiers, pas après — est une
 habitude, pas une garde, et se dit ici plutôt que de se prétendre résolue.
+
+## 9 septnonagies. Un balayage qui ne va pas au bout ne dit rien — et le rendre abordable est un travail à part entière
+
+Le balayage de `Balance.tsx` était mort à 22 mutations sur 43. Rejouer les 21
+restantes n'était pas une question de volonté : la loupe joue chaque mutant
+contre la suite COMPLÈTE (≈ 100 s), et une heure de mesure ne survit pas aux
+interruptions.
+
+La réponse n'était pas de tronquer la mesure, ni de la lancer une nouvelle fois
+en espérant. C'était de **rendre la mesure abordable sans la fausser**, en deux
+passes :
+
+- **passe rapide** — le banc qui touche le fichier (≈ 2 s). Un mutant qui rougit
+  là rougirait a fortiori sur la suite entière : « tué » est DÉFINITIF.
+- **passe lente** — tout SURVIVANT est rejoué sur la suite complète. « Nu » ne
+  se dit qu'après.
+
+L'asymétrie est le cœur de l'affaire, et elle n'est pas un détail d'optimisation.
+
+> **« Tué » et « nu » n'ont pas le même coût de preuve.** Un mutant tué par UN
+> banc est tué, point. Un mutant qui survit à UN banc ne prouve rien : il faut
+> les avoir tous essayés. Confondre les deux, c'est bâtir un raccourci qui
+> ment dans un seul sens — et c'est le sens qui compte, puisqu'il fabrique de
+> fausses lignes nues.
+
+Mesuré : **3 des 16 survivants de la passe rapide ont été tués par un autre
+banc.** Une conclusion tirée de la seule passe rapide aurait nommé trois lignes
+nues qui ne l'étaient pas, et fait écrire trois bancs pour rien.
+
+### Ce que le balayage complet a rattrapé chez moi
+
+Deux des treize lignes nues étaient ma PROPRE PROSE : les continuations d'une
+consignation d'équivalence. Le § 9 quaternonagies avait nommé cette limite et
+donné le remède — mettre une marque `*` en tête de chaque continuation. Je
+l'avais appliqué à la consignation qui avait rougi, et pas à sa VOISINE, dans le
+même fichier, à quinze lignes de là.
+
+> **Un remède appliqué à l'endroit qui a fait mal n'est pas un remède
+> appliqué.** La leçon dit ce qu'il faut faire ; elle ne dit pas où c'est déjà
+> fait. Quand on nomme une limite d'outil, le geste complet est de balayer le
+> dépôt pour les autres occurrences — pas de corriger celle qui a crié.
+
+C'est la même forme que le § 9 sexnonagies (une note qui ne protège que son
+fichier) et que le § 9 quinoctogies (la portée d'une garde fait partie de la
+garde). Trois fois le même angle mort : **ce qu'on a corrigé, et ce qu'on a
+corrigé PARTOUT, ne sont pas la même chose.**
+
+### Et le décor manquant, pour la troisième fois
+
+Trois fois cette nuit, un banc neuf est né rouge parce que son décor manquait un
+champ que la vue lit : `reprises` d'abord, puis un `domaine` inventé
+(`'code'`, absent de `DOMAINE_LABEL`). À chaque fois le rendu tombait sur un
+`TypeError` AVANT d'atteindre la garde.
+
+La discipline qui rattrape ça est déjà écrite (§ 9 quinnonagies : « un rouge qui
+n'est pas une assertion n'est pas une mesure »), et elle a fonctionné les trois
+fois — le diagnostic a pris moins d'une minute. Ce qui manque n'est pas la
+leçon, c'est un décor PARTAGÉ pour ces vues, qu'on ne réinvente pas à chaque
+banc. C'est un lot à part, et il est nommé ici plutôt que prétendu fait.
