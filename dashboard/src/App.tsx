@@ -260,14 +260,34 @@ export function App() {
 
   // Raccourcis de vue sans souris (hors saisie et dialogues) : 1-9 et 0 pour
   // les cases ordinaires, « i » pour l'Intendance — les chiffres étaient pris.
-  // e.code Digit/Numpad : indépendant de la disposition clavier (AZERTY…) ;
-  // une lettre, elle, ne matche que par `e.key`, ce que le `||` couvre déjà.
+  //
+  // ─── `e.code === Digit…` RATTRAPE L'AZERTY, ET C'EST INDISPENSABLE ─────────
+  //
+  // Sur un clavier français, la rangée du haut ne rend pas de chiffres sans
+  // Maj : la touche de « 7 » rend « è ». Sans ce repli, la navigation au
+  // clavier serait muette EN FRANÇAIS — c'est-à-dire pour le public premier de
+  // ce produit. `e.code` désigne la position PHYSIQUE de la touche.
+  //
+  // ─── `Numpad…` A ÉTÉ RETIRÉ, ET VOICI POURQUOI ────────────────────────────
+  //
+  // La loupe l'a laissé SURVIVRE, et en cherchant l'entrée qui le départage on
+  // ne trouve pas un test manquant : on trouve que la branche n'a aucun cas où
+  // elle sert. Ce que la spécification UI Events impose :
+  //
+  //     NumLock ALLUMÉ   Numpad7 → key: '7'     code: 'Numpad7'
+  //     NumLock ÉTEINT   Numpad7 → key: 'Home'  code: 'Numpad7'
+  //
+  //   · allumé  — `n.key === e.key` matche déjà : la branche est REDONDANTE ;
+  //   · éteint  — l'utilisateur a tapé « Origine », et la branche le faisait
+  //               NAVIGUER : elle était NUISIBLE.
+  //
+  // Contrairement à `Digit`, le pavé numérique n'a aucune disposition à
+  // rattraper : il est le même partout. Une branche redondante d'un côté et
+  // nuisible de l'autre n'a pas de cas où elle sert.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || inInput() || modalOpen()) return;
-      const item = NAV.find(
-        (n) => n.key === e.key || e.code === `Digit${n.key}` || e.code === `Numpad${n.key}`,
-      );
+      const item = NAV.find((n) => n.key === e.key || e.code === `Digit${n.key}`);
       // Une case masquée n'a pas non plus de raccourci : sinon « 9 » emmènerait
       // un membre sur un écran qui ne sait que lui dire non.
       if (item && (!item.admin || estAdmin(userRef.current))) navigate(item.id);

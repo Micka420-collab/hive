@@ -11023,3 +11023,60 @@ des voisins du banc du seuil (§ 9 novemdecicenties), la portée d'un balayage
 ajouter l'élément manquant — c'est de retirer l'énumération.** Y ajouter une
 ligne, c'est reporter le même rouge à la prochaine forme de fichier, avec la
 leçon déjà écrite juste à côté.
+
+---
+
+## 9 quattuorvicicenties. Un mutant survivant peut n'être ni un test manquant ni une équivalence
+
+Le § 2.16 ter donne deux issues à une survivante : ou bien une entrée la
+départage — on écrit le test — ou bien elle est équivalente, et on la consigne.
+
+L'aiguillage clavier de la coquille en a montré une **troisième**.
+
+```ts
+NAV.find((n) => n.key === e.key || e.code === `Digit${n.key}` || e.code === `Numpad${n.key}`);
+```
+
+Le mutant qui retire `Numpad…` a SURVÉCU. En cherchant l'entrée qui le
+départage, on ne trouve pas un cas oublié : on trouve que la branche n'a **aucun
+cas où elle sert**.
+
+```text
+NumLock ALLUMÉ   Numpad7 → key: '7'     code: 'Numpad7'
+NumLock ÉTEINT   Numpad7 → key: 'Home'  code: 'Numpad7'
+```
+
+- allumé : `n.key === e.key` matche déjà — la branche est **redondante** ;
+- éteint : l'utilisateur a tapé « Origine », et la branche le faisait
+  **naviguer** — elle est **nuisible**.
+
+Contrairement à `Digit`, qui rattrape l'AZERTY, le pavé numérique est le même
+sur toutes les dispositions : il n'a rien à rattraper.
+
+### La règle qui manquait
+
+**Une survivante se lit d'abord comme une question sur le CODE, pas sur le
+banc.** Le réflexe — « il me manque un test » — mène à écrire un cas qui bénit
+un comportement que personne n'a voulu. Ici, le test juste aurait affirmé que
+« Origine » change d'écran.
+
+L'issue était de retirer la branche, et d'écrire les DEUX cas qui tiennent ce
+qui reste : le pavé numérique navigue (par `e.key`), et « Origine » ne navigue
+pas. Remettre la branche rougit désormais :
+
+```text
+branche Numpad remise   ✘ « Origine » a été pris pour un 7 et a changé d'écran
+retirée                 6 passed (6)
+```
+
+**Trois issues, donc, et la troisième est la plus utile : la survivante est du
+code mort ou faux.** Une équivalence se consigne, un test manquant s'écrit — une
+branche sans cas se SUPPRIME.
+
+### Et la garde d'à côté, elle, protège le public premier
+
+Dans le même aiguillage, `e.code === \`Digit${n.key}\`` n'est pas décoratif :
+sur un clavier français, la rangée du haut rend « & é " ' », pas des chiffres.
+Sans ce repli, la navigation au clavier serait muette **en français**. Mutée,
+elle ne casse rien pour qui relit sur un QWERTY — c'est la sœur exacte de la
+garde IME de la Reine (§ 9 duovicicenties), sur le public le plus proche.
