@@ -11080,3 +11080,62 @@ sur un clavier français, la rangée du haut rend « & é " ' », pas des chiffr
 Sans ce repli, la navigation au clavier serait muette **en français**. Mutée,
 elle ne casse rien pour qui relit sur un QWERTY — c'est la sœur exacte de la
 garde IME de la Reine (§ 9 duovicicenties), sur le public le plus proche.
+
+---
+
+## 9 quinvicicenties. Se déclarer modale, c'est prendre le clavier de tout le produit
+
+Le recensement des écouteurs (§ 9 duovicicenties) a mené à `ui.tsx`, et de là à
+l'inventaire des dialogues :
+
+| dialogue                           | ferme sur Échap ?     |
+| ---------------------------------- | --------------------- |
+| AccountPanel                       | ✔ `useDialog`         |
+| InvitePanel                        | ✔ son propre écouteur |
+| NewProjectModal                    | ✔ `useDialog`         |
+| **NodesPanel** — la fiche ouvrière | **—**                 |
+| OpenAlexPanel                      | ✔ `useDialog`         |
+| TaskDrawer                         | ✔ `useDialog`         |
+
+Cinq sur six. La manquante est celle qu'on ouvre en cliquant la carte d'une
+coéquipière — le geste le plus fréquent de l'écran Essaim.
+
+### Ce qui rend l'oubli plus grave qu'il n'en a l'air
+
+`aria-modal="true"` n'est pas qu'une annonce aux lecteurs d'écran. `modalOpen()`
+le cherche, et **deux gardes déjà défendues s'appuient dessus** : les raccourcis
+de la coquille et ceux du Time-Lapse se neutralisent quand une modale est
+ouverte.
+
+La fiche ouvrière **prenait donc le clavier à tout le monde sans rien en
+rendre**. Ouverte, on ne pouvait plus naviguer par les chiffres, et on ne
+pouvait pas la refermer autrement qu'à la souris.
+
+**Un attribut qui modifie le comportement d'un AUTRE fichier est un contrat, pas
+une décoration.** Celui-ci se signait en deux mots, et rien ne vérifiait que le
+signataire tenait sa part.
+
+### Deux gardes, deux portées
+
+Le cas de comportement ferme l'INSTANCE : Échap ferme la fiche. La garde
+structurelle ferme la FAMILLE : tout fichier qui se déclare dialogue modal doit
+savoir se fermer, par le crochet partagé ou par son propre écouteur — on
+n'impose pas la forme, seulement l'effet.
+
+```text
+crochet retiré   ✘ Échap ne ferme pas la fiche ouvrière
+                 ✘ ces dialogues prennent le clavier du produit sans savoir
+                   le rendre : NodesPanel.tsx
+restauré         3 passed (3)
+```
+
+Et les dialogues sont **découverts**, jamais listés (§ 9 tervicicenties) : une
+énumération écrite à la main aurait vieilli au dialogue suivant — c'est
+exactement ce qui a laissé la fiche ouvrière passer.
+
+### La forme générale
+
+Quand un banc trouve une instance, la question suivante n'est pas « est-ce
+corrigé ? » mais **« combien de frères a-t-elle, et qu'est-ce qui les compte ? »**
+Ici, cinq frères allaient bien et un seul manquait — sans l'inventaire, on
+n'aurait jamais su lequel.

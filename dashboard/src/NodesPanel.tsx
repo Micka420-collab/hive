@@ -20,7 +20,7 @@ import { fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
-import { activateProps, ProgressBar, STATUS_ICON, Voile } from './ui';
+import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
 
 const AGENT_ICON: Record<string, string> = {
   shell: '🐚',
@@ -69,6 +69,17 @@ function FicheOuvriere({
   // l'ouverture de la fiche, pas une sonde de plus qui battrait pour rien :
   // la fiche est éphémère, le classement bouge à l'échelle de la tâche.
   // En panne, la fiche reste utile : le nectar se tait, il ne bloque rien.
+  // ─── LA FICHE SE FERME AU CLAVIER, COMME SES CINQ SŒURS ───────────────────
+  //
+  // DÉFAUT MESURÉ : elle se déclarait `role="dialog" aria-modal="true"` — donc
+  // `modalOpen()` la voyait et neutralisait les raccourcis de la coquille ET
+  // ceux du Time-Lapse — sans rien qui la ferme au clavier. Elle prenait le
+  // clavier à tout le monde et n'en rendait rien : ouverte, on ne pouvait plus
+  // ni naviguer par les chiffres, ni la refermer autrement qu'à la souris.
+  //
+  // `useDialog` apporte les trois gestes d'un dialogue : Échap ferme, le focus
+  // entre à l'ouverture, et il RETOURNE à la carte qu'on a cliquée en sortant.
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
   const [nectar, setNectar] = useState<NodeNectar | null>(null);
   useEffect(() => {
     let vivant = true;
@@ -87,6 +98,7 @@ function FicheOuvriere({
   return (
     <Voile onClose={onClose}>
       <div
+        ref={dialogRef}
         className="modal"
         role="dialog"
         aria-modal="true"
