@@ -10134,3 +10134,79 @@ Le remède appliqué : la ligne Windows redevient `⚠️`, avec la mesure qui l
 démentie citée en dessous. Le correctif de l'installeur est poussé ; **la case
 ne rebasculera que sur un `✔ 4/5` et un `✔ 5/5` venus de la jambe Windows
 elle-même.**
+
+---
+
+## 9 nonacenties. `process.exit()` coupe la boucle — et ce qui est en vol le paie, sur Windows seulement
+
+Les cinq pas du parcours passaient. Le script mourait juste après le dernier :
+
+```text
+✔ 5/5 — premier projet créé (205955cc…) et visible par le tableau
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+```
+
+`process.exit()` arrête la boucle d'événements **sur-le-champ**, sans laisser ce
+qui est en cours se refermer. La connexion persistante que `fetch` garde ouverte
+vers la ruche était encore en vol ; quelque chose signale alors un handle déjà en
+cours de fermeture, et libuv abandonne le processus.
+
+Le verdict était juste. C'est la **sortie** qui a échoué — et un essai qui
+mesure bien puis meurt mal rend un rouge indiscernable d'un vrai rouge.
+
+### Ce qui rend ce défaut coûteux à trouver
+
+Il n'existe **que sous Windows**. Les mêmes lignes, sur Linux et macOS, sortent
+en 0 sans rien dire — mesuré des dizaines de fois avant que la jambe Windows ne
+l'exhibe. Ce n'est pas « Windows est capricieux » : c'est que POSIX tolère un
+abandon brutal là où l'implémentation Windows de libuv l'assertionne. Le code
+était fautif partout ; un seul système le disait.
+
+### Le remède, et sa forme
+
+Ne plus appeler `process.exit` du tout :
+
+- `rate()` **lève** au lieu de tuer ;
+- le corps devient un `principal()` qui **rend** un code ;
+- un seul endroit pose `process.exitCode`, et laisse Node partir quand il n'a
+  plus rien en cours.
+
+Un `throw` remonte, un `exit` coupe. La différence est de style sur trois
+systèmes et de correction sur le quatrième.
+
+Corollaire gardé au passage : ce point unique relance toute exception qui n'est
+pas un `EssaiRate`. Une panne imprévue doit garder sa pile, et non se déguiser en
+verdict d'essai.
+
+---
+
+## 9 decicenties. Une prédiction écrite dans un commentaire se lit comme un fait six mois plus tard
+
+En remplaçant `process.exit()` par `process.exitCode`, j'ai écrit ceci dans le
+source, en toute bonne foi :
+
+> _« On paie l'attente de la connexion persistante (4 s au plus, le
+> `keepAliveTimeout` d'undici). »_
+
+C'était un raisonnement plausible : undici garde ses connexions, leur délai par
+défaut est de 4 secondes, donc le processus devrait traîner. **Mesuré : 147 ms**
+entre le dernier `✔` et la main rendue, contre une ruche réelle.
+
+### Pourquoi ça vaut une entrée à part
+
+Le chiffre lui-même n'a aucune importance. Ce qui compte, c'est la **forme** :
+
+- un commentaire n'a pas de temps grammatical visible — rien ne distingue
+  « j'ai mesuré » de « je suppose » ;
+- il survit à son auteur, et se relit comme une donnée établie ;
+- il est le dernier endroit où l'on pense à vérifier, parce qu'il ne casse
+  jamais rien.
+
+C'est le même mécanisme que le § 9 septnonagies (une prose fausse traversant les
+relectures) et que le commentaire du travail `seuil` qui affirmait Windows
+« déjà exercé au seuil » — vrai de l'invocation, faux du seuil. Trois fois, le
+défaut n'était pas dans le code mais dans la phrase à côté.
+
+**La règle : dans un commentaire, un nombre est soit mesuré, soit annoncé comme
+une hypothèse.** Il n'y a pas de troisième forme, et « ça devrait coûter » n'en
+est pas une.
