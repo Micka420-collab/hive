@@ -8240,3 +8240,62 @@ un contrôle d'équilibre des accolades et à la présence du paramètre ; c'est
 CI, qui exerce `install.ps1` sous PowerShell 5.1 ET 7, qui dira si le script
 tient. Le dire est plus utile que de présenter un contrôle faible comme une
 preuve.
+
+---
+
+## Intendance : les bandeaux vides, cinq nues fermées d'un coup
+
+Cinq des huit nues restantes sont de la même famille :
+
+```jsx
+{s.motif && <small className="in-motif">…</small>}
+{cles.error && <p className="panel-error">…</p>}
+{data.inscription.avertissement && (<p className="in-alerte">…</p>)}
+{erreur && <span className="panel-error">…</span>}      ← ligne de suite
+{note && <span className="muted-text">…</span>}         ← ligne de suite
+```
+
+Mutées en `||`, elles ne disparaissent pas : elles rendent **l'élément avec un
+contenu nul**. L'écran se couvre de bandeaux vides — un `.in-motif` sans motif,
+une `.panel-error` sans erreur, une `.in-alerte` sans avertissement.
+
+Le dégât n'est pas esthétique. Un bandeau d'alerte permanent et muet apprend à
+ne plus regarder cette zone de l'écran ; le jour où elle porte un vrai message,
+elle a déjà été rangée parmi les décors.
+
+### Deux d'entre elles n'étaient pas atteignables sans un geste
+
+`erreur` et `note` vivent dans une ligne que rien ne rend tant que
+`(erreur || note || aConfirmer)` est faux. Les muter sans ouvrir la confirmation
+ne change **rien de visible** — le premier banc ne pouvait pas les départager,
+et il ne le prétend pas. Le geste qui les atteint est celui qui demande
+« effacer définitivement cette machine ? ». Mutées, la ligne de confirmation se
+couvre d'un bandeau d'erreur vide et d'une note vide, **juste à côté du bouton
+« Oui, effacer »**. Un écran qui affiche une erreur muette au moment où il
+demande d'assumer un acte irréversible fait douter de tout ce qu'il dit.
+
+### Rejeu, verdict affiché
+
+```text
+s.motif                    && → ||   1 failed
+cles.error                 && → ||   1 failed
+inscription.avertissement  && → ||   1 failed
+erreur (ligne de suite)    && → ||   1 failed
+note   (ligne de suite)    && → ||   1 failed
+erreur du panneau, l. 508  && → ||   1 failed   (déjà défendue — bonus)
+erreur du panneau, l. 670  && → ||   1 failed   (déjà défendue — bonus)
+source saine, restaurée par copie    61 passed (61)
+```
+
+### Ce qui reste sur Intendance : trois
+
+```text
+{s.etat === 'provisionnement' &&     === → !==
+(billet === null ? (                 === → !==
+e instanceof Error → instanceof Object
+```
+
+La troisième se ferme comme sur `Balance` — un rejet par un objet NU départage
+`instanceof Error` d'`instanceof Object`. Les deux premières tiennent au billet
+de provisionnement, qui n'est remis qu'une fois et vit en mémoire : elles
+demandent un décor plus complet, et c'est le prochain pas.

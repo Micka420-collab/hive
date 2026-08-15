@@ -2441,6 +2441,101 @@ describe('les sentinelles du balayage du soir', () => {
     expect(tons(vif), 'une ruche qui facture et échoue n’allume rien').toContain('chaud');
   });
 
+  it('INTENDANCE : aucun bandeau VIDE ne s’affiche', async () => {
+    // ─── QUATRE GARDES NUES DE LA MÊME FAMILLE ─────────────────────────────
+    //
+    //     {s.motif && <small className="in-motif">{s.motif}</small>}
+    //     {cles.error && <p className="panel-error">{cles.error}</p>}
+    //     {data.inscription.avertissement && (<p className="in-alerte">…</p>)}
+    //     {erreur && <p className="panel-error">{erreur}</p>}
+    //
+    // Mutées en `||`, elles ne disparaissent pas : elles rendent l'ÉLÉMENT avec
+    // un contenu nul. L'écran se couvre alors de bandeaux vides — un `.in-motif`
+    // sans motif, une `.panel-error` sans erreur, une `.in-alerte` sans
+    // avertissement.
+    //
+    // Le dégât n'est pas l'esthétique. Un bandeau d'alerte permanent et muet
+    // apprend à ne plus regarder cette zone de l'écran ; le jour où elle porte
+    // un vrai message, elle a déjà été rangée parmi les décors.
+    vi.mocked(fetchServeurs).mockResolvedValue({
+      vue: { total: 1, parEtat: { pret: 0, echoue: 0 }, facturables: 0, bientotSupprimes: [] },
+      serveurs: [{ ...MACHINE, motif: null }],
+      fournisseur: 'manuel',
+      retentionJours: 30,
+      serveursMax: 8,
+    } as never);
+    vi.mocked(fetchCles).mockResolvedValue({ noeuds: [], billets: [] } as never);
+    vi.mocked(fetchMembres).mockResolvedValue({
+      membres: [{ id: 'u-moi', displayName: 'Gardienne', email: 'g@x', role: 'admin' }],
+      admins: 1,
+      // Rien à avertir : c'est le cas NORMAL, et c'est celui qui doit rester muet.
+      inscription: { mode: 'ouverte', avertissement: '' },
+    } as never);
+    const dom = await monter(
+      <Intendance
+        {...({
+          snapshot: instantane(),
+          refreshTick: 0,
+          user: { id: 'u-moi', displayName: 'gardienne', role: 'admin' },
+        } as unknown as ViewProps)}
+      />,
+    );
+
+    // ABSENT, pas « présent et vide » : un élément vide occupe la place et se
+    // voit (bordure, marge, fond). C'est la nuance que le mutant exploite.
+    for (const [selecteur, quoi] of [
+      ['.in-motif', 'un motif de machine'],
+      ['.panel-error', 'une erreur'],
+      ['.in-alerte', 'un avertissement d’inscription'],
+    ] as const) {
+      expect(
+        dom.querySelector(selecteur),
+        `un bandeau annonce ${quoi} alors qu’il n’y en a pas`,
+      ).toBeNull();
+    }
+  });
+
+  it('INTENDANCE : la ligne de CONFIRMATION ne porte que la confirmation', async () => {
+    // ─── DEUX GARDES NUES QU'ON N'ATTEINT QU'EN OUVRANT LA CONFIRMATION ────
+    //
+    //     {erreur && <span className="panel-error">{erreur}</span>}
+    //     {note && <span className="muted-text">{note}</span>}
+    //
+    // Ces deux-là vivent dans une ligne que rien ne rend tant que
+    // `(erreur || note || aConfirmer)` est faux. Les muter SANS ouvrir la
+    // confirmation ne change donc rien de visible : le banc précédent ne
+    // pouvait pas les départager, et il ne le prétend pas.
+    //
+    // Le geste qui les atteint est celui qui demande « effacer définitivement
+    // cette machine ? ». Mutées, la ligne de confirmation se couvre alors d'un
+    // bandeau d'erreur vide et d'une note vide — juste à côté du bouton
+    // « Oui, effacer ». Un écran qui affiche une erreur muette au moment où il
+    // demande d'assumer un acte irréversible fait douter de tout ce qu'il dit.
+    const dom = await machines([{ ...MACHINE, transitions: ['supprime'] }]);
+    const geste = [...dom.querySelectorAll('.in-geste')].find((b) =>
+      (b.textContent ?? '').includes('supprimé'),
+    );
+    expect(geste, 'le geste d’effacement est absent — le cas ne mesure rien').toBeTruthy();
+    act(() => {
+      geste?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+
+    const suite = dom.querySelector('.in-ligne-suite');
+    expect(suite, 'la ligne de confirmation ne s’est pas ouverte').toBeTruthy();
+    expect(
+      suite?.querySelector('.in-confirme'),
+      'la confirmation elle-même est absente',
+    ).toBeTruthy();
+    expect(
+      suite?.querySelector('.panel-error'),
+      'une erreur VIDE s’affiche à côté du bouton « Oui, effacer »',
+    ).toBeNull();
+    expect(
+      suite?.querySelector('.muted-text'),
+      'une note VIDE s’affiche à côté du bouton « Oui, effacer »',
+    ).toBeNull();
+  });
+
   it('INTENDANCE : le compte à rebours d’effacement s’affiche JUSQU’AU DERNIER JOUR', async () => {
     // ─── LA GARDE NUE ──────────────────────────────────────────────────────
     //
