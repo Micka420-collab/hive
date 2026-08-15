@@ -314,6 +314,45 @@ describe('les deux installeurs connaissent les mêmes réglages', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('LE MÉNAGE DE L’ESSAI WINDOWS NE PEUT PAS PORTER DE VERDICT', () => {
+    // ─── LE DÉFAUT, MESURÉ ET INTERMITTENT ─────────────────────────────────
+    //
+    // Run 31879223630 : les CINQ affirmations avaient mordu, et la jambe est
+    // sortie en 1 sur la ligne de rangement —
+    //
+    //     taskkill.exe : ERROR: The process with PID 7356 could not be
+    //     terminated.  + FullyQualifiedErrorId : NativeCommandError
+    //
+    // `taskkill /T /F` écrit sur stderr quand un enfant est DÉJÀ parti : une
+    // course normale. Sous `$ErrorActionPreference = 'Stop'`, la moindre ligne
+    // de stderr d'une commande NATIVE devient une erreur TERMINANTE — et le
+    // ménage tuait l'essai qu'il devait seulement ranger.
+    //
+    // Le tour PRÉCÉDENT était vert avec le même code. Un rouge intermittent
+    // dans un rangement est le plus cher de tous : on le relance, il passe, et
+    // on apprend à relancer au lieu de lire.
+    //
+    // ─── CE QUE LA GARDE EXIGE, ET POURQUOI CETTE FORME ────────────────────
+    //
+    // Pas « le script contient taskkill » — une garde sur la présence d'un
+    // outil ne dit rien de la préférence qui le rend mortel. On exige que la
+    // fonction de ménage NEUTRALISE `$ErrorActionPreference` : c'est la seule
+    // ligne dont l'absence rend le rangement capable de tuer l'essai.
+    const essai = lire('scripts/essai-installation.ps1');
+    const menage = /function Menage \{([\s\S]*?)\n\}/.exec(essai);
+    expect(menage, 'la fonction Menage est introuvable : la garde ne garde rien').toBeTruthy();
+
+    const corps = menage![1]!;
+    expect(
+      /\$ErrorActionPreference\s*=\s*'(Continue|SilentlyContinue|Ignore)'/.test(corps),
+      'le ménage tourne sous « Stop » : un stderr de taskkill fera rougir un essai réussi',
+    ).toBe(true);
+    expect(
+      /catch\s*\{/.test(corps),
+      'le ménage ne rattrape rien : une exception y remonterait jusqu’au code de sortie',
+    ).toBe(true);
+  });
+
   it('et TOUT réglage lu est nommé dans la doc d’installation', () => {
     // ─── UN CAS QUI A FAILLI ÊTRE DU DÉCOR ─────────────────────────────────
     //
