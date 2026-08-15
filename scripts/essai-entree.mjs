@@ -49,8 +49,27 @@
 // un essai qui le passerait autrement ne jouerait pas le parcours. Le compromis
 // est celui de `rejoindre.sh`, où il est écrit : un billet est COMPTÉ, RÉVOCABLE,
 // et échangé contre une clé propre au nœud dès la première connexion.
+//
+// ─── CE QUE SEULE LA JAMBE WINDOWS PEUT ÉPROUVER ─────────────────────────────
+//
+// Trois choses de ce fichier n'existent que sous Windows : le lancement de
+// `rejoindre.ps1`, la JONCTION de `node_modules`, et le `taskkill /T /F` du
+// ménage. Aucun banc local ne peut les jouer — c'est la jambe
+// « L'installation va jusqu'à une ruche qui répond · windows-latest » qui les
+// mesure, et elle a trouvé un défaut réel à sa toute PREMIÈRE exécution :
+//
+//     ✔ 6/6 — un invité a collé la commande et il est dans la ruche
+//     Error: EPERM, Permission denied: …\essai-hive-7e9ab325-invite
+//
+// Le verdict était rendu ; c'est le ménage qui tuait le script. Sous Windows, un
+// dossier qui est le `cwd` d'un processus VIVANT ne s'efface pas, et `taskkill`
+// était lancé sans qu'on l'attende. Corrigé ici en trois points — `spawnSync`,
+// pas de `cwd` épinglé, et un ménage qui AVERTIT au lieu de renverser.
+//
+// Le garde de cette correction est donc cette jambe elle-même. C'est dit plutôt
+// que tu : si la correction est fausse, elle rougira au même endroit.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -130,7 +149,17 @@ async function demander(chemin, options = {}) {
  *   · les bases  — un `.db` recopié ferait écrire deux processus dans la même.
  */
 function preparerLePoste(source, dest) {
-  rmSync(dest, { recursive: true, force: true });
+  // Le ménage de la fin AVERTIT au lieu d'échouer (voir `effacerLePoste`), donc
+  // un poste peut survivre à une exécution précédente. Ici, en revanche, la
+  // suppression doit RÉUSSIR : copier dans un dossier périmé mélangerait deux
+  // essais. On retente — un descripteur Windows survit parfois quelques dizaines
+  // de millisecondes à son processus — et on NOMME l'échec plutôt que de dérouler
+  // une pile.
+  try {
+    rmSync(dest, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+  } catch (e) {
+    rate(`le poste d’un essai précédent ne peut pas être effacé (${e?.code ?? e}) : ${dest}`);
+  }
   mkdirSync(dest, { recursive: true });
   cpSync(source, dest, {
     recursive: true,
@@ -183,7 +212,22 @@ function emporter(enfant) {
   if (!enfant?.pid) return;
   try {
     if (process.platform === 'win32') {
-      spawn('taskkill', ['/PID', String(enfant.pid), '/T', '/F'], {
+      // ─── SYNCHRONE, ET C'EST UN DÉFAUT MESURÉ QUI L'A DÉCIDÉ ──────────────
+      //
+      // Première version : `spawn`. On lançait `taskkill` et on effaçait le
+      // poste dans la foulée, sans attendre que quiconque soit mort. Sous
+      // Windows, un dossier qui est le `cwd` d'un processus VIVANT ne
+      // s'efface pas — et `rejoindre.sh` fait `cd "$DOSSIER"` avant
+      // `npm run join`, donc le nœud le tenait.
+      //
+      // Run 31894179306, jambe windows-latest, juste après un `✔ 6/6` :
+      //
+      //     Error: EPERM, Permission denied:
+      //       \\?\C:\…\Temp\essai-hive-7e9ab325-invite
+      //
+      // `spawnSync` rend la main quand `taskkill` a fini. C'est la seule
+      // forme qui autorise la suppression qui suit.
+      spawnSync('taskkill', ['/PID', String(enfant.pid), '/T', '/F'], {
         shell: false,
         stdio: 'ignore',
         windowsHide: true,
@@ -193,6 +237,33 @@ function emporter(enfant) {
     }
   } catch {
     // Déjà mort, ou groupe déjà rendu : il n'y a rien à réparer et rien à dire.
+  }
+}
+
+/**
+ * Efface le poste de l'invité — SANS jamais pouvoir renverser le verdict.
+ *
+ * ─── LA LEÇON, DÉJÀ PAYÉE SOUS UNE AUTRE PEAU ──────────────────────────────
+ *
+ * Le pas 6/6 avait rendu son ✔ sur les trois systèmes ; la jambe Windows
+ * rougissait quand même, sur la ligne d'APRÈS. C'est mot pour mot le § 9
+ * nonacenties — l'assertion libuv qui tuait le script une fois les cinq pas
+ * passés : le verdict était bon, la SORTIE non.
+ *
+ * Un ménage qui échoue laisse un dossier dans le temporaire d'un runner qu'on
+ * jette à la fin du travail. Le faire porter un rouge apprend à ne plus croire
+ * les rouges — et masque le vert qu'on venait de gagner.
+ *
+ * `maxRetries` existe pour Windows, où un descripteur peut survivre quelques
+ * dizaines de millisecondes à son processus. Et si ça ne suffit pas, on le DIT
+ * plutôt que de le taire : un ménage muet qui ne range rien est le défaut qu'on
+ * a déjà corrigé dans l'essai d'installation.
+ */
+function effacerLePoste(dossier) {
+  try {
+    rmSync(dossier, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+  } catch (e) {
+    console.error(`⚠ le poste de l’invité n’a pas pu être effacé (${e?.code ?? e}) : ${dossier}`);
   }
 }
 
@@ -253,7 +324,12 @@ async function principal() {
     detached: process.platform !== 'win32',
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    cwd: invite,
+    // ─── PAS DE `cwd` SUR LE POSTE DE L'INVITÉ ─────────────────────────────
+    //
+    // Un invité colle la commande depuis là où il se trouve ; c'est le script
+    // d'entrée qui va dans le dossier (`cd "$DOSSIER"`). Épingler le `cwd` ici
+    // n'était donc pas fidèle — et sous Windows, cela ajoutait un TENEUR de
+    // plus sur un dossier qu'on doit pouvoir effacer.
     // `HIVE_DIR` est la seule chose qu'on impose : c'est ainsi qu'un invité
     // choisit où poser sa ruche, et les deux jumeaux le lisent.
     env: { ...process.env, HIVE_DIR: invite },
@@ -322,7 +398,7 @@ async function principal() {
     return OK;
   } finally {
     emporter(enfant);
-    rmSync(invite, { recursive: true, force: true });
+    effacerLePoste(invite);
   }
 }
 

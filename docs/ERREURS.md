@@ -10785,3 +10785,58 @@ exécution sur trois jambes.
 
 **Ce qu'un essai ne couvre pas doit être écrit DANS l'essai** — sinon la
 prochaine lecture lui prêtera une portée qu'il n'a pas.
+
+---
+
+## 9 vicicenties. Le ménage a renversé un verdict que le produit avait gagné
+
+La jambe Windows du pas 6/6, à sa toute première exécution en CI :
+
+```text
+✔ 6/6 — un invité a collé la commande et il est dans la ruche (node-9b158708-…)
+node:fs:1283
+Error: EPERM, Permission denied: \\?\C:\…\Temp\essai-hive-7e9ab325-invite
+    at principal (scripts/essai-entree.mjs:325:5)
+##[error]Process completed with exit code 1.
+```
+
+Le produit avait gagné : `rejoindre.ps1`, la jonction `node_modules`, le billet
+frappé, l'invité entré — **tout** avait marché, sur le seul système où rien de
+tout cela n'avait jamais été joué. Ce qui a rougi, c'est la ligne d'après.
+
+**C'est le § 9 nonacenties sous une autre peau** — l'assertion libuv qui tuait le
+même genre de script une fois ses cinq pas passés. Deux fois la même forme : le
+verdict était bon, la SORTIE non.
+
+### La règle qui manquait
+
+**Le ménage ne doit jamais pouvoir renverser un verdict.** Il range un dossier
+dans le temporaire d'un runner qu'on jette à la fin du travail ; lui laisser
+porter un rouge, c'est masquer un vert qu'on venait de gagner et apprendre à ne
+plus croire les rouges.
+
+Il AVERTIT donc, et n'échoue plus. La suppression du DÉBUT, elle, doit toujours
+réussir — copier dans un poste périmé mélangerait deux essais — mais elle nomme
+son échec au lieu de dérouler une pile.
+
+### Le fait Windows, et pourquoi il ne pouvait pas se voir ailleurs
+
+**Un dossier qui est le `cwd` d'un processus VIVANT ne s'efface pas sous
+Windows.** Sous POSIX, il s'efface sans broncher. Trois causes se cumulaient :
+
+1. `taskkill` était lancé par `spawn` — **sans qu'on l'attende**. On effaçait
+   pendant que le nœud vivait encore ;
+2. le processus d'entrée était lancé avec `cwd` épinglé sur le poste de
+   l'invité — un teneur de plus, et pas même fidèle : un invité colle la
+   commande depuis là où il se trouve, c'est le script qui fait le `cd` ;
+3. rien ne retentait, alors qu'un descripteur Windows survit parfois quelques
+   dizaines de millisecondes à son processus (`maxRetries` existe pour ça).
+
+### Ce que ça dit sur les essais de bout en bout
+
+Un essai qui traverse trois systèmes a **deux surfaces d'échec** : ce qu'il
+mesure, et ce qu'il fait autour. La seconde n'a aucun banc — on ne mute pas un
+`rmSync`. Elle doit donc être écrite pour ne jamais rien pouvoir décider.
+
+**Tout ce qui vit après la dernière assertion doit être incapable de la
+contredire.**
