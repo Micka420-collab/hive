@@ -11103,3 +11103,79 @@ node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 
 Jamais balayées : shared (502), MonEspace (434), Chronique (400), Reine (371),
 Ruche (183), Memoire (183).
+
+## Le Cerveau n'a plus aucune nue éprouvable — l'invite du mode fermée
+
+Dernière survivante atteignable du balayage de `Cerveau.tsx` (base `6b0231c`,
+épinglée dans l'ATELIER). Les sept nues du fichier se soldent enfin :
+
+| Nue                                   | Sort                                     |
+| ------------------------------------- | ---------------------------------------- |
+| `matchMedia && …matches`              | fermée (sortie de la boucle, 3 cas)      |
+| `poll.error !== null &&`              | fermée (2 cas, les deux sens)            |
+| `{mode === 'graphe'` (corps du rendu) | **fermée ici**                           |
+| `if (mode !== 'graphe') return;`      | hors de portée — le canevas seul en sort |
+| `for (let i = 0; i < liste.length…`   | hors de portée — sous `getContext`       |
+| `if (ch > 0 && !eteint)`              | hors de portée — sous `getContext`       |
+| `p && r`                              | hors de portée — `getBoundingClientRect` |
+
+### Mesuré AVANT d'écrire le banc
+
+La ligne avait été nommée « éprouvable » par le balayage, mais une mesure
+vieillit (§ 9 duoquadragicenties) : trois lots de bancs ont été écrits depuis, et
+l'un d'eux aurait pu la couvrir sans le savoir. Le mutant a donc été reposé seul,
+contre la suite entière :
+
+```text
+NU · l'invite du mode : === → !==    4289 passés | 8 sautés (4297), 0 échec
+```
+
+### Ce que la mutation coûte
+
+```jsx
+<p className="cerveau-invite">
+  {mode === 'graphe'
+    ? 'Cliquez une note pour l’isoler. Molette pour zoomer, glissez pour déplacer.'
+    : 'Cliquez une ligne pour voir son détail.'}
+</p>
+```
+
+Muté, **les deux invites s'échangent** : le tableau propose la molette et le
+glisser sur un canevas qui n'est pas là, et le graphe demande de cliquer une
+ligne dans un écran qui n'a pas de lignes. C'est le seul texte de l'écran qui
+dise quoi FAIRE ; échangé, il enseigne un geste impossible des deux côtés.
+
+### Deux sites, un même symbole — et c'est pour ça qu'il restait nu
+
+`mode === 'graphe'` s'écrit aussi ligne 484, sur le `className` de
+l'interrupteur — et CELUI-LÀ est défendu depuis le 3 août, par le premier cas de
+`tests/cerveau-vue.test.tsx`. « Le mode est gardé » aurait donc été faux :
+c'est § 9 unquinquagicenties, un banc qui NOMME un symbole ne dit rien de l'autre
+endroit où ce symbole vit. Le recensement côté SOURCE (`grep -c`) est ce qui a
+fait la différence, ici comme pour les deux `report.ghosts.length > 0` de Sante.
+
+### Rejeu, verdict affiché
+
+Deux cas, le nominal d'abord (graphe → molette), puis l'autre côté de la bascule
+(liste → ligne à cliquer). Assertion prise dans le paragraphe `.cerveau-invite`,
+jamais dans le texte de l'écran entier.
+
+```text
+TENU · l'invite du mode : === → !==   Tests 2 failed | 4289 passed | 8 skipped (4299)
+       FAIL EN GRAPHE, ELLE PARLE DE LA MOLETTE ET DU GLISSER
+       FAIL EN LISTE, ELLE PARLE DE LA LIGNE À CLIQUER
+```
+
+Les deux rougissent — un par sens de l'échange. Restauré PAR COPIE, 4291 verts.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    297 fichiers — 4 291 passés | 8 sautés | 0 échec (4 299)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
+
+Aucune leçon neuve dans `docs/ERREURS.md` pour ce lot : il applique
+§ 9 unquinquagicenties et § 9 duoquadragicenties déjà écrites. Un carnet qui
+gagne une entrée à chaque lot cesse d'être un carnet de leçons.

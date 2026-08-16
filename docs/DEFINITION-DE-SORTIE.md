@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `25bd8ae` + ce commit, 16 août 2026, 19 h 57)
+## A. Le code tient — ✅ mesuré (arbre `2a37ad5` + ce commit, 16 août 2026, 20 h 10)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,7 +57,7 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4297** (4289 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4299** (4291 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
@@ -123,14 +123,18 @@
   | --------- | ------- | ---------- | --------- | --------- | ------- |
   | Partage   | 2       | Balance    | 0         | Sante     | 2       |
   | Chantiers | 5       | Intendance | 0         | Essaim    | 1       |
-  | Rayon     | 1       | Cerveau    | 2 (sur 7) | **Total** | **17**  |
+  | Rayon     | 1       | Cerveau    | 3 (sur 7) | **Total** | **18**  |
   | Miellerie | 4       |            |           |           |         |
 
   Dont un relevé de fusion qui pouvait afficher la coulée d'un autre, une bande
-  d'erreur qui s'inversait, et trois bornes `> 0` toujours vraies. Deux vues
-  (Balance, Intendance) n'ont rien rendu — ce qui se rapporte aussi. Le Cerveau
-  garde cinq nues NON fermées : une éprouvable, quatre derrière le canevas et
-  mesurées comme telles par `tests/canevas-hors-portee.test.tsx`.
+  d'erreur qui s'inversait, trois bornes `> 0` toujours vraies et une invite qui
+  enseignait le geste de l'autre mode. Deux vues (Balance, Intendance) n'ont rien
+  rendu — ce qui se rapporte aussi.
+
+  **Le Cerveau n'a plus AUCUNE nue éprouvable.** Les quatre qui restent vivent
+  derrière `getContext`, et cette limite est MESURÉE, pas affirmée :
+  `tests/canevas-hors-portee.test.tsx` éprouve que le contexte 2D rend bien
+  `null` sous happy-dom. Elles ne seront jamais comptées closes.
 
 - ⚠️ **L'échantillonnage sur terrain déjà vu est ARRÊTÉ** (14 août). Huit
   tirages réguliers successifs, sur des terrains différents, ont tous rendu

@@ -314,3 +314,62 @@ describe('le Cerveau — les nues éprouvables du balayage', () => {
     ).toBeNull();
   });
 });
+
+// ─── L'INVITE DU MODE — LA DERNIÈRE NUE ÉPROUVABLE DU CERVEAU ────────────────
+//
+// Le balayage de la loupe sur `Cerveau.tsx` (base épinglée dans l'atelier,
+// `6b0231c`) rendait SEPT survivantes. Cinq ne sont pas de ce fichier : quatre
+// vivent derrière `getContext` (mesuré par `tests/canevas-hors-portee.test.tsx`,
+// qui ne se contente pas de l'affirmer), et deux sont fermées ailleurs. Restait
+// celle-ci, la seule encore éprouvable :
+//
+//     <p className="cerveau-invite">
+//       {mode === 'graphe' ? 'Molette pour zoomer, glissez…' : 'Cliquez une ligne…'}
+//
+// DEUX SITES, UN MÊME SYMBOLE (§ 9 unquinquagicenties) : `mode === 'graphe'`
+// s'écrit aussi ligne 484, sur le `className` de l'interrupteur — et CELUI-LÀ est
+// défendu depuis le 3 août, par le premier cas de ce fichier. Dire « le mode est
+// gardé » aurait donc été faux : le banc qui NOMME le symbole ne dit rien de
+// l'autre endroit où il vit.
+//
+// Mesuré avant d'écrire quoi que ce soit, mutant posé seul, suite entière :
+//
+//     NU · l'invite du mode : === → !==    4289 passés | 8 sautés (4297), 0 échec
+//
+// Muté, les deux invites S'ÉCHANGENT : le tableau propose la molette et le
+// glisser sur un canevas qui n'est pas là, et le graphe demande de cliquer une
+// ligne dans un écran qui n'a pas de lignes. C'est le seul texte de l'écran qui
+// dise quoi FAIRE ; échangé, il enseigne un geste impossible aux deux endroits.
+describe('l’invite du mode dit le geste DE CE MODE', () => {
+  /** L'invite, prise dans son paragraphe — jamais dans le texte de l'écran entier. */
+  const invite = (dom: HTMLElement): string => {
+    const p = dom.querySelector<HTMLElement>('.cerveau-invite');
+    if (!p) throw new Error('le paragraphe d’invite est introuvable');
+    return p.textContent ?? '';
+  };
+
+  it('EN GRAPHE, ELLE PARLE DE LA MOLETTE ET DU GLISSER', async () => {
+    // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER ──────────────────────────────────
+    //
+    // Au réveil, le mode est « graphe » : l'invite doit enseigner les gestes du
+    // canevas. Ce cas seul ne suffirait pas — son attendu n'est pas le défaut de
+    // l'autre branche, mais il faut le suivant pour que la mutation rougisse des
+    // DEUX côtés (§ 9 octoquadragicenties).
+    const dom = await monter();
+
+    expect(invite(dom), 'le graphe n’enseigne pas ses gestes').toContain('Molette pour zoomer');
+    expect(invite(dom), 'le graphe propose le geste de la liste').not.toContain(
+      'Cliquez une ligne',
+    );
+  });
+
+  it('EN LISTE, ELLE PARLE DE LA LIGNE À CLIQUER — l’autre côté de la bascule', async () => {
+    const dom = await monter();
+    cliquer(boutonMode(dom, 'Liste'));
+
+    expect(invite(dom), 'la liste n’enseigne pas son geste').toContain('Cliquez une ligne');
+    expect(invite(dom), 'la liste propose la molette d’un canevas absent').not.toContain(
+      'Molette pour zoomer',
+    );
+  });
+});
