@@ -12472,3 +12472,49 @@ chose.**
 Et le rouge est arrivé du bon côté : un cas d'absence qui passe du premier coup
 mérite qu'on se demande s'il pourrait rougir un jour. Celui-ci a prouvé qu'il le
 pouvait avant même d'être juste.
+
+## 9 octoquadragicenties. Un cas dont la valeur attendue EST la valeur par défaut ne prouve rien
+
+L'écran des Chantiers laisse choisir une branche avant de lancer un workflow
+GitHub, et retombe sur « main » si le champ est vide :
+
+```ts
+await lancerWorkflowGithub(projectId, w.id, ref.trim() || 'main');
+```
+
+Le cas écrit pour défendre ce repli vidait le champ, cliquait, et vérifiait que
+la ruche envoyait bien « main ». **Il est passé du premier coup — et il ne
+mesurait rien.**
+
+`champ.value = '   '` n'atteint pas React : la vue garde un « tracker » sur la
+propriété `value`, une affectation directe le met à jour EN MÊME TEMPS que la
+valeur, l'événement qui suit paraît ne rien changer, et `onChange` n'est jamais
+appelé. L'état `ref` valait encore sa valeur initiale — **« main »**. Le banc
+confondait « le repli a fonctionné » avec « ma saisie n'est jamais arrivée ».
+
+C'est le cas VOISIN qui l'a démasqué : celui qui saisit « dev » et attend
+« dev ». Lui a rougi, en rendant « main ». Sans lui, le repli serait resté
+« défendu » par un cas incapable de rougir.
+
+### La leçon
+
+**Quand la valeur attendue par un cas est aussi la valeur par défaut du système,
+le cas ne peut pas distinguer le succès de l'inaction.** Il passe pour les deux
+raisons, et rien ne le signale : ni la suite, ni la loupe — le mutant `|| → &&`
+aurait bien été tué, mais par le cas voisin, pas par celui qui prétendait le
+viser.
+
+Deux gestes en découlent :
+
+- **écrire d'abord le cas dont la valeur attendue N'EST PAS le défaut.** Ici,
+  « dev ». S'il passe, le mécanisme de saisie est prouvé, et le cas du repli
+  devient interprétable ;
+- **se méfier d'un cas d'interface qui passe du premier coup.** Ce dépôt exige
+  déjà de voir rougir avant d'écrire ; la variante d'interface est : si la
+  simulation du geste n'a jamais échoué, on n'a pas la preuve qu'elle atteint la
+  vue.
+
+C'est de la même famille que § 9 duotrigicenties (un bouchon partiel laisse
+passer ce qu'on n'a pas nommé) et § 9 septquadragicenties (un marqueur de fuite
+présent dans la phrase légitime) : **un banc peut être vert parce que le monde
+qu'il croit avoir construit n'existe pas.**

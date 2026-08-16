@@ -10584,3 +10584,62 @@ npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
 npx vitest run    295 fichiers — 4 265 passés | 8 sautés | 0 échec (4 273)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
+
+## Les Chantiers : cinq survivantes fermées, et deux bancs creux démasqués
+
+Échantillon de la loupe sur `dashboard/src/views/Chantiers.tsx`, base épinglée
+dans l'ATELIER (`LOUPE_BASE=f0fc005`) :
+
+```text
+21 mutation(s) possible(s), 11 examinée(s) — 6 défendues, 5 SANS TEST
+10 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas
+```
+
+**Ce lot ne mesure donc PAS le fichier**, contrairement au Partage (5 sur 5). Il
+ferme les cinq survivantes de l'échantillon ; dix candidates n'ont jamais été
+regardées, et ça se dit.
+
+Une seule vue en parlait (`vues-sentinelles`), et elle regardait l'écran AU
+REPOS — jamais un clic, jamais un envoi en cours. D'où les cinq.
+
+| Survivante               | Ce qu'elle coûtait                              |
+| ------------------------ | ----------------------------------------------- |
+| `ref.trim() \|\| 'main'` | un champ vidé envoie une ref VIDE à GitHub      |
+| `projets.length > 1`     | un menu déroulant à UN seul choix               |
+| `enCours === c.nom`      | « Envoi… » au repos, « Lancer » pendant l'envoi |
+| `verdict.sortie !== ''`  | un `<pre>` vide sous chaque verdict muet        |
+| `enCours === \`wf-…\``   | le même envers, côté GitHub                     |
+
+Rejeu un par un, ancres vérifiées uniques : **5 / 5 tenus** (2/6, 1/7, 2/6, 1/7,
+3/5), restauré PAR COPIE.
+
+### Deux bancs creux, démasqués par leurs voisins
+
+**Un vert qui ne mesurait rien.** Le cas du repli sur « main » est passé du
+premier coup sans rien prouver : `champ.value = …` n'atteint pas React, `ref`
+valait encore « main », et le banc confondait « le repli a marché » avec « ma
+saisie n'est jamais arrivée ». C'est le cas voisin — celui qui attend « dev » —
+qui a rougi et l'a dit. Consigné en **§ 9 octoquadragicenties** : quand la valeur
+attendue EST la valeur par défaut, le cas ne distingue pas le succès de
+l'inaction. On écrit d'abord celui dont l'attendu n'est PAS le défaut.
+
+**Deux boutons, un seul nom.** Trois cas GitHub cliquaient sur le « Lancer » des
+chantiers locaux : les deux moitiés de l'écran portent le même libellé. Le
+message d'erreur du sélecteur les a nommés (« Lancer », « Lancer ») — c'est
+précisément pour ça qu'il liste ce qu'il a trouvé au lieu de rendre `undefined`.
+
+### Et deux contrats que seul le typage a vus
+
+`fetchWorkflows` rend aussi `tronque`, absent du bouchon ; et le fixture écrivait
+`etat: 'active'` — la valeur BRUTE de GitHub — là où le domaine dit `'actif'`,
+la frontière traduisant à l'entrée. Un monde qui ne peut pas exister, invisible à
+vitest. Le `as Workflow` qui masquait la seconde a été retiré : c'est le typage
+qui garde ce contrat.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    296 fichiers — 4 273 passés | 8 sautés | 0 échec (4 281)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
