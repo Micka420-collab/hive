@@ -300,25 +300,73 @@ export function octetsLibres(chemin: string): number | null {
   }
 }
 
-/** Le premier runtime d'isolement présent, ou `null`. */
-export async function isolementDisponible(): Promise<string | null> {
+/**
+ * L'ARGUMENT QUI TOUCHE LE SERVICE, ET NON SEULEMENT LE CLIENT.
+ *
+ * ─── LE FAUX VERT QU'IL REMPLACE, MESURÉ ────────────────────────────────────
+ *
+ * Cette sonde lançait `--version`. Un client Docker installé répond alors 0
+ * SANS JAMAIS PARLER AU DÉMON — et le docteur affichait :
+ *
+ *     ✔ isolement      bac à sable disponible : docker
+ *
+ * sur une machine où le démon ne tournait pas. Mesuré, sans tube, dans le même
+ * conteneur :
+ *
+ *     docker --version  → code=0   Docker version 29.3.1
+ *     docker info       → code=1   failed to connect to the docker API at
+ *                                  unix:///var/run/docker.sock
+ *
+ * Ce que l'arrivant vivait ensuite : `hive doctor` tout vert, puis sa première
+ * tâche ratée TROIS FOIS, chaque tentative rendant zéro diff et le message brut
+ * du démon dans les journaux. Le docteur existe précisément pour que cela
+ * n'arrive pas — un ✔ qu'on n'a pas mesuré est pire que pas de ✔ du tout.
+ *
+ * `info` interroge le SERVICE. Podman, sans démon, y répond aussi : la même
+ * question convient aux deux fournisseurs.
+ *
+ * ─── LE SENS DU DÉLAI ────────────────────────────────────────────────────────
+ *
+ * `info` fait un vrai aller-retour, là où `--version` lisait une constante. Le
+ * délai reste à 3 s, et il PENCHE DU BON CÔTÉ : un démon qui met plus de trois
+ * secondes à répondre est déclaré absent. On préfère annoncer moins que ce
+ * qu'on a — l'inverse est exactement le défaut qu'on vient de fermer.
+ */
+export const SONDE_ISOLEMENT = 'info';
+
+/** Ce que la sonde a besoin de savoir faire : lancer, et dire si ça a marché. */
+export type LanceurDeSonde = (bin: string, args: readonly string[]) => Promise<boolean>;
+
+/**
+ * Le lanceur réel.
+ *
+ * `shell: false` est DIT, pas seulement subi : c'est déjà le défaut d'`execFile`,
+ * mais un défaut ne se relit pas en revue et peut basculer sous une refonte.
+ * L'argument est une constante — rien d'interpolé, rien à détourner — et aucun
+ * secret ne part au binaire qu'on éprouve (`envSonde`), même garde que la sonde
+ * d'agent, portée ici aussi.
+ */
+const lanceurReel: LanceurDeSonde = async (bin, args) => {
   const { execFile } = await import('node:child_process');
-  const essaye = (bin: string): Promise<boolean> =>
-    new Promise((resolve) => {
-      // `shell: false` est DIT, pas seulement subi : c'est déjà le défaut
-      // d'`execFile`, mais un défaut ne se relit pas en revue et peut basculer
-      // sous une refonte. L'argument est une constante — rien d'interpolé,
-      // rien à détourner — et aucun secret ne part au binaire qu'on éprouve
-      // (`envSonde`), même garde que la sonde d'agent, portée ici aussi.
-      execFile(
-        bin,
-        ['--version'],
-        { timeout: 3_000, shell: false, env: envSonde(process.env) },
-        (err) => resolve(!err),
-      );
-    });
+  return new Promise((resolve) => {
+    execFile(bin, [...args], { timeout: 3_000, shell: false, env: envSonde(process.env) }, (err) =>
+      resolve(!err),
+    );
+  });
+};
+
+/**
+ * Le premier runtime d'isolement RÉELLEMENT joignable, ou `null`.
+ *
+ * Le lanceur est injectable pour que la règle s'éprouve sans démon : un banc
+ * peut jouer « le client est là, le service ne répond pas » — la seule entrée
+ * qui sépare cette sonde de celle qu'elle remplace.
+ */
+export async function isolementDisponible(
+  lancer: LanceurDeSonde = lanceurReel,
+): Promise<string | null> {
   for (const f of FOURNISSEURS) {
-    if (await essaye(f.bin)) return f.nom;
+    if (await lancer(f.bin, [SONDE_ISOLEMENT])) return f.nom;
   }
   return null;
 }

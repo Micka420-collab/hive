@@ -11975,3 +11975,98 @@ l'intersection, les deux produisent le même écran, et le cas ne prouve rien :
 C'est le survivant qui l'a dit, pas la relecture — § 2.16 ter appliqué à la
 lettre : un mutant qui survit est TRANCHÉ, et celui-ci a rendu une entrée
 distinguante que je n'avais pas su choisir.
+
+## 9 novemtrigicenties. Un ✔ posé sur la présence d'un CLIENT, pas d'un SERVICE
+
+`hive doctor` affichait, sur une machine sans démon Docker :
+
+```text
+✔ isolement      bac à sable disponible : docker
+```
+
+La sonde lançait `docker --version`. Mesuré sans tube, dans le conteneur où le
+défaut a été trouvé :
+
+```text
+docker --version  → code=0   Docker version 29.3.1, build c2be9cc
+docker info       → code=1   failed to connect to the docker API at
+                             unix:///var/run/docker.sock
+```
+
+`--version` lit une constante compilée dans le binaire. **Il ne touche jamais la
+socket.** Le docteur mesurait donc l'INSTALLATION d'un client et prononçait un
+verdict sur la DISPONIBILITÉ d'un service.
+
+### Ce que l'arrivant vivait
+
+`hive doctor` tout vert. Puis sa première tâche, ratée trois fois :
+
+```text
+ouvrière │ 🐝 [vm] butinage : Le premier travail de la ruche (tentative 1)
+ouvrière │ 🐝 [vm] ✘ Le premier travail de la ruche      (×3)
+
+success = False | diff = '' | logs = 'failed to connect to the docker API…'
+```
+
+Zéro diff, trois fois, et le message brut du démon rangé dans les journaux. Le
+docteur existe pour que cela n'arrive pas — **un ✔ qu'on n'a pas mesuré est pire
+que pas de ✔ du tout**, parce qu'il envoie chercher la panne partout sauf où
+elle est.
+
+### La forme du piège
+
+Beaucoup d'outils répondent à `--version` sans leur dépendance vivante :
+
+| Sonde              | Ce qu'elle prouve      | Ce qu'on en concluait |
+| ------------------ | ---------------------- | --------------------- |
+| `docker --version` | le CLIENT est installé | le bac à sable marche |
+| `docker info`      | le SERVICE répond      | —                     |
+
+La même erreur attend `psql --version` (le serveur n'est pas là), `git
+--version` (le dépôt n'est pas joignable), `kubectl version --client`.
+
+### Comment il a été trouvé, et pourquoi ça compte
+
+Par un pas de seuil qui joue vraiment le geste. Le parcours s'arrêtait à « un
+invité est dans la ruche » et ne menait jamais un travail jusqu'à un résultat.
+Le pas 7/7 écrit pour combler ce trou a rougi à sa PREMIÈRE exécution :
+
+```text
+✘ 7/7 — la ruche a pris le travail et l'a raté (334d09b5…)
+```
+
+Troisième fois qu'un pas de seuil trouve un défaut réel du premier coup, après
+le 4/5 (`install.ps1` ne construisait pas l'écran) et le 6/6 (le ménage Windows
+renversait un verdict gagné). Aucun de ces trois défauts n'était visible depuis
+les bancs.
+
+### Le dégât collatéral, et le garde qui l'a vu
+
+Corriger la sonde a cassé `sondes-sans-secret.test.ts`, qui exige que **toute
+sonde passe par `envSonde`** — sans quoi `HIVE_TOKEN` part au binaire tiers. Ce
+garde repérait les sondes au littéral `'--version'`. La mienne posant `info`,
+elle est sortie du filet, et le compte est tombé de 5 à 4.
+
+C'est la « garde de la garde » — `expect(sondesVues).toBeGreaterThanOrEqual(5)`,
+écrite exactement pour ce cas — qui l'a dit. **Sans elle, la sonde serait sortie
+du filet EN SILENCE** et aurait pu se remettre à livrer le jeton sans qu'aucun
+banc ne rougisse.
+
+### Les règles
+
+> **Une sonde de disponibilité doit toucher ce dont on dépend.** Demander sa
+> version à un binaire ne prouve que sa présence sur le disque. Si le verdict
+> porte sur un service, la sonde doit lui parler.
+>
+> **Un détecteur accroché à UN littéral protège jusqu'au jour où le littéral
+> change.** Les marqueurs se nomment et se listent, et un compte plancher garde
+> le détecteur lui-même — c'est lui qui a rattrapé le coup ici.
+>
+> **Et un délai penche du bon côté** : `info` fait un vrai aller-retour. Un
+> service qui met plus de trois secondes à répondre est déclaré absent. On
+> annonce moins que ce qu'on a — l'inverse est le défaut qu'on vient de fermer.
+
+Même famille que le § 9 quattuortrigicenties et le § 9 septentrigicenties : à
+chaque fois, une mesure qu'on croyait faite portait sur autre chose que son
+sujet. Ici, le sujet était l'existence d'un fichier ; on en tirait la santé d'un
+service.

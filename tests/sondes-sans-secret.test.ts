@@ -85,7 +85,17 @@ function sansCommentaires(source: string): string {
     .join('\n');
 }
 
-describe('la règle : toute sonde « --version » est lavée de ses secrets', () => {
+/**
+ * Ce à quoi on RECONNAÎT une sonde dans le code du dépôt.
+ *
+ * Pas une élégance : la liste existe parce que le détecteur d'origine, accroché
+ * au seul `'--version'`, a perdu de vue la sonde d'isolement le jour où elle est
+ * passée à `info`. Toute sonde qui pose une AUTRE question s'ajoute ici — et le
+ * compte plancher plus bas rougira si on l'oublie.
+ */
+const MARQUEURS_DE_SONDE = ["'--version'", 'SONDE_ISOLEMENT'] as const;
+
+describe('la règle : toute sonde d’un binaire tiers est lavée de ses secrets', () => {
   it('LES SONDES DU DÉPÔT PASSENT TOUTES PAR envSonde — y compris celles à venir', () => {
     const fautives: string[] = [];
     let sondesVues = 0;
@@ -93,9 +103,27 @@ describe('la règle : toute sonde « --version » est lavée de ses secrets', ()
     for (const fichier of fichiersTs(SRC)) {
       const source = sansCommentaires(readFileSync(fichier, 'utf8'));
       for (const appel of lancements(source)) {
-        // Une sonde, c'est un lancement qui demande sa version — jamais un
+        // Une sonde, c'est un lancement qui INTERROGE un binaire — jamais un
         // agent qu'on fait travailler (celui-là a besoin de ses clés).
-        if (!appel.includes("'--version'")) continue;
+        //
+        // ─── CE DÉTECTEUR A DÉJÀ PERDU UNE SONDE, ET IL FAUT LE DIRE ────────
+        //
+        // Il ne cherchait que `'--version'`. Le 16 août, la sonde d'isolement
+        // est passée à `info` — parce que `docker --version` répond 0 sans
+        // jamais parler au démon, et que le docteur affichait donc un ✔ sur un
+        // bac à sable absent. Le correctif était juste ; l'effet de bord ne
+        // l'était pas : cette garde a CESSÉ DE VOIR la sonde, et son compte est
+        // tombé de 5 à 4.
+        //
+        // C'est le `toBeGreaterThanOrEqual(5)` plus bas qui l'a dit — la
+        // « garde de la garde », écrite précisément pour ce cas, a fait son
+        // travail. Sans elle, la sonde serait sortie du filet EN SILENCE et
+        // aurait pu se remettre à livrer `HIVE_TOKEN` sans que rien ne rougisse.
+        //
+        // La leçon : un détecteur accroché à UN littéral protège jusqu'au jour
+        // où le littéral change. Les marqueurs sont donc nommés ici, et cette
+        // liste s'allonge quand une sonde nouvelle pose une autre question.
+        if (!MARQUEURS_DE_SONDE.some((m) => appel.includes(m))) continue;
         sondesVues += 1;
         if (!appel.includes('envSonde')) {
           fautives.push(path.relative(RACINE, fichier));

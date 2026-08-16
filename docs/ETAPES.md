@@ -9825,3 +9825,207 @@ npx vitest run    292 fichiers — 4 203 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 211 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+# POINT DE SORTIE — 16 août 2026, arbre `1800ec5`
+
+> Tout chiffre ci-dessous a été rendu par une commande lancée pour l'écrire.
+> Ce qui n'est pas mesuré porte `❌ non mesuré`, jamais un verdict arrondi.
+
+## 1. Le temps
+
+**17 jours** avant le 2 septembre 2026.
+
+## 2. Livré ET vérifié depuis le 15 août
+
+54 commits, **29 bancs neufs**. Vérifié veut dire : lancé, mesuré, ou couvert
+par un test qu'on a **vu rougir**.
+
+| Mesure                | Commande                              | Verdict sur `1800ec5`                                |
+| --------------------- | ------------------------------------- | ---------------------------------------------------- |
+| Typage hub + tableau  | `typecheck` + `typecheck:dashboard`   | ✅ vert / vert                                       |
+| Style + format        | `npm run lint`                        | ✅ vert                                              |
+| Suite                 | `npx vitest run`                      | ✅ 292 fichiers — **4 203 verts, 8 sautés, 0 rouge** |
+| Couverture (lignes)   | `npx vitest run --coverage`           | ✅ **78,19 %** (9 635/12 322) — 76,97 % le 15        |
+| Couverture (branches) | idem                                  | 73,86 % (7 990/10 817)                               |
+| Badges                | `scripts/compte-tests.mjs --corriger` | ✅ 4 211, portés par la mesure                       |
+
+**Huit vues fermées, garde par garde**, chacune par le même protocole — mutants
+posés ET vérifiés posés, suite entière verte avec les gardes cassées (la nudité
+est mesurée, pas déduite), rejeu avec verdict ET compte affichés, restauration
+par copie :
+
+- **Santé** (fantômes, thermostat, signes vitaux, Gardiennes, Guetteuses)
+- **Projets.tsx** (1 926 lignes — Atelier Queen Bee, coulée du miel, dards
+  Sting, carte Équipe, Conseil des Éclaireuses, connecteur GitHub)
+- **Mémoire**, **Mon Espace**
+- **Essaim, CLOSE** : 553 lignes, 29 cas — polyéthisme et ⚔, phéromones, carte
+  d'ouvrière, Waggle Board et podium, courses en vol
+- **Rayon** : la retouche
+
+Les PR jusqu'à **#316** sont fusionnées, chacune après vérification de ses
+**8 jambes CI**. **#317 est ouverte, sa CI tourne : elle n'est donc PAS
+vérifiée** au moment où ces lignes s'écrivent.
+
+**Deux « points ouverts » que les relances répétaient sont en fait FERMÉS**, et
+c'est une mesure qui l'a dit, pas une lecture : `getSnapshot()` porte bien une
+`LIMIT` (`store.ts:3779`, défaut `LIMITE_TACHES_INSTANTANE`) et la table `tasks`
+a bien un élagueur **câblé** (`pruneTasks`, appelé en `server.ts:7206`).
+
+## 3. Ce qui reste, par ordre de ce qui casse un arrivant en premier
+
+### 3a. Le parcours mesuré s'arrête AVANT que le produit ait fait son travail
+
+C'est le trou le plus grave, et il est mesurable. Le parcours de seuil joué sur
+les trois systèmes à chaque PR compte **six pas** :
+
+```text
+1/3  l'installation sort en 0
+2/3  le .env est écrit (0600 sur POSIX)
+3/3  la ruche répond sur :7777
+4/5  le tableau est servi et charge son paquet
+5/5  un premier projet est créé, et visible dans l'instantané
+6/6  un invité colle la commande, et il est dans la ruche
+```
+
+**Aucun ne mène une tâche jusqu'à un résultat.** Le parcours s'arrête à
+« l'ouvrière a rejoint », c'est-à-dire juste avant la seule chose que Hive
+promet : qu'un agent prenne un travail et rende quelque chose. Un arrivant y est
+à la troisième minute. Si ce chemin cassait dans une version publiée, **rien en
+CI ne le verrait**.
+
+`tests/premier-quart-heure.test.mjs` ne comble pas ce trou : il éprouve
+l'INSTRUMENT (la discrimination des quatre pages, la lecture du `.env`), pas
+l'exécution. La boucle du client est couverte au banc, mais jamais dans le
+produit INSTALLÉ.
+
+### 3b. Le secret d'un arrivant Windows n'est pas protégé
+
+Dit noir sur blanc dans la DoD (§ B¹) et toujours ouvert : la jambe Windows ne
+vérifie pas le `0600` du `.env` **parce qu'il n'y a rien à vérifier** — Node n'y
+retient du `mode` que le bit « lecture seule », aucune ACL n'est posée. Le jeton
+de session d'un arrivant Windows est lisible par tout compte local. Fermer le
+trou touche `install.ps1` (une ACL `icacls`), pas seulement son essai.
+
+### 3c. La section A de la DoD est périmée — donc elle ment
+
+Elle annonce **4 071 bancs** mesurés sur l'arbre `90c1694` du 15 août ; il y en
+a **4 211** sur `1800ec5`. Par sa propre règle — « quand la mesure vieillit, on
+la refait avant de s'y fier » — ce tableau n'est plus une mesure. Le document
+qui interdit d'arrondir doit être le premier à ne pas le faire.
+
+### 3d. Le gate `npm audit` ne tourne qu'à la PR
+
+Angle mort déjà écrit dans la DoD (§ C) et jamais fermé : un avis publié ENTRE
+deux livraisons reste invisible jusqu'au prochain push. Ce n'est pas théorique —
+`nanoid` est passé par là, attrapé par un audit local, pas par la CI. Un
+arrivant du 30 août installe ce qui est courant ce jour-là, pas ce qui était
+propre au dernier push.
+
+### 3e. La part de `dashboard/src/views` vue par la loupe : ❌ NON MESURÉE
+
+La DoD annonce 57/440 (13 %), sur une base épinglée **antérieure aux 29 bancs de
+cette nuit**. Ce chiffre est certainement meilleur aujourd'hui — mais
+« certainement meilleur » n'est pas une mesure. Il n'est pas re-mesuré, donc il
+n'est **pas connu**, et il ne sera pas recopié comme s'il l'était.
+
+## 4. Ce qui restera hors d'atteinte — à dire, pas à simuler
+
+- 🔒 **Paquet npm signé, image GHCR + `cosign`** : ni mes comptes ni mes clés.
+  `curl … | sh` depuis le dépôt marche sans eux ; `npm i -g` et `docker pull`
+  d'un artefact officiel demandent des identifiants humains.
+- 👤 **Identité visuelle de la vitrine (#63), README au design de la vitrine,
+  carrousel d'agents, tarifs** : décisions d'édition et de commerce. La première
+  impression d'un arrivant est là, et elle ne se tranche pas depuis le code.
+- 🔒 **De vraies machines Windows et macOS de bureau** : un runner CI n'a ni
+  l'antivirus, ni le shell, ni les réglages d'un poste réel. Trois systèmes
+  mesurés en continu ne valent pas trois systèmes éprouvés chez des arrivants.
+  Cette réserve ne se lève pas en CI ; elle se lève à la sortie.
+- 🔒 **L'intermittent du § 9 untrigicenties** : 1 occurrence sur 13 exécutions
+  complètes, 8 passes dédiées n'ont rien reproduit. Jamais nommé.
+- 🔒 **Le dernier `ECONNREFUSED` du § 9 duotrigicenties** : attribué à
+  `tests/app-coquille.test.tsx`, **non expliqué**. Les pièges sur `fetch`,
+  `WebSocket` et `EventSource` n'ont rien attrapé. Il apparaît encore dans la
+  mesure de couverture ci-dessus.
+- 👤 **Le balayage par mutation COMPLET du dépôt** (~6 h 30 de machine par
+  terrain) : la DoD le pose en décision de l'utilisateur, et par défaut on garde
+  les chiffres d'échantillon plutôt qu'une déduction.
+
+## 3a repris — le pas 7/7, et le faux vert qu'il a trouvé
+
+Le premier point de la liste 3 ci-dessus. Le parcours de seuil s'arrêtait à « un
+invité est dans la ruche » ; il mène désormais un travail jusqu'à un résultat.
+
+### Ce qui est écrit
+
+| Fichier                       | Rôle                                                |
+| ----------------------------- | --------------------------------------------------- |
+| `scripts/travail-fait.mjs`    | les décisions PURES du pas (patron `entree-invite`) |
+| `tests/travail-fait.test.mjs` | 12 cas, six mutants rejoués                         |
+| `scripts/essai-travail.mjs`   | le coureur : réseau, attente, journal               |
+
+`done` est DÉCLARATIF. Quatre choses de plus séparent « la ruche dit qu'elle a
+fini » de « la ruche a travaillé », et le pas les exige toutes : un résultat
+RANGÉ, un SUCCÈS parmi eux, un DIFF non vide, et un nœud que la ruche CONNAÎT.
+
+### Il a rougi à sa première exécution, contre une ruche réellement installée
+
+```text
+✘ 7/7 — la ruche a pris le travail et l'a raté (334d09b5…)
+```
+
+Trois tentatives, zéro diff, et dans les journaux :
+
+```text
+failed to connect to the docker API at unix:///var/run/docker.sock
+```
+
+Alors que `hive doctor` venait d'afficher **`✔ isolement — bac à sable
+disponible : docker`**. La sonde lançait `docker --version`, qui répond 0 en
+lisant une constante sans jamais toucher la socket.
+
+```text
+docker --version  → code=0        docker info  → code=1
+```
+
+Corrigé : `SONDE_ISOLEMENT = 'info'`, un lanceur injectable pour que la règle
+s'éprouve sans démon, et le constat reformulé (« aucun bac à sable ne répond »
+— le client PEUT être installé). Banc : `tests/sonde-isolement.test.ts`, 5 cas,
+deux mutants rejoués. Consigné en § 9 novemtrigicenties.
+
+### Deux choses que j'ai cassées, et qui se disent
+
+**Le crible a d'abord été lu sur une suite POLLUÉE.** Trois fichiers au rouge,
+aucun venant des mutants : j'avais laissé tourner la ruche d'épreuve sur le port
+7777, et les bancs d'installeur s'en servent. Restauré, port libéré, re-mesuré :
+vert. Un crible se lit sur une suite verte, sinon il attribue à la garde ce qui
+vient du décor.
+
+**Le correctif a fait sortir la sonde d'un filet de sécurité.**
+`sondes-sans-secret.test.ts` exige que toute sonde passe par `envSonde` (sinon
+`HIVE_TOKEN` part au binaire tiers) et les repérait au littéral `'--version'`.
+Son compte plancher — la « garde de la garde » — a rougi et l'a dit. Détecteur
+élargi à une liste de marqueurs nommés.
+
+### Ce que ce pas NE mesure PAS, et qu'il faut dire
+
+L'adaptateur par défaut est `shell (simulé)` : un diff factice mais réaliste,
+sans processus lancé. Le pas prouve que la CHAÎNE est entière — création,
+assignation, exécution, rangement, relecture. Il ne prouve pas qu'un vrai modèle
+écrit du bon code.
+
+### ❌ CE PAS N'EST PAS ENCORE CÂBLÉ EN CI
+
+Il tourne, il a mordu, il est vert après correctif — mais il n'est PAS ajouté
+aux jambes de seuil, et le dire vaut mieux que le supposer. La raison est une
+vraie question ouverte : **les runners macOS et Windows de GitHub n'ont pas de
+démon Docker.** Le pas y échouerait — non par défaut du produit, mais parce que
+l'agent y tournerait sans conteneur.
+
+Trois suites possibles, à trancher :
+
+1. le pas force `HIVE_AGENT=shell` (mesure la chaîne, pas le bac à sable) ;
+2. le pas n'est câblé que sur `ubuntu` (couverture partielle, dite) ;
+3. le produit dégrade proprement sans bac à sable, et le pas le vérifie.
+
+Tant que ce n'est pas tranché, **le critère « la ruche produit » reste NON
+MESURÉ EN CONTINU** — c'est-à-dire non atteint.

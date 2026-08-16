@@ -603,8 +603,15 @@ function isolement(r: Releve): Diagnostic {
     : {
         cle: 'isolement',
         gravite: 'risque',
-        constat: 'ni docker ni podman — les agents tourneront sans conteneur',
-        reparation: 'installez podman (sans démon, sans root) ou docker',
+        // « ni docker ni podman » était FAUX dans le cas le plus courant : le
+        // client peut être installé et son SERVICE injoignable — un Docker
+        // Desktop pas démarré, un démon arrêté. Le relevé, qui sonde
+        // maintenant `info` et non `--version`, ne distingue pas les deux ; le
+        // constat ne doit donc affirmer que ce qu'il sait — aucun bac à sable
+        // ne RÉPOND — et la réparation couvre les deux causes.
+        constat: 'aucun bac à sable ne répond — les agents tourneront sans conteneur',
+        reparation:
+          'démarrez le service (Docker Desktop, `systemctl start docker`) ou installez podman (sans démon, sans root)',
       };
 }
 
