@@ -10695,3 +10695,28 @@ npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
 npx vitest run    296 fichiers — 4 275 passés | 8 sautés | 0 échec (4 283)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
+
+## Le « reste du balayage » des relances : MESURÉ, et tenu de bout en bout
+
+Une liste de trois points revenait à chaque relance. Je l'avais déclarée périmée
+plusieurs fois — par LECTURE. La relance affirmait l'inverse avec la même
+assurance. Deux affirmations, zéro mesure.
+
+Mutés à la main, un par un, contre la suite ENTIÈRE, ancres vérifiées uniques :
+
+| Point réclamé                                         | Verdict                        |
+| ----------------------------------------------------- | ------------------------------ |
+| Balance `arme && cible !== null` → `\|\|`             | **TENU** — 4 fichiers au rouge |
+| Balance `cible !== null` → `=== null`                 | **TENU** — `vues-sentinelles`  |
+| Cerveau `serviIlYaJours === null` (chaleur)           | **TENU** — 3 rouges            |
+| Cerveau `serviIlYaJours === null` (jamais vue)        | **TENU** — 5 rouges            |
+| `server.ts` : `find taskId && nodeId` de la livraison | **le motif n'existe pas**      |
+
+Le seul `find` sur un `taskId` dans `server.ts` est
+`inspections.find((i) => i.taskId === task.id)` — autre chose.
+
+**La liste est close, et cette fois le mot est mérité** : chaque ligne a été
+mutée et vue tuer. Consigné en § 9 novemquadragicenties — « non mesuré » n'est ni
+« nu » ni « fermé », c'est un troisième état, et il se résout en quelques minutes
+de mutation plutôt qu'en relisant le code ou en comptant les fichiers de bancs
+qui NOMMENT le symbole.

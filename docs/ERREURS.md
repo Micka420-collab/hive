@@ -12518,3 +12518,48 @@ C'est de la même famille que § 9 duotrigicenties (un bouchon partiel laisse
 passer ce qu'on n'a pas nommé) et § 9 septquadragicenties (un marqueur de fuite
 présent dans la phrase légitime) : **un banc peut être vert parce que le monde
 qu'il croit avoir construit n'existe pas.**
+
+## 9 novemquadragicenties. Un point de reste peut être faux DANS LES DEUX SENS — seule la mutation tranche
+
+Une liste de « reste à faire » revenait à chaque relance avec trois points :
+`Balance (arme && cible !== null)`, `Cerveau (serviIlYaJours === null)`,
+`server.ts (find taskId && nodeId de la livraison)`.
+
+J'ai répondu plusieurs fois que cette liste était PÉRIMÉE — vérifié, disais-je.
+La vérification était une LECTURE : un `grep` qui trouvait le symbole dans cinq
+fichiers de bancs, un commentaire consigné à la ligne, un motif introuvable.
+De l'autre côté, la relance affirmait l'inverse avec la même assurance.
+
+**Deux affirmations, zéro mesure.** Le lot du Rayon a montré le coût de cette
+façon de conclure : trois points réclamés depuis des jours y étaient DÉFENDUS,
+et personne — ni la relance, ni moi — ne l'avait vérifié en les mutant.
+
+Mesuré, enfin, un mutant à la fois contre la suite entière :
+
+```text
+TENU · Balance : arme && cible !== null  →  ||        4 fichiers au rouge
+TENU · Balance : cible !== null          →  === null  vues-sentinelles
+TENU · Cerveau : serviIlYaJours === null (chaleur)    3 rouges
+TENU · Cerveau : serviIlYaJours === null (jamais vue) 5 rouges
+```
+
+Et le motif de `server.ts` n'existe toujours pas : le seul `find` sur un
+`taskId` y est `inspections.find((i) => i.taskId === task.id)`, autre chose.
+
+### La leçon
+
+**« Non mesuré » n'est ni « nu » ni « fermé ».** C'est un troisième état, et il
+se résout en quelques minutes de mutation — pas en relisant le code, pas en
+comptant les fichiers de bancs qui NOMMENT le symbole, pas en faisant confiance
+à un commentaire qui dit que la ligne est gardée.
+
+Deux erreurs symétriques en découlent, et j'ai commis la première :
+
+- **déclarer clos par lecture.** Un banc qui mentionne un symbole ne prouve pas
+  qu'il en éprouve la DÉCISION ; c'est exactement ce que la loupe existe pour
+  démentir ;
+- **réclamer sans muter.** Redemander une ligne déjà défendue coûte des lots
+  entiers à quelqu'un qui prend la demande au sérieux.
+
+Le geste juste tient en une ligne de plus dans le harnais de mutation, et il
+rend un verdict que personne n'a besoin de croire.
