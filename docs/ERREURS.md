@@ -11899,3 +11899,79 @@ garde neuve.
 C'est le § 9 quattuortrigicenties poussé d'un cran. Là-bas, le recensement
 disait « nu » et le mutant a dit « non ». Ici le mutant dit « non » aussi — mais
 en lot, il ne dit pas de QUI il parle.
+
+## 9 octotrigicenties. Une remise à zéro ne s'observe que sur ce qu'on n'écrase pas
+
+Le Rayon vide son arbre quand on change de projet :
+
+```tsx
+// Changer de projet remet tout à zéro : garder l'arbre du précédent
+// afficherait les fichiers d'un dépôt sous le nom d'un autre.
+useEffect(() => {
+  setDossiers({});
+  …
+  void charger(projet.id, '');
+}, [projet?.id, charger]);
+```
+
+Premier cas écrit pour l'éprouver : monter le dépôt du nord, basculer sur celui
+du sud, vérifier que `miel.txt` — un fichier du nord — a disparu.
+
+**Le mutant a survécu.** Et il avait raison.
+
+### Ce que le cas ne pouvait pas voir
+
+`charger(projet.id, '')` écrit sous la clé `''`, la racine. Les deux dépôts
+partagent cette clé, donc le chargement du nouveau projet l'ÉCRASE :
+
+```js
+setDossiers((d) => ({ ...d, ['']: { entrees: /* celles du sud */, ouvert: true } }))
+```
+
+`miel.txt` s'en va tout seul, remise à zéro ou pas. Le cas mesurait le
+RECHARGEMENT, pas le vidage — deux mécanismes qui produisent le même écran sur
+cette entrée-là.
+
+### Où la garde est la seule à agir
+
+Sur les clés que le rechargement NE TOUCHE PAS : les sous-dossiers dépliés.
+
+```text
+nord/alveoles déplié   →  dossiers['alveoles'] = { couvain.ts, ouvert: true }
+on bascule au sud      →  dossiers[''] écrasé, dossiers['alveoles'] INTACT
+```
+
+Le sud affiche alors `alveoles/couvain.ts` — un fichier de l'autre dépôt, déjà
+déplié, sous le nom « Rucher du sud ». Exactement ce que le commentaire
+annonçait, et que le premier cas ne pouvait pas atteindre.
+
+```text
+Y5  ×  CHANGER DE PROJET VIDE L'ARBRE — un SOUS-DOSSIER déplié ne survit pas
+       'ProjetRucher du nordRucher du sud…' not to contain 'couvain.ts'
+       Tests  1 failed | 5 passed (6)
+```
+
+### La forme du piège
+
+Une remise à zéro et un rechargement se recouvrent partiellement. Sur
+l'intersection, les deux produisent le même écran, et le cas ne prouve rien :
+
+| Entrée de l'état       | Vidée par le reset | Réécrite par le chargement | Observable ? |
+| ---------------------- | ------------------ | -------------------------- | ------------ |
+| la racine `''`         | oui                | **oui**                    | non          |
+| un sous-dossier ouvert | oui                | non                        | **oui**      |
+
+### La règle
+
+> **Pour éprouver une remise à zéro, viser ce que la suite NE RÉÉCRIT PAS.**
+> Lister ce que le geste efface, lister ce que l'étape suivante réécrit, et
+> choisir dans la différence. Sur l'intersection, le banc reste vert quelle que
+> soit la version — il mesure le rechargement en croyant mesurer le vidage.
+>
+> Vaut pour tout nettoyage : `clear()` d'un cache aussitôt repeuplé, un
+> `AbortController` sur une requête qui repart, un `reset()` de formulaire
+> suivi d'un `defaultValue`.
+
+C'est le survivant qui l'a dit, pas la relecture — § 2.16 ter appliqué à la
+lettre : un mutant qui survit est TRANCHÉ, et celui-ci a rendu une entrée
+distinguante que je n'avais pas su choisir.

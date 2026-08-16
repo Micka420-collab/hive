@@ -9740,3 +9740,88 @@ npx vitest run    291 fichiers — 4 197 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 205 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## Le Rayon — la retouche : ce qu'elle promet, et ce qu'elle refuse
+
+Premier lot du Rayon (352 lignes). Recensement sur les DEUX racines :
+`vues-sentinelles` tient quatre cas — `repoUrl` lavé, enfants d'un dossier
+déplié, classe `active`, absence d'avertissement au repos. **Non rejoués.**
+Zéro cas pour `ry-geste`, « Proposer une retouche », `ry-note`, `ry-propose`,
+`ry-invite`, `ry-cadre`.
+
+Crible : six mutants ensemble, chacun vérifié posé, suite ENTIÈRE verte — 291
+fichiers, 4 197 tests. Vert, le lot conclut pour tous d'un coup
+(§ 9 septentrigicenties).
+
+### Le fichier énonce sa doctrine en tête, et rien ne la jouait
+
+> « LA LECTURE EST LE DÉFAUT, ET L'ÉCRITURE N'EN EST PAS UNE. […] ce qu'on voit
+> est le MIROIR du dépôt — un clone jetable — et rien ne s'y écrit jamais. »
+
+> « UN PORTEUR DE LIEN LIT, IL NE FABRIQUE PAS DE TRAVAIL pour l'essaim de
+> quelqu'un d'autre. […] proposer un bouton voué au 401 est une promesse qu'on
+> ne tient pas. »
+
+Le **cinquième** lot de suite où la garde nue est celle qu'un commentaire décrit
+mot pour mot (§ 9 sexvicicenties). Ce n'est plus une coïncidence : un auteur qui
+prend la peine d'écrire POURQUOI une ligne existe est un auteur qui a vu le
+danger — et s'est arrêté à la phrase.
+
+### Le survivant qui a corrigé le cas
+
+`Y5` — la remise à zéro de l'arbre au changement de projet — **a survécu au
+premier rejeu**. Le cas montait le nord, basculait au sud, vérifiait que
+`miel.txt` avait disparu. Mais les deux dépôts partagent la clé racine `''`, que
+le chargement du nouveau projet écrase de toute façon : `miel.txt` s'en allait
+tout seul. Le cas mesurait le RECHARGEMENT, pas le vidage.
+
+La garde n'agit seule que sur ce que le rechargement ne touche pas — les
+**sous-dossiers dépliés**. Cas refait avec un dossier `alveoles` présent dans
+les deux dépôts, aux contenus différents : sans le vidage, le sud affiche
+`alveoles/couvain.ts`, un fichier du nord, déjà déplié, sous le nom « Rucher du
+sud ».
+
+Consigné en § 9 octotrigicenties — pour éprouver une remise à zéro, viser ce que
+la suite NE RÉÉCRIT PAS.
+
+### Un banc durci pour que le rouge reste lisible
+
+Premier rejeu de `Y1` : trois cas tombaient par `TypeError: Cannot read
+properties of undefined (reading 'dispatchEvent')` — le bouton disparu, et un
+`!` qui laissait planter. Un rouge qui ne prouve que la capacité du banc à
+monter la vue (§ 9 quintrigicenties). Remplacé par un `boutonSur()` qui jette un
+message nommant ce qui manque.
+
+### Rejeu, verdict ET COMPTE affichés
+
+```text
+Y1  ×  LE PORTEUR D'UN LIEN (5 cas)  <button> to be falsy                 5 failed | 1 passed
+Y2  ×  CHANGER DE FICHIER            expected 'true' to be 'false'        1 failed | 5 passed
+Y3  ×  LA LECTURE PAR DÉFAUT (2 cas) expected 'true' to be 'false'        2 failed | 4 passed
+Y4  ×  LA FRAPPE S'AFFICHE           'le miel d'origine' to be 'le miel RETOUCHÉ'  1 failed | 5 passed
+Y5  ×  LE SOUS-DOSSIER DÉPLIÉ        '…' not to contain 'couvain.ts'      1 failed | 5 passed
+Y6  ×  LE DIFF DANS LE BON SENS      'le miel RETOUCHÉ' to be 'le miel d'origine'  1 failed | 5 passed
+source restaurée PAR COPIE                                                6 passed (6)
+```
+
+`Y6` mérite son cas : échangés, `avant` et `apres` produisent un diff
+parfaitement bien formé, appliqué sans erreur — qui **défait** exactement ce
+qu'on demandait.
+
+### Ce qui reste dans le Rayon
+
+| Garde                                   | Ce qu'elle protège                                   |
+| --------------------------------------- | ---------------------------------------------------- |
+| `sandbox={apercu.sandbox}`              | la valeur vient du SERVEUR, jamais recopiée ici      |
+| `projets.find(…) ?? projets[0] ?? null` | un lien vers un projet supprimé retombe quelque part |
+| `projets.length === 0`                  | l'écran vide et son geste de sortie                  |
+| le refus d'ouverture qui s'AFFICHE      | un clic sans réaction se lit comme une panne         |
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    292 fichiers — 4 203 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 211 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
