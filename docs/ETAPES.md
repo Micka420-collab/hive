@@ -9316,3 +9316,57 @@ Atelier Queen Bee, coulée du miel, dards Sting, carte Équipe, Conseil des
 
 Prochaines vues jamais examinées : **Chantiers**, **Memoire**, **Intendance**,
 **MonEspace**, **Partage**, **Rayon**, **Ruche**, **Essaim**.
+
+## Le Hive Mind : la seule vue vraiment jamais examinée
+
+La liste des « vues jamais examinées » qui circulait de tour en tour était une
+**supposition**. Comptée, sur les deux racines de bancs :
+
+```text
+RUCHE      39 cas      INTENDANCE 16 cas      ESSAIM  7 cas
+PARTAGE     7 cas      RAYON       5 cas      CHANTIERS 4 cas
+MON ESPACE  3 cas      MÉMOIRE     0 cas   ← la seule à zéro
+```
+
+L'Intendance, annoncée « jamais examinée », en avait seize. Mémoire, 183 lignes,
+n'en avait aucun. Le recensement corrige une liste que quatre tours avaient
+recopiée sans la vérifier.
+
+### Ce que cet écran décide
+
+Cinq mutants, chacun vérifié posé, suite entière verte avant écriture — 285
+fichiers, 4 163 tests.
+
+```text
+M1  ×  LA TÂCHE DISPARUE NE SE CLIQUE PAS   expected null not to be null
+M2  ×  LE PLI SE FAIT AU-DELÀ DE 200        (plus de pli du tout)
+M3  ×  … ET 200 PILE NE SE REPLIE PAS       expected <details> to be null
+M4  ×  LES DEUX VIDES NE DISENT PAS PAREIL  '…' to contain 'n’a encore rien retenu'
+M5  ×  UN ENVOI VIDE REVIENT AUX RÉCENTS    expected 3 to be 2
+source restaurée PAR COPIE                  5 passed (5)
+```
+
+### Deux vides qui ne sont pas le même vide
+
+« La ruche n'a encore rien retenu » : il n'y a rien à trouver. « Aucun souvenir
+ne correspond » : il y a peut-être tout, mais pas ça. Échangés, **une ruche
+pleine se déclare vide** devant quelqu'un qui n'a rien cherché — l'écran ment
+alors sur l'état du produit, pas sur celui de la requête.
+
+### Le lien qui survit à sa tâche
+
+Un souvenir survit à sa tâche : l'élagueur retire les tâches anciennes, le Hive
+Mind garde ce qu'elles ont appris. Le lien vers l'origine ne mène alors nulle
+part, et l'écran l'éteint plutôt que d'offrir un bouton inerte. Les deux mondes
+sont mesurés dans le même montage — muté, ils s'échangent exactement.
+
+### La borne du pli
+
+`> SHORT_LEN` contre `>=` : à 201 comme à 3 000 signes, les deux replient. Seul
+un contenu de **200 signes pile** les sépare — sinon `>=` cacherait derrière
+« (tout voir) » un texte qui tenait déjà à l'écran (§ 9 trigicenties).
+
+### Vues restantes
+
+Chantiers (4 cas), MonEspace (3), Rayon (5), Partage (7), Essaim (7) : couvertes
+partiellement, à reprendre garde par garde plutôt qu'en bloc.
