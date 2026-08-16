@@ -11770,3 +11770,68 @@ C'est le pendant du § 9 novemvicicenties — là-bas le banc mesurait un autre
 sujet que celui qu'il nommait ; ici le MUTANT tuait pour une autre raison que
 celle qu'on lui prêtait. Dans les deux cas le vert et le rouge étaient exacts,
 et la conclusion qu'on en tirait, fausse.
+
+## 9 sextrigicenties. Un garde-fou qui a l'air de protéger, et ne protège pas
+
+L'échelle des barres de nectar porte DEUX défenses apparentes sur la même ligne :
+
+```ts
+const maxScore = Math.max(1, board.nodes[0]?.score ?? 1);
+```
+
+À la lecture, on en compte deux : le `?? 1` couvre l'absence de premier nœud, le
+`Math.max(1, …)` couvre le zéro. Belt and braces. **Une seule des deux tient.**
+
+### Ce que `??` ne fait pas
+
+`??` est le coalescent NULLISH — il ne se déclenche que sur `null` et
+`undefined` :
+
+```js
+undefined ?? 1; // 1     ← le seul cas qu'il couvre ici
+0 ?? 1; // 0     ← PAS 1
+```
+
+Un classement dont la meilleure ouvrière est à zéro — cas réel : une ruche
+neuve, ou une ruche dont tout le nectar s'est évaporé — donne donc `0`, pas `1`.
+C'est `Math.max(1, …)` seul qui empêche le dénominateur de s'annuler.
+
+Le mutant l'a prononcé sans ambiguïté :
+
+```text
+W4  ×  LE CLASSEMENT COMMENCE À UN — et les barres ne divisent jamais par zéro
+       expected '' to be '0%'            1 failed | 5 passed
+```
+
+`Math.max(0, …)` → `0 / 0` → `NaN` → `width: NaN%`, que le DOM refuse tout
+court. La barre n'a plus de largeur du tout.
+
+### La forme du piège
+
+Deux protections côte à côte se lisent comme redondantes, et l'on suppose alors
+que retirer l'une laisse l'autre. Ici elles ne couvrent **pas le même cas** :
+
+| Défense          | Couvre                        | Ne couvre pas |
+| ---------------- | ----------------------------- | ------------- |
+| `?? 1`           | le tableau VIDE (`undefined`) | le score à 0  |
+| `Math.max(1, …)` | le score à 0                  | rien d'autre  |
+
+La redondance est apparente parce que les deux écrivent le même littéral `1`.
+Le chiffre est le même ; le cas ne l'est pas.
+
+### La règle
+
+> **Deux gardes qui écrivent la même valeur ne gardent pas forcément la même
+> chose.** Avant de compter une ligne comme doublement protégée, poser la
+> question par cas : quelle ENTRÉE chaque moitié attrape-t-elle ? Si aucune
+> entrée ne réveille l'une des deux, ce n'est pas une ceinture — c'est du
+> décor, et le jour où l'autre saute, rien ne retient.
+>
+> Le mutant tranche : muter chaque moitié SÉPARÉMENT. Celle qui survit à toute
+> entrée réaliste est équivalente (§ 2.16 ter) — à consigner à la ligne, pas à
+> laisser croire qu'elle protège.
+
+Même famille que le § 9 sexvicicenties, transposée : là-bas un COMMENTAIRE
+décrivait une règle que rien ne tenait ; ici c'est du CODE qui a l'air de tenir
+une règle qu'il ne tient pas. Les deux se lisent comme une garantie et n'en
+sont pas une.

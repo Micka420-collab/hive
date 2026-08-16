@@ -9584,3 +9584,79 @@ npx vitest run    289 fichiers — 4 185 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 193 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## Le Waggle Board : la danse frétillante et le podium qu'elle dresse
+
+Troisième lot d'Essaim, garde par garde. Recensement sur les DEUX racines :
+`es-podium`, `es-medal`, `es-dance`, `es-nectar`, `es-rank`, `es-bar-fill`,
+`es-score`, « Lecture de la danse », « attend le premier nectar » — **rien**.
+
+`tests/waggle.test.ts` tient le module qui CALCULE le tableau (score, tri,
+totaux). Il ne monte rien : le RENDU du classement n'avait aucun cas. Six
+mutants posés ensemble, chacun vérifié posé, suite ENTIÈRE verte — **289
+fichiers, 4 185 tests**.
+
+### Le commentaire décrivait la règle, et `[0, 1, 2]` passait
+
+```tsx
+// Ordre visuel : 2e à gauche, 1er au centre, 3e à droite.
+const order = [1, 0, 2].filter((i) => i < top.length);
+```
+
+Encore un § 9 sexvicicenties : la règle écrite en toutes lettres, et rien qui la
+joue. C'est un **podium** — sa forme EST son information. Rangé par ordre de
+classement, il devient une liste de trois noms, et la médaille d'or quitte le
+milieu où l'œil la cherche. Le banc lit l'ORDRE DU DOM, pas le contenu : les
+trois mêmes noms sont présents dans les deux versions.
+
+### Rejeu, verdict ET COMPTE affichés
+
+```text
+W1  ×  LES DEUX VIDES        '…Aucu…' to contain 'Lecture de la danse'   1 failed | 5 passed
+W2  ×  LE PODIUM (2 cas)     expected 'la-premiere' to contain 'la-deuxieme'  2 failed | 4 passed
+W3  ×  C'EST LE N°1 QUI DANSE  expected false to be true                 1 failed | 5 passed
+W4  ×  DIVISION PAR ZÉRO     expected '' to be '0%'                      1 failed | 5 passed
+W5  ×  LE ⚔ À ZÉRO VICTOIRE  '…✔ 4 ✘ 0 …' not to contain '⚔'            1 failed | 5 passed
+W6  ×  LE CLASSEMENT À UN    expected ['0','1'] to equal ['1','2']       1 failed | 5 passed
+source restaurée PAR COPIE                                               6 passed (6)
+```
+
+`W2` tombe sur deux cas : déplacer l'ordre du podium déplace aussi la danse, qui
+est posée sur l'indice 0. Vérifié — `AssertionError`, pas `TypeError`.
+
+`W5` est une borne : `raceWins > 0` et `>= 0` ne diffèrent QU'À ZÉRO, et zéro
+est de loin le cas le plus fréquent puisque les courses de drones sont
+optionnelles. Muté, chaque ligne porte « ⚔ 0 » — un badge de victoire sur une
+ouvrière qui n'a jamais couru.
+
+### Une ceinture et des bretelles dont une seule tient
+
+`W4` a révélé mieux qu'une garde nue :
+
+```ts
+const maxScore = Math.max(1, board.nodes[0]?.score ?? 1);
+```
+
+Deux défenses apparentes, **une seule effective** : `??` est nullish, donc
+`0 ?? 1` vaut `0`. Le `?? 1` couvre le tableau vide, pas le score à zéro. Seul
+`Math.max(1, …)` empêche le dénominateur de s'annuler.
+
+Consigné en § 9 sextrigicenties — deux gardes qui écrivent la même valeur ne
+gardent pas forcément la même chose ; les muter SÉPARÉMENT est ce qui le dit.
+
+### Ce qui reste dans Essaim
+
+| Garde                                      | Ce qu'elle protège                                                    |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| `races.error === null ? … : []`            | pas de course fantôme si le sondage meurt                             |
+| `titleOf` / `nameOf` (repli `slice(0,8)…`) | une tâche ou un nœud purgé reste lisible                              |
+| `statusLabel` + `ICON[d.status] ?? '?'`    | l'emoji seul ne suffit ni aux lecteurs d'écran ni aux non-anglophones |
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    290 fichiers — 4 191 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 199 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
