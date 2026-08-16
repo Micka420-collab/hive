@@ -80,6 +80,15 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchLivraisons: vi.fn(() => Promise.resolve({ livraisons: [] })),
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
   fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
+  // Sondes des enfants qui ne sont PAS nommés dans Projets.tsx : `Honeycomb`
+  // (shared) hydrate les revues, `GardeFous` lit ses bornes. `vi.mock` garde
+  // les exports non redéfinis via `importOriginal` — ceux-là partent donc EN
+  // VRAI vers le port 3000, et le banc bruit d'ECONNREFUSED sans échouer.
+  // Chercher les sondes dans le seul fichier de la vue ne suffit pas : il faut
+  // suivre ses ENFANTS.
+  fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
+  fetchGardeFou: vi.fn(() => Promise.resolve(null)),
+  postReview: vi.fn(() => Promise.resolve()),
   planBrief: vi.fn(() => Promise.resolve({ tasks: [], source: 'heuristic' })),
   addTasks: vi.fn(() => Promise.resolve([{ id: 't-x' }])),
 }));

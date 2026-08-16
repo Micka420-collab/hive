@@ -9018,12 +9018,37 @@ d'un seul geste** : une dépendance INTERNE (qui doit suivre le renommage) et un
 dépendance ÉTRANGÈRE au plan (qu'il faut laisser intacte, sinon elle pointe dans
 le vide).
 
-### Un bruit constaté, pas introduit, pas diagnostiqué
+### Le bruit des sondes échappées : diagnostiqué et fermé
 
-Monter `Projets` laisse des sondes s'échapper vers le port 3000
-(`ECONNREFUSED`). Vérifié : ce n'est PAS ce lot — le banc existant
-`projets-alveoles` en émet **24**, le nouveau **5**, et un banc sans rapport
-(`sante-guetteuses`) **0**. Une sonde posée sur `globalThis.fetch` n'a rien
-intercepté : l'appel ne passe donc pas par là (liaison capturée à l'import,
-ou autre canal). **Non diagnostiqué, laissé ouvert** — candidat pour un lot à
-part, plutôt que corrigé à l'aveugle ici.
+Monter `Projets` laissait des sondes partir en vrai vers le port 3000
+(`ECONNREFUSED`) : le banc existant `projets-alveoles` en émettait **24**, le
+nouveau **5**, un banc sans rapport **0**.
+
+La sonde posée sur `globalThis.fetch` n'avait rien intercepté, ce qui a d'abord
+fait croire à un autre canal. La vraie raison est plus simple, et c'est celle
+qui mérite d'être retenue :
+
+```ts
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),   // ← tout le RESTE est VRAI
+  fetchBalance: vi.fn(...),
+  …
+}));
+```
+
+`importOriginal` conserve **les exports qu'on n'a pas redéfinis**. Ceux-là
+partent donc pour de bon. Et les coupables n'étaient pas dans `Projets.tsx` :
+ils sont chez ses **enfants** — `Honeycomb` (via `shared.tsx`) appelle
+`fetchReviews`, `GardeFous` appelle `fetchGardeFou`. Recenser les sondes du
+seul fichier de la vue ne suffisait pas.
+
+Mesuré après bouchonnage des deux, dans les deux bancs :
+
+```text
+projets-alveoles      24 → 0   (8 passed, inchangé)
+atelier-queen-bee      5 → 0   (5 passed, inchangé)
+suite entière                  1 occurrence restante, NON attribuée
+```
+
+Consigné en § 9 duotrigicenties. La dernière occurrence de la suite n'a pas été
+rattachée à un fichier — laissée ouverte, et dite comme telle.

@@ -11501,3 +11501,62 @@ cette minute-là.
 
 Ce qui est acquis, en revanche : le filtre est corrigé, et la prochaine
 apparition sera lisible.
+
+## 9 duotrigicenties. Un bouchon PARTIEL laisse passer tout ce qu'on n'a pas nommé
+
+Le motif est partout dans `tests/` et il est juste — mais son revers ne se voit
+pas :
+
+```ts
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),   // ← tout le RESTE est VRAI
+  fetchBalance: vi.fn(() => Promise.resolve(null)),
+  …
+}));
+```
+
+`importOriginal` garde **les exports qu'on n'a pas redéfinis**. Ceux-là partent
+pour de bon sur le réseau. Sous vitest, sans serveur, cela donne des
+`ECONNREFUSED 127.0.0.1:3000` — qui **ne font pas échouer le banc**. Le vert
+reste vert, et le bruit passe pour du décor.
+
+### Pourquoi le recensement évident ne suffit pas
+
+Pour bouchonner, le réflexe est de lister les sondes du fichier de la vue :
+
+```sh
+grep -oE "\bfetch[A-Z][A-Za-z]*\b" dashboard/src/views/Projets.tsx | sort -u
+```
+
+Ce recensement était **complet et pourtant faux**. Les sondes qui fuyaient
+n'appartenaient pas à `Projets.tsx` : elles appartenaient à ses **enfants** —
+`Honeycomb` (via `shared.tsx`) appelle `fetchReviews`, `GardeFous` appelle
+`fetchGardeFou`. Monter un composant, c'est monter tout son arbre, et l'arbre
+n'apparaît pas dans le grep du parent.
+
+### La fausse piste, gardée ici parce qu'elle coûte du temps
+
+Une sonde posée sur `globalThis.fetch` dans le `beforeEach` n'a **rien**
+intercepté. On en conclut volontiers « l'appel ne passe pas par `fetch` » — et
+l'on part chercher un `EventSource`, une liaison capturée à l'import, un autre
+canal. C'était faux : le module n'était simplement pas encore chargé au moment
+d'installer la sonde pour certains chemins, et l'essentiel se jouait ailleurs.
+**Un piège qui n'attrape rien ne prouve pas l'absence de gibier ; il peut juste
+être mal posé.**
+
+### Mesuré
+
+```text
+projets-alveoles      24 → 0   (8 passed, inchangé)
+atelier-queen-bee      5 → 0   (5 passed, inchangé)
+suite entière                  1 occurrence restante, NON attribuée
+```
+
+> **Règle** — quand un banc monte un composant, le bouchon se recense sur
+> l'ARBRE, pas sur le fichier. Et le signal à surveiller n'est pas l'échec —
+> c'est le bruit : un `ECONNREFUSED` dans une suite verte dit qu'un morceau du
+> produit s'exécute POUR DE VRAI, hors de ce que le banc croit mesurer.
+
+C'est le § 9 novemvicicenties vu du côté du montage : là-bas le banc mesurait un
+autre sujet ; ici il laisse un morceau du produit vivre sa vie hors du cadre, et
+personne ne le remarque parce que rien ne rougit.
