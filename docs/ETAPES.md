@@ -9370,3 +9370,58 @@ un contenu de **200 signes pile** les sépare — sinon `>=` cacherait derrière
 
 Chantiers (4 cas), MonEspace (3), Rayon (5), Partage (7), Essaim (7) : couvertes
 partiellement, à reprendre garde par garde plutôt qu'en bloc.
+
+## Mon Espace : le chiffre qu'on lit pour savoir ce qu'on a dépensé
+
+Recensement d'abord : `vues-sentinelles` tient déjà le compte à rebours des
+alertes, sa borne à zéro, et le motif d'arrêt — non rejoués.
+
+### La règle que le fichier énonce, et que personne ne tenait
+
+> « Une décimale sous dix heures, entier au-delà : au-dessus, le dixième d'heure
+> n'informe plus personne et donne une fausse impression de précision. »
+
+```ts
+return h < 10 ? `${h.toFixed(1)} h` : `${Math.round(h)} h`;
+```
+
+C'est le chiffre qu'on lit pour surveiller son forfait. Sous dix heures, le
+dixième compte — « 0,4 h » et « 0 h » ne disent pas la même chose. Au-delà, il
+ment sur sa propre exactitude. Un commentaire qui explique n'est pas une garde
+(§ 9 sexvicicenties) ; celui-ci en a une maintenant, **bornes comprises**.
+
+### Rejeu, verdict affiché
+
+Six mutants, chacun vérifié posé, suite entière verte avant écriture — 286
+fichiers, 4 168 tests.
+
+```text
+H1  ×  SOUS DIX HEURES LE DIXIÈME COMPTE   expected '2 h…' to contain '2.4'
+H2  ×  … À DIX PILE, IL NE COMPTE PLUS     expected '10.0 h…' not to contain '10.0'
+H3  ×  UNE DÉPENSE NÉGATIVE…               expected '-0.3 h…' not to contain '-0'
+H4  ×  UN PROJET QUI BUTINE…               expected 'me-carte inactive' not to contain 'inactive'
+H5  ×  LE GRAND LIVRE EN RETARD LE DIT     '…' to contain 'n’a pas fini son rattrapage'
+H6  ×  LE PLAN NE S’ÉTIQUETTE QUE S’IL…    expected <span class="me-plan"> to be null
+source restaurée PAR COPIE                 6 passed (6)
+```
+
+`H1` tombe sur DEUX cas à la fois : sans la décimale, la dépense négative
+ramenée à zéro s'affiche « 0 h » au lieu de « 0.0 h ». Les deux gardes se
+lisent dans le même chiffre.
+
+### Un repère trop large, rattrapé par le banc lui-même
+
+Première écriture du cas de la dépense négative :
+
+```ts
+expect(tuileDepense(dom)).not.toContain('-');
+```
+
+Rouge — mais pas pour la bonne raison : le libellé **« temps-ouvrière »** porte
+lui-même un tiret. L'assertion jugeait le mot, pas le chiffre. Resserrée sur
+`'-0'` et doublée d'un `toContain('0.0 h')` positif. C'est § 2 duodecies dans
+un banc neuf : **un repère non unique juge autre chose que ce qu'on croit.**
+
+### Vues restantes
+
+Chantiers (4 cas, 299 lignes), Rayon (5, 352), Partage (7, 173), Essaim (7, 553) — couvertes partiellement, à reprendre garde par garde.
