@@ -186,3 +186,52 @@ describe('la séquence du pas 7/7 : ce qu’elle exige avant d’annoncer un suc
     expect(vMuet.raison, 'l’identifiant manquant n’est pas nommé').toContain('identifiant');
   });
 });
+
+// ─── LA DERNIÈRE LIGNE DU COUREUR ────────────────────────────────────────────
+//
+// La loupe a nommé sept nus dans `essai-travail.mjs`, puis quatre, puis UN : la
+// garde d'usage. Elle ne descend pas dans un module — c'est la porte du script,
+// et son sujet est un CODE DE SORTIE. On l'éprouve donc là où elle vit, en
+// lançant vraiment le script.
+//
+// Précédent exact du dépôt : `premier-quart-heure.test.mjs`, même forme, même
+// code 64, même `shell: false`.
+
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+
+// `process.cwd()` plutôt que `fileURLToPath(import.meta.url)` : sous happy-dom
+// le second jette. Ce banc-ci n'est pas en happy-dom, mais la règle du dépôt se
+// tient partout — un déplacement de fichier ne doit pas la réveiller.
+const COUREUR = path.join(process.cwd(), 'scripts', 'essai-travail.mjs');
+
+describe('la porte du coureur', () => {
+  it('SANS --racine, l’instrument dit son usage et sort en 64', () => {
+    // 64 = « on m'a mal appelé », distinct de 1 = « la mesure a échoué ». Les
+    // confondre ferait passer une erreur d'invocation pour un défaut du produit
+    // — et un pas de seuil qui accuse la ruche à tort est un instrument qui ment.
+    //
+    // Inversée, la garde laisse le pas continuer SANS racine : il irait lire un
+    // `.env` sous `null` et rendrait une pile Node là où il faut une phrase.
+    const v = spawnSync(process.execPath, [COUREUR], {
+      encoding: 'utf8',
+      shell: false,
+      timeout: 30_000,
+    });
+
+    expect(`${v.stdout}${v.stderr}`, 'l’usage n’est pas dit').toContain('usage :');
+    expect(v.status, 'le code de sortie ne distingue pas le mauvais appel').toBe(64);
+  });
+
+  it('AVEC UNE RACINE QUI N’EXISTE PAS, CE N’EST PLUS 64 — le mauvais appel est passé', () => {
+    // Le contre-monde, et il porte la moitié du sens : sans lui, une garde
+    // toujours vraie rendrait 64 pour tout et le cas ci-dessus resterait vert.
+    const v = spawnSync(process.execPath, [COUREUR, '--racine', '/nulle/part/du/tout'], {
+      encoding: 'utf8',
+      shell: false,
+      timeout: 30_000,
+    });
+
+    expect(v.status, 'un appel BIEN formé est traité comme un mauvais appel').not.toBe(64);
+  });
+});

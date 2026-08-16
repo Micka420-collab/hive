@@ -10264,3 +10264,57 @@ npx vitest run    295 fichiers — 4 239 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 247 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## Le coureur du pas 7/7 : de sept nus à ZÉRO
+
+Dernière ligne fermée. La loupe avait nommé **sept** lignes dans
+`scripts/essai-travail.mjs`, puis **quatre**, puis **une** : la garde d'usage.
+
+```js
+if (racine === null) {
+  console.error('usage : node scripts/essai-travail.mjs --racine <dossier>');
+  return MAL_APPELE; // 64
+}
+```
+
+Elle ne descend dans aucun module — c'est la PORTE du script, et son sujet est
+un **code de sortie**. On l'éprouve donc là où elle vit, en lançant vraiment le
+script (`spawnSync`, `shell: false`), sur le précédent exact du dépôt :
+`premier-quart-heure.test.mjs`.
+
+Deux cas, parce qu'un seul laisserait passer une garde toujours vraie :
+
+```text
+W1  ×  SANS --racine, USAGE ET 64      expected 'node:path:1339…' to contain 'usage :'
+W1  ×  AVEC UNE RACINE INEXISTANTE     expected 64 not to be 64
+    séquence restaurée PAR COPIE        10 passed (10)
+```
+
+Le second porte la moitié du sens : sans lui, une garde inversée rendrait 64
+pour tout, et le premier resterait vert. Le mutant le montre — il fait rougir
+les DEUX.
+
+64 (« on m'a mal appelé ») se distingue de 1 (« la mesure a échoué ») : les
+confondre ferait passer une erreur d'invocation pour un défaut du produit, et un
+pas de seuil qui accuse la ruche à tort est un instrument qui ment.
+
+### Le compte, sur trois tours
+
+| Tour | Nus dans le coureur | Ce qui les portait                       |
+| ---- | ------------------- | ---------------------------------------- |
+| 1    | 7                   | six DÉCISIONS + un équivalent            |
+| 2    | 4                   | le CÂBLAGE, soudé à `fetch`              |
+| 3    | **0**               | la porte, éprouvée par un vrai lancement |
+
+Le fichier a déclaré deux fois n'avoir gardé que l'impur, et la loupe l'a démenti
+deux fois. **Cette fois, c'est elle qui le dira** — et le prochain tour doit la
+relancer avant de conclure.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    295 fichiers — 4 241 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 249 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
