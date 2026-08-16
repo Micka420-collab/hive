@@ -11560,3 +11560,26 @@ suite entière                  1 occurrence restante, NON attribuée
 C'est le § 9 novemvicicenties vu du côté du montage : là-bas le banc mesurait un
 autre sujet ; ici il laisse un morceau du produit vivre sa vie hors du cadre, et
 personne ne le remarque parce que rien ne rougit.
+
+### La dernière occurrence : attribuée, pas expliquée
+
+Le balayage fichier par fichier l'a rattachée : **`tests/app-coquille.test.tsx`**,
+une occurrence, et elle seule dans tout le dépôt.
+
+Ce qui a été ÉCARTÉ par mesure, pas par raisonnement :
+
+| Hypothèse                | Piège posé                                                    | Résultat            |
+| ------------------------ | ------------------------------------------------------------- | ------------------- |
+| un `fetch` non bouchonné | `globalThis.fetch` ET `window.fetch`, au chargement du module | rien intercepté     |
+| le flux `connectFeed`    | constructeur `WebSocket` enveloppé                            | aucun socket ouvert |
+| une source d'événements  | constructeur `EventSource` enveloppé                          | aucune ouverture    |
+
+Un `fetchMonTableau` bouchonné « pour voir » n'a rien changé au compte : la
+tentation était d'en tirer un correctif et un commentaire affirmant que c'était
+la dernière fuite. **Le compte étant resté à 1, l'affirmation aurait été fausse
+— le bouchon a été retiré plutôt que gardé pour la forme.**
+
+L'erreur n'a aucune trame JavaScript (`at TCPConnectWrap.afterConnect` seul) et
+sort avant toute sortie de test. **Cause inconnue, et dite comme telle.** Ce qui
+est acquis : elle est unique, attribuée à un fichier, et trois canaux évidents
+sont éliminés — le prochain qui la reprendra ne recommencera pas ces trois-là.

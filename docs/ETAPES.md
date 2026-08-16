@@ -9050,5 +9050,9 @@ atelier-queen-bee      5 → 0   (5 passed, inchangé)
 suite entière                  1 occurrence restante, NON attribuée
 ```
 
-Consigné en § 9 duotrigicenties. La dernière occurrence de la suite n'a pas été
-rattachée à un fichier — laissée ouverte, et dite comme telle.
+Consigné en § 9 duotrigicenties. La dernière occurrence a ensuite été
+**attribuée** — `tests/app-coquille.test.tsx`, une seule dans tout le dépôt —
+mais **pas expliquée** : pièges posés sur `fetch` (les deux portes), sur le
+constructeur `WebSocket` et sur `EventSource`, aucun n'a rien intercepté.
+L'erreur n'a pas de trame JavaScript. Cause inconnue, trois canaux éliminés,
+laissée ouverte.
