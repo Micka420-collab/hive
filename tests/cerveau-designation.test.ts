@@ -41,6 +41,7 @@ import {
   seChevauchent,
   LIBELLE_GENRE,
   densiteEcran,
+  mouvementReduit,
   noteCreuse,
   resumeDeNote,
   selectionAuRelacher,
@@ -657,5 +658,52 @@ describe('densiteEcran — un repli qui protège deux pannes différentes', () =
 
   it('les densités fractionnaires passent telles quelles', () => {
     expect(densiteEcran(1.5)).toBe(1.5);
+  });
+});
+
+// ─── LE MOUVEMENT RÉDUIT, SORTI DE LA BOUCLE POUR ÊTRE MESURÉ ────────────────
+//
+// Le balayage du 16 août l'a rendue SANS TEST dans `Cerveau.tsx`. Je l'ai
+// d'abord rangée parmi les « éprouvables sans géométrie » — FAUX, et répété
+// trois fois : son unique appel vivait APRÈS `getContext`, donc derrière la
+// même porte que les lignes classées hors de portée. Sortie de la boucle, elle
+// se juge au point près.
+describe('le mouvement réduit', () => {
+  /** Un `matchMedia` de laboratoire : il note ce qu'on lui demande. */
+  function media(matches: boolean) {
+    const vues: string[] = [];
+    return {
+      interroger: (requete: string) => {
+        vues.push(requete);
+        return { matches };
+      },
+      vues,
+    };
+  }
+
+  it('LE SYSTÈME DEMANDE MOINS DE MOUVEMENT : on le respecte', () => {
+    const { interroger, vues } = media(true);
+    expect(mouvementReduit(interroger)).toBe(true);
+    // Et l'on vérifie CE QU'ON A DEMANDÉ : un `true` obtenu sur la mauvaise
+    // requête serait vrai pour la mauvaise raison.
+    expect(vues, 'la requête média n’est pas celle du mouvement réduit').toEqual([
+      '(prefers-reduced-motion: reduce)',
+    ]);
+  });
+
+  it('LE SYSTÈME NE DEMANDE RIEN : l’animation reste permise', () => {
+    // C'est LE cas qui départage `&&` de `||` : en `||`, la seule existence de
+    // `matchMedia` suffirait à court-circuiter à vrai, et le Cerveau se croirait
+    // en mouvement réduit sur tous les postes du monde — graphe figé, sans
+    // message, préférence d'accessibilité imposée à qui ne l'a pas demandée.
+    const { interroger } = media(false);
+    expect(mouvementReduit(interroger)).toBe(false);
+  });
+
+  it('AUCUN `matchMedia` : on n’invente pas une préférence, et on ne casse pas', () => {
+    // Un vieux navigateur, ou un banc : la fonction doit rendre `false` sans
+    // jeter. C'est la borne du `typeof`.
+    expect(() => mouvementReduit(undefined)).not.toThrow();
+    expect(mouvementReduit(undefined)).toBe(false);
   });
 });

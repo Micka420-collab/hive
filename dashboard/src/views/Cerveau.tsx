@@ -60,6 +60,7 @@ import {
   selectionAuRelacher,
   LIBELLE_GENRE,
   densiteEcran,
+  mouvementReduit,
   noteCreuse,
   resumeDeNote,
 } from './cerveau-designation';
@@ -96,11 +97,6 @@ interface Corps {
 // canevas où rien ne s'exécute sous banc. `chaleur` (ancienneté → 0..1) a
 // rejoint `cerveau-designation.ts`, aux côtés de `rayon` : une garde survivante
 // du balayage, sortie de la boucle de dessin pour s'éprouver au point près.
-
-/** Le système demande-t-il moins de mouvement ? */
-function mouvementReduit(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
 
 export default function Cerveau(_props: ViewProps) {
   const t = useT();
@@ -149,7 +145,7 @@ export default function Cerveau(_props: ViewProps) {
     const ctx = c.getContext('2d');
     if (!ctx) return;
 
-    const calme = mouvementReduit();
+    const calme = mouvementReduit(globalThis.matchMedia);
     let vivant = true;
     let t0 = 0;
     let tours = 0;

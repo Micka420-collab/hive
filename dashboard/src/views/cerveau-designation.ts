@@ -527,3 +527,33 @@ export function resumeDeNote(n: NoteResumee, t: (fr: string, en: string) => stri
 export function densiteEcran(dpr: number | undefined): number {
   return dpr || 1;
 }
+
+/**
+ * Le système demande-t-il MOINS DE MOUVEMENT ?
+ *
+ * ─── POURQUOI ELLE EST ICI, ET PAS DANS LA VUE ───────────────────────────────
+ *
+ * Elle y était, et le balayage du 16 août l'a rendue SANS TEST. Je l'ai d'abord
+ * rangée parmi les « éprouvables sans géométrie » — c'était FAUX, trois fois
+ * répété : son unique appel vit ligne 152 de `Cerveau.tsx`, c'est-à-dire APRÈS
+ * `const ctx = c.getContext('2d'); if (!ctx) return;`. Sous happy-dom
+ * `getContext` rend `null`, l'effet sort ligne 150, et la fonction n'est jamais
+ * atteinte. Elle était derrière la MÊME porte que les lignes que j'avais
+ * classées hors de portée.
+ *
+ * D'où la sortie de la boucle, comme `chaleur` et `densiteEcran` avant elle : la
+ * décision se juge au point près, et l'ambiant se passe en ARGUMENT plutôt que
+ * de se lire dans un global — c'est ce qui la rend mesurable sans navigateur.
+ *
+ * ─── LE MUTANT, ET CE QU'IL COÛTE ────────────────────────────────────────────
+ *
+ * `&&` → `||` : dès que `matchMedia` EXISTE, l'expression court-circuite à vrai
+ * et le Cerveau se croit toujours en mouvement réduit. L'animation ne démarre
+ * jamais, sur tous les postes du monde — un graphe figé, sans message, et une
+ * préférence d'accessibilité appliquée à des gens qui ne l'ont pas demandée.
+ */
+export function mouvementReduit(
+  matchMedia: ((requete: string) => { matches: boolean }) | undefined,
+): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}

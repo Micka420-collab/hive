@@ -10942,8 +10942,26 @@ Deux cas, les deux sens, rejeu : **2 échecs sur 23**, restauré PAR COPIE, 23/2
 
 ### Ce qui reste, et pourquoi
 
-**Éprouvable, pas encore fait** : `matchMedia(…)` pour `prefers-reduced-motion`
-(l. 102) ; et `{mode === 'graphe'` au CORPS du rendu — à ne pas confondre avec
+**CORRECTION — `matchMedia` n'était PAS éprouvable, et je l'ai écrit trois
+fois.** Son unique appel vit ligne 152, c'est-à-dire APRÈS
+`const ctx = c.getContext('2d'); if (!ctx) return;` : sous happy-dom l'effet sort
+ligne 150 et la fonction n'est jamais atteinte. Elle était derrière la MÊME porte
+que les lignes classées hors de portée. Le tri s'était fait sur la FORME de la
+ligne — pas de canevas, pas de coordonnée — au lieu de son CHEMIN D'APPEL.
+Consigné en § 9 duoquinquagicenties.
+
+Elle est donc SORTIE de la boucle, comme `chaleur` et `densiteEcran` avant elle,
+et prend l'ambiant en argument : `mouvementReduit(globalThis.matchMedia)`. Trois
+cas, rejeu du mutant `&& → ||` : **3 échecs sur 68**, chacun pour une raison
+distincte — la requête jamais posée, `true` là où `false` est juste, et un
+`TypeError` quand `matchMedia` est absent.
+
+Le mutant méritait d'être vu : la seule EXISTENCE de `matchMedia` court-circuite
+à vrai, et le Cerveau se croit en mouvement réduit sur tous les postes du monde —
+graphe figé, sans message, préférence d'accessibilité imposée à qui ne l'a pas
+demandée.
+
+**Éprouvable, pas encore fait** : `{mode === 'graphe'` au CORPS du rendu — à ne pas confondre avec
 `className={mode === 'graphe' ? 'on' : ''}` de l'interrupteur, qui est défendu
 depuis le 3 août. **Deux sites, un même symbole** : c'est § 9 unquinquagicenties
 appliqué à ma propre reddition de comptes, et la raison pour laquelle « le mode

@@ -12664,3 +12664,50 @@ C'est le § 9 sexvicicenties élargi. Là-bas, un commentaire décrivait une rè
 que rien ne jouait ; ici, un BANC décrit une règle que rien ne joue **ailleurs**.
 Dans les deux cas le raisonnement existe, écrit et juste — et la ligne qu'il
 devrait protéger n'est pas celle qu'il regarde.
+
+## 9 duoquinquagicenties. « Éprouvable » se vérifie sur le CHEMIN D'APPEL, pas sur la forme de la ligne
+
+Le balayage du Cerveau a rendu sept nues. Je les ai triées en deux tas — « sans
+géométrie, éprouvables maintenant » et « derrière le canevas » — et j'ai mis
+celle-ci dans le premier :
+
+```ts
+function mouvementReduit(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+```
+
+Elle en a l'air : aucun canevas, aucune coordonnée, un `typeof` et une requête
+média. **Le tri s'est fait sur la FORME de la ligne, et il était faux.** Son
+unique appel vit ligne 152 de `Cerveau.tsx` :
+
+```ts
+const ctx = c.getContext('2d');
+if (!ctx) return; // ← sous happy-dom, on sort ICI
+
+const calme = mouvementReduit(); // ← jamais atteint
+```
+
+Elle était derrière **exactement la même porte** que les trois lignes que je
+venais de déclarer hors de portée. Et l'erreur a été publiée trois fois — dans
+un corps de PR, dans le carnet, puis dans un second corps de PR — parce qu'une
+fois écrite, une classification se recopie sans se re-vérifier.
+
+### La leçon
+
+**Avant de classer une ligne « éprouvable », suivre son CHEMIN D'APPEL jusqu'à
+une entrée que le banc peut atteindre.** Une fonction pure enfouie sous un
+`return` conditionnel n'est pas plus accessible que la boucle qui l'entoure : ce
+qui décide, c'est qui l'appelle et sous quelle garde, jamais ce dont elle a
+l'air.
+
+Le remède était déjà dans le fichier, écrit par quelqu'un qui avait rencontré le
+problème : `chaleur` et `densiteEcran` ont été « sorties de la boucle de dessin
+pour s'éprouver au point près ». `mouvementReduit` les rejoint, et prend
+l'ambiant en ARGUMENT plutôt que de le lire dans un global — c'est ce qui la
+rend mesurable sans navigateur.
+
+C'est la parenté de § 9 unquinquagicenties : là, un banc qui NOMME un symbole ne
+dit rien de l'autre SITE ; ici, une ligne qui a l'air atteignable ne dit rien de
+son CHEMIN. Dans les deux cas, la faute est de juger sur un indice de surface au
+lieu d'aller voir.

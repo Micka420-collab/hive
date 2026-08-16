@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `864f736` + ce commit, 16 août 2026, 17 h 45)
+## A. Le code tient — ✅ mesuré (arbre `ac49196` + ce commit, 16 août 2026, 18 h 05)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,7 +57,7 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4290** (4282 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4293** (4285 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
