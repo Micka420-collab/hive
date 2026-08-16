@@ -40,12 +40,16 @@ import process from 'node:process';
 import { setTimeout as attendre } from 'node:timers/promises';
 import { lireEnv } from './premier-quart-heure.mjs';
 import {
-  DISPARUE,
   EN_COURS,
-  RATEE,
+  creationAcceptee,
   defautDuTravail,
+  doitAttendre,
   etatDeLaTache,
+  gagnanteDe,
+  identifiantCree,
   noeudsDe,
+  racineDemandee,
+  refusDeLEtat,
 } from './travail-fait.mjs';
 
 const OK = 0;
@@ -54,14 +58,6 @@ const MAL_APPELE = 64;
 
 /** Combien de temps on laisse à l'ouvrière. Le travail simulé prend ~2 s. */
 const PATIENCE_S = 90;
-
-function arguments_(argv) {
-  let racine = null;
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--racine') racine = argv[++i] ?? null;
-  }
-  return racine;
-}
 
 // ─── UN ÉCHEC SE DIT, IL NE DÉROULE PAS UNE PILE ─────────────────────────────
 //
@@ -77,7 +73,7 @@ const rate = (quoi) => {
   throw new EssaiRate(quoi);
 };
 
-const racine = arguments_(process.argv.slice(2));
+const racine = racineDemandee(process.argv.slice(2));
 
 let base = '';
 let port = '';
@@ -142,7 +138,7 @@ async function principal() {
       ],
     }),
   });
-  if (creation.status !== 200 && creation.status !== 201) {
+  if (!creationAcceptee(creation.status)) {
     rate(`7/7 — la ruche refuse la tâche (${creation.status}) : ${await creation.text()}`);
   }
   // La route rend le TABLEAU des tâches créées, pas un objet qui les enveloppe
@@ -150,8 +146,8 @@ async function principal() {
   // enveloppe supposée aurait rendu `undefined` et fait échouer le pas sur sa
   // propre lecture, en accusant la ruche.
   const remis = await creation.json();
-  const taskId = Array.isArray(remis) ? remis[0]?.id : null;
-  if (typeof taskId !== 'string' || taskId === '') {
+  const taskId = identifiantCree(remis);
+  if (taskId === null) {
     rate(`7/7 — la ruche accepte la tâche sans rendre d’identifiant : ${JSON.stringify(remis)}`);
   }
 
@@ -162,21 +158,14 @@ async function principal() {
   // d'une façon ou d'une autre.
   let etat = EN_COURS;
   let vu = null;
-  for (let i = 0; i < PATIENCE_S && etat === EN_COURS; i++) {
+  for (let i = 0; i < PATIENCE_S && doitAttendre(etat); i++) {
     await attendre(1000);
     vu = await instantane(entetes);
     etat = etatDeLaTache(vu, taskId);
   }
 
-  if (etat === EN_COURS) {
-    rate(`7/7 — la tâche ${taskId.slice(0, 8)}… court encore après ${PATIENCE_S} s`);
-  }
-  if (etat === DISPARUE) {
-    rate(`7/7 — la tâche ${taskId.slice(0, 8)}… a quitté l’instantané sans jamais y finir`);
-  }
-  if (etat === RATEE) {
-    rate(`7/7 — la ruche a pris le travail et l’a raté (${taskId.slice(0, 8)}…)`);
-  }
+  const refus = refusDeLEtat(etat, taskId, PATIENCE_S);
+  if (refus !== null) rate(`7/7 — ${refus}`);
 
   // ─── « FAITE » NE SUFFIT PAS : ON DEMANDE LA PREUVE ────────────────────────
   //
@@ -192,7 +181,7 @@ async function principal() {
   const defaut = defautDuTravail(lignes, noeudsDe(vu));
   if (defaut !== null) rate(`7/7 — ${defaut}`);
 
-  const gagnante = lignes.find((r) => r?.success === true);
+  const gagnante = gagnanteDe(lignes);
   console.log(
     `✔ 7/7 — une tâche a été confiée, exécutée par ${gagnante.nodeId} ` +
       `et rendue avec ${gagnante.diff.length} signes de diff (${taskId.slice(0, 8)}…)`,

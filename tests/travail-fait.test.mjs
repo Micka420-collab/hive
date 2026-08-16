@@ -31,9 +31,15 @@ import {
   EN_COURS,
   FAITE,
   RATEE,
+  creationAcceptee,
   defautDuTravail,
+  doitAttendre,
   etatDeLaTache,
+  gagnanteDe,
+  identifiantCree,
   noeudsDe,
+  racineDemandee,
+  refusDeLEtat,
 } from '../scripts/travail-fait.mjs';
 
 /** Un instantané réduit à ce dont les décisions dépendent. */
@@ -172,5 +178,129 @@ describe('ce qui manque à un travail pour être PROUVÉ', () => {
       defautDuTravail([resultat({ success: false, diff: '' }), resultat()], CONNUS),
       'la première ligne décide au lieu de la gagnante',
     ).toBeNull();
+  });
+});
+
+// ─── LES DÉCISIONS DESCENDUES DU COUREUR ─────────────────────────────────────
+//
+// La loupe a rendu SEPT lignes « SANS TEST » dans `scripts/essai-travail.mjs`.
+// Six étaient des DÉCISIONS qui n'avaient rien à faire dans un coureur : elles
+// sont descendues dans le module pur, et ce sont ces cas-là qui les tiennent.
+//
+// La septième — la borne `i < argv.length` — est un mutant ÉQUIVALENT, consigné
+// à la ligne dans le module : `<=` ajoute un tour où `argv[i]` vaut `undefined`,
+// qui ne correspond à aucun drapeau connu.
+//
+// CE QUI ÉTAIT DÉJÀ TENU : `gagnanteDe`. Le crible en lot a rougi, et
+// l'attribution mutant par mutant a montré que c'était la seule — elle est
+// tenue par ricochet, `defautDuTravail` s'en servant. Non rejouée ici, mais
+// NOMMÉE, pour que le prochain lot ne refasse pas le doublon
+// (§ 9 septentrigicenties).
+
+describe('la lecture des arguments du coureur', () => {
+  it('LA RACINE SE LIT APRÈS SON DRAPEAU — sinon rien ici ne mesure rien', () => {
+    expect(racineDemandee(['--racine', '/la/ruche'])).toBe('/la/ruche');
+  });
+
+  it('SANS DRAPEAU, RIEN — et un drapeau nu ne rend pas le mot suivant', () => {
+    expect(racineDemandee([]), 'une ligne vide invente une racine').toBeNull();
+    expect(racineDemandee(['/la/ruche']), 'un mot seul passe pour une racine').toBeNull();
+    expect(
+      racineDemandee(['--racine']),
+      'un drapeau sans valeur rend autre chose que null',
+    ).toBeNull();
+    expect(racineDemandee(null), 'un argv absent fait jeter').toBeNull();
+  });
+});
+
+describe('la ruche a-t-elle ACCEPTÉ la tâche', () => {
+  it('201 EST L’ACCEPTATION, 200 EST TOLÉRÉ — sinon rien ici ne mesure rien', () => {
+    expect(creationAcceptee(201), '201 est refusé').toBe(true);
+    expect(creationAcceptee(200), '200 est refusé').toBe(true);
+  });
+
+  it('TOUT LE RESTE EST UN REFUS — bornes comprises', () => {
+    // ─── LA GARDE LA PLUS CHÈRE DU PAS, ET SES DEUX BORNES ─────────────────
+    //
+    // Sans elle, un `500` passerait pour une création réussie et l'instrument
+    // de seuil déclarerait vert un produit qui vient de refuser. Un instrument
+    // qui ment est pire que pas d'instrument.
+    //
+    // `199` et `202` sont les valeurs ÉGALES aux bornes de l'intervalle : une
+    // acceptation écrite `>= 200 && <= 202` ne se départage QUE là.
+    expect(creationAcceptee(199), '199 passe pour une acceptation').toBe(false);
+    expect(creationAcceptee(202), '202 passe pour une acceptation').toBe(false);
+    expect(creationAcceptee(500), 'un refus du serveur passe pour une création').toBe(false);
+    expect(creationAcceptee(404), 'un projet inconnu passe pour une création').toBe(false);
+  });
+});
+
+describe('l’identifiant de la tâche créée', () => {
+  it('LE TABLEAU REND SON PREMIER IDENTIFIANT — sinon rien ici ne mesure rien', () => {
+    expect(identifiantCree([{ id: 't-1' }, { id: 't-2' }])).toBe('t-1');
+  });
+
+  it('UNE RÉPONSE QUI N’EN PORTE PAS REND NULL — la chaîne vide comprise', () => {
+    // La route rend un TABLEAU. Une enveloppe `{tasks:[…]}` supposée aurait
+    // rendu `undefined` et fait échouer le pas sur sa propre lecture, en
+    // accusant la ruche.
+    expect(identifiantCree({ tasks: [{ id: 't-1' }] }), 'une enveloppe est acceptée').toBeNull();
+    expect(identifiantCree([]), 'un tableau vide rend un identifiant').toBeNull();
+    expect(identifiantCree([{ id: '' }]), 'la chaîne vide passe pour un identifiant').toBeNull();
+    expect(identifiantCree([{}]), 'une tâche sans id passe').toBeNull();
+    expect(identifiantCree(null), 'une réponse absente fait jeter').toBeNull();
+  });
+});
+
+describe('faut-il continuer d’attendre', () => {
+  it('SEUL « EN COURS » JUSTIFIE L’ATTENTE', () => {
+    // Muté en « tout état fait attendre », la boucle irait au bout de sa
+    // patience sur une tâche DÉJÀ finie — 90 s perdues à chaque exécution, et
+    // un verdict rendu longtemps après qu'il était connu.
+    expect(doitAttendre(EN_COURS), 'une tâche en cours n’est pas attendue').toBe(true);
+    for (const fini of [FAITE, RATEE, DISPARUE]) {
+      expect(doitAttendre(fini), `« ${fini} » fait encore attendre`).toBe(false);
+    }
+  });
+});
+
+describe('ce qu’un état de fin interdit de conclure', () => {
+  it('UNE TÂCHE FAITE NE REFUSE RIEN — sinon rien ici ne mesure rien', () => {
+    expect(refusDeLEtat(FAITE, 't-abcdef01-2345', 90)).toBeNull();
+  });
+
+  it('TROIS FINS, TROIS PHRASES — les confondre fait chercher au mauvais endroit', () => {
+    // « court encore » accuse la lenteur ; « a quitté l'instantané » accuse la
+    // fenêtre ; « l'a raté » accuse l'ouvrière. Une seule phrase pour les trois
+    // enverrait chercher la panne là où elle n'est pas.
+    const id = 't-abcdef01-2345';
+    expect(refusDeLEtat(EN_COURS, id, 90), 'la lenteur ne se dit pas').toContain('court encore');
+    expect(refusDeLEtat(EN_COURS, id, 90), 'la patience n’est pas chiffrée').toContain('90 s');
+    expect(refusDeLEtat(DISPARUE, id, 90), 'la fenêtre qui glisse ne se dit pas').toContain(
+      'quitté l’instantané',
+    );
+    expect(refusDeLEtat(RATEE, id, 90), 'l’échec de l’ouvrière ne se dit pas').toContain('raté');
+
+    // Les trois sont DISTINCTES : un mutant qui les fusionne doit rougir.
+    const dits = [EN_COURS, DISPARUE, RATEE].map((e) => refusDeLEtat(e, id, 90));
+    expect(new Set(dits).size, 'deux fins rendent la même phrase').toBe(3);
+  });
+
+  it('LA TÂCHE EST NOMMÉE, ÉCOURTÉE — un uuid entier noie le verdict', () => {
+    expect(refusDeLEtat(RATEE, 't-abcdef01-2345', 90)).toContain('t-abcdef');
+    expect(refusDeLEtat(RATEE, null, 90), 'un identifiant absent fait jeter').toContain('?');
+  });
+});
+
+describe('la gagnante — DÉJÀ TENUE, rejouée pour mémoire du lien', () => {
+  it('c’est le SUCCÈS qui gagne, et `defautDuTravail` s’en sert', () => {
+    // Ce cas ne ferme rien de neuf : `gagnanteDe` est la seule des sept lignes
+    // que le crible a trouvée déjà défendue. Il ancre le LIEN — une seule
+    // définition de « la gagnante » pour le module et pour le coureur.
+    const perdue = { nodeId: 'n-1', success: false, diff: '' };
+    const gagne = { nodeId: 'n-2', success: true, diff: 'd' };
+    expect(gagnanteDe([perdue, gagne])).toBe(gagne);
+    expect(gagnanteDe([perdue]), 'un échec devient la gagnante').toBeUndefined();
+    expect(gagnanteDe(null), 'une liste absente fait jeter').toBeUndefined();
   });
 });

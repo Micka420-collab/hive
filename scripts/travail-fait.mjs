@@ -76,7 +76,7 @@ export function defautDuTravail(lignes, noeudsConnus) {
   if (rangees.length === 0) {
     return 'la tâche est déclarée faite, mais aucun résultat n’est rangé — « done » n’appuie sur rien';
   }
-  const gagnante = rangees.find((r) => r?.success === true);
+  const gagnante = gagnanteDe(rangees);
   if (!gagnante) {
     return `aucun des ${rangees.length} résultat(s) n’est un succès — la tâche a fini, elle n’a pas abouti`;
   }
@@ -86,5 +86,80 @@ export function defautDuTravail(lignes, noeudsConnus) {
   if (!noeudsConnus.has(gagnante.nodeId)) {
     return `le travail est mis au compte de « ${gagnante.nodeId} », que la ruche ne connaît pas`;
   }
+  return null;
+}
+
+// ─── CE QUE LA LOUPE A RENVOYÉ ICI, ET POURQUOI ──────────────────────────────
+//
+// Le coureur `essai-travail.mjs` a d'abord gardé six décisions que ce module
+// aurait dû porter. La loupe les a toutes nommées « SANS TEST » — sept lignes,
+// dont l'acceptation de la tâche. Elles sont descendues ici, où elles se mutent
+// et se rejouent en millisecondes.
+//
+// La septième — la borne `i < argv.length` d'une boucle de lecture d'arguments —
+// est un mutant ÉQUIVALENT, déjà mesuré sous cette forme dans
+// `essai-parcours.mjs` : `<=` ajoute un tour où `argv[i]` vaut `undefined`, qui
+// ne correspond à aucun drapeau. Consigné à la ligne, pas défendu par un cas.
+
+/** La racine demandée en ligne de commande, ou `null` si elle manque. */
+export function racineDemandee(argv) {
+  const vus = Array.isArray(argv) ? argv : [];
+  let racine = null;
+  // loupe : équivalent — < → <=
+  // Un tour de plus lit `argv[i] === undefined`, qui n'est aucun drapeau connu.
+  for (let i = 0; i < vus.length; i++) {
+    if (vus[i] === '--racine') racine = vus[i + 1] ?? null;
+  }
+  return racine;
+}
+
+/**
+ * La ruche a-t-elle ACCEPTÉ la tâche ?
+ *
+ * `201` est ce que la route rend ; `200` est toléré parce qu'un intermédiaire
+ * peut le normaliser. Tout le reste est un refus — et c'est la garde la plus
+ * chère du pas : sans elle, un `500` passerait pour une création réussie, et
+ * l'instrument de seuil déclarerait vert un produit qui vient de refuser.
+ */
+export function creationAcceptee(status) {
+  return status === 200 || status === 201;
+}
+
+/**
+ * L'identifiant de la tâche créée, ou `null` si la réponse n'en porte pas.
+ *
+ * La route rend le TABLEAU des tâches (`reply.code(201).send(created)`), pas un
+ * objet qui les enveloppe. Lu sur le contrat : une enveloppe supposée aurait
+ * rendu `undefined` et fait échouer le pas sur sa propre lecture, en accusant la
+ * ruche.
+ */
+export function identifiantCree(corps) {
+  if (!Array.isArray(corps)) return null;
+  const id = corps[0]?.id;
+  return typeof id === 'string' && id !== '' ? id : null;
+}
+
+/** Le résultat en succès, ou `undefined` — la ligne qui PROUVE le travail. */
+export function gagnanteDe(lignes) {
+  return (Array.isArray(lignes) ? lignes : []).find((r) => r?.success === true);
+}
+
+/** Faut-il continuer d'attendre ? Seul `EN_COURS` le justifie. */
+export function doitAttendre(etat) {
+  return etat === EN_COURS;
+}
+
+/**
+ * Ce qu'un état de FIN interdit de conclure, ou `null` si l'on peut poursuivre.
+ *
+ * Trois fins distinctes, trois phrases distinctes. Les confondre ferait chercher
+ * la panne au mauvais endroit : « court encore » accuse la lenteur, « a quitté
+ * l'instantané » accuse la fenêtre, « l'a raté » accuse l'ouvrière.
+ */
+export function refusDeLEtat(etat, taskId, patienceS) {
+  const court = typeof taskId === 'string' ? taskId.slice(0, 8) : '?';
+  if (etat === EN_COURS) return `la tâche ${court}… court encore après ${patienceS} s`;
+  if (etat === DISPARUE) return `la tâche ${court}… a quitté l’instantané sans jamais y finir`;
+  if (etat === RATEE) return `la ruche a pris le travail et l’a raté (${court}…)`;
   return null;
 }

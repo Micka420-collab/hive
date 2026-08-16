@@ -12070,3 +12070,79 @@ Même famille que le § 9 quattuortrigicenties et le § 9 septentrigicenties : �
 chaque fois, une mesure qu'on croyait faite portait sur autre chose que son
 sujet. Ici, le sujet était l'existence d'un fichier ; on en tirait la santé d'un
 service.
+
+## 9 quadragicenties. Sortir les décisions ne suffit pas — il faut les sortir TOUTES
+
+Le pas 7/7 a été écrit selon le patron du dépôt : les décisions dans un module
+pur (`travail-fait.mjs`, benché), l'impur dans un coureur (`essai-travail.mjs`).
+Le coureur le disait lui-même, en tête :
+
+> « Ici il ne reste que l'impur : le réseau, l'attente, le journal. »
+
+**C'était faux, et la loupe l'a chiffré : SEPT lignes « SANS TEST ».**
+
+```text
+< → <=     for (let i = 0; i < argv.length; i++)
+=== → !==  if (racine === null)
+&& → ||    if (creation.status !== 200 && creation.status !== 201)
+!== → ===  if (typeof taskId !== 'string' || taskId === '')
+=== → !==  for (… && etat === EN_COURS; i++)
+=== → !==  if (etat === RATEE)
+=== → !==  lignes.find((r) => r?.success === true)
+```
+
+Une seule est vraiment impure. Les six autres sont des DÉCISIONS — lire un
+drapeau, accepter un statut, extraire un identifiant, arrêter une attente,
+nommer une fin, choisir la gagnante — qui s'étaient installées dans le coureur
+parce qu'elles y étaient _commodes_.
+
+### La plus chère, et ce qu'elle coûtait
+
+```js
+if (creation.status !== 200 && creation.status !== 201) rate(…);
+```
+
+Sans elle, un `500` passe pour une création réussie : **l'instrument de seuil
+déclare vert un produit qui vient de refuser.** Un instrument qui ment est pire
+que pas d'instrument — c'est le § 9 novemtrigicenties, écrit une heure plus tôt
+contre le docteur, retourné contre l'outil que je venais d'écrire pour le
+trouver.
+
+### Ce que la séparation achète vraiment
+
+Une fois descendues, ces six lignes se mutent et se rejouent en millisecondes.
+Avant, les éprouver aurait demandé une ruche installée, un port libre et
+quatre-vingt-dix secondes d'attente — c'est-à-dire qu'on ne les aurait pas
+éprouvées.
+
+| Décision descendue | Ce que le mutant produisait                        |
+| ------------------ | -------------------------------------------------- |
+| `creationAcceptee` | un 500 compté comme une création réussie           |
+| `identifiantCree`  | la chaîne vide prise pour un identifiant           |
+| `racineDemandee`   | la racine donnée ignorée, usage affiché            |
+| `doitAttendre`     | 90 s d'attente sur une tâche déjà finie            |
+| `refusDeLEtat`     | trois fins confondues en une seule phrase          |
+| `gagnanteDe`       | **déjà tenue** — par ricochet de `defautDuTravail` |
+
+### Le crible a rougi, et l'attribution a coûté ce qu'elle devait
+
+Posés en lot, les mutants ont fait rougir le banc : au moins un était tenu, sans
+dire lequel (§ 9 septentrigicenties). Attribution un par un — `gagnanteDe`,
+seule, tenue parce que `defautDuTravail` s'en sert. **Sept lignes, six nues, une
+déjà défendue**, et la nommer dans le banc évite au prochain lot d'écrire le
+doublon.
+
+### La règle
+
+> **Un fichier qui déclare « ici il ne reste que l'impur » doit être MESURÉ, pas
+> cru.** L'intention de séparer ne sépare rien : les décisions repoussent dans
+> le coureur à chaque `if` qu'on y écrit par commodité.
+>
+> Le test est mécanique : **passer la loupe sur le coureur.** Toute ligne
+> mutable qu'elle y trouve est une décision qui n'a pas fini de descendre — ou
+> un équivalent à consigner à la ligne. Il n'y a pas de troisième cas.
+
+Ici, l'équivalent est unique et déjà connu : la borne `i < argv.length` d'une
+boucle de lecture d'arguments, où `<=` ajoute un tour lisant `undefined`, qui ne
+correspond à aucun drapeau. Consigné dans le module, comme il l'était déjà dans
+`essai-parcours.mjs`.

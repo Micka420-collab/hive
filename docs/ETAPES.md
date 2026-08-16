@@ -10061,3 +10061,67 @@ Ces sept ne sont **ni fermés ni déclarés équivalents**. Par § 2.16 ter, il 
 que deux issues — écrire les cas, ou consigner l'équivalence par écrit — et
 aucune des deux n'est prise ici. C'est une dette, elle est dite, et elle est le
 premier point du lot suivant.
+
+## La dette de la loupe, refermée — sept nus dans le coureur
+
+Le lot précédent laissait **sept lignes « SANS TEST »** dans
+`scripts/essai-travail.mjs`, dites et non fermées. Par § 2.16 ter il n'y avait
+que deux issues, et voici laquelle a été prise pour chacune.
+
+Le coureur affirmait en tête : « ici il ne reste que l'impur ». **C'était faux.**
+Six des sept lignes étaient des DÉCISIONS installées là par commodité. Elles
+sont descendues dans le module pur, où elles se mutent en millisecondes.
+
+### Attribution — le crible a rougi, il n'attribue pas
+
+Posés en lot, les mutants ont fait rougir le banc. Un seul importateur du module
+existe hors du coureur, donc ce banc EST le seul juge possible : attribution un
+par un contre lui, puis confirmation sur la suite entière.
+
+```text
+U1  racineDemandee      nu        U5  gagnanteDe      DÉJÀ TENUE
+U2  creationAcceptee    nu        U6  doitAttendre    nu
+U3  (borne haute)       nu        U7  refusDeLEtat    nu
+U4  identifiantCree     nu
+```
+
+`gagnanteDe` est tenue par ricochet — `defautDuTravail` s'en sert. **Nommée dans
+le banc** plutôt que rejouée, pour que le prochain lot n'écrive pas le doublon.
+
+### Rejeu, verdict ET COMPTE affichés
+
+```text
+U1  ×  LA RACINE SE LIT APRÈS SON DRAPEAU  expected null to be '/la/ruche'   1 failed | 22 passed
+U2  ×  BORNES DE L'ACCEPTATION             202 passe pour une acceptation    1 failed | 22 passed
+U3  ×  BORNES DE L'ACCEPTATION             199 passe pour une acceptation    1 failed | 22 passed
+U4  ×  L'IDENTIFIANT CRÉÉ                  la chaîne vide passe              1 failed | 22 passed
+U5  ×  (3 cas — DÉJÀ TENUE)                un résultat en échec vaut succès  3 failed | 20 passed
+U6  ×  SEUL « EN COURS » ATTEND            « faite » fait encore attendre    1 failed | 22 passed
+U7  ×  TROIS FINS, TROIS PHRASES           attendu null, obtenu « …raté »    1 failed | 22 passed
+module restauré PAR COPIE                                                    23 passed (23)
+```
+
+`U2` et `U3` sont les deux BORNES de l'acceptation : `199` et `202` sont les
+valeurs égales aux bornes d'un `>= 200 && <= 202`, la seule écriture erronée
+plausible. La garde la plus chère du pas est là — sans elle, un `500` passe pour
+une création réussie et **l'instrument de seuil déclare vert un produit qui vient
+de refuser**.
+
+### Le septième : un équivalent, consigné à la ligne
+
+`for (let i = 0; i < argv.length; i++)` — `<=` ajoute un tour où `argv[i]` vaut
+`undefined`, qui ne correspond à aucun drapeau connu. Déjà mesuré sous cette
+forme dans `essai-parcours.mjs`. Consigné dans le module, pas défendu par un cas.
+
+Consigné en § 9 quadragicenties — un fichier qui déclare « ici il ne reste que
+l'impur » doit être MESURÉ, pas cru ; passer la loupe sur le coureur est le test
+mécanique de cette affirmation.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    294 fichiers — 4 231 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 239 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
