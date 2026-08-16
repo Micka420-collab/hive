@@ -9217,3 +9217,54 @@ moitiés vraies, puis chacune fausse à son tour.
 Pris : Atelier Queen Bee, coulée du miel, dards Sting, carte Équipe. Restent
 `ConnecteurGithub`, `ConseilProjet`, `PartagesProjet` et le reste de
 `ProjectCard`. La vue n'est toujours pas close.
+
+## Le Conseil des Éclaireuses à l'écran : le rangé et l'instantané
+
+Recensement fait cette fois depuis la RACINE, sur les **deux** racines de bancs
+(§ 9 quattuortrigicenties). Résultat : `PartagesProjet` était déjà couvert par
+`dashboard/tests/gestes-panneaux` — lot évité. `ConseilProjet`, lui, n'est monté
+nulle part ; `projets-alveoles` n'en garde que l'étoile de la danse retenue.
+
+### Deux questions qui se ressemblent, et qu'il ne faut pas confondre
+
+Le code le dit lui-même :
+
+> « La liste rend l'issue RANGÉE — celle d'un conseil clos — donc `null` tant
+> qu'il délibère. Le détail, lui, RECALCULE ce que le protocole dirait à cet
+> instant. Afficher l'un pour l'autre donnerait un résumé qui contredit son
+> propre détail. »
+
+D'où deux gardes jumelles :
+
+```tsx
+{c.issue ? t(ISSUE[c.issue]…) : t('délibère encore')}   // la LISTE
+{!session.closedAt && ` — ${t('provisoire')}`}          // le DÉTAIL
+```
+
+La première refuse d'inventer une conclusion à un conseil qui débat encore ; la
+seconde avoue que la conclusion affichée peut changer. Sans elles, l'écran
+présente une lecture instantanée comme un verdict rangé, et le projet se décide
+sur un chiffre qui n'a pas fini de bouger.
+
+### Nudité mesurée, puis rejeu
+
+Quatre mutants posés ensemble, chacun vérifié posé, suite entière verte — 283
+fichiers, 4 153 tests.
+
+```text
+F1  ×  UN CONSEIL QUI DÉLIBÈRE NE CONCLUT PAS   expected '…∅ personne…' to contain 'délibère encore'
+F2  ×  LE DÉTAIL SE DIT PROVISOIRE              expected 'Tour 2 · ✔ une piste a convergé' to contain 'provisoire'
+F3  ×  LA CARTE NE MONTRE QUE SES CONSEILS      expected [li, li] to have a length of 1 but got 2
+F4  ×  SANS DÉLIBÉRATION, LE PANNEAU SE TAIT    expected '…' not to contain 'Conseil des Éclaireuses'
+source restaurée PAR COPIE                      5 passed (5)
+```
+
+`F2` se mesure dans **les deux mondes** : muté, l'ouvert s'affiche ferme _et_ le
+clos s'excuse d'être provisoire — un banc qui n'en regarderait qu'un resterait
+vert (§ 9 octovicicenties).
+
+### `Projets.tsx`, état
+
+Pris : Atelier Queen Bee, coulée du miel, dards Sting, carte Équipe, Conseil.
+Restent `ConnecteurGithub` (dont `projets-alveoles` garde déjà l'erreur et le
+« aucun dépôt ») et le reste de `ProjectCard`. La vue approche de sa clôture.
