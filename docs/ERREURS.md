@@ -11583,3 +11583,55 @@ L'erreur n'a aucune trame JavaScript (`at TCPConnectWrap.afterConnect` seul) et
 sort avant toute sortie de test. **Cause inconnue, et dite comme telle.** Ce qui
 est acquis : elle est unique, attribuée à un fichier, et trois canaux évidents
 sont éliminés — le prochain qui la reprendra ne recommencera pas ces trois-là.
+
+## 9 tertrigicenties. « Près de la borne » n'est pas « SUR la borne »
+
+Le § 9 trigicenties dit qu'un seuil se mesure à sa borne. Ce lot montre qu'on
+peut croire l'appliquer sans le faire.
+
+Le suivi d'une coulée abandonne au bout de deux minutes :
+
+```ts
+if (Date.now() - since > MERGE_TIMEOUT_MS) { … setRun({ phase: 'timeout' }); }
+```
+
+Le banc portait un cas nommé « juste AVANT la borne », qui avançait l'horloge de
+`DELAI_MS - BATTEMENT_MS` — 1 min 57 — et vérifiait qu'on attendait encore. Il
+avait l'air d'être le cas de borne. Le rejeu a tranché :
+
+```text
+C4  (>  →  >=)      Tests  4 passed (4)      ← SURVIVANT
+```
+
+Évidemment : à 1 min 57, `>` et `>=` attendent **tous les deux**. Un point
+proche de la borne n'est pas plus discriminant qu'un point lointain — seul le
+point **égal** sépare les deux opérateurs.
+
+### Ce qu'il a fallu pour pouvoir viser la milliseconde
+
+Le banc tournait avec `vi.useFakeTimers({ shouldAdvanceTime: true })`, où
+l'horloge simulée avance AUSSI avec le temps réel. Impossible d'atteindre
+`elapsed === DELAI_MS` exactement : quelques millisecondes de vrai temps
+s'ajoutent et l'on retombe du mauvais côté, au hasard de la machine.
+
+En repassant à `vi.useFakeTimers()` — l'horloge n'avance QUE par
+`advanceTimersByTime` — le temps devient exact, et 40 battements de 3 000 ms
+donnent 120 000 ms pile. Le mutant meurt :
+
+```text
+C4  ×  APRÈS DEUX MINUTES SANS RÉPONSE…
+       le suivi a lâché À la borne : le délai annoncé est plus court d’un battement
+```
+
+> **Règle** — un cas de borne pose la valeur **égale** au seuil, pas une valeur
+> voisine. Et si l'horloge du banc ne permet pas de viser cette valeur
+> exactement, ce n'est pas un détail de confort : **c'est ce qui rend le cas de
+> borne impossible**, et il faut changer l'horloge avant d'écrire l'assertion.
+
+### Le rejeu est ce qui l'a dit, pas la relecture
+
+Le cas portait le bon nom, le bon commentaire, et une référence au bon
+paragraphe. Rien à la lecture ne le distinguait d'un vrai cas de borne. **Seul
+le mutant posé a montré qu'il ne mesurait pas ce qu'il annonçait** — c'est
+exactement le service que le rejeu rend, et la raison pour laquelle on l'exécute
+même quand on est sûr de soi.

@@ -9056,3 +9056,64 @@ mais **pas expliquée** : pièges posés sur `fetch` (les deux portes), sur le
 constructeur `WebSocket` et sur `EventSource`, aucun n'a rien intercepté.
 L'erreur n'a pas de trame JavaScript. Cause inconnue, trois canaux éliminés,
 laissée ouverte.
+
+## La coulée du miel : lancer une fusion réelle, et la suivre sans se tromper de sujet
+
+`projets-alveoles` défend l'affichage du rapport une fois la coulée rendue. La
+MACHINE qui mène jusque-là — la confirmation, l'identité du relevé, le délai —
+n'était jouée nulle part.
+
+« Lancer le merge » n'ouvre pas un aperçu : il déclenche une **fusion réelle sur
+une machine**, derrière une confirmation. Le panneau relève ensuite toutes les
+3 s et abandonne au bout de 2 min.
+
+### Nudité mesurée avant d'écrire
+
+Trois mutants posés ensemble, chacun vérifié posé, suite entière verte — 280
+fichiers, 4 141 tests.
+
+```text
+result.mergeId !== mergeId                →  (l'identité n'est plus vérifiée)
+Date.now() - since > MERGE_TIMEOUT_MS     →  if (false)   (plus d'abandon)
+s.trim() ? s.trim().split(…) : undefined  →  s.trim().split(…)
+```
+
+### La garde la plus chère : l'identité du relevé
+
+`fetchMergeResult` rend **la dernière coulée du projet**, pas la nôtre. Le relevé
+qui arrive pendant notre suivi peut donc appartenir à la fusion PRÉCÉDENTE —
+souvent un succès, puisque c'est celle qui a fini. Sans le test d'identité, on
+lit « fusionné » sur une coulée qui tourne encore.
+
+C'est la famille du § 9 novemvicicenties, cette fois **dans le produit** : le bon
+écran, la bonne mise en page, le mauvais SUJET.
+
+### Rejeu, verdict affiché
+
+```text
+C1  ×  LE VERDICT D’UNE AUTRE COULÉE…   expected null not to be null
+C2  ×  APRÈS DEUX MINUTES…              expected <span class="pj-busy"> to be null
+C3  ×  UNE COMMANDE VIDE…               expected [ '' ] to be undefined
+C4  ×  APRÈS DEUX MINUTES…              le suivi a lâché À la borne
+source restaurée PAR COPIE              4 passed (4)
+```
+
+### `C4` a d'abord SURVÉCU — et c'est le vrai enseignement du lot
+
+Le banc portait un cas nommé « juste AVANT la borne » qui avançait de 1 min 57.
+À cet instant, `>` et `>=` attendent tous les deux : le cas avait le bon nom, le
+bon commentaire, la bonne référence, et ne mesurait pas la borne.
+
+Il a fallu deux choses pour le trancher :
+
+1. viser la valeur **égale** (40 battements de 3 000 ms = 120 000 ms pile) ;
+2. repasser de `vi.useFakeTimers({ shouldAdvanceTime: true })` à
+   `vi.useFakeTimers()` — avec l'horloge qui suit le temps réel, la
+   milliseconde exacte est **inatteignable**, et le cas de borne impossible.
+
+Consigné en § 9 tertrigicenties.
+
+### Reste de `Projets.tsx`
+
+`ConflictsPanel` (la gravité des dards) n'est pas pris ; le reste de
+`ProjectCard` non plus. La vue n'est pas close.
