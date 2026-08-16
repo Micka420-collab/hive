@@ -266,7 +266,26 @@ JETON=$(grep -m1 '^HIVE_TOKEN=' "$CIBLE/.env" | cut -d= -f2)
 # esbuild — lui survivent. On le garde pour la politesse d'un TERM propre, mais
 # ce n'est pas lui qui garantit la place rendue : c'est `menage` (voir plus
 # haut), qui vise le dossier et attend le port.
-sh -c "cd '$CIBLE' && npm run ruche >'$CIBLE/ruche.log' 2>&1" &
+# ─── L'AGENT SIMULÉ EST FORCÉ, ET C'EST UNE DÉCISION ────────────────────────
+#
+# `HIVE_AGENT=shell` impose l'adaptateur simulé au lieu de laisser l'ouvrière
+# détecter ce qui traîne sur la machine. Trois raisons, dans cet ordre :
+#
+#   1. UN RUNNER N'EST PAS UN POSTE. Sans cette ligne, l'ouvrière prend le
+#      premier agent trouvé — Claude Code sur un runner qui l'a — et le fait
+#      tourner dans un bac à sable. Les runners macOS et Windows n'ont PAS de
+#      démon Docker : la tâche échouerait, non par défaut du produit mais par
+#      absence d'un service que la jambe ne prétend pas mesurer.
+#   2. LE PAS 7/7 MESURE LA CHAÎNE, pas la qualité d'un modèle — il le dit
+#      lui-même. Création, assignation, exécution, rangement, relecture :
+#      l'adaptateur simulé les traverse toutes, sans lancer un processus.
+#   3. C'EST CE QU'UN ARRIVANT OBTIENT SANS CLÉ D'API. Mesurer ce chemin-là
+#      n'est pas un repli, c'est le cas le plus fréquent.
+#
+# La disponibilité du bac à sable, elle, est le sujet de `hive doctor` — et
+# elle y est mesurée depuis qu'un ✔ posé sur un CLIENT plutôt qu'un SERVICE a
+# été trouvé (§ 9 novemtrigicenties).
+sh -c "cd '$CIBLE' && HIVE_AGENT=shell npm run ruche >'$CIBLE/ruche.log' 2>&1" &
 RUCHE_PID=$!
 
 # On attend qu'elle réponde, on ne dort pas un temps fixe : une attente en dur
@@ -297,6 +316,13 @@ while [ "$i" -lt 60 ]; do
     # ce script vise `$CIBLE`, et un poste d'invité sous elle serait effacé
     # au milieu de l'essai. C'est l'instrument qui range le sien.
     node "$MES_SCRIPTS/essai-entree.mjs" --racine "$CIBLE" --invite "$CIBLE-invite" || exit 1
+    # ─── ET LE SEUL GESTE QUI PROUVE LE PRODUIT ──────────────────────────
+    #
+    # Les six pas précédents mènent l'arrivant jusqu'à « j'ai installé,
+    # j'ouvre le tableau, je crée un projet, j'invite quelqu'un ». Aucun ne
+    # menait un travail jusqu'à un RÉSULTAT — c'est-à-dire juste avant la
+    # seule chose que Hive promet. Un arrivant y est à sa troisième minute.
+    node "$MES_SCRIPTS/essai-travail.mjs" --racine "$CIBLE" || exit 1
     exit 0
   fi
   i=$((i + 1))

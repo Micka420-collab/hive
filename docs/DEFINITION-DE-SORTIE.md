@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `90c1694`, 15 août 2026, 14 h 00)
+## A. Le code tient — ✅ mesuré (arbre `69b6ce6`, 16 août 2026, 11 h 00)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -31,13 +31,21 @@
 > jour-là et faux le lendemain — c'est-à-dire un badge écrit de tête avec un
 > jour de retard. La date et l'arbre sont désormais dans le titre : un lecteur
 > peut vérifier si la mesure est encore la sienne.
+>
+> **ET LA PRÉCAUTION N'A PAS SUFFI.** Le 16 août au matin, ce tableau annonçait
+> encore 4071 sur l'arbre `90c1694` ; la suite en comptait 4249. Datée, la
+> mesure restait FAUSSE — parce que dater n'oblige personne à refaire. Un point
+> de sortie l'a relevé et l'a écrit noir sur blanc : « par sa propre règle, ce
+> tableau n'est plus une mesure ». Il est refait ici, et la leçon se range à
+> côté de la première : **une date ne périme rien toute seule ; c'est au lecteur
+> de re-mesurer, et au document de le lui dire assez fort pour qu'il le fasse.**
 
 | Critère                  | Comment on le mesure                                     | Verdict                                          |
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4071** (4063 verts, 8 ignorés, **0 rouge**) |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31867717882`)                    |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4250** (4242 verts, 8 ignorés, **0 rouge**) |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
 | Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                 |
@@ -117,11 +125,39 @@ La matrice à trois systèmes mesure que _le code compile et que les bancs
 passent_. L'installation, elle, est une autre affaire, et elle se dit système
 par système :
 
-| Système     | Ce qui est mesuré                           | Depuis quand             |
-| ----------- | ------------------------------------------- | ------------------------ |
-| **Linux**   | ✅ installation → tableau → premier projet  | **15 août, à chaque PR** |
-| **macOS**   | ✅ installation → tableau → premier projet  | **15 août, à chaque PR** |
-| **Windows** | ✅ installation → tableau → premier projet¹ | **15 août, à chaque PR** |
+| Système     | Ce qui est mesuré                                          | Depuis quand             |
+| ----------- | ---------------------------------------------------------- | ------------------------ |
+| **Linux**   | ✅ installation → tableau → projet → invité → **travail**  | **16 août, à chaque PR** |
+| **macOS**   | ✅ installation → tableau → projet → invité → **travail**  | **16 août, à chaque PR** |
+| **Windows** | ✅ installation → tableau → projet → invité → **travail**¹ | **16 août, à chaque PR** |
+
+### Le pas 7/7 — « la ruche produit », enfin mesuré en continu
+
+Le parcours s'est arrêté six jours sur « un invité est dans la ruche », c'est-à-dire
+juste avant **la seule chose que Hive promet** : qu'une ouvrière prenne un travail
+et rende quelque chose. Le 16 août il va jusqu'au bout :
+
+```text
+✔ 7/7 — une tâche a été confiée, exécutée par node-b6666039…
+        et rendue avec 187 signes de diff (ad53f149…)
+```
+
+`done` est DÉCLARATIF, et le pas ne s'en contente pas : il exige un résultat
+RANGÉ, un SUCCÈS parmi eux, un DIFF non vide, et un nœud que la ruche CONNAÎT.
+
+**Décision consignée : `HIVE_AGENT=shell` est FORCÉ sur les trois jambes.** Les
+runners macOS et Windows n'ont pas de démon Docker ; laisser l'ouvrière détecter
+un agent réel la ferait tourner dans un bac à sable absent, et la tâche
+échouerait — non par défaut du produit, mais par absence d'un service que cette
+jambe ne prétend pas mesurer. L'adaptateur simulé traverse la chaîne entière
+sans lancer de processus, et c'est ce qu'un arrivant obtient sans clé d'API.
+
+- ⚠️ **Ce que le pas 7/7 NE mesure PAS**, et qui doit se dire : la qualité de ce
+  que produit un VRAI agent. Il prouve que la chaîne est entière — création,
+  assignation, exécution, rangement, relecture — pas qu'un modèle écrit du bon
+  code. La disponibilité du bac à sable, elle, est le sujet de `hive doctor`, où
+  elle est mesurée depuis qu'un ✔ posé sur un CLIENT plutôt qu'un SERVICE y a été
+  trouvé (§ 9 novemtrigicenties).
 
 **Le parcours a été allongé le 15 août.** Les trois jambes s'arrêtaient à « la
 ruche répond sur `/api/pulse` » — ce qui prouve l'orchestrateur et pas l'écran.

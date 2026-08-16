@@ -12214,3 +12214,61 @@ Troisième instrument menteur de la nuit, après le docteur (§ 9 novemtrigicent
 et le coureur qui se disait pur (§ 9 quadragicenties). Le motif se répète : **un
 outil de mesure n'est pas dispensé d'être mesuré**, et c'est toujours son
 verdict le plus rassurant qui est le moins vérifié.
+
+## 9 duoquadragicenties. Dater une mesure ne la refait pas
+
+Le tableau A de `DEFINITION-DE-SORTIE.md` porte, depuis le 15 août, une
+précaution explicite :
+
+> **UN TABLEAU DATÉ DOIT DIRE QU'IL EST DATÉ.** […] La date et l'arbre sont
+> désormais dans le titre : un lecteur peut vérifier si la mesure est encore la
+> sienne.
+
+La précaution a été écrite parce qu'un chiffre juste la veille était faux le
+lendemain. Elle est juste. **Elle n'a rien empêché.**
+
+Le 16 août au matin, ce même tableau annonçait encore **4071 bancs** sur l'arbre
+`90c1694`. La suite en comptait **4249**. Vingt-quatre heures, huit lots, et un
+document dont la première ligne interdit d'écrire un chiffre de tête affichait
+un écart de 178.
+
+### Pourquoi la date n'a pas suffi
+
+Une date rend la péremption **vérifiable**, pas **visible**. Elle transforme
+« ce chiffre est-il juste ? » en « ce chiffre est-il d'aujourd'hui ? » — une
+question qu'il faut encore penser à poser. Personne ne la pose en lisant un ✅.
+
+C'est le même mécanisme que le § 9 sexvicicenties d'un cran plus haut : là-bas
+un commentaire décrivait une règle sans la tenir ; ici une précaution décrit
+une hygiène sans la déclencher. **Écrire la règle et l'appliquer sont deux
+gestes, et le premier ne produit jamais le second.**
+
+### Ce qui l'a rattrapé, et ce qui aurait dû
+
+Un **point de sortie** — un tour où l'on demande explicitement « où en est-on,
+honnêtement ? ». Il a relu le tableau, comparé au réel, et écrit : « par sa
+propre règle, ce tableau n'est plus une mesure ».
+
+Ce qui aurait dû le rattraper, et ne le fait toujours pas : rien d'automatique.
+`scripts/compte-tests.mjs --corriger` tient les badges du README et de la
+vitrine ; **il ne connaît pas ce tableau-ci**. Le seul document qui parle de
+mesure est le seul que la mesure ne visite pas.
+
+### La règle
+
+> **Une précaution qui repose sur la vigilance du lecteur est une dette, pas une
+> garde.** Datée ou non, une mesure recopiée dans un document se périme au
+> rythme du dépôt, et rien dans le document ne le criera.
+>
+> Deux issues, et il faut CHOISIR :
+>
+> - **la câbler** — l'instrument qui mesure écrit aussi cet endroit-là ; ou
+> - **la dater ET la reprendre à chaque point de sortie**, en l'inscrivant comme
+>   une tâche du tour, pas comme une intention.
+>
+> La première est la seule qui tienne sans personne. Tant qu'elle n'est pas
+> faite, le tableau porte sa date **et** la mention qu'il se re-mesure à la main.
+
+Consigné aussi dans le tableau lui-même, à côté de la précaution d'origine : les
+deux leçons se lisent ensemble, parce que la seconde est ce que la première a
+coûté.

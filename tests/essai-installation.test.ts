@@ -125,6 +125,14 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
     inviteEntre?: boolean;
     /** Le faux script d'entrée réinstalle-t-il au lieu de reconnaître ? */
     inviteReinstalle?: boolean;
+    /**
+     * Le travail confié aboutit-il ? Le bouton qui fait MENTIR le pas 7.
+     *
+     * `false` : la ruche PREND la tâche, la marque `failed`, et ne range aucun
+     * résultat — ce qu'une ouvrière sans agent produit réellement. C'est le
+     * seul monde qui distingue un pas 7 qui MESURE d'un pas 7 qui décore.
+     */
+    travailAboutit?: boolean;
     args?: string[];
   }): { code: number; sortie: string } {
     const dossier = mkdtempSync(path.join(os.tmpdir(), 'banc-seuil-'));
@@ -171,6 +179,8 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             `const RANGE = ${range};`,
             'const projets = [];',
             'const noeuds = [];',
+            'const taches = [];',
+            `const ABOUTIT = ${options.travailAboutit !== false};`,
             'createServer((q, r) => {',
             "  if (q.url === '/') {",
             "    r.writeHead(200, { 'content-type': 'text/html' });",
@@ -204,9 +214,36 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             '    r.writeHead(201);',
             "    return r.end('');",
             '  }',
+            // ─── ET LE PAS 7 : ELLE PREND UN TRAVAIL, ET LE REND ───────────
+            //
+            // Trois routes, parce que le pas en demande trois : créer la tâche,
+            // la voir finir dans l'instantané, et lire le résultat rangé. Une
+            // fausse ruche qui n'en servirait que deux ferait rougir le pas
+            // pour une raison qui n'est pas celle qu'on éprouve.
+            //
+            // `ABOUTIT` est le mensonge : la tâche est PRISE et marquée
+            // `failed`, sans résultat. C'est exactement ce qu'une ouvrière sans
+            // agent utilisable rend — le défaut que le pas 7 a trouvé le jour
+            // de sa première exécution.
+            "  if (q.method === 'POST' && /^\\/api\\/projects\\/[^/]+\\/tasks$/.test(q.url)) {",
+            "    const id = 't-du-banc-' + taches.length;",
+            "    taches.push({ id, status: ABOUTIT ? 'done' : 'failed' });",
+            "    r.writeHead(201, { 'content-type': 'application/json' });",
+            '    return r.end(JSON.stringify([{ id }]));',
+            '  }',
+            '  if (/^\\/api\\/tasks\\/[^/]+\\/results$/.test(q.url)) {',
+            "    r.writeHead(200, { 'content-type': 'application/json' });",
+            '    return r.end(',
+            '      JSON.stringify(',
+            '        ABOUTIT',
+            "          ? [{ nodeId: noeuds[0]?.id ?? 'n-?', success: true, diff: '--- a\\n+++ b\\n' }]",
+            '          : [],',
+            '      ),',
+            '    );',
+            '  }',
             "  if (q.url === '/api/state') {",
             "    r.writeHead(200, { 'content-type': 'application/json' });",
-            '    return r.end(JSON.stringify({ projects: projets, nodes: noeuds }));',
+            '    return r.end(JSON.stringify({ projects: projets, nodes: noeuds, tasks: taches }));',
             '  }',
             "  r.writeHead(200, { 'content-type': 'application/json' });",
             "  r.end('{}');",
@@ -319,17 +356,17 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
     return `HIVE_PORT=${port}\nHIVE_TOKEN=jeton-de-banc-suffisamment-long\n`;
   }
 
-  it('LES CINQ AFFIRMATIONS passent quand tout va bien', async () => {
-    // ─── TROIS PAS, PUIS CINQ ──────────────────────────────────────────────
+  it('LES SEPT AFFIRMATIONS passent quand tout va bien', async () => {
+    // ─── TROIS PAS, PUIS CINQ, PUIS SEPT ───────────────────────────────────
     //
-    // Ce cas s'appelait « les trois affirmations ». L'essai en mène maintenant
-    // cinq : les deux derniers sont le parcours de l'arrivant — j'ouvre le
-    // tableau, je crée mon premier projet — que le point de sortie classait
-    // sans aucune mesure.
+    // Ce cas s'est appelé « les trois affirmations », puis « les cinq ».
+    // L'essai en mène maintenant SEPT : l'invité qui entre, et le travail qui
+    // aboutit — le seul geste qui prouve que le produit fait ce qu'il promet.
     //
-    // Le nom comptait plus qu'il n'en a l'air. Tant qu'il disait « trois », un
-    // essai amputé de ses deux derniers pas serait resté VERT sous un titre qui
-    // ne mentait pas.
+    // Le nom compte plus qu'il n'en a l'air, et c'est la troisième fois qu'il
+    // faut le changer. Tant qu'il disait « cinq », un essai amputé de ses deux
+    // derniers pas serait resté VERT sous un titre qui ne mentait pas — et le
+    // compte des `✔` ci-dessous est la seule chose qui empêche cette dérive.
     const port = await portLibre();
     const { code, sortie } = courir({ codeInstall: 0, env: envValide(port) });
 
@@ -339,7 +376,35 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
     expect(sortie, 'le tableau n’est pas ouvert').toContain('✔ 4/5');
     expect(sortie, 'le premier projet n’est pas créé').toContain('✔ 5/5');
     expect(sortie, 'l’invité n’est pas entré').toContain('✔ 6/6');
+    expect(sortie, 'le travail confié n’aboutit pas').toContain('✔ 7/7');
     expect(code).toBe(0);
+  });
+
+  it('UN TRAVAIL QUI N’ABOUTIT PAS fait rougir — la ruche l’a PRIS, et n’a rien rendu', async () => {
+    // ─── LE CAS QUI DÉPARTAGE LE PAS 7 ─────────────────────────────────────
+    //
+    // La fausse ruche accepte la tâche, la marque `failed`, et ne range aucun
+    // résultat. C'est mot pour mot ce qu'une ouvrière sans agent utilisable
+    // rend — le défaut réel que le pas 7 a trouvé à sa toute première
+    // exécution, contre une ruche où le démon Docker ne tournait pas.
+    //
+    // Sans ce cas, un pas 7 qui se contenterait de créer la tâche et de dire
+    // « ✔ » serait vert sur une ruche qui ne produit rien. C'est le même monde
+    // que `inviteEntre: false` pour le pas 6 : tout le décor est là, et il ne
+    // s'est rien passé.
+    const port = await portLibre();
+    const { code, sortie } = courir({
+      codeInstall: 0,
+      env: envValide(port),
+      travailAboutit: false,
+    });
+
+    expect(sortie, 'les six premiers pas doivent passer — sinon on mesure autre chose').toContain(
+      '✔ 6/6',
+    );
+    expect(sortie, 'un travail raté est annoncé comme un succès').not.toContain('✔ 7/7');
+    expect(sortie, 'le refus ne dit pas ce qui s’est passé').toContain('raté');
+    expect(code, 'l’essai sort en 0 sur une ruche qui n’a rien produit').toBe(1);
   });
 
   it('UN INVITÉ QUI N’ENTRE PAS fait rougir — même s’il dit tout ce qu’il faut', async () => {

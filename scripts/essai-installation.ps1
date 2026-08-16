@@ -219,6 +219,19 @@ try {
   Write-Host '  (la permission 0600 n a pas d equivalent Windows - voir l en-tete)'
 
   # ─── 3. LA RUCHE RÉPOND ────────────────────────────────────────────────────
+  # ─── L'AGENT SIMULE EST FORCE, ET C'EST UNE DECISION ─────────────────────
+  #
+  # `HIVE_AGENT=shell` impose l'adaptateur simule au lieu de laisser l'ouvriere
+  # detecter ce qui traine sur la machine. Meme raison que le jumeau POSIX, et
+  # elle mord surtout ICI : un runner Windows n'a PAS de demon Docker. Sans
+  # cette ligne, une ouvriere qui trouverait un agent reel le ferait tourner
+  # dans un bac a sable absent, et la tache echouerait — non par defaut du
+  # produit, mais par absence d'un service que cette jambe ne pretend pas
+  # mesurer.
+  #
+  # `Start-Process` n'a pas de parametre d'environnement : on pose la variable
+  # sur le processus courant, dont l'enfant herite.
+  $env:HIVE_AGENT = 'shell'
   $Ruche = Start-Process -FilePath 'npm.cmd' -ArgumentList @('run', 'ruche') `
     -WorkingDirectory $Cible -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $Cible 'ruche.log') `
@@ -261,6 +274,17 @@ try {
         # serait efface au milieu de l'essai.
         $entree = Join-Path $PSScriptRoot 'essai-entree.mjs'
         & node.exe $entree '--racine' $Cible '--invite' "$Cible-invite"
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+
+        # ─── ET LE SEUL GESTE QUI PROUVE LE PRODUIT ──────────────────────
+        #
+        # Les six pas precedents menent l'arrivant jusqu'a « j'ai installe,
+        # j'ouvre le tableau, je cree un projet, j'invite quelqu'un ». Aucun
+        # ne menait un travail jusqu'a un RESULTAT — juste avant la seule
+        # chose que Hive promet. Partage lui aussi : c'est LE MEME fichier
+        # Node que la jambe POSIX lance.
+        $travail = Join-Path $PSScriptRoot 'essai-travail.mjs'
+        & node.exe $travail '--racine' $Cible
         if ($LASTEXITCODE -ne 0) { exit 1 }
         exit 0
       }

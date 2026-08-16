@@ -10318,3 +10318,93 @@ npx vitest run    295 fichiers — 4 241 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 249 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## Le pas 7/7 est CÂBLÉ — « la ruche produit » devient mesuré en continu
+
+C'était le premier point de la liste 3 du point de sortie, et le seul critère
+que j'avais déclaré **non atteint** faute de mesure continue. Il l'est.
+
+### L'arbitrage, tranché et consigné
+
+Trois suites étaient posées. La première est retenue :
+
+| Option                                        | Verdict                                 |
+| --------------------------------------------- | --------------------------------------- |
+| **1. forcer `HIVE_AGENT=shell`**              | **RETENUE**                             |
+| 2. câbler seulement sur `ubuntu`              | couverture partielle, sans nécessité    |
+| 3. faire dégrader le produit sans bac à sable | change le PRODUIT pour arranger un banc |
+
+Trois raisons, dans cet ordre :
+
+1. **Un runner n'est pas un poste.** Sans cette contrainte, l'ouvrière prend le
+   premier agent trouvé — Claude Code là où il est installé — et le fait tourner
+   dans un bac à sable. Les runners macOS et Windows n'ont pas de démon Docker :
+   la tâche échouerait, non par défaut du produit mais par absence d'un service
+   que la jambe ne prétend pas mesurer.
+2. **Le pas 7/7 mesure la CHAÎNE**, pas la qualité d'un modèle — il le dit
+   lui-même. L'adaptateur simulé la traverse entière sans lancer de processus.
+3. **C'est ce qu'un arrivant obtient sans clé d'API.** Mesurer ce chemin-là
+   n'est pas un repli : c'est le cas le plus fréquent.
+
+L'option 3 a été écartée pour une raison de fond : on ne change pas le produit
+pour faire passer un banc, et surtout pas pour rendre plus facile de faire
+tourner des agents SANS bac à sable.
+
+### Mesuré, de bout en bout, localement
+
+```text
+✔ 1/3 — installation sortie en 0, 21 s
+✔ 2/3 — .env en -rw-------
+✔ 3/3 — la ruche répond sur :7777 après 2s
+✔ 4/5 — le tableau est servi et charge son paquet
+✔ 5/5 — premier projet créé (65e9e47f…) et visible par le tableau
+✔ 6/6 — un invité a collé la commande et il est dans la ruche (node-996f9474…)
+✔ 7/7 — une tâche a été confiée, exécutée par node-b6666039…
+        et rendue avec 187 signes de diff (ad53f149…)
+CODE=0
+```
+
+### Le banc du seuil suit — et son NOM avec
+
+`tests/essai-installation.test.ts` monte une fausse ruche. Elle parle maintenant
+les trois routes du pas 7 : créer la tâche, la voir finir dans l'instantané, lire
+le résultat rangé. Et elle porte un **bouton pour mentir** — `travailAboutit:
+false` : la tâche est PRISE, marquée `failed`, aucun résultat rangé. C'est mot
+pour mot ce qu'une ouvrière sans agent utilisable rend, et c'est le seul monde
+qui distingue un pas 7 qui mesure d'un pas 7 qui décore.
+
+Le cas s'appelait « LES CINQ AFFIRMATIONS » ; il en compte sept. Troisième
+renommage, et le banc dit pourquoi il compte : tant que le titre disait « cinq »,
+un essai amputé de ses deux derniers pas serait resté vert sous un nom qui ne
+mentait pas.
+
+### Le câblage lui-même est gardé
+
+Muté — la ligne `essai-travail.mjs` retirée du script — et rejoué :
+
+```text
+M-CABLAGE  ×  LES SEPT AFFIRMATIONS      '…' to contain '✔ 7/7'
+M-CABLAGE  ×  UN TRAVAIL QUI N'ABOUTIT PAS  '…' to contain 'raté'
+           script restauré PAR COPIE      14 passed (14)
+```
+
+### La définition de sortie, re-mesurée
+
+Section A portait 4071 bancs sur l'arbre `90c1694` ; il y en a 4250. Refaite.
+Section B compte désormais sept pas et porte la décision ci-dessus.
+
+Le tableau A avait pourtant une précaution explicite depuis le 15 août
+(« un tableau daté doit dire qu'il est daté »). Elle n'a rien empêché : dater
+rend la péremption vérifiable, pas visible. Consigné en
+§ 9 duoquadragicenties — une précaution qui repose sur la vigilance du lecteur
+est une dette, pas une garde.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    295 fichiers — 4 242 passés | 8 sautés | 0 échec
+sh scripts/essai-installation.sh    7 pas verts, CODE=0
+```
+
+Badges portés à 4 250 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
