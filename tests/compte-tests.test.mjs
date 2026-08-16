@@ -550,6 +550,36 @@ describe('LE GESTE COMPLET', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // ─── UN REFUS QUI N'A RIEN À CORRIGER BARRE QUAND MÊME ─────────────────────
+  //
+  // La porte est `corriger && v.aCorriger.length > 0`. Changer ce `>` en `>=`
+  // la rend toujours vraie : le geste entre dans la branche de correction,
+  // n'écrit rien (la liste est vide), et surtout NE MARQUE PAS l'échec — un
+  // README mutilé sortirait en 0 sous `--corriger`.
+  //
+  // Le cas « rapport illisible » ci-dessous ne le voit PAS, et c'est ce lot qui
+  // l'a rendu aveugle : un rapport illisible fait aussi rougir les constats, qui
+  // marquent l'échec de leur côté et rendent le 1 attendu. Le banc restait vert
+  // en mesurant autre chose que ce qu'il croyait.
+  //
+  // Il faut donc un monde où le tableau daté est JUSTE et où les badges refusent
+  // sans rien à corriger : un README dont le badge a disparu. On constate, on
+  // n'invente pas — et le refus doit survivre à `--corriger`.
+  it('badge DISPARU, AVEC --corriger : il barre, sans que le tableau daté y soit pour rien', () => {
+    const dir = racineJetable(42, RAPPORT(42));
+    writeFileSync(path.join(dir, 'README.md'), '# Hive\n\nPlus aucun badge ici.\n', 'utf8');
+
+    const r = lancer(dir, ['rapport.json', '--corriger']);
+
+    expect(r.code, 'un README mutilé est passé sous --corriger').toBe(1);
+    expect(r.sortie).toContain('compte introuvable');
+    // Et le tableau daté, lui, est d'accord : le 1 ne vient que des badges.
+    expect(r.sortie, 'le tableau daté a été mêlé à un refus qui n’est pas le sien').toContain(
+      'dit la mesure',
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('rapport illisible, MÊME avec --corriger : il refuse d’inventer un chiffre', () => {
     const dir = racineJetable(1, { rien: 'du tout' });
     const r = lancer(dir, ['rapport.json', '--corriger']);

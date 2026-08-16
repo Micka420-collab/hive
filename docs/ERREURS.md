@@ -12361,3 +12361,81 @@ PROMET : partout où un chiffre est adossé à une provenance — une date, un a
 un numéro d'exécution — le rafraîchir seul transforme une péremption visible en
 mensonge invisible. Refuser, en nommant le geste manquant, vaut mieux que
 réparer à moitié.
+
+## 9 quinquadragicenties. Un chemin d'échec NEUF peut rendre un banc ancien décoratif
+
+En ajoutant les constats du tableau A, `principal` a gagné une seconde façon
+d'échouer. Un banc existant en est mort sans changer d'une ligne, et sans
+rougir — ce qui est la manière dont ce genre de mort passe inaperçu.
+
+Le banc : « rapport illisible, MÊME avec `--corriger` : il refuse d'inventer un
+chiffre ». Il défendait la porte
+
+```js
+} else if (corriger && v.aCorriger.length > 0) {
+```
+
+dont le `>` compte : en `>=`, la branche est toujours prise, n'écrit rien
+(la liste est vide) et surtout **ne marque pas l'échec** — un README mutilé
+sortirait en 0 sous `--corriger`.
+
+La loupe a rendu cette ligne **SANS TEST** alors qu'un banc la visait. Cause : un
+rapport illisible fait désormais rougir **les constats aussi**, et ceux-ci
+marquent l'échec de leur côté. Le `1` attendu arrivait toujours — **par l'autre
+chemin**. Le banc restait vert en mesurant autre chose que ce qu'il croyait.
+
+Il a fallu un monde où le tableau daté est JUSTE et où les badges refusent sans
+rien à corriger : un README dont le badge a disparu. Rejoué mutant posé :
+1 échec sur 54.
+
+### La leçon
+
+**Ajouter un chemin d'échec peut désarmer les gardes des chemins voisins.** Dès
+que deux causes indépendantes produisent le même code de sortie, un banc qui ne
+regarde QUE ce code cesse de distinguer laquelle a parlé — et il reste vert.
+
+Le réflexe à prendre : quand on ajoute une façon d'échouer à une fonction qui en
+avait déjà, **relancer la loupe sur les gardes ANCIENNES**, pas seulement sur le
+code neuf. Ici c'est elle qui l'a vu ; aucune relecture ne l'aurait fait, parce
+que le banc et la ligne étaient tous les deux justes — c'est leur LIEN qui avait
+été coupé.
+
+Corollaire pour l'écriture des bancs : un cas qui attend un code de sortie doit
+aussi vérifier **d'où il vient**. Le nouveau cas exige `compte introuvable` ET
+`dit la mesure` — le refus des badges, et l'accord du tableau. Sans la seconde
+assertion il serait retombé dans le piège du premier.
+
+## 9 sexquadragicenties. Une copie de restauration qui n'est pas rafraîchie restaure un état PÉRIMÉ
+
+La règle du dépôt est de restaurer **par copie**, jamais par `git checkout`,
+depuis une copie prise AVANT toute expérimentation. Elle est juste. Elle a une
+condition qui n'était écrite nulle part.
+
+La copie de référence de `compte-tests.mjs` a été prise après la campagne de
+mutants. Le fichier a ensuite reçu une correction voulue — écrire le verdict des
+constats même quand ils passent. La copie, elle, n'a pas bougé. Au mutant
+suivant, la restauration a **rendu le fichier à son état d'avant la correction**,
+silencieusement : le mutant était bien retiré, et une amélioration avec lui.
+
+Rien n'a rougi. `git diff` l'a montré — quatre lignes qui n'auraient pas dû
+revenir — et le banc neuf, qui dépend de cette correction, serait passé au vert
+sans elle par un chemin voisin.
+
+### La leçon
+
+**Une référence de restauration est un instrument, et un instrument se
+re-mesure.** La copie n'est pas « l'état correct » : c'est « l'état correct **au
+moment où elle a été prise** ». Toute édition volontaire entre deux mutants la
+périme.
+
+Deux gestes, désormais :
+
+- re-copier la référence **après chaque édition intentionnelle**, pas seulement
+  au début de la campagne ;
+- après restauration, **vérifier que l'arbre est bien celui qu'on croit** —
+  `git diff` sur le fichier restauré doit rendre ce qu'on attend, et rien de
+  plus.
+
+C'est la même famille que § 9 duoquadragicenties : dater ne refait pas la mesure,
+et copier ne fige pas la vérité. L'instrument de restauration n'échappe pas à la
+règle qu'il sert.

@@ -10487,3 +10487,41 @@ node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 
 Badges portés à 4 270 par `--corriger` ; le tableau A re-mesuré **et re-daté** à
 la main, jamais de tête.
+
+## Le chemin d'échec neuf avait rendu une garde ancienne décorative
+
+La loupe, lancée sur le lot ci-dessus une fois poussé, a rendu **1 nu sur 9** —
+et sur une ligne que le diff n'avait fait qu'effleurer :
+
+```js
+} else if (corriger && v.aCorriger.length > 0) {
+```
+
+Un banc la visait pourtant depuis longtemps (« rapport illisible, MÊME avec
+`--corriger` »). Il ne la défendait plus : un rapport illisible fait désormais
+rougir **les constats aussi**, qui marquent l'échec de leur côté. Le `1` attendu
+arrivait toujours, **par l'autre chemin** — le banc restait vert en mesurant
+autre chose que ce qu'il croyait.
+
+En `>=`, la branche est toujours prise, n'écrit rien, et **ne marque pas
+l'échec** : un README dont le badge a disparu sortirait en 0 sous `--corriger`.
+
+Le cas manquant demandait un monde où le tableau daté est JUSTE et où les badges
+refusent sans rien à corriger. Il exige les deux moitiés — `compte introuvable`
+ET `dit la mesure` — parce qu'un cas qui n'attend qu'un code de sortie ne dit pas
+**d'où il vient**, et c'est exactement ce qui avait désarmé le précédent.
+Rejoué mutant posé : **1 échec sur 54**.
+
+Deux leçons d'instrument, § 9 quinquadragicenties et § 9 sexquadragicenties :
+ajouter une façon d'échouer peut désarmer les gardes voisines — on relance la
+loupe sur les gardes ANCIENNES, pas seulement sur le code neuf ; et une copie de
+restauration non rafraîchie restaure un état périmé (la mienne a silencieusement
+annulé une correction voulue ; `git diff` l'a vue, rien n'aurait rougi).
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    295 fichiers — 4 263 passés | 8 sautés | 0 échec (4 271)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
