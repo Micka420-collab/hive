@@ -10774,3 +10774,73 @@ Expliquer la marque dans le commentaire l'a presque RÉARMÉE :
 `marqueeEquivalente` remonte les lignes au-dessus du mutant sans s'arrêter aux
 continuations `*` d'un bloc. Une ligne de prose nommant l'instrument ET l'échange
 redevient une consignation active. Consigné en § 9 quinquagicenties.
+
+## La Miellerie : la même garde écrite deux fois, une seule tenue
+
+Balayage de la loupe sur `dashboard/src/views/Miellerie.tsx`, base épinglée dans
+l'ATELIER — **`e93b252`, le PARENT du commit qui a créé le fichier**. Le choix de
+base n'est pas un détail : `f0fc005`, qui exposait entièrement Partage, Chantiers
+et Rayon, ne montre ici que **358 lignes sur 1173**, le fichier y existant déjà.
+La bonne base est PAR FICHIER, jamais une constante.
+
+```text
+126 mutation(s) possible(s), 12 examinée(s) — 8 défendues, 4 SANS TEST
+114 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas
+```
+
+**ÉCHANTILLONNÉ, pas balayé** : ~10 % du fichier en une passe. C'est la mesure
+honnête de ce que coûterait la fermeture du terrain, et elle vaut mieux qu'une
+promesse — douze vues n'ont jamais été balayées, dont celle-ci reste la plus
+grosse.
+
+### La trouvaille : une garde jumelle, orpheline
+
+Le suivi d'une fusion réelle est écrit DEUX fois, dans deux vues, avec le même
+piège et le même remède :
+
+```text
+Projets.tsx:394    if (!alive || !result || result.mergeId !== mergeId) return;
+Miellerie.tsx:738  if (alive && result && result.mergeId === mergeId) setMerge(…)
+```
+
+`tests/coulee-du-miel.test.tsx` défend la PREMIÈRE, et son en-tête énonce
+exactement le danger : « `fetchMergeResult` rend LA DERNIÈRE coulée du projet,
+pas la nôtre ». La seconde n'avait rien.
+
+Inversée, la Miellerie **refuse le résultat de sa propre coulée et accepte celui
+de n'importe quelle autre** : l'utilisateur lit le verdict d'une fusion
+précédente — sa branche, ses fichiers — comme si c'était le sien.
+
+C'est le § 9 sexvicicenties à l'échelle d'un dépôt : le raisonnement était écrit,
+mesuré, publié… et la copie voisine du même code n'en avait pas profité. **Une
+garde dupliquée doit être recensée sur TOUTES ses occurrences, pas sur celle
+qu'un banc nomme.**
+
+### Ce qui est fermé, et comment
+
+| Ligne                                  | Cas                                                           | Rejeu          |
+| -------------------------------------- | ------------------------------------------------------------- | -------------- |
+| `result.mergeId === mergeId`           | notre rapport s'affiche / celui d'une autre coulée est IGNORÉ | 2 échecs sur 3 |
+| `m.step === 'arming'` (retombée à 3 s) | un clic oublié ne reste pas confirmable                       | 1 échec sur 3  |
+
+Restauré PAR COPIE, **3 sur 3**.
+
+**Deux nues restent ouvertes et se disent** : le compte du diff
+(`startsWith('+') && !startsWith('+++')`) et le marqueur du gagnant
+(`verdict.winner?.signature === f.signature`). Elles ne sont pas fermées, elles
+sont NOMMÉES.
+
+### Et un décor qui ne pouvait pas exister
+
+Le premier fixture inventait un champ `merged` là où la vue lit `applied` : le
+cas nominal est mort en `TypeError` au rendu, pas en rougissant sur ce qu'il
+visait. Les champs sont désormais recopiés du contrat `MergeRunResult`, pas
+devinés (§ 9 quintrigicenties — ce qui fait PLANTER ne prouve pas la distinction).
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    297 fichiers — 4 278 passés | 8 sautés | 0 échec (4 286)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```

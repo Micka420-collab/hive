@@ -12619,3 +12619,48 @@ relit comme telle.** Trois exigences :
   juste et l'étiquette fausse ;
 - ne jamais écrire le libellé d'une marque dans de la prose au-dessus d'une ligne
   mutable : la remontée ne fait pas la différence entre expliquer et consigner.
+
+## 9 unquinquagicenties. Une garde DUPLIQUÉE ne se recense pas par le banc qui la nomme
+
+Le suivi d'une fusion réelle est écrit deux fois dans le tableau, dans deux vues
+qui ne se connaissent pas :
+
+```text
+Projets.tsx:394    if (!alive || !result || result.mergeId !== mergeId) return;
+Miellerie.tsx:738  if (alive && result && result.mergeId === mergeId) setMerge(…)
+```
+
+Même piège, même remède, et un seul des deux était éprouvé.
+`tests/coulee-du-miel.test.tsx` défend la première AVEC son raisonnement en
+tête — « `fetchMergeResult` rend LA DERNIÈRE coulée du projet, pas la nôtre ».
+La jumelle n'avait aucun cas : inversée, la Miellerie refuse le résultat de sa
+propre coulée et accepte celui d'une autre, montrant à l'utilisateur la branche
+et les fichiers d'une fusion qui n'est pas la sienne.
+
+### Pourquoi le recensement habituel ne l'a pas vu
+
+La méthode du dépôt est de recenser sur les DEUX racines de bancs
+(§ 9 quattuortrigicenties) : `grep -rln "<symbole>" --include="*.test.*"`. Elle
+répond à « ce symbole est-il nommé quelque part ? » — et la réponse était OUI,
+abondamment. `mergeId` apparaît dans un banc entier qui lui est consacré.
+
+**Mais un banc qui nomme un symbole ne dit rien de l'AUTRE endroit où ce symbole
+décide.** Le recensement porte sur le vocabulaire, pas sur les sites.
+
+### La leçon
+
+Devant une garde, la question n'est pas « un banc en parle-t-il ? » mais
+**« combien de fois cette décision est-elle écrite, et chacune est-elle
+tenue ? »**. Le geste juste est un recensement côté SOURCE avant le recensement
+côté BANCS :
+
+```sh
+grep -rn "result.mergeId" dashboard/src src --include="*.ts" --include="*.tsx"
+```
+
+Deux occurrences, un seul banc : le compte suffit à trouver l'orpheline.
+
+C'est le § 9 sexvicicenties élargi. Là-bas, un commentaire décrivait une règle
+que rien ne jouait ; ici, un BANC décrit une règle que rien ne joue **ailleurs**.
+Dans les deux cas le raisonnement existe, écrit et juste — et la ligne qu'il
+devrait protéger n'est pas celle qu'il regarde.
