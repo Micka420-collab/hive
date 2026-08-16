@@ -10643,3 +10643,55 @@ npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
 npx vitest run    296 fichiers — 4 273 passés | 8 sautés | 0 échec (4 281)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
+
+## Le Rayon : les trois points NOMMÉS sont défendus, et la seule nue était ailleurs
+
+Balayage de la loupe sur `dashboard/src/views/Rayon.tsx`, base épinglée dans
+l'ATELIER (`LOUPE_BASE=f0fc005`) :
+
+```text
+16 mutation(s) possible(s), 8 examinée(s) — 7 défendues, 1 SANS TEST
+8 laissée(s) de côté — la loupe échantillonne, elle ne balaie pas
+```
+
+### Les points que les relances citaient : mesurés, pas supposés
+
+Les trois lignes réclamées depuis des jours étaient dans la moitié **laissée de
+côté** — l'échantillon ne les avait pas posées. Mutées À LA MAIN contre la suite
+ENTIÈRE, une par une, ancres vérifiées uniques :
+
+| Point nommé                             | Verdict                                     |
+| --------------------------------------- | ------------------------------------------- |
+| `projets.find(…) ?? projets[0] ?? null` | **TENU** — 4 rouges (`vues-sentinelles`)    |
+| `projets.length === 0`                  | **TENU** — 11 rouges (3 fichiers)           |
+| `sandbox={apercu.sandbox}`              | **TENU** — 1 rouge (`tests/apercu.test.ts`) |
+
+Le bac à sable de l'aperçu, dont le commentaire est catégorique, est bien gardé :
+retirer l'attribut fait rougir. **Ces trois points sortent de la liste du reste —
+non parce qu'on les a fermés, mais parce qu'on a enfin MESURÉ qu'ils l'étaient.**
+
+### La seule survivante, et pourquoi elle se teste ici
+
+```ts
+setApercuErreur(e instanceof Error ? e.message : String(e));
+```
+
+La MÊME ligne, mot pour mot, existait dans `Partage.tsx` — et y a été
+**supprimée** plutôt que défendue. Ce n'est pas une incohérence : là-bas la
+branche de refus rend un texte FIXE et la chaîne n'était affichée nulle part
+(calcul mort) ; ici `apercuErreur` est RENDU, donc le ternaire décide de ce qu'un
+lecteur voit. Les trois issues de § 9 terquadragicenties, appliquées à deux
+occurrences identiques, donnent deux réponses opposées — **c'est la mesure qui
+tranche, pas la forme de la ligne.**
+
+Deux cas : le message d'une vraie erreur s'affiche ; le champ `message` d'un
+objet quelconque n'est PAS recopié à l'écran, tout en laissant le refus DIT.
+Rejeu : **1 échec sur 8**, restauré PAR COPIE, **8 sur 8**.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    296 fichiers — 4 275 passés | 8 sautés | 0 échec (4 283)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```

@@ -432,3 +432,60 @@ describe('le Rayon : la lecture est le défaut, l’écriture n’en est pas une
     expect(dom.textContent, 'la tâche créée n’est pas annoncée').toContain('Retoucher miel.txt');
   });
 });
+
+// ─── L'APERÇU QUI REFUSE, ET CE QU'IL A LE DROIT DE RÉPÉTER ──────────────────
+//
+// Balayage de la loupe sur `Rayon.tsx`, base épinglée dans l'atelier
+// (`LOUPE_BASE=f0fc005`) : 16 candidates, 8 examinées, UNE seule SANS TEST —
+//
+//     setApercuErreur(e instanceof Error ? e.message : String(e));
+//
+// Les trois points que les relances citent depuis des jours — `projets.find(…)
+// ?? projets[0]`, `projets.length === 0`, `sandbox={apercu.sandbox}` — étaient
+// dans la moitié LAISSÉE DE CÔTÉ. Mutés à la main contre la suite entière, ils
+// sont TENUS (4 rouges, 11 rouges, 1 rouge). Mesuré, pas supposé.
+//
+// ─── POURQUOI CE TERNAIRE-CI SE TESTE, ALORS QUE CELUI DU PARTAGE S'EST RETIRÉ ─
+//
+// La même ligne, mot pour mot, existait dans `Partage.tsx` et a été SUPPRIMÉE
+// plutôt que défendue. Ce n'est pas une incohérence, c'est la mesure qui diffère
+// (§ 9 terquadragicenties) : là-bas la branche de refus rend un texte FIXE et la
+// chaîne n'était affichée nulle part — calcul mort. Ici, `apercuErreur` est
+// RENDU (`{apercuErreur && <p className="ry-erreur">⚠ {apercuErreur}</p>}`), donc
+// le ternaire décide de ce qu'un lecteur voit, et il se départage.
+describe('l’aperçu du Rayon quand il refuse', () => {
+  it('LE MESSAGE D’UNE VRAIE ERREUR EST MONTRÉ — sinon le refus est muet', async () => {
+    // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER (§ 9 unvicicenties) ───────────────
+    vi.mocked(fetchApercu).mockRejectedValue(new Error('aucun index.html à la racine'));
+    const dom = await monter();
+
+    await cliquer(boutonSur(dom, 'Aperçu'));
+
+    expect(dom.textContent, 'le refus de l’aperçu ne dit rien').toContain(
+      'aucun index.html à la racine',
+    );
+  });
+
+  it('CE QUI N’EST PAS UNE ERREUR NE VOIT PAS SON « message » RECOPIÉ', async () => {
+    // Le ternaire ne fait confiance à `.message` que sur un vrai `Error`. Mutée
+    // en `instanceof Object`, la vue recopie le champ `message` de n'importe quel
+    // objet jeté — y compris une réponse brute d'API, qui n'a aucune raison
+    // d'être un texte destiné à l'utilisateur.
+    //
+    // Le marqueur est introuvable dans toute phrase légitime de l'écran
+    // (§ 9 septquadragicenties) : le chercher dans le DOM ne peut accuser que la
+    // recopie.
+    vi.mocked(fetchApercu).mockRejectedValue({ message: 'FUITE-INTERNE-7f3a' });
+    const dom = await monter();
+
+    await cliquer(boutonSur(dom, 'Aperçu'));
+
+    expect(
+      dom.textContent,
+      'le « message » d’un objet quelconque a été recopié à l’écran',
+    ).not.toContain('FUITE-INTERNE-7f3a');
+    // Et le refus reste DIT : se taire laisserait l'utilisateur devant un bouton
+    // qui ne réagit pas.
+    expect(dom.querySelector('.ry-erreur'), 'le refus n’est pas affiché du tout').not.toBeNull();
+  });
+});
