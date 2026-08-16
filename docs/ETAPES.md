@@ -9512,3 +9512,75 @@ npx vitest run    288 fichiers — 4 180 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 188 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## La carte d'une ouvrière : sa charge, ses sous-agents, son dernier signe de vie
+
+Deuxième lot d'Essaim, toujours garde par garde. Recensement sur les DEUX
+racines : `es-agent-chip`, `es-agents-none`, `es-node-load`, `activeAgentsOf`,
+« aucun sous-agent en vol » — **rien**, nulle part. Les seuls « jamais vu » du
+dépôt sont ceux de la TUI, pas celui de cette carte.
+
+Le recensement ne conclut rien seul (§ 9 quattuortrigicenties) : les cinq
+mutants ont été posés ensemble, chacun vérifié posé, et la suite ENTIÈRE est
+restée verte — **288 fichiers, 4 180 tests**. C'est la mesure qui a prononcé la
+nudité.
+
+### Le plafond à six a DEUX bornes, et le même chiffre écrit deux fois
+
+```tsx
+agents.slice(0, 6).map(…)
+{agents.length > 6 && <span>+{agents.length - 6}</span>}
+```
+
+Un cas de sens ne départage ni `slice(0, 6)` de `slice(0, 7)`, ni `> 6` de
+`>= 6` : à 2 comme à 20 sous-agents, les deux versions rendent la même carte.
+Seules les valeurs ÉGALES aux seuils les séparent (§ 9 tertrigicenties) :
+
+| Entrée            | Ce que le produit rend      | Ce que le mutant rendrait     |
+| ----------------- | --------------------------- | ----------------------------- |
+| **6 sous-agents** | six pastilles, aucun « +N » | `>= 6` → « +0 »               |
+| **7 sous-agents** | six pastilles, « +1 »       | `slice(0,7)` → sept pastilles |
+
+Sans la première, un compteur de débordement s'affiche là où rien ne déborde.
+Sans la seconde, la carte s'allonge d'un cran de plus que ce que son compteur
+annonce.
+
+### Rejeu, verdict ET COMPTE affichés
+
+```text
+N1  ×  SIX PILE / SEPT        expected […] to have a length of 6 but got 7    1 failed | 4 passed
+N2  ×  SIX PILE / SEPT        expected '+0' to be null                        1 failed | 4 passed
+N3  ×  (quatre cas)           expected [] to have a length of 2               4 failed | 1 passed
+N4  ×  (quatre cas)           expected [] to have a length of 2               4 failed | 1 passed
+N5  ×  JAMAIS VU              expected 'vu à 12:00:00 AM' to contain 'jamais vu'  1 failed | 4 passed
+source restaurée PAR COPIE                                                    5 passed (5)
+```
+
+`N3` (le filtre du vol) et `N4` (l'imputation au nœud) font tomber quatre cas
+sur cinq. Le § 9 quintrigicenties demande de s'en méfier — un mutant qui abat
+tout un fichier tue peut-être par `TypeError` au montage. **Vérifié en lisant
+les verdicts** : `AssertionError`, sortie fautive citée. Ces deux gardes vident
+réellement toutes les cartes de leurs pastilles ; c'est le SUJET qui est large,
+pas le mutant qui triche.
+
+### Ce qui reste nu dans Essaim
+
+Le Waggle Board et le podium, pour le lot suivant :
+
+| Garde                                            | Ce qu'elle protège                        |
+| ------------------------------------------------ | ----------------------------------------- |
+| `!board && !waggle.error` / `nodes.length === 0` | encore deux vides distincts               |
+| `order = [1, 0, 2]` du podium                    | 2ᵉ à gauche, 1ᵉʳ au centre, 3ᵉ à droite   |
+| `i === 0 ? 'es-medal es-dance'`                  | c'est le n°1 qui danse                    |
+| `Math.max(1, board.nodes[0]?.score ?? 1)`        | la même division par zéro, côté nectar    |
+| `n.raceWins > 0 &&`                              | le ⚔ des victoires de course              |
+| `races.error === null ? … : []`                  | pas de course fantôme si le sondage meurt |
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    289 fichiers — 4 185 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 193 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
