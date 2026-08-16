@@ -10125,3 +10125,29 @@ npx vitest run    294 fichiers — 4 231 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 239 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+### Ce que la loupe trouve ENCORE dans le coureur — 4, et ce n'est pas la même dette
+
+Balayage refait sur le diff de ce lot : **33 mutations possibles, 11 examinées,
+4 nues.** Toutes dans `scripts/essai-travail.mjs`, et toutes DIFFÉRENTES des
+sept précédentes :
+
+```text
+🔴 if (r.status !== 200) rate(`7/7 — l'instantané rend ${r.status}`);
+🔴 if (noeudsDe(avant).size === 0) { … }
+🔴 for (let i = 0; i < PATIENCE_S && doitAttendre(etat); i++) {
+🔴 if (defaut !== null) rate(`7/7 — ${defaut}`);
+```
+
+Les six décisions sont bien descendues — elles ne reviennent pas. Ce qui reste
+est le **CÂBLAGE** : les lignes qui relient une décision pure à un `rate()`, et
+chacune exige une ruche vivante pour être jouée.
+
+Aucune n'est équivalente, et il faut le dire nettement. `defaut !== null` inversé
+fait **ignorer au pas son propre verdict** — l'instrument qui ment, encore.
+`size === 0` inversé refuse de travailler quand une ouvrière est là.
+
+La suite honnête serait d'extraire le CHEF D'ORCHESTRE — la séquence — avec un
+transport injecté, comme les décisions l'ont été. C'est un lot à part entière,
+non entamé. **La dette est réduite de sept à quatre, elle n'est pas refermée**,
+et le compte est ici plutôt que dans une phrase rassurante.
