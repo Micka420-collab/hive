@@ -10029,3 +10029,35 @@ Trois suites possibles, à trancher :
 
 Tant que ce n'est pas tranché, **le critère « la ruche produit » reste NON
 MESURÉ EN CONTINU** — c'est-à-dire non atteint.
+
+### La loupe sur ce lot : 7 nus, tous dans le coureur — NON FERMÉS
+
+```text
+LOUPE : 31 mutation(s) possible(s) sur le diff, 11 examinée(s).
+🔴 SANS TEST · scripts/essai-travail.mjs · < → <=     (la boucle d'argv)
+🔴 SANS TEST · scripts/essai-travail.mjs · === → !==  (×4, dont la garde d'usage)
+🔴 SANS TEST · scripts/essai-travail.mjs · !== → ===
+🔴 SANS TEST · scripts/essai-travail.mjs · && → ||    (l'acceptation de la tâche)
+```
+
+Les décisions du pas ont été sorties dans `travail-fait.mjs` précisément pour
+être éprouvées — 12 cas, six mutants. **Le coureur en garde pourtant sept**, et
+la loupe les a nommés.
+
+Le plus grave est le `&&` :
+
+```js
+if (creation.status !== 200 && creation.status !== 201) rate(…);
+```
+
+Muté en `||`, la condition est vraie pour TOUT statut : le pas rougirait sur une
+ruche saine. Muté dans l'autre sens de lecture — c'est-à-dire si la garde
+sautait — le pas ACCEPTERAIT n'importe quelle réponse, y compris un 500, et
+déclarerait la tâche créée. **Un instrument de seuil qui ment est pire que pas
+d'instrument** : c'est toute la leçon du § 9 novemtrigicenties, retournée contre
+l'outil que je viens d'écrire.
+
+Ces sept ne sont **ni fermés ni déclarés équivalents**. Par § 2.16 ter, il n'y a
+que deux issues — écrire les cas, ou consigner l'équivalence par écrit — et
+aucune des deux n'est prise ici. C'est une dette, elle est dite, et elle est le
+premier point du lot suivant.
