@@ -12272,3 +12272,92 @@ mesure est le seul que la mesure ne visite pas.
 Consigné aussi dans le tableau lui-même, à côté de la précaution d'origine : les
 deux leçons se lisent ensemble, parce que la seconde est ce que la première a
 coûté.
+
+## 9 terquadragicenties. Un mutant équivalent peut désigner l'endroit d'une VRAIE garde
+
+`compteReel` s'est vu ajouter une porte pour les champs de rapport inconnus :
+
+```js
+const plancher = COMPTES[champ];
+if (plancher === undefined) return null;
+```
+
+La loupe l'a rendue **survivante**. Vérification faite, elle est **équivalente**
+au sens strict : sans elle, `plancher` vaut `undefined`, `n >= undefined` est
+faux pour tout `n`, et la fonction rend `null` par le chemin d'à côté. Aucune
+entrée ne distingue les deux versions.
+
+### Le réflexe qui aurait été une faute
+
+Ce dépôt a déjà retiré deux branches mortes trouvées par la loupe
+(`normaliserBornes`, le canevas du Cerveau), et le réflexe était de retirer
+celle-ci. **C'eût été supprimer le seul endroit du fichier qui posait la bonne
+question.**
+
+Car le `null` que la porte rendait était lui-même le défaut. Une faute de frappe
+dans une cible — `numFailledTests` pour `numFailedTests` — se lisait :
+
+```text
+rapport vitest incomplet pour : DEFINITION-DE-SORTIE.md (rouges)
+```
+
+Un refus **juste**, pour une raison **fausse** : il envoie chercher la panne dans
+le rapport de vitest, quand elle est dans une liste de constantes à trois lignes
+de là. C'est exactement le docteur qui sondait le port 0, et le ✔ posé sur un
+client plutôt qu'un service (§ 9 novemtrigicenties) : un instrument de
+diagnostic qui ne diagnostique pas est pire qu'un instrument muet, parce qu'on
+le croit.
+
+Un champ absent de `COMPTES` n'est pas une donnée douteuse — c'est une faute de
+programmation. Elle se signale là où elle se corrige : la porte jette désormais,
+en nommant les champs connus. Le mutant, rejoué, tombe.
+
+### La leçon
+
+**« Équivalent » ne veut pas dire « à retirer ».** Trois issues, pas deux :
+
+- une entrée distingue → on écrit le cas ;
+- rien ne distingue et la ligne ne veut rien dire → branche morte, on retire ;
+- rien ne distingue **mais la ligne dit quelque chose que le code ne fait pas
+  encore** → c'est un manque, pas une décoration. On lui donne le comportement
+  qu'elle annonce.
+
+La troisième est la plus facile à manquer, parce qu'elle ressemble à la
+deuxième. La question qui les sépare n'est pas « cette ligne change-t-elle le
+résultat ? » mais **« que croyait faire celui qui l'a écrite, et le code le
+fait-il ? »**
+
+## 9 quaterquadragicenties. On ne répare pas une mesure datée, on la refuse
+
+En câblant les quatre nombres du tableau A dans `compte-tests.mjs`, le geste
+évident était de les ajouter à `CIBLES` — la liste que `--corriger` répare toute
+seule. Six badges, quatre nombres de plus, même mécanique.
+
+**C'eût été recréer le défaut en le signant.**
+
+Un badge et un tableau daté n'annoncent pas la même chose :
+
+- un badge est un nombre qui doit **suivre** la suite ; le corriger tout seul est
+  précisément son office ;
+- le tableau A est une **mesure**, et son titre nomme un arbre et une heure.
+
+Réécrire ses chiffres sans toucher à cette provenance produit un tableau qui
+suit HEAD sous un titre qui nomme un autre commit. Il se lit alors comme une
+mesure — et n'en est pas une. Pire que le tableau périmé de
+§ 9 duoquadragicenties : celui-là était faux par oubli, celui-ci serait faux
+**par la main de l'outil chargé de le tenir juste**.
+
+D'où deux listes, et pas une : `CIBLES` est ce qu'on répare, `CONSTATS` est ce
+qu'on refuse. `--corriger` remet les six badges à jour et **barre quand même**,
+en disant les deux gestes à faire à la main — réécrire les nombres, **et
+re-dater le titre, arbre compris**. Mesuré : le fichier ressort octet pour octet
+identique après un `--corriger` qui vient de corriger les six badges.
+
+### La leçon
+
+**Un outil de correction automatique doit savoir ce qu'il n'a PAS le droit de
+corriger.** Le critère n'est pas la difficulté du geste, c'est ce que le document
+PROMET : partout où un chiffre est adossé à une provenance — une date, un arbre,
+un numéro d'exécution — le rafraîchir seul transforme une péremption visible en
+mensonge invisible. Refuser, en nommant le geste manquant, vaut mieux que
+réparer à moitié.

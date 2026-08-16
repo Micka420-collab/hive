@@ -17,12 +17,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CIBLES,
+  COMPTES,
+  CONSTATS,
+  DEFINITION,
   compteReel,
   groupe,
   lire,
   principal,
   reecrire,
   verdict,
+  verdictDesConstats,
 } from '../scripts/compte-tests.mjs';
 
 /** Les cibles, par nom — pour éprouver chacune sur sa propre mise en forme. */
@@ -35,6 +39,26 @@ const FICHIERS = [...new Set(CIBLES.map((c) => c.fichier))];
 
 const BADGE = (n) =>
   `![Tests](https://img.shields.io/badge/tests-${n}%20passing-F6C445?labelColor=17130C)`;
+
+/**
+ * Un rapport vitest COMPLET.
+ *
+ * Les quatre nombres, toujours : le tableau A les annonce tous les quatre, et un
+ * rapport amputé n'est plus « un rapport avec un champ en moins » — c'est un
+ * rapport sur lequel l'outil doit refuser de conclure.
+ */
+const RAPPORT = (total, reste = {}) => ({
+  numTotalTests: total,
+  numPassedTests: total,
+  numPendingTests: 0,
+  numFailedTests: 0,
+  ...reste,
+});
+
+/** La ligne « Suite de bancs » du tableau A, dans sa forme réelle. */
+const LIGNE_A = ({ total, verts, ignores, rouges }) =>
+  `| Suite de bancs | \`npm test\` (vitest run) | ✅ **${total}** ` +
+  `(${verts} verts, ${ignores} ignorés, **${rouges} rouge**) |\n`;
 
 describe('LE CHIFFRE LU DANS UNE ANNONCE', () => {
   const README = cible('README.md');
@@ -111,6 +135,48 @@ describe('LE COMPTE RÉEL LU DANS LE RAPPORT', () => {
     // fausse — l'outil dirait « à corriger » ou « à jour » au hasard.
     expect(compteReel(rapport)).toBeNull();
   });
+
+  it('lit les quatre champs, chacun le sien', () => {
+    const r = { numTotalTests: 10, numPassedTests: 9, numPendingTests: 1, numFailedTests: 0 };
+    expect(Object.keys(COMPTES).map((champ) => compteReel(r, champ))).toEqual([10, 9, 1, 0]);
+  });
+
+  // ─── LA BORNE DE CHAQUE PLANCHER, VALEUR ÉGALE ─────────────────────────────
+  //
+  // Le plancher n'est pas le même partout, et c'est tout l'intérêt : zéro test
+  // total est un rapport cassé, zéro ÉCHEC est une suite verte. Un unique
+  // « > 0 » rendrait `null` sur le « 0 rouge » du tableau A — le nombre qu'on
+  // espère lire deviendrait celui qu'on ne peut pas garder.
+  it.each([
+    ['numTotalTests', 1],
+    ['numPassedTests', 1],
+    ['numPendingTests', 0],
+    ['numFailedTests', 0],
+  ])('%s : la valeur ÉGALE au plancher (%i) est lue', (champ, plancher) => {
+    expect(compteReel({ [champ]: plancher }, champ)).toBe(plancher);
+  });
+
+  it.each([
+    ['numTotalTests', 0],
+    ['numPassedTests', 0],
+    ['numPendingTests', -1],
+    ['numFailedTests', -1],
+  ])('%s : juste SOUS le plancher (%i) est refusé', (champ, sous) => {
+    expect(compteReel({ [champ]: sous }, champ)).toBeNull();
+  });
+
+  it('un champ inconnu JETTE au lieu de rendre un refus trompeur', () => {
+    // La première version rendait `null` — et la loupe a montré que la garde ne
+    // gardait rien : `n >= undefined` est faux pour tout `n`, donc `null`
+    // arrivait par le chemin d'à côté. Le silence était le vrai défaut : une
+    // faute de frappe dans une cible se lisait « rapport incomplet », un refus
+    // juste pour une raison fausse, cherché dans le rapport au lieu de la liste.
+    expect(() => compteReel({ numInvente: 5 }, 'numInvente')).toThrow(/champ de rapport inconnu/);
+
+    // Et il nomme les champs qu'il connaît : un message qui dit seulement
+    // « inconnu » laisse chercher l'orthographe exacte ailleurs.
+    expect(() => compteReel({}, 'numFailledTests')).toThrow(/numFailedTests/);
+  });
 });
 
 describe('LE VERDICT', () => {
@@ -178,6 +244,99 @@ describe('LES CIBLES SONT BIEN CELLES DU DÉPÔT', () => {
   });
 });
 
+// ─── LE SEUL DOCUMENT DONT LE SUJET EST LA MESURE ────────────────────────────
+//
+// Le tableau A de la définition de sortie annonce quatre nombres, et rien ne les
+// regardait. Le 16 août il disait encore 4071 quand la suite en rendait 4249 —
+// daté, relu, et faux. § 9 duoquadragicenties : une précaution qui repose sur la
+// vigilance du lecteur est une dette, pas une garde.
+describe('LE TABLEAU DATÉ DE LA DÉFINITION DE SORTIE', () => {
+  const SOURCE = () => readFileSync(path.join(RACINE, DEFINITION), 'utf8');
+
+  it('LES QUATRE NOMBRES SE LISENT DANS LE FICHIER RÉEL — sinon rien ici ne mesure rien', () => {
+    // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER (§ 9 unvicicenties) ───────────────
+    const source = SOURCE();
+    for (const c of CONSTATS) {
+      expect(lire(source, c), `${c.nom} : le motif ne mord plus`).not.toBeNull();
+    }
+  });
+
+  it('CHAQUE ANCRE EST UNIQUE — sinon on corrigerait l’histoire du défaut', () => {
+    // Le document RACONTE ses anciens comptes (« 4071 sur l'arbre 90c1694 ») et
+    // une couverture de « 10 803 / 14 250 ». Une ancre lâche mordrait sur cette
+    // prose : § 9 unquadragicenties, où un mutant s'est posé DANS UN COMMENTAIRE
+    // faute d'avoir vérifié qu'un texte n'apparaissait qu'une fois.
+    const source = SOURCE();
+    for (const c of CONSTATS) {
+      const partout = new RegExp(c.motif.source, 'g');
+      expect(
+        [...source.matchAll(partout)],
+        `${c.nom} : l’ancre mord à plusieurs endroits du document`,
+      ).toHaveLength(1);
+    }
+  });
+
+  it('les quatre champs du rapport sont couverts, et tous dans le même fichier', () => {
+    // Une liste vide, ou amputée du « 0 rouge », rendrait le verdict vert sans
+    // avoir regardé le nombre qui compte le plus.
+    expect(CONSTATS.map((c) => c.champ)).toEqual([
+      'numTotalTests',
+      'numPassedTests',
+      'numPendingTests',
+      'numFailedTests',
+    ]);
+    expect(CONSTATS.map((c) => c.fichier)).toEqual(Array(4).fill(DEFINITION));
+  });
+});
+
+describe('LE VERDICT DU TABLEAU DATÉ', () => {
+  const r = (nom, annonce, reel) => ({ nom, annonce, reel });
+  const ACCORD = [r('total', 4250, 4250), r('verts', 4242, 4242), r('rouges', 0, 0)];
+
+  it('est vert quand les nombres disent la mesure', () => {
+    const v = verdictDesConstats(ACCORD);
+    expect(v.ok).toBe(true);
+    expect(v.aRemesurer).toEqual([]);
+  });
+
+  it('un écart REFUSE, nomme l’écart, et réclame la RE-DATATION — arbre compris', () => {
+    // C'est le cœur du lot. Un message qui n'énoncerait que l'écart ferait
+    // retoucher les quatre nombres en laissant le titre nommer l'arbre
+    // précédent : le tableau suivrait HEAD sous une provenance périmée, ce qui
+    // se lit comme une mesure sans en être une.
+    const v = verdictDesConstats([r('total', 4071, 4250), ...ACCORD.slice(1)]);
+    expect(v.ok).toBe(false);
+    expect(v.aRemesurer, 'un nombre juste a été désigné à la re-mesure').toEqual(['total']);
+    expect(v.message).toContain('annoncé 4071, mesuré 4250');
+    expect(v.message, 'le refus n’exige pas de re-dater').toMatch(/re-dater/);
+    expect(v.message, 'le refus ne dit pas que l’arbre est concerné').toMatch(/ARBRE/);
+  });
+
+  it('« 0 rouge » est gardé : un seul échec fait rougir le tableau', () => {
+    // Le nombre le plus rassurant du tableau, et donc le moins vérifié : sans
+    // ce cas, une suite qui casse laisserait « **0 rouge** » en place.
+    const v = verdictDesConstats([...ACCORD.slice(0, 2), r('rouges', 0, 1)]);
+    expect(v.ok, 'une suite avec un échec a laissé « 0 rouge » debout').toBe(false);
+    expect(v.aRemesurer).toEqual(['rouges']);
+  });
+
+  it('REFUSE un rapport incomplet plutôt que de conclure', () => {
+    const v = verdictDesConstats([...ACCORD.slice(0, 2), r('rouges', 0, null)]);
+    expect(v.ok).toBe(false);
+    expect(v.aRemesurer, 'on a proposé une re-mesure sur un compte inconnu').toEqual([]);
+    expect(v.message).toContain('incomplet');
+  });
+
+  it('REFUSE quand la ligne du tableau a changé de forme', () => {
+    // On constate, on n'invente pas : réécrire ici voudrait dire deviner où le
+    // nombre est parti.
+    const v = verdictDesConstats([...ACCORD.slice(0, 2), r('rouges', null, 0)]);
+    expect(v.ok).toBe(false);
+    expect(v.aRemesurer).toEqual([]);
+    expect(v.message).toContain('introuvable');
+  });
+});
+
 // ─── LE GESTE COMPLET, SUR DE VRAIS FICHIERS ─────────────────────────────────
 //
 // Les tests au-dessus n'exercent que les fonctions pures. La loupe a rendu
@@ -193,9 +352,25 @@ describe('LE GESTE COMPLET', () => {
    * deux — une version qui relisait le fichier entre les deux corrections
    * effaçait la première.
    */
-  function racineJetable(compteAnnonce, rapport) {
+  function racineJetable(compteAnnonce, rapport, constats = null) {
     const dir = mkdtempSync(path.join(tmpdir(), 'compte-tests-'));
     mkdirSync(path.join(dir, 'site'), { recursive: true });
+    // Le tableau daté, accordé au rapport SAUF si le cas demande le contraire :
+    // les bancs des badges n'ont rien à dire sur lui, et un désaccord imposé par
+    // défaut les ferait tous rougir pour une raison qui n'est pas la leur.
+    mkdirSync(path.join(dir, path.dirname(DEFINITION)), { recursive: true });
+    writeFileSync(
+      path.join(dir, DEFINITION),
+      LIGNE_A(
+        constats ?? {
+          total: rapport?.numTotalTests ?? 0,
+          verts: rapport?.numPassedTests ?? 0,
+          ignores: rapport?.numPendingTests ?? 0,
+          rouges: rapport?.numFailedTests ?? 0,
+        },
+      ),
+      'utf8',
+    );
     const fr = groupe(compteAnnonce, ' ');
     const en = groupe(compteAnnonce, ',');
     for (const nom of ['README.md', 'README.en.md']) {
@@ -242,7 +417,7 @@ describe('LE GESTE COMPLET', () => {
   }
 
   it('sans argument : il explique et sort en 2, sans rien écrire', () => {
-    const dir = racineJetable(1, { numTotalTests: 9 });
+    const dir = racineJetable(1, RAPPORT(9));
     const r = lancer(dir, []);
     expect(r.code, 'un appel sans rapport a été traité comme un succès').toBe(2);
     expect(r.sortie).toContain('usage');
@@ -253,7 +428,7 @@ describe('LE GESTE COMPLET', () => {
   });
 
   it('rapport introuvable : il sort en 2 plutôt que de conclure', () => {
-    const dir = racineJetable(1, { numTotalTests: 9 });
+    const dir = racineJetable(1, RAPPORT(9));
     const r = lancer(dir, ['rapport-qui-n-existe-pas.json']);
     expect(r.code).toBe(2);
     expect(r.sortie).toContain('illisible');
@@ -283,7 +458,7 @@ describe('LE GESTE COMPLET', () => {
   // DISTINGUABLES l'une de l'autre. Épingler « ENOENT » ferait rougir sur un
   // changement de Node qui n'a rien cassé — la garde deviendrait un piège.
   it('rapport illisible : le message dit POURQUOI, pas seulement que', () => {
-    const dir = racineJetable(1, { numTotalTests: 9 });
+    const dir = racineJetable(1, RAPPORT(9));
 
     const absent = lancer(dir, ['rapport-qui-n-existe-pas.json']);
 
@@ -318,7 +493,7 @@ describe('LE GESTE COMPLET', () => {
   });
 
   it('badge périmé, SANS --corriger : il refuse et n’écrit rien', () => {
-    const dir = racineJetable(1, { numTotalTests: 42 });
+    const dir = racineJetable(1, RAPPORT(42));
     const r = lancer(dir, ['rapport.json']);
     expect(r.code, 'un badge périmé est passé').toBe(1);
     expect(r.annonces, 'il a corrigé sans qu’on le lui demande').toEqual([1, 1, 1, 1, 1, 1]);
@@ -326,7 +501,7 @@ describe('LE GESTE COMPLET', () => {
   });
 
   it('badge périmé, AVEC --corriger : il écrit et sort en 0', () => {
-    const dir = racineJetable(1, { numTotalTests: 42 });
+    const dir = racineJetable(1, RAPPORT(42));
     const r = lancer(dir, ['rapport.json', '--corriger']);
     expect(r.code).toBe(0);
     expect(r.annonces).toEqual([42, 42, 42, 42, 42, 42]);
@@ -336,11 +511,42 @@ describe('LE GESTE COMPLET', () => {
   it('badge à jour : --corriger n’écrit RIEN — il n’y a rien à écrire', () => {
     // La porte `corriger && aCorriger.length > 0` : sans son second terme, le
     // geste réécrirait des fichiers déjà justes à chaque passage.
-    const dir = racineJetable(42, { numTotalTests: 42 });
+    const dir = racineJetable(42, RAPPORT(42));
     const avant = FICHIERS.map((f) => readFileSync(path.join(dir, f), 'utf8'));
     const r = lancer(dir, ['rapport.json', '--corriger']);
     expect(r.code).toBe(0);
     expect(FICHIERS.map((f) => readFileSync(path.join(dir, f), 'utf8'))).toEqual(avant);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // ─── LE TABLEAU DATÉ BARRE SEUL, ET NE SE LAISSE PAS RÉPARER ───────────────
+  //
+  // Les deux cas qui tiennent le lot. Le premier reproduit la situation du
+  // 16 août : les six badges JUSTES, et le tableau A périmé — l'ancienne version
+  // sortait en 0 et laissait passer. Le second interdit la réparation
+  // automatique, qui produirait des chiffres frais sous une provenance périmée.
+  const PERIME = { total: 41, verts: 41, ignores: 0, rouges: 0 };
+
+  it('un tableau A périmé barre la livraison MÊME quand les six badges sont justes', () => {
+    const dir = racineJetable(42, RAPPORT(42), PERIME);
+    const r = lancer(dir, ['rapport.json']);
+    expect(r.code, 'un tableau A périmé est passé').toBe(1);
+    expect(r.annonces, 'les badges étaient justes et ont été touchés').toEqual([
+      42, 42, 42, 42, 42, 42,
+    ]);
+    expect(r.sortie).toContain('annoncé 41, mesuré 42');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('--corriger NE répare PAS le tableau daté : il refuse, et le fichier ne bouge pas', () => {
+    const dir = racineJetable(42, RAPPORT(42), PERIME);
+    const avant = readFileSync(path.join(dir, DEFINITION), 'utf8');
+    const r = lancer(dir, ['rapport.json', '--corriger']);
+    expect(r.code, 'le tableau périmé est passé sous --corriger').toBe(1);
+    expect(
+      readFileSync(path.join(dir, DEFINITION), 'utf8'),
+      'l’outil a réécrit une mesure datée dont il ne peut pas dater la provenance',
+    ).toBe(avant);
     rmSync(dir, { recursive: true, force: true });
   });
 

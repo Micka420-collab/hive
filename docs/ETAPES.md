@@ -10408,3 +10408,82 @@ sh scripts/essai-installation.sh    7 pas verts, CODE=0
 ```
 
 Badges portés à 4 250 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## Le tableau A ne peut plus vieillir en silence — et il ne se répare pas tout seul
+
+Le pas 7/7 câblé, la dette nommée **§ 9 duoquadragicenties** restait ouverte :
+`compte-tests.mjs` visitait six annonces publiques, et pas
+`docs/DEFINITION-DE-SORTIE.md`. **Le seul document du dépôt dont le sujet soit la
+mesure était le seul que la mesure ne touchait pas.**
+
+### L'arbitrage, tranché seul et consigné
+
+Le geste évident — ajouter les quatre nombres à `CIBLES`, la liste que
+`--corriger` répare — a été **écarté**, et c'est la décision du lot :
+
+| Option                                                        | Verdict                                                   |
+| ------------------------------------------------------------- | --------------------------------------------------------- |
+| 1. les ajouter à `CIBLES` (auto-corrigés)                     | recrée le défaut en le signant                            |
+| 2. une seconde liste, **constatée sans jamais être réécrite** | **RETENUE**                                               |
+| 3. ne câbler que le total                                     | laisse « **0 rouge** » — le nombre le plus rassurant — nu |
+
+Un badge doit **suivre** la suite ; le tableau A est une **mesure**, et son titre
+nomme un arbre et une heure. Réécrire ses chiffres sans toucher à cette
+provenance produirait un tableau qui suit HEAD sous un titre qui nomme un autre
+commit : une mesure d'apparence, pire que la périmée, parce que l'outil chargé de
+la tenir juste l'aurait signée.
+
+D'où **deux listes** : `CIBLES` est ce qu'on répare, `CONSTATS` est ce qu'on
+refuse.
+
+### Ce que la garde a trouvé à sa première exécution
+
+```text
+docs/DEFINITION-DE-SORTIE.md — le tableau A n’est plus une mesure :
+  DEFINITION-DE-SORTIE.md (total) : annoncé 4250, mesuré 4270
+  DEFINITION-DE-SORTIE.md (verts) : annoncé 4242, mesuré 4262
+À REFAIRE À LA MAIN, et « --corriger » ne le fera pas :
+  1. réécrire les quatre nombres de la ligne « Suite de bancs » ;
+  2. re-dater le titre de la section A, ARBRE COMPRIS.
+CODE=1
+```
+
+Elle **discrimine par champ** : `8 ignorés` et `0 rouge` concordaient et ne sont
+pas nommés. Puis, `--corriger` lancé : les six badges portés à 4 270, et le
+tableau daté **octet pour octet identique** — refus maintenu, `CODE=1`. Les
+quatre nombres et le titre ont été refaits à la main, comme le refus l'exige.
+
+### Mutation — 7 mutants, un à la fois (§ 9 septentrigicenties)
+
+| Mutant                                  | Verdict                          |
+| --------------------------------------- | -------------------------------- |
+| plancher `>=` → `>`                     | TENU — les bornes à zéro tombent |
+| plancher des rouges `0` → `1`           | TENU                             |
+| la porte du champ inconnu saute         | TENU _(après trancher)_          |
+| le refus n'exige plus la re-datation    | TENU                             |
+| le tableau périmé ne barre plus         | TENU — 2 cas                     |
+| `--corriger` réécrit tout ce qu'il a lu | **NU — équivalent consigné**     |
+| l'ancre du total se relâche             | TENU                             |
+
+Deux survivants, tous deux **tranchés** (§ 2.16 ter). Le second est équivalent
+sur le contenu — la définition de sortie est lue sans être modifiée, la réécrire
+rend les mêmes octets — et consigné à la ligne plutôt que défendu par un banc sur
+l'horodatage, qui mesurerait la granularité de l'horloge.
+
+Le premier a été la trouvaille du lot : la porte du champ inconnu était
+équivalente, donc décorative — mais la retirer eût supprimé le seul endroit qui
+posait la bonne question. Le `null` silencieux qu'elle rendait faisait lire une
+faute de frappe dans une cible comme « rapport vitest incomplet » : un refus
+juste pour une raison fausse. Elle jette désormais. **§ 9 terquadragicenties :
+« équivalent » ne veut pas dire « à retirer ».**
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    295 fichiers — 4 262 passés | 8 sautés | 0 échec (4 270)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
+
+Badges portés à 4 270 par `--corriger` ; le tableau A re-mesuré **et re-daté** à
+la main, jamais de tête.
