@@ -10212,3 +10212,55 @@ travers que ce carnet combat.
 câblage de `essai-travail.mjs`, le pas 7/7 non câblé en CI, la section A de la
 DEFINITION-DE-SORTIE à re-mesurer, et la part de `dashboard/src/views` vue par
 la loupe, inconnue.
+
+## La dette de la loupe, VRAIMENT refermée — le chef d'orchestre séparé
+
+Les 4 nus du câblage sont fermés. `scripts/pas-travail.mjs` porte désormais la
+SÉQUENCE, et reçoit sa ruche : `instantane()`, `creerTache()`, `resultats()`,
+`patienter()`. Le coureur n'a plus que trois choses — lire le `.env`, fabriquer
+la vraie ruche au-dessus de `fetch`, imprimer.
+
+Ce qui les rendait inéprouvables : elles étaient soudées à `fetch`. Les jouer
+demandait une ruche installée, un port libre et 90 s. `tests/pas-travail.test.mjs`
+(8 cas) leur donne une ruche de laboratoire qui refuse, qui n'a pas d'ouvrière,
+qui ne finit jamais, ou qui rend un travail sans preuve.
+
+### Rejeu, verdict ET COMPTE affichés
+
+```text
+V1  ×  L'INSTANTANÉ REFUSÉ (5 cas)  '503' attendu dans la raison        5 failed | 3 passed
+V2  ×  LE VERDICT IGNORÉ (2 cas)    la séquence refuse une ruche saine  2 failed | 6 passed
+V3  ×  AUCUNE OUVRIÈRE (5 cas)      — voir ci-dessous                   5 failed | 3 passed
+V4  ×  LA PATIENCE (3 cas)          expected +0 to be 4                 3 failed | 5 passed
+V5  ×  LES RÉSULTATS REFUSÉS (2 cas) '404' attendu dans la raison       2 failed | 6 passed
+V6  ×  LA BORNE DE LA PATIENCE      expected 5 to be 4                  1 failed | 7 passed
+séquence restaurée PAR COPIE                                            8 passed (8)
+```
+
+`V6` est la BORNE : `i < patienceS` contre `i <= patienceS` ne se départage que
+sur le COMPTE exact des tours — d'où un banc qui compte les attentes plutôt que
+de dormir. `V2` est la pire des quatre : inversée, la séquence CONSTATE le
+défaut et annonce quand même le succès.
+
+### V3 a d'abord survécu — et le mutant s'était posé dans un COMMENTAIRE
+
+Le bandeau du fichier recopie verbatim les quatre gardes qu'il défend. Le
+mutateur visait le code ; `replace(…, 1)` a pris la première occurrence, dans la
+prose. **L'assertion « le mutant s'est posé » a passé sans broncher** : le texte
+APRÈS était bien là — dans le commentaire.
+
+Un survivant se lit comme une équivalence. Sans le doute venu du sens — la garde
+inversée aurait dû faire tomber le cas nominal, et il passait — V3 partait en
+« équivalent », et la garde restait nue **avec un certificat de non-nudité**.
+
+Mutateur durci : le texte d'ancrage doit être UNIQUE dans le fichier, vérifié
+AVANT de remplacer. Consigné en § 9 unquadragicenties.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    295 fichiers — 4 239 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 247 par `scripts/compte-tests.mjs --corriger`, jamais de tête.

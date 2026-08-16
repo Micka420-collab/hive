@@ -12146,3 +12146,71 @@ Ici, l'équivalent est unique et déjà connu : la borne `i < argv.length` d'une
 boucle de lecture d'arguments, où `<=` ajoute un tour lisant `undefined`, qui ne
 correspond à aucun drapeau. Consigné dans le module, comme il l'était déjà dans
 `essai-parcours.mjs`.
+
+## 9 unquadragicenties. Un mutant peut se poser dans un COMMENTAIRE
+
+Le bandeau de `scripts/pas-travail.mjs` recopie verbatim les quatre gardes qu'il
+sert à défendre — c'est ce qui rend le fichier lisible :
+
+```js
+//     if (noeudsDe(avant).size === 0) { … }                aucune ouvrière
+…
+  if (noeudsDe(avant).size === 0) {
+```
+
+Le mutateur visait la seconde. `str.replace(avant, apres, 1)` a pris la
+**première** : le commentaire. Le code n'a pas bougé.
+
+```text
+V3  →  Tests  8 passed (8)      ← « survivant »
+```
+
+Et l'assertion censée l'empêcher — celle que la discipline exige, _vérifier que
+le mutant s'est posé_ — **a passé sans broncher** :
+
+```python
+assert apres in src, '… le mutant ne s’est PAS posé'
+```
+
+Le texte APRÈS était bien là. Dans le commentaire.
+
+### Pourquoi c'est le pire des faux verdicts
+
+Un survivant se lit comme une **équivalence**. La conclusion naturelle est « il
+n'existe aucune entrée qui distingue l'original du mutant » — donc on consigne
+l'équivalence par écrit, on passe à la suite, et **la garde reste nue avec un
+certificat de non-nudité**. Le § 2.16 ter, appliqué sur une mesure fausse,
+fabrique exactement le décor qu'il existe pour interdire.
+
+Ici le doute est venu du sens : la garde inversée aurait dû faire tomber le cas
+nominal, et il passait. Sans cette intuition, V3 partait en « équivalent ».
+
+### La cause, et sa forme générale
+
+Plus un fichier est bien documenté, plus il **recopie son propre code** —
+bandeaux, exemples, journaux de mesure. Un ancrage court a donc d'autant plus de
+chances de tomber sur de la prose que le fichier est soigné. **La qualité de la
+documentation augmente le risque.**
+
+### La règle, et le geste qui l'applique
+
+> **Le texte d'ancrage d'un mutant doit être UNIQUE dans le fichier.** Le
+> vérifier avant de remplacer, pas après :
+>
+> ```python
+> n = src.count(avant)
+> assert n == 1, f'{nom} : le texte AVANT apparaît {n} fois — `replace(…, 1)`
+>                  prendrait la PREMIÈRE, qui peut être un COMMENTAIRE.'
+> ```
+>
+> Quand le compte dépasse 1, ancrer plus large — la ligne suivante suffit
+> presque toujours, parce qu'un commentaire cite une ligne, rarement deux.
+>
+> Et pour tout survivant : **avant de conclure à l'équivalence, relire la ligne
+> mutée dans le fichier.** `grep -n` sur le motif dit en une seconde si le
+> mutant est où on le croit.
+
+Troisième instrument menteur de la nuit, après le docteur (§ 9 novemtrigicenties)
+et le coureur qui se disait pur (§ 9 quadragicenties). Le motif se répète : **un
+outil de mesure n'est pas dispensé d'être mesuré**, et c'est toujours son
+verdict le plus rassurant qui est le moins vérifié.
