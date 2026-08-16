@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `2a37ad5` + ce commit, 16 août 2026, 20 h 10)
+## A. Le code tient — ✅ mesuré (arbre `76a90b3` + ce commit, 16 août 2026, 21 h 18)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,7 +57,7 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4299** (4291 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4311** (4303 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
@@ -108,7 +108,7 @@
   masqué derrière un ✅, c'est écrit ici.
 
   **ET LES BALAYAGES PAR FICHIER NE S'ADDITIONNENT PAS À CETTE LIGNE.** Depuis
-  le 16 août, `dashboard/src/views` est balayé vue par vue — neuf fichiers, le
+  le 16 août, `dashboard/src/views` est balayé vue par vue — dix fichiers, le
   détail est dans `docs/ETAPES.md`. Ces chiffres NE sont PAS reportés dans le
   tableau ci-dessus, et c'est délibéré : chaque balayage par fichier utilise sa
   PROPRE base (le parent du commit qui a créé le fichier), quand la ligne
@@ -123,13 +123,21 @@
   | --------- | ------- | ---------- | --------- | --------- | ------- |
   | Partage   | 2       | Balance    | 0         | Sante     | 2       |
   | Chantiers | 5       | Intendance | 0         | Essaim    | 1       |
-  | Rayon     | 1       | Cerveau    | 3 (sur 7) | **Total** | **18**  |
-  | Miellerie | 4       |            |           |           |         |
+  | Rayon     | 1       | Cerveau    | 3 (sur 7) | Ruche     | 7       |
+  | Miellerie | 4       |            |           | **Total** | **25**  |
 
   Dont un relevé de fusion qui pouvait afficher la coulée d'un autre, une bande
-  d'erreur qui s'inversait, trois bornes `> 0` toujours vraies et une invite qui
-  enseignait le geste de l'autre mode. Deux vues (Balance, Intendance) n'ont rien
-  rendu — ce qui se rapporte aussi.
+  d'erreur qui s'inversait, trois bornes `> 0` toujours vraies, une invite qui
+  enseignait le geste de l'autre mode, et un compteur de débit qui additionnait
+  tout SAUF le travail terminé. Deux vues (Balance, Intendance) n'ont rien rendu
+  — ce qui se rapporte aussi.
+
+  **Un seul fichier a été balayé ENTIER : `Ruche.tsx`, 16 sur 16.** Le chiffre
+  vaut d'être isolé, parce qu'il mesure l'échantillonnage lui-même : un premier
+  tirage de 8 candidates sur 16 n'avait rendu que **2** des 7 nues. La moitié du
+  fichier regardée a trouvé moins du tiers. Un échantillon dit ce qu'il a vu ; il
+  ne se multiplie pas par deux, et « 10 examinées sur 50 » ne veut pas dire
+  « environ un cinquième des nues ».
 
   **Le Cerveau n'a plus AUCUNE nue éprouvable.** Les quatre qui restent vivent
   derrière `getContext`, et cette limite est MESURÉE, pas affirmée :

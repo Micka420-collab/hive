@@ -12829,3 +12829,56 @@ typographie.** Un total dans une phrase, un « sur sept vues », un pourcentage
 glissé dans une parenthèse : chacun se mesure avant d'être écrit, et chacun
 porte de quoi être refait. Ce qui distingue une mesure d'une affirmation, ce
 n'est pas le ton — c'est qu'on puisse la contredire.
+
+## 9 quinquinquagicenties. Un échantillon ne se multiplie pas — il dit ce qu'il a vu, rien de plus
+
+`Ruche.tsx` a été balayée deux fois. La première à moitié, la seconde en entier :
+
+| Balayage      | Candidates examinées | Nues trouvées |
+| ------------- | -------------------- | ------------- |
+| l'échantillon | 8 sur 16             | **2**         |
+| le complet    | 16 sur 16            | **7**         |
+
+**La moitié du fichier regardée a rendu moins du tiers de ses nues.** Pas la
+moitié : le tiers. Et rien dans le premier journal ne le laissait deviner — il
+disait honnêtement « 8 laissée(s) de côté », ce qui est vrai et ne dit rien du
+tout sur ce qu'elles contenaient.
+
+### Pourquoi l'intuition se trompe ici
+
+Un échantillon aléatoire de la moitié d'une population devrait rendre à peu près
+la moitié de ses individus. Mais les nues **ne sont pas réparties au hasard** :
+elles se groupent là où les bancs ne sont jamais allés. Sur cette vue, six des
+sept vivaient dans la moitié que la loupe avait laissée — la file d'attente, la
+bascule de rendu, la fenêtre de débit — parce que le seul banc existant regardait
+la ruche VIDE, et que tout ce qui se peuple lui était étranger.
+
+Un échantillon tiré dans un fichier dont les bancs couvrent une région et pas
+l'autre n'est pas un tirage sur la population : c'est un tirage sur un mélange de
+deux populations très inégales, et il sous-estime toujours.
+
+### Ce que ça périme
+
+Toutes les lignes « N examinées sur M » déjà publiées dans `docs/ETAPES.md` et
+dans la définition de sortie. Elles restent VRAIES — c'est bien ce qui a été
+examiné — mais elles ne portent aucune extrapolation :
+
+> « 10 examinées sur 50, 2 nues » **ne veut pas dire** « environ 10 nues dans le
+> fichier ». Ça ne veut dire que : deux nues trouvées, et quarante lignes dont
+> personne ne sait rien.
+
+C'est la parenté de § 9 novemquadragicenties : « non mesuré » n'est ni « nu » ni
+« fermé », c'est un troisième état. Ici la faute serait d'en faire une PROPORTION
+au lieu d'un inconnu.
+
+### La leçon
+
+**Quand le nombre de candidates d'un fichier tient dans un balayage complet, on
+le balaie ENTIER.** Seize mutants coûtent une demi-heure de machine ; l'estimation
+qu'on aurait tirée des huit premiers aurait été fausse d'un facteur trois et
+demi, et se serait recopiée dans un document que personne ne rouvre.
+
+Et quand le fichier est trop gros pour ça (`Miellerie` en a 126), on écrit ce que
+l'échantillon est — un relevé, pas un sondage — et on ne le convertit jamais en
+pourcentage. La ligne du terrain porte désormais « balayé » ou « examinées », et
+les deux mots ne se remplacent pas l'un l'autre.

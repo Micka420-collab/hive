@@ -11179,3 +11179,111 @@ node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 Aucune leçon neuve dans `docs/ERREURS.md` pour ce lot : il applique
 § 9 unquinquagicenties et § 9 duoquadragicenties déjà écrites. Un carnet qui
 gagne une entrée à chaque lot cesse d'être un carnet de leçons.
+
+## La Ruche balayée ENTIÈRE : sept nues, et un échantillon pris en défaut
+
+Premier fichier de vues balayé **16 sur 16**, base épinglée dans l'ATELIER
+(`LOUPE_BASE=e93b252`, vérifiée 183 ajoutées / 0 retirée) :
+
+```text
+16 mutation(s) possible(s) sur le diff, 16 examinée(s).
+9 défendues, 7 SANS TEST
+```
+
+### Le résultat qui n'est pas dans les sept
+
+Un premier tirage à **8 candidates sur 16** n'avait rendu que **2** de ces sept
+nues. La moitié du fichier regardée a trouvé moins du tiers de ce qu'il y avait.
+
+C'est une mesure sur l'instrument, pas sur la Ruche, et elle vaut pour tous les
+balayages précédents : « 10 examinées sur 50 » ne veut pas dire « environ un
+cinquième des nues ». Consigné en § 9 quinquinquagicenties.
+
+### Les sept, et ce que chacune coûte
+
+| Nue                       | Mutée, l'écran…                                   |
+| ------------------------- | ------------------------------------------------- |
+| `e.type === 'task_done'`  | compte au débit tout ce qui n'est PAS une fin     |
+| `t >= cutoff`             | ferme la fenêtre de 60 s un instant trop tôt      |
+| `t.status === 'done'`     | annonce « 2/3 butinées » quand une seule l'est    |
+| `{mode === '3d' ? (`      | rend la 3D quand on a choisi la 2D                |
+| `task.status === 'ready'` | pose la pastille ⏸ sur les tâches qui travaillent |
+| `total > 0`               | félicite une ruche VIDE d'avoir tout butiné       |
+| `done === total`          | annonce « Tout est butiné » sous une file pleine  |
+
+Aucune ne casse quoi que ce soit : la vue continue de se rendre, rien ne rougit,
+l'écran affiche seulement des chiffres qui disent l'inverse de leur étiquette.
+
+**Le débit est la plus coûteuse.** Muté, il additionne connexions, affectations
+et échecs — tout sauf les fins. Comme la plupart des événements sont de ceux-là,
+le compteur ne retombe jamais à zéro : la ruche a l'air la plus productive au
+moment précis où elle ne termine plus rien, c'est-à-dire quand il faudrait s'en
+apercevoir.
+
+### Deux sites, un même symbole — pour la deuxième fois cette nuit
+
+`mode === '3d'` s'écrit AUSSI sur le `className` des deux boutons de bascule, et
+ces deux-là sont défendus depuis longtemps — la loupe les rend « défendue » dans
+le même balayage. L'interrupteur montrait donc le bon mode allumé au-dessus d'un
+rendu inverse. Même figure qu'au Cerveau il y a deux heures (§ 9
+unquinquagicenties) : un banc qui NOMME un symbole ne dit rien de l'autre endroit
+où ce symbole vit.
+
+### Rejeu, un mutant à la fois, verdicts affichés
+
+Un lot de mutants dit « au moins un banc rougit », jamais lequel
+(§ 9 septentrigicenties) : sans attribution, six lignes de décor passeraient sous
+le rouge d'un seul bon cas.
+
+```text
+TENU · N1  le débit      : === → !==   Tests 3 failed | 4300 passed (4311)
+TENU · N2  la fenêtre    : >= → >      Tests 1 failed | 4302 passed (4311)
+TENU · N3  les butinées  : === → !==   Tests 3 failed | 4300 passed (4311)
+TENU · N4  le mode rendu : === → !==   Tests 2 failed | 4301 passed (4311)
+TENU · N5  la pastille   : === → !==   Tests 2 failed | 4301 passed (4311)
+TENU · N6  la borne      : >  → >=     Tests 1 failed | 4302 passed (4311)
+TENU · N7  le bandeau    : === → !==   Tests 2 failed | 4301 passed (4311)
+
+═══ SURVIVANTS : 0 ═══
+```
+
+Deux mutants ne font rougir qu'UN cas, et c'est voulu : `N2` n'est distinguable
+que par une fin survenue **exactement** à la seconde de coupure, `N6` que par une
+ruche à **exactement** zéro tâche. Les autres valeurs rendent les deux versions
+identiques. Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+### Un incident d'outillage, dit parce qu'il se reproduira
+
+Le premier appel à la loupe a dépassé le délai de dix minutes du terminal —
+**mais le processus, lui, a continué**. Le délai a tué l'enveloppe, pas le
+balayage, et `git status` montrait un mutant vivant. Le crochet d'arrêt a
+réclamé un commit deux fois pendant ce temps ; deux fois il a été refusé, et
+c'est la bonne réponse : commiter aurait publié un sabotage volontaire,
+restaurer à la main aurait fait rendre à la loupe un verdict faux sur le mutant
+en cours. Les balayages suivants sont partis en arrière-plan.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    298 fichiers — 4 303 passés | 8 sautés | 0 échec (4 311)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
+
+### État du terrain, par fichier
+
+| Vue        | Examinées          | Nues fermées                   |
+| ---------- | ------------------ | ------------------------------ |
+| Partage    | **5/5 (balayé)**   | 2                              |
+| Ruche      | **16/16 (balayé)** | 7                              |
+| Chantiers  | 11/21              | 5                              |
+| Rayon      | 8/16               | 1                              |
+| Miellerie  | 12/126             | 4                              |
+| Balance    | 11/41              | 0                              |
+| Intendance | 10/38              | 0                              |
+| Cerveau    | 10/50              | 3 (4 hors de portée, mesurées) |
+| Sante      | 10/39              | 2                              |
+| Essaim     | 12/46              | 1                              |
+
+Jamais balayées : shared (502), MonEspace (434), Chronique (400), Reine (371),
+Memoire (183).
