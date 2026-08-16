@@ -8962,3 +8962,68 @@ les deux mutations. § 9 trigicenties, appliqué d'emblée.
 Fantômes, Thermorégulation, Signes vitaux, Gardiennes, Guet. Prochaine vue
 jamais examinée : **Projets**, puis la coulée du miel de la Miellerie (le
 clavier est défendu depuis #302, la fusion ne l'est pas).
+
+## L'Atelier Queen Bee : le plan perdait son ordre, et le dépôt ses liens
+
+Première vue de la liste après la Santé. `Projets.tsx` fait 1 926 lignes — la
+plus grosse du tableau. `projets-alveoles` en défend huit points ; l'atelier
+lui-même n'était éprouvé qu'à sa porte (le bouton mort sous huit caractères) et
+à l'étiquette de son bouton d'envoi. Entre les deux, deux mécanismes n'étaient
+joués nulle part.
+
+### 1. L'escalier du plan
+
+`planDepths` calcule la profondeur de chaque tâche dans le graphe de
+dépendances : c'est ce qui indente la liste et pose la flèche `↳`. Un plan est
+un ORDRE ; aplati, il se lit comme une liste de courses — on ne voit plus que
+« écrire les tests » vient après « poser le socle », et c'est la seule chose que
+le plan apporte par rapport au brief qu'on vient de taper.
+
+La descente porte aussi une garde de CYCLE, et son défaut est plus dur qu'un
+mauvais affichage. Mesuré :
+
+```text
+RangeError: Maximum call stack size exceeded
+ ❯ depthOf dashboard/src/views/Projets.tsx:78:9
+```
+
+Ce n'est pas une liste mal indentée : c'est **la vue Projets entière qui
+tombe**, sur un plan que l'utilisateur n'a fait que demander. Le mode `llm` fait
+rendre le graphe par un modèle, et rien ne garantit qu'il soit acyclique.
+
+### 2. Le nonce de l'envoi
+
+Le commentaire du code dit ce qu'il évite : « les ids du planner sont
+déterministes ('socle', 'tests'…) et la validation serveur est GLOBALE : on les
+suffixe d'un nonce (dependsOn remappés) pour que le 2e plan de la ruche ne soit
+pas rejeté en collision d'ids ».
+
+Sans le nonce, **l'atelier marche une fois par ruche**. Le deuxième projet
+planifié se fait refuser en bloc, sur une collision d'identifiants que
+l'utilisateur n'a jamais vus ni choisis.
+
+### Rejeu, verdict affiché
+
+```text
+P1  ×  UN PLAN CIRCULAIRE…      RangeError: Maximum call stack size exceeded
+P2  ×  L’ESCALIER SE VOIT       expected -10 to be 8
+P3  ×  LES IDS DÉPOSÉS…         expected ['socle','tests','doc'] to not include 'socle'
+P3  ×  LES DÉPENDANCES SUIVENT  expected ['socle',…] to not include 'socle'
+P4  ×  LES DÉPENDANCES SUIVENT  expected [...] to include 'socle-msv2jvsk'
+source restaurée PAR COPIE      5 passed (5)
+```
+
+L'entrée qui départage `P4` porte **les deux moitiés de `rename.get(d) ?? d`
+d'un seul geste** : une dépendance INTERNE (qui doit suivre le renommage) et une
+dépendance ÉTRANGÈRE au plan (qu'il faut laisser intacte, sinon elle pointe dans
+le vide).
+
+### Un bruit constaté, pas introduit, pas diagnostiqué
+
+Monter `Projets` laisse des sondes s'échapper vers le port 3000
+(`ECONNREFUSED`). Vérifié : ce n'est PAS ce lot — le banc existant
+`projets-alveoles` en émet **24**, le nouveau **5**, et un banc sans rapport
+(`sante-guetteuses`) **0**. Une sonde posée sur `globalThis.fetch` n'a rien
+intercepté : l'appel ne passe donc pas par là (liaison capturée à l'import,
+ou autre canal). **Non diagnostiqué, laissé ouvert** — candidat pour un lot à
+part, plutôt que corrigé à l'aveugle ici.
