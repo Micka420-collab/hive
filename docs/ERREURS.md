@@ -11691,3 +11691,82 @@ C'est le § 9 duotrigicenties transposé — là-bas il fallait recenser l'ARBRE
 composants et non le fichier ; ici il faut recenser l'ARBRE des bancs et non le
 dossier. Deux fois la même erreur de forme : **avoir cherché exhaustivement au
 mauvais endroit.**
+
+## 9 quintrigicenties. Un mutant qui fait PLANTER ne prouve pas la distinction
+
+La carte des phéromones distingue deux vides qui ne disent pas la même chose :
+
+```tsx
+{traces === null ? (
+  <p>Lecture des pistes…</p>                        // la réponse n'est pas là
+) : traces.length === 0 ? (
+  <p>La ruche n'a pas encore d'affinité mesurée…</p> // la réponse est là, vide
+) : (
+```
+
+Premier mutant écrit pour l'éprouver — déplacer la CONDITION :
+
+```diff
+- {traces === null ? (
++ {traces !== null && traces.length === 0 ? (
+```
+
+Verdict : **les six cas au rouge.** Un banc qui fait tomber tout un fichier a
+l'air d'un banc solide. Il ne l'était pas.
+
+### Ce que le mutant faisait réellement
+
+Avec `traces === null` — l'état du tout premier rendu, avant la première
+réponse de la sonde — la branche mutée évalue `traces.length` sur `null` :
+
+```text
+TypeError: Cannot read properties of null (reading 'length')
+```
+
+Le composant jette au montage. **Les six cas rougissent parce qu'aucun n'a pu
+monter la vue**, pas parce que l'un d'eux a lu le mauvais message. Le cas qui
+porte le sujet — « je lis encore » contre « je n'ai rien mesuré » — n'était pas
+plus éprouvé après le rejeu qu'avant.
+
+### La forme du faux verdict
+
+Un mutant peut mourir de deux morts très différentes :
+
+| Mort               | Ce que le rouge prouve                       |
+| ------------------ | -------------------------------------------- |
+| **Discrimination** | le banc lit la sortie, et sait la départager |
+| **Plantage**       | le banc monte la vue — rien de plus          |
+
+La seconde se reconnaît à sa signature : **tous les cas tombent d'un coup**, y
+compris ceux qui n'ont aucun rapport avec la ligne mutée. Un mutant de sens
+fait tomber les cas de son sujet ; un mutant qui plante fait tomber le fichier.
+
+### Le mutant refait, et ce qu'il a dit
+
+Échanger les deux MESSAGES, structure intacte — casser le sens sans casser le
+rendu :
+
+```text
+P3  ×  « JE LIS ENCORE » ET « JE N'AI RIEN MESURÉ » NE SONT PAS LE MÊME VIDE
+       expected '🐜 PhéromonesLa ruche n'a pas encore …' to contain 'Lecture des pistes'
+       Tests  1 failed | 5 passed (6)
+```
+
+**Un seul cas**, celui du sujet, avec la sortie fautive citée. C'est ce rouge-là
+qui prouve quelque chose.
+
+### La règle
+
+> **Un mutant doit changer le SENS, pas la validité.** S'il fait tomber tout le
+> fichier — surtout des cas étrangers à la ligne mutée — soupçonner le plantage
+> et lire l'erreur : `TypeError`, `is not a function`, `undefined is not
+iterable` ne sont pas des verdicts de garde.
+>
+> Le rejeu doit afficher le COMPTE autant que le verdict : `1 failed | 5 passed`
+> est un mutant de sens ; `6 failed` sur une garde locale demande une
+> vérification avant d'être compté comme une preuve.
+
+C'est le pendant du § 9 novemvicicenties — là-bas le banc mesurait un autre
+sujet que celui qu'il nommait ; ici le MUTANT tuait pour une autre raison que
+celle qu'on lui prêtait. Dans les deux cas le vert et le rouge étaient exacts,
+et la conclusion qu'on en tirait, fausse.

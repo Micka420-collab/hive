@@ -9425,3 +9425,90 @@ un banc neuf : **un repère non unique juge autre chose que ce qu'on croit.**
 ### Vues restantes
 
 Chantiers (4 cas, 299 lignes), Rayon (5, 352), Partage (7, 173), Essaim (7, 553) — couvertes partiellement, à reprendre garde par garde.
+
+## Les phéromones : l'affinité apprise, et sa polarité
+
+Premier lot d'Essaim, repris **garde par garde**. Recensement sur les DEUX
+racines d'abord (§ 9 quattuortrigicenties) : `essaim-castes` tient six cas,
+**tous** sur le polyéthisme et le badge ⚔ — le manque chiffré d'une nourrice,
+l'absence de conseil pour une butineuse, l'autre branche du conseil, la ruche
+sans ouvrière, le drone qui vole contre celui qui est tombé, le mode demandé
+mais éteint. Non rejoués.
+
+La carte des phéromones n'avait aucun cas, sur aucune des deux racines. Ni
+`es-phero`, ni « Lecture des pistes », ni le score signé.
+
+### La règle que la carte énonce, et que personne ne tenait
+
+> « L'axe de chaque barre est CENTRÉ : attirance à droite (vert), répulsion à
+> gauche (rouge) — la phéromone répulsive est un vrai signal, pas une absence.
+> Le score signé est écrit en toutes lettres à côté : **la couleur ne porte
+> jamais l'information seule.** »
+
+Les deux moitiés de cette phrase ont une garde maintenant, **borne comprise** :
+
+```ts
+const positif = trace.score >= 0;
+{
+  positif ? `+${trace.score}` : trace.score;
+}
+```
+
+`>=` et `>` ne diffèrent **qu'à zéro** : à +12 comme à −4, les deux versions
+rendent la même couleur. Et zéro n'est pas un cas de laboratoire — un nœud qui
+réussit autant qu'il échoue, ou dont le signal s'est évaporé (demi-vie de sept
+jours), y tombe. Le mutant produit « ce nœud se plante sur ce domaine », en
+rouge, alors que la mesure ne dit rien du tout.
+
+### Rejeu, verdict affiché
+
+Six mutants, chacun vérifié posé, suite entière verte avant écriture — 287
+fichiers, 4 174 tests.
+
+```text
+P1  ×  ZÉRO PILE EST UNE ATTIRANCE      expected 'es-phero-score neg' to contain 'pos'
+P2  ×  … et le score s'écrit signé      expected '0' to be '+0'
+P3  ×  LES DEUX VIDES                   '…La ruche n'a pas encore…' to contain 'Lecture des pistes'
+P4  ×  LA ROUTE ABSENTE PERD LA CARTE   expected <section class="card"> to be null
+P5  ×  TROIS DOMAINES, TROIS LIGNES     expected <li class="es-phero-row"> to have length 3 but got 1
+P6  ×  UNE RUCHE TOUTE À ZÉRO           expected '' to be '0%'
+source restaurée PAR COPIE              6 passed (6)
+```
+
+`P6` mérite son cas : `Math.max(1, …)` n'est pas une coquetterie — l'échelle est
+le DÉNOMINATEUR de la largeur de chaque barre. Une ruche entièrement à zéro le
+rend nul, la largeur devient `NaN%`, et happy-dom l'a confirmé en la refusant
+tout court (`''` au lieu de `'0%'`). Seule une ruche **entièrement** à zéro
+sépare les deux versions.
+
+### Le mutant qui tuait pour la mauvaise raison
+
+Le premier mutant des deux vides déplaçait la CONDITION plutôt que les messages.
+Les six cas sont passés au rouge — par `TypeError` sur `null.length`, au
+montage. Le fichier tombait, la distinction restait non mesurée. Refait en
+échange des deux MESSAGES seuls : **un seul cas tombe**, celui du sujet.
+
+Consigné en § 9 quintrigicenties — un mutant doit changer le sens, pas la
+validité, et le rejeu doit afficher le COMPTE autant que le verdict.
+
+### Ce qui reste nu dans Essaim
+
+Le lot suivant, toujours garde par garde :
+
+| Garde                                            | Ce qu'elle protège                        |
+| ------------------------------------------------ | ----------------------------------------- |
+| `agents.slice(0, 6)` + `agents.length > 6`       | la BORNE du plafond des sous-agents       |
+| `!board && !waggle.error` / `nodes.length === 0` | encore deux vides distincts               |
+| `order = [1, 0, 2]` du podium                    | 2ᵉ à gauche, 1ᵉʳ au centre, 3ᵉ à droite   |
+| `Math.max(1, board.nodes[0]?.score ?? 1)`        | la même division par zéro, côté nectar    |
+| `races.error === null ? … : []`                  | pas de course fantôme si le sondage meurt |
+| `node.lastSeen === null` → « jamais vu »         | l'ouvrière qui n'a jamais répondu         |
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    288 fichiers — 4 180 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 188 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
