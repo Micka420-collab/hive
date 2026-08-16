@@ -10979,3 +10979,127 @@ npm run typecheck:dashboard · npm run lint                        ✅
 npx vitest run    297 fichiers — 4 282 passés | 8 sautés | 0 échec (4 290)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
+
+## Sante et Essaim : trois bornes `> 0` qui étaient toujours vraies
+
+Bases épinglées dans l'ATELIER, **une par fichier** (parent du commit créateur,
+vérifiée « N ajoutées / 0 retirée ») — les deux vues sont nées du même commit,
+donc la même base, et c'est une coïncidence, pas une constante :
+
+| Vue          | Base      | Candidates | Examinées | Nues  |
+| ------------ | --------- | ---------- | --------- | ----- |
+| `Sante.tsx`  | `e93b252` | 39         | 10        | **2** |
+| `Essaim.tsx` | `e93b252` | 46         | 12        | **1** |
+
+Vingt-deux mutations examinées, dix-neuf défendues. Les trois survivantes sont
+de la même espèce, et c'est ce qui rend le lot intéressant : **une borne `> 0`
+sur une longueur de liste, mutée en `>= 0`, devient un affichage inconditionnel
+qui ne casse rien.** Aucune exception, aucun écran blanc, aucun test rouge —
+juste un panneau qui se met à dire tout le temps ce qu'il ne devait dire que
+parfois.
+
+### Ce qui était nu
+
+**Sante — la pastille d'alerte** (`report.ghosts.length > 0`). Mutée, une ruche
+sans un seul fantôme porte une pastille d'alerte permanente. Le panneau des
+Guetteuses continue de fonctionner ; il crie au loup en continu, ce qui revient
+exactement à ne plus crier du tout.
+
+**Sante — la liste des anomalies** (la même comparaison, l'autre site). Mutée,
+une section « anomalies » vide se rend sous un titre qui en promet. Deux sites,
+un seul symbole : c'est § 9 unquinquagicenties, et c'est le recensement CÔTÉ
+SOURCE qui les a trouvés tous les deux avant d'écrire quoi que ce soit.
+
+**Essaim — le grief `⌀`** (`{n.creuses > 0 && (`). Muté en `||`, chaque ouvrière
+du tableau reçoit un grief `⌀ 0`. Le tableau des castes a pour SEUL objet de
+reconnaître qui produit des diffs creux ; muté, il accuse tout le monde, donc
+plus personne.
+
+### Les cas sont à la borne, et le nominal d'abord
+
+Chaque garde est fermée par un cas **exactement à zéro** — zéro fantôme, zéro
+diff creux — précédé du cas nominal qui montre l'affichage quand il est dû. Un
+cas à `5` n'aurait rien prouvé : `5 > 0` et `5 >= 0` sont tous deux vrais.
+
+Rejeu un mutant à la fois, ancre vérifiée unique, restauration PAR COPIE :
+
+```text
+TENU · M1 la pastille : > 0 → >= 0    Tests 1 failed | 6 passed (7)
+TENU · M2 la liste    : > 0 → >= 0    Tests 1 failed | 6 passed (7)
+TENU · creuses : && → ||              Tests 2 failed | 6 passed (8)
+```
+
+### La même faute de fixture, deux fois dans la même nuit
+
+Le fixture de Sante inventait `taskId`, `nodeId` et `scannedAt` là où la vue lit
+`ghost.target` et `report.scanned.events`. Le cas nominal est mort en
+`TypeError` — donc visiblement, donc sans dégât. Mais c'est la **seconde** fois
+de la nuit : la Miellerie avait inventé `merged` pour un contrat qui dit
+`applied`. Deux fois la même cause : un fixture écrit de mémoire au lieu d'être
+recopié depuis le type qui le gouverne (`GhostReport` dans
+`src/orchestrator/ghost.ts`, `MergeRunResult` pour la Miellerie).
+
+Consigné en `docs/ERREURS.md`. Le remède n'est pas « faire attention » : c'est
+d'ouvrir le fichier du contrat AVANT d'écrire le fixture, systématiquement.
+
+### Le septième nu du Cerveau n'avait jamais été nommé
+
+En recomptant pour la définition de sortie, le journal de la loupe a rendu sept
+`SANS TEST` sur `Cerveau.tsx` quand ma reddition de comptes n'en nommait que
+six. Le manquant :
+
+```ts
+useEffect(() => {
+  if (mode !== 'graphe') return; // ← le septième, jamais cité
+  const c = canvas.current;
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+```
+
+Il est **hors de portée du banc**, comme les trois déjà classées, et pour une
+raison qui se vérifie plutôt qu'elle ne se suppose : le `<canvas>` n'est rendu
+que sous `mode === 'graphe'`. Muté en `===`, l'effet sort ligne 142 en mode
+graphe (rien à voir, `getContext` rend `null` sous happy-dom) et sort ligne 144
+en mode liste (`canvas.current` est `null`). Aucune sortie observable dans les
+deux sens.
+
+Le Cerveau se dit donc : **7 nues — 2 fermées, 1 éprouvable, 4 hors de portée**.
+Le total tombe juste pour la première fois.
+
+### Et le total des balayages par fichier était faux
+
+`docs/DEFINITION-DE-SORTIE.md` annonçait « treize nues trouvées et fermées sur
+sept vues ». Le compte refait, vue par vue, donne **dix-sept sur neuf vues** :
+Partage 2, Chantiers 5, Rayon 1, Miellerie 4, Balance 0, Intendance 0, Cerveau
+2, Sante 2, Essaim 1. Le chiffre avait été écrit en prose, pas dérivé du
+tableau — exactement ce que la consigne « jamais de badge écrit de tête »
+interdit, appliqué à un endroit où je ne l'avais pas vue s'appliquer.
+
+Le paragraphe porte maintenant **le tableau des termes à côté du total**, pour
+que la somme se refasse au lieu de se croire.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    297 fichiers — 4 289 passés | 8 sautés | 0 échec (4 297)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
+
+### État du terrain, par fichier
+
+| Vue        | Examinées        | Nues fermées                       |
+| ---------- | ---------------- | ---------------------------------- |
+| Partage    | **5/5 (balayé)** | 2                                  |
+| Chantiers  | 11/21            | 5                                  |
+| Rayon      | 8/16             | 1                                  |
+| Miellerie  | 12/126           | 4                                  |
+| Balance    | 11/41            | 0                                  |
+| Intendance | 10/38            | 0                                  |
+| Cerveau    | 10/50            | 2 (1 éprouvable, 4 hors de portée) |
+| Sante      | 10/39            | 2                                  |
+| Essaim     | 12/46            | 1                                  |
+
+Jamais balayées : shared (502), MonEspace (434), Chronique (400), Reine (371),
+Ruche (183), Memoire (183).

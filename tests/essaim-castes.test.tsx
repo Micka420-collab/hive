@@ -81,6 +81,7 @@ function ouvriere(
   caste: 'nourrice' | 'batisseuse' | 'butineuse',
   productions: number,
   fiabilite = 0.9,
+  creuses = 0,
 ): VuePolyethisme['noeuds'][number] {
   return {
     nodeId: `noeud-${caste}-${productions}`,
@@ -88,7 +89,7 @@ function ouvriere(
     agentType: 'shell',
     caste,
     productions,
-    creuses: 0,
+    creuses,
     suspectes: 0,
     fiabilite,
   };
@@ -213,5 +214,47 @@ describe('le polyéthisme — la survivante du balayage', () => {
     });
     const dom = await monterEssaim();
     expect(dom.textContent).toContain('ÉTEINT');
+  });
+});
+
+// ─── LE GRIEF DES DIFFS VIDES : LA BORNE À ZÉRO ──────────────────────────────
+//
+// Balayage de la loupe sur `Essaim.tsx`, base épinglée dans l'atelier
+// (`LOUPE_BASE=e93b252`, 553 ajoutées / 0 retirée) : 46 candidates, 12
+// examinées, 11 défendues, UNE SANS TEST —
+//
+//     {n.creuses > 0 && (<span className="es-poly-grief">⌀ {n.creuses}</span>)}
+//
+// Mutée en `||`, elle est TOUJOURS vraie : chaque ouvrière porte un grief « ⌀ 0 »
+// alors qu'elle n'a rendu aucun diff vide. Le tableau du polyéthisme sert
+// précisément à repérer qui produit du creux ; un grief posé sur tout le monde
+// ne désigne plus personne.
+//
+// Le cas qui départage est celui À LA BORNE : EXACTEMENT zéro creuse. Avec deux
+// creuses, les deux versions affichent le grief et rien ne se distingue.
+describe('le grief des diffs vides, à la borne', () => {
+  it('ZÉRO CREUSE : aucun grief n’est posé', async () => {
+    // ─── LA BORNE, VALEUR ÉGALE AU SEUIL ───────────────────────────────────
+    vi.mocked(fetchPolyethisme).mockResolvedValue(
+      vuePoly([ouvriere('nourrice', 3, 0.9, 0)]) as never,
+    );
+    const dom = await monterEssaim();
+
+    expect(dom.textContent, 'le tableau du polyéthisme ne s’est pas rendu').toContain('production');
+    expect(
+      dom.querySelector('.es-poly-grief'),
+      'un grief « ⌀ 0 » est posé sur une ouvrière qui n’a rien rendu de creux',
+    ).toBeNull();
+  });
+
+  it('UNE CREUSE : le grief se pose, et il porte le compte', async () => {
+    vi.mocked(fetchPolyethisme).mockResolvedValue(
+      vuePoly([ouvriere('nourrice', 3, 0.9, 1)]) as never,
+    );
+    const dom = await monterEssaim();
+
+    const grief = dom.querySelector('.es-poly-grief');
+    expect(grief, 'une creuse réelle ne porte aucun grief').not.toBeNull();
+    expect(grief?.textContent, 'le grief n’annonce pas le compte').toContain('1');
   });
 });

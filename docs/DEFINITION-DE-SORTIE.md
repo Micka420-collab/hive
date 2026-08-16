@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `ac49196` + ce commit, 16 août 2026, 18 h 05)
+## A. Le code tient — ✅ mesuré (arbre `25bd8ae` + ce commit, 16 août 2026, 19 h 57)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,7 +57,7 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4293** (4285 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4297** (4289 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
@@ -106,6 +106,31 @@
   ce qui est mesuré est **l'échantillon**, et rien d'autre : 87 % de
   `dashboard/src/views` n'a jamais été regardé par la loupe. Ce n'est pas
   masqué derrière un ✅, c'est écrit ici.
+
+  **ET LES BALAYAGES PAR FICHIER NE S'ADDITIONNENT PAS À CETTE LIGNE.** Depuis
+  le 16 août, `dashboard/src/views` est balayé vue par vue — neuf fichiers, le
+  détail est dans `docs/ETAPES.md`. Ces chiffres NE sont PAS reportés dans le
+  tableau ci-dessus, et c'est délibéré : chaque balayage par fichier utilise sa
+  PROPRE base (le parent du commit qui a créé le fichier), quand la ligne
+  `57 / 440` vient d'une union à base unique `f0fc005`. Deux instruments
+  différents, deux dénominateurs différents — les mélanger fabriquerait un
+  pourcentage que personne n'a mesuré.
+
+  Ce que les balayages par fichier disent, et qui vaut par soi-même — **le total
+  est donné avec ses termes, pour qu'on puisse le refaire** :
+
+  | Vue       | Fermées | Vue        | Fermées   | Vue       | Fermées |
+  | --------- | ------- | ---------- | --------- | --------- | ------- |
+  | Partage   | 2       | Balance    | 0         | Sante     | 2       |
+  | Chantiers | 5       | Intendance | 0         | Essaim    | 1       |
+  | Rayon     | 1       | Cerveau    | 2 (sur 7) | **Total** | **17**  |
+  | Miellerie | 4       |            |           |           |         |
+
+  Dont un relevé de fusion qui pouvait afficher la coulée d'un autre, une bande
+  d'erreur qui s'inversait, et trois bornes `> 0` toujours vraies. Deux vues
+  (Balance, Intendance) n'ont rien rendu — ce qui se rapporte aussi. Le Cerveau
+  garde cinq nues NON fermées : une éprouvable, quatre derrière le canevas et
+  mesurées comme telles par `tests/canevas-hors-portee.test.tsx`.
 
 - ⚠️ **L'échantillonnage sur terrain déjà vu est ARRÊTÉ** (14 août). Huit
   tirages réguliers successifs, sur des terrains différents, ont tous rendu

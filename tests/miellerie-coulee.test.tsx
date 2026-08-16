@@ -54,6 +54,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import { fetchConsensus, fetchMergeResult, fetchResults, runMerge } from '../dashboard/src/api';
+import type { MergeRunResult } from '../dashboard/src/api';
 import Miellerie from '../dashboard/src/views/Miellerie';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -142,17 +143,22 @@ async function lancerLaCoulee(dom: HTMLElement): Promise<void> {
  * qu'il visait. Un monde qui ne peut pas exister ne mesure rien
  * (§ 9 quintrigicenties : un mutant, ou un décor, qui fait PLANTER ne prouve
  * pas la distinction). Les champs sont donc recopiés du contrat, pas devinés.
+ *
+ * Et l'ANNOTATION remplace le `as never` qui coiffait ce littéral : c'est elle
+ * qui rend la faute impossible plutôt qu'improbable. Mutée en `merged`, la
+ * compilation refuse — `'merged' does not exist in type 'MergeRunResult'`
+ * (§ 9 terquinquagicenties). Le `as never` reste au bouchon, où il ne masque
+ * rien : le monde y est déjà typé.
  */
-const RESULTAT = (mergeId: string) =>
-  ({
-    mergeId,
-    applied: ['t1'],
-    conflicts: [],
-    mergedDiff: '',
-    testsRun: false,
-    testsPassed: null,
-    logs: `journal de ${mergeId}`,
-  }) as never;
+const RESULTAT = (mergeId: string): MergeRunResult => ({
+  mergeId,
+  applied: ['t1'],
+  conflicts: [],
+  mergedDiff: '',
+  testsRun: false,
+  testsPassed: null,
+  logs: `journal de ${mergeId}`,
+});
 
 beforeEach(() => {
   setLang('fr');

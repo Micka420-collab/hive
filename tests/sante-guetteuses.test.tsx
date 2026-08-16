@@ -48,7 +48,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { StateSnapshot } from '../src/shared/types';
-import type { NiveauGuet } from '../dashboard/src/api';
+import type { GhostReport, NiveauGuet } from '../dashboard/src/api';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -60,7 +60,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchGuet: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { fetchGuet } from '../dashboard/src/api';
+import { fetchGhosts, fetchGuet } from '../dashboard/src/api';
 import Sante from '../dashboard/src/views/Sante';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,6 +71,7 @@ let conteneur: HTMLElement | null = null;
 beforeEach(() => {
   setLang('fr');
   vi.mocked(fetchGuet).mockResolvedValue(null as never);
+  vi.mocked(fetchGhosts).mockResolvedValue(null as never);
 });
 
 afterEach(() => {
@@ -223,5 +224,95 @@ describe('les Guetteuses disent la GRAVITÉ, pas seulement le compte', () => {
       (sans.querySelector('.gu-chiffres')?.textContent ?? '').trimEnd().endsWith('·'),
       'un séparateur pend dans le vide, sans rien derrière',
     ).toBe(false);
+  });
+});
+
+// ─── LES FANTÔMES : LA BORNE À ZÉRO ──────────────────────────────────────────
+//
+// Balayage de la loupe sur `Sante.tsx`, base épinglée dans l'atelier
+// (`LOUPE_BASE=e93b252`, 568 ajoutées / 0 retirée) : 39 candidates, 10
+// examinées, 8 défendues, 2 SANS TEST. Les deux portaient la MÊME borne :
+//
+//     <span className={report.ghosts.length > 0 ? 'panel-count warn' : …}>
+//     {report && report.ghosts.length > 0 && (
+//
+// Mutées en `>=`, elles sont TOUJOURS vraies — `length >= 0` l'est par
+// construction. La pastille passe en alerte sur une ruche saine, et la liste des
+// anomalies se déplie vide sous un titre qui promet des fantômes.
+//
+// C'est le cas À LA BORNE qui les départage : EXACTEMENT zéro fantôme. Un relevé
+// à deux fantômes rendrait les deux versions identiques et ne prouverait rien.
+describe('les fantômes de la ruche, à la borne', () => {
+  /**
+   * Un relevé de fantômes, dans la forme RÉELLE de `GhostReport`.
+   *
+   * La première version inventait `taskId`, `nodeId` et `scannedAt` : la vue lit
+   * `ghost.target` et `report.scanned.events`, et les deux cas sont morts en
+   * `TypeError` au rendu — pas en rougissant sur la borne qu'ils visaient. Un
+   * décor qui ne peut pas exister ne mesure rien (§ 9 quintrigicenties), et
+   * c'est la SECONDE fois cette nuit : les champs se recopient du contrat, ils
+   * ne se devinent pas.
+   *
+   * D'où l'ANNOTATION, qui n'est pas décorative : sans `: GhostReport`, le
+   * `as never` du bouchon avale n'importe quel objet et le typage ne voit rien.
+   * Avec elle, le monde inventé ne compile plus — la garde est le compilateur,
+   * pas ma vigilance (§ 9 terquinquagicenties).
+   */
+  const rapport = (n: number): GhostReport => ({
+    ghosts: Array.from({ length: n }, (_, i) => ({
+      kind: 'looping_task' as const,
+      target: `t-${i}`,
+      severity: 'medium' as const,
+      detail: 'tourne en rond',
+      metrics: { tours: 12 },
+    })),
+    scanned: { events: 40, nodes: 2, tasks: 3 },
+  });
+
+  /**
+   * La pastille DE LA SECTION DES FANTÔMES, pas la première venue.
+   *
+   * `Sante.tsx` porte TROIS `.panel-count` : chercher dans le document entier
+   * lisait celle d'un autre panneau, et le cas rougissait sur un compte qui
+   * n'était pas le sien. Même piège que les deux boutons « Lancer » des
+   * Chantiers — on cadre sur la section, jamais sur la classe seule.
+   */
+  function pastilleFantomes(dom: HTMLElement): HTMLElement {
+    const titre = [...dom.querySelectorAll('h2')].find((h) =>
+      (h.textContent ?? '').includes('Fantômes'),
+    );
+    const section = titre?.closest('section.card');
+    const pastille = section?.querySelector<HTMLElement>('.panel-count');
+    if (!pastille) throw new Error('la pastille de la section des fantômes est introuvable');
+    return pastille;
+  }
+
+  it('ZÉRO FANTÔME : la pastille reste calme et la liste ne s’ouvre pas', async () => {
+    // ─── LA BORNE, VALEUR ÉGALE AU SEUIL ───────────────────────────────────
+    vi.mocked(fetchGhosts).mockResolvedValue(rapport(0) as never);
+    const dom = await monter();
+
+    expect(
+      pastilleFantomes(dom).classList.contains('warn'),
+      'une ruche sans fantôme est signalée en alerte',
+    ).toBe(false);
+    expect(
+      dom.querySelector('.es-ghost-list'),
+      'la liste des anomalies se déplie alors qu’il n’y en a aucune',
+    ).toBeNull();
+  });
+
+  it('UN FANTÔME : la pastille alerte et la liste s’ouvre — l’autre côté de la borne', async () => {
+    vi.mocked(fetchGhosts).mockResolvedValue(rapport(1) as never);
+    const dom = await monter();
+
+    expect(
+      pastilleFantomes(dom).classList.contains('warn'),
+      'un fantôme réel ne déclenche pas l’alerte',
+    ).toBe(true);
+    expect(
+      dom.querySelector('.es-ghost-list'),
+      'la liste des anomalies reste fermée alors qu’il y en a une',
+    ).not.toBeNull();
   });
 });

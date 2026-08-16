@@ -12711,3 +12711,121 @@ C'est la parenté de § 9 unquinquagicenties : là, un banc qui NOMME un symbole
 dit rien de l'autre SITE ; ici, une ligne qui a l'air atteignable ne dit rien de
 son CHEMIN. Dans les deux cas, la faute est de juger sur un indice de surface au
 lieu d'aller voir.
+
+## 9 terquinquagicenties. Un décor sans type ne peut inventer QUE des mondes impossibles
+
+Deux fois dans la même nuit, un fixture a décrit un monde que le code ne peut
+pas produire :
+
+| Banc               | Écrit de mémoire                | Ce que le contrat dit                   |
+| ------------------ | ------------------------------- | --------------------------------------- |
+| `miellerie-coulee` | `merged: ['t1']`                | `applied` (`MergeRunResult`)            |
+| `sante-guetteuses` | `taskId`, `nodeId`, `scannedAt` | `ghost.target`, `report.scanned.events` |
+
+Les deux fois, le cas nominal est mort en `TypeError` au rendu — donc bruyamment,
+donc sans dégât durable. Mais un décor qui fait PLANTER ne mesure rien
+(§ 9 quintrigicenties) : entre « la garde que je visais est nue » et « mon décor
+n'existe pas », le rouge ne distingue pas. Et si le champ inventé s'était trouvé
+sur un chemin optionnel — un `?.` de plus dans la vue — le banc serait passé au
+vert en ne mesurant rien du tout.
+
+### Ce qui a fait la différence, dans le MÊME lot
+
+Le banc de l'Essaim, écrit la même heure, n'a rien inventé. Pas par vigilance :
+son décor porte une annotation.
+
+```ts
+function ouvriere(…): VuePolyethisme['noeuds'][number] {   // ← Essaim : typé
+const rapport = (n: number) => ({ … });                     // ← Sante : nu
+const RESULTAT = (mergeId: string) => ({ … }) as never;     // ← Miellerie : pire que nu
+```
+
+Le troisième est le plus instructif : `as never` ne se contente pas de ne pas
+garder, **il désarme la garde**. Posé sur le littéral, il dit au compilateur
+« n'examine pas cet objet » — précisément là où il fallait examiner.
+
+Le `as never` est pourtant nécessaire quelque part : le bouchon
+`vi.fn(() => Promise.resolve(null))` a pour type de retour `Promise<null>`, donc
+`mockResolvedValue` n'accepte que `null`. **Le geste juste est de le déplacer,
+pas de le supprimer** : l'annotation sur le décor, la conversion sur la ligne du
+bouchon.
+
+```ts
+const rapport = (n: number): GhostReport => ({ … });
+vi.mocked(fetchGhosts).mockResolvedValue(rapport(0) as never);
+```
+
+### La garde a été éprouvée, pas supposée
+
+Une annotation qui ne rougit pas est une décoration. Les deux fautes originelles
+ont donc été REPOSÉES sur le décor annoté :
+
+```text
+tests/sante-guetteuses.test.tsx(262,5): error TS2322:
+    Property 'target' is missing in type '{ … taskId: string … }' but required in type 'Ghost'.
+tests/miellerie-coulee.test.tsx(149,3): error TS2561:
+    'merged' does not exist in type 'MergeRunResult'. Did you mean to write 'mergeId'?
+```
+
+Restauré PAR COPIE, `typecheck:dashboard` revient au vert. Ce contrôle attrape
+régulièrement ce que vitest ne peut pas voir, et la raison est structurelle : un
+monde qui ne peut pas exister n'a pas de trame d'exécution, il n'a qu'un type.
+
+### La leçon
+
+**Un décor de banc s'annote avec le type qu'il prétend imiter, et la conversion
+de commodité se pose sur le bouchon — jamais sur le décor.** Sans ça, la
+recopie du contrat repose sur ma mémoire ; avec ça, elle repose sur le
+compilateur, qui ne se fatigue pas à quatre heures du matin.
+
+C'est le versant STATIQUE de § 9 duotrigicenties : là, un bouchon partiel
+laissait passer ce qu'on n'avait pas nommé ; ici, un décor non typé laisse
+passer ce qu'on a mal nommé. Dans les deux cas la faute est de faire confiance à
+une énumération de mémoire là où un contrat existe, écrit, à côté.
+
+## 9 quaterquinquagicenties. Un TOTAL écrit en prose est un badge, et il se mesure comme tel
+
+`docs/DEFINITION-DE-SORTIE.md` annonçait, sous le tableau des terrains :
+
+> **treize nues trouvées et fermées** sur sept vues
+
+Le compte refait, vue par vue, donne **dix-sept sur neuf**. Aucune des deux
+moitiés n'était juste, et le document portait pourtant les deux chiffres à un
+endroit conçu pour être cru.
+
+La consigne « un badge ne s'écrit jamais de tête, on mesure la suite d'abord »
+existe depuis longtemps et est outillée : `scripts/compte-tests.mjs` refuse
+même de réparer le tableau daté (§ 9 quaterquadragicenties). Elle n'avait
+simplement jamais été appliquée **à un nombre en toutes lettres au milieu d'un
+paragraphe** — parce qu'un badge a l'air d'un badge, et qu'une phrase a l'air
+d'une phrase.
+
+### Comment il s'est faussé
+
+Les deux nombres ont été écrits à un moment où le terrain en comptait treize sur
+sept, puis le lot suivant (Sante, Essaim) a ajouté trois nues et deux vues, et la
+prose n'a pas suivi — exactement la mécanique de § 9 duoquadragicenties, mais
+sur un total au lieu d'une date. Le tableau juste au-dessus, lui, était à jour :
+**le document se contredisait à quinze lignes d'intervalle**, et rien ne pouvait
+le voir puisque personne ne refait une addition qu'on lui donne déjà faite.
+
+### Le remède : donner les TERMES à côté du total
+
+Le paragraphe porte maintenant la liste des addends —
+
+```text
+Partage 2 · Chantiers 5 · Rayon 1 · Miellerie 4 · Balance 0
+Intendance 0 · Cerveau 2 · Sante 2 · Essaim 1        →  17
+```
+
+— parce qu'un total sans ses termes ne peut être ni vérifié ni corrigé : il ne
+peut qu'être cru. Avec eux, la prochaine addition oubliée se voit à l'œil, et le
+lot suivant n'a plus qu'une ligne à ajouter au lieu d'un nombre à retrouver.
+
+### La leçon
+
+**Tout nombre qui résume un travail est un badge, quelle que soit sa
+typographie.** Un total dans une phrase, un « sur sept vues », un pourcentage
+glissé dans une parenthèse : chacun se mesure avant d'être écrit, et chacun
+porte de quoi être refait. Ce qui distingue une mesure d'une affirmation, ce
+n'est pas le ton — c'est qu'on puisse la contredire.
