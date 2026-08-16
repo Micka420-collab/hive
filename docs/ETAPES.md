@@ -9117,3 +9117,57 @@ Consigné en § 9 tertrigicenties.
 
 `ConflictsPanel` (la gravité des dards) n'est pas pris ; le reste de
 `ProjectCard` non plus. La vue n'est pas close.
+
+## Les dards Sting : la même bascule, l'autre écran
+
+Sting compare les tâches AVANT la coulée et signale celles qui touchent au même
+endroit. L'opérateur s'en sert pour trancher : fusionner quand même, ou séparer
+le travail d'abord. Cette décision se prend sur **la gravité** et sur rien
+d'autre — deux tâches se croisent presque toujours quelque part.
+
+`miellerie-revue` défend déjà cette bascule **dans la Miellerie**. Celle de la
+vue Projets vit sur un autre composant et n'était pas gardée : c'est
+§ 9 quinvicicenties en pratique — _quand on trouve une instance, on compte ses
+frères_. Rien de neuf appris ici, une famille refermée.
+
+### Nudité mesurée avant d'écrire
+
+Quatre mutants posés ensemble, chacun vérifié posé, suite entière verte —
+281 fichiers, 4 145 tests.
+
+```text
+c.severity === 'high' ? … : …          →  !== 'high'
+className={`pj-sting ${c.severity}`}   →  `pj-sting low`
+conflicts.length === 0 && (…)          →  === -1   (plus d'état vide)
+c.sharedPaths.length > 0 && (…)        →  >= 0
+```
+
+### Rejeu, verdict affiché
+
+```text
+D1  ×  UN DARD FORT NE S’ANNONCE JAMAIS « FAIBLE »   expected '· sévérité faible…' to contain 'sévérité haute'
+D2  ×  L’HABIT SUIT LA GRAVITÉ                       expected 'pj-sting low' to contain 'high'
+D3  ×  AUCUN DARD SE DIT                             expected '…' to contain 'Aucun dard en vue'
+D4  ×  UN DÉTAIL VIDE NE LAISSE PAS SON ÉTIQUETTE    expected '…' not to contain 'fichiers'
+source restaurée PAR COPIE                           5 passed (5)
+```
+
+Échangée, la bascule **ne casse rien** : le panneau nomme toujours les deux
+tâches et liste toujours les fichiers. Elle inverse seulement le conseil — on
+fusionne un conflit fort en le croyant faible, et l'on sépare un travail qui
+n'en avait pas besoin.
+
+Deux détails de forme valent d'être notés :
+
+- le cas de gravité mesure **les deux** dans le même montage ; un banc qui n'en
+  regarderait qu'une resterait vert sur l'échange, puisqu'il y a toujours un
+  libellé affiché ;
+- la borne de `sharedPaths.length > 0` demande un dard qui ne partage **aucun**
+  fichier — un conflit détecté sur les seuls termes. Avec un fichier, `>` et
+  `>= ` affichent la même chose (§ 9 trigicenties).
+
+### `Projets.tsx`, état
+
+Pris : l'Atelier Queen Bee, la coulée du miel, les dards Sting. Restent
+`EquipeProjet` (l'admission par identifiant), `ConnecteurGithub`, `ConseilProjet`
+et le reste de `ProjectCard`. **La vue n'est toujours pas close.**
