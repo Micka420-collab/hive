@@ -11835,3 +11835,67 @@ Même famille que le § 9 sexvicicenties, transposée : là-bas un COMMENTAIRE
 décrivait une règle que rien ne tenait ; ici c'est du CODE qui a l'air de tenir
 une règle qu'il ne tient pas. Les deux se lisent comme une garantie et n'en
 sont pas une.
+
+## 9 septentrigicenties. Un lot de mutants dit « au moins un », jamais « lequel »
+
+Six gardes des Courses en vol, recensées nues sur les deux racines. Posées
+ensemble, comme les quatre lots précédents — et la suite a rougi :
+
+```text
+FAIL  tests/essaim-castes.test.tsx > LE ⚔ NE MARQUE QUE L'OUVRIÈRE DONT LE DRONE VOLE
+      Tests  1 failed | 4 190 passed (4 199)
+```
+
+Bonne nouvelle en soi : une garde était déjà tenue, et la mesure l'a dit. Mais
+elle n'a dit QUE cela. **Le rouge d'un lot ne s'attribue pas.** Six mutants, un
+échec : n'importe lequel des six pouvait en être la cause, et rien dans le
+verdict ne le désigne.
+
+### Ce que chaque forme de mesure établit
+
+| Mesure             | Verte                    | Rouge                           |
+| ------------------ | ------------------------ | ------------------------------- |
+| **Les N ensemble** | les N sont nus (certain) | ≥ 1 est tenu (lequel : inconnu) |
+| **Un à la fois**   | celui-ci est nu          | celui-ci est tenu               |
+
+Le lot est donc un bon **crible** — vert, il conclut pour tous d'un coup, et
+c'est ce qui fait gagner du temps quatre fois sur cinq. Rouge, il ne conclut
+rien de précis et il faut redescendre à l'unité.
+
+Six passes complètes sur la suite entière, cette fois :
+
+```text
+R1  course fantôme            4 191 passés  ← nu
+R2  titleOf (mauvaise tâche)  4 191 passés  ← nu
+R3  nameOf  (mauvais nœud)    1 ÉCHEC       ← DÉJÀ TENU
+R4  statusLabel('succeeded')  4 191 passés  ← nu
+R5  ICON[status] ?? '?'       4 191 passés  ← nu
+R6  liveRaces.length > 0      4 191 passés  ← nu
+```
+
+`R3` meurt sur un `aria-label` d'`essaim-castes` — « ruche-en-vol — en vol » —
+qui nomme le nœud pour éprouver AUTRE CHOSE (l'étiquette de statut). La garde
+de `nameOf` y est tenue par ricochet, sans que le fichier la nomme.
+
+### Ce que la tentation aurait coûté
+
+Devant ce rouge, le réflexe est de désigner le coupable à la lecture : le test
+qui rougit parle du ⚔ et des drones, donc ce doit être le mutant du ⚔. Il n'y
+en avait pas dans le lot. C'est `nameOf` — que ce test consomme sans le dire.
+Écrire un sixième cas sur `nameOf` aurait produit un doublon présenté comme une
+garde neuve.
+
+### La règle
+
+> **Poser les mutants en lot pour cribler, mais n'attribuer un rouge qu'un par
+> un.** Quand le crible rougit, ne pas deviner lequel : reposer chaque mutant
+> seul contre la suite ENTIÈRE, et lire le compte. C'est plus long — N passes
+> complètes — et c'est le seul moyen de savoir ce qu'on défend réellement.
+>
+> Et consigner l'inventaire dans le banc : celui qui était DÉJÀ TENU mérite sa
+> ligne autant que ceux qui étaient nus, avec le fichier qui le tenait. Sinon
+> le prochain lot le recensera nu et refera le doublon.
+
+C'est le § 9 quattuortrigicenties poussé d'un cran. Là-bas, le recensement
+disait « nu » et le mutant a dit « non ». Ici le mutant dit « non » aussi — mais
+en lot, il ne dit pas de QUI il parle.

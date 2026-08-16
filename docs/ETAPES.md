@@ -9660,3 +9660,83 @@ npx vitest run    290 fichiers — 4 191 passés | 8 sautés | 0 échec
 ```
 
 Badges portés à 4 199 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
+
+## Les courses en vol — ESSAIM EST CLOSE
+
+Quatrième et dernier lot d'Essaim. Recensement sur les DEUX racines :
+`es-races`, `es-race-row`, `es-race-title`, `es-race-drone`, « Courses en vol »,
+`liveRaces`, `racingNodes` — rien. `essaim-castes` tient le badge ⚔ et deux des
+trois branches de `statusLabel`.
+
+### Le recensement disait six ; la mesure a dit cinq
+
+Les six mutants posés ensemble ont fait rougir `essaim-castes` : l'un d'eux
+était déjà tenu. Le lot ne dit pas lequel. Six passes complètes, un par un :
+
+```text
+R1  course fantôme            4 191 passés  ← nu
+R2  titleOf (mauvaise tâche)  4 191 passés  ← nu
+R3  nameOf  (mauvais nœud)    1 ÉCHEC       ← DÉJÀ TENU
+R4  statusLabel('succeeded')  4 191 passés  ← nu
+R5  ICON[status] ?? '?'       4 191 passés  ← nu
+R6  liveRaces.length > 0      4 191 passés  ← nu
+```
+
+`R3` meurt sur un `aria-label` d'`essaim-castes` qui nomme le nœud pour éprouver
+AUTRE CHOSE. **Non rejoué** : cinq cas, pas six. Consigné en
+§ 9 septentrigicenties — un lot crible, il n'attribue pas.
+
+### La garde que le fichier énonce, et que personne ne tenait
+
+```tsx
+// Les courses vivent en mémoire du hub : si le poll tombe en panne,
+// races.data est périmé — on éteint le badge plutôt que d'affirmer une
+// course fantôme.
+const liveRaces = races.error === null ? (races.data?.races ?? []) : [];
+```
+
+Le **quatrième** commentaire de cette série qui décrit sa règle sans que rien ne
+la joue (§ 9 sexvicicenties). Celui-ci va jusqu'à nommer le mutant ET sa
+conséquence.
+
+Un seul état départage les deux versions : une donnée **déjà reçue**, PUIS une
+erreur. Un montage qui échoue d'emblée laisse `races.data` à `null` et les deux
+versions rendent la même chose. Le banc relance donc un vrai tour de sondage en
+changeant `refreshTick` — la dépendance de l'effet de `useApiPoll`.
+
+### Rejeu, verdict ET COMPTE affichés
+
+```text
+R1  ×  COURSE FANTÔME        to have a length of +0 but got 1              1 failed | 5 passed
+R2  ×  LE TITRE (3 cas)      'Une tout autre besogne' to be 'Poser le toit…'  3 failed | 3 passed
+R4  ×  LE VAINQUEUR          expected false to be true                     1 failed | 5 passed
+R5  ×  L'ICÔNE INCONNUE      expected ' ruche-sud' to contain '?'          1 failed | 5 passed
+R6  ×  SANS COURSE (2 cas)   expected <section class="card"> to be null    2 failed | 4 passed
+source restaurée PAR COPIE                                                 6 passed (6)
+```
+
+Tous `AssertionError`, sortie citée — aucun plantage (§ 9 quintrigicenties).
+`R6` est une borne : `> 0` et `>= 0` ne diffèrent qu'à zéro, et zéro est l'état
+NORMAL d'une ruche puisque les courses de drones sont rares.
+
+### Essaim, vue par vue
+
+| Partie               | Fermée par              |
+| -------------------- | ----------------------- |
+| polyéthisme, badge ⚔ | `essaim-castes` (6 cas) |
+| phéromones           | PR #313 (6 cas)         |
+| carte d'ouvrière     | PR #314 (5 cas)         |
+| Waggle Board, podium | PR #315 (6 cas)         |
+| courses en vol       | ce lot (6 cas)          |
+
+**553 lignes, 29 cas.** Restent Rayon (352 lignes / 5 cas), Chantiers (299 / 4),
+Partage (173 / 7).
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    291 fichiers — 4 197 passés | 8 sautés | 0 échec
+```
+
+Badges portés à 4 205 par `scripts/compte-tests.mjs --corriger`, jamais de tête.
