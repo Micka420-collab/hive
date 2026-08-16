@@ -268,3 +268,49 @@ describe('le Cerveau — les deux dernières survivantes du balayage', () => {
     expect(servie?.textContent, 'une note servie n’est pas « jamais »').not.toContain('jamais');
   });
 });
+
+// ─── LES NUES DU BALAYAGE DU 16 AOÛT, PART ÉPROUVABLE ────────────────────────
+//
+// Balayage sur `Cerveau.tsx`, base épinglée dans l'atelier (`LOUPE_BASE=6b0231c`,
+// le parent du commit créateur : 777 ajoutées / 0 retirée) —
+//
+//     50 candidates, 10 examinées — 3 défendues, 7 SANS TEST
+//     40 laissées de côté : la loupe échantillonne
+//
+// Les sept ne sont pas de la même espèce, et les confondre ferait promettre ce
+// qu'on ne peut pas tenir :
+//
+//   ÉPROUVABLES ICI, sans géométrie — les deux ci-dessous ;
+//   HORS DE PORTÉE — la borne de boucle (l. 207), `ch > 0 && !eteint` (l. 289)
+//   et `p && r` (l. 569) vivent sous `getContext` ou
+//   `getBoundingClientRect`. `tests/canevas-hors-portee.test.tsx` MESURE que
+//   `getContext` rend `null` sous happy-dom ; la limite est donc DITE, pas
+//   simulée, et ces trois-là ne sont pas comptées comme fermées.
+describe('le Cerveau — les nues éprouvables du balayage', () => {
+  it('L’ERREUR DE RELEVÉ S’AFFICHE — sinon l’écran ment par omission', async () => {
+    // `{poll.error !== null && <p className="cerveau-erreur">{poll.error}</p>}`.
+    //
+    // Muté en `||`, le paragraphe se rend TOUJOURS — y compris au repos, avec un
+    // texte vide : une bande d'erreur permanente sur un écran qui va bien. Et
+    // dans l'autre sens, ce cas est le seul à dire qu'un relevé RATÉ se voit :
+    // sans lui, le Cerveau afficherait un graphe périmé sans jamais prévenir.
+    vi.mocked(fetchCerveau).mockRejectedValue(new Error('le dossier cerveau est introuvable'));
+    const dom = await monter();
+
+    const bande = dom.querySelector('.cerveau-erreur');
+    expect(bande, 'aucune bande d’erreur alors que le relevé a échoué').not.toBeNull();
+    expect(bande?.textContent, 'la bande ne dit pas ce qui a échoué').toContain(
+      'le dossier cerveau est introuvable',
+    );
+  });
+
+  it('AU REPOS, AUCUNE BANDE D’ERREUR — l’autre sens de la même garde', async () => {
+    // Le contraste explicite : sans lui, « la bande existe » se satisferait d'un
+    // rendu inconditionnel. C'est ce cas-ci que le mutant `||` fait rougir.
+    const dom = await monter();
+    expect(
+      dom.querySelector('.cerveau-erreur'),
+      'une bande d’erreur s’affiche alors que le relevé a réussi',
+    ).toBeNull();
+  });
+});

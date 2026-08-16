@@ -10917,3 +10917,47 @@ Jamais balayées : Sante (568), Essaim (553), shared (502), MonEspace (434),
 Chronique (400), Reine (371), Ruche (183), Memoire (183).
 
 Aucun banc ajouté par ce lot : le compte reste 4288.
+
+## Le Cerveau : la bande d'erreur fermée, six nues restent nommées
+
+Suite du balayage précédent, qui rendait sept nues sur dix examinées et les
+séparait en deux espèces. Une seule est fermée ici, et le compte se dit tel quel :
+**1 sur 7**, pas « le Cerveau est fait ».
+
+### Ce qui est fermé
+
+```jsx
+{
+  poll.error !== null && <p className="cerveau-erreur">{poll.error}</p>;
+}
+```
+
+Mutée en `||`, la garde s'inverse EXACTEMENT : quand une erreur existe,
+`poll.error !== null` est vrai, le `||` court-circuite et **rien ne s'affiche** ;
+quand tout va bien, le `<p>` se rend **vide**. Une bande rouge permanente sur un
+écran sain, et le silence quand le relevé casse pour de bon — le Cerveau
+montrerait un graphe périmé sans jamais prévenir.
+
+Deux cas, les deux sens, rejeu : **2 échecs sur 23**, restauré PAR COPIE, 23/23.
+
+### Ce qui reste, et pourquoi
+
+**Éprouvable, pas encore fait** : `matchMedia(…)` pour `prefers-reduced-motion`
+(l. 102) ; et `{mode === 'graphe'` au CORPS du rendu — à ne pas confondre avec
+`className={mode === 'graphe' ? 'on' : ''}` de l'interrupteur, qui est défendu
+depuis le 3 août. **Deux sites, un même symbole** : c'est § 9 unquinquagicenties
+appliqué à ma propre reddition de comptes, et la raison pour laquelle « le mode
+est gardé » aurait été faux.
+
+**Hors de portée du banc** : la borne de boucle (l. 207), `ch > 0 && !eteint`
+(l. 289), `p && r` (l. 569) — toutes sous `getContext` ou
+`getBoundingClientRect`. `tests/canevas-hors-portee.test.tsx` MESURE la limite ;
+elle est dite, pas simulée, et ces trois ne seront jamais comptées comme closes.
+
+### Barrière mesurée
+
+```text
+npm run typecheck:dashboard · npm run lint                        ✅
+npx vitest run    297 fichiers — 4 282 passés | 8 sautés | 0 échec (4 290)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
