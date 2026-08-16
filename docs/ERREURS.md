@@ -12563,3 +12563,59 @@ Deux erreurs symétriques en découlent, et j'ai commis la première :
 
 Le geste juste tient en une ligne de plus dans le harnais de mutation, et il
 rend un verdict que personne n'a besoin de croire.
+
+## 9 quinquagicenties. Une consignation d'équivalence doit nommer le mutant EXACT, pas son cousin
+
+`Balance.tsx` portait, au-dessus de `{arme && cible !== null && (`, une marque
+d'équivalence désignant l'échange de `!==` vers `===`. Le bloc de commentaire
+au-dessus disait pourtant, et c'était juste :
+
+> `seconde borne neutralisée → 3 verts, survivant équivalent`
+
+**Deux mutants différents, et un seul des deux est équivalent :**
+
+- **neutraliser** `cible !== null` — la rendre toujours vraie — ne change rien :
+  quand le geste est armé, une cible est toujours posée. Équivalent, mesuré,
+  raisonné, vrai ;
+- **l'inverser** en `cible === null` rend la condition fausse dès qu'une cible
+  existe : l'avertissement armé ne sort jamais. `vues-sentinelles` rougit —
+  `× BALANCE : le geste ARMÉ dit ce qu'il va faire`, 1 échec sur 64.
+
+Or c'est **l'inversion** que la loupe pratique, pas la neutralisation. La marque
+excusait donc un mutant qui se fait tuer, sur une ligne parfaitement DÉFENDUE.
+
+### Pourquoi c'est pire qu'une ligne nue
+
+Une ligne nue manque d'une garde. Une consignation fausse **dit au lecteur
+suivant de ne pas en écrire une** — et si le banc qui couvrait la ligne disparaît
+un jour, plus rien ne le signalera : le rapport est éteint à la source.
+
+### L'instrument n'est pas en cause, et il faut le dire
+
+La loupe SAIT dénoncer ça : elle étiquette `⚠ MARQUE FAUSSE` tout mutant marqué
+équivalent qui se fait tuer, et sort en refusant. Si personne ne l'avait vu, ce
+n'est pas qu'elle mentait — **c'est qu'elle échantillonne** et n'avait pas
+retiré cette ligne-là depuis que la marque existait. Le défaut est de couverture,
+pas de jugement, et le confondre accuserait le seul outil qui aurait fini par
+trouver.
+
+### Le piège en écrivant la correction
+
+Expliquer la marque dans le commentaire l'a presque RÉARMÉE.
+`marqueeEquivalente` remonte les lignes au-dessus du mutant et ne s'arrête qu'au
+premier vide ou au premier code — les continuations `*` d'un bloc ne l'arrêtent
+pas. Une ligne de prose nommant à la fois l'instrument et l'échange redevient une
+consignation ACTIVE : le paragraphe qui décrit le silence l'aurait rétabli.
+
+La correction ne recopie donc pas la marque en toutes lettres, et le dit.
+
+### La leçon
+
+**Une marque d'équivalence est une affirmation sur UN mutant précis, et elle se
+relit comme telle.** Trois exigences :
+
+- nommer l'échange exact, pas un geste voisin qui lui ressemble ;
+- le mesurer, pas le déduire du raisonnement voisin — ici le raisonnement était
+  juste et l'étiquette fausse ;
+- ne jamais écrire le libellé d'une marque dans de la prose au-dessus d'une ligne
+  mutable : la remontée ne fait pas la différence entre expliquer et consigner.

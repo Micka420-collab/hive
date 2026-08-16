@@ -706,13 +706,38 @@ function ControlePlafond({
            *                          l'avertissement ne doit pas exister)
            *   seconde borne neutralisée → 3 verts, survivant équivalent
            *
+           * ─── ET LA CONSIGNATION QUI SUIVAIT NOMMAIT LE MAUVAIS MUTANT ──────
+           *
+           * Une marque d'équivalence portant l'échange `!==` vers `===` était
+           * posée juste sous ce bloc. Elle est FAUSSE, et l'audit de toutes les
+           * consignations du dépôt l'a rattrapée. Il faut distinguer :
+           *
+           *   NEUTRALISER `cible !== null` — la rendre toujours vraie — est bien
+           *   équivalent : c'est ce que mesure la ligne ci-dessus, et ça tient ;
+           *
+           *   l'INVERSER ne l'est pas du tout. La condition devient fausse dès
+           *   qu'une cible est posée, l'avertissement armé ne sort jamais, et
+           *   `vues-sentinelles` rougit —
+           *       × BALANCE : le geste ARMÉ dit ce qu'il va faire
+           *         Tests 1 failed | 63 passed (64)
+           *
+           * Or c'est l'INVERSION que la loupe pratique, pas la neutralisation.
+           * La marque taisait donc le rapport d'une ligne DÉFENDUE ; elle est
+           * retirée, cette borne a son banc.
+           *
+           * Et la marque n'est PAS recopiée ici en toutes lettres, à dessein :
+           * `marqueeEquivalente` remonte les lignes au-dessus du mutant et
+           * s'arrête au premier vide ou au premier code — les continuations
+           * `*` d'un bloc ne l'arrêtent pas. Une ligne qui nommerait à la fois
+           * l'instrument et l'échange REDEVIENDRAIT une consignation active, et
+           * ce paragraphe rétablirait le silence qu'il décrit.
+           *
            * LES MARQUES `*` EN TÊTE NE SONT PAS DE LA DÉCORATION. Le détecteur
            * de commentaires de la loupe est de forme LIGNE (§ 9 quaternonagies)
            * et ne voit pas l'intérieur d'un bloc : une continuation qui énonce
            * une condition en toutes lettres se fait muter comme du code. La
            * consignation voisine avait été réécrite ainsi ; celle-ci avait été
            * oubliée, et le balayage complet du fichier l'a rattrapée. */}
-          {/* loupe : équivalent — !== → === ; loupe : équivalent — === → !== */}
           {arme && cible !== null && (
             <p className="bal-plafond-avert" role="status">
               {t(

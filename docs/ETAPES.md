@@ -10720,3 +10720,57 @@ mutée et vue tuer. Consigné en § 9 novemquadragicenties — « non mesuré »
 « nu » ni « fermé », c'est un troisième état, et il se résout en quelques minutes
 de mutation plutôt qu'en relisant le code ou en comptant les fichiers de bancs
 qui NOMMENT le symbole.
+
+## Audit des consignations d'équivalence : 10 confirmées, 1 démentie
+
+Une marque `loupe : équivalent` affirme qu'AUCUN banc ne peut distinguer le
+mutant. C'est une mesure — donc datée, donc périssable (§ 9 duoquadragicenties) :
+un banc écrit plus tard peut se mettre à couvrir la ligne sans que personne ne
+revienne effacer la phrase.
+
+Recensées sur tout le dépôt (hors documentation de la loupe et fixtures de ses
+propres bancs) : **11 consignations en code réel, 12 mutants**. Chacun rejoué
+seul contre la suite entière, ancre vérifiée unique, tour borné — un mutant qui
+PEND ne prouve rien (§ 9 quintrigicenties).
+
+| Consignation                                          | Verdict         |
+| ----------------------------------------------------- | --------------- |
+| `tableau.ts` `RANG[a.gravite] < RANG[pire]`           | ✅ confirmée    |
+| `store.ts` `a.id < b.id` (tri)                        | ✅ confirmée    |
+| `store.ts` `a.id > b.id` (tri)                        | ✅ confirmée    |
+| `store.ts` `i < condamnees.length` (élagage)          | ✅ confirmée    |
+| `garde-fou.ts` `rangEchelon(min) <= rangEchelon(max)` | ✅ confirmée    |
+| `garde-fou.ts` `comparerRangs(r, meilleur) < 0`       | ✅ confirmée    |
+| `travail-fait.mjs` `i < vus.length`                   | ✅ confirmée    |
+| `essai-parcours.mjs` `i < argv.length`                | ✅ confirmée    |
+| `plages-commentaires.mjs` `while (i < src.length)`    | ✅ confirmée    |
+| `Balance.tsx:229` `total > 0`                         | ✅ confirmée    |
+| **`Balance.tsx:715` `!==` → `===`**                   | **❌ DÉMENTIE** |
+
+Dix sur onze tiennent : les consignations de ce dépôt ne sont pas du décor.
+
+### La onzième nommait le mauvais mutant
+
+Le bloc au-dessus mesurait la NEUTRALISATION de `cible !== null` — la rendre
+toujours vraie — et concluait « équivalent ». C'est juste. Mais la marque, elle,
+désignait l'INVERSION, qui n'est pas du tout équivalente : la condition devient
+fausse dès qu'une cible est posée, et `vues-sentinelles` rougit
+(`× BALANCE : le geste ARMÉ dit ce qu'il va faire`, 1 sur 64).
+
+Or c'est l'inversion que la loupe pratique. La marque taisait donc le rapport
+d'une ligne **défendue**. Elle est retirée ; le bloc dit ce qui a été mesuré.
+
+### Ce qu'il faut dire de l'instrument
+
+**La loupe sait dénoncer ça toute seule** — elle étiquette `⚠ MARQUE FAUSSE` un
+mutant marqué équivalent qui se fait tuer, et sort en refusant. Si la marque a
+survécu, ce n'est pas qu'elle mentait : **elle échantillonne**, et n'avait pas
+retiré cette ligne depuis que la marque existait. Défaut de couverture, pas de
+jugement.
+
+### Et le piège en écrivant la correction
+
+Expliquer la marque dans le commentaire l'a presque RÉARMÉE :
+`marqueeEquivalente` remonte les lignes au-dessus du mutant sans s'arrêter aux
+continuations `*` d'un bloc. Une ligne de prose nommant l'instrument ET l'échange
+redevient une consignation active. Consigné en § 9 quinquagicenties.
