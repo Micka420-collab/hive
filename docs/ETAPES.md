@@ -9268,3 +9268,51 @@ vert (§ 9 octovicicenties).
 Pris : Atelier Queen Bee, coulée du miel, dards Sting, carte Équipe, Conseil.
 Restent `ConnecteurGithub` (dont `projets-alveoles` garde déjà l'erreur et le
 « aucun dépôt ») et le reste de `ProjectCard`. La vue approche de sa clôture.
+
+## Le connecteur GitHub : chaque ligne parle pour elle
+
+Dernier panneau nu de `Projets.tsx`. Recensement depuis la RACINE d'abord :
+`projets-alveoles` tient déjà l'habit de l'erreur GitHub et le « aucun dépôt ne
+correspond » — non rejoués ici.
+
+### Nudité mesurée, puis rejeu
+
+Quatre mutants posés ensemble, chacun vérifié posé, suite entière verte — 284
+fichiers, 4 158 tests.
+
+```text
+G1  ×  SEULE LA LIGNE QU’ON CONNECTE…    'rucher/cire…' not to contain 'Connexion…'
+G2  ×  UN DÉPÔT DÉJÀ CONNECTÉ…           'rucher/deja…' to contain 'déjà connecté'
+G3  ×  SANS COMPTE, L’ÉCRAN PRÉVIENT…    '…' to contain 'sans propriétaire'
+G4  ×  UN DÉPÔT SANS DESCRIPTION…        expected <span class="pj-gh-desc"></span> to be null
+source restaurée PAR COPIE               5 passed (5)
+```
+
+### La plus chère : quelle ligne voyage
+
+L'import est long — la ruche clone le dépôt. Pendant ce temps, **une seule**
+ligne doit dire « Connexion… ». Muté en `occupe !== null`, toutes l'annoncent :
+l'écran affirme qu'on connecte dix dépôts alors qu'on en connecte un.
+
+C'est encore la famille du **mauvais sujet**, cette fois à l'échelle d'une
+liste : l'état d'UNE ligne peint toutes ses voisines. Le banc fige l'état « en
+vol » avec une promesse qu'on ne tient jamais — c'est ainsi qu'on peut le
+regarder.
+
+### Deux gardes que le code explique sans les tenir
+
+- `importe` porte sa raison **dans le type** : « deux projets sur un même dépôt,
+  c'est deux plans de merge concurrents sur les mêmes fichiers ». Muté, l'écran
+  invite à créer exactement ce que ce champ existe pour éviter.
+- `{d.description && …}` porte un commentaire qui décrit précisément la
+  mutation et l'entrée qui la tranche — sans qu'aucun banc ne la joue. Un
+  commentaire qui explique n'est pas une garde (§ 9 sexvicicenties).
+
+### `Projets.tsx` est CLOSE
+
+Atelier Queen Bee, coulée du miel, dards Sting, carte Équipe, Conseil des
+Éclaireuses, connecteur GitHub. La plus grosse vue du tableau (1 926 lignes) a
+été parcourue panneau par panneau.
+
+Prochaines vues jamais examinées : **Chantiers**, **Memoire**, **Intendance**,
+**MonEspace**, **Partage**, **Rayon**, **Ruche**, **Essaim**.
