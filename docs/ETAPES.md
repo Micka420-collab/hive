@@ -10856,3 +10856,64 @@ npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
 npx vitest run    297 fichiers — 4 278 passés | 8 sautés | 0 échec (4 286)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
+
+## Trois vues balayées d'affilée : Balance, Intendance, Cerveau
+
+Bases épinglées dans l'ATELIER, **une par fichier** (parent du commit créateur,
+vérifiée « N ajoutées / 0 retirée ») :
+
+| Vue              | Base      | Candidates | Examinées | Nues  |
+| ---------------- | --------- | ---------- | --------- | ----- |
+| `Balance.tsx`    | `2f2a0fe` | 41         | 11        | **0** |
+| `Intendance.tsx` | `da155e8` | 38         | 10        | **0** |
+| `Cerveau.tsx`    | `6b0231c` | 50         | 10        | **7** |
+
+**Deux vues sur trois n'ont rien rendu, et c'est un résultat.** Après Chantiers
+(5 nues sur 11) et Miellerie (4 sur 12), il devenait facile d'attendre une prise
+à chaque passe. Balance et Intendance disent le contraire : sur l'échantillon,
+tout est tenu. Un balayage qui ne trouve rien se rapporte comme un balayage qui
+trouve — sinon on ne publie que les prises, et la mesure devient une collection.
+
+### Le Cerveau, et la part qui est HORS DE PORTÉE
+
+Sept nues sur dix examinées — le pire ratio du terrain. Mais elles ne sont pas de
+la même espèce, et les confondre ferait promettre ce qu'on ne peut pas tenir :
+
+**Éprouvables maintenant** (rendu simple, aucune géométrie) :
+
+- `typeof matchMedia === 'function' && matchMedia(…).matches` (l. 102) — le
+  respect de `prefers-reduced-motion` ;
+- `{poll.error !== null && <p className="cerveau-erreur">…}` (l. 454) — l'erreur
+  de relevé qui s'affiche ;
+- `{mode === 'graphe'` — la bascule graphe/liste.
+
+**Hors de portée du banc**, et déjà MESURÉ comme tel :
+
+- la borne de boucle (l. 207) et `if (ch > 0 && !eteint)` (l. 289) vivent dans la
+  boucle de dessin, sous `getContext` ;
+- `p && r` (l. 569) dépend de `getBoundingClientRect` sur le canevas.
+
+`tests/canevas-hors-portee.test.tsx` ne se contente pas d'affirmer que
+`getContext` rend `null` sous happy-dom : **il le mesure**, précisément parce que
+cette phrase porte à elle seule le droit de sortir des décisions d'une boucle de
+rendu. La limite est donc DITE, pas simulée — c'est la consigne, et elle tient.
+
+Le lot du Cerveau est donc NOMMÉ, pas fermé : trois lignes à défendre, trois
+derrière le canevas. Aucune n'est comptée comme close.
+
+### État du terrain, par fichier
+
+| Vue        | Examinées        | Nues fermées  |
+| ---------- | ---------------- | ------------- |
+| Partage    | **5/5 (balayé)** | 2             |
+| Chantiers  | 11/21            | 5             |
+| Rayon      | 8/16             | 1             |
+| Miellerie  | 12/126           | 4             |
+| Balance    | 11/41            | 0             |
+| Intendance | 10/38            | 0             |
+| Cerveau    | 10/50            | 0 (7 nommées) |
+
+Jamais balayées : Sante (568), Essaim (553), shared (502), MonEspace (434),
+Chronique (400), Reine (371), Ruche (183), Memoire (183).
+
+Aucun banc ajouté par ce lot : le compte reste 4288.
