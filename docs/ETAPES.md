@@ -8833,3 +8833,69 @@ versions allument la même case et le banc bénirait la mutation.
 Les panneaux Gardiennes et Guet portent encore des décisions non éprouvées
 (`v.mode === 'consultatif' && v.verdicts.hollow > v.refusees`, `v.inspections === 0`).
 Lot suivant possible ; la Santé n'est pas close.
+
+## Les Gardiennes en consultatif : la seule ligne qui dit que du creux est passé
+
+Suite du lot précédent — la Santé n'était pas close. Le panneau des Gardiennes
+portait trois décisions nues.
+
+`gardiennes-vue` défend le NOM du nœud accusé et ses griefs. L'avertissement
+lui-même — la seule ligne de l'écran qui annonce que du travail non conforme a
+été **livré** — n'était joué nulle part :
+
+```tsx
+{v.mode === 'consultatif' && v.verdicts.hollow > v.refusees && (
+  <p className="ga-avertissement">
+    {v.verdicts.hollow} production(s) creuse(s) sont entrées dans le miel…
+```
+
+Sans elle, les tuiles affichent bien « 4 creuses », mais rien ne dit que ces
+quatre-là sont **passées** : on lit un compteur, pas une conséquence.
+
+### Nudité mesurée avant d'écrire
+
+Chaque mutant vérifié posé, suite entière verte à chaque fois — 277 fichiers,
+4 125 tests.
+
+```text
+v.mode === 'consultatif' && …   →  (le mode n'est plus regardé)
+v.verdicts.hollow > v.refusees  →  >= v.refusees
+v.inspections === 0             →  (l'état vide ne sort plus jamais)
+```
+
+### Rejeu, verdict affiché
+
+```text
+G1  ×  EN STRICT, PAS D’AVERTISSEMENT       expected <p class="ga-avertissement"> to be null
+G2  ×  TOUT CE QUI EST CREUX A ÉTÉ REFUSÉ   expected <p class="ga-avertissement"> to be null
+G2  ×  UNE RUCHE AU REPOS NE S’ALARME PAS   expected <p class="ga-avertissement"> to be null
+G3  ×  RIEN D’INSPECTÉ SE DIT               expected 'Signes vitaux…' to contain 'Rien d’inspecté'
+source restaurée PAR COPIE                  6 passed (6)
+```
+
+La borne (§ 9 trigicenties) était écrite **dès le départ** cette fois, et elle a
+payé : `>=` est tué par DEUX cas, dont celui de la ruche au repos. Avec `>=`,
+`hollow = 0` et `refusees = 0` rendent la condition vraie — l'écran annoncerait
+« 0 production(s) creuse(s) sont entrées dans le miel » en permanence, sur toute
+ruche, pour toujours.
+
+L'entrée qui départage `G1` mérite aussi d'être notée : **les mêmes chiffres**
+(4 creuses, 0 refusée), seul le mode change. C'est la seule forme qui isole le
+test du mode.
+
+### Un intermittent aperçu, et perdu
+
+Pendant la vérification de nudité, une exécution complète a rendu
+`1 failed | 4124 passed`. Les quatre suivantes sont revenues vertes, et le nom
+du test n'a pas été capturé — la commande filtrait sur le total (`| tail -4`).
+
+La conclusion du lot tient (les bancs qui montent la Santé sont passés, nudité
+reconfirmée sur trois exécutions complètes), mais **l'intermittent est réel et
+non identifié** : une occurrence sur cinq exécutions. Consigné en
+§ 9 untrigicenties, avec le filtre qui aurait gardé la preuve. À reprendre au
+prochain rougissement, cette fois en gardant la sortie.
+
+### La Santé, état
+
+Fermés : fantômes (déjà), Thermorégulation, Signes vitaux, Gardiennes.
+Reste le panneau du **Guet** (`NIVEAU_GUET`, les appâts, `v.derniers.slice(0, 8)`).

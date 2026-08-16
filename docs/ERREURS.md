@@ -11428,3 +11428,57 @@ C'est le § 9 octovicicenties appliqué aux nombres : là-bas il fallait le cas 
 ne bouge pas pour prouver que les autres mesuraient le signal ; ici il faut le
 cas qui ne franchit pas pour prouver que la garde est posée AU BON ENDROIT et
 pas un cran plus loin.
+
+## 9 untrigicenties. La première apparition d'un intermittent est la seule preuve qu'on aura
+
+Pendant la vérification de nudité d'un lot, une exécution complète a rendu :
+
+```text
+Tests  1 failed | 4124 passed | 8 skipped (4133)
+```
+
+Un échec. Un seul. Et je l'ai **perdu** — parce que la commande qui l'a produit
+filtrait la sortie sur le total :
+
+```sh
+npx vitest run 2>&1 | tail -4        # ← ne garde que le résumé
+```
+
+Les quatre exécutions suivantes sont revenues vertes. Le nom du test, son
+fichier, son assertion, sa trace : rien n'a survécu au `tail`.
+
+### Ce que ça a coûté, et ce que ça n'a pas coûté
+
+Le lot lui-même n'a pas souffert : les mutants posés à ce moment-là étaient sur
+`Sante.tsx`, les bancs qui montent cette vue sont passés, et la nudité a été
+reconfirmée sur trois exécutions complètes. La conclusion du lot tient.
+
+Ce qui est perdu, c'est **l'intermittent** — un vrai, mesuré à une occurrence
+sur cinq exécutions complètes, dont je ne peux dire ni le nom ni la cause. Le
+dépôt a pourtant tout ce qu'il faut pour le traquer (`scripts/tamis-ordres.mjs`,
+la jambe « La suite tient dans plusieurs ordres de tests ») — mais on ne traque
+pas ce qu'on ne peut pas nommer.
+
+### Pourquoi le réflexe est mauvais
+
+`| tail -4` et `| grep "Tests  "` sont commodes : la suite crache 4 000 lignes
+et on ne veut que le verdict. Tant que tout est vert, c'est le bon filtre. **Le
+jour où quelque chose rougit, c'est exactement le filtre qui jette la réponse.**
+
+Et un intermittent ne se rejoue pas sur demande : la fenêtre où l'information
+existait était cette exécution-là, celle qui venait de finir.
+
+> **Règle** — filtrer une suite de tests sur son total est sûr **seulement**
+> tant que le total est vert. Le filtre doit toujours laisser passer les
+> marqueurs d'échec en même temps que le résumé :
+>
+> ```sh
+> npx vitest run 2>&1 | grep -E "^ FAIL|^\s+×|AssertionError|Tests  "
+> ```
+>
+> Le coût est de quelques lignes quand tout va bien ; le gain est de ne pas
+> perdre la seule apparition d'un défaut rare.
+
+C'est le pendant outillage du § 9 novemvicicenties : là-bas il fallait lire le
+SUJET de l'échec avant sa valeur ; ici il faut d'abord **avoir gardé de quoi le
+lire**.
