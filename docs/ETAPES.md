@@ -10151,3 +10151,64 @@ La suite honnête serait d'extraire le CHEF D'ORCHESTRE — la séquence — ave
 transport injecté, comme les décisions l'ont été. C'est un lot à part entière,
 non entamé. **La dette est réduite de sept à quatre, elle n'est pas refermée**,
 et le compte est ici plutôt que dans une phrase rassurante.
+
+## Le « reste du balayage » que les relances répètent est ENTIÈREMENT PÉRIMÉ
+
+Trois entrées reviennent à chaque tour de nuit. **Les trois sont fermées**, et
+c'est la mesure qui le dit — pas une impression.
+
+### 1. Balance — `arme && cible !== null`
+
+Fermée, et fermée exactement comme § 2.16 ter l'exige : la seconde borne est un
+**équivalent consigné à la ligne**, avec la mesure qui l'a établie, dans
+`Balance.tsx` :
+
+```text
+`arme` retiré              → 1 cas rouge (BALANCE « le geste ARMÉ dit ce qu'il va faire »)
+seconde borne neutralisée  → 3 verts, survivant équivalent
+```
+
+Le fichier explique même pourquoi la garde reste malgré l'équivalence : c'est le
+rétrécissement de type qui autorise `formatDuree(cible)` juste en dessous. La
+retirer casserait la compilation.
+
+### 2. Cerveau — `serviIlYaJours === null`, et le glisser au canevas
+
+La décision ne vit plus dans la boucle de dessin : elle est **sortie** dans
+`dashboard/src/views/cerveau-designation.ts`, et cinq fichiers de bancs la
+couvrent (`cerveau-designation`, `cerveau-graphe`, `cerveau-vue` sur les DEUX
+racines, `canevas-hors-portee`).
+
+Quant au « si happy-dom ne peut pas jouer le glisser, le DOCUMENTER honnêtement
+plutôt que simuler » : c'est fait, et mieux que demandé.
+`tests/canevas-hors-portee.test.tsx` existe précisément parce que la phrase
+« `getContext` rend `null` sous happy-dom » — qui justifiait à elle seule trois
+extractions — **n'était vérifiée par rien**. Elle avait, dit le fichier, « le
+statut d'un badge écrit de tête ». Elle est mesurée maintenant.
+
+### 3. server.ts — `find taskId && nodeId de la livraison`
+
+**Le motif n'existe pas dans le fichier.** La livraison a son propre module
+(`src/orchestrator/livraison.js`) ; ce que `server.ts` en garde sont des bornes
+d'élagage, déjà commentées et gardées.
+
+### Ce que ça dit, et qui compte plus que les trois lots
+
+C'est la **troisième** liste périmée de la nuit, après `getSnapshot()` sans
+LIMIT / la table `tasks` sans élagueur (fermées, mesurées ce matin) et les
+numéros de PR des relances. Une file d'attente recopiée de tour en tour se
+détache du dépôt sans que personne ne le remarque — et l'on dépense des tours à
+rechasser du travail fait.
+
+> **Une liste de restes se VÉRIFIE avant d'être suivie.** Le geste coûte une
+> minute : chercher le symbole, lire ce qui le garde. Le sauter coûte un lot
+> entier — écrit, éprouvé, et doublon.
+
+Aucun lot n'est pris ce tour : il n'y avait rien à prendre dans la liste, et
+inventer un lot pour ne pas rentrer les mains vides serait exactement le
+travers que ce carnet combat.
+
+**Le vrai reste** — mesuré, non périmé — est écrit plus haut : les 4 nus du
+câblage de `essai-travail.mjs`, le pas 7/7 non câblé en CI, la section A de la
+DEFINITION-DE-SORTIE à re-mesurer, et la part de `dashboard/src/views` vue par
+la loupe, inconnue.
