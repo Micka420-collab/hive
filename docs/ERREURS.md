@@ -11482,3 +11482,22 @@ existait était cette exécution-là, celle qui venait de finir.
 C'est le pendant outillage du § 9 novemvicicenties : là-bas il fallait lire le
 SUJET de l'échec avant sa valeur ; ici il faut d'abord **avoir gardé de quoi le
 lire**.
+
+### Ce que la chasse a donné
+
+Huit exécutions complètes lancées ensuite, avec le filtre corrigé, sur un arbre
+propre :
+
+```text
+Tests  4131 passed | 8 skipped (4139)     ×8
+(AUCUN échec)
+```
+
+**L'intermittent ne s'est pas reproduit** — une occurrence sur treize
+exécutions au total. Il reste donc ouvert et sans nom, et c'est précisément ce
+que la leçon coûte : la seule fois où il s'est montré, on avait de quoi
+l'identifier et on l'a jeté. Huit exécutions de rattrapage n'ont pas racheté
+cette minute-là.
+
+Ce qui est acquis, en revanche : le filtre est corrigé, et la prochaine
+apparition sera lisible.

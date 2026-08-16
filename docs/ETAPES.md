@@ -8899,3 +8899,66 @@ prochain rougissement, cette fois en gardant la sortie.
 
 Fermés : fantômes (déjà), Thermorégulation, Signes vitaux, Gardiennes.
 Reste le panneau du **Guet** (`NIVEAU_GUET`, les appâts, `v.derniers.slice(0, 8)`).
+
+## Les Guetteuses : la ruche disait ce qu'elle voyait, pas à quel point c'était grave
+
+Dernier panneau de la Santé. `vues-sentinelles` défendait déjà
+`{v.derniers.length > 0 && …}` — la liste n'existe que s'il y a des passages.
+Le reste ne l'était pas.
+
+### Ce que ce panneau ajoute, et qui n'était pas gardé
+
+Le commentaire du fichier dit pourquoi l'écran existe : « `GET /api/guet` était
+servi par l'orchestrateur et AUCUN écran ne l'appelait. Un mécanisme de
+détection sans écran est pire qu'une absence de détection : on croit surveillé
+ce qui ne l'est pas. »
+
+Ce que l'écran ajoute au journal brut, c'est le **niveau** — trois mots, trois
+tons, trois icônes. C'est la seule chose qu'il apporte, et c'était nu.
+
+### Nudité mesurée avant d'écrire
+
+Trois mutants posés ensemble, chacun vérifié posé, suite entière verte — 278
+fichiers, 4 131 tests.
+
+```text
+NIVEAU_GUET[v?.niveau ?? 'calme']  →  NIVEAU_GUET.calme
+v.derniers.slice(0, 8)             →  v.derniers        (plus de plafond)
+v.appats.length > 0 && …           →  >= 0
+```
+
+### Rejeu, verdict affiché
+
+```text
+H1  ×  UN RENIFLAGE S’ANNONCE          expected '🐝Rien à signaler…' to contain 'On vous regarde'
+H1  ×  UN BALAYAGE N’A PAS L’HABIT…    expected 'gu-verdict ton-calme' to contain 'ton-brulant'
+H2  ×  LA LISTE S’ARRÊTE À HUIT        (9 lignes rendues au lieu de 8)
+H3  ×  LA LISTE S’ARRÊTE À HUIT        (le plafond décalé à 9 — même cas, même mort)
+H4  ×  LES LEURRES SE NOMMENT          expected true to be false
+source restaurée PAR COPIE             5 passed (5)
+```
+
+Muté, le panneau **continue de fonctionner** : il compte toujours ses passages,
+il liste toujours les chemins. Il ment seulement sur la gravité — un balayage
+complet par un outil automatique s'affiche « Rien à signaler 🐝 ». C'est
+exactement la panne que le panneau existe pour empêcher.
+
+### Le plafond, et la seule entrée qui le départage
+
+`H2` (plafond retiré) et `H3` (plafond décalé à 9) meurent tous deux sur **un
+relevé de NEUF passages** :
+
+```text
+slice(0, 8)  → 8   (juste)
+slice(0, 9)  → 9
+pas de slice → 9
+```
+
+Avec huit passages, les trois versions rendent huit lignes et le banc bénirait
+les deux mutations. § 9 trigicenties, appliqué d'emblée.
+
+### La Santé est CLOSE
+
+Fantômes, Thermorégulation, Signes vitaux, Gardiennes, Guet. Prochaine vue
+jamais examinée : **Projets**, puis la coulée du miel de la Miellerie (le
+clavier est défendu depuis #302, la fusion ne l'est pas).
