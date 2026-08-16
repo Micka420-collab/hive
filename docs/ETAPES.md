@@ -10825,10 +10825,22 @@ qu'un banc nomme.**
 
 Restauré PAR COPIE, **3 sur 3**.
 
-**Deux nues restent ouvertes et se disent** : le compte du diff
-(`startsWith('+') && !startsWith('+++')`) et le marqueur du gagnant
-(`verdict.winner?.signature === f.signature`). Elles ne sont pas fermées, elles
-sont NOMMÉES.
+**Les deux dernières nues sont fermées dans la foulée**, chacune avec son
+rejeu :
+
+| Ligne                                       | Ce qu'elle coûtait                                                                                                               | Rejeu         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `startsWith('+') && !startsWith('+++')`     | `+7` au lieu de `+1` : les en-têtes du diff comptés comme des lignes changées, et un relecteur approuve sur des chiffres gonflés | 1 échec sur 4 |
+| `verdict.winner?.signature === f.signature` | la couronne sur TOUTES les factions : une sortie qui a PERDU le vote est présentée comme élue                                    | 1 échec sur 5 |
+
+Les deux cas sont écrits pour rougir de la bonne façon : le diff emploie un
+fixture où le compte vrai (1) et le compte muté (7) DIFFÈRENT — sur un fichier
+sans modification réelle, les deux auraient rendu « +1 » et le cas n'aurait rien
+distingué ; et la couronne est cherchée sur la signature GAGNANTE, pas seulement
+comptée comme présente.
+
+**Les quatre nues de l'échantillon sont donc fermées.** Le fichier, lui, reste
+ÉCHANTILLONNÉ : 114 candidates n'ont jamais été tirées.
 
 ### Et un décor qui ne pouvait pas exister
 

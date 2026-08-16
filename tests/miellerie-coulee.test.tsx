@@ -53,7 +53,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   postReview: vi.fn(() => Promise.resolve()),
 }));
 
-import { fetchMergeResult, runMerge } from '../dashboard/src/api';
+import { fetchConsensus, fetchMergeResult, fetchResults, runMerge } from '../dashboard/src/api';
 import Miellerie from '../dashboard/src/views/Miellerie';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -163,6 +163,21 @@ beforeEach(() => {
   vi.mocked(fetchMergeResult)
     .mockReset()
     .mockResolvedValue({ result: null } as never);
+  vi.mocked(fetchResults)
+    .mockReset()
+    .mockResolvedValue([] as never);
+  vi.mocked(fetchConsensus)
+    .mockReset()
+    .mockResolvedValue(null as never);
+});
+
+/** Une faction du parlement, dans la forme réelle de `Faction`. */
+const faction = (signature: string, votes: number) => ({
+  signature,
+  votes,
+  nodeIds: Array.from({ length: votes }, (_, i) => `n${i}`),
+  agentTypes: ['shell'],
+  diversity: 1,
 });
 
 afterEach(() => {
@@ -202,6 +217,79 @@ describe('la coulée de la Miellerie : le relevé doit être LE NÔTRE', () => {
     // Et la vue reste franche : elle dit qu'elle attend, elle ne se tait pas.
     expect(dom.textContent, 'la vue n’annonce plus rien pendant l’attente').toContain(
       'Fusion en cours',
+    );
+  });
+
+  it('LE COMPTE DU DIFF NE PREND PAS L’EN-TÊTE POUR UNE LIGNE AJOUTÉE', async () => {
+    // `lines.filter((l) => l.startsWith('+') && !l.startsWith('+++'))`.
+    //
+    // Un diff unifié commence chaque fichier par `--- a/x` et `+++ b/x`. Ces
+    // en-têtes COMMENCENT par le bon signe sans être des lignes de code : sans
+    // le second terme, chaque fichier gagne un ajout et un retrait fantômes.
+    //
+    // Le cas est écrit sur un diff où le vrai compte (1 ajout, 1 retrait) et le
+    // compte muté (2 et 2) sont DIFFÉRENTS — sur un fichier à zéro modification
+    // réelle, les deux rendraient « +1 » et le cas ne distinguerait rien
+    // (§ 9 octoquadragicenties, la version « valeur qui coïncide par hasard »).
+    const diff = [
+      'diff --git a/miel.txt b/miel.txt',
+      'index 111..222 100644',
+      '--- a/miel.txt',
+      '+++ b/miel.txt',
+      '@@ -1 +1 @@',
+      '-de la cire',
+      '+du miel',
+    ].join('\n');
+    vi.mocked(fetchResults).mockResolvedValue([
+      { taskId: 't1', nodeId: 'n1', success: true, diff, logs: '', durationMs: 5, subAgents: [] },
+    ] as never);
+
+    const dom = await monter();
+
+    const ajouts = [...dom.querySelectorAll('.mi-add-stat')].map((e) => e.textContent);
+    const retraits = [...dom.querySelectorAll('.mi-del-stat')].map((e) => e.textContent);
+    expect(ajouts.length, 'le panneau de diff ne s’est pas rendu').toBeGreaterThan(0);
+    expect(ajouts, 'l’en-tête « +++ » est compté comme une ligne ajoutée').toEqual(
+      Array(ajouts.length).fill('+1'),
+    );
+    expect(retraits, 'l’en-tête « --- » est compté comme une ligne retirée').toEqual(
+      Array(retraits.length).fill('−1'),
+    );
+  });
+
+  it('LA COURONNE NE SE POSE QUE SUR LA FACTION ÉLUE', async () => {
+    // `verdict.winner?.signature === f.signature && (<span>👑 Élu</span>)`.
+    //
+    // Muté en `||`, la couronne se pose sur TOUTES les factions : l'écran
+    // désigne comme élue une sortie qui a perdu le vote, et l'utilisateur
+    // fusionne le mauvais code en croyant suivre le parlement.
+    //
+    // Le cas exige donc UNE couronne, et sur la BONNE : compter seulement
+    // « il y en a au moins une » laisserait le mutant vert (§ 9 quinquadragicenties,
+    // vérifier D'OÙ vient le verdict, pas seulement qu'il existe).
+    const gagnante = faction('sig-gagnante', 2);
+    vi.mocked(fetchConsensus).mockResolvedValue({
+      outcome: 'elected',
+      winner: gagnante,
+      factions: [gagnante, faction('sig-perdante', 1)],
+      quorum: 2,
+      surfaces: [],
+      sansSurface: 0,
+    } as never);
+
+    const dom = await monter();
+    const onglets = [...dom.querySelectorAll('button')];
+    const consensus = onglets.find((b) => b.textContent?.trim() === 'Consensus');
+    expect(consensus, 'l’onglet Consensus est introuvable').toBeTruthy();
+    await cliquer(consensus!);
+
+    const couronnes = [...dom.querySelectorAll('.mi-elected')];
+    expect(couronnes, 'la couronne se pose sur plus d’une faction').toHaveLength(1);
+
+    // Et sur la bonne : la couronne doit vivre dans l'entrée de la GAGNANTE.
+    const entree = couronnes[0]?.closest('li');
+    expect(entree?.textContent, 'la couronne est posée sur la faction perdante').toContain(
+      'sig-gagnante',
     );
   });
 
