@@ -10525,3 +10525,62 @@ npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
 npx vitest run    295 fichiers — 4 263 passés | 8 sautés | 0 échec (4 271)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
+
+## Le Partage, balayé ENTIER — le lien mort qui chargeait sans fin
+
+Premier balayage complet d'une vue, base épinglée dans l'ATELIER
+(`LOUPE_BASE=f0fc005 LOUPE_CHEMINS=dashboard/src/views/Partage.tsx`), jamais dans
+le dépôt : un périmètre écrit dans le dépôt devient un angle mort permanent.
+
+La base expose bien le fichier ENTIER — `173 ajoutées, 0 retirée` — donc le
+chiffre qui suit est une mesure du fichier, pas d'un échantillon :
+
+```text
+5 mutation(s) possible(s), 5 examinée(s) — 3 défendues, 2 SANS TEST
+```
+
+Cinq candidates sur 173 lignes : le reste est du JSX et des commentaires, que la
+loupe refuse de muter à juste titre. **Les deux survivantes étaient sur la même
+ligne, le `.catch`.**
+
+### Ce que ça valait pour un invité
+
+Les sept cas d'alors couvraient la branche de refus **à l'affichage**, mais aucun
+ne faisait REJETER la lecture : personne n'entrait jamais dans le `.catch` qui
+l'allume. Mutée en `||`, `vivant` étant vrai, l'expression court-circuite et
+`setEchec` n'est jamais appelé — **un lien expiré laisse l'invité sur « Ouverture
+du rayon… », indéfiniment**, sans que rien ne lui dise que le lien ne vaut plus
+rien. C'est le premier écran de quelqu'un qui découvre le produit.
+
+### La seconde survivante ne se teste pas : elle se retire
+
+`e instanceof Error ? e.message : String(e)` était **équivalente à travers le
+DOM** — la branche de refus rend un texte FIXE, et `erreur` n'y servait que de
+« quelque chose a échoué ». La chaîne extraite n'était affichée nulle part.
+
+Elle ne se remplace donc pas par un banc (§ 9 terquadragicenties, cas de la
+branche morte) : garder en mémoire le message du serveur, dans un écran dont la
+règle écrite est que le refus reste INDISTINGUABLE de l'inexistence, c'est
+laisser à portée de main la seule chose qu'on a décidé de ne pas dire.
+`useState<string | null>` devient `useState(false)` : un booléen ne peut pas
+fuiter ce qu'il ne contient pas. Un second cas ancre cette raison — il cherche
+`hive3_` et `share#77` dans l'écran, et rougirait si quelqu'un remettait le
+message à l'affichage.
+
+### Un cas qui rougit d'abord pour la mauvaise raison
+
+La première version du second cas cherchait « révoqué » dans l'écran. Elle a
+rougi tout de suite : **le texte fixe le contient déjà** (« il a peut-être
+expiré, été révoqué, ou n'a jamais été valide »). Un marqueur de fuite doit être
+introuvable dans la phrase légitime, sinon il accuse la bonne réponse.
+
+Rejeu du mutant `&& → ||`, ancre vérifiée unique : **2 échecs sur 4**, restauré
+PAR COPIE, **4 sur 4**.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    295 fichiers — 4 265 passés | 8 sautés | 0 échec (4 273)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```

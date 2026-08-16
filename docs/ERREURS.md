@@ -12439,3 +12439,36 @@ Deux gestes, désormais :
 C'est la même famille que § 9 duoquadragicenties : dater ne refait pas la mesure,
 et copier ne fige pas la vérité. L'instrument de restauration n'échappe pas à la
 règle qu'il sert.
+
+## 9 septquadragicenties. Un marqueur de fuite doit être introuvable dans la phrase LÉGITIME
+
+L'écran de partage refuse un lien mort par un texte FIXE, choisi pour ne pas
+distinguer « expiré » de « jamais valide » — le serveur se donne du mal pour ne
+pas le dire, l'écran ne doit pas le défaire.
+
+Pour ancrer cette règle, un cas devait vérifier que le message du serveur ne
+ressort PAS à l'affichage. Écrit d'abord ainsi :
+
+```ts
+expect(dom.textContent, 'le motif du refus a fuité').not.toContain('révoqué');
+```
+
+Il a rougi immédiatement. Non pas parce que le message fuyait, mais parce que
+**la phrase légitime contient déjà le mot** : « il a peut-être expiré, été
+révoqué, ou n'a jamais été valide ». Le cas accusait la bonne réponse.
+
+### La leçon
+
+Un cas qui cherche l'ABSENCE d'une chose doit choisir un marqueur qui ne peut
+venir que de la source qu'on surveille. Ici : `hive3_` et `share#77` — un jeton
+et un identifiant, que le texte fixe ne peut pas contenir.
+
+Le piège est symétrique de celui des ancres de mutants (§ 9 unquadragicenties) :
+là, un texte trop commun faisait poser le mutant au mauvais endroit ; ici, un
+texte trop commun fait chercher la fuite au mauvais endroit. **Dans les deux
+cas, la faute est de choisir un repère sans vérifier qu'il ne désigne qu'UNE
+chose.**
+
+Et le rouge est arrivé du bon côté : un cas d'absence qui passe du premier coup
+mérite qu'on se demande s'il pourrait rougir un jour. Celui-ci a prouvé qu'il le
+pouvait avant même d'être juste.

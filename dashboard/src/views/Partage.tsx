@@ -72,13 +72,27 @@ function instantaneDe(projectId: string, nom: string): StateSnapshot {
 export default function Partage({ projectId }: { projectId: string }) {
   const t = useT();
   const [rapport, setRapport] = useState<ProjectReport | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
+  // ─── UN DRAPEAU, ET SURTOUT PAS LE MESSAGE DU SERVEUR ──────────────────────
+  //
+  // Première version : `useState<string | null>`, alimentée par
+  // `e instanceof Error ? e.message : String(e)`. La loupe a rendu ce ternaire
+  // SANS TEST, et il l'était pour une raison qu'aucun banc n'aurait pu réparer :
+  // **la chaîne n'est jamais affichée**. La branche de refus rend un texte fixe,
+  // et `erreur` n'y sert que de « quelque chose a échoué ». Le ternaire calculait
+  // donc une valeur que personne ne lit — un mutant équivalent par construction.
+  //
+  // Il ne se remplace pas par un banc, il se retire : garder en mémoire le
+  // message du serveur, dans un écran dont la règle est que le refus reste
+  // INDISTINGUABLE de l'inexistence, c'est laisser à portée de main la seule
+  // chose qu'on a décidé de ne pas dire. Un `useState<boolean>` ne peut pas
+  // fuiter ce qu'il ne contient pas.
+  const [echec, setEchec] = useState(false);
 
   useEffect(() => {
     let vivant = true;
     fetchReport(projectId)
       .then((r) => vivant && setRapport(r))
-      .catch((e: unknown) => vivant && setErreur(e instanceof Error ? e.message : String(e)));
+      .catch(() => vivant && setEchec(true));
     return () => {
       vivant = false;
     };
@@ -94,7 +108,7 @@ export default function Partage({ projectId }: { projectId: string }) {
   // rester ici : on ne dit pas « ce lien a expiré » plutôt que « ce projet
   // n'existe pas », parce qu'on ne le sait pas — et que le serveur s'est donné
   // du mal pour ne pas le dire.
-  if (erreur !== null) {
+  if (echec) {
     return (
       <div className="pa-vue pa-vide">
         <h1>🐝 Hive</h1>

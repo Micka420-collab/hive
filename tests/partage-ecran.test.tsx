@@ -93,4 +93,45 @@ describe('l’écran de partage vu par un invité', () => {
     // Le contraste explicite : le nom et l'avancement sont là.
     expect(dom.textContent, 'l’avancement se lit').toContain('2/5');
   });
+
+  // ─── LE CHEMIN D'ÉCHEC, QUE RIEN N'EMPRUNTAIT ──────────────────────────────
+  //
+  // Balayage complet du fichier (base épinglée `f0fc005`, 5 candidates) : les
+  // deux survivantes étaient sur le `.catch`. Les sept cas d'alors couvraient la
+  // branche de refus À L'AFFICHAGE, mais aucun ne faisait REJETER la lecture —
+  // personne n'entrait jamais dans le `.catch` qui l'allume.
+  //
+  // La garde `vivant &&` y était donc nue. Mutée en `||`, `vivant` étant vrai,
+  // l'expression court-circuite et `setEchec` n'est JAMAIS appelé : un lien
+  // expiré laisserait l'invité sur « Ouverture du rayon… », indéfiniment, sans
+  // que rien ne lui dise que le lien ne vaut plus rien.
+  it('UN LIEN QUI NE DONNE RIEN le dit, au lieu de charger sans fin', async () => {
+    vi.mocked(fetchReport).mockRejectedValue(new Error('403'));
+    const dom = await monter();
+
+    expect(dom.textContent, 'le refus ne s’affiche pas').toContain(
+      'Ce lien de lecture ne donne accès à rien',
+    );
+    expect(dom.textContent, 'la vue charge encore alors que la lecture a échoué').not.toContain(
+      'Ouverture du rayon',
+    );
+  });
+
+  it('LE REFUS NE RÉPÈTE PAS CE QUE LE SERVEUR A DIT — il reste indistinguable', async () => {
+    // Le serveur se donne du mal pour ne pas distinguer « expiré » de « jamais
+    // valide » ; l'écran ne doit pas défaire ce travail. Ce cas ancre la RAISON
+    // du drapeau booléen : si quelqu'un remet un jour le message en mémoire pour
+    // l'afficher, c'est ici que ça rougit.
+    // Les marqueurs sont choisis pour n'exister QUE dans le message du serveur :
+    // le texte fixe parle déjà d'expiration et de révocation, et l'y chercher
+    // ferait rougir la bonne phrase (mesuré — c'est ce qu'a fait la première
+    // version de ce cas). Un jeton et un identifiant, eux, ne peuvent venir que
+    // d'en face.
+    vi.mocked(fetchReport).mockRejectedValue(new Error('jeton hive3_a1b2c3 refusé (share#77)'));
+    const dom = await monter();
+
+    expect(dom.textContent, 'le refus s’affiche').toContain('ne donne accès à rien');
+    expect(dom.textContent, 'le jeton du serveur a fuité dans l’écran').not.toContain('hive3_');
+    expect(dom.textContent, 'l’identifiant du partage a fuité').not.toContain('share#77');
+  });
 });
