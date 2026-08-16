@@ -11635,3 +11635,59 @@ paragraphe. Rien à la lecture ne le distinguait d'un vrai cas de borne. **Seul
 le mutant posé a montré qu'il ne mesurait pas ce qu'il annonçait** — c'est
 exactement le service que le rejeu rend, et la raison pour laquelle on l'exécute
 même quand on est sûr de soi.
+
+## 9 quattuortrigicenties. Le dépôt a DEUX racines de bancs, et j'en ai cherché une
+
+Avant d'écrire la carte Équipe, recensement de l'existant — le geste juste :
+
+```sh
+grep -rln "admettreMembre\|retirerMembre\|adopterProjet\|EquipeProjet" tests/
+# (rien)
+```
+
+Conclusion tirée : la carte est **entièrement nue**. Elle était fausse.
+
+```text
+tests/            276 fichiers
+dashboard/tests/    6 fichiers   ← jamais regardés
+```
+
+Sur les cinq gardes que j'allais défendre, **trois étaient déjà tenues** :
+
+| Garde                                       | Déjà défendue par                                                 |
+| ------------------------------------------- | ----------------------------------------------------------------- |
+| `if (!user) return null`                    | indirectement — sans elle, `user.id` jette et 22 bancs rougissent |
+| `jePeuxAdmettre && m.role !== 'owner'`      | `dashboard/tests/gestes-panneaux.test.tsx`                        |
+| `question={\`Retirer ${nom} du projet ?\`}` | `dashboard/tests/geste-irreversible.test.tsx`                     |
+
+Deux seulement restaient nues. Sans la mutation, j'aurais écrit cinq cas dont
+trois doublons — du volume qui ressemble à du travail.
+
+### Ce qui a rattrapé l'erreur
+
+**La mutation, pas la relecture.** Le lot commence toujours par poser les
+mutants et lancer la suite ENTIÈRE ; c'est elle qui a répondu, en rougissant
+dans des fichiers dont j'ignorais l'existence. Le recensement disait « nu », la
+mesure a dit « non ».
+
+C'est la valeur exacte de la règle « muter d'abord » : elle ne sert pas
+seulement à prouver qu'un test peut rougir, elle **falsifie l'inventaire** sur
+lequel on allait travailler.
+
+### La règle, et le geste qui l'applique
+
+> **Un dépôt peut avoir plusieurs racines de bancs.** Avant de conclure qu'une
+> chose est nue, chercher depuis la RACINE du dépôt, pas depuis le dossier
+> qu'on a en tête :
+>
+> ```sh
+> grep -rln "<symbole>" --include="*.test.*" .
+> ```
+>
+> Et de toute façon, ne jamais conclure la nudité d'un recensement seul : la
+> conclusion appartient au mutant.
+
+C'est le § 9 duotrigicenties transposé — là-bas il fallait recenser l'ARBRE des
+composants et non le fichier ; ici il faut recenser l'ARBRE des bancs et non le
+dossier. Deux fois la même erreur de forme : **avoir cherché exhaustivement au
+mauvais endroit.**

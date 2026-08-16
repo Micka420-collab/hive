@@ -9171,3 +9171,49 @@ Deux détails de forme valent d'être notés :
 Pris : l'Atelier Queen Bee, la coulée du miel, les dards Sting. Restent
 `EquipeProjet` (l'admission par identifiant), `ConnecteurGithub`, `ConseilProjet`
 et le reste de `ProjectCard`. **La vue n'est toujours pas close.**
+
+## L'Équipe d'un projet : un lot volontairement petit
+
+La carte Équipe semblait entièrement nue. Le recensement était faux : le dépôt a
+**deux racines de bancs**, `tests/` (276 fichiers) et `dashboard/tests/` (6), et
+je n'avais cherché que dans la première. La mutation l'a dit — trois des cinq
+gardes visées étaient déjà tenues (§ 9 quattuortrigicenties).
+
+Et la **sécurité** de cette carte n'est pas dans la carte : `tests/adoption-admission.test.ts`
+éprouve les routes serveur (qui adopte, qui admet, et que le refus ressemble à
+une absence à l'octet près). Le commentaire du code le dit :
+
+> « Cosmétique, toujours : le serveur retranche de toute façon. On masque ce
+> qu'il refusera, on ne décide rien ici. »
+
+Ce lot ne garde donc pas un contrôle d'accès. Il garde **deux gestes qui
+mentiraient à l'utilisateur**, et rien de plus.
+
+### Les deux qui restaient nues
+
+Mutées séparément, suite entière verte à chaque fois — 282 fichiers, 4 150 tests.
+
+```text
+disabled={occupe || aAdmettre.trim() === ''}   →  disabled={occupe}
+{orphelin && jeSuisAdmin && (…)}               →  {(orphelin || jeSuisAdmin) && (…)}
+```
+
+```text
+E3  ×  ADMETTRE EST MORT SUR UN CHAMP VIDE   expected false to be true
+E4  ×  ADOPTER NE S’OFFRE QUE SUR UN ORPHELIN, ET QU’À UN ADMIN
+       un admin se voit proposer d’adopter le projet d’un autre
+source restaurée PAR COPIE                   3 passed (3)
+```
+
+Un bouton vivant qui ne peut qu'échouer est pire qu'un bouton mort : le serveur
+refuse — c'est lui qui décide — et l'utilisateur reçoit une erreur pour un geste
+que l'écran venait de lui proposer.
+
+`E4` demande **trois montages** : `&&` ne se départage pas en moins — les deux
+moitiés vraies, puis chacune fausse à son tour.
+
+### `Projets.tsx`, état
+
+Pris : Atelier Queen Bee, coulée du miel, dards Sting, carte Équipe. Restent
+`ConnecteurGithub`, `ConseilProjet`, `PartagesProjet` et le reste de
+`ProjectCard`. La vue n'est toujours pas close.
