@@ -11386,20 +11386,26 @@ npx vitest run    298 fichiers — 4 310 passés | 8 sautés | 0 échec (4 318)
 node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 ```
 
-### État du terrain, par fichier
+### Le tableau du terrain NE SERA PLUS RECOPIÉ ICI
 
-| Vue        | Examinées          | Nues fermées                   |
-| ---------- | ------------------ | ------------------------------ |
-| Partage    | **5/5 (balayé)**   | 2                              |
-| Ruche      | **16/16 (balayé)** | 7                              |
-| Memoire    | **14/14 (balayé)** | 6                              |
-| Chantiers  | 11/21              | 5                              |
-| Rayon      | 8/16               | 1                              |
-| Miellerie  | 12/126             | 4                              |
-| Balance    | 11/41              | 0                              |
-| Intendance | 10/38              | 0                              |
-| Cerveau    | 10/50              | 3 (4 hors de portée, mesurées) |
-| Sante      | 10/39              | 2                              |
-| Essaim     | 12/46              | 1                              |
+Ce lot devait s'achever par le tableau « État du terrain, par fichier », comme
+les précédents. `tests/documents-qui-grossissent` l'a refusé :
 
-Jamais balayées : shared (502), MonEspace (434), Chronique (400), Reine (371).
+```text
+docs/ETAPES.md : 9 lignes identiques d'affilée aux lignes 11270 et 11386.
+expected 9 to be less than 8
+```
+
+Le banc a raison, et il a raison contre MOI. Un tableau d'ÉTAT recopié à chaque
+livraison, c'est très exactement le défaut du CHANGELOG pour lequel ce banc a été
+écrit : N copies à tenir d'accord, dont aucune ne se voit vieillir dans un diff.
+Un carnet d'ÉTAPES raconte ce qui a changé ; il n'est pas l'endroit où vit un
+état.
+
+**Le tableau vit désormais dans `docs/DEFINITION-DE-SORTIE.md`**, en un seul
+exemplaire, sous le paragraphe des balayages par fichier. Les entrées de ce
+carnet ne portent plus que leur DELTA.
+
+Delta de ce lot : `Memoire.tsx` passe de « jamais balayée » à **14/14 balayé,
+6 nues fermées**. Restent jamais balayées : shared (502), MonEspace (434),
+Chronique (400), Reine (371).

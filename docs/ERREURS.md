@@ -12943,3 +12943,65 @@ sont pas à deux endroits du fichier, ils sont sur la même ligne.
 Et les sélecteurs d'un banc se prennent sur ce qui ne se traduit pas : classe,
 structure, rôle. Un `aria-label` est du texte pour humains — donc traduit, donc
 inutilisable comme repère.
+
+## 9 septquinquagicenties. Les documents sont des ENTRÉES de la suite — mesurer avant de les écrire ne mesure rien
+
+L'ordre que je suis depuis des semaines dès qu'un banc est ajouté :
+
+```text
+suite complète → lire le compte → --corriger → réécrire le tableau A → CODE=0
+```
+
+Il a tenu la nuit entière et il est FAUX. Le lot de la Mémoire l'a montré : suite
+verte à 00 h 46, documents écrits à 00 h 50, commit, et CI rouge sur les trois
+OS.
+
+```text
+docs/ETAPES.md : 9 lignes identiques d'affilée aux lignes 11270 et 11386.
+expected 9 to be less than 8
+```
+
+`tests/documents-qui-grossissent` **lit les documents**. Ma mesure les a regardés
+dans leur état d'AVANT — elle n'a jamais vu ce que j'allais écrire. Le vert local
+et le rouge distant ne sont pas une différence de plateforme : c'est une
+différence de TEMPS, et c'est plus insidieux, parce qu'un écart de plateforme se
+soupçonne quand un écart de chronologie ne se soupçonne pas.
+
+### La correction de l'ordre
+
+```text
+écrire les documents → suite complète → lire le compte → --corriger
+                     → réécrire le tableau A → re-mesurer → CODE=0
+```
+
+Le tableau A reste l'exception qui s'écrit APRÈS, puisque son contenu EST le
+résultat de la mesure. Tout le reste — carnet, journal des erreurs, définition de
+sortie — se pose avant. Et si le tableau A change la suite (il ne le fait pas
+aujourd'hui, aucun banc ne le lit ligne à ligne), il faudrait une seconde passe :
+ce genre de dépendance circulaire se vérifie, il ne se suppose pas.
+
+### Ce que le banc a attrapé, au fond
+
+Pas une faute de frappe : un tableau d'ÉTAT recopié à la fin de chaque entrée du
+carnet. Neuf lignes identiques, et ça allait continuer à chaque lot.
+
+C'est mot pour mot le défaut du CHANGELOG pour lequel ce banc a été écrit — un
+bloc qui se recopie à chaque livraison, que personne ne voit grossir parce qu'un
+diff ne montre que l'ajout, jamais la redondance. **Le banc a attrapé son auteur
+en train de refaire la faute qu'il avait outillée contre.**
+
+Le tableau vit désormais en un seul exemplaire, dans
+`docs/DEFINITION-DE-SORTIE.md`. Un carnet d'ÉTAPES raconte ce qui change ; un
+état se tient à un seul endroit.
+
+### La leçon
+
+**Tout ce qu'un banc LIT est une entrée du produit, y compris la prose.** Un
+dépôt qui se mesure lui-même — compte de bancs, doublons de documents, ordres de
+tests — n'a plus de frontière nette entre « le code » et « ce qu'on écrit
+dessus » : les deux passent sous la même suite, donc les deux doivent être en
+place avant qu'elle tourne.
+
+Corollaire, et c'est le plus utile : **un état ne se recopie jamais dans un
+journal.** S'il faut le relire à chaque lot, c'est qu'il a un seul domicile, et
+que le journal doit y renvoyer plutôt que le reproduire.

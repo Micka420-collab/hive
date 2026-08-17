@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `a5f7a20` + ce commit, 17 août 2026, 0 h 48)
+## A. Le code tient — ✅ mesuré (arbre `8d8526b` + ce commit, 17 août 2026, 1 h 00)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -144,6 +144,29 @@
   derrière `getContext`, et cette limite est MESURÉE, pas affirmée :
   `tests/canevas-hors-portee.test.tsx` éprouve que le contexte 2D rend bien
   `null` sous happy-dom. Elles ne seront jamais comptées closes.
+
+  **L'état du terrain, en UN SEUL exemplaire.** Il vivait recopié à la fin de
+  chaque entrée de `docs/ETAPES.md` — jusqu'à ce que
+  `tests/documents-qui-grossissent` refuse la neuvième copie. Un carnet
+  d'ÉTAPES raconte ce qui change ; un état se tient à un seul endroit, sinon
+  c'est N copies à garder d'accord dont aucune ne se voit vieillir.
+
+  | Vue        | Examinées          | Nues fermées                   |
+  | ---------- | ------------------ | ------------------------------ |
+  | Partage    | **5/5 (balayé)**   | 2                              |
+  | Ruche      | **16/16 (balayé)** | 7                              |
+  | Memoire    | **14/14 (balayé)** | 6                              |
+  | Chantiers  | 11/21              | 5                              |
+  | Rayon      | 8/16               | 1                              |
+  | Miellerie  | 12/126             | 4                              |
+  | Balance    | 11/41              | 0                              |
+  | Intendance | 10/38              | 0                              |
+  | Cerveau    | 10/50              | 3 (4 hors de portée, mesurées) |
+  | Sante      | 10/39              | 2                              |
+  | Essaim     | 12/46              | 1                              |
+
+  Jamais balayées : `shared` (502), `MonEspace` (434), `Chronique` (400),
+  `Reine` (371).
 
 - ⚠️ **L'échantillonnage sur terrain déjà vu est ARRÊTÉ** (14 août). Huit
   tirages réguliers successifs, sur des terrains différents, ont tous rendu
