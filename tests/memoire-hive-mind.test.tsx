@@ -138,9 +138,17 @@ const items = (dom: HTMLElement): HTMLElement[] => [
   ...dom.querySelectorAll<HTMLElement>('.ch-mem-item'),
 ];
 
-/** Écrit dans le champ CONTRÔLÉ par React : le mutateur natif, jamais `.value`. */
+/**
+ * Écrit dans le champ CONTRÔLÉ par React : le mutateur natif, jamais `.value`.
+ *
+ * Le champ se trouve par sa STRUCTURE (`form.mind-search`), pas par son
+ * `aria-label` — qui est traduit. La première version visait
+ * `input[aria-label="Rechercher un souvenir"]` et ne trouvait plus rien dès que
+ * l'écran passait en anglais : un outil de banc lié à une langue mesure une
+ * langue (§ 9 sexquinquagicenties).
+ */
 function chercher(dom: HTMLElement, texte: string): void {
-  const champ = dom.querySelector<HTMLInputElement>('input[aria-label="Rechercher un souvenir"]');
+  const champ = dom.querySelector<HTMLInputElement>('form.mind-search input');
   if (!champ) throw new Error('le champ de recherche est introuvable');
   const poser = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set as (
     v: string,
@@ -275,5 +283,161 @@ describe('le Hive Mind : ce qu’on peut ouvrir, et ce qu’on peut lire', () =>
       'un envoi vide part quand même chercher',
     ).toBe(appelsAvant);
     expect(dom.textContent, 'on ne revient pas aux souvenirs récents').not.toContain('pour «');
+  });
+});
+
+// ─── LES SIX NUES DU BALAYAGE COMPLET ────────────────────────────────────────
+//
+// Balayage de la loupe sur `dashboard/src/views/Memoire.tsx`, base épinglée dans
+// l'atelier (`LOUPE_BASE=e93b252`, 183 ajoutées / 0 retirée), mené jusqu'au bout :
+//
+//     14 mutation(s) possible(s), 14 examinée(s) — 8 défendues, 6 SANS TEST
+//
+// Les cas plus haut en défendent trois de plus qu'on ne le croyait : le pli à
+// 200 signes, et les DEUX opérateurs de `memories.length === 0 &&`. Mesuré, pas
+// supposé — c'est la seule façon de savoir ce qu'un banc tient vraiment.
+//
+// ─── TROIS DES SIX SONT EN ANGLAIS, ET C'EST UNE FAMILLE ─────────────────────
+//
+// `t('… chose${total === 1 ? "" : "s"}', '… thing${total === 1 ? "" : "s"}')`
+//
+// La MÊME décision, écrite deux fois : une par langue. Le membre français est
+// défendu, l'anglais était nu — et pareil pour les deux comptes de recherche.
+// Tous les bancs de ce dépôt posent `setLang('fr')` : la moitié anglaise du
+// produit n'était jamais rendue.
+//
+// Le trou a été BORNÉ avant d'écrire, par un recensement côté source :
+//
+//     appels `t(fr, en)` dans dashboard/src : 893
+//     dont un membre porte une DÉCISION     :   5
+//
+// Cinq sur huit cent quatre-vingt-treize — le défaut est réel et ÉNUMÉRABLE, pas
+// systémique. Deux de ces cinq vivent ici et sont fermés ci-dessous ; les trois
+// autres (`Journal.tsx` ×2, `TaskDrawer.tsx`) sont nommés dans `docs/ETAPES.md`,
+// hors de ce lot. Consigné en § 9 sexquinquagicenties.
+describe('les six nues du balayage complet', () => {
+  /** Le bandeau de compte, pris dans son en-tête — jamais dans le texte entier. */
+  const compte = (dom: HTMLElement): string =>
+    dom.querySelector('.panel-head .panel-count')?.textContent ?? '';
+
+  /** La note de recherche, celle qui dit combien de souvenirs répondent. */
+  const note = (dom: HTMLElement): string =>
+    dom.querySelector('.ch-mem-note.muted-text')?.textContent ?? '';
+
+  it('UN SEUL SOUVENIR : « se souvient de 1 chose », au singulier', async () => {
+    // ─── LE CAS NOMINAL, ET LA BORNE — total vaut EXACTEMENT 1 ─────────────
+    //
+    // À deux souvenirs, `=== 1` et `!== 1` rendent tous deux le « s » : rien ne
+    // se distingue. Le singulier n'existe qu'au seuil.
+    const dom = await avecSouvenirs([souvenir()]);
+    expect(compte(dom), 'le compte ne se dit pas').toContain('se souvient de 1 chose');
+    expect(compte(dom), 'un seul souvenir prend le pluriel').not.toContain('1 choses');
+  });
+
+  it('EN ANGLAIS AUSSI : « remembers 1 thing », et pas « 1 things »', async () => {
+    // ─── LA MOITIÉ DU PRODUIT QUE PERSONNE NE RENDAIT ──────────────────────
+    //
+    // Même garde, autre langue, autre site. Le membre français est défendu par
+    // le cas ci-dessus depuis ce lot ; celui-ci était nu parce qu'aucun banc du
+    // dépôt ne monte cet écran en anglais.
+    setLang('en');
+    const dom = await avecSouvenirs([souvenir()]);
+    expect(compte(dom), 'le compte anglais ne se dit pas').toContain('remembers 1 thing');
+    expect(compte(dom), 'un seul souvenir prend le pluriel en anglais').not.toContain('1 things');
+  });
+
+  it('UN SEUL RÉSULTAT : « 1 souvenir pour … », au singulier', async () => {
+    const dom = await avecSouvenirs([souvenir()]);
+    vi.mocked(fetchMemories).mockResolvedValue({
+      total: 1,
+      memories: [souvenir({ title: 'La propolis' })],
+    } as never);
+    await act(async () => chercher(dom, 'propolis'));
+    await soumettre(dom);
+
+    expect(note(dom), 'la note de recherche ne se dit pas').toContain('1 souvenir pour');
+    expect(note(dom), 'un seul résultat prend le pluriel').not.toContain('1 souvenirs');
+  });
+
+  it('UN SEUL RÉSULTAT EN ANGLAIS : « 1 memory for … », pas « 1 memories »', async () => {
+    setLang('en');
+    const dom = await avecSouvenirs([souvenir()]);
+    vi.mocked(fetchMemories).mockResolvedValue({
+      total: 1,
+      memories: [souvenir({ title: 'La propolis' })],
+    } as never);
+    await act(async () => chercher(dom, 'propolis'));
+    await soumettre(dom);
+
+    expect(note(dom), 'la note anglaise ne se dit pas').toContain('1 memory for');
+    expect(note(dom), 'un seul résultat prend le pluriel en anglais').not.toContain('1 memories');
+  });
+
+  it('UNE RECHERCHE QUI ÉCHOUE PORTE SON MESSAGE — et rien ne s’affiche au repos', async () => {
+    // ─── LES DEUX SENS DE `{error && …}` ───────────────────────────────────
+    //
+    // Muté en `||`, la garde s'inverse EXACTEMENT : quand une erreur existe, le
+    // `||` court-circuite sur la chaîne et le `<p className="panel-error">`
+    // n'est jamais construit ; au repos, `null || <p>` rend une bande d'erreur
+    // VIDE en permanence. Un écran sain porterait un bandeau rouge muet, et un
+    // écran cassé n'en porterait aucun.
+    const dom = await avecSouvenirs([souvenir()]);
+    expect(dom.querySelector('.panel-error'), 'une bande d’erreur au repos').toBeNull();
+
+    vi.mocked(fetchMemories).mockRejectedValue(new Error('la ruche a trébuché'));
+    await act(async () => chercher(dom, 'propolis'));
+    await soumettre(dom);
+
+    const bande = dom.querySelector('.panel-error');
+    expect(bande, 'la recherche a échoué sans le dire').not.toBeNull();
+    expect(bande?.textContent, 'la bande ne dit pas ce qui a échoué').toContain(
+      'la ruche a trébuché',
+    );
+  });
+
+  it('UN REJET QUI N’EST PAS UNE ERREUR NE PRÊTE PAS SON `message`', async () => {
+    // ─── POURQUOI `instanceof Error` ET PAS `instanceof Object` ────────────
+    //
+    // `.catch` reçoit un `unknown` : n'importe quoi peut arriver là. Muté en
+    // `instanceof Object`, un objet quelconque verrait son champ `message` lu
+    // et rendu à l'écran — un champ que personne n'a écrit pour être lu par un
+    // humain. On vérifie donc que le marqueur n'apparaît PAS.
+    const dom = await avecSouvenirs([souvenir()]);
+    vi.mocked(fetchMemories).mockRejectedValue({ message: 'trace-interne-4f2b' });
+    await act(async () => chercher(dom, 'propolis'));
+    await soumettre(dom);
+
+    const bande = dom.querySelector('.panel-error');
+    expect(bande, 'le rejet n’a produit aucune bande').not.toBeNull();
+    expect(bande?.textContent, 'le champ `message` d’un objet quelconque est rendu').not.toContain(
+      'trace-interne-4f2b',
+    );
+  });
+
+  it('LA BIBLIOTHÈQUE OPENALEX S’OUVRE AU CLIC — et pas avant', async () => {
+    // ─── LES DEUX SENS DE `{showOpenAlex && …}` ────────────────────────────
+    //
+    // Muté en `||`, la modale est ouverte À L'ARRIVÉE (`false || <Panel/>`) et
+    // ne s'ouvre PLUS au clic (`true || …` rend `true`, que React n'affiche
+    // pas). L'onglet secondaire deviendrait la porte d'entrée, et le bouton qui
+    // devait l'ouvrir n'aurait plus d'effet.
+    const dom = await avecSouvenirs([souvenir()]);
+    expect(
+      dom.querySelector('.openalex-panel'),
+      'la bibliothèque est ouverte sans qu’on l’ait demandée',
+    ).toBeNull();
+
+    const onglet = [...dom.querySelectorAll<HTMLButtonElement>('.ch-mem-tabs button')].find((b) =>
+      (b.textContent ?? '').includes('OpenAlex'),
+    );
+    expect(onglet, 'l’onglet OpenAlex est introuvable').toBeTruthy();
+    await act(async () => {
+      onglet?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(
+      document.querySelector('.openalex-panel'),
+      'le clic n’ouvre pas la bibliothèque',
+    ).not.toBeNull();
   });
 });

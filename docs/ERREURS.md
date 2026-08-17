@@ -12882,3 +12882,64 @@ Et quand le fichier est trop gros pour ça (`Miellerie` en a 126), on écrit ce 
 l'échantillon est — un relevé, pas un sondage — et on ne le convertit jamais en
 pourcentage. La ligne du terrain porte désormais « balayé » ou « examinées », et
 les deux mots ne se remplacent pas l'un l'autre.
+
+## 9 sexquinquagicenties. Une décision écrite DANS une chaîne traduite est deux gardes, et les bancs n'en rendent qu'une
+
+Le balayage de `Memoire.tsx` a rendu six nues. Trois sont la même :
+
+```jsx
+t(`… chose${total === 1 ? '' : 's'}`, `… thing${total === 1 ? '' : 's'}`);
+//        ^ DÉFENDU                            ^ NU
+```
+
+Une seule expression à l'écran, **deux sites dans le fichier** — un par langue.
+Le membre français était tenu ; l'anglais ne l'a jamais été, et pour une raison
+qui n'a rien à voir avec la difficulté : **aucun banc ne monte cet écran en
+anglais.** Le dépôt compte 55 `setLang('fr')` contre 8 `setLang('en')`, et cette
+vue n'était dans aucun des huit.
+
+### Le trou se borne avant de s'inquiéter
+
+Un recensement côté SOURCE, avant d'écrire une ligne de banc :
+
+```text
+appels t(fr, en) dans dashboard/src : 893
+dont un membre porte une DÉCISION   :   5
+```
+
+**Cinq sur huit cent quatre-vingt-treize.** Les 888 autres ont deux membres qui
+ne décident rien : les rendre en anglais ne mesurerait rien de plus, et un banc
+qui le ferait serait du décor. Le défaut est réel, il est ÉNUMÉRABLE, et la
+bonne réponse n'est pas « doubler tous les bancs » mais « fermer ces cinq-là ».
+
+C'est la différence entre un défaut et une panique. Sans le recensement, la
+conclusion naturelle aurait été « la moitié du produit n'est pas testée », ce
+qui est faux — et coûteux : on aurait dupliqué 55 fichiers de bancs pour ne
+gagner que cinq assertions.
+
+### Le piège est aussi dans l'OUTILLAGE du banc
+
+Le premier cas anglais n'a pas rougi sur ce qu'il visait : il est mort sur
+« le champ de recherche est introuvable ». Le helper cherchait
+
+```ts
+dom.querySelector('input[aria-label="Rechercher un souvenir"]');
+```
+
+— **le libellé traduit**. En anglais il ne trouve plus rien. Un outil de banc
+attaché à une langue ne peut mesurer qu'une langue, et il le fait savoir par un
+plantage, pas par un faux vert : c'est la seule bonne nouvelle de l'affaire.
+Le helper cadre désormais sur la STRUCTURE (`form.mind-search input`), qui ne se
+traduit pas.
+
+### La leçon
+
+**Une décision qui vit à l'intérieur d'une chaîne traduite est autant de gardes
+qu'il y a de langues, et il faut un cas par langue.** Le recensement se fait
+côté source (`t(` + un opérateur dans un des membres), jamais côté bancs — c'est
+§ 9 unquinquagicenties, appliqué à un axe qu'on ne voit pas : les deux sites ne
+sont pas à deux endroits du fichier, ils sont sur la même ligne.
+
+Et les sélecteurs d'un banc se prennent sur ce qui ne se traduit pas : classe,
+structure, rôle. Un `aria-label` est du texte pour humains — donc traduit, donc
+inutilisable comme repère.

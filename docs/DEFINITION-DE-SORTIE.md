@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `76a90b3` + ce commit, 16 août 2026, 21 h 18)
+## A. Le code tient — ✅ mesuré (arbre `a5f7a20` + ce commit, 17 août 2026, 0 h 48)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,7 +57,7 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4311** (4303 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4318** (4310 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
@@ -108,7 +108,7 @@
   masqué derrière un ✅, c'est écrit ici.
 
   **ET LES BALAYAGES PAR FICHIER NE S'ADDITIONNENT PAS À CETTE LIGNE.** Depuis
-  le 16 août, `dashboard/src/views` est balayé vue par vue — dix fichiers, le
+  le 16 août, `dashboard/src/views` est balayé vue par vue — onze fichiers, le
   détail est dans `docs/ETAPES.md`. Ces chiffres NE sont PAS reportés dans le
   tableau ci-dessus, et c'est délibéré : chaque balayage par fichier utilise sa
   PROPRE base (le parent du commit qui a créé le fichier), quand la ligne
@@ -124,7 +124,7 @@
   | Partage   | 2       | Balance    | 0         | Sante     | 2       |
   | Chantiers | 5       | Intendance | 0         | Essaim    | 1       |
   | Rayon     | 1       | Cerveau    | 3 (sur 7) | Ruche     | 7       |
-  | Miellerie | 4       |            |           | **Total** | **25**  |
+  | Miellerie | 4       | Memoire    | 6         | **Total** | **31**  |
 
   Dont un relevé de fusion qui pouvait afficher la coulée d'un autre, une bande
   d'erreur qui s'inversait, trois bornes `> 0` toujours vraies, une invite qui
@@ -132,7 +132,8 @@
   tout SAUF le travail terminé. Deux vues (Balance, Intendance) n'ont rien rendu
   — ce qui se rapporte aussi.
 
-  **Un seul fichier a été balayé ENTIER : `Ruche.tsx`, 16 sur 16.** Le chiffre
+  **Trois fichiers ont été balayés ENTIERS** : `Partage.tsx` (5/5), `Ruche.tsx`
+  (16/16) et `Memoire.tsx` (14/14). Le chiffre de la Ruche
   vaut d'être isolé, parce qu'il mesure l'échantillonnage lui-même : un premier
   tirage de 8 candidates sur 16 n'avait rendu que **2** des 7 nues. La moitié du
   fichier regardée a trouvé moins du tiers. Un échantillon dit ce qu'il a vu ; il

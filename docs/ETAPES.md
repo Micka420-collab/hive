@@ -11287,3 +11287,119 @@ node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
 
 Jamais balayées : shared (502), MonEspace (434), Chronique (400), Reine (371),
 Memoire (183).
+
+## La Mémoire balayée entière : six nues, dont trois qui n'existaient qu'en anglais
+
+Troisième fichier de vues balayé de bout en bout, base épinglée dans l'ATELIER
+(`LOUPE_BASE=e93b252`, vérifiée 183 ajoutées / 0 retirée) :
+
+```text
+14 mutation(s) possible(s) sur le diff, 14 examinée(s).
+8 défendues, 6 SANS TEST
+```
+
+Le banc existant en tenait **trois de plus qu'on ne le croyait** : le pli à 200
+signes et les DEUX opérateurs de `memories.length === 0 &&`. Mesuré, pas
+supposé — c'est la seule façon de savoir ce qu'un banc tient vraiment.
+
+### Le balayage a été TUÉ au onzième mutant
+
+Le processus de fond a été interrompu à 10 verdicts sur 14, laissant un mutant
+vivant dans l'arbre (`content.length > SHORT_LEN → >=`). Trois crochets d'arrêt
+ont réclamé un commit pendant ce temps ; trois fois il a été refusé.
+
+Le mutant a été retiré par copie du fichier tel que `HEAD` le porte — vérifié
+d'abord que le diff ne contenait QUE ce changement d'opérateur, donc que la
+restauration ne perdait rien. Les quatre candidates restantes ont été jugées à
+part, en lot court. **Un balayage à 10/14 rapporté comme complet aurait été la
+faute que § 9 quinquinquagicenties venait de nommer.**
+
+### Les six, et ce que chacune coûte
+
+| Nue                          | Mutée, l'écran…                                  |
+| ---------------------------- | ------------------------------------------------ |
+| `err instanceof Error`       | rend le `message` d'un objet quelconque          |
+| `thing${total === 1 …}` (EN) | dit « remembers 1 things »                       |
+| `souvenir${… === 1 …}` (FR)  | dit « 1 souvenirs pour … »                       |
+| `memory / memories` (EN)     | dit « 1 memories for … »                         |
+| `{error && <p …>}`           | bande rouge vide au repos, aucune bande en panne |
+| `{showOpenAlex && …}`        | ouvre la bibliothèque à l'arrivée, plus au clic  |
+
+### Trois des six n'existaient QUE dans la moitié anglaise
+
+```jsx
+t(`… chose${total === 1 ? '' : 's'}`, `… thing${total === 1 ? '' : 's'}`);
+```
+
+La MÊME décision, écrite deux fois : une par langue. Le membre français était
+défendu, l'anglais nu — et pareil pour les deux comptes de recherche. Tous les
+bancs du dépôt posent `setLang('fr')` : **la moitié anglaise du produit n'était
+jamais rendue**.
+
+Le trou a été BORNÉ avant d'écrire, par un recensement côté SOURCE :
+
+```text
+appels t(fr, en) dans dashboard/src : 893
+dont un membre porte une DÉCISION   :   5
+bancs qui passent en anglais        :   8   (contre 55 en français)
+```
+
+**Cinq sur huit cent quatre-vingt-treize.** Le défaut est réel et ÉNUMÉRABLE,
+pas systémique : les 888 autres appels ont deux membres qui ne décident rien, et
+les rendre en anglais ne mesurerait rien de plus. Deux des cinq sont fermés ici.
+
+**Les trois autres restent ouverts, et sont nommés** :
+
+- `dashboard/src/Journal.tsx:184` — `${String(p.severity ?? '')}`
+- `dashboard/src/Journal.tsx:207` — `${Array.isArray(p.drones) ? … }`
+- `dashboard/src/TaskDrawer.tsx:160` — `${race.drones.filter((d) => …)}`
+
+### Le banc a trouvé la leçon dans son PROPRE outillage
+
+Le premier cas anglais est mort sur « le champ de recherche est introuvable » :
+le helper `chercher` visait `input[aria-label="Rechercher un souvenir"]` — le
+libellé TRADUIT. Il cadre désormais sur la structure, `form.mind-search input`.
+
+Un outil de banc lié à une langue mesure une langue. Consigné en
+§ 9 sexquinquagicenties.
+
+### Rejeu, un mutant à la fois, verdicts affichés
+
+```text
+TENU · R1  le rejet      : instanceof Error → Object   Tests 1 failed | 4309 passed (4318)
+TENU · R2  compte EN     : === → !==                   Tests 1 failed | 4309 passed (4318)
+TENU · R3  recherche FR  : === → !==                   Tests 1 failed | 4309 passed (4318)
+TENU · R4  recherche EN  : === → !==                   Tests 1 failed | 4309 passed (4318)
+TENU · R5  la bande      : && → ||                     Tests 2 failed | 4308 passed (4318)
+TENU · R6  OpenAlex      : && → ||                     Tests 1 failed | 4309 passed (4318)
+
+═══ SURVIVANTS : 0 ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+### Barrière mesurée
+
+```text
+npm run typecheck · npm run typecheck:dashboard · npm run lint     ✅
+npx vitest run    298 fichiers — 4 310 passés | 8 sautés | 0 échec (4 318)
+node scripts/compte-tests.mjs rapport-tests.json                   CODE=0
+```
+
+### État du terrain, par fichier
+
+| Vue        | Examinées          | Nues fermées                   |
+| ---------- | ------------------ | ------------------------------ |
+| Partage    | **5/5 (balayé)**   | 2                              |
+| Ruche      | **16/16 (balayé)** | 7                              |
+| Memoire    | **14/14 (balayé)** | 6                              |
+| Chantiers  | 11/21              | 5                              |
+| Rayon      | 8/16               | 1                              |
+| Miellerie  | 12/126             | 4                              |
+| Balance    | 11/41              | 0                              |
+| Intendance | 10/38              | 0                              |
+| Cerveau    | 10/50              | 3 (4 hors de portée, mesurées) |
+| Sante      | 10/39              | 2                              |
+| Essaim     | 12/46              | 1                              |
+
+Jamais balayées : shared (502), MonEspace (434), Chronique (400), Reine (371).
