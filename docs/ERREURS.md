@@ -12944,6 +12944,39 @@ Et les sélecteurs d'un banc se prennent sur ce qui ne se traduit pas : classe,
 structure, rôle. Un `aria-label` est du texte pour humains — donc traduit, donc
 inutilisable comme repère.
 
+### PRÉCISION, apportée par le lot suivant : la moitié inactive est ÉVALUÉE
+
+La phrase « la moitié anglaise du produit n'était jamais rendue » est fausse, et
+c'est la mesure qui l'a dit. En fermant les trois décisions restantes, le mutant
+posé sur le membre ANGLAIS a fait rougir un cas qui tourne en FRANÇAIS :
+
+```text
+TENU · J2-EN  race : Array.isArray(p.drones) → !Array.isArray(…)
+       × SANS LISTE, LE FACTEUR SERT DE REPLI   ← ce cas est en français
+```
+
+`t(fr, en)` est un APPEL DE FONCTION : ses deux arguments sont évalués avant que
+`t` n'en choisisse un. La moitié inactive n'est jamais **affichée**, mais elle est
+toujours **exécutée** — elle peut lever, et elle coûte, à chaque rendu, dans les
+deux langues.
+
+Trois conséquences qui changent la conduite :
+
+1. **Une exception dans la chaîne inactive casse l'écran de tout le monde.** Un
+   `p.drones.length` sur un `drones` absent fait tomber la ligne en français
+   aussi bien qu'en anglais.
+2. **Un cas monolingue peut donc tuer un mutant de l'autre langue — par
+   PLANTAGE, pas par sens.** C'est § 9 quintrigicenties : ce rouge-là ne prouve
+   rien sur ce que la ligne DIT. Il faut quand même le cas dans la bonne langue,
+   dont l'attendu est un TEXTE.
+3. **Une décision coûteuse dans un `t()` s'exécute deux fois.** Ici c'est un
+   `filter` sur trois drones ; sur une liste longue, ce serait à sortir de
+   l'appel.
+
+La leçon principale ne bouge pas — un cas par langue — mais sa raison change :
+ce n'est pas que l'autre moitié dort, c'est qu'elle travaille sans qu'on la
+regarde.
+
 ## 9 septquinquagicenties. Les documents sont des ENTRÉES de la suite — mesurer avant de les écrire ne mesure rien
 
 L'ordre que je suis depuis des semaines dès qu'un banc est ajouté :

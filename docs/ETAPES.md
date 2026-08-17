@@ -11409,3 +11409,73 @@ carnet ne portent plus que leur DELTA.
 Delta de ce lot : `Memoire.tsx` passe de « jamais balayée » à **14/14 balayé,
 6 nues fermées**. Restent jamais balayées : shared (502), MonEspace (434),
 Chronique (400), Reine (371).
+
+## Les cinq décisions cachées dans des chaînes traduites sont toutes fermées
+
+Le recensement de la Mémoire avait nommé cinq appels `t(fr, en)` portant une
+décision, et n'en avait fermé que deux. Ce lot ferme les trois derniers — soit
+**six membres**, un par langue.
+
+Mesuré AVANT d'écrire quoi que ce soit, un mutant à la fois :
+
+```text
+NU · J1-FR  conflit    : String(p.severity ?? '')  →  String(p.severity)
+NU · J1-EN  conflict   : String(p.severity ?? '')  →  String(p.severity)
+NU · J2-FR  course     : Array.isArray(p.drones)   →  !Array.isArray(…)
+NU · J2-EN  race       : Array.isArray(p.drones)   →  !Array.isArray(…)
+NU · T3-FR  en vol     : d.status === 'running'    →  !==
+NU · T3-EN  in flight  : d.status === 'running'    →  !==
+
+═══ NUES : 6 sur 6 ═══
+```
+
+Six sur six. Le `Journal` n'avait AUCUN banc à lui : il est monté par
+`vues-sentinelles` et `modales-echap`, qui regardent la coquille et jamais le
+TEXTE des lignes.
+
+### Ce que chaque mutation coûtait
+
+- **`String(p.severity ?? '')`** — sans le repli, un conflit dont la gravité
+  n'est pas remontée affiche « conflit undefined : … ». Le mot du défaut
+  JavaScript, en plein milieu d'une phrase française, sur la ligne qui doit
+  avertir d'un conflit de fichiers.
+- **`Array.isArray(p.drones) ? p.drones.length : p.factor`** — le journal compte
+  les drones RÉELLEMENT enrôlés quand la liste est là, et retombe sur le nombre
+  DEMANDÉ sinon. Inversé, une course de trois drones annonce le facteur brut.
+- **`d.status === 'running'`** — la phrase du tiroir compte alors les drones qui
+  NE VOLENT PLUS. À l'instant où tout le monde travaille, elle dirait « 0 drone(s)
+  sur 3 » : exactement le contraire de ce qu'elle existe pour dire.
+
+### Le rejeu a corrigé une leçon vieille de deux heures
+
+```text
+TENU · J2-EN  race : Array.isArray(p.drones) → !Array.isArray(…)
+       × SANS LISTE, LE FACTEUR SERT DE REPLI   ← ce cas tourne en FRANÇAIS
+```
+
+Le mutant posé sur le membre ANGLAIS fait rougir un cas français. `t(fr, en)`
+est un appel de fonction : **ses deux arguments sont évalués** avant que `t` n'en
+choisisse un. La moitié inactive n'est jamais affichée, mais elle est toujours
+exécutée.
+
+« La moitié anglaise n'était jamais rendue », écrit au lot précédent, était donc
+faux. La leçon tient — un cas par langue — mais sa raison change : ce n'est pas
+que l'autre moitié dort, c'est qu'elle travaille sans qu'on la regarde. La
+précision est portée dans § 9 sexquinquagicenties, à l'endroit de la phrase
+qu'elle corrige.
+
+### Rejeu final, un mutant à la fois
+
+```text
+TENU · J1-FR  Tests 1 failed | 4318 passed (4327)
+TENU · J1-EN  Tests 1 failed | 4318 passed (4327)
+TENU · J2-FR  Tests 2 failed | 4317 passed (4327)
+TENU · J2-EN  Tests 2 failed | 4317 passed (4327)
+TENU · T3-FR  Tests 1 failed | 4318 passed (4327)
+TENU · T3-EN  Tests 1 failed | 4318 passed (4327)
+
+═══ NUES : 0 sur 6 ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre. Le recensement de
+§ 9 sexquinquagicenties est clos : **cinq sur cinq**.
