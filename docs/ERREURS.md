@@ -13038,3 +13038,47 @@ place avant qu'elle tourne.
 Corollaire, et c'est le plus utile : **un état ne se recopie jamais dans un
 journal.** S'il faut le relire à chaque lot, c'est qu'il a un seul domicile, et
 que le journal doit y renvoyer plutôt que le reproduire.
+
+## 9 octoquinquagicenties. Un seuil qu'on s'invente sera pris pour un seuil qu'on a mesuré
+
+Après le balayage de la Ruche, j'ai écrit dans mes propres consignes :
+
+> « Compter d'abord les candidates : **si ≤ 16, BALAYER ENTIER** ; sinon
+> l'échantillon s'écrit comme un relevé. »
+
+Ce nombre n'est sorti de nulle part. La Ruche avait 16 candidates, le balayage
+entier avait tenu, j'ai fait du cas particulier une règle. Trois relances plus
+tard, la consigne me revenait citée comme si elle avait été établie.
+
+La Reine en a rendu 24. Appliquer le seuil aurait voulu dire échantillonner la
+vue la plus nue du dépôt — **71 % de SANS TEST** — c'est-à-dire renoncer à voir
+précisément là où il y avait le plus à voir. Le seuil a été franchi, et il fallait
+le franchir.
+
+### Ce qui distingue les deux sortes de nombres
+
+| Nombre                      | D'où il vient                                   |
+| --------------------------- | ----------------------------------------------- |
+| « la moitié rend un tiers » | MESURÉ — 8/16 sur la Ruche a rendu 2 des 7 nues |
+| « ≤ 16 → balayer entier »   | INVENTÉ — la Ruche en avait 16, et ça a marché  |
+
+Le premier contraint : il dit quelque chose du monde. Le second n'est qu'une
+limite de patience — combien de minutes de machine j'accepte d'attendre — et il
+n'a aucune autorité sur ce qu'il faut regarder.
+
+Le danger n'est pas d'avoir écrit le second : c'est de l'avoir écrit **dans le
+même ton** que le premier, dans une liste de consignes où tout le reste est
+mesuré. Recopié de relance en relance, il devient une règle que personne ne se
+rappelle avoir dérivée de rien.
+
+### La leçon
+
+**Un nombre qu'on pose par commodité se marque comme tel, à l'endroit où on
+l'écrit.** « Au-delà d'une vingtaine de candidates, le balayage entier coûte plus
+d'une heure — j'arbitre au cas par cas » se relit sans se croire ; « ≤ 16 »
+s'applique.
+
+C'est le versant PROCÉDURAL de § 9 quaterquinquagicenties : là, un total en prose
+se prenait pour une mesure ; ici, c'est un seuil de méthode. Dans les deux cas la
+faute est la même — **un chiffre écrit sans sa provenance emprunte l'autorité de
+ceux qui en ont une.**

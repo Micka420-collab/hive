@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `29afb54` + ce commit, 17 août 2026, 1 h 40)
+## A. Le code tient — ✅ mesuré (arbre `7d7ba20` + ce commit, 17 août 2026, 3 h 05)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,10 +57,10 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4327** (4319 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4342** (4334 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 6 nus trouvés sur ce lot — tous fermés        |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 17 nus trouvés sur ce lot — tous fermés       |
 | Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                 |
 
 - ⚠️ **CE QUE VALAIENT LES « RIEN DE NU » D'AVANT LE 15 AOÛT.** La loupe ne
@@ -108,7 +108,7 @@
   masqué derrière un ✅, c'est écrit ici.
 
   **ET LES BALAYAGES PAR FICHIER NE S'ADDITIONNENT PAS À CETTE LIGNE.** Depuis
-  le 16 août, `dashboard/src/views` est balayé vue par vue — onze fichiers, le
+  le 16 août, `dashboard/src/views` est balayé vue par vue — douze fichiers, le
   détail est dans `docs/ETAPES.md`. Ces chiffres NE sont PAS reportés dans le
   tableau ci-dessus, et c'est délibéré : chaque balayage par fichier utilise sa
   PROPRE base (le parent du commit qui a créé le fichier), quand la ligne
@@ -124,7 +124,8 @@
   | Partage   | 2       | Balance    | 0         | Sante     | 2       |
   | Chantiers | 5       | Intendance | 0         | Essaim    | 1       |
   | Rayon     | 1       | Cerveau    | 3 (sur 7) | Ruche     | 7       |
-  | Miellerie | 4       | Memoire    | 6         | **Total** | **31**  |
+  | Miellerie | 4       | Memoire    | 6         | Reine     | 17      |
+  |           |         |            |           | **Total** | **48**  |
 
   Dont un relevé de fusion qui pouvait afficher la coulée d'un autre, une bande
   d'erreur qui s'inversait, trois bornes `> 0` toujours vraies, une invite qui
@@ -132,8 +133,8 @@
   tout SAUF le travail terminé. Deux vues (Balance, Intendance) n'ont rien rendu
   — ce qui se rapporte aussi.
 
-  **Trois fichiers ont été balayés ENTIERS** : `Partage.tsx` (5/5), `Ruche.tsx`
-  (16/16) et `Memoire.tsx` (14/14). Le chiffre de la Ruche
+  **Quatre fichiers ont été balayés ENTIERS** : `Partage.tsx` (5/5),
+  `Ruche.tsx` (16/16), `Memoire.tsx` (14/14) et `Reine.tsx` (24/24). Le chiffre de la Ruche
   vaut d'être isolé, parce qu'il mesure l'échantillonnage lui-même : un premier
   tirage de 8 candidates sur 16 n'avait rendu que **2** des 7 nues. La moitié du
   fichier regardée a trouvé moins du tiers. Un échantillon dit ce qu'il a vu ; il
@@ -151,22 +152,23 @@
   d'ÉTAPES raconte ce qui change ; un état se tient à un seul endroit, sinon
   c'est N copies à garder d'accord dont aucune ne se voit vieillir.
 
-  | Vue        | Examinées          | Nues fermées                   |
-  | ---------- | ------------------ | ------------------------------ |
-  | Partage    | **5/5 (balayé)**   | 2                              |
-  | Ruche      | **16/16 (balayé)** | 7                              |
-  | Memoire    | **14/14 (balayé)** | 6                              |
-  | Chantiers  | 11/21              | 5                              |
-  | Rayon      | 8/16               | 1                              |
-  | Miellerie  | 12/126             | 4                              |
-  | Balance    | 11/41              | 0                              |
-  | Intendance | 10/38              | 0                              |
-  | Cerveau    | 10/50              | 3 (4 hors de portée, mesurées) |
-  | Sante      | 10/39              | 2                              |
-  | Essaim     | 12/46              | 1                              |
+  | Vue        | Examinées          | Nues fermées |
+  | ---------- | ------------------ | ------------ |
+  | Partage    | **5/5 (balayé)**   | 2            |
+  | Ruche      | **16/16 (balayé)** | 7            |
+  | Memoire    | **14/14 (balayé)** | 6            |
+  | Chantiers  | 11/21              | 5            |
+  | Rayon      | 8/16               | 1            |
+  | Miellerie  | 12/126             | 4            |
+  | Balance    | 11/41              | 0            |
+  | Intendance | 10/38              | 0            |
+  | Reine      | **24/24 (balayé)** | 17           |
 
-  Jamais balayées : `shared` (502), `MonEspace` (434), `Chronique` (400),
-  `Reine` (371).
+| Cerveau | 10/50 | 3 (4 hors de portée, mesurées) |
+| Sante | 10/39 | 2 |
+| Essaim | 12/46 | 1 |
+
+Jamais balayées : `shared` (502), `MonEspace` (434), `Chronique` (400).
 
 - ⚠️ **L'échantillonnage sur terrain déjà vu est ARRÊTÉ** (14 août). Huit
   tirages réguliers successifs, sur des terrains différents, ont tous rendu

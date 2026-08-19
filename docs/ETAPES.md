@@ -11479,3 +11479,101 @@ TENU · T3-EN  Tests 1 failed | 4318 passed (4327)
 
 Restauré PAR COPIE après chaque tour, arbre vérifié propre. Le recensement de
 § 9 sexquinquagicenties est clos : **cinq sur cinq**.
+
+## La Reine : 17 nues sur 24, le pire ratio du terrain
+
+Quatrième vue balayée de bout en bout, base épinglée dans l'ATELIER
+(`LOUPE_BASE=4b9c082`, vérifiée 371 ajoutées / 0 retirée) :
+
+```text
+24 mutation(s) possible(s) sur le diff, 24 examinée(s).
+7 défendues, 17 SANS TEST
+```
+
+**Soixante et onze pour cent.** Les vues balayées avant celle-ci rendaient entre
+0 % (Balance, Intendance) et 44 % (Ruche) ; la Reine en rend plus des deux tiers.
+Elle n'avait aucun banc à elle : `vues-sentinelles` la monte AU REPOS, ce qui
+n'éprouve ni l'envoi, ni la réponse, ni l'échec — c'est-à-dire tout ce que cet
+écran fait.
+
+### Le seuil de balayage entier a été dépassé DÉLIBÉRÉMENT
+
+Je m'étais donné « ≤ 16 candidates → balayer entier ». La Reine en a 24, soit
+trois quarts d'heure de machine, au-delà de la fenêtre où deux balayages se sont
+fait tuer cette nuit. Passé quand même, parce que § 9 quinquinquagicenties a
+MESURÉ ce qu'un échantillon coûte : la moitié de la Ruche regardée n'avait rendu
+qu'un tiers de ses nues. Un relevé de moitié sur une vue de 371 lignes aurait été
+faible là où il fallait être fort.
+
+Le seuil de 16 n'était pas une mesure — c'était une commodité. Il se dit
+maintenant pour ce qu'il est : **une limite de patience, pas une limite de
+méthode.**
+
+### Les six familles, et ce que chacune coûte
+
+**A. Les suggestions** (`length > 0 ? … : defaultSuggestions(t)`) — mutée en
+`>=`, toujours vraie : la barre devient VIDE au premier écran. Un arrivant qui ne
+sait pas quoi demander à la Reine n'a plus rien à cliquer.
+
+**B. Le projet** (`askQueen(text, projectId || undefined)`) — mutée en `&&`, le
+projet choisi n'est PLUS envoyé. La Reine répond sur toute la ruche alors qu'on
+lui a désigné un projet, **et rien à l'écran ne le signale**. C'est la plus
+sournoise des dix-sept : elle ne casse rien, elle change la question.
+
+**C. Les suggestions rendues** (`res.suggestions && res.suggestions.length > 0`)
+— deux mutants, même effet : une réponse SANS suggestion écrase celles qu'on
+avait, et l'écran retombe sur les défauts au milieu d'une conversation.
+
+**D. Le triage d'erreur** — quatre mutants sur deux lignes, et chacun ment
+autrement :
+
+| Mutant                              | Ce que l'hôte lit                            |
+| ----------------------------------- | -------------------------------------------- |
+| `&& →                               |                                              | `               | une panne 500 devient « pas encore ouvert » |
+| `                                   |                                              | → &&` (404/501) | un canal absent devient une panne           |
+| `instanceof ChatHttpError → Object` | tout objet portant `status: 404` dégrade     |
+| `instanceof Error → Object`         | le `message` d'un objet quelconque s'affiche |
+
+Le premier est le plus coûteux : l'hôte attendrait l'ouverture d'un canal qui a
+déjà eu lieu, pendant que le serveur tombe.
+
+**E. Le fil** — six mutants : le bouton « Effacer » sur une page vierge, l'état
+vide qui disparaît au moment où il sert, les deux voix qui échangent leur habit
+et leur couronne (on ne sait plus qui a dit quoi, sur un écran dont c'est
+l'unique fonction), et la bulle « la Reine réfléchit » rendue en permanence.
+
+**F. Le bouton d'envoi** — deux mutants : cliquable à vide, ou mort alors qu'on a
+écrit.
+
+### Rejeu, un mutant à la fois
+
+Dix-sept lignes : sans attribution, un seul bon cas couvrirait le rouge de seize
+décors (§ 9 septentrigicenties).
+
+```text
+TENU · A1  suggestions affichées : > 0 → >= 0
+TENU · B1  projet envoyé : || → &&
+TENU · C1  suggestions rendues : && → ||
+TENU · C2  suggestions rendues : > 0 → >= 0
+TENU · D1  absent : && → ||
+TENU · D2  absent : || → && (404/501)
+TENU · D3  absent : instanceof ChatHttpError → Object
+TENU · D4  detail : instanceof Error → Object
+TENU · E1  Effacer : && → ||
+TENU · E2  Effacer : > 0 → >= 0
+TENU · E3  état vide : === → !==
+TENU · E4  habit de bulle : === → !==
+TENU · E5  couronne : && → ||
+TENU · E6  couronne : === → !==
+TENU · E7  réflexion : && → ||
+TENU · F1  envoi : || → &&
+TENU · F2  envoi : === → !==
+
+═══ SURVIVANTS : 0 sur 17 ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+Delta du terrain : `Reine.tsx` passe de « jamais balayée » à **24/24 balayé,
+17 nues fermées**. Restent jamais balayées : Chronique (400), MonEspace (434),
+shared (502).
