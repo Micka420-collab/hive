@@ -55,6 +55,28 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
+  fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
+  fetchCerveau: vi.fn(() => Promise.resolve(null)),
+  fetchResults: vi.fn(() => Promise.resolve({ results: [] })),
+  fetchConsensus: vi.fn(() => Promise.resolve(null)),
+  fetchConflicts: vi.fn(() => Promise.resolve({ conflicts: [] })),
+  fetchMergePlan: vi.fn(() => Promise.resolve(null)),
+  fetchMergeResult: vi.fn(() => Promise.resolve(null)),
+  fetchEssaim: vi.fn(() =>
+    Promise.resolve({
+      niveau: 'off',
+      niveaux: ['off', 'propose', 'gouverne', 'plein'],
+      runner: { mode: 'off', enPause: false, echecs: 0, dernierTourA: 0 },
+      derive: { etat: 'saine', echantillon: 0, indicateurs: [], solitudeJours: 0, motif: '' },
+      decision: { pas: 'inerte', motif: '', gouvernantes: [] },
+      gouvernantes: [],
+      gouvernantesRequises: 1,
+      depotInscrit: false,
+      plafond: 'passe',
+      lecons: [],
+    }),
+  ),
+  fetchAtelier: vi.fn(() => Promise.resolve({ mode: 'off', actif: false })),
 }));
 
 import { App } from '../dashboard/src/App';

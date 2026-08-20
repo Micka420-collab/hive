@@ -402,10 +402,12 @@ annoncer_empreinte() {
   base=$(basename "$0" 2>/dev/null || echo "$0")
   case "$base" in
     install.sh)
+      # Hasher via stdin : sur Windows, `sha256sum "$0"` peut prefixer le
+      # condensé avec des `\` (chemin). Le contenu du fichier, lui, est stable.
       if command -v sha256sum >/dev/null 2>&1; then
-        dire "Empreinte SHA-256 : $(sha256sum "$0" | awk '{ print $1 }')"
+        dire "Empreinte SHA-256 : $(sha256sum < "$0" | awk '{ print $1 }')"
       elif command -v shasum >/dev/null 2>&1; then
-        dire "Empreinte SHA-256 : $(shasum -a 256 "$0" | awk '{ print $1 }')"
+        dire "Empreinte SHA-256 : $(shasum -a 256 < "$0" | awk '{ print $1 }')"
       else
         discret "sha256sum/shasum introuvable — vérifiez l'empreinte après téléchargement."
       fi

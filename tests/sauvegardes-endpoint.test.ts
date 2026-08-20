@@ -102,7 +102,7 @@ describe('API /api/projects/:id/sauvegardes', () => {
   let server: HiveServer;
   let dir: string;
   let base: string;
-  let projectId: string;
+  let ownerId = '';
   let jwt = '';
 
   beforeAll(async () => {
@@ -131,11 +131,7 @@ describe('API /api/projects/:id/sauvegardes', () => {
     const moi = (await (
       await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${jwt}` } })
     ).json()) as { id: string };
-    projectId = server.store.createProject({
-      name: 'Projet SG',
-      visibility: 'private',
-      ownerId: moi.id,
-    }).id;
+    ownerId = moi.id;
   });
 
   afterAll(async () => {
@@ -145,14 +141,25 @@ describe('API /api/projects/:id/sauvegardes', () => {
 
   const auth = () => ({ authorization: `Bearer ${jwt}`, 'content-type': 'application/json' });
 
+  /** Projet neuf par test — un ordre inversé ne doit pas polluer « liste vide ». */
+  function projetFrais(nom: string): string {
+    return server.store.createProject({
+      name: nom,
+      visibility: 'private',
+      ownerId,
+    }).id;
+  }
+
   it('liste vide au départ, pose une sauvegarde manuelle, restaure via tâche', async () => {
-    const vide = await fetch(`${base}/api/projects/${projectId}/sauvegardes`, {
+    const pid = projetFrais('Projet SG frais');
+
+    const vide = await fetch(`${base}/api/projects/${pid}/sauvegardes`, {
       headers: auth(),
     });
     expect(vide.status).toBe(200);
     expect(((await vide.json()) as { sauvegardes: unknown[] }).sauvegardes).toEqual([]);
 
-    const cree = await fetch(`${base}/api/projects/${projectId}/sauvegardes`, {
+    const cree = await fetch(`${base}/api/projects/${pid}/sauvegardes`, {
       method: 'POST',
       headers: auth(),
       body: JSON.stringify({
@@ -168,7 +175,7 @@ describe('API /api/projects/:id/sauvegardes', () => {
     expect(sauvegarde.label).toBe('Avant migration');
 
     const resto = await fetch(
-      `${base}/api/projects/${projectId}/sauvegardes/${sauvegarde.id}/restaurer`,
+      `${base}/api/projects/${pid}/sauvegardes/${sauvegarde.id}/restaurer`,
       { method: 'POST', headers: auth(), body: '{}' },
     );
     expect(resto.status).toBe(201);
@@ -179,14 +186,15 @@ describe('API /api/projects/:id/sauvegardes', () => {
   });
 
   it('refuse une restauration sans patch', async () => {
-    const cree = await fetch(`${base}/api/projects/${projectId}/sauvegardes`, {
+    const pid = projetFrais('Projet SG marqueur');
+    const cree = await fetch(`${base}/api/projects/${pid}/sauvegardes`, {
       method: 'POST',
       headers: auth(),
       body: JSON.stringify({ label: 'Marqueur seul' }),
     });
     const { sauvegarde } = (await cree.json()) as { sauvegarde: { id: string } };
     const resto = await fetch(
-      `${base}/api/projects/${projectId}/sauvegardes/${sauvegarde.id}/restaurer`,
+      `${base}/api/projects/${pid}/sauvegardes/${sauvegarde.id}/restaurer`,
       { method: 'POST', headers: auth(), body: '{}' },
     );
     expect(resto.status).toBe(409);
