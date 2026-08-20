@@ -11685,3 +11685,17 @@ usage Concierge dans `tests/concierge.test.ts`.
 
 Release GitHub + signature restent 🔒 (comptes humains). La confiance par
 empreinte est posée sans encaisser ni publier un tag.
+
+### 10. Suite du 20 août (nuit) — filets produit + bornes
+
+| fait                                                              | où                                             |
+| ----------------------------------------------------------------- | ---------------------------------------------- |
+| Retouche → sauvegarde `avant_retouche` (patch inverse)            | `server.ts` retouche + `shared/sauvegardes.ts` |
+| Reine : puce « Restaurer… » si échecs + étape                     | `concierge.ts` → chip → Rayon                  |
+| Pouls Plein Essaim sur la Ruche (niveau / pause / dérive)         | `AutonomiePulse.tsx`                           |
+| `pruneSauvegardes(SAUVEGARDES_RETENTION)` câblé (doctrine bornes) | `store.ts`, tick `server.ts`                   |
+| Mocks Rayon / Ruche (tamis ECONNREFUSED) + empreinte Windows soft | tests UI / `site-installeurs`                  |
+
+Mesure : `tests/retouche-endpoint`, `tests/concierge` (restaurer),
+`tests/autonomie-pulse`, `tests/sauvegardes-endpoint` (prune),
+`tests/bornes-doctrine`. FEATURES FR/EN alignés.

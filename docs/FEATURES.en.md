@@ -54,7 +54,9 @@ an engine without being allowed to lift the hood. The Comb lifts the hood: a
 file tree, a syntax-highlighted editor (16 languages), a **preview** of the site
 the AI just wrote, and — for the Queen — an **edit** that becomes a task.
 Successful diffs are kept as **checkpoints** on the Comb: restore opens a
-**task** for the swarm (never a silent rewrite of the repo).
+**task** for the swarm (never a silent rewrite of the repo). An edit from the
+Comb first records an `avant_retouche` reverse patch so a later restore can
+undo the proposal.
 
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
@@ -143,7 +145,9 @@ receives the hive's real numbers). The Queen also guides the project owner:
 best practices per project type (web, API, mobile, data, e-commerce, CLI) and
 an effective brief structure. In AI mode, Anthropic **token counts** show on
 each reply (and for the session). Mode chips link Chat → Plan (Projects /
-Queen Bee) → Autonomy (Full Swarm on the project) → Backups (Comb).
+Queen Bee) → Autonomy (Full Swarm on the project) → Backups (Comb). When recent
+failures sit next to a checkpoint, the Queen offers a **Restore…** chip that
+opens the Comb timeline.
 
 ## 🧠 Queen Bee — from brief to DAG
 
