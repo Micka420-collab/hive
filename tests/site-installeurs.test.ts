@@ -42,6 +42,13 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
     expect(txt).not.toMatch(/publié avec la Release\s*\/\s*`?site\/install\.sha256/);
   });
 
+  it('ADR 0002 amende : empreinte Pages avant Release signée', () => {
+    const adr = lire('docs/adr/0002-distribution-one-liners.md');
+    expect(adr).toContain('install.sha256');
+    expect(adr).toMatch(/Amendement du 21 août 2026/);
+    expect(adr).toMatch(/Pages avant la Release/);
+  });
+
   it('install.sh et install.ps1 annoncent l’empreinte dans le source', () => {
     const sh = lire('install.sh');
     expect(sh).toContain('annoncer_empreinte');
