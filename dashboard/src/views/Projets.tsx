@@ -988,7 +988,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
     quorum: { fr: '✔ une piste a convergé', en: '✔ one path converged' },
     depart: { fr: '⚖ égalité — à vous de trancher', en: '⚖ tie — yours to settle' },
     sans_quorum: { fr: '… du débat, rien de convergé', en: '… debate, nothing converged' },
-    epuise: { fr: '⏳ arrêté sans converger', en: '⏳ stopped without converging' },
+    epuise: { fr: 'arrêté sans converger', en: 'stopped without converging' },
     vide: { fr: '∅ personne n’a rien trouvé', en: '∅ nobody found anything' },
   };
 

@@ -48,7 +48,9 @@ export function ConflictsPanel({
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>🛡️ {t('Conflits', 'Conflicts')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Conflits', 'Conflicts')}
+        </h2>
         <span className="panel-count warn">{entries.length}</span>
       </header>
       <ul className="conflict-list">

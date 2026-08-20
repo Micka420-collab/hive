@@ -262,7 +262,9 @@ export function CarteBalance({
   return (
     <section className="card bal-card">
       <header className="panel-head">
-        <h2>{t('🧮 La Balance', '🧮 The Balance')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('La Balance', 'The Balance')}
+        </h2>
         {global && (
           <span className="panel-count">
             {global.tentatives} {t('tentative(s) pesée(s)', 'attempt(s) weighed')}
@@ -812,7 +814,7 @@ export function BalanceProjet({
   return (
     <div className="bal-projet">
       <div className="bal-projet-head">
-        <span className="bal-projet-title">{t('🧮 Balance', '🧮 Balance')}</span>
+        <span className="bal-projet-title">{t('Balance', 'Balance')}</span>
         {aPesee && compte && (
           <>
             <span className="bal-projet-rendement">
@@ -878,7 +880,7 @@ export function CarteDevis({ devis, nbTaches }: { devis: DevisPlan; nbTaches: nu
   return (
     <section className="bal-devis" aria-label={t('Devis indicatif', 'Indicative estimate')}>
       <header className="bal-devis-head">
-        <span className="bal-devis-title">{t('🧮 Devis indicatif', '🧮 Indicative estimate')}</span>
+        <span className="bal-devis-title">{t('Devis indicatif', 'Indicative estimate')}</span>
         <span className="bal-devis-sample">
           {t(
             `échantillon : ${plage} tâche(s) comparable(s) déjà terminée(s)`,

@@ -146,7 +146,7 @@ function ThermoGauge({ thermo }: { thermo: ThermoState }) {
         </span>
         {diverge && (
           <span className="es-thermo-pending">
-            ⏳ {t('confirmation en cours', 'awaiting confirmation')}
+            {t('confirmation en cours', 'awaiting confirmation')}
           </span>
         )}
       </div>
@@ -167,7 +167,7 @@ function ThermoGauge({ thermo }: { thermo: ThermoState }) {
       </p>
       <p className="es-thermo-signals">
         ✔ {signaux.succes} {t('succès', 'successes')} · ✘ {signaux.echecs} {t('échecs', 'failures')}{' '}
-        · 🔁 {signaux.retries} {t('re-tentatives', 'retries')} · ⇄ {signaux.refusInfra}{' '}
+        · {signaux.retries} {t('re-tentatives', 'retries')} · ⇄ {signaux.refusInfra}{' '}
         {t('refus infra', 'infra declines')} — {t('fenêtre de 10 min', '10-min window')}
       </p>
     </div>
