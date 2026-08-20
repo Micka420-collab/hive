@@ -21,7 +21,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Phéromones / Queen Bee sans chrome emoji, podium Essaim en rangs 1–3,
   italiques « empty » retirés, KPI Ruche allégés. Rayon typographique,
   Miellerie / Reine / Santé / Balance / Intendance / Plein Essaim allégés
-  du chrome emoji.
+  du chrome emoji. Wordmark **Hive / Mission Control** ; courses en ◇ ;
+  pastille « connecté » soignée.
 
 ### Fixed
 
