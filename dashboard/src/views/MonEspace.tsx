@@ -150,7 +150,9 @@ export default function MonEspace({ user, refreshTick, onNavigate }: ViewProps) 
     return (
       <div className="view me-view">
         <section className="card me-accueil">
-          <h2>🐝 {t('Votre espace', 'Your space')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Votre espace', 'Your space')}
+          </h2>
           <p>
             {t(
               'Créez un compte pour suivre vos projets : quota consommé, abonnement, machines et échéances au même endroit. La ruche reste utilisable sans compte — l’espace personnel n’ajoute que ce qui vous appartient.',
@@ -191,7 +193,9 @@ function Espace({
     return (
       <div className="view me-view">
         <section className="card">
-          <h2>🐝 {t('Mon espace', 'My space')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Mon espace', 'My space')}
+          </h2>
           <p className="panel-error">{poll.error}</p>
         </section>
       </div>
@@ -201,7 +205,9 @@ function Espace({
     return (
       <div className="view me-view">
         <section className="card">
-          <h2>🐝 {t('Mon espace', 'My space')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Mon espace', 'My space')}
+          </h2>
           <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
         </section>
       </div>
@@ -215,7 +221,7 @@ function Espace({
       <section className="card me-entete">
         <header className="panel-head">
           <h2>
-            🐝 {t('Bonjour', 'Hello')} {nom}
+            <span className="marque" aria-hidden="true" /> {t('Bonjour', 'Hello')} {nom}
           </h2>
           <span className="muted-text">
             {d.totaux.projets} {t('projet(s)', 'project(s)')}

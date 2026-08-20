@@ -364,7 +364,9 @@ function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('🐝 Polyéthisme', '🐝 Division of labour')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Polyéthisme', 'Division of labour')}
+        </h2>
         <span className="panel-count">
           {t('mode', 'mode')} {vue.mode}
         </span>

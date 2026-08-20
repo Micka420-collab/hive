@@ -204,7 +204,9 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2 id="np-title">🐝 {t('Nouveau projet', 'New project')}</h2>
+          <h2 id="np-title">
+            <span className="marque" aria-hidden="true" /> {t('Nouveau projet', 'New project')}
+          </h2>
           <button
             className="modal-close"
             onClick={closeIfIdle}

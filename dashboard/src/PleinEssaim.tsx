@@ -143,7 +143,9 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
   if (!etat) {
     return (
       <section className="essaim-panneau">
-        <h3>{t('🐝 Plein Essaim', '🐝 Full Swarm')}</h3>
+        <h3>
+          <span className="marque" aria-hidden="true" /> {t('Plein Essaim', 'Full Swarm')}
+        </h3>
         <p className="essaim-vide">{erreur || t('Chargement…', 'Loading…')}</p>
       </section>
     );
@@ -154,7 +156,9 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
 
   return (
     <section className="essaim-panneau">
-      <h3>{t('🐝 Plein Essaim', '🐝 Full Swarm')}</h3>
+      <h3>
+        <span className="marque" aria-hidden="true" /> {t('Plein Essaim', 'Full Swarm')}
+      </h3>
       <p className="essaim-intro">
         {t(
           'La ruche décide, produit, se critique et apprend — sans vous demander à chaque tour.',

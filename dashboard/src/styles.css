@@ -1079,6 +1079,18 @@ h3 {
   letter-spacing: -0.03em;
 }
 
+.panel-head h2,
+.panel-head h3,
+.essaim-panneau h3,
+.me-view h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-head .marque,
+.essaim-panneau .marque,
+.me-view .marque,
 .modal-head .marque {
   width: 12px;
   height: 14px;
