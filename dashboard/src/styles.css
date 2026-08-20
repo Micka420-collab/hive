@@ -373,20 +373,22 @@ h3 {
   font-weight: 600;
   padding: 5px 10px;
   border-radius: 10px;
-  background: var(--panel);
+  background: transparent;
   border: 1px solid var(--border);
+  color: var(--muted);
 }
 
 .conn-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--faint);
 }
 
 .conn.online {
-  color: var(--green);
-  border-color: color-mix(in srgb, var(--green) 28%, var(--border));
-  background: color-mix(in srgb, var(--green) 8%, var(--panel));
+  color: var(--muted);
+  border-color: var(--border);
+  background: transparent;
 }
 
 .conn.online .conn-dot {
@@ -396,7 +398,7 @@ h3 {
 .conn.offline {
   color: var(--red);
   border-color: color-mix(in srgb, var(--red) 28%, var(--border));
-  background: color-mix(in srgb, var(--red) 8%, var(--panel));
+  background: color-mix(in srgb, var(--red) 6%, var(--panel));
 }
 
 .conn.offline .conn-dot {
@@ -1849,7 +1851,9 @@ h3 {
 }
 
 .mc-nav-cell::before {
-  content: '';
+  /* Sur barre large, le glyphe SVG porte déjà la marque ; l’alvéole reste
+     pour le pouls actif (miel) sans doubler l’icône. */
+  content: none;
   flex: none;
   width: 9px;
   height: 11px;
@@ -1880,7 +1884,7 @@ h3 {
 }
 
 .mc-nav-icon {
-  display: none;
+  display: inline-flex;
   flex: none;
   width: 22px;
   height: 22px;
@@ -1888,11 +1892,13 @@ h3 {
   justify-content: center;
   border-radius: 7px;
   background: rgba(255, 252, 247, 0.06);
-  font-family: var(--titre);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--sur-encre-fort);
+  color: var(--sur-encre);
+}
+
+.mc-nav-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 
 .mc-nav-cell.active .mc-nav-icon {
@@ -2032,52 +2038,77 @@ h3 {
 }
 
 .mc-ruche-stats {
-  margin: 14px 18px 0;
-  padding: 10px 14px;
+  margin: 16px 22px 0;
+  padding: 12px 16px;
   overflow-x: auto;
+  border-radius: 14px;
+}
+
+/* Ruche vide : une seule composition centrée — pas de zéros autour. */
+.mc-ruche:has(> .ruche-depart:only-child) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100dvh - 76px);
+  padding: 28px 24px 40px;
+  background:
+    radial-gradient(70% 55% at 50% 18%, rgba(246, 196, 69, 0.1), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 55%, transparent), transparent 42%);
 }
 
 /* Le départ d'une ruche vide : visible sans être criard, et il disparaît dès
    qu'un projet existe. */
 .ruche-depart {
   margin: 28px 24px 0;
-  padding: 32px 32px 28px;
+  padding: 36px 36px 32px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
-  max-width: 40rem;
+  max-width: 28rem;
+  width: min(100%, 28rem);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 0 rgba(255, 252, 247, 0.8) inset,
+    0 18px 40px -28px rgba(20, 18, 16, 0.35);
   background:
     radial-gradient(120% 80% at 0% 0%, rgba(246, 196, 69, 0.12), transparent 55%), var(--panel);
+  animation: mc-view-in 0.4s ease both;
+}
+
+.mc-ruche:has(> .ruche-depart:only-child) .ruche-depart {
+  margin: 0;
 }
 
 .ruche-depart .marque {
-  width: 12px;
-  height: 14px;
+  width: 14px;
+  height: 16px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   background: var(--miel);
 }
 
 .ruche-depart h2 {
   color: var(--text);
-  font-size: 28px;
+  font-size: clamp(26px, 3.2vw, 32px);
   font-weight: 650;
   letter-spacing: -0.045em;
-  line-height: 1.15;
+  line-height: 1.12;
 }
 
 .ruche-depart p {
   color: var(--muted);
   margin: 0;
-  max-width: 52ch;
+  max-width: 42ch;
   font-size: 15px;
   line-height: 1.55;
 }
 
 .ruche-depart .btn.primary {
-  margin-top: 6px;
-  padding: 10px 18px;
+  margin-top: 8px;
+  padding: 11px 20px;
   font-size: 14px;
+  border-radius: 11px;
 }
 
 /* Un bouton qui se lit comme un lien : dans une ligne de texte, un bouton
@@ -2239,14 +2270,18 @@ button.mc-cell:focus-visible {
     justify-content: center;
     padding: 9px 4px;
   }
-  .mc-nav-cell::before,
   .mc-nav-label,
   .mc-sidebar-word {
     display: none;
   }
   .mc-nav-icon {
-    display: inline-flex;
-    font-size: 12px;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+  }
+  .mc-nav-icon svg {
+    width: 16px;
+    height: 16px;
   }
   .mc-sidebar-brand .brand-logo {
     width: 26px;

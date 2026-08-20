@@ -50,6 +50,7 @@ export default function Ruche({
 
   const total = snapshot.tasks.length;
   const done = snapshot.tasks.filter((t) => t.status === 'done').length;
+  const vide = snapshot.projects.length === 0;
 
   return (
     <div className="mc-view mc-ruche">
@@ -58,8 +59,11 @@ export default function Ruche({
           rien à cliquer : le seul départ possible vivait dans l'en-tête d'une
           AUTRE vue. On y arrivait donc en croyant qu'il fallait d'abord un
           ami, ou une configuration de plus. Le premier projet se lance ici,
-          seul, sur ce nœud-ci. */}
-      {snapshot.projects.length === 0 && (
+          seul, sur ce nœud-ci.
+
+          Et dès qu'il n'y a encore RIEN, on ne remplit pas l'écran de zéros :
+          stats / essaim / file vides diluaient le seul geste utile. */}
+      {vide && (
         <section className="card ruche-depart">
           <span className="marque" aria-hidden="true" />
           <h2>{t('Votre ruche est prête', 'Your hive is ready')}</h2>
@@ -75,110 +79,120 @@ export default function Ruche({
         </section>
       )}
 
-      <div className="mc-ruche-stats card">
-        <StatTiles snapshot={snapshot} throughput={throughput} />
-      </div>
-
-      <main className="layout">
-        <section className="col-main">
-          <div className="card swarm-hero">
-            <div
-              className="view-toggle floating"
-              role="group"
-              aria-label={t("Mode d'affichage", 'Display mode')}
-            >
-              <button className={mode === '2d' ? 'active' : ''} onClick={() => switchMode('2d')}>
-                2D
-              </button>
-              <button className={mode === '3d' ? 'active' : ''} onClick={() => switchMode('3d')}>
-                3D
-              </button>
-            </div>
-            {mode === '3d' ? (
-              <Suspense
-                fallback={
-                  <div className="swarm3d-loading">
-                    {t('Chargement du moteur 3D…', 'Loading the 3D engine…')}
-                  </div>
-                }
-              >
-                <SwarmView3D
-                  tasks={snapshot.tasks}
-                  nodes={snapshot.nodes}
-                  agentsByTask={agentsByTask}
-                />
-              </Suspense>
-            ) : (
-              <SwarmView
-                tasks={snapshot.tasks}
-                nodes={snapshot.nodes}
-                agentsByTask={agentsByTask}
-              />
-            )}
-            {total > 0 && (
-              <div className="hero-progress">
-                <span>
-                  {done}/{total} {t('tâches butinées', 'tasks foraged')}
-                </span>
-                <Honeycomb
-                  tasks={snapshot.tasks}
-                  deferred={deferred}
-                  onSelect={(t) => onOpenTask(t.id)}
-                  mini
-                />
-              </div>
-            )}
+      {!vide && (
+        <>
+          <div className="mc-ruche-stats card">
+            <StatTiles snapshot={snapshot} throughput={throughput} />
           </div>
-        </section>
 
-        <aside className="col-side">
-          {/* Les tâches et le geste d'ouverture : les cartes deviennent des
-              fiches coéquipières (mission « Le Poste », lot 2). */}
-          <NodesPanel nodes={snapshot.nodes} tasks={snapshot.tasks} onOpenTask={onOpenTask} />
-
-          <section className="card panel">
-            <header className="panel-head">
-              <h2>{t('File d’attente', 'Queue')}</h2>
-            </header>
-            <ul className="queue">
-              {snapshot.tasks
-                .filter((task) => task.status !== 'done')
-                .slice(0, 14)
-                .map((task) => (
-                  <li
-                    key={task.id}
-                    className="clickable"
-                    {...activateProps(() => onOpenTask(task.id))}
+          <main className="layout">
+            <section className="col-main">
+              <div className="card swarm-hero">
+                <div
+                  className="view-toggle floating"
+                  role="group"
+                  aria-label={t("Mode d'affichage", 'Display mode')}
+                >
+                  <button
+                    className={mode === '2d' ? 'active' : ''}
+                    onClick={() => switchMode('2d')}
                   >
-                    <StatusBadge status={task.status} />
-                    <span className="queue-title">{task.title}</span>
-                    {deferred.has(task.id) && task.status === 'ready' && (
-                      <span
-                        className="badge-conflict"
-                        title={t('Différée : conflit de fichier', 'Deferred: file conflict')}
-                      >
-                        ⏸
-                      </span>
-                    )}
-                  </li>
-                ))}
-              {total > 0 && done === total && (
-                <li className="empty">🍯 {t('Tout est butiné !', 'Everything is foraged!')}</li>
-              )}
-              {total === 0 && (
-                <li className="empty">
-                  {t('Aucune tâche en attente.', 'No tasks waiting.')}{' '}
-                  <button className="lien-bouton" onClick={onNewProject}>
-                    {t('Démarrer un projet', 'Start a project')}
+                    2D
                   </button>
-                </li>
-              )}
-            </ul>
-          </section>
+                  <button
+                    className={mode === '3d' ? 'active' : ''}
+                    onClick={() => switchMode('3d')}
+                  >
+                    3D
+                  </button>
+                </div>
+                {mode === '3d' ? (
+                  <Suspense
+                    fallback={
+                      <div className="swarm3d-loading">
+                        {t('Chargement du moteur 3D…', 'Loading the 3D engine…')}
+                      </div>
+                    }
+                  >
+                    <SwarmView3D
+                      tasks={snapshot.tasks}
+                      nodes={snapshot.nodes}
+                      agentsByTask={agentsByTask}
+                    />
+                  </Suspense>
+                ) : (
+                  <SwarmView
+                    tasks={snapshot.tasks}
+                    nodes={snapshot.nodes}
+                    agentsByTask={agentsByTask}
+                  />
+                )}
+                {total > 0 && (
+                  <div className="hero-progress">
+                    <span>
+                      {done}/{total} {t('tâches butinées', 'tasks foraged')}
+                    </span>
+                    <Honeycomb
+                      tasks={snapshot.tasks}
+                      deferred={deferred}
+                      onSelect={(tk) => onOpenTask(tk.id)}
+                      mini
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
 
-          <Journal events={events} />
-        </aside>
-      </main>
+            <aside className="col-side">
+              {/* Les tâches et le geste d'ouverture : les cartes deviennent des
+                  fiches coéquipières (mission « Le Poste », lot 2). */}
+              <NodesPanel nodes={snapshot.nodes} tasks={snapshot.tasks} onOpenTask={onOpenTask} />
+
+              <section className="card panel">
+                <header className="panel-head">
+                  <h2>{t('File d’attente', 'Queue')}</h2>
+                </header>
+                <ul className="queue">
+                  {snapshot.tasks
+                    .filter((task) => task.status !== 'done')
+                    .slice(0, 14)
+                    .map((task) => (
+                      <li
+                        key={task.id}
+                        className="clickable"
+                        {...activateProps(() => onOpenTask(task.id))}
+                      >
+                        <StatusBadge status={task.status} />
+                        <span className="queue-title">{task.title}</span>
+                        {deferred.has(task.id) && task.status === 'ready' && (
+                          <span
+                            className="badge-conflict"
+                            title={t('Différée : conflit de fichier', 'Deferred: file conflict')}
+                          >
+                            ⏸
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  {total > 0 && done === total && (
+                    <li className="empty">🍯 {t('Tout est butiné !', 'Everything is foraged!')}</li>
+                  )}
+                  {total === 0 && (
+                    <li className="empty">
+                      {t('Aucune tâche en attente.', 'No tasks waiting.')}{' '}
+                      <button className="lien-bouton" onClick={onNewProject}>
+                        {t('Démarrer un projet', 'Start a project')}
+                      </button>
+                    </li>
+                  )}
+                </ul>
+              </section>
+
+              <Journal events={events} />
+            </aside>
+          </main>
+        </>
+      )}
     </div>
   );
 }

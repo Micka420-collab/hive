@@ -11,9 +11,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique
   accent, hexagone marque) : papier plus clair, barre charbon brossée, logo SVG
-  à la place de l'emoji, pastilles de lettre en mobile, topbar floutée, cartes
-  et boutons assouplis, Reine type messagerie, modales à voile flouté, entrée
-  de vue animée (respecte `prefers-reduced-motion`).
+  à la place de l'emoji, **glyphes SVG de navigation** (plus de lettres), topbar
+  floutée, cartes et boutons assouplis, Reine type messagerie, modales à voile
+  flouté, entrée de vue animée (respecte `prefers-reduced-motion`). Ruche vide :
+  **une seule composition** centrée (plus de KPI / essaim / file à zéro autour
+  du départ).
 
 ### Fixed
 
