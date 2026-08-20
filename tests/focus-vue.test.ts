@@ -3,7 +3,7 @@
 // Focus de vue — intention courte-durée entre Reine et Rayon.
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { consommerFocus, demanderFocus, FOCUS_SAUVEGARDES } from '../dashboard/src/focus-vue';
+import { consommerFocus, demanderFocus, FOCUS_SAUVEGARDES } from '../dashboard/src/focus-vue.js';
 
 afterEach(() => {
   sessionStorage.clear();
