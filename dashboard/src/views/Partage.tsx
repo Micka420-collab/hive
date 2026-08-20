@@ -144,12 +144,17 @@ export default function Partage({ projectId }: { projectId: string }) {
       </header>
 
       {rapport === null ? (
-        <p className="empty pad">{t('Ouverture du rayon…', 'Opening the comb…')}</p>
+        <p className="pa-calme">
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Ouverture du rayon…', 'Opening the comb…')}
+        </p>
       ) : (
         <>
-          <section className="card pa-avancement">
+          <section className="pa-avancement">
             <header className="panel-head">
-              <h2>{rapport.name}</h2>
+              <h2>
+                <span className="marque" aria-hidden="true" /> {rapport.name}
+              </h2>
               <span className="panel-count">
                 {rapport.done}/{rapport.total} {t('tâche(s)', 'task(s)')}
               </span>
@@ -166,7 +171,13 @@ export default function Partage({ projectId }: { projectId: string }) {
             </p>
           </section>
 
-          <Suspense fallback={<p className="empty pad">{t('Le Rayon…', 'The Comb…')}</p>}>
+          <Suspense
+            fallback={
+              <p className="pa-calme">
+                <span className="marque" aria-hidden="true" /> {t('Le Rayon…', 'The Comb…')}
+              </p>
+            }
+          >
             <Rayon
               {...({
                 snapshot: instantaneDe(projectId, rapport.name),
