@@ -55,7 +55,7 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
 </p>
 <p align="center">
-  <img src="docs/images/vitrine-editions.png" width="840" alt="Vitrine Hive — Community 0 € et Cloud 49 €, deux cartes égales.">
+  <img src="docs/images/vitrine-editions.png" width="840" alt="Vitrine Hive — Community, Cloud, Team, Enterprise : quatre paliers, un cœur complet.">
 </p>
 <p align="center">
   <img src="docs/images/dashboard-ruche.png" width="840" alt="Tableau de bord — vue Ruche vide, ruche prête, un projet à démarrer.">

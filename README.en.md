@@ -52,7 +52,7 @@ Shots of the running app (`npm run ruche`), not mockups.
   <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
 </p>
 <p align="center">
-  <img src="docs/images/vitrine-editions.png" width="840" alt="Hive landing — Community €0 and Cloud €49, two equal cards.">
+  <img src="docs/images/vitrine-editions.png" width="840" alt="Hive landing — Community, Cloud, Team, Enterprise: four tiers, one complete core.">
 </p>
 <p align="center">
   <img src="docs/images/dashboard-ruche.png" width="840" alt="Dashboard — empty Hive view, ready to start a project.">

@@ -570,8 +570,8 @@
       }
       .cloud {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+        gap: 14px;
         align-items: stretch;
       }
       .edition {
@@ -660,6 +660,27 @@
       .edition-cloud .btn:hover {
         filter: brightness(0.96);
         color: var(--encre);
+      }
+      .edition-team {
+        border-color: var(--gold-2);
+      }
+      .edition-devis .edition-prix {
+        font-size: clamp(26px, 3.2vw, 36px);
+      }
+      .edition-prix .devis-mot {
+        display: inline;
+        margin: 0;
+        font-size: inherit;
+        font-family: inherit;
+        font-weight: inherit;
+        letter-spacing: inherit;
+        color: inherit;
+      }
+      .edition .btn {
+        margin-top: auto;
+        align-self: flex-start;
+        padding: 10px 18px;
+        font-size: 13.5px;
       }
       .cloud-honest {
         grid-column: 1 / -1;
@@ -2354,8 +2375,12 @@
       html.js-motion .edition:nth-child(2).hv-in {
         animation-delay: 0.08s;
       }
-      html.js-motion .etape:nth-child(3).hv-in {
+      html.js-motion .etape:nth-child(3).hv-in,
+      html.js-motion .edition:nth-child(3).hv-in {
         animation-delay: 0.16s;
+      }
+      html.js-motion .edition:nth-child(4).hv-in {
+        animation-delay: 0.24s;
       }
 
       @keyframes dash {
@@ -3902,14 +3927,17 @@
     <!-- ══ TARIFS ══════════════════════════════════════════════════════════
          Placée APRÈS la sécurité, et pas avant : on ne demande pas d'argent à
          quelqu'un à qui on n'a pas encore dit ce qui reste sur sa machine.
-         Les trois cartes reprennent la maquette ; les montants viennent de
-         `docs/MODELE-ECONOMIQUE.md` §5, seule source de vérité du dépôt. -->
+         Quatre paliers, repris de `docs/MODELE-ECONOMIQUE.md` §6 : Community
+         n'est jamais bridé ; Cloud héberge ; Team vend l'équipe ; Enterprise
+         se discute au contrat, sans prix affiché. -->
     <section id="communaute" class="section">
       <p class="kicker" data-i18n="co.kicker">Éditions</p>
-      <h2 class="headline" data-i18n="co.headline">Community gratuit. Cloud, sur tes serveurs.</h2>
+      <h2 class="headline" data-i18n="co.headline">
+        Community gratuit. Quatre paliers, un seul cœur.
+      </h2>
       <p class="lede" data-i18n="co.lede">
-        Même logiciel. Chez toi, c'est 0 €. Si tu héberges pour d'autres, tu factures — ce dépôt
-        n'encaisse rien.
+        Même logiciel. Chez toi, c'est 0 €, et rien n'en est retiré. Si tu héberges pour d'autres,
+        tu factures — ce dépôt n'encaisse rien.
       </p>
 
       <div class="cloud">
@@ -3918,8 +3946,10 @@
           <h3 data-i18n="co.com.t">Community</h3>
           <ul>
             <li data-i18n="co.com.1">Open source, MIT, auto-hébergé.</li>
-            <li data-i18n="co.com.2">Tes clés et ton code restent sur tes machines.</li>
-            <li data-i18n="co.com.3">Noyau complet : Reine, nœuds, écran, Cerveau.</li>
+            <li data-i18n="co.com.2">Sièges illimités. Tes clés restent sur tes machines.</li>
+            <li data-i18n="co.com.3">
+              Noyau complet, jamais bridé : Reine, nœuds, écran, Cerveau.
+            </li>
           </ul>
         </article>
         <article class="edition edition-cloud">
@@ -3930,6 +3960,33 @@
             <li data-i18n="co.cld.2">Tes clients paient chez toi — pas ce dépôt.</li>
             <li data-i18n="co.cld.3">L'horloge qui compte est celle de l'hébergeur.</li>
           </ul>
+        </article>
+        <article class="edition edition-team">
+          <p class="edition-prix">99 €<span data-i18n="co.team.periode">/ mois</span></p>
+          <h3 data-i18n="co.team.t">Team</h3>
+          <ul>
+            <li data-i18n="co.team.1">Rôles fins, quotas par membre.</li>
+            <li data-i18n="co.team.2">Projets d'organisation, sièges illimités.</li>
+            <li data-i18n="co.team.3">100 h d'ouvrières incluses chaque mois.</li>
+          </ul>
+        </article>
+        <article class="edition edition-devis">
+          <p class="edition-prix">
+            <span class="devis-mot" data-i18n="co.ent.prix">Sur devis</span
+            ><span data-i18n="co.ent.periode">au contrat</span>
+          </p>
+          <h3 data-i18n="co.ent.t">Enterprise</h3>
+          <ul>
+            <li data-i18n="co.ent.1">SSO/SAML, audit exportable.</li>
+            <li data-i18n="co.ent.2">Rétention personnalisée.</li>
+            <li data-i18n="co.ent.3">Support prioritaire, SLA.</li>
+          </ul>
+          <a
+            class="btn ghost"
+            href="https://github.com/Micka420-collab/hive/issues/new"
+            data-i18n="co.ent.lien"
+            >Contact</a
+          >
         </article>
         <a class="edition-rush" href="rush/" data-i18n="co.rush"
           >Mission express — à partir de 79 €, sans abonnement</a
@@ -4415,19 +4472,31 @@
           'nav.community': 'Editions',
           'nav.rush': 'Rush',
           'co.kicker': 'Editions',
-          'co.headline': 'Community free. Cloud, on your servers.',
+          'co.headline': 'Community free. Four tiers, one complete core.',
           'co.lede':
-            'Same software. On your machines, it is \u20ac0. If you host for others, you bill \u2014 this repository collects no payment.',
+            'Same software. On your machines, it is \u20ac0, and nothing is taken out. If you host for others, you bill \u2014 this repository collects no payment.',
           'co.com.periode': 'forever',
           'co.com.t': 'Community',
           'co.com.1': 'Open source, MIT, self-hosted.',
-          'co.com.2': 'Your keys and your code stay on your machines.',
-          'co.com.3': 'Full core: Queen, nodes, dashboard, Brain.',
-          'co.cld.periode': '/ month · Queen',
+          'co.com.2': 'Unlimited seats. Your keys stay on your machines.',
+          'co.com.3': 'Full core, never stripped: Queen, nodes, dashboard, Brain.',
+          'co.cld.periode': '/ month \u00b7 Queen',
           'co.cld.t': 'Cloud',
           'co.cld.1': 'The same Queen, on your servers.',
           'co.cld.2': 'Your customers pay you \u2014 not this repository.',
           'co.cld.3': 'The clock that counts is the host\u2019s.',
+          'co.team.periode': '/ month',
+          'co.team.t': 'Team',
+          'co.team.1': 'Fine-grained roles, per-member quotas.',
+          'co.team.2': 'Organisation projects, unlimited seats.',
+          'co.team.3': '100 worker-hours included each month.',
+          'co.ent.prix': 'On request',
+          'co.ent.periode': 'by contract',
+          'co.ent.t': 'Enterprise',
+          'co.ent.1': 'SSO/SAML, exportable audit.',
+          'co.ent.2': 'Custom retention.',
+          'co.ent.3': 'Priority support, SLA.',
+          'co.ent.lien': 'Contact',
           'co.rush': 'Express mission \u2014 from \u20ac79, no subscription',
           'co.cloud.h':
             'This repository collects no payment. To charge customers, you deploy Cloud at your place \u2014 on your servers, not here.',
