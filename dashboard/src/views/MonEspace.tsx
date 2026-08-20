@@ -45,7 +45,7 @@ function enHeures(ms: number): string {
   return h < 10 ? `${h.toFixed(1)} h` : `${Math.round(h)} h`;
 }
 
-const PUCE: Record<Gravite, string> = { critique: '🔴', attention: '🟠', info: '🔵' };
+const PUCE: Record<Gravite, string> = { critique: '●', attention: '◉', info: '○' };
 
 /** Libellé d'un niveau d'autonomie. Le mot brut de la base n'est pas une phrase. */
 const AUTONOMIE: Record<string, { fr: string; en: string }> = {
@@ -313,7 +313,6 @@ function Alertes({
     return (
       <section className="card me-alertes calme">
         <p className="me-rien">
-          ✅{' '}
           {t(
             'Rien ne réclame votre attention : aucun paiement en souffrance, aucun quota au bord, aucune donnée sur le point d’être effacée.',
             'Nothing needs your attention: no payment pending, no quota near its edge, no data about to be erased.',
