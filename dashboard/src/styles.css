@@ -128,7 +128,7 @@ h3 {
 
 .muted-text {
   color: var(--muted);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* ─── Barre supérieure ────────────────────────────────────────────────── */
