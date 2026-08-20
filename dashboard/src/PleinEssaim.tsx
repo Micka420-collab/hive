@@ -301,7 +301,7 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
               <li key={l.signature} className={`essaim-lecon essaim-lecon--${l.portee}`}>
                 <span className="essaim-lecon-portee">
                   {l.portee === 'systemique'
-                    ? t(`⚠ ${l.noeuds} machines`, `⚠ ${l.noeuds} machines`)
+                    ? t(`▲ ${l.noeuds} machines`, `▲ ${l.noeuds} machines`)
                     : l.portee === 'confirmee'
                       ? t(`${l.noeuds} machines`, `${l.noeuds} machines`)
                       : t('1 machine', '1 machine')}

@@ -1662,7 +1662,7 @@ describe('les sentinelles du balayage du soir', () => {
     expect(dom.textContent, 'aucun « null » ne traverse l’écran').not.toContain('doi.org/null');
   });
 
-  it('PLEIN ESSAIM : le ⚠ ne marque que les leçons SYSTÉMIQUES', async () => {
+  it('PLEIN ESSAIM : la marque ▲ ne vise que les leçons SYSTÉMIQUES', async () => {
     // `l.portee === 'systemique'` mutée en `!==` : le ⚠ irait aux leçons
     // vues sur UNE machine (un incident local présenté comme un défaut du
     // code) et la vraie leçon systémique — celle qui dit « ça vient du code,
@@ -1688,12 +1688,12 @@ describe('les sentinelles du balayage du soir', () => {
     const loc = lignes.find((l) => (l.textContent ?? '').includes('panne isolée'));
     expect(
       sys?.querySelector('.essaim-lecon-portee')?.textContent,
-      'la systémique porte le ⚠',
-    ).toContain('⚠');
+      'la systémique porte la marque ▲',
+    ).toContain('▲');
     expect(
       loc?.querySelector('.essaim-lecon-portee')?.textContent,
       'la locale ne l’usurpe pas',
-    ).not.toContain('⚠');
+    ).not.toContain('▲');
   });
 
   it('JOURNAL : le coût s’affiche quand il EXISTE, et se tait sinon', async () => {

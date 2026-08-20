@@ -45,7 +45,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   italiques « empty » retirés, KPI Ruche allégés. Rayon typographique,
   Miellerie / Reine / Santé / Balance / Intendance / Plein Essaim allégés
   du chrome emoji. Wordmark **Hive / Mission Control** ; courses en ◇ ;
-  pastille « connecté » soignée.
+  pastille « connecté » soignée. Leçons systémiques Plein Essaim en ▲
+  (plus de ⚠ décoratif).
 
 ### Fixed
 
