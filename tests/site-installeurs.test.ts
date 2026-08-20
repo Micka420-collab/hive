@@ -32,6 +32,16 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
     }
   });
 
+  it('INSTALLATION.md ne promet plus une Release pour l’empreinte', () => {
+    // Le manifeste vit sur Pages ; une Release signée reste 🔒. Dire « Release /
+    // install.sha256 » laisse croire qu’un tag signé existe déjà.
+    const txt = lire('docs/INSTALLATION.md');
+    expect(txt).toContain('micka420-collab.github.io/hive/install.sha256');
+    expect(txt).toContain('Get-FileHash');
+    expect(txt).toMatch(/Release GitHub signée|signed GitHub Release/i);
+    expect(txt).not.toMatch(/publié avec la Release\s*\/\s*`?site\/install\.sha256/);
+  });
+
   it('install.sh et install.ps1 annoncent l’empreinte dans le source', () => {
     const sh = lire('install.sh');
     expect(sh).toContain('annoncer_empreinte');

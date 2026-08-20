@@ -14,9 +14,11 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 ```
 
 Variante prudente (empreinte avant d’agir — ADR 0002) : télécharger le script,
-comparer le SHA-256 à celui publié avec la Release / `site/install.sha256` sur
-[Pages](https://micka420-collab.github.io/hive/install.sha256), le lire, puis
-l’exécuter. `install.sh` affiche aussi son empreinte quand il tourne comme
+comparer le SHA-256 au manifeste publié sur
+[Pages](https://micka420-collab.github.io/hive/install.sha256) (`install.sh` et
+`install.ps1`), le lire, puis l’exécuter. Une **Release GitHub signée** n’existe
+pas encore (🔒 comptes humains) : Pages garde du pipe aveugle, pas d’un dépôt
+compromis. `install.sh` affiche aussi son empreinte quand il tourne comme
 fichier (hash du contenu via stdin — stable sous Windows/Git Bash).
 
 ```sh
@@ -35,6 +37,12 @@ sh install.sh
 ```powershell
 irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
 ```
+
+Variante prudente Windows : télécharger
+`https://micka420-collab.github.io/hive/install.ps1`, comparer avec
+`Get-FileHash … -Algorithm SHA256` au même
+[manifeste Pages](https://micka420-collab.github.io/hive/install.sha256), lire,
+puis lancer via `-File` (jamais `| iex`).
 
 Le script vérifie Node, récupère Hive dans `~/hive`, installe les dépendances,
 puis passe la main à l'installeur qui vous pose **au plus trois questions**.

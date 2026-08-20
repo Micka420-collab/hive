@@ -11740,3 +11740,11 @@ Pas de rewrite git silencieux, pas de 2ᵉ autonomie. CI verte PR #341.
 
 Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
 `commande-annoncee`).
+
+### 17. Suite du 21 août (nuit) — INSTALLATION.md honnête sur Pages
+
+| fait                                                           | où                       |
+| -------------------------------------------------------------- | ------------------------ |
+| Empreinte = Pages (pas « Release / sha256 ») + Windows prudent | `docs/INSTALLATION.md`   |
+| Garde : ne pas re-promettre une Release pour l’empreinte       | `tests/site-installeurs` |
+| Badges / tableau A → **4450**                                  | README, site, DEFINITION |

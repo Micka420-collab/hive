@@ -18,8 +18,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **🔏 Installeurs sur Pages + empreinte affichée (lot 8, prep).** `pages.yml`
   copie `install.sh` / `install.ps1` vers `site/` et publie `install.sha256`.
-  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc montre la
-  variante télécharger → hasher → lire → exécuter (ADR 0002).
+  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc (README +
+  INSTALLATION) montre la variante télécharger → hasher → lire → exécuter
+  (Pages / `install.sha256`, ADR 0002) — sans promettre une Release signée.
 
 - **💾 Timeline de sauvegardes (code récupérable).** Chaque production réussie
   avec un diff devient une étape (`sauvegardes` latérale, survit à
