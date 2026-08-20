@@ -266,9 +266,17 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
 
       <div className="ry-corps">
         <nav className="ry-arbre" aria-label={t('Fichiers du projet', 'Project files')}>
-          {chargement && <p className="muted-text">{t('Copie du dépôt…', 'Copying repo…')}</p>}
+          {chargement && (
+            <p className="ry-calme">
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Copie du dépôt…', 'Copying repo…')}
+            </p>
+          )}
           {!chargement && !dossiers[''] && !erreur && (
-            <p className="muted-text">{t('Rien à afficher.', 'Nothing to show.')}</p>
+            <p className="ry-calme">
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Rien à afficher.', 'Nothing to show.')}
+            </p>
           )}
           {rendre('', 0)}
         </nav>
@@ -276,7 +284,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
         <section className="ry-lecture">
           {erreur && <p className="ry-erreur">⚠ {erreur}</p>}
           {!erreur && !ouvert && (
-            <p className="muted-text ry-invite">
+            <p className="ry-invite">
+              <span className="marque" aria-hidden="true" />{' '}
               {t(
                 'Choisissez un fichier à gauche pour le lire.',
                 'Pick a file on the left to read it.',

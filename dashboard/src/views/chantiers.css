@@ -1,14 +1,14 @@
 /* Les Chantiers (préfixe ch-).
 
-   La charte du projet tient en une règle : UN SEUL accent, l'ambre. Ici, deux
-   états sortent du gris — réussi et échoué — et ils le font par un LISERÉ à
-   gauche, pas par une couleur de texte. C'est lisible sans distinguer le vert
-   du rouge, ce qui concerne environ un homme sur douze. */
+   Soft-freeze Craft : miel/cire, marque hex, jamais d'italique. La charte tient
+   en une règle — UN SEUL accent, l'ambre. Deux états sortent du gris — réussi
+   et échoué — par un LISERÉ à gauche, pas par une couleur de texte. C'est
+   lisible sans distinguer le vert du rouge. */
 
 .mc-chantiers {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   padding: 16px 20px;
   overflow-y: auto;
 }
@@ -24,35 +24,58 @@
 .ch-tete h2 {
   margin: 0 0 4px;
   font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: -0.02em;
+}
+
+.ch-tete h2 .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .ch-sous {
   margin: 0;
-  color: var(--text-3);
+  color: var(--muted);
   font-size: 0.85rem;
   max-width: 62ch;
   line-height: 1.5;
+  font-style: normal;
 }
 
 .ch-projet {
-  background: var(--bg-2);
-  color: var(--text-1);
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
   padding: 6px 10px;
 }
 
+.ch-projet:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
+}
+
 .ch-bloc {
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-  padding: 14px 16px;
-  background: var(--bg-2);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  background: var(--panel);
+  box-shadow: none;
 }
 
 .ch-bloc h3 {
-  margin: 0 0 12px;
-  font-size: 0.95rem;
-  color: var(--text-2);
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .ch-liste {
@@ -61,7 +84,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .ch-item {
@@ -69,10 +92,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--miel) 45%, var(--border));
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
   flex-wrap: wrap;
+  box-shadow: none;
 }
 
 .ch-nom {
@@ -82,10 +108,17 @@
   min-width: 0;
 }
 
+.ch-nom strong {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
 .ch-nom code {
   font-family: var(--mono);
   font-size: 0.78rem;
-  color: var(--text-3);
+  color: var(--faint);
   /* La commande vient du dépôt : elle peut être longue, et ne doit pas
      pousser le bouton hors de l'écran. */
   overflow: hidden;
@@ -95,14 +128,19 @@
 }
 
 .ch-lancer {
-  background: var(--miel-2);
+  background: color-mix(in srgb, var(--miel) 88%, var(--miel-2));
   color: var(--encre);
   border: none;
-  border-radius: 6px;
-  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.ch-lancer:hover:not(:disabled) {
+  background: var(--miel);
 }
 
 .ch-lancer:disabled {
@@ -111,9 +149,10 @@
 }
 
 .ch-refus {
-  color: var(--text-3);
+  color: var(--muted);
   font-size: 0.8rem;
   text-align: right;
+  font-style: normal;
 }
 
 .ch-vide,
@@ -125,12 +164,30 @@
   font-style: normal;
 }
 
+.ch-vide-ligne {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 14px;
+  text-align: center;
+}
+
+.ch-vide-ligne .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
+}
+
 .mc-chantiers > .ch-vide {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 64px 24px;
+  gap: 12px;
+  padding: 56px 24px;
   max-width: 28rem;
   margin: 0 auto;
   text-align: center;
@@ -145,20 +202,22 @@
 
 .mc-chantiers > .ch-vide p {
   margin: 0;
+  font-style: normal;
 }
 
 .ch-erreur {
-  color: var(--text-1);
+  color: var(--text);
   border-left: 3px solid var(--amber);
   padding-left: 10px;
+  font-style: normal;
 }
 
 .ch-verdict {
-  margin-top: 14px;
-  padding: 10px 12px;
-  border-left: 3px solid var(--border-2);
-  background: rgb(27 23 18 / 4%);
-  border-radius: 0 8px 8px 0;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-left: 3px solid var(--border);
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
 
 /* C'est le LISERÉ qui porte l'état, pas la couleur du texte. */
@@ -172,15 +231,16 @@
 
 .ch-refuse {
   margin: 6px 0 0;
-  color: var(--text-3);
+  color: var(--muted);
   font-size: 0.82rem;
+  font-style: normal;
 }
 
 .ch-sortie {
   margin: 8px 0 0;
   padding: 8px 10px;
-  background: rgb(27 23 18 / 6%);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-2) 80%, transparent);
+  border-radius: var(--r-sm);
   font-family: var(--mono);
   font-size: 0.76rem;
   line-height: 1.45;
@@ -198,22 +258,29 @@
   gap: 8px;
   margin-bottom: 12px;
   font-size: 0.85rem;
-  color: var(--text-2);
+  color: var(--muted);
+  font-style: normal;
 }
 
 .ch-ref input {
-  background: var(--bg-2);
-  color: var(--text-1);
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
   padding: 5px 9px;
   font-family: var(--mono);
   width: 18ch;
 }
 
+.ch-ref input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
+}
+
 .ch-runs {
   list-style: none;
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -226,7 +293,7 @@
   gap: 12px;
   align-items: center;
   padding: 6px 10px;
-  border-left: 3px solid var(--border-2);
+  border-left: 3px solid var(--border);
   font-size: 0.82rem;
 }
 
@@ -239,14 +306,14 @@
 }
 
 .ch-t-attente {
-  border-left-color: var(--text-3);
+  border-left-color: var(--faint);
 }
 
 .ch-run-branche,
 .ch-run-etat {
   font-family: var(--mono);
   font-size: 0.76rem;
-  color: var(--text-3);
+  color: var(--faint);
 }
 
 .ch-run-nom {

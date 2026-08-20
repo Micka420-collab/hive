@@ -163,7 +163,10 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
     <div className="mc-chantiers">
       <header className="ch-tete">
         <div>
-          <h2>{t('Les Chantiers', 'The Works')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('Les Chantiers', 'The Works')}
+          </h2>
           <p className="ch-sous">
             {t(
               'Les travaux que ce dépôt DÉCLARE. La ruche choisit dans cette liste ; elle n’invente pas de commande.',
@@ -192,7 +195,8 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
       <section className="ch-bloc">
         <h3>{t('Sur un nœud', 'On a node')}</h3>
         {chantiers.length === 0 ? (
-          <p className="ch-vide">
+          <p className="ch-vide ch-vide-ligne">
+            <span className="marque" aria-hidden="true" />{' '}
             {t(
               'Ce dépôt ne déclare aucun script. Rien à lancer — et ce n’est pas une erreur.',
               'This repository declares no script. Nothing to run — and that is not an error.',
@@ -256,9 +260,14 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
       <section className="ch-bloc">
         <h3>{t('Sur GitHub', 'On GitHub')}</h3>
         {refusGithub ? (
-          <p className="ch-vide">{refusGithub}</p>
+          <p className="ch-vide ch-vide-ligne">
+            <span className="marque" aria-hidden="true" /> {refusGithub}
+          </p>
         ) : workflows.length === 0 ? (
-          <p className="ch-vide">{t('Aucun workflow déclaré.', 'No workflow declared.')}</p>
+          <p className="ch-vide ch-vide-ligne">
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('Aucun workflow déclaré.', 'No workflow declared.')}
+          </p>
         ) : (
           <>
             <label className="ch-ref">
