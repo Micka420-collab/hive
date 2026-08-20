@@ -11697,5 +11697,6 @@ empreinte est posée sans encaisser ni publier un tag.
 | Mocks Rayon / Ruche (tamis ECONNREFUSED) + empreinte Windows soft | tests UI / `site-installeurs`                  |
 
 Mesure : `tests/retouche-endpoint`, `tests/concierge` (restaurer),
-`tests/autonomie-pulse`, `tests/sauvegardes-endpoint` (prune),
-`tests/bornes-doctrine`. FEATURES FR/EN alignés.
+`tests/autonomie-pulse`, `tests/sauvegardes-endpoint` (prune + projet frais
+par test pour le tamis), `tests/bornes-doctrine`. FEATURES FR/EN alignés.
+CI `a34376c` : empreinte via stdin (Windows), mocks App shell, badges 4432.

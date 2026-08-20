@@ -22,9 +22,13 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
   });
 
   it('install.sh et install.ps1 annoncent l’empreinte dans le source', () => {
-    expect(lire('install.sh')).toContain('annoncer_empreinte');
-    expect(lire('install.sh')).toContain('Empreinte SHA-256');
-    expect(lire('install.sh')).toContain('Tuyau curl|sh');
+    const sh = lire('install.sh');
+    expect(sh).toContain('annoncer_empreinte');
+    expect(sh).toContain('Empreinte SHA-256');
+    expect(sh).toContain('Tuyau curl|sh');
+    // Hasher via stdin : sous Windows, `sha256sum "$0"` préfixait le condensé
+    // de `\\` (chemin). La garde refuse le retour à `"$0"` comme seul argument.
+    expect(sh).toMatch(/sha256sum\s*<\s*"\$0"/);
     expect(lire('install.ps1')).toContain('Get-FileHash');
     expect(lire('install.ps1')).toContain('Empreinte SHA-256');
   });
