@@ -329,21 +329,22 @@ describe('Mission Control montre le vrai tableau de bord', () => {
 
   // Ici vivaient deux gardes qui recoupaient les TREIZE cartes de la section
   // « Mission Control » (une par vue, avec sa touche) contre la nav d'App.tsx.
-  // Le lot D de la consolidation 13→7 a fondu cette section dans « features » et
-  // l'énumération n'a pas suivi : c'était l'inventaire que la refonte coupe —
-  // l'aperçu à onglets MONTRE le tableau de bord, il ne le récite plus.
-  //
-  // Retirer l'énumération retire donc AUSSI son recoupement carte à carte. Ce
-  // qui reste MESURABLE — et qui reste gardé, ci-dessous — est le NOMBRE : la
-  // phrase « 13 vues navigables au clavier » a suivi l'aperçu dans features
-  // (clé `mc.headline` intacte), et son chiffre est toujours confronté à la
-  // source vraie, la nav d'App.tsx. Ajouter une quatorzième vue rend la vitrine
-  // rouge le jour même ; se tromper de touche ne se voit plus ici — le
-  // tableau de bord lui-même l'enseigne, et on ne feint pas d'en prouver plus.
-  it('la phrase « N vues » annonce le vrai compte d’App.tsx', () => {
+  // Le lot D a fondu cette section dans « features ». Le chapeau « 13 vues
+  // navigables au clavier, interface bilingue FR/EN » a ensuite quitté la
+  // vitrine : il se vantait d'un décompte et d'un bilinguisme que le bouton
+  // FR/EN montre déjà. Ce qui reste MESURABLE — et gardé, ci-dessous — est le
+  // NOMBRE sur le badge du héros (`badge.views`), confronté à la nav d'App.tsx.
+  it('le badge « N vues » annonce le vrai compte d’App.tsx', () => {
     const n = nav().length;
     expect(n, 'aucune vue lue dans App.tsx').toBeGreaterThan(5);
-    expect(chiffre(enFrancais('mc.headline')), 'chapeau FR').toBe(n);
-    expect(chiffre(enAnglais('mc.headline')), 'chapeau EN').toBe(n);
+    expect(chiffre(enFrancais('badge.views')), 'badge FR').toBe(n);
+    expect(chiffre(enAnglais('badge.views')), 'badge EN').toBe(n);
+  });
+
+  it('la vitrine ne se vante plus du clavier ni du bilinguisme', () => {
+    expect(vitrine).not.toMatch(/vues navigables au clavier/);
+    expect(vitrine).not.toMatch(/keyboard-navigable views/);
+    expect(vitrine).not.toMatch(/interface bilingue FR\/EN/);
+    expect(vitrine).not.toMatch(/bilingual FR\/EN interface/);
   });
 });

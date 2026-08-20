@@ -380,16 +380,29 @@ describe('site vitrine — le bandeau des agents', () => {
     );
   });
 
-  it('la piste défile en double — sinon la boucle saute', () => {
-    // L'animation translate de −50 % : la seconde moitié doit prendre
-    // exactement la place de la première. Une liste écrite une seule fois
-    // donnerait un saut visible à chaque cycle.
+  it('la piste défile en double DANS UNE SEULE RANGÉE — jamais empilée', () => {
+    // translateX(−50 %) : la seconde copie est à DROITE, dans le même flex
+    // nowrap. Deux copies empilées (flex-wrap) c'est le défaut photographié.
     const piste = /<div class="piste"[\s\S]*?<\/div>/.exec(vitrine)?.[0] ?? '';
+    const tours = [...piste.matchAll(/class="piste-tour"/g)];
+    expect(tours.length, 'il faut deux tours pour une boucle sans saut').toBe(2);
     const noms = [...piste.matchAll(/data-agent="([^"]+)"/g)].map((m) => m[1]);
     expect(noms.length, 'piste vide').toBeGreaterThan(3);
     expect(noms.length % 2, 'la liste n’est pas écrite un nombre pair de fois').toBe(0);
     expect(noms.slice(0, noms.length / 2), 'les deux moitiés diffèrent').toEqual(
       noms.slice(noms.length / 2),
+    );
+    expect(piste, 'Ollama n’est plus annoncé').toMatch(/>Ollama</);
+    expect(vitrine, 'l’agent local n’est plus annoncé').toMatch(/Agent local/);
+    const cadre = /bandeau-agents \.piste-cadre \{([^}]*)\}/.exec(vitrine)?.[1] ?? '';
+    expect(cadre, 'le cadre ne coupe plus le débordement').toMatch(/overflow:\s*hidden/);
+    const pisteCss = /bandeau-agents \.piste \{([^}]*)\}/.exec(vitrine)?.[1] ?? '';
+    expect(pisteCss, 'la piste se replie encore en deux rangées').toMatch(/flex-wrap:\s*nowrap/);
+    expect(vitrine, 'la boucle n’est plus un translateX de −50 %').toMatch(
+      /transform:\s*translateX\(-50%\)/,
+    );
+    expect(vitrine, 'la copie de boucle reste visible sans mouvement').toMatch(
+      /\.piste-tour \+ \.piste-tour \{\s*display:\s*none/,
     );
   });
 
@@ -1357,7 +1370,7 @@ describe('site vitrine — la lisibilité du panneau de l’essaim', () => {
     ...panneau.matchAll(/<g transform="translate\([^)]*\)"[^>]*>([\s\S]*?)<\/g>/g),
   ].map((m) => m[1] ?? '');
   /** Les remplissages sombres employés par les alvéoles occupées. */
-  const SOMBRES = ['#4a3a12', '#33290f', 'var(--encre)'];
+  const SOMBRES = ['#4a3a12', '#33290f', 'var(--encre)', 'var(--gold-2)'];
   /** Les couleurs de texte prévues pour un FOND CLAIR — interdites sur sombre. */
   const CLAIRES = ['var(--text)', 'var(--muted)', 'var(--encre)', 'var(--blue)'];
 
