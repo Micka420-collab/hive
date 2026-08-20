@@ -556,9 +556,12 @@
   min-height: 380px;
 }
 
-.cerveau-vide p {
-  margin: 0;
-  font-size: 0.9rem;
+.cerveau-vide .marque {
+  width: 14px;
+  height: 16px;
+  margin-bottom: 8px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .cerveau-vide-detail {

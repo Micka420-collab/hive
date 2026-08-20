@@ -143,12 +143,18 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
   if (!projet) {
     return (
       <div className="mc-chantiers">
-        <p className="ch-vide">
-          {t(
-            'Aucun projet. Créez-en un pour voir ses chantiers.',
-            'No project. Create one to see its works.',
-          )}
-        </p>
+        <div className="ch-vide">
+          <span className="marque" aria-hidden="true" />
+          <p>
+            {t(
+              'Les chantiers apparaissent avec un projet.',
+              'Works appear once you have a project.',
+            )}
+          </p>
+          <button className="btn primary" type="button" onClick={() => onNavigate('projets')}>
+            {t('Aller aux projets', 'Go to projects')}
+          </button>
+        </div>
       </div>
     );
   }
