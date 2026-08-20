@@ -67,7 +67,9 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
     <div className="mc-view ch-view ch-memoire">
       <section className="card panel ch-mem-panel">
         <header className="panel-head">
-          <h2>🧬 Hive Mind</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> Hive Mind
+          </h2>
           <span className="panel-count">
             {total === null
               ? t('la ruche fouille ses rayons…', 'the hive is searching its honeycombs…')
@@ -78,10 +80,10 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
           </span>
           <div className="drawer-tabs ch-mem-tabs" role="group" aria-label="Sections">
             <button type="button" className="active">
-              {t('🍯 Souvenirs', '🍯 Memories')}
+              {t('Souvenirs', 'Memories')}
             </button>
             <button type="button" onClick={() => setShowOpenAlex(true)}>
-              🧬 OpenAlex
+              OpenAlex
             </button>
           </div>
         </header>

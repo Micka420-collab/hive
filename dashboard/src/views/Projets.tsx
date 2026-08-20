@@ -1884,7 +1884,7 @@ export default function Projets({
         onRejoint={() => setImportTick((n) => n + 1)}
       />
 
-      <QueenBee projects={recents} />
+      {recents.length > 0 && <QueenBee projects={recents} />}
 
       {recents.length === 0 ? (
         <section className="card pj-depart">
