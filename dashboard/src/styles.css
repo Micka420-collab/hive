@@ -459,16 +459,18 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
 
 .panel-head h2 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
+  font-family: var(--titre);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--text);
 }
 
 .panel-count {
@@ -2014,14 +2016,24 @@ h3 {
 
 .ruche-depart h2 {
   color: var(--text);
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1.15;
 }
 
 .ruche-depart p {
   color: var(--muted);
   margin: 0;
-  max-width: 62ch;
+  max-width: 52ch;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.ruche-depart .btn.primary {
+  margin-top: 6px;
+  padding: 10px 18px;
+  font-size: 14px;
 }
 
 /* Un bouton qui se lit comme un lien : dans une ligne de texte, un bouton
