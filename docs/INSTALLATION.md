@@ -17,7 +17,7 @@ Variante prudente (empreinte avant d’agir — ADR 0002) : télécharger le scr
 comparer le SHA-256 à celui publié avec la Release / `site/install.sha256` sur
 [Pages](https://micka420-collab.github.io/hive/install.sha256), le lire, puis
 l’exécuter. `install.sh` affiche aussi son empreinte quand il tourne comme
-fichier.
+fichier (hash du contenu via stdin — stable sous Windows/Git Bash).
 
 ```sh
 curl -fsSLO https://micka420-collab.github.io/hive/install.sh

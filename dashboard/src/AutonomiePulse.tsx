@@ -37,11 +37,12 @@ export function AutonomiePulse({
   onNavigate: (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => void;
 }) {
   const t = useT();
-  const [lignes, setLignes] = useState<Ligne[]>([]);
+  const [lignes, setLignes] = useState<Ligne[] | null>(null);
 
   useEffect(() => {
     let annulé = false;
     const cibles = projets.slice(0, 4);
+    setLignes(null);
     void Promise.all(
       cibles.map(async (p) => {
         try {
@@ -66,6 +67,9 @@ export function AutonomiePulse({
 
   if (projets.length === 0) return null;
 
+  const affiche =
+    lignes ?? projets.slice(0, 4).map((p) => ({ projectId: p.id, nom: p.name, etat: null }));
+
   return (
     <section className="autonomie-pulse" aria-label={t('Autonomie', 'Autonomy')}>
       <header className="autonomie-pulse-tete">
@@ -75,7 +79,8 @@ export function AutonomiePulse({
         </p>
       </header>
       <ul className="autonomie-pulse-liste">
-        {lignes.map((l) => {
+        {affiche.map((l) => {
+          const charge = lignes === null;
           const niv = l.etat?.niveau ?? 'off';
           const pause = l.etat?.runner?.enPause;
           const runnerOff = l.etat?.runner && l.etat.runner.mode !== 'on';
@@ -84,11 +89,23 @@ export function AutonomiePulse({
             <li key={l.projectId}>
               <button
                 type="button"
-                className={`autonomie-pulse-item autonomie-pulse-item--${niv}`}
+                className={`autonomie-pulse-item autonomie-pulse-item--${niv}${charge ? ' autonomie-pulse-item--charge' : ''}`}
                 onClick={() => onNavigate('projets', l.projectId)}
+                disabled={charge}
               >
                 <strong className="autonomie-pulse-nom">{l.nom}</strong>
-                <span className="autonomie-pulse-niv">{libelleNiveau(niv, t)}</span>
+                <span className="autonomie-pulse-niv">
+                  {charge
+                    ? t('…', '…')
+                    : l.erreur
+                      ? t('indispo', 'unavailable')
+                      : libelleNiveau(niv, t)}
+                </span>
+                {l.erreur && !charge && (
+                  <span className="autonomie-pulse-flag autonomie-pulse-flag--halte">
+                    {t('hors ligne', 'offline')}
+                  </span>
+                )}
                 {pause && <span className="autonomie-pulse-flag">{t('en pause', 'paused')}</span>}
                 {runnerOff && !pause && (
                   <span className="autonomie-pulse-flag">{t('runner off', 'runner off')}</span>

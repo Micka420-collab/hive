@@ -110,4 +110,12 @@ describe('AutonomiePulse', () => {
     });
     expect(onNavigate).toHaveBeenCalledWith('projets', 'p1');
   });
+
+  it('signale hors ligne quand l’essaim refuse de répondre', async () => {
+    fetchEssaim.mockRejectedValue(new Error('réseau coupé'));
+    const { el } = await monter([{ id: 'p1', name: 'Gamma' }]);
+    expect(el.textContent).toContain('Gamma');
+    expect(el.textContent).toContain('indispo');
+    expect(el.textContent).toContain('hors ligne');
+  });
 });
