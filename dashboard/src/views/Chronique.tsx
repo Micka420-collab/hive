@@ -27,15 +27,15 @@ type Family =
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
 const FAMILIES: { id: Family; fr: string; en: string }[] = [
-  { id: 'taches', fr: '🐝 Tâches', en: '🐝 Tasks' },
-  { id: 'noeuds', fr: '🖥️ Nœuds', en: '🖥️ Nodes' },
-  { id: 'courses', fr: '⚔ Courses', en: '⚔ Races' },
-  { id: 'merge', fr: '🍯 Merge', en: '🍯 Merge' },
-  { id: 'conflits', fr: '🛡️ Conflits', en: '🛡️ Conflicts' },
-  { id: 'memoire', fr: '🧬 Mémoire', en: '🧬 Memory' },
-  { id: 'instinct', fr: '🐜 Instinct', en: '🐜 Instinct' },
-  { id: 'balance', fr: '🧮 Balance', en: '🧮 Balance' },
-  { id: 'autres', fr: '• Autres', en: '• Other' },
+  { id: 'taches', fr: 'Tâches', en: 'Tasks' },
+  { id: 'noeuds', fr: 'Nœuds', en: 'Nodes' },
+  { id: 'courses', fr: 'Courses', en: 'Races' },
+  { id: 'merge', fr: 'Merge', en: 'Merge' },
+  { id: 'conflits', fr: 'Conflits', en: 'Conflicts' },
+  { id: 'memoire', fr: 'Mémoire', en: 'Memory' },
+  { id: 'instinct', fr: 'Instinct', en: 'Instinct' },
+  { id: 'balance', fr: 'Balance', en: 'Balance' },
+  { id: 'autres', fr: 'Autres', en: 'Other' },
 ];
 
 /**
