@@ -1,8 +1,9 @@
 // Timeline de sauvegardes — étapes auto à insertResult + API HTTP (compte).
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -93,6 +94,15 @@ describe('HiveStore — sauvegardes d’étape', () => {
     expect(store.listSauvegardes(a.id).length + store.listSauvegardes(b.id).length).toBe(2);
     expect(store.pruneSauvegardes(2)).toBe(0);
     store.close();
+
+    // La constante de rétention doit être celle passée au tick — pas un magique
+    // local qui laisserait l’élagueur écrit et le plafond réel désalignés.
+    const serveur = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/orchestrator/server.ts'),
+      'utf8',
+    );
+    expect(serveur).toMatch(/store\.pruneSauvegardes\(\s*SAUVEGARDES_RETENTION\s*\)/);
+    expect(serveur).toMatch(/export const SAUVEGARDES_RETENTION\s*=\s*5_000/);
   });
 });
 
