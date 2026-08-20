@@ -19,19 +19,12 @@
 
 ---
 
-Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les
-distribue aux ordinateurs de votre équipe, et vous montre chaque résultat **à
-valider**. Rien n'est fusionné sans votre accord — **votre code et vos clés
-restent sur vos machines.**
+**Faites travailler plusieurs IA sur votre projet, en même temps — sur vos machines.**
 
-Sous le capot : une **Reine** centrale orchestre, des **nœuds** exécutent leurs
-agents de codage dans des espaces de travail isolés. Le contrôle est centralisé,
-l'exécution ne l'est pas.
-
-Ce que Hive cherche à résoudre n'est pas « faire écrire du code à une IA » —
-c'est **faire tenir une équipe d'IA sur un projet pendant des mois** sans
-qu'elle dérive, se répète, ou réapprenne au sixième mois ce qu'elle avait
-compris au deuxième.
+Vous décrivez ce que vous voulez construire. Hive découpe le travail, le
+distribue aux ordinateurs de l'équipe, et s'arrête devant vous à chaque
+résultat. Rien n'est fusionné sans votre accord. **Le code et les clés restent
+chez vous.**
 
 ```
                           ┌──────────────────────────────┐
@@ -55,7 +48,7 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
 </p>
 <p align="center">
-  <img src="docs/images/vitrine-editions.png" width="840" alt="Vitrine Hive — Community 0 € et Cloud 49 €, deux cartes égales.">
+  <img src="docs/images/vitrine-editions.png" width="840" alt="Vitrine Hive — Community, Cloud, Team, Enterprise : quatre paliers, un cœur complet.">
 </p>
 <p align="center">
   <img src="docs/images/dashboard-ruche.png" width="840" alt="Tableau de bord — vue Ruche vide, ruche prête, un projet à démarrer.">
@@ -66,19 +59,13 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 
 ## 🔁 Comment ça marche
 
-Trois étapes, et vous gardez la main.
-
-1. **Vous décrivez le projet.** Quelques phrases suffisent. Hive vous propose
-   une liste de tâches ordonnées — vous la corrigez avant de lancer.
+1. **Vous décrivez le projet.** Hive propose une liste de tâches — vous la
+   corrigez avant de lancer.
 2. **Les IA travaillent en parallèle.** Chaque tâche part sur l'ordinateur d'un
-   membre, qui fait tourner son IA dans un dossier isolé. Vous voyez
-   l'avancement en direct.
-3. **Vous validez, puis ça fusionne.** Chaque résultat s'arrête devant vous.
-   Vous lisez, vous validez ou vous refusez. Rien ne passe sans votre accord.
+   membre, dans un dossier isolé. L'avancement s'affiche en direct.
+3. **Vous validez, puis ça fusionne.** Rien ne passe sans votre accord.
 
 ## ⚡ Installation
-
-Sur une machine où il n'y a encore rien :
 
 ```bash
 # Linux · macOS
@@ -88,30 +75,29 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
 ```
 
-Le script vérifie Node, récupère Hive, installe les dépendances et pose **au
-plus trois questions**. Il n'utilise **jamais `sudo`**, n'installe pas Node à
-votre place, et n'écrit rien hors de son dossier — `--dry-run` le montre sans
-rien créer.
+Le script vérifie Node (≥ 24), récupère Hive, installe les dépendances et pose
+**au plus trois questions**. Jamais de `sudo`, rien hors de son dossier —
+`--dry-run` montre tout sans rien créer.
 
-Depuis un dépôt déjà cloné : `npm run setup` puis `npm run ruche`. Conteneur
-et Cloud : **[docs/CLOUD.md](docs/CLOUD.md)**. Bureau de recette :
-**[docs/ATELIER.md](docs/ATELIER.md)**. Détail d'install :
+Déjà cloné : `npm run setup` puis `npm run ruche`. Conteneur et Cloud :
+**[docs/CLOUD.md](docs/CLOUD.md)**. Bureau de recette :
+**[docs/ATELIER.md](docs/ATELIER.md)**. Détail :
 **[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
 
-> **Depuis une archive ZIP de GitHub**, il manque l'étape que le clone fait pour
-> vous : ouvrez un terminal dans le dossier décompressé et lancez
-> `npm install --no-fund --no-audit` **une fois**. Sans ça, `npm run ruche` et
-> `npm run cli` s'arrêtent — mais ils vous le disent maintenant, avec la
-> commande à taper. C'est une trace d'utilisateur réel qui l'a obtenu :
-> auparavant, ils mouraient sur `Cannot find package 'tsx'`.
+## 🎚️ Éditions
 
-> **Node ≥ 24 est exigé**, et c'est pour retirer une panne, pas pour être à la
-> mode : sous Node 20, `better-sqlite3` n'a pas de binaire prébuilt et doit se
-> **compiler**. Sur une machine Windows sans outillage C++ la compilation
-> échoue — **et `npm install` réussit quand même**, parce que la dépendance est
-> optionnelle. On obtient une installation « verte » et un `hive start` qui
-> meurt sur `ERR_MODULE_NOT_FOUND`. Les deux comportements ont été mesurés côte
-> à côte dans notre CI, sur le même commit.
+Un seul logiciel, quatre paliers. **Le cœur n'est jamais bridé** pour vendre
+le palier au-dessus. Ce dépôt n'encaisse rien : l'opérateur Cloud facture chez
+lui.
+
+| Palier         | Pour qui         | Prix          | Ce qu'il ouvre                                                              |
+| -------------- | ---------------- | ------------- | --------------------------------------------------------------------------- |
+| **Community**  | Chez vous        | **0 €**       | Le noyau complet : orchestration, nœuds, sièges illimités.                  |
+| **Cloud**      | Hébergé par vous | dès **49 €**  | La même Queen sur vos serveurs, facturée à l'horloge de l'hébergeur.        |
+| **Team**       | Une équipe       | **99 €/mois** | Rôles fins, quotas par membre, projets d'organisation — cloud ou self-host. |
+| **Enterprise** | Au contrat       | **sur devis** | SSO/SAML, audit exportable, rétention, SLA. Aucun prix dans le code.        |
+
+Grille et règles : **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**.
 
 ## 🚀 Démarrage rapide
 
@@ -123,87 +109,24 @@ npm run ruche
 
 Ouvrez **http://localhost:7777**. Un jeton, un nœud local, l'écran.
 
-Pour une ruche **simulée** (aucun agent réel, 7 tâches de démo) :
+Démo simulée (aucun agent réel, 7 tâches) : `npm install` puis `npm run demo`.
 
-```bash
-npm install
-npm run demo
-```
-
-**Rejoindre la ruche de quelqu'un d'autre** tient en une ligne, sans cloner :
+Rejoindre la ruche de quelqu'un d'autre, sans cloner :
 
 ```bash
 npx github:Micka420-collab/hive join hive2_votre-billet
 ```
 
-## 🧠 Le Cerveau — ce qui permet de durer
+## 🧠 Le Cerveau
 
-Une ruche qui travaille des mois referme une boucle : sa production
-d'aujourd'hui devient son contexte de demain. C'est ce qui fait dériver les
-projets longs, et c'est le problème que Hive traite en premier.
+Une ruche qui dure des mois ne peut pas se contenter des logs : elle a besoin
+des **règles** qu'ils ont produites. Le Cerveau range le savoir par genre
+(invariant, leçon, décision, carte, épisode), refuse de tronquer un invariant,
+et n'élague que les épisodes. Les notes vivent en markdown versionnable.
+Détail : **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**. Le journal
+tenu à la main : **[docs/ERREURS.md](docs/ERREURS.md)**.
 
-**La mémoire épisodique ne suffit pas.** Garder « la tâche 47 a réussi, voici
-ses logs » produit une masse qui grossit sans fin, où le bruit croît plus vite
-que le signal, et qui ne dit jamais _ce qu'il faut faire_. Un agent qui reprend
-un projet au troisième mois n'a pas besoin des mille épisodes : il a besoin des
-**vingt règles** qu'ils ont produites.
-
-Le Cerveau range donc le savoir par **genre**, et l'ordre est une priorité :
-
-| Genre         | Ce que c'est                                                   | S'élague ? |
-| ------------- | -------------------------------------------------------------- | ---------- |
-| **invariant** | Ce qui doit rester vrai toujours. Transmis à **chaque** tâche. | jamais     |
-| **leçon**     | Ce qu'une erreur a appris, **avec la règle** qui l'empêche.    | jamais     |
-| **décision**  | Un choix, ses alternatives écartées, et le pourquoi.           | jamais     |
-| **carte**     | Une porte d'entrée : par où commencer.                         | jamais     |
-| **épisode**   | Une observation brute. Matière première.                       | **oui**    |
-
-**Et la ruche l'alimente elle-même.** Chaque échec pris en compte devient un
-épisode : la panne est réduite à sa signature, et la même panne **incrémente une
-seule note** plutôt que d'en semer cinquante. Quand un motif atteint trois
-récurrences, Hive **propose** la consolidation — elle ne rédige jamais la règle.
-Écrire une règle demande de comprendre _pourquoi_, et une règle fausse coûte
-plus cher que pas de règle du tout : elle est **suivie**, et transmise à chaque
-tâche suivante. La ruche accumule la matière ; l'humain écrit la loi.
-
-Quatre mécanismes le font fonctionner :
-
-- **La consolidation.** Un épisode qui se répète **trois fois** devient une
-  leçon portant une règle. Une fois est un accident ; deux fois est une
-  coïncidence — et c'est le seuil qui fabrique le plus de règles fausses, ce
-  qui coûte plus cher que pas de règle du tout, parce qu'une règle est
-  _suivie_.
-- **Le budget de contexte.** Les invariants passent **toujours**, avant tout le
-  reste. S'ils ne tiennent pas dans le budget, Hive **refuse** au lieu de
-  tronquer : un contexte amputé d'une contrainte de sûreté mais qui a l'air
-  complet est pire qu'une erreur, parce que personne ne va vérifier. Ce qui
-  n'entre pas est **listé**, jamais jeté en silence.
-- **L'élagage par l'usage.** Seuls les épisodes partent, et sur la date de
-  **dernier service** plutôt que d'âge : un épisode ancien mais relu la semaine
-  dernière vaut mieux qu'un épisode d'hier que personne n'a ouvert.
-- **Le savoir est une donnée, jamais une instruction.** Les notes sont écrites
-  par des agents. Injectées telles quelles, elles seraient une injection de
-  prompt à retardement — d'autant plus efficace qu'elle vient d'une source que
-  la ruche croit sienne. Tout passe donc par un bloc de données délimité.
-
-**Le cerveau vit en fichiers markdown** — en-tête YAML, liens `[[wikilink]]`,
-directement ouvrables dans Obsidian. Ce n'est pas cosmétique : un savoir en
-fichiers **se versionne** (donc se relit en diff, se révise en revue, et se
-**revient en arrière** — `git revert` est le seul mécanisme d'oubli qui ait
-jamais marché), **se lit sans la ruche**, et **s'édite à la main**. Tout index
-posé par-dessus est un cache reconstructible ; la source de vérité est le
-dossier.
-
-> La preuve que la méthode marche est dans ce dépôt : **[docs/ERREURS.md](docs/ERREURS.md)**
-> est exactement ça, tenu à la main depuis des semaines — organisé par leçon et
-> non par chronologie, chaque entrée portant sa règle. Il a attrapé des
-> régressions réelles, dont une par une règle écrite au lot précédent. Le
-> Cerveau **mécanise une pratique éprouvée**, il n'invente pas une théorie.
-
-## 🎚️ Niveaux d'autonomie
-
-L'autonomie n'est pas un interrupteur mais une échelle, et elle se change en une
-commande :
+## 🎚️ Autonomie
 
 | Niveau     | Ce que la ruche fait                                       |
 | ---------- | ---------------------------------------------------------- |
@@ -212,24 +135,14 @@ commande :
 | `gouverne` | Elle agit, mais **toute intégration passe par un humain**. |
 | `plein`    | Elle livre et fusionne — dépôt explicitement inscrit.      |
 
-Ça se change en une commande, et la commande **dit ce qu'elle implique avant
-de le faire** :
-
 ```bash
 npm run cli -- mode                      # les quatre modes, et où en est chaque projet
 npm run cli -- mode gouverne             # annonce ce que ça élargit, n'écrit rien
 npm run cli -- mode gouverne <projet> --oui
 ```
 
-**Seule la montée se confirme.** Redescendre retire des droits à la ruche —
-c'est toujours sûr, et demander « êtes-vous sûr ? » pour reprendre la main est
-le meilleur moyen d'apprendre à taper « oui » sans lire, donc de rendre la
-confirmation inutile le jour où elle compte.
-
-**Deux interrupteurs en série**, et c'est délibéré : le _niveau_ est choisi par
-l'utilisateur, `HIVE_RUNNER=off|on` par l'hôte qui paie le temps-machine
-(défaut : `off`). Personne ne déclenche seul de la dépense sur la machine d'un
-autre. Le gros bouton rouge arrête **avant** l'effet, jamais après.
+Seule la montée se confirme. `HIVE_RUNNER=off|on` (défaut `off`) est le
+commutateur de l'hôte qui paie le temps-machine.
 
 ## 🧩 Agents et modèles
 
@@ -244,29 +157,10 @@ Toute IA de codage se branche via l'interface `AgentAdapter` :
 | `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                          |
 | `shell`        | **Simulé** — aucun processus lancé, les diffs sont faux. |
 
-**Le nœud détecte ce qui est installé sur votre machine et s'en sert** : rien à
-régler. Il n'emploie `shell` que s'il ne trouve aucun agent — et il le dit
-alors au démarrage, parce qu'un simulateur silencieux est un mensonge à
-retardement. `HIVE_AGENT` force le choix si vous en voulez un autre.
-
-**Votre abonnement suffit** : le nœud lance le binaire `claude`, qui
-s'authentifie tout seul. Aucune clé d'API, d'Anthropic ou d'ailleurs, n'est
-requise pour faire travailler la ruche — voir
+Le nœud **détecte ce qui est installé** et s'en sert. Il n'emploie `shell` que
+s'il ne trouve aucun agent — et il le dit. `HIVE_AGENT` force le choix.
+Votre abonnement Claude suffit, sans clé d'API :
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
-
-**L'Aiguillage appris** choisit, parmi les modèles qu'un nœud sait faire tourner,
-celui qui a fait le mieux sur le genre de la tâche (idéation, correction, test…),
-et il n'arrête jamais d'essayer les autres. Déclarez les modèles de votre nœud
-avec `HIVE_MODELES` (liste séparée par des virgules, ex.
-`HIVE_MODELES=claude-opus-5,claude-fable-5`) : la ruche teste, retient le meilleur
-par genre, et réutilise. Absent, rien ne change — le nœud est ordonnancé comme
-avant. Le nom du modèle voyage en clair (ce n'est pas un secret) et part en
-argument `--model` au binaire.
-
-Le **polyéthisme** confie à chaque ouvrière le travail que son expérience
-permet, et le **Conseil des Éclaireuses** fait vérifier une direction par
-plusieurs agents avant de s'y engager — une danse que personne ne reprend
-s'éteint.
 
 ## 🔒 Sécurité
 
@@ -277,21 +171,10 @@ s'éteint.
 - **Bac à sable par tâche** — cwd dédié, environnement épuré, délai dur, sortie plafonnée.
 - **Jamais de fusion sans revue humaine.**
 
-> **Ce que le bac à sable fait — et ce qu'il ne fait pas.** Avec **podman**,
-> **docker** ou **bubblewrap** installé, l'agent ne voit que le répertoire de sa
-> tâche : ni votre `HOME`, ni vos clés SSH, ni vos autres projets. **Le réseau
-> reste ouvert**, et c'est délibéré — un agent de codage doit joindre l'API de son
-> modèle. L'isolement l'empêche de _lire_ votre machine, pas d'_envoyer_ ce qu'il
-> a lu du dépôt.
->
-> **Sans moteur de conteneurs**, il ne reste qu'une sandbox de processus : cwd
-> dédié et environnement épuré, mais **le disque entier** reste lisible sous votre
-> utilisateur. Dans ce cas, n'ouvrez votre ruche qu'à des **membres de confiance**
-> — ou posez `HIVE_ISOLEMENT=exige`, et le nœud **refusera de travailler** faute de
-> bac à sable, plutôt que de travailler à découvert.
-
-Le détail — et les autres limites assumées, écrites plutôt que tues — est dans
-**[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**.
+Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoire
+de sa tâche. **Le réseau reste ouvert** : un agent de codage doit joindre l'API
+de son modèle. Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud
+refusera de travailler à découvert.
 
 ## 🛠️ Commandes
 
@@ -309,24 +192,6 @@ Le détail — et les autres limites assumées, écrites plutôt que tues — es
 | `npm run lint`              | ESLint + Prettier — zéro erreur exigé                                        |
 | `npm run loupe`             | **La loupe** — le code neuf est-il défendu par ses tests ?                   |
 
-### La loupe
-
-`typecheck`, `lint`, `test` et `build` répondent tous à « est-ce que ça
-marche ? ». Aucun ne répond à celle qui compte au moment de fusionner :
-
-> **le code que je viens d'écrire est-il défendu par mes propres tests ?**
-
-La loupe prend les lignes que la branche **ajoute**, en tire des mutations sûres
-(`&&`→`||`, `===`→`!==`…) et vérifie que la suite **rougit** sur chacune. Un
-mutant qui survit désigne du code neuf que rien ne défend — et il faut alors
-choisir : écrire le test manquant, ou constater par écrit que le mutant est
-équivalent. Jamais l'ignorer.
-
-Elle vient **après** la barrière, elle **échantillonne** (et annonce ce qu'elle
-a laissé de côté), et elle ne mute que des opérateurs. C'est dit ici parce
-qu'un outil de vérification qui exagère sa portée ment dans le sens rassurant,
-le pire des deux.
-
 ## 📚 Documentation
 
 | Fichier                                                      | Ce qu'on y trouve                                        |
@@ -337,25 +202,17 @@ le pire des deux.
 | **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Tourner seul sous Windows avec son abonnement Claude     |
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
+| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | The same, in English                                     |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |
 | **[CHANGELOG.md](CHANGELOG.md)**                             | Ce qui a changé, version par version                     |
 
-**[docs/ETAPES.md](docs/ETAPES.md)** mérite un mot : il tient l'état honnête du
-projet, y compris ce qui **n'est pas** tenu. Une ligne n'y passe au vert que si
-quelque chose la vérifie — un test, une CI, une mesure. « Le code existe » n'y
-suffit pas.
-
 ## 🤝 Contribuer
 
-Les règles du dépôt tiennent en peu de lignes, et elles ne sont pas
-négociables : **tout ce qui s'accumule ship sa borne d'élagage dans le même
-commit** ; **aucune donnée non fiable n'entre dans un prompt hors d'un bloc de
-données** ; **la plateforme est un paramètre, jamais `process.platform` lu en
-ligne** ; et **une suspicion se prouve par mutation avant qu'on écrive le
-test** — un test qui ne peut pas rougir n'est pas de la couverture, c'est du
-décor.
+**Tout ce qui s'accumule ship sa borne d'élagage dans le même commit.** Aucune
+donnée non fiable n'entre dans un prompt hors d'un bloc de données. La
+plateforme est un paramètre, jamais `process.platform` lu en ligne.
 
 **[Proposer un projet à la ruche](https://github.com/Micka420-collab/hive/issues/new?template=proposer-un-projet.yml)** ·
 [voir les projets proposés](https://github.com/Micka420-collab/hive/issues?q=is%3Aissue+label%3A%22projet+propos%C3%A9%22)

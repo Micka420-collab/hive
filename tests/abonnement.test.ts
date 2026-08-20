@@ -142,6 +142,44 @@ describe('abonnements — les droits, fermés par défaut', () => {
   });
 });
 
+describe('abonnements — Team et Enterprise', () => {
+  it('Team inclut ses heures et son hébergement', () => {
+    const a = abo({ plan: 'team', etat: 'actif' });
+    const d = droits(a, NOW);
+    expect(d.actif).toBe(true);
+    expect(d.heures).toBe(100);
+    expect(hebergement(a, NOW).actif).toBe(true);
+  });
+
+  it('Team est mensuel et à prix simple — 99 €', () => {
+    const p = planParCle('team');
+    expect(p?.periode).toBe('mois');
+    expect(p?.prixCentimes).toBe(9_900);
+  });
+
+  it('Enterprise n’affiche AUCUN prix — sur devis veut dire zéro centime ici', () => {
+    // Un montant dans la grille finirait sur une page de vente ; le
+    // rapprochement Enterprise se fait au contrat, pas dans ce tableau.
+    expect(planParCle('enterprise')?.prixCentimes).toBe(0);
+  });
+
+  it('Enterprise ne tire pas ses heures de la grille — elles viennent du contrat', () => {
+    // Même sémantique que la Queen : heures à 0, le plafond est posé à la
+    // main dans `budgets`, et `hebergement()` porte le droit observable.
+    const a = abo({ plan: 'enterprise', etat: 'actif' });
+    expect(droits(a, NOW).actif).toBe(false);
+    expect(hebergement(a, NOW).actif).toBe(true);
+  });
+
+  it('Team et Enterprise suivent les mêmes règles d’état que tout le monde', () => {
+    // Pas de régime de faveur : une période échue coupe, une annulation coupe.
+    for (const plan of ['team', 'enterprise']) {
+      expect(hebergement(abo({ plan, etat: 'actif', finPeriode: NOW - 1 }), NOW).actif).toBe(false);
+      expect(hebergement(abo({ plan, etat: 'annule' }), NOW).actif).toBe(false);
+    }
+  });
+});
+
 describe('abonnements — les transitions', () => {
   const ev = (p: Partial<EvenementAbonnement> = {}): EvenementAbonnement => ({
     type: 'abonnement.actif',
