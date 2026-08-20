@@ -231,8 +231,8 @@ export function NodesPanel({
         {nodes.length === 0 && (
           <li className="empty">
             {t(
-              'Aucun nœud n’a rejoint la ruche. Cliquez « Inviter un ami » pour en connecter un.',
-              'No node has joined the hive yet. Click “Invite a friend” to connect one.',
+              'Aucun nœud pour l’instant. Lancez un nœud sur cette machine, ou invitez un ami quand vous voulez.',
+              'No nodes yet. Start a node on this machine, or invite a friend when you want.',
             )}
           </li>
         )}
