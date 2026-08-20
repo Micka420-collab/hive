@@ -221,9 +221,7 @@ export default function Chronique({ events }: ViewProps) {
         <section className="card ch-replay ch-past" aria-label="Time-Lapse">
           <div className="ch-banner">
             <span>
-              <span className="ch-banner-icon" aria-hidden="true">
-                ⏪
-              </span>{' '}
+              <span className="ch-banner-icon marque" aria-hidden="true" />{' '}
               {t('vous regardez le passé', 'you are watching the past')}
             </span>
             <div className="ch-banner-actions">
@@ -342,7 +340,7 @@ export default function Chronique({ events }: ViewProps) {
             </span>
             {!inReplay && (
               <button className="btn" onClick={enterReplay} disabled={loadingReplay}>
-                {loadingReplay ? t('Chargement…', 'Loading…') : '⏪ Time-Lapse'}
+                {loadingReplay ? t('Chargement…', 'Loading…') : t('Time-Lapse', 'Time-Lapse')}
               </button>
             )}
           </div>
