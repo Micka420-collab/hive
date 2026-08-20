@@ -205,26 +205,29 @@ h3 {
 }
 
 .tile {
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 8px 14px;
-  min-width: 96px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 104px;
+  box-shadow: var(--shadow-sm);
 }
 
 .tile.accent {
-  border-color: var(--miel-2);
-  background: var(--panel);
+  border-color: color-mix(in srgb, var(--miel) 40%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, var(--panel));
 }
 
 .tile.danger {
-  border-color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--border));
 }
 
 .tile-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--gold);
+  font-family: var(--titre);
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
   line-height: 1.1;
 }
 
@@ -235,9 +238,12 @@ h3 {
 }
 
 .tile-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11.5px;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  font-weight: 500;
+  color: var(--muted);
+}
   color: var(--muted);
   margin-top: 2px;
 }
