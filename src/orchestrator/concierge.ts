@@ -520,6 +520,46 @@ function ms(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`;
 }
 
+/** Lignes multi-agents / Plein Essaim — lecture seule, état réel uniquement. */
+function lignesEssaimVivant(ctx: ConciergeContext, lang: Lang): string[] {
+  const out: string[] = [];
+  const enCours = ctx.enCours ?? [];
+  if (enCours.length > 0) {
+    const detail = enCours
+      .slice(0, 5)
+      .map((t) => {
+        const ou = t.nodeName ? clean(t.nodeName) : t.nodeId ? t.nodeId.slice(0, 8) : '—';
+        return lang === 'fr'
+          ? `« ${clean(t.title)} » (${t.status}) sur ${ou}`
+          : `“${clean(t.title)}” (${t.status}) on ${ou}`;
+      })
+      .join(lang === 'fr' ? ' · ' : ' · ');
+    out.push(
+      lang === 'fr'
+        ? `En cours : ${enCours.length} tâche(s) — ${detail}`
+        : `In flight: ${enCours.length} task(s) — ${detail}`,
+    );
+  }
+  const sous = ctx.sousAgents ?? [];
+  if (sous.length > 0) {
+    const agents = sous
+      .flatMap((s) => s.agents)
+      .slice(0, 6)
+      .map((a) => `${clean(a.name, 40)} [${a.status}]`)
+      .join(', ');
+    out.push(lang === 'fr' ? `Sous-agents vus : ${agents}` : `Sub-agents seen: ${agents}`);
+  }
+  if (ctx.essaim) {
+    const e = ctx.essaim;
+    out.push(
+      lang === 'fr'
+        ? `Plein Essaim : niveau « ${e.niveau} », pas « ${e.pas} »${e.enPause ? ' (en pause)' : ''} · dérive ${e.derive}`
+        : `Full Swarm: level “${e.niveau}”, step “${e.pas}”${e.enPause ? ' (paused)' : ''} · drift ${e.derive}`,
+    );
+  }
+  return out;
+}
+
 function progressReply(ctx: ConciergeContext, lang: Lang): string {
   if (ctx.reports.length === 0) {
     return lang === 'fr'
@@ -549,7 +589,7 @@ function progressReply(ctx: ConciergeContext, lang: Lang): string {
     lang === 'fr'
       ? `🐝 ${ctx.pulse.activeNodes} nœud(s) actif(s) · taux de succès global ${pct(ctx.pulse.successRate)}`
       : `🐝 ${ctx.pulse.activeNodes} active node(s) · overall success rate ${pct(ctx.pulse.successRate)}`;
-  return [...lines, nodesLine].join('\n');
+  return [...lines, nodesLine, ...lignesEssaimVivant(ctx, lang)].join('\n');
 }
 
 function recentReply(ctx: ConciergeContext, lang: Lang): string {
@@ -610,7 +650,7 @@ function nodesReply(ctx: ConciergeContext, lang: Lang): string {
     lang === 'fr'
       ? `🍯 Classement des ouvrières (${ctx.waggle.totalTasksDone} tâche(s) butinées) :`
       : `🍯 Worker leaderboard (${ctx.waggle.totalTasksDone} task(s) gathered):`;
-  return [head, ...lines].join('\n');
+  return [head, ...lines, ...lignesEssaimVivant(ctx, lang)].join('\n');
 }
 
 function racesReply(ctx: ConciergeContext, lang: Lang): string {
