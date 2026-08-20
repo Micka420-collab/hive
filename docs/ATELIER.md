@@ -21,11 +21,11 @@ et on le dit.
 
 ## Trois canaux
 
-| Canal | Port (hôte, **127.0.0.1** seulement) | Rôle |
-| ----- | ------------------------------------ | ---- |
-| Visuel | 6080 | noVNC — l'écran |
-| Web | 9222 | Chrome DevTools Protocol — DOM, clics, captures |
-| Système | 8765 | démon d'outils — `python3`, `node`, LibreOffice, Tesseract |
+| Canal   | Port (hôte, **127.0.0.1** seulement) | Rôle                                                       |
+| ------- | ------------------------------------ | ---------------------------------------------------------- |
+| Visuel  | 6080                                 | noVNC — l'écran                                            |
+| Web     | 9222                                 | Chrome DevTools Protocol — DOM, clics, captures            |
+| Système | 8765                                 | démon d'outils — `python3`, `node`, LibreOffice, Tesseract |
 
 Le CDP écoute dans le conteneur ; compose **publie** 127.0.0.1, pas 0.0.0.0.
 

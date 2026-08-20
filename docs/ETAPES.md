@@ -11577,3 +11577,73 @@ Restauré PAR COPIE après chaque tour, arbre vérifié propre.
 Delta du terrain : `Reine.tsx` passe de « jamais balayée » à **24/24 balayé,
 17 nues fermées**. Restent jamais balayées : Chronique (400), MonEspace (434),
 shared (502).
+
+## POINT DE SORTIE — 20 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**13 jours** (20 août → 2 septembre). Revue de sortie prévue le **26 août (J-7)** :
+plus rien de neuf à partir de là — premier contact, trois systèmes, vitrine ↔
+README, secrets, dette assumée.
+
+Le carnet n'avait plus de point de sortie depuis le **12 août**. Huit jours de
+livraisons (éditions Community/Cloud, paliers Team/Enterprise, Atelier, vitrine)
+sans ce rituel — et `main` est rouge. Ce point le rétablit.
+
+### 2. Livré ET vérifié (mesuré aujourd'hui, pas depuis hier)
+
+| fait                                                   | preuve                                                                                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Éditions Community / Cloud / Team / Enterprise écrites | `src/shared/paliers.ts`, `tests/edition.test.ts`, `tests/paliers.test.ts`, PRs #336–#337                                            |
+| Installation → premier projet → travail (7/7) sur 3 OS | jambes `seuil` vertes sur le merge #337 (ubuntu / macos / windows)                                                                  |
+| Image Docker démarre                                   | jambe « L'image se construit… » verte sur #337                                                                                      |
+| **`main` rouge au lint** après #337                    | Prettier : `docs/ATELIER.md`, `docs/INSTALLATION.md` — tables non formatées                                                         |
+| **Tamis des ordres rouge, 8 tests, 3 graines**         | `reine-clavier` + `reine-conversation` — cause : `AtelierRecette` sonde `/api/atelier` au montage ; les bancs comptaient TOUT fetch |
+
+### 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+1. **Remettre `main` vert** — Prettier + bancs Reine qui ignorent `/api/atelier`.
+   Actionnable maintenant ; c'est le lot de cette PR.
+2. **Ne plus ouvrir de features jusqu'à la revue du 26** — Community/Cloud/Team
+   sont posés. Chaque lot neuf après aujourd'hui allonge le risque de sortie.
+3. **Release + empreintes (lot 8)** — `curl … \| sh` clone `main` ; aucune version
+   figée. Bloque une moitié du premier contact annoncé.
+4. **Paquet npm / GHCR+cosign** — 🔒 comptes humains. Dire, ne pas simuler.
+5. **ACL Windows sur le `.env`** — toujours hors mesure stricte (Node n'y pose
+   pas de mode 0600 réel). Dette assumée, écrite dans la DoD.
+
+### 4. Direction — ce qu'on fait, et ce qu'on refuse
+
+**Faire (ordre strict) :**
+
+1. Barrière verte (`lint` → `typecheck` → `test` → `tamis-ordres`) avant tout
+   autre lot.
+2. Gel soft des features jusqu'à la revue J-7 (26 août) : correctifs, docs,
+   Release/empreintes seulement.
+3. Revue du 26 : premier contact réel (pas runner), alignement vitrine ↔ README,
+   liste des dettes assumées — **rien de neuf ce jour-là**.
+4. Sortie ~2 septembre = Community installable + mesurable. Cloud/Team restent
+   des portes et de la doc tant que personne n'encaisse.
+
+**Refuser :**
+
+- Fusionner une PR dont la CI lint/tests/tamis est rouge (le merge #337 l'a fait).
+- Compter un fetch global comme preuve d'un seul endpoint (leçon Atelier).
+- Brider Community pour vendre Cloud/Team (`docs/MODELE-ECONOMIQUE.md`).
+- Cocher « vérifié » sans commande ou run nommé.
+
+### 5. Bonnes pratiques à tenir jusqu'à la sortie
+
+| règle                                                | pourquoi maintenant                                                          |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Un lot = une cause de rouge possible, CI verte       | #336/#337 ont passé le seuil install mais cassé lint + tamis                 |
+| Les tests de vue stubbent TOUTE I/O des enfants      | `AtelierRecette` dans `Reine` a pollué 8 bancs                               |
+| « Vérifié » ≠ « écrit »                              | DoD et carnet ; ne pas relâcher sous pression de date                        |
+| Loupe sur le diff du lot, pas le dépôt entier        | 13 jours : pas le moment d'un balayage de 44 h                               |
+| Pas de Stripe / encaissement avant horloge hébergeur | `durationMs` n'est pas une frontière de facturation (`MODELE-ECONOMIQUE` §3) |
+
+### 6. Hors d'atteinte — à DIRE
+
+- Comptes npm + GHCR/cosign.
+- Machines Windows/macOS d'utilisateurs réels (≠ runners CI).
+- Encaisser un euro avant la revue commerciale (👤).

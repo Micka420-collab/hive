@@ -7,6 +7,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
+  `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests
+  `reine-clavier` et `reine-conversation` comptaient **tout** `fetch` comme un
+  envoi de chat : un GET sans corps devenait `''` en tête des envois, et
+  `calls[0].body` était `undefined`. Mesuré : 8 rouges × 3 graines du tamis
+  des ordres après #337. Les bancs ne regardent plus que `/api/chat`.
+
+- **🧹 Prettier sur `docs/ATELIER.md` et `docs/INSTALLATION.md`.** Les tables
+  non formatées faisaient rougir `npm run lint` sur `main` juste après le merge
+  des éditions.
+
 ### Added
 
 - **⬡ L'Atelier de recette.** Un bureau Debian (Xvfb, Openbox, Chromium, Python,
