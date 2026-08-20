@@ -11717,3 +11717,14 @@ Lire avant d’agir — même doctrine que l’empreinte des installeurs.
 | --------------------------------------------------------- | ------------------------- |
 | Pulse miel sur la timeline après focus Reine              | `Rayon.tsx`, `rayon.css`  |
 | Aperçu patch tronqué (12 Ko) + **Copier** le patch entier | `SauvegardesTimeline.tsx` |
+
+### 15. Suite du 21 août (nuit) — Reine SSE + multi-agents lecture
+
+| fait                                                         | où                                     |
+| ------------------------------------------------------------ | -------------------------------------- |
+| `/api/chat` SSE (deltas → done) + Anthropic `stream: true`   | `server.ts`, `planner.ts`, `concierge` |
+| Contexte `enCours` / `sousAgents` / `essaim` (lecture seule) | `concierge.ts`                         |
+| UI Reine : bulle progressive                                 | `Reine.tsx`                            |
+| Bancs stream + endpoint SSE                                  | `tests/chat-stream`, `chat-endpoint`   |
+
+Pas de rewrite git silencieux, pas de 2ᵉ autonomie. CI verte PR #341.

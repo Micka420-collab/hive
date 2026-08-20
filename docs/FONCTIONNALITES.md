@@ -149,7 +149,9 @@ dans cette langue :
 ```bash
 npm run cli -- ask "Où en est le projet ?"
 npm run cli -- ask "Which node works best?"
-# ou : POST /api/chat { "message": "…", "projectId"?: "…" } · vue 👑 Reine du dashboard
+# ou : POST /api/chat { "message": "…", "projectId"?: "…", "stream"?: true }
+#     · Accept: text/event-stream → deltas puis done
+#     · vue 👑 Reine du dashboard (texte progressif)
 ```
 
 Deux modes, jamais bloquants : **état réel** (réponses déterministes composées
