@@ -265,6 +265,11 @@ qu'on ne construit jamais est une promesse que rien n'exerce.
 
 ## Sauvegarder la base
 
+> **Deux sauvegardes, deux métiers.** Ici : copie SQLite de la **ruche**
+> (`VACUUM INTO`). Pour le **code d’un projet** (timeline d’étapes, restauration
+> via tâche), voir le panneau **Sauvegardes** du Rayon — ce n’est pas la même
+> chose.
+
 ```sh
 npm run cli -- sauvegarde --garder=7
 ```

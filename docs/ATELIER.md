@@ -1,6 +1,7 @@
 # L'Atelier — bureau de recette
 
-Un écran, un navigateur, des fichiers : l'agent **voit** ce qu'il fabrique.
+Un écran, un navigateur, des fichiers : l'agent **voit** ce qu'il fabrique
+**sur la machine de la ruche** (pas sur le portable du donneur d'ordre).
 Ce n'est pas l'isolement des tâches (`HIVE_ISOLEMENT`) — ça s'ajoute.
 
 ## Allumer

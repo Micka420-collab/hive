@@ -318,7 +318,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                     className="btn ghost ry-geste"
                     onClick={() => setRetouche({ texte: fichier.contenu, note: '' })}
                   >
-                    ✎ {t('Proposer une retouche', 'Propose a change')}
+                    {t('Proposer une retouche', 'Propose a change')}
                   </button>
                 ) : (
                   <span className="ry-mode">{t('retouche en cours', 'change in progress')}</span>

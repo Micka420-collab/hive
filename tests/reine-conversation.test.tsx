@@ -146,7 +146,7 @@ const INSTANTANE = {
   tasksTotal: 0,
 } as unknown as StateSnapshot;
 
-async function monter(): Promise<HTMLElement> {
+async function monter(opts: { onNavigate?: ViewProps['onNavigate'] } = {}): Promise<HTMLElement> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -156,7 +156,7 @@ async function monter(): Promise<HTMLElement> {
     agentsByTask: {},
     deferred: new Set<string>(),
     onOpenTask: () => {},
-    onNavigate: () => {},
+    onNavigate: opts.onNavigate ?? (() => {}),
     refreshTick: 0,
     user: null,
   } as unknown as ViewProps;
@@ -459,5 +459,31 @@ describe('F. le bouton d’envoi suit ce qu’on a écrit', () => {
 
     ecrire(dom, 'une vraie question');
     expect(envoyer(dom).disabled, 'le bouton reste mort alors qu’on a écrit').toBe(false);
+  });
+});
+
+describe('G. tokens IA et modes de navigation', () => {
+  it('AFFICHE LE BADGE TOKENS QUAND LE CHAT RENVOIE usage', async () => {
+    repond({
+      reply: 'voilà',
+      source: 'llm',
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    });
+    const dom = await monter();
+    ecrire(dom, 'compte ?');
+    await cliquer(envoyer(dom));
+    expect(dom.querySelector('.rn-tokens')?.textContent).toMatch(/15/);
+    expect(dom.querySelector('.rn-tokens-session')?.textContent).toMatch(/15/);
+  });
+
+  it('AUTONOMIE MÈNE AU RÉGLAGE PROJET (Plein Essaim), PAS À L’ESSAIM', async () => {
+    const nav = vi.fn();
+    const dom = await monter({ onNavigate: nav });
+    const btn = [...dom.querySelectorAll('button.rn-mode')].find((b) =>
+      (b.textContent ?? '').includes('Autonomie'),
+    );
+    expect(btn, 'bouton Autonomie absent').toBeTruthy();
+    await cliquer(btn!);
+    expect(nav).toHaveBeenCalledWith('projets', undefined);
   });
 });

@@ -4,20 +4,12 @@
 // Pas de rewrite silencieux du dépôt (le serveur crée une tâche).
 
 import { useCallback, useEffect, useState } from 'react';
-import {
-  creerSauvegardeManuelle,
-  fetchSauvegardes,
-  getPartage,
-  restaurerSauvegarde,
-} from './api';
+import { creerSauvegardeManuelle, fetchSauvegardes, getPartage, restaurerSauvegarde } from './api';
 import type { SauvegardeResumeUi } from './api';
 import { useT } from './i18n';
 import { timeShort } from './views/shared';
 
-function libelleGenre(
-  kind: SauvegardeResumeUi['kind'],
-  t: ReturnType<typeof useT>,
-): string {
+function libelleGenre(kind: SauvegardeResumeUi['kind'], t: ReturnType<typeof useT>): string {
   switch (kind) {
     case 'etape':
       return t('étape', 'checkpoint');
@@ -165,9 +157,7 @@ export function SauvegardesTimeline({
                 <span className="ry-sg-kind">{libelleGenre(s.kind, t)}</span>
                 <strong className="ry-sg-label">{s.label}</strong>
                 <span className="ry-sg-taille">{tailleCourte(s.taille)}</span>
-                <time dateTime={new Date(s.createdAt).toISOString()}>
-                  {timeShort(s.createdAt)}
-                </time>
+                <time dateTime={new Date(s.createdAt).toISOString()}>{timeShort(s.createdAt)}</time>
               </div>
               {!parPartage && s.taille > 0 && (
                 <button

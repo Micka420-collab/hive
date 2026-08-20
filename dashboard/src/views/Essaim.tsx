@@ -76,7 +76,7 @@ function NodeCard({
         ) : (
           agents.slice(0, 6).map((a) => (
             <span key={a.id} className="es-agent-chip" title={a.name}>
-              ⚙ {a.name}
+              · {a.name}
             </span>
           ))
         )}
@@ -168,7 +168,7 @@ function RacesCard({
     snapshot.tasks.find((task) => task.id === taskId)?.title ?? `${taskId.slice(0, 8)}…`;
   const nameOf = (nodeId: string): string =>
     snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
-  const ICON: Record<string, string> = { running: '✈', failed: '✘', succeeded: '★' };
+  const ICON: Record<string, string> = { running: '▸', failed: '✘', succeeded: '◆' };
   // Statuts traduits : le title/aria porte l'état, l'emoji seul ne suffit
   // ni aux lecteurs d'écran ni aux opérateurs non anglophones.
   const statusLabel = (status: string): string =>

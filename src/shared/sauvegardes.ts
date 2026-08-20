@@ -45,7 +45,7 @@ export function promptRestauration(s: Pick<Sauvegarde, 'label' | 'patch' | 'id'>
     'Applique le correctif ci-dessous sur le dépôt du projet. Si le patch ne',
     "s'applique plus tel quel (conflit), reconstitue l'intention du diff et",
     'produis un nouveau patch équivalent. Ne détruis pas le travail plus récent',
-    "sans le mentionner dans les logs.",
+    'sans le mentionner dans les logs.',
     '',
     '```diff',
     s.patch.slice(0, 80_000),

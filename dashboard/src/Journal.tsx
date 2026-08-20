@@ -210,7 +210,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   drone_won: {
-    icon: '★',
+    icon: '◆',
     cls: 'done',
     text: (p, t) =>
       t(

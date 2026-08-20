@@ -300,10 +300,10 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
         <button
           type="button"
           className="rn-mode"
-          onClick={() => onNavigate('essaim', projectId || undefined)}
+          onClick={() => onNavigate('projets', projectId || undefined)}
           title={t(
-            'Plein Essaim — la ruche travaille des jours sans vous',
-            'Full Swarm — the hive works for days without you',
+            'Plein Essaim — la ruche travaille des jours sans vous (réglage sur le projet)',
+            'Full Swarm — the hive works for days without you (set on the project)',
           )}
         >
           {t('Autonomie', 'Autonomy')}

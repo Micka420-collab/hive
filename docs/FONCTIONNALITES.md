@@ -60,6 +60,7 @@ capot. Le Rayon ouvre le capot.
 | **Arbre + éditeur**    | Toute abeille qui a accès au projet. Coloration pour 16 langages, fichiers bornés à 512 Ko.      |
 | **L'Aperçu**           | Le site que l'IA vient d'écrire, **rendu** — pas seulement son diff.                             |
 | **La retouche**        | La Reine seulement. Corriger une ligne à l'écran crée une **tâche**, jamais une écriture.        |
+| **Sauvegardes**        | Timeline d’étapes (diff capturé) ; restaurer ouvre une **tâche**, jamais un rewrite silencieux.  |
 | **Le lien de partage** | Montrer l'avancement et le code **sans donner la ruche** : jeton distinct, expirable, révocable. |
 
 **Le hub tient son propre miroir** : un clone superficiel en lecture seule par
@@ -158,6 +159,9 @@ hors-ligne) et **IA** (si `ANTHROPIC_API_KEY` est définie côté Queen :
 l'orchestrateur, et le modèle ne reçoit que les chiffres réels de la ruche).
 La Reine guide aussi le donneur d'ordre : bonnes pratiques par type de projet
 (web, API, mobile, data, e-commerce, CLI) et structure de brief efficace.
+En mode IA, le décompte de **tokens** Anthropic s’affiche sur chaque réponse
+(et en session). La barre de modes relie Chat → Plan (Projets / Queen Bee) →
+Autonomie (Plein Essaim sur le projet) → Sauvegardes (Rayon).
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
