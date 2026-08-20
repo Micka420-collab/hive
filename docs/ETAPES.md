@@ -11747,4 +11747,5 @@ Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
 | -------------------------------------------------------------- | ------------------------ |
 | Empreinte = Pages (pas « Release / sha256 ») + Windows prudent | `docs/INSTALLATION.md`   |
 | Garde : ne pas re-promettre une Release pour l’empreinte       | `tests/site-installeurs` |
-| Badges / tableau A → **4450**                                  | README, site, DEFINITION |
+| ADR 0002 amendé : empreinte Pages avant Release                | `docs/adr/0002-…`        |
+| Badges / tableau A → **4451**                                  | README, site, DEFINITION |
