@@ -490,8 +490,8 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
             {snapshot.nodes.length === 0 ? (
               <p className="empty pad">
                 {t(
-                  'Aucune ouvrière dans l’essaim — invitez un nœud à rejoindre la ruche.',
-                  'No workers in the swarm — invite a node to join the hive.',
+                  'Aucun nœud dans l’essaim pour l’instant — lancez-en un ici, ou invitez plus tard.',
+                  'No nodes in the swarm yet — start one here, or invite later.',
                 )}
               </p>
             ) : (
