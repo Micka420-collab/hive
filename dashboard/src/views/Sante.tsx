@@ -205,8 +205,7 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
       <section className="card">
         <header className="panel-head">
           <h2>
-            <span className="marque" aria-hidden="true" />{' '}
-            {t('Signes vitaux', 'Vital signs')}
+            <span className="marque" aria-hidden="true" /> {t('Signes vitaux', 'Vital signs')}
           </h2>
           <span className="panel-count">
             {lastReading === null
@@ -402,8 +401,7 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
     <section className="card">
       <header className="panel-head">
         <h2>
-          <span className="marque" aria-hidden="true" />{' '}
-          {t('Les Gardiennes', 'The Guards')}
+          <span className="marque" aria-hidden="true" /> {t('Les Gardiennes', 'The Guards')}
         </h2>
         {v && (
           <span className={`ga-mode mode-${v.mode}`}>
@@ -417,8 +415,7 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
       </header>
       {!v ? (
         <p className="empty pad">
-          <span className="marque" aria-hidden="true" />{' '}
-          {t('Relevé en cours…', 'Reading…')}
+          <span className="marque" aria-hidden="true" /> {t('Relevé en cours…', 'Reading…')}
         </p>
       ) : v.inspections === 0 ? (
         <p className="empty pad">
@@ -540,8 +537,7 @@ function Guetteuses({ refreshTick }: { refreshTick: number }) {
     <section className="card">
       <header className="panel-head">
         <h2>
-          <span className="marque" aria-hidden="true" />{' '}
-          {t('Les Guetteuses', 'The Lookouts')}
+          <span className="marque" aria-hidden="true" /> {t('Les Guetteuses', 'The Lookouts')}
         </h2>
         <span className="muted-text">
           {t('sondages sur la dernière heure', 'probes over the last hour')}
@@ -549,8 +545,7 @@ function Guetteuses({ refreshTick }: { refreshTick: number }) {
       </header>
       {!v ? (
         <p className="empty pad">
-          <span className="marque" aria-hidden="true" />{' '}
-          {t('Relevé en cours…', 'Reading…')}
+          <span className="marque" aria-hidden="true" /> {t('Relevé en cours…', 'Reading…')}
         </p>
       ) : (
         <>

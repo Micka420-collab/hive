@@ -271,8 +271,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
         <nav className="ry-arbre" aria-label={t('Fichiers du projet', 'Project files')}>
           {chargement && (
             <p className="ry-calme">
-              <span className="marque" aria-hidden="true" />{' '}
-              {t('Copie du dépôt…', 'Copying repo…')}
+              <span className="marque" aria-hidden="true" /> {t('Copie du dépôt…', 'Copying repo…')}
             </p>
           )}
           {!chargement && !dossiers[''] && !erreur && (

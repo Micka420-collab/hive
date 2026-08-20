@@ -205,8 +205,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
       >
         <header className="modal-head">
           <h2 id="np-title">
-            <span className="marque" aria-hidden="true" />{' '}
-            {t('Nouveau projet', 'New project')}
+            <span className="marque" aria-hidden="true" /> {t('Nouveau projet', 'New project')}
           </h2>
           <button
             type="button"
@@ -312,10 +311,20 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         </label>
 
         <div className="modal-actions">
-          <button type="button" className="btn ghost" onClick={closeIfIdle} disabled={busy || planning}>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={closeIfIdle}
+            disabled={busy || planning}
+          >
             {t('Annuler', 'Cancel')}
           </button>
-          <button type="button" className="btn primary" onClick={() => void submit()} disabled={busy || planning}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void submit()}
+            disabled={busy || planning}
+          >
             {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
           </button>
         </div>

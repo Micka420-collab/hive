@@ -68,8 +68,7 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
       <section className="card panel ch-mem-panel">
         <header className="panel-head">
           <h2>
-            <span className="marque" aria-hidden="true" />{' '}
-            Hive Mind
+            <span className="marque" aria-hidden="true" /> Hive Mind
           </h2>
           <span className="panel-count">
             {total === null

@@ -73,10 +73,7 @@ import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
-import {
-  libelleManuelValide,
-  promptRestauration,
-} from '../shared/sauvegardes.js';
+import { libelleManuelValide, promptRestauration } from '../shared/sauvegardes.js';
 import { MAX_APERCU, SANDBOX_APERCU, assemblerApercu } from '../shared/apercu.js';
 import {
   TTL_PARTAGE_MAX_MS,
@@ -6408,7 +6405,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       });
       return reply
         .code(201)
-        .send({ sauvegarde: { id: s.id, projectId: s.projectId, label: s.label, kind: s.kind, taille: s.patch.length, createdAt: s.createdAt } });
+        .send({
+          sauvegarde: {
+            id: s.id,
+            projectId: s.projectId,
+            label: s.label,
+            kind: s.kind,
+            taille: s.patch.length,
+            createdAt: s.createdAt,
+          },
+        });
     },
   );
 

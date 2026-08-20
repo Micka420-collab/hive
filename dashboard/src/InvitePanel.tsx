@@ -230,7 +230,11 @@ export function InvitePanel() {
                   value={customUrl}
                   onChange={(e) => setCustomUrl(e.target.value)}
                 />
-                <button type="button" className="btn" onClick={() => void generate(customUrl || undefined)}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void generate(customUrl || undefined)}
+                >
                   {t('Régénérer', 'Regenerate')}
                 </button>
               </div>

@@ -164,8 +164,7 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
       <header className="ch-tete">
         <div>
           <h2>
-            <span className="marque" aria-hidden="true" />{' '}
-            {t('Les Chantiers', 'The Works')}
+            <span className="marque" aria-hidden="true" /> {t('Les Chantiers', 'The Works')}
           </h2>
           <p className="ch-sous">
             {t(

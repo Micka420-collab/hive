@@ -186,10 +186,7 @@ function AccountModal({
               <>
                 {' '}
                 <small className="muted-text">
-                  {t(
-                    `(${MDP_MIN} caractères minimum)`,
-                    `(${MDP_MIN} characters minimum)`,
-                  )}
+                  {t(`(${MDP_MIN} caractères minimum)`, `(${MDP_MIN} characters minimum)`)}
                 </small>
               </>
             )}

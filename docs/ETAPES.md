@@ -11662,26 +11662,26 @@ premier contact avant la revue du 26.
 Gel soft **levé** sur demande explicite (chat moderne, autonomie multi-jours,
 timeline récupérable). Livré sur PR #338 :
 
-| fait | où |
-| ---- | -- |
+| fait                                                                    | où                                        |
+| ----------------------------------------------------------------------- | ----------------------------------------- |
 | Décompte tokens Anthropic (LLM → Concierge → `/api/chat` → badge Reine) | `planner.ts`, `concierge.ts`, `Reine.tsx` |
-| Modes Plan / Autonomie / Sauvegardes (navigation) | `Reine.tsx` |
-| Table latérale `sauvegardes` + étapes auto à `insertResult` | `store.ts`, `shared/sauvegardes.ts` |
-| API list/get/post/restaurer (restauration = tâche) | `server.ts` |
-| Panneau timeline sur le Rayon | `SauvegardesTimeline.tsx` |
-| Copie Atelier « machine de la ruche » + Plein Essaim multi-jours | `AtelierRecette.tsx`, `PleinEssaim.tsx` |
+| Modes Plan / Autonomie / Sauvegardes (navigation)                       | `Reine.tsx`                               |
+| Table latérale `sauvegardes` + étapes auto à `insertResult`             | `store.ts`, `shared/sauvegardes.ts`       |
+| API list/get/post/restaurer (restauration = tâche)                      | `server.ts`                               |
+| Panneau timeline sur le Rayon                                           | `SauvegardesTimeline.tsx`                 |
+| Copie Atelier « machine de la ruche » + Plein Essaim multi-jours        | `AtelierRecette.tsx`, `PleinEssaim.tsx`   |
 
 Mesure : `tests/sauvegardes.test.ts`, `tests/sauvegardes-endpoint.test.ts`,
 usage Concierge dans `tests/concierge.test.ts`.
 
 ### 9. Suite du 20 août (nuit) — lot 8 empreintes, prep sans Release
 
-| fait | où |
-| ---- | -- |
-| Pages copie `install.sh` / `install.ps1` + `install.sha256` | `.github/workflows/pages.yml` |
-| Scripts affichent SHA-256 avant d’agir (fichier) | `install.sh`, `install.ps1` |
-| Variante prudente documentée | `docs/INSTALLATION.md` |
-| Banc structure + hash live | `tests/site-installeurs.test.ts` |
+| fait                                                        | où                               |
+| ----------------------------------------------------------- | -------------------------------- |
+| Pages copie `install.sh` / `install.ps1` + `install.sha256` | `.github/workflows/pages.yml`    |
+| Scripts affichent SHA-256 avant d’agir (fichier)            | `install.sh`, `install.ps1`      |
+| Variante prudente documentée                                | `docs/INSTALLATION.md`           |
+| Banc structure + hash live                                  | `tests/site-installeurs.test.ts` |
 
 Release GitHub + signature restent 🔒 (comptes humains). La confiance par
 empreinte est posée sans encaisser ni publier un tag.
