@@ -21,7 +21,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <link
       rel="icon"
-      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><polygon points=%2250,5 90,28 90,72 50,95 10,72 10,28%22 fill=%22%231b1712%22/><text x=%2250%22 y=%2267%22 text-anchor=%22middle%22 font-size=%2250%22 font-family=%22sans-serif%22 font-weight=%22700%22 fill=%22%23f6c445%22>H</text></svg>"
     />
     <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
          va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
@@ -718,6 +718,176 @@
           min-height: 44px;
         }
       }
+
+      /* Signature partagée avec la vitrine : chrome encre, marque hex-H,
+         composition éditoriale et surfaces franches. */
+      header {
+        max-width: 1120px;
+        width: calc(100% - 32px);
+        margin: 12px auto 0;
+        padding: 9px 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--panel) 91%, transparent);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 14px 42px -32px rgba(27, 23, 18, 0.65);
+        transition:
+          min-height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+          background 0.28s ease,
+          border-color 0.28s ease;
+      }
+      header::after {
+        content: '';
+        position: absolute;
+        inset: auto 14px -1px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--gold), transparent);
+        opacity: 0.42;
+      }
+      .brand .marque {
+        width: 28px;
+        height: 32px;
+      }
+      .brand .marque polygon {
+        fill: var(--encre);
+        stroke: var(--gold);
+        stroke-width: 1.2px;
+      }
+      .brand .marque path {
+        fill: var(--panel);
+      }
+      .brand .name {
+        font-family: var(--texte);
+        color: var(--text);
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.035em;
+      }
+      .brand .ver {
+        padding-left: 9px;
+        border-left: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      nav.main {
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--chip) 45%, transparent);
+      }
+      nav.main a {
+        padding: 7px 10px;
+        border-radius: 6px;
+        font-size: 12.5px;
+      }
+      nav.main a:hover {
+        background: var(--panel);
+        color: var(--text);
+      }
+      .btn-gold {
+        min-height: 36px;
+        border-radius: 7px;
+        background: var(--encre);
+        color: var(--panel);
+      }
+      .hero {
+        max-width: 1120px;
+        min-height: 530px;
+        padding: clamp(90px, 13vw, 150px) 28px 80px;
+      }
+      .hero h1 {
+        max-width: 930px;
+        font-size: clamp(50px, 7.5vw, 86px);
+        line-height: 0.98;
+        letter-spacing: -0.055em;
+      }
+      .hero h1 .accent {
+        color: var(--orange);
+        background: none;
+      }
+      .section {
+        padding-top: clamp(78px, 10vw, 124px);
+      }
+      .offre,
+      .def-c,
+      .verbe,
+      details,
+      .jamais {
+        border-radius: 9px;
+      }
+      .offre.phare {
+        background: var(--encre);
+        color: var(--panel);
+        transform: translateY(-10px);
+      }
+      .offre,
+      .def-c,
+      .verbe,
+      details {
+        transition:
+          transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+          border-color 0.28s ease,
+          box-shadow 0.28s ease;
+      }
+      .offre:hover,
+      .def-c:hover,
+      .verbe:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 42px -34px rgba(27, 23, 18, 0.55);
+      }
+      .offre.phare .tag,
+      .offre.phare ul {
+        color: #b5a991;
+      }
+      .final {
+        border-radius: 10px;
+        background: var(--encre);
+        color: var(--panel);
+      }
+      .final p {
+        color: #b5a991;
+      }
+      footer {
+        background: var(--encre);
+        color: var(--panel);
+      }
+      footer .made {
+        color: #b5a991;
+      }
+      @media (max-width: 720px) {
+        header {
+          width: calc(100% - 20px);
+          margin-top: 8px;
+        }
+        .brand .ver,
+        .btn-gold {
+          display: none;
+        }
+        nav.main {
+          width: 100%;
+          order: 3;
+        }
+        .hero {
+          min-height: 0;
+          padding-top: 72px;
+        }
+        .offre.phare {
+          transform: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -730,7 +900,10 @@
 
     <header>
       <div class="brand">
-        <span class="bee" aria-hidden="true">🐝</span>
+        <svg class="marque" viewBox="0 0 32 36" aria-hidden="true">
+          <polygon points="16,4 28.1,11 28.1,25 16,32 3.9,25 3.9,11" />
+          <path d="M12.2 12.4h2.2v4.2h3.2v-4.2h2.2V24h-2.2v-5.2h-3.2V24h-2.2z" />
+        </svg>
         <span class="name">Hive</span>
         <span class="ver">Rush</span>
       </div>

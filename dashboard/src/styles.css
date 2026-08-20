@@ -2184,3 +2184,415 @@ button.mc-cell:focus-visible {
 .btn.geste-irr-oui:hover:not(:disabled) {
   background: rgba(168, 64, 42, 0.1);
 }
+
+/* ══ Shell 2026 — le même objet que la vitrine ═════════════════════════════
+   Encre compacte, alvéoles dessinées localement, contenu sur papier ivoire.
+   Les vues et leurs sélecteurs restent intacts ; seul le chrome change. */
+.mc-app {
+  background:
+    linear-gradient(90deg, transparent 49.95%, rgba(27, 23, 18, 0.025) 50%, transparent 50.05%),
+    var(--bg);
+}
+
+.mc-sidebar {
+  width: 198px;
+  gap: 18px;
+  padding: 16px 10px 12px;
+  background: #17130f;
+  border-right: 1px solid rgba(255, 253, 248, 0.12);
+}
+
+.mc-sidebar-brand {
+  min-height: 44px;
+  padding: 0 9px 8px;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 27px;
+  height: 31px;
+  flex: none;
+}
+
+.brand-logo polygon {
+  fill: var(--miel);
+}
+
+.brand-logo path {
+  fill: var(--encre);
+}
+
+.mc-sidebar-word {
+  font-family: var(--texte);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.mc-nav {
+  gap: 3px;
+}
+
+.mc-nav-cell {
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: var(--sur-encre);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mc-nav-cell::before {
+  width: 17px;
+  height: 19px;
+  border: 1px solid #786e5d;
+  background: transparent;
+  transition:
+    border-color 0.18s,
+    background 0.18s,
+    transform 0.18s;
+}
+
+.mc-nav-cell::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid #a2957d;
+  transform: rotate(45deg);
+  transition:
+    border-color 0.18s,
+    background 0.18s;
+}
+
+.mc-nav-cell:hover {
+  background: rgba(255, 253, 248, 0.055);
+}
+
+.mc-nav-cell:hover::before {
+  border-color: var(--miel);
+  transform: scale(1.06);
+}
+
+.mc-nav-cell.active {
+  background: rgba(246, 196, 69, 0.12);
+  box-shadow: inset 2px 0 0 var(--miel);
+}
+
+.mc-nav-cell.active::before {
+  border-color: var(--miel);
+  background: var(--miel);
+}
+
+.mc-nav-cell.active::after {
+  border-color: var(--encre);
+  background: var(--encre);
+}
+
+.mc-nav-cell[data-view='reine']::after,
+.mc-nav-cell[data-view='cerveau']::after {
+  border-radius: 50%;
+  transform: none;
+}
+
+.mc-nav-cell[data-view='projets']::after,
+.mc-nav-cell[data-view='chantiers']::after {
+  width: 7px;
+  height: 3px;
+  transform: none;
+}
+
+.mc-nav-cell[data-view='essaim']::after,
+.mc-nav-cell[data-view='chronique']::after {
+  width: 7px;
+  height: 1px;
+  border-width: 1px 0 0;
+  transform: rotate(-35deg);
+}
+
+.mc-sidebar-pulse {
+  align-items: flex-start;
+  padding: 12px 8px 2px;
+}
+
+.mc-sidebar-pulse .mc-spark {
+  width: 100%;
+}
+
+.mc-topbar {
+  min-height: 72px;
+  padding: 11px 22px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border-bottom-color: var(--border);
+  backdrop-filter: blur(18px);
+}
+
+.brand h1 {
+  font-family: var(--texte);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+}
+
+.brand-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+}
+
+.topbar-actions {
+  gap: 7px;
+}
+
+.topbar-actions .btn,
+.topbar-actions .invite-btn,
+.token-input {
+  min-height: 36px;
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.topbar-actions .invite-btn,
+.topbar-actions .btn.primary {
+  background: var(--encre);
+  color: var(--sur-encre-fort);
+}
+
+.mc-lang {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.conn {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  font-size: 11px;
+}
+
+.conn-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.card {
+  border-radius: 10px;
+  box-shadow: 0 12px 36px -30px rgba(27, 23, 18, 0.5);
+}
+
+.panel-head {
+  min-height: 48px;
+}
+
+.panel-head h2 {
+  font-family: var(--texte);
+  font-size: 11px;
+  letter-spacing: 0.11em;
+}
+
+.ruche-depart {
+  position: relative;
+  max-width: 46rem;
+  padding: 36px;
+  overflow: hidden;
+}
+
+.ruche-depart::after {
+  content: '';
+  position: absolute;
+  width: 190px;
+  height: 218px;
+  right: -54px;
+  top: -56px;
+  border: 1px solid var(--border-2);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: color-mix(in srgb, var(--miel) 12%, transparent);
+}
+
+@media (max-width: 900px) {
+  .mc-sidebar {
+    width: 70px;
+    padding-inline: 8px;
+  }
+
+  .mc-sidebar-brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .mc-nav-cell::before {
+    display: block;
+  }
+
+  .mc-nav-cell::after {
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .mc-nav-cell[data-view='reine']::after,
+  .mc-nav-cell[data-view='cerveau']::after {
+    transform: translateX(-50%);
+  }
+
+  .mc-nav-cell[data-view='projets']::after,
+  .mc-nav-cell[data-view='chantiers']::after {
+    transform: translateX(-50%);
+  }
+
+  .mc-nav-cell[data-view='essaim']::after,
+  .mc-nav-cell[data-view='chronique']::after {
+    transform: translateX(-50%) rotate(-35deg);
+  }
+}
+
+@media (max-width: 620px) {
+  .mc-app {
+    padding-bottom: 66px;
+  }
+
+  .mc-sidebar {
+    position: fixed;
+    inset: auto 8px 8px;
+    z-index: 40;
+    width: auto;
+    height: 58px;
+    padding: 6px;
+    border: 1px solid rgba(255, 253, 248, 0.14);
+    border-radius: 10px;
+    box-shadow: 0 20px 45px rgba(27, 23, 18, 0.3);
+  }
+
+  .mc-sidebar-brand,
+  .mc-sidebar-pulse {
+    display: none;
+  }
+
+  .mc-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 2px;
+    padding: 0;
+    scrollbar-width: none;
+  }
+
+  .mc-nav li {
+    flex: 0 0 44px;
+  }
+
+  .mc-nav-cell {
+    min-height: 44px;
+    padding: 4px;
+  }
+
+  .mc-topbar {
+    align-items: flex-start;
+    padding: 10px 14px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
+  .token-input {
+    flex: 0 0 92px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-nav-cell::before,
+  .mc-nav-cell::after {
+    transition: none;
+  }
+}
+
+/* Activité précise, sans rebond : le flux se lit dans les traits et
+   l'opacité, jamais dans des changements d'échelle. */
+.badge.running {
+  animation: mc-signal-quiet 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.link.running {
+  stroke-width: 1.5;
+  opacity: 0.46;
+  animation-duration: 2.8s;
+}
+
+.cell.running polygon {
+  animation: mc-signal-quiet 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.node .halo {
+  opacity: 0.2;
+  animation: none;
+}
+
+.agent {
+  animation: mc-signal-quiet 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.mc-cell.running {
+  animation: mc-signal-quiet 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.mc-spark.beat polyline {
+  opacity: 0.72;
+  animation-duration: 5.2s;
+}
+
+.drawer {
+  animation: mc-panel-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mc-nav-cell,
+.card,
+.btn,
+.chip {
+  transition-duration: 0.24s;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mc-nav-cell.active::after {
+  box-shadow: none;
+}
+
+@keyframes mc-signal-quiet {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
+@keyframes mc-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge.running,
+  .link.running,
+  .cell.running polygon,
+  .agent,
+  .mc-cell.running,
+  .mc-spark.beat polyline,
+  .drawer {
+    animation: none !important;
+  }
+}

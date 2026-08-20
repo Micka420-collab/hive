@@ -2662,6 +2662,725 @@
           display: none;
         }
       }
+
+      /* ══ HIVE 2026 — SIGNATURE ÉDITORIALE ═════════════════════════════════
+         La page ne repose plus sur une succession de cartes crème. Le chrome
+         est compact, le héros compose une couverture, et le produit devient
+         une image centrale, cadrée comme un objet plutôt qu'une vignette. */
+      body {
+        background:
+          linear-gradient(90deg, transparent 49.95%, rgba(27, 23, 18, 0.025) 50%, transparent 50.05%),
+          var(--bg);
+      }
+      header {
+        min-height: 62px;
+        max-width: 1240px;
+        margin: 14px auto 0;
+        width: calc(100% - 40px);
+        padding: 9px 10px 9px 14px;
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--panel) 88%, transparent);
+        box-shadow: 0 10px 40px -30px rgba(27, 23, 18, 0.65);
+      }
+      header::after {
+        content: '';
+        position: absolute;
+        inset: auto 16px -1px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--gold), transparent);
+        opacity: 0;
+        transition: opacity 0.25s ease;
+      }
+      header.scrolled {
+        top: 8px;
+        min-height: 52px;
+        padding-block: 5px;
+        background: color-mix(in srgb, var(--panel) 94%, transparent);
+        box-shadow: 0 14px 45px -28px rgba(27, 23, 18, 0.62);
+      }
+      header.scrolled::after {
+        opacity: 0.7;
+      }
+      .brand .marque {
+        width: 30px;
+        height: 34px;
+      }
+      .brand .marque polygon {
+        fill: var(--encre);
+        stroke: var(--gold);
+        stroke-width: 1.2px;
+      }
+      .brand .name {
+        font-family: var(--texte);
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.035em;
+      }
+      .brand .ver {
+        padding-left: 10px;
+        border-left: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+      }
+      nav.main {
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--chip) 44%, transparent);
+      }
+      nav.main a {
+        padding: 7px 11px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        transition:
+          color 0.18s ease,
+          background 0.18s ease;
+      }
+      nav.main a:hover,
+      nav.main a.active {
+        color: var(--text);
+        background: var(--panel);
+      }
+      .lang-toggle {
+        padding: 2px;
+        border-radius: 8px;
+        background: var(--chip);
+      }
+      .lang-toggle button {
+        min-width: 35px;
+        padding: 5px 8px;
+        border-radius: 5px;
+        background: transparent;
+        font-size: 11px;
+      }
+      .btn-gold {
+        min-height: 36px;
+        padding: 7px 13px;
+        border-color: var(--encre);
+        background: var(--encre);
+        color: var(--panel);
+      }
+      .btn-gold:hover {
+        background: var(--gold);
+        border-color: var(--gold);
+        color: var(--encre);
+      }
+      .gh-etoile,
+      .gh-nb {
+        display: none;
+      }
+      .menu-toggle {
+        display: none;
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .menu-toggle span,
+      .menu-toggle::before,
+      .menu-toggle::after {
+        content: '';
+        display: block;
+        width: 17px;
+        height: 1px;
+        margin: 4px auto;
+        background: currentColor;
+        transition:
+          transform 0.2s ease,
+          opacity 0.2s ease;
+      }
+      .menu-toggle[aria-expanded='true'] span {
+        opacity: 0;
+      }
+      .menu-toggle[aria-expanded='true']::before {
+        transform: translateY(5px) rotate(45deg);
+      }
+      .menu-toggle[aria-expanded='true']::after {
+        transform: translateY(-5px) rotate(-45deg);
+      }
+
+      .hero {
+        position: relative;
+        isolation: isolate;
+        max-width: none;
+        min-height: min(850px, calc(100svh - 76px));
+        padding: clamp(92px, 12vw, 168px) max(24px, calc((100vw - 1240px) / 2)) 90px;
+        overflow: hidden;
+        border-bottom: 1px solid var(--border);
+      }
+      .hero::before {
+        content: '';
+        position: absolute;
+        z-index: -1;
+        width: min(56vw, 780px);
+        aspect-ratio: 1;
+        top: 4%;
+        right: -10%;
+        background: radial-gradient(circle, rgba(246, 196, 69, 0.2), transparent 67%);
+        filter: blur(10px);
+      }
+      .hero::after {
+        content: 'HIVE / ORCHESTRATION';
+        position: absolute;
+        right: max(24px, calc((100vw - 1240px) / 2));
+        bottom: 24px;
+        font: 500 10px/1 var(--mono);
+        letter-spacing: 0.18em;
+        color: var(--dim);
+        writing-mode: vertical-rl;
+      }
+      .hero-grille {
+        max-width: 1240px;
+        margin: 0 auto;
+        grid-template-columns: minmax(0, 1.16fr) minmax(min(100%, 300px), 0.84fr);
+        gap: clamp(46px, 7vw, 100px);
+        align-items: center;
+      }
+      .pastille {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        box-shadow: none;
+        color: var(--orange);
+        font: 700 11px/1.2 var(--texte);
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+      .hero h1 {
+        max-width: 850px;
+        margin-top: 24px;
+        font-size: clamp(52px, 7.2vw, 104px);
+        line-height: 0.94;
+        letter-spacing: -0.065em;
+      }
+      .hero h1 .grad {
+        display: block;
+        color: var(--orange);
+      }
+      .hero .sub {
+        max-width: 650px;
+        font-size: clamp(18px, 2vw, 22px);
+        color: var(--muted);
+      }
+      .hero .sub-2 {
+        max-width: 620px;
+        padding-left: 18px;
+        border-left: 2px solid var(--gold);
+        font-size: 15px;
+      }
+      .hero-cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 30px;
+      }
+      .hero-cta .btn {
+        min-height: 48px;
+        padding: 13px 22px;
+        border-radius: 8px;
+      }
+      .hero-cta .btn.primary::after {
+        content: ' →';
+        color: var(--gold);
+      }
+      .hero-rayon {
+        width: min(100%, 500px);
+        aspect-ratio: 1;
+        margin-inline: auto;
+        filter: drop-shadow(0 38px 52px rgba(27, 23, 18, 0.15));
+      }
+      .hero-rayon::before,
+      .hero-rayon::after {
+        content: '';
+        position: absolute;
+        inset: 7%;
+        border: 1px solid color-mix(in srgb, var(--gold) 42%, transparent);
+        clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+        animation: hvOrbit 15s linear infinite;
+      }
+      .hero-rayon::after {
+        inset: 18%;
+        opacity: 0.55;
+        animation-direction: reverse;
+        animation-duration: 22s;
+      }
+      .rayon-svg {
+        position: relative;
+        z-index: 1;
+        transform: scale(1.15);
+      }
+      .hero-rayon .cell {
+        stroke-width: 1.1px;
+      }
+      .hero-rayon .cell.miel {
+        animation: hvSignal 2.8s ease-in-out infinite;
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      @keyframes hvOrbit {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes hvSignal {
+        50% {
+          opacity: 0.55;
+          transform: scale(0.92);
+        }
+      }
+      .chips,
+      .barre-install,
+      .note-install,
+      .badges {
+        max-width: 690px;
+      }
+      .chips {
+        margin-top: 38px;
+      }
+      .barre-install {
+        border-radius: 9px;
+        box-shadow: 0 16px 45px -32px rgba(27, 23, 18, 0.65);
+      }
+
+      .bandeau-agents {
+        border-block: 0;
+        background: var(--encre);
+        color: var(--creme);
+      }
+      .bandeau-agents .intitule {
+        color: var(--creme-2);
+      }
+      .bandeau-agents .agent {
+        color: var(--creme);
+      }
+      .bandeau-agents .agent::before {
+        background: var(--gold);
+      }
+      .section {
+        max-width: none;
+        padding-inline: max(24px, calc((100vw - 1240px) / 2));
+      }
+      #etapes {
+        background: var(--encre);
+        color: var(--creme);
+      }
+      #etapes .kicker,
+      #etapes .etape-n {
+        color: var(--gold);
+      }
+      #etapes .etape {
+        background: rgba(255, 253, 248, 0.045);
+        border-color: rgba(255, 253, 248, 0.14);
+      }
+      #etapes .etape p {
+        color: var(--creme-2);
+      }
+      #etapes .swarm-panel {
+        background: #211c15;
+        border-color: rgba(255, 253, 248, 0.16);
+        box-shadow: 0 45px 90px -55px rgba(0, 0, 0, 0.9);
+      }
+      #etapes .swarm-head,
+      #etapes .journal {
+        border-color: rgba(255, 253, 248, 0.12);
+        background: #211c15;
+      }
+      #etapes .swarm-title,
+      #etapes .journal {
+        color: var(--creme-2);
+      }
+      #etapes .swarm-panel svg {
+        background: radial-gradient(circle at 50% 45%, #2d261b, #18140f);
+      }
+      #etapes .swarm-legende code {
+        color: var(--creme);
+      }
+      #features {
+        background: var(--panel);
+      }
+      .product-stage {
+        position: relative;
+        margin: 58px 0 72px;
+        padding: clamp(10px, 1.8vw, 22px);
+        border-radius: 12px;
+        background: var(--encre);
+        box-shadow: 0 48px 90px -55px rgba(27, 23, 18, 0.75);
+      }
+      .product-stage::before {
+        content: 'MISSION CONTROL / LIVE';
+        display: block;
+        padding: 1px 4px 14px;
+        color: var(--creme-2);
+        font: 500 10px/1 var(--mono);
+        letter-spacing: 0.14em;
+      }
+      .product-stage img {
+        display: block;
+        width: 100%;
+        border-radius: 7px;
+        border: 1px solid rgba(255, 253, 248, 0.12);
+      }
+      .product-stage figcaption {
+        position: absolute;
+        right: clamp(18px, 3vw, 34px);
+        bottom: clamp(18px, 3vw, 34px);
+        max-width: 340px;
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 253, 248, 0.16);
+        border-radius: 8px;
+        background: rgba(27, 23, 18, 0.88);
+        color: var(--creme);
+        backdrop-filter: blur(12px);
+        font-size: 13px;
+      }
+      .cloud {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .edition {
+        min-height: 360px;
+        border-radius: 10px;
+      }
+      .edition-cloud {
+        background: var(--encre);
+        color: var(--creme);
+        transform: translateY(-18px);
+      }
+      .edition-cloud li,
+      .edition-cloud .edition-prix span {
+        color: var(--creme-2);
+      }
+      .appel {
+        background: var(--gold);
+      }
+      .appel .headline,
+      .appel-p {
+        color: var(--encre);
+      }
+      .appel .btn.primary {
+        background: var(--encre);
+      }
+
+      @media (max-width: 980px) {
+        header {
+          min-height: 58px;
+          width: calc(100% - 20px);
+          margin: 8px 10px 0;
+          flex-wrap: nowrap;
+        }
+        header .brand {
+          margin-right: auto;
+        }
+        .menu-toggle {
+          display: block;
+          order: 5;
+        }
+        header .lang-toggle {
+          margin-left: 0;
+        }
+        #gh-btn {
+          display: none;
+        }
+        nav.main {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          right: 0;
+          order: 3;
+          width: 100%;
+          margin-left: 0;
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          gap: 2px;
+          border-radius: 10px;
+          background: var(--panel);
+          box-shadow: 0 24px 50px -28px rgba(27, 23, 18, 0.75);
+          opacity: 0;
+          visibility: hidden;
+          transform: translateY(-8px);
+          transition:
+            opacity 0.2s ease,
+            transform 0.2s ease,
+            visibility 0.2s;
+        }
+        nav.main.open {
+          opacity: 1;
+          visibility: visible;
+          transform: none;
+        }
+        nav.main a {
+          width: 100%;
+          min-height: 46px;
+          padding: 0 14px;
+          font-size: 15px;
+        }
+        .hero-grille {
+          grid-template-columns: 1fr;
+        }
+        .hero-rayon {
+          position: absolute;
+          z-index: -1;
+          width: min(72vw, 470px);
+          right: -13vw;
+          top: 5%;
+          opacity: 0.18;
+        }
+        .cloud {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .edition-cloud {
+          transform: none;
+        }
+      }
+
+      @media (max-width: 720px) {
+        header {
+          min-height: 58px;
+          width: calc(100% - 20px);
+          margin: 8px 10px 0;
+          flex-wrap: nowrap;
+        }
+        header .brand {
+          margin-right: auto;
+        }
+        .menu-toggle {
+          display: block;
+          order: 5;
+        }
+        header .lang-toggle {
+          margin-left: 0;
+        }
+        #gh-btn {
+          display: none;
+        }
+        nav.main {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          right: 0;
+          order: 3;
+          width: 100%;
+          margin-left: 0;
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          gap: 2px;
+          border-radius: 10px;
+          background: var(--panel);
+          box-shadow: 0 24px 50px -28px rgba(27, 23, 18, 0.75);
+          -webkit-mask-image: linear-gradient(90deg, #000 84%, transparent);
+          mask-image: linear-gradient(90deg, #000 84%, transparent);
+          opacity: 0;
+          visibility: hidden;
+          transform: translateY(-8px);
+          transition:
+            opacity 0.2s ease,
+            transform 0.2s ease,
+            visibility 0.2s;
+        }
+        nav.main.open {
+          opacity: 1;
+          visibility: visible;
+          transform: none;
+          -webkit-mask-image: none;
+          mask-image: none;
+        }
+        nav.main a {
+          width: 100%;
+          min-height: 46px;
+          padding: 0 14px;
+          font-size: 15px;
+        }
+        .hero {
+          min-height: 0;
+          padding: 84px 18px 62px;
+        }
+        .hero::after {
+          display: none;
+        }
+        .hero h1 {
+          font-size: clamp(46px, 15vw, 70px);
+        }
+        .hero h1 .grad {
+          display: inline;
+        }
+        .hero .sub {
+          font-size: 18px;
+        }
+        .chips {
+          margin-top: 32px;
+        }
+        .product-stage {
+          margin: 38px -8px 52px;
+          padding: 8px;
+        }
+        .product-stage figcaption {
+          position: static;
+          max-width: none;
+          margin-top: 8px;
+        }
+        .cloud {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Mouvement premium : les formes indiquent l'activité sans flotter,
+         rebondir ni changer d'échelle. Une seule courbe, des décalages courts
+         et un flux SVG volontairement peu contrasté. */
+      .rayon-svg,
+      .hero-rayon::before,
+      .hero-rayon::after,
+      .hero-rayon .cell.miel,
+      .cell-glow,
+      .worker-cell,
+      .anim-cell,
+      .anim-halo {
+        animation: none;
+      }
+      .cell-glow {
+        opacity: 0.1;
+      }
+      .anim-halo {
+        opacity: 0.18;
+      }
+      .anim-agent {
+        animation: hvSignalQuiet 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      .anim-agent.d2 {
+        animation-delay: 0.6s;
+      }
+      .anim-agent.d3 {
+        animation-delay: 1.2s;
+      }
+      .anim-dash {
+        opacity: 0.46;
+        animation-duration: 3.6s;
+      }
+      .anim-dash-lent {
+        opacity: 0.24;
+        animation-duration: 7.2s;
+      }
+      .swarm-pulses {
+        opacity: 0.42;
+      }
+      .bandeau-agents .piste {
+        animation-duration: 52s;
+      }
+      .hero h1,
+      .hero .sub,
+      .hero .sub-2,
+      .hero .chips,
+      .hero .barre-install,
+      .pastille,
+      .badges {
+        animation-name: hvPremiumIn;
+        animation-duration: 0.72s;
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      html.js-motion .section .kicker,
+      html.js-motion .section .headline,
+      html.js-motion .section .lede,
+      html.js-motion .etape,
+      html.js-motion .edition,
+      html.js-motion .edition-rush,
+      html.js-motion .famille,
+      html.js-motion .swarm-panel,
+      html.js-motion .cadre,
+      html.js-motion .cloud-honest {
+        transform: translateY(8px);
+      }
+      html.js-motion .section .kicker.hv-in,
+      html.js-motion .section .headline.hv-in,
+      html.js-motion .section .lede.hv-in,
+      html.js-motion .etape.hv-in,
+      html.js-motion .edition.hv-in,
+      html.js-motion .edition-rush.hv-in,
+      html.js-motion .famille.hv-in,
+      html.js-motion .swarm-panel.hv-in,
+      html.js-motion .cadre.hv-in,
+      html.js-motion .cloud-honest.hv-in {
+        animation-name: hvPremiumIn;
+        animation-duration: 0.64s;
+      }
+      html.js-motion .etape:nth-child(2).hv-in,
+      html.js-motion .edition:nth-child(2).hv-in {
+        animation-delay: 0.06s;
+      }
+      html.js-motion .etape:nth-child(3).hv-in,
+      html.js-motion .edition:nth-child(3).hv-in {
+        animation-delay: 0.12s;
+      }
+      html.js-motion .edition:nth-child(4).hv-in {
+        animation-delay: 0.18s;
+      }
+      .card:hover,
+      .etape:hover {
+        transform: translateY(-2px);
+      }
+      .hexico {
+        position: relative;
+        border: 1px solid var(--border-2);
+        background: transparent;
+      }
+      .hexico.hot {
+        border-color: var(--gold-2);
+        background: var(--gold);
+      }
+      .hexico::after {
+        content: '';
+        width: 9px;
+        height: 1px;
+        background: var(--text);
+        box-shadow:
+          0 -4px 0 var(--text),
+          0 4px 0 var(--text);
+      }
+      .check .tick {
+        position: relative;
+        top: -1px;
+        width: 9px;
+        height: 9px;
+        flex: none;
+        border: 1px solid currentColor;
+        transform: rotate(45deg);
+      }
+      @keyframes hvPremiumIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes hvSignalQuiet {
+        0%,
+        100% {
+          opacity: 0.38;
+        }
+        50% {
+          opacity: 0.92;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .anim-agent,
+        .anim-dash,
+        .anim-dash-lent,
+        .bandeau-agents .piste {
+          animation: none !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -2676,7 +3395,7 @@
         <span class="name">Hive</span>
         <span class="ver">v0.2.0 · MIT</span>
       </a>
-      <nav class="main" aria-label="Navigation principale">
+      <nav class="main" id="site-nav" aria-label="Navigation principale">
         <a href="#features" data-i18n="nav.features">Fonctionnalités</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
         <a href="#communaute" data-i18n="nav.community">Éditions</a>
@@ -2687,6 +3406,17 @@
         <button id="btn-fr" aria-pressed="true" lang="fr">FR</button>
         <button id="btn-en" aria-pressed="false" lang="en">EN</button>
       </div>
+      <button
+        class="menu-toggle"
+        id="menu-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="site-nav"
+        data-i18n-attr="aria-label:nav.menu"
+        aria-label="Ouvrir le menu"
+      >
+        <span aria-hidden="true"></span>
+      </button>
       <!-- Le libellé est découpé en morceaux pour une seule raison : sur un
            téléphone, le mot « GitHub » doit pouvoir disparaître sans que le
            lien perde son nom. `aria-label` porte le nom complet en toutes
@@ -2714,7 +3444,7 @@
           </div>
           <h1 data-i18n="hero.h1">
             Faites coder plusieurs IA sur votre projet,
-            <span class="grad">en même temps</span>.
+            <span class="grad">en même temps.</span>
           </h1>
           <p class="sub" data-i18n="hero.sub">
             Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
@@ -2724,6 +3454,10 @@
             Rien n’est fusionné sans votre accord.
             <strong class="key">Votre code et vos clés restent sur vos machines.</strong>
           </p>
+          <div class="hero-cta">
+            <a class="btn primary" href="#raccourcis" data-i18n="hero.cta">Lancer votre ruche</a>
+            <a class="btn ghost" href="#etapes" data-i18n="hero.cta2">Voir l’orchestration</a>
+          </div>
 
           <!-- ══ LES QUATRE PORTES D’ENTRÉE ════════════════════════════════
                Chaque puce porte SA commande et SA note. Rien n’est calculé côté
@@ -3334,6 +4068,20 @@
         Vingt-trois fonctions, rangées en quatre familles. Lisez les quatre promesses ; dépliez
         celle qui vous concerne.
       </p>
+      <figure class="product-stage">
+        <img
+          src="images/dashboard-ruche.png"
+          alt="Le tableau de bord Hive, vue Ruche"
+          data-i18n-attr="alt:product.alt"
+          width="1024"
+          height="640"
+          loading="lazy"
+        />
+        <figcaption data-i18n="product.caption">
+          La ruche entière sur un écran : état des nœuds, travail en cours, débit et journal en
+          direct.
+        </figcaption>
+      </figure>
       <div class="familles">
         <details class="famille">
           <summary>
@@ -3425,7 +4173,7 @@
           </p>
           <div class="cards">
             <div class="card">
-              <div class="ico" aria-hidden="true">🍯</div>
+              <div class="ico" aria-hidden="true"></div>
               <h3 data-i18n="feat.mi.t">Miellerie</h3>
               <p data-i18n="feat.mi">
                 Revue des productions IA : diff par fichier, logs, consensus du Parlement,
@@ -3496,7 +4244,7 @@
           </p>
           <div class="cards">
             <div class="card">
-              <div class="ico" aria-hidden="true">🐝</div>
+              <div class="ico" aria-hidden="true"></div>
               <h3>Swarm View 2D/3D</h3>
               <p data-i18n="feat.sv">
                 L'essaim vivant en SVG léger ou en 3D (alvéoles hexagonales, ouvrières en orbite,
@@ -3504,7 +4252,7 @@
               </p>
             </div>
             <div class="card">
-              <div class="ico" aria-hidden="true">🐝</div>
+              <div class="ico" aria-hidden="true"></div>
               <h3 data-i18n="feat.ry.t">Le Rayon</h3>
               <p data-i18n="feat.ry">
                 <strong>Le code du projet, lisible par les abeilles</strong> : arbre de fichiers,
@@ -3718,7 +4466,7 @@
                 ><i aria-hidden="true">📈</i><b data-i18n="ap.activite.nom">Activité</b></span
               >
               <span data-ecran-rail="relire"
-                ><i aria-hidden="true">🍯</i><b data-i18n="ap.relire.nom">À relire</b></span
+                ><i aria-hidden="true"></i><b data-i18n="ap.relire.nom">À relire</b></span
               >
               <span data-ecran-rail="atelier"
                 ><i aria-hidden="true">⬡</i><b data-i18n="ap.atelier.nom">L'Atelier</b></span
@@ -3864,49 +4612,49 @@
       </h2>
       <div class="checks">
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.1"
             >Zéro <code>shell: true</code> — tout passe par <code>spawn(bin, argv)</code></span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.2"
             >Token partagé obligatoire, comparé à <strong>temps constant</strong></span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.3"
             >CORS restreint — jamais <code>*</code> ; origine WebSocket vérifiée</span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.4"
             >Validation de toutes les entrées (JSON Schema, plafonds de taille)</span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.5"
             >Anti-DoS : limitation de débit REST par IP + plafond de messages WS</span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.6"
             >Sandbox par tâche : cwd dédié, environnement épuré, timeout dur</span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.7"
             >Les clés API restent chez le membre — <strong>jamais exfiltrées</strong></span
           >
         </div>
         <div class="check">
-          <span class="tick" aria-hidden="true">✔</span
+          <span class="tick" aria-hidden="true"></span
           ><span data-i18n="sec.8"
             >Le merge reste toujours un <strong>geste humain explicite</strong></span
           >
@@ -4010,7 +4758,7 @@
           <span class="r"></span><span class="y"></span><span class="g"></span
           ><span class="t" data-i18n="go.t1">démo locale</span>
         </div>
-        <pre><code data-i18n="go.demo"><span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrateur + 2 nœuds simulés<br />   7 tâches en DAG · 1 retry · 1 ⚔ course</span></code></pre>
+        <pre><code data-i18n="go.demo"><span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">orchestrateur + 2 nœuds simulés<br />7 tâches en DAG · 1 retry · 1 exécution concurrente</span></code></pre>
         <div class="term-note" data-i18n="go.n1">
           Testez la persistance : <kbd class="key">Ctrl+C</kbd> en pleine exécution, relancez — tout
           est encore là.
@@ -4041,7 +4789,7 @@
       <div class="rc-grid">
         <article class="rc">
           <div class="rc-tete">
-            <span class="hexico hot" aria-hidden="true">🐙</span>
+            <span class="hexico hot" aria-hidden="true"></span>
             <span class="t" data-i18n="rc.gh.t">Connecter un projet GitHub</span>
           </div>
           <p class="rc-d" data-i18n="rc.gh.d">
@@ -4070,7 +4818,7 @@
 
         <article class="rc">
           <div class="rc-tete">
-            <span class="hexico" aria-hidden="true">🤝</span>
+            <span class="hexico" aria-hidden="true"></span>
             <span class="t" data-i18n="rc.ami.t">Inviter un ami</span>
           </div>
           <p class="rc-d" data-i18n="rc.ami.d">
@@ -4091,7 +4839,7 @@
 
         <article class="rc">
           <div class="rc-tete">
-            <span class="hexico" aria-hidden="true">🪪</span>
+            <span class="hexico" aria-hidden="true"></span>
             <span class="t" data-i18n="rc.moi.t">Installer et ouvrir ma ruche</span>
           </div>
           <p class="rc-d" data-i18n="rc.moi.d">
@@ -4246,9 +4994,7 @@
       </div>
       <div class="pied-bas">
         <span class="mono">© 2026 Hive · v0.2.0 · MIT</span>
-        <span class="pied-made" data-i18n="footer.made"
-          >Fait avec 🍯 — chaque ouvrière compte.</span
-        >
+        <span class="pied-made" data-i18n="footer.made">Chaque ouvrière compte.</span>
       </div>
     </footer>
 
@@ -4265,15 +5011,18 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
+          'nav.menu': 'Open menu',
           'badge.tests': '4,363 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
-            'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
+            'Put several AIs to work on your project, <span class="grad">at the same time.</span>',
           'hero.sub':
             'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result <strong>to approve</strong>.',
           'hero.sub2':
             'Nothing is merged without your say-so. <strong class="key">Your code and your keys stay on your machines.</strong>',
           'hero.pastille': 'Open source · one-command install',
+          'hero.cta': 'Start your hive',
+          'hero.cta2': 'See orchestration',
           'hero.copy': 'copy',
           'install.groupe': 'Pick your system',
           'install.chip.clone': 'Already cloned',
@@ -4314,6 +5063,9 @@
           'feat.ecran': 'The control screen',
           'feat.lede':
             'Twenty-three features, sorted into four families. Read the four promises; unfold the one that concerns you.',
+          'product.alt': 'The Hive dashboard, Hive view',
+          'product.caption':
+            'The whole hive on one screen: node health, work in progress, throughput and the live log.',
           'fam.rep.l':
             'Queen Bee · Sting Detector · Drone Wars · Pheromones · Thermoregulation · Agent-agnostic',
           'fam.main.l':
@@ -4523,7 +5275,7 @@
             '“Open my hive” only works if it is already running — it is a link to your own machine, not to a service. If nothing opens, start <code class="inline">npm run dev</code> first, or fix the address above.',
           'go.t1': 'local demo',
           'go.demo':
-            '<span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">🐝 orchestrator + 2 simulated nodes<br />   7-task DAG · 1 retry · 1 ⚔ race</span>',
+            '<span class="p">$ </span>npm install<br /><span class="p">$ </span>npm run demo<br /><span class="c"># → http://localhost:7777</span><br /><span class="o">orchestrator + 2 simulated nodes<br />7-task DAG · 1 retry · 1 concurrent run</span>',
           'go.n1':
             'Test persistence: <kbd class="key">Ctrl+C</kbd> mid-run, restart — everything is still there.',
           'ap.headline': 'Try it in one command.',
@@ -4548,7 +5300,7 @@
           'f.projets': 'Proposed projects',
           'f.modele': 'Economic model',
           'footer.mit': 'MIT License',
-          'footer.made': 'Made with 🍯 — every worker counts.',
+          'footer.made': 'Every worker counts.',
         };
 
         var TITLES = {
@@ -4619,7 +5371,7 @@
 
         /* ── Journal vivant ── */
         var JFR = [
-          { i: '🍯', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: 'var(--orange)' },
+          { i: '', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: 'var(--orange)' },
           { i: '⚙️', t: 'ruche-alpha butine « Auth JWT » (claude-code)', c: 'var(--orange)' },
           {
             i: '↻',
@@ -4649,7 +5401,7 @@
           { i: '💓', t: 'Pouls : 14 tâches/h · p95 3,2 s · 96 % de succès', c: 'var(--green)' },
         ];
         var JEN = [
-          { i: '🍯', t: 'Task "DB schema" done — nectar +12', c: 'var(--orange)' },
+          { i: '', t: 'Task "DB schema" done — nectar +12', c: 'var(--orange)' },
           { i: '⚙️', t: 'ruche-alpha foraging "JWT auth" (claude-code)', c: 'var(--orange)' },
           { i: '↻', t: '"Billing API": failed, retry 2/3', c: 'var(--gold-2)' },
           { i: '⚔', t: 'Drone race started on 2 nodes — first success wins', c: 'var(--blue)' },
@@ -4977,6 +5729,43 @@
           };
           onScroll();
           window.addEventListener('scroll', onScroll, { passive: true });
+        }
+
+        /* ── Menu mobile : un vrai dialogue de navigation ─────────────── */
+        var menuToggle = document.getElementById('menu-toggle');
+        var siteNav = document.getElementById('site-nav');
+        if (menuToggle && siteNav) {
+          var fermerMenu = function (rendreFocus) {
+            siteNav.classList.remove('open');
+            menuToggle.setAttribute('aria-expanded', 'false');
+            if (rendreFocus) menuToggle.focus();
+          };
+          menuToggle.addEventListener('click', function () {
+            var ouvre = menuToggle.getAttribute('aria-expanded') !== 'true';
+            siteNav.classList.toggle('open', ouvre);
+            menuToggle.setAttribute('aria-expanded', String(ouvre));
+            if (ouvre) {
+              var premier = siteNav.querySelector('a');
+              if (premier) premier.focus();
+            }
+          });
+          siteNav.addEventListener('click', function (event) {
+            if (event.target.closest('a')) fermerMenu(false);
+          });
+          document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && siteNav.classList.contains('open')) {
+              fermerMenu(true);
+            }
+          });
+          document.addEventListener('click', function (event) {
+            if (
+              siteNav.classList.contains('open') &&
+              !siteNav.contains(event.target) &&
+              !menuToggle.contains(event.target)
+            ) {
+              fermerMenu(false);
+            }
+          });
         }
 
         /* ── Compteur d'étoiles GitHub (amélioration progressive) ── */

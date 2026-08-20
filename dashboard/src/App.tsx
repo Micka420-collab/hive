@@ -388,9 +388,10 @@ export function App() {
     <div className="app mc-app">
       <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
-          <span className="brand-logo" aria-hidden="true">
-            🐝
-          </span>
+          <svg className="brand-logo" viewBox="0 0 32 36" aria-hidden="true">
+            <polygon points="16,3 28.5,10.5 28.5,25.5 16,33 3.5,25.5 3.5,10.5" />
+            <path d="M11.5 11.5h3v5h3v-5h3v13h-3v-5.4h-3v5.4h-3z" />
+          </svg>
           {/* Le nom écrit, et pas seulement l'abeille : sur la barre large du
               design, le logo seul laissait un vide que rien n'expliquait. */}
           <span className="mc-sidebar-word">Hive</span>
@@ -400,6 +401,7 @@ export function App() {
             <li key={item.id}>
               <button
                 className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+                data-view={item.id}
                 onClick={() => navigate(item.id)}
                 title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}
@@ -486,7 +488,8 @@ export function App() {
                   'Verdicts made while offline — resent automatically once the orchestrator responds',
                 )}
               >
-                ⚠ {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
+                <span aria-hidden="true">!</span> {unsyncedReviews}{' '}
+                {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
               </span>
             )}
             <span className={connected ? 'conn online' : 'conn offline'}>
