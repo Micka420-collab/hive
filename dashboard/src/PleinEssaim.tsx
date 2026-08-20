@@ -53,15 +53,15 @@ function libellePas(pas: PasEssaim, t: ReturnType<typeof useT>): string {
 
 function iconePas(pas: PasEssaim): string {
   const icones: Record<PasEssaim, string> = {
-    inerte: '🌙',
-    halte: '⛔',
-    plafond: '🛑',
-    deliberer: '🗣️',
-    planifier: '🗂️',
-    butiner: '🐝',
-    corriger: '🔧',
-    livrer: '📤',
-    fusionner: '🔀',
+    inerte: '○',
+    halte: '■',
+    plafond: '▣',
+    deliberer: '◇',
+    planifier: '▤',
+    butiner: '⬡',
+    corriger: '↺',
+    livrer: '↑',
+    fusionner: '⇄',
   };
   // `??` et pas un accès nu : un pas inconnu d'un serveur plus récent rendrait
   // `undefined`, donc une puce vide à côté d'un libellé bien présent.

@@ -19,7 +19,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   reste pour démarrer un projet. Titres et états vides (Partage, Miellerie, Santé calme, compte) portent l’hex plutôt que l’emoji.
   Suite soirée : Journal en marques typographiques, OpenAlex / Cerveau /
   Phéromones / Queen Bee sans chrome emoji, podium Essaim en rangs 1–3,
-  italiques « empty » retirés, KPI Ruche allégés.
+  italiques « empty » retirés, KPI Ruche allégés. Rayon typographique,
+  Miellerie / Reine / Santé / Balance / Intendance / Plein Essaim allégés
+  du chrome emoji.
 
 ### Fixed
 

@@ -21,7 +21,7 @@ import type { ViewProps } from './shared';
 import type { StateSnapshot } from '../../../src/shared/types';
 import './essaim.css';
 
-const SEV_ICON: Record<Ghost['severity'], string> = { high: '🔴', medium: '🟠', low: '🟡' };
+const SEV_ICON: Record<Ghost['severity'], string> = { high: '●', medium: '◉', low: '○' };
 
 // Double record fr/en (constante de module) — résolu via t au rendu.
 const KIND_LABEL: Record<Ghost['kind'], { fr: string; en: string }> = {

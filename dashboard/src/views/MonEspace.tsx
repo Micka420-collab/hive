@@ -326,7 +326,7 @@ function Alertes({
     <section className="card me-alertes">
       <header className="panel-head">
         <h2>
-          ⚠ {t('À traiter', 'To handle')} <span className="panel-count">{alertes.length}</span>
+          {t('À traiter', 'To handle')} <span className="panel-count">{alertes.length}</span>
         </h2>
       </header>
       <ul className="me-liste">
