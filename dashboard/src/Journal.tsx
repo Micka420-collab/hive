@@ -388,7 +388,7 @@ export function Journal({ events }: { events: HiveEvent[] }) {
             );
           })}
         {events.length === 0 && (
-          <li className="empty">{t('En attente d’événements…', 'Waiting for events…')}</li>
+          <li className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</li>
         )}
       </ul>
     </section>

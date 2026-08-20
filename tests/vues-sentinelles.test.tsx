@@ -426,7 +426,7 @@ describe('les sentinelles — une par survivante isolée', () => {
 // l'écran raconterait de faux si la mutation vivait.
 
 describe('les sentinelles du balayage du soir', () => {
-  it('JOURNAL : « En attente d’événements… » ne se dit QUE devant un journal vide', async () => {
+  it('JOURNAL : « Rien pour l’instant » ne se dit QUE devant un journal vide', async () => {
     // `{events.length === 0 && (…)}` mutée en `||` : la ligne d'attente
     // s'afficherait SOUS un journal plein (une ruche active qui prétend
     // attendre), et disparaîtrait du journal vide (le seul moment où elle
@@ -436,13 +436,13 @@ describe('les sentinelles du balayage du soir', () => {
       ({ id, ts: 1_700_000_000_000 + id, type: 'task_done', payload: {} }) as HiveEvent;
     const plein = await monter(<Journal events={[evenement(1), evenement(2)]} />);
     expect(plein.textContent, 'un journal plein n’attend rien').not.toContain(
-      'En attente d’événements',
+      'Rien pour l’instant',
     );
     act(() => racine?.unmount());
     conteneur?.remove();
 
     const vide = await monter(<Journal events={[]} />);
-    expect(vide.textContent, 'le journal vide le dit').toContain('En attente d’événements');
+    expect(vide.textContent, 'le journal vide le dit').toContain('Rien pour l’instant');
   });
 
   it('SANTÉ : l’erreur de la chasse aux fantômes porte son habit — et seulement elle', async () => {
