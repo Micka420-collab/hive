@@ -238,10 +238,7 @@ export default function Chronique({ events }: ViewProps) {
           <div className="ch-replay-body">
             {frames.length === 0 ? (
               <p className="empty pad">
-                {t(
-                  'Aucun événement à rejouer — la ruche n’a pas encore d’histoire.',
-                  'No events to replay — the hive has no history yet.',
-                )}
+                {t('Rien à rejouer pour l’instant.', 'Nothing to replay yet.')}
               </p>
             ) : (
               <>
@@ -378,12 +375,7 @@ export default function Chronique({ events }: ViewProps) {
             </li>
           )}
           {events.length === 0 && (
-            <li className="empty">
-              {t(
-                'La ruche n’a encore rien vécu — le journal est vide.',
-                'Nothing has happened in the hive yet — the journal is empty.',
-              )}
-            </li>
+            <li className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</li>
           )}
           {events.length > 0 && allRows.length === 0 && (
             <li className="empty">
