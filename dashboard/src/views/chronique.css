@@ -21,12 +21,61 @@
   margin-left: auto;
 }
 
+/* Filtres calmes : miel discret, pas de chrome agressif. */
+.ch-filters .chip {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ch-filters .chip:hover {
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  color: var(--text);
+}
+
+.ch-filters .chip.active {
+  border-color: color-mix(in srgb, var(--miel) 38%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, var(--panel));
+  color: var(--text);
+  box-shadow: none;
+}
+
+.ch-filters .chip-count {
+  color: var(--faint);
+  font-weight: 400;
+}
+
 .ch-journal {
   list-style: none;
   margin: 0;
   padding: 6px;
   overflow-y: auto;
   max-height: 68vh;
+}
+
+/* Vides : marque hex, jamais d’italique. */
+.ch-view .empty {
+  font-style: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 14px;
+}
+
+.ch-view .empty.pad {
+  padding: 32px 18px;
+}
+
+.ch-view .empty .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .ch-row {

@@ -236,6 +236,7 @@ export default function Chronique({ events }: ViewProps) {
           <div className="ch-replay-body">
             {frames.length === 0 ? (
               <p className="empty pad">
+                <span className="marque" aria-hidden="true" />{' '}
                 {t('Rien à rejouer pour l’instant.', 'Nothing to replay yet.')}
               </p>
             ) : (
@@ -317,9 +318,12 @@ export default function Chronique({ events }: ViewProps) {
 
       <section className="card panel ch-journal-panel">
         <header className="panel-head">
-          <h2>{t('Chronique de la ruche', 'Chronicle of the hive')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('Chronique de la ruche', 'Chronicle of the hive')}
+          </h2>
           <div
-            className="filters"
+            className="filters ch-filters"
             role="group"
             aria-label={t('Filtres par famille', 'Filters by family')}
           >
@@ -373,10 +377,14 @@ export default function Chronique({ events }: ViewProps) {
             </li>
           )}
           {events.length === 0 && (
-            <li className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</li>
+            <li className="empty">
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Rien pour l’instant.', 'Nothing yet.')}
+            </li>
           )}
           {events.length > 0 && allRows.length === 0 && (
             <li className="empty">
+              <span className="marque" aria-hidden="true" />{' '}
               {t(
                 'Aucun événement ne passe les filtres actifs.',
                 'No events match the active filters.',
