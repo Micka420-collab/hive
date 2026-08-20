@@ -13,7 +13,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
   des échecs + une étape (puce → Rayon). (3) Pouls Plein Essaim sur la Ruche
   (niveau / pause / dérive → Projets). Garde : `pruneSauvegardes` + test UI
-  pouls ; FEATURES FR/EN alignés.
+  pouls ; FEATURES FR/EN alignés. Pouls : états de charge et **hors ligne**
+  si l’essaim refuse de répondre.
 
 - **🔏 Installeurs sur Pages + empreinte affichée (lot 8, prep).** `pages.yml`
   copie `install.sh` / `install.ps1` vers `site/` et publie `install.sha256`.
