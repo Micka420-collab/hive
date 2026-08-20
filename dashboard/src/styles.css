@@ -402,13 +402,14 @@ h3 {
 }
 
 .conn.online {
-  color: var(--muted);
-  border-color: var(--border);
-  background: transparent;
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 22%, var(--border));
+  background: color-mix(in srgb, var(--green) 5%, var(--panel));
 }
 
 .conn.online .conn-dot {
   background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
 }
 
 .conn.offline {
@@ -2172,8 +2173,8 @@ h3 {
 }
 
 .ruche-depart .marque {
-  width: 14px;
-  height: 16px;
+  width: 18px;
+  height: 20px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   background: var(--miel);
 }
