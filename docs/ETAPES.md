@@ -11651,9 +11651,8 @@ sans ce rituel — et `main` est rouge. Ce point le rétablit.
 ### 7. Suite du 20 août (soir) — polish Mission Control, pas une feature
 
 Sous le gel soft : redesign Craft du panel (Ruche vide centrée, glyphes SVG,
-invite secondaire, Reine messagerie, topbar « Prête », Rayon/Chronique/Journal
-assouplis). Suite soirée : chrome emoji retiré (Journal, OpenAlex, Essaim,
-Projets, Cerveau, Miellerie, Reine, Santé, Rayon, Balance, courses ◇),
-italiques « empty » → muted, KPI Ruche allégés. Preuve : PR #338, CI verte en
-continu sur la branche, loupe Ruche 7/7 défendues, captures `mc-soir2-*`. Ce
-n'est **pas** un lot de feature — c'est du premier contact avant la revue du 26.
+invite secondaire, Reine messagerie, topbar « Prête »). Suite soirée (~21h30) :
+chrome emoji retiré, wordmark Hive/Mission Control, vues (Chronique, Mémoire,
+Santé, Rayon, Chantiers, Inviter/Compte…) miel/cire, courses ◇, CI verte en
+continu sur PR #338, captures `mc-soir3-*`. Ce n'est **pas** un lot de feature —
+premier contact avant la revue du 26.
