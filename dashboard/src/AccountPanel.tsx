@@ -121,7 +121,7 @@ function AccountModal({
       >
         <header className="modal-head">
           <h2 id="account-title">
-            👤{' '}
+            <span className="marque" aria-hidden="true" />{' '}
             {mode === 'login'
               ? t('Connexion', 'Sign in')
               : t('Créer un compte', 'Create an account')}
