@@ -23,7 +23,7 @@ import { libelleAgent } from '../../src/shared/agent-libelle';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
 
 const AGENT_ICON: Record<string, string> = {
-  shell: '🐚',
+  shell: '○',
   'claude-code': '✦',
   codex: '⌗',
 };
@@ -134,7 +134,7 @@ function FicheOuvriere({
             {nectar.raceWins > 0 && (
               <span className="fo-victoires">
                 {' '}
-                · ⚔ {nectar.raceWins} {t('victoire(s) de course', 'race win(s)')}
+                · ◇ {nectar.raceWins} {t('victoire(s) de course', 'race win(s)')}
               </span>
             )}
           </p>

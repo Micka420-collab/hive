@@ -48,7 +48,7 @@ function NodeCard({
               title={t('en course de drones', 'in a drone race')}
               aria-label={t('en course de drones', 'in a drone race')}
             >
-              ⚔
+              ◇
             </span>
           )}
           {node.name}
@@ -138,7 +138,7 @@ function NectarList({ board }: { board: WaggleBoard }) {
               <span className="es-nectar-stats">
                 {Math.round(n.successRate * 100)} % · {formatMs(n.avgDurationMs)} · ✔ {n.tasksDone}{' '}
                 ✘ {n.tasksFailed}
-                {n.raceWins > 0 && <> · ⚔ {n.raceWins}</>}
+                {n.raceWins > 0 && <> · ◇ {n.raceWins}</>}
               </span>
             </div>
             <div className="es-bar">
@@ -168,7 +168,7 @@ function RacesCard({
     snapshot.tasks.find((task) => task.id === taskId)?.title ?? `${taskId.slice(0, 8)}…`;
   const nameOf = (nodeId: string): string =>
     snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
-  const ICON: Record<string, string> = { running: '✈', failed: '✘', succeeded: '🏆' };
+  const ICON: Record<string, string> = { running: '✈', failed: '✘', succeeded: '★' };
   // Statuts traduits : le title/aria porte l'état, l'emoji seul ne suffit
   // ni aux lecteurs d'écran ni aux opérateurs non anglophones.
   const statusLabel = (status: string): string =>
@@ -182,7 +182,7 @@ function RacesCard({
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('⚔ Courses en vol', '⚔ Races in flight')}</h2>
+        <h2>{t('Courses en vol', 'Races in flight')}</h2>
         <span className="panel-count">{races.length}</span>
       </header>
       <ul className="es-races">

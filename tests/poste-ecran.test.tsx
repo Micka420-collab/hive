@@ -264,11 +264,11 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     expect(nectar, 'la ligne de nectar se montre').toBeTruthy();
     expect(nectar?.textContent).toContain('24 nectar');
     expect(nectar?.textContent).toContain('83 % de réussite');
-    expect(nectar?.textContent).toContain('⚔ 2');
+    expect(nectar?.textContent).toContain('◇ 2');
     expect(nectar?.textContent, 'pas le nectar de la voisine').not.toContain('99');
   });
 
-  it('SANS VICTOIRE DE COURSE, pas de ⚔ — et sans ligne au classement, pas de nectar', async () => {
+  it('SANS VICTOIRE DE COURSE, pas de ◇ — et sans ligne au classement, pas de nectar', async () => {
     vi.mocked(fetchWaggle).mockResolvedValue({
       nodes: [
         {
@@ -300,7 +300,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     expect(
       dom.querySelector('.fo-nectar')?.textContent,
       'zéro victoire ne se décore pas',
-    ).not.toContain('⚔');
+    ).not.toContain('◇');
 
     // Ferme, puis ouvre la voisine — absente du classement : le nectar se tait.
     cliquer(dom.querySelector('.modal-close') as Element);

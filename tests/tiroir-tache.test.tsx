@@ -95,13 +95,13 @@ const NOEUDS: HiveNode[] = [
 ];
 
 describe('le tiroir — la victoire de course (la survivante du balayage)', () => {
-  it('GAGNÉE ET TERMINÉE : la bannière 🏆 nomme le vainqueur et compte les annulés', async () => {
+  it('GAGNÉE ET TERMINÉE : la bannière de course nomme le vainqueur et compte les annulés', async () => {
     vi.mocked(fetchRace).mockResolvedValue({
       race: null,
       victory: { nodeId: 'noeud-1', cancelled: 2 },
     });
     const dom = await monter(<TaskDrawer task={tache('done')} nodes={NOEUDS} onClose={() => {}} />);
-    expect(dom.textContent).toContain('🏆');
+    expect(dom.textContent).toContain('Gagnée en course de drones');
     // Le NOM du nœud, pas son identifiant tronqué : c'est lui que l'hôte lit.
     expect(dom.textContent).toContain('ruche-alpha');
     expect(dom.textContent).toContain('2 concurrent(s) annulé(s)');
@@ -119,7 +119,9 @@ describe('le tiroir — la victoire de course (la survivante du balayage)', () =
       <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
     );
     expect(vi.mocked(fetchRace)).toHaveBeenCalled();
-    expect(dom.textContent, 'une tâche en cours ne porte pas de trophée').not.toContain('🏆');
+    expect(dom.textContent, 'une tâche en cours ne porte pas de trophée').not.toContain(
+      'Gagnée en course de drones',
+    );
   });
 
   it('SUR UNE TÂCHE ÉCHOUÉE, LA COURSE N’EST MÊME PAS DEMANDÉE', async () => {
@@ -130,7 +132,7 @@ describe('le tiroir — la victoire de course (la survivante du balayage)', () =
       <TaskDrawer task={tache('failed')} nodes={NOEUDS} onClose={() => {}} />,
     );
     expect(vi.mocked(fetchRace)).not.toHaveBeenCalled();
-    expect(dom.textContent).not.toContain('🏆');
+    expect(dom.textContent).not.toContain('Gagnée en course de drones');
   });
 });
 
@@ -244,7 +246,7 @@ describe('la course en vol compte les drones QUI TOURNENT', () => {
   const enVol = (dom: HTMLElement): string =>
     [...dom.querySelectorAll('p.muted-text')]
       .map((p) => p.textContent ?? '')
-      .find((x) => x.includes('⚔')) ?? '';
+      .find((x) => x.includes('Course en vol') || x.includes('Race in flight')) ?? '';
 
   it('DEUX DRONES SUR TROIS EN VOL : la phrase dit deux', async () => {
     // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER ──────────────────────────────────
