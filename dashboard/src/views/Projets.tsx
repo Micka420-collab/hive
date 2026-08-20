@@ -589,7 +589,7 @@ function ConflictsPanel({
             <li key={`${c.a}-${c.b}-${i}`} className={`pj-sting ${c.severity}`}>
               <span className="pj-sting-sev">
                 {c.severity === 'high'
-                  ? t('⚡ sévérité haute', '⚡ high severity')
+                  ? t('sévérité haute', 'high severity')
                   : t('· sévérité faible', '· low severity')}
               </span>
               <span className="pj-sting-pair">
@@ -1818,7 +1818,7 @@ function ProjectCard({
           aria-expanded={showConflicts}
           onClick={() => setShowConflicts((v) => !v)}
         >
-          {t('⚡ Conflits Sting', '⚡ Sting conflicts')}
+          {t('Conflits Sting', 'Sting conflicts')}
         </button>
       </div>
 

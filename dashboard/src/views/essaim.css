@@ -766,8 +766,9 @@
 }
 
 .gu-icone {
-  font-size: 26px;
+  font-size: 15px;
   line-height: 1;
+  color: var(--muted);
 }
 
 .gu-chiffres {

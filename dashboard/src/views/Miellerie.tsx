@@ -928,7 +928,7 @@ export default function Miellerie({
               )}
               onClick={() => decide('rejected')}
             >
-              ✖ {t('Rejeter', 'Reject')} <kbd>x</kbd>
+              {t('Rejeter', 'Reject')} <kbd>x</kbd>
             </button>
             <button
               className="btn ghost"
@@ -1019,7 +1019,7 @@ export default function Miellerie({
                     return (
                       <li key={i} className={`mi-sting-item ${c.severity}`}>
                         <span className="mi-sting-sev">
-                          {c.severity === 'high' ? t('⚡ fort', '⚡ high') : t('· faible', '· low')}
+                          {c.severity === 'high' ? t('fort', 'high') : t('· faible', '· low')}
                         </span>
                         <span className="mi-sting-other">
                           {t(`avec « ${titleOf(other)} »`, `with “${titleOf(other)}”`)}
@@ -1118,7 +1118,7 @@ export default function Miellerie({
                   <ul className="mi-plan-conflicts">
                     {planState.plan.conflicts.map((c, i) => (
                       <li key={i}>
-                        ⚡ {titleOf(c.a)} ↔ {titleOf(c.b)} — <code>{c.file}</code>
+                        {titleOf(c.a)} ↔ {titleOf(c.b)} — <code>{c.file}</code>
                       </li>
                     ))}
                   </ul>

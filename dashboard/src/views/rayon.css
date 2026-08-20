@@ -94,7 +94,11 @@
 
 .ry-icone {
   flex: none;
+  width: 1.5em;
+  text-align: center;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .ry-nom {
