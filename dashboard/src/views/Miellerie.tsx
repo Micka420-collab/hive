@@ -754,9 +754,7 @@ export default function Miellerie({
     return (
       <div className="mc-view mi-view">
         <div className="mi-empty">
-          <span className="mi-empty-icon" aria-hidden="true">
-            🐝
-          </span>
+          <span className="mi-empty-icon marque" aria-hidden="true" />
           <p className="mi-empty-lead">
             {t(
               'Le nectar arrive — aucune production à revoir.',
