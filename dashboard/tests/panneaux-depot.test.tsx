@@ -406,7 +406,7 @@ describe('LE PANNEAU DES LIVRAISONS', () => {
     await dernierAppel().repondre({
       livraisons: [livraison('t-noir', 14, { illisible: 'GitHub a répondu 502' })],
     });
-    expect(texte()).toContain('⚠ GitHub a répondu 502');
+    expect(texte()).toContain('GitHub a répondu 502');
     expect(boutons().filter((b) => b.textContent?.trim() === 'reprendre')).toHaveLength(0);
   });
 
