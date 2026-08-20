@@ -56,7 +56,9 @@ export function ConflictsPanel({
       <ul className="conflict-list">
         {entries.slice(0, 10).map(({ conflict }, i) => (
           <li key={i} className={`conflict-item ${conflict.severity}`}>
-            <span className="conflict-sev">{conflict.severity === 'high' ? '⚠' : '·'}</span>
+            <span className="conflict-sev" aria-hidden="true">
+              {conflict.severity === 'high' ? '▲' : '·'}
+            </span>
             <span className="conflict-pair">
               {titleOf(conflict.a)} ↔ {titleOf(conflict.b)}
             </span>
