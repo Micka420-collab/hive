@@ -1,6 +1,6 @@
 // Les paliers — ce que chaque plan ouvre AU-DELÀ du cœur, jamais à sa place.
 //
-// La règle qui gouverne ce fichier vient du modèle n8n, et elle est écrite
+// La règle qui gouverne ce fichier est écrite
 // dans docs/MODELE-ECONOMIQUE.md : le cœur de Hive n'est JAMAIS bridé pour
 // vendre un palier. Aucune capacité listée ici n'existe en Community sous une
 // forme dégradée — elles n'existent pas du tout dans le noyau, parce que ce

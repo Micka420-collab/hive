@@ -1,4 +1,4 @@
-# Hive Cloud — comme n8n : gratuit chez soi, payant sur tes serveurs
+# Hive Cloud — gratuit chez soi, payant sur tes serveurs
 
 Deux éditions, un seul dépôt.
 

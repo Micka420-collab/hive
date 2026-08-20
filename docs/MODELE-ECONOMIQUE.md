@@ -153,9 +153,9 @@ commencer, pas par les Rushes.
 
 ## 6. Les quatre paliers — Community, Cloud, Team, Enterprise
 
-Le modèle est celui de n8n : **open-core sans cœur mutilé.** Quatre paliers,
-et une frontière nette entre ce qui relève de la ruche (jamais vendu) et ce
-qui relève de l'organisation (vendu).
+Le modèle est **open-core sans cœur mutilé.** Quatre paliers, et une frontière
+nette entre ce qui relève de la ruche (jamais vendu) et ce qui relève de
+l'organisation (vendu).
 
 | Palier         | Pour qui                       | Prix          | Ce qu'il contient                                                                                             |
 | -------------- | ------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -167,13 +167,13 @@ qui relève de l'organisation (vendu).
 ### 6.1 Pourquoi Community n'est jamais bridé
 
 C'est l'argument du §1, et il est structurel, pas moral : le noyau gratuit est
-le **canal d'acquisition**. n8n a construit son marché ainsi — le cœur entier
-en local, et ce qui se paie est ce qui n'existe que pour une organisation
-(l'hébergement, les rôles, le SSO). Brider Community pour pousser vers Team
-inverserait la mécanique : moins d'utilisateurs entrent, donc moins d'équipes
-se forment, donc moins de clients Team. **Le jour où une fonction du cœur
-passe derrière un palier, ce document est caduc** — et un test le verrouille
-(`tests/paliers.test.ts` : les sièges de Community sont illimités).
+le **canal d'acquisition**. Le cœur entier tourne en local, et ce qui se paie
+est ce qui n'existe que pour une organisation (l'hébergement, les rôles, le
+SSO). Brider Community pour pousser vers Team inverserait la mécanique : moins
+d'utilisateurs entrent, donc moins d'équipes se forment, donc moins de clients
+Team. **Le jour où une fonction du cœur passe derrière un palier, ce document
+est caduc** — et un test le verrouille (`tests/paliers.test.ts` : les sièges de
+Community sont illimités).
 
 ### 6.2 Ce que Team et Enterprise vendent, précisément
 

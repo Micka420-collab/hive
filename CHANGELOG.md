@@ -15,9 +15,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Volume `/workspace`, crochets `.wake-hooks`, aucun secret d'hôte.
   `HIVE_ATELIER=off|auto|on`. Détail : `docs/ATELIER.md`.
 
-- **🐝 Deux paliers d'équipe, jamais du cœur : Team et Enterprise.** Le modèle
-  n8n complet : Community garde le noyau ENTIER (sièges illimités, verrouillé
-  par test), et ce qui se vend au-dessus n'existe que pour une organisation.
+- **🐝 Deux paliers d'équipe, jamais du cœur : Team et Enterprise.** Community
+  garde le noyau ENTIER (sièges illimités, verrouillé par test), et ce qui se
+  vend au-dessus n'existe que pour une organisation.
   Team (99 €/mois, cloud ou self-host) : rôles fins, quotas par membre,
   projets d'organisation, sièges illimités, 100 h/mois. Enterprise (sur
   devis, AUCUN prix dans le code) : SSO/SAML, audit exportable, rétention
@@ -25,7 +25,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   pur, fermé par défaut ; le SSO n'est pas implémenté, la porte l'attend.
   Détail : `docs/MODELE-ECONOMIQUE.md` §6.
 
-- **🐝 Deux éditions, comme n8n : Community gratuit, Cloud sur tes serveurs.**
+- **🐝 Deux éditions : Community gratuit, Cloud sur tes serveurs.**
   `HIVE_EDITION=community|cloud`. Community reste 0 €, noyau complet. Cloud
   tourne la même Queen chez l'opérateur (`docker-compose.cloud.yml` + Caddy),
   facture à l'horloge d'hébergeur (plus `durationMs`), exige
