@@ -101,6 +101,11 @@ export interface SchedulerOptions {
     capaciteCacheProjets?: number;
   };
   /**
+   * En Cloud, le plafond lit l'horloge de l'hébergeur, jamais `durationMs`.
+   * Community : inchangé (l'agent ne se vole que lui-même).
+   */
+  factureHorlogeHote?: boolean;
+  /**
    * Les Gardiennes (le contrôle d'entrée du nectar) : 'off' (aucune inspection,
    * aucune écriture — la ruche est indiscernable de celle d'avant), 'consultatif'
    * (chaque production déclarée réussie est reniflée et le verdict RANGÉ, mais
@@ -322,7 +327,10 @@ export class Scheduler {
   private decisionPlafond(projectId: string): DecisionPlafond {
     if (this.opts.balance?.mode === 'off') return 'passe';
     if (!this.livre.aJour) return 'passe';
-    return jugerPlafond(this.livre.depense(projectId), this.lireBudgets().get(projectId) ?? null);
+    const depense = this.opts.factureHorlogeHote
+      ? this.store.depenseHorlogeHote(projectId, Date.now())
+      : this.livre.depense(projectId);
+    return jugerPlafond(depense, this.lireBudgets().get(projectId) ?? null);
   }
 
   /**
@@ -356,7 +364,9 @@ export class Scheduler {
       return;
     }
     const plafondMs = this.lireBudgets().get(projectId) ?? 0;
-    const depenseMs = this.livre.depense(projectId);
+    const depenseMs = this.opts.factureHorlogeHote
+      ? this.store.depenseHorlogeHote(projectId, Date.now())
+      : this.livre.depense(projectId);
     if (decision === 'alerte') {
       if (this.alertesEmises.has(projectId)) return;
       this.alertesEmises.add(projectId);
@@ -834,6 +844,8 @@ export class Scheduler {
       return false;
     }
 
+    this.store.fermerHorlogeHote(task.id, Date.now());
+
     // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
     // oublie l'historique de refus infra pour cette tâche.
     this.infraRejects.delete(task.id);
@@ -1063,6 +1075,7 @@ export class Scheduler {
     this.races.set(taskId, race);
     this.emit('drone_race_started', { taskId, factor: race.factor, drones: launch });
     this.emit('task_assigned', { taskId, nodeId: primary, branch: assigned.branch });
+    this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
@@ -1118,6 +1131,7 @@ export class Scheduler {
     if (decision.outcome === 'won') {
       this.races.delete(task.id);
       this.infraRejects.delete(task.id);
+      this.store.fermerHorlogeHote(task.id, now);
       this.store.patchTask(
         task.id,
         {
@@ -1160,6 +1174,7 @@ export class Scheduler {
     // all_failed via un VRAI résultat : l'agent a tourné — tentative brûlée,
     // circuit d'échec normal (retry ou failed définitif).
     this.races.delete(task.id);
+    this.store.fermerHorlogeHote(task.id, now);
     this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
     const attempts = task.attempts + 1;
     // Même enrichissement que le circuit mono : une course perdue coûte au
@@ -1575,6 +1590,7 @@ export class Scheduler {
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
       // sans réécrire le prompt persisté de la tâche.
       this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
+      this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
       activeNow.push(assigned); // les tâches suivantes tiennent compte de celle-ci

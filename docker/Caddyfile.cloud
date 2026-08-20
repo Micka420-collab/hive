@@ -1,0 +1,9 @@
+# Hive Cloud — TLS devant la Queen.
+#
+# Remplace hive.example.com par TON domaine, et pointe le DNS vers ce serveur.
+# Caddy obtient le certificat Let's Encrypt tout seul.
+
+hive.example.com {
+	encode gzip
+	reverse_proxy ruche:7777
+}

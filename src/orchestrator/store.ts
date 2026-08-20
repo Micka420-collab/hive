@@ -14,6 +14,8 @@ import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
+import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
+import type { SessionHote } from './horloge-hote.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
 import { rankMemories } from './hive-mind.js';
@@ -260,6 +262,27 @@ CREATE TABLE IF NOT EXISTS abonnements (
   version      INTEGER NOT NULL DEFAULT 1,
   majA         INTEGER NOT NULL
 );
+
+-- Horloge de l'hebergeur. Deux tables, volontairement :
+--   horloge_soldes : le total CLOTURE par projet (1:1 projects, borne humaine).
+--   horloge_hote   : les sessions ENCORE OUVERTES (borne referentielle : la tache).
+-- On n'archive PAS les sessions closes : les elaguer ferait sous-compter, et
+-- le client recupererait des heures. Le solde, lui, survit.
+--
+-- En edition cloud, c'est la seule mesure facturable (MODELE-ECONOMIQUE §3.1).
+CREATE TABLE IF NOT EXISTS horloge_soldes (
+  projectId TEXT PRIMARY KEY,
+  depenseMs INTEGER NOT NULL DEFAULT 0,
+  version   INTEGER NOT NULL DEFAULT 1,
+  majA      INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS horloge_hote (
+  taskId    TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL,
+  startedAt INTEGER NOT NULL,
+  source    TEXT NOT NULL DEFAULT 'hote'
+);
+CREATE INDEX IF NOT EXISTS idx_horloge_hote_projet ON horloge_hote(projectId);
 
 -- La Balance — CACHE RECONSTRUCTIBLE du grand livre. Son nom le dit, et c'est
 -- délibéré : balance_ledger_cache n'est PAS une source de vérité. La vérité
@@ -2178,6 +2201,80 @@ export class HiveStore {
          )`,
       )
       .run(maxKeep).changes;
+  }
+
+  // ─── Horloge de l'hébergeur : le temps que L'AGENT ne déclare pas ──────────
+
+  /** Ouvre une session. Idempotente : une session déjà ouverte pour la tâche est ignorée. */
+  ouvrirHorlogeHote(projectId: string, taskId: string, startedAt: number): void {
+    const s = ouvrirSession(projectId, taskId, startedAt);
+    this.db
+      .prepare(
+        `INSERT INTO horloge_hote (taskId, projectId, startedAt, source) VALUES (?, ?, ?, ?)
+         ON CONFLICT(taskId) DO NOTHING`,
+      )
+      .run(s.taskId, s.projectId, s.startedAt, 'hote');
+  }
+
+  /** Clôt la session : ajoute sa durée au solde du projet, puis l'efface. */
+  fermerHorlogeHote(taskId: string, stoppedAt: number): boolean {
+    const row = this.db
+      .prepare('SELECT taskId, projectId, startedAt FROM horloge_hote WHERE taskId = ?')
+      .get(taskId) as { taskId: string; projectId: string; startedAt: number } | undefined;
+    if (!row) return false;
+    const close = fermerSession(
+      {
+        id: 0,
+        projectId: row.projectId,
+        taskId: row.taskId,
+        startedAt: row.startedAt,
+        stoppedAt: null,
+      },
+      stoppedAt,
+    );
+    if (!close || close.stoppedAt === null) return false;
+    const ajoute = close.stoppedAt - close.startedAt;
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO horloge_soldes (projectId, depenseMs, version, majA) VALUES (?, ?, 1, ?)
+           ON CONFLICT(projectId) DO UPDATE SET
+             depenseMs = depenseMs + excluded.depenseMs,
+             majA = excluded.majA`,
+        )
+        .run(row.projectId, ajoute, close.stoppedAt);
+      this.db.prepare('DELETE FROM horloge_hote WHERE taskId = ?').run(taskId);
+    });
+    tx();
+    return true;
+  }
+
+  /** Dépense facturable : solde clos + sessions encore ouvertes, à `now`. */
+  depenseHorlogeHote(projectId: string, now: number): number {
+    const solde = this.db
+      .prepare('SELECT depenseMs FROM horloge_soldes WHERE projectId = ?')
+      .get(projectId) as { depenseMs: number } | undefined;
+    const ouvertes = this.db
+      .prepare('SELECT taskId, projectId, startedAt FROM horloge_hote WHERE projectId = ?')
+      .all(projectId) as Array<{ taskId: string; projectId: string; startedAt: number }>;
+    const sessions: SessionHote[] = ouvertes.map((r) => ({
+      id: 0,
+      projectId: r.projectId,
+      taskId: r.taskId,
+      startedAt: r.startedAt,
+      stoppedAt: null,
+    }));
+    return (solde?.depenseMs ?? 0) + depenseHote(sessions, now);
+  }
+
+  /**
+   * Sessions ouvertes dont la tâche a disparu. Borne référentielle, câblée
+   * APRÈS pruneTasks : une session orpheline n'est plus facturable.
+   */
+  pruneHorlogeHote(): number {
+    return this.db
+      .prepare('DELETE FROM horloge_hote WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
   }
 
   setAbonnement(a: {

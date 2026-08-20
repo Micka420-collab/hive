@@ -32,8 +32,70 @@ import { describe, expect, it } from 'vitest';
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const CONFIG = readFileSync(path.join(RACINE, 'vitest.config.ts'), 'utf8');
 
-/** Sans les commentaires — sinon la prose de ce choix ferait passer la garde. */
-const nu = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+/** Sans les commentaires — et SANS avaler les chaînes (un glob `/**` n'est pas un commentaire). */
+const nu = (s: string): string => {
+  let out = '';
+  let i = 0;
+  let etat: 'code' | 's' | 'd' | 'ligne' | 'bloc' = 'code';
+  while (i < s.length) {
+    const c = s[i]!;
+    const n = s[i + 1];
+    if (etat === 'code') {
+      if (c === '/' && n === '/') {
+        etat = 'ligne';
+        i += 2;
+        continue;
+      }
+      if (c === '/' && n === '*') {
+        etat = 'bloc';
+        i += 2;
+        continue;
+      }
+      if (c === "'") {
+        etat = 's';
+        out += c;
+        i += 1;
+        continue;
+      }
+      if (c === '"' || c === '`') {
+        etat = 'd';
+        out += c;
+        i += 1;
+        continue;
+      }
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (etat === 's' || etat === 'd') {
+      if (c === '\\') {
+        out += c + (n ?? '');
+        i += 2;
+        continue;
+      }
+      if (etat === 's' && c === "'") etat = 'code';
+      else if (etat === 'd' && (c === '"' || c === '`')) etat = 'code';
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (etat === 'ligne') {
+      if (c === '\n') {
+        etat = 'code';
+        out += c;
+      }
+      i += 1;
+      continue;
+    }
+    if (c === '*' && n === '/') {
+      etat = 'code';
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+  return out;
+};
 const CONFIG_NU = nu(CONFIG);
 
 /** `20_000` → 20000. Le séparateur numérique de TypeScript n'est pas un chiffre. */

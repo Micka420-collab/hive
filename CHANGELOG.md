@@ -7,6 +7,16 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **🐝 Deux éditions, comme n8n : Community gratuit, Cloud sur tes serveurs.**
+  `HIVE_EDITION=community|cloud`. Community reste 0 €, noyau complet. Cloud
+  tourne la même Queen chez l'opérateur (`docker-compose.cloud.yml` + Caddy),
+  facture à l'horloge d'hébergeur (plus `durationMs`), exige
+  `HIVE_WEBHOOK_SECRET` au démarrage, et accepte les webhooks Stripe
+  (`Stripe-Signature`, `metadata.projectId` / `plan`). Un locataire = une base.
+  Détail : `docs/CLOUD.md`.
+
 ### Fixed
 
 - **🪟 Sur Windows, la ruche se servait d'un agent SIMULÉ sans le dire vraiment.**

@@ -241,4 +241,29 @@ describe('endpoint des abonnements', () => {
     expect(JSON.parse(brut)).toMatchObject({ webhookConfigure: true });
     expect(brut).not.toContain(SECRET);
   });
+
+  it('un webhook Stripe natif (en-tête Stripe-Signature) active un plan', async () => {
+    const { base, srv } = await demarrer();
+    const p = srv.store.createProject({ name: 'Ruche' }).id;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const corps = JSON.stringify({
+      type: 'customer.subscription.created',
+      created: nowSec,
+      data: {
+        object: {
+          id: 'sub_stripe',
+          current_period_end: nowSec + 30 * 86_400,
+          metadata: { projectId: p, plan: 'essaim' },
+        },
+      },
+    });
+    const entete = signer(corps, SECRET, Date.now());
+    const rep = await fetch(`${base}/api/webhooks/abonnement`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': entete },
+      body: corps,
+    });
+    expect(rep.status).toBe(200);
+    expect(await rep.json()).toMatchObject({ applique: true, etat: 'actif', heures: 50 });
+  });
 });
