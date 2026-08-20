@@ -379,6 +379,23 @@ describe('askConcierge (mode IA injecté)', () => {
     const a = await askConcierge('avancement ?', makeCtx());
     expect(a.source).toBe('live');
   });
+
+  it('propose de restaurer quand il y a des échecs et une sauvegarde', async () => {
+    const a = await askConcierge(
+      'où en est le projet ?',
+      makeCtx({
+        finishedTasks: [
+          { id: 't-fail', title: 'Socle', status: 'failed' },
+          { id: 't-ok', title: 'Tests', status: 'done' },
+        ],
+        sauvegardes: [{ id: 'sg1', label: 'Étape — Socle', kind: 'etape', createdAt: 1 }],
+      }),
+    );
+    expect(a.source).toBe('live');
+    expect(a.reply).toContain('Étape — Socle');
+    expect(a.reply).toMatch(/échec/i);
+    expect(a.suggestions[0]).toMatch(/Restaurer/i);
+  });
 });
 
 describe('buildChatPrompt', () => {

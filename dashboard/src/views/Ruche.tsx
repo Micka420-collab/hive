@@ -2,6 +2,7 @@
 // miel du projet courant, file d'attente et journal condensé.
 
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { AutonomiePulse } from '../AutonomiePulse';
 import { useT } from '../i18n';
 import { Journal } from '../Journal';
 import { NodesPanel } from '../NodesPanel';
@@ -22,6 +23,7 @@ export default function Ruche({
   deferred,
   onOpenTask,
   onNewProject,
+  onNavigate,
 }: ViewProps) {
   const t = useT();
   const [mode, setMode] = useState<SwarmMode>(
@@ -84,6 +86,11 @@ export default function Ruche({
           <div className="mc-ruche-stats card">
             <StatTiles snapshot={snapshot} throughput={throughput} />
           </div>
+
+          <AutonomiePulse
+            projets={snapshot.projects.map((p) => ({ id: p.id, name: p.name }))}
+            onNavigate={onNavigate}
+          />
 
           <main className="layout">
             <section className="col-main">

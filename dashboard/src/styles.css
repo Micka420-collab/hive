@@ -2254,6 +2254,87 @@ h3 {
   box-shadow: none;
 }
 
+.autonomie-pulse {
+  margin: 8px 22px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+.autonomie-pulse-tete h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.autonomie-pulse-tete p {
+  margin: 2px 0 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.autonomie-pulse-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.autonomie-pulse-item {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.autonomie-pulse-item:hover {
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+}
+
+.autonomie-pulse-item--plein,
+.autonomie-pulse-item--gouverne {
+  border-color: color-mix(in srgb, var(--miel) 40%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, transparent);
+}
+
+.autonomie-pulse-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 16ch;
+  font-weight: 600;
+}
+
+.autonomie-pulse-niv {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-transform: lowercase;
+}
+
+.autonomie-pulse-flag {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.autonomie-pulse-flag--halte {
+  color: var(--danger, #b45309);
+}
+
 /* Ruche vide : une seule composition centrée — pas de zéros autour. */
 .mc-ruche:has(> .ruche-depart:only-child) {
   display: flex;

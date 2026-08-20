@@ -408,7 +408,15 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
               key={s}
               className="chip rn-chip"
               disabled={pending}
-              onClick={() => void send(s)}
+              onClick={() => {
+                // Raccourci produit : la suggestion « Restaurer… » mène au
+                // panneau Sauvegardes du Rayon plutôt que de reposer la question.
+                if (/^restaurer|^restore/i.test(s.trim())) {
+                  onNavigate('rayon', projectId || undefined);
+                  return;
+                }
+                void send(s);
+              }}
             >
               {s}
             </button>

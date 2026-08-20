@@ -129,6 +129,14 @@ describe('POST /rayon/retouche', () => {
     expect(task.prompt).toContain('Intention : Le compteur démarrait à un.');
     // Elle existe dans le projet, comme toutes les autres.
     expect(server.store.listTasks(projet).some((t) => t.id === task.id)).toBe(true);
+    // Filet avant_retouche : patch inverse pour pouvoir restaurer plus tard.
+    const sgs = server.store.listSauvegardes(projet);
+    expect(sgs.some((s) => s.kind === 'avant_retouche')).toBe(true);
+    const avant = sgs.find((s) => s.kind === 'avant_retouche')!;
+    expect(avant.label).toContain('index.ts');
+    const full = server.store.getSauvegarde(avant.id)!;
+    expect(full.patch).toContain('+export const compteur = 1;');
+    expect(full.patch).toContain('-export const compteur = 0;');
   });
 
   it('LE MIROIR N’EST PAS TOUCHÉ', async () => {

@@ -486,4 +486,25 @@ describe('G. tokens IA et modes de navigation', () => {
     await cliquer(btn!);
     expect(nav).toHaveBeenCalledWith('projets', undefined);
   });
+
+  it('LA PUCE « RESTAURER… » OUVRE LE RAYON AU LIEU D’ENVOYER AU CHAT', async () => {
+    const nav = vi.fn();
+    const faux = repond({
+      reply: 'des échecs',
+      source: 'live',
+      suggestions: ['Restaurer la dernière étape', 'Où en est le projet ?'],
+    });
+    const dom = await monter({ onNavigate: nav });
+    ecrire(dom, 'santé ?');
+    await cliquer(envoyer(dom));
+    const chip = [...dom.querySelectorAll('button.rn-chip')].find((b) =>
+      (b.textContent ?? '').includes('Restaurer'),
+    );
+    expect(chip).toBeTruthy();
+    const avant = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
+    await cliquer(chip!);
+    expect(nav).toHaveBeenCalledWith('rayon', undefined);
+    const apres = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
+    expect(apres, 'un envoi chat supplémentaire').toBe(avant);
+  });
 });

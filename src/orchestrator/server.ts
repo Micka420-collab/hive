@@ -73,7 +73,12 @@ import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
-import { libelleManuelValide, promptRestauration } from '../shared/sauvegardes.js';
+import {
+  libelleAvantRetouche,
+  libelleManuelValide,
+  patchVers,
+  promptRestauration,
+} from '../shared/sauvegardes.js';
 import { MAX_APERCU, SANDBOX_APERCU, assemblerApercu } from '../shared/apercu.js';
 import {
   TTL_PARTAGE_MAX_MS,
@@ -4502,6 +4507,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .listTasks(focusId ?? undefined)
           .filter((t) => t.status === 'done' || t.status === 'failed')
           .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
+        sauvegardes: focusId
+          ? store.listSauvegardes(focusId, 5).map((s) => ({
+              id: s.id,
+              label: s.label,
+              kind: s.kind,
+              createdAt: s.createdAt,
+            }))
+          : [],
         races: scheduler.listRaces().map((r) => ({
           taskId: r.taskId,
           title: store.getTask(r.taskId)?.title ?? r.taskId,
@@ -6326,6 +6339,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!r.ok) return reply.code(400).send({ error: r.motif, refus: r.refus });
 
       const tache = store.createTask({ projectId: project.id, title: r.titre, prompt: r.prompt });
+      // Filet avant la retouche : patch inverse (apres → avant) pour pouvoir
+      // restaurer l'état d'origine une fois l'ouvrière appliquée — via une
+      // tâche, jamais un rewrite silencieux.
+      const cheminRel = req.body.chemin.replace(/^\.?\//, '').trim() || req.body.chemin;
+      store.creerSauvegarde({
+        projectId: project.id,
+        taskId: tache.id,
+        label: libelleAvantRetouche(cheminRel, (fr) => fr),
+        kind: 'avant_retouche',
+        patch: patchVers(cheminRel, req.body.apres, req.body.avant),
+      });
       emitEvent('retouche_proposee', {
         projectId: project.id,
         taskId: tache.id,

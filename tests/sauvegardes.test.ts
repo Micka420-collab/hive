@@ -2,8 +2,10 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  libelleAvantRetouche,
   libelleEtape,
   libelleManuelValide,
+  patchVers,
   promptRestauration,
 } from '../src/shared/sauvegardes.js';
 
@@ -16,6 +18,19 @@ describe('libelleEtape', () => {
 
   it('retombe sur « tâche » si le titre est vide', () => {
     expect(libelleEtape('   ', t)).toBe('Étape — tâche');
+  });
+});
+
+describe('libelleAvantRetouche + patchVers', () => {
+  it('libellé de retouche', () => {
+    expect(libelleAvantRetouche('src/app.ts', t)).toBe('Avant retouche — src/app.ts');
+  });
+
+  it('patchVers encode le retour vers l’état cible', () => {
+    const p = patchVers('a.ts', 'new\n', 'old\n');
+    expect(p).toContain('diff --git a/a.ts b/a.ts');
+    expect(p).toContain('-new');
+    expect(p).toContain('+old');
   });
 });
 

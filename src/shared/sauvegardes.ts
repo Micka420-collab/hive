@@ -57,3 +57,30 @@ export function promptRestauration(s: Pick<Sauvegarde, 'label' | 'patch' | 'id'>
 export function libelleManuelValide(label: string): boolean {
   return label.trim().length >= 2 && label.trim().length <= 120;
 }
+
+/** Libellé d'une sauvegarde prise juste avant une retouche Rayon. */
+export function libelleAvantRetouche(
+  chemin: string,
+  t: (fr: string, en: string) => string,
+): string {
+  const c = chemin.trim() || t('fichier', 'file');
+  return t(`Avant retouche — ${c}`, `Before edit — ${c}`);
+}
+
+/**
+ * Diff unifié minimal qui transforme `depuis` en `vers` sur un fichier.
+ * Suffisant pour une restauration task-based (pas un merge sophistiqué).
+ */
+export function patchVers(chemin: string, depuis: string, vers: string): string {
+  const a = depuis.split('\n');
+  const b = vers.split('\n');
+  const lignes = [
+    `diff --git a/${chemin} b/${chemin}`,
+    `--- a/${chemin}`,
+    `+++ b/${chemin}`,
+    `@@ -1,${a.length} +1,${b.length} @@`,
+    ...a.map((l) => `-${l}`),
+    ...b.map((l) => `+${l}`),
+  ];
+  return lignes.join('\n');
+}

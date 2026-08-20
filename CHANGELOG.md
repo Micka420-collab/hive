@@ -9,6 +9,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
+  `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
+  des échecs + une étape (puce → Rayon). (3) Pouls Plein Essaim sur la Ruche
+  (niveau / pause / dérive → Projets).
+
 - **🔏 Installeurs sur Pages + empreinte affichée (lot 8, prep).** `pages.yml`
   copie `install.sh` / `install.ps1` vers `site/` et publie `install.sha256`.
   Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc montre la
