@@ -408,7 +408,7 @@ export function ConsensusPanel({
                   </span>
                 ))}
                 {verdict.winner?.signature === f.signature && (
-                  <span className="mi-elected">{t('👑 Élu', '👑 Elected')}</span>
+                  <span className="mi-elected">{t('Élu', 'Elected')}</span>
                 )}
               </li>
             ))}
@@ -831,7 +831,7 @@ export default function Miellerie({
                       className={`mi-dot${review === 'approved' ? ' ok' : review === 'rejected' ? ' ko' : ''}`}
                       title={t('revue locale (ce navigateur)', 'local review (this browser)')}
                     >
-                      {review === 'approved' ? '🍯' : review === 'rejected' ? '✖' : '·'}
+                      {review === 'approved' ? '●' : review === 'rejected' ? '✖' : '·'}
                     </span>
                   </li>
                 );
@@ -851,7 +851,7 @@ export default function Miellerie({
               <h2>{activeTask.title}</h2>
             </div>
             <div className="mi-inspect-sub">
-              <span title={t('Nœud butineur', 'Foraging node')}>🐝 {activeNode}</span>
+              <span title={t('Nœud butineur', 'Foraging node')}>{activeNode}</span>
               {activeTask.branch && <code className="mono mi-branch">{activeTask.branch}</code>}
               {activeTask.result && <span>{formatMs(activeTask.result.durationMs)}</span>}
             </div>
@@ -918,7 +918,7 @@ export default function Miellerie({
               )}
               onClick={() => decide('approved')}
             >
-              🍯 {t('Approuver', 'Approve')} <kbd>a</kbd>
+              {t('Approuver', 'Approve')} <kbd>a</kbd>
             </button>
             <button
               className="btn mi-reject"
@@ -943,9 +943,9 @@ export default function Miellerie({
               title={t('revue locale (ce navigateur)', 'local review (this browser)')}
             >
               {currentReview === 'approved'
-                ? t('Revue : 🍯 approuvée', 'Review: 🍯 approved')
+                ? t('Revue : approuvée', 'Review: approved')
                 : currentReview === 'rejected'
-                  ? t('Revue : ✖ rejetée', 'Review: ✖ rejected')
+                  ? t('Revue : rejetée', 'Review: rejected')
                   : t('Non revue', 'Not reviewed')}
             </span>
             <button
@@ -1077,7 +1077,7 @@ export default function Miellerie({
                 ? t('Lancement…', 'Starting…')
                 : merge.step === 'waiting'
                   ? t('Fusion en cours…', 'Merging…')
-                  : t('🍯 Couler le miel', '🍯 Pour the honey')}
+                  : t('Couler le miel', 'Pour the honey')}
           </button>
         </div>
 

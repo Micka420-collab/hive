@@ -108,9 +108,9 @@ function uid(): string {
 
 function welcomeDegraded(t: Translate): string {
   return t(
-    '🐝 La Reine n’est pas encore réveillée : le canal /api/chat ouvre bientôt.\n' +
+    'La Reine n’est pas encore réveillée : le canal /api/chat ouvre bientôt.\n' +
       'En attendant, la Ruche et la Chronique vous renseignent en temps réel sur l’essaim — revenez butiner un peu plus tard.',
-    '🐝 The Queen is not awake yet: the /api/chat channel opens soon.\n' +
+    'The Queen is not awake yet: the /api/chat channel opens soon.\n' +
       'Meanwhile, the Hive and the Chronicle keep you posted on the swarm in real time — come back to forage a little later.',
   );
 }
