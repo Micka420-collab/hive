@@ -11703,18 +11703,18 @@ CI `a34376c` : empreinte via stdin (Windows), mocks App shell, badges 4432.
 
 ### 11. Suite du 20 août (nuit) — voir le patch avant restaurer
 
-| fait                                                         | où                                      |
-| ------------------------------------------------------------ | --------------------------------------- |
-| Timeline : bouton **Voir le patch** (GET détail, dépliable)  | `SauvegardesTimeline.tsx`, `rayon.css`  |
-| Banc : charge / referme l’aperçu                             | `tests/sauvegardes-timeline.test.tsx`   |
-| FEATURES FR/EN + CHANGELOG                                   | docs                                    |
+| fait                                                        | où                                     |
+| ----------------------------------------------------------- | -------------------------------------- |
+| Timeline : bouton **Voir le patch** (GET détail, dépliable) | `SauvegardesTimeline.tsx`, `rayon.css` |
+| Banc : charge / referme l’aperçu                            | `tests/sauvegardes-timeline.test.tsx`  |
+| FEATURES FR/EN + CHANGELOG                                  | docs                                   |
 
 Lire avant d’agir — même doctrine que l’empreinte des installeurs.
 
 ### 12. Suite du 20 août (nuit) — focus Reine→timeline + pouls vivant
 
-| fait                                                              | où                                    |
-| ----------------------------------------------------------------- | ------------------------------------- |
-| Mode Sauvegardes / puce Restaurer… → focus timeline (session)     | `focus-vue.ts`, Reine, Rayon          |
-| Pouls : refresh 30 s sans flash de charge                         | `AutonomiePulse.tsx`                  |
-| Bancs focus + tick pouls + assertion Reine                        | `tests/focus-vue`, `autonomie-pulse`  |
+| fait                                                          | où                                   |
+| ------------------------------------------------------------- | ------------------------------------ |
+| Mode Sauvegardes / puce Restaurer… → focus timeline (session) | `focus-vue.ts`, Reine, Rayon         |
+| Pouls : refresh 30 s sans flash de charge                     | `AutonomiePulse.tsx`                 |
+| Bancs focus + tick pouls + assertion Reine                    | `tests/focus-vue`, `autonomie-pulse` |
