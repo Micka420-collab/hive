@@ -367,28 +367,31 @@ h3 {
   font-size: 12px;
   font-weight: 600;
   padding: 5px 10px;
-  border-radius: 999px;
-  background: var(--panel-2);
+  border-radius: 10px;
+  background: var(--panel);
   border: 1px solid var(--border);
 }
 
 .conn-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
 }
 
 .conn.online {
   color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 28%, var(--border));
+  background: color-mix(in srgb, var(--green) 8%, var(--panel));
 }
 
 .conn.online .conn-dot {
   background: var(--green);
-  box-shadow: 0 0 8px var(--green);
 }
 
 .conn.offline {
   color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 28%, var(--border));
+  background: color-mix(in srgb, var(--red) 8%, var(--panel));
 }
 
 .conn.offline .conn-dot {
@@ -1991,9 +1994,29 @@ h3 {
 }
 
 .mc-view-loading {
-  padding: 60px;
+  padding: 72px 24px;
   text-align: center;
   color: var(--muted);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  animation: mc-view-in 0.35s ease both;
+}
+
+.mc-view-loading::before {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 32px;
+  margin: 0 auto 14px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: color-mix(in srgb, var(--miel) 70%, var(--panel-3));
+  animation: mc-throb 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-view-loading::before {
+    animation: none;
+  }
 }
 
 .mc-ruche-stats {
