@@ -198,7 +198,6 @@
 .es-agents-none {
   font-size: 11px;
   color: var(--faint);
-  font-style: italic;
 }
 
 /* ─── Waggle Board : podium ───────────────────────────────────────────── */
@@ -234,8 +233,19 @@
 }
 
 .es-medal {
-  font-size: 24px;
-  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text);
+  background: color-mix(in srgb, var(--miel) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--miel) 70%, var(--border));
 }
 
 .es-podium-name {
@@ -806,7 +816,6 @@
   margin: 10px 0 0;
   font-size: 11px;
   color: var(--text-3);
-  font-style: italic;
   line-height: 1.5;
 }
 

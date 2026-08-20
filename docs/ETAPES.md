@@ -11652,6 +11652,8 @@ sans ce rituel — et `main` est rouge. Ce point le rétablit.
 
 Sous le gel soft : redesign Craft du panel (Ruche vide centrée, glyphes SVG,
 invite secondaire, Reine messagerie, topbar « Prête », Rayon/Chronique/Journal
-assouplis). Preuve : PR #338, CI verte en continu sur la branche, loupe Ruche
-7/7 défendues, captures écran. Ce n'est **pas** un lot de feature — c'est du
-premier contact avant la revue du 26.
+assouplis). Suite soirée : chrome emoji retiré (Journal, OpenAlex, Essaim,
+Projets, Cerveau), italiques « empty » → muted, KPI Ruche allégés. Preuve :
+PR #338, CI verte en continu sur la branche, loupe Ruche 7/7 défendues,
+captures écran. Ce n'est **pas** un lot de feature — c'est du premier contact
+avant la revue du 26.

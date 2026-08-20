@@ -293,11 +293,11 @@ export default function Chronique({ events }: ViewProps) {
                     </div>
                     <div className="ch-counts">
                       <span className="chip">
-                        📁 {frame.projects} {t('projet', 'project')}
+                        {frame.projects} {t('projet', 'project')}
                         {frame.projects > 1 ? 's' : ''}
                       </span>
                       <span className="chip">
-                        🐝 {frame.nodesOnline}/{frame.nodesTotal} {t('nœud', 'node')}
+                        {frame.nodesOnline}/{frame.nodesTotal} {t('nœud', 'node')}
                         {frame.nodesTotal > 1 ? 's' : ''}
                       </span>
                       {STATUSES.map((s) => (

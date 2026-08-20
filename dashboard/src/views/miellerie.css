@@ -280,7 +280,6 @@
 
 .mi-cons-outcome.no_ballots {
   color: var(--muted);
-  font-style: italic;
 }
 
 .mi-cons-bar {

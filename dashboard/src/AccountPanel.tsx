@@ -37,7 +37,7 @@ export function AccountPanel({ user, onUser }: Props) {
     return (
       <span className="mc-account">
         <span className="mc-account-name" title={user.email}>
-          👤 {user.displayName}
+          {user.displayName}
         </span>
         <button
           className="btn ghost"

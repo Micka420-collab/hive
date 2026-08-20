@@ -17,6 +17,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   **une seule composition** centrée (plus de KPI / essaim / file à zéro autour
   du départ). **« Inviter un ami »** repasse en secondaire : le miel plein
   reste pour démarrer un projet. Titres et états vides (Partage, Miellerie, Santé calme, compte) portent l’hex plutôt que l’emoji.
+  Suite soirée : Journal en marques typographiques, OpenAlex / Cerveau /
+  Phéromones / Queen Bee sans chrome emoji, podium Essaim en rangs 1–3,
+  italiques « empty » retirés, KPI Ruche allégés.
 
 ### Fixed
 

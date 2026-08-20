@@ -124,13 +124,13 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
       setPlanNote(
         res.source === 'llm'
           ? t(
-              `✨ ${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`,
-              `✨ ${res.tasks.length} tasks proposed by the AI — review then adjust.`,
+              `${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`,
+              `${res.tasks.length} tasks proposed by the AI — review then adjust.`,
             )
           : (res.note ??
               t(
-                `🐝 ${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`,
-                `🐝 ${res.tasks.length} tasks (heuristic split) — review then adjust.`,
+                `${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`,
+                `${res.tasks.length} tasks (heuristic split) — review then adjust.`,
               )),
       );
     } catch (e) {
@@ -270,7 +270,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             >
               {planning
                 ? t('Génération…', 'Generating…')
-                : t('✨ Générer les tâches', '✨ Generate the tasks')}
+                : t('Générer les tâches', 'Generate the tasks')}
             </button>
             {planNote && <span className="plan-note">{planNote}</span>}
           </div>

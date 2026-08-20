@@ -1019,7 +1019,6 @@ h3 {
 .editor-hint {
   color: var(--muted);
   font-size: 11px;
-  font-style: italic;
   margin: 6px 0 0;
 }
 
@@ -1460,7 +1459,6 @@ h3 {
   justify-content: center;
   aspect-ratio: 16 / 9;
   color: var(--muted);
-  font-style: italic;
   padding: 20px;
   text-align: center;
 }
@@ -1479,7 +1477,6 @@ h3 {
 .swarm-empty {
   fill: var(--muted);
   text-anchor: middle;
-  font-style: italic;
 }
 
 .link {
@@ -1711,15 +1708,20 @@ h3 {
 }
 
 .openalex-card {
-  background: var(--panel);
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: calc(var(--sp) * 1.5);
+  border-radius: 0;
+  padding: calc(var(--sp) * 1.5) 0;
   transition: border-color 0.15s;
 }
 
+.openalex-card + .openalex-card {
+  border-top: none;
+  padding-top: calc(var(--sp) * 1.25);
+}
+
 .openalex-card:hover {
-  border-color: var(--honey);
+  border-color: var(--border);
 }
 
 .oa-card-head {
@@ -1730,11 +1732,14 @@ h3 {
 }
 
 .oa-badge {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--muted);
-  background: var(--panel-2);
-  padding: 2px 8px;
-  border-radius: 10px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 
 .oa-year {
@@ -1745,10 +1750,13 @@ h3 {
 
 .oa-oa {
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--green);
-  background: rgba(35, 94, 82, 0.1);
-  padding: 1px 6px;
-  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 
 .oa-title {
@@ -2095,10 +2103,13 @@ h3 {
 }
 
 .mc-ruche-stats {
-  margin: 16px 22px 0;
-  padding: 12px 16px;
+  margin: 10px 22px 0;
+  padding: 8px 12px;
   overflow-x: auto;
-  border-radius: 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  box-shadow: none;
 }
 
 /* Ruche vide : une seule composition centrée — pas de zéros autour. */

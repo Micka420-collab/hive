@@ -162,7 +162,10 @@ function QueenBee({ projects }: { projects: Project[] }) {
   return (
     <section className="card pj-queen">
       <header className="panel-head">
-        <h2>{t('👑 Atelier Queen Bee', '👑 Queen Bee Workshop')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Atelier Queen Bee', 'Queen Bee Workshop')}
+        </h2>
         <span className="panel-count">
           {t('brief → plan de butinage', 'brief → foraging plan')}
         </span>
@@ -200,7 +203,7 @@ function QueenBee({ projects }: { projects: Project[] }) {
           >
             {busy === 'plan'
               ? t('La reine réfléchit…', 'The Queen is thinking…')
-              : t('✨ Proposer un plan', '✨ Propose a plan')}
+              : t('Proposer un plan', 'Propose a plan')}
           </button>
         </div>
 
@@ -1374,7 +1377,7 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
             <li key={d.fullName} className={d.importe ? 'pj-gh-deja' : ''}>
               <div className="pj-gh-nom">
                 <strong>{d.fullName}</strong>
-                {d.prive && <span className="pj-vis private">🔒 {t('privé', 'private')}</span>}
+                {d.prive && <span className="pj-vis private">{t('privé', 'private')}</span>}
                 {d.archive && <span className="pj-gh-tag">{t('archivé', 'archived')}</span>}
                 {d.langage && <span className="pj-gh-tag">{d.langage}</span>}
               </div>
@@ -1686,7 +1689,7 @@ function ProjectCard({
       <header className="pj-head">
         <h3 className="pj-name">{project.name}</h3>
         <span className={`pj-vis ${project.visibility}`}>
-          {project.visibility === 'private' ? t('🔒 privé', '🔒 private') : '🌐 public'}
+          {project.visibility === 'private' ? t('privé', 'private') : t('public', 'public')}
         </span>
       </header>
       {project.description && <p className="pj-desc">{project.description}</p>}
@@ -1726,7 +1729,6 @@ function ProjectCard({
               </span>
             ))}
             <span className="pj-meta">
-              🐝{' '}
               {report.contributingNodes.length > 0
                 ? contributors
                 : t('aucune butineuse', 'no foragers')}
@@ -1799,7 +1801,7 @@ function ProjectCard({
 
       <div className="pj-actions">
         <button className="btn" onClick={() => onNavigate('miellerie')}>
-          {t('🍯 Revue', '🍯 Review')}
+          {t('Revue', 'Review')}
         </button>
         <button
           className="btn ghost"

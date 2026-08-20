@@ -91,10 +91,11 @@ function NodeCard({
   );
 }
 
-const MEDALS = ['🥇', '🥈', '🥉'];
+const MEDALS = ['1', '2', '3'];
 
 /** Podium des trois meilleurs butineurs — le n°1 danse (waggle dance). */
 function Podium({ nodes }: { nodes: NodeNectar[] }) {
+  const t = useT();
   const top = nodes.slice(0, 3);
   // Ordre visuel : 2e à gauche, 1er au centre, 3e à droite.
   const order = [1, 0, 2].filter((i) => i < top.length);
@@ -111,7 +112,9 @@ function Podium({ nodes }: { nodes: NodeNectar[] }) {
             <span className="es-podium-name" title={n.name}>
               {n.name}
             </span>
-            <span className="es-podium-score">{n.score} 🍯</span>
+            <span className="es-podium-score">
+              {n.score} {t('nectar', 'nectar')}
+            </span>
           </div>
         );
       })}
@@ -249,7 +252,9 @@ function PheromonesCard({
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('🐜 Phéromones', '🐜 Pheromones')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Phéromones', 'Pheromones')}
+        </h2>
         {traces && (
           <span className="panel-count">
             {traces.length} {t('trace(s)', 'trace(s)')}

@@ -42,6 +42,17 @@
   margin: 0;
   font-size: 1.1rem;
   letter-spacing: -0.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cerveau-titre .marque {
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .cerveau-titre p {
@@ -370,7 +381,6 @@
  * n'exister que dans le graphe. */
 .cerveau-liste td.dort {
   color: #a2957d;
-  font-style: italic;
 }
 
 /* ─── Panneau latéral ─────────────────────────────────────────────────────── */

@@ -399,7 +399,9 @@ export default function Cerveau(_props: ViewProps) {
     <section className="cerveau">
       <header className="cerveau-tete">
         <div className="cerveau-titre">
-          <h2>🧠 {t('Le Cerveau', 'The Brain')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Le Cerveau', 'The Brain')}
+          </h2>
           <p>
             {t(
               'Ce que la ruche a retenu, et ce qui lui sert vraiment.',

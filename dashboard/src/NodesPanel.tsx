@@ -129,7 +129,7 @@ function FicheOuvriere({
 
         {nectar && (
           <p className="fo-nectar">
-            🍯 {nectar.score} {t('nectar', 'nectar')} · {Math.round(nectar.successRate * 100)} %{' '}
+            {nectar.score} {t('nectar', 'nectar')} · {Math.round(nectar.successRate * 100)} %{' '}
             {t('de réussite', 'success')}
             {nectar.raceWins > 0 && (
               <span className="fo-victoires">
