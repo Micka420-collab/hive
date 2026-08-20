@@ -100,8 +100,10 @@ function repond(corps: unknown, statut = 200): ReturnType<typeof vi.fn> {
     return Promise.resolve({
       ok: statut >= 200 && statut < 300,
       status: statut,
+      headers: { get: () => 'application/json' },
+      body: null,
       json: () => Promise.resolve(corps),
-    } as Response);
+    } as unknown as Response);
   });
   vi.stubGlobal('fetch', faux);
   return faux;

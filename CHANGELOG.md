@@ -30,10 +30,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   la timeline) ; après restauration, **Ouvrir dans la Miellerie**. Aperçu
   patch borné + **Copier**. Pouls Plein Essaim : relecture toutes les 30 s
   sans flash.
-- **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
-  (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
-  Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;
-  Plein Essaim : autonomie sur plusieurs jours.
+- **🎙 Reine en flux (SSE) + multi-agents en lecture.** `/api/chat` accepte
+  `stream` / `Accept: text/event-stream` : deltas puis `done`. Contexte enrichi
+  (`enCours`, `sousAgents`, `essaim` Plein Essaim) — la Reine **cite** l’essaim,
+  elle ne change pas le niveau d’autonomie et ne réécrit jamais le dépôt.
+  UI Reine : bulle progressive.
 
 ### Changed
 

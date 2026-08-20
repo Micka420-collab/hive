@@ -215,7 +215,7 @@ import type { Caste, ModePolyethisme } from './polyethisme.js';
 // rangée, ce qui rend l'observation repliable (le bandit apprend).
 import { ECHELONS, REGLAGES, versEchelon } from './garde-fou.js';
 import type { Echelon } from './garde-fou.js';
-import { askConcierge } from './concierge.js';
+import { askConcierge, askConciergeStream, sousAgentsDepuisEvenements } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
 import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
@@ -235,7 +235,7 @@ import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
-import { anthropicLlm, llmPlannerAvailable, planBrief } from './planner.js';
+import { anthropicLlm, anthropicLlmStream, llmPlannerAvailable, planBrief } from './planner.js';
 import { buildProjectReport } from './project-report.js';
 import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
@@ -4460,7 +4460,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // La Reine répond : dialogue en langage naturel avec la ruche. Réponses
   // composées depuis l'état RÉEL (rapports, pouls, nectar, anomalies, mémoire) ;
   // bascule sur l'IA (clé locale à la Queen) si disponible, repli live sinon.
-  app.post<{ Body: { message: string; projectId?: string } }>(
+  // Avec Accept: text/event-stream ou body.stream=true → SSE (deltas + done).
+  app.post<{ Body: { message: string; projectId?: string; stream?: boolean } }>(
     '/api/chat',
     {
       schema: {
@@ -4471,6 +4472,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           properties: {
             message: { type: 'string', minLength: 1, maxLength: 2000 },
             projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            stream: { type: 'boolean' },
           },
         },
       },
@@ -4489,13 +4491,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         cursor = last.id;
       }
       const projects = store.listProjects();
+      const nodes = store.listNodes();
       // Focus fourni → un seul rapport à construire (progressReply filtre déjà
       // dessus) ; sinon un rapport par projet.
       const focusId = req.body.projectId ?? null;
       const reportProjects = focusId ? projects.filter((p) => p.id === focusId) : projects;
+      const tachesFocus = store.listTasks(focusId ?? undefined);
+      const enCours = tachesFocus
+        .filter((t) => t.status === 'assigned' || t.status === 'running')
+        .slice(0, 12)
+        .map((t) => {
+          const n = t.assignedNodeId ? nodes.find((x) => x.id === t.assignedNodeId) : undefined;
+          return {
+            taskId: t.id,
+            title: t.title,
+            status: t.status,
+            nodeId: t.assignedNodeId,
+            nodeName: n?.name ?? null,
+          };
+        });
+      let essaim: ConciergeContext['essaim'] = null;
+      if (focusId && store.getProject(focusId)) {
+        const e = etatEssaim(focusId);
+        const suivi = cadencier.suivi(focusId);
+        essaim = {
+          niveau: e.niveau,
+          pas: e.decision.pas,
+          motif: e.decision.motif,
+          enPause: enPause(suivi),
+          derive: e.derive.etat,
+        };
+      }
       const ctx: ConciergeContext = {
         projects,
-        nodes: store.listNodes(),
+        nodes,
         reports: reportProjects.map((p) => buildProjectReport(p, store.listTasks(p.id))),
         pulse: computePulse(events),
         waggle: buildWaggleBoard(events),
@@ -4505,8 +4534,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         reviews: store.listReviews(),
         // Scopé sur le projet ciblé quand il est fourni : la Reine ne mélange
         // pas les revues d'un autre projet dans sa réponse.
-        finishedTasks: store
-          .listTasks(focusId ?? undefined)
+        finishedTasks: tachesFocus
           .filter((t) => t.status === 'done' || t.status === 'failed')
           .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
         sauvegardes: focusId
@@ -4522,10 +4550,46 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           title: store.getTask(r.taskId)?.title ?? r.taskId,
           drones: r.drones.map((d) => ({ nodeId: d.nodeId, status: d.status })),
         })),
+        enCours,
+        sousAgents: sousAgentsDepuisEvenements(events.slice(-200)),
+        essaim,
         focusProjectId: req.body.projectId ?? null,
       };
+      const veutStream =
+        req.body.stream === true || (req.headers.accept ?? '').includes('text/event-stream');
       const llm = llmPlannerAvailable() ? anthropicLlm() : undefined;
-      return askConcierge(req.body.message, ctx, llm ? { llm } : {});
+      const llmStream = llmPlannerAvailable() ? anthropicLlmStream() : undefined;
+      const opts = llm || llmStream ? { llm, llmStream } : {};
+
+      if (!veutStream) {
+        return askConcierge(req.body.message, ctx, opts);
+      }
+
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+      const ecrire = (obj: unknown) => {
+        reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+      };
+      try {
+        for await (const ev of askConciergeStream(req.body.message, ctx, opts)) {
+          if (ev.type === 'delta') ecrire({ type: 'delta', text: ev.text });
+          else ecrire({ type: 'done', ...ev.answer });
+        }
+      } catch (err) {
+        ecrire({
+          type: 'done',
+          reply: err instanceof Error ? err.message : String(err),
+          source: 'live',
+          lang: 'fr',
+          suggestions: [],
+        });
+      }
+      reply.raw.end();
     },
   );
 

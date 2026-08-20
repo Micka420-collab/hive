@@ -104,4 +104,28 @@ describe('POST /api/chat — la Reine répond', () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it('SSE : Accept text/event-stream → done live sans LLM', async () => {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        accept: 'text/event-stream',
+      },
+      body: JSON.stringify({ message: 'Ou en est le projet ? merci', stream: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/event-stream');
+    const texte = await res.text();
+    const lignes = texte
+      .split('\n')
+      .filter((l) => l.startsWith('data:'))
+      .map(
+        (l) => JSON.parse(l.slice(5).trim()) as { type: string; reply?: string; source?: string },
+      );
+    expect(lignes.length).toBeGreaterThanOrEqual(1);
+    const done = lignes.find((l) => l.type === 'done');
+    expect(done?.source).toBe('live');
+    expect(done?.reply ?? '').toContain('Projet Chat');
+  });
 });
