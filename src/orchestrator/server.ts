@@ -7204,6 +7204,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // référentielle ne peut nettoyer que ce qui est DÉJÀ orphelin. Appelée en
       // premier, elle ne verrait rien et il faudrait attendre le tick suivant.
       store.pruneTasks(TACHES_RETENTION_MS);
+      // Horloge : sessions ouvertes dont la tâche a disparu. APRÈS pruneTasks.
+      store.pruneHorlogeHote();
       // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
       store.pruneTachesIssue();
       // Idem pour le lien relecture→production. Câblé ICI, dans le même

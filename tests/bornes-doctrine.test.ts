@@ -99,6 +99,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'clé primaire `projectId` — un consentement humain (opt-in + bornes), une seule ligne par projet',
   balance_ledger_cache:
     'cache reconstructible, une ligne par projet AYANT DÉPENSÉ ; sa perte se rattrape',
+  horloge_soldes:
+    'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */
