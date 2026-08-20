@@ -204,28 +204,47 @@ describe('les sentinelles — une par survivante isolée', () => {
     expect(vide.textContent, 'aucun bandeau de progrès sans tâche').not.toContain(
       'tâches butinées',
     );
+    expect(
+      vide.querySelector('.ruche-depart'),
+      'le départ remplace le cockpit à zéro',
+    ).toBeTruthy();
 
     act(() => racine?.unmount());
+    // Le bandeau ne vit que dans le cockpit — il faut un projet pour l’ouvrir.
     const pleine = await monter(
-      <Ruche {...props(instantane({ tasks: [tache('t1', 'Butinée', 'done')], tasksTotal: 1 }))} />,
+      <Ruche
+        {...props(
+          instantane({
+            projects: [{ id: 'p1', name: 'Rucher' }] as never,
+            tasks: [tache('t1', 'Butinée', 'done')],
+            tasksTotal: 1,
+          }),
+        )}
+      />,
     );
     expect(pleine.textContent).toContain('1/1');
     expect(pleine.textContent).toContain('tâches butinées');
   });
 
-  it('RUCHE : une ruche VIDE dit « aucune tâche en attente » — pas un vide muet', async () => {
-    // LE PREMIER ÉCRAN D'UN NOUVEL ARRIVANT. `total === 0` mutée en `!==` :
-    // nudité confirmée contre la suite entière (3 348 verts avec la mutation).
-    // Le sentinel voisin garde le BANDEAU de progrès (`total > 0 && …`) ; ce
-    // message-ci — celui que voit quelqu'un qui vient d'installer et n'a créé
-    // aucune tâche — n'était gardé nulle part.
+  it('RUCHE : une ruche VIDE accueille — pas un vide muet ni une file à zéro', async () => {
+    // AVANT : la file disait « Aucune tâche en attente » sous un essaim et des
+    // KPI à zéro. Ça diluait le seul geste utile. Désormais, sans projet, seul
+    // le départ (`.ruche-depart`) reste — et il DIT qu’on peut commencer seul.
     //
-    // Mutée, la liste est simplement VIDE : pas d'erreur, pas de « 0/0 », rien.
-    // Or un écran vide sans un mot est le pire accueil : on ne sait pas si la
-    // ruche marche, si l'on a raté une étape, ou si c'est normal. La phrase le
-    // dit — c'est normal, et il n'y a rien à faire pour l'instant.
+    // Muté : si on retire le départ OU qu’on réaffiche le cockpit vide, soit
+    // l’écran se tait, soit il redevient un tableau de zéros.
     const vide = await monter(<Ruche {...props(instantane())} />);
-    expect(vide.textContent, 'une file vide se nomme, elle ne se tait pas').toContain(
+    expect(vide.querySelector('.ruche-depart'), 'une ruche neuve doit accueillir').toBeTruthy();
+    expect(vide.textContent, 'le solo doit être dit').toContain('seul');
+    expect(vide.querySelector('.queue'), 'pas de file à zéro autour du départ').toBeNull();
+    expect(vide.querySelector('.mc-ruche-stats'), 'pas de KPI à zéro autour du départ').toBeNull();
+
+    act(() => racine?.unmount());
+    // Projet sans tâche : le cockpit revient, et la file se NOMME (pas muette).
+    const sansTache = await monter(
+      <Ruche {...props(instantane({ projects: [{ id: 'p1', name: 'Rucher' }] as never }))} />,
+    );
+    expect(sansTache.textContent, 'une file vide se nomme, elle ne se tait pas').toContain(
       'Aucune tâche en attente',
     );
 
@@ -235,7 +254,13 @@ describe('les sentinelles — une par survivante isolée', () => {
     // afficherait « aucune tâche » alors qu'une tâche est là.
     const occupee = await monter(
       <Ruche
-        {...props(instantane({ tasks: [tache('t1', 'À butiner', 'ready')], tasksTotal: 1 }))}
+        {...props(
+          instantane({
+            projects: [{ id: 'p1', name: 'Rucher' }] as never,
+            tasks: [tache('t1', 'À butiner', 'ready')],
+            tasksTotal: 1,
+          }),
+        )}
       />,
     );
     expect(occupee.textContent, 'une file qui a du travail ne se dit pas vide').not.toContain(
@@ -732,8 +757,12 @@ describe('les sentinelles du balayage du soir', () => {
     // `!==`, la suite restait verte — aucun banc ne lisait quel bouton de mode
     // est allumé. La classe `.active` est la seule marque de « on regarde la 2D » :
     // inverser allume le bouton du mode qu'on ne voit PAS.
+    //
+    // Le toggle ne vit que dans le cockpit (dès qu’un projet existe).
     localStorage.setItem('hive.view', '2d');
-    const dom = await monter(<Ruche {...props(instantane())} />);
+    const dom = await monter(
+      <Ruche {...props(instantane({ projects: [{ id: 'p1', name: 'Rucher' }] as never }))} />,
+    );
     const boutons = [...dom.querySelectorAll('.view-toggle button')] as HTMLButtonElement[];
     const d2 = boutons.find((b) => b.textContent?.trim() === '2D');
     const d3 = boutons.find((b) => b.textContent?.trim() === '3D');
@@ -1894,6 +1923,7 @@ describe('les sentinelles du balayage du soir', () => {
       <Ruche
         {...props(
           instantane({
+            projects: [{ id: 'p1', name: 'Rucher' }] as never,
             tasks: [
               tache('t-attente', 'Fermer la faille du jeton', 'pending'),
               tache('t-finie', 'Butinée hier', 'done'),

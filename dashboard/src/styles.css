@@ -346,23 +346,25 @@ h3 {
 }
 
 .token-input {
-  width: 104px;
-  padding: 7px 11px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text);
+  width: 88px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 9px;
+  color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11.5px;
   transition:
     border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .token-input:focus {
   outline: none;
+  color: var(--text);
   border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.2);
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.18);
 }
 
 .conn {
@@ -431,7 +433,7 @@ h3 {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r);
+  border-radius: 12px;
   box-shadow: var(--shadow-sm);
   transition:
     border-color 0.2s ease,
@@ -471,16 +473,16 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 13px 16px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   flex-wrap: wrap;
 }
 
 .panel-head h2 {
   font-family: var(--titre);
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   text-transform: none;
   color: var(--text);
 }
