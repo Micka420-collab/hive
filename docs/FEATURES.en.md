@@ -53,10 +53,11 @@ code. You worked on a project without being able to open it — like helping fix
 an engine without being allowed to lift the hood. The Comb lifts the hood: a
 file tree, a syntax-highlighted editor (16 languages), a **preview** of the site
 the AI just wrote, and — for the Queen — an **edit** that becomes a task.
-Successful diffs are kept as **checkpoints** on the Comb: you can **view the
-patch** before acting; restore opens a **task** for the swarm (never a silent
-rewrite of the repo). An edit from the Comb first records an `avant_retouche`
-reverse patch so a later restore can undo the proposal.
+Successful diffs are kept as **checkpoints** on the Comb: you can **view** (and
+**copy**) the patch before acting — large diffs are truncated in the preview;
+restore opens a **task** for the swarm (never a silent rewrite of the repo),
+with a shortcut into the Honey House. An edit from the Comb first records an
+`avant_retouche` reverse patch so a later restore can undo the proposal.
 
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub

@@ -73,6 +73,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   const [propose, setPropose] = useState<string | null>(null);
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
+  const [attirerSg, setAttirerSg] = useState(false);
 
   const voirApercu = async () => {
     if (!projet) return;
@@ -133,16 +134,21 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     void charger(projet.id, '').finally(() => setChargement(false));
   }, [projet?.id, charger]);
 
-  // Reine → mode Sauvegardes / puce Restaurer… : scroller la timeline.
+  // Reine → mode Sauvegardes / puce Restaurer… : scroller + pulse la timeline.
   useEffect(() => {
     if (consommerFocus() !== FOCUS_SAUVEGARDES) return;
+    setAttirerSg(true);
     const id = window.requestAnimationFrame(() => {
       document.getElementById('ry-sauvegardes')?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
       });
     });
-    return () => window.cancelAnimationFrame(id);
+    const fin = window.setTimeout(() => setAttirerSg(false), 1800);
+    return () => {
+      window.cancelAnimationFrame(id);
+      window.clearTimeout(fin);
+    };
   }, [projet?.id, refreshTick]);
 
   const basculer = (chemin: string) => {
@@ -248,6 +254,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
           projectId={projet.id}
           refreshTick={refreshTick}
           onNavigate={onNavigate}
+          attirerAttention={attirerSg}
         />
       )}
 

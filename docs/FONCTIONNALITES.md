@@ -60,7 +60,7 @@ capot. Le Rayon ouvre le capot.
 | **Arbre + éditeur**    | Toute abeille qui a accès au projet. Coloration pour 16 langages, fichiers bornés à 512 Ko.                                                            |
 | **L'Aperçu**           | Le site que l'IA vient d'écrire, **rendu** — pas seulement son diff.                                                                                   |
 | **La retouche**        | La Reine seulement. Corriger une ligne à l'écran crée une **tâche**, jamais une écriture. Filet `avant_retouche` (patch inverse) avant la proposition. |
-| **Sauvegardes**        | Timeline d’étapes (diff capturé) ; **voir le patch** avant d’agir ; restaurer ouvre une **tâche**, jamais un rewrite silencieux.                       |
+| **Sauvegardes**        | Timeline d’étapes (diff capturé) ; **voir / copier le patch** ; restaurer ouvre une **tâche** puis raccourci Miellerie.                                |
 | **Le lien de partage** | Montrer l'avancement et le code **sans donner la ruche** : jeton distinct, expirable, révocable.                                                       |
 
 **Le hub tient son propre miroir** : un clone superficiel en lecture seule par

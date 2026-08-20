@@ -35,16 +35,22 @@ function tailleCourte(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+/** Aperçu UI borné — le patch complet reste en mémoire pour Copier / restaurer. */
+const PATCH_APERCU_MAX = 12_000;
+
 export function SauvegardesTimeline({
   projectId,
   refreshTick = 0,
   onNavigate,
+  attirerAttention = false,
 }: {
   projectId: string;
   /** Incrémenté quand l'essaim produit — recharge la timeline. */
   refreshTick?: number;
   /** Après restauration : ouvrir la tâche créée dans la Miellerie. */
   onNavigate?: (view: ViewId, selectedId?: string) => void;
+  /** Pulse bref quand on arrive depuis la Reine (Sauvegardes / Restaurer…). */
+  attirerAttention?: boolean;
 }) {
   const t = useT();
   const parPartage = getPartage() !== null;
@@ -54,6 +60,7 @@ export function SauvegardesTimeline({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [tacheRestau, setTacheRestau] = useState<{ id: string; title: string } | null>(null);
+  const [copieOk, setCopieOk] = useState(false);
   /** Id de l’étape dont le patch est déplié — un seul à la fois. */
   const [ouvertId, setOuvertId] = useState<string | null>(null);
   const [patchTexte, setPatchTexte] = useState<string | null>(null);
@@ -99,10 +106,12 @@ export function SauvegardesTimeline({
     if (ouvertId === id) {
       setOuvertId(null);
       setPatchTexte(null);
+      setCopieOk(false);
       return;
     }
     setOuvertId(id);
     setPatchTexte(null);
+    setCopieOk(false);
     setPatchCharge(true);
     setErreur(null);
     try {
@@ -113,6 +122,16 @@ export function SauvegardesTimeline({
       setErreur(e instanceof Error ? e.message : String(e));
     } finally {
       setPatchCharge(false);
+    }
+  };
+
+  const copierPatch = async () => {
+    if (!patchTexte) return;
+    try {
+      await navigator.clipboard.writeText(patchTexte);
+      setCopieOk(true);
+    } catch {
+      setErreur(t('Impossible de copier le patch.', 'Could not copy the patch.'));
     }
   };
 
@@ -144,10 +163,16 @@ export function SauvegardesTimeline({
     }
   };
 
+  const patchAffiche =
+    patchTexte && patchTexte.length > PATCH_APERCU_MAX
+      ? `${patchTexte.slice(0, PATCH_APERCU_MAX)}\n…`
+      : patchTexte;
+  const patchTronque = !!(patchTexte && patchTexte.length > PATCH_APERCU_MAX);
+
   return (
     <section
       id="ry-sauvegardes"
-      className="ry-sauvegardes"
+      className={`ry-sauvegardes${attirerAttention ? ' ry-sauvegardes--focus' : ''}`}
       aria-label={t('Sauvegardes', 'Backups')}
     >
       <header className="ry-sg-tete">
@@ -252,11 +277,32 @@ export function SauvegardesTimeline({
                   {patchCharge && !patchTexte ? (
                     <p className="ry-sg-patch-attente">{t('Chargement…', 'Loading…')}</p>
                   ) : (
-                    <pre className="ry-sg-patch" tabIndex={0}>
-                      {patchTexte && patchTexte.length > 0
-                        ? patchTexte
-                        : t('(patch vide)', '(empty patch)')}
-                    </pre>
+                    <>
+                      <div className="ry-sg-patch-barre">
+                        {patchTronque && (
+                          <span className="ry-sg-patch-note">
+                            {t(
+                              `Aperçu tronqué (${tailleCourte(PATCH_APERCU_MAX)} sur ${tailleCourte(patchTexte!.length)}) — Copier garde le patch entier.`,
+                              `Truncated preview (${tailleCourte(PATCH_APERCU_MAX)} of ${tailleCourte(patchTexte!.length)}) — Copy keeps the full patch.`,
+                            )}
+                          </span>
+                        )}
+                        {patchTexte && patchTexte.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn ghost ry-sg-copier"
+                            onClick={() => void copierPatch()}
+                          >
+                            {copieOk ? t('Copié', 'Copied') : t('Copier', 'Copy')}
+                          </button>
+                        )}
+                      </div>
+                      <pre className="ry-sg-patch" tabIndex={0}>
+                        {patchAffiche && patchAffiche.length > 0
+                          ? patchAffiche
+                          : t('(patch vide)', '(empty patch)')}
+                      </pre>
+                    </>
                   )}
                 </div>
               )}

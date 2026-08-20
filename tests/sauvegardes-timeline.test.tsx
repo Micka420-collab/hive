@@ -211,4 +211,54 @@ describe('SauvegardesTimeline', () => {
     await act(async () => {});
     expect(dom.querySelector('.ry-sg-patch')).toBeNull();
   });
+
+  it('tronque l’aperçu d’un gros patch et Copier garde l’entier', async () => {
+    const gros = `${'a'.repeat(12_001)}FIN`;
+    fetchSg.mockResolvedValue({
+      sauvegardes: [
+        {
+          id: 's2',
+          projectId: 'p1',
+          resultId: null,
+          taskId: null,
+          label: 'Gros',
+          kind: 'manuel',
+          taille: gros.length,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    fetchOne.mockResolvedValue({
+      sauvegarde: {
+        id: 's2',
+        projectId: 'p1',
+        resultId: null,
+        taskId: null,
+        label: 'Gros',
+        kind: 'manuel',
+        createdAt: Date.now(),
+        patch: gros,
+      },
+    });
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const dom = await monter();
+    await act(async () => {
+      dom.querySelector('.ry-sg-voir')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    const pre = dom.querySelector('.ry-sg-patch');
+    expect(pre?.textContent).toContain('…');
+    expect(pre?.textContent).not.toContain('FIN');
+    expect(dom.querySelector('.ry-sg-patch-note')).not.toBeNull();
+    await act(async () => {
+      dom.querySelector('.ry-sg-copier')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith(gros);
+    expect(dom.textContent).toContain('Copié');
+  });
 });

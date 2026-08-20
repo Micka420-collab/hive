@@ -27,8 +27,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   restaurer — la restauration ouvre une **tâche** (jamais un rewrite
   silencieux). Panneau sur le Rayon : **voir le patch** avant d’agir ;
   raccourci depuis la Reine (mode Sauvegardes / puce Restaurer… scrolle
-  la timeline) ; après restauration, **Ouvrir dans la Miellerie**. Pouls
-  Plein Essaim : relecture toutes les 30 s sans flash.
+  la timeline) ; après restauration, **Ouvrir dans la Miellerie**. Aperçu
+  patch borné + **Copier**. Pouls Plein Essaim : relecture toutes les 30 s
+  sans flash.
 - **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
   (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
   Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;
