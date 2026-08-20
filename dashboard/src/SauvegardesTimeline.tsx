@@ -4,7 +4,13 @@
 // Pas de rewrite silencieux du dépôt (le serveur crée une tâche).
 
 import { useCallback, useEffect, useState } from 'react';
-import { creerSauvegardeManuelle, fetchSauvegardes, getPartage, restaurerSauvegarde } from './api';
+import {
+  creerSauvegardeManuelle,
+  fetchSauvegarde,
+  fetchSauvegardes,
+  getPartage,
+  restaurerSauvegarde,
+} from './api';
 import type { SauvegardeResumeUi } from './api';
 import { useT } from './i18n';
 import { timeShort } from './views/shared';
@@ -43,6 +49,10 @@ export function SauvegardesTimeline({
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  /** Id de l’étape dont le patch est déplié — un seul à la fois. */
+  const [ouvertId, setOuvertId] = useState<string | null>(null);
+  const [patchTexte, setPatchTexte] = useState<string | null>(null);
+  const [patchCharge, setPatchCharge] = useState(false);
 
   const charger = useCallback(async () => {
     try {
@@ -58,6 +68,11 @@ export function SauvegardesTimeline({
     void charger();
   }, [charger, refreshTick]);
 
+  useEffect(() => {
+    setOuvertId(null);
+    setPatchTexte(null);
+  }, [projectId]);
+
   const poser = async () => {
     if (parPartage || label.trim().length < 2) return;
     setBusy(true);
@@ -71,6 +86,27 @@ export function SauvegardesTimeline({
       setErreur(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const voirPatch = async (id: string) => {
+    if (ouvertId === id) {
+      setOuvertId(null);
+      setPatchTexte(null);
+      return;
+    }
+    setOuvertId(id);
+    setPatchTexte(null);
+    setPatchCharge(true);
+    setErreur(null);
+    try {
+      const r = await fetchSauvegarde(projectId, id);
+      setPatchTexte(r.sauvegarde.patch || '');
+    } catch (e) {
+      setOuvertId(null);
+      setErreur(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPatchCharge(false);
     }
   };
 
@@ -106,8 +142,8 @@ export function SauvegardesTimeline({
         <h3>{t('Sauvegardes', 'Backups')}</h3>
         <p>
           {t(
-            'Chaque étape réussie garde son diff. Restaurer ouvre une tâche — jamais un rewrite silencieux.',
-            'Each successful step keeps its diff. Restore opens a task — never a silent rewrite.',
+            'Chaque étape réussie garde son diff. Ouvrez-le avant de restaurer — restaurer ouvre une tâche, jamais un rewrite silencieux.',
+            'Each successful step keeps its diff. Open it before restoring — restore opens a task, never a silent rewrite.',
           )}
         </p>
       </header>
@@ -153,21 +189,51 @@ export function SauvegardesTimeline({
         <ol className="ry-sg-liste">
           {liste.map((s) => (
             <li key={s.id} className="ry-sg-item">
-              <div className="ry-sg-meta">
-                <span className="ry-sg-kind">{libelleGenre(s.kind, t)}</span>
-                <strong className="ry-sg-label">{s.label}</strong>
-                <span className="ry-sg-taille">{tailleCourte(s.taille)}</span>
-                <time dateTime={new Date(s.createdAt).toISOString()}>{timeShort(s.createdAt)}</time>
+              <div className="ry-sg-ligne">
+                <div className="ry-sg-meta">
+                  <span className="ry-sg-kind">{libelleGenre(s.kind, t)}</span>
+                  <strong className="ry-sg-label">{s.label}</strong>
+                  <span className="ry-sg-taille">{tailleCourte(s.taille)}</span>
+                  <time dateTime={new Date(s.createdAt).toISOString()}>
+                    {timeShort(s.createdAt)}
+                  </time>
+                </div>
+                <div className="ry-sg-actions">
+                  {s.taille > 0 && (
+                    <button
+                      type="button"
+                      className="btn ghost ry-sg-voir"
+                      disabled={busy || (patchCharge && ouvertId === s.id)}
+                      aria-expanded={ouvertId === s.id}
+                      onClick={() => void voirPatch(s.id)}
+                    >
+                      {ouvertId === s.id ? t('Fermer', 'Close') : t('Voir le patch', 'View patch')}
+                    </button>
+                  )}
+                  {!parPartage && s.taille > 0 && (
+                    <button
+                      type="button"
+                      className="btn ghost ry-sg-restaure"
+                      disabled={busy}
+                      onClick={() => void restaurer(s.id, s.label)}
+                    >
+                      {t('Restaurer', 'Restore')}
+                    </button>
+                  )}
+                </div>
               </div>
-              {!parPartage && s.taille > 0 && (
-                <button
-                  type="button"
-                  className="btn ghost ry-sg-restaure"
-                  disabled={busy}
-                  onClick={() => void restaurer(s.id, s.label)}
-                >
-                  {t('Restaurer', 'Restore')}
-                </button>
+              {ouvertId === s.id && (
+                <div className="ry-sg-patch-cadre">
+                  {patchCharge && !patchTexte ? (
+                    <p className="ry-sg-patch-attente">{t('Chargement…', 'Loading…')}</p>
+                  ) : (
+                    <pre className="ry-sg-patch" tabIndex={0}>
+                      {patchTexte && patchTexte.length > 0
+                        ? patchTexte
+                        : t('(patch vide)', '(empty patch)')}
+                    </pre>
+                  )}
+                </div>
               )}
             </li>
           ))}

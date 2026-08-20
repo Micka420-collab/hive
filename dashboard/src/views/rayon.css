@@ -412,21 +412,28 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 180px;
+  max-height: 320px;
   overflow: auto;
 }
 
 .ry-sg-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 6px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .ry-sg-item:last-child {
   border-bottom: 0;
+}
+
+.ry-sg-ligne {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .ry-sg-meta {
@@ -459,9 +466,45 @@
   font-variant-numeric: tabular-nums;
 }
 
+.ry-sg-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+}
+
+.ry-sg-voir,
 .ry-sg-restaure {
   flex: none;
   font-size: 12px;
+}
+
+.ry-sg-patch-cadre {
+  margin: 0 0 2px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--bg) 88%, var(--panel));
+  overflow: hidden;
+}
+
+.ry-sg-patch {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow: auto;
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre;
+  tab-size: 2;
+}
+
+.ry-sg-patch-attente {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .ry-sg-vide,

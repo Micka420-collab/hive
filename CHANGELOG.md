@@ -25,7 +25,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   avec un diff devient une étape (`sauvegardes` latérale, survit à
   `pruneResults`). API : lister / lire / poser (manuel) /
   restaurer — la restauration ouvre une **tâche** (jamais un rewrite
-  silencieux). Panneau sur le Rayon ; raccourci depuis la Reine.
+  silencieux). Panneau sur le Rayon : **voir le patch** avant d’agir ;
+  raccourci depuis la Reine.
 - **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
   (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
   Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;

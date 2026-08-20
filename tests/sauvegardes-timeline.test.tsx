@@ -13,18 +13,21 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPartage: vi.fn(() => null),
   fetchSauvegardes: vi.fn(),
+  fetchSauvegarde: vi.fn(),
   creerSauvegardeManuelle: vi.fn(),
   restaurerSauvegarde: vi.fn(),
 }));
 
 import {
   creerSauvegardeManuelle,
+  fetchSauvegarde,
   fetchSauvegardes,
   restaurerSauvegarde,
 } from '../dashboard/src/api';
 import { SauvegardesTimeline } from '../dashboard/src/SauvegardesTimeline';
 
 const fetchSg = vi.mocked(fetchSauvegardes);
+const fetchOne = vi.mocked(fetchSauvegarde);
 const creer = vi.mocked(creerSauvegardeManuelle);
 const resto = vi.mocked(restaurerSauvegarde);
 
@@ -36,6 +39,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
   setLang('fr');
   fetchSg.mockReset();
+  fetchOne.mockReset();
   creer.mockReset();
   resto.mockReset();
   fetchSg.mockResolvedValue({ sauvegardes: [] });
@@ -149,5 +153,49 @@ describe('SauvegardesTimeline', () => {
     await act(async () => {});
     expect(resto).toHaveBeenCalledWith('p1', 's1');
     expect(dom.textContent).toContain('Tâche créée');
+  });
+
+  it('Voir le patch charge le détail puis se referme', async () => {
+    fetchSg.mockResolvedValue({
+      sauvegardes: [
+        {
+          id: 's1',
+          projectId: 'p1',
+          resultId: 1,
+          taskId: 't1',
+          label: 'Étape — Socle',
+          kind: 'etape',
+          taille: 42,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    fetchOne.mockResolvedValue({
+      sauvegarde: {
+        id: 's1',
+        projectId: 'p1',
+        resultId: 1,
+        taskId: 't1',
+        label: 'Étape — Socle',
+        kind: 'etape',
+        createdAt: Date.now(),
+        patch: 'diff --git a/x b/x\n+hello',
+      },
+    });
+    const dom = await monter();
+    const voir = dom.querySelector('.ry-sg-voir');
+    expect(voir).not.toBeNull();
+    await act(async () => {
+      voir!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(fetchOne).toHaveBeenCalledWith('p1', 's1');
+    expect(dom.querySelector('.ry-sg-patch')?.textContent).toContain('+hello');
+    expect(voir!.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => {
+      voir!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(dom.querySelector('.ry-sg-patch')).toBeNull();
   });
 });

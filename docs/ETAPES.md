@@ -11700,3 +11700,13 @@ Mesure : `tests/retouche-endpoint`, `tests/concierge` (restaurer),
 `tests/autonomie-pulse`, `tests/sauvegardes-endpoint` (prune + projet frais
 par test pour le tamis), `tests/bornes-doctrine`. FEATURES FR/EN alignés.
 CI `a34376c` : empreinte via stdin (Windows), mocks App shell, badges 4432.
+
+### 11. Suite du 20 août (nuit) — voir le patch avant restaurer
+
+| fait                                                         | où                                      |
+| ------------------------------------------------------------ | --------------------------------------- |
+| Timeline : bouton **Voir le patch** (GET détail, dépliable)  | `SauvegardesTimeline.tsx`, `rayon.css`  |
+| Banc : charge / referme l’aperçu                             | `tests/sauvegardes-timeline.test.tsx`   |
+| FEATURES FR/EN + CHANGELOG                                   | docs                                    |
+
+Lire avant d’agir — même doctrine que l’empreinte des installeurs.
