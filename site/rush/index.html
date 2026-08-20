@@ -152,6 +152,7 @@
         font-size: 16px;
         line-height: 1.55;
         -webkit-font-smoothing: antialiased;
+        overflow-x: clip;
       }
       h1,
       h2,
@@ -857,25 +858,132 @@
       footer .made {
         color: #b5a991;
       }
+      .menu-toggle {
+        display: none;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .menu-toggle span,
+      .menu-toggle::before,
+      .menu-toggle::after {
+        content: '';
+        display: block;
+        width: 17px;
+        height: 1px;
+        margin: 4px auto;
+        background: currentColor;
+        transition:
+          transform 0.2s ease,
+          opacity 0.2s ease;
+      }
+      .menu-toggle[aria-expanded='true'] span {
+        opacity: 0;
+      }
+      .menu-toggle[aria-expanded='true']::before {
+        transform: translateY(5px) rotate(45deg);
+      }
+      .menu-toggle[aria-expanded='true']::after {
+        transform: translateY(-5px) rotate(-45deg);
+      }
+      @media (max-width: 900px) {
+        header {
+          flex-wrap: nowrap;
+        }
+        .brand {
+          margin-right: auto;
+        }
+        .menu-toggle {
+          display: block;
+          flex: none;
+        }
+        nav.main {
+          position: absolute;
+          inset: calc(100% + 8px) 0 auto;
+          width: 100%;
+          margin: 0;
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          box-shadow: 0 24px 50px -28px rgba(27, 23, 18, 0.75);
+          opacity: 0;
+          visibility: hidden;
+          transform: translateY(-8px);
+          transition:
+            opacity 0.2s ease,
+            transform 0.2s ease,
+            visibility 0.2s;
+        }
+        nav.main.open {
+          opacity: 1;
+          visibility: visible;
+          transform: none;
+        }
+        nav.main a {
+          width: 100%;
+          min-height: 46px;
+          padding: 0 14px;
+          display: flex;
+          align-items: center;
+        }
+        .btn-gold {
+          display: none;
+        }
+      }
       @media (max-width: 720px) {
         header {
           width: calc(100% - 20px);
           margin-top: 8px;
         }
-        .brand .ver,
-        .btn-gold {
+        .brand .ver {
           display: none;
-        }
-        nav.main {
-          width: 100%;
-          order: 3;
         }
         .hero {
           min-height: 0;
-          padding-top: 72px;
+          padding: 72px 18px 52px;
+        }
+        .hero h1 {
+          font-size: clamp(42px, 13vw, 60px);
+        }
+        .hero-actions {
+          flex-direction: column;
+        }
+        .hero-actions .btn {
+          width: 100%;
+          min-height: 48px;
+          text-align: center;
         }
         .offre.phare {
           transform: none;
+        }
+        .prix {
+          grid-template-columns: 1fr;
+        }
+        footer {
+          padding-inline: 18px;
+        }
+        footer .links {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 4px 16px;
+          text-align: left;
+        }
+        footer .links a {
+          justify-content: flex-start;
+        }
+      }
+      @media (min-width: 721px) and (max-width: 1024px) {
+        .prix {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -907,7 +1015,7 @@
         <span class="name">Hive</span>
         <span class="ver">Rush</span>
       </div>
-      <nav class="main">
+      <nav class="main" id="rush-nav">
         <a href="#quoi" data-i18n="nav.what">Ce que c’est</a>
         <a href="#confiance" data-i18n="nav.trust">Pourquoi nous croire</a>
         <a href="#offres" data-i18n="nav.pricing">Offres</a>
@@ -919,6 +1027,16 @@
         <button id="btn-fr" type="button" aria-pressed="true">FR</button>
         <button id="btn-en" type="button" aria-pressed="false">EN</button>
       </div>
+      <button
+        class="menu-toggle"
+        id="rush-menu-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="rush-nav"
+        aria-label="Menu"
+      >
+        <span aria-hidden="true"></span>
+      </button>
       <a
         class="btn-gold"
         href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
@@ -1572,6 +1690,31 @@
           /* stockage privé ou URL exotique : on reste en français */
         }
         setLang(initial);
+
+        var menuToggle = document.getElementById('rush-menu-toggle');
+        var menu = document.getElementById('rush-nav');
+        if (menuToggle && menu) {
+          var fermerMenu = function (rendreFocus) {
+            menu.classList.remove('open');
+            menuToggle.setAttribute('aria-expanded', 'false');
+            if (rendreFocus) menuToggle.focus();
+          };
+          menuToggle.addEventListener('click', function () {
+            var ouvre = menuToggle.getAttribute('aria-expanded') !== 'true';
+            menu.classList.toggle('open', ouvre);
+            menuToggle.setAttribute('aria-expanded', String(ouvre));
+            if (ouvre) {
+              var premier = menu.querySelector('a');
+              if (premier) premier.focus();
+            }
+          });
+          menu.addEventListener('click', function (event) {
+            if (event.target.closest('a')) fermerMenu(false);
+          });
+          document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && menu.classList.contains('open')) fermerMenu(true);
+          });
+        }
 
         /* ── Hauteur de l'en-tête collant ──────────────────────────────
        Publie la hauteur réelle dans --h-entete pour que les ancres

@@ -158,6 +158,7 @@
         font-size: 16px;
         line-height: 1.5;
         -webkit-font-smoothing: antialiased;
+        overflow-x: clip;
       }
       .feuille {
         width: 8.5in;
@@ -589,6 +590,27 @@
           justify-content: center;
           min-height: 44px;
         }
+        .barre {
+          gap: 6px 10px;
+          padding: 8px 12px;
+        }
+        .barre .retour {
+          margin-left: auto;
+        }
+        .barre .droite {
+          width: 100%;
+          margin-left: 0;
+          justify-content: flex-end;
+        }
+        .lang button {
+          min-width: 44px;
+        }
+        .cmd {
+          min-width: 0;
+        }
+        .cmd code {
+          white-space: normal;
+        }
         /* LE CORPS RESTE DENSE, ET C'EST VOULU. À 11 px sur papier on lit très
            bien ; sur un téléphone, non. Mais ce document EST une feuille — la
            grossir romprait la mise en page d'une page A4, qui est sa raison
@@ -605,6 +627,28 @@
            téléphone non. */
         h2.kicker {
           font-size: 13px;
+        }
+      }
+      @media (max-width: 430px) {
+        .barre .marque {
+          width: 100%;
+        }
+        .barre .retour {
+          margin-left: 0;
+        }
+        .barre .droite {
+          justify-content: space-between;
+        }
+        .imprimer {
+          flex: 1;
+        }
+        .entete {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+        .entete .sous {
+          width: 100%;
+          margin-left: 0;
         }
       }
 

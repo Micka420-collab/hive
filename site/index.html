@@ -2671,6 +2671,7 @@
         background:
           linear-gradient(90deg, transparent 49.95%, rgba(27, 23, 18, 0.025) 50%, transparent 50.05%),
           var(--bg);
+        overflow-x: clip;
       }
       header {
         min-height: 62px;
@@ -3126,12 +3127,27 @@
           grid-template-columns: 1fr;
         }
         .hero-rayon {
-          position: absolute;
-          z-index: -1;
-          width: min(72vw, 470px);
-          right: -13vw;
-          top: 5%;
-          opacity: 0.18;
+          position: relative;
+          z-index: 0;
+          order: 2;
+          width: min(68vw, 430px);
+          right: auto;
+          top: auto;
+          margin: 8px auto 0;
+          opacity: 1;
+        }
+        .scene .swarm-panel {
+          position: relative;
+          top: auto;
+          max-width: 100%;
+        }
+        .swarm-panel svg {
+          min-width: 0;
+        }
+        nav.main.open a:last-child {
+          margin-top: 4px;
+          background: var(--encre);
+          color: var(--panel);
         }
         .cloud {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3217,8 +3233,30 @@
         .hero .sub {
           font-size: 18px;
         }
+        .hero-cta {
+          flex-direction: column;
+        }
+        .hero-cta .btn {
+          width: 100%;
+          min-height: 48px;
+        }
         .chips {
           margin-top: 32px;
+        }
+        .barre-install {
+          overflow: hidden;
+        }
+        .barre-install code {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .swarm-panel {
+          border-radius: 10px;
+        }
+        .swarm-panel svg {
+          height: auto;
         }
         .product-stage {
           margin: 38px -8px 52px;
@@ -3230,6 +3268,24 @@
           margin-top: 8px;
         }
         .cloud {
+          grid-template-columns: 1fr;
+        }
+        .pied-plan {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 24px 18px;
+        }
+        .pied-bas {
+          flex-direction: column;
+        }
+      }
+      @media (max-width: 430px) {
+        .hero h1 {
+          font-size: clamp(43px, 13.5vw, 58px);
+        }
+        .hero-rayon {
+          width: min(82vw, 330px);
+        }
+        .pied-plan {
           grid-template-columns: 1fr;
         }
       }
