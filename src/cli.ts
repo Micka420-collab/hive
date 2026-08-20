@@ -1638,16 +1638,99 @@ async function cmdBrief(projectId: string, brief: string): Promise<void> {
   printTasks(result.tasks);
 }
 
-/** Parler à la Reine : question en langage naturel, réponse depuis l'état réel. */
+/** Parler à la Reine : question en langage naturel ; flux SSE si le hub le sert. */
 async function cmdAsk(question: string, projectId?: string): Promise<void> {
-  const res = await api<{ reply: string; source: 'live' | 'llm'; suggestions: string[] }>(
-    '/api/chat',
-    {
-      method: 'POST',
-      body: JSON.stringify({ message: question, ...(projectId ? { projectId } : {}) }),
+  const res = await fetch(`${BASE}/api/chat`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      'x-hive-token': TOKEN,
     },
-  );
-  for (const l of lignesReponseReine(res)) console.log(l);
+    body: JSON.stringify({
+      message: question,
+      stream: true,
+      ...(projectId ? { projectId } : {}),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText} — ${await res.text()}`);
+  }
+  const ctype = res.headers.get('content-type') ?? '';
+  if (!ctype.includes('text/event-stream') || !res.body) {
+    const json = (await res.json()) as {
+      reply: string;
+      source: 'live' | 'llm';
+      suggestions: string[];
+    };
+    for (const l of lignesReponseReine(json)) console.log(l);
+    return;
+  }
+
+  console.log('');
+  console.log('👑 La Reine :');
+  console.log('');
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let assemble = '';
+  let final: { reply: string; source: 'live' | 'llm'; suggestions: string[] } | null = null;
+
+  const traiter = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    let ev: {
+      type?: string;
+      text?: string;
+      reply?: string;
+      source?: 'live' | 'llm';
+      suggestions?: string[];
+    };
+    try {
+      ev = JSON.parse(trimmed) as typeof ev;
+    } catch {
+      return;
+    }
+    if (ev.type === 'delta' && typeof ev.text === 'string') {
+      assemble += ev.text;
+      process.stdout.write(ev.text);
+    } else if (ev.type === 'done' && typeof ev.reply === 'string') {
+      final = {
+        reply: ev.reply,
+        source: ev.source === 'llm' ? 'llm' : 'live',
+        suggestions: Array.isArray(ev.suggestions) ? ev.suggestions : [],
+      };
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split('\n');
+    buf = parts.pop() ?? '';
+    for (const line of parts) {
+      const t = line.trimEnd();
+      if (t.startsWith('data:')) traiter(t.slice(5).trimStart());
+    }
+  }
+  if (buf.trim().startsWith('data:')) traiter(buf.trim().slice(5).trimStart());
+
+  if (assemble.length > 0) process.stdout.write('\n');
+  const reponse = final ?? {
+    reply: assemble,
+    source: 'live' as const,
+    suggestions: [] as string[],
+  };
+  if (!assemble && reponse.reply) {
+    console.log(reponse.reply.replace(/^/gm, '  '));
+  }
+  const badge = reponse.source === 'llm' ? '✨ IA' : '📡 état réel';
+  console.log('');
+  console.log(`  (${badge})`);
+  if (reponse.suggestions.length > 0) {
+    console.log(`  💡 À demander ensuite : ${reponse.suggestions.join(' · ')}`);
+  }
 }
 
 /** Drone Wars : lance une course compétitive sur une tâche prête. */
