@@ -1152,7 +1152,7 @@ export default function Miellerie({
               <ul className="mi-plan-conflicts">
                 {merge.result.conflicts.map((c, i) => (
                   <li key={i}>
-                    ✖ {titleOf(c.taskId)} — {c.reason}
+                    {titleOf(c.taskId)} — {c.reason}
                   </li>
                 ))}
               </ul>

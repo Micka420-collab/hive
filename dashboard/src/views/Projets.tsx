@@ -416,7 +416,7 @@ function MergePanel({
           <span className={`pj-verdict ${plan.mergeable ? 'ok' : 'ko'}`}>
             {plan.mergeable
               ? t('✔ intégrable', '✔ mergeable')
-              : t('⚠ pas encore intégrable', '⚠ not mergeable yet')}
+              : t('pas encore intégrable', 'not mergeable yet')}
           </span>
         )}
       </header>
@@ -1612,7 +1612,7 @@ export function LivraisonsProjet({ project }: { project: Project }) {
               <span className="pj-liv-titre">{nomDeLivraison(l)}</span>
               {/* Une PR illisible le DIT. Une ligne muette laisserait croire
                   qu'il ne se passe rien, alors qu'on n'a pas pu regarder. */}
-              <span className="pj-liv-etat">{l.illisible ? `⚠ ${l.illisible}` : l.dit}</span>
+              <span className="pj-liv-etat">{l.illisible ? `${l.illisible}` : l.dit}</span>
               {repris[l.taskId] ? (
                 <span className="pj-liv-repris">✔ {repris[l.taskId]}</span>
               ) : (

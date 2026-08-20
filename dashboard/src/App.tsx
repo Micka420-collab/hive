@@ -613,7 +613,7 @@ export function App() {
                   'Verdicts made while offline — resent automatically once the orchestrator responds',
                 )}
               >
-                ⚠ {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
+                {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
               </span>
             )}
             <span className={connected ? 'conn online' : 'conn offline'}>

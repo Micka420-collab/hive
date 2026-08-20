@@ -425,7 +425,7 @@ function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
                     )}
                     {n.suspectes > 0 && (
                       <span className="es-poly-grief" title={t('suspectes', 'suspicious')}>
-                        ⚠ {n.suspectes}
+                        {n.suspectes}
                       </span>
                     )}
                     <span className="es-poly-fia">
