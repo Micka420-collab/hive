@@ -182,7 +182,9 @@ function RacesCard({
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('Courses en vol', 'Races in flight')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Courses en vol', 'Races in flight')}
+        </h2>
         <span className="panel-count">{races.length}</span>
       </header>
       <ul className="es-races">
