@@ -139,7 +139,6 @@ export function InvitePanel() {
                 qui n'écoute pas sur cette adresse. */}
             {invite?.injoignable && (
               <p className="modal-error invite-unreachable">
-                ⚠{' '}
                 {t(
                   invite.injoignable,
                   'This hive only listens on its own machine: nobody else can reach the advertised ' +
@@ -181,9 +180,11 @@ export function InvitePanel() {
             </div>
 
             <div className="invite-cmd">
-              <code>{commande ?? t('génération…', 'generating…')}</code>
+              <code className={commande === null ? 'muted-text' : undefined}>
+                {commande ?? t('génération…', 'generating…')}
+              </code>
               <button className="copy-btn" onClick={copy} disabled={commande === null}>
-                {copied ? t('✔ copié', '✔ copied') : t('copier', 'copy')}
+                {copied ? t('copié', 'copied') : t('copier', 'copy')}
               </button>
             </div>
 
@@ -200,7 +201,6 @@ export function InvitePanel() {
             )}
 
             <p className="invite-note">
-              ⚠{' '}
               {t(
                 'Cette invitation contient le token de la ruche : ne la partagez qu’avec des personnes de confiance, par un canal privé.',
                 'This invitation contains the hive token: only share it with people you trust, over a private channel.',
@@ -225,11 +225,12 @@ export function InvitePanel() {
               <div className="invite-url-row">
                 <input
                   type="text"
+                  className="code-input"
                   placeholder="ws://..:7777/ws"
                   value={customUrl}
                   onChange={(e) => setCustomUrl(e.target.value)}
                 />
-                <button onClick={() => void generate(customUrl || undefined)}>
+                <button type="button" className="btn" onClick={() => void generate(customUrl || undefined)}>
                   {t('Régénérer', 'Regenerate')}
                 </button>
               </div>

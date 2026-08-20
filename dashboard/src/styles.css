@@ -836,10 +836,17 @@ h3 {
 .chip:focus-visible,
 .view-toggle button:focus-visible,
 .modal-close:focus-visible,
-.copy-btn:focus-visible,
 .drawer-tabs button:focus-visible {
   outline: 2px solid var(--honey);
   outline-offset: 1px;
+}
+
+/* Inviter : halo miel (même geste que `.field input:focus` du compte). */
+.invite-btn:focus-visible,
+.invite-os-btn:focus-visible,
+.copy-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.28);
 }
 
 .clickable:focus-visible {
@@ -1342,28 +1349,37 @@ h3 {
 }
 
 /* ─── LE CHOIX DU SYSTÈME DE L'INVITÉ ─────────────────────────────────────
-   Deux puces, calquées sur celles de la barre d'installation de la vitrine :
-   c'est le même geste, sur le même genre de commande. */
+   Deux puces sobres (pas de pilule 999) : même geste Craft que le reste
+   des modales, tokens miel/cire — plus les anciens `--bordure` / `--ambre`. */
 .invite-os {
   display: flex;
   gap: 6px;
   margin: 0 0 8px;
 }
 .invite-os-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--bordure, #3a352c);
-  border-radius: 999px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: inherit;
+  color: var(--muted);
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  opacity: 0.6;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.invite-os-btn:hover {
+  color: var(--text);
+  border-color: var(--border);
 }
 .invite-os-btn.actif {
-  opacity: 1;
-  border-color: var(--ambre, #e0a43c);
-  color: var(--ambre, #e0a43c);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  background: color-mix(in srgb, var(--miel) 12%, var(--panel));
 }
 
 .invite-cmd {
@@ -1387,14 +1403,19 @@ h3 {
   overflow-y: auto;
 }
 
+.invite-cmd code.muted-text {
+  color: var(--muted);
+  font-style: normal;
+}
+
 .copy-btn {
   align-self: flex-start;
   padding: 6px 12px;
   background: var(--miel-2);
   color: var(--encre);
   border: none;
-  border-radius: 5px;
-  font-weight: 700;
+  border-radius: var(--r-sm);
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1405,8 +1426,10 @@ h3 {
 }
 
 .invite-note {
-  color: var(--gold);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-style: normal;
+  line-height: 1.45;
   margin: 12px 0 4px;
 }
 
@@ -1425,31 +1448,28 @@ h3 {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+  align-items: center;
 }
 
-.invite-url-row input {
+.invite-url-row .code-input {
   flex: 1;
-  padding: 6px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  font-family: var(--mono);
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
-.invite-url-row button {
-  padding: 6px 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  cursor: pointer;
+.invite-url-row .btn {
+  flex: none;
+  white-space: nowrap;
 }
 
 .invite-current-url {
   font-family: var(--mono);
   font-size: 12px;
   margin: 8px 0 0;
+  color: var(--muted);
+  font-style: normal;
 }
 
 /* ─── Swarm View 3D ───────────────────────────────────────────────────── */
