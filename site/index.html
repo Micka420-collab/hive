@@ -911,8 +911,8 @@
         stroke-width: 1.25;
       }
       .rayon-svg .cell.miel {
-        fill: var(--gold);
-        stroke: var(--gold);
+        fill: #d9a01e;
+        stroke: var(--gold-2);
       }
       .rayon-svg .cell.coeur {
         fill: var(--encre);
@@ -1076,9 +1076,10 @@
         text-wrap: balance;
       }
       /* ══ L'ACCENT DU TITRE ══════════════════════════════════════════════
-         Plus de coulée dessinée à la main : ça faisait « projet amateur ».
-         Le span `.grad` reste pour l'i18n (FR et EN enveloppent la même
-         locution) ; visuellement, c'est la phrase entière, en encre. */
+         Plus de coulée `miel.svg` derrière les lettres : ça faisait amateur.
+         Le span `.grad` porte la locution (FR/EN) ; `.honey-trace` est le
+         filet liquide SOUS la ligne — ambre lisible sur la crème, une goutte,
+         puis un reflet. */
       .grad {
         font-style: normal;
         color: inherit;
@@ -2866,61 +2867,79 @@
         display: block;
         width: fit-content;
         max-width: 100%;
+        padding-bottom: 0.42em;
+        overflow: visible;
         color: var(--text);
       }
+      /* Filet de miel sous la promesse. L'or vif (`--gold`) sur la crème
+         disparaît (2,4:1) : le corps du filet est donc ambre, lisible, avec
+         un reflet clair en surface — miel, pas surligneur. */
       .hero h1 .honey-trace {
         position: absolute;
-        z-index: -1;
+        z-index: 0;
         display: block;
-        right: 0;
-        bottom: 0.015em;
-        left: 0;
-        height: clamp(5px, 0.105em, 10px);
+        right: 0.04em;
+        bottom: 0.06em;
+        left: 0.02em;
+        height: clamp(8px, 0.15em, 16px);
+        pointer-events: none;
+        font-style: normal;
         border-radius: 999px;
+        transform-origin: 0 50%;
         background:
           linear-gradient(
               108deg,
-              transparent 0 42%,
-              rgba(255, 255, 255, 0.68) 48%,
+              transparent 0 40%,
+              rgba(255, 255, 255, 0.58) 47%,
               transparent 55% 100%
             )
-            -140% 0 / 240% 100% no-repeat,
-          linear-gradient(
-            90deg,
-            var(--gold-2) 0%,
-            var(--gold) 7%,
-            var(--gold) 93%,
-            var(--gold-2) 100%
-          );
+            -140% 0 / 220% 100% no-repeat,
+          linear-gradient(180deg, #f8de7a 0%, #e8b230 36%, #c98914 76%, #874900 100%);
         box-shadow:
-          inset 0 1px rgba(255, 255, 255, 0.62),
-          inset 0 -1px rgba(135, 73, 0, 0.28),
-          0 2px 5px rgba(135, 73, 0, 0.12);
-        animation: hvHoneySheen 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+          inset 0 1px 0 rgba(255, 255, 255, 0.55),
+          inset 0 -1px 0 rgba(135, 73, 0, 0.38),
+          0 3px 8px rgba(135, 73, 0, 0.2);
       }
       .hero h1 .honey-trace::after {
         content: '';
         position: absolute;
-        right: 0.035em;
-        bottom: -0.075em;
-        width: 0.105em;
-        height: 0.14em;
-        border-radius: 48% 52% 58% 42%;
-        background: var(--gold-2);
-        box-shadow: inset 1px 1px rgba(255, 255, 255, 0.46);
-        transform: rotate(38deg) scaleY(0.68);
+        right: 0.1em;
+        top: 42%;
+        width: clamp(9px, 0.155em, 15px);
+        height: clamp(13px, 0.24em, 22px);
+        border-radius: 42% 58% 55% 45% / 32% 38% 62% 68%;
+        background:
+          radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.55), transparent 48%),
+          linear-gradient(180deg, #f6c445 0%, #c98914 55%, #874900 100%);
+        box-shadow: inset 1px 1px rgba(255, 255, 255, 0.4);
         transform-origin: 50% 0;
-        opacity: 0.36;
-        animation: hvHoneyDrop 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+        opacity: 1;
+      }
+      html.js-motion .hero h1 .honey-trace {
+        animation:
+          hvHoneyDraw 0.85s cubic-bezier(0.22, 1, 0.36, 1) both,
+          hvHoneySheen 6.5s 1.35s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      html.js-motion .hero h1 .honey-trace::after {
+        opacity: 0;
+        animation: hvHoneyDrop 1.2s 0.7s cubic-bezier(0.2, 0.72, 0.22, 1) both;
+      }
+      @keyframes hvHoneyDraw {
+        from {
+          transform: scaleX(0);
+        }
+        to {
+          transform: scaleX(1);
+        }
       }
       @keyframes hvHoneySheen {
         0%,
-        68% {
+        70% {
           background-position:
             -140% 0,
             0 0;
         }
-        86%,
+        88%,
         100% {
           background-position:
             220% 0,
@@ -2928,15 +2947,29 @@
         }
       }
       @keyframes hvHoneyDrop {
-        0%,
-        64%,
-        100% {
-          opacity: 0.3;
-          transform: rotate(38deg) scaleY(0.68);
+        0% {
+          opacity: 0;
+          transform: translateY(-30%) scale(0.15);
         }
-        82% {
-          opacity: 0.78;
-          transform: rotate(38deg) scaleY(1);
+        32% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        58% {
+          opacity: 1;
+          transform: translateY(0.06em) scaleY(1.45) scaleX(0.82);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0.2em) scale(1);
+        }
+      }
+      @keyframes hvHoneyFill {
+        from {
+          fill: transparent;
+        }
+        to {
+          fill: #d9a01e;
         }
       }
       .hero .sub {
@@ -2994,20 +3027,12 @@
       .hero-rayon .cell {
         stroke-width: 1.1px;
       }
-      .hero-rayon .cell.miel {
-        animation: hvSignal 2.8s ease-in-out infinite;
-        transform-box: fill-box;
-        transform-origin: center;
+      html.js-motion .hero-rayon .cell.miel {
+        animation: hvHoneyFill 1.15s 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
       }
       @keyframes hvOrbit {
         to {
           transform: rotate(360deg);
-        }
-      }
-      @keyframes hvSignal {
-        50% {
-          opacity: 0.55;
-          transform: scale(0.92);
         }
       }
       .chips,
@@ -3381,11 +3406,16 @@
           font-size: clamp(46px, 15vw, 70px);
         }
         .hero h1 .grad {
-          display: inline-block;
+          display: block;
+          padding-bottom: 0.46em;
         }
         .hero h1 .honey-trace {
-          bottom: 0.025em;
-          height: clamp(4px, 0.09em, 6px);
+          bottom: 0.05em;
+          height: clamp(7px, 0.16em, 11px);
+        }
+        .hero h1 .honey-trace::after {
+          width: clamp(8px, 0.17em, 12px);
+          height: clamp(11px, 0.26em, 16px);
         }
         .hero .sub {
           font-size: 18px;
@@ -3453,12 +3483,14 @@
       .rayon-svg,
       .hero-rayon::before,
       .hero-rayon::after,
-      .hero-rayon .cell.miel,
       .cell-glow,
       .worker-cell,
       .anim-cell,
       .anim-halo {
         animation: none;
+      }
+      html.js-motion .hero-rayon .cell.miel {
+        animation: hvHoneyFill 1.15s 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
       }
       .cell-glow {
         opacity: 0.1;
@@ -3593,11 +3625,19 @@
         .bandeau-agents .piste {
           animation: none !important;
         }
-        .hero h1 .honey-trace {
+        .hero h1 .honey-trace,
+        .hero h1 .honey-trace::after,
+        html.js-motion .hero h1 .honey-trace,
+        html.js-motion .hero h1 .honey-trace::after,
+        html.js-motion .hero-rayon .cell.miel {
           animation: none !important;
         }
+        .hero h1 .honey-trace {
+          transform: none;
+        }
         .hero h1 .honey-trace::after {
-          display: none;
+          opacity: 1;
+          transform: translateY(0.12em);
         }
       }
     </style>
