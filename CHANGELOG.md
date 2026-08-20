@@ -34,7 +34,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `stream` / `Accept: text/event-stream` : deltas puis `done`. Contexte enrichi
   (`enCours`, `sousAgents`, `essaim` Plein Essaim) — la Reine **cite** l’essaim,
   elle ne change pas le niveau d’autonomie et ne réécrit jamais le dépôt.
-  UI Reine : bulle progressive.
+  UI Reine : bulle progressive. `hive ask` partage le même chemin SSE ; banc
+  CLI + FEATURES EN (table Comb) + README variante prudente Windows (Pages /
+  `install.sha256`, sans 2ᵉ `irm` qui casserait la garde d’annonce).
 
 ### Changed
 

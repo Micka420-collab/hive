@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4447%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-4449%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -78,12 +78,19 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
+
+# Variante prudente Windows (Pages sert aussi install.ps1 + le même manifeste) :
+#   télécharger https://micka420-collab.github.io/hive/install.ps1
+#   Get-FileHash hive-install.ps1 -Algorithm SHA256   # vs install.sha256 sur Pages
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\hive-install.ps1
 ```
 
 Le script vérifie Node (≥ 24), récupère Hive, installe les dépendances et pose
 **au plus trois questions**. Jamais de `sudo`, rien hors de son dossier —
 `--dry-run` montre tout sans rien créer. Lancé comme fichier, il affiche son
-empreinte SHA-256 (ADR 0002).
+empreinte SHA-256 (ADR 0002). Pages publie `install.sh`, `install.ps1` et
+`install.sha256` ; une **Release GitHub signée** reste hors d’atteinte (comptes
+humains) — l’empreinte Pages protège du pipe aveugle, pas d’un dépôt compromis.
 
 Déjà cloné : `npm run setup` puis `npm run ruche`. Conteneur et Cloud :
 **[docs/CLOUD.md](docs/CLOUD.md)**. Bureau de recette :

@@ -87,4 +87,16 @@ describe('la commande `hive ask`', () => {
     expect(r.sortie, 'l’état réel se présente comme tel').toContain('📡 état réel');
     expect(r.sortie, 'un fait ne se déguise pas en génération').not.toContain('✨ IA');
   }, 30_000);
+
+  it('LE CHEMIN SSE : en-tête sans badge, puis (📡 état réel) en bas', async () => {
+    // `cmdAsk` demande Accept: text/event-stream. Le chemin JSON imprimerait
+    // `👑 La Reine (📡 état réel) :` d’un coup ; le flux écrit d’abord
+    // `👑 La Reine :`, puis le badge après les deltas. Muter le Accept ou
+    // sauter le lecteur SSE basculerait sur le rendu JSON et ferait rougir.
+    const r = await lancer('quelles ouvrières sont connectées ?');
+    expect(r.code, r.sortie).toBe(0);
+    expect(r.sortie, 'en-tête du flux, badge pas encore collé').toMatch(/👑 La Reine :\s*\n/);
+    expect(r.sortie, 'pas le rendu JSON d’un coup').not.toMatch(/👑 La Reine \(📡 état réel\) :/);
+    expect(r.sortie).toMatch(/\(📡 état réel\)/);
+  }, 30_000);
 });

@@ -151,7 +151,7 @@ npm run cli -- ask "Où en est le projet ?"
 npm run cli -- ask "Which node works best?"
 # ou : POST /api/chat { "message": "…", "projectId"?: "…", "stream"?: true }
 #     · Accept: text/event-stream → deltas puis done
-#     · vue 👑 Reine du dashboard (texte progressif)
+#     · vue 👑 Reine et `hive ask` (même chemin SSE progressif)
 ```
 
 Deux modes, jamais bloquants : **état réel** (réponses déterministes composées
@@ -159,13 +159,17 @@ depuis les rapports, le pouls, le nectar, les anomalies et la mémoire — 100 %
 hors-ligne) et **IA** (si `ANTHROPIC_API_KEY` est définie côté Queen :
 `HIVE_CHAT_MODEL`, défaut `claude-haiku-4-5` ; la clé ne quitte jamais
 l'orchestrateur, et le modèle ne reçoit que les chiffres réels de la ruche).
-La Reine guide aussi le donneur d'ordre : bonnes pratiques par type de projet
-(web, API, mobile, data, e-commerce, CLI) et structure de brief efficace.
-En mode IA, le décompte de **tokens** Anthropic s’affiche sur chaque réponse
-(et en session). La barre de modes relie Chat → Plan (Projets / Queen Bee) →
-Autonomie (Plein Essaim sur le projet) → Sauvegardes (Rayon). S’il y a des
-échecs récents et une étape, la Reine propose une puce **Restaurer…** qui
-ouvre la timeline du Rayon.
+État réel comme IA **fluxent** en SSE quand le client le demande (`stream:
+true` ou `Accept: text/event-stream`) — la bulle Reine du dashboard et
+`npm run cli -- ask` partagent ce chemin. Le prompt voit aussi, en lecture
+seule, le **travail en cours**, les **sous-agents** et l’état **Plein Essaim**
+— la Reine n’élève jamais l’autonomie ni ne réécrit git. La Reine guide aussi
+le donneur d'ordre : bonnes pratiques par type de projet (web, API, mobile,
+data, e-commerce, CLI) et structure de brief efficace. En mode IA, le décompte
+de **tokens** Anthropic s’affiche sur chaque réponse (et en session). La barre
+de modes relie Chat → Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur
+le projet) → Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la
+Reine propose une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 

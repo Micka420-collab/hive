@@ -21,6 +21,17 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
     expect(wf).toContain('install.sha256');
   });
 
+  it('README FR et EN annoncent la variante prudente Windows + Pages', () => {
+    // Sans ça, Linux a le pipe prudent documenté et Windows reste « irm | run »
+    // sans manifeste — le défaut que le lot 8 (empreintes Pages) devait fermer.
+    for (const f of ['README.md', 'README.en.md'] as const) {
+      const txt = lire(f);
+      expect(txt).toContain('micka420-collab.github.io/hive/install.ps1');
+      expect(txt).toContain('install.sha256');
+      expect(txt).toMatch(/Get-FileHash|sha256sum/);
+    }
+  });
+
   it('install.sh et install.ps1 annoncent l’empreinte dans le source', () => {
     const sh = lire('install.sh');
     expect(sh).toContain('annoncer_empreinte');

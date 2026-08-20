@@ -11728,3 +11728,15 @@ Lire avant d’agir — même doctrine que l’empreinte des installeurs.
 | Bancs stream + endpoint SSE                                  | `tests/chat-stream`, `chat-endpoint`   |
 
 Pas de rewrite git silencieux, pas de 2ᵉ autonomie. CI verte PR #341.
+
+### 16. Suite du 21 août (nuit) — docs empreintes + banc CLI SSE
+
+| fait                                                     | où                                     |
+| -------------------------------------------------------- | -------------------------------------- |
+| Table Comb (Backups…) alignée FR ; `hive ask` = même SSE | `FEATURES.en.md`, `FONCTIONNALITES.md` |
+| Variante prudente Windows (Pages + `install.sha256`)     | `README.md` / `README.en.md`           |
+| Banc : chemin SSE CLI + garde README Pages               | `ask-cli`, `site-installeurs`          |
+| Badges / tableau A → **4449**                            | README, site, DEFINITION               |
+
+Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
+`commande-annoncee`).
