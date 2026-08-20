@@ -227,7 +227,7 @@ export default function Reine({ snapshot }: ViewProps) {
       <AtelierRecette />
       <header className="rn-head card">
         <div className="rn-head-title">
-          <span className="rn-crown" aria-hidden="true" />
+          <span className="marque" aria-hidden="true" />
           <div>
             <h2>{t('Parlez à la Reine', 'Talk to the Queen')}</h2>
             <p className="rn-sub">
@@ -267,7 +267,7 @@ export default function Reine({ snapshot }: ViewProps) {
       >
         {messages.length === 0 && !pending && (
           <div className="rn-empty">
-            <span className="rn-hex" aria-hidden="true" />
+            <span className="marque" aria-hidden="true" />
             <p>
               {t(
                 'La ruche bourdonne, la Reine écoute. Posez votre première question — ou butinez une suggestion ci-dessous.',

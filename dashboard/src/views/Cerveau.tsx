@@ -400,7 +400,8 @@ export default function Cerveau(_props: ViewProps) {
       <header className="cerveau-tete">
         <div className="cerveau-titre">
           <h2>
-            <span className="marque" aria-hidden="true" /> {t('Le Cerveau', 'The Brain')}
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('Le Cerveau', 'The Brain')}
           </h2>
           <p>
             {t(
