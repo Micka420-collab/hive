@@ -25,6 +25,7 @@ import {
   planParCle,
   signer,
   verifierSignature,
+  hebergement,
 } from '../src/orchestrator/abonnement.js';
 import type { Abonnement, EvenementAbonnement } from '../src/orchestrator/abonnement.js';
 
@@ -124,6 +125,16 @@ describe('abonnements — les droits, fermés par défaut', () => {
   it('un plan sans heures ne donne pas d’heures', () => {
     // « Queen hébergée » est un service, pas du temps-ouvrière.
     expect(droits(abo({ plan: 'queen', etat: 'actif' }), NOW).actif).toBe(false);
+  });
+
+  it('…mais la Queen hébergée DONNE l’hébergement', () => {
+    const h = hebergement(abo({ plan: 'queen', etat: 'actif' }), NOW);
+    expect(h.actif).toBe(true);
+    expect(h.serveurs).toBe(1);
+  });
+
+  it('la ruche libre n’ouvre aucun serveur chez nous', () => {
+    expect(hebergement(abo({ plan: 'libre', etat: 'actif' }), NOW).actif).toBe(false);
   });
 
   it('un plan devenu inconnu ne donne rien', () => {
