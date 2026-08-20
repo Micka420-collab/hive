@@ -15,7 +15,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   floutée, cartes et boutons assouplis, Reine type messagerie, modales à voile
   flouté, entrée de vue animée (respecte `prefers-reduced-motion`). Ruche vide :
   **une seule composition** centrée (plus de KPI / essaim / file à zéro autour
-  du départ).
+  du départ). **« Inviter un ami »** repasse en secondaire : le miel plein
+  reste pour démarrer un projet.
 
 ### Fixed
 

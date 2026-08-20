@@ -11647,3 +11647,10 @@ sans ce rituel — et `main` est rouge. Ce point le rétablit.
 - Comptes npm + GHCR/cosign.
 - Machines Windows/macOS d'utilisateurs réels (≠ runners CI).
 - Encaisser un euro avant la revue commerciale (👤).
+
+### 7. Suite du 20 août (soir) — polish Mission Control, pas une feature
+
+Sous le gel soft : redesign Craft du panel (Ruche vide centrée, glyphes SVG,
+invite secondaire, Reine messagerie). Preuve : PR #338, CI verte sur la branche,
+bancs `ruche-depart` + sentinelles alignées, captures écran. Ce n'est **pas**
+un lot de feature — c'est du premier contact avant la revue du 26.
