@@ -88,7 +88,7 @@
 // n'attend plus un disque, on attend quelque chose qui ne viendra pas. Le
 // geste sera alors de trouver CE QUI bloque, pas de passer à 30.
 
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 import { reglageDesForks } from './scripts/vitest-forks.mjs';
 
@@ -120,6 +120,12 @@ export default defineConfig({
     // premier test. Couper le global de Node laisse happy-dom fournir le sien.
     execArgv: ['--no-experimental-webstorage'],
     testTimeout: 20_000,
+    // Un nœud Hive copie l'arbre dans `.hive-work/` — avec `tests/`, sans
+    // `node_modules/`. Sans cette exclusion, `npm test` rejoue le bac et
+    // rougit sur des ERR_MODULE_NOT_FOUND. Invisible en CI, systématique
+    // dès qu'une tâche tourne. Les exclusions par défaut (node_modules, dist)
+    // restent : les étendre SANS elles les perdrait.
+    exclude: [...configDefaults.exclude, '**/.hive-work/**'],
     // ─── LA COUVERTURE, MESURABLE EN UNE COMMANDE ────────────────────────────
     //
     // Elle ne l'était pas : le seul chiffre connu (62,31 % de lignes) datait du
