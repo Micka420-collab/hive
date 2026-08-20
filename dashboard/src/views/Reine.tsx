@@ -37,6 +37,7 @@ async function askQueen(
   message: string,
   projectId: string | undefined,
   onDelta?: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<ChatResponse> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -50,6 +51,7 @@ async function askQueen(
       stream: true,
       ...(projectId ? { projectId } : {}),
     }),
+    signal,
   });
   if (!res.ok) {
     let msg = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
@@ -104,6 +106,10 @@ async function askQueen(
   };
 
   for (;;) {
+    if (signal?.aborted) {
+      await reader.cancel().catch(() => undefined);
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
     const { done, value } = await reader.read();
     if (done) break;
     buf += dec.decode(value, { stream: true });
@@ -203,6 +209,8 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
 
   const threadRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  /** Coupe le flux SSE au démontage ou à « Effacer » — pas de bulle d’erreur. */
+  const abortRef = useRef<AbortController | null>(null);
 
   // Suggestions affichées : celles de la Reine, sinon les défauts (langue courante).
   const shownSuggestions = suggestions.length > 0 ? suggestions : defaultSuggestions(t);
@@ -212,6 +220,12 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   useEffect(() => {
     sessionStorage.setItem(CHAT_KEY, JSON.stringify({ messages, suggestions }));
   }, [messages, suggestions]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // Auto-scroll en bas du fil à chaque nouveau message ou pendant la réflexion.
   useEffect(() => {
@@ -255,24 +269,32 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
     setPending(true);
     const queenId = uid();
     let streamed = false;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const res = await askQueen(text, projectId || undefined, (delta) => {
-        if (!streamed) {
-          streamed = true;
-          appendPersist({
-            id: queenId,
-            role: 'queen',
-            text: delta,
-            ts: Date.now(),
-            source: 'llm',
-          });
-          setPending(false);
-          return;
-        }
-        setMessages((m) =>
-          m.map((msg) => (msg.id === queenId ? { ...msg, text: msg.text + delta } : msg)),
-        );
-      });
+      const res = await askQueen(
+        text,
+        projectId || undefined,
+        (delta) => {
+          if (!streamed) {
+            streamed = true;
+            appendPersist({
+              id: queenId,
+              role: 'queen',
+              text: delta,
+              ts: Date.now(),
+              source: 'llm',
+            });
+            setPending(false);
+            return;
+          }
+          setMessages((m) =>
+            m.map((msg) => (msg.id === queenId ? { ...msg, text: msg.text + delta } : msg)),
+          );
+        },
+        ac.signal,
+      );
       if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
       if (streamed) {
         // Finalise le bulle déjà créée (source / usage / suggestions).
@@ -306,6 +328,8 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
         );
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      if (e instanceof Error && e.name === 'AbortError') return;
       // 404/501 = endpoint pas encore déployé → accueil dégradé, sans badge.
       const absent = e instanceof ChatHttpError && (e.status === 404 || e.status === 501);
       const detail = e instanceof Error ? e.message : String(e);
@@ -343,6 +367,7 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   };
 
   const clear = () => {
+    abortRef.current?.abort();
     setMessages([]);
     setSuggestions([]);
     setTokensSession(0);

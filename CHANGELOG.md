@@ -41,6 +41,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **DEFINITION §E : empreintes Pages** mesurées ; Release signée reste 🔒. Parser SSE Anthropic : bancs text_delta vide / message_start.
 
+- **Reine : abort du flux SSE** au démontage ou « Effacer » (AbortSignal), sans bulle d’erreur.
+
 ### Changed
 
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique

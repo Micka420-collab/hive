@@ -11757,3 +11757,11 @@ Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
 | §E : empreintes Pages ✅ / Release signée 🔒                     | `DEFINITION-DE-SORTIE.md`   |
 | Bancs `parserTrameAnthropic` (vide / json_delta / message_start) | `tests/chat-stream.test.ts` |
 | Badges / tableau A → **4453**                                    | README, site, DEFINITION    |
+
+### 19. Suite du 21 août (nuit) — abort flux Reine
+
+| fait                                                       | où                       |
+| ---------------------------------------------------------- | ------------------------ |
+| AbortSignal : démontage / Effacer coupe le SSE sans erreur | `Reine.tsx`              |
+| Banc Effacer → `signal.aborted`                            | `reine-conversation`     |
+| Badges / tableau A → **4454**                              | README, site, DEFINITION |
