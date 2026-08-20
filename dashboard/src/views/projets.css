@@ -9,6 +9,38 @@
   gap: 16px;
 }
 
+.pj-depart {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 28rem;
+  margin: 12px auto 0;
+  padding: 32px 32px 28px;
+  border-radius: 16px;
+}
+
+.pj-depart .marque {
+  width: 14px;
+  height: 16px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
+}
+
+.pj-depart h2 {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  color: var(--text);
+}
+
+.pj-depart p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
 /* ─── Atelier Queen Bee ────────────────────────────────────────────────── */
 
 .pj-queen-body {

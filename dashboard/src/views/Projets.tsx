@@ -1887,16 +1887,13 @@ export default function Projets({
       <QueenBee projects={recents} />
 
       {recents.length === 0 ? (
-        <section className="card">
-          <p className="empty pad">
+        <section className="card pj-depart">
+          <span className="marque" aria-hidden="true" />
+          <h2>{t('Aucun projet pour l’instant', 'No projects yet')}</h2>
+          <p>
             {t(
-              'Aucune alvéole de projet pour l’instant. Créez votre premier projet avec le bouton',
-              'No project cells yet. Create your first project with the',
-            )}
-            <strong> {t('« + Projet »', '“+ Project”')} </strong>
-            {t(
-              'de la barre du haut, puis laissez la Queen Bee planifier le butinage.',
-              'button in the top bar, then let the Queen Bee plan the foraging.',
+              'Utilisez « + Projet » en haut pour démarrer — un nœud suffit.',
+              'Use “+ Project” above to start — one node is enough.',
             )}
           </p>
         </section>
