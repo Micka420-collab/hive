@@ -28,7 +28,7 @@
       content="Orchestration communautaire d'agents de codage IA : Queen Bee, Hive Mind, Drone Wars, Honeycomb Merge. Open source, MIT."
     />
     <meta name="twitter:image" content="https://micka420-collab.github.io/hive/og.png" />
-    <meta name="theme-color" content="#130f09" />
+    <meta name="theme-color" content="#171611" />
     <script>
       try {
         if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -141,34 +141,31 @@
       }
 
       :root {
-        /* ── LA PALETTE DU DESIGN ────────────────────────────────────────────
-           Cire et papier, un seul accent miel. Les NOMS restent (`--bg`,
-           `--panel`, `--gold`…). Craft : filets, rayon 8 px, ombre discrète.
-           `--gold` est le miel de REMPLISSAGE (et le haut de la rampe de
-           l'installeur). Le texte des liens passe par `--orange`, ≥ 4,5:1. */
-        --bg: #f7f3e9;
-        --panel: #fffdf8;
-        --panel-2: #f2eada;
-        --chip: #efe7d7;
-        --border: #e3d8c2;
-        --border-2: #e0d2b6;
-        --text: #1b1712;
-        --muted: #5a5348;
-        --dim: #5a5348;
-        --encre: #1b1712;
-        /* Les deux tons de texte SUR ENCRE. Ils manquaient : le panneau de
-           l'essaim écrivait ses alvéoles sombres avec les couleurs prévues pour
-           le fond clair, mesuré à 1,24:1 et 1,62:1 — du texte invisible. */
-        --creme: #f4eee0;
-        --creme-2: #b5a991;
-        /* Le miel : l'accent, et le seul. */
+        /* ── RÔLES, PAS NUANCIER ──────────────────────────────────────────────
+           Une page, un panneau, un filet. Les anciens noms restent pour les
+           centaines d'emplois, mais les variantes pointent vers ces rôles.
+           `--gold` remplit ; `--gold-2`/`--orange` écrivent et tracent. */
+        --bg: #f6f4ee;
+        --panel: #fffefb;
+        --panel-2: var(--bg);
+        --chip: var(--panel);
+        --border: #d9d6cd;
+        --border-2: var(--border);
+        --text: #171611;
+        --muted: #5f5d55;
+        --dim: var(--muted);
+        --encre: var(--text);
+        /* Sur encre, deux forces seulement : crème et crème secondaire. */
+        --creme: var(--panel);
+        --creme-2: #d8d6cf;
+        /* Miel vif = remplissage. Miel sombre = liens et filets AA. */
         --gold: #f6c445;
-        --gold-2: #e08a14;
-        --orange: #a85e06;
-        /* Les trois signaux d'état, repris du design. */
-        --green: #235e52;
-        --blue: #4a4238;
-        --red: #be3a22;
+        --gold-2: #874900;
+        --orange: var(--gold-2);
+        /* Un signal par état, sans brun supplémentaire. */
+        --green: #1f6a55;
+        --blue: #1f6282;
+        --red: #ad382b;
         --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
         --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
         --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
@@ -459,6 +456,9 @@
       }
       .btn.primary:hover {
         color: var(--bg);
+        box-shadow:
+          inset 0 0 0 1px var(--gold),
+          0 12px 26px -18px rgba(135, 73, 0, 0.72);
       }
       .btn.ghost {
         background: var(--panel);
@@ -709,7 +709,7 @@
         line-height: 1.25;
       }
       .edition-rush:hover {
-        color: var(--gold);
+        color: var(--creme);
       }
 
       /* ── Hero ── */
@@ -789,7 +789,7 @@
       .pastille .alveole {
         width: 8px;
         height: 9px;
-        background: var(--gold-2);
+        background: var(--gold);
         clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
         display: block;
         flex: none;
@@ -1324,7 +1324,7 @@
            pour que l'espacement suive la taille si elle change un jour. */
         letter-spacing: 0.11em;
         text-transform: uppercase;
-        color: var(--orange);
+        color: var(--text);
         font-family: var(--texte);
       }
       /* Les deux jalons de la section « Démarrer » (D'abord la démo, ensuite
@@ -1535,7 +1535,7 @@
       }
       .apercu-marque {
         font: 700 12px/1 var(--titre);
-        color: var(--gold);
+        color: var(--creme);
         padding: 4px 8px 10px;
       }
       .apercu-rail span {
@@ -1676,7 +1676,7 @@
         width: min(100%, 1240px);
       }
       #securite .kicker {
-        color: var(--gold);
+        color: var(--creme);
       }
       #securite .headline {
         color: var(--creme);
@@ -1685,10 +1685,10 @@
         color: var(--creme);
       }
       #securite .check .tick {
-        color: var(--gold);
+        color: var(--creme);
       }
       #securite .check code {
-        color: var(--gold);
+        color: var(--creme);
       }
       #securite .warn {
         color: var(--creme-2);
@@ -1742,7 +1742,7 @@
         width: 10px;
         height: 10px;
         border-radius: 50%;
-        background: var(--gold-2);
+        background: var(--gold);
       }
       .term-bar .g {
         width: 10px;
@@ -1898,7 +1898,7 @@
         color: var(--creme);
       }
       footer a:hover {
-        color: var(--gold);
+        color: var(--creme);
       }
       .pied {
         max-width: 1240px;
@@ -1970,7 +1970,7 @@
         color: var(--creme);
       }
       .pied-col a:hover {
-        color: var(--gold);
+        color: var(--creme);
       }
       .pied-bas {
         max-width: 1240px;
@@ -2848,7 +2848,7 @@
         padding: 0;
         background: transparent;
         box-shadow: none;
-        color: var(--orange);
+        color: var(--muted);
         font: 700 11px/1.2 var(--texte);
         letter-spacing: 0.13em;
         text-transform: uppercase;
@@ -2861,8 +2861,83 @@
         letter-spacing: -0.065em;
       }
       .hero h1 .grad {
+        position: relative;
+        isolation: isolate;
         display: block;
-        color: var(--orange);
+        width: fit-content;
+        max-width: 100%;
+        color: var(--text);
+      }
+      .hero h1 .honey-trace {
+        position: absolute;
+        z-index: -1;
+        display: block;
+        right: 0;
+        bottom: 0.015em;
+        left: 0;
+        height: clamp(5px, 0.105em, 10px);
+        border-radius: 999px;
+        background:
+          linear-gradient(
+              108deg,
+              transparent 0 42%,
+              rgba(255, 255, 255, 0.68) 48%,
+              transparent 55% 100%
+            )
+            -140% 0 / 240% 100% no-repeat,
+          linear-gradient(
+            90deg,
+            var(--gold-2) 0%,
+            var(--gold) 7%,
+            var(--gold) 93%,
+            var(--gold-2) 100%
+          );
+        box-shadow:
+          inset 0 1px rgba(255, 255, 255, 0.62),
+          inset 0 -1px rgba(135, 73, 0, 0.28),
+          0 2px 5px rgba(135, 73, 0, 0.12);
+        animation: hvHoneySheen 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      .hero h1 .honey-trace::after {
+        content: '';
+        position: absolute;
+        right: 0.035em;
+        bottom: -0.075em;
+        width: 0.105em;
+        height: 0.14em;
+        border-radius: 48% 52% 58% 42%;
+        background: var(--gold-2);
+        box-shadow: inset 1px 1px rgba(255, 255, 255, 0.46);
+        transform: rotate(38deg) scaleY(0.68);
+        transform-origin: 50% 0;
+        opacity: 0.36;
+        animation: hvHoneyDrop 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      @keyframes hvHoneySheen {
+        0%,
+        68% {
+          background-position:
+            -140% 0,
+            0 0;
+        }
+        86%,
+        100% {
+          background-position:
+            220% 0,
+            0 0;
+        }
+      }
+      @keyframes hvHoneyDrop {
+        0%,
+        64%,
+        100% {
+          opacity: 0.3;
+          transform: rotate(38deg) scaleY(0.68);
+        }
+        82% {
+          opacity: 0.78;
+          transform: rotate(38deg) scaleY(1);
+        }
       }
       .hero .sub {
         max-width: 650px;
@@ -2888,7 +2963,7 @@
       }
       .hero-cta .btn.primary::after {
         content: ' →';
-        color: var(--gold);
+        color: var(--creme);
       }
       .hero-rayon {
         width: min(100%, 500px);
@@ -2973,7 +3048,7 @@
       }
       #etapes .kicker,
       #etapes .etape-n {
-        color: var(--gold);
+        color: var(--creme);
       }
       #etapes .etape {
         background: rgba(255, 253, 248, 0.045);
@@ -2983,24 +3058,36 @@
         color: var(--creme-2);
       }
       #etapes .swarm-panel {
-        background: #211c15;
-        border-color: rgba(255, 253, 248, 0.16);
-        box-shadow: 0 45px 90px -55px rgba(0, 0, 0, 0.9);
+        background: var(--panel);
+        border-color: var(--border);
+        color: var(--text);
+        box-shadow: 0 36px 70px -48px rgba(0, 0, 0, 0.75);
       }
       #etapes .swarm-head,
       #etapes .journal {
-        border-color: rgba(255, 253, 248, 0.12);
-        background: #211c15;
+        border-color: var(--border);
+        background: var(--panel);
       }
       #etapes .swarm-title,
       #etapes .journal {
-        color: var(--creme-2);
+        color: var(--muted);
       }
       #etapes .swarm-panel svg {
-        background: radial-gradient(circle at 50% 45%, #2d261b, #18140f);
+        background: var(--panel);
       }
       #etapes .swarm-legende code {
-        color: var(--creme);
+        color: var(--text);
+      }
+      #etapes .swarm-legende {
+        color: var(--muted);
+      }
+      #etapes .swarm-panel svg line:not(.anim-dash) {
+        stroke: var(--muted);
+        opacity: 0.58;
+      }
+      #etapes .swarm-panel svg .anim-dash {
+        stroke: var(--gold-2);
+        opacity: 0.82;
       }
       #features {
         background: var(--panel);
@@ -3065,7 +3152,7 @@
       }
       .edition-cloud .edition-label {
         border-color: rgba(255, 253, 248, 0.18);
-        color: var(--gold);
+        color: var(--creme);
       }
       .edition-cloud li,
       .edition-cloud .edition-prix span {
@@ -3294,7 +3381,11 @@
           font-size: clamp(46px, 15vw, 70px);
         }
         .hero h1 .grad {
-          display: inline;
+          display: inline-block;
+        }
+        .hero h1 .honey-trace {
+          bottom: 0.025em;
+          height: clamp(4px, 0.09em, 6px);
         }
         .hero .sub {
           font-size: 18px;
@@ -3502,6 +3593,12 @@
         .bandeau-agents .piste {
           animation: none !important;
         }
+        .hero h1 .honey-trace {
+          animation: none !important;
+        }
+        .hero h1 .honey-trace::after {
+          display: none;
+        }
       }
     </style>
   </head>
@@ -3566,7 +3663,7 @@
           </div>
           <h1 data-i18n="hero.h1">
             Faites coder plusieurs IA sur votre projet,
-            <span class="grad">en même temps.</span>
+            <span class="grad">en même temps.<i class="honey-trace" aria-hidden="true"></i></span>
           </h1>
           <p class="sub" data-i18n="hero.sub">
             Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
@@ -3889,14 +3986,14 @@
             <g transform="translate(330,140)">
               <polygon
                 points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-                fill="var(--gold)"
-                stroke="var(--gold)"
+                fill="var(--green)"
+                stroke="var(--green)"
                 stroke-width="1.5"
               ></polygon>
               <text
                 y="-2"
                 text-anchor="middle"
-                fill="var(--encre)"
+                fill="var(--creme)"
                 font-weight="700"
                 font-size="12"
                 data-i18n="svg.schema"
@@ -3906,7 +4003,7 @@
               <text
                 y="14"
                 text-anchor="middle"
-                fill="var(--encre)"
+                fill="var(--creme-2)"
                 font-size="11"
                 font-family="JetBrains Mono,monospace"
               >
@@ -3916,14 +4013,14 @@
             <g transform="translate(330,305)">
               <polygon
                 points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-                fill="var(--gold)"
-                stroke="var(--gold)"
+                fill="var(--green)"
+                stroke="var(--green)"
                 stroke-width="1.5"
               ></polygon>
               <text
                 y="-2"
                 text-anchor="middle"
-                fill="var(--encre)"
+                fill="var(--creme)"
                 font-weight="700"
                 font-size="12"
                 data-i18n="svg.mockups"
@@ -3933,7 +4030,7 @@
               <text
                 y="14"
                 text-anchor="middle"
-                fill="var(--encre)"
+                fill="var(--creme-2)"
                 font-size="11"
                 font-family="JetBrains Mono,monospace"
               >
@@ -3943,8 +4040,8 @@
             <g transform="translate(450,90)">
               <polygon
                 points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-                fill="#4a3a12"
-                stroke="var(--gold)"
+                fill="var(--encre)"
+                stroke="var(--blue)"
                 stroke-width="1.5"
                 class="anim-cell"
               ></polygon>
@@ -3976,8 +4073,8 @@
             <g transform="translate(450,215)">
               <polygon
                 points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-                fill="#4a3a12"
-                stroke="var(--gold)"
+                fill="var(--encre)"
+                stroke="var(--blue)"
                 stroke-width="1.5"
                 class="anim-cell d2"
               ></polygon>
@@ -4029,7 +4126,7 @@
             <g transform="translate(570,155)">
               <polygon
                 points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-                fill="#33290f"
+                fill="var(--encre)"
                 stroke="var(--orange)"
                 stroke-width="1.5"
               ></polygon>
@@ -4151,17 +4248,17 @@
              qu'elles légendent oblige à faire la traduction soi-même. -->
           <div class="swarm-legende">
             <span class="leg">
-              <i style="background: var(--gold); border-color: var(--gold-2)"></i>
+              <i style="background: var(--green); border-color: var(--green)"></i>
               <code>done</code>
               <span data-i18n="leg.done">une ouvrière l’a finie</span>
             </span>
             <span class="leg">
-              <i style="background: #4a3a12; border-color: var(--gold)"></i>
+              <i style="background: var(--encre); border-color: var(--blue)"></i>
               <code>running</code>
               <span data-i18n="leg.running">une IA travaille dessus</span>
             </span>
             <span class="leg">
-              <i style="background: #33290f; border-color: var(--orange)"></i>
+              <i style="background: var(--encre); border-color: var(--orange)"></i>
               <code>assigned</code>
               <span data-i18n="leg.assigned">confiée, pas encore commencée</span>
             </span>
@@ -4190,20 +4287,6 @@
         Vingt-trois fonctions, rangées en quatre familles. Lisez les quatre promesses ; dépliez
         celle qui vous concerne.
       </p>
-      <figure class="product-stage">
-        <img
-          src="images/dashboard-ruche.png"
-          alt="Le tableau de bord Hive, vue Ruche"
-          data-i18n-attr="alt:product.alt"
-          width="1024"
-          height="640"
-          loading="lazy"
-        />
-        <figcaption data-i18n="product.caption">
-          La ruche entière sur un écran : état des nœuds, travail en cours, débit et journal en
-          direct.
-        </figcaption>
-      </figure>
       <div class="familles">
         <details class="famille">
           <summary>
@@ -4515,12 +4598,16 @@
           >Les clés API ne quittent jamais la machine du membre</span
         >
       </div>
-      <h3 class="rc-sous" data-i18n="feat.ecran">L'écran de pilotage</h3>
-      <p class="apercu-legende" data-i18n="ap.legende">
+      <!-- Le tableau interactif reste dans le DOM pour sa garde fonctionnelle, mais
+           quitte la narration visible : Swarm View est désormais l'unique moment
+           produit. Une capture et une seconde maquette racontaient deux fois la
+           même chose, au détriment du rythme. -->
+      <h3 class="rc-sous" data-i18n="feat.ecran" hidden>L'écran de pilotage</h3>
+      <p class="apercu-legende" hidden data-i18n="ap.legende">
         Les cinq écrans qu'on ouvre le plus, tels qu'ils se présentent. Les chiffres sont un exemple
         : ce sont vos ouvrières qui les remplissent.
       </p>
-      <div class="cadre">
+      <div class="cadre" hidden>
         <div class="cadre-barre" aria-hidden="true"><i></i><i></i><i></i></div>
         <div class="apercu">
           <div class="apercu-onglets" role="tablist" aria-label="Écrans du tableau de bord">
@@ -5155,7 +5242,7 @@
           'badge.views': '13 product views',
           'badge.state': 'Persistent state',
           'hero.h1':
-            'Put several AIs to work on your project, <span class="grad">at the same time.</span>',
+            'Put several AIs to work on your project, <span class="grad">at the same time.<i class="honey-trace" aria-hidden="true"></i></span>',
           'hero.sub':
             'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result <strong>to approve</strong>.',
           'hero.sub2':
@@ -5203,9 +5290,6 @@
           'feat.ecran': 'The control screen',
           'feat.lede':
             'Twenty-three features, sorted into four families. Read the four promises; unfold the one that concerns you.',
-          'product.alt': 'The Hive dashboard, Hive view',
-          'product.caption':
-            'The whole hive on one screen: node health, work in progress, throughput and the live log.',
           'fam.rep.l':
             'Queen Bee · Sting Detector · Drone Wars · Pheromones · Thermoregulation · Agent-agnostic',
           'fam.main.l':
@@ -5518,12 +5602,12 @@
 
         /* ── Journal vivant ── */
         var JFR = [
-          { i: '', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: 'var(--orange)' },
-          { i: '⚙️', t: 'ruche-alpha butine « Auth JWT » (claude-code)', c: 'var(--orange)' },
+          { i: '', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: 'var(--green)' },
+          { i: '⚙️', t: 'ruche-alpha butine « Auth JWT » (claude-code)', c: 'var(--blue)' },
           {
             i: '↻',
             t: '« API de facturation » : échec, nouvelle tentative 2/3',
-            c: 'var(--gold-2)',
+            c: 'var(--red)',
           },
           {
             i: '⚔',
@@ -5548,9 +5632,9 @@
           { i: '💓', t: 'Pouls : 14 tâches/h · p95 3,2 s · 96 % de succès', c: 'var(--green)' },
         ];
         var JEN = [
-          { i: '', t: 'Task "DB schema" done — nectar +12', c: 'var(--orange)' },
-          { i: '⚙️', t: 'ruche-alpha foraging "JWT auth" (claude-code)', c: 'var(--orange)' },
-          { i: '↻', t: '"Billing API": failed, retry 2/3', c: 'var(--gold-2)' },
+          { i: '', t: 'Task "DB schema" done — nectar +12', c: 'var(--green)' },
+          { i: '⚙️', t: 'ruche-alpha foraging "JWT auth" (claude-code)', c: 'var(--blue)' },
+          { i: '↻', t: '"Billing API": failed, retry 2/3', c: 'var(--red)' },
           { i: '⚔', t: 'Drone race started on 2 nodes — first success wins', c: 'var(--blue)' },
           {
             i: '🛡️',

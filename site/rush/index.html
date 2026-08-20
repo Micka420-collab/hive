@@ -8,7 +8,7 @@
       name="description"
       content="Un Rush, c’est un plafond d’heures-ouvrières payé d’avance, exécuté sur des nœuds hébergés, sur l’objectif que vous fixez. Devis fondé sur l’historique, plafond appliqué par le code, merge toujours humain."
     />
-    <meta name="theme-color" content="#f7f3e9" />
+    <meta name="theme-color" content="#f6f4ee" />
     <link rel="canonical" href="https://micka420-collab.github.io/hive/rush/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Rush — acheter du temps d’essaim | Hive" />
@@ -107,27 +107,25 @@
           U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
 
-      /* Thème CLAIR, repris à l'identique de `site/index.html` : une page de
-         vente qui ne partage pas la palette de la vitrine annonce à celui qui
-         clique qu'il a changé de site. Les noms de jetons ne bougent pas, les
-         valeurs seules portent le changement. */
+      /* Les noms historiques restent ; les valeurs suivent les mêmes rôles que
+         la vitrine : une page, un panneau, un filet, deux encres et un miel. */
       :root {
-        --bg: #f7f3e9;
-        --panel: #fffdf8;
-        --panel-2: #f2eada;
-        --chip: #efe7d7;
-        --border: #e3d8c2;
-        --border-2: #e0d2b6;
-        --text: #1b1712;
-        --encre: #1b1712;
-        --muted: #5a5348;
-        --dim: #5a5348;
+        --bg: #f6f4ee;
+        --panel: #fffefb;
+        --panel-2: var(--bg);
+        --chip: var(--panel);
+        --border: #d9d6cd;
+        --border-2: var(--border);
+        --text: #171611;
+        --encre: var(--text);
+        --muted: #5f5d55;
+        --dim: var(--muted);
         --gold: #f6c445;
-        --gold-2: #e08a14;
-        --orange: #a85e06;
-        --green: #235e52;
-        --blue: #4a4238;
-        --red: #be3a22;
+        --gold-2: #874900;
+        --orange: var(--gold-2);
+        --green: #1f6a55;
+        --blue: #1f6282;
+        --red: #ad382b;
         --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
         --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
         --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
@@ -266,8 +264,8 @@
         color: var(--text);
       }
       .lang-toggle button[aria-pressed='true'] {
-        background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: var(--encre);
+        background: var(--encre);
+        color: var(--panel);
         cursor: default;
       }
 
@@ -278,13 +276,20 @@
         border-radius: 9px;
         font-weight: 700;
         font-size: 15px;
+        transition:
+          transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+          background-color 0.28s ease,
+          border-color 0.28s ease,
+          box-shadow 0.28s ease;
       }
       .btn.primary {
-        background: linear-gradient(90deg, var(--orange), var(--gold));
+        background: var(--gold);
         color: var(--encre);
       }
       .btn.primary:hover {
-        filter: brightness(1.12);
+        transform: translateY(-1px);
+        background: color-mix(in srgb, var(--gold) 86%, var(--panel));
+        box-shadow: 0 10px 24px -16px rgba(135, 73, 0, 0.65);
         color: var(--encre);
       }
       .btn.ghost {
@@ -300,14 +305,14 @@
         display: inline-block;
         padding: 7px 16px;
         border-radius: 7px;
-        background: linear-gradient(90deg, var(--orange), var(--gold));
-        color: var(--encre);
+        background: var(--encre);
+        color: var(--panel);
         font-weight: 700;
         font-size: 14px;
         white-space: nowrap;
       }
       .btn-gold:hover {
-        filter: brightness(1.12);
+        background: var(--gold);
         color: var(--encre);
       }
 
@@ -322,7 +327,7 @@
         font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 0.12em;
-        color: var(--orange);
+        color: var(--text);
         font-weight: 700;
       }
       .headline {
@@ -345,7 +350,7 @@
         padding: 11px 28px;
         text-align: center;
         font-size: 14px;
-        color: #6b2f1c;
+        color: var(--text);
       }
       .avis strong {
         color: var(--red);
@@ -365,10 +370,83 @@
         max-width: 780px;
       }
       .hero h1 .accent {
-        background: linear-gradient(90deg, var(--gold), var(--orange));
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
+        position: relative;
+        isolation: isolate;
+        display: inline-block;
+        width: fit-content;
+        max-width: 100%;
+        color: var(--text);
+      }
+      .hero h1 .accent::before {
+        content: '';
+        position: absolute;
+        z-index: -1;
+        right: 0;
+        bottom: 0.015em;
+        left: 0;
+        height: clamp(5px, 0.105em, 9px);
+        border-radius: 999px;
+        background:
+          linear-gradient(
+              108deg,
+              transparent 0 42%,
+              rgba(255, 255, 255, 0.68) 48%,
+              transparent 55% 100%
+            ) -140%
+            0 / 240% 100% no-repeat,
+          linear-gradient(
+            90deg,
+            var(--gold-2) 0%,
+            var(--gold) 7%,
+            var(--gold) 93%,
+            var(--gold-2) 100%
+          );
+        box-shadow:
+          inset 0 1px rgba(255, 255, 255, 0.62),
+          inset 0 -1px rgba(135, 73, 0, 0.28),
+          0 2px 5px rgba(135, 73, 0, 0.12);
+        animation: honey-sheen 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      .hero h1 .accent::after {
+        content: '';
+        position: absolute;
+        right: 0.035em;
+        bottom: -0.075em;
+        width: 0.105em;
+        height: 0.14em;
+        border-radius: 48% 52% 58% 42%;
+        background: var(--gold-2);
+        box-shadow: inset 1px 1px rgba(255, 255, 255, 0.46);
+        transform: rotate(38deg) scaleY(0.68);
+        transform-origin: 50% 0;
+        opacity: 0.36;
+        animation: honey-drop 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      @keyframes honey-sheen {
+        0%,
+        68% {
+          background-position:
+            -140% 0,
+            0 0;
+        }
+        86%,
+        100% {
+          background-position:
+            220% 0,
+            0 0;
+        }
+      }
+      @keyframes honey-drop {
+        0%,
+        64%,
+        100% {
+          opacity: 0.3;
+          transform: rotate(38deg) scaleY(0.68);
+        }
+        82% {
+          opacity: 0.78;
+          transform: rotate(38deg) scaleY(1);
+        }
       }
       .hero .sub {
         font-size: 18px;
@@ -460,7 +538,7 @@
       }
       .offre.phare {
         border-color: var(--gold);
-        box-shadow: 0 0 0 1px rgba(224, 138, 20, 0.35);
+        box-shadow: none;
       }
       .offre .etiq {
         font-size: 11.5px;
@@ -468,14 +546,14 @@
         letter-spacing: 0.1em;
         font-weight: 700;
         color: var(--encre);
-        background: linear-gradient(90deg, var(--orange), var(--gold));
+        background: var(--gold);
         border-radius: 5px;
         padding: 2px 8px;
         align-self: flex-start;
         margin-bottom: 12px;
       }
       .offre.libre .etiq {
-        background: var(--green);
+        background: var(--gold);
       }
       .offre h3 {
         margin: 0 0 4px;
@@ -490,7 +568,7 @@
       .offre .montant {
         font-size: 34px;
         font-weight: 700;
-        color: var(--gold-2);
+        color: var(--text);
         line-height: 1;
       }
       .offre .montant .par {
@@ -530,6 +608,14 @@
       .offre .btn {
         text-align: center;
         width: 100%;
+        border-color: var(--encre);
+        background: var(--encre);
+        color: var(--panel);
+      }
+      .offre .btn:hover {
+        border-color: var(--gold);
+        background: var(--gold);
+        color: var(--encre);
       }
 
       /* ── Note sous la grille ── */
@@ -805,10 +891,6 @@
         line-height: 0.98;
         letter-spacing: -0.055em;
       }
-      .hero h1 .accent {
-        color: var(--orange);
-        background: none;
-      }
       .section {
         padding-top: clamp(78px, 10vw, 124px);
       }
@@ -820,9 +902,9 @@
         border-radius: 9px;
       }
       .offre.phare {
-        background: var(--encre);
-        color: var(--panel);
-        transform: translateY(-10px);
+        background: var(--panel);
+        color: var(--text);
+        transform: none;
       }
       .offre,
       .def-c,
@@ -841,7 +923,7 @@
       }
       .offre.phare .tag,
       .offre.phare ul {
-        color: #b5a991;
+        color: var(--muted);
       }
       .final {
         border-radius: 10px;
@@ -849,14 +931,14 @@
         color: var(--panel);
       }
       .final p {
-        color: #b5a991;
+        color: color-mix(in srgb, var(--panel) 78%, var(--encre));
       }
       footer {
         background: var(--encre);
         color: var(--panel);
       }
       footer .made {
-        color: #b5a991;
+        color: color-mix(in srgb, var(--panel) 78%, var(--encre));
       }
       .menu-toggle {
         display: none;
@@ -954,6 +1036,10 @@
         .hero h1 {
           font-size: clamp(42px, 13vw, 60px);
         }
+        .hero h1 .accent::before {
+          bottom: 0.025em;
+          height: clamp(4px, 0.09em, 6px);
+        }
         .hero-actions {
           flex-direction: column;
         }
@@ -994,6 +1080,12 @@
           transition-duration: 0.01ms !important;
           animation-duration: 0.01ms !important;
           animation-iteration-count: 1 !important;
+        }
+        .hero h1 .accent::before {
+          animation: none !important;
+        }
+        .hero h1 .accent::after {
+          display: none;
         }
       }
     </style>

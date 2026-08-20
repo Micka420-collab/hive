@@ -33,43 +33,34 @@
 }
 
 /* ─── LES JETONS ─────────────────────────────────────────────────────────────
-   Cire et papier, pas un vide noir. Les NOMS restent — `--bg`, `--panel`,
-   `--honey`, `--miel`… — parce que des centaines d'emplois les désignent.
-   L'identité tient en trois gestes : le miel comme UNIQUE accent, l'hexagone
-   comme marque, l'encre comme contrepoint (barre, pas page entière).
-
-   Craft (Apple / Linear / Vercel), pas leurs palettes : rythme de padding,
-   filets fins, rayon 8 px, peu d'ombre, aucun dégradé de carnaval. Le miel
-   vif (`--miel`) REMPLIT — jauges, alvéole active, bouton primaire. Il ne
-   porte JAMAIS le texte. Les bruns `--honey` / `--gold` / `--amber` restent
-   ≥ 4,5:1 sur la crème. */
+   Les noms historiques restent, les valeurs obéissent à des rôles stricts :
+   une page, un panneau, un filet ; deux encres ; un miel de remplissage et
+   son homologue sombre pour les liens. Les états ont chacun une seule teinte. */
 :root {
-  --bg: #f7f3e9;
-  --bg-2: #f4eee0;
-  --panel: #fffdf8;
-  --panel-2: #f7f3e9;
-  --panel-3: #f1e9d8;
-  --border: #e3d8c2;
-  --border-2: #e0d2b6;
-  --text: #1b1712;
-  --muted: #5a5348;
-  --faint: #6b6152; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
-  --honey: #9d5605;
-  --amber: #96570c;
-  --orange: #9a5a09;
-  --gold: #8a4f05;
-  --red: #a8402a;
-  --green: #235e52;
-  --blue: #1d5b7d;
-  /* L'encre : chrome de la barre, pas un thème « Grok void ». La page reste
-     papier de cire. */
-  --encre: #1b1712;
-  --encre-2: #241f18;
-  --sur-encre: #a2957d; /* 6:1 sur l'encre — libellés inactifs de la barre */
-  --sur-encre-fort: #fffdf8;
-  /* Le miel vif : REMPLISSAGE uniquement. Du texte posé dessus = encre. */
+  --bg: #f6f4ee;
+  --bg-2: var(--bg);
+  --panel: #fffefb;
+  --panel-2: var(--panel);
+  --panel-3: var(--panel);
+  --border: #d9d6cd;
+  --border-2: var(--border);
+  --text: #171611;
+  --muted: #5f5d55;
+  --faint: var(--muted);
+  --honey: #874900;
+  --amber: var(--honey);
+  --orange: var(--honey);
+  --gold: var(--honey);
+  --red: #ad382b;
+  --green: #1f6a55;
+  --blue: #1f6282;
+  --encre: var(--text);
+  --encre-2: var(--encre);
+  --sur-encre: #d8d6cf;
+  --sur-encre-fort: var(--panel);
+  /* Le miel vif remplit ; tout texte posé dessus reste encre. */
   --miel: #f6c445;
-  --miel-2: #e08a14;
+  --miel-2: var(--miel);
   --thermo-froide: var(--blue);
   --thermo-normale: var(--green);
   --thermo-chaude: var(--orange);
@@ -613,10 +604,10 @@ h3 {
 }
 
 .jrow.done .jtext {
-  color: var(--honey);
+  color: var(--green);
 }
 .jrow.run .jtext {
-  color: var(--orange);
+  color: var(--blue);
 }
 .jrow.warn .jtext {
   color: var(--gold);
@@ -650,23 +641,23 @@ h3 {
 }
 
 .badge.ready {
-  color: var(--gold);
-  border-color: var(--gold);
+  color: var(--blue);
+  border-color: var(--blue);
 }
 .badge.assigned {
   color: var(--amber);
   border-color: var(--amber);
 }
 .badge.running {
-  color: var(--encre);
-  background: var(--miel-2);
-  border-color: var(--miel-2);
+  color: var(--panel);
+  background: var(--blue);
+  border-color: var(--blue);
   animation: pulse 1.3s ease-in-out infinite;
 }
 .badge.done {
-  color: var(--encre);
-  background: var(--miel);
-  border-color: var(--miel-2);
+  color: var(--panel);
+  background: var(--green);
+  border-color: var(--green);
 }
 .badge.failed {
   color: var(--red);
@@ -1079,7 +1070,7 @@ h3 {
 
 /* ─── Panneaux Palier 2 : Hive Mind & Conflits ─────────────────────────── */
 .panel-error {
-  color: var(--red, #a8402a);
+  color: var(--red);
   font-size: 12px;
   margin: 4px 0;
 }
@@ -1214,7 +1205,7 @@ h3 {
 }
 .invite-os-btn {
   padding: 4px 12px;
-  border: 1px solid var(--bordure, #3a352c);
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
   color: inherit;
@@ -1225,8 +1216,8 @@ h3 {
 }
 .invite-os-btn.actif {
   opacity: 1;
-  border-color: var(--ambre, #e0a43c);
-  color: var(--ambre, #e0a43c);
+  border-color: var(--honey);
+  color: var(--honey);
 }
 
 .invite-cmd {
@@ -1357,14 +1348,16 @@ h3 {
 }
 
 .link {
-  stroke: var(--border-2);
+  stroke: var(--muted);
   stroke-width: 1.5;
+  opacity: 0.55;
 }
 
 .link.running {
-  stroke: var(--orange);
+  stroke: var(--blue);
   stroke-width: 2;
   stroke-dasharray: 6 6;
+  opacity: 0.9;
   animation: dash 0.8s linear infinite;
 }
 
@@ -1384,23 +1377,23 @@ h3 {
 }
 
 .cell.ready polygon {
-  stroke: var(--gold);
+  stroke: var(--blue);
 }
 .cell.assigned polygon {
-  fill: #f1e4c6;
-  stroke: var(--amber);
+  fill: color-mix(in srgb, var(--miel) 22%, var(--panel));
+  stroke: var(--honey);
 }
 .cell.running polygon {
-  fill: #e7d3a8;
-  stroke: var(--orange);
+  fill: color-mix(in srgb, var(--blue) 14%, var(--panel));
+  stroke: var(--blue);
   animation: cellpulse 1.2s ease-in-out infinite;
 }
 .cell.done polygon {
-  fill: var(--miel);
-  stroke: var(--miel-2);
+  fill: var(--green);
+  stroke: var(--green);
 }
 .cell.failed polygon {
-  fill: #f3d9d2;
+  fill: color-mix(in srgb, var(--red) 12%, var(--panel));
   stroke: var(--red);
 }
 
@@ -1426,7 +1419,7 @@ h3 {
 
 .cell.done .cell-label,
 .cell.done .cell-status {
-  fill: var(--encre);
+  fill: var(--sur-encre-fort);
 }
 
 .node .node-hex {
@@ -1788,7 +1781,7 @@ h3 {
   width: 10px;
   height: 12px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: #6e6350;
+  background: var(--sur-encre);
   transition: background 0.2s;
 }
 
@@ -1848,7 +1841,7 @@ h3 {
    parle qu'en pixels ne dit rien à qui écoute la page. */
 .mc-nav-badge--critique {
   /* Plein + halo : la seule des trois à porter un contour lumineux. */
-  background: var(--rouge, #e5573f);
+  background: var(--red);
   color: #fff;
   box-shadow: 0 0 0 2px rgba(229, 87, 63, 0.35);
 }
@@ -2016,17 +2009,17 @@ button.mc-cell:focus-visible {
 }
 
 .mc-cell.assigned {
-  background: var(--blue);
-  opacity: 0.65;
+  background: var(--honey);
+  opacity: 0.8;
 }
 
 .mc-cell.running {
-  background: var(--miel-2);
+  background: var(--blue);
   animation: mc-throb 1.4s ease-in-out infinite;
 }
 
 .mc-cell.done {
-  background: var(--miel);
+  background: var(--green);
 }
 
 .mc-cell.failed {
@@ -2048,7 +2041,7 @@ button.mc-cell:focus-visible {
 }
 
 .mc-cell.rejected {
-  box-shadow: inset 0 0 0 20px rgba(168, 64, 42, 0.32);
+  box-shadow: inset 0 0 0 20px color-mix(in srgb, var(--red) 32%, transparent);
 }
 
 @keyframes mc-throb {
@@ -2199,7 +2192,7 @@ button.mc-cell:focus-visible {
   width: 198px;
   gap: 18px;
   padding: 16px 10px 12px;
-  background: #17130f;
+  background: var(--encre);
   border-right: 1px solid rgba(255, 253, 248, 0.12);
 }
 
@@ -2246,7 +2239,7 @@ button.mc-cell:focus-visible {
 .mc-nav-cell::before {
   width: 17px;
   height: 19px;
-  border: 1px solid #786e5d;
+  border: 1px solid var(--sur-encre);
   background: transparent;
   transition:
     border-color 0.18s,
@@ -2260,7 +2253,7 @@ button.mc-cell:focus-visible {
   left: 16px;
   width: 5px;
   height: 5px;
-  border: 1px solid #a2957d;
+  border: 1px solid var(--sur-encre);
   transform: rotate(45deg);
   transition:
     border-color 0.18s,

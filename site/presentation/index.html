@@ -298,6 +298,16 @@
         width: 24px;
         height: 27px;
         background: linear-gradient(150deg, var(--gold), var(--gold-2));
+        background-size: 100% 180%;
+        animation: nectar-fill 7.4s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+      }
+      @keyframes nectar-fill {
+        from {
+          background-position: 50% 0;
+        }
+        to {
+          background-position: 50% 100%;
+        }
       }
       .entete .nom {
         font-family: var(--titre);
@@ -316,14 +326,75 @@
         margin-top: 26px;
         font-size: 38px;
       }
-      /* Le miel du titre. Sur un titre qui se coupe, un fond doit se recopier
-         sur CHAQUE fragment de ligne — sans quoi il relie les deux lignes par
-         un filet vertical. C'est la même leçon que sur la vitrine. */
       .miel {
+        position: relative;
+        isolation: isolate;
+        display: inline-block;
+        max-width: 100%;
         font-style: normal;
-        background: linear-gradient(180deg, transparent 62%, var(--gold) 62%);
-        -webkit-box-decoration-break: clone;
-        box-decoration-break: clone;
+      }
+      .miel::before {
+        content: '';
+        position: absolute;
+        z-index: -1;
+        right: 0;
+        bottom: 0.02em;
+        left: 0;
+        height: clamp(4px, 0.1em, 7px);
+        border-radius: 999px;
+        background:
+          linear-gradient(
+              108deg,
+              transparent 0 42%,
+              rgba(255, 255, 255, 0.68) 48%,
+              transparent 55% 100%
+            ) -140%
+            0 / 240% 100% no-repeat,
+          linear-gradient(90deg, var(--gold-2), var(--gold) 8% 92%, var(--gold-2));
+        box-shadow:
+          inset 0 1px rgba(255, 255, 255, 0.62),
+          inset 0 -1px rgba(135, 73, 0, 0.24);
+        animation: miel-reflet 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      .miel::after {
+        content: '';
+        position: absolute;
+        right: 0.03em;
+        bottom: -0.07em;
+        width: 0.1em;
+        height: 0.135em;
+        border-radius: 48% 52% 58% 42%;
+        background: var(--gold-2);
+        transform: rotate(38deg) scaleY(0.68);
+        transform-origin: 50% 0;
+        opacity: 0.34;
+        animation: miel-goutte 8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      @keyframes miel-reflet {
+        0%,
+        68% {
+          background-position:
+            -140% 0,
+            0 0;
+        }
+        86%,
+        100% {
+          background-position:
+            220% 0,
+            0 0;
+        }
+      }
+      @keyframes miel-goutte {
+        0%,
+        64%,
+        100% {
+          opacity: 0.28;
+          transform: rotate(38deg) scaleY(0.68);
+        }
+        82% {
+          opacity: 0.74;
+          transform: rotate(38deg) scaleY(1);
+        }
       }
       .chapo {
         margin-top: 14px;
@@ -652,6 +723,16 @@
         }
       }
 
+      @media (prefers-reduced-motion: reduce) {
+        .miel::before,
+        .entete .hex {
+          animation: none !important;
+        }
+        .miel::after {
+          display: none;
+        }
+      }
+
       @media print {
         body {
           background: var(--papier);
@@ -661,6 +742,12 @@
           margin: 0;
           padding: 0;
           box-shadow: none;
+        }
+        .miel::before {
+          animation: none;
+        }
+        .miel::after {
+          display: none;
         }
         .barre {
           display: none;
