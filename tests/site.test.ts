@@ -653,14 +653,13 @@ describe('site vitrine — section communauté', () => {
     expect(vitrine).toMatch(/<section id="communaute"/);
   });
 
-  it('le bloc Hive Cloud dit clairement qu’il n’existe pas encore', () => {
-    // Annoncer une offre payante sur une page publique sans dire qu'elle n'est
-    // pas disponible, c'est promettre. On ne promet pas.
+  it('le bloc Hive Cloud dit clairement que CE dépôt n’encaisse rien', () => {
+    // Annoncer une offre payante sur une page publique sans dire qui encaisse,
+    // c'est promettre. On ne promet pas à la place de l'opérateur.
     const bloc = vitrine.match(/<div class="cloud">[\s\S]*?<\/div>\s*<\/section>/)?.[0] ?? '';
     expect(bloc, 'bloc cloud introuvable').not.toBe('');
     expect(bloc).toMatch(/cloud-honest/);
-    expect(bloc).toMatch(/n’existe pas encore|n'existe pas encore/);
-    // …et il mène à la page qui détaille l'offre.
+    expect(bloc).toMatch(/ne prélève aucun paiement|n'encaisse|collects no payment/i);
     expect(bloc, 'le bloc cloud ne renvoie pas vers /rush/').toMatch(/href="rush\/"/);
   });
 });
