@@ -567,8 +567,9 @@ export function App() {
             <div>
               <h1>{lang === 'fr' ? current.label : current.labelEn}</h1>
               <span className="brand-sub">
-                {snapshot.projects.length} {t('projet(s)', 'project(s)')} · {snapshot.nodes.length}{' '}
-                {t('nœud(s)', 'node(s)')}
+                {snapshot.projects.length === 0
+                  ? t('Prête — un projet, ce nœud', 'Ready — one project, this node')
+                  : `${snapshot.projects.length} ${t('projet(s)', 'project(s)')} · ${snapshot.nodes.length} ${t('nœud(s)', 'node(s)')}`}
               </span>
             </div>
           </div>
