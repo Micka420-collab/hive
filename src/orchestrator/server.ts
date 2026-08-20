@@ -6403,18 +6403,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         sauvegardeId: s.id,
         kind: s.kind,
       });
-      return reply
-        .code(201)
-        .send({
-          sauvegarde: {
-            id: s.id,
-            projectId: s.projectId,
-            label: s.label,
-            kind: s.kind,
-            taille: s.patch.length,
-            createdAt: s.createdAt,
-          },
-        });
+      return reply.code(201).send({
+        sauvegarde: {
+          id: s.id,
+          projectId: s.projectId,
+          label: s.label,
+          kind: s.kind,
+          taille: s.patch.length,
+          createdAt: s.createdAt,
+        },
+      });
     },
   );
 
