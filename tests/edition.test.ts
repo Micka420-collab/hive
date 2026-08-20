@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createServer } from '../src/orchestrator/server.js';
 import { EDITION_PAR_DEFAUT, editionDepuisEnv, secretWebhookExige } from '../src/shared/edition.js';
 
 describe('édition Community / Cloud', () => {
@@ -13,5 +14,26 @@ describe('édition Community / Cloud', () => {
     expect(secretWebhookExige('cloud', false)).toBe(true);
     expect(secretWebhookExige('cloud', true)).toBe(false);
     expect(secretWebhookExige('community', false)).toBe(false);
+  });
+
+  it('une Queen cloud SANS secret refuse de démarrer', async () => {
+    const avant = process.env.HIVE_WEBHOOK_SECRET;
+    delete process.env.HIVE_WEBHOOK_SECRET;
+    try {
+      await expect(
+        createServer({
+          port: 0,
+          host: '127.0.0.1',
+          token: 'jeton-cloud-assez-long-xx',
+          corsOrigins: ['http://localhost:5173'],
+          dbPath: ':memory:',
+          simulation: false,
+          edition: 'cloud',
+        }),
+      ).rejects.toThrow(/HIVE_WEBHOOK_SECRET/);
+    } finally {
+      if (avant === undefined) delete process.env.HIVE_WEBHOOK_SECRET;
+      else process.env.HIVE_WEBHOOK_SECRET = avant;
+    }
   });
 });
