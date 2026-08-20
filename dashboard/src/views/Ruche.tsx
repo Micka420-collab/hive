@@ -175,7 +175,7 @@ export default function Ruche({
                       </li>
                     ))}
                   {total > 0 && done === total && (
-                    <li className="empty">🍯 {t('Tout est butiné !', 'Everything is foraged!')}</li>
+                    <li className="empty">{t('Tout est butiné.', 'Everything is foraged.')}</li>
                   )}
                   {total === 0 && (
                     <li className="empty">
