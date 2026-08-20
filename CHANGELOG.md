@@ -16,7 +16,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   flouté, entrée de vue animée (respecte `prefers-reduced-motion`). Ruche vide :
   **une seule composition** centrée (plus de KPI / essaim / file à zéro autour
   du départ). **« Inviter un ami »** repasse en secondaire : le miel plein
-  reste pour démarrer un projet.
+  reste pour démarrer un projet. Titres et états vides (Partage, Miellerie, Santé calme, compte) portent l’hex plutôt que l’emoji.
 
 ### Fixed
 
