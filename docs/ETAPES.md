@@ -11765,3 +11765,11 @@ Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
 | AbortSignal : démontage / Effacer coupe le SSE sans erreur | `Reine.tsx`              |
 | Banc Effacer → `signal.aborted`                            | `reine-conversation`     |
 | Badges / tableau A → **4454**                              | README, site, DEFINITION |
+
+### 20. Suite du 21 août (nuit) — CLI ask SIGINT
+
+| fait                                 | où           |
+| ------------------------------------ | ------------ |
+| Ctrl+C → AbortSignal sur `hive ask`  | `src/cli.ts` |
+| Garde source SIGINT / `(interrompu)` | `ask-cli`    |
+| Badges / tableau A → **4455**        | DEFINITION   |

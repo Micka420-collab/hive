@@ -18,7 +18,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,22 @@ import type { HiveServer } from '../src/orchestrator/server.js';
 
 const TOKEN = 'jeton-ask-suffisamment-long-ici';
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
+
+describe('la commande `hive ask` — source', () => {
+  it('cmdAsk branche SIGINT → AbortController (miroir Reine UI)', () => {
+    // Sans exécuter un Ctrl+C réel : la garde refuse de retirer le filet
+    // que la vue Reine a déjà (Effacer / démontage).
+    const src = readFileSync(path.join(RACINE, 'src/cli.ts'), 'utf8');
+    const bloc = src.slice(
+      src.indexOf('async function cmdAsk'),
+      src.indexOf('async function cmdRace'),
+    );
+    expect(bloc).toContain('AbortController');
+    expect(bloc).toContain('SIGINT');
+    expect(bloc).toContain('(interrompu)');
+    expect(bloc).toContain('signal: ac.signal');
+  });
+});
 
 describe('la commande `hive ask`', () => {
   let server: HiveServer;
