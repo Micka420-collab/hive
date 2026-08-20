@@ -394,6 +394,29 @@ done
 
 banniere
 
+# ─── Empreinte (ADR 0002) ────────────────────────────────────────────────────
+# Confiance = SHA-256 du script, pas l'URL. Via `curl | sh`, `$0` n'est pas un
+# fichier : on le dit, et on pointe le chemin « télécharger → hasher → lire ».
+annoncer_empreinte() {
+  case "$0" in
+    */install.sh | install.sh | ./install.sh)
+      if command -v sha256sum >/dev/null 2>&1; then
+        dire "Empreinte SHA-256 : $(sha256sum "$0" | awk '{ print $1 }')"
+      elif command -v shasum >/dev/null 2>&1; then
+        dire "Empreinte SHA-256 : $(shasum -a 256 "$0" | awk '{ print $1 }')"
+      else
+        discret "sha256sum/shasum introuvable — vérifiez l'empreinte après téléchargement."
+      fi
+      ;;
+    *)
+      discret "Tuyau curl|sh : pas d'empreinte locale. Téléchargez install.sh, puis :"
+      discret "  sha256sum install.sh && less install.sh && sh install.sh"
+      ;;
+  esac
+  dire ''
+}
+annoncer_empreinte
+
 # ─── 1. Les prérequis, et la commande exacte s'ils manquent ─────────────────
 
 etape "Vérification des prérequis"

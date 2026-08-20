@@ -368,6 +368,16 @@ function Banniere {
 
 Banniere
 
+# Empreinte (ADR 0002) : confiance = SHA-256 du fichier, pas l'URL.
+$scriptPath = $MyInvocation.MyCommand.Path
+if ($scriptPath -and (Test-Path -LiteralPath $scriptPath)) {
+  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $scriptPath).Hash.ToLowerInvariant()
+  Dire "Empreinte SHA-256 : $hash"
+} else {
+  Dire 'Empreinte indisponible (script non lancé comme fichier). Téléchargez install.ps1 puis Get-FileHash.'
+}
+Dire ''
+
 # ─── 1. Les prérequis, et la commande exacte s'ils manquent ─────────────────
 
 Etape 'Vérification des prérequis'

@@ -20,6 +20,8 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'install.sh'
+      - 'install.ps1'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -104,6 +106,14 @@ jobs:
 
       - name: Configurer Pages
         uses: actions/configure-pages@v5
+
+      # ADR 0002 : les one-liners Pages servent les MÊMES scripts que la racine.
+      # Copier à l'empaquetage évite deux copies qui dérivent (leçon § 9 ter).
+      - name: Publier les installeurs sur la vitrine
+        run: |
+          cp install.sh install.ps1 site/
+          ls -la site/install.sh site/install.ps1
+          (cd site && sha256sum install.sh install.ps1 | tee install.sha256)
 
       - name: Empaqueter le site
         uses: actions/upload-pages-artifact@v3

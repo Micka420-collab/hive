@@ -13,6 +13,23 @@
 curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
 ```
 
+Variante prudente (empreinte avant d’agir — ADR 0002) : télécharger le script,
+comparer le SHA-256 à celui publié avec la Release / `site/install.sha256` sur
+[Pages](https://micka420-collab.github.io/hive/install.sha256), le lire, puis
+l’exécuter. `install.sh` affiche aussi son empreinte quand il tourne comme
+fichier.
+
+```sh
+curl -fsSLO https://micka420-collab.github.io/hive/install.sh
+sha256sum install.sh
+less install.sh
+sh install.sh
+```
+
+> Les URL `raw.githubusercontent.com/…/main/…` suivent la branche vivante. Les
+> scripts servis par Pages sont les mêmes fichiers, copiés au déploiement
+> (`pages.yml`).
+
 **Windows** (PowerShell)
 
 ```powershell
