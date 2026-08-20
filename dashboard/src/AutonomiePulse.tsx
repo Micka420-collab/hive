@@ -67,8 +67,9 @@ export function AutonomiePulse({
 
   if (projets.length === 0) return null;
 
-  const affiche =
-    lignes ?? projets.slice(0, 4).map((p) => ({ projectId: p.id, nom: p.name, etat: null }));
+  const affiche: Ligne[] =
+    lignes ??
+    projets.slice(0, 4).map((p) => ({ projectId: p.id, nom: p.name, etat: null }) satisfies Ligne);
 
   return (
     <section className="autonomie-pulse" aria-label={t('Autonomie', 'Autonomy')}>
