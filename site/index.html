@@ -29,6 +29,15 @@
     />
     <meta name="twitter:image" content="https://micka420-collab.github.io/hive/og.png" />
     <meta name="theme-color" content="#130f09" />
+    <script>
+      try {
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          document.documentElement.classList.add('js-motion');
+        }
+      } catch (e) {
+        /* pas de mouvement : la page reste lisible */
+      }
+    </script>
     <link rel="icon" href="marque.svg" type="image/svg+xml" />
     <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
          va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
@@ -185,8 +194,8 @@
         background: var(--bg);
         color: var(--text);
         font-family: var(--texte);
-        font-size: 16px;
-        line-height: 1.55;
+        font-size: 17px;
+        line-height: 1.6;
         -webkit-font-smoothing: antialiased;
       }
       a {
@@ -244,22 +253,33 @@
         display: flex;
         align-items: center;
         gap: 16px;
-        padding: 14px 28px;
-        background: color-mix(in srgb, var(--bg) 86%, transparent);
-        backdrop-filter: blur(16px);
-        border-bottom: 1px solid transparent;
+        padding: 10px 18px 10px 20px;
+        margin: 12px 16px 0;
+        width: calc(100% - 32px);
+        background: color-mix(in srgb, var(--panel) 82%, transparent);
+        backdrop-filter: blur(22px);
+        border: 1px solid var(--border);
+        border-radius: 18px;
         position: sticky;
-        top: 0;
+        top: 12px;
         z-index: 60;
         flex-wrap: wrap;
+        box-shadow: var(--ombre);
         transition:
-          border-color 0.2s ease,
-          background 0.2s ease;
+          border-color 0.25s ease,
+          background 0.25s ease,
+          padding 0.25s ease,
+          border-radius 0.25s ease;
       }
       header.scrolled {
-        border-bottom-color: var(--border);
-        background: color-mix(in srgb, var(--bg) 72%, transparent);
-        backdrop-filter: blur(22px);
+        border-color: var(--border-2);
+        background: color-mix(in srgb, var(--panel) 92%, transparent);
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      header.scrolled .brand .marque {
+        width: 22px;
+        height: 24px;
       }
       .brand {
         display: flex;
@@ -274,6 +294,9 @@
         display: block;
         flex: none;
         color: var(--encre);
+        transition:
+          width 0.25s ease,
+          height 0.25s ease;
       }
       .brand .marque polygon {
         fill: currentColor;
@@ -314,7 +337,7 @@
       .lang-toggle {
         display: inline-flex;
         border: 1px solid var(--border-2);
-        border-radius: 8px;
+        border-radius: 999px;
         overflow: hidden;
       }
       .lang-toggle button {
@@ -411,10 +434,18 @@
       }
       .btn {
         display: inline-block;
-        padding: 12px 24px;
-        border-radius: 8px;
+        padding: 13px 26px;
+        border-radius: 999px;
         font-weight: 700;
         font-size: 15px;
+        transition:
+          transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+          border-color 0.22s ease,
+          background 0.22s ease,
+          color 0.22s ease;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
       }
       /* ─── SOBRIÉTÉ : DE L'ENCRE, PAS DE L'OR ──────────────────────────
          Trois aplats dorés en dégradé se disputaient l'attention en haut de
@@ -427,8 +458,7 @@
         color: var(--bg);
       }
       .btn.primary:hover {
-        filter: brightness(1.35);
-        color: var(--encre);
+        color: var(--bg);
       }
       .btn.ghost {
         background: var(--panel);
@@ -552,11 +582,15 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
+        transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .edition:hover {
+        transform: translateY(-2px);
       }
       .edition-prix {
         margin: 0;
         font-family: var(--titre);
-        font-size: clamp(36px, 5vw, 44px);
+        font-size: clamp(44px, 6vw, 64px);
         font-weight: 600;
         letter-spacing: -0.04em;
         line-height: 1;
@@ -639,19 +673,52 @@
         border-radius: var(--r);
         font-style: normal;
       }
+      .edition-rush {
+        grid-column: 1 / -1;
+        display: block;
+        padding: 22px 26px;
+        background: var(--encre);
+        color: var(--creme);
+        border-radius: 16px;
+        text-decoration: none;
+        font-family: var(--titre);
+        font-size: clamp(18px, 2.5vw, 24px);
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        line-height: 1.25;
+      }
+      .edition-rush:hover {
+        color: var(--gold);
+      }
 
       /* ── Hero ── */
       .hero {
         position: relative;
         max-width: 1240px;
         margin: 0 auto;
-        padding: clamp(48px, 8vw, 88px) clamp(24px, 4vw, 48px) clamp(56px, 9vw, 110px);
+        padding: clamp(56px, 9vw, 108px) clamp(24px, 4vw, 48px) clamp(40px, 6vw, 72px);
+        min-height: min(88vh, 860px);
         /* ── ALIGNÉ À GAUCHE, ET C'EST UNE DÉCISION ─────────────────────────
            Un hero centré fait « page de projet » ; il oblige l'œil à chercher
            le début de chaque ligne. Le design aligne à gauche et pose le visuel
            à droite : on lit une colonne, on ne balaie pas. */
         text-align: left;
         overflow: hidden;
+      }
+      .hero::before {
+        content: '';
+        position: absolute;
+        right: -12%;
+        top: -22%;
+        width: min(70vw, 640px);
+        height: min(70vw, 640px);
+        background: radial-gradient(
+          circle at 50% 50%,
+          color-mix(in srgb, var(--gold) 26%, transparent),
+          transparent 68%
+        );
+        pointer-events: none;
+        z-index: 0;
       }
       /* ── LES ABEILLES FLOTTANTES ONT ÉTÉ RETIRÉES ──────────────────────────
          Trois emoji 🐝 dérivaient en fond de hero. Sur le miel sombre ils
@@ -667,6 +734,8 @@
          bon ordre de lecture sur téléphone (on lit la promesse, puis on voit
          l'image, jamais l'inverse). */
       .hero-grille {
+        position: relative;
+        z-index: 1;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
         gap: clamp(34px, 5vw, 60px);
@@ -731,6 +800,7 @@
       .chip-os:hover {
         border-color: var(--gold-2);
         color: var(--text);
+        transform: translateY(-1px);
       }
       .chip-os[aria-pressed='true'] {
         background: var(--encre);
@@ -738,7 +808,7 @@
         color: var(--panel);
       }
       .chip-os:active {
-        transform: scale(0.95);
+        transform: translateY(1px);
       }
       /* ── LA BARRE D'INSTALLATION ────────────────────────────────────────────
          Encre pleine, invite ambrée, bouton miel. C'est le seul bloc sombre du
@@ -902,11 +972,17 @@
       }
       .badges {
         display: flex;
-        gap: 8px;
+        gap: 0;
         justify-content: flex-start;
         flex-wrap: wrap;
         margin-top: clamp(22px, 4vw, 34px);
-        /* L'entrée du design : ça monte de 16 px, une fois, au chargement. */
+        width: fit-content;
+        max-width: 100%;
+        padding: 3px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: var(--ombre);
         animation: hvRise 0.7s both;
       }
       .hero h1 {
@@ -923,23 +999,35 @@
          Quatre blocs qui montent ENSEMBLE font un écran qui saute. Décalés de
          60 ms, ils font une phrase : pastille, titre, sous-titre, la commande.
          C'est l'ordre de lecture, joué une fois. */
-      .swarm-panel {
-        animation: hvPop 0.6s cubic-bezier(0.22, 1, 0.36, 1) both 0.26s;
-      }
-      /* Le rayon respire, et son halo bat plus lentement que lui : deux périodes
-         premières entre elles ne se resynchronisent jamais, donc le mouvement ne
-         se lit jamais comme une boucle. */
-      .swarm-panel svg .hexcell {
-        animation: hvWave 4.2s ease-in-out infinite;
-      }
       .badge {
-        padding: 7px 12px;
-        border: 1px solid var(--border-2);
-        background: var(--panel);
-        border-radius: 8px;
-        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 12px 7px 10px;
+        border: none;
+        background: transparent;
+        border-radius: 7px;
+        font-size: 11.5px;
         font-weight: 600;
         font-family: var(--mono);
+        letter-spacing: 0.01em;
+        color: var(--muted);
+      }
+      .badge + .badge {
+        box-shadow: inset 1px 0 0 var(--border);
+      }
+      .badge::before {
+        content: '';
+        width: 6px;
+        height: 7px;
+        flex: none;
+        background: var(--gold);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+      }
+      .badge:first-child {
+        background: var(--encre);
+        border-color: var(--encre);
+        color: var(--creme);
       }
       h1,
       h2,
@@ -948,7 +1036,7 @@
       }
       h1 {
         margin: 0;
-        font-size: clamp(32px, 6.2vw, 52px);
+        font-size: clamp(40px, 7.4vw, 68px);
         /* 600, pas 700. Mesuré dans le DOM de la maquette rendue, pas deviné :
            `getComputedStyle(h1).fontWeight` y vaut 600. Sur Bricolage à 52 px
            l'écart d'une graisse est franc — le gras fait une affiche, le
@@ -1002,12 +1090,31 @@
         color: var(--text);
       }
       /* ── Swarm View panel ── */
+      .scene {
+        display: grid;
+        gap: 36px;
+        align-items: start;
+      }
+      @media (min-width: 960px) {
+        .scene {
+          grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+          gap: 48px;
+        }
+        .scene .swarm-panel {
+          position: sticky;
+          top: calc(var(--h-entete, 72px) + 28px);
+          margin-top: 0;
+        }
+        .scene-recit .etapes {
+          grid-template-columns: 1fr;
+        }
+      }
       .swarm-panel {
-        margin: 64px auto 0;
-        max-width: 960px;
+        margin: 0;
+        max-width: none;
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 16px;
         box-shadow: var(--ombre);
         overflow: hidden;
         text-align: left;
@@ -1041,7 +1148,7 @@
         height: 8px;
         border-radius: 50%;
         background: var(--green);
-        box-shadow: 0 0 8px var(--green);
+        animation: hvBeat 2.2s ease-in-out infinite;
       }
       .swarm-legende {
         display: flex;
@@ -1071,27 +1178,71 @@
       .swarm-panel svg {
         width: 100%;
         display: block;
-        background: radial-gradient(700px 380px at 50% 20%, rgba(246, 185, 59, 0.05), transparent);
+        background: var(--panel);
+      }
+      .cell-glow {
+        pointer-events: none;
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: hvGlowSoft 2.4s ease-in-out infinite;
+      }
+      .worker-cell {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: hvBreathe 3.8s ease-in-out infinite;
+      }
+      @keyframes hvGlowSoft {
+        0%,
+        100% {
+          opacity: 0.16;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.38;
+          transform: scale(1.12);
+        }
+      }
+      @keyframes hvBreathe {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.035);
+        }
       }
       .journal {
         list-style: none;
         margin: 0;
-        padding: 8px 10px;
+        padding: 10px 12px 12px;
         border-top: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         gap: 2px;
+        background: color-mix(in srgb, var(--chip) 55%, var(--panel));
       }
       .journal li {
         display: grid;
-        grid-template-columns: 22px 1fr auto;
-        gap: 8px;
+        grid-template-columns: 16px 1fr auto;
+        gap: 10px;
         align-items: baseline;
-        padding: 3px 8px;
+        padding: 6px 8px;
         font-size: 12.5px;
+        border-radius: 6px;
+      }
+      .journal li.fresh {
+        animation: hvRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .journal li.fresh .msg {
+        animation: hvSlideIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
       }
       .journal .ico {
-        text-align: center;
+        width: 8px;
+        height: 9px;
+        margin-top: 4px;
+        background: var(--gold);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+        font-size: 0;
       }
       .journal .msg {
         overflow: hidden;
@@ -1112,7 +1263,7 @@
       .section {
         max-width: 1240px;
         margin: 0 auto;
-        padding: clamp(48px, 7vw, 88px) clamp(18px, 4vw, 40px);
+        padding: clamp(72px, 10vw, 128px) clamp(20px, 4vw, 48px);
         border-bottom: 1px solid var(--border);
       }
       .section:nth-of-type(even) {
@@ -1169,7 +1320,7 @@
       }
       .headline {
         margin: 0 0 34px;
-        font-size: clamp(28px, 5vw, 48px);
+        font-size: clamp(32px, 5.6vw, 56px);
         font-weight: 600;
         /* La mesure suit la taille : à 48 px, 720 px de large coupaient les
            titres de la maquette en quatre lignes là où elle en fait deux. */
@@ -1282,6 +1433,27 @@
          périme pas au premier changement de thème. Les chiffres sont
          ILLUSTRATIFS et la légende le dit — annoncer des mesures qu'aucune
          ruche n'a produites serait la première promesse fausse du site. */
+      .cadre {
+        margin: 28px 0 12px;
+        padding: 11px 11px 14px;
+        background: var(--encre);
+        border-radius: 18px;
+        box-shadow: var(--ombre);
+      }
+      .cadre-barre {
+        display: flex;
+        gap: 6px;
+        padding: 2px 8px 10px;
+      }
+      .cadre-barre i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--chip);
+      }
+      .cadre-barre i:nth-child(2) {
+        background: var(--gold);
+      }
       .apercu {
         border: 1px solid var(--border-2);
         border-radius: 14px;
@@ -1289,6 +1461,12 @@
         background: var(--panel);
         box-shadow: var(--ombre);
         margin: 20px 0 10px;
+      }
+      .cadre .apercu {
+        margin: 0;
+        border: 0;
+        border-radius: 10px;
+        box-shadow: none;
       }
       .apercu-onglets {
         display: flex;
@@ -1306,9 +1484,14 @@
         border-radius: 999px;
         padding: 7px 12px;
         cursor: pointer;
+        transition:
+          transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+          color 0.2s ease,
+          background 0.2s ease;
       }
       .apercu-onglet:hover {
         color: var(--text);
+        transform: translateY(-1px);
       }
       .apercu-onglet[aria-selected='true'] {
         color: var(--encre);
@@ -1457,6 +1640,42 @@
       .check code {
         font-size: 12.5px;
         color: var(--orange);
+      }
+      #securite {
+        max-width: none;
+        width: 100%;
+        background: var(--encre);
+        color: var(--creme);
+        border-bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      #securite > * {
+        width: min(100%, 1240px);
+      }
+      #securite .kicker {
+        color: var(--gold);
+      }
+      #securite .headline {
+        color: var(--creme);
+      }
+      #securite .check {
+        color: var(--creme);
+      }
+      #securite .check .tick {
+        color: var(--gold);
+      }
+      #securite .check code {
+        color: var(--gold);
+      }
+      #securite .warn {
+        color: var(--creme-2);
+        background: color-mix(in srgb, var(--red) 16%, var(--encre));
+        border-color: color-mix(in srgb, var(--red) 45%, var(--encre));
+      }
+      #securite .warn strong {
+        color: var(--creme);
       }
       .warn {
         margin: 26px 0 0;
@@ -1649,9 +1868,16 @@
          du corps, et sans changement de plan le pied de page s'y fondrait —
          c'est-à-dire qu'on ne verrait pas que la page est finie. */
       footer {
-        border-top: 1px solid var(--border);
-        margin-top: 40px;
-        background: var(--panel);
+        border-top: 0;
+        margin-top: 0;
+        background: var(--encre);
+        color: var(--creme-2);
+      }
+      footer a {
+        color: var(--creme);
+      }
+      footer a:hover {
+        color: var(--gold);
       }
       .pied {
         max-width: 1240px;
@@ -1676,20 +1902,23 @@
       .pied-nom .marque {
         width: 22px;
         height: 25px;
-        color: var(--encre);
+        color: var(--gold);
       }
       .pied-nom .marque polygon {
         fill: currentColor;
       }
       .pied-nom .marque .lettre {
-        fill: var(--panel);
+        fill: var(--encre);
+      }
+      .pied-nom span {
+        color: var(--creme);
       }
       .pied-promesse {
         margin: 12px 0 0;
         max-width: 34ch;
         font-size: 14px;
         line-height: 1.6;
-        color: var(--muted);
+        color: var(--creme-2);
         text-wrap: pretty;
       }
       .pied-plan {
@@ -1710,29 +1939,29 @@
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: var(--text);
+        color: var(--creme-2);
       }
       /* Les liens du pied de page sont en encre douce, pas en miel : trente
          liens orange feraient un tapis de couleur là où la page se termine. Le
          miel revient au survol, qui est le moment où on vise. */
       .pied-col a {
         font-size: 14.5px;
-        color: var(--muted);
+        color: var(--creme);
       }
       .pied-col a:hover {
-        color: var(--orange);
+        color: var(--gold);
       }
       .pied-bas {
         max-width: 1240px;
         margin: 0 auto;
         padding: 18px clamp(18px, 4vw, 40px) 26px;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid color-mix(in srgb, var(--creme) 16%, var(--encre));
         display: flex;
         flex-wrap: wrap;
         justify-content: space-between;
         gap: 10px;
         font-size: 13px;
-        color: var(--dim);
+        color: var(--creme-2);
       }
       .pied-bas .mono {
         font-family: var(--mono);
@@ -1740,7 +1969,7 @@
       }
       footer .made {
         font-size: 13px;
-        color: var(--dim);
+        color: var(--creme-2);
       }
 
       /* Animations */
@@ -1788,6 +2017,16 @@
           transform: none;
         }
       }
+      @keyframes hvSlideIn {
+        from {
+          opacity: 0;
+          transform: translateX(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
       @keyframes hvDrop {
         from {
           opacity: 0;
@@ -1801,25 +2040,21 @@
       @keyframes hvView {
         from {
           opacity: 0;
-          transform: translateY(18px) scale(0.995);
-          filter: blur(5px);
+          transform: translateY(14px);
         }
         to {
           opacity: 1;
           transform: none;
-          filter: none;
         }
       }
       @keyframes hvPop {
         from {
           opacity: 0;
-          transform: translateY(14px) scale(0.96);
-          filter: blur(4px);
+          transform: translateY(12px);
         }
         to {
           opacity: 1;
           transform: none;
-          filter: none;
         }
       }
       @keyframes hvGrowX {
@@ -2084,24 +2319,48 @@
       }
 
       /* ── L'ENTRÉE AU DÉFILEMENT ──────────────────────────────────────────────
-         `animation-timeline: view()` fait jouer l'animation en fonction de la
-         POSITION de l'élément dans la fenêtre, sans une ligne de JavaScript et
-         sans observateur. Les navigateurs qui ne la connaissent pas ignorent la
-         règle : l'élément est simplement là, ce qui est le bon repli. */
-      @supports (animation-timeline: view()) {
-        .section > .kicker,
-        .section > .headline,
-        .section > .grid,
-        .section > .cards {
-          animation: hvView 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
-          animation-timeline: view();
-          animation-range: entry 0% entry 42%;
-        }
+         Une classe `js-motion` n'est posée que si le script tourne et que le
+         visiteur n'a pas demandé moins de mouvement. Sans elle, tout est
+         visible : une page dont le script n'a pas chargé ne reste pas blanche.
+         L'observateur d'intersection joue l'entrée UNE fois, puis s'arrête —
+         contrairement à `animation-timeline: view()`, qui rejouerait au
+         défilement inverse. */
+      html.js-motion .section .kicker,
+      html.js-motion .section .headline,
+      html.js-motion .section .lede,
+      html.js-motion .etape,
+      html.js-motion .edition,
+      html.js-motion .edition-rush,
+      html.js-motion .famille,
+      html.js-motion .swarm-panel,
+      html.js-motion .cadre,
+      html.js-motion .cloud-honest {
+        opacity: 0;
+        transform: translateY(14px);
+      }
+      html.js-motion .section .kicker.hv-in,
+      html.js-motion .section .headline.hv-in,
+      html.js-motion .section .lede.hv-in,
+      html.js-motion .etape.hv-in,
+      html.js-motion .edition.hv-in,
+      html.js-motion .edition-rush.hv-in,
+      html.js-motion .famille.hv-in,
+      html.js-motion .swarm-panel.hv-in,
+      html.js-motion .cadre.hv-in,
+      html.js-motion .cloud-honest.hv-in {
+        animation: hvView 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      html.js-motion .etape:nth-child(2).hv-in,
+      html.js-motion .edition:nth-child(2).hv-in {
+        animation-delay: 0.08s;
+      }
+      html.js-motion .etape:nth-child(3).hv-in {
+        animation-delay: 0.16s;
       }
 
       @keyframes dash {
         to {
-          stroke-dashoffset: -12;
+          stroke-dashoffset: -28;
         }
       }
       @keyframes cellpulse {
@@ -2116,8 +2375,8 @@
           transform: scale(1);
         }
         50% {
-          opacity: 0.35;
-          transform: scale(1.5);
+          opacity: 0.45;
+          transform: scale(1.18);
         }
       }
       @keyframes halo {
@@ -2141,10 +2400,13 @@
         }
       }
       .anim-dash {
-        animation: dash 0.8s linear infinite;
+        animation: dash 1.8s linear infinite;
+      }
+      .anim-dash-lent {
+        animation: dash 4.2s linear infinite;
       }
       .anim-cell {
-        animation: cellpulse 1.2s ease-in-out infinite;
+        animation: cellpulse 2.1s ease-in-out infinite;
       }
       .anim-cell.d2 {
         animation-delay: 0.4s;
@@ -2161,7 +2423,7 @@
         animation-delay: 0.15s;
       }
       .anim-halo {
-        animation: halo 1.6s ease-in-out infinite;
+        animation: halo 2.8s ease-in-out infinite;
         transform-box: fill-box;
         transform-origin: center;
       }
@@ -2176,6 +2438,9 @@
         }
         html {
           scroll-behavior: auto;
+        }
+        .swarm-pulses {
+          display: none !important;
         }
       }
 
@@ -2194,6 +2459,9 @@
         header {
           padding: 10px 16px;
           gap: 10px;
+          margin: 8px 10px 0;
+          width: calc(100% - 20px);
+          border-radius: 14px;
           /* Le titre et les liens sur deux rangs : la marque reste lisible
              au lieu d'être écrasée par la navigation. */
           flex-wrap: wrap;
@@ -2230,7 +2498,7 @@
           padding: 34px 18px 28px;
         }
         .section {
-          padding: 44px 18px 10px;
+          padding: 64px 18px 56px;
         }
         /* ── LE DOIGT, PAS LE CURSEUR ────────────────────────────────────────
            Apple et Google demandent 44 px ; le WCAG 2.5.5 aussi. Deux zones
@@ -2503,14 +2771,10 @@
           </p>
 
           <div class="badges">
-            <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >4 363 tests ✓</span
-            >
-            <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
-              >Palier 7 livré</span
-            >
-            <span class="badge" style="color: var(--muted)">TypeScript strict</span>
-            <span class="badge" style="color: var(--muted)">Node ≥ 24</span>
+            <span class="badge" data-i18n="badge.tests">4 363 tests ✓</span>
+            <span class="badge" data-i18n="badge.tier">Palier 7 livré</span>
+            <span class="badge">TypeScript strict</span>
+            <span class="badge">Node ≥ 24</span>
           </div>
         </div>
 
@@ -2548,376 +2812,6 @@
             <text class="lettre" x="160" y="147" text-anchor="middle">H</text>
           </svg>
         </div>
-      </div>
-
-      <div class="swarm-panel">
-        <div class="swarm-head">
-          <span class="swarm-title" data-i18n="swarm.title">Swarm View — l'essaim en direct</span>
-          <span class="online"
-            ><span class="dot"></span><span data-i18n="swarm.online">en ligne</span></span
-          >
-        </div>
-        <svg
-          viewBox="0 0 900 430"
-          role="img"
-          aria-label="Swarm View : deux nœuds membres reliés à un DAG de tâches hexagonales"
-          data-i18n-attr="aria-label:swarm.alt"
-        >
-          <line
-            x1="358"
-            y1="140"
-            x2="424"
-            y2="105"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="352"
-            y1="155"
-            x2="428"
-            y2="195"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="356"
-            y1="290"
-            x2="426"
-            y2="330"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="476"
-            y1="105"
-            x2="546"
-            y2="140"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="478"
-            y1="205"
-            x2="544"
-            y2="165"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="478"
-            y1="330"
-            x2="548"
-            y2="295"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="570"
-            y1="185"
-            x2="570"
-            y2="255"
-            stroke="var(--border-2)"
-            stroke-width="1.5"
-          ></line>
-          <line
-            x1="186"
-            y1="210"
-            x2="416"
-            y2="200"
-            stroke="var(--gold)"
-            stroke-width="2"
-            stroke-dasharray="6 6"
-            class="anim-dash"
-          ></line>
-          <line
-            x1="714"
-            y1="210"
-            x2="486"
-            y2="102"
-            stroke="var(--gold)"
-            stroke-width="2"
-            stroke-dasharray="6 6"
-            class="anim-dash"
-          ></line>
-          <g transform="translate(330,140)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="var(--gold)"
-              stroke="var(--gold)"
-              stroke-width="1.5"
-            ></polygon>
-            <text
-              y="-2"
-              text-anchor="middle"
-              fill="var(--encre)"
-              font-weight="700"
-              font-size="12"
-              data-i18n="svg.schema"
-            >
-              Schéma
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--encre)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              done
-            </text>
-          </g>
-          <g transform="translate(330,305)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="var(--gold)"
-              stroke="var(--gold)"
-              stroke-width="1.5"
-            ></polygon>
-            <text
-              y="-2"
-              text-anchor="middle"
-              fill="var(--encre)"
-              font-weight="700"
-              font-size="12"
-              data-i18n="svg.mockups"
-            >
-              Maquettes
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--encre)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              done
-            </text>
-          </g>
-          <g transform="translate(450,90)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="#4a3a12"
-              stroke="var(--gold)"
-              stroke-width="1.5"
-              class="anim-cell"
-            ></polygon>
-            <text
-              y="-2"
-              text-anchor="middle"
-              fill="var(--creme)"
-              font-weight="700"
-              font-size="12"
-              data-i18n="svg.billing"
-            >
-              API factu.
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--creme-2)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              running ↻2
-            </text>
-          </g>
-          <g transform="translate(450,215)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="#4a3a12"
-              stroke="var(--gold)"
-              stroke-width="1.5"
-              class="anim-cell d2"
-            ></polygon>
-            <text
-              y="-2"
-              text-anchor="middle"
-              fill="var(--creme)"
-              font-weight="700"
-              font-size="12"
-              data-i18n="svg.auth"
-            >
-              Auth JWT
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--creme-2)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              running
-            </text>
-          </g>
-          <g transform="translate(450,340)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="var(--chip)"
-              stroke="var(--gold-2)"
-              stroke-width="1.5"
-            ></polygon>
-            <text y="-2" text-anchor="middle" fill="var(--text)" font-weight="700" font-size="12">
-              CI
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--blue)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              ready
-            </text>
-          </g>
-          <g transform="translate(570,155)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="#33290f"
-              stroke="var(--orange)"
-              stroke-width="1.5"
-            ></polygon>
-            <text
-              y="-2"
-              text-anchor="middle"
-              fill="var(--creme)"
-              font-weight="700"
-              font-size="12"
-              data-i18n="svg.integration"
-            >
-              Intégration
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--creme-2)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              assigned
-            </text>
-          </g>
-          <g transform="translate(570,285)">
-            <polygon
-              points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
-              fill="var(--chip)"
-              stroke="var(--border-2)"
-              stroke-width="1.5"
-            ></polygon>
-            <text
-              y="-2"
-              text-anchor="middle"
-              fill="var(--text)"
-              font-weight="700"
-              font-size="12"
-              data-i18n="svg.e2e"
-            >
-              Tests e2e
-            </text>
-            <text
-              y="14"
-              text-anchor="middle"
-              fill="var(--blue)"
-              font-size="11"
-              font-family="JetBrains Mono,monospace"
-            >
-              pending
-            </text>
-          </g>
-          <g transform="translate(140,210)">
-            <circle
-              r="58"
-              fill="none"
-              stroke="var(--gold)"
-              stroke-width="1.5"
-              class="anim-halo"
-            ></circle>
-            <polygon
-              points="48,0 24,41.5 -24,41.5 -48,0 -24,-41.5 24,-41.5"
-              fill="var(--chip)"
-              stroke="var(--gold)"
-              stroke-width="2"
-            ></polygon>
-            <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="12">
-              ruche-alpha
-            </text>
-            <text
-              y="12"
-              text-anchor="middle"
-              fill="var(--muted)"
-              font-size="10"
-              font-family="JetBrains Mono,monospace"
-            >
-              claude-code · 2
-            </text>
-            <circle cx="-12" cy="-26" r="4" fill="var(--gold)" class="anim-agent"></circle>
-            <circle cx="12" cy="-26" r="4" fill="var(--gold)" class="anim-agent d2"></circle>
-          </g>
-          <g transform="translate(760,210)">
-            <circle
-              r="58"
-              fill="none"
-              stroke="var(--gold)"
-              stroke-width="1.5"
-              class="anim-halo d2"
-            ></circle>
-            <polygon
-              points="48,0 24,41.5 -24,41.5 -48,0 -24,-41.5 24,-41.5"
-              fill="var(--chip)"
-              stroke="var(--gold)"
-              stroke-width="2"
-            ></polygon>
-            <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="12">
-              ruche-beta ⚔
-            </text>
-            <text
-              y="12"
-              text-anchor="middle"
-              fill="var(--muted)"
-              font-size="10"
-              font-family="JetBrains Mono,monospace"
-            >
-              codex · 1
-            </text>
-            <circle cx="0" cy="-26" r="4" fill="var(--gold)" class="anim-agent d3"></circle>
-          </g>
-        </svg>
-        <!-- ══ LA LÉGENDE ═══════════════════════════════════════════════════
-             Cinq couleurs d'alvéole racontaient un cycle de vie que RIEN
-             n'expliquait. Une image dont il faut deviner le code n'est pas une
-             démonstration, c'est une décoration : le visiteur voit qu'il se
-             passe quelque chose sans jamais savoir quoi.
-
-             La pastille reprend l'hexagone et son liseré, exactement comme dans
-             le dessin — une légende dont les puces ne ressemblent pas à ce
-             qu'elles légendent oblige à faire la traduction soi-même. -->
-        <div class="swarm-legende">
-          <span class="leg">
-            <i style="background: var(--gold); border-color: var(--gold-2)"></i>
-            <code>done</code>
-            <span data-i18n="leg.done">une ouvrière l’a finie</span>
-          </span>
-          <span class="leg">
-            <i style="background: #4a3a12; border-color: var(--gold)"></i>
-            <code>running</code>
-            <span data-i18n="leg.running">une IA travaille dessus</span>
-          </span>
-          <span class="leg">
-            <i style="background: #33290f; border-color: var(--orange)"></i>
-            <code>assigned</code>
-            <span data-i18n="leg.assigned">confiée, pas encore commencée</span>
-          </span>
-          <span class="leg">
-            <i style="background: var(--chip); border-color: var(--gold-2)"></i>
-            <code>ready</code>
-            <span data-i18n="leg.ready">prête à partir</span>
-          </span>
-          <span class="leg">
-            <i style="background: var(--panel); border-color: var(--border-2)"></i>
-            <code>pending</code>
-            <span data-i18n="leg.pending">attend qu’une autre finisse</span>
-          </span>
-        </div>
-        <ul class="journal" id="journal" aria-live="off"></ul>
       </div>
     </section>
 
@@ -2963,33 +2857,446 @@
          vous. Les textes sont ceux de la maquette, au mot près ; les valeurs
          aussi (rayon 16 px, remplissage 30/28, trois colonnes de 375 px). -->
     <section id="etapes" class="section">
-      <p class="kicker" data-i18n="et.kicker">Comment ça marche</p>
-      <h2 class="headline" data-i18n="et.headline">Trois étapes, et vous gardez la main.</h2>
-      <div class="etapes">
-        <article class="etape">
-          <span class="etape-n" aria-hidden="true">01</span>
-          <h3 data-i18n="et.etape1.t">Vous décrivez le projet</h3>
-          <p data-i18n="et.etape1.p">
-            Quelques phrases suffisent. Hive vous propose une liste de tâches ordonnées — vous la
-            corrigez avant de lancer.
-          </p>
-        </article>
-        <article class="etape">
-          <span class="etape-n" aria-hidden="true">02</span>
-          <h3 data-i18n="et.etape2.t">Les IA travaillent en parallèle</h3>
-          <p data-i18n="et.etape2.p">
-            Chaque tâche part sur l’ordinateur d’un membre, qui fait tourner son IA dans un dossier
-            isolé. Vous voyez l’avancement en direct.
-          </p>
-        </article>
-        <article class="etape">
-          <span class="etape-n" aria-hidden="true">03</span>
-          <h3 data-i18n="et.etape3.t">Vous validez, puis ça fusionne</h3>
-          <p data-i18n="et.etape3.p">
-            Chaque résultat s’arrête devant vous. Vous lisez, vous validez ou vous refusez. Rien ne
-            passe sans votre accord.
-          </p>
-        </article>
+      <div class="scene">
+        <div class="scene-recit">
+          <p class="kicker" data-i18n="et.kicker">Comment ça marche</p>
+          <h2 class="headline" data-i18n="et.headline">Trois étapes, et vous gardez la main.</h2>
+          <div class="etapes">
+            <article class="etape">
+              <span class="etape-n" aria-hidden="true">01</span>
+              <h3 data-i18n="et.etape1.t">Vous décrivez le projet</h3>
+              <p data-i18n="et.etape1.p">
+                Quelques phrases suffisent. Hive vous propose une liste de tâches ordonnées — vous
+                la corrigez avant de lancer.
+              </p>
+            </article>
+            <article class="etape">
+              <span class="etape-n" aria-hidden="true">02</span>
+              <h3 data-i18n="et.etape2.t">Les IA travaillent en parallèle</h3>
+              <p data-i18n="et.etape2.p">
+                Chaque tâche part sur l’ordinateur d’un membre, qui fait tourner son IA dans un
+                dossier isolé. Vous voyez l’avancement en direct.
+              </p>
+            </article>
+            <article class="etape">
+              <span class="etape-n" aria-hidden="true">03</span>
+              <h3 data-i18n="et.etape3.t">Vous validez, puis ça fusionne</h3>
+              <p data-i18n="et.etape3.p">
+                Chaque résultat s’arrête devant vous. Vous lisez, vous validez ou vous refusez. Rien
+                ne passe sans votre accord.
+              </p>
+            </article>
+          </div>
+        </div>
+        <div class="swarm-panel">
+          <div class="swarm-head">
+            <span class="swarm-title" data-i18n="swarm.title">Swarm View — l'essaim en direct</span>
+            <span class="online"
+              ><span class="dot"></span><span data-i18n="swarm.online">en ligne</span></span
+            >
+          </div>
+          <svg
+            viewBox="0 0 900 430"
+            role="img"
+            aria-label="Swarm View : deux nœuds membres reliés à un DAG de tâches hexagonales"
+            data-i18n-attr="aria-label:swarm.alt"
+          >
+            <line
+              x1="358"
+              y1="140"
+              x2="424"
+              y2="105"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="352"
+              y1="155"
+              x2="428"
+              y2="195"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="356"
+              y1="290"
+              x2="426"
+              y2="330"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="476"
+              y1="105"
+              x2="546"
+              y2="140"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="478"
+              y1="205"
+              x2="544"
+              y2="165"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="478"
+              y1="330"
+              x2="548"
+              y2="295"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="570"
+              y1="185"
+              x2="570"
+              y2="255"
+              stroke="var(--border-2)"
+              stroke-width="1.5"
+              stroke-dasharray="4 10"
+              class="anim-dash-lent"
+            ></line>
+            <line
+              x1="186"
+              y1="210"
+              x2="416"
+              y2="200"
+              stroke="var(--gold)"
+              stroke-width="2"
+              stroke-dasharray="5 11"
+              class="anim-dash"
+            ></line>
+            <line
+              x1="714"
+              y1="210"
+              x2="486"
+              y2="102"
+              stroke="var(--gold)"
+              stroke-width="2"
+              stroke-dasharray="5 11"
+              class="anim-dash"
+            ></line>
+            <g class="swarm-pulses" aria-hidden="true">
+              <circle r="3.2" fill="var(--gold)">
+                <animateMotion dur="2.6s" repeatCount="indefinite" path="M186 210 L416 200" />
+              </circle>
+              <circle r="3.2" fill="var(--gold)">
+                <animateMotion dur="3.1s" repeatCount="indefinite" path="M714 210 L486 102" />
+              </circle>
+              <circle r="2.4" fill="var(--gold-2)">
+                <animateMotion dur="3.8s" repeatCount="indefinite" path="M358 140 L424 105" />
+              </circle>
+              <circle r="2.4" fill="var(--gold-2)">
+                <animateMotion dur="4.2s" repeatCount="indefinite" path="M478 205 L544 165" />
+              </circle>
+            </g>
+            <g transform="translate(330,140)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="var(--gold)"
+                stroke="var(--gold)"
+                stroke-width="1.5"
+              ></polygon>
+              <text
+                y="-2"
+                text-anchor="middle"
+                fill="var(--encre)"
+                font-weight="700"
+                font-size="12"
+                data-i18n="svg.schema"
+              >
+                Schéma
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--encre)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                done
+              </text>
+            </g>
+            <g transform="translate(330,305)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="var(--gold)"
+                stroke="var(--gold)"
+                stroke-width="1.5"
+              ></polygon>
+              <text
+                y="-2"
+                text-anchor="middle"
+                fill="var(--encre)"
+                font-weight="700"
+                font-size="12"
+                data-i18n="svg.mockups"
+              >
+                Maquettes
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--encre)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                done
+              </text>
+            </g>
+            <g transform="translate(450,90)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="#4a3a12"
+                stroke="var(--gold)"
+                stroke-width="1.5"
+                class="anim-cell"
+              ></polygon>
+              <polygon
+                class="cell-glow"
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="var(--gold)"
+              ></polygon>
+              <text
+                y="-2"
+                text-anchor="middle"
+                fill="var(--creme)"
+                font-weight="700"
+                font-size="12"
+                data-i18n="svg.billing"
+              >
+                API factu.
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--creme-2)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                running ↻2
+              </text>
+            </g>
+            <g transform="translate(450,215)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="#4a3a12"
+                stroke="var(--gold)"
+                stroke-width="1.5"
+                class="anim-cell d2"
+              ></polygon>
+              <polygon
+                class="cell-glow"
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="var(--gold)"
+              ></polygon>
+              <text
+                y="-2"
+                text-anchor="middle"
+                fill="var(--creme)"
+                font-weight="700"
+                font-size="12"
+                data-i18n="svg.auth"
+              >
+                Auth JWT
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--creme-2)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                running
+              </text>
+            </g>
+            <g transform="translate(450,340)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="var(--chip)"
+                stroke="var(--gold-2)"
+                stroke-width="1.5"
+              ></polygon>
+              <text y="-2" text-anchor="middle" fill="var(--text)" font-weight="700" font-size="12">
+                CI
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--blue)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                ready
+              </text>
+            </g>
+            <g transform="translate(570,155)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="#33290f"
+                stroke="var(--orange)"
+                stroke-width="1.5"
+              ></polygon>
+              <text
+                y="-2"
+                text-anchor="middle"
+                fill="var(--creme)"
+                font-weight="700"
+                font-size="12"
+                data-i18n="svg.integration"
+              >
+                Intégration
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--creme-2)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                assigned
+              </text>
+            </g>
+            <g transform="translate(570,285)">
+              <polygon
+                points="34,0 17,29.4 -17,29.4 -34,0 -17,-29.4 17,-29.4"
+                fill="var(--chip)"
+                stroke="var(--border-2)"
+                stroke-width="1.5"
+              ></polygon>
+              <text
+                y="-2"
+                text-anchor="middle"
+                fill="var(--text)"
+                font-weight="700"
+                font-size="12"
+                data-i18n="svg.e2e"
+              >
+                Tests e2e
+              </text>
+              <text
+                y="14"
+                text-anchor="middle"
+                fill="var(--blue)"
+                font-size="11"
+                font-family="JetBrains Mono,monospace"
+              >
+                pending
+              </text>
+            </g>
+            <g transform="translate(140,210)">
+              <circle
+                r="58"
+                fill="none"
+                stroke="var(--gold)"
+                stroke-width="1.5"
+                class="anim-halo"
+              ></circle>
+              <polygon
+                class="worker-cell"
+                points="48,0 24,41.5 -24,41.5 -48,0 -24,-41.5 24,-41.5"
+                fill="var(--chip)"
+                stroke="var(--gold)"
+                stroke-width="2"
+              ></polygon>
+              <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="12">
+                ruche-alpha
+              </text>
+              <text
+                y="12"
+                text-anchor="middle"
+                fill="var(--muted)"
+                font-size="10"
+                font-family="JetBrains Mono,monospace"
+              >
+                claude-code · 2
+              </text>
+              <circle cx="-12" cy="-26" r="4" fill="var(--gold)" class="anim-agent"></circle>
+              <circle cx="12" cy="-26" r="4" fill="var(--gold)" class="anim-agent d2"></circle>
+            </g>
+            <g transform="translate(760,210)">
+              <circle
+                r="58"
+                fill="none"
+                stroke="var(--gold)"
+                stroke-width="1.5"
+                class="anim-halo d2"
+              ></circle>
+              <polygon
+                class="worker-cell"
+                points="48,0 24,41.5 -24,41.5 -48,0 -24,-41.5 24,-41.5"
+                fill="var(--chip)"
+                stroke="var(--gold)"
+                stroke-width="2"
+              ></polygon>
+              <text y="-4" text-anchor="middle" fill="var(--text)" font-weight="600" font-size="12">
+                ruche-beta ⚔
+              </text>
+              <text
+                y="12"
+                text-anchor="middle"
+                fill="var(--muted)"
+                font-size="10"
+                font-family="JetBrains Mono,monospace"
+              >
+                codex · 1
+              </text>
+              <circle cx="0" cy="-26" r="4" fill="var(--gold)" class="anim-agent d3"></circle>
+            </g>
+          </svg>
+          <!-- ══ LA LÉGENDE ═══════════════════════════════════════════════════
+             Cinq couleurs d'alvéole racontaient un cycle de vie que RIEN
+             n'expliquait. Une image dont il faut deviner le code n'est pas une
+             démonstration, c'est une décoration : le visiteur voit qu'il se
+             passe quelque chose sans jamais savoir quoi.
+
+             La pastille reprend l'hexagone et son liseré, exactement comme dans
+             le dessin — une légende dont les puces ne ressemblent pas à ce
+             qu'elles légendent oblige à faire la traduction soi-même. -->
+          <div class="swarm-legende">
+            <span class="leg">
+              <i style="background: var(--gold); border-color: var(--gold-2)"></i>
+              <code>done</code>
+              <span data-i18n="leg.done">une ouvrière l’a finie</span>
+            </span>
+            <span class="leg">
+              <i style="background: #4a3a12; border-color: var(--gold)"></i>
+              <code>running</code>
+              <span data-i18n="leg.running">une IA travaille dessus</span>
+            </span>
+            <span class="leg">
+              <i style="background: #33290f; border-color: var(--orange)"></i>
+              <code>assigned</code>
+              <span data-i18n="leg.assigned">confiée, pas encore commencée</span>
+            </span>
+            <span class="leg">
+              <i style="background: var(--chip); border-color: var(--gold-2)"></i>
+              <code>ready</code>
+              <span data-i18n="leg.ready">prête à partir</span>
+            </span>
+            <span class="leg">
+              <i style="background: var(--panel); border-color: var(--border-2)"></i>
+              <code>pending</code>
+              <span data-i18n="leg.pending">attend qu’une autre finisse</span>
+            </span>
+          </div>
+          <ul class="journal" id="journal" aria-live="off"></ul>
+        </div>
       </div>
     </section>
 
@@ -3318,195 +3625,204 @@
         Les cinq écrans qu'on ouvre le plus, tels qu'ils se présentent. Les chiffres sont un exemple
         : ce sont vos ouvrières qui les remplissent.
       </p>
-      <div class="apercu">
-        <div class="apercu-onglets" role="tablist" aria-label="Écrans du tableau de bord">
-          <button
-            class="apercu-onglet"
-            type="button"
-            role="tab"
-            data-ecran="taches"
-            aria-selected="true"
-            data-i18n="ap.taches.nom"
-          >
-            Tâches
-          </button>
-          <button
-            class="apercu-onglet"
-            type="button"
-            role="tab"
-            data-ecran="ordinateurs"
-            aria-selected="false"
-            data-i18n="ap.ordinateurs.nom"
-          >
-            Ordinateurs
-          </button>
-          <button
-            class="apercu-onglet"
-            type="button"
-            role="tab"
-            data-ecran="activite"
-            aria-selected="false"
-            data-i18n="ap.activite.nom"
-          >
-            Activité
-          </button>
-          <button
-            class="apercu-onglet"
-            type="button"
-            role="tab"
-            data-ecran="relire"
-            aria-selected="false"
-            data-i18n="ap.relire.nom"
-          >
-            À relire
-          </button>
-          <button
-            class="apercu-onglet"
-            type="button"
-            role="tab"
-            data-ecran="atelier"
-            aria-selected="false"
-            data-i18n="ap.atelier.nom"
-          >
-            L'Atelier
-          </button>
-        </div>
-        <div class="apercu-fenetre">
-          <div class="apercu-rail" aria-hidden="true">
-            <b class="apercu-marque">Hive</b>
-            <span data-vif data-ecran-rail="taches"
-              ><i aria-hidden="true">🧩</i><b data-i18n="ap.taches.nom">Tâches</b></span
+      <div class="cadre">
+        <div class="cadre-barre" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="apercu">
+          <div class="apercu-onglets" role="tablist" aria-label="Écrans du tableau de bord">
+            <button
+              class="apercu-onglet"
+              type="button"
+              role="tab"
+              data-ecran="taches"
+              aria-selected="true"
+              data-i18n="ap.taches.nom"
             >
-            <span data-ecran-rail="ordinateurs"
-              ><i aria-hidden="true">💻</i><b data-i18n="ap.ordinateurs.nom">Ordinateurs</b></span
+              Tâches
+            </button>
+            <button
+              class="apercu-onglet"
+              type="button"
+              role="tab"
+              data-ecran="ordinateurs"
+              aria-selected="false"
+              data-i18n="ap.ordinateurs.nom"
             >
-            <span data-ecran-rail="activite"
-              ><i aria-hidden="true">📈</i><b data-i18n="ap.activite.nom">Activité</b></span
+              Ordinateurs
+            </button>
+            <button
+              class="apercu-onglet"
+              type="button"
+              role="tab"
+              data-ecran="activite"
+              aria-selected="false"
+              data-i18n="ap.activite.nom"
             >
-            <span data-ecran-rail="relire"
-              ><i aria-hidden="true">🍯</i><b data-i18n="ap.relire.nom">À relire</b></span
+              Activité
+            </button>
+            <button
+              class="apercu-onglet"
+              type="button"
+              role="tab"
+              data-ecran="relire"
+              aria-selected="false"
+              data-i18n="ap.relire.nom"
             >
-            <span data-ecran-rail="atelier"
-              ><i aria-hidden="true">⬡</i><b data-i18n="ap.atelier.nom">L'Atelier</b></span
+              À relire
+            </button>
+            <button
+              class="apercu-onglet"
+              type="button"
+              role="tab"
+              data-ecran="atelier"
+              aria-selected="false"
+              data-i18n="ap.atelier.nom"
             >
+              L'Atelier
+            </button>
           </div>
-          <div class="apercu-corps" data-ecran-corps="taches">
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.taches.0.t">Écrire les tests de la borne d'élagage</b
-                ><small data-i18n="ap.taches.0.d">Portable de Léa · 2 min</small></span
+          <div class="apercu-fenetre">
+            <div class="apercu-rail" aria-hidden="true">
+              <b class="apercu-marque">Hive</b>
+              <span data-vif data-ecran-rail="taches"
+                ><i aria-hidden="true">🧩</i><b data-i18n="ap.taches.nom">Tâches</b></span
               >
-              <span class="apercu-etat" data-ton="vif" data-i18n="ap.taches.0.e">en cours</span>
+              <span data-ecran-rail="ordinateurs"
+                ><i aria-hidden="true">💻</i><b data-i18n="ap.ordinateurs.nom">Ordinateurs</b></span
+              >
+              <span data-ecran-rail="activite"
+                ><i aria-hidden="true">📈</i><b data-i18n="ap.activite.nom">Activité</b></span
+              >
+              <span data-ecran-rail="relire"
+                ><i aria-hidden="true">🍯</i><b data-i18n="ap.relire.nom">À relire</b></span
+              >
+              <span data-ecran-rail="atelier"
+                ><i aria-hidden="true">⬡</i><b data-i18n="ap.atelier.nom">L'Atelier</b></span
+              >
             </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.taches.1.t">Corriger la garde du secret de session</b
-                ><small data-i18n="ap.taches.1.d">Tour de Tom · 41 s</small></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.taches.1.e">terminée</span>
+            <div class="apercu-corps" data-ecran-corps="taches">
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.taches.0.t">Écrire les tests de la borne d'élagage</b
+                  ><small data-i18n="ap.taches.0.d">Portable de Léa · 2 min</small></span
+                >
+                <span class="apercu-etat" data-ton="vif" data-i18n="ap.taches.0.e">en cours</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.taches.1.t">Corriger la garde du secret de session</b
+                  ><small data-i18n="ap.taches.1.d">Tour de Tom · 41 s</small></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.taches.1.e">terminée</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.taches.2.t">Découper l'issue #128 en quatre tâches</b
+                  ><small data-i18n="ap.taches.2.d">en attente d'une ouvrière</small></span
+                >
+                <span class="apercu-etat" data-i18n="ap.taches.2.e">prête</span>
+              </div>
             </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.taches.2.t">Découper l'issue #128 en quatre tâches</b
-                ><small data-i18n="ap.taches.2.d">en attente d'une ouvrière</small></span
-              >
-              <span class="apercu-etat" data-i18n="ap.taches.2.e">prête</span>
+            <div class="apercu-corps" data-ecran-corps="ordinateurs" hidden>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.ordinateurs.0.t">Portable de Léa</b
+                  ><small data-i18n="ap.ordinateurs.0.d"
+                    >claude-code · 2 tâches à la fois</small
+                  ></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.ordinateurs.0.e"
+                  >en ligne</span
+                >
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.ordinateurs.1.t">Tour de Tom</b
+                  ><small data-i18n="ap.ordinateurs.1.d"
+                    >claude-code · bac à sable podman</small
+                  ></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.ordinateurs.1.e"
+                  >en ligne</span
+                >
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.ordinateurs.2.t">Fixe de l'atelier</b
+                  ><small data-i18n="ap.ordinateurs.2.d">vue il y a 6 min</small></span
+                >
+                <span class="apercu-etat" data-i18n="ap.ordinateurs.2.e">hors ligne</span>
+              </div>
             </div>
-          </div>
-          <div class="apercu-corps" data-ecran-corps="ordinateurs" hidden>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.ordinateurs.0.t">Portable de Léa</b
-                ><small data-i18n="ap.ordinateurs.0.d"
-                  >claude-code · 2 tâches à la fois</small
-                ></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.ordinateurs.0.e">en ligne</span>
+            <div class="apercu-corps" data-ecran-corps="activite" hidden>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.activite.0.t">Nectar rapporté</b
+                  ><small data-i18n="ap.activite.0.d">sur la dernière heure</small></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.activite.0.e">18 tâches</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.activite.1.t">Latence médiane</b
+                  ><small data-i18n="ap.activite.1.d">de l'assignation au résultat</small></span
+                >
+                <span class="apercu-etat" data-i18n="ap.activite.1.e">34 s</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.activite.2.t">Productions refusées</b
+                  ><small data-i18n="ap.activite.2.d">diff vide ou promesse non tenue</small></span
+                >
+                <span class="apercu-etat" data-ton="vif" data-i18n="ap.activite.2.e">2</span>
+              </div>
             </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.ordinateurs.1.t">Tour de Tom</b
-                ><small data-i18n="ap.ordinateurs.1.d"
-                  >claude-code · bac à sable podman</small
-                ></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.ordinateurs.1.e">en ligne</span>
+            <div class="apercu-corps" data-ecran-corps="relire" hidden>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.relire.0.t">src/orchestrator/store.ts</b
+                  ><small data-i18n="ap.relire.0.d">+64 −12 · Portable de Léa</small></span
+                >
+                <span class="apercu-etat" data-ton="vif" data-i18n="ap.relire.0.e"
+                  >à approuver</span
+                >
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.relire.1.t">tests/bornes-cablees.test.ts</b
+                  ><small data-i18n="ap.relire.1.d">+31 −0 · Tour de Tom</small></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.relire.1.e">approuvée</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.relire.2.t">docs/ERREURS.md</b
+                  ><small data-i18n="ap.relire.2.d">+18 −2 · Portable de Léa</small></span
+                >
+                <span class="apercu-etat" data-i18n="ap.relire.2.e">refusée</span>
+              </div>
             </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.ordinateurs.2.t">Fixe de l'atelier</b
-                ><small data-i18n="ap.ordinateurs.2.d">vue il y a 6 min</small></span
-              >
-              <span class="apercu-etat" data-i18n="ap.ordinateurs.2.e">hors ligne</span>
-            </div>
-          </div>
-          <div class="apercu-corps" data-ecran-corps="activite" hidden>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.activite.0.t">Nectar rapporté</b
-                ><small data-i18n="ap.activite.0.d">sur la dernière heure</small></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.activite.0.e">18 tâches</span>
-            </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.activite.1.t">Latence médiane</b
-                ><small data-i18n="ap.activite.1.d">de l'assignation au résultat</small></span
-              >
-              <span class="apercu-etat" data-i18n="ap.activite.1.e">34 s</span>
-            </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.activite.2.t">Productions refusées</b
-                ><small data-i18n="ap.activite.2.d">diff vide ou promesse non tenue</small></span
-              >
-              <span class="apercu-etat" data-ton="vif" data-i18n="ap.activite.2.e">2</span>
-            </div>
-          </div>
-          <div class="apercu-corps" data-ecran-corps="relire" hidden>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.relire.0.t">src/orchestrator/store.ts</b
-                ><small data-i18n="ap.relire.0.d">+64 −12 · Portable de Léa</small></span
-              >
-              <span class="apercu-etat" data-ton="vif" data-i18n="ap.relire.0.e">à approuver</span>
-            </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.relire.1.t">tests/bornes-cablees.test.ts</b
-                ><small data-i18n="ap.relire.1.d">+31 −0 · Tour de Tom</small></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.relire.1.e">approuvée</span>
-            </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.relire.2.t">docs/ERREURS.md</b
-                ><small data-i18n="ap.relire.2.d">+18 −2 · Portable de Léa</small></span
-              >
-              <span class="apercu-etat" data-i18n="ap.relire.2.e">refusée</span>
-            </div>
-          </div>
-          <div class="apercu-corps" data-ecran-corps="atelier" hidden>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.atelier.0.t">« Ajouter la reprise après échec »</b
-                ><small data-i18n="ap.atelier.0.d">brief écrit par vous</small></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.atelier.0.e">découpé</span>
-            </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.atelier.1.t">1. Poser la table des reprises</b
-                ><small data-i18n="ap.atelier.1.d">aucune dépendance</small></span
-              >
-              <span class="apercu-etat" data-ton="ok" data-i18n="ap.atelier.1.e">prête</span>
-            </div>
-            <div class="apercu-ligne">
-              <span
-                ><b data-i18n="ap.atelier.2.t">2. Brancher le filet sur la table</b
-                ><small data-i18n="ap.atelier.2.d">attend la tâche 1</small></span
-              >
-              <span class="apercu-etat" data-i18n="ap.atelier.2.e">en attente</span>
+            <div class="apercu-corps" data-ecran-corps="atelier" hidden>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.atelier.0.t">« Ajouter la reprise après échec »</b
+                  ><small data-i18n="ap.atelier.0.d">brief écrit par vous</small></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.atelier.0.e">découpé</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.atelier.1.t">1. Poser la table des reprises</b
+                  ><small data-i18n="ap.atelier.1.d">aucune dépendance</small></span
+                >
+                <span class="apercu-etat" data-ton="ok" data-i18n="ap.atelier.1.e">prête</span>
+              </div>
+              <div class="apercu-ligne">
+                <span
+                  ><b data-i18n="ap.atelier.2.t">2. Brancher le filet sur la table</b
+                  ><small data-i18n="ap.atelier.2.d">attend la tâche 1</small></span
+                >
+                <span class="apercu-etat" data-i18n="ap.atelier.2.e">en attente</span>
+              </div>
             </div>
           </div>
         </div>
@@ -3611,14 +3927,16 @@
           <h3 data-i18n="co.cld.t">Cloud</h3>
           <ul>
             <li data-i18n="co.cld.1">La même Queen, sur tes serveurs.</li>
-            <li data-i18n="co.cld.2">Tu poses tes clés Stripe. Rush dès 79 €.</li>
+            <li data-i18n="co.cld.2">Tes clients paient chez toi — pas ce dépôt.</li>
             <li data-i18n="co.cld.3">L'horloge qui compte est celle de l'hébergeur.</li>
           </ul>
-          <a class="btn" href="rush/" data-i18n="co.cloud.lien">Voir les offres</a>
         </article>
+        <a class="edition-rush" href="rush/" data-i18n="co.rush"
+          >Mission express — à partir de 79 €, sans abonnement</a
+        >
         <p class="cloud-honest" data-i18n="co.cloud.h">
-          Ce dépôt ne prélève aucun paiement. Pour encaisser, tu déploies le Cloud chez toi — sur tes
-          serveurs, pas ici.
+          Ce dépôt ne prélève aucun paiement. Pour encaisser, tu déploies le Cloud chez toi — sur
+          tes serveurs, pas ici.
         </p>
       </div>
     </section>
@@ -4096,7 +4414,6 @@
             '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
           'nav.community': 'Editions',
           'nav.rush': 'Rush',
-          'co.cloud.lien': 'See the offers',
           'co.kicker': 'Editions',
           'co.headline': 'Community free. Cloud, on your servers.',
           'co.lede':
@@ -4109,8 +4426,9 @@
           'co.cld.periode': '/ month · Queen',
           'co.cld.t': 'Cloud',
           'co.cld.1': 'The same Queen, on your servers.',
-          'co.cld.2': 'You set your Stripe keys. Rush from \u20ac79.',
+          'co.cld.2': 'Your customers pay you \u2014 not this repository.',
           'co.cld.3': 'The clock that counts is the host\u2019s.',
+          'co.rush': 'Express mission \u2014 from \u20ac79, no subscription',
           'co.cloud.h':
             'This repository collects no payment. To charge customers, you deploy Cloud at your place \u2014 on your servers, not here.',
           'rc.kicker': 'Get started',
@@ -4232,8 +4550,8 @@
 
         /* ── Journal vivant ── */
         var JFR = [
-          { i: '🍯', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: 'var(--gold)' },
-          { i: '⚙️', t: 'ruche-alpha butine « Auth JWT » (claude-code)', c: 'var(--gold)' },
+          { i: '🍯', t: 'Tâche « Schéma BDD » terminée — nectar +12', c: 'var(--orange)' },
+          { i: '⚙️', t: 'ruche-alpha butine « Auth JWT » (claude-code)', c: 'var(--orange)' },
           {
             i: '↻',
             t: '« API de facturation » : échec, nouvelle tentative 2/3',
@@ -4262,8 +4580,8 @@
           { i: '💓', t: 'Pouls : 14 tâches/h · p95 3,2 s · 96 % de succès', c: 'var(--green)' },
         ];
         var JEN = [
-          { i: '🍯', t: 'Task "DB schema" done — nectar +12', c: 'var(--gold)' },
-          { i: '⚙️', t: 'ruche-alpha foraging "JWT auth" (claude-code)', c: 'var(--gold)' },
+          { i: '🍯', t: 'Task "DB schema" done — nectar +12', c: 'var(--orange)' },
+          { i: '⚙️', t: 'ruche-alpha foraging "JWT auth" (claude-code)', c: 'var(--orange)' },
           { i: '↻', t: '"Billing API": failed, retry 2/3', c: 'var(--gold-2)' },
           { i: '⚔', t: 'Drone race started on 2 nodes — first success wins', c: 'var(--blue)' },
           {
@@ -4299,7 +4617,9 @@
               ':' +
               ('0' + d.getSeconds()).slice(-2);
             html +=
-              '<li><span class="ico">' +
+              '<li' +
+              (k === 3 ? ' class="fresh"' : '') +
+              '><span class="ico">' +
               e.i +
               '</span><span class="msg" style="color:' +
               e.c +
@@ -4312,11 +4632,61 @@
           journalEl.innerHTML = html;
         }
         var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!reduceMotion)
+        if (reduceMotion) {
+          document.querySelectorAll('.swarm-pulses').forEach(function (g) {
+            g.parentNode.removeChild(g);
+          });
+        } else {
           setInterval(function () {
             tick++;
             renderJournal();
           }, 2600);
+
+          var rayon = document.querySelector('.hero-rayon');
+          var hero = document.querySelector('.hero');
+          if (rayon && hero) {
+            hero.addEventListener('mousemove', function (ev) {
+              var box = hero.getBoundingClientRect();
+              var x = (ev.clientX - box.left) / box.width - 0.5;
+              var y = (ev.clientY - box.top) / box.height - 0.5;
+              rayon.style.transform = 'translate(' + x * 14 + 'px,' + y * 10 + 'px)';
+            });
+            hero.addEventListener('mouseleave', function () {
+              rayon.style.transform = '';
+            });
+          }
+
+          var aReveler = document.querySelectorAll(
+            '.section .kicker, .section .headline, .section .lede, .etape, .edition, .edition-rush, .famille, .swarm-panel, .cadre, .cloud-honest',
+          );
+          var reveler = function (el) {
+            el.classList.add('hv-in');
+          };
+          if (typeof IntersectionObserver === 'function') {
+            var io = new IntersectionObserver(
+              function (entries) {
+                entries.forEach(function (en) {
+                  if (en.isIntersecting) {
+                    reveler(en.target);
+                    io.unobserve(en.target);
+                  }
+                });
+              },
+              { rootMargin: '0px 0px -6% 0px', threshold: 0.08 },
+            );
+            aReveler.forEach(function (el) {
+              io.observe(el);
+            });
+            requestAnimationFrame(function () {
+              aReveler.forEach(function (el) {
+                var r = el.getBoundingClientRect();
+                if (r.width === 0 && r.height === 0) reveler(el);
+              });
+            });
+          } else {
+            aReveler.forEach(reveler);
+          }
+        }
 
         setLang(initial);
 
