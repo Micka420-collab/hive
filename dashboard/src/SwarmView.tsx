@@ -148,7 +148,7 @@ export function SwarmView({ tasks, nodes, agentsByTask }: Props) {
 
       {nodes.length === 0 && tasks.length === 0 && (
         <text x={W / 2} y={H / 2} className="swarm-empty">
-          {tr('La ruche attend ses premières ouvrières…', 'The hive awaits its first worker bees…')}
+          {tr('En attente des premières tâches…', 'Waiting for the first tasks…')}
         </text>
       )}
     </svg>
