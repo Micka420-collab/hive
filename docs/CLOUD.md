@@ -2,10 +2,16 @@
 
 Deux éditions, un seul dépôt.
 
-| Édition | Où ça tourne | Prix pour l'utilisateur | Commande |
-| ------- | ------------ | ----------------------- | -------- |
-| **Community** | Sa machine | **0 €**, pour toujours | `npm run setup` ou `docker compose up` |
-| **Cloud** | **Tes** serveurs | Queen 49 €/mois, Rush dès 79 € | `docker compose -f docker-compose.cloud.yml up -d` |
+| Édition       | Où ça tourne     | Prix pour l'utilisateur        | Commande                                           |
+| ------------- | ---------------- | ------------------------------ | -------------------------------------------------- |
+| **Community** | Sa machine       | **0 €**, pour toujours         | `npm run setup` ou `docker compose up`             |
+| **Cloud**     | **Tes** serveurs | Queen 49 €/mois, Rush dès 79 € | `docker compose -f docker-compose.cloud.yml up -d` |
+
+Au-dessus, deux paliers d'ÉQUIPE — jamais du cœur : **Team** (99 €/mois, cloud
+ou self-host : rôles fins, quotas par membre, projets d'organisation, sièges
+illimités) et **Enterprise** (sur devis : SSO/SAML, audit exportable, rétention
+personnalisée, SLA). Les portes sont dans `src/shared/paliers.ts` ; le détail
+et le pourquoi dans [`MODELE-ECONOMIQUE.md`](MODELE-ECONOMIQUE.md) §6.
 
 Aucune fonction du noyau n'est retirée de Community pour vendre Cloud. Ce qui se vend, c'est **l'hébergement** (la Queen allumée, éventuellement des nœuds) et **du temps-ouvrière mesuré sur l'horloge de l'hébergeur**, jamais sur `durationMs` déclaré par l'agent.
 
@@ -46,7 +52,7 @@ Sans `HIVE_WEBHOOK_SECRET`, **la Queen Cloud refuse de démarrer**. Ce n'est pas
 
 Dans le Dashboard Stripe :
 
-- Produits alignés sur les clés de plan Hive : `queen`, `eclaireuse`, `essaim`, `colonie`.
+- Produits alignés sur les clés de plan Hive : `queen`, `eclaireuse`, `essaim`, `colonie`, `team`. (`enterprise` se signe au contrat — l'abonnement s'active par le même webhook, mais le prix vit dans le devis, pas dans un produit public.)
 - Métadonnées **obligatoires** sur l'abonnement : `projectId`, `plan`.
 - Webhook vers `https://hive.example.com/api/webhooks/abonnement`.
 - Événements : `customer.subscription.created`, `customer.subscription.updated`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`.

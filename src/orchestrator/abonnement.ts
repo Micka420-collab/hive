@@ -119,6 +119,30 @@ export const PLANS: readonly Plan[] = [
     periode: 'mois',
     serveurs: 1,
   },
+  // Team vend des fonctions d'ÉQUIPE, jamais le cœur : rôles fins, quotas par
+  // membre, projets d'organisation, sièges illimités (src/shared/paliers.ts).
+  // Le cœur reste entier en Community — retirer une fonction du noyau pour
+  // vendre ce palier casserait l'argument qui fait venir les membres.
+  {
+    cle: 'team',
+    nom: 'Team',
+    heures: 100,
+    prixCentimes: 9_900,
+    periode: 'mois',
+    serveurs: 1,
+  },
+  // Enterprise est SUR DEVIS : aucun prix affiché, donc AUCUN montant ici —
+  // un chiffre dans cette grille finirait sur une page de vente. Les heures
+  // sont négociées au contrat et posées à la main dans `budgets`, jamais lues
+  // dans ce tableau : `heures: 0` comme la Queen, `hebergement()` fait foi.
+  {
+    cle: 'enterprise',
+    nom: 'Enterprise',
+    heures: 0,
+    prixCentimes: 0,
+    periode: 'mois',
+    serveurs: 1,
+  },
 ] as const;
 
 export function planParCle(cle: string): Plan | null {

@@ -109,13 +109,23 @@ D'où deux leviers, tous deux déjà présents ou en cours dans le code :
 
 ## 5. Grille proposée
 
-| Offre               | Contenu                    | Prix           | Prix / h | Marge brute à 3,50 €/h | Marge à 5 €/h |
-| ------------------- | -------------------------- | -------------- | -------: | ---------------------: | ------------: |
-| **Ruche libre**     | Auto-hébergée, illimitée   | **0 €**        |        — |                      — |             — |
-| **Rush Éclaireuse** | 10 h-ouvrières, 1 objectif | **79 €**       |   7,90 € |                   56 % |          37 % |
-| **Rush Essaim**     | 50 h-ouvrières, 1 sprint   | **299 €**      |   5,98 € |                   41 % |          16 % |
-| **Rush Colonie**    | 200 h/mois, continu        | **990 €/mois** |   4,95 € |                   29 % |          −1 % |
-| **Queen hébergée**  | Orchestrateur managé       | **+49 €/mois** |        — |                  ~85 % |         ~85 % |
+| Offre               | Contenu                         | Prix           | Prix / h | Marge brute à 3,50 €/h | Marge à 5 €/h |
+| ------------------- | ------------------------------- | -------------- | -------: | ---------------------: | ------------: |
+| **Ruche libre**     | Auto-hébergée, illimitée        | **0 €**        |        — |                      — |             — |
+| **Rush Éclaireuse** | 10 h-ouvrières, 1 objectif      | **79 €**       |   7,90 € |                   56 % |          37 % |
+| **Rush Essaim**     | 50 h-ouvrières, 1 sprint        | **299 €**      |   5,98 € |                   41 % |          16 % |
+| **Rush Colonie**    | 200 h/mois, continu             | **990 €/mois** |   4,95 € |                   29 % |          −1 % |
+| **Queen hébergée**  | Orchestrateur managé            | **+49 €/mois** |        — |                  ~85 % |         ~85 % |
+| **Team**            | Fonctions d'équipe + 100 h/mois | **99 €/mois**  |   voir ⚠ |                 voir ⚠ |        voir ⚠ |
+| **Enterprise**      | Team + SSO, audit, SLA          | **sur devis**  |        — |                      — |             — |
+
+> ⚠ **Team n'est pas une offre d'heures, et sa ligne ne se lit pas comme les
+> Rushes.** 100 h hébergées coûteraient 350 € à 3,50 €/h — à perte si on ne
+> vendait que ça. Le prix paie les **fonctions d'équipe** (§6), et les heures
+> incluses ne coûtent à l'opérateur que si la ruche tourne sur SES nœuds : une
+> équipe en self-host consomme les siennes. Un opérateur dont les clients Team
+> saturent les 100 h hébergées doit ajuster — le chiffre est dans le tableau
+> pour qu'on le voie venir, pas pour le découvrir à la facture.
 
 Lecture de la dernière colonne : **si le coût réel s'avère être 5 €/h, l'offre
 Colonie est à perte.** C'est le chiffre à surveiller, et c'est pour ça qu'il est
@@ -141,7 +151,59 @@ commencer, pas par les Rushes.
   du propriétaire du dépôt. Vendre l'automatisation du merge reviendrait à
   vendre le contournement de la seule garantie que Hive donne.
 
-## 6. Les trois risques qui tuent ce modèle
+## 6. Les quatre paliers — Community, Cloud, Team, Enterprise
+
+Le modèle est celui de n8n : **open-core sans cœur mutilé.** Quatre paliers,
+et une frontière nette entre ce qui relève de la ruche (jamais vendu) et ce
+qui relève de l'organisation (vendu).
+
+| Palier         | Pour qui                       | Prix          | Ce qu'il contient                                                                                             |
+| -------------- | ------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Community**  | Chez soi, entre amis           | **0 €**       | Le cœur COMPLET : orchestration, nœuds, Balance, Gardiennes, sièges illimités. Rien n'en sera retiré.         |
+| **Cloud**      | Qui veut la ruche sans serveur | dès **49 €**  | L'hébergement : Queen 49 €/mois, Rushes dès 79 € sans abonnement (grille §5).                                 |
+| **Team**       | Une équipe, cloud OU self-host | **99 €/mois** | Des fonctions d'ÉQUIPE : rôles fins, quotas par membre, projets d'organisation, sièges illimités, 100 h/mois. |
+| **Enterprise** | Au contrat                     | **sur devis** | Tout Team, plus SSO/SAML, audit exportable, rétention personnalisée, support prioritaire, SLA.                |
+
+### 6.1 Pourquoi Community n'est jamais bridé
+
+C'est l'argument du §1, et il est structurel, pas moral : le noyau gratuit est
+le **canal d'acquisition**. n8n a construit son marché ainsi — le cœur entier
+en local, et ce qui se paie est ce qui n'existe que pour une organisation
+(l'hébergement, les rôles, le SSO). Brider Community pour pousser vers Team
+inverserait la mécanique : moins d'utilisateurs entrent, donc moins d'équipes
+se forment, donc moins de clients Team. **Le jour où une fonction du cœur
+passe derrière un palier, ce document est caduc** — et un test le verrouille
+(`tests/paliers.test.ts` : les sièges de Community sont illimités).
+
+### 6.2 Ce que Team et Enterprise vendent, précisément
+
+Rien de ce qui précède : pas d'orchestration en plus, pas de nœuds en plus,
+pas de vitesse en plus. Des besoins qui n'apparaissent qu'à plusieurs :
+
+- **Team** — des rôles plus fins qu'admin/membre, des quotas d'heures par
+  membre, des projets rattachés à l'organisation plutôt qu'à une personne, et
+  des sièges illimités (les plans Cloud individuels en incluent 5). Prix
+  simple, un seul chiffre : 99 €/mois, que la ruche soit hébergée ou chez vous.
+- **Enterprise** — ce qui ne se vend qu'au contrat : SSO/SAML, export d'audit
+  dans un format contractuel, rétention personnalisée, support prioritaire,
+  SLA. **Pas de prix affiché** : un chiffre public sur une offre négociée est
+  faux pour tout le monde.
+
+Les portes sont dans `src/shared/paliers.ts` — un module pur, fermé par
+défaut, testé. Le SSO n'est PAS implémenté : la porte existe, l'implémentation
+viendra derrière elle (TODO tracé dans le module).
+
+### 6.3 La liberté tarifaire de l'opérateur
+
+Hive n'encaisse rien : **l'opérateur** encaisse (`docs/CLOUD.md`). Les
+prix de ce document sont la grille PROPOSÉE, celle que le code embarque et que
+les tests rapprochent — pas un tarif imposé. Un opérateur qui héberge Hive
+fixe ses propres prix chez son processeur de paiement ; ce qui est non
+négociable n'est pas le montant, c'est la structure : le cœur reste gratuit,
+la facturation lit l'horloge de l'hébergeur, et aucun paiement ne débloque un
+merge.
+
+## 7. Les trois risques qui tuent ce modèle
 
 | Risque                       | Ce qui se passe                              | Ce qui le borne                                                                                            |
 | ---------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -154,7 +216,7 @@ une heure **utile** d'une heure **dépensée**. C'est la base d'un engagement qu
 peu de concurrents peuvent tenir — _les heures jugées creuses par les Gardiennes
 ne sont pas décomptées de votre plafond._
 
-## 7. Ce qu'il reste à brancher de ton côté
+## 8. Ce qu'il reste à brancher de ton côté
 
 Le compteur d'heures **côté hébergeur**, l'alignement Stripe → abonnement, l'édition `HIVE_EDITION=cloud` et le compose (`docker-compose.cloud.yml`) sont dans le dépôt. Voir `docs/CLOUD.md`.
 
