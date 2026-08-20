@@ -366,7 +366,9 @@ export function Journal({ events }: { events: HiveEvent[] }) {
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>{t('Journal', 'Journal')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Journal', 'Journal')}
+        </h2>
         <span className="panel-count">{events.length}</span>
       </header>
       <ul className="journal">
