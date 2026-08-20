@@ -74,6 +74,26 @@ describe('HiveStore — sauvegardes d’étape', () => {
     expect(store.listSauvegardes(p.id)).toHaveLength(0);
     store.close();
   });
+
+  it('pruneSauvegardes ne garde que les N plus récentes (tous projets)', () => {
+    const store = new HiveStore(':memory:');
+    const a = store.createProject({ name: 'A' });
+    const b = store.createProject({ name: 'B' });
+    for (let i = 0; i < 5; i++) {
+      store.creerSauvegarde({
+        projectId: i % 2 === 0 ? a.id : b.id,
+        label: `m${i}`,
+        kind: 'manuel',
+        patch: `diff --git a/x b/x\n+${i}`,
+        createdAt: 1_000 + i,
+      });
+    }
+    expect(store.listSauvegardes(a.id).length + store.listSauvegardes(b.id).length).toBe(5);
+    expect(store.pruneSauvegardes(2)).toBe(3);
+    expect(store.listSauvegardes(a.id).length + store.listSauvegardes(b.id).length).toBe(2);
+    expect(store.pruneSauvegardes(2)).toBe(0);
+    store.close();
+  });
 });
 
 const TOKEN = 'jeton-sauvegardes-suffisamment-long-42';
