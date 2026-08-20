@@ -66,29 +66,27 @@ interface NavItem {
   id: ViewId;
   label: string;
   labelEn: string;
-  icon: string;
   key: string;
   /** Vue d'administration : la case n'est montrée qu'aux admins. */
   admin?: true;
 }
 
 const NAV: NavItem[] = [
-  { id: 'ruche', label: 'Ruche', labelEn: 'Hive', icon: '🐝', key: '1' },
-  { id: 'reine', label: 'Reine', labelEn: 'Queen', icon: '👑', key: '2' },
-  { id: 'miellerie', label: 'Miellerie', labelEn: 'Honey House', icon: '🍯', key: '3' },
-  { id: 'projets', label: 'Projets', labelEn: 'Projects', icon: '⬡', key: '4' },
-  { id: 'essaim', label: 'Essaim', labelEn: 'Swarm', icon: '🕺', key: '5' },
-  { id: 'sante', label: 'Santé', labelEn: 'Health', icon: '💓', key: '6' },
-  { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', icon: '📜', key: '7' },
-  { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', icon: '🧠', key: '8' },
-  { id: 'rayon', label: 'Rayon', labelEn: 'Comb', icon: '🍯', key: '9' },
-  { id: 'monespace', label: 'Mon espace', labelEn: 'My space', icon: '🪪', key: '0' },
-  { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', icon: '🏗', key: 'h' },
+  { id: 'ruche', label: 'Ruche', labelEn: 'Hive', key: '1' },
+  { id: 'reine', label: 'Reine', labelEn: 'Queen', key: '2' },
+  { id: 'miellerie', label: 'Miellerie', labelEn: 'Honey House', key: '3' },
+  { id: 'projets', label: 'Projets', labelEn: 'Projects', key: '4' },
+  { id: 'essaim', label: 'Essaim', labelEn: 'Swarm', key: '5' },
+  { id: 'sante', label: 'Santé', labelEn: 'Health', key: '6' },
+  { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', key: '7' },
+  { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', key: '8' },
+  { id: 'rayon', label: 'Rayon', labelEn: 'Comb', key: '9' },
+  { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
+  { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
   {
     id: 'intendance',
     label: 'Intendance',
     labelEn: 'Stewardship',
-    icon: '🖥',
     key: 'i',
     admin: true,
   },
@@ -96,7 +94,6 @@ const NAV: NavItem[] = [
     id: 'cerveau',
     label: 'Cerveau',
     labelEn: 'Brain',
-    icon: '🧠',
     key: 'c',
     admin: true,
   },
@@ -407,9 +404,6 @@ export function App() {
                 title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}
               >
-                <span className="mc-nav-icon" aria-hidden="true">
-                  {item.icon}
-                </span>
                 <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
                 {porteLaPastille(item.id, pastille) && (
                   <span

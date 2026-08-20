@@ -195,14 +195,13 @@ function labelDuGabarit(fichier: string): string {
 
 // ─── LES RESSOURCES QUE LE CSS VA CHERCHER ───────────────────────────────────
 //
-// La garde des fontes ci-dessus ne regardait QUE `fonts/*.woff2`. Le jour où la
-// coulée de miel du titre est devenue un fichier (`site/miel.svg`), plus rien ne
-// vérifiait son existence : le supprimer aurait laissé la CI verte et le titre
-// nu, sur la seule page que voient les gens qui découvrent le projet.
+// La garde des fontes ne regardait QUE `fonts/*.woff2`. Toute autre `url()`
+// locale — une marque, une fonte ajoutée demain — doit aussi exister : la
+// CI verte avec un fichier manquant, c'est un titre nu pour qui découvre
+// le projet.
 //
-// Une garde nommée d'après UNE ressource aurait eu le même défaut à la ressource
-// suivante. Celle-ci lit les `url()` du document et exige que chacune existe —
-// elle couvre donc aussi ce qu'on ajoutera demain sans y penser.
+// Une garde nommée d'après UNE ressource aurait le même défaut à la suivante.
+// Celle-ci lit les `url()` du document et exige que chacune existe.
 describe.each(PAGES)('page $nom — les ressources locales', ({ html, dossier }) => {
   it('chaque url() du CSS pointe vers un fichier livré', () => {
     const refs = [...html.matchAll(/url\(\s*'([^']+)'\s*\)/g)]
@@ -218,41 +217,24 @@ describe.each(PAGES)('page $nom — les ressources locales', ({ html, dossier })
   });
 });
 
-// ─── LE MIEL DU TITRE ────────────────────────────────────────────────────────
+// ─── LE TITRE N'EST PLUS UN SURLIGNEUR ───────────────────────────────────────
 //
-// Le surlignage du titre a été, dans l'ordre : un aplat, puis un pseudo-élément
-// en position absolue, puis un fond. Les deux premiers sont morts sur le même
-// défaut, et c'est lui que cette garde retient.
-//
-// Un élément en position absolue posé sur un INLINE QUI SE COUPE se dessine sur
-// la boîte englobante de tous ses fragments. Dès que le titre passait à la ligne
-// — c'est-à-dire sur tout mobile — un filet vertical reliait les deux lignes.
-//
-// Le correctif tient en une déclaration, `box-decoration-break: clone`, et son
-// absence ne casse RIEN de visible sur un écran large : c'est exactement le
-// genre de ligne qu'une retouche ultérieure supprime en croyant nettoyer.
-describe('site vitrine — la coulée de miel', () => {
+// La coulée `miel.svg` (fond + box-decoration-break) faisait « dessiné à la
+// main ». Le span `.grad` reste : FR et EN enveloppent la même locution. Il
+// n'a plus ni image, ni pseudo-élément — un filet vertical reviendrait
+// avec `.grad::before` posé sur un inline qui se coupe.
+describe('site vitrine — le titre sans coulée', () => {
   const grad = /\.grad\s*\{([^}]*)\}/.exec(vitrine)?.[1] ?? '';
 
-  it('la règle .grad existe et porte un fond', () => {
+  it('la règle .grad existe, sans image de fond', () => {
     expect(grad, 'règle .grad introuvable').not.toBe('');
-    expect(grad, 'le miel n’est plus une image de fond').toMatch(/background-image:\s*url\(/);
-  });
-
-  it('le fond se recopie sur CHAQUE fragment de ligne', () => {
-    // Sans le préfixe, Safari — donc l'essentiel du mobile, donc le cas où le
-    // titre se coupe le plus souvent — retombe sur le défaut.
-    expect(grad, 'box-decoration-break absent').toMatch(
-      /(?<!-webkit-)box-decoration-break:\s*clone/,
-    );
-    expect(grad, 'la forme -webkit- manque : Safari garde le défaut').toMatch(
-      /-webkit-box-decoration-break:\s*clone/,
+    expect(grad, 'la coulée de miel est revenue').not.toMatch(/background-image/);
+    expect(grad, 'un miel vif porterait le texte sur la crème').not.toMatch(
+      /color:\s*var\(--gold\)/,
     );
   });
 
-  it('aucun pseudo-élément ne redessine le miel par-dessus', () => {
-    // La cause du défaut, interdite à la racine plutôt que corrigée à chaque
-    // retour : si `.grad::before` réapparaît, le filet vertical revient avec.
+  it('aucun pseudo-élément ne redessine un surligneur', () => {
     expect(vitrine, '.grad::before ou ::after est de retour').not.toMatch(
       /\.grad::(?:before|after)/,
     );
@@ -653,15 +635,18 @@ describe('site vitrine — section communauté', () => {
     expect(vitrine).toMatch(/<section id="communaute"/);
   });
 
-  it('le bloc Hive Cloud dit clairement qu’il n’existe pas encore', () => {
-    // Annoncer une offre payante sur une page publique sans dire qu'elle n'est
-    // pas disponible, c'est promettre. On ne promet pas.
-    const bloc = vitrine.match(/<div class="cloud">[\s\S]*?<\/div>\s*<\/section>/)?.[0] ?? '';
-    expect(bloc, 'bloc cloud introuvable').not.toBe('');
+  it('le bloc Hive Cloud dit clairement que CE dépôt n’encaisse rien', () => {
+    // Annoncer une offre payante sur une page publique sans dire qui encaisse,
+    // c'est promettre. On ne promet pas à la place de l'opérateur.
+    const bloc = vitrine.match(/<section id="communaute"[\s\S]*?<\/section>/)?.[0] ?? '';
+    expect(bloc, 'section communauté introuvable').not.toBe('');
+    expect(bloc).toMatch(/class="cloud"/);
     expect(bloc).toMatch(/cloud-honest/);
-    expect(bloc).toMatch(/n’existe pas encore|n'existe pas encore/);
-    // …et il mène à la page qui détaille l'offre.
+    expect(bloc).toMatch(/ne prélève aucun paiement|n'encaisse|collects no payment/i);
     expect(bloc, 'le bloc cloud ne renvoie pas vers /rush/').toMatch(/href="rush\/"/);
+    expect(bloc, 'docs/CLOUD.md n’est plus un lien orange dans le corps').not.toMatch(
+      /docs\/CLOUD\.md/,
+    );
   });
 });
 

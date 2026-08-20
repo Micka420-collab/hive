@@ -29,10 +29,7 @@
     />
     <meta name="twitter:image" content="https://micka420-collab.github.io/hive/og.png" />
     <meta name="theme-color" content="#130f09" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
-    />
+    <link rel="icon" href="marque.svg" type="image/svg+xml" />
     <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
          va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
          Voir site/fonts/LICENSE.txt (SIL OFL 1.1) pour l'origine des fichiers. -->
@@ -136,10 +133,10 @@
 
       :root {
         /* ── LA PALETTE DU DESIGN ────────────────────────────────────────────
-           Thème CLAIR. Les noms restent ceux d'avant — `--bg`, `--panel`,
-           `--text`… — parce que 74 emplois les désignent déjà et qu'un
-           renommage massif serait un diff illisible pour un gain nul. Ce sont
-           les VALEURS qui portent le changement. */
+           Cire et papier, un seul accent miel. Les NOMS restent (`--bg`,
+           `--panel`, `--gold`…). Craft : filets, rayon 8 px, ombre discrète.
+           `--gold` est le miel de REMPLISSAGE (et le haut de la rampe de
+           l'installeur). Le texte des liens passe par `--orange`, ≥ 4,5:1. */
         --bg: #f7f3e9;
         --panel: #fffdf8;
         --panel-2: #f2eada;
@@ -147,8 +144,8 @@
         --border: #e3d8c2;
         --border-2: #e0d2b6;
         --text: #1b1712;
-        --muted: #7c7263;
-        --dim: #9a8f7c;
+        --muted: #5a5348;
+        --dim: #5a5348;
         --encre: #1b1712;
         /* Les deux tons de texte SUR ENCRE. Ils manquaient : le panneau de
            l'essaim écrivait ses alvéoles sombres avec les couleurs prévues pour
@@ -167,8 +164,8 @@
         --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
         --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
         /* Le rayon de courbure et l'ombre portée du design. */
-        --r: 16px;
-        --ombre: 0 16px 32px -20px rgba(27, 23, 18, 0.25);
+        --r: 8px;
+        --ombre: 0 8px 24px -18px rgba(27, 23, 18, 0.18);
       }
       * {
         box-sizing: border-box;
@@ -201,6 +198,10 @@
         text-decoration: none;
       }
       a:hover {
+        color: var(--text);
+      }
+      .brand:hover,
+      .brand:hover .name {
         color: var(--text);
       }
       :focus-visible {
@@ -244,23 +245,41 @@
         align-items: center;
         gap: 16px;
         padding: 14px 28px;
-        /* `color-mix` plutôt qu'un rgba() en dur : la transparence suit le
-           jeton, et changer `--bg` n'oblige pas à retrouver cette ligne. */
-        background: color-mix(in srgb, var(--bg) 90%, transparent);
+        background: color-mix(in srgb, var(--bg) 86%, transparent);
         backdrop-filter: blur(16px);
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid transparent;
         position: sticky;
         top: 0;
         z-index: 60;
         flex-wrap: wrap;
+        transition:
+          border-color 0.2s ease,
+          background 0.2s ease;
+      }
+      header.scrolled {
+        border-bottom-color: var(--border);
+        background: color-mix(in srgb, var(--bg) 72%, transparent);
+        backdrop-filter: blur(22px);
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 11px;
+        gap: 10px;
+        color: inherit;
+        text-decoration: none;
       }
-      .brand .bee {
-        font-size: 26px;
+      .brand .marque {
+        width: 26px;
+        height: 29px;
+        display: block;
+        flex: none;
+        color: var(--encre);
+      }
+      .brand .marque polygon {
+        fill: currentColor;
+      }
+      .brand .marque .lettre {
+        fill: var(--panel);
       }
       .brand .name {
         font-family: var(--titre);
@@ -273,15 +292,17 @@
       }
       .brand .ver {
         font-size: 12px;
+        font-weight: 500;
         color: var(--muted);
+        letter-spacing: 0.01em;
       }
       nav.main {
         display: flex;
-        gap: 18px;
+        gap: 22px;
         margin-left: auto;
         flex-wrap: wrap;
-        font-size: 14px;
-        font-weight: 600;
+        font-size: 13px;
+        font-weight: 500;
       }
       nav.main a {
         color: var(--muted);
@@ -293,7 +314,7 @@
       .lang-toggle {
         display: inline-flex;
         border: 1px solid var(--border-2);
-        border-radius: 7px;
+        border-radius: 8px;
         overflow: hidden;
       }
       .lang-toggle button {
@@ -318,17 +339,18 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 7px 16px;
-        border-radius: 7px;
-        background: var(--encre);
-        color: var(--bg);
+        padding: 7px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--border-2);
+        background: transparent;
+        color: var(--text);
         font-weight: 600;
-        font-size: 14px;
+        font-size: 13px;
         white-space: nowrap;
       }
       .btn-gold:hover {
-        filter: brightness(1.12);
-        color: var(--encre);
+        border-color: var(--text);
+        color: var(--text);
       }
 
       /* ── Communauté ── */
@@ -347,10 +369,18 @@
       }
       /* Le numéro est décoratif : l'ordre est déjà porté par le texte et le DOM. */
       .etape-num {
-        width: 30px;
-        height: 27px;
-        clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
-        background: linear-gradient(180deg, var(--orange), var(--gold));
+        width: auto;
+        height: auto;
+        clip-path: none;
+        background: none;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-weight: 600;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        display: block;
+        margin-bottom: 12px;
+      }
         color: var(--encre);
         font-weight: 700;
         font-size: 14px;
@@ -509,38 +539,105 @@
         max-width: 620px;
       }
       .cloud {
-        position: relative;
-        background: linear-gradient(180deg, #241c10, var(--panel));
-        border: 1px solid var(--border-2);
-        border-radius: 10px;
-        padding: 24px 22px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+        gap: 16px;
+        align-items: stretch;
       }
-      .cloud-tag {
-        display: inline-block;
-        padding: 3px 11px;
-        border-radius: 20px;
-        border: 1px solid var(--orange);
-        color: var(--gold);
-        font-size: 12px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 12px;
+      .edition {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 28px 24px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
-      .cloud h3 {
-        margin: 0 0 8px;
-        font-size: 18px;
+      .edition-prix {
+        margin: 0;
+        font-family: var(--titre);
+        font-size: clamp(36px, 5vw, 44px);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        color: var(--text);
       }
-      .cloud p {
-        margin: 0 0 8px;
-        font-size: 14.5px;
+      .edition-prix span {
+        display: block;
+        margin: 8px 0 0;
+        font-family: var(--texte);
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0;
         color: var(--muted);
-        max-width: 720px;
       }
-      /* L'aveu d'indisponibilité doit se lire, pas se deviner. */
+      .edition h3 {
+        margin: 4px 0 2px;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .edition ul {
+        margin: 8px 0 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1;
+      }
+      .edition li {
+        margin: 0;
+        font-size: 14.5px;
+        line-height: 1.45;
+        color: var(--muted);
+        padding-left: 18px;
+        position: relative;
+      }
+      .edition li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0.45em;
+        width: 7px;
+        height: 8px;
+        background: var(--gold);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+      }
+      .edition-cloud {
+        background: var(--encre);
+        border-color: var(--encre);
+      }
+      .edition-cloud .edition-prix,
+      .edition-cloud h3 {
+        color: var(--creme);
+      }
+      .edition-cloud .edition-prix span,
+      .edition-cloud li {
+        color: var(--creme-2);
+      }
+      .edition-cloud .btn {
+        margin-top: 16px;
+        align-self: flex-start;
+        background: var(--gold);
+        color: var(--encre);
+        border: 1px solid var(--gold);
+      }
+      .edition-cloud .btn:hover {
+        filter: brightness(0.96);
+        color: var(--encre);
+      }
       .cloud-honest {
-        font-style: italic;
-        color: var(--dim) !important;
+        grid-column: 1 / -1;
+        margin: 0;
+        padding: 14px 18px;
+        font-size: 14px;
+        line-height: 1.55;
+        color: var(--muted);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        font-style: normal;
       }
 
       /* ── Hero ── */
@@ -548,7 +645,7 @@
         position: relative;
         max-width: 1240px;
         margin: 0 auto;
-        padding: clamp(38px, 7.5vw, 92px) clamp(18px, 4vw, 40px) clamp(46px, 8vw, 100px);
+        padding: clamp(48px, 8vw, 88px) clamp(24px, 4vw, 48px) clamp(56px, 9vw, 110px);
         /* ── ALIGNÉ À GAUCHE, ET C'EST UNE DÉCISION ─────────────────────────
            Un hero centré fait « page de projet » ; il oblige l'œil à chercher
            le début de chaque ligne. Le design aligne à gauche et pose le visuel
@@ -590,10 +687,10 @@
         display: inline-flex;
         align-items: center;
         gap: 9px;
-        padding: 7px 15px 7px 11px;
-        border: 1px solid var(--border-2);
+        padding: 6px 12px 6px 10px;
+        border: 1px solid var(--border);
         background: var(--panel);
-        border-radius: 999px;
+        border-radius: 8px;
         font-size: clamp(11.5px, 2.6vw, 13px);
         font-weight: 600;
         color: var(--muted);
@@ -606,7 +703,6 @@
         clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
         display: block;
         flex: none;
-        animation: hvBeat 2.4s ease-in-out infinite;
       }
       /* ── LES PUCES DE SYSTÈME ───────────────────────────────────────────────
          Quatre façons d'installer, et une seule affichée. Une page qui montre
@@ -625,7 +721,7 @@
         border: 1px solid var(--border-2);
         background: var(--panel);
         color: var(--muted);
-        border-radius: 999px;
+        border-radius: 8px;
         font-family: inherit;
         font-size: clamp(12.5px, 2.7vw, 13.5px);
         font-weight: 600;
@@ -653,14 +749,14 @@
         display: flex;
         align-items: center;
         gap: 9px;
-        padding: 11px 11px 11px 15px;
+        padding: 10px 10px 10px 14px;
         background: var(--encre);
-        border-radius: 14px;
+        border-radius: 8px;
         max-width: 520px;
-        box-shadow: 0 18px 40px -18px rgba(27, 23, 18, 0.5);
+        box-shadow: var(--ombre);
       }
       .barre-install .invite {
-        color: var(--gold-2);
+        color: var(--orange);
         font-family: var(--mono);
         font-size: 13px;
         flex: none;
@@ -680,10 +776,10 @@
       }
       .barre-install button {
         flex: none;
-        min-height: 38px;
-        padding: 8px 12px;
-        background: transparent;
-        color: var(--gold);
+        min-height: 36px;
+        padding: 8px 14px;
+        background: var(--gold);
+        color: var(--encre);
         border: 1px solid var(--gold);
         border-radius: 8px;
         font-family: inherit;
@@ -691,10 +787,9 @@
         font-weight: 600;
         cursor: pointer;
         white-space: nowrap;
-        transition: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
       }
       .barre-install button:hover {
-        background: var(--gold);
+        filter: brightness(0.96);
         color: var(--encre);
       }
       .note-install {
@@ -704,75 +799,39 @@
         max-width: 520px;
       }
       /* ══ LE RAYON D'ALVÉOLES ════════════════════════════════════════════════
-         Cinq rangées décalées, l'alvéole centrale portant le H. Le halo derrière
-         respire (`hvGlow`), l'ensemble flotte (`hvFloat`), et chaque alvéole
-         claire ondule avec son propre retard (`hvWave`) — c'est ce décalage qui
-         fait un essaim plutôt qu'une frise qui clignote.
-
-         Les hexagones sont POINTE EN HAUT (`50% 0`), comme dans le design ; le
-         reste de la page emploie des hexagones pointe à gauche pour les nœuds.
-         Deux orientations, deux natures : ici c'est la matière, là c'est un
-         objet du graphe. */
+         Sept hexagones : un cœur d'encre (H), un miel, le reste en filet.
+         Un SVG précis, pas une grappe d'autocollants qui flotte. */
       .hero-rayon {
         position: relative;
         display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-      .halo-rayon {
-        position: absolute;
-        inset: -12% -6%;
-        background: radial-gradient(58% 52% at 55% 42%, rgba(246, 196, 69, 0.34), transparent 72%);
-        filter: blur(6px);
-        animation: hvGlow 5.5s ease-in-out infinite;
-        pointer-events: none;
-      }
-      .rayon {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(3px, 0.9vw, 6px);
-        align-items: center;
-        max-width: 100%;
-        animation: hvFloat 7s ease-in-out infinite;
-      }
-      .rayon-rang {
-        display: flex;
-        gap: clamp(3px, 0.9vw, 6px);
-      }
-      /* Le décalage d'une demi-alvéole : c'est lui, et rien d'autre, qui fait
-         qu'un damier devient un rayon. */
-      .rayon-rang.decale {
-        margin-left: clamp(19px, 4.8vw, 31px);
-      }
-      .rayon-rang.centre {
-        align-items: center;
-      }
-      .alv {
-        width: clamp(38px, 9.4vw, 56px);
-        height: clamp(44px, 10.8vw, 64px);
-        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-        flex: none;
-        display: block;
-        background: var(--chip);
-        animation: hvWave 4.6s ease-in-out infinite;
-      }
-      .alv.miel {
-        background: linear-gradient(150deg, var(--gold), var(--gold-2));
-      }
-      .alv.ambre {
-        background: #f1e0b4;
-      }
-      .alv.coeur {
-        background: linear-gradient(150deg, var(--encre), #3a2e1c);
-        display: flex;
-        align-items: center;
         justify-content: center;
-        color: var(--gold);
+        align-items: center;
+      }
+      .rayon-svg {
+        width: min(100%, 340px);
+        height: auto;
+        overflow: visible;
+        color: var(--border);
+        animation: hvFloat 9s ease-in-out infinite;
+      }
+      .rayon-svg .cell {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.25;
+      }
+      .rayon-svg .cell.miel {
+        fill: var(--gold);
+        stroke: var(--gold);
+      }
+      .rayon-svg .cell.coeur {
+        fill: var(--encre);
+        stroke: var(--encre);
+      }
+      .rayon-svg .lettre {
+        fill: var(--panel);
         font-family: var(--titre);
+        font-size: 22px;
         font-weight: 700;
-        font-size: clamp(15px, 3.8vw, 21px);
-        animation: none;
       }
       /* ══ LE BANDEAU DES AGENTS ══════════════════════════════════════════════
          Il défile parce que la liste est plus longue que l'écran, pas pour
@@ -889,9 +948,9 @@
       }
       h1 {
         margin: 0;
-        font-size: clamp(33px, 7.4vw, 64px);
+        font-size: clamp(32px, 6.2vw, 52px);
         /* 600, pas 700. Mesuré dans le DOM de la maquette rendue, pas deviné :
-           `getComputedStyle(h1).fontWeight` y vaut 600. Sur Bricolage à 64 px
+           `getComputedStyle(h1).fontWeight` y vaut 600. Sur Bricolage à 52 px
            l'écart d'une graisse est franc — le gras fait une affiche, le
            demi-gras fait une phrase qu'on peut lire. */
         font-weight: 600;
@@ -907,53 +966,14 @@
            l'ancienne coupure — jamais un titre cassé. */
         text-wrap: balance;
       }
-      /* ══ LE MIEL ════════════════════════════════════════════════════
-         Le geste signature : pas une couleur SUR le texte, une coulée de miel
-         DERRIÈRE lui. La matière est dans `miel.svg`, qui explique ses quatre
-         couches ; ici on ne décide que de la POSE.
-
-         DEUX VERSIONS SONT MORTES AVANT CELLE-CI, et les deux pour la même
-         raison de fond — j'avais dessiné le miel sur la mauvaise boîte.
-
-         · Un `linear-gradient` à arête franche : un aplat jaune, propre et
-           parfaitement inerte. Aucun liquide n'a d'arête droite.
-
-         · Un `::before` en position absolue, avec turbulence SVG. Il avait
-           enfin l'air de miel — tant que la phrase tenait sur une ligne. Le
-           texte du héros passe à la ligne dès qu'on rétrécit la fenêtre, et un
-           élément absolu positionné sur un inline coupé se dessine sur la boîte
-           ENGLOBANTE des deux morceaux : un filet vertical reliait les lignes.
-
-         C'est la leçon : sur un inline qui peut se couper, le seul calque qui
-         suive vraiment le texte est un FOND. `box-decoration-break: clone` dit
-         au navigateur de repeindre le fond pour CHAQUE fragment de ligne —
-         chaque morceau reçoit donc sa propre coulée, avec ses propres bords.
-
-         L'image étant étirée (`preserveAspectRatio="none"`), deux fragments de
-         largeurs différentes n'ondulent pas pareil. C'est gratuit, et c'est ce
-         qui empêche la répétition de se voir. */
+      /* ══ L'ACCENT DU TITRE ══════════════════════════════════════════════
+         Plus de coulée dessinée à la main : ça faisait « projet amateur ».
+         Le span `.grad` reste pour l'i18n (FR et EN enveloppent la même
+         locution) ; visuellement, c'est la phrase entière, en encre. */
       .grad {
         font-style: normal;
-        /* Le préfixe reste : Safari ne connaît toujours que la forme -webkit-,
-           et sans lui c'est justement Safari mobile — là où la phrase se coupe
-           le plus souvent — qui affiche le défaut qu'on vient de corriger. */
-        -webkit-box-decoration-break: clone;
-        box-decoration-break: clone;
-        /* Le miel déborde un peu de part et d'autre : un surligneur qui
-           s'arrête pile au glyphe se lit comme un fond de cellule. */
-        padding: 0 0.16em;
-        background-image: url('miel.svg');
-        background-repeat: no-repeat;
-        /* La hauteur décide de tout. À 0,62 em la coulée couvre les deux tiers
-           bas des bas-de-casse et mord sous la ligne de base : c'est le geste
-           d'un surligneur tenu à la main. Plus haut, elle noie le texte ; plus
-           bas, elle redevient un soulignement. */
-        /* PLUS SOBRE : la coulée passe de 0,6 à 0,42 em et se pose plus bas.
-           À 0,6 elle noyait les bas-de-casse et se lisait comme un bloc de
-           couleur ; à 0,42 elle redevient ce qu'un surligneur fait — une
-           bande qui passe SOUS le mot sans le manger. */
-        background-size: 100% 0.42em;
-        background-position: 0 calc(100% - 0.1em);
+        color: inherit;
+        font-weight: inherit;
       }
       /* La seconde ligne porte la promesse qui rassure — plus petite, plus
          discrète : elle se lit APRÈS, et seulement si la première a convaincu. */
@@ -983,12 +1003,12 @@
       }
       /* ── Swarm View panel ── */
       .swarm-panel {
-        margin: 52px auto 0;
+        margin: 64px auto 0;
         max-width: 960px;
         background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 10px;
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        box-shadow: var(--ombre);
         overflow: hidden;
         text-align: left;
       }
@@ -1176,7 +1196,7 @@
       }
       code.inline {
         font-size: 13px;
-        color: var(--gold-2);
+        color: var(--orange);
       }
       code.tag {
         font-size: 12px;
@@ -1210,13 +1230,20 @@
         border-color: var(--border-2);
       }
       .card .ico {
-        font-size: 26px;
-        margin-bottom: 10px;
+        width: 22px;
+        height: 24px;
+        margin-bottom: 12px;
+        font-size: 0;
+        line-height: 0;
+        overflow: hidden;
+        color: transparent;
+        background: var(--encre);
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
       }
       .card h3 {
         margin: 0 0 6px;
         font-size: 16px;
-        color: var(--gold-2);
+        color: var(--text);
       }
       .card p {
         margin: 0;
@@ -1429,7 +1456,7 @@
       }
       .check code {
         font-size: 12.5px;
-        color: var(--gold-2);
+        color: var(--orange);
       }
       .warn {
         margin: 26px 0 0;
@@ -1503,7 +1530,7 @@
         color: var(--dim);
       }
       .term .o {
-        color: var(--gold-2);
+        color: var(--orange);
       }
       .term-note {
         padding: 12px 18px;
@@ -1545,7 +1572,7 @@
       .step .hex.next {
         background: var(--chip);
         border: 1px dashed var(--border-2);
-        color: var(--gold-2);
+        color: var(--orange);
       }
       .step .line {
         width: 2px;
@@ -1564,7 +1591,7 @@
         font-size: 13px;
       }
       .step .t.next {
-        color: var(--gold-2);
+        color: var(--orange);
       }
       .step p {
         margin: 4px 0 0;
@@ -1645,6 +1672,17 @@
         font-size: 18px;
         font-weight: 700;
         letter-spacing: -0.03em;
+      }
+      .pied-nom .marque {
+        width: 22px;
+        height: 25px;
+        color: var(--encre);
+      }
+      .pied-nom .marque polygon {
+        fill: currentColor;
+      }
+      .pied-nom .marque .lettre {
+        fill: var(--panel);
       }
       .pied-promesse {
         margin: 12px 0 0;
@@ -2194,11 +2232,6 @@
         .section {
           padding: 44px 18px 10px;
         }
-        /* Un surligneur encore plus discret quand la ligne est courte : à
-           cette taille, la coulée occupe une part bien plus grande du mot. */
-        .grad {
-          background-size: 100% 0.36em;
-        }
         /* ── LE DOIGT, PAS LE CURSEUR ────────────────────────────────────────
            Apple et Google demandent 44 px ; le WCAG 2.5.5 aussi. Deux zones
            seulement les respectaient — mesuré à cinq largeurs (320 → 430), les
@@ -2342,15 +2375,18 @@
     <a class="skip-link" href="#features" data-i18n="skip">Aller au contenu</a>
 
     <header>
-      <div class="brand">
-        <span class="bee" aria-hidden="true">🐝</span>
+      <a class="brand" href="#features" aria-label="Hive">
+        <svg class="marque" viewBox="0 0 32 36" aria-hidden="true">
+          <polygon points="16,4 28.1,11 28.1,25 16,32 3.9,25 3.9,11" />
+          <path class="lettre" d="M12.2 12.4h2.2v4.2h3.2v-4.2h2.2V24h-2.2v-5.2h-3.2V24h-2.2z" />
+        </svg>
         <span class="name">Hive</span>
         <span class="ver">v0.2.0 · MIT</span>
-      </div>
+      </a>
       <nav class="main" aria-label="Navigation principale">
         <a href="#features" data-i18n="nav.features">Fonctionnalités</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
-        <a href="#communaute" data-i18n="nav.community">Communauté</a>
+        <a href="#communaute" data-i18n="nav.community">Éditions</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
         <a href="#raccourcis" data-i18n="nav.start">Démarrer</a>
       </nav>
@@ -2438,7 +2474,7 @@
               aria-pressed="false"
               data-install-cmd="npm run setup"
               data-i18n-attr="data-install-note:install.note.clone"
-              data-install-note="Depuis un dépôt déjà cloné. Trois questions au maximum."
+              data-install-note="Depuis un dépôt déjà cloné. Puis npm run ruche."
             >
               <span data-i18n="install.chip.clone">Déjà cloné</span>
             </button>
@@ -2468,7 +2504,7 @@
 
           <div class="badges">
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tests"
-              >4 342 tests ✓</span
+              >4 363 tests ✓</span
             >
             <span class="badge" style="color: var(--muted)" data-i18n="badge.tier"
               >Palier 7 livré</span
@@ -2478,55 +2514,45 @@
           </div>
         </div>
 
-        <!-- Décoratif, et déclaré comme tel : le rayon ne porte aucune
-             information que le texte ne donne pas déjà. Un lecteur d’écran qui
-             énumérerait vingt et une alvéoles vides ne rendrait service à
-             personne. -->
+        <!-- Décoratif : un hexagone, un H, un miel. Le texte dit déjà Hive. -->
         <div class="hero-rayon" aria-hidden="true">
-          <div class="halo-rayon"></div>
-          <div class="rayon">
-            <div class="rayon-rang">
-              <span class="alv" style="animation-delay: 0s"></span>
-              <span class="alv ambre" style="animation-delay: 0.2s"></span>
-              <span class="alv" style="animation-delay: 0.4s"></span>
-              <span class="alv miel" style="animation-delay: 0.6s"></span>
-            </div>
-            <div class="rayon-rang decale">
-              <span class="alv ambre" style="animation-delay: 0.15s"></span>
-              <span class="alv" style="animation-delay: 0.35s"></span>
-              <span class="alv miel" style="animation-delay: 0.55s"></span>
-              <span class="alv" style="animation-delay: 0.75s"></span>
-              <span class="alv ambre" style="animation-delay: 0.95s"></span>
-            </div>
-            <div class="rayon-rang centre">
-              <span class="alv" style="animation-delay: 0.3s"></span>
-              <span class="alv miel" style="animation-delay: 0.5s"></span>
-              <span class="alv coeur">H</span>
-              <span class="alv miel" style="animation-delay: 0.7s"></span>
-              <span class="alv" style="animation-delay: 0.9s"></span>
-            </div>
-            <div class="rayon-rang decale">
-              <span class="alv ambre" style="animation-delay: 0.45s"></span>
-              <span class="alv" style="animation-delay: 0.65s"></span>
-              <span class="alv miel" style="animation-delay: 0.85s"></span>
-              <span class="alv" style="animation-delay: 1.05s"></span>
-              <span class="alv ambre" style="animation-delay: 1.25s"></span>
-            </div>
-            <div class="rayon-rang">
-              <span class="alv miel" style="animation-delay: 0.6s"></span>
-              <span class="alv" style="animation-delay: 0.8s"></span>
-              <span class="alv ambre" style="animation-delay: 1s"></span>
-              <span class="alv" style="animation-delay: 1.2s"></span>
-            </div>
-          </div>
+          <svg class="rayon-svg" viewBox="60 44 200 192">
+            <polygon
+              class="cell"
+              points="187.7,60.0 215.4,76.0 215.4,108.0 187.7,124.0 160.0,108.0 160.0,76.0"
+            />
+            <polygon
+              class="cell"
+              points="132.3,60.0 160.0,76.0 160.0,108.0 132.3,124.0 104.6,108.0 104.6,76.0"
+            />
+            <polygon
+              class="cell"
+              points="104.6,108.0 132.3,124.0 132.3,156.0 104.6,172.0 76.9,156.0 76.9,124.0"
+            />
+            <polygon
+              class="cell"
+              points="132.3,156.0 160.0,172.0 160.0,204.0 132.3,220.0 104.6,204.0 104.6,172.0"
+            />
+            <polygon
+              class="cell"
+              points="187.7,156.0 215.4,172.0 215.4,204.0 187.7,220.0 160.0,204.0 160.0,172.0"
+            />
+            <polygon
+              class="cell miel"
+              points="215.4,108.0 243.1,124.0 243.1,156.0 215.4,172.0 187.7,156.0 187.7,124.0"
+            />
+            <polygon
+              class="cell coeur"
+              points="160.0,108.0 187.7,124.0 187.7,156.0 160.0,172.0 132.3,156.0 132.3,124.0"
+            />
+            <text class="lettre" x="160" y="147" text-anchor="middle">H</text>
+          </svg>
         </div>
       </div>
 
       <div class="swarm-panel">
         <div class="swarm-head">
-          <span class="swarm-title" data-i18n="swarm.title"
-            >🐝 Swarm View — l'essaim en direct</span
-          >
+          <span class="swarm-title" data-i18n="swarm.title">Swarm View — l'essaim en direct</span>
           <span class="online"
             ><span class="dot"></span><span data-i18n="swarm.online">en ligne</span></span
           >
@@ -3279,12 +3305,12 @@
         </details>
       </div>
       <div class="pill-row">
-        <span class="pill" data-i18n="archi.p1">⚡ Temps réel via WebSocket</span>
+        <span class="pill" data-i18n="archi.p1">Temps réel via WebSocket</span>
         <span class="pill" data-i18n="archi.p2"
-          >💾 État persistant en SQLite — survit aux redémarrages</span
+          >État persistant en SQLite — survit aux redémarrages</span
         >
         <span class="pill" data-i18n="archi.p3"
-          >🔑 Les clés API ne quittent jamais la machine du membre</span
+          >Les clés API ne quittent jamais la machine du membre</span
         >
       </div>
       <h3 class="rc-sous" data-i18n="feat.ecran">L'écran de pilotage</h3>
@@ -3563,82 +3589,36 @@
          Les trois cartes reprennent la maquette ; les montants viennent de
          `docs/MODELE-ECONOMIQUE.md` §5, seule source de vérité du dépôt. -->
     <section id="communaute" class="section">
-      <p class="kicker" data-i18n="co.kicker">La communauté</p>
-      <h2 class="headline" data-i18n="co.headline">
-        Proposez un projet. La ruche en discute. Des membres s'y attellent.
-      </h2>
+      <p class="kicker" data-i18n="co.kicker">Éditions</p>
+      <h2 class="headline" data-i18n="co.headline">Community gratuit. Cloud, sur tes serveurs.</h2>
       <p class="lede" data-i18n="co.lede">
-        Une ruche n'est pas un outil qu'on utilise seul : c'est du temps-machine que des membres se
-        prêtent. Un projet qui intéresse la communauté trouve des ouvrières.
-      </p>
-
-      <div class="etapes">
-        <div class="etape">
-          <div class="etape-num" aria-hidden="true">1</div>
-          <h3 data-i18n="co.e1.t">Vous proposez</h3>
-          <p data-i18n="co.e1.d">
-            Un besoin réel, un premier pas concret, et de quoi savoir que c'est réussi. Le
-            formulaire vous demande exactement ces trois choses.
-          </p>
-        </div>
-        <div class="etape">
-          <div class="etape-num" aria-hidden="true">2</div>
-          <h3 data-i18n="co.e2.t">La ruche en discute</h3>
-          <p data-i18n="co.e2.d">
-            La proposition devient une discussion publique. On la découpe, on la critique, on la
-            précise — ou on explique franchement pourquoi elle ne tient pas.
-          </p>
-        </div>
-        <div class="etape">
-          <div class="etape-num" aria-hidden="true">3</div>
-          <h3 data-i18n="co.e3.t">Des membres s'y mettent</h3>
-          <p data-i18n="co.e3.d">
-            Ceux que le projet intéresse connectent leur machine. Leurs agents travaillent, leur
-            code et leurs clés restent chez eux, et rien n'est intégré sans relecture humaine.
-          </p>
-        </div>
-      </div>
-
-      <div class="co-actions">
-        <a
-          class="btn primary"
-          href="https://github.com/Micka420-collab/hive/issues/new?template=proposer-un-projet.yml"
-          target="_blank"
-          rel="noopener"
-          data-i18n="co.cta"
-          >Proposer mon projet</a
-        >
-        <a
-          class="btn ghost"
-          href="https://github.com/Micka420-collab/hive/issues?q=is%3Aissue+label%3A%22projet+propos%C3%A9%22"
-          target="_blank"
-          rel="noopener"
-          data-i18n="co.voir"
-          >Voir les projets proposés</a
-        >
-      </div>
-      <p class="co-note" data-i18n="co.note">
-        Le bouton ouvre un formulaire sur GitHub — pas de compte à créer sur un site de plus, pas de
-        boîte noire : la discussion est publique et vous en gardez la main.
+        Même logiciel. Chez toi, c'est 0 €. Si tu héberges pour d'autres, tu factures — ce dépôt
+        n'encaisse rien.
       </p>
 
       <div class="cloud">
-        <div class="cloud-tag" data-i18n="co.cloud.tag">Bientôt</div>
-        <h3 data-i18n="co.cloud.t">Hive Cloud — pour ceux qui n'ont pas de machine à prêter</h3>
-        <p data-i18n="co.cloud.d">
-          Hive est et restera <strong>gratuit et auto-hébergé</strong> : votre ruche tourne chez
-          vous, vos clés ne partent jamais, et aucune fonction du noyau n'est retenue derrière un
-          mur. Pour qui ne peut pas laisser une machine allumée, une offre d'hébergement payante est
-          à l'étude — des nœuds loués à l'heure, pour faire avancer un projet sans matériel.
-        </p>
+        <article class="edition">
+          <p class="edition-prix">0 €<span data-i18n="co.com.periode">pour toujours</span></p>
+          <h3 data-i18n="co.com.t">Community</h3>
+          <ul>
+            <li data-i18n="co.com.1">Open source, MIT, auto-hébergé.</li>
+            <li data-i18n="co.com.2">Tes clés et ton code restent sur tes machines.</li>
+            <li data-i18n="co.com.3">Noyau complet : Reine, nœuds, écran, Cerveau.</li>
+          </ul>
+        </article>
+        <article class="edition edition-cloud">
+          <p class="edition-prix">49 €<span data-i18n="co.cld.periode">/ mois · Queen</span></p>
+          <h3 data-i18n="co.cld.t">Cloud</h3>
+          <ul>
+            <li data-i18n="co.cld.1">La même Queen, sur tes serveurs.</li>
+            <li data-i18n="co.cld.2">Tu poses tes clés Stripe. Rush dès 79 €.</li>
+            <li data-i18n="co.cld.3">L'horloge qui compte est celle de l'hébergeur.</li>
+          </ul>
+          <a class="btn" href="rush/" data-i18n="co.cloud.lien">Voir les offres</a>
+        </article>
         <p class="cloud-honest" data-i18n="co.cloud.h">
-          Cela n'existe pas encore. C'est écrit ici parce que la direction est décidée, pas parce
-          que c'est disponible.
-        </p>
-        <p class="co-actions" style="margin-top: 18px">
-          <a class="btn ghost" href="rush/" data-i18n="co.cloud.lien"
-            >Voir les offres et le modèle économique →</a
-          >
+          Ce dépôt ne prélève aucun paiement. Pour encaisser, tu déploies le Cloud chez toi — sur tes
+          serveurs, pas ici.
         </p>
       </div>
     </section>
@@ -3812,7 +3792,10 @@
       <div class="pied">
         <div class="pied-marque">
           <div class="pied-nom">
-            <span class="bee" aria-hidden="true">🐝</span>
+            <svg class="marque" viewBox="0 0 32 36" aria-hidden="true">
+              <polygon points="16,4 28.1,11 28.1,25 16,32 3.9,25 3.9,11" />
+              <path class="lettre" d="M12.2 12.4h2.2v4.2h3.2v-4.2h2.2V24h-2.2v-5.2h-3.2V24h-2.2z" />
+            </svg>
             <span>Hive</span>
           </div>
           <p class="pied-promesse" data-i18n="f.promesse">
@@ -3863,6 +3846,13 @@
               >Proposer un projet</a
             >
             <a
+              href="https://github.com/Micka420-collab/hive/issues?q=is%3Aissue+label%3A%22projet+propos%C3%A9%22"
+              target="_blank"
+              rel="noopener"
+              data-i18n="f.projets"
+              >Projets proposés</a
+            >
+            <a
               href="https://github.com/Micka420-collab/hive/blob/main/docs/MODELE-ECONOMIQUE.md"
               target="_blank"
               rel="noopener"
@@ -3900,7 +3890,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '4,342 tests ✓',
+          'badge.tests': '4,363 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -3915,12 +3905,12 @@
           'install.note.unix': 'Never sudo, and nothing outside its own folder.',
           'install.note.windows': 'PowerShell 5.1 or 7. Nothing outside its own folder.',
           'install.note.docker': 'From the cloned repository. The database stays in a volume.',
-          'install.note.clone': 'From a repository you already cloned. Three questions at most.',
+          'install.note.clone': 'From a repository you already cloned. Then npm run ruche.',
           'install.sansCle': 'No API key to provide.',
           'agents.intitule': 'Works with the AI you already use',
           'agents.liste':
             'Supported agents: Claude Code, Codex, Grok, Hermes, or your own via HIVE_AGENT_CMD.',
-          'swarm.title': '🐝 Swarm View — the swarm, live',
+          'swarm.title': 'Swarm View — the swarm, live',
           'swarm.online': 'online',
           'leg.done': 'a worker finished it',
           'leg.running': 'an AI is working on it',
@@ -4035,9 +4025,9 @@
           'feat.aa.t': 'Agent-agnostic',
           'feat.aa':
             '<code class="tag">claude-code</code> <code class="tag">codex</code> <code class="tag">hermes</code> — or your own AgentAdapter.',
-          'archi.p1': '⚡ Real-time over WebSocket',
-          'archi.p2': '💾 Persistent state in SQLite — survives restarts',
-          'archi.p3': '🔑 API keys never leave the member’s machine',
+          'archi.p1': 'Real-time over WebSocket',
+          'archi.p2': 'Persistent state in SQLite — survives restarts',
+          'archi.p3': 'API keys never leave the member’s machine',
           'ap.legende':
             'The five screens you open most, exactly as they look. The figures are an example — your worker bees are the ones who fill them in.',
           'ap.taches.nom': 'Tasks',
@@ -4104,32 +4094,25 @@
           'sec.8': 'Merging is always an <strong>explicit human gesture</strong>',
           'sec.warn':
             '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
-          'nav.community': 'Community',
+          'nav.community': 'Editions',
           'nav.rush': 'Rush',
-          'co.cloud.lien': 'See the offers and the economic model →',
-          'co.kicker': 'The community',
-          'co.headline': 'Propose a project. The hive discusses it. Members take it on.',
+          'co.cloud.lien': 'See the offers',
+          'co.kicker': 'Editions',
+          'co.headline': 'Community free. Cloud, on your servers.',
           'co.lede':
-            'A hive is not a tool you use alone: it is machine time that members lend each other. A project the community cares about finds workers.',
-          'co.e1.t': 'You propose',
-          'co.e1.d':
-            'A real need, a concrete first step, and a way to know it worked. The form asks you for exactly those three things.',
-          'co.e2.t': 'The hive discusses it',
-          'co.e2.d':
-            'Your proposal becomes a public discussion. It gets split up, challenged, sharpened \u2014 or plainly told why it does not hold.',
-          'co.e3.t': 'Members take it on',
-          'co.e3.d':
-            'Those interested connect their machine. Their agents work, their code and keys stay with them, and nothing is merged without human review.',
-          'co.cta': 'Propose my project',
-          'co.voir': 'See proposed projects',
-          'co.note':
-            'The button opens a form on GitHub \u2014 no account to create on yet another site, no black box: the discussion is public and stays yours.',
-          'co.cloud.tag': 'Coming',
-          'co.cloud.t': 'Hive Cloud \u2014 for those with no machine to lend',
-          'co.cloud.d':
-            'Hive is and will remain <strong>free and self-hosted</strong>: your hive runs at home, your keys never leave, and no core feature is held behind a wall. For those who cannot keep a machine running, a paid hosting offer is being considered \u2014 nodes rented by the hour, to move a project forward without hardware.',
+            'Same software. On your machines, it is \u20ac0. If you host for others, you bill \u2014 this repository collects no payment.',
+          'co.com.periode': 'forever',
+          'co.com.t': 'Community',
+          'co.com.1': 'Open source, MIT, self-hosted.',
+          'co.com.2': 'Your keys and your code stay on your machines.',
+          'co.com.3': 'Full core: Queen, nodes, dashboard, Brain.',
+          'co.cld.periode': '/ month · Queen',
+          'co.cld.t': 'Cloud',
+          'co.cld.1': 'The same Queen, on your servers.',
+          'co.cld.2': 'You set your Stripe keys. Rush from \u20ac79.',
+          'co.cld.3': 'The clock that counts is the host\u2019s.',
           'co.cloud.h':
-            'This does not exist yet. It is written here because the direction is decided, not because it is available.',
+            'This repository collects no payment. To charge customers, you deploy Cloud at your place \u2014 on your servers, not here.',
           'rc.kicker': 'Get started',
           'rc.headline': 'A demo in two commands, your hive in two clicks.',
           'rc.s1': 'First, the demo',
@@ -4175,6 +4158,7 @@
           'f.source': 'Source code',
           'f.changelog': 'Changelog',
           'f.proposer': 'Propose a project',
+          'f.projets': 'Proposed projects',
           'f.modele': 'Economic model',
           'footer.mit': 'MIT License',
           'footer.made': 'Made with 🍯 — every worker counts.',
@@ -4549,6 +4533,11 @@
           } else {
             window.addEventListener('resize', publierHauteur);
           }
+          var onScroll = function () {
+            entete.classList.toggle('scrolled', window.scrollY > 8);
+          };
+          onScroll();
+          window.addEventListener('scroll', onScroll, { passive: true });
         }
 
         /* ── Compteur d'étoiles GitHub (amélioration progressive) ── */

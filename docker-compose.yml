@@ -65,5 +65,37 @@ services:
     cap_drop:
       - ALL
 
+  # Bureau de recette : écran + CDP + outils. Pas d'`env_file` : aucun secret
+  # de l'hôte n'entre. Le profil évite de l'allumer avec la ruche.
+  #
+  #     docker compose --profile atelier up -d atelier
+  #
+  # Voir docs/ATELIER.md. La Queen peut poser HIVE_ATELIER=auto et POST /api/atelier/demarrer.
+  atelier:
+    profiles: [atelier]
+    build:
+      context: .
+      dockerfile: docker/atelier/Dockerfile
+    image: hive-atelier:local
+    restart: unless-stopped
+    environment:
+      DISPLAY: ':99'
+    volumes:
+      - hive-atelier-workspace:/workspace
+    ports:
+      - '127.0.0.1:6080:6080'
+      - '127.0.0.1:8765:8765'
+      - '127.0.0.1:9222:9222'
+    expose:
+      - '9222'
+    shm_size: 512mb
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 2g
+
 volumes:
   hive-donnees:
+  hive-atelier-workspace:

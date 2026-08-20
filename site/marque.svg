@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36">
+  <!-- Hexagone + H : la marque, sans emoji ni tache de couleur. -->
+  <polygon fill="#1b1712" points="16,4 28.1,11 28.1,25 16,32 3.9,25 3.9,11"/>
+  <path fill="#fffdf8" d="M12.2 12.4h2.2v4.2h3.2v-4.2h2.2V24h-2.2v-5.2h-3.2V24h-2.2z"/>
+</svg>

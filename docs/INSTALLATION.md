@@ -231,12 +231,22 @@ un échec de compilation produirait une image « réussie » dont le démarrage
 meurt sur `ERR_MODULE_NOT_FOUND`. C'est la panne que Node 24 a supprimée côté
 poste de travail ; on ne la réintroduit pas ici.
 
+Le **bureau de recette** (écran, CDP, outils) est un profil à part :
+[`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`.
+
 Ce que `docker-compose.yml` décide pour vous, et pourquoi :
 
 - **le port est publié sur `127.0.0.1`**, pas sur toutes les interfaces. Sous
   Linux, Docker écrit ses règles directement dans netfilter, **en amont de la
   plupart des pare-feu** : un `ports: - '7777:7777'` ouvre la ruche sur
   Internet sans que `ufw status` le montre. Pour l'ouvrir vraiment, il y a
+`hive tunnel`, ou — si tu vends l'hébergement — **Hive Cloud** :
+`docker compose -f docker-compose.cloud.yml up -d` (TLS via Caddy, voir
+[`docs/CLOUD.md`](CLOUD.md)).
+
+Community (0 €, chez soi) et Cloud (payant, sur TES serveurs) partagent le
+même image Docker. Seuls l'édition, le secret de webhook et le reverse proxy
+changent.
   `hive tunnel` — chiffré et révocable ;
 - **les secrets viennent d'un fichier**, jamais de la ligne de commande : un
   `docker run -e HIVE_TOKEN=…` se lit dans le `ps` de n'importe quel compte de

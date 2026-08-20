@@ -228,6 +228,46 @@ export function droits(
   };
 }
 
+/**
+ * L'hébergement de la Queen (et des nœuds du plan), distinct des heures.
+ *
+ * `droits()` refuse un plan à 0 heure — c'est juste pour le plafond
+ * d'ouvrières. La Queen hébergée EST ce qu'on vend à 49 €/mois : sans cette
+ * fonction, payer `queen` n'ouvrait aucun droit observable.
+ */
+export function hebergement(
+  a: Abonnement,
+  now: number,
+): { actif: boolean; serveurs: number; motif: string } {
+  const rien = (motif: string): ReturnType<typeof hebergement> => ({
+    actif: false,
+    serveurs: 0,
+    motif,
+  });
+
+  if (a.etat === 'aucun') return rien('aucun abonnement');
+  if (a.etat === 'annule') return rien('abonnement annulé');
+  if (a.etat === 'expire') return rien('abonnement expiré');
+
+  if (a.etat === 'impaye') {
+    if (a.impayeDepuis === null) return rien('impayé sans date — état incohérent');
+    const fin = a.impayeDepuis + GRACE_JOURS * JOUR_MS;
+    if (now >= fin) return rien(`délai de grâce de ${GRACE_JOURS} jours dépassé`);
+  }
+
+  if (a.finPeriode !== null && now >= a.finPeriode) return rien('période échue');
+
+  const plan = planParCle(a.plan);
+  if (!plan) return rien(`plan inconnu : ${a.plan}`);
+  if (plan.serveurs <= 0) return rien(`le plan « ${plan.nom} » n’inclut pas d’hébergement`);
+
+  return {
+    actif: true,
+    serveurs: plan.serveurs,
+    motif: a.etat === 'impaye' ? 'droits maintenus pendant le délai de grâce' : plan.nom,
+  };
+}
+
 // ─── Ce que le processeur nous dit ───────────────────────────────────────────
 
 /**

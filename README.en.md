@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4342%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-4363%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -44,6 +44,23 @@ repeating itself, or relearning in month six what it understood in month two.
                                   └────────────────┘
 ```
 
+## 🖥 The interface
+
+Shots of the running app (`npm run ruche`), not mockups.
+
+<p align="center">
+  <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
+</p>
+<p align="center">
+  <img src="docs/images/vitrine-editions.png" width="840" alt="Hive landing — Community €0 and Cloud €49, two equal cards.">
+</p>
+<p align="center">
+  <img src="docs/images/dashboard-ruche.png" width="840" alt="Dashboard — empty Hive view, ready to start a project.">
+</p>
+<p align="center">
+  <img src="docs/images/dashboard-reine.png" width="840" alt="Dashboard — Queen view, recette workshop and chat.">
+</p>
+
 ## 🔁 How it works
 
 Three steps, and you stay in charge.
@@ -72,7 +89,10 @@ three questions**. It never uses `sudo`, does not install Node for you, and
 writes nothing outside its own folder — `--dry-run` shows all of it without
 creating anything.
 
-From an existing clone: `npm run setup`. In a container: `docker compose up`.
+From an existing clone: `npm run setup` then `npm run ruche`. Containers and
+Cloud: **[docs/CLOUD.md](docs/CLOUD.md)**. Acceptance desktop:
+**[docs/ATELIER.md](docs/ATELIER.md)**. Full install notes:
+**[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
 
 > **From a GitHub ZIP archive**, one step a clone does for you is missing: open a
 > terminal in the extracted folder and run `npm install --no-fund --no-audit`
@@ -90,17 +110,20 @@ From an existing clone: `npm run setup`. In a container: `docker compose up`.
 
 ## 🚀 Quick start
 
+Community (`HIVE_EDITION=community`, the default):
+
+```bash
+npm run ruche
+```
+
+Open **http://localhost:7777**. One token, one local node, the screen.
+
+For a **simulated** hive (no real agent, 7 demo tasks):
+
 ```bash
 npm install
 npm run demo
 ```
-
-Open **http://localhost:7777**: the swarm live, two simulated nodes and a
-7-task demo project with dependencies. One task fails on purpose to show the
-retry path.
-
-The demo runs in simulation (`HIVE_SIMULATION=1`): no process is spawned, no
-key is needed.
 
 **Joining someone else's hive** is one line, with nothing to clone:
 
@@ -292,6 +315,8 @@ two.
 | ------------------------------------------------------------ | ------------------------------------------------------- |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)    |
+| **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers            |
+| **[docs/ATELIER.md](docs/ATELIER.md)**                       | Acceptance desktop: screen, CDP, tools (FR)             |
 | **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Running solo on Windows with a Claude subscription (FR) |
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protecting `main`: the exact settings, and why (FR)     |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | The error journal — by lesson, with the rules (FR)      |

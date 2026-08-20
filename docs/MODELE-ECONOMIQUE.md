@@ -154,15 +154,13 @@ une heure **utile** d'une heure **dépensée**. C'est la base d'un engagement qu
 peu de concurrents peuvent tenir — _les heures jugées creuses par les Gardiennes
 ne sont pas décomptées de votre plafond._
 
-## 7. Ce qu'il reste à construire
+## 7. Ce qu'il reste à brancher de ton côté
 
-Rien de ce qui suit n'existe. C'est la liste honnête, dans l'ordre où il faut
-l'attaquer :
+Le compteur d'heures **côté hébergeur**, l'alignement Stripe → abonnement, l'édition `HIVE_EDITION=cloud` et le compose (`docker-compose.cloud.yml`) sont dans le dépôt. Voir `docs/CLOUD.md`.
 
-1. **Compteur d'heures côté hébergeur** — la seule mesure facturable (§3.1).
-2. **Encaissement** — Stripe, factures, TVA. Sujet administratif, pas technique.
-3. **Approvisionnement des nœuds hébergés** — démarrage/arrêt à la demande.
-4. **Rattachement d'un plafond payé à un projet** — la table `budgets` existe et
-   stocke déjà une intention humaine ; il lui manque une origine « achetée ».
-5. **Page de vente** — `site/rush/`, faite. C'est le seul point déjà livré, et
-   elle dit qu'elle ne vend encore rien.
+Ce qui reste **à toi**, pas au code :
+
+1. **Compte Stripe** — produits, webhook, clés. Hive n'encaisse rien tant qu'elles ne sont pas posées.
+2. **Domaine + VPS** — DNS vers tes serveurs, `Caddyfile.cloud` avec ton hostname.
+3. **Checkout depuis le tableau de bord** — aujourd'hui le client paie sur Stripe, le webhook active le plan.
+4. **Provisionnement automatique de machines** — le fournisseur livré est encore manuel (billet + instructions).

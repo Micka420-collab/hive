@@ -61,11 +61,12 @@ export default function Ruche({
           seul, sur ce nœud-ci. */}
       {snapshot.projects.length === 0 && (
         <section className="card ruche-depart">
-          <h2>🐝 {t('Votre ruche est prête', 'Your hive is ready')}</h2>
+          <span className="marque" aria-hidden="true" />
+          <h2>{t('Votre ruche est prête', 'Your hive is ready')}</h2>
           <p>
             {t(
-              'Lancez un projet dès maintenant : ce nœud travaille seul, personne d’autre n’est requis. Vous pourrez inviter des amis plus tard.',
-              'Start a project right away: this node works on its own, nobody else is required. You can invite friends later.',
+              'Un projet, ce nœud, maintenant. Il travaille seul — personne d’autre n’est requis.',
+              'One project, this node, now. It works on its own — nobody else is required.',
             )}
           </p>
           <button className="btn primary" onClick={onNewProject}>

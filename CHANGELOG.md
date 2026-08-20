@@ -7,6 +7,28 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **⬡ L'Atelier de recette.** Un bureau Debian (Xvfb, Openbox, Chromium, Python,
+  Node, LibreOffice, Tesseract) pour que l'agent teste comme un humain : CDP
+  :9222, démon d'outils :8765, noVNC :6080 — tous publiés sur 127.0.0.1.
+  Volume `/workspace`, crochets `.wake-hooks`, aucun secret d'hôte.
+  `HIVE_ATELIER=off|auto|on`. Détail : `docs/ATELIER.md`.
+
+- **🐝 Deux éditions, comme n8n : Community gratuit, Cloud sur tes serveurs.**
+  `HIVE_EDITION=community|cloud`. Community reste 0 €, noyau complet. Cloud
+  tourne la même Queen chez l'opérateur (`docker-compose.cloud.yml` + Caddy),
+  facture à l'horloge d'hébergeur (plus `durationMs`), exige
+  `HIVE_WEBHOOK_SECRET` au démarrage, et accepte les webhooks Stripe
+  (`Stripe-Signature`, `metadata.projectId` / `plan`). Un locataire = une base.
+  Détail : `docs/CLOUD.md`.
+
+### Changed
+
+- **Le tableau de bord et la vitrine respirent.** Même ruche : cire, miel comme
+  unique accent, hexagone comme marque, une abeille au logo. Moins d'émojis
+  dans la nav, moins de dégradés, filets et rayon 8 px. Pas un clone xAI.
+
 ### Fixed
 
 - **🪟 Sur Windows, la ruche se servait d'un agent SIMULÉ sans le dire vraiment.**

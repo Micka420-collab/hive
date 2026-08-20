@@ -27,6 +27,16 @@ import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
 import { gardiennesDepuisEnv } from '../shared/reglages.js';
+import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
+import type { Edition } from '../shared/edition.js';
+import {
+  atelierDepuisEnv,
+  etatAtelier,
+  executerPlan,
+  moteurAtelier,
+  planComposeArret,
+  planComposeAtelier,
+} from '../atelier/lancement.js';
 import {
   TTL_BILLET_MAX_MS,
   USAGES_MAX,
@@ -135,10 +145,12 @@ import {
   appliquerEvenement,
   aucunAbonnement,
   droits,
+  hebergement,
   lireCharge,
   verifierSignature,
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
+import { evenementDepuisStripe } from './nuage.js';
 import {
   ETATS as ETATS_SERVEUR,
   FOURNISSEUR_MANUEL,
@@ -472,6 +484,11 @@ export interface ServerConfig {
    * se branchera.
    */
   fournisseurServeurs?: FournisseurServeur;
+  /**
+   * Community (défaut) : ruche auto-hébergée, 0 €.
+   * Cloud : Queen sur tes serveurs, horloge d'hébergeur, webhook Stripe exigé.
+   */
+  edition?: Edition;
 }
 
 /**
@@ -520,6 +537,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       env.HIVE_POLYETHISME === 'off' || env.HIVE_POLYETHISME === 'strict'
         ? env.HIVE_POLYETHISME
         : 'consignes',
+    edition: editionDepuisEnv(env),
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -607,6 +625,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\" — " +
         'ou activez HIVE_SIMULATION=1 pour une démo strictement locale. ' +
         '« npm run install:hive » le pose pour vous.',
+    );
+  }
+
+  const edition = config.edition ?? 'community';
+  const secretWebhookDemarrage = process.env.HIVE_WEBHOOK_SECRET ?? '';
+  if (secretWebhookExige(edition, config.simulation) && !secretWebhookDemarrage) {
+    throw new Error(
+      'HIVE_EDITION=cloud refuse de démarrer sans HIVE_WEBHOOK_SECRET : ' +
+        'sinon la ruche tournerait, facturerait des heures, et Stripe recevrait 401. ' +
+        'Posez le secret du webhook (Stripe → Developers → Webhooks), ' +
+        'ou repassez en HIVE_EDITION=community.',
     );
   }
 
@@ -1210,6 +1239,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const scheduler = new Scheduler(store, {
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
+    factureHorlogeHote: edition === 'cloud',
     // Les Gardiennes : le contrôle d'entrée du nectar. Défaut `consultatif` —
     // on renifle et on annote, on ne refuse rien.
     gardiennes: { mode: config.gardiennes ?? 'consultatif' },
@@ -1670,6 +1700,37 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     verdict === 'anonyme' ? reject(reply) : reply.code(404).send({ error: 'projet inconnu' });
 
   app.get('/api/health', async () => ({ ok: true }));
+  app.get('/api/edition', async () => ({
+    edition,
+    factureHorlogeHote: edition === 'cloud',
+  }));
+
+  app.get('/api/atelier', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return etatAtelier({ env: process.env });
+  });
+
+  app.post('/api/atelier/demarrer', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const mode = atelierDepuisEnv(process.env);
+    if (mode === 'off') {
+      return reply.code(403).send({ error: 'HIVE_ATELIER=off — posez auto ou on' });
+    }
+    const plan = planComposeAtelier(moteurAtelier(process.env));
+    if (!plan.ok) return reply.code(409).send({ error: plan.raison });
+    const out = await executerPlan(plan, { cwd: process.cwd(), env: process.env });
+    if (!out.ok) return reply.code(502).send({ error: out.stderr || 'compose a échoué' });
+    return { ok: true, plan: plan.argv };
+  });
+
+  app.post('/api/atelier/arreter', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const plan = planComposeArret(moteurAtelier(process.env));
+    if (!plan.ok) return reply.code(409).send({ error: plan.raison });
+    const out = await executerPlan(plan, { cwd: process.cwd(), env: process.env });
+    if (!out.ok) return reply.code(502).send({ error: out.stderr || 'arrêt échoué' });
+    return { ok: true };
+  });
 
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
@@ -3355,7 +3416,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    */
   app.post('/api/webhooks/abonnement', async (req, reply) => {
     const brut = (req as { rawBody?: string }).rawBody ?? '';
-    const entete = String(req.headers['x-hive-signature'] ?? '');
+    const entete = String(req.headers['x-hive-signature'] ?? req.headers['stripe-signature'] ?? '');
     const now = Date.now();
 
     const v = verifierSignature({ charge: brut, entete, secret: secretWebhook, now });
@@ -3366,7 +3427,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return reply.code(401).send({ error: 'signature refusée' });
     }
 
-    const evenement = lireCharge(req.body);
+    const evenement = lireCharge(req.body) ?? evenementDepuisStripe(req.body);
     if (!evenement) return reply.code(400).send({ error: 'charge inexploitable' });
     if (!store.getProject(evenement.projectId)) {
       return reply.code(404).send({ error: 'projet inconnu' });
@@ -3402,6 +3463,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // webhook était le seul à ne pas la lire. `tests/bornes-cablees.test.ts`
     // interdit désormais tout autre appelant.
     const d = droits(suivant, now);
+    const h = hebergement(suivant, now);
     scheduler.setPlafond(evenement.projectId, d.plafondMs, 'abonnement', now);
 
     // Faits typés seulement — jamais le refExterne, qui identifie un client
@@ -3415,7 +3477,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
     // LE SERVEUR SE CRÉE TOUT SEUL À L'ACHAT. Après le plafond, pas avant :
     // une machine qui démarre sans quota consommerait sans jamais s'arrêter.
-    await alignerServeurs(evenement.projectId, suivant.refExterne, suivant.plan, d.actif, now);
+    // Queen (0 h) n'a pas de droits d'ouvrières mais A de l'hébergement.
+    await alignerServeurs(
+      evenement.projectId,
+      suivant.refExterne,
+      suivant.plan,
+      d.actif || h.actif,
+      now,
+    );
     return { applique: true, etat: suivant.etat, heures: d.heures };
   });
 
@@ -7204,6 +7273,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // référentielle ne peut nettoyer que ce qui est DÉJÀ orphelin. Appelée en
       // premier, elle ne verrait rien et il faudrait attendre le tick suivant.
       store.pruneTasks(TACHES_RETENTION_MS);
+      // Horloge : sessions ouvertes dont la tâche a disparu. APRÈS pruneTasks.
+      store.pruneHorlogeHote();
       // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
       store.pruneTachesIssue();
       // Idem pour le lien relecture→production. Câblé ICI, dans le même

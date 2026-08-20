@@ -33,18 +33,16 @@
 }
 
 /* ─── LES JETONS ─────────────────────────────────────────────────────────────
-   Thème CLAIR. Les noms restent ceux d'avant — `--bg`, `--panel`, `--honey`… —
-   parce que plusieurs centaines d'emplois les désignent déjà et qu'un
-   renommage massif serait un diff illisible pour un gain nul. Ce sont les
-   VALEURS qui portent le changement, exactement comme sur la vitrine.
+   Cire et papier, pas un vide noir. Les NOMS restent — `--bg`, `--panel`,
+   `--honey`, `--miel`… — parce que des centaines d'emplois les désignent.
+   L'identité tient en trois gestes : le miel comme UNIQUE accent, l'hexagone
+   comme marque, l'encre comme contrepoint (barre, pas page entière).
 
-   ─── LA SEULE VRAIE DIFFICULTÉ DE L'INVERSION ────────────────────────────
-   Sur fond sombre, `--honey`, `--amber` et `--gold` étaient des accents CLAIRS
-   qui portaient du texte. Repris tels quels sur une crème, ils tombent à
-   2,6:1 — illisibles. Ils deviennent donc trois BRUNS de miel, tous ≥ 4,5:1
-   sur chacune des quatre surfaces, et le miel vif passe dans `--miel`, qui
-   remplit sans jamais porter de texte. Les deux rôles étaient confondus tant
-   que le fond était noir ; ils ne peuvent plus l'être. */
+   Craft (Apple / Linear / Vercel), pas leurs palettes : rythme de padding,
+   filets fins, rayon 8 px, peu d'ombre, aucun dégradé de carnaval. Le miel
+   vif (`--miel`) REMPLIT — jauges, alvéole active, bouton primaire. Il ne
+   porte JAMAIS le texte. Les bruns `--honey` / `--gold` / `--amber` restent
+   ≥ 4,5:1 sur la crème. */
 :root {
   --bg: #f7f3e9;
   --bg-2: #f4eee0;
@@ -54,7 +52,7 @@
   --border: #e3d8c2;
   --border-2: #e0d2b6;
   --text: #1b1712;
-  --muted: #6f6555;
+  --muted: #5a5348;
   --faint: #6b6152; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
   --honey: #9d5605;
   --amber: #96570c;
@@ -63,18 +61,15 @@
   --red: #a8402a;
   --green: #235e52;
   --blue: #1d5b7d;
-  /* L'encre : le contrepoint sombre du design — barre alvéolaire, boutons
-     pleins, journal. Elle ne couvre jamais la page, elle la découpe. */
+  /* L'encre : chrome de la barre, pas un thème « Grok void ». La page reste
+     papier de cire. */
   --encre: #1b1712;
   --encre-2: #241f18;
   --sur-encre: #a2957d; /* 6:1 sur l'encre — libellés inactifs de la barre */
   --sur-encre-fort: #fffdf8;
-  /* Le miel vif : REMPLISSAGE uniquement (fonds, jauges, alvéoles actives).
-     Du texte posé dessus doit être de l'encre, jamais l'inverse. */
+  /* Le miel vif : REMPLISSAGE uniquement. Du texte posé dessus = encre. */
   --miel: #f6c445;
   --miel-2: #e08a14;
-  /* Thermorégulation : une teinte par bande de température. La couleur ne
-     porte JAMAIS l'information seule — le libellé de bande l'accompagne. */
   --thermo-froide: var(--blue);
   --thermo-normale: var(--green);
   --thermo-chaude: var(--orange);
@@ -82,13 +77,11 @@
   --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
   --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
   --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
-  --r: 14px;
-  --r-sm: 10px;
+  --r: 8px;
+  --r-sm: 8px;
   --sp: 8px;
-  /* Sur une crème, une ombre noire salit. Celles-ci sont de l'encre diluée :
-     la carte se soulève, elle ne se tache pas. */
-  --shadow: 0 18px 40px -22px rgba(27, 23, 18, 0.4);
-  --shadow-sm: 0 2px 10px -4px rgba(27, 23, 18, 0.18);
+  --shadow: 0 8px 24px -18px rgba(27, 23, 18, 0.22);
+  --shadow-sm: 0 1px 2px rgba(27, 23, 18, 0.06);
 }
 
 * {
@@ -117,8 +110,8 @@ h2,
 h3 {
   margin: 0;
   font-family: var(--titre);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
 .app {
@@ -143,9 +136,8 @@ h3 {
   align-items: center;
   gap: 20px;
   padding: 12px 20px;
-  background: rgba(247, 243, 233, 0.92);
-  backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border-2);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -159,8 +151,8 @@ h3 {
 }
 
 .brand-logo {
-  font-size: 30px;
-  filter: drop-shadow(0 2px 3px rgba(27, 23, 18, 0.22));
+  font-size: 22px;
+  line-height: 1;
 }
 
 .brand h1 {
@@ -205,8 +197,8 @@ h3 {
 }
 
 .tile.accent {
-  border-color: var(--amber);
-  background: linear-gradient(180deg, #fdf3dc, var(--panel));
+  border-color: var(--miel-2);
+  background: var(--panel);
 }
 
 .tile.danger {
@@ -272,7 +264,7 @@ h3 {
 
 .btn.primary,
 .invite-btn {
-  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  background: var(--miel);
   color: var(--encre);
   border: none;
   white-space: nowrap;
@@ -318,7 +310,7 @@ h3 {
 }
 
 .view-toggle button.active {
-  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  background: var(--miel);
   color: var(--encre);
 }
 
@@ -514,8 +506,8 @@ h3 {
   position: relative;
   width: 38px;
   height: 38px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--miel), var(--miel-2));
+  border-radius: var(--r-sm);
+  background: var(--miel);
   color: var(--encre);
   font-weight: 700;
   display: flex;
@@ -703,7 +695,7 @@ h3 {
 
 .pbar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  background: var(--miel);
   border-radius: 4px;
   transition: width 0.4s ease;
 }
@@ -1068,7 +1060,7 @@ h3 {
 
 /* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat. */
 .chip.primary {
-  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  background: var(--miel);
   color: var(--encre);
   border: none;
   font-weight: 600;
@@ -1354,7 +1346,7 @@ h3 {
 .swarm {
   width: 100%;
   display: block;
-  background: radial-gradient(700px 380px at 50% 20%, rgba(246, 196, 69, 0.16), transparent);
+  background: var(--panel);
 }
 
 .swarm-empty {
@@ -1726,10 +1718,8 @@ h3 {
   flex-direction: column;
   gap: 14px;
   padding: 18px 12px;
-  /* Le contrepoint sombre du design : la barre est en ENCRE, le reste de la
-     page en papier. C'est de ce seul contraste que vient le côté « produit
-     tech premium » — l'étendre au corps rendrait la ruche illisible. */
-  background: linear-gradient(180deg, var(--encre-2), var(--encre));
+  /* Chrome de barre : encre unie, pas un dégradé. La page reste cire. */
+  background: var(--encre);
   border-right: 1px solid var(--encre);
   z-index: 30;
 }
@@ -1821,8 +1811,7 @@ h3 {
 }
 
 .mc-nav-icon {
-  font-size: 15px;
-  line-height: 1;
+  display: none;
 }
 
 .mc-nav-label {
@@ -1924,17 +1913,26 @@ h3 {
 /* Le départ d'une ruche vide : visible sans être criard, et il disparaît dès
    qu'un projet existe. */
 .ruche-depart {
-  margin: 14px 18px 0;
-  padding: 16px 18px;
+  margin: 28px 24px 0;
+  padding: 28px 28px 24px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
+  max-width: 40rem;
+}
+
+.ruche-depart .marque {
+  width: 12px;
+  height: 14px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .ruche-depart h2 {
-  color: var(--honey);
-  font-size: 16px;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 600;
 }
 
 .ruche-depart p {
@@ -2022,12 +2020,12 @@ button.mc-cell:focus-visible {
 }
 
 .mc-cell.running {
-  background: linear-gradient(180deg, var(--miel-2), #c4711a);
+  background: var(--miel-2);
   animation: mc-throb 1.4s ease-in-out infinite;
 }
 
 .mc-cell.done {
-  background: linear-gradient(180deg, var(--miel), var(--miel-2));
+  background: var(--miel);
 }
 
 .mc-cell.failed {

@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4342%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-4363%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -47,6 +47,23 @@ compris au deuxième.
                                   └────────────────┘
 ```
 
+## 🖥 L'interface
+
+Captures de l'écran réel (`npm run ruche`), pas de maquettes.
+
+<p align="center">
+  <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
+</p>
+<p align="center">
+  <img src="docs/images/vitrine-editions.png" width="840" alt="Vitrine Hive — Community 0 € et Cloud 49 €, deux cartes égales.">
+</p>
+<p align="center">
+  <img src="docs/images/dashboard-ruche.png" width="840" alt="Tableau de bord — vue Ruche vide, ruche prête, un projet à démarrer.">
+</p>
+<p align="center">
+  <img src="docs/images/dashboard-reine.png" width="840" alt="Tableau de bord — vue Reine, atelier de recette et chat.">
+</p>
+
 ## 🔁 Comment ça marche
 
 Trois étapes, et vous gardez la main.
@@ -76,8 +93,10 @@ plus trois questions**. Il n'utilise **jamais `sudo`**, n'installe pas Node à
 votre place, et n'écrit rien hors de son dossier — `--dry-run` le montre sans
 rien créer.
 
-Depuis un dépôt déjà cloné : `npm run setup`. En conteneur :
-`docker compose up`. Détail complet dans **[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
+Depuis un dépôt déjà cloné : `npm run setup` puis `npm run ruche`. Conteneur
+et Cloud : **[docs/CLOUD.md](docs/CLOUD.md)**. Bureau de recette :
+**[docs/ATELIER.md](docs/ATELIER.md)**. Détail d'install :
+**[docs/INSTALLATION.md](docs/INSTALLATION.md)**.
 
 > **Depuis une archive ZIP de GitHub**, il manque l'étape que le clone fait pour
 > vous : ouvrez un terminal dans le dossier décompressé et lancez
@@ -96,17 +115,20 @@ Depuis un dépôt déjà cloné : `npm run setup`. En conteneur :
 
 ## 🚀 Démarrage rapide
 
+Community (`HIVE_EDITION=community`, c'est le défaut) :
+
+```bash
+npm run ruche
+```
+
+Ouvrez **http://localhost:7777**. Un jeton, un nœud local, l'écran.
+
+Pour une ruche **simulée** (aucun agent réel, 7 tâches de démo) :
+
 ```bash
 npm install
 npm run demo
 ```
-
-Ouvrez **http://localhost:7777** : l'essaim en direct, deux nœuds simulés et un
-projet de démonstration de 7 tâches avec dépendances. Une tâche échoue
-volontairement pour montrer le mécanisme de reprise.
-
-La démo tourne en simulation (`HIVE_SIMULATION=1`) : aucun processus lancé,
-aucune clé requise.
 
 **Rejoindre la ruche de quelqu'un d'autre** tient en une ligne, sans cloner :
 
@@ -310,6 +332,8 @@ le pire des deux.
 | Fichier                                                      | Ce qu'on y trouve                                        |
 | ------------------------------------------------------------ | -------------------------------------------------------- |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Installer, désinstaller, service, conteneur, sauvegardes |
+| **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community 0 € vs Cloud payant sur tes serveurs           |
+| **[docs/ATELIER.md](docs/ATELIER.md)**                       | Bureau de recette : écran, CDP, outils                   |
 | **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Tourner seul sous Windows avec son abonnement Claude     |
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |

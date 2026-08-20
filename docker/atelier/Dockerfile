@@ -1,66 +1,52 @@
-# L'ATELIER — le bureau que l'ouvrière allume.
+# L'ATELIER — le bureau de recette de l'ouvrière.
 #
-#   docker build -t hive-atelier:local docker/atelier
+#   docker build -f docker/atelier/Dockerfile -t hive-atelier:local .
 #
-# ─── CE QU'IL Y A DEDANS, ET RIEN DE PLUS ────────────────────────────────────
+# ─── POURQUOI CHROMIUM, PAS google-chrome-stable ─────────────────────────────
 #
-# Un écran sans carte graphique (Xvfb), un gestionnaire de fenêtres minuscule
-# (fluxbox), un navigateur (Chromium), et de quoi regarder l'écran depuis un
-# navigateur (x11vnc + noVNC).
+# Le dépôt apt de Google exige une clé GPG tierce et une source supplémentaire.
+# Sur une image slim, ça casse souvent la construction, et ça agrandit la
+# surface pour un binaire qui parle le MÊME protocole (CDP, port 9222).
+# Chromium du dépôt Debian suffit.
 #
-# Pas d'éditeur, pas de bureautique, pas de suite graphique. Chaque paquet en
-# plus est une surface en plus, et l'agent n'a besoin que de voir son travail.
-#
-# ─── CE QU'IL N'Y A PAS, DÉLIBÉRÉMENT ────────────────────────────────────────
-#
-# · AUCUN mot de passe VNC. Ce n'est pas un oubli : le port ne quitte jamais
-#   127.0.0.1 (voir `planAtelier`), et un mot de passe VNC dans une image
-#   publique serait un secret partagé par tous ceux qui la construisent — donc
-#   pas un secret. La borne est le réseau.
-# · AUCUN identifiant. `envAtelier` est une liste d'AUTORISATION qui ne laisse
-#   passer que TZ et LANG. Un navigateur est l'endroit le plus facile du monde
-#   pour exfiltrer une clé.
-# · Pas de `sudo`. L'utilisateur n'est pas root, et n'a pas de chemin pour le
-#   devenir (`--cap-drop=ALL`, `no-new-privileges`).
+# Node.js vient de l'image officielle `node:24-bookworm-slim` (Debian), pour
+# que le démon d'outils tourne avec le même palier que la ruche. Python,
+# LibreOffice et Tesseract viennent d'apt.
 
-FROM debian:trixie-slim
+FROM node:24-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:99 \
-    SCREEN=1440x900x24
+    SCREEN=1440x900x24 \
+    LANG=C.UTF-8
 
-# `--no-install-recommends` : sans lui, `chromium` tire une demi-session de
-# bureau — gestionnaire de sons, thèmes, polices asiatiques. Trois cents Mo pour
-# rien, et autant de code qui tourne sans raison.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      xvfb x11vnc fluxbox novnc websockify \
+      xvfb openbox x11vnc novnc websockify \
       chromium \
+      python3 \
+      libreoffice-writer libreoffice-calc \
+      tesseract-ocr \
       ca-certificates fonts-dejavu-core \
       procps \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 # ─── UN UTILISATEUR SANS POUVOIR ─────────────────────────────────────────────
 #
-# Le démon Docker tourne en root sur la plupart des machines ; c'est écrit dans
-# l'annonce du bac à sable et ça reste vrai. Ce qu'on peut faire, c'est que le
-# PROCESSUS, lui, ne soit pas root — pour que ce qui s'échappe du navigateur ne
-# tombe pas sur un compte tout-puissant.
-RUN useradd --create-home --shell /usr/sbin/nologin ouvriere \
- && mkdir -p /travail && chown ouvriere:ouvriere /travail
+# Le démon Docker de l'hôte tourne souvent en root. Le PROCESSUS, lui, non.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin hive \
+ && mkdir -p /workspace/.wake-hooks /usr/local/lib/hive \
+ && chown -R hive:hive /workspace /home/hive /usr/local/lib/hive
 
-COPY demarrer.sh /usr/local/bin/demarrer.sh
-RUN chmod +x /usr/local/bin/demarrer.sh
+COPY docker/atelier/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/atelier/demarrer.sh /usr/local/bin/demarrer.sh
+COPY src/atelier/outil.ts /usr/local/lib/hive/outil.ts
+RUN chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/demarrer.sh \
+ && chown hive:hive /usr/local/lib/hive/outil.ts
 
-USER ouvriere
-WORKDIR /travail
+USER hive
+WORKDIR /workspace
 
-# 6080 : noVNC. Publié sur 127.0.0.1 UNIQUEMENT par `planAtelier`. L'exposer ici
-# ne l'ouvre pas — c'est le `--publish` qui décide.
-EXPOSE 6080
+# 6080 noVNC · 8765 démon d'outils · 9222 CDP (publiés en 127.0.0.1 par compose)
+EXPOSE 6080 8765 9222
 
-# ─── UN SIGNAL D'ARRÊT QUI ARRIVE ────────────────────────────────────────────
-#
-# `demarrer.sh` est lancé par `exec` en PID 1 et relaie SIGTERM. Sans ça, un
-# `docker stop` attendrait dix secondes puis tuerait — et un navigateur tué
-# laisse un verrou de profil qui casse le démarrage suivant.
-ENTRYPOINT ["/usr/local/bin/demarrer.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

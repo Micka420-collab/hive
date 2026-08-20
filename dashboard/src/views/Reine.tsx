@@ -7,6 +7,7 @@ import './reine.css';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { getToken } from '../api';
+import { AtelierRecette } from '../AtelierRecette';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { timeShort } from './shared';
@@ -223,11 +224,10 @@ export default function Reine({ snapshot }: ViewProps) {
 
   return (
     <div className="mc-view rn-view">
+      <AtelierRecette />
       <header className="rn-head card">
         <div className="rn-head-title">
-          <span className="rn-crown" aria-hidden="true">
-            👑
-          </span>
+          <span className="rn-crown" aria-hidden="true" />
           <div>
             <h2>{t('Parlez à la Reine', 'Talk to the Queen')}</h2>
             <p className="rn-sub">
@@ -267,7 +267,7 @@ export default function Reine({ snapshot }: ViewProps) {
       >
         {messages.length === 0 && !pending && (
           <div className="rn-empty">
-            <span aria-hidden="true">🍯</span>
+            <span className="rn-hex" aria-hidden="true" />
             <p>
               {t(
                 'La ruche bourdonne, la Reine écoute. Posez votre première question — ou butinez une suggestion ci-dessous.',
