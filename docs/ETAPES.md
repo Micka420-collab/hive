@@ -11673,3 +11673,15 @@ timeline récupérable). Livré sur PR #338 :
 
 Mesure : `tests/sauvegardes.test.ts`, `tests/sauvegardes-endpoint.test.ts`,
 usage Concierge dans `tests/concierge.test.ts`.
+
+### 9. Suite du 20 août (nuit) — lot 8 empreintes, prep sans Release
+
+| fait | où |
+| ---- | -- |
+| Pages copie `install.sh` / `install.ps1` + `install.sha256` | `.github/workflows/pages.yml` |
+| Scripts affichent SHA-256 avant d’agir (fichier) | `install.sh`, `install.ps1` |
+| Variante prudente documentée | `docs/INSTALLATION.md` |
+| Banc structure + hash live | `tests/site-installeurs.test.ts` |
+
+Release GitHub + signature restent 🔒 (comptes humains). La confiance par
+empreinte est posée sans encaisser ni publier un tag.
