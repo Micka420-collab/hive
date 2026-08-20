@@ -84,7 +84,7 @@ function boutonParTexte(racineDom: HTMLElement, texte: string): HTMLElement {
 describe('les surfaces modales sortent de la barre du haut', () => {
   it('INVITATION : le voile est monté sur le corps, pas dans la barre', async () => {
     const barreDom = await monterDansLaBarre(<InvitePanel />);
-    cliquer(boutonParTexte(barreDom, 'Inviter un ami'));
+    cliquer(boutonParTexte(barreDom, 'Inviter'));
 
     const voile = document.querySelector('.modal-backdrop');
     expect(voile, 'la modale s’ouvre').toBeTruthy();
@@ -97,7 +97,7 @@ describe('les surfaces modales sortent de la barre du haut', () => {
 
   it('INVITATION : la commande à copier existe, hors de la barre', async () => {
     const barreDom = await monterDansLaBarre(<InvitePanel />);
-    cliquer(boutonParTexte(barreDom, 'Inviter un ami'));
+    cliquer(boutonParTexte(barreDom, 'Inviter'));
     await act(async () => {});
 
     const cmd = document.querySelector('.invite-cmd code')?.textContent ?? '';
@@ -117,7 +117,7 @@ describe('les surfaces modales sortent de la barre du haut', () => {
 
   it('LE VOILE SE REFERME AU CLIC HORS DE LA MODALE — et le clic dedans ne ferme pas', async () => {
     const barreDom = await monterDansLaBarre(<InvitePanel />);
-    cliquer(boutonParTexte(barreDom, 'Inviter un ami'));
+    cliquer(boutonParTexte(barreDom, 'Inviter'));
 
     cliquer(document.querySelector('.modal') as Element);
     expect(

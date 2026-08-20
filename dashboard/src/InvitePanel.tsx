@@ -106,7 +106,7 @@ export function InvitePanel() {
         onClick={openPanel}
         title={t('Inviter un ami à rejoindre la ruche', 'Invite a friend to join the hive')}
       >
-        {t('+ Inviter un ami', '+ Invite a friend')}
+        {t('Inviter', 'Invite')}
       </button>
 
       {open && (
