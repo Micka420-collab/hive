@@ -107,6 +107,19 @@ D'où deux leviers, tous deux déjà présents ou en cours dans le code :
 > réellement exécutées. Toute la grille du §5 se recalcule à partir d'elle ; la
 > sensibilité est donnée pour qu'on voie tout de suite ce qui casse.
 
+### 4.1 Coûts d'exploitation complets
+
+Une offre hébergée ne paie pas seulement des jetons : elle doit aussi absorber
+les machines CPU/GPU, leur amortissement, l'électricité et le refroidissement,
+le stockage, le réseau, les sauvegardes, la supervision humaine et, si
+l'exploitation grandit, les locaux ou bureaux nécessaires. Ces coûts fixes et
+variables doivent être mesurés par l'opérateur avant toute mise en vente.
+
+Les **49 € de Cloud** paient la commodité d'une Queen gérée ; les **99 € de
+Team** paient les fonctions de collaboration. Ni l'un ni l'autre ne doit être
+présenté comme un forfait illimité d'heures hébergées : ces heures ont un coût
+réel, suivi séparément et couvert par les Missions express ou un contrat adapté.
+
 ## 5. Grille proposée
 
 | Offre               | Contenu                         | Prix           | Prix / h | Marge brute à 3,50 €/h | Marge à 5 €/h |

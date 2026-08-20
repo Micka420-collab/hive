@@ -802,10 +802,10 @@
         </p>
       </div>
 
-      <h2 class="kicker tarifs-titre" data-i18n="ta.titre">Tarifs — le logiciel est gratuit</h2>
+      <h2 class="kicker tarifs-titre" data-i18n="ta.titre">Tarifs — un cœur complet</h2>
       <div class="plans">
         <div class="plan">
-          <h3 data-i18n="ta.1.t">Sur vos machines</h3>
+          <h3 data-i18n="ta.1.t">Community</h3>
           <p class="prix"><b>0 €</b> <span data-i18n="ta.1.u">pour toujours</span></p>
           <p class="d" data-i18n="ta.1.d">
             Tout le logiciel, installé chez vous. Projets et ordinateurs illimités, licence MIT.
@@ -823,20 +823,33 @@
           </p>
         </div>
         <div class="plan">
-          <h3 data-i18n="ta.3.t">Rush</h3>
-          <p class="prix">
-            <b data-i18n="ta.3.v">dès 79 €</b> <span data-i18n="ta.3.u">par objectif</span>
-          </p>
+          <h3 data-i18n="ta.3.t">Team</h3>
+          <p class="prix"><b>99 €</b> <span data-i18n="ta.3.u">/ mois</span></p>
           <p class="d" data-i18n="ta.3.d">
-            Un plafond d'heures-ouvrières exécuté sur nos nœuds, sur votre dépôt. Devis fondé sur
-            l'historique réel.
+            Rôles fins, projets d’organisation, sièges illimités et pilotage partagé.
+          </p>
+        </div>
+        <div class="plan">
+          <h3 data-i18n="ta.4.t">Enterprise</h3>
+          <p class="prix"><b data-i18n="ta.4.v">Sur devis</b></p>
+          <p class="d" data-i18n="ta.4.d">
+            SSO/SAML, audit exportable, rétention personnalisée, support prioritaire et SLA.
+          </p>
+        </div>
+        <div class="plan">
+          <h3 data-i18n="ta.5.t">Mission express</h3>
+          <p class="prix">
+            <b data-i18n="ta.5.v">dès 79 €</b> <span data-i18n="ta.5.u">par objectif</span>
+          </p>
+          <p class="d" data-i18n="ta.5.d">
+            Une capacité d’essaim bornée, un suivi détaillé et chaque production soumise à votre
+            revue.
           </p>
         </div>
       </div>
       <p class="note" data-i18n="ta.note">
-        Les deux offres payantes sont un modèle proposé : aucun paiement n'est encaissé aujourd'hui.
-        Le calcul complet est public dans docs/MODELE-ECONOMIQUE.md. La ruche auto-hébergée restera
-        gratuite.
+        Tarifs indicatifs : aucun paiement n'est encaissé aujourd'hui. La ruche Community restera
+        complète, gratuite et auto-hébergeable.
       </p>
 
       <h2 class="kicker" data-i18n="tb.titre">Le tableau de bord</h2>
@@ -903,8 +916,8 @@
           'se.limite.t': 'What we do not hide',
           'se.limite.d':
             'With podman, docker or bubblewrap, the agent only sees its own task folder. But the network stays open — a coding agent must reach its model’s API. Without a container engine only a process sandbox remains: in that case, only use Hive between people you trust, or set <span class="mono">HIVE_ISOLEMENT=exige</span>.',
-          'ta.titre': 'Pricing — the software is free',
-          'ta.1.t': 'On your machines',
+          'ta.titre': 'Pricing — one complete core',
+          'ta.1.t': 'Community',
           'ta.1.u': 'forever',
           'ta.1.d':
             'The whole software, installed at your place. Unlimited projects and computers, MIT licence.',
@@ -913,13 +926,20 @@
           'ta.2.u': '/ month',
           'ta.2.d':
             'We keep the orchestrator running, you keep the code. Your nodes and your keys stay yours.',
-          'ta.3.t': 'Rush',
-          'ta.3.v': 'from €79',
-          'ta.3.u': 'per goal',
+          'ta.3.t': 'Team',
+          'ta.3.u': '/ month',
           'ta.3.d':
-            'A cap of worker-hours run on our nodes, on your repository. Quote based on real history.',
+            'Fine-grained roles, organisation projects, unlimited seats and shared oversight.',
+          'ta.4.t': 'Enterprise',
+          'ta.4.v': 'On request',
+          'ta.4.d': 'SSO/SAML, exportable audit, custom retention, priority support and SLA.',
+          'ta.5.t': 'Express mission',
+          'ta.5.v': 'from €79',
+          'ta.5.u': 'per goal',
+          'ta.5.d':
+            'Bounded swarm capacity, detailed tracking and every output submitted for your review.',
           'ta.note':
-            'Both paid offers are a proposed model: no payment is taken today. The full computation is public in docs/MODELE-ECONOMIQUE.md. The self-hosted hive will stay free.',
+            'Indicative pricing: no payment is taken today. The Community hive will stay complete, free and self-hostable.',
           'tb.titre': 'The dashboard',
           'tb.d':
             'Thirteen views to steer the hive: the <strong>Hive</strong> (tasks, computers, live activity), <strong>the Queen</strong> (ask your questions, she answers from the real state), the <strong>Honey house</strong> (every diff waits for your verdict), the <strong>Projects</strong> and their workshop turning a brief into a plan, the <strong>Swarm</strong>, the <strong>Memory</strong> (what the hive learned from its mistakes), the <strong>Health</strong>, the replayable <strong>Chronicle</strong>, the read-only <strong>Comb</strong> of code, the <strong>Worksites</strong>, the <strong>Brain</strong>, <strong>My space</strong> and the <strong>Stewardship</strong>.',

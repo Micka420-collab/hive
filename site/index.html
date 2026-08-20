@@ -3047,14 +3047,80 @@
         min-height: 360px;
         border-radius: 10px;
       }
+      .edition-label {
+        width: fit-content;
+        margin: 0 0 4px;
+        padding: 5px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        font: 600 10px/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
       .edition-cloud {
         background: var(--encre);
         color: var(--creme);
         transform: translateY(-18px);
       }
+      .edition-cloud .edition-label {
+        border-color: rgba(255, 253, 248, 0.18);
+        color: var(--gold);
+      }
       .edition-cloud li,
       .edition-cloud .edition-prix span {
         color: var(--creme-2);
+      }
+      .edition:not(.edition-cloud) .btn {
+        width: 100%;
+        justify-content: center;
+        border-color: var(--border-2);
+      }
+      .product-stage::after {
+        content: '●  ●  ●';
+        position: absolute;
+        top: clamp(11px, 1.8vw, 23px);
+        right: clamp(14px, 2vw, 26px);
+        color: rgba(255, 253, 248, 0.32);
+        font-size: 7px;
+        letter-spacing: 0.35em;
+      }
+      .card .ico {
+        position: relative;
+        width: 22px;
+        height: 22px;
+        font-size: 0;
+        color: var(--text);
+      }
+      .card .ico::before {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border: 1px solid currentColor;
+        transform: rotate(45deg);
+      }
+      .card .ico::after {
+        content: '';
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        right: 1px;
+        bottom: 1px;
+        border-radius: 50%;
+        background: var(--gold);
+      }
+      .apercu-rail i {
+        position: relative;
+        width: 14px;
+        height: 14px;
+        font-size: 0;
+      }
+      .apercu-rail i::before {
+        content: '';
+        position: absolute;
+        inset: 3px;
+        border: 1px solid currentColor;
+        transform: rotate(45deg);
       }
       .appel {
         background: var(--gold);
@@ -3454,7 +3520,7 @@
       <nav class="main" id="site-nav" aria-label="Navigation principale">
         <a href="#features" data-i18n="nav.features">Fonctionnalités</a>
         <a href="#securite" data-i18n="nav.security">Sécurité</a>
-        <a href="#communaute" data-i18n="nav.community">Éditions</a>
+        <a href="#communaute" data-i18n="nav.community">Tarifs</a>
         <a href="rush/" data-i18n="nav.rush">Rush</a>
         <a href="#raccourcis" data-i18n="nav.start">Démarrer</a>
       </nav>
@@ -3587,9 +3653,9 @@
 
           <div class="badges">
             <span class="badge" data-i18n="badge.tests">4 363 tests ✓</span>
-            <span class="badge" data-i18n="badge.tier">Palier 7 livré</span>
-            <span class="badge">TypeScript strict</span>
-            <span class="badge">Node ≥ 24</span>
+            <span class="badge" data-i18n="badge.views">13 vues produit</span>
+            <span class="badge" data-i18n="badge.state">État persistant</span>
+            <span class="badge">MIT</span>
           </div>
         </div>
 
@@ -4737,15 +4803,16 @@
     <section id="communaute" class="section">
       <p class="kicker" data-i18n="co.kicker">Éditions</p>
       <h2 class="headline" data-i18n="co.headline">
-        Community gratuit. Quatre paliers, un seul cœur.
+        Un cœur complet. Quatre façons de le faire tourner.
       </h2>
       <p class="lede" data-i18n="co.lede">
-        Même logiciel. Chez toi, c'est 0 €, et rien n'en est retiré. Si tu héberges pour d'autres,
-        tu factures — ce dépôt n'encaisse rien.
+        Commencez gratuitement sur vos machines. Passez à une Queen gérée, aux fonctions d’équipe ou
+        à un contrat sur mesure quand votre organisation en a besoin.
       </p>
 
       <div class="cloud">
         <article class="edition">
+          <p class="edition-label" data-i18n="co.com.label">Pour construire</p>
           <p class="edition-prix">0 €<span data-i18n="co.com.periode">pour toujours</span></p>
           <h3 data-i18n="co.com.t">Community</h3>
           <ul>
@@ -4755,26 +4822,42 @@
               Noyau complet, jamais bridé : Reine, nœuds, écran, Cerveau.
             </li>
           </ul>
+          <a class="btn ghost" href="#raccourcis" data-i18n="co.com.cta">Installer Hive</a>
         </article>
         <article class="edition edition-cloud">
+          <p class="edition-label" data-i18n="co.cld.label">Le plus simple</p>
           <p class="edition-prix">49 €<span data-i18n="co.cld.periode">/ mois · Queen</span></p>
           <h3 data-i18n="co.cld.t">Cloud</h3>
           <ul>
-            <li data-i18n="co.cld.1">La même Queen, sur tes serveurs.</li>
-            <li data-i18n="co.cld.2">Tes clients paient chez toi — pas ce dépôt.</li>
-            <li data-i18n="co.cld.3">L'horloge qui compte est celle de l'hébergeur.</li>
+            <li data-i18n="co.cld.1">Queen hébergée et supervisée.</li>
+            <li data-i18n="co.cld.2">Mises à jour et sauvegardes gérées.</li>
+            <li data-i18n="co.cld.3">Vos nœuds et vos clés restent chez vous.</li>
           </ul>
+          <a
+            class="btn"
+            href="https://github.com/Micka420-collab/hive/issues/new"
+            data-i18n="co.cld.cta"
+            >Nous contacter</a
+          >
         </article>
         <article class="edition edition-team">
+          <p class="edition-label" data-i18n="co.team.label">Pour collaborer</p>
           <p class="edition-prix">99 €<span data-i18n="co.team.periode">/ mois</span></p>
           <h3 data-i18n="co.team.t">Team</h3>
           <ul>
             <li data-i18n="co.team.1">Rôles fins, quotas par membre.</li>
             <li data-i18n="co.team.2">Projets d'organisation, sièges illimités.</li>
-            <li data-i18n="co.team.3">100 h d'ouvrières incluses chaque mois.</li>
+            <li data-i18n="co.team.3">Historique partagé et pilotage d’équipe.</li>
           </ul>
+          <a
+            class="btn ghost"
+            href="https://github.com/Micka420-collab/hive/issues/new"
+            data-i18n="co.team.cta"
+            >Parler de votre équipe</a
+          >
         </article>
         <article class="edition edition-devis">
+          <p class="edition-label" data-i18n="co.ent.label">Pour gouverner</p>
           <p class="edition-prix">
             <span class="devis-mot" data-i18n="co.ent.prix">Sur devis</span
             ><span data-i18n="co.ent.periode">au contrat</span>
@@ -4796,8 +4879,7 @@
           >Mission express — à partir de 79 €, sans abonnement</a
         >
         <p class="cloud-honest" data-i18n="co.cloud.h">
-          Ce dépôt ne prélève aucun paiement. Pour encaisser, tu déploies le Cloud chez toi — sur
-          tes serveurs, pas ici.
+          Tarifs indicatifs. Ce site n'encaisse aucun paiement.
         </p>
       </div>
     </section>
@@ -4987,6 +5069,7 @@
             <p class="pied-t" data-i18n="f.produit">Le produit</p>
             <a href="#features" data-i18n="f.fonctions">Fonctionnalités</a>
             <a href="#securite" data-i18n="f.secu">Sécurité</a>
+            <a href="#communaute" data-i18n="f.tarifs">Tarifs</a>
           </div>
           <div class="pied-col">
             <p class="pied-t" data-i18n="f.commencer">Commencer</p>
@@ -5069,7 +5152,8 @@
           'nav.start': 'Get started',
           'nav.menu': 'Open menu',
           'badge.tests': '4,363 tests ✓',
-          'badge.tier': 'Tier 7 shipped',
+          'badge.views': '13 product views',
+          'badge.state': 'Persistent state',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time.</span>',
           'hero.sub':
@@ -5277,27 +5361,34 @@
           'sec.8': 'Merging is always an <strong>explicit human gesture</strong>',
           'sec.warn':
             '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
-          'nav.community': 'Editions',
+          'nav.community': 'Pricing',
           'nav.rush': 'Rush',
           'co.kicker': 'Editions',
-          'co.headline': 'Community free. Four tiers, one complete core.',
+          'co.headline': 'One complete core. Four ways to run it.',
           'co.lede':
-            'Same software. On your machines, it is \u20ac0, and nothing is taken out. If you host for others, you bill \u2014 this repository collects no payment.',
+            'Start free on your own machines. Move to a managed Queen, team features or a tailored contract when your organisation needs it.',
+          'co.com.label': 'For builders',
           'co.com.periode': 'forever',
           'co.com.t': 'Community',
           'co.com.1': 'Open source, MIT, self-hosted.',
           'co.com.2': 'Unlimited seats. Your keys stay on your machines.',
           'co.com.3': 'Full core, never stripped: Queen, nodes, dashboard, Brain.',
+          'co.com.cta': 'Install Hive',
+          'co.cld.label': 'The simplest path',
           'co.cld.periode': '/ month \u00b7 Queen',
           'co.cld.t': 'Cloud',
-          'co.cld.1': 'The same Queen, on your servers.',
-          'co.cld.2': 'Your customers pay you \u2014 not this repository.',
-          'co.cld.3': 'The clock that counts is the host\u2019s.',
+          'co.cld.1': 'Hosted and supervised Queen.',
+          'co.cld.2': 'Managed updates and backups.',
+          'co.cld.3': 'Your nodes and keys stay with you.',
+          'co.cld.cta': 'Contact us',
+          'co.team.label': 'For collaboration',
           'co.team.periode': '/ month',
           'co.team.t': 'Team',
           'co.team.1': 'Fine-grained roles, per-member quotas.',
           'co.team.2': 'Organisation projects, unlimited seats.',
-          'co.team.3': '100 worker-hours included each month.',
+          'co.team.3': 'Shared history and team oversight.',
+          'co.team.cta': 'Discuss your team',
+          'co.ent.label': 'For governance',
           'co.ent.prix': 'On request',
           'co.ent.periode': 'by contract',
           'co.ent.t': 'Enterprise',
@@ -5306,8 +5397,7 @@
           'co.ent.3': 'Priority support, SLA.',
           'co.ent.lien': 'Contact',
           'co.rush': 'Express mission \u2014 from \u20ac79, no subscription',
-          'co.cloud.h':
-            'This repository collects no payment. To charge customers, you deploy Cloud at your place \u2014 on your servers, not here.',
+          'co.cloud.h': 'Indicative pricing. No payment is collected on this site.',
           'rc.kicker': 'Get started',
           'rc.headline': 'A demo in two commands, your hive in two clicks.',
           'rc.s1': 'First, the demo',
@@ -5344,6 +5434,7 @@
           'f.produit': 'The product',
           'f.fonctions': 'Features',
           'f.secu': 'Security',
+          'f.tarifs': 'Pricing',
           'f.commencer': 'Get started',
           'f.demarrer': 'Get started',
           'f.install': 'Installation',
