@@ -44,29 +44,30 @@
    porte JAMAIS le texte. Les bruns `--honey` / `--gold` / `--amber` restent
    ≥ 4,5:1 sur la crème. */
 :root {
-  --bg: #f7f3e9;
-  --bg-2: #f4eee0;
-  --panel: #fffdf8;
-  --panel-2: #f7f3e9;
-  --panel-3: #f1e9d8;
-  --border: #e3d8c2;
-  --border-2: #e0d2b6;
-  --text: #1b1712;
-  --muted: #5a5348;
-  --faint: #6b6152; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
-  --honey: #9d5605;
-  --amber: #96570c;
-  --orange: #9a5a09;
-  --gold: #8a4f05;
-  --red: #a8402a;
-  --green: #235e52;
-  --blue: #1d5b7d;
-  /* L'encre : chrome de la barre, pas un thème « Grok void ». La page reste
-     papier de cire. */
-  --encre: #1b1712;
-  --encre-2: #241f18;
-  --sur-encre: #a2957d; /* 6:1 sur l'encre — libellés inactifs de la barre */
-  --sur-encre-fort: #fffdf8;
+  /* Papier plus clair, proche d'un produit Apple/Craft : blanc chaud, pas
+     crème saturée. Le miel reste l'UNIQUE accent de remplissage. */
+  --bg: #f5f2eb;
+  --bg-2: #efeae1;
+  --panel: #fffcf7;
+  --panel-2: #f7f3ec;
+  --panel-3: #efe8dc;
+  --border: #e6ddd0;
+  --border-2: #ddd2c0;
+  --text: #1a1714;
+  --muted: #6a635a;
+  --faint: #7a7267; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
+  --honey: #9a5508;
+  --amber: #94560c;
+  --orange: #985909;
+  --gold: #874e06;
+  --red: #a53e2a;
+  --green: #215c51;
+  --blue: #1c587a;
+  /* Chrome de barre : charbon profond, pas un noir plat « Grok ». */
+  --encre: #141210;
+  --encre-2: #1e1a15;
+  --sur-encre: #9a9080; /* 6:1 sur l'encre — libellés inactifs de la barre */
+  --sur-encre-fort: #fffcf7;
   /* Le miel vif : REMPLISSAGE uniquement. Du texte posé dessus = encre. */
   --miel: #f6c445;
   --miel-2: #e08a14;
@@ -77,11 +78,11 @@
   --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
   --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
   --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
-  --r: 8px;
+  --r: 10px;
   --r-sm: 8px;
   --sp: 8px;
-  --shadow: 0 8px 24px -18px rgba(27, 23, 18, 0.22);
-  --shadow-sm: 0 1px 2px rgba(27, 23, 18, 0.06);
+  --shadow: 0 10px 28px -20px rgba(20, 18, 16, 0.28);
+  --shadow-sm: 0 1px 2px rgba(20, 18, 16, 0.05);
 }
 
 * {
@@ -134,9 +135,11 @@ h3 {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 12px 20px;
-  background: var(--bg);
+  gap: 16px;
+  padding: 14px 24px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -151,8 +154,19 @@ h3 {
 }
 
 .brand-logo {
-  font-size: 22px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  line-height: 0;
+}
+
+.brand-logo svg {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .brand h1 {
@@ -234,27 +248,30 @@ h3 {
 
 /* ─── Boutons ─────────────────────────────────────────────────────────── */
 .btn {
-  padding: 7px 14px;
+  padding: 8px 15px;
   border: 1px solid var(--border-2);
-  border-radius: var(--r-sm);
-  background: var(--panel-2);
+  border-radius: 10px;
+  background: var(--panel);
   color: var(--text);
+  font-family: var(--texte);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
   transition:
-    filter 0.15s,
-    transform 0.05s;
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.08s ease;
 }
 
 .btn:hover {
-  /* Sur un fond clair, `brightness(1.12)` ne produit RIEN de visible : on
-     éclaircit du quasi-blanc. C'est la bordure et l'ombre qui répondent. */
-  border-color: var(--miel-2);
+  border-color: color-mix(in srgb, var(--miel-2) 55%, var(--border-2));
   box-shadow: var(--shadow-sm);
 }
 
 .btn:active {
-  transform: translateY(1px);
+  transform: scale(0.98);
 }
 
 .btn:disabled {
@@ -266,8 +283,15 @@ h3 {
 .invite-btn {
   background: var(--miel);
   color: var(--encre);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--miel-2) 35%, transparent);
   white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(255, 252, 247, 0.35) inset;
+}
+
+.btn.primary:hover,
+.invite-btn:hover {
+  filter: brightness(1.03);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn.ghost {
@@ -315,12 +339,23 @@ h3 {
 }
 
 .token-input {
-  width: 96px;
-  padding: 6px 10px;
-  background: var(--panel-2);
+  width: 104px;
+  padding: 7px 11px;
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: 10px;
   color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.token-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.2);
 }
 
 .conn {
@@ -329,6 +364,10 @@ h3 {
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
 }
 
 .conn-dot {
@@ -382,6 +421,9 @@ h3 {
   border: 1px solid var(--border);
   border-radius: var(--r);
   box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .col-side .card {
@@ -1707,36 +1749,37 @@ h3 {
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  /* ─── UNE BARRE LARGE, ET POURQUOI ────────────────────────────────────────
-     Le rail de 84 px n'affichait un libellé que sous une icône de 10 px de
-     haut : treize vues aux noms proches (Ruche, Rayon, Reine) s'y lisaient à
-     la devinette. Le design pose une barre de 214 px où le nom est écrit en
-     clair à côté d'une alvéole. On garde l'icône — elle sert de repère de
-     survol — mais ce n'est plus elle qui porte le sens. */
-  width: 214px;
+  /* Barre 220 px : libellés lisibles, marque Hive dominante. */
+  width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 12px;
-  /* Chrome de barre : encre unie, pas un dégradé. La page reste cire. */
-  background: var(--encre);
-  border-right: 1px solid var(--encre);
+  gap: 16px;
+  padding: 20px 12px 16px;
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.04), transparent 28%), var(--encre);
+  border-right: 1px solid #0c0b09;
   z-index: 30;
 }
 
 .mc-sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 6px 2px;
-  font-size: 22px;
+  gap: 10px;
+  padding: 2px 8px 6px;
+}
+
+.mc-sidebar-brand .brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(246, 196, 69, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(246, 196, 69, 0.28);
 }
 
 .mc-sidebar-word {
   font-family: var(--titre);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--sur-encre-fort);
 }
 
@@ -1746,59 +1789,59 @@ h3 {
   padding: 0 0 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  /* La liste défile DANS la barre : sans `min-height: 0`, un conteneur flex
-     refuse de rétrécir sous son contenu et les dernières vues (Cerveau,
-     Intendance) devenaient inatteignables sur un écran bas. */
+  gap: 3px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 252, 247, 0.18) transparent;
 }
 
 .mc-nav-cell {
   position: relative;
   width: 100%;
-  min-height: 44px;
-  padding: 9px 13px;
+  min-height: 40px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   background: none;
   border: 1px solid transparent;
-  border-radius: var(--r-sm);
+  border-radius: 10px;
   color: var(--sur-encre);
   cursor: pointer;
   font: inherit;
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   text-align: left;
   transition:
-    color 0.18s,
-    background 0.18s;
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .mc-nav-cell::before {
-  /* L'alvéole du design : une puce hexagonale, éteinte tant que la vue n'est
-     pas la vue courante. Elle remplace le gros hexagone qui se dessinait
-     DERRIÈRE l'icône — inutile dès lors que le libellé est lisible. */
   content: '';
   flex: none;
-  width: 10px;
-  height: 12px;
+  width: 9px;
+  height: 11px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: #6e6350;
-  transition: background 0.2s;
+  background: #5c5346;
+  transition: background 0.2s ease;
 }
 
 .mc-nav-cell:hover {
   color: var(--sur-encre-fort);
-  background: rgba(255, 253, 248, 0.06);
+  background: rgba(255, 252, 247, 0.06);
 }
 
 .mc-nav-cell.active {
-  background: rgba(246, 196, 69, 0.16);
+  background: rgba(246, 196, 69, 0.14);
+  border-color: rgba(246, 196, 69, 0.18);
   color: var(--sur-encre-fort);
+  font-weight: 600;
 }
 
 .mc-nav-cell.active::before {
@@ -1812,6 +1855,23 @@ h3 {
 
 .mc-nav-icon {
   display: none;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(255, 252, 247, 0.06);
+  font-family: var(--titre);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--sur-encre-fort);
+}
+
+.mc-nav-cell.active .mc-nav-icon {
+  background: rgba(246, 196, 69, 0.22);
+  color: var(--miel);
 }
 
 .mc-nav-label {
@@ -1868,9 +1928,9 @@ h3 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 253, 248, 0.14);
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 252, 247, 0.1);
   width: 100%;
 }
 
@@ -1896,6 +1956,27 @@ h3 {
 .mc-view {
   flex: 1;
   min-width: 0;
+  animation: mc-view-in 0.28s ease both;
+}
+
+@keyframes mc-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-view {
+    animation: none;
+  }
+  .btn:active {
+    transform: none;
+  }
 }
 
 .mc-view-loading {
@@ -1914,12 +1995,14 @@ h3 {
    qu'un projet existe. */
 .ruche-depart {
   margin: 28px 24px 0;
-  padding: 28px 28px 24px;
+  padding: 32px 32px 28px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 14px;
   max-width: 40rem;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(246, 196, 69, 0.12), transparent 55%), var(--panel);
 }
 
 .ruche-depart .marque {
@@ -2106,7 +2189,12 @@ button.mc-cell:focus-visible {
     display: none;
   }
   .mc-nav-icon {
-    font-size: 18px;
+    display: inline-flex;
+    font-size: 12px;
+  }
+  .mc-sidebar-brand .brand-logo {
+    width: 26px;
+    height: 26px;
   }
   .mc-nav-badge {
     position: absolute;

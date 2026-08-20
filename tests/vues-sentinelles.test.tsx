@@ -66,6 +66,10 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
       inscription: { mode: 'ouverte', avertissement: '' },
     }),
   ),
+  // Sans ça, monter la Reine part en vrai vers :3000 (AtelierRecette).
+  fetchAtelier: vi.fn(() => Promise.resolve({ mode: 'off', actif: false })),
+  demarrerAtelier: vi.fn(() => Promise.resolve({ mode: 'off', actif: false })),
+  arreterAtelier: vi.fn(() => Promise.resolve({ mode: 'off', actif: false })),
 }));
 
 import {

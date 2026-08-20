@@ -389,9 +389,20 @@ export function App() {
       <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
           <span className="brand-logo" aria-hidden="true">
-            🐝
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M12 2.2 20.2 7v10L12 21.8 3.8 17V7L12 2.2Z"
+                fill="#F6C445"
+                fillOpacity="0.92"
+              />
+              <path
+                d="M12 6.2 16.8 9v6L12 17.8 7.2 15V9L12 6.2Z"
+                fill="#141210"
+                fillOpacity="0.88"
+              />
+            </svg>
           </span>
-          {/* Le nom écrit, et pas seulement l'abeille : sur la barre large du
+          {/* Le nom écrit, et pas seulement la marque : sur la barre large du
               design, le logo seul laissait un vide que rien n'expliquait. */}
           <span className="mc-sidebar-word">Hive</span>
         </div>
@@ -404,6 +415,9 @@ export function App() {
                 title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}
               >
+                <span className="mc-nav-icon" aria-hidden="true">
+                  {(lang === 'fr' ? item.label : item.labelEn).charAt(0)}
+                </span>
                 <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
                 {porteLaPastille(item.id, pastille) && (
                   <span
