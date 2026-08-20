@@ -1089,6 +1089,95 @@ h3 {
   max-width: 640px;
 }
 
+/* Nouveau projet — soft-freeze Craft : papier de cire, miel discret, marque
+   hex (jamais d’emoji). Les puces modèles restent calmes ; le primaire
+   « Générer » / « Lancer le butinage » porte le miel. */
+.np-modal {
+  background: color-mix(in srgb, var(--miel) 4%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 22%, var(--border));
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--miel) 18%, transparent),
+    0 24px 64px -28px rgba(20, 18, 16, 0.42);
+}
+
+.np-modal .modal-head {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
+
+.np-modal .field {
+  margin-bottom: 16px;
+}
+
+.np-modal .field > span:first-child {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.np-modal .code-input {
+  background: color-mix(in srgb, var(--panel) 70%, var(--bg));
+  border-color: color-mix(in srgb, var(--border) 92%, transparent);
+}
+
+.np-modal .template-row {
+  margin-top: 8px;
+  margin-bottom: 0;
+  gap: 8px;
+}
+
+.np-modal .np-templates {
+  margin-bottom: 8px;
+}
+
+.np-modal .template-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.np-modal .chip {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--muted);
+  font-weight: 500;
+  border-radius: var(--r-sm);
+}
+
+.np-modal .chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  color: var(--text);
+}
+
+.np-modal .chip.primary {
+  background: color-mix(in srgb, var(--miel) 88%, var(--miel-2));
+  color: var(--encre);
+  border: 1px solid color-mix(in srgb, var(--miel-2) 28%, transparent);
+  font-weight: 600;
+}
+
+.np-modal .chip.primary:hover:not(:disabled) {
+  background: var(--miel);
+  border-color: color-mix(in srgb, var(--miel-2) 40%, transparent);
+  color: var(--encre);
+}
+
+.np-modal .plan-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.np-modal .modal-actions {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
+
 .modal-head {
   display: flex;
   align-items: center;
@@ -1203,11 +1292,13 @@ h3 {
   color: var(--faint);
 }
 
-/* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat. */
+/* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat.
+   Soft-freeze : le détail miel/cire vit sous `.np-modal` ; ici le repli
+   partagé reste sobre pour l’atelier Projets. */
 .chip.primary {
-  background: var(--miel);
+  background: color-mix(in srgb, var(--miel) 88%, var(--miel-2));
   color: var(--encre);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--miel-2) 28%, transparent);
   font-weight: 600;
 }
 
@@ -1217,8 +1308,10 @@ h3 {
 }
 
 .plan-note {
-  font-size: 11px;
-  color: var(--gold);
+  font-size: 12px;
+  color: var(--muted);
+  font-style: normal;
+  line-height: 1.45;
 }
 
 /* ─── Panneaux Palier 2 : Hive Mind & Conflits ─────────────────────────── */
