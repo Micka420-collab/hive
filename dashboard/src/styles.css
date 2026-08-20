@@ -890,11 +890,17 @@ h3 {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
 }
 
 .drawer-head h2 {
-  font-size: 18px;
-  margin-bottom: 8px;
+  font-family: var(--titre);
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  margin-bottom: 6px;
+  color: var(--text);
 }
 
 .drawer h3 {
