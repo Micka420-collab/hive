@@ -163,7 +163,7 @@ function Refus({ titre, texte, action }: { titre: string; texte: string; action:
   return (
     <div className="view in-view">
       <section className="card in-refus">
-        <h2>🔒 {titre}</h2>
+        <h2>{titre}</h2>
         <p>{texte}</p>
         <p className="in-refus-action">{action}</p>
       </section>
@@ -258,7 +258,6 @@ function SectionServeurs({
 
       {vue.bientotSupprimes.length > 0 && (
         <p className="in-alerte" role="status">
-          ⏳{' '}
           {t(
             'Effacement définitif imminent — le travail de ces machines part avec elles :',
             'Permanent erasure imminent — these machines take their work with them:',
@@ -370,7 +369,7 @@ function LigneServeur({ s, onChanged }: { s: ServeurAdmin; onChanged: () => void
           <small className="in-sens">{t(ETAT_SENS[s.etat].fr, ETAT_SENS[s.etat].en)}</small>
           {s.joursAvantSuppression >= 0 && (
             <small className="in-retention">
-              ⏳ {s.joursAvantSuppression} {t('j avant effacement', 'd before erasure')}
+              {s.joursAvantSuppression} {t('j avant effacement', 'd before erasure')}
             </small>
           )}
         </td>

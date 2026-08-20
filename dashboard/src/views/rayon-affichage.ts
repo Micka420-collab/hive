@@ -24,14 +24,14 @@ import type { Entree as EntreeRayon } from '../../../src/shared/rayon.js';
  * rayon « lisible à 3 mètres », c'est lui retirer sa seule raison d'être.
  */
 export function icone(e: EntreeRayon, ouvert: boolean): string {
-  if (e.type === 'dossier') return ouvert ? '📂' : '📁';
+  if (e.type === 'dossier') return ouvert ? '▾' : '▸';
   const n = e.nom.toLowerCase();
-  if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(n)) return '📜';
-  if (/\.(json|ya?ml|toml)$/.test(n)) return '⚙️';
-  if (/\.(md|txt)$/.test(n)) return '📝';
-  if (/\.(css|scss|html?)$/.test(n)) return '🎨';
-  if (/\.(png|jpe?g|gif|svg|ico|webp)$/.test(n)) return '🖼';
-  return '📄';
+  if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(n)) return '⟨⟩';
+  if (/\.(json|ya?ml|toml)$/.test(n)) return '{ }';
+  if (/\.(md|txt)$/.test(n)) return '¶';
+  if (/\.(css|scss|html?)$/.test(n)) return '#';
+  if (/\.(png|jpe?g|gif|svg|ico|webp)$/.test(n)) return '◻';
+  return '·';
 }
 
 /**

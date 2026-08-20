@@ -1313,7 +1313,7 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
             lister('');
           }}
         >
-          🐙 {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
+          {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
         </button>
         <span className="pj-gh-aide">
           {t(
@@ -1328,7 +1328,10 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('🐙 Connecter un dépôt GitHub', '🐙 Connect a GitHub repository')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
+        </h2>
         <button className="btn ghost" onClick={() => setOuvert(false)}>
           {t('Fermer', 'Close')}
         </button>

@@ -32,18 +32,18 @@ function fichier(nom: string): Entree {
 describe('l’icône du rayon départage le dossier AVANT l’extension', () => {
   it('UN DOSSIER porte l’icône dossier — ouvert ou fermé, jamais celle d’un fichier', () => {
     // `src` n'a pas d'extension : muté en `!==`, il glisserait dans la logique
-    // de fichier et recevrait 📄. Fermé et ouvert se distinguent, mais tous deux
+    // de fichier et recevrait ·. Fermé et ouvert se distinguent, mais tous deux
     // restent des dossiers.
-    expect(icone(dossier('src'), false), 'dossier fermé').toBe('📁');
-    expect(icone(dossier('src'), true), 'dossier déplié').toBe('📂');
+    expect(icone(dossier('src'), false), 'dossier fermé').toBe('▸');
+    expect(icone(dossier('src'), true), 'dossier déplié').toBe('▾');
   });
 
   it('UN FICHIER porte l’icône de son type — jamais celle d’un dossier', () => {
-    // Muté en `!==`, un fichier passerait pour un dossier et recevrait 📁,
+    // Muté en `!==`, un fichier passerait pour un dossier et recevrait ▸,
     // perdant l'icône que son extension lui vaut.
-    expect(icone(fichier('index.ts'), false), 'un .ts est un parchemin').toBe('📜');
-    expect(icone(fichier('README.md'), false), 'un .md est une note').toBe('📝');
-    expect(icone(fichier('LICENSE'), false), 'sans extension, un fichier quelconque').toBe('📄');
+    expect(icone(fichier('index.ts'), false), 'un .ts est du code').toBe('⟨⟩');
+    expect(icone(fichier('README.md'), false), 'un .md est une note').toBe('¶');
+    expect(icone(fichier('LICENSE'), false), 'sans extension, un fichier quelconque').toBe('·');
   });
 });
 
