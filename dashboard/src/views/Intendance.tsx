@@ -163,7 +163,9 @@ function Refus({ titre, texte, action }: { titre: string; texte: string; action:
   return (
     <div className="view in-view">
       <section className="card in-refus">
-        <h2><span className="marque" aria-hidden="true" /> {titre}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {titre}
+        </h2>
         <p>{texte}</p>
         <p className="in-refus-action">{action}</p>
       </section>
@@ -187,7 +189,9 @@ function SectionServeurs({
   if (error) {
     return (
       <section className="card">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}
+        </h2>
         <p className="panel-error">{error}</p>
       </section>
     );
@@ -195,7 +199,9 @@ function SectionServeurs({
   if (!data) {
     return (
       <section className="card">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}
+        </h2>
         <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
       </section>
     );
@@ -206,7 +212,9 @@ function SectionServeurs({
   return (
     <section className="card in-serveurs">
       <header className="panel-head">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}
+        </h2>
         <span className="muted-text">
           {t('fournisseur', 'provider')} : <code>{data.fournisseur}</code> · {t('plafond', 'cap')}{' '}
           {data.serveursMax} · {t('rétention', 'retention')} {data.retentionJours}{' '}
@@ -495,7 +503,10 @@ export function SectionCles({ refreshTick }: { refreshTick: number }) {
   return (
     <section className="card">
       <header className="panel-head">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les clés de la ruche', 'The hive’s keys')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Les clés de la ruche', 'The hive’s keys')}
+        </h2>
         {cles.data && (
           <span className="panel-count">
             {cles.data.noeuds.filter((n) => !n.revoque).length} {t('active(s)', 'active')}
@@ -621,7 +632,9 @@ function SectionMembres({
   if (error) {
     return (
       <section className="card">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}
+        </h2>
         <p className="panel-error">{error}</p>
       </section>
     );
@@ -629,7 +642,9 @@ function SectionMembres({
   if (!data) {
     return (
       <section className="card">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}
+        </h2>
         <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
       </section>
     );
@@ -653,7 +668,9 @@ function SectionMembres({
   return (
     <section className="card in-membres">
       <header className="panel-head">
-        <h2><span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}
+        </h2>
         <span className="muted-text">
           {data.membres.length} {t('compte(s)', 'account(s)')} · {data.admins}{' '}
           {t('administrateur(s)', 'administrator(s)')}
