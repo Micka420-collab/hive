@@ -474,13 +474,13 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
 
 /** Ce que chaque niveau veut dire, en une ligne, sans dramatiser ni minimiser. */
 const NIVEAU_GUET: Record<NiveauGuet, { fr: string; en: string; ton: string; icone: string }> = {
-  calme: { fr: 'Rien à signaler', en: 'Nothing to report', ton: 'calme', icone: '🐝' },
-  reniflage: { fr: 'On vous regarde', en: 'Someone is looking', ton: 'chaud', icone: '👀' },
+  calme: { fr: 'Rien à signaler', en: 'Nothing to report', ton: 'calme', icone: '○' },
+  reniflage: { fr: 'On vous regarde', en: 'Someone is looking', ton: 'chaud', icone: '◎' },
   balayage: {
     fr: 'Un outil déroule sa liste',
     en: 'A tool is running its list',
     ton: 'brulant',
-    icone: '🚨',
+    icone: '▲',
   },
 };
 
