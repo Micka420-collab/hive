@@ -286,8 +286,7 @@ h3 {
   cursor: default;
 }
 
-.btn.primary,
-.invite-btn {
+.btn.primary {
   background: var(--miel);
   color: var(--encre);
   border: 1px solid color-mix(in srgb, var(--miel-2) 35%, transparent);
@@ -295,8 +294,7 @@ h3 {
   box-shadow: 0 1px 0 rgba(255, 252, 247, 0.35) inset;
 }
 
-.btn.primary:hover,
-.invite-btn:hover {
+.btn.primary:hover {
   filter: brightness(1.03);
   box-shadow: var(--shadow-sm);
 }
@@ -317,11 +315,27 @@ h3 {
   background: rgba(168, 64, 42, 0.1);
 }
 
+/* Inviter reste secondaire : le miel plein est réservé au départ
+   (« Démarrer un projet » / « + Projet »), pas à la topbar. */
 .invite-btn {
   padding: 7px 13px;
-  border-radius: var(--r-sm);
-  font-weight: 700;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.invite-btn:hover {
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+  border-color: var(--border);
 }
 
 .view-toggle {
@@ -1056,8 +1070,21 @@ h3 {
 }
 
 .modal-head h2 {
-  color: var(--honey);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
   font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.modal-head .marque {
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .modal-close {

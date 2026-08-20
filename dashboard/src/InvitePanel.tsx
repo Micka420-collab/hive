@@ -120,7 +120,8 @@ export function InvitePanel() {
           >
             <header className="modal-head">
               <h2 id="invite-title">
-                🐝 {t('Inviter un ami dans la ruche', 'Invite a friend into the hive')}
+                <span className="marque" aria-hidden="true" />{' '}
+                {t('Inviter un ami dans la ruche', 'Invite a friend into the hive')}
               </h2>
               <button
                 className="modal-close"
