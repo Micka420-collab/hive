@@ -692,14 +692,11 @@
 }
 
 .es-calm-hex {
-  width: 140px;
-  height: 124px;
-  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
-  background: linear-gradient(180deg, var(--miel), var(--miel-2));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 44px;
+  width: 72px;
+  height: 80px;
+  margin: 0 auto 12px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
   animation: es-breathe 4s ease-in-out infinite;
 }
 

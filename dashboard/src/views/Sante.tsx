@@ -279,9 +279,7 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
 
         {report && report.ghosts.length === 0 && (
           <div className="es-calm">
-            <div className="es-calm-hex" aria-hidden="true">
-              🐝
-            </div>
+            <div className="es-calm-hex" aria-hidden="true" />
             <p className="es-calm-text">
               {t('La ruche bourdonne paisiblement', 'The hive is humming peacefully')}
             </p>
