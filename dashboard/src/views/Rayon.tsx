@@ -33,6 +33,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
+import { consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -131,6 +132,18 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     setChargement(true);
     void charger(projet.id, '').finally(() => setChargement(false));
   }, [projet?.id, charger]);
+
+  // Reine → mode Sauvegardes / puce Restaurer… : scroller la timeline.
+  useEffect(() => {
+    if (consommerFocus() !== FOCUS_SAUVEGARDES) return;
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById('ry-sauvegardes')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [projet?.id, refreshTick]);
 
   const basculer = (chemin: string) => {
     const connu = dossiers[chemin];

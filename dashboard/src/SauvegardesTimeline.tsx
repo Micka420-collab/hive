@@ -137,7 +137,11 @@ export function SauvegardesTimeline({
   };
 
   return (
-    <section className="ry-sauvegardes" aria-label={t('Sauvegardes', 'Backups')}>
+    <section
+      id="ry-sauvegardes"
+      className="ry-sauvegardes"
+      aria-label={t('Sauvegardes', 'Backups')}
+    >
       <header className="ry-sg-tete">
         <h3>{t('Sauvegardes', 'Backups')}</h3>
         <p>

@@ -11710,3 +11710,11 @@ CI `a34376c` : empreinte via stdin (Windows), mocks App shell, badges 4432.
 | FEATURES FR/EN + CHANGELOG                                   | docs                                    |
 
 Lire avant d’agir — même doctrine que l’empreinte des installeurs.
+
+### 12. Suite du 20 août (nuit) — focus Reine→timeline + pouls vivant
+
+| fait                                                              | où                                    |
+| ----------------------------------------------------------------- | ------------------------------------- |
+| Mode Sauvegardes / puce Restaurer… → focus timeline (session)     | `focus-vue.ts`, Reine, Rayon          |
+| Pouls : refresh 30 s sans flash de charge                         | `AutonomiePulse.tsx`                  |
+| Bancs focus + tick pouls + assertion Reine                        | `tests/focus-vue`, `autonomie-pulse`  |

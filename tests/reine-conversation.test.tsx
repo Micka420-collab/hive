@@ -504,6 +504,7 @@ describe('G. tokens IA et modes de navigation', () => {
     const avant = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
     await cliquer(chip!);
     expect(nav).toHaveBeenCalledWith('rayon', undefined);
+    expect(sessionStorage.getItem('hive.focus')).toBe('sauvegardes');
     const apres = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
     expect(apres, 'un envoi chat supplémentaire').toBe(avant);
   });

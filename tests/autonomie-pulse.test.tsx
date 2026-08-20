@@ -118,4 +118,27 @@ describe('AutonomiePulse', () => {
     expect(el.textContent).toContain('indispo');
     expect(el.textContent).toContain('hors ligne');
   });
+
+  it('relit l’essaim périodiquement sans flash de charge', async () => {
+    vi.useFakeTimers();
+    fetchEssaim.mockResolvedValue(etat({ niveau: 'propose' }));
+    const { el } = await monter([{ id: 'p1', name: 'Delta' }]);
+    expect(fetchEssaim).toHaveBeenCalledTimes(1);
+    expect(el.textContent).toContain('propose');
+
+    fetchEssaim.mockResolvedValue(
+      etat({
+        niveau: 'plein',
+        runner: { mode: 'on', enPause: true, echecs: 0, dernierTourA: 2 },
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(fetchEssaim).toHaveBeenCalledTimes(2);
+    expect(el.textContent).toContain('plein');
+    expect(el.textContent).toContain('en pause');
+    expect(el.querySelector('.autonomie-pulse-item--charge')).toBeNull();
+    vi.useRealTimers();
+  });
 });

@@ -357,6 +357,7 @@
 /* ─── Timeline de sauvegardes ─────────────────────────────────────────────── */
 
 .ry-sauvegardes {
+  scroll-margin-top: 72px;
   display: flex;
   flex-direction: column;
   gap: 8px;

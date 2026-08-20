@@ -10,6 +10,7 @@ import { getToken } from '../api';
 import { AtelierRecette } from '../AtelierRecette';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
+import { demanderFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 
@@ -311,7 +312,10 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
         <button
           type="button"
           className="rn-mode"
-          onClick={() => onNavigate('rayon', projectId || undefined)}
+          onClick={() => {
+            demanderFocus(FOCUS_SAUVEGARDES);
+            onNavigate('rayon', projectId || undefined);
+          }}
           title={t(
             'Sauvegardes et code — timeline récupérable',
             'Backups and code — recoverable timeline',
@@ -412,6 +416,7 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
                 // Raccourci produit : la suggestion « Restaurer… » mène au
                 // panneau Sauvegardes du Rayon plutôt que de reposer la question.
                 if (/^restaurer|^restore/i.test(s.trim())) {
+                  demanderFocus(FOCUS_SAUVEGARDES);
                   onNavigate('rayon', projectId || undefined);
                   return;
                 }
