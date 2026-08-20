@@ -43,7 +43,8 @@
 
 .pa-marque .marque,
 .pa-vide h1 .marque,
-.pa-calme .marque {
+.pa-calme .marque,
+.pa-avancement .marque {
   display: inline-block;
   width: 14px;
   height: 16px;
@@ -98,6 +99,11 @@
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
+}
+
+.pa-avancement .panel-head .marque {
+  width: 12px;
+  height: 14px;
 }
 
 .pa-barre {
