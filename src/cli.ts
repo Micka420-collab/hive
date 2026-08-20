@@ -1717,10 +1717,10 @@ async function cmdAsk(question: string, projectId?: string): Promise<void> {
   if (buf.trim().startsWith('data:')) traiter(buf.trim().slice(5).trimStart());
 
   if (assemble.length > 0) process.stdout.write('\n');
-  const reponse = final ?? {
+  const reponse: { reply: string; source: 'live' | 'llm'; suggestions: string[] } = final ?? {
     reply: assemble,
-    source: 'live' as const,
-    suggestions: [] as string[],
+    source: 'live',
+    suggestions: [],
   };
   if (!assemble && reponse.reply) {
     console.log(reponse.reply.replace(/^/gm, '  '));
