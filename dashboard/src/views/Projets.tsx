@@ -1063,7 +1063,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
                           d'accord ne font pas dix avis. */}
                       ↑{d.soutiens.length} · {d.familles.length} {t('famille(s)', 'famil(y|ies)')}
                       {d.arrets.length > 0 && (
-                        <span className="pj-cs-arrets"> · ⛔{d.arrets.length}</span>
+                        <span className="pj-cs-arrets"> · {d.arrets.length}</span>
                       )}
                     </span>
                   </div>
@@ -1075,7 +1075,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
                     .filter((r) => r.type === 'arret' && r.raison)
                     .map((r, i) => (
                       <p key={i} className="pj-cs-objection">
-                        ⛔ {r.raison}
+                        {r.raison}
                       </p>
                     ))}
                   {/* PAS défendu, et c'est l'idiome JSX « rends si présent ».
