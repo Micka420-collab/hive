@@ -381,7 +381,9 @@ export function Journal({ events }: { events: HiveEvent[] }) {
             };
             return (
               <li key={ev.id} className={`jrow ${meta.cls}`}>
-                <span className="jicon">{meta.icon}</span>
+                <span className="jicon" aria-hidden="true">
+                  {meta.icon}
+                </span>
                 <span className="jtext">{meta.text(ev.payload, t)}</span>
                 <time className="jtime">{new Date(ev.ts).toLocaleTimeString()}</time>
               </li>

@@ -208,13 +208,13 @@ function QueenBee({ projects }: { projects: Project[] }) {
         </div>
 
         {error && <p className="panel-error">{error}</p>}
-        {sent && <p className="pj-sent">🍯 {sent}</p>}
+        {sent && <p className="pj-sent">{sent}</p>}
 
         {plan && (
           <div className="pj-plan">
             <div className="pj-plan-head">
               <span className={`pj-src ${plan.source}`}>
-                {plan.source === 'llm' ? '🧠 llm' : t('⚙ heuristique', '⚙ heuristic')}
+                {plan.source === 'llm' ? 'IA' : t('heuristique', 'heuristic')}
               </span>
               <span className="panel-count">
                 {plan.tasks.length} {t('tâche(s)', 'task(s)')}

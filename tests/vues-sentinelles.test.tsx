@@ -525,10 +525,10 @@ describe('les sentinelles du balayage du soir', () => {
     const calc = bulles.find((b) => (b.textContent ?? '').includes('Trois ouvrières'));
     const llm = bulles.find((b) => (b.textContent ?? '').includes('Je pense'));
     // § 2 terdecies, appliqué AVANT de se faire mordre une deuxième fois : la
-    // branche llm porte AUSSI un `.rn-src` (« ✨ IA ») — le sélecteur est un
+    // branche llm porte AUSSI un `.rn-src` (« IA ») — le sélecteur est un
     // témoin partagé, seul le TEXTE du badge distingue les deux mondes.
     expect(calc?.textContent, 'la réponse calculée porte le badge du réel').toContain('état réel');
-    expect(llm?.textContent, 'la supposition porte le badge du modèle').toContain('✨ IA');
+    expect(llm?.textContent, 'la supposition porte le badge du modèle').toContain('IA');
     expect(llm?.textContent, 'la supposition ne se pare pas du réel').not.toContain('état réel');
   });
 

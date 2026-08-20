@@ -138,10 +138,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(246, 196, 69, 0.16);
-  border: 1px solid rgba(246, 196, 69, 0.35);
-  border-radius: 50%;
-  font-size: 13px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-size: 0;
+}
+
+.rn-avatar::before {
+  content: '';
+  width: 14px;
+  height: 16px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .rn-bubble {

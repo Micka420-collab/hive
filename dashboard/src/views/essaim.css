@@ -263,8 +263,8 @@
 }
 
 /* Micro-danse frétillante du n°1 (waggle dance). */
-.es-dance {
-  display: inline-block;
+.es-medal.es-dance {
+  display: inline-flex;
   animation: es-dance 2s ease-in-out infinite;
   transform-origin: 50% 80%;
 }
