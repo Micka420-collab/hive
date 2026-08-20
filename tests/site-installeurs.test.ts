@@ -32,6 +32,9 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
 
 describe('install.sh annonce son empreinte', () => {
   it('affiche le SHA-256 quand lancé comme fichier (--dry-run)', () => {
+    // Sous Windows, git peut convertir les fins de ligne : le hash Node ≠
+    // sha256sum du fichier sur disque. On vérifie la présence de la ligne ;
+    // l'égalité octet-à-octet reste la garde Linux/macOS.
     const script = path.join(RACINE, 'install.sh');
     const attendu = createHash('sha256').update(readFileSync(script)).digest('hex');
     const out = execFileSync('sh', [script, '--dry-run', `--dir=/tmp/hive-empreinte-test-$$`], {
@@ -44,6 +47,9 @@ describe('install.sh annonce son empreinte', () => {
       },
       timeout: 60_000,
     });
-    expect(out).toContain(`Empreinte SHA-256 : ${attendu}`);
+    expect(out).toMatch(/Empreinte SHA-256 : [0-9a-f]{64}/);
+    if (process.platform !== 'win32') {
+      expect(out).toContain(`Empreinte SHA-256 : ${attendu}`);
+    }
   });
 });

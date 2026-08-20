@@ -398,8 +398,10 @@ banniere
 # Confiance = SHA-256 du script, pas l'URL. Via `curl | sh`, `$0` n'est pas un
 # fichier : on le dit, et on pointe le chemin « télécharger → hasher → lire ».
 annoncer_empreinte() {
-  case "$0" in
-    */install.sh | install.sh | ./install.sh)
+  # basename : sous Windows/Git Bash le chemin peut être `D:\…\install.sh`.
+  base=$(basename "$0" 2>/dev/null || echo "$0")
+  case "$base" in
+    install.sh)
       if command -v sha256sum >/dev/null 2>&1; then
         dire "Empreinte SHA-256 : $(sha256sum "$0" | awk '{ print $1 }')"
       elif command -v shasum >/dev/null 2>&1; then

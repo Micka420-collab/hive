@@ -1867,6 +1867,21 @@ export class HiveStore {
     };
   }
 
+  /**
+   * Ne conserve que les `maxKeep` sauvegardes les plus récentes (toutes
+   * projets confondus). Les étapes auto naissent à chaque diff réussi : sans
+   * cette borne, la table grandirait avec l'histoire de la ruche.
+   */
+  pruneSauvegardes(maxKeep: number): number {
+    const keep = Math.max(0, maxKeep);
+    const info = this.db
+      .prepare(
+        'DELETE FROM sauvegardes WHERE id NOT IN (SELECT id FROM sauvegardes ORDER BY createdAt DESC, id DESC LIMIT ?)',
+      )
+      .run(keep);
+    return info.changes;
+  }
+
   resultsForTask(taskId: string): TaskResult[] {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')

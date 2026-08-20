@@ -262,6 +262,8 @@ const MEMORY_RETENTION = 2_000;
  * EVENT_RETENTION : les deux racontent la même histoire récente.
  */
 export const RESULT_RETENTION = 5_000;
+/** Timeline de code : autant que les résultats — une étape par production typique. */
+export const SAUVEGARDES_RETENTION = 5_000;
 
 /**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
@@ -7396,6 +7398,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
+      store.pruneSauvegardes(SAUVEGARDES_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────

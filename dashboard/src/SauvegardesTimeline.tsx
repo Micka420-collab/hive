@@ -139,7 +139,7 @@ export function SauvegardesTimeline({
         </div>
       )}
 
-      {erreur && <p className="ry-erreur">⚠ {erreur}</p>}
+      {erreur && <p className="ry-sg-erreur">⚠ {erreur}</p>}
       {msg && <p className="ry-sg-msg">{msg}</p>}
 
       {liste.length === 0 && !erreur ? (

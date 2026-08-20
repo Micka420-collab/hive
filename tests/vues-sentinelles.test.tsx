@@ -48,6 +48,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
+  fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
   fetchMonTableau: vi.fn(() => Promise.resolve(null)),
   fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
   setProjectPlafond: vi.fn(() => Promise.resolve({ definiPar: null, updatedAt: null })),
