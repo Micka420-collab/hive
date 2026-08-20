@@ -48,13 +48,17 @@ export function ConflictsPanel({
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>🛡️ {t('Conflits', 'Conflicts')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Conflits', 'Conflicts')}
+        </h2>
         <span className="panel-count warn">{entries.length}</span>
       </header>
       <ul className="conflict-list">
         {entries.slice(0, 10).map(({ conflict }, i) => (
           <li key={i} className={`conflict-item ${conflict.severity}`}>
-            <span className="conflict-sev">{conflict.severity === 'high' ? '⚠' : '·'}</span>
+            <span className="conflict-sev" aria-hidden="true">
+              {conflict.severity === 'high' ? '▲' : '·'}
+            </span>
             <span className="conflict-pair">
               {titleOf(conflict.a)} ↔ {titleOf(conflict.b)}
             </span>

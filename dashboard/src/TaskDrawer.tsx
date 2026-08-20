@@ -156,7 +156,6 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
 
         {race && !race.decided && (
           <p className="muted-text" title={t('Course de drones en vol', 'Drone race in flight')}>
-            ⚔{' '}
             {t(
               `Course en vol : ${race.drones.filter((d) => d.status === 'running').length} drone(s) sur ${race.drones.length} — le premier succès gagne.`,
               `Race in flight: ${race.drones.filter((d) => d.status === 'running').length} drone(s) of ${race.drones.length} — first success wins.`,
@@ -165,7 +164,6 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
         )}
         {task.status === 'done' && victory && (
           <p className="muted-text" title={t('Course de drones gagnée', 'Drone race won')}>
-            🏆{' '}
             {(() => {
               const name =
                 nodes.find((n) => n.id === victory.nodeId)?.name ??
@@ -260,12 +258,12 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
           >
             {busy
               ? t('Lancement…', 'Launching…')
-              : t('⚔ Course de drones (3 nœuds)', '⚔ Drone race (3 nodes)')}
+              : t('Course de drones (3 nœuds)', 'Drone race (3 nodes)')}
           </button>
         )}
         {raced !== null && task.status !== 'done' && task.status !== 'failed' && (
           <p className="muted-text">
-            ⚔ {t('Course lancée :', 'Race launched:')} {raced}{' '}
+            {t('Course lancée :', 'Race launched:')} {raced}{' '}
             {t(
               'drone(s) en vol — le premier succès gagne.',
               'drone(s) in flight — the first success wins.',

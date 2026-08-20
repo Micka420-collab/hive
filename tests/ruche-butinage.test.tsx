@@ -63,6 +63,27 @@ import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { HiveEvent, StateSnapshot, Task } from '../src/shared/types';
 
+// AutonomiePulse sonde `/api/projects/:id/essaim` au montage dès qu'il y a un
+// projet. Sans bouchon, happy-dom tape :3000 (ECONNREFUSED) — mesuré sous le
+// tamis des ordres après le pouls Ruche.
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  fetchEssaim: vi.fn(() =>
+    Promise.resolve({
+      niveau: 'off',
+      niveaux: ['off', 'propose', 'gouverne', 'plein'],
+      runner: { mode: 'off', enPause: false, echecs: 0, dernierTourA: 0 },
+      derive: { etat: 'saine', echantillon: 0, indicateurs: [], solitudeJours: 0, motif: '' },
+      decision: { pas: 'inerte', motif: '', gouvernantes: [] },
+      gouvernantes: [],
+      gouvernantesRequises: 1,
+      depotInscrit: false,
+      plafond: 'passe',
+      lecons: [],
+    }),
+  ),
+}));
+
 let conteneur: HTMLElement;
 let racine: Root | null = null;
 

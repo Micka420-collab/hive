@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4363%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-4437%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -70,13 +70,19 @@ Shots of the running app (`npm run ruche`), not mockups.
 # Linux · macOS
 curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
 
+# Cautious path (fingerprint before acting):
+# curl -fsSLO https://micka420-collab.github.io/hive/install.sh
+# sha256sum install.sh   # compare to https://micka420-collab.github.io/hive/install.sha256
+# less install.sh && sh install.sh
+
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
 ```
 
 The script checks Node (≥ 24), fetches Hive, installs dependencies and asks
 **at most three questions**. Never `sudo`, nothing written outside its folder —
-`--dry-run` shows all of it without creating anything.
+`--dry-run` shows all of it without creating anything. Run as a file and it
+prints its SHA-256 fingerprint (ADR 0002).
 
 Already cloned: `npm run setup` then `npm run ruche`. Containers and Cloud:
 **[docs/CLOUD.md](docs/CLOUD.md)**. Acceptance desktop:

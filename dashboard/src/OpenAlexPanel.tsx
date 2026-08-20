@@ -33,23 +33,23 @@ function doiUrl(doi: string): string {
   return doi.startsWith('https://') ? doi : `https://doi.org/${doi}`;
 }
 
-/** Traduit le type OpenAlex en emoji + libellé (t injecté au rendu). */
-function paperBadge(type: string, t: Translate): { emoji: string; label: string } {
+/** Libellé de type OpenAlex — texte seul, sans emoji (t injecté au rendu). */
+function paperBadge(type: string, t: Translate): { label: string } {
   switch (type) {
     case 'journal-article':
-      return { emoji: '📄', label: t('Article', 'Article') };
+      return { label: t('Article', 'Article') };
     case 'book':
-      return { emoji: '📘', label: t('Livre', 'Book') };
+      return { label: t('Livre', 'Book') };
     case 'book-chapter':
-      return { emoji: '📑', label: t('Chapitre', 'Chapter') };
+      return { label: t('Chapitre', 'Chapter') };
     case 'preprint':
-      return { emoji: '🚀', label: t('Preprint', 'Preprint') };
+      return { label: t('Preprint', 'Preprint') };
     case 'dissertation':
-      return { emoji: '🎓', label: t('Thèse', 'Thesis') };
+      return { label: t('Thèse', 'Thesis') };
     case 'dataset':
-      return { emoji: '📊', label: t('Dataset', 'Dataset') };
+      return { label: t('Dataset', 'Dataset') };
     default:
-      return { emoji: '📚', label: type };
+      return { label: type };
   }
 }
 
@@ -125,7 +125,8 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
       >
         <header className="modal-head">
           <h2 id="oa-title">
-            🧬 {t('OpenAlex — Moteur scientifique', 'OpenAlex — Scientific search engine')}
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('OpenAlex — Moteur scientifique', 'OpenAlex — Scientific search engine')}
           </h2>
           <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
@@ -145,7 +146,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
             )}
           />
           {loading && (
-            <span className="openalex-spinner">🔍 {t('Recherche en cours…', 'Searching…')}</span>
+            <span className="openalex-spinner">{t('Recherche en cours…', 'Searching…')}</span>
           )}
         </div>
 
@@ -166,10 +167,10 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
               <article key={paper.id} className="openalex-card">
                 <div className="oa-card-head">
                   <span className="oa-badge" title={badge.label}>
-                    {badge.emoji} {badge.label}
+                    {badge.label}
                   </span>
                   {paper.year && <span className="oa-year">{paper.year}</span>}
-                  {paper.openAccess && <span className="oa-oa">🔓 OA</span>}
+                  {paper.openAccess && <span className="oa-oa">OA</span>}
                 </div>
                 <h3 className="oa-title">
                   <a
@@ -191,7 +192,7 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
                 )}
                 <div className="oa-card-foot">
                   <span className="oa-citations">
-                    📊 {paper.citedBy.toLocaleString()} citation{paper.citedBy > 1 ? 's' : ''}
+                    {paper.citedBy.toLocaleString()} citation{paper.citedBy > 1 ? 's' : ''}
                   </span>
                   {paper.doi && (
                     <a

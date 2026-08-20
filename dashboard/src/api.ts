@@ -1312,6 +1312,68 @@ export function fetchFichierRayon(projectId: string, chemin: string): Promise<Fi
   );
 }
 
+// ─── Timeline de sauvegardes (code récupérable) ──────────────────────────────
+//
+// Lecture via `apiLecture` (compte ou lien de partage « lire_code »). Écriture
+// et restauration exigent un COMPTE : on ne laisse pas un porteur de lien
+// ouvrir des tâches dans l'essaim de quelqu'un d'autre.
+
+export type GenreSauvegardeUi = 'etape' | 'manuel' | 'avant_retouche';
+
+export interface SauvegardeResumeUi {
+  id: string;
+  projectId: string;
+  resultId: number | null;
+  taskId: string | null;
+  label: string;
+  kind: GenreSauvegardeUi;
+  taille: number;
+  createdAt: number;
+}
+
+export interface SauvegardeUi extends Omit<SauvegardeResumeUi, 'taille'> {
+  patch: string;
+}
+
+export function fetchSauvegardes(
+  projectId: string,
+  limit = 50,
+): Promise<{ sauvegardes: SauvegardeResumeUi[] }> {
+  return apiLecture(
+    `/api/projects/${encodeURIComponent(projectId)}/sauvegardes?limit=${Math.min(200, Math.max(1, limit))}`,
+  );
+}
+
+export function fetchSauvegarde(
+  projectId: string,
+  sauvegardeId: string,
+): Promise<{ sauvegarde: SauvegardeUi }> {
+  return apiLecture(
+    `/api/projects/${encodeURIComponent(projectId)}/sauvegardes/${encodeURIComponent(sauvegardeId)}`,
+  );
+}
+
+export function creerSauvegardeManuelle(
+  projectId: string,
+  corps: { label: string; patch?: string },
+): Promise<{ sauvegarde: SauvegardeResumeUi }> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/sauvegardes`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+}
+
+/** Ouvre une tâche « Restaurer — … » ; jamais un rewrite silencieux du dépôt. */
+export function restaurerSauvegarde(
+  projectId: string,
+  sauvegardeId: string,
+): Promise<{ task: { id: string; title: string }; sauvegardeId: string }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/sauvegardes/${encodeURIComponent(sauvegardeId)}/restaurer`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
 /**
  * Le billet de rattachement d'une machine — REMIS UNE SEULE FOIS.
  *

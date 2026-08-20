@@ -139,7 +139,6 @@
 }
 
 .in-motif {
-  font-style: italic;
 }
 
 /* Le billet est fait pour être SÉLECTIONNÉ et collé dans un terminal : il doit
@@ -202,7 +201,6 @@
 }
 
 .in-sens {
-  font-style: italic;
 }
 
 /* ─── Les gestes ──────────────────────────────────────────────────────── */

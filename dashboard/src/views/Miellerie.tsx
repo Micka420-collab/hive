@@ -408,7 +408,7 @@ export function ConsensusPanel({
                   </span>
                 ))}
                 {verdict.winner?.signature === f.signature && (
-                  <span className="mi-elected">{t('👑 Élu', '👑 Elected')}</span>
+                  <span className="mi-elected">{t('Élu', 'Elected')}</span>
                 )}
               </li>
             ))}
@@ -754,9 +754,7 @@ export default function Miellerie({
     return (
       <div className="mc-view mi-view">
         <div className="mi-empty">
-          <span className="mi-empty-icon" aria-hidden="true">
-            🐝
-          </span>
+          <span className="mi-empty-icon marque" aria-hidden="true" />
           <p className="mi-empty-lead">
             {t(
               'Le nectar arrive — aucune production à revoir.',
@@ -798,7 +796,9 @@ export default function Miellerie({
         {/* ── Volet 1 : file de revue ── */}
         <aside className="card panel mi-queue-pane" aria-label={t('File de revue', 'Review queue')}>
           <header className="panel-head">
-            <h2>{t('File de revue', 'Review queue')}</h2>
+            <h2>
+              <span className="marque" aria-hidden="true" /> {t('File de revue', 'Review queue')}
+            </h2>
             <span className="panel-count">
               {reviewedCount}/{flat.length} {t('revues', 'reviewed')}
             </span>
@@ -809,7 +809,8 @@ export default function Miellerie({
           <ul className="queue mi-queue" ref={queueRef}>
             {groups.map((g) => [
               <li key={`g-${g.id}`} className="mi-group">
-                ⬡ {g.name} <span className="chip-count">{g.tasks.length}</span>
+                <span className="marque" aria-hidden="true" /> {g.name}{' '}
+                <span className="chip-count">{g.tasks.length}</span>
               </li>,
               ...g.tasks.map((task) => {
                 const review = getReview(task.id);
@@ -833,7 +834,7 @@ export default function Miellerie({
                       className={`mi-dot${review === 'approved' ? ' ok' : review === 'rejected' ? ' ko' : ''}`}
                       title={t('revue locale (ce navigateur)', 'local review (this browser)')}
                     >
-                      {review === 'approved' ? '🍯' : review === 'rejected' ? '✖' : '·'}
+                      {review === 'approved' ? '●' : review === 'rejected' ? '✖' : '·'}
                     </span>
                   </li>
                 );
@@ -853,7 +854,7 @@ export default function Miellerie({
               <h2>{activeTask.title}</h2>
             </div>
             <div className="mi-inspect-sub">
-              <span title={t('Nœud butineur', 'Foraging node')}>🐝 {activeNode}</span>
+              <span title={t('Nœud butineur', 'Foraging node')}>{activeNode}</span>
               {activeTask.branch && <code className="mono mi-branch">{activeTask.branch}</code>}
               {activeTask.result && <span>{formatMs(activeTask.result.durationMs)}</span>}
             </div>
@@ -920,7 +921,7 @@ export default function Miellerie({
               )}
               onClick={() => decide('approved')}
             >
-              🍯 {t('Approuver', 'Approve')} <kbd>a</kbd>
+              {t('Approuver', 'Approve')} <kbd>a</kbd>
             </button>
             <button
               className="btn mi-reject"
@@ -930,7 +931,7 @@ export default function Miellerie({
               )}
               onClick={() => decide('rejected')}
             >
-              ✖ {t('Rejeter', 'Reject')} <kbd>x</kbd>
+              {t('Rejeter', 'Reject')} <kbd>x</kbd>
             </button>
             <button
               className="btn ghost"
@@ -945,9 +946,9 @@ export default function Miellerie({
               title={t('revue locale (ce navigateur)', 'local review (this browser)')}
             >
               {currentReview === 'approved'
-                ? t('Revue : 🍯 approuvée', 'Review: 🍯 approved')
+                ? t('Revue : approuvée', 'Review: approved')
                 : currentReview === 'rejected'
-                  ? t('Revue : ✖ rejetée', 'Review: ✖ rejected')
+                  ? t('Revue : rejetée', 'Review: rejected')
                   : t('Non revue', 'Not reviewed')}
             </span>
             <button
@@ -970,14 +971,16 @@ export default function Miellerie({
             aria-label={t('Verdict et contexte', 'Verdict and context')}
           >
             <header className="panel-head">
-              <h2>Verdict</h2>
+              <h2>
+                <span className="marque" aria-hidden="true" /> Verdict
+              </h2>
               <button
                 className="mi-close-info"
                 title={t('Replier (i)', 'Collapse (i)')}
                 aria-label={t('Replier le volet verdict', 'Collapse the verdict pane')}
                 onClick={() => setShowInfo(false)}
               >
-                ✕
+                ×
               </button>
             </header>
             <div className="mi-info-body">
@@ -1021,7 +1024,7 @@ export default function Miellerie({
                     return (
                       <li key={i} className={`mi-sting-item ${c.severity}`}>
                         <span className="mi-sting-sev">
-                          {c.severity === 'high' ? t('⚡ fort', '⚡ high') : t('· faible', '· low')}
+                          {c.severity === 'high' ? t('fort', 'high') : t('· faible', '· low')}
                         </span>
                         <span className="mi-sting-other">
                           {t(`avec « ${titleOf(other)} »`, `with “${titleOf(other)}”`)}
@@ -1042,12 +1045,14 @@ export default function Miellerie({
       {/* ── Pied de vue : coulée du miel (merge par projet) ── */}
       <footer className="mi-merge" aria-label={t('Coulée du miel', 'Honey pour')}>
         <div className="mi-merge-bar">
-          <span className="mi-merge-proj">⬡ {projName}</span>
+          <span className="mi-merge-proj">
+            <span className="marque" aria-hidden="true" /> {projName}
+          </span>
           <span className="mi-merge-count">
             {t('Prêt à fusionner :', 'Ready to merge:')} <strong>{approvedCount}</strong>{' '}
             {t('approuvée(s)', 'approved')} / {doneCount} {t('terminée(s)', 'finished')}
             {rejectedCount > 0 && (
-              <em
+              <span
                 className="mi-merge-rejected"
                 title={t(
                   'Les rejets ne coulent jamais dans le miel',
@@ -1056,7 +1061,7 @@ export default function Miellerie({
               >
                 {' '}
                 · {rejectedCount} {t('rejetée(s) exclue(s)', 'rejected (excluded)')}
-              </em>
+              </span>
             )}
           </span>
           <button className="btn" onClick={togglePlan}>
@@ -1079,7 +1084,7 @@ export default function Miellerie({
                 ? t('Lancement…', 'Starting…')
                 : merge.step === 'waiting'
                   ? t('Fusion en cours…', 'Merging…')
-                  : t('🍯 Couler le miel', '🍯 Pour the honey')}
+                  : t('Couler le miel', 'Pour the honey')}
           </button>
         </div>
 
@@ -1120,7 +1125,7 @@ export default function Miellerie({
                   <ul className="mi-plan-conflicts">
                     {planState.plan.conflicts.map((c, i) => (
                       <li key={i}>
-                        ⚡ {titleOf(c.a)} ↔ {titleOf(c.b)} — <code>{c.file}</code>
+                        {titleOf(c.a)} ↔ {titleOf(c.b)} — <code>{c.file}</code>
                       </li>
                     ))}
                   </ul>
@@ -1154,7 +1159,7 @@ export default function Miellerie({
               <ul className="mi-plan-conflicts">
                 {merge.result.conflicts.map((c, i) => (
                   <li key={i}>
-                    ✖ {titleOf(c.taskId)} — {c.reason}
+                    {titleOf(c.taskId)} — {c.reason}
                   </li>
                 ))}
               </ul>

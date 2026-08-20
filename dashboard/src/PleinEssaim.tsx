@@ -53,15 +53,15 @@ function libellePas(pas: PasEssaim, t: ReturnType<typeof useT>): string {
 
 function iconePas(pas: PasEssaim): string {
   const icones: Record<PasEssaim, string> = {
-    inerte: '🌙',
-    halte: '⛔',
-    plafond: '🛑',
-    deliberer: '🗣️',
-    planifier: '🗂️',
-    butiner: '🐝',
-    corriger: '🔧',
-    livrer: '📤',
-    fusionner: '🔀',
+    inerte: '○',
+    halte: '■',
+    plafond: '▣',
+    deliberer: '◇',
+    planifier: '▤',
+    butiner: '⬡',
+    corriger: '↺',
+    livrer: '↑',
+    fusionner: '⇄',
   };
   // `??` et pas un accès nu : un pas inconnu d'un serveur plus récent rendrait
   // `undefined`, donc une puce vide à côté d'un libellé bien présent.
@@ -143,7 +143,9 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
   if (!etat) {
     return (
       <section className="essaim-panneau">
-        <h3>{t('🐝 Plein Essaim', '🐝 Full Swarm')}</h3>
+        <h3>
+          <span className="marque" aria-hidden="true" /> {t('Plein Essaim', 'Full Swarm')}
+        </h3>
         <p className="essaim-vide">{erreur || t('Chargement…', 'Loading…')}</p>
       </section>
     );
@@ -154,11 +156,13 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
 
   return (
     <section className="essaim-panneau">
-      <h3>{t('🐝 Plein Essaim', '🐝 Full Swarm')}</h3>
+      <h3>
+        <span className="marque" aria-hidden="true" /> {t('Plein Essaim', 'Full Swarm')}
+      </h3>
       <p className="essaim-intro">
         {t(
-          'La ruche décide, produit, se critique et apprend — sans vous demander à chaque tour.',
-          'The hive decides, produces, critiques itself and learns — without asking you each round.',
+          'La ruche décide, produit, se critique et apprend — des jours sans vous, tant que le runner est allumé et la dérive reste saine.',
+          'The hive decides, produces, critiques itself and learns — for days without you, as long as the runner is on and drift stays healthy.',
         )}
       </p>
 
@@ -297,7 +301,7 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
               <li key={l.signature} className={`essaim-lecon essaim-lecon--${l.portee}`}>
                 <span className="essaim-lecon-portee">
                   {l.portee === 'systemique'
-                    ? t(`⚠ ${l.noeuds} machines`, `⚠ ${l.noeuds} machines`)
+                    ? t(`▲ ${l.noeuds} machines`, `▲ ${l.noeuds} machines`)
                     : l.portee === 'confirmee'
                       ? t(`${l.noeuds} machines`, `${l.noeuds} machines`)
                       : t('1 machine', '1 machine')}

@@ -306,7 +306,7 @@ describe('la Miellerie — les quatre survivantes du balayage', () => {
     );
 
     // Le geste réel : armer, puis confirmer sous 3 s.
-    cliquer(bouton(dom, '🍯 Couler le miel'));
+    cliquer(bouton(dom, 'Couler le miel'));
     cliquer(bouton(dom, 'Confirmer la coulée ?'));
     await act(async () => {});
 

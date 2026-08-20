@@ -9,6 +9,65 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
+  `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
+  des échecs + une étape (puce → Rayon). (3) Pouls Plein Essaim sur la Ruche
+  (niveau / pause / dérive → Projets). Garde : `pruneSauvegardes` + test UI
+  pouls ; FEATURES FR/EN alignés. Pouls : états de charge et **hors ligne**
+  si l’essaim refuse de répondre.
+
+- **🔏 Installeurs sur Pages + empreinte affichée (lot 8, prep).** `pages.yml`
+  copie `install.sh` / `install.ps1` vers `site/` et publie `install.sha256`.
+  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc montre la
+  variante télécharger → hasher → lire → exécuter (ADR 0002).
+
+- **💾 Timeline de sauvegardes (code récupérable).** Chaque production réussie
+  avec un diff devient une étape (`sauvegardes` latérale, survit à
+  `pruneResults`). API : lister / lire / poser (manuel) /
+  restaurer — la restauration ouvre une **tâche** (jamais un rewrite
+  silencieux). Panneau sur le Rayon : **voir le patch** avant d’agir ;
+  raccourci depuis la Reine (mode Sauvegardes / puce Restaurer… scrolle
+  la timeline) ; après restauration, **Ouvrir dans la Miellerie**. Aperçu
+  patch borné + **Copier**. Pouls Plein Essaim : relecture toutes les 30 s
+  sans flash.
+- **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
+  (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
+  Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;
+  Plein Essaim : autonomie sur plusieurs jours.
+
+### Changed
+
+- **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique
+  accent, hexagone marque) : papier plus clair, barre charbon brossée, logo SVG
+  à la place de l'emoji, **glyphes SVG de navigation** (plus de lettres), topbar
+  floutée, cartes et boutons assouplis, Reine type messagerie, modales à voile
+  flouté, entrée de vue animée (respecte `prefers-reduced-motion`). Ruche vide :
+  **une seule composition** centrée (plus de KPI / essaim / file à zéro autour
+  du départ). **« Inviter un ami »** repasse en secondaire : le miel plein
+  reste pour démarrer un projet. Titres et états vides (Partage, Miellerie, Santé calme, compte) portent l’hex plutôt que l’emoji.
+  Suite soirée : Journal en marques typographiques, OpenAlex / Cerveau /
+  Phéromones / Queen Bee sans chrome emoji, podium Essaim en rangs 1–3,
+  italiques « empty » retirés, KPI Ruche allégés. Rayon typographique,
+  Miellerie / Reine / Santé / Balance / Intendance / Plein Essaim allégés
+  du chrome emoji. Wordmark **Hive / Mission Control** ; courses en ◇ ;
+  pastille « connecté » soignée. Leçons systémiques Plein Essaim en ▲
+  (plus de ⚠ décoratif).
+
+### Fixed
+
+- **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
+  `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests
+  `reine-clavier` et `reine-conversation` comptaient **tout** `fetch` comme un
+  envoi de chat : un GET sans corps devenait `''` en tête des envois, et
+  `calls[0].body` était `undefined`. Mesuré : 8 rouges × 3 graines du tamis
+  des ordres après #337. Les bancs ne regardent plus que `/api/chat`.
+
+- **🧹 Prettier sur `docs/ATELIER.md` et `docs/INSTALLATION.md`.** Les tables
+  non formatées faisaient rougir `npm run lint` sur `main` juste après le merge
+  des éditions.
+
+### Added
+
 - **⬡ L'Atelier de recette.** Un bureau Debian (Xvfb, Openbox, Chromium, Python,
   Node, LibreOffice, Tesseract) pour que l'agent teste comme un humain : CDP
   :9222, démon d'outils :8765, noVNC :6080 — tous publiés sur 127.0.0.1.

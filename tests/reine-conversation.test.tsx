@@ -62,6 +62,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
   setLang('fr');
   sessionStorage.clear();
+  // Sans stub, `AtelierRecette` part en vrai vers :3000 (ECONNREFUSED) dès le
+  // montage — y compris les cas qui n'appellent pas `repond` (suggestions).
+  repond({ reply: 'réponse par défaut du banc', source: 'live' });
 });
 
 afterEach(() => {
@@ -76,24 +79,60 @@ afterEach(() => {
  * Le canal `/api/chat` répond. `askQueen` parle au `fetch` GLOBAL — c'est lui
  * qu'on bouchonne, et pas `dashboard/src/api`, parce que la vue le dit en toutes
  * lettres : « ne pas toucher api.ts, endpoint en cours d'écriture ».
+ *
+ * ─── L'ATELIER MONTE AVEC LA REINE ──────────────────────────────────────────
+ *
+ * `AtelierRecette` sonde `/api/atelier` au montage. Sans distinction, ce GET
+ * devient `calls[0]` (corps `undefined`) et fait croire que le chat n'a rien
+ * envoyé — mesuré sous les trois graines du tamis. Les autres URLs reçoivent
+ * donc une réponse d'atelier minimale ; seul `/api/chat` porte le corps du cas.
  */
 function repond(corps: unknown, statut = 200): ReturnType<typeof vi.fn> {
-  const faux = vi.fn(() =>
-    Promise.resolve({
+  const faux = vi.fn((url: string | URL | Request) => {
+    const cible = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+    if (!cible.includes('/api/chat')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ mode: 'off', actif: false }),
+      } as Response);
+    }
+    return Promise.resolve({
       ok: statut >= 200 && statut < 300,
       status: statut,
       json: () => Promise.resolve(corps),
-    } as Response),
-  );
+    } as Response);
+  });
   vi.stubGlobal('fetch', faux);
   return faux;
+}
+
+/** Corps JSON du PREMIER appel à `/api/chat` — jamais un autre fetch. */
+function corpsChat(faux: ReturnType<typeof vi.fn>): Record<string, unknown> {
+  const appel = faux.mock.calls.find((c) => {
+    const url = c[0];
+    const cible = typeof url === 'string' ? url : url instanceof URL ? url.href : String(url);
+    return cible.includes('/api/chat');
+  });
+  if (!appel) throw new Error('aucun appel à /api/chat');
+  return JSON.parse(String((appel[1] as RequestInit | undefined)?.body)) as Record<string, unknown>;
 }
 
 /** Le canal rejette — panne réseau, ou objet quelconque jeté par une frontière. */
 function rejette(quoi: unknown): void {
   vi.stubGlobal(
     'fetch',
-    vi.fn(() => Promise.reject(quoi)),
+    vi.fn((url: string | URL | Request) => {
+      const cible = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+      if (!cible.includes('/api/chat')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ mode: 'off', actif: false }),
+        } as Response);
+      }
+      return Promise.reject(quoi);
+    }),
   );
 }
 
@@ -107,7 +146,7 @@ const INSTANTANE = {
   tasksTotal: 0,
 } as unknown as StateSnapshot;
 
-async function monter(): Promise<HTMLElement> {
+async function monter(opts: { onNavigate?: ViewProps['onNavigate'] } = {}): Promise<HTMLElement> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -117,7 +156,7 @@ async function monter(): Promise<HTMLElement> {
     agentsByTask: {},
     deferred: new Set<string>(),
     onOpenTask: () => {},
-    onNavigate: () => {},
+    onNavigate: opts.onNavigate ?? (() => {}),
     refreshTick: 0,
     user: null,
   } as unknown as ViewProps;
@@ -201,7 +240,7 @@ describe('B. le projet choisi part avec la question', () => {
     ecrire(dom, 'où en est le verger ?');
     await cliquer(envoyer(dom));
 
-    const corps = JSON.parse(String(faux.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    const corps = corpsChat(faux);
     expect(corps.projectId, 'le projet choisi n’est pas parti avec la question').toBe('p-verger');
   });
 
@@ -211,7 +250,7 @@ describe('B. le projet choisi part avec la question', () => {
     ecrire(dom, 'et la ruche entière ?');
     await cliquer(envoyer(dom));
 
-    const corps = JSON.parse(String(faux.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    const corps = corpsChat(faux);
     expect(corps, 'un projet vide est envoyé quand même').not.toHaveProperty('projectId');
   });
 });
@@ -420,5 +459,53 @@ describe('F. le bouton d’envoi suit ce qu’on a écrit', () => {
 
     ecrire(dom, 'une vraie question');
     expect(envoyer(dom).disabled, 'le bouton reste mort alors qu’on a écrit').toBe(false);
+  });
+});
+
+describe('G. tokens IA et modes de navigation', () => {
+  it('AFFICHE LE BADGE TOKENS QUAND LE CHAT RENVOIE usage', async () => {
+    repond({
+      reply: 'voilà',
+      source: 'llm',
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    });
+    const dom = await monter();
+    ecrire(dom, 'compte ?');
+    await cliquer(envoyer(dom));
+    expect(dom.querySelector('.rn-tokens')?.textContent).toMatch(/15/);
+    expect(dom.querySelector('.rn-tokens-session')?.textContent).toMatch(/15/);
+  });
+
+  it('AUTONOMIE MÈNE AU RÉGLAGE PROJET (Plein Essaim), PAS À L’ESSAIM', async () => {
+    const nav = vi.fn();
+    const dom = await monter({ onNavigate: nav });
+    const btn = [...dom.querySelectorAll('button.rn-mode')].find((b) =>
+      (b.textContent ?? '').includes('Autonomie'),
+    );
+    expect(btn, 'bouton Autonomie absent').toBeTruthy();
+    await cliquer(btn!);
+    expect(nav).toHaveBeenCalledWith('projets', undefined);
+  });
+
+  it('LA PUCE « RESTAURER… » OUVRE LE RAYON AU LIEU D’ENVOYER AU CHAT', async () => {
+    const nav = vi.fn();
+    const faux = repond({
+      reply: 'des échecs',
+      source: 'live',
+      suggestions: ['Restaurer la dernière étape', 'Où en est le projet ?'],
+    });
+    const dom = await monter({ onNavigate: nav });
+    ecrire(dom, 'santé ?');
+    await cliquer(envoyer(dom));
+    const chip = [...dom.querySelectorAll('button.rn-chip')].find((b) =>
+      (b.textContent ?? '').includes('Restaurer'),
+    );
+    expect(chip).toBeTruthy();
+    const avant = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
+    await cliquer(chip!);
+    expect(nav).toHaveBeenCalledWith('rayon', undefined);
+    expect(sessionStorage.getItem('hive.focus')).toBe('sauvegardes');
+    const apres = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
+    expect(apres, 'un envoi chat supplémentaire').toBe(avant);
   });
 });

@@ -1,15 +1,33 @@
-/* Vue Reine — dialogue avec la ruche (préfixe rn-). Thème via variables :root. */
+/* Vue Reine — dialogue avec la ruche (préfixe rn-).
+ *
+ * Soft-freeze Craft : miel/cire, marque hex, densités assagies, jamais
+ * d'italique. Apple-like : filets fins, rayon 8 px, peu d'ombre. */
 
 .rn-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 10px;
+  padding: 12px 16px 16px;
   width: min(880px, 100%);
   margin: 0 auto;
   /* Remplit l'espace sous la barre sticky ; le fil scrolle en interne. */
   height: calc(100vh - 60px);
   min-height: 420px;
+}
+
+.rn-view .card {
+  border-radius: var(--r-sm);
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  box-shadow: none;
+}
+
+.rn-view .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 /* ─── En-tête ──────────────────────────────────────────────────────────── */
@@ -18,45 +36,43 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 18px;
+  gap: 10px;
+  padding: 11px 14px;
   flex-wrap: wrap;
 }
 
 .rn-head-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.rn-crown,
-.rn-hex {
-  flex: none;
-  width: 12px;
-  height: 14px;
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: var(--miel);
-}
-
-.rn-empty .rn-hex {
-  margin: 0 auto 12px;
+.rn-empty .marque {
+  width: 14px;
+  height: 16px;
+  margin: 0 auto 10px;
 }
 
 .rn-head h2 {
-  font-size: 18px;
-  color: var(--honey);
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
 }
 
 .rn-sub {
   margin: 2px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
+  font-style: normal;
+  line-height: 1.4;
 }
 
 .rn-head-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -66,12 +82,13 @@
   gap: 6px;
   font-size: 12px;
   color: var(--muted);
+  font-style: normal;
 }
 
 .rn-project select {
   padding: 6px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: var(--r-sm);
   color: var(--text);
   font: inherit;
@@ -80,8 +97,9 @@
 }
 
 .rn-project select:focus-visible {
-  outline: 2px solid var(--honey);
-  outline-offset: 1px;
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
 }
 
 /* ─── Fil de discussion ────────────────────────────────────────────────── */
@@ -90,10 +108,17 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background:
+    radial-gradient(
+      80% 50% at 50% 0%,
+      color-mix(in srgb, var(--miel) 6%, transparent),
+      transparent 60%
+    ),
+    var(--panel);
 }
 
 .rn-empty {
@@ -101,19 +126,21 @@
   max-width: 420px;
   text-align: center;
   color: var(--muted);
-  font-style: italic;
+  font-style: normal;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-.rn-empty span {
-  display: block;
-  margin-bottom: 6px;
+.rn-empty p {
+  margin: 0;
+  font-style: normal;
 }
 
 .rn-msg {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  max-width: 85%;
+  max-width: 78%;
 }
 
 .rn-queen {
@@ -127,29 +154,38 @@
 
 .rn-avatar {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel-3);
-  border: 1px solid var(--border-2);
-  border-radius: 50%;
-  font-size: 15px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-size: 0;
+}
+
+.rn-avatar::before {
+  content: '';
+  width: 12px;
+  height: 14px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .rn-bubble {
   background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--r-sm);
   border-bottom-left-radius: 4px;
   padding: 9px 12px;
+  box-shadow: none;
 }
 
 .rn-user .rn-bubble {
-  background: linear-gradient(180deg, #fdf3dc, var(--panel-3));
-  border-color: var(--border-2);
-  border-bottom-left-radius: var(--r);
+  background: color-mix(in srgb, var(--miel) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  border-bottom-left-radius: var(--r-sm);
   border-bottom-right-radius: 4px;
 }
 
@@ -158,6 +194,7 @@
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-style: normal;
 }
 
 .rn-meta {
@@ -175,16 +212,18 @@
 
 .rn-src {
   padding: 1px 7px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--r-sm);
   color: var(--muted);
   white-space: nowrap;
+  font-weight: 500;
+  background: transparent;
 }
 
 /* « la Reine réfléchit… » */
 .rn-thinking {
   color: var(--muted);
-  font-style: italic;
+  font-style: normal;
 }
 
 .rn-dots i {
@@ -216,6 +255,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-top: 2px;
 }
 
 .rn-chips {
@@ -224,9 +264,20 @@
   gap: 6px;
 }
 
+.rn-chip {
+  border-radius: var(--r-sm);
+  padding: 6px 11px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--muted);
+}
+
 .rn-chip:hover:not(:disabled) {
-  border-color: var(--honey);
-  color: var(--gold);
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  color: var(--text);
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
 }
 
 .rn-chip:disabled {
@@ -235,33 +286,39 @@
 }
 
 .rn-chip:focus-visible {
-  outline: 2px solid var(--honey);
-  outline-offset: 1px;
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
 }
 
 .rn-inputrow {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  padding: 7px;
+  background: color-mix(in srgb, var(--miel) 3%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--r-sm);
+  box-shadow: none;
 }
 
 .rn-input {
   flex: 1;
   resize: none;
-  min-height: 38px;
+  min-height: 40px;
   max-height: 180px;
-  padding: 9px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  padding: 9px 11px;
+  background: transparent;
+  border: none;
   border-radius: var(--r-sm);
   color: var(--text);
   font: inherit;
+  font-size: 14px;
   line-height: 1.4;
 }
 
 .rn-input:focus {
   outline: none;
-  border-color: var(--amber);
 }
 
 .rn-input::placeholder {
@@ -289,4 +346,61 @@
   .rn-msg {
     max-width: 95%;
   }
+}
+
+/* ─── Modes (Chat / Plan / Autonomie / Sauvegardes) ───────────────────── */
+
+.rn-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.rn-mode {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.rn-mode:hover {
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  color: var(--text);
+}
+
+.rn-mode.actif {
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  background: color-mix(in srgb, var(--miel) 14%, var(--panel));
+  color: var(--text);
+}
+
+.rn-mode-hint {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--faint);
+  max-width: 36ch;
+  line-height: 1.3;
+}
+
+.rn-tokens,
+.rn-tokens-session {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: -0.02em;
+}
+
+.rn-tokens-session {
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
 }

@@ -45,7 +45,7 @@ function enHeures(ms: number): string {
   return h < 10 ? `${h.toFixed(1)} h` : `${Math.round(h)} h`;
 }
 
-const PUCE: Record<Gravite, string> = { critique: '🔴', attention: '🟠', info: '🔵' };
+const PUCE: Record<Gravite, string> = { critique: '●', attention: '◉', info: '○' };
 
 /** Libellé d'un niveau d'autonomie. Le mot brut de la base n'est pas une phrase. */
 const AUTONOMIE: Record<string, { fr: string; en: string }> = {
@@ -150,7 +150,9 @@ export default function MonEspace({ user, refreshTick, onNavigate }: ViewProps) 
     return (
       <div className="view me-view">
         <section className="card me-accueil">
-          <h2>🐝 {t('Votre espace', 'Your space')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Votre espace', 'Your space')}
+          </h2>
           <p>
             {t(
               'Créez un compte pour suivre vos projets : quota consommé, abonnement, machines et échéances au même endroit. La ruche reste utilisable sans compte — l’espace personnel n’ajoute que ce qui vous appartient.',
@@ -191,7 +193,9 @@ function Espace({
     return (
       <div className="view me-view">
         <section className="card">
-          <h2>🐝 {t('Mon espace', 'My space')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Mon espace', 'My space')}
+          </h2>
           <p className="panel-error">{poll.error}</p>
         </section>
       </div>
@@ -201,7 +205,9 @@ function Espace({
     return (
       <div className="view me-view">
         <section className="card">
-          <h2>🐝 {t('Mon espace', 'My space')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Mon espace', 'My space')}
+          </h2>
           <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
         </section>
       </div>
@@ -215,7 +221,7 @@ function Espace({
       <section className="card me-entete">
         <header className="panel-head">
           <h2>
-            🐝 {t('Bonjour', 'Hello')} {nom}
+            <span className="marque" aria-hidden="true" /> {t('Bonjour', 'Hello')} {nom}
           </h2>
           <span className="muted-text">
             {d.totaux.projets} {t('projet(s)', 'project(s)')}
@@ -307,7 +313,6 @@ function Alertes({
     return (
       <section className="card me-alertes calme">
         <p className="me-rien">
-          ✅{' '}
           {t(
             'Rien ne réclame votre attention : aucun paiement en souffrance, aucun quota au bord, aucune donnée sur le point d’être effacée.',
             'Nothing needs your attention: no payment pending, no quota near its edge, no data about to be erased.',
@@ -321,7 +326,7 @@ function Alertes({
     <section className="card me-alertes">
       <header className="panel-head">
         <h2>
-          ⚠ {t('À traiter', 'To handle')} <span className="panel-count">{alertes.length}</span>
+          {t('À traiter', 'To handle')} <span className="panel-count">{alertes.length}</span>
         </h2>
       </header>
       <ul className="me-liste">

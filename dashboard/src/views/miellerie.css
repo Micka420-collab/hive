@@ -1,5 +1,8 @@
 /* Miellerie — centre de revue : 3 volets, barre de décision, coulée du miel.
-   Préfixe mi-. Réutilise card/panel/btn/chip/badge/code-block/meta-grid/drawer-tabs. */
+   Préfixe mi-. Réutilise card/panel/btn/chip/badge/code-block/meta-grid/drawer-tabs.
+
+   Soft-freeze Craft : miel/cire, marque hex, densités assagies, jamais
+   d'italique. Apple-like : filets fins, rayon 8 px, peu d'ombre. */
 
 .mi-view {
   display: flex;
@@ -7,19 +10,43 @@
   min-height: calc(100vh - 62px);
 }
 
+.mi-view .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
+}
+
+.mi-view .card {
+  border-radius: var(--r-sm);
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  box-shadow: none;
+}
+
+.mi-view .panel-head {
+  padding: 11px 14px 9px;
+}
+
+.mi-view .muted-text {
+  font-style: normal;
+  color: var(--muted);
+}
+
 /* ─── Grille 3 volets (le droit est repliable) ─────────────────────────── */
 .mi-grid {
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(240px, 300px) 1fr minmax(220px, 280px);
-  gap: 14px;
-  padding: 14px 18px;
+  grid-template-columns: minmax(220px, 280px) 1fr minmax(200px, 260px);
+  gap: 10px;
+  padding: 12px 14px;
   align-items: start;
 }
 
 .mi-grid.no-info {
-  grid-template-columns: minmax(240px, 300px) 1fr;
+  grid-template-columns: minmax(220px, 280px) 1fr;
 }
 
 /* ─── Volet 1 : file de revue ──────────────────────────────────────────── */
@@ -30,34 +57,45 @@
 }
 
 .mi-comb-wrap {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 }
 
 .mi-queue .mi-group {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
-  padding: 8px 8px 3px;
-  font-size: 11px;
+  padding: 7px 8px 2px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--muted);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.mi-queue .mi-group .marque {
+  width: 10px;
+  height: 11px;
 }
 
 .mi-queue .mi-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 7px;
   align-items: center;
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-left: 2px solid transparent;
   border-radius: var(--r-sm);
 }
 
+.mi-queue .mi-row:hover {
+  background: color-mix(in srgb, var(--miel) 5%, var(--panel));
+}
+
 .mi-queue .mi-row.active {
-  background: var(--panel-2);
-  border-left-color: var(--honey);
+  background: color-mix(in srgb, var(--miel) 10%, var(--panel));
+  border-left-color: color-mix(in srgb, var(--miel) 70%, var(--border));
 }
 
 .mi-row-body {
@@ -71,6 +109,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
+  letter-spacing: -0.01em;
 }
 
 .mi-row-meta {
@@ -80,14 +119,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-style: normal;
 }
 
 .mi-dot {
-  width: 20px;
+  width: 18px;
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--faint);
   cursor: help;
+}
+
+.mi-dot.ok {
+  color: var(--honey);
 }
 
 .mi-dot.ko {
@@ -102,87 +146,99 @@
 }
 
 .mi-inspect-head {
-  padding: 14px 16px 0;
+  padding: 12px 14px 0;
 }
 
 .mi-inspect-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .mi-inspect-title h2 {
-  font-size: 17px;
-  color: var(--gold);
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
 }
 
 .mi-inspect-sub {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 5px;
-  font-size: 12px;
+  margin-top: 4px;
+  font-size: 11.5px;
   color: var(--muted);
+  font-style: normal;
 }
 
 .mi-branch {
   background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--r-sm);
   padding: 1px 7px;
   color: var(--gold);
+  font-size: 11px;
 }
 
 .mi-tabs {
-  margin: 12px 16px 8px;
+  margin: 10px 14px 6px;
 }
 
 .mi-tab-body {
   flex: 1;
   min-width: 0;
-  min-height: 220px;
-  padding: 0 16px 12px;
+  min-height: 200px;
+  padding: 0 14px 10px;
 }
 
 .mi-logs {
-  max-height: 420px;
+  max-height: 380px;
 }
 
 /* ─── Diff pré-découpé par fichier ─────────────────────────────────────── */
 .mi-files {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .mi-file-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 260px;
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  gap: 5px;
+  max-width: 240px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--r-sm);
   background: var(--panel-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
+  font-style: normal;
+}
+
+.mi-file-chip:hover {
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  color: var(--text);
 }
 
 .mi-file-chip.open {
-  border-color: var(--honey);
-  color: var(--gold);
+  border-color: color-mix(in srgb, var(--miel) 42%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, var(--panel));
+  color: var(--text);
 }
 
 .mi-file-chip:focus-visible,
 .mi-file-head:focus-visible,
 .mi-close-info:focus-visible {
-  outline: 2px solid var(--honey);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
 }
 
 .mi-file-name {
@@ -196,34 +252,35 @@
 .mi-add-stat {
   color: var(--green);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .mi-del-stat {
   color: var(--red);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .mi-copy {
   margin-left: auto;
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 4px 9px;
+  font-size: 11.5px;
 }
 
 .mi-file-section {
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: var(--r-sm);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   overflow: hidden;
+  box-shadow: none;
 }
 
 .mi-file-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 6px 9px;
   border: none;
   background: var(--panel-2);
   color: var(--text);
@@ -232,18 +289,23 @@
   cursor: pointer;
 }
 
+.mi-file-head:hover {
+  background: color-mix(in srgb, var(--miel) 5%, var(--panel-2));
+}
+
 .mi-file-head .mi-file-name {
   flex: 1;
 }
 
 .mi-fold {
   color: var(--muted);
+  font-style: normal;
 }
 
 .mi-diff-pre {
   border: none;
   border-radius: 0;
-  max-height: 420px;
+  max-height: 380px;
 }
 
 .mi-add {
@@ -266,8 +328,10 @@
 
 /* ─── Consensus (Parlement des Agents) ─────────────────────────────────── */
 .mi-cons-outcome {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  font-style: normal;
 }
 
 .mi-cons-outcome.elected {
@@ -280,15 +344,14 @@
 
 .mi-cons-outcome.no_ballots {
   color: var(--muted);
-  font-style: italic;
 }
 
 .mi-cons-bar {
   position: relative;
   display: flex;
-  height: 22px;
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
+  height: 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--r-sm);
   overflow: hidden;
   background: var(--panel-2);
 }
@@ -304,7 +367,7 @@
 
 /* Faction diverse (≥ 2 types d'agents) : dorée — signal fort. */
 .mi-fac-seg.gold {
-  background: linear-gradient(180deg, var(--miel), var(--miel-2));
+  background: color-mix(in srgb, var(--miel) 88%, var(--miel-2));
 }
 
 /* Faction monoculture : hachurée — accord entre clones, signal faible. */
@@ -319,7 +382,7 @@
 }
 
 .mi-fac-seg.win {
-  box-shadow: inset 0 0 0 2px var(--honey);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--miel) 70%, var(--honey));
 }
 
 .mi-quorum {
@@ -328,14 +391,15 @@
   bottom: -2px;
   width: 2px;
   background: var(--text);
-  opacity: 0.85;
+  opacity: 0.75;
 }
 
 .mi-cons-note {
-  margin: 6px 0 10px;
+  margin: 5px 0 8px;
   font-size: 11px;
   color: var(--muted);
   font-family: var(--mono);
+  font-style: normal;
 }
 
 .mi-fac-list {
@@ -344,20 +408,20 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .mi-fac-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .mi-fac-sig {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--faint);
 }
 
@@ -366,12 +430,13 @@
 }
 
 .mi-elected {
-  padding: 1px 8px;
-  border-radius: 12px;
-  background: linear-gradient(90deg, var(--miel-2), var(--miel));
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--miel) 78%, var(--miel-2));
   color: var(--encre);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
+  font-style: normal;
 }
 
 /* ─── Barre de décision sticky ─────────────────────────────────────────── */
@@ -381,21 +446,21 @@
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  padding: 10px 16px;
-  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   background: var(--panel);
-  border-radius: 0 0 var(--r) var(--r);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
 }
 
 .mi-decide kbd {
   font-family: var(--mono);
   font-size: 10px;
   padding: 1px 5px;
-  border: 1px solid var(--border-2);
-  border-radius: 4px;
-  background: rgba(27, 23, 18, 0.06);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--panel-2) 90%, transparent);
 }
 
 .btn.primary kbd {
@@ -404,14 +469,15 @@
 }
 
 .mi-reject {
-  border-color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
   color: var(--red);
 }
 
 .mi-decide-state {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
   cursor: help;
+  font-style: normal;
 }
 
 .mi-info-toggle {
@@ -430,44 +496,50 @@
   border: none;
   background: none;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--r-sm);
 }
 
 .mi-close-info:hover {
   color: var(--text);
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
 }
 
 .mi-info-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 10px;
+  padding: 10px 12px;
 }
 
 .mi-info-body .meta-grid dd {
-  font-size: 12.5px;
+  font-size: 12px;
   word-break: break-word;
 }
 
 .mi-prompt summary {
   cursor: pointer;
   color: var(--honey);
-  font-size: 12.5px;
+  font-size: 12px;
+  font-style: normal;
 }
 
 .mi-prompt .code-block {
-  margin-top: 6px;
-  max-height: 220px;
+  margin-top: 5px;
+  max-height: 200px;
 }
 
 .mi-sub {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.05em;
   color: var(--muted);
+  font-weight: 600;
+  font-style: normal;
 }
 
 .mi-sting {
@@ -476,17 +548,18 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .mi-sting-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-radius: var(--r-sm);
   background: var(--panel-2);
-  font-size: 12px;
+  font-size: 11.5px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
 }
 
 .mi-sting-item.high {
@@ -495,7 +568,8 @@
 
 .mi-sting-sev {
   color: var(--amber);
-  font-size: 11px;
+  font-size: 10.5px;
+  font-style: normal;
 }
 
 .mi-sting-paths {
@@ -508,48 +582,62 @@
 /* ─── Pied de vue : coulée du miel ─────────────────────────────────────── */
 .mi-merge {
   margin-top: auto;
-  padding: 10px 18px 12px;
-  border-top: 1px solid var(--border-2);
-  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  padding: 8px 14px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--panel) 92%, var(--bg-2));
 }
 
 .mi-merge-bar {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 .mi-merge-proj {
-  color: var(--gold);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
   font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 13px;
+  font-style: normal;
+}
+
+.mi-merge-proj .marque {
+  width: 11px;
+  height: 12px;
 }
 
 .mi-merge-count {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--muted);
+  font-style: normal;
 }
 
 .mi-merge-count strong {
   color: var(--honey);
+  font-weight: 650;
 }
 
 .mi-pour.arming {
-  background: linear-gradient(90deg, var(--red), var(--amber));
+  background: color-mix(in srgb, var(--amber) 70%, var(--red));
   color: #fff;
   animation: mi-arm 0.8s ease-in-out infinite;
 }
 
 @keyframes mi-arm {
   50% {
-    filter: brightness(1.35);
+    filter: brightness(1.2);
   }
 }
 
 .mi-merge-wait {
-  margin: 8px 0 0;
-  font-size: 12.5px;
+  margin: 6px 0 0;
+  font-size: 12px;
   color: var(--amber);
+  font-style: normal;
   animation: mi-wait 1.4s ease-in-out infinite;
 }
 
@@ -560,44 +648,50 @@
 }
 
 .mi-plan {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: var(--r-sm);
   background: var(--panel-2);
-  font-size: 12.5px;
+  font-size: 12px;
+  box-shadow: none;
 }
 
 .mi-plan-head {
   margin: 0 0 4px;
-  color: var(--gold);
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-style: normal;
 }
 
 .mi-plan-order {
-  margin: 6px 0;
-  padding-left: 22px;
+  margin: 5px 0;
+  padding-left: 20px;
 }
 
 .mi-plan-conflicts {
   list-style: none;
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   color: var(--amber);
-  font-size: 12px;
+  font-size: 11.5px;
+  font-style: normal;
 }
 
 .mi-plan-conflicts code {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--faint);
 }
 
 .mi-merge-result {
-  margin-top: 8px;
-  font-size: 12.5px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-style: normal;
 }
 
 .mi-merge-result p {
@@ -607,11 +701,12 @@
 .mi-merge-logs summary {
   cursor: pointer;
   color: var(--honey);
+  font-style: normal;
 }
 
 .mi-merge-logs .code-block {
-  margin-top: 6px;
-  max-height: 220px;
+  margin-top: 5px;
+  max-height: 200px;
 }
 
 /* ─── État vide ────────────────────────────────────────────────────────── */
@@ -620,21 +715,30 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  max-width: 440px;
-  margin: 70px auto;
+  max-width: 420px;
+  margin: 56px auto;
   text-align: center;
   color: var(--muted);
+  font-style: normal;
 }
 
 .mi-empty-icon {
-  font-size: 44px;
-  filter: drop-shadow(0 2px 4px rgba(27, 23, 18, 0.25));
+  display: block;
+  width: 24px;
+  height: 28px;
+  margin: 0 auto 10px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
+  filter: none;
 }
 
 .mi-empty-lead {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   color: var(--text);
+  font-style: normal;
 }
 
 /* ─── Mouvement réduit : toute animation désactivée ────────────────────── */
@@ -655,7 +759,7 @@
   .panel.mi-queue-pane,
   .mi-info {
     position: static;
-    max-height: 420px;
+    max-height: 380px;
   }
 }
 
@@ -670,38 +774,45 @@
    surface » ne doit pas pouvoir se lire comme « consensus ». */
 
 .mi-cons-sens {
-  margin: -4px 0 12px;
-  font-size: 12px;
+  margin: -2px 0 10px;
+  font-size: 11.5px;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.45;
+  font-style: normal;
 }
 
 .mi-surf {
-  margin: 0 0 16px;
-  padding: 10px 12px;
+  margin: 0 0 12px;
+  padding: 9px 11px;
   background: var(--panel-2);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: var(--r-sm);
+  box-shadow: none;
 }
 
 .mi-surf-titre {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 6px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.01em;
+  font-style: normal;
 }
 
 /* Le désaccord sur l'ENDROIT est la seule divergence que cet écran mesure
    vraiment : il se voit, il ne se devine pas. */
 .mi-surf-alerte {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 6px;
+  font-size: 11.5px;
   color: var(--amber);
+  font-style: normal;
 }
 
 .mi-surf-note {
-  margin: 8px 0 0;
-  font-size: 11.5px;
+  margin: 6px 0 0;
+  font-size: 11px;
   color: var(--muted);
+  font-style: normal;
 }
 
 .mi-surf-list {
@@ -710,15 +821,15 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .mi-surf-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
   align-items: center;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .mi-surf-votes {
@@ -728,7 +839,7 @@
 
 .mi-surf-fichiers {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--honey);
   overflow-wrap: anywhere;
 }

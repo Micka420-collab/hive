@@ -10,6 +10,7 @@ import { getToken } from '../api';
 import { AtelierRecette } from '../AtelierRecette';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
+import { demanderFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 
@@ -19,6 +20,7 @@ interface ChatResponse {
   reply: string;
   source: 'live' | 'llm';
   suggestions?: string[];
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
 /** Erreur HTTP porteuse du statut — pour distinguer « pas encore déployé ». */
@@ -59,6 +61,7 @@ interface ChatMessage {
   ts: number;
   /** Origine d'une réponse de la Reine (badge) — absent pour l'utilisateur. */
   source?: 'live' | 'llm';
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
 interface StoredChat {
@@ -108,22 +111,24 @@ function uid(): string {
 
 function welcomeDegraded(t: Translate): string {
   return t(
-    '🐝 La Reine n’est pas encore réveillée : le canal /api/chat ouvre bientôt.\n' +
+    'La Reine n’est pas encore réveillée : le canal /api/chat ouvre bientôt.\n' +
       'En attendant, la Ruche et la Chronique vous renseignent en temps réel sur l’essaim — revenez butiner un peu plus tard.',
-    '🐝 The Queen is not awake yet: the /api/chat channel opens soon.\n' +
+    'The Queen is not awake yet: the /api/chat channel opens soon.\n' +
       'Meanwhile, the Hive and the Chronicle keep you posted on the swarm in real time — come back to forage a little later.',
   );
 }
 
 // ─── Vue ──────────────────────────────────────────────────────────────────────
 
-export default function Reine({ snapshot }: ViewProps) {
+export default function Reine({ snapshot, onNavigate }: ViewProps) {
   const t = useT();
   const [messages, setMessages] = useState<ChatMessage[]>(() => readChat().messages);
   const [suggestions, setSuggestions] = useState<string[]>(() => readChat().suggestions);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
   const [projectId, setProjectId] = useState('');
+  /** Session : total tokens IA consommés dans cet onglet (indicatif). */
+  const [tokensSession, setTokensSession] = useState(0);
 
   const threadRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -179,8 +184,16 @@ export default function Reine({ snapshot }: ViewProps) {
     setPending(true);
     try {
       const res = await askQueen(text, projectId || undefined);
+      if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
       appendPersist(
-        { id: uid(), role: 'queen', text: res.reply, ts: Date.now(), source: res.source },
+        {
+          id: uid(),
+          role: 'queen',
+          text: res.reply,
+          ts: Date.now(),
+          source: res.source,
+          usage: res.usage,
+        },
         res.suggestions && res.suggestions.length > 0 ? res.suggestions : undefined,
       );
     } catch (e) {
@@ -219,6 +232,7 @@ export default function Reine({ snapshot }: ViewProps) {
   const clear = () => {
     setMessages([]);
     setSuggestions([]);
+    setTokensSession(0);
     sessionStorage.removeItem(CHAT_KEY);
   };
 
@@ -227,7 +241,7 @@ export default function Reine({ snapshot }: ViewProps) {
       <AtelierRecette />
       <header className="rn-head card">
         <div className="rn-head-title">
-          <span className="rn-crown" aria-hidden="true" />
+          <span className="marque" aria-hidden="true" />
           <div>
             <h2>{t('Parlez à la Reine', 'Talk to the Queen')}</h2>
             <p className="rn-sub">
@@ -250,13 +264,72 @@ export default function Reine({ snapshot }: ViewProps) {
               ))}
             </select>
           </label>
+          {tokensSession > 0 && (
+            <span
+              className="rn-tokens-session"
+              title={t(
+                'Tokens IA consommés dans cette session de chat',
+                'AI tokens used in this chat session',
+              )}
+            >
+              {tokensSession.toLocaleString()} tok
+            </span>
+          )}
           {messages.length > 0 && (
-            <button className="btn ghost rn-clear" onClick={clear}>
+            <button type="button" className="btn ghost rn-clear" onClick={clear}>
               {t('Effacer', 'Clear')}
             </button>
           )}
         </div>
       </header>
+
+      <nav className="rn-modes card" aria-label={t('Modes de travail', 'Work modes')}>
+        <button type="button" className="rn-mode actif" aria-current="true">
+          {t('Chat', 'Chat')}
+        </button>
+        <button
+          type="button"
+          className="rn-mode"
+          onClick={() => onNavigate('projets', projectId || undefined)}
+          title={t(
+            'Atelier Queen Bee — brief → plan de tâches',
+            'Queen Bee Workshop — brief → task plan',
+          )}
+        >
+          {t('Plan', 'Plan')}
+        </button>
+        <button
+          type="button"
+          className="rn-mode"
+          onClick={() => onNavigate('projets', projectId || undefined)}
+          title={t(
+            'Plein Essaim — la ruche travaille des jours sans vous (réglage sur le projet)',
+            'Full Swarm — the hive works for days without you (set on the project)',
+          )}
+        >
+          {t('Autonomie', 'Autonomy')}
+        </button>
+        <button
+          type="button"
+          className="rn-mode"
+          onClick={() => {
+            demanderFocus(FOCUS_SAUVEGARDES);
+            onNavigate('rayon', projectId || undefined);
+          }}
+          title={t(
+            'Sauvegardes et code — timeline récupérable',
+            'Backups and code — recoverable timeline',
+          )}
+        >
+          {t('Sauvegardes', 'Backups')}
+        </button>
+        <span className="rn-mode-hint">
+          {t(
+            'L’Atelier (bureau ci-dessus) teste le projet sur la machine de la ruche.',
+            'The Workshop (desktop above) tests the project on the hive computer.',
+          )}
+        </span>
+      </nav>
 
       <section
         className="rn-thread card"
@@ -267,7 +340,7 @@ export default function Reine({ snapshot }: ViewProps) {
       >
         {messages.length === 0 && !pending && (
           <div className="rn-empty">
-            <span className="rn-hex" aria-hidden="true" />
+            <span className="marque" aria-hidden="true" />
             <p>
               {t(
                 'La ruche bourdonne, la Reine écoute. Posez votre première question — ou butinez une suggestion ci-dessous.',
@@ -278,11 +351,7 @@ export default function Reine({ snapshot }: ViewProps) {
         )}
         {messages.map((m) => (
           <div key={m.id} className={`rn-msg ${m.role === 'user' ? 'rn-user' : 'rn-queen'}`}>
-            {m.role === 'queen' && (
-              <span className="rn-avatar" aria-hidden="true">
-                👑
-              </span>
-            )}
+            {m.role === 'queen' && <span className="rn-avatar" aria-hidden="true" />}
             <div className="rn-bubble">
               <p className="rn-text">{m.text}</p>
               <div className="rn-meta">
@@ -294,7 +363,7 @@ export default function Reine({ snapshot }: ViewProps) {
                       'Answer computed from the live state of the hive',
                     )}
                   >
-                    {t('📡 état réel', '📡 live state')}
+                    {t('état réel', 'live state')}
                   </span>
                 )}
                 {m.source === 'llm' && (
@@ -302,7 +371,18 @@ export default function Reine({ snapshot }: ViewProps) {
                     className="rn-src"
                     title={t('Réponse générée par le modèle', 'Answer generated by the model')}
                   >
-                    {t('✨ IA', '✨ AI')}
+                    {t('IA', 'AI')}
+                  </span>
+                )}
+                {m.usage && (
+                  <span
+                    className="rn-tokens"
+                    title={t(
+                      `${m.usage.inputTokens} entrants · ${m.usage.outputTokens} sortants`,
+                      `${m.usage.inputTokens} in · ${m.usage.outputTokens} out`,
+                    )}
+                  >
+                    {m.usage.totalTokens.toLocaleString()} tok
                   </span>
                 )}
                 <span className="rn-time">{timeShort(m.ts)}</span>
@@ -312,9 +392,7 @@ export default function Reine({ snapshot }: ViewProps) {
         ))}
         {pending && (
           <div className="rn-msg rn-queen">
-            <span className="rn-avatar" aria-hidden="true">
-              👑
-            </span>
+            <span className="rn-avatar" aria-hidden="true" />
             <div className="rn-bubble rn-thinking">
               {t('la Reine réfléchit', 'the Queen is thinking')}
               <span className="rn-dots" aria-hidden="true">
@@ -334,7 +412,16 @@ export default function Reine({ snapshot }: ViewProps) {
               key={s}
               className="chip rn-chip"
               disabled={pending}
-              onClick={() => void send(s)}
+              onClick={() => {
+                // Raccourci produit : la suggestion « Restaurer… » mène au
+                // panneau Sauvegardes du Rayon plutôt que de reposer la question.
+                if (/^restaurer|^restore/i.test(s.trim())) {
+                  demanderFocus(FOCUS_SAUVEGARDES);
+                  onNavigate('rayon', projectId || undefined);
+                  return;
+                }
+                void send(s);
+              }}
             >
               {s}
             </button>

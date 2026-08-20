@@ -33,6 +33,28 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
+  fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
+  fetchCerveau: vi.fn(() => Promise.resolve(null)),
+  fetchResults: vi.fn(() => Promise.resolve({ results: [] })),
+  fetchConsensus: vi.fn(() => Promise.resolve(null)),
+  fetchConflicts: vi.fn(() => Promise.resolve({ conflicts: [] })),
+  fetchMergePlan: vi.fn(() => Promise.resolve(null)),
+  fetchMergeResult: vi.fn(() => Promise.resolve(null)),
+  fetchEssaim: vi.fn(() =>
+    Promise.resolve({
+      niveau: 'off',
+      niveaux: ['off', 'propose', 'gouverne', 'plein'],
+      runner: { mode: 'off', enPause: false, echecs: 0, dernierTourA: 0 },
+      derive: { etat: 'saine', echantillon: 0, indicateurs: [], solitudeJours: 0, motif: '' },
+      decision: { pas: 'inerte', motif: '', gouvernantes: [] },
+      gouvernantes: [],
+      gouvernantesRequises: 1,
+      depotInscrit: false,
+      plafond: 'passe',
+      lecons: [],
+    }),
+  ),
+  fetchAtelier: vi.fn(() => Promise.resolve({ mode: 'off', actif: false })),
 }));
 
 import { connectFeed, getToken } from '../dashboard/src/api';
@@ -113,13 +135,13 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
 
   it('LE RAYON NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
     // La survivante du routage : mutée, le Rayon vivrait sous TOUTES les
-    // autres vues (chaque écran porterait un « Aucun projet » étranger) et
+    // autres vues (chaque écran porterait un vide Rayon étranger) et
     // sa propre route serait vide.
     const accueil = await monter();
     expect(
       accueil.textContent,
       'la vue d’accueil ne porte pas le Rayon d’un autre écran',
-    ).not.toContain('Aucun projet dans la ruche.');
+    ).not.toContain('Le rayon s’ouvre avec un projet');
 
     act(() => racine?.unmount());
     location.hash = '#/rayon';
@@ -127,13 +149,13 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     // Le chunk paresseux traverse un vrai import dynamique : on scrute sa
     // pose, borné à une seconde — « Chargement de la vue… » n'est pas un état
     // final acceptable.
-    for (let i = 0; i < 50 && !rayon.textContent?.includes('Aucun projet'); i++) {
+    for (let i = 0; i < 50 && !rayon.textContent?.includes('Le rayon s’ouvre'); i++) {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 20));
       });
     }
     expect(rayon.textContent, 'la route du Rayon affiche le Rayon').toContain(
-      'Aucun projet dans la ruche.',
+      'Le rayon s’ouvre avec un projet',
     );
   });
 

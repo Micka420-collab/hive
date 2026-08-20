@@ -27,15 +27,15 @@ type Family =
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
 const FAMILIES: { id: Family; fr: string; en: string }[] = [
-  { id: 'taches', fr: '🐝 Tâches', en: '🐝 Tasks' },
-  { id: 'noeuds', fr: '🖥️ Nœuds', en: '🖥️ Nodes' },
-  { id: 'courses', fr: '⚔ Courses', en: '⚔ Races' },
-  { id: 'merge', fr: '🍯 Merge', en: '🍯 Merge' },
-  { id: 'conflits', fr: '🛡️ Conflits', en: '🛡️ Conflicts' },
-  { id: 'memoire', fr: '🧬 Mémoire', en: '🧬 Memory' },
-  { id: 'instinct', fr: '🐜 Instinct', en: '🐜 Instinct' },
-  { id: 'balance', fr: '🧮 Balance', en: '🧮 Balance' },
-  { id: 'autres', fr: '• Autres', en: '• Other' },
+  { id: 'taches', fr: 'Tâches', en: 'Tasks' },
+  { id: 'noeuds', fr: 'Nœuds', en: 'Nodes' },
+  { id: 'courses', fr: 'Courses', en: 'Races' },
+  { id: 'merge', fr: 'Merge', en: 'Merge' },
+  { id: 'conflits', fr: 'Conflits', en: 'Conflicts' },
+  { id: 'memoire', fr: 'Mémoire', en: 'Memory' },
+  { id: 'instinct', fr: 'Instinct', en: 'Instinct' },
+  { id: 'balance', fr: 'Balance', en: 'Balance' },
+  { id: 'autres', fr: 'Autres', en: 'Other' },
 ];
 
 /**
@@ -221,14 +221,12 @@ export default function Chronique({ events }: ViewProps) {
         <section className="card ch-replay ch-past" aria-label="Time-Lapse">
           <div className="ch-banner">
             <span>
-              <span className="ch-banner-icon" aria-hidden="true">
-                ⏪
-              </span>{' '}
+              <span className="ch-banner-icon marque" aria-hidden="true" />{' '}
               {t('vous regardez le passé', 'you are watching the past')}
             </span>
             <div className="ch-banner-actions">
               <button className="btn" onClick={loadReplay} disabled={loadingReplay}>
-                {loadingReplay ? t('Chargement…', 'Loading…') : t('↻ Recharger', '↻ Reload')}
+                {loadingReplay ? t('Chargement…', 'Loading…') : t('Recharger', 'Reload')}
               </button>
               <button className="btn primary" onClick={exitReplay}>
                 {t('revenir au direct', 'back to live')}
@@ -238,10 +236,8 @@ export default function Chronique({ events }: ViewProps) {
           <div className="ch-replay-body">
             {frames.length === 0 ? (
               <p className="empty pad">
-                {t(
-                  'Aucun événement à rejouer — la ruche n’a pas encore d’histoire.',
-                  'No events to replay — the hive has no history yet.',
-                )}
+                <span className="marque" aria-hidden="true" />{' '}
+                {t('Rien à rejouer pour l’instant.', 'Nothing to replay yet.')}
               </p>
             ) : (
               <>
@@ -298,11 +294,11 @@ export default function Chronique({ events }: ViewProps) {
                     </div>
                     <div className="ch-counts">
                       <span className="chip">
-                        📁 {frame.projects} {t('projet', 'project')}
+                        {frame.projects} {t('projet', 'project')}
                         {frame.projects > 1 ? 's' : ''}
                       </span>
                       <span className="chip">
-                        🐝 {frame.nodesOnline}/{frame.nodesTotal} {t('nœud', 'node')}
+                        {frame.nodesOnline}/{frame.nodesTotal} {t('nœud', 'node')}
                         {frame.nodesTotal > 1 ? 's' : ''}
                       </span>
                       {STATUSES.map((s) => (
@@ -322,9 +318,12 @@ export default function Chronique({ events }: ViewProps) {
 
       <section className="card panel ch-journal-panel">
         <header className="panel-head">
-          <h2>{t('Chronique de la ruche', 'Chronicle of the hive')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('Chronique de la ruche', 'Chronicle of the hive')}
+          </h2>
           <div
-            className="filters"
+            className="filters ch-filters"
             role="group"
             aria-label={t('Filtres par famille', 'Filters by family')}
           >
@@ -345,7 +344,7 @@ export default function Chronique({ events }: ViewProps) {
             </span>
             {!inReplay && (
               <button className="btn" onClick={enterReplay} disabled={loadingReplay}>
-                {loadingReplay ? t('Chargement…', 'Loading…') : '⏪ Time-Lapse'}
+                {loadingReplay ? t('Chargement…', 'Loading…') : t('Time-Lapse', 'Time-Lapse')}
               </button>
             )}
           </div>
@@ -379,14 +378,13 @@ export default function Chronique({ events }: ViewProps) {
           )}
           {events.length === 0 && (
             <li className="empty">
-              {t(
-                'La ruche n’a encore rien vécu — le journal est vide.',
-                'Nothing has happened in the hive yet — the journal is empty.',
-              )}
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Rien pour l’instant.', 'Nothing yet.')}
             </li>
           )}
           {events.length > 0 && allRows.length === 0 && (
             <li className="empty">
+              <span className="marque" aria-hidden="true" />{' '}
               {t(
                 'Aucun événement ne passe les filtres actifs.',
                 'No events match the active filters.',

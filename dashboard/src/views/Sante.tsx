@@ -21,7 +21,7 @@ import type { ViewProps } from './shared';
 import type { StateSnapshot } from '../../../src/shared/types';
 import './essaim.css';
 
-const SEV_ICON: Record<Ghost['severity'], string> = { high: '🔴', medium: '🟠', low: '🟡' };
+const SEV_ICON: Record<Ghost['severity'], string> = { high: '●', medium: '◉', low: '○' };
 
 // Double record fr/en (constante de module) — résolu via t au rendu.
 const KIND_LABEL: Record<Ghost['kind'], { fr: string; en: string }> = {
@@ -146,7 +146,7 @@ function ThermoGauge({ thermo }: { thermo: ThermoState }) {
         </span>
         {diverge && (
           <span className="es-thermo-pending">
-            ⏳ {t('confirmation en cours', 'awaiting confirmation')}
+            {t('confirmation en cours', 'awaiting confirmation')}
           </span>
         )}
       </div>
@@ -167,7 +167,7 @@ function ThermoGauge({ thermo }: { thermo: ThermoState }) {
       </p>
       <p className="es-thermo-signals">
         ✔ {signaux.succes} {t('succès', 'successes')} · ✘ {signaux.echecs} {t('échecs', 'failures')}{' '}
-        · 🔁 {signaux.retries} {t('re-tentatives', 'retries')} · ⇄ {signaux.refusInfra}{' '}
+        · {signaux.retries} {t('re-tentatives', 'retries')} · ⇄ {signaux.refusInfra}{' '}
         {t('refus infra', 'infra declines')} — {t('fenêtre de 10 min', '10-min window')}
       </p>
     </div>
@@ -204,7 +204,9 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
     <div className="mc-view es-view">
       <section className="card">
         <header className="panel-head">
-          <h2>{t('Signes vitaux', 'Vital signs')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Signes vitaux', 'Vital signs')}
+          </h2>
           <span className="panel-count">
             {lastReading === null
               ? t('prise de pouls…', 'taking the pulse…')
@@ -216,7 +218,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
           <PulseTiles pulse={pulse.data} />
         ) : (
           !pulse.error && (
-            <p className="empty pad">{t('Auscultation de la ruche…', 'Listening to the hive…')}</p>
+            <p className="empty pad">
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Auscultation de la ruche…', 'Listening to the hive…')}
+            </p>
           )
         )}
       </section>
@@ -224,7 +229,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
       {!thermoHidden && (
         <section className="card">
           <header className="panel-head">
-            <h2>{t('Thermorégulation', 'Thermoregulation')}</h2>
+            <h2>
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Thermorégulation', 'Thermoregulation')}
+            </h2>
             {thermo.data && (
               <span
                 className={thermo.data.applique.facteur < 1 ? 'panel-count warn' : 'panel-count'}
@@ -244,7 +252,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
               )}
             </>
           ) : (
-            <p className="empty pad">{t('Prise de température…', 'Taking the temperature…')}</p>
+            <p className="empty pad">
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Prise de température…', 'Taking the temperature…')}
+            </p>
           )}
         </section>
       )}
@@ -262,7 +273,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
 
       <section className="card">
         <header className="panel-head">
-          <h2>{t('Fantômes de la ruche', 'Ghosts in the hive')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" />{' '}
+            {t('Fantômes de la ruche', 'Ghosts in the hive')}
+          </h2>
           {report && (
             <span className={report.ghosts.length > 0 ? 'panel-count warn' : 'panel-count'}>
               {report.ghosts.length}{' '}
@@ -273,15 +287,14 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
         {ghost.error && <p className="panel-error">{ghost.error}</p>}
         {!report && !ghost.error && (
           <p className="empty pad">
+            <span className="marque" aria-hidden="true" />{' '}
             {t('Chasse aux fantômes en cours…', 'Ghost hunt in progress…')}
           </p>
         )}
 
         {report && report.ghosts.length === 0 && (
           <div className="es-calm">
-            <div className="es-calm-hex" aria-hidden="true">
-              🐝
-            </div>
+            <div className="es-calm-hex" aria-hidden="true" />
             <p className="es-calm-text">
               {t('La ruche bourdonne paisiblement', 'The hive is humming peacefully')}
             </p>
@@ -387,7 +400,9 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('Les Gardiennes', 'The Guards')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les Gardiennes', 'The Guards')}
+        </h2>
         {v && (
           <span className={`ga-mode mode-${v.mode}`}>
             {v.mode === 'strict'
@@ -399,9 +414,12 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
         )}
       </header>
       {!v ? (
-        <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
+        <p className="empty pad">
+          <span className="marque" aria-hidden="true" /> {t('Relevé en cours…', 'Reading…')}
+        </p>
       ) : v.inspections === 0 ? (
-        <p className="muted-text">
+        <p className="empty pad">
+          <span className="marque" aria-hidden="true" />{' '}
           {t(
             'Rien d’inspecté pour l’instant — les Gardiennes s’expriment dès les premières productions.',
             'Nothing inspected yet — the Guards speak up from the first outputs.',
@@ -476,13 +494,13 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
 
 /** Ce que chaque niveau veut dire, en une ligne, sans dramatiser ni minimiser. */
 const NIVEAU_GUET: Record<NiveauGuet, { fr: string; en: string; ton: string; icone: string }> = {
-  calme: { fr: 'Rien à signaler', en: 'Nothing to report', ton: 'calme', icone: '🐝' },
-  reniflage: { fr: 'On vous regarde', en: 'Someone is looking', ton: 'chaud', icone: '👀' },
+  calme: { fr: 'Rien à signaler', en: 'Nothing to report', ton: 'calme', icone: '○' },
+  reniflage: { fr: 'On vous regarde', en: 'Someone is looking', ton: 'chaud', icone: '◎' },
   balayage: {
     fr: 'Un outil déroule sa liste',
     en: 'A tool is running its list',
     ton: 'brulant',
-    icone: '🚨',
+    icone: '▲',
   },
 };
 
@@ -518,13 +536,17 @@ function Guetteuses({ refreshTick }: { refreshTick: number }) {
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('Les Guetteuses', 'The Lookouts')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Les Guetteuses', 'The Lookouts')}
+        </h2>
         <span className="muted-text">
           {t('sondages sur la dernière heure', 'probes over the last hour')}
         </span>
       </header>
       {!v ? (
-        <p className="muted-text">{t('Relevé en cours…', 'Reading…')}</p>
+        <p className="empty pad">
+          <span className="marque" aria-hidden="true" /> {t('Relevé en cours…', 'Reading…')}
+        </p>
       ) : (
         <>
           <div className={`gu-verdict ton-${n.ton}`}>

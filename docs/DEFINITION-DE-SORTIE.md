@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `7d7ba20` + ce commit, 17 août 2026, 3 h 05)
+## A. Le code tient — ✅ mesuré (arbre `3b6ebef` + ce commit, 21 août 2026)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,8 +57,8 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4342** (4334 verts, 8 ignorés, **0 rouge**) |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `31941871375`)                    |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4436** (4428 verts, 8 ignorés, **0 rouge**) |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)        |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 17 nus trouvés sur ce lot — tous fermés       |
 | Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                 |

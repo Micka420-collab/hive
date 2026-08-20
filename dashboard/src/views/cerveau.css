@@ -1,5 +1,8 @@
 /* Vue « Le Cerveau » — le graphe du savoir.
  *
+ * Soft-freeze Craft : miel/cire sur le chrome, marque hex, densités assagies,
+ * jamais d'italique. Le canevas RESTE sombre — contraste des points/halos.
+ *
  * ─── LES PARTIS PRIS ───────────────────────────────────────────────────────
  *
  * FOND TRÈS SOMBRE. Les points colorés et les halos ne se lisent que sur du
@@ -7,7 +10,7 @@
  * sur fond blanc. Ce n'est pas une préférence, c'est du contraste.
  *
  * UNE SEULE COULEUR VIVE À LA FOIS. Les genres portent les cinq teintes ; tout
- * le reste de l'écran est gris-bleu. Un panneau coloré à côté d'un graphe
+ * le reste de l'écran est cire/miel calme. Un panneau coloré à côté d'un graphe
  * coloré, et on ne sait plus où regarder.
  *
  * LES CHIFFRES AVANT LES MOTS. Dans les tuiles, le nombre est gros et le
@@ -18,12 +21,13 @@
 .cerveau {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.55rem;
   height: 100%;
   min-height: 0;
+  padding: 12px 16px 16px;
   --ce-fond: #14100b;
   --ce-carte: #1f1913;
-  --ce-bord: #33291c;
+  --ce-bord: color-mix(in srgb, #33291c 88%, transparent);
   --ce-bord-clair: #4a3c26;
   --ce-texte-doux: #a2957d;
 }
@@ -40,8 +44,22 @@
 
 .cerveau-titre h2 {
   margin: 0;
-  font-size: 1.1rem;
-  letter-spacing: -0.01em;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cerveau-titre .marque,
+.cerveau-vide .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .cerveau-titre p {
@@ -49,11 +67,13 @@
   font-size: 0.78rem;
   color: var(--ce-texte-doux);
   max-width: 62ch;
+  font-style: normal;
+  line-height: 1.45;
 }
 
 .cerveau-tuiles {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.35rem;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -64,13 +84,14 @@
   flex-direction: column;
   align-items: center;
   gap: 0.05rem;
-  min-width: 74px;
-  padding: 0.4rem 0.6rem;
-  border-radius: 9px;
+  min-width: 70px;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--r-sm);
   background: var(--ce-carte);
   border: 1px solid var(--ce-bord);
   font: inherit;
   color: inherit;
+  box-shadow: none;
 }
 
 .cerveau-tuile b {
@@ -98,12 +119,12 @@
 }
 
 .cerveau-tuile.on {
-  border-color: #f6c445;
-  background: #241f14;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--ce-bord-clair));
+  background: color-mix(in srgb, var(--miel) 8%, var(--ce-carte));
 }
 
 .cerveau-tuile.on b {
-  color: #f6c445;
+  color: var(--miel);
 }
 
 .cerveau-tuile.alerte b {
@@ -124,14 +145,14 @@
 .cerveau-barre {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
 
 .cerveau-recherche {
   flex: 0 1 220px;
-  padding: 0.4rem 0.65rem;
-  border-radius: 8px;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--r-sm);
   border: 1px solid var(--ce-bord);
   background: var(--ce-carte);
   color: inherit;
@@ -139,13 +160,14 @@
 }
 
 .cerveau-recherche:focus-visible {
-  outline: 2px solid #6bb8e8;
-  outline-offset: 1px;
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--ce-bord-clair));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
 }
 
 .cerveau-genres {
   display: flex;
-  gap: 0.3rem;
+  gap: 0.25rem;
   flex-wrap: wrap;
 }
 
@@ -153,20 +175,28 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.3rem 0.55rem;
-  border-radius: 999px;
+  padding: 0.28rem 0.5rem;
+  border-radius: var(--r-sm);
   border: 1px solid var(--ce-bord);
-  background: var(--ce-carte);
+  background: transparent;
   color: var(--ce-texte-doux);
   font-size: 0.72rem;
+  font-weight: 500;
   cursor: pointer;
   transition:
     border-color 0.15s,
-    color 0.15s;
+    color 0.15s,
+    background 0.15s;
 }
 
 .cerveau-puce:hover {
-  border-color: var(--ce-bord-clair);
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--ce-bord-clair));
+  background: color-mix(in srgb, var(--miel) 6%, var(--ce-carte));
+  color: #f4eee0;
+}
+
+.cerveau-puce.on {
+  background: color-mix(in srgb, var(--miel) 8%, var(--ce-carte));
 }
 
 .cerveau-puce i {
@@ -190,33 +220,35 @@
 
 .cerveau-modes {
   display: inline-flex;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   overflow: hidden;
   border: 1px solid var(--ce-bord);
   margin-left: auto;
 }
 
 .cerveau-modes button {
-  padding: 0.35rem 0.7rem;
-  background: var(--ce-carte);
+  padding: 0.3rem 0.65rem;
+  background: transparent;
   border: 0;
   color: var(--ce-texte-doux);
   font-size: 0.74rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .cerveau-modes button.on {
-  background: #2b2318;
+  background: color-mix(in srgb, var(--miel) 10%, var(--ce-carte));
   color: #f4eee0;
 }
 
 .cerveau-recentrer {
-  padding: 0.35rem 0.7rem;
-  border-radius: 8px;
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--r-sm);
   border: 1px solid var(--ce-bord);
-  background: var(--ce-carte);
+  background: transparent;
   color: var(--ce-texte-doux);
   font-size: 0.74rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -229,7 +261,7 @@
 .cerveau-scene {
   display: grid;
   grid-template-columns: 1fr minmax(212px, 274px);
-  gap: 0.7rem;
+  gap: 0.55rem;
   flex: 1;
   min-height: 0;
 }
@@ -238,9 +270,10 @@
 .cerveau-liste-boite {
   position: relative;
   min-height: 0;
-  border-radius: 12px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--ce-bord);
   overflow: hidden;
+  box-shadow: none;
 }
 
 .cerveau-toile-boite {
@@ -267,11 +300,11 @@
   pointer-events: none;
   z-index: 3;
   max-width: 260px;
-  padding: 0.4rem 0.55rem;
-  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--r-sm);
   background: rgba(20, 16, 11, 0.96);
-  border: 1px solid var(--ce-bord-clair);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  border: 1px solid color-mix(in srgb, var(--miel) 22%, var(--ce-bord-clair));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--miel) 12%, transparent);
   font-size: 0.74rem;
   line-height: 1.35;
 }
@@ -295,6 +328,7 @@
   margin: 0;
   color: var(--ce-texte-doux);
   font-size: 0.85rem;
+  font-style: normal;
   pointer-events: none;
 }
 
@@ -370,7 +404,6 @@
  * n'exister que dans le graphe. */
 .cerveau-liste td.dort {
   color: #a2957d;
-  font-style: italic;
 }
 
 /* ─── Panneau latéral ─────────────────────────────────────────────────────── */
@@ -385,20 +418,22 @@
 
 .cerveau-invite {
   margin: 0;
-  padding: 0.7rem;
-  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+  border-radius: var(--r-sm);
   border: 1px dashed var(--ce-bord);
   color: var(--ce-texte-doux);
   font-size: 0.75rem;
+  font-style: normal;
   line-height: 1.45;
 }
 
 .cerveau-fiche {
   position: relative;
-  padding: 0.7rem;
-  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+  border-radius: var(--r-sm);
   background: var(--ce-carte);
-  border: 1px solid var(--ce-bord-clair);
+  border: 1px solid color-mix(in srgb, var(--miel) 18%, var(--ce-bord-clair));
+  box-shadow: none;
 }
 
 .cerveau-fermer {
@@ -505,16 +540,17 @@
 /* ─── Alertes de santé ────────────────────────────────────────────────────── */
 
 .cerveau-alerte {
-  padding: 0.55rem 0.6rem;
-  border-radius: 10px;
+  padding: 0.5rem 0.55rem;
+  border-radius: var(--r-sm);
   background: #33201a;
   border: 1px solid #5a3328;
   font-size: 0.73rem;
+  font-style: normal;
 }
 
 .cerveau-alerte.douce {
-  background: #241f14;
-  border-color: #453a22;
+  background: color-mix(in srgb, var(--miel) 6%, var(--ce-carte));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--ce-bord-clair));
 }
 
 .cerveau-alerte b {
@@ -548,23 +584,31 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   text-align: center;
-  border-radius: 12px;
+  border-radius: var(--r-sm);
   background: radial-gradient(ellipse 70% 60% at 50% 45%, #201a12 0%, var(--ce-fond) 72%);
-  border: 1px dashed var(--ce-bord-clair);
+  border: 1px dashed color-mix(in srgb, var(--miel) 28%, var(--ce-bord-clair));
   min-height: 380px;
+  font-style: normal;
+}
+
+.cerveau-vide .marque {
+  width: 14px;
+  height: 16px;
+  margin-bottom: 8px;
 }
 
 .cerveau-vide p {
   margin: 0;
-  font-size: 0.9rem;
+  font-style: normal;
 }
 
 .cerveau-vide-detail {
   color: var(--ce-texte-doux);
   font-size: 0.78rem !important;
   max-width: 46ch;
+  font-style: normal;
 }
 
 .cerveau-vide code {

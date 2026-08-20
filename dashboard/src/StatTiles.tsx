@@ -79,7 +79,7 @@ export function StatTiles({ snapshot, throughput }: Props) {
       <div className="tile">
         <div className="tile-value">
           {throughput}
-          <span className="tile-unit"> 🍯/min</span>
+          <span className="tile-unit"> /min</span>
         </div>
         <div className="tile-label">{t('Débit', 'Throughput')}</div>
       </div>

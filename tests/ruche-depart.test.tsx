@@ -20,11 +20,29 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Ruche from '../dashboard/src/views/Ruche';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { StateSnapshot } from '../src/shared/types';
+
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  fetchEssaim: vi.fn(() =>
+    Promise.resolve({
+      niveau: 'off',
+      niveaux: ['off', 'propose', 'gouverne', 'plein'],
+      runner: { mode: 'off', enPause: false, echecs: 0 },
+      derive: { etat: 'saine', echantillon: 0, indicateurs: [], solitudeJours: 0, motif: '' },
+      decision: { pas: 'inerte', motif: '', gouvernantes: [] },
+      gouvernantes: [],
+      gouvernantesRequises: 1,
+      depotInscrit: false,
+      plafond: 'passe',
+      lecons: [],
+    }),
+  ),
+}));
 
 let conteneur: HTMLElement;
 let racine: Root | null = null;
@@ -76,6 +94,20 @@ describe('la Ruche vide propose de commencer, seul', () => {
       dom.querySelector('.ruche-depart')?.textContent,
       'le solo doit être dit : c’est ce que l’humain croyait impossible',
     ).toContain('seul');
+    expect(
+      dom.querySelector('.mc-ruche-stats'),
+      'des KPI à zéro ne doivent pas diluer le départ',
+    ).toBeNull();
+    expect(
+      dom.querySelector('.layout'),
+      'essaim et file vides ne doivent pas diluer le départ',
+    ).toBeNull();
+  });
+
+  it('dès qu’un projet existe, le cockpit (stats + layout) est bien là', () => {
+    const dom = monter(instantane({ projects: [{ id: 'p1', name: 'Rucher' }] as never }), () => {});
+    expect(dom.querySelector('.mc-ruche-stats'), 'le cockpit doit réapparaître').toBeTruthy();
+    expect(dom.querySelector('.layout'), 'essaim et file doivent réapparaître').toBeTruthy();
   });
 
   it('le clic OUVRE la création — il ne se contente pas d’exister', () => {

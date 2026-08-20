@@ -399,7 +399,9 @@ export default function Cerveau(_props: ViewProps) {
     <section className="cerveau">
       <header className="cerveau-tete">
         <div className="cerveau-titre">
-          <h2>🧠 {t('Le Cerveau', 'The Brain')}</h2>
+          <h2>
+            <span className="marque" aria-hidden="true" /> {t('Le Cerveau', 'The Brain')}
+          </h2>
           <p>
             {t(
               'Ce que la ruche a retenu, et ce qui lui sert vraiment.',
@@ -506,16 +508,12 @@ export default function Cerveau(_props: ViewProps) {
 
       {vide ? (
         <div className="cerveau-vide">
-          <p>
-            {t(
-              'Le Cerveau est vide — c’est l’état normal d’une ruche neuve.',
-              'The Brain is empty — that is the normal state of a fresh hive.',
-            )}
-          </p>
+          <span className="marque" aria-hidden="true" />
+          <p>{t('Le Cerveau est vide — c’est normal.', 'The Brain is empty — that is normal.')}</p>
           <p className="cerveau-vide-detail">
             {t(
-              'Il se remplit tout seul : chaque échec y dépose un épisode, et une panne revue trois fois propose une leçon.',
-              'It fills itself: every failure deposits an episode, and a fault seen three times proposes a lesson.',
+              'Chaque échec y dépose un épisode ; une panne revue trois fois propose une leçon.',
+              'Every failure deposits an episode; a fault seen three times proposes a lesson.',
             )}
           </p>
           <code>{entier?.dossier}</code>

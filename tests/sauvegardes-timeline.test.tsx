@@ -1,0 +1,264 @@
+// @vitest-environment happy-dom
+//
+/// <reference lib="dom" />
+//
+// Timeline de sauvegardes — liste, pose manuelle, restauration via tâche.
+
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setLang } from '../dashboard/src/i18n';
+
+vi.mock('../dashboard/src/api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getPartage: vi.fn(() => null),
+  fetchSauvegardes: vi.fn(),
+  fetchSauvegarde: vi.fn(),
+  creerSauvegardeManuelle: vi.fn(),
+  restaurerSauvegarde: vi.fn(),
+}));
+
+import {
+  creerSauvegardeManuelle,
+  fetchSauvegarde,
+  fetchSauvegardes,
+  restaurerSauvegarde,
+} from '../dashboard/src/api';
+import { SauvegardesTimeline } from '../dashboard/src/SauvegardesTimeline';
+
+const fetchSg = vi.mocked(fetchSauvegardes);
+const fetchOne = vi.mocked(fetchSauvegarde);
+const creer = vi.mocked(creerSauvegardeManuelle);
+const resto = vi.mocked(restaurerSauvegarde);
+
+let racine: Root | null = null;
+let conteneur: HTMLElement | null = null;
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+beforeEach(() => {
+  setLang('fr');
+  fetchSg.mockReset();
+  fetchOne.mockReset();
+  creer.mockReset();
+  resto.mockReset();
+  fetchSg.mockResolvedValue({ sauvegardes: [] });
+  window.confirm = vi.fn(() => true) as unknown as typeof window.confirm;
+});
+
+afterEach(() => {
+  act(() => racine?.unmount());
+  conteneur?.remove();
+  racine = null;
+  conteneur = null;
+  vi.restoreAllMocks();
+});
+
+async function monter(): Promise<HTMLElement> {
+  conteneur = document.createElement('div');
+  document.body.appendChild(conteneur);
+  racine = createRoot(conteneur);
+  await act(async () => {
+    racine?.render(<SauvegardesTimeline projectId="p1" />);
+  });
+  await act(async () => {});
+  return conteneur;
+}
+
+describe('SauvegardesTimeline', () => {
+  it('montre l’état vide puis une étape listée', async () => {
+    const dom = await monter();
+    expect(dom.querySelector('.ry-sg-vide')).not.toBeNull();
+
+    fetchSg.mockResolvedValue({
+      sauvegardes: [
+        {
+          id: 's1',
+          projectId: 'p1',
+          resultId: 1,
+          taskId: 't1',
+          label: 'Étape — Socle',
+          kind: 'etape',
+          taille: 42,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    await act(async () => {
+      racine?.render(<SauvegardesTimeline projectId="p1" refreshTick={1} />);
+    });
+    await act(async () => {});
+    expect(dom.querySelector('.ry-sg-vide')).toBeNull();
+    expect(dom.textContent).toContain('Étape — Socle');
+    expect(dom.querySelector('.ry-sg-restaure')).not.toBeNull();
+  });
+
+  it('pose une sauvegarde manuelle et appelle l’API', async () => {
+    creer.mockResolvedValue({
+      sauvegarde: {
+        id: 'm1',
+        projectId: 'p1',
+        resultId: null,
+        taskId: null,
+        label: 'Avant migration',
+        kind: 'manuel',
+        taille: 0,
+        createdAt: Date.now(),
+      },
+    });
+    const dom = await monter();
+    const input = dom.querySelector<HTMLInputElement>('.ry-sg-input');
+    expect(input).not.toBeNull();
+    const poser = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set as (
+      v: string,
+    ) => void;
+    await act(async () => {
+      poser.call(input!, 'Avant migration');
+      input!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const btn = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Poser'),
+    );
+    await act(async () => {
+      btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(creer).toHaveBeenCalledWith('p1', { label: 'Avant migration' });
+  });
+
+  it('restaurer crée une tâche via l’API', async () => {
+    fetchSg.mockResolvedValue({
+      sauvegardes: [
+        {
+          id: 's1',
+          projectId: 'p1',
+          resultId: 1,
+          taskId: 't1',
+          label: 'Étape — Socle',
+          kind: 'etape',
+          taille: 42,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    resto.mockResolvedValue({
+      task: { id: 'task-r', title: 'Restaurer — Étape — Socle' },
+      sauvegardeId: 's1',
+    });
+    const nav = vi.fn();
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    await act(async () => {
+      racine?.render(<SauvegardesTimeline projectId="p1" onNavigate={nav} />);
+    });
+    await act(async () => {});
+    const btn = conteneur.querySelector('.ry-sg-restaure');
+    await act(async () => {
+      btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(resto).toHaveBeenCalledWith('p1', 's1');
+    expect(conteneur.textContent).toContain('Tâche créée');
+    const aller = conteneur.querySelector('.ry-sg-miellerie');
+    expect(aller).not.toBeNull();
+    await act(async () => {
+      aller!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(nav).toHaveBeenCalledWith('miellerie', 'task-r');
+  });
+
+  it('Voir le patch charge le détail puis se referme', async () => {
+    fetchSg.mockResolvedValue({
+      sauvegardes: [
+        {
+          id: 's1',
+          projectId: 'p1',
+          resultId: 1,
+          taskId: 't1',
+          label: 'Étape — Socle',
+          kind: 'etape',
+          taille: 42,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    fetchOne.mockResolvedValue({
+      sauvegarde: {
+        id: 's1',
+        projectId: 'p1',
+        resultId: 1,
+        taskId: 't1',
+        label: 'Étape — Socle',
+        kind: 'etape',
+        createdAt: Date.now(),
+        patch: 'diff --git a/x b/x\n+hello',
+      },
+    });
+    const dom = await monter();
+    const voir = dom.querySelector('.ry-sg-voir');
+    expect(voir).not.toBeNull();
+    await act(async () => {
+      voir!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(fetchOne).toHaveBeenCalledWith('p1', 's1');
+    expect(dom.querySelector('.ry-sg-patch')?.textContent).toContain('+hello');
+    expect(voir!.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => {
+      voir!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(dom.querySelector('.ry-sg-patch')).toBeNull();
+  });
+
+  it('tronque l’aperçu d’un gros patch et Copier garde l’entier', async () => {
+    const gros = `${'a'.repeat(12_001)}FIN`;
+    fetchSg.mockResolvedValue({
+      sauvegardes: [
+        {
+          id: 's2',
+          projectId: 'p1',
+          resultId: null,
+          taskId: null,
+          label: 'Gros',
+          kind: 'manuel',
+          taille: gros.length,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    fetchOne.mockResolvedValue({
+      sauvegarde: {
+        id: 's2',
+        projectId: 'p1',
+        resultId: null,
+        taskId: null,
+        label: 'Gros',
+        kind: 'manuel',
+        createdAt: Date.now(),
+        patch: gros,
+      },
+    });
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const dom = await monter();
+    await act(async () => {
+      dom.querySelector('.ry-sg-voir')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    const pre = dom.querySelector('.ry-sg-patch');
+    expect(pre?.textContent).toContain('…');
+    expect(pre?.textContent).not.toContain('FIN');
+    expect(dom.querySelector('.ry-sg-patch-note')).not.toBeNull();
+    await act(async () => {
+      dom.querySelector('.ry-sg-copier')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith(gros);
+    expect(dom.textContent).toContain('Copié');
+  });
+});

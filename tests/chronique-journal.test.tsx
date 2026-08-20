@@ -78,17 +78,17 @@ function cliquer(el: Element): void {
 }
 
 describe('la Chronique — les deux vides, et la survivante du balayage', () => {
-  it('JOURNAL VIDE : « la ruche n’a encore rien vécu », et rien d’autre', async () => {
+  it('JOURNAL VIDE : « Rien pour l’instant », et rien d’autre', async () => {
     const dom = await monterChronique([]);
-    expect(dom.textContent).toContain('La ruche n’a encore rien vécu');
+    expect(dom.textContent).toContain('Rien pour l’instant');
   });
 
   it('JOURNAL PLEIN : le message de vide DISPARAÎT — la moitié qui tue && → ||', async () => {
-    // Mutée en `||`, la garde afficherait « rien vécu » SOUS un journal plein,
-    // en permanence : une ruche active qui affirme n'avoir rien vécu.
+    // Mutée en `||`, la garde afficherait le vide SOUS un journal plein,
+    // en permanence : une ruche active qui affirme n'avoir rien.
     const dom = await monterChronique([evenement(1, 'task_done'), evenement(2, 'node_connected')]);
-    expect(dom.textContent, 'une ruche active ne dit pas « rien vécu »').not.toContain(
-      'n’a encore rien vécu',
+    expect(dom.textContent, 'une ruche active ne dit pas « rien pour l’instant »').not.toContain(
+      'Rien pour l’instant',
     );
   });
 
@@ -97,7 +97,7 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     // familles. Le texte doit désigner LES FILTRES, pas prétendre au vide.
     const dom = await monterChronique([evenement(1, 'task_done')]);
     // On éteint TOUTES les familles — les puces portent leur libellé
-    // (« 🐝 Tâches 1 »), pas de parenthèses : la première version cliquait
+    // (« Tâches 1 »), pas de parenthèses : la première version cliquait
     // sur un motif inventé et n'éteignait rien.
     const familles = /Tâches|Nœuds|Courses|Merge|Conflits|Mémoire|Instinct|Balance|Autres/;
     for (const puce of [...dom.querySelectorAll('button')].filter((b) =>
@@ -105,7 +105,7 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     )) {
       cliquer(puce);
     }
-    expect(dom.textContent).not.toContain('n’a encore rien vécu');
+    expect(dom.textContent).not.toContain('Rien pour l’instant');
     expect(
       dom.textContent,
       'le message doit désigner les filtres, pas inventer une ruche vide',

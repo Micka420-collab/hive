@@ -54,12 +54,12 @@ const cout = (v: unknown): string | null =>
 
 const EVENTS: Record<string, Meta> = {
   project_created: {
-    icon: '📁',
+    icon: '▦',
     cls: 'info',
     text: (p, t) => t(`projet « ${String(p.name ?? '')} »`, `project “${String(p.name ?? '')}”`),
   },
   task_created: {
-    icon: '➕',
+    icon: '+',
     cls: 'muted',
     text: (p, t) =>
       t(
@@ -98,7 +98,7 @@ const EVENTS: Record<string, Meta> = {
     text: (p, t) => t(`ré-adoptée (${short(p.taskId)})`, `re-adopted (${short(p.taskId)})`),
   },
   task_done: {
-    icon: '🍯',
+    icon: '●',
     cls: 'done',
     text: (p, t) => {
       const ms = cout(p.durationMs);
@@ -108,7 +108,7 @@ const EVENTS: Record<string, Meta> = {
     },
   },
   task_retry: {
-    icon: '🔁',
+    icon: '↻',
     cls: 'warn',
     text: (p, t) => {
       const ms = cout(p.durationMs);
@@ -149,19 +149,19 @@ const EVENTS: Record<string, Meta> = {
     text: (p, t) => t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`),
   },
   node_registered: {
-    icon: '🐝',
+    icon: '⬡',
     cls: 'info',
     text: (p, t) =>
       t(`nouveau nœud : ${String(p.name ?? '')}`, `new node: ${String(p.name ?? '')}`),
   },
   node_online: {
-    icon: '🟢',
+    icon: '●',
     cls: 'done',
     text: (p, t) =>
       t(`nœud en ligne : ${String(p.name ?? '')}`, `node online: ${String(p.name ?? '')}`),
   },
   node_offline: {
-    icon: '⚫',
+    icon: '○',
     cls: 'fail',
     text: (p, t) =>
       t(`nœud hors ligne : ${String(p.name ?? '')}`, `node offline: ${String(p.name ?? '')}`),
@@ -172,13 +172,13 @@ const EVENTS: Record<string, Meta> = {
     text: (_p, t) => t('réconciliation', 'reconciliation'),
   },
   memory_recorded: {
-    icon: '🧬',
+    icon: '※',
     cls: 'muted',
     text: (p, t) =>
       t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
   },
   conflict_detected: {
-    icon: '🛡️',
+    icon: '△',
     cls: 'warn',
     text: (p, t) =>
       t(
@@ -201,7 +201,7 @@ const EVENTS: Record<string, Meta> = {
     text: (p, t) => t(`résultat périmé (${short(p.taskId)})`, `stale result (${short(p.taskId)})`),
   },
   drone_race_started: {
-    icon: '⚔',
+    icon: '◇',
     cls: 'info',
     text: (p, t) =>
       t(
@@ -210,7 +210,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   drone_won: {
-    icon: '🏆',
+    icon: '◆',
     cls: 'done',
     text: (p, t) =>
       t(
@@ -228,7 +228,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   drone_failed: {
-    icon: '🪂',
+    icon: '▽',
     cls: 'warn',
     text: (p, t) =>
       t(
@@ -237,7 +237,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   drone_promoted: {
-    icon: '⬆',
+    icon: '↑',
     cls: 'info',
     text: (p, t) =>
       t(
@@ -255,7 +255,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   drone_all_failed: {
-    icon: '⚔',
+    icon: '✘',
     cls: 'fail',
     text: (p, t) =>
       t(
@@ -267,7 +267,7 @@ const EVENTS: Record<string, Meta> = {
   // porte QUE des faits typés — le texte bilingue est reconstruit ici, comme
   // pour tout le reste du journal (aucune phrase figée en base).
   pheromone_route: {
-    icon: '🐜',
+    icon: '·',
     cls: 'info',
     text: (p, t) => {
       // Le nom du nœud est joint au payload ; repli sur l'id abrégé pour les
@@ -280,7 +280,7 @@ const EVENTS: Record<string, Meta> = {
     },
   },
   thermo_shift: {
-    icon: '🌡️',
+    icon: '~',
     cls: 'warn',
     text: (p, t) =>
       t(
@@ -289,7 +289,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   brood_context: {
-    icon: '👶',
+    icon: '◦',
     cls: 'info',
     text: (p, t) =>
       t(
@@ -302,7 +302,7 @@ const EVENTS: Record<string, Meta> = {
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est
   // réutilisé via `cout` : les durées du journal se lisent partout pareil.
   balance_alert: {
-    icon: '🧮',
+    icon: '⚖',
     cls: 'warn',
     text: (p, t) =>
       t(
@@ -311,7 +311,7 @@ const EVENTS: Record<string, Meta> = {
       ),
   },
   balance_cap_reached: {
-    icon: '⛔',
+    icon: '■',
     cls: 'fail',
     text: (p, t) => {
       const chiffres = `${cout(p.depenseMs) ?? '?'} / ${cout(p.plafondMs) ?? '?'}`;
@@ -366,7 +366,9 @@ export function Journal({ events }: { events: HiveEvent[] }) {
   return (
     <section className="card panel">
       <header className="panel-head">
-        <h2>{t('Journal', 'Journal')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Journal', 'Journal')}
+        </h2>
         <span className="panel-count">{events.length}</span>
       </header>
       <ul className="journal">
@@ -381,14 +383,16 @@ export function Journal({ events }: { events: HiveEvent[] }) {
             };
             return (
               <li key={ev.id} className={`jrow ${meta.cls}`}>
-                <span className="jicon">{meta.icon}</span>
+                <span className="jicon" aria-hidden="true">
+                  {meta.icon}
+                </span>
                 <span className="jtext">{meta.text(ev.payload, t)}</span>
                 <time className="jtime">{new Date(ev.ts).toLocaleTimeString()}</time>
               </li>
             );
           })}
         {events.length === 0 && (
-          <li className="empty">{t('En attente d’événements…', 'Waiting for events…')}</li>
+          <li className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</li>
         )}
       </ul>
     </section>

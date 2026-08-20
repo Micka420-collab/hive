@@ -14,6 +14,7 @@
 import type { Ghost } from './ghost.js';
 import type { Memory } from './hive-mind.js';
 import type { LlmFn } from './planner.js';
+import { lireLlm } from './planner.js';
 import type { ProjectReport } from './project-report.js';
 import type { HivePulse } from './pulse.js';
 import type { WaggleBoard } from './waggle.js';
@@ -37,6 +38,11 @@ export interface ConciergeContext {
   reviews: Record<string, 'approved' | 'rejected'>;
   /** Tâches terminées ou échouées (candidates à la revue humaine). */
   finishedTasks: { id: string; title: string; status: 'done' | 'failed' }[];
+  /**
+   * Dernières sauvegardes du projet focalisé (ou vides). Sert à proposer une
+   * restauration quand il y a des échecs — sans inventer d'étape.
+   */
+  sauvegardes?: { id: string; label: string; kind: string; createdAt: number }[];
   /** Courses de drones en vol (Drone Wars), avec le titre de la tâche disputée. */
   races: {
     taskId: string;
@@ -53,6 +59,12 @@ export interface ConciergeAnswer {
   /** Langue détectée du message ('fr', 'en', …) — la réponse est dans cette langue. */
   lang: Lang;
   suggestions: string[];
+  /** Décompte Anthropic — présent seulement quand `source === 'llm'` et que l'API l'a rendu. */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 // ─── Détection de langue (heuristique par mots-outils, sans dépendance) ──────
@@ -730,7 +742,7 @@ function helpReply(ctx: ConciergeContext, lang: Lang): string {
 export function answerLive(question: string, ctx: ConciergeContext): ConciergeAnswer {
   const lang = detectLanguage(question);
   const intent = detectIntent(question);
-  const reply =
+  let reply =
     intent === 'progress'
       ? progressReply(ctx, lang)
       : intent === 'recent'
@@ -748,7 +760,21 @@ export function answerLive(question: string, ctx: ConciergeContext): ConciergeAn
                   : intent === 'brief'
                     ? briefReply(question, ctx, lang)
                     : helpReply(ctx, lang);
-  return { reply, source: 'live', lang, suggestions: SUGGESTIONS[lang][intent] };
+
+  const suggestions = [...SUGGESTIONS[lang][intent]];
+  const echecs = ctx.finishedTasks.filter((t) => t.status === 'failed').length;
+  const derniere = ctx.sauvegardes?.[0];
+  if (echecs > 0 && derniere) {
+    const hint =
+      lang === 'fr'
+        ? `\n\n${echecs} échec(s) récent(s). Dernière sauvegarde : « ${clean(derniere.label)} ». Ouvrez le Rayon → Sauvegardes pour restaurer (une tâche sera créée).`
+        : `\n\n${echecs} recent failure(s). Latest checkpoint: “${clean(derniere.label)}”. Open the Comb → Backups to restore (a task will be created).`;
+    reply += hint;
+    const chip = lang === 'fr' ? 'Restaurer la dernière étape' : 'Restore the latest checkpoint';
+    if (!suggestions.includes(chip)) suggestions.unshift(chip);
+  }
+
+  return { reply, source: 'live', lang, suggestions };
 }
 
 // ─── Mode IA : même contexte, réponse rédigée par Claude (clé locale) ────────
@@ -854,15 +880,30 @@ export async function askConcierge(
   if (!opts.llm) return live;
   try {
     const { system, user } = buildChatPrompt(question, ctx);
-    const text = await opts.llm({
+    const brut = await opts.llm({
       system,
       user,
       model: opts.model ?? chatModel(),
       maxTokens: 800,
     });
+    const { text, usage } = lireLlm(brut);
     const reply = text.trim();
     if (!reply) return live;
-    return { reply, source: 'llm', lang: live.lang, suggestions: live.suggestions };
+    return {
+      reply,
+      source: 'llm',
+      lang: live.lang,
+      suggestions: live.suggestions,
+      ...(usage
+        ? {
+            usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              totalTokens: usage.inputTokens + usage.outputTokens,
+            },
+          }
+        : {}),
+    };
   } catch {
     return live; // le modèle est un plus, jamais un point de panne
   }

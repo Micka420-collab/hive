@@ -48,7 +48,7 @@ function NodeCard({
               title={t('en course de drones', 'in a drone race')}
               aria-label={t('en course de drones', 'in a drone race')}
             >
-              ⚔
+              ◇
             </span>
           )}
           {node.name}
@@ -76,7 +76,7 @@ function NodeCard({
         ) : (
           agents.slice(0, 6).map((a) => (
             <span key={a.id} className="es-agent-chip" title={a.name}>
-              ⚙ {a.name}
+              · {a.name}
             </span>
           ))
         )}
@@ -91,10 +91,11 @@ function NodeCard({
   );
 }
 
-const MEDALS = ['🥇', '🥈', '🥉'];
+const MEDALS = ['1', '2', '3'];
 
 /** Podium des trois meilleurs butineurs — le n°1 danse (waggle dance). */
 function Podium({ nodes }: { nodes: NodeNectar[] }) {
+  const t = useT();
   const top = nodes.slice(0, 3);
   // Ordre visuel : 2e à gauche, 1er au centre, 3e à droite.
   const order = [1, 0, 2].filter((i) => i < top.length);
@@ -111,7 +112,9 @@ function Podium({ nodes }: { nodes: NodeNectar[] }) {
             <span className="es-podium-name" title={n.name}>
               {n.name}
             </span>
-            <span className="es-podium-score">{n.score} 🍯</span>
+            <span className="es-podium-score">
+              {n.score} {t('nectar', 'nectar')}
+            </span>
           </div>
         );
       })}
@@ -135,7 +138,7 @@ function NectarList({ board }: { board: WaggleBoard }) {
               <span className="es-nectar-stats">
                 {Math.round(n.successRate * 100)} % · {formatMs(n.avgDurationMs)} · ✔ {n.tasksDone}{' '}
                 ✘ {n.tasksFailed}
-                {n.raceWins > 0 && <> · ⚔ {n.raceWins}</>}
+                {n.raceWins > 0 && <> · ◇ {n.raceWins}</>}
               </span>
             </div>
             <div className="es-bar">
@@ -165,7 +168,7 @@ function RacesCard({
     snapshot.tasks.find((task) => task.id === taskId)?.title ?? `${taskId.slice(0, 8)}…`;
   const nameOf = (nodeId: string): string =>
     snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
-  const ICON: Record<string, string> = { running: '✈', failed: '✘', succeeded: '🏆' };
+  const ICON: Record<string, string> = { running: '▸', failed: '✘', succeeded: '◆' };
   // Statuts traduits : le title/aria porte l'état, l'emoji seul ne suffit
   // ni aux lecteurs d'écran ni aux opérateurs non anglophones.
   const statusLabel = (status: string): string =>
@@ -179,7 +182,9 @@ function RacesCard({
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('⚔ Courses en vol', '⚔ Races in flight')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Courses en vol', 'Races in flight')}
+        </h2>
         <span className="panel-count">{races.length}</span>
       </header>
       <ul className="es-races">
@@ -249,7 +254,9 @@ function PheromonesCard({
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('🐜 Phéromones', '🐜 Pheromones')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Phéromones', 'Pheromones')}
+        </h2>
         {traces && (
           <span className="panel-count">
             {traces.length} {t('trace(s)', 'trace(s)')}
@@ -364,7 +371,9 @@ function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('🐝 Polyéthisme', '🐝 Division of labour')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('Polyéthisme', 'Division of labour')}
+        </h2>
         <span className="panel-count">
           {t('mode', 'mode')} {vue.mode}
         </span>
@@ -418,7 +427,7 @@ function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
                     )}
                     {n.suspectes > 0 && (
                       <span className="es-poly-grief" title={t('suspectes', 'suspicious')}>
-                        ⚠ {n.suspectes}
+                        {n.suspectes}
                       </span>
                     )}
                     <span className="es-poly-fia">
@@ -488,8 +497,8 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
             {snapshot.nodes.length === 0 ? (
               <p className="empty pad">
                 {t(
-                  'Aucune ouvrière dans l’essaim — invitez un nœud à rejoindre la ruche.',
-                  'No workers in the swarm — invite a node to join the hive.',
+                  'Aucun nœud dans l’essaim pour l’instant — lancez-en un ici, ou invitez plus tard.',
+                  'No nodes in the swarm yet — start one here, or invite later.',
                 )}
               </p>
             ) : (

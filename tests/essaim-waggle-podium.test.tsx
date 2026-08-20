@@ -207,15 +207,15 @@ describe('le Waggle Board : la danse et son podium', () => {
     expect(danse(gauche!), 'la n°2 danse à la place de la n°1').toBe(false);
   });
 
-  it('UNE OUVRIÈRE SANS VICTOIRE NE PORTE PAS LE ⚔ — zéro PILE est la borne', async () => {
+  it('UNE OUVRIÈRE SANS VICTOIRE NE PORTE PAS LE ◇ — zéro PILE est la borne', async () => {
     // ─── LA BORNE À ZÉRO (§ 9 tertrigicenties) ─────────────────────────────
     //
     // `raceWins > 0` et `raceWins >= 0` ne diffèrent QU'À ZÉRO : à 1 comme à
-    // 12, les deux versions affichent le ⚔. Seule la valeur ÉGALE les sépare
+    // 12, les deux versions affichent le ◇. Seule la valeur ÉGALE les sépare
     // — et zéro est le cas de LOIN le plus fréquent, puisque les courses de
     // drones sont optionnelles.
     //
-    // Muté, chaque ligne du classement porte « ⚔ 0 » : un badge de victoire
+    // Muté, chaque ligne du classement porte « ◇ 0 » : un badge de victoire
     // sur une ouvrière qui n'a jamais couru.
     const dom = await monter(
       tableau([
@@ -225,11 +225,11 @@ describe('le Waggle Board : la danse et son podium', () => {
     );
 
     const [guerriere, paisible] = rangees(dom);
-    expect(guerriere!.textContent, 'les victoires de course ne sont pas comptées').toContain('⚔ 2');
+    expect(guerriere!.textContent, 'les victoires de course ne sont pas comptées').toContain('◇ 2');
     expect(
       paisible!.textContent,
-      'une ouvrière qui n’a jamais couru porte le ⚔ — « ⚔ 0 » se lit comme une victoire',
-    ).not.toContain('⚔');
+      'une ouvrière qui n’a jamais couru porte le ◇ — « ◇ 0 » se lit comme une victoire',
+    ).not.toContain('◇');
   });
 
   it('LE CLASSEMENT COMMENCE À UN — et les barres ne divisent jamais par zéro', async () => {

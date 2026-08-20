@@ -32,6 +32,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   clearPartage: vi.fn(),
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
+  fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
 }));
 
 import { fetchReport } from '../dashboard/src/api';

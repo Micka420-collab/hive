@@ -13,6 +13,23 @@
 curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
 ```
 
+Variante prudente (empreinte avant d’agir — ADR 0002) : télécharger le script,
+comparer le SHA-256 à celui publié avec la Release / `site/install.sha256` sur
+[Pages](https://micka420-collab.github.io/hive/install.sha256), le lire, puis
+l’exécuter. `install.sh` affiche aussi son empreinte quand il tourne comme
+fichier (hash du contenu via stdin — stable sous Windows/Git Bash).
+
+```sh
+curl -fsSLO https://micka420-collab.github.io/hive/install.sh
+sha256sum install.sh
+less install.sh
+sh install.sh
+```
+
+> Les URL `raw.githubusercontent.com/…/main/…` suivent la branche vivante. Les
+> scripts servis par Pages sont les mêmes fichiers, copiés au déploiement
+> (`pages.yml`).
+
 **Windows** (PowerShell)
 
 ```powershell
@@ -240,14 +257,15 @@ Ce que `docker-compose.yml` décide pour vous, et pourquoi :
   Linux, Docker écrit ses règles directement dans netfilter, **en amont de la
   plupart des pare-feu** : un `ports: - '7777:7777'` ouvre la ruche sur
   Internet sans que `ufw status` le montre. Pour l'ouvrir vraiment, il y a
-`hive tunnel`, ou — si tu vends l'hébergement — **Hive Cloud** :
-`docker compose -f docker-compose.cloud.yml up -d` (TLS via Caddy, voir
-[`docs/CLOUD.md`](CLOUD.md)).
+  `hive tunnel`, ou — si tu vends l'hébergement — **Hive Cloud** :
+  `docker compose -f docker-compose.cloud.yml up -d` (TLS via Caddy, voir
+  [`docs/CLOUD.md`](CLOUD.md)).
 
 Community (0 €, chez soi) et Cloud (payant, sur TES serveurs) partagent le
 même image Docker. Seuls l'édition, le secret de webhook et le reverse proxy
 changent.
-  `hive tunnel` — chiffré et révocable ;
+`hive tunnel` — chiffré et révocable ;
+
 - **les secrets viennent d'un fichier**, jamais de la ligne de commande : un
   `docker run -e HIVE_TOKEN=…` se lit dans le `ps` de n'importe quel compte de
   la machine ;
@@ -263,6 +281,11 @@ qu'on ne construit jamais est une promesse que rien n'exerce.
 ---
 
 ## Sauvegarder la base
+
+> **Deux sauvegardes, deux métiers.** Ici : copie SQLite de la **ruche**
+> (`VACUUM INTO`). Pour le **code d’un projet** (timeline d’étapes, restauration
+> via tâche), voir le panneau **Sauvegardes** du Rayon — ce n’est pas la même
+> chose.
 
 ```sh
 npm run cli -- sauvegarde --garder=7

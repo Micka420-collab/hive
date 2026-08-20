@@ -162,7 +162,10 @@ function QueenBee({ projects }: { projects: Project[] }) {
   return (
     <section className="card pj-queen">
       <header className="panel-head">
-        <h2>{t('👑 Atelier Queen Bee', '👑 Queen Bee Workshop')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Atelier Queen Bee', 'Queen Bee Workshop')}
+        </h2>
         <span className="panel-count">
           {t('brief → plan de butinage', 'brief → foraging plan')}
         </span>
@@ -200,18 +203,18 @@ function QueenBee({ projects }: { projects: Project[] }) {
           >
             {busy === 'plan'
               ? t('La reine réfléchit…', 'The Queen is thinking…')
-              : t('✨ Proposer un plan', '✨ Propose a plan')}
+              : t('Proposer un plan', 'Propose a plan')}
           </button>
         </div>
 
         {error && <p className="panel-error">{error}</p>}
-        {sent && <p className="pj-sent">🍯 {sent}</p>}
+        {sent && <p className="pj-sent">{sent}</p>}
 
         {plan && (
           <div className="pj-plan">
             <div className="pj-plan-head">
               <span className={`pj-src ${plan.source}`}>
-                {plan.source === 'llm' ? '🧠 llm' : t('⚙ heuristique', '⚙ heuristic')}
+                {plan.source === 'llm' ? 'IA' : t('heuristique', 'heuristic')}
               </span>
               <span className="panel-count">
                 {plan.tasks.length} {t('tâche(s)', 'task(s)')}
@@ -413,7 +416,7 @@ function MergePanel({
           <span className={`pj-verdict ${plan.mergeable ? 'ok' : 'ko'}`}>
             {plan.mergeable
               ? t('✔ intégrable', '✔ mergeable')
-              : t('⚠ pas encore intégrable', '⚠ not mergeable yet')}
+              : t('pas encore intégrable', 'not mergeable yet')}
           </span>
         )}
       </header>
@@ -586,7 +589,7 @@ function ConflictsPanel({
             <li key={`${c.a}-${c.b}-${i}`} className={`pj-sting ${c.severity}`}>
               <span className="pj-sting-sev">
                 {c.severity === 'high'
-                  ? t('⚡ sévérité haute', '⚡ high severity')
+                  ? t('sévérité haute', 'high severity')
                   : t('· sévérité faible', '· low severity')}
               </span>
               <span className="pj-sting-pair">
@@ -985,7 +988,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
     quorum: { fr: '✔ une piste a convergé', en: '✔ one path converged' },
     depart: { fr: '⚖ égalité — à vous de trancher', en: '⚖ tie — yours to settle' },
     sans_quorum: { fr: '… du débat, rien de convergé', en: '… debate, nothing converged' },
-    epuise: { fr: '⏳ arrêté sans converger', en: '⏳ stopped without converging' },
+    epuise: { fr: 'arrêté sans converger', en: 'stopped without converging' },
     vide: { fr: '∅ personne n’a rien trouvé', en: '∅ nobody found anything' },
   };
 
@@ -1060,7 +1063,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
                           d'accord ne font pas dix avis. */}
                       ↑{d.soutiens.length} · {d.familles.length} {t('famille(s)', 'famil(y|ies)')}
                       {d.arrets.length > 0 && (
-                        <span className="pj-cs-arrets"> · ⛔{d.arrets.length}</span>
+                        <span className="pj-cs-arrets"> · {d.arrets.length}</span>
                       )}
                     </span>
                   </div>
@@ -1072,7 +1075,7 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
                     .filter((r) => r.type === 'arret' && r.raison)
                     .map((r, i) => (
                       <p key={i} className="pj-cs-objection">
-                        ⛔ {r.raison}
+                        {r.raison}
                       </p>
                     ))}
                   {/* PAS défendu, et c'est l'idiome JSX « rends si présent ».
@@ -1310,7 +1313,7 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
             lister('');
           }}
         >
-          🐙 {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
+          {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
         </button>
         <span className="pj-gh-aide">
           {t(
@@ -1325,7 +1328,10 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
   return (
     <section className="card">
       <header className="panel-head">
-        <h2>{t('🐙 Connecter un dépôt GitHub', '🐙 Connect a GitHub repository')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
+        </h2>
         <button className="btn ghost" onClick={() => setOuvert(false)}>
           {t('Fermer', 'Close')}
         </button>
@@ -1374,7 +1380,7 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
             <li key={d.fullName} className={d.importe ? 'pj-gh-deja' : ''}>
               <div className="pj-gh-nom">
                 <strong>{d.fullName}</strong>
-                {d.prive && <span className="pj-vis private">🔒 {t('privé', 'private')}</span>}
+                {d.prive && <span className="pj-vis private">{t('privé', 'private')}</span>}
                 {d.archive && <span className="pj-gh-tag">{t('archivé', 'archived')}</span>}
                 {d.langage && <span className="pj-gh-tag">{d.langage}</span>}
               </div>
@@ -1606,7 +1612,7 @@ export function LivraisonsProjet({ project }: { project: Project }) {
               <span className="pj-liv-titre">{nomDeLivraison(l)}</span>
               {/* Une PR illisible le DIT. Une ligne muette laisserait croire
                   qu'il ne se passe rien, alors qu'on n'a pas pu regarder. */}
-              <span className="pj-liv-etat">{l.illisible ? `⚠ ${l.illisible}` : l.dit}</span>
+              <span className="pj-liv-etat">{l.illisible ? l.illisible : l.dit}</span>
               {repris[l.taskId] ? (
                 <span className="pj-liv-repris">✔ {repris[l.taskId]}</span>
               ) : (
@@ -1686,7 +1692,7 @@ function ProjectCard({
       <header className="pj-head">
         <h3 className="pj-name">{project.name}</h3>
         <span className={`pj-vis ${project.visibility}`}>
-          {project.visibility === 'private' ? t('🔒 privé', '🔒 private') : '🌐 public'}
+          {project.visibility === 'private' ? t('privé', 'private') : t('public', 'public')}
         </span>
       </header>
       {project.description && <p className="pj-desc">{project.description}</p>}
@@ -1726,7 +1732,6 @@ function ProjectCard({
               </span>
             ))}
             <span className="pj-meta">
-              🐝{' '}
               {report.contributingNodes.length > 0
                 ? contributors
                 : t('aucune butineuse', 'no foragers')}
@@ -1799,7 +1804,7 @@ function ProjectCard({
 
       <div className="pj-actions">
         <button className="btn" onClick={() => onNavigate('miellerie')}>
-          {t('🍯 Revue', '🍯 Review')}
+          {t('Revue', 'Review')}
         </button>
         <button
           className="btn ghost"
@@ -1813,7 +1818,7 @@ function ProjectCard({
           aria-expanded={showConflicts}
           onClick={() => setShowConflicts((v) => !v)}
         >
-          {t('⚡ Conflits Sting', '⚡ Sting conflicts')}
+          {t('Conflits Sting', 'Sting conflicts')}
         </button>
       </div>
 
@@ -1884,19 +1889,16 @@ export default function Projets({
         onRejoint={() => setImportTick((n) => n + 1)}
       />
 
-      <QueenBee projects={recents} />
+      {recents.length > 0 && <QueenBee projects={recents} />}
 
       {recents.length === 0 ? (
-        <section className="card">
-          <p className="empty pad">
+        <section className="card pj-depart">
+          <span className="marque" aria-hidden="true" />
+          <h2>{t('Aucun projet pour l’instant', 'No projects yet')}</h2>
+          <p>
             {t(
-              'Aucune alvéole de projet pour l’instant. Créez votre premier projet avec le bouton',
-              'No project cells yet. Create your first project with the',
-            )}
-            <strong> {t('« + Projet »', '“+ Project”')} </strong>
-            {t(
-              'de la barre du haut, puis laissez la Queen Bee planifier le butinage.',
-              'button in the top bar, then let the Queen Bee plan the foraging.',
+              'Utilisez « + Projet » en haut pour démarrer — un nœud suffit.',
+              'Use “+ Project” above to start — one node is enough.',
             )}
           </p>
         </section>

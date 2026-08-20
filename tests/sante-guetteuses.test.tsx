@@ -166,7 +166,7 @@ describe('les Guetteuses disent la GRAVITÉ, pas seulement le compte', () => {
     const v = verdict(dom);
     expect(v?.className, 'le ton du balayage est celui du calme').toContain('ton-brulant');
     expect(v?.className, 'le balayage porte encore le ton calme').not.toContain('ton-calme');
-    expect(v?.textContent, 'l’icône d’alerte manque').toContain('🚨');
+    expect(v?.textContent, 'l’icône d’alerte manque').toContain('▲');
     expect(v?.textContent, 'le niveau n’est pas nommé').toContain('Un outil déroule sa liste');
   });
 

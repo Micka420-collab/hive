@@ -23,7 +23,7 @@ import { libelleAgent } from '../../src/shared/agent-libelle';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
 
 const AGENT_ICON: Record<string, string> = {
-  shell: '🐚',
+  shell: '○',
   'claude-code': '✦',
   codex: '⌗',
 };
@@ -129,12 +129,12 @@ function FicheOuvriere({
 
         {nectar && (
           <p className="fo-nectar">
-            🍯 {nectar.score} {t('nectar', 'nectar')} · {Math.round(nectar.successRate * 100)} %{' '}
+            {nectar.score} {t('nectar', 'nectar')} · {Math.round(nectar.successRate * 100)} %{' '}
             {t('de réussite', 'success')}
             {nectar.raceWins > 0 && (
               <span className="fo-victoires">
                 {' '}
-                · ⚔ {nectar.raceWins} {t('victoire(s) de course', 'race win(s)')}
+                · ◇ {nectar.raceWins} {t('victoire(s) de course', 'race win(s)')}
               </span>
             )}
           </p>
@@ -231,8 +231,8 @@ export function NodesPanel({
         {nodes.length === 0 && (
           <li className="empty">
             {t(
-              'Aucun nœud n’a rejoint la ruche. Cliquez « Inviter un ami » pour en connecter un.',
-              'No node has joined the hive yet. Click “Invite a friend” to connect one.',
+              'Aucun nœud pour l’instant. Lancez un nœud sur cette machine, ou invitez un ami quand vous voulez.',
+              'No nodes yet. Start a node on this machine, or invite a friend when you want.',
             )}
           </li>
         )}

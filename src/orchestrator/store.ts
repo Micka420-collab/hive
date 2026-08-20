@@ -9,6 +9,8 @@ import type { PlateformeNoeud } from '../shared/machine.js';
 import { LIMITS } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
+import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
+import { libelleEtape } from '../shared/sauvegardes.js';
 import { CORPUS_AIGUILLAGE } from './aiguillage.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
@@ -726,6 +728,21 @@ CREATE TABLE IF NOT EXISTS reviews (
   state     TEXT NOT NULL CHECK (state IN ('approved', 'rejected')),
   updatedAt INTEGER NOT NULL
 );
+
+-- Timeline de code : chaque étape réussie (ou sauvegarde manuelle) garde son
+-- patch. TABLE LATÉRALE (règle 2) — pas de migration sur results. Le patch est
+-- COPIÉ ici pour survivre à pruneResults qui vide results.diff au-delà de 5 000.
+CREATE TABLE IF NOT EXISTS sauvegardes (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL,
+  resultId  INTEGER,
+  taskId    TEXT,
+  label     TEXT NOT NULL,
+  kind      TEXT NOT NULL CHECK (kind IN ('etape', 'manuel', 'avant_retouche')),
+  patch     TEXT NOT NULL DEFAULT '',
+  createdAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sauvegardes_projet ON sauvegardes(projectId, createdAt DESC);
 
 CREATE TABLE IF NOT EXISTS users (
   id           TEXT PRIMARY KEY,
@@ -1736,7 +1753,133 @@ export class HiveStore {
         JSON.stringify(res.subAgents.slice(0, LIMITS.subAgents)),
         now,
       );
-    return Number(info.lastInsertRowid);
+    const resultId = Number(info.lastInsertRowid);
+    // Étape auto : chaque production réussie avec un diff devient une
+    // sauvegarde récupérable — même après pruneResults.
+    if (res.success && res.diff.trim().length > 0) {
+      const tache = this.getTask(res.taskId);
+      if (tache) {
+        this.creerSauvegarde({
+          projectId: tache.projectId,
+          resultId,
+          taskId: res.taskId,
+          label: libelleEtape(tache.title, (fr) => fr),
+          kind: 'etape',
+          patch: res.diff.slice(0, LIMITS.diff),
+          createdAt: now,
+        });
+      }
+    }
+    return resultId;
+  }
+
+  /** Pose une sauvegarde (étape auto ou geste manuel). */
+  creerSauvegarde(input: {
+    projectId: string;
+    resultId?: number | null;
+    taskId?: string | null;
+    label: string;
+    kind: GenreSauvegarde;
+    patch: string;
+    createdAt?: number;
+  }): Sauvegarde {
+    const id = randomUUID();
+    const createdAt = input.createdAt ?? Date.now();
+    const patch = input.patch.slice(0, LIMITS.diff);
+    this.db
+      .prepare(
+        `INSERT INTO sauvegardes (id, projectId, resultId, taskId, label, kind, patch, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.projectId,
+        input.resultId ?? null,
+        input.taskId ?? null,
+        input.label.trim().slice(0, 120),
+        input.kind,
+        patch,
+        createdAt,
+      );
+    return {
+      id,
+      projectId: input.projectId,
+      resultId: input.resultId ?? null,
+      taskId: input.taskId ?? null,
+      label: input.label.trim().slice(0, 120),
+      kind: input.kind,
+      patch,
+      createdAt,
+    };
+  }
+
+  listSauvegardes(projectId: string, limit = 50): SauvegardeResume[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, projectId, resultId, taskId, label, kind, length(patch) AS taille, createdAt
+         FROM sauvegardes WHERE projectId = ? ORDER BY createdAt DESC, id DESC LIMIT ?`,
+      )
+      .all(projectId, Math.min(200, Math.max(1, limit))) as {
+      id: string;
+      projectId: string;
+      resultId: number | null;
+      taskId: string | null;
+      label: string;
+      kind: GenreSauvegarde;
+      taille: number;
+      createdAt: number;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      projectId: r.projectId,
+      resultId: r.resultId,
+      taskId: r.taskId,
+      label: r.label,
+      kind: r.kind,
+      taille: r.taille,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  getSauvegarde(id: string): Sauvegarde | null {
+    const r = this.db.prepare('SELECT * FROM sauvegardes WHERE id = ?').get(id) as
+      | {
+          id: string;
+          projectId: string;
+          resultId: number | null;
+          taskId: string | null;
+          label: string;
+          kind: GenreSauvegarde;
+          patch: string;
+          createdAt: number;
+        }
+      | undefined;
+    if (!r) return null;
+    return {
+      id: r.id,
+      projectId: r.projectId,
+      resultId: r.resultId,
+      taskId: r.taskId,
+      label: r.label,
+      kind: r.kind,
+      patch: r.patch,
+      createdAt: r.createdAt,
+    };
+  }
+
+  /**
+   * Ne conserve que les `maxKeep` sauvegardes les plus récentes (toutes
+   * projets confondus). Les étapes auto naissent à chaque diff réussi : sans
+   * cette borne, la table grandirait avec l'histoire de la ruche.
+   */
+  pruneSauvegardes(maxKeep: number): number {
+    const keep = Math.max(0, maxKeep);
+    const info = this.db
+      .prepare(
+        'DELETE FROM sauvegardes WHERE id NOT IN (SELECT id FROM sauvegardes ORDER BY createdAt DESC, id DESC LIMIT ?)',
+      )
+      .run(keep);
+    return info.changes;
   }
 
   resultsForTask(taskId: string): TaskResult[] {

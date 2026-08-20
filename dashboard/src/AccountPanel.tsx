@@ -37,7 +37,7 @@ export function AccountPanel({ user, onUser }: Props) {
     return (
       <span className="mc-account">
         <span className="mc-account-name" title={user.email}>
-          👤 {user.displayName}
+          {user.displayName}
         </span>
         <button
           className="btn ghost"
@@ -121,7 +121,7 @@ function AccountModal({
       >
         <header className="modal-head">
           <h2 id="account-title">
-            👤{' '}
+            <span className="marque" aria-hidden="true" />{' '}
             {mode === 'login'
               ? t('Connexion', 'Sign in')
               : t('Créer un compte', 'Create an account')}
@@ -133,6 +133,7 @@ function AccountModal({
 
         <div className="drawer-tabs" role="tablist">
           <button
+            type="button"
             role="tab"
             aria-selected={mode === 'login'}
             className={mode === 'login' ? 'active' : ''}
@@ -141,6 +142,7 @@ function AccountModal({
             {t('Connexion', 'Sign in')}
           </button>
           <button
+            type="button"
             role="tab"
             aria-selected={mode === 'register'}
             className={mode === 'register' ? 'active' : ''}
@@ -166,7 +168,7 @@ function AccountModal({
         )}
 
         <label className="field">
-          <span>Email</span>
+          <span>{t('Email', 'Email')}</span>
           <input
             type="email"
             value={email}
@@ -179,14 +181,14 @@ function AccountModal({
 
         <label className="field">
           <span>
-            {t('Mot de passe', 'Password')}{' '}
+            {t('Mot de passe', 'Password')}
             {mode === 'register' && (
-              <small>
-                {t(
-                  `(${MDP_MIN} caractères minimum — une phrase de trois mots fait un très bon mot de passe)`,
-                  `(${MDP_MIN} characters minimum — a three-word phrase makes an excellent password)`,
-                )}
-              </small>
+              <>
+                {' '}
+                <small className="muted-text">
+                  {t(`(${MDP_MIN} caractères minimum)`, `(${MDP_MIN} characters minimum)`)}
+                </small>
+              </>
             )}
           </span>
           <input

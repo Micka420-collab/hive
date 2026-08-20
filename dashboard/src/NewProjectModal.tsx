@@ -124,13 +124,13 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
       setPlanNote(
         res.source === 'llm'
           ? t(
-              `✨ ${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`,
-              `✨ ${res.tasks.length} tasks proposed by the AI — review then adjust.`,
+              `${res.tasks.length} tâches proposées par l’IA — vérifiez puis ajustez.`,
+              `${res.tasks.length} tasks proposed by the AI — review then adjust.`,
             )
           : (res.note ??
               t(
-                `🐝 ${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`,
-                `🐝 ${res.tasks.length} tasks (heuristic split) — review then adjust.`,
+                `${res.tasks.length} tâches (découpage heuristique) — vérifiez puis ajustez.`,
+                `${res.tasks.length} tasks (heuristic split) — review then adjust.`,
               )),
       );
     } catch (e) {
@@ -196,7 +196,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   return (
     <Voile onClose={closeIfIdle}>
       <div
-        className="modal wide"
+        className="modal wide np-modal"
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -204,11 +204,14 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2 id="np-title">🐝 {t('Nouveau projet', 'New project')}</h2>
+          <h2 id="np-title">
+            <span className="marque" aria-hidden="true" /> {t('Nouveau projet', 'New project')}
+          </h2>
           <button
+            type="button"
             className="modal-close"
             onClick={closeIfIdle}
-            disabled={busy}
+            disabled={busy || planning}
             aria-label={t('Fermer', 'Close')}
           >
             ×
@@ -225,6 +228,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => setName(e.target.value)}
             placeholder={t('Mon SaaS', 'My SaaS')}
             autoFocus
+            disabled={busy || planning}
           />
         </label>
 
@@ -238,6 +242,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
               'https://github.com/moi/projet.git',
               'https://github.com/me/project.git',
             )}
+            disabled={busy || planning}
           />
         </label>
 
@@ -263,12 +268,12 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               className="chip primary"
-              onClick={generate}
+              onClick={() => void generate()}
               disabled={busy || planning || !brief.trim()}
             >
               {planning
                 ? t('Génération…', 'Generating…')
-                : t('✨ Générer les tâches', '✨ Generate the tasks')}
+                : t('Générer les tâches', 'Generate the tasks')}
             </button>
             {planNote && <span className="plan-note">{planNote}</span>}
           </div>
@@ -281,7 +286,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
               'Tasks (JSON) — title, prompt, optional id and dependsOn',
             )}
           </span>
-          <div className="template-row">
+          <div className="template-row np-templates">
             <span className="template-label">{t('Modèles :', 'Templates:')}</span>
             {templates.map((tpl) => (
               <button
@@ -289,6 +294,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
                 type="button"
                 className="chip"
                 onClick={() => setTasksJson(j(tpl.tasks))}
+                disabled={busy || planning}
               >
                 {tpl.label}
               </button>
@@ -300,14 +306,25 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             value={tasksJson}
             onChange={(e) => setTasksJson(e.target.value)}
             spellCheck={false}
+            disabled={busy || planning}
           />
         </label>
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={closeIfIdle}
+            disabled={busy || planning}
+          >
             {t('Annuler', 'Cancel')}
           </button>
-          <button className="btn primary" onClick={submit} disabled={busy}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void submit()}
+            disabled={busy || planning}
+          >
             {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
           </button>
         </div>

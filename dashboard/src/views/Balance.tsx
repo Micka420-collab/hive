@@ -262,7 +262,9 @@ export function CarteBalance({
   return (
     <section className="card bal-card">
       <header className="panel-head">
-        <h2>{t('🧮 La Balance', '🧮 The Balance')}</h2>
+        <h2>
+          <span className="marque" aria-hidden="true" /> {t('La Balance', 'The Balance')}
+        </h2>
         {global && (
           <span className="panel-count">
             {global.tentatives} {t('tentative(s) pesée(s)', 'attempt(s) weighed')}
@@ -351,7 +353,6 @@ export function CarteBalance({
           ) : (
             !balance.aJour && (
               <p className="bal-rattrapage">
-                ⏳{' '}
                 {t(
                   'Rattrapage du grand livre en cours : les soldes par projet sont encore incomplets.',
                   'Ledger still catching up: per-project balances are incomplete for now.',
@@ -450,7 +451,6 @@ function EtatPlafond({ solde }: { solde: SoldeProjet }) {
 
       {bloque && (
         <p className="bal-plafond-badge bloque" role="status">
-          ⛔{' '}
           {t(
             'Assignation ARRÊTÉE — plafond atteint. Les tâches de ce projet restent prêtes tant que le plafond n’est pas relevé ou retiré.',
             'Assignment STOPPED — cap reached. This project’s tasks stay ready until the cap is raised or removed.',
@@ -459,7 +459,6 @@ function EtatPlafond({ solde }: { solde: SoldeProjet }) {
       )}
       {!bloque && etat === 'bloque' && (
         <p className="bal-plafond-badge atteint">
-          ⛔{' '}
           {t(
             'Plafond atteint, mais rien n’est arrêté : la ruche ne tourne pas en « strict ».',
             'Cap reached, yet nothing is stopped: the hive is not running in “strict”.',
@@ -468,7 +467,6 @@ function EtatPlafond({ solde }: { solde: SoldeProjet }) {
       )}
       {etat === 'alerte' && (
         <p className="bal-plafond-badge alerte">
-          ⚠{' '}
           {t(
             `Alerte : ${part} % du plafond consommés. La ruche prévient, elle ne bloque pas.`,
             `Alert: ${part}% of the cap spent. The hive warns, it does not block.`,
@@ -812,7 +810,7 @@ export function BalanceProjet({
   return (
     <div className="bal-projet">
       <div className="bal-projet-head">
-        <span className="bal-projet-title">{t('🧮 Balance', '🧮 Balance')}</span>
+        <span className="bal-projet-title">{t('Balance', 'Balance')}</span>
         {aPesee && compte && (
           <>
             <span className="bal-projet-rendement">
@@ -835,7 +833,7 @@ export function BalanceProjet({
             `Grand livre : ${formatDuree(solde.depenseMs)} sur ${solde.tentatives} tentative(s), depuis toujours.`,
             `Ledger: ${formatDuree(solde.depenseMs)} over ${solde.tentatives} attempt(s), all-time.`,
           )}
-          {!aJour && ` ⏳ ${t('rattrapage en cours', 'still catching up')}`}
+          {!aJour && `${t('rattrapage en cours', 'still catching up')}`}
         </p>
       )}
 
@@ -878,7 +876,7 @@ export function CarteDevis({ devis, nbTaches }: { devis: DevisPlan; nbTaches: nu
   return (
     <section className="bal-devis" aria-label={t('Devis indicatif', 'Indicative estimate')}>
       <header className="bal-devis-head">
-        <span className="bal-devis-title">{t('🧮 Devis indicatif', '🧮 Indicative estimate')}</span>
+        <span className="bal-devis-title">{t('Devis indicatif', 'Indicative estimate')}</span>
         <span className="bal-devis-sample">
           {t(
             `échantillon : ${plage} tâche(s) comparable(s) déjà terminée(s)`,

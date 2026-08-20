@@ -179,8 +179,9 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
     // 29, pas 31 : le plafond au millième près. Ce n'était donc pas de la
     // lenteur, mais une attente sans fin : git y attendait des identifiants via
     // Git Credential Manager, que `GIT_TERMINAL_PROMPT=0` ne gouverne pas.
-    // La cause est corrigée dans le miroir ; le délai par défaut revient, parce
-    // qu'un délai rallongé n'aurait fait que retarder le même blocage.
+    // La cause est corrigée dans le miroir. Sous charge Windows (suite entière
+    // ~200 s), le plafond 20 s du fichier peut encore sauter : on le porte à
+    // 60 s ici — assez pour la lenteur, pas pour masquer un hang.
     const res = await fetch(`${base}/api/projects/${orphelin}/membres`, {
       method: 'POST',
       headers: auth(jetonAdmin),
@@ -194,7 +195,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
       headers: auth(jetonOuvriere),
     });
     expect(rayon.status).not.toBe(404);
-  });
+  }, 60_000);
 
   it('UN MEMBRE N’ADMET PAS À SON TOUR', async () => {
     await adopter();

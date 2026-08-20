@@ -111,7 +111,9 @@ export default function Partage({ projectId }: { projectId: string }) {
   if (echec) {
     return (
       <div className="pa-vue pa-vide">
-        <h1>🐝 Hive</h1>
+        <h1>
+          <span className="marque" aria-hidden="true" /> Hive
+        </h1>
         <p className="panel-error">
           {t(
             'Ce lien de lecture ne donne accès à rien : il a peut-être expiré, été révoqué, ou n’a jamais été valide.',
@@ -129,7 +131,9 @@ export default function Partage({ projectId }: { projectId: string }) {
     <div className="pa-vue">
       <header className="pa-tete">
         <div className="pa-tete-gauche">
-          <span className="pa-marque">🐝 Hive</span>
+          <span className="pa-marque">
+            <span className="marque" aria-hidden="true" /> Hive
+          </span>
           <span className="pa-badge">
             {t('lecture seule · lien de partage', 'read-only · share link')}
           </span>
@@ -140,12 +144,17 @@ export default function Partage({ projectId }: { projectId: string }) {
       </header>
 
       {rapport === null ? (
-        <p className="empty pad">{t('Ouverture du rayon…', 'Opening the comb…')}</p>
+        <p className="pa-calme">
+          <span className="marque" aria-hidden="true" />{' '}
+          {t('Ouverture du rayon…', 'Opening the comb…')}
+        </p>
       ) : (
         <>
-          <section className="card pa-avancement">
+          <section className="pa-avancement">
             <header className="panel-head">
-              <h2>{rapport.name}</h2>
+              <h2>
+                <span className="marque" aria-hidden="true" /> {rapport.name}
+              </h2>
               <span className="panel-count">
                 {rapport.done}/{rapport.total} {t('tâche(s)', 'task(s)')}
               </span>
@@ -162,7 +171,13 @@ export default function Partage({ projectId }: { projectId: string }) {
             </p>
           </section>
 
-          <Suspense fallback={<p className="empty pad">{t('Le Rayon…', 'The Comb…')}</p>}>
+          <Suspense
+            fallback={
+              <p className="pa-calme">
+                <span className="marque" aria-hidden="true" /> {t('Le Rayon…', 'The Comb…')}
+              </p>
+            }
+          >
             <Rayon
               {...({
                 snapshot: instantaneDe(projectId, rapport.name),

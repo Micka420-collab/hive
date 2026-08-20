@@ -11577,3 +11577,143 @@ Restauré PAR COPIE après chaque tour, arbre vérifié propre.
 Delta du terrain : `Reine.tsx` passe de « jamais balayée » à **24/24 balayé,
 17 nues fermées**. Restent jamais balayées : Chronique (400), MonEspace (434),
 shared (502).
+
+## POINT DE SORTIE — 20 août 2026, sortie visée ~2 septembre
+
+### 1. Le temps
+
+**13 jours** (20 août → 2 septembre). Revue de sortie prévue le **26 août (J-7)** :
+plus rien de neuf à partir de là — premier contact, trois systèmes, vitrine ↔
+README, secrets, dette assumée.
+
+Le carnet n'avait plus de point de sortie depuis le **12 août**. Huit jours de
+livraisons (éditions Community/Cloud, paliers Team/Enterprise, Atelier, vitrine)
+sans ce rituel — et `main` est rouge. Ce point le rétablit.
+
+### 2. Livré ET vérifié (mesuré aujourd'hui, pas depuis hier)
+
+| fait                                                   | preuve                                                                                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Éditions Community / Cloud / Team / Enterprise écrites | `src/shared/paliers.ts`, `tests/edition.test.ts`, `tests/paliers.test.ts`, PRs #336–#337                                            |
+| Installation → premier projet → travail (7/7) sur 3 OS | jambes `seuil` vertes sur le merge #337 (ubuntu / macos / windows)                                                                  |
+| Image Docker démarre                                   | jambe « L'image se construit… » verte sur #337                                                                                      |
+| **`main` rouge au lint** après #337                    | Prettier : `docs/ATELIER.md`, `docs/INSTALLATION.md` — tables non formatées                                                         |
+| **Tamis des ordres rouge, 8 tests, 3 graines**         | `reine-clavier` + `reine-conversation` — cause : `AtelierRecette` sonde `/api/atelier` au montage ; les bancs comptaient TOUT fetch |
+
+### 3. Ce qui reste, par ordre de casse pour un nouvel arrivant
+
+1. **Remettre `main` vert** — Prettier + bancs Reine qui ignorent `/api/atelier`.
+   Actionnable maintenant ; c'est le lot de cette PR.
+2. **Ne plus ouvrir de features jusqu'à la revue du 26** — Community/Cloud/Team
+   sont posés. Chaque lot neuf après aujourd'hui allonge le risque de sortie.
+3. **Release + empreintes (lot 8)** — `curl … \| sh` clone `main` ; aucune version
+   figée. Bloque une moitié du premier contact annoncé.
+4. **Paquet npm / GHCR+cosign** — 🔒 comptes humains. Dire, ne pas simuler.
+5. **ACL Windows sur le `.env`** — toujours hors mesure stricte (Node n'y pose
+   pas de mode 0600 réel). Dette assumée, écrite dans la DoD.
+
+### 4. Direction — ce qu'on fait, et ce qu'on refuse
+
+**Faire (ordre strict) :**
+
+1. Barrière verte (`lint` → `typecheck` → `test` → `tamis-ordres`) avant tout
+   autre lot.
+2. Gel soft des features jusqu'à la revue J-7 (26 août) : correctifs, docs,
+   Release/empreintes seulement.
+3. Revue du 26 : premier contact réel (pas runner), alignement vitrine ↔ README,
+   liste des dettes assumées — **rien de neuf ce jour-là**.
+4. Sortie ~2 septembre = Community installable + mesurable. Cloud/Team restent
+   des portes et de la doc tant que personne n'encaisse.
+
+**Refuser :**
+
+- Fusionner une PR dont la CI lint/tests/tamis est rouge (le merge #337 l'a fait).
+- Compter un fetch global comme preuve d'un seul endpoint (leçon Atelier).
+- Brider Community pour vendre Cloud/Team (`docs/MODELE-ECONOMIQUE.md`).
+- Cocher « vérifié » sans commande ou run nommé.
+
+### 5. Bonnes pratiques à tenir jusqu'à la sortie
+
+| règle                                                | pourquoi maintenant                                                          |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Un lot = une cause de rouge possible, CI verte       | #336/#337 ont passé le seuil install mais cassé lint + tamis                 |
+| Les tests de vue stubbent TOUTE I/O des enfants      | `AtelierRecette` dans `Reine` a pollué 8 bancs                               |
+| « Vérifié » ≠ « écrit »                              | DoD et carnet ; ne pas relâcher sous pression de date                        |
+| Loupe sur le diff du lot, pas le dépôt entier        | 13 jours : pas le moment d'un balayage de 44 h                               |
+| Pas de Stripe / encaissement avant horloge hébergeur | `durationMs` n'est pas une frontière de facturation (`MODELE-ECONOMIQUE` §3) |
+
+### 6. Hors d'atteinte — à DIRE
+
+- Comptes npm + GHCR/cosign.
+- Machines Windows/macOS d'utilisateurs réels (≠ runners CI).
+- Encaisser un euro avant la revue commerciale (👤).
+
+### 7. Suite du 20 août (soir) — polish Mission Control, pas une feature
+
+Sous le gel soft : redesign Craft du panel (Ruche vide centrée, glyphes SVG,
+invite secondaire, Reine messagerie, topbar « Prête »). Suite soirée (~21h30) :
+chrome emoji retiré, wordmark Hive/Mission Control, vues (Chronique, Mémoire,
+Santé, Rayon, Chantiers, Inviter/Compte…) miel/cire, courses ◇, CI verte en
+continu sur PR #338, captures `mc-soir3-*`. Ce n'est **pas** un lot de feature —
+premier contact avant la revue du 26.
+
+### 8. Suite du 20 août (nuit) — tokens Reine + sauvegardes code
+
+Gel soft **levé** sur demande explicite (chat moderne, autonomie multi-jours,
+timeline récupérable). Livré sur PR #338 :
+
+| fait                                                                    | où                                        |
+| ----------------------------------------------------------------------- | ----------------------------------------- |
+| Décompte tokens Anthropic (LLM → Concierge → `/api/chat` → badge Reine) | `planner.ts`, `concierge.ts`, `Reine.tsx` |
+| Modes Plan / Autonomie / Sauvegardes (navigation)                       | `Reine.tsx`                               |
+| Table latérale `sauvegardes` + étapes auto à `insertResult`             | `store.ts`, `shared/sauvegardes.ts`       |
+| API list/get/post/restaurer (restauration = tâche)                      | `server.ts`                               |
+| Panneau timeline sur le Rayon                                           | `SauvegardesTimeline.tsx`                 |
+| Copie Atelier « machine de la ruche » + Plein Essaim multi-jours        | `AtelierRecette.tsx`, `PleinEssaim.tsx`   |
+
+Mesure : `tests/sauvegardes.test.ts`, `tests/sauvegardes-endpoint.test.ts`,
+usage Concierge dans `tests/concierge.test.ts`.
+
+### 9. Suite du 20 août (nuit) — lot 8 empreintes, prep sans Release
+
+| fait                                                        | où                               |
+| ----------------------------------------------------------- | -------------------------------- |
+| Pages copie `install.sh` / `install.ps1` + `install.sha256` | `.github/workflows/pages.yml`    |
+| Scripts affichent SHA-256 avant d’agir (fichier)            | `install.sh`, `install.ps1`      |
+| Variante prudente documentée                                | `docs/INSTALLATION.md`           |
+| Banc structure + hash live                                  | `tests/site-installeurs.test.ts` |
+
+Release GitHub + signature restent 🔒 (comptes humains). La confiance par
+empreinte est posée sans encaisser ni publier un tag.
+
+### 10. Suite du 20 août (nuit) — filets produit + bornes
+
+| fait                                                              | où                                             |
+| ----------------------------------------------------------------- | ---------------------------------------------- |
+| Retouche → sauvegarde `avant_retouche` (patch inverse)            | `server.ts` retouche + `shared/sauvegardes.ts` |
+| Reine : puce « Restaurer… » si échecs + étape                     | `concierge.ts` → chip → Rayon                  |
+| Pouls Plein Essaim sur la Ruche (niveau / pause / dérive)         | `AutonomiePulse.tsx`                           |
+| `pruneSauvegardes(SAUVEGARDES_RETENTION)` câblé (doctrine bornes) | `store.ts`, tick `server.ts`                   |
+| Mocks Rayon / Ruche (tamis ECONNREFUSED) + empreinte Windows soft | tests UI / `site-installeurs`                  |
+
+Mesure : `tests/retouche-endpoint`, `tests/concierge` (restaurer),
+`tests/autonomie-pulse`, `tests/sauvegardes-endpoint` (prune + projet frais
+par test pour le tamis), `tests/bornes-doctrine`. FEATURES FR/EN alignés.
+CI `a34376c` : empreinte via stdin (Windows), mocks App shell, badges 4432.
+
+### 11. Suite du 20 août (nuit) — voir le patch avant restaurer
+
+| fait                                                        | où                                     |
+| ----------------------------------------------------------- | -------------------------------------- |
+| Timeline : bouton **Voir le patch** (GET détail, dépliable) | `SauvegardesTimeline.tsx`, `rayon.css` |
+| Banc : charge / referme l’aperçu                            | `tests/sauvegardes-timeline.test.tsx`  |
+| FEATURES FR/EN + CHANGELOG                                  | docs                                   |
+
+Lire avant d’agir — même doctrine que l’empreinte des installeurs.
+
+### 14. Suite du 21 août (nuit) — pulse focus + aperçu patch borné
+
+| fait                                                      | où                        |
+| --------------------------------------------------------- | ------------------------- |
+| Pulse miel sur la timeline après focus Reine              | `Rayon.tsx`, `rayon.css`  |
+| Aperçu patch tronqué (12 Ko) + **Copier** le patch entier | `SauvegardesTimeline.tsx` |

@@ -59,7 +59,23 @@ beforeEach(() => {
   // `askQueen` est LOCAL à la vue et parle par `fetch` : on bouchonne donc le
   // réseau, pas un module. C'est aussi ce qui rend la mesure honnête — on
   // observe ce qui PART, pas ce que la vue croit avoir envoyé.
-  globalThis.fetch = ((_url: string, init?: RequestInit) => {
+  //
+  // ─── L'ATELIER MONTE AVEC LA REINE ────────────────────────────────────────
+  //
+  // `AtelierRecette` appelle `/api/atelier` au montage. Si on comptait TOUS les
+  // fetch, son GET sans corps s'enregistrerait comme un envoi vide (`''`) et
+  // ferait rougir chaque cas — mesuré sous les trois graines du tamis après
+  // l'ajout de l'Atelier dans la vue. On ne compte donc que `/api/chat`.
+  globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
+    const cible = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+    if (!cible.includes('/api/chat')) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ mode: 'off', actif: false }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    }
     const corps = JSON.parse(String(init?.body ?? '{}')) as { message?: string };
     envois.push(corps.message ?? '');
     return new Promise((resoudre) => {

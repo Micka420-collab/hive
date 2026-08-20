@@ -44,29 +44,30 @@
    porte JAMAIS le texte. Les bruns `--honey` / `--gold` / `--amber` restent
    ≥ 4,5:1 sur la crème. */
 :root {
-  --bg: #f7f3e9;
-  --bg-2: #f4eee0;
-  --panel: #fffdf8;
-  --panel-2: #f7f3e9;
-  --panel-3: #f1e9d8;
-  --border: #e3d8c2;
-  --border-2: #e0d2b6;
-  --text: #1b1712;
-  --muted: #5a5348;
-  --faint: #6b6152; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
-  --honey: #9d5605;
-  --amber: #96570c;
-  --orange: #9a5a09;
-  --gold: #8a4f05;
-  --red: #a8402a;
-  --green: #235e52;
-  --blue: #1d5b7d;
-  /* L'encre : chrome de la barre, pas un thème « Grok void ». La page reste
-     papier de cire. */
-  --encre: #1b1712;
-  --encre-2: #241f18;
-  --sur-encre: #a2957d; /* 6:1 sur l'encre — libellés inactifs de la barre */
-  --sur-encre-fort: #fffdf8;
+  /* Papier plus clair, proche d'un produit Apple/Craft : blanc chaud, pas
+     crème saturée. Le miel reste l'UNIQUE accent de remplissage. */
+  --bg: #f5f2eb;
+  --bg-2: #efeae1;
+  --panel: #fffcf7;
+  --panel-2: #f7f3ec;
+  --panel-3: #efe8dc;
+  --border: #e6ddd0;
+  --border-2: #ddd2c0;
+  --text: #1a1714;
+  --muted: #6a635a;
+  --faint: #7a7267; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
+  --honey: #9a5508;
+  --amber: #94560c;
+  --orange: #985909;
+  --gold: #874e06;
+  --red: #a53e2a;
+  --green: #215c51;
+  --blue: #1c587a;
+  /* Chrome de barre : charbon profond, pas un noir plat « Grok ». */
+  --encre: #141210;
+  --encre-2: #1e1a15;
+  --sur-encre: #9a9080; /* 6:1 sur l'encre — libellés inactifs de la barre */
+  --sur-encre-fort: #fffcf7;
   /* Le miel vif : REMPLISSAGE uniquement. Du texte posé dessus = encre. */
   --miel: #f6c445;
   --miel-2: #e08a14;
@@ -77,11 +78,11 @@
   --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
   --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
   --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
-  --r: 8px;
+  --r: 10px;
   --r-sm: 8px;
   --sp: 8px;
-  --shadow: 0 8px 24px -18px rgba(27, 23, 18, 0.22);
-  --shadow-sm: 0 1px 2px rgba(27, 23, 18, 0.06);
+  --shadow: 0 10px 28px -20px rgba(20, 18, 16, 0.28);
+  --shadow-sm: 0 1px 2px rgba(20, 18, 16, 0.05);
 }
 
 * {
@@ -127,16 +128,18 @@ h3 {
 
 .muted-text {
   color: var(--muted);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* ─── Barre supérieure ────────────────────────────────────────────────── */
 .topbar {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 12px 20px;
-  background: var(--bg);
+  gap: 16px;
+  padding: 14px 24px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -151,29 +154,43 @@ h3 {
 }
 
 .brand-logo {
-  font-size: 22px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  line-height: 0;
+}
+
+.brand-logo svg {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .brand h1 {
   /* Le titre de la vue en ENCRE, pas en miel : sur du papier, l'accent sert
-     à désigner, pas à titrer. C'est la ligne mono en dessous qui porte la
-     couleur d'ambiance. */
-  font-size: 22px;
+     à désigner, pas à titrer. */
+  font-size: 26px;
+  font-weight: 650;
   color: var(--text);
-  letter-spacing: -0.025em;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
 }
 
 .brand-sub {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--texte);
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--muted);
+  letter-spacing: -0.01em;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin-left: auto;
   flex-wrap: wrap;
 }
@@ -189,26 +206,29 @@ h3 {
 }
 
 .tile {
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 8px 14px;
-  min-width: 96px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 104px;
+  box-shadow: var(--shadow-sm);
 }
 
 .tile.accent {
-  border-color: var(--miel-2);
-  background: var(--panel);
+  border-color: color-mix(in srgb, var(--miel) 40%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, var(--panel));
 }
 
 .tile.danger {
-  border-color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--border));
 }
 
 .tile-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--gold);
+  font-family: var(--titre);
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
   line-height: 1.1;
 }
 
@@ -219,9 +239,10 @@ h3 {
 }
 
 .tile-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11.5px;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  font-weight: 500;
   color: var(--muted);
   margin-top: 2px;
 }
@@ -234,27 +255,30 @@ h3 {
 
 /* ─── Boutons ─────────────────────────────────────────────────────────── */
 .btn {
-  padding: 7px 14px;
+  padding: 8px 15px;
   border: 1px solid var(--border-2);
-  border-radius: var(--r-sm);
-  background: var(--panel-2);
+  border-radius: 10px;
+  background: var(--panel);
   color: var(--text);
+  font-family: var(--texte);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
   transition:
-    filter 0.15s,
-    transform 0.05s;
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.08s ease;
 }
 
 .btn:hover {
-  /* Sur un fond clair, `brightness(1.12)` ne produit RIEN de visible : on
-     éclaircit du quasi-blanc. C'est la bordure et l'ombre qui répondent. */
-  border-color: var(--miel-2);
+  border-color: color-mix(in srgb, var(--miel-2) 55%, var(--border-2));
   box-shadow: var(--shadow-sm);
 }
 
 .btn:active {
-  transform: translateY(1px);
+  transform: scale(0.98);
 }
 
 .btn:disabled {
@@ -262,12 +286,17 @@ h3 {
   cursor: default;
 }
 
-.btn.primary,
-.invite-btn {
+.btn.primary {
   background: var(--miel);
   color: var(--encre);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--miel-2) 35%, transparent);
   white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(255, 252, 247, 0.35) inset;
+}
+
+.btn.primary:hover {
+  filter: brightness(1.03);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn.ghost {
@@ -286,11 +315,27 @@ h3 {
   background: rgba(168, 64, 42, 0.1);
 }
 
+/* Inviter reste secondaire : le miel plein est réservé au départ
+   (« Démarrer un projet » / « + Projet »), pas à la topbar. */
 .invite-btn {
   padding: 7px 13px;
-  border-radius: var(--r-sm);
-  font-weight: 700;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.invite-btn:hover {
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+  border-color: var(--border);
 }
 
 .view-toggle {
@@ -315,12 +360,25 @@ h3 {
 }
 
 .token-input {
-  width: 96px;
+  width: 88px;
   padding: 6px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 9px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
+}
+
+.token-input:focus {
+  outline: none;
   color: var(--text);
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.18);
 }
 
 .conn {
@@ -329,25 +387,35 @@ h3 {
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
 }
 
 .conn-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
+  background: var(--faint);
 }
 
 .conn.online {
   color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 22%, var(--border));
+  background: color-mix(in srgb, var(--green) 5%, var(--panel));
 }
 
 .conn.online .conn-dot {
   background: var(--green);
-  box-shadow: 0 0 8px var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
 }
 
 .conn.offline {
   color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 28%, var(--border));
+  background: color-mix(in srgb, var(--red) 6%, var(--panel));
 }
 
 .conn.offline .conn-dot {
@@ -380,8 +448,11 @@ h3 {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r);
+  border-radius: 12px;
   box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .col-side .card {
@@ -404,7 +475,12 @@ h3 {
   gap: 12px;
   color: var(--text);
   font-size: 13px;
-  text-shadow: 0 1px 3px rgba(255, 253, 248, 0.9);
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
 }
 
 .hero-progress span {
@@ -417,16 +493,18 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
+  padding: 13px 16px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   flex-wrap: wrap;
 }
 
 .panel-head h2 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
+  font-family: var(--titre);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  text-transform: none;
+  color: var(--text);
 }
 
 .panel-count {
@@ -457,18 +535,25 @@ h3 {
 }
 
 .chip {
-  padding: 3px 9px;
+  padding: 5px 11px;
   border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--panel-2);
+  border-radius: 10px;
+  background: var(--panel);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
 }
 
 .chip.active {
-  border-color: var(--honey);
-  color: var(--gold);
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  background: color-mix(in srgb, var(--miel) 14%, var(--panel));
+  color: var(--text);
 }
 
 .chip-count {
@@ -554,7 +639,7 @@ h3 {
 
 .dot.online {
   background: var(--green);
-  box-shadow: 0 0 6px var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
 }
 
 .node-meta {
@@ -596,7 +681,11 @@ h3 {
 }
 
 .jicon {
+  width: 1.25em;
+  flex: none;
   text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .jtext {
@@ -719,9 +808,10 @@ h3 {
 
 .task-table th {
   color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none;
   background: var(--panel-2);
   position: sticky;
   top: 0;
@@ -746,10 +836,17 @@ h3 {
 .chip:focus-visible,
 .view-toggle button:focus-visible,
 .modal-close:focus-visible,
-.copy-btn:focus-visible,
 .drawer-tabs button:focus-visible {
   outline: 2px solid var(--honey);
   outline-offset: 1px;
+}
+
+/* Inviter : halo miel (même geste que `.field input:focus` du compte). */
+.invite-btn:focus-visible,
+.invite-os-btn:focus-visible,
+.copy-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.28);
 }
 
 .clickable:focus-visible {
@@ -759,18 +856,21 @@ h3 {
 /* ─── États vides ─────────────────────────────────────────────────────── */
 .empty {
   color: var(--muted);
-  font-style: italic;
+  font-style: normal;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
   text-align: center;
+  line-height: 1.45;
 }
 
 .empty.pad {
-  padding: 28px 16px;
+  padding: 32px 18px;
 }
 
 .queue .empty,
 .journal .empty,
 .node-list .empty {
-  padding: 16px 10px;
+  padding: 18px 12px;
 }
 
 /* ─── Tiroir de détail ────────────────────────────────────────────────── */
@@ -787,17 +887,21 @@ h3 {
   width: min(560px, 94vw);
   height: 100%;
   background: var(--panel);
-  border-left: 1px solid var(--border-2);
-  box-shadow: var(--shadow);
-  padding: 20px 22px;
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 40px -24px rgba(20, 18, 16, 0.35);
+  padding: 22px 24px;
   overflow-y: auto;
-  animation: slideIn 0.22s ease;
+  animation: slideIn 0.28s ease;
 }
 
 @keyframes slideIn {
   from {
-    transform: translateX(30px);
-    opacity: 0.4;
+    transform: translateX(18px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
   }
 }
 
@@ -807,17 +911,24 @@ h3 {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
 }
 
 .drawer-head h2 {
-  font-size: 18px;
-  margin-bottom: 8px;
+  font-family: var(--titre);
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  margin-bottom: 6px;
+  color: var(--text);
 }
 
 .drawer h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
   color: var(--muted);
   margin: 18px 0 6px;
 }
@@ -927,7 +1038,6 @@ h3 {
 .editor-hint {
   color: var(--muted);
   font-size: 11px;
-  font-style: italic;
   margin: 6px 0 0;
 }
 
@@ -935,7 +1045,9 @@ h3 {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(27, 23, 18, 0.55);
+  background: rgba(20, 18, 16, 0.42);
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -950,15 +1062,16 @@ h3 {
    `dvh` : sur mobile, la barre d'URL mange une part de `vh`. */
 .modal {
   background: var(--panel);
-  border: 1px solid var(--border-2);
-  border-radius: var(--r);
-  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 22px 24px;
   max-width: 560px;
   width: 100%;
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  box-shadow: var(--shadow);
+  box-shadow: 0 24px 64px -28px rgba(20, 18, 16, 0.45);
+  animation: mc-view-in 0.22s ease both;
 }
 
 @media (max-width: 560px) {
@@ -976,6 +1089,95 @@ h3 {
   max-width: 640px;
 }
 
+/* Nouveau projet — soft-freeze Craft : papier de cire, miel discret, marque
+   hex (jamais d’emoji). Les puces modèles restent calmes ; le primaire
+   « Générer » / « Lancer le butinage » porte le miel. */
+.np-modal {
+  background: color-mix(in srgb, var(--miel) 4%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 22%, var(--border));
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--miel) 18%, transparent),
+    0 24px 64px -28px rgba(20, 18, 16, 0.42);
+}
+
+.np-modal .modal-head {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
+
+.np-modal .field {
+  margin-bottom: 16px;
+}
+
+.np-modal .field > span:first-child {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.np-modal .code-input {
+  background: color-mix(in srgb, var(--panel) 70%, var(--bg));
+  border-color: color-mix(in srgb, var(--border) 92%, transparent);
+}
+
+.np-modal .template-row {
+  margin-top: 8px;
+  margin-bottom: 0;
+  gap: 8px;
+}
+
+.np-modal .np-templates {
+  margin-bottom: 8px;
+}
+
+.np-modal .template-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.np-modal .chip {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--muted);
+  font-weight: 500;
+  border-radius: var(--r-sm);
+}
+
+.np-modal .chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  color: var(--text);
+}
+
+.np-modal .chip.primary {
+  background: color-mix(in srgb, var(--miel) 88%, var(--miel-2));
+  color: var(--encre);
+  border: 1px solid color-mix(in srgb, var(--miel-2) 28%, transparent);
+  font-weight: 600;
+}
+
+.np-modal .chip.primary:hover:not(:disabled) {
+  background: var(--miel);
+  border-color: color-mix(in srgb, var(--miel-2) 40%, transparent);
+  color: var(--encre);
+}
+
+.np-modal .plan-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.np-modal .modal-actions {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
+
 .modal-head {
   display: flex;
   align-items: center;
@@ -984,8 +1186,33 @@ h3 {
 }
 
 .modal-head h2 {
-  color: var(--honey);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
   font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.panel-head h2,
+.panel-head h3,
+.essaim-panneau h3,
+.me-view h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-head .marque,
+.essaim-panneau .marque,
+.me-view .marque,
+.modal-head .marque {
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 .modal-close {
@@ -1017,26 +1244,33 @@ h3 {
 
 .field span {
   display: block;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   color: var(--muted);
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
 .field input,
 .code-input {
   width: 100%;
-  padding: 9px 12px;
-  background: var(--bg);
+  padding: 10px 12px;
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: 10px;
   color: var(--text);
   font-family: inherit;
+  font-size: 14px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field input:focus,
 .code-input:focus {
   outline: none;
-  border-color: var(--amber);
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.16);
 }
 
 .code-input {
@@ -1058,11 +1292,13 @@ h3 {
   color: var(--faint);
 }
 
-/* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat. */
+/* Bouton « Générer » (Queen Bee) : chip mis en avant + note de résultat.
+   Soft-freeze : le détail miel/cire vit sous `.np-modal` ; ici le repli
+   partagé reste sobre pour l’atelier Projets. */
 .chip.primary {
-  background: var(--miel);
+  background: color-mix(in srgb, var(--miel) 88%, var(--miel-2));
   color: var(--encre);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--miel-2) 28%, transparent);
   font-weight: 600;
 }
 
@@ -1072,8 +1308,10 @@ h3 {
 }
 
 .plan-note {
-  font-size: 11px;
-  color: var(--gold);
+  font-size: 12px;
+  color: var(--muted);
+  font-style: normal;
+  line-height: 1.45;
 }
 
 /* ─── Panneaux Palier 2 : Hive Mind & Conflits ─────────────────────────── */
@@ -1204,28 +1442,37 @@ h3 {
 }
 
 /* ─── LE CHOIX DU SYSTÈME DE L'INVITÉ ─────────────────────────────────────
-   Deux puces, calquées sur celles de la barre d'installation de la vitrine :
-   c'est le même geste, sur le même genre de commande. */
+   Deux puces sobres (pas de pilule 999) : même geste Craft que le reste
+   des modales, tokens miel/cire — plus les anciens `--bordure` / `--ambre`. */
 .invite-os {
   display: flex;
   gap: 6px;
   margin: 0 0 8px;
 }
 .invite-os-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--bordure, #3a352c);
-  border-radius: 999px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: inherit;
+  color: var(--muted);
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  opacity: 0.6;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.invite-os-btn:hover {
+  color: var(--text);
+  border-color: var(--border);
 }
 .invite-os-btn.actif {
-  opacity: 1;
-  border-color: var(--ambre, #e0a43c);
-  color: var(--ambre, #e0a43c);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  background: color-mix(in srgb, var(--miel) 12%, var(--panel));
 }
 
 .invite-cmd {
@@ -1249,14 +1496,19 @@ h3 {
   overflow-y: auto;
 }
 
+.invite-cmd code.muted-text {
+  color: var(--muted);
+  font-style: normal;
+}
+
 .copy-btn {
   align-self: flex-start;
   padding: 6px 12px;
   background: var(--miel-2);
   color: var(--encre);
   border: none;
-  border-radius: 5px;
-  font-weight: 700;
+  border-radius: var(--r-sm);
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1267,8 +1519,10 @@ h3 {
 }
 
 .invite-note {
-  color: var(--gold);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-style: normal;
+  line-height: 1.45;
   margin: 12px 0 4px;
 }
 
@@ -1287,31 +1541,28 @@ h3 {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+  align-items: center;
 }
 
-.invite-url-row input {
+.invite-url-row .code-input {
   flex: 1;
-  padding: 6px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  font-family: var(--mono);
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
-.invite-url-row button {
-  padding: 6px 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  cursor: pointer;
+.invite-url-row .btn {
+  flex: none;
+  white-space: nowrap;
 }
 
 .invite-current-url {
   font-family: var(--mono);
   font-size: 12px;
   margin: 8px 0 0;
+  color: var(--muted);
+  font-style: normal;
 }
 
 /* ─── Swarm View 3D ───────────────────────────────────────────────────── */
@@ -1333,7 +1584,6 @@ h3 {
   justify-content: center;
   aspect-ratio: 16 / 9;
   color: var(--muted);
-  font-style: italic;
   padding: 20px;
   text-align: center;
 }
@@ -1352,7 +1602,6 @@ h3 {
 .swarm-empty {
   fill: var(--muted);
   text-anchor: middle;
-  font-style: italic;
 }
 
 .link {
@@ -1584,15 +1833,20 @@ h3 {
 }
 
 .openalex-card {
-  background: var(--panel);
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: calc(var(--sp) * 1.5);
+  border-radius: 0;
+  padding: calc(var(--sp) * 1.5) 0;
   transition: border-color 0.15s;
 }
 
+.openalex-card + .openalex-card {
+  border-top: none;
+  padding-top: calc(var(--sp) * 1.25);
+}
+
 .openalex-card:hover {
-  border-color: var(--honey);
+  border-color: var(--border);
 }
 
 .oa-card-head {
@@ -1603,11 +1857,14 @@ h3 {
 }
 
 .oa-badge {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--muted);
-  background: var(--panel-2);
-  padding: 2px 8px;
-  border-radius: 10px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 
 .oa-year {
@@ -1618,10 +1875,13 @@ h3 {
 
 .oa-oa {
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--green);
-  background: rgba(35, 94, 82, 0.1);
-  padding: 1px 6px;
-  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 
 .oa-title {
@@ -1707,37 +1967,55 @@ h3 {
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  /* ─── UNE BARRE LARGE, ET POURQUOI ────────────────────────────────────────
-     Le rail de 84 px n'affichait un libellé que sous une icône de 10 px de
-     haut : treize vues aux noms proches (Ruche, Rayon, Reine) s'y lisaient à
-     la devinette. Le design pose une barre de 214 px où le nom est écrit en
-     clair à côté d'une alvéole. On garde l'icône — elle sert de repère de
-     survol — mais ce n'est plus elle qui porte le sens. */
-  width: 214px;
+  /* Barre 220 px : libellés lisibles, marque Hive dominante. */
+  width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 12px;
-  /* Chrome de barre : encre unie, pas un dégradé. La page reste cire. */
-  background: var(--encre);
-  border-right: 1px solid var(--encre);
+  gap: 16px;
+  padding: 20px 12px 16px;
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.04), transparent 28%), var(--encre);
+  border-right: 1px solid #0c0b09;
   z-index: 30;
 }
 
 .mc-sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 6px 2px;
-  font-size: 22px;
+  gap: 10px;
+  padding: 2px 8px 6px;
+}
+
+.mc-sidebar-brand .brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(246, 196, 69, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(246, 196, 69, 0.28);
+}
+
+.mc-sidebar-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .mc-sidebar-word {
   font-family: var(--titre);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--sur-encre-fort);
+  line-height: 1.1;
+}
+
+.mc-sidebar-product {
+  font-family: var(--texte);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--sur-encre);
+  line-height: 1.2;
 }
 
 .mc-nav {
@@ -1746,59 +2024,61 @@ h3 {
   padding: 0 0 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  /* La liste défile DANS la barre : sans `min-height: 0`, un conteneur flex
-     refuse de rétrécir sous son contenu et les dernières vues (Cerveau,
-     Intendance) devenaient inatteignables sur un écran bas. */
+  gap: 3px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 252, 247, 0.18) transparent;
 }
 
 .mc-nav-cell {
   position: relative;
   width: 100%;
-  min-height: 44px;
-  padding: 9px 13px;
+  min-height: 40px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   background: none;
   border: 1px solid transparent;
-  border-radius: var(--r-sm);
+  border-radius: 10px;
   color: var(--sur-encre);
   cursor: pointer;
   font: inherit;
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   text-align: left;
   transition:
-    color 0.18s,
-    background 0.18s;
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .mc-nav-cell::before {
-  /* L'alvéole du design : une puce hexagonale, éteinte tant que la vue n'est
-     pas la vue courante. Elle remplace le gros hexagone qui se dessinait
-     DERRIÈRE l'icône — inutile dès lors que le libellé est lisible. */
-  content: '';
+  /* Sur barre large, le glyphe SVG porte déjà la marque ; l’alvéole reste
+     pour le pouls actif (miel) sans doubler l’icône. */
+  content: none;
   flex: none;
-  width: 10px;
-  height: 12px;
+  width: 9px;
+  height: 11px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: #6e6350;
-  transition: background 0.2s;
+  background: #5c5346;
+  transition: background 0.2s ease;
 }
 
 .mc-nav-cell:hover {
   color: var(--sur-encre-fort);
-  background: rgba(255, 253, 248, 0.06);
+  background: rgba(255, 252, 247, 0.06);
 }
 
 .mc-nav-cell.active {
-  background: rgba(246, 196, 69, 0.16);
+  background: rgba(246, 196, 69, 0.14);
+  border-color: rgba(246, 196, 69, 0.18);
   color: var(--sur-encre-fort);
+  font-weight: 600;
 }
 
 .mc-nav-cell.active::before {
@@ -1811,7 +2091,26 @@ h3 {
 }
 
 .mc-nav-icon {
-  display: none;
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(255, 252, 247, 0.06);
+  color: var(--sur-encre);
+}
+
+.mc-nav-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.mc-nav-cell.active .mc-nav-icon {
+  background: rgba(246, 196, 69, 0.22);
+  color: var(--miel);
 }
 
 .mc-nav-label {
@@ -1868,9 +2167,9 @@ h3 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 253, 248, 0.14);
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 252, 247, 0.1);
   width: 100%;
 }
 
@@ -1896,49 +2195,238 @@ h3 {
 .mc-view {
   flex: 1;
   min-width: 0;
+  animation: mc-view-in 0.28s ease both;
+}
+
+@keyframes mc-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-view {
+    animation: none;
+  }
+  .btn:active {
+    transform: none;
+  }
 }
 
 .mc-view-loading {
-  padding: 60px;
+  padding: 72px 24px;
   text-align: center;
   color: var(--muted);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  animation: mc-view-in 0.35s ease both;
+}
+
+.mc-view-loading::before {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 32px;
+  margin: 0 auto 14px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: color-mix(in srgb, var(--miel) 70%, var(--panel-3));
+  animation: mc-throb 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-view-loading::before {
+    animation: none;
+  }
 }
 
 .mc-ruche-stats {
-  margin: 14px 18px 0;
-  padding: 10px 14px;
+  margin: 10px 22px 0;
+  padding: 8px 12px;
   overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  box-shadow: none;
+}
+
+.autonomie-pulse {
+  margin: 8px 22px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+.autonomie-pulse-tete h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.autonomie-pulse-tete p {
+  margin: 2px 0 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.autonomie-pulse-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.autonomie-pulse-item {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.autonomie-pulse-item:hover {
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+}
+
+.autonomie-pulse-item--charge {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.autonomie-pulse-item--charge:hover {
+  border-color: var(--border);
+}
+
+.autonomie-pulse-item--plein,
+.autonomie-pulse-item--gouverne {
+  border-color: color-mix(in srgb, var(--miel) 40%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, transparent);
+}
+
+.autonomie-pulse-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 16ch;
+  font-weight: 600;
+}
+
+.autonomie-pulse-niv {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-transform: lowercase;
+}
+
+.autonomie-pulse-flag {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.autonomie-pulse-flag--halte {
+  color: var(--danger, #b45309);
+}
+
+/* Ruche vide : une seule composition centrée — pas de zéros autour. */
+.mc-ruche:has(> .ruche-depart:only-child) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100dvh - 76px);
+  padding: 28px 24px 40px;
+  background:
+    radial-gradient(70% 55% at 50% 18%, rgba(246, 196, 69, 0.1), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 55%, transparent), transparent 42%);
 }
 
 /* Le départ d'une ruche vide : visible sans être criard, et il disparaît dès
    qu'un projet existe. */
 .ruche-depart {
   margin: 28px 24px 0;
-  padding: 28px 28px 24px;
+  padding: 36px 36px 32px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
-  max-width: 40rem;
+  gap: 14px;
+  max-width: 28rem;
+  width: min(100%, 28rem);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 0 rgba(255, 252, 247, 0.8) inset,
+    0 18px 40px -28px rgba(20, 18, 16, 0.35);
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(246, 196, 69, 0.12), transparent 55%), var(--panel);
+  animation: mc-view-in 0.4s ease both;
+  transition:
+    box-shadow 0.22s ease,
+    border-color 0.22s ease,
+    transform 0.22s ease;
+}
+
+.ruche-depart:hover {
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  box-shadow:
+    0 1px 0 rgba(255, 252, 247, 0.8) inset,
+    0 22px 48px -26px rgba(20, 18, 16, 0.4);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ruche-depart:hover {
+    transform: none;
+  }
+}
+
+.mc-ruche:has(> .ruche-depart:only-child) .ruche-depart {
+  margin: 0;
 }
 
 .ruche-depart .marque {
-  width: 12px;
-  height: 14px;
+  width: 18px;
+  height: 20px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   background: var(--miel);
 }
 
 .ruche-depart h2 {
   color: var(--text);
-  font-size: 22px;
-  font-weight: 600;
+  font-size: clamp(26px, 3.2vw, 32px);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1.12;
 }
 
 .ruche-depart p {
   color: var(--muted);
   margin: 0;
-  max-width: 62ch;
+  max-width: 42ch;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.ruche-depart .btn.primary {
+  margin-top: 8px;
+  padding: 11px 20px;
+  font-size: 14px;
+  border-radius: 11px;
 }
 
 /* Un bouton qui se lit comme un lien : dans une ligne de texte, un bouton
@@ -2100,13 +2588,23 @@ button.mc-cell:focus-visible {
     justify-content: center;
     padding: 9px 4px;
   }
-  .mc-nav-cell::before,
   .mc-nav-label,
-  .mc-sidebar-word {
+  .mc-sidebar-word,
+  .mc-sidebar-product {
     display: none;
   }
   .mc-nav-icon {
-    font-size: 18px;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+  }
+  .mc-nav-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+  .mc-sidebar-brand .brand-logo {
+    width: 26px;
+    height: 26px;
   }
   .mc-nav-badge {
     position: absolute;
@@ -2120,7 +2618,12 @@ button.mc-cell:focus-visible {
 .mc-unsynced {
   color: var(--amber);
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--amber) 28%, var(--border));
+  background: color-mix(in srgb, var(--amber) 8%, var(--panel));
 }
 
 /* Compte utilisateur (topbar) : nom de session + déconnexion. */

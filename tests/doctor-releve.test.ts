@@ -144,6 +144,12 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
   it('UNE RACINE NUE PRODUIT UN VERDICT UTILISABLE, pas une exception', async () => {
     // Le cas du premier jour : rien n'est installé, rien n'est configuré. Le
     // docteur doit MARCHER là — c'est même son seul moment utile.
+    //
+    // Délai 60 s : sous la suite CI ubuntu (charge + AbortError en rafale sur
+    // d’autres bancs), ce relevé a déjà tapé le plafond global 20 s sans
+    // être bloqué — voisins du fichier à ~3 s localement. Même doctrine que
+    // le banc Windows ci-dessous : rallonger la lenteur mesurée, pas une
+    // attente sans fin.
     const nue = mkdtempSync(path.join(os.tmpdir(), 'hive-nue-'));
     try {
       const r = await relever(nue, { HIVE_PORT: '0' }, 'linux');
@@ -159,7 +165,7 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
     } finally {
       rmSync(nue, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it('SUR WINDOWS, les permissions ne sont pas inventées', async () => {
     // Délai explicite : ce test tombait à 5 000 ms sur la CI WINDOWS, et nulle

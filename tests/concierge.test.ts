@@ -337,6 +337,29 @@ describe('askConcierge (mode IA injecté)', () => {
     expect(a.reply).toBe('Réponse rédigée par le modèle.');
   });
 
+  it('propage le décompte de tokens quand le LlmFn renvoie un LlmReply', async () => {
+    const a = await askConcierge('où en est le projet ?', makeCtx(), {
+      llm: async () => ({
+        text: 'Réponse avec compteur.',
+        usage: { inputTokens: 120, outputTokens: 40 },
+      }),
+    });
+    expect(a.source).toBe('llm');
+    expect(a.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 40,
+      totalTokens: 160,
+    });
+  });
+
+  it('sans usage côté modèle : pas de champ usage', async () => {
+    const a = await askConcierge('où en est le projet ?', makeCtx(), {
+      llm: async () => ({ text: 'Sans compteur.' }),
+    });
+    expect(a.source).toBe('llm');
+    expect(a.usage).toBeUndefined();
+  });
+
   it('replie silencieusement sur le mode live si le modèle échoue', async () => {
     const a = await askConcierge('où en est le projet ?', makeCtx(), {
       llm: async () => {
@@ -355,6 +378,23 @@ describe('askConcierge (mode IA injecté)', () => {
   it('sans LlmFn : mode live direct', async () => {
     const a = await askConcierge('avancement ?', makeCtx());
     expect(a.source).toBe('live');
+  });
+
+  it('propose de restaurer quand il y a des échecs et une sauvegarde', async () => {
+    const a = await askConcierge(
+      'où en est le projet ?',
+      makeCtx({
+        finishedTasks: [
+          { id: 't-fail', title: 'Socle', status: 'failed' },
+          { id: 't-ok', title: 'Tests', status: 'done' },
+        ],
+        sauvegardes: [{ id: 'sg1', label: 'Étape — Socle', kind: 'etape', createdAt: 1 }],
+      }),
+    );
+    expect(a.source).toBe('live');
+    expect(a.reply).toContain('Étape — Socle');
+    expect(a.reply).toMatch(/échec/i);
+    expect(a.suggestions[0]).toMatch(/Restaurer/i);
   });
 });
 

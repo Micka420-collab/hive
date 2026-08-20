@@ -73,6 +73,12 @@ import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
+import {
+  libelleAvantRetouche,
+  libelleManuelValide,
+  patchVers,
+  promptRestauration,
+} from '../shared/sauvegardes.js';
 import { MAX_APERCU, SANDBOX_APERCU, assemblerApercu } from '../shared/apercu.js';
 import {
   TTL_PARTAGE_MAX_MS,
@@ -256,6 +262,8 @@ const MEMORY_RETENTION = 2_000;
  * EVENT_RETENTION : les deux racontent la même histoire récente.
  */
 export const RESULT_RETENTION = 5_000;
+/** Timeline de code : autant que les résultats — une étape par production typique. */
+export const SAUVEGARDES_RETENTION = 5_000;
 
 /**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
@@ -4501,6 +4509,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           .listTasks(focusId ?? undefined)
           .filter((t) => t.status === 'done' || t.status === 'failed')
           .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
+        sauvegardes: focusId
+          ? store.listSauvegardes(focusId, 5).map((s) => ({
+              id: s.id,
+              label: s.label,
+              kind: s.kind,
+              createdAt: s.createdAt,
+            }))
+          : [],
         races: scheduler.listRaces().map((r) => ({
           taskId: r.taskId,
           title: store.getTask(r.taskId)?.title ?? r.taskId,
@@ -6325,6 +6341,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!r.ok) return reply.code(400).send({ error: r.motif, refus: r.refus });
 
       const tache = store.createTask({ projectId: project.id, title: r.titre, prompt: r.prompt });
+      // Filet avant la retouche : patch inverse (apres → avant) pour pouvoir
+      // restaurer l'état d'origine une fois l'ouvrière appliquée — via une
+      // tâche, jamais un rewrite silencieux.
+      const cheminRel = req.body.chemin.replace(/^\.?\//, '').trim() || req.body.chemin;
+      store.creerSauvegarde({
+        projectId: project.id,
+        taskId: tache.id,
+        label: libelleAvantRetouche(cheminRel, (fr) => fr),
+        kind: 'avant_retouche',
+        patch: patchVers(cheminRel, req.body.apres, req.body.avant),
+      });
       emitEvent('retouche_proposee', {
         projectId: project.id,
         taskId: tache.id,
@@ -6332,6 +6359,117 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         parUserId: userId,
       });
       return reply.code(201).send({ task: tache });
+    },
+  );
+
+  // ─── Timeline de sauvegardes (code récupérable) ────────────────────────────
+  //
+  // Les étapes auto naissent dans insertResult. Ici : lister, lire un patch,
+  // poser une sauvegarde manuelle, restaurer via une tâche (jamais un rewrite
+  // silencieux du dépôt).
+
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: number } }>(
+    '/api/projects/:projectId/sauvegardes',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const limit =
+        typeof req.query.limit === 'number' && Number.isFinite(req.query.limit)
+          ? req.query.limit
+          : 50;
+      return reply.send({ sauvegardes: store.listSauvegardes(project.id, limit) });
+    },
+  );
+
+  app.get<{ Params: { projectId: string; sauvegardeId: string } }>(
+    '/api/projects/:projectId/sauvegardes/:sauvegardeId',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const s = store.getSauvegarde(req.params.sauvegardeId);
+      if (!s || s.projectId !== project.id) {
+        return reply.code(404).send({ error: 'sauvegarde introuvable' });
+      }
+      return reply.send({ sauvegarde: s });
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: { label: string; patch?: string } }>(
+    '/api/projects/:projectId/sauvegardes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['label'],
+          additionalProperties: false,
+          properties: {
+            label: { type: 'string', minLength: 2, maxLength: 120 },
+            patch: { type: 'string', maxLength: LIMITS.diff },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req) && !authorized(req)) {
+        return reply.status(401).send({ error: 'Non authentifié' });
+      }
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      if (!libelleManuelValide(req.body.label)) {
+        return reply.code(400).send({ error: 'libellé invalide' });
+      }
+      const s = store.creerSauvegarde({
+        projectId: project.id,
+        label: req.body.label,
+        kind: 'manuel',
+        patch: req.body.patch ?? '',
+      });
+      emitEvent('sauvegarde_creee', {
+        projectId: project.id,
+        sauvegardeId: s.id,
+        kind: s.kind,
+      });
+      return reply.code(201).send({
+        sauvegarde: {
+          id: s.id,
+          projectId: s.projectId,
+          label: s.label,
+          kind: s.kind,
+          taille: s.patch.length,
+          createdAt: s.createdAt,
+        },
+      });
+    },
+  );
+
+  app.post<{ Params: { projectId: string; sauvegardeId: string } }>(
+    '/api/projects/:projectId/sauvegardes/:sauvegardeId/restaurer',
+    async (req, reply) => {
+      if (!authorizedUser(req) && !authorized(req)) {
+        return reply.status(401).send({ error: 'Non authentifié' });
+      }
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const s = store.getSauvegarde(req.params.sauvegardeId);
+      if (!s || s.projectId !== project.id) {
+        return reply.code(404).send({ error: 'sauvegarde introuvable' });
+      }
+      if (!s.patch.trim()) {
+        return reply.code(409).send({
+          error: 'cette sauvegarde n’a pas de patch à restaurer',
+        });
+      }
+      const tache = store.createTask({
+        projectId: project.id,
+        title: `Restaurer — ${s.label}`.slice(0, LIMITS.name),
+        prompt: promptRestauration(s),
+      });
+      emitEvent('sauvegarde_restauration', {
+        projectId: project.id,
+        sauvegardeId: s.id,
+        taskId: tache.id,
+      });
+      return reply.code(201).send({ task: tache, sauvegardeId: s.id });
     },
   );
 
@@ -7260,6 +7398,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
+      store.pruneSauvegardes(SAUVEGARDES_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────

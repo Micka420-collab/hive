@@ -32,6 +32,8 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
+import { SauvegardesTimeline } from '../SauvegardesTimeline';
+import { consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -47,7 +49,7 @@ interface Noeud {
   ouvert: boolean;
 }
 
-export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
+export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }: ViewProps) {
   const t = useT();
   // Lecture par lien de partage : c'est la MÊME source que celle qui décide de
   // l'en-tête HTTP, donc les deux ne peuvent pas se contredire.
@@ -71,6 +73,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
   const [propose, setPropose] = useState<string | null>(null);
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
+  const [attirerSg, setAttirerSg] = useState(false);
 
   const voirApercu = async () => {
     if (!projet) return;
@@ -131,6 +134,23 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
     void charger(projet.id, '').finally(() => setChargement(false));
   }, [projet?.id, charger]);
 
+  // Reine → mode Sauvegardes / puce Restaurer… : scroller + pulse la timeline.
+  useEffect(() => {
+    if (consommerFocus() !== FOCUS_SAUVEGARDES) return;
+    setAttirerSg(true);
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById('ry-sauvegardes')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+    const fin = window.setTimeout(() => setAttirerSg(false), 1800);
+    return () => {
+      window.cancelAnimationFrame(id);
+      window.clearTimeout(fin);
+    };
+  }, [projet?.id, refreshTick]);
+
   const basculer = (chemin: string) => {
     const connu = dossiers[chemin];
     if (connu) {
@@ -187,8 +207,14 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
   if (projets.length === 0) {
     return (
       <div className="ry-vide">
-        <p>{t('Aucun projet dans la ruche.', 'No project in the hive.')}</p>
-        <button className="btn" onClick={() => onNavigate('projets')}>
+        <span className="marque" aria-hidden="true" />
+        <p>
+          {t(
+            'Le rayon s’ouvre avec un projet. Démarrez-en un, puis revenez ici.',
+            'The comb opens with a project. Start one, then come back here.',
+          )}
+        </p>
+        <button className="btn primary" onClick={() => onNavigate('projets')}>
           {t('Aller aux projets', 'Go to projects')}
         </button>
       </div>
@@ -219,9 +245,18 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
           <code className="ry-depot">{sansIdentifiants(projet.repoUrl) ?? '—'}</code>
         )}
         <button className="btn ghost ry-apercu-btn" onClick={() => void voirApercu()}>
-          👁 {t('Aperçu', 'Preview')}
+          {t('Aperçu', 'Preview')}
         </button>
       </header>
+
+      {projet && (
+        <SauvegardesTimeline
+          projectId={projet.id}
+          refreshTick={refreshTick}
+          onNavigate={onNavigate}
+          attirerAttention={attirerSg}
+        />
+      )}
 
       {apercuErreur && <p className="ry-erreur">⚠ {apercuErreur}</p>}
       {apercu && (
@@ -260,9 +295,16 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
 
       <div className="ry-corps">
         <nav className="ry-arbre" aria-label={t('Fichiers du projet', 'Project files')}>
-          {chargement && <p className="muted-text">{t('Copie du dépôt…', 'Copying repo…')}</p>}
+          {chargement && (
+            <p className="ry-calme">
+              <span className="marque" aria-hidden="true" /> {t('Copie du dépôt…', 'Copying repo…')}
+            </p>
+          )}
           {!chargement && !dossiers[''] && !erreur && (
-            <p className="muted-text">{t('Rien à afficher.', 'Nothing to show.')}</p>
+            <p className="ry-calme">
+              <span className="marque" aria-hidden="true" />{' '}
+              {t('Rien à afficher.', 'Nothing to show.')}
+            </p>
           )}
           {rendre('', 0)}
         </nav>
@@ -270,7 +312,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
         <section className="ry-lecture">
           {erreur && <p className="ry-erreur">⚠ {erreur}</p>}
           {!erreur && !ouvert && (
-            <p className="muted-text ry-invite">
+            <p className="ry-invite">
+              <span className="marque" aria-hidden="true" />{' '}
               {t(
                 'Choisissez un fichier à gauche pour le lire.',
                 'Pick a file on the left to read it.',
@@ -300,7 +343,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
                     className="btn ghost ry-geste"
                     onClick={() => setRetouche({ texte: fichier.contenu, note: '' })}
                   >
-                    ✎ {t('Proposer une retouche', 'Propose a change')}
+                    {t('Proposer une retouche', 'Propose a change')}
                   </button>
                 ) : (
                   <span className="ry-mode">{t('retouche en cours', 'change in progress')}</span>
