@@ -5,7 +5,30 @@
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+}
+
+/* Vides Santé / Essaim : marque hex, jamais d’italique. */
+.es-view .empty {
+  font-style: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 14px;
+}
+
+.es-view .empty.pad {
+  padding: 28px 16px;
+}
+
+.es-view .empty .marque {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex: none;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
 }
 
 /* ─── Essaim : disposition nœuds / Waggle Board ───────────────────────── */
@@ -356,9 +379,9 @@
 
 .es-tiles {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  padding: 14px;
+  padding: 12px 14px;
 }
 
 .es-tile-spark {
@@ -406,14 +429,14 @@
 }
 
 .es-thermo-band {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 20px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--band);
   color: var(--band);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .es-thermo-hint {
@@ -696,15 +719,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 40px 20px;
+  gap: 12px;
+  padding: 36px 18px;
   text-align: center;
 }
 
 .es-calm-hex {
-  width: 72px;
-  height: 80px;
-  margin: 0 auto 12px;
+  width: 56px;
+  height: 62px;
+  margin: 0;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   background: var(--miel);
   animation: es-breathe 4s ease-in-out infinite;
@@ -716,15 +739,17 @@
     transform: scale(1);
   }
   50% {
-    transform: scale(1.05);
+    transform: scale(1.04);
   }
 }
 
 .es-calm-text {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--gold);
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-style: normal;
 }
 
 /* Toute animation es- est coupée si l'utilisateur préfère moins de mouvement. */
@@ -745,36 +770,40 @@
 .gu-verdict {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .gu-verdict.ton-calme {
-  border-color: var(--border-2);
+  border-color: var(--border);
+  background: var(--panel-2);
 }
 
 .gu-verdict.ton-chaud {
-  border-color: #b8770f;
-  background: rgba(184, 119, 15, 0.09);
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
+  background: color-mix(in srgb, var(--amber) 8%, var(--panel));
 }
 
 .gu-verdict.ton-brulant {
-  border-color: #a8402a;
-  background: rgba(168, 64, 42, 0.09);
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
+  background: color-mix(in srgb, var(--red) 8%, var(--panel));
 }
 
 .gu-icone {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   color: var(--muted);
+  flex: none;
 }
 
 .gu-chiffres {
   margin: 3px 0 0;
   font-size: 12px;
-  color: var(--text-2);
+  color: var(--muted);
+  font-style: normal;
 }
 
 /* Le conseil est aussi visible que l'alerte : dire « on vous sonde » sans dire
@@ -783,6 +812,7 @@
   margin: 10px 0 0;
   font-size: 13px;
   line-height: 1.5;
+  font-style: normal;
 }
 
 .gu-liste {
@@ -802,9 +832,9 @@
   justify-content: space-between;
   gap: 12px;
   font-size: 11.5px;
-  padding: 3px 8px;
-  border-radius: 5px;
-  background: var(--bg-3, rgba(27, 23, 18, 0.04));
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--panel-3) 55%, transparent);
 }
 
 .gu-liste code {
@@ -815,9 +845,10 @@
 
 .gu-note {
   margin: 10px 0 0;
-  font-size: 11px;
-  color: var(--text-3);
+  font-size: 11.5px;
+  color: var(--muted);
   line-height: 1.5;
+  font-style: normal;
 }
 
 /* ─── Les Gardiennes ────────────────────────────────────────────────────────
@@ -828,26 +859,30 @@
  * fait, alors que ces douze-là sont entrées dans le miel. */
 
 .ga-mode {
-  font-size: 11px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border-2);
-  color: var(--text-2);
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 500;
+  font-style: normal;
 }
 
 .ga-mode.mode-strict {
-  border-color: #235e52;
-  color: #1f6b52;
+  border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, var(--panel));
 }
 
 .ga-mode.mode-off {
-  opacity: 0.6;
+  opacity: 0.65;
 }
 
 .ga-tuiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
+  padding: 0 2px;
 }
 
 .ga-tuile {
@@ -855,37 +890,42 @@
   flex-direction: column;
   gap: 2px;
   padding: 10px 12px;
-  border: 1px solid var(--border-2);
-  border-radius: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
 }
 
 .ga-tuile.hollow {
-  border-color: #a8402a;
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
 }
 
 .ga-tuile.suspect {
-  border-color: #b8770f;
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
 }
 
 .ga-nombre {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1;
+  letter-spacing: -0.03em;
 }
 
 .ga-libelle {
   font-size: 11px;
-  color: var(--text-2);
+  color: var(--muted);
+  font-style: normal;
 }
 
 /* L'écart entre « creuses » et « refusées » EST l'information en consultatif. */
 .ga-avertissement {
   margin: 10px 0 0;
   padding: 9px 12px;
-  border-left: 3px solid #b8770f;
-  background: rgba(184, 119, 15, 0.09);
+  border-left: 2px solid color-mix(in srgb, var(--amber) 70%, var(--border));
+  background: color-mix(in srgb, var(--amber) 8%, var(--panel));
   font-size: 12.5px;
   line-height: 1.5;
+  font-style: normal;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
 
 .ga-griefs {

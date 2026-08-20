@@ -236,8 +236,29 @@
   max-height: none;
 }
 
+/* Onglets calmes : miel discret, même geste que les filtres Chronique. */
 .ch-mem-tabs {
   margin: 0;
+}
+
+.ch-mem-tabs button {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ch-mem-tabs button:hover {
+  background: color-mix(in srgb, var(--miel) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
+  color: var(--text);
+}
+
+.ch-mem-tabs button.active {
+  border-color: color-mix(in srgb, var(--miel) 38%, var(--border));
+  background: color-mix(in srgb, var(--miel) 10%, var(--panel));
+  color: var(--text);
+  box-shadow: none;
 }
 
 .ch-mem-search {
@@ -245,15 +266,31 @@
   gap: 8px;
   padding: 12px 14px 0;
   margin: 0;
+  align-items: center;
 }
 
 .ch-mem-search input {
   flex: 1;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ch-mem-search input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
 }
 
 .ch-mem-note {
-  font-size: 12px;
+  font-size: 12.5px;
   margin: 8px 14px 0;
+  font-style: normal;
+  line-height: 1.45;
 }
 
 .ch-linklike {
@@ -275,12 +312,18 @@
   padding: 12px 14px 14px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
+  gap: 8px;
   overflow-y: auto;
 }
 
 .ch-mem-item {
   gap: 4px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--miel) 55%, var(--border));
+  box-shadow: none;
 }
 
 .ch-mem-head {
@@ -292,6 +335,10 @@
 .ch-mem-head .mind-title {
   flex: 1;
   min-width: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .ch-mem-details summary {
@@ -322,8 +369,13 @@
   font-style: normal;
 }
 
-.ch-mem-item p {
+.ch-mem-item p,
+.ch-mem-item .mind-content {
   margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  font-style: normal;
 }
 
 .ch-mem-foot {
@@ -331,7 +383,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .ch-mem-task {
