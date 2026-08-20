@@ -171,11 +171,12 @@ h3 {
 
 .brand h1 {
   /* Le titre de la vue en ENCRE, pas en miel : sur du papier, l'accent sert
-     à désigner, pas à titrer. C'est la ligne mono en dessous qui porte la
-     couleur d'ambiance. */
-  font-size: 22px;
+     à désigner, pas à titrer. */
+  font-size: 26px;
+  font-weight: 650;
   color: var(--text);
-  letter-spacing: -0.025em;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
 }
 
 .brand-sub {
