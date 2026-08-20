@@ -513,7 +513,10 @@ export function App() {
           </span>
           {/* Le nom écrit, et pas seulement la marque : sur la barre large du
               design, le logo seul laissait un vide que rien n'expliquait. */}
-          <span className="mc-sidebar-word">Hive</span>
+          <span className="mc-sidebar-brand">
+            <span className="mc-sidebar-word">Hive</span>
+            <span className="mc-sidebar-product">Mission Control</span>
+          </span>
         </div>
         <ul className="mc-nav">
           {NAV.filter((item) => !item.admin || estAdmin(user)).map((item) => (
@@ -595,7 +598,7 @@ export function App() {
             <input
               type="password"
               className="token-input"
-              placeholder="token"
+              placeholder={t('Jeton', 'Token')}
               title={t('Token de la ruche (x-hive-token)', 'Hive token (x-hive-token)')}
               value={token}
               onChange={(e) => setTokenState(e.target.value)}

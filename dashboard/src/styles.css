@@ -475,7 +475,12 @@ h3 {
   gap: 12px;
   color: var(--text);
   font-size: 13px;
-  text-shadow: 0 1px 3px rgba(255, 253, 248, 0.9);
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
 }
 
 .hero-progress span {
@@ -634,7 +639,7 @@ h3 {
 
 .dot.online {
   background: var(--green);
-  box-shadow: 0 0 6px var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
 }
 
 .node-meta {
@@ -803,9 +808,10 @@ h3 {
 
 .task-table th {
   color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none;
   background: var(--panel-2);
   position: sticky;
   top: 0;
@@ -912,9 +918,10 @@ h3 {
 }
 
 .drawer h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
   color: var(--muted);
   margin: 18px 0 6px;
 }
@@ -1873,12 +1880,29 @@ h3 {
   box-shadow: inset 0 0 0 1px rgba(246, 196, 69, 0.28);
 }
 
+.mc-sidebar-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .mc-sidebar-word {
   font-family: var(--titre);
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--sur-encre-fort);
+  line-height: 1.1;
+}
+
+.mc-sidebar-product {
+  font-family: var(--texte);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--sur-encre);
+  line-height: 1.2;
 }
 
 .mc-nav {
@@ -2362,7 +2386,8 @@ button.mc-cell:focus-visible {
     padding: 9px 4px;
   }
   .mc-nav-label,
-  .mc-sidebar-word {
+  .mc-sidebar-word,
+  .mc-sidebar-product {
     display: none;
   }
   .mc-nav-icon {
