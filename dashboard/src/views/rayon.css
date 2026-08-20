@@ -516,6 +516,18 @@
   line-height: 1.4;
 }
 
+.ry-sg-suite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ry-sg-miellerie {
+  flex: none;
+  font-size: 12px;
+}
+
 .ry-sg-erreur {
   margin: 0;
   font-size: 12.5px;

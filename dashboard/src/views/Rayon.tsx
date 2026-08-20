@@ -243,7 +243,13 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
         </button>
       </header>
 
-      {projet && <SauvegardesTimeline projectId={projet.id} refreshTick={refreshTick} />}
+      {projet && (
+        <SauvegardesTimeline
+          projectId={projet.id}
+          refreshTick={refreshTick}
+          onNavigate={onNavigate}
+        />
+      )}
 
       {apercuErreur && <p className="ry-erreur">⚠ {apercuErreur}</p>}
       {apercu && (

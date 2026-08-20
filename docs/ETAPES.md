@@ -11711,10 +11711,10 @@ CI `a34376c` : empreinte via stdin (Windows), mocks App shell, badges 4432.
 
 Lire avant d’agir — même doctrine que l’empreinte des installeurs.
 
-### 12. Suite du 20 août (nuit) — focus Reine→timeline + pouls vivant
+### 13. Suite du 20 août (nuit) — suite restauration + chrome
 
-| fait                                                          | où                                   |
-| ------------------------------------------------------------- | ------------------------------------ |
-| Mode Sauvegardes / puce Restaurer… → focus timeline (session) | `focus-vue.ts`, Reine, Rayon         |
-| Pouls : refresh 30 s sans flash de charge                     | `AutonomiePulse.tsx`                 |
-| Bancs focus + tick pouls + assertion Reine                    | `tests/focus-vue`, `autonomie-pulse` |
+| fait                                                   | où                        |
+| ------------------------------------------------------ | ------------------------- |
+| Après restaurer : **Ouvrir dans la Miellerie** (tâche) | `SauvegardesTimeline.tsx` |
+| Concierge : hint restauration sans emoji chrome        | `concierge.ts`            |
+| README FR/EN : URL complète `install.sha256` (Pages)   | README.md / README.en.md  |

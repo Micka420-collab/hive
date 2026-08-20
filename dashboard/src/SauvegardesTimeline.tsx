@@ -14,6 +14,7 @@ import {
 import type { SauvegardeResumeUi } from './api';
 import { useT } from './i18n';
 import { timeShort } from './views/shared';
+import type { ViewId } from './views/shared';
 
 function libelleGenre(kind: SauvegardeResumeUi['kind'], t: ReturnType<typeof useT>): string {
   switch (kind) {
@@ -37,10 +38,13 @@ function tailleCourte(n: number): string {
 export function SauvegardesTimeline({
   projectId,
   refreshTick = 0,
+  onNavigate,
 }: {
   projectId: string;
   /** Incrémenté quand l'essaim produit — recharge la timeline. */
   refreshTick?: number;
+  /** Après restauration : ouvrir la tâche créée dans la Miellerie. */
+  onNavigate?: (view: ViewId, selectedId?: string) => void;
 }) {
   const t = useT();
   const parPartage = getPartage() !== null;
@@ -49,6 +53,7 @@ export function SauvegardesTimeline({
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [tacheRestau, setTacheRestau] = useState<{ id: string; title: string } | null>(null);
   /** Id de l’étape dont le patch est déplié — un seul à la fois. */
   const [ouvertId, setOuvertId] = useState<string | null>(null);
   const [patchTexte, setPatchTexte] = useState<string | null>(null);
@@ -71,6 +76,7 @@ export function SauvegardesTimeline({
   useEffect(() => {
     setOuvertId(null);
     setPatchTexte(null);
+    setTacheRestau(null);
   }, [projectId]);
 
   const poser = async () => {
@@ -121,6 +127,7 @@ export function SauvegardesTimeline({
     if (!ok) return;
     setBusy(true);
     setMsg(null);
+    setTacheRestau(null);
     try {
       const r = await restaurerSauvegarde(projectId, id);
       setMsg(
@@ -129,6 +136,7 @@ export function SauvegardesTimeline({
           `Task created: “${r.task.title}”. A worker will apply the patch; Honey House review like everything else.`,
         ),
       );
+      setTacheRestau({ id: r.task.id, title: r.task.title });
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e));
     } finally {
@@ -180,7 +188,20 @@ export function SauvegardesTimeline({
       )}
 
       {erreur && <p className="ry-sg-erreur">⚠ {erreur}</p>}
-      {msg && <p className="ry-sg-msg">{msg}</p>}
+      {msg && (
+        <div className="ry-sg-suite">
+          <p className="ry-sg-msg">{msg}</p>
+          {tacheRestau && onNavigate && (
+            <button
+              type="button"
+              className="btn ghost ry-sg-miellerie"
+              onClick={() => onNavigate('miellerie', tacheRestau.id)}
+            >
+              {t('Ouvrir dans la Miellerie', 'Open in Honey House')}
+            </button>
+          )}
+        </div>
+      )}
 
       {liste.length === 0 && !erreur ? (
         <p className="ry-sg-vide">

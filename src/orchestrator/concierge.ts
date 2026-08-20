@@ -767,8 +767,8 @@ export function answerLive(question: string, ctx: ConciergeContext): ConciergeAn
   if (echecs > 0 && derniere) {
     const hint =
       lang === 'fr'
-        ? `\n\n💾 ${echecs} échec(s) récent(s). Dernière sauvegarde : « ${clean(derniere.label)} ». Ouvrez le Rayon → Sauvegardes pour restaurer (une tâche sera créée).`
-        : `\n\n💾 ${echecs} recent failure(s). Latest checkpoint: “${clean(derniere.label)}”. Open the Comb → Backups to restore (a task will be created).`;
+        ? `\n\n${echecs} échec(s) récent(s). Dernière sauvegarde : « ${clean(derniere.label)} ». Ouvrez le Rayon → Sauvegardes pour restaurer (une tâche sera créée).`
+        : `\n\n${echecs} recent failure(s). Latest checkpoint: “${clean(derniere.label)}”. Open the Comb → Backups to restore (a task will be created).`;
     reply += hint;
     const chip = lang === 'fr' ? 'Restaurer la dernière étape' : 'Restore the latest checkpoint';
     if (!suggestions.includes(chip)) suggestions.unshift(chip);

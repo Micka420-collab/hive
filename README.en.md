@@ -72,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 
 # Cautious path (fingerprint before acting):
 # curl -fsSLO https://micka420-collab.github.io/hive/install.sh
-# sha256sum install.sh   # compare to …/install.sha256
+# sha256sum install.sh   # compare to https://micka420-collab.github.io/hive/install.sha256
 # less install.sh && sh install.sh
 
 # Windows (PowerShell)

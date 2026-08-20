@@ -145,14 +145,27 @@ describe('SauvegardesTimeline', () => {
       task: { id: 'task-r', title: 'Restaurer — Étape — Socle' },
       sauvegardeId: 's1',
     });
-    const dom = await monter();
-    const btn = dom.querySelector('.ry-sg-restaure');
+    const nav = vi.fn();
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    await act(async () => {
+      racine?.render(<SauvegardesTimeline projectId="p1" onNavigate={nav} />);
+    });
+    await act(async () => {});
+    const btn = conteneur.querySelector('.ry-sg-restaure');
     await act(async () => {
       btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     await act(async () => {});
     expect(resto).toHaveBeenCalledWith('p1', 's1');
-    expect(dom.textContent).toContain('Tâche créée');
+    expect(conteneur.textContent).toContain('Tâche créée');
+    const aller = conteneur.querySelector('.ry-sg-miellerie');
+    expect(aller).not.toBeNull();
+    await act(async () => {
+      aller!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(nav).toHaveBeenCalledWith('miellerie', 'task-r');
   });
 
   it('Voir le patch charge le détail puis se referme', async () => {
