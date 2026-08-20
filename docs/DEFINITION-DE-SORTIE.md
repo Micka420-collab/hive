@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `a0eea77` + ce commit, 21 août 2026)
+## A. Le code tient — ✅ mesuré (arbre `898429e` + ce commit, 21 août 2026)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -57,7 +57,7 @@
 | ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4451** (4443 verts, 8 ignorés, **0 rouge**) |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4453** (4445 verts, 8 ignorés, **0 rouge**) |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)        |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 17 nus trouvés sur ce lot — tous fermés       |
@@ -433,6 +433,12 @@ pour faire passer un lot rendrait l'anecdote à sa place de critère.
   publique ne se reskine pas de tête. Non atteint.
 - ❌ **README GitHub au design de la vitrine** : la première impression côté
   dépôt, en aval de #63. Non atteint.
+- ✅ / 🔒 **Empreintes des installeurs (lot 8, moitié)** : Pages publie
+  `install.sh`, `install.ps1` et `install.sha256` ; README / INSTALLATION /
+  ADR 0002 (amende 21 août) montrent la variante télécharger → hasher → lire.
+  **Mesuré** (`tests/site-installeurs`, CI Pages). Une **Release GitHub
+  signée** reste 🔒 (comptes humains) — le manifeste Pages ne remplace pas un
+  tag signé.
 - 🔒 **Paquet npm signé** (lot 7), **image officielle GHCR + `cosign`** (lot 10) :
   pas mes comptes ni mes clés. `curl … | sh` depuis le dépôt marche sans eux ;
   « `npm i -g` » et « `docker pull` » d'un artefact officiel restent une décision
@@ -442,9 +448,10 @@ pour faire passer un lot rendrait l'anecdote à sa place de critère.
 ## Verdict honnête
 
 Le **code**, l'**installation** (en CI) et le **socle de sûreté** — désormais
-gardé par `npm audit --audit-level=high` en CI — sont mesurés et tenus. Ce qui
-manque à une sortie « présentable » n'est pas du code : c'est **(1)** une
-identité de vitrine tranchée, **(2)** des artefacts publiés sous des comptes qui
-ne sont pas les miens. **Le troisième manque — le seuil de couverture non
-câblé — est fermé le 15 août** : seuils posés sur la mesure, exercés par la CI,
-et vus rougir. Aucun des manques restants n'est caché derrière un ✅.
+gardé par `npm audit --audit-level=high` en CI — sont mesurés et tenus. L'empreinte
+Pages des installeurs est posée ; la Release signée non. Ce qui manque encore à
+une sortie « présentable » n'est pas du code produit : c'est **(1)** une identité
+de vitrine tranchée, **(2)** des artefacts publiés sous des comptes qui ne sont
+pas les miens. **Le troisième manque — le seuil de couverture non câblé — est
+fermé le 15 août** : seuils posés sur la mesure, exercés par la CI, et vus
+rougir. Aucun des manques restants n'est caché derrière un ✅.

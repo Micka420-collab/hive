@@ -127,6 +127,35 @@ describe('parserTrameAnthropic', () => {
     expect(parserTrameAnthropic('[DONE]')).toBeNull();
     expect(parserTrameAnthropic('{')).toBeNull();
   });
+
+  it('ignore un text_delta vide et les autres types de delta', () => {
+    expect(
+      parserTrameAnthropic(
+        JSON.stringify({
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: '' },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parserTrameAnthropic(
+        JSON.stringify({
+          type: 'content_block_delta',
+          delta: { type: 'input_json_delta', partial_json: '{' },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('lit l’usage porté par message_start', () => {
+    const c = parserTrameAnthropic(
+      JSON.stringify({
+        type: 'message_start',
+        message: { usage: { input_tokens: 11, output_tokens: 0 } },
+      }),
+    );
+    expect(c).toEqual({ kind: 'usage', usage: { inputTokens: 11, outputTokens: 0 } });
+  });
 });
 
 describe('sousAgentsDepuisEvenements', () => {

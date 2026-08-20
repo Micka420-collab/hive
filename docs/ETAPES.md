@@ -11749,3 +11749,11 @@ Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
 | Garde : ne pas re-promettre une Release pour l’empreinte       | `tests/site-installeurs` |
 | ADR 0002 amendé : empreinte Pages avant Release                | `docs/adr/0002-…`        |
 | Badges / tableau A → **4451**                                  | README, site, DEFINITION |
+
+### 18. Suite du 21 août (nuit) — DEFINITION E + parser SSE
+
+| fait                                                             | où                          |
+| ---------------------------------------------------------------- | --------------------------- |
+| §E : empreintes Pages ✅ / Release signée 🔒                     | `DEFINITION-DE-SORTIE.md`   |
+| Bancs `parserTrameAnthropic` (vide / json_delta / message_start) | `tests/chat-stream.test.ts` |
+| Badges / tableau A → **4453**                                    | README, site, DEFINITION    |

@@ -39,6 +39,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   CLI + FEATURES EN (table Comb) + README variante prudente Windows (Pages /
   `install.sha256`, sans 2ᵉ `irm` qui casserait la garde d’annonce).
 
+- **DEFINITION §E : empreintes Pages** mesurées ; Release signée reste 🔒. Parser SSE Anthropic : bancs text_delta vide / message_start.
+
 ### Changed
 
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique
