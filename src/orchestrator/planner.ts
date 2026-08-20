@@ -30,14 +30,32 @@ export interface PlannerResult {
 
 /**
  * Appel LLM abstrait (injectable pour les tests). Reçoit un system + user et un
- * modèle, retourne le texte brut de la réponse.
+ * modèle ; rend le texte, éventuellement avec le décompte de tokens Anthropic.
+ *
+ * `string` reste accepté pour les stubs de tests et les back-ends qui n'ont
+ * pas de compteur — `texteLlm` normalise les deux formes.
  */
+export interface LlmUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface LlmReply {
+  text: string;
+  usage?: LlmUsage;
+}
+
 export type LlmFn = (args: {
   system: string;
   user: string;
   model: string;
   maxTokens: number;
-}) => Promise<string>;
+}) => Promise<string | LlmReply>;
+
+/** Normalise la sortie d'un `LlmFn` en texte + usage optionnel. */
+export function lireLlm(res: string | LlmReply): LlmReply {
+  return typeof res === 'string' ? { text: res } : res;
+}
 
 // ─── Utilitaires ─────────────────────────────────────────────────────────────
 
@@ -382,6 +400,7 @@ export function anthropicLlm(env: NodeJS.ProcessEnv = process.env): LlmFn {
     const data = (await res.json().catch(() => null)) as {
       content?: { type: string; text?: string }[];
       stop_reason?: string;
+      usage?: { input_tokens?: number; output_tokens?: number };
       error?: { message?: string };
     } | null;
     if (!res.ok) {
@@ -395,7 +414,16 @@ export function anthropicLlm(env: NodeJS.ProcessEnv = process.env): LlmFn {
       .map((b) => b.text ?? '')
       .join('');
     if (!text.trim()) throw new Error('réponse vide du modèle.');
-    return text;
+    const inputTokens = data?.usage?.input_tokens;
+    const outputTokens = data?.usage?.output_tokens;
+    const usage =
+      typeof inputTokens === 'number' &&
+      Number.isFinite(inputTokens) &&
+      typeof outputTokens === 'number' &&
+      Number.isFinite(outputTokens)
+        ? { inputTokens, outputTokens }
+        : undefined;
+    return { text, usage };
   };
 }
 
@@ -405,7 +433,7 @@ export async function llmPlan(
   opts: { llm: LlmFn; model: string },
 ): Promise<PlannedTask[]> {
   const { system, user } = buildPlannerPrompt(brief);
-  const text = await opts.llm({ system, user, model: opts.model, maxTokens: 2048 });
+  const { text } = lireLlm(await opts.llm({ system, user, model: opts.model, maxTokens: 2048 }));
   const tasks = parsePlannerResponse(text);
   if (tasks.length === 0) throw new Error("le planner IA n'a produit aucune tâche.");
   return tasks;

@@ -32,6 +32,7 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
+import { SauvegardesTimeline } from '../SauvegardesTimeline';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -47,7 +48,7 @@ interface Noeud {
   ouvert: boolean;
 }
 
-export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
+export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }: ViewProps) {
   const t = useT();
   // Lecture par lien de partage : c'est la MÊME source que celle qui décide de
   // l'en-tête HTTP, donc les deux ne peuvent pas se contredire.
@@ -228,6 +229,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
           {t('Aperçu', 'Preview')}
         </button>
       </header>
+
+      {projet && <SauvegardesTimeline projectId={projet.id} refreshTick={refreshTick} />}
 
       {apercuErreur && <p className="ry-erreur">⚠ {apercuErreur}</p>}
       {apercu && (

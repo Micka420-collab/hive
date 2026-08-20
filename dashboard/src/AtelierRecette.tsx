@@ -44,12 +44,12 @@ export function AtelierRecette() {
       <p>
         {etat.actif
           ? t(
-              'Bureau allumé. L’agent y voit sa page, clique, lit un PDF.',
-              'Desktop on. The agent can see its page, click, read a PDF.',
+              'Bureau allumé sur la machine de la ruche. L’agent y voit sa page, clique, lit un PDF — la recette se joue ici, pas sur votre portable.',
+              'Desktop running on the hive computer. The agent can see its page, click, read a PDF — acceptance runs here, not on your laptop.',
             )
           : t(
-              'Un écran pour que l’agent teste comme un humain. HIVE_ATELIER=auto pour l’allumer.',
-              'A desktop so the agent can test like a human. Set HIVE_ATELIER=auto to start it.',
+              'Bureau de recette sur l’ordinateur de la ruche : l’agent teste comme un humain. HIVE_ATELIER=auto pour l’allumer.',
+              'Acceptance desktop on the hive computer: the agent tests like a human. Set HIVE_ATELIER=auto to start it.',
             )}
       </p>
       {etat.mode !== 'off' && (

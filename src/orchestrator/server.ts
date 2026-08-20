@@ -73,6 +73,10 @@ import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
+import {
+  libelleManuelValide,
+  promptRestauration,
+} from '../shared/sauvegardes.js';
 import { MAX_APERCU, SANDBOX_APERCU, assemblerApercu } from '../shared/apercu.js';
 import {
   TTL_PARTAGE_MAX_MS,
@@ -6332,6 +6336,110 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         parUserId: userId,
       });
       return reply.code(201).send({ task: tache });
+    },
+  );
+
+  // ─── Timeline de sauvegardes (code récupérable) ────────────────────────────
+  //
+  // Les étapes auto naissent dans insertResult. Ici : lister, lire un patch,
+  // poser une sauvegarde manuelle, restaurer via une tâche (jamais un rewrite
+  // silencieux du dépôt).
+
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: number } }>(
+    '/api/projects/:projectId/sauvegardes',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const limit =
+        typeof req.query.limit === 'number' && Number.isFinite(req.query.limit)
+          ? req.query.limit
+          : 50;
+      return reply.send({ sauvegardes: store.listSauvegardes(project.id, limit) });
+    },
+  );
+
+  app.get<{ Params: { projectId: string; sauvegardeId: string } }>(
+    '/api/projects/:projectId/sauvegardes/:sauvegardeId',
+    async (req, reply) => {
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const s = store.getSauvegarde(req.params.sauvegardeId);
+      if (!s || s.projectId !== project.id) {
+        return reply.code(404).send({ error: 'sauvegarde introuvable' });
+      }
+      return reply.send({ sauvegarde: s });
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: { label: string; patch?: string } }>(
+    '/api/projects/:projectId/sauvegardes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['label'],
+          additionalProperties: false,
+          properties: {
+            label: { type: 'string', minLength: 2, maxLength: 120 },
+            patch: { type: 'string', maxLength: LIMITS.diff },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorizedUser(req) && !authorized(req)) {
+        return reply.status(401).send({ error: 'Non authentifié' });
+      }
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      if (!libelleManuelValide(req.body.label)) {
+        return reply.code(400).send({ error: 'libellé invalide' });
+      }
+      const s = store.creerSauvegarde({
+        projectId: project.id,
+        label: req.body.label,
+        kind: 'manuel',
+        patch: req.body.patch ?? '',
+      });
+      emitEvent('sauvegarde_creee', {
+        projectId: project.id,
+        sauvegardeId: s.id,
+        kind: s.kind,
+      });
+      return reply
+        .code(201)
+        .send({ sauvegarde: { id: s.id, projectId: s.projectId, label: s.label, kind: s.kind, taille: s.patch.length, createdAt: s.createdAt } });
+    },
+  );
+
+  app.post<{ Params: { projectId: string; sauvegardeId: string } }>(
+    '/api/projects/:projectId/sauvegardes/:sauvegardeId/restaurer',
+    async (req, reply) => {
+      if (!authorizedUser(req) && !authorized(req)) {
+        return reply.status(401).send({ error: 'Non authentifié' });
+      }
+      const project = projetLisible(req, reply);
+      if (!project) return reply;
+      const s = store.getSauvegarde(req.params.sauvegardeId);
+      if (!s || s.projectId !== project.id) {
+        return reply.code(404).send({ error: 'sauvegarde introuvable' });
+      }
+      if (!s.patch.trim()) {
+        return reply.code(409).send({
+          error: 'cette sauvegarde n’a pas de patch à restaurer',
+        });
+      }
+      const tache = store.createTask({
+        projectId: project.id,
+        title: `Restaurer — ${s.label}`.slice(0, LIMITS.name),
+        prompt: promptRestauration(s),
+      });
+      emitEvent('sauvegarde_restauration', {
+        projectId: project.id,
+        sauvegardeId: s.id,
+        taskId: tache.id,
+      });
+      return reply.code(201).send({ task: tache, sauvegardeId: s.id });
     },
   );
 

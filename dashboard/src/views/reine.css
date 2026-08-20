@@ -347,3 +347,60 @@
     max-width: 95%;
   }
 }
+
+/* ─── Modes (Chat / Plan / Autonomie / Sauvegardes) ───────────────────── */
+
+.rn-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.rn-mode {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.rn-mode:hover {
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+  color: var(--text);
+}
+
+.rn-mode.actif {
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  background: color-mix(in srgb, var(--miel) 14%, var(--panel));
+  color: var(--text);
+}
+
+.rn-mode-hint {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--faint);
+  max-width: 36ch;
+  line-height: 1.3;
+}
+
+.rn-tokens,
+.rn-tokens-session {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: -0.02em;
+}
+
+.rn-tokens-session {
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+}

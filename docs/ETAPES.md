@@ -11656,3 +11656,20 @@ chrome emoji retiré, wordmark Hive/Mission Control, vues (Chronique, Mémoire,
 Santé, Rayon, Chantiers, Inviter/Compte…) miel/cire, courses ◇, CI verte en
 continu sur PR #338, captures `mc-soir3-*`. Ce n'est **pas** un lot de feature —
 premier contact avant la revue du 26.
+
+### 8. Suite du 20 août (nuit) — tokens Reine + sauvegardes code
+
+Gel soft **levé** sur demande explicite (chat moderne, autonomie multi-jours,
+timeline récupérable). Livré sur PR #338 :
+
+| fait | où |
+| ---- | -- |
+| Décompte tokens Anthropic (LLM → Concierge → `/api/chat` → badge Reine) | `planner.ts`, `concierge.ts`, `Reine.tsx` |
+| Modes Plan / Autonomie / Sauvegardes (navigation) | `Reine.tsx` |
+| Table latérale `sauvegardes` + étapes auto à `insertResult` | `store.ts`, `shared/sauvegardes.ts` |
+| API list/get/post/restaurer (restauration = tâche) | `server.ts` |
+| Panneau timeline sur le Rayon | `SauvegardesTimeline.tsx` |
+| Copie Atelier « machine de la ruche » + Plein Essaim multi-jours | `AtelierRecette.tsx`, `PleinEssaim.tsx` |
+
+Mesure : `tests/sauvegardes.test.ts`, `tests/sauvegardes-endpoint.test.ts`,
+usage Concierge dans `tests/concierge.test.ts`.

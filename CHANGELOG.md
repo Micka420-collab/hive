@@ -7,6 +7,18 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **💾 Timeline de sauvegardes (code récupérable).** Chaque production réussie
+  avec un diff devient une étape (`sauvegardes` latérale, survit à
+  `pruneResults`). API : lister / lire / poser (manuel) /
+  restaurer — la restauration ouvre une **tâche** (jamais un rewrite
+  silencieux). Panneau sur le Rayon ; raccourci depuis la Reine.
+- **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
+  (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
+  Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;
+  Plein Essaim : autonomie sur plusieurs jours.
+
 ### Changed
 
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique

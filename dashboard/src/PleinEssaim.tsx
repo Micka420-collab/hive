@@ -161,8 +161,8 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
       </h3>
       <p className="essaim-intro">
         {t(
-          'La ruche décide, produit, se critique et apprend — sans vous demander à chaque tour.',
-          'The hive decides, produces, critiques itself and learns — without asking you each round.',
+          'La ruche décide, produit, se critique et apprend — des jours sans vous, tant que le runner est allumé et la dérive reste saine.',
+          'The hive decides, produces, critiques itself and learns — for days without you, as long as the runner is on and drift stays healthy.',
         )}
       </p>
 

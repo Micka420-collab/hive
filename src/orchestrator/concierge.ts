@@ -14,6 +14,7 @@
 import type { Ghost } from './ghost.js';
 import type { Memory } from './hive-mind.js';
 import type { LlmFn } from './planner.js';
+import { lireLlm } from './planner.js';
 import type { ProjectReport } from './project-report.js';
 import type { HivePulse } from './pulse.js';
 import type { WaggleBoard } from './waggle.js';
@@ -53,6 +54,12 @@ export interface ConciergeAnswer {
   /** Langue détectée du message ('fr', 'en', …) — la réponse est dans cette langue. */
   lang: Lang;
   suggestions: string[];
+  /** Décompte Anthropic — présent seulement quand `source === 'llm'` et que l'API l'a rendu. */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 // ─── Détection de langue (heuristique par mots-outils, sans dépendance) ──────
@@ -854,15 +861,30 @@ export async function askConcierge(
   if (!opts.llm) return live;
   try {
     const { system, user } = buildChatPrompt(question, ctx);
-    const text = await opts.llm({
+    const brut = await opts.llm({
       system,
       user,
       model: opts.model ?? chatModel(),
       maxTokens: 800,
     });
+    const { text, usage } = lireLlm(brut);
     const reply = text.trim();
     if (!reply) return live;
-    return { reply, source: 'llm', lang: live.lang, suggestions: live.suggestions };
+    return {
+      reply,
+      source: 'llm',
+      lang: live.lang,
+      suggestions: live.suggestions,
+      ...(usage
+        ? {
+            usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              totalTokens: usage.inputTokens + usage.outputTokens,
+            },
+          }
+        : {}),
+    };
   } catch {
     return live; // le modèle est un plus, jamais un point de panne
   }
