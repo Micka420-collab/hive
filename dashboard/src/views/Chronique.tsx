@@ -226,7 +226,7 @@ export default function Chronique({ events }: ViewProps) {
             </span>
             <div className="ch-banner-actions">
               <button className="btn" onClick={loadReplay} disabled={loadingReplay}>
-                {loadingReplay ? t('Chargement…', 'Loading…') : t('↻ Recharger', '↻ Reload')}
+                {loadingReplay ? t('Chargement…', 'Loading…') : t('Recharger', 'Reload')}
               </button>
               <button className="btn primary" onClick={exitReplay}>
                 {t('revenir au direct', 'back to live')}

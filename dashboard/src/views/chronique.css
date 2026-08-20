@@ -120,6 +120,11 @@
 
 .ch-banner-icon {
   display: inline-block;
+  width: 12px;
+  height: 14px;
+  vertical-align: -2px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
   animation: ch-blink 1.6s ease-in-out infinite;
 }
 
