@@ -187,8 +187,14 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
   if (projets.length === 0) {
     return (
       <div className="ry-vide">
-        <p>{t('Aucun projet dans la ruche.', 'No project in the hive.')}</p>
-        <button className="btn" onClick={() => onNavigate('projets')}>
+        <span className="marque" aria-hidden="true" />
+        <p>
+          {t(
+            'Le rayon s’ouvre avec un projet. Démarrez-en un, puis revenez ici.',
+            'The comb opens with a project. Start one, then come back here.',
+          )}
+        </p>
+        <button className="btn primary" onClick={() => onNavigate('projets')}>
           {t('Aller aux projets', 'Go to projects')}
         </button>
       </div>
@@ -219,7 +225,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate }: ViewProps) {
           <code className="ry-depot">{sansIdentifiants(projet.repoUrl) ?? '—'}</code>
         )}
         <button className="btn ghost ry-apercu-btn" onClick={() => void voirApercu()}>
-          👁 {t('Aperçu', 'Preview')}
+          {t('Aperçu', 'Preview')}
         </button>
       </header>
 
