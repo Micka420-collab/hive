@@ -1632,3 +1632,24 @@ export function lancerWorkflowGithub(
     body: JSON.stringify({ ref }),
   });
 }
+
+export interface EtatAtelier {
+  mode: 'off' | 'auto' | 'on';
+  actif: boolean;
+  ecran: string;
+  cdp: string;
+  outil: string;
+  raison?: string;
+}
+
+export function fetchAtelier(): Promise<EtatAtelier> {
+  return api<EtatAtelier>('/api/atelier');
+}
+
+export function demarrerAtelier(): Promise<{ ok: boolean; plan?: string[] }> {
+  return api('/api/atelier/demarrer', { method: 'POST', body: '{}' });
+}
+
+export function arreterAtelier(): Promise<{ ok: boolean }> {
+  return api('/api/atelier/arreter', { method: 'POST', body: '{}' });
+}

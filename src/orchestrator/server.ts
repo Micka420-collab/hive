@@ -30,6 +30,14 @@ import { gardiennesDepuisEnv } from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
 import type { Edition } from '../shared/edition.js';
 import {
+  atelierDepuisEnv,
+  etatAtelier,
+  executerPlan,
+  moteurAtelier,
+  planComposeArret,
+  planComposeAtelier,
+} from '../atelier/lancement.js';
+import {
   TTL_BILLET_MAX_MS,
   USAGES_MAX,
   EXPLICATION_REFUS,
@@ -1696,6 +1704,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     edition,
     factureHorlogeHote: edition === 'cloud',
   }));
+
+  app.get('/api/atelier', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return etatAtelier({ env: process.env });
+  });
+
+  app.post('/api/atelier/demarrer', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const mode = atelierDepuisEnv(process.env);
+    if (mode === 'off') {
+      return reply.code(403).send({ error: 'HIVE_ATELIER=off — posez auto ou on' });
+    }
+    const plan = planComposeAtelier(moteurAtelier(process.env));
+    if (!plan.ok) return reply.code(409).send({ error: plan.raison });
+    const out = await executerPlan(plan, { cwd: process.cwd(), env: process.env });
+    if (!out.ok) return reply.code(502).send({ error: out.stderr || 'compose a échoué' });
+    return { ok: true, plan: plan.argv };
+  });
+
+  app.post('/api/atelier/arreter', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const plan = planComposeArret(moteurAtelier(process.env));
+    if (!plan.ok) return reply.code(409).send({ error: plan.raison });
+    const out = await executerPlan(plan, { cwd: process.cwd(), env: process.env });
+    if (!out.ok) return reply.code(502).send({ error: out.stderr || 'arrêt échoué' });
+    return { ok: true };
+  });
 
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);

@@ -121,3 +121,6 @@ reporté.
 4. Lot 3 : la vue dans le dashboard, branchée sur le partage en lecture.
 
 Chaque lot passe la barrière et la loupe avant le suivant.
+
+**Lot recette (2026-08)** : un profil compose persistant (`/workspace`) s'ajoute
+à l'isolement des tâches, il ne le remplace pas. Voir `docs/ATELIER.md`.

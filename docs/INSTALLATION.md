@@ -231,6 +231,9 @@ un échec de compilation produirait une image « réussie » dont le démarrage
 meurt sur `ERR_MODULE_NOT_FOUND`. C'est la panne que Node 24 a supprimée côté
 poste de travail ; on ne la réintroduit pas ici.
 
+Le **bureau de recette** (écran, CDP, outils) est un profil à part :
+[`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`.
+
 Ce que `docker-compose.yml` décide pour vous, et pourquoi :
 
 - **le port est publié sur `127.0.0.1`**, pas sur toutes les interfaces. Sous
