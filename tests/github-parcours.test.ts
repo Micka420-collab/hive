@@ -515,6 +515,7 @@ describe('connecter un dépôt depuis un COMPTE', () => {
     const code = brut.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
     expect(code).toContain('fetchDepotsGithub');
     expect(code).toContain('importerDepotGithub');
+    expect(code).toContain('fetchStatutGithub');
   });
 
   it('L’ÉCRAN NE DEMANDE JAMAIS LE JETON GITHUB', () => {

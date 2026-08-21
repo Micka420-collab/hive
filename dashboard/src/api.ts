@@ -24,10 +24,28 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Marche à suivre renvoyée par le serveur (501 GitHub, 401 jeton…), jamais le secret. */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/**
+ * Assemble le texte montré à l'humain : l'erreur courte, puis le détail s'il
+ * apporte autre chose. Sans ça, un 501 GitHub ne montrait que « GitHub non
+ * connecté » et cachait la marche à suivre (`detail`) déjà écrite côté serveur.
+ */
+export function messageApi(body: {
+  error?: string;
+  message?: string;
+  detail?: string;
+}, statut: number): { message: string; detail?: string } {
+  const court = body.message ?? body.error ?? tNow(`Erreur ${statut}`, `Error ${statut}`);
+  const detail = typeof body.detail === 'string' && body.detail.trim() ? body.detail.trim() : undefined;
+  if (!detail || detail === court) return detail ? { message: court, detail } : { message: court };
+  return { message: `${court} — ${detail}`, detail };
 }
 
 // ─── Le lien de partage, côté porteur ───────────────────────────────────────
@@ -80,16 +98,21 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
+    let detail: string | undefined;
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
       // est alors le plus utile, on le préfère quand il est présent.
-      const body = (await res.json()) as { error?: string; message?: string };
-      message = body.message ?? body.error ?? message;
+      // `detail` porte la marche à suivre (501 GitHub, 401 jeton de ruche) :
+      // l'omettre laissait l'écran muet sur ce qu'il fallait faire.
+      const body = (await res.json()) as { error?: string; message?: string; detail?: string };
+      const assemble = messageApi(body, res.status);
+      message = assemble.message;
+      detail = assemble.detail;
     } catch {
       /* corps non-JSON */
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, detail);
   }
   return (await res.json()) as T;
 }
@@ -214,6 +237,19 @@ export function fetchConseil(sessionId: string): Promise<SessionConseil> {
 // le tableau de bord demande « mes dépôts » et reçoit une liste, sans jamais
 // voir de quoi la fabriquer. Un écran qui collecterait le jeton en ferait une
 // valeur qui traverse le navigateur, l'historique et le presse-papiers.
+
+/** État de la connexion GitHub côté orchestrateur — jamais le secret lui-même. */
+export interface StatutGithub {
+  /** `true` si l'orchestrateur a un jeton GitHub en mémoire. */
+  configure: boolean;
+  /** Marche à suivre quand `configure` est faux (même texte que le 501). */
+  detail?: string;
+}
+
+/** Sonde légère : GitHub est-il branché sur l'orchestrateur ? */
+export function fetchStatutGithub(): Promise<StatutGithub> {
+  return api<StatutGithub>('/api/github/status');
+}
 
 export interface DepotGithub {
   fullName: string;
@@ -1513,7 +1549,12 @@ export function fetchMonTableau(): Promise<MonTableau> {
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
-  onStatus: (connected: boolean) => void;
+  /**
+   * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
+   * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
+   * correspond pas à `HIVE_TOKEN` de l'orchestrateur.
+   */
+  onStatus: (connected: boolean, meta?: { authError?: boolean; reason?: string }) => void;
 }
 
 export interface HiveFeed {
@@ -1526,27 +1567,41 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let closed = false;
   let retryMs = 1_000;
   let timer: number | undefined;
+  /** Tant que le hub n'a pas renvoyé d'`state`, on n'est pas vraiment connecté. */
+  let authentifie = false;
 
   const open = (): void => {
     if (closed) return;
+    authentifie = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
       retryMs = 1_000;
-      handlers.onStatus(true);
+      // Pas encore `onStatus(true)` : le hub peut fermer en 4401 juste après
+      // le `subscribe`. On attend le premier `state` (ou on signale l'échec).
       ws?.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
     };
 
     ws.onmessage = (e: MessageEvent) => {
       const msg = parseServerMessage(typeof e.data === 'string' ? e.data : '');
       if (!msg) return;
-      if (msg.type === 'state') handlers.onState(msg.snapshot);
-      else if (msg.type === 'event') handlers.onEvent(msg.event);
+      if (msg.type === 'state') {
+        if (!authentifie) {
+          authentifie = true;
+          handlers.onStatus(true);
+        }
+        handlers.onState(msg.snapshot);
+      } else if (msg.type === 'event') handlers.onEvent(msg.event);
     };
 
-    ws.onclose = () => {
-      handlers.onStatus(false);
+    ws.onclose = (ev: CloseEvent) => {
+      const authError =
+        ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
+      handlers.onStatus(false, {
+        authError,
+        ...(ev.reason ? { reason: ev.reason } : {}),
+      });
       if (!closed) {
         timer = window.setTimeout(open, retryMs);
         retryMs = Math.min(retryMs * 2, 15_000);

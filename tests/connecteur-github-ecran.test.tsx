@@ -59,6 +59,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchConflicts: vi.fn(() => Promise.resolve({ conflicts: [] })),
   fetchProjetsOuverts: vi.fn(() => Promise.resolve({ projets: [] })),
   fetchDepotsGithub: vi.fn(() => Promise.resolve({ depots: [], total: 0 })),
+  fetchStatutGithub: vi.fn(() => Promise.resolve({ configure: true })),
   importerDepotGithub: vi.fn(() => new Promise(() => {})),
   fetchMembresProjet: vi.fn(() => Promise.resolve({ membres: [] })),
   fetchPartages: vi.fn(() => Promise.resolve({ partages: [] })),
@@ -74,7 +75,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   postReview: vi.fn(() => Promise.resolve()),
 }));
 
-import { fetchDepotsGithub } from '../dashboard/src/api';
+import { fetchDepotsGithub, fetchStatutGithub } from '../dashboard/src/api';
 import Projets from '../dashboard/src/views/Projets';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -85,6 +86,7 @@ let conteneur: HTMLElement | null = null;
 beforeEach(() => {
   setLang('fr');
   vi.mocked(fetchDepotsGithub).mockResolvedValue({ depots: [], total: 0 } as never);
+  vi.mocked(fetchStatutGithub).mockResolvedValue({ configure: true } as never);
 });
 
 afterEach(() => {
@@ -244,20 +246,23 @@ describe('le connecteur GitHub : une liste où chaque ligne parle pour elle', ()
     ).not.toBeNull();
   });
 
-  it('SANS COMPTE, L’ÉCRAN PRÉVIENT QUE LE DÉPÔT ARRIVERA SANS PROPRIÉTAIRE', async () => {
+  it('SANS COMPTE, L’ÉCRAN EXIGE LA CONNEXION — plus d’import orphelin proposé', async () => {
     // ─── L'AUTRE BOUT DU CUL-DE-SAC ────────────────────────────────────────
     //
     // Un dépôt importé sans compte appartient à la ruche, pas à quelqu'un — et
-    // sans propriétaire, personne ne peut y admettre d'ouvrière. C'est le
-    // cul-de-sac que la carte Équipe décrit de l'autre côté.
-    //
-    // Prévenir AVANT coûte une phrase ; le découvrir après coûte un projet
-    // qu'il faut faire adopter par un administrateur.
+    // sans propriétaire, personne ne peut y admettre d'ouvrière. Prévenir ne
+    // suffisait pas : l'écran proposait quand même le bouton. On exige
+    // maintenant le compte avant toute liste.
     const sansCompte = await ouvrirLeConnecteur([depot('rucher/miel')], null);
     expect(
       sansCompte.textContent,
-      'rien ne prévient que le dépôt arrivera sans propriétaire',
-    ).toContain('sans propriétaire');
+      'sans compte, rien n’invite à se connecter',
+    ).toContain('Se connecter pour importer');
+    expect(
+      sansCompte.querySelector('.pj-gh-liste'),
+      'la liste des dépôts s’affiche sans compte',
+    ).toBeNull();
+    expect(fetchDepotsGithub, 'GitHub est interrogé sans compte').not.toHaveBeenCalled();
 
     act(() => racine?.unmount());
     conteneur?.remove();
@@ -268,8 +273,9 @@ describe('le connecteur GitHub : une liste où chaque ligne parle pour elle', ()
     });
     expect(
       avecCompte.textContent,
-      'l’avertissement s’affiche à un compte connecté — il ne veut plus rien dire',
-    ).not.toContain('sans propriétaire');
+      'le CTA de connexion s’affiche à un compte connecté',
+    ).not.toContain('Se connecter pour importer');
+    expect(ligneDe(avecCompte, 'rucher/miel').querySelector('button')).not.toBeNull();
   });
 
   it('UN DÉPÔT SANS DESCRIPTION N’EN AFFICHE PAS UNE VIDE', async () => {

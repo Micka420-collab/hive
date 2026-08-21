@@ -40,6 +40,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchConflicts: vi.fn(() => Promise.resolve({ conflicts: [] })),
   fetchProjetsOuverts: vi.fn(() => Promise.resolve({ projets: [] })),
   fetchDepotsGithub: vi.fn(() => Promise.resolve({ depots: [] })),
+  fetchStatutGithub: vi.fn(() => Promise.resolve({ configure: true })),
   fetchMembresProjet: vi.fn(() => Promise.resolve({ membres: [] })),
   fetchPartages: vi.fn(() => Promise.resolve({ partages: [] })),
   fetchIssues: vi.fn(() => Promise.resolve({ issues: [] })),
@@ -68,6 +69,7 @@ import {
   fetchConseil,
   fetchConseils,
   fetchDepotsGithub,
+  fetchStatutGithub,
   fetchMergeResult,
   planBrief,
   runMerge,
@@ -88,6 +90,7 @@ beforeEach(() => {
   vi.mocked(fetchBalance)
     .mockReset()
     .mockResolvedValue(null as never);
+  vi.mocked(fetchStatutGithub).mockReset().mockResolvedValue({ configure: true } as never);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -133,7 +136,10 @@ function instantane(tasks: Task[]): StateSnapshot {
   } as unknown as StateSnapshot;
 }
 
-async function monter(snapshot: StateSnapshot): Promise<HTMLElement> {
+async function monter(
+  snapshot: StateSnapshot,
+  user: { id: string; email?: string; displayName?: string; role?: string } | null = null,
+): Promise<HTMLElement> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -145,7 +151,14 @@ async function monter(snapshot: StateSnapshot): Promise<HTMLElement> {
     onOpenTask: () => {},
     onNavigate: () => {},
     refreshTick: 0,
-    user: null,
+    user: user
+      ? {
+          id: user.id,
+          email: user.email ?? 'abeille@exemple.test',
+          displayName: user.displayName ?? 'Abeille',
+          role: user.role ?? 'membre',
+        }
+      : null,
   } as unknown as ViewProps;
   await act(async () => racine?.render(<Projets {...props} />));
   await act(async () => {});
@@ -402,8 +415,9 @@ describe('les Projets — les trois survivantes du balayage', () => {
     // d'erreur VIDE s'afficherait dès l'ouverture de la section, et l'erreur
     // réelle se rendrait crue. Les deux mondes : ouverture sereine (liste
     // vide), puis ouverture sur une sonde en panne.
+    const compte = { id: 'u-1' };
     vi.mocked(fetchDepotsGithub).mockResolvedValue({ depots: [] } as never);
-    const serein = await monter(instantane([]));
+    const serein = await monter(instantane([]), compte);
     cliquer(bouton(serein, 'Connecter un dépôt GitHub'));
     await act(async () => {});
     expect(
@@ -414,7 +428,7 @@ describe('les Projets — les trois survivantes du balayage', () => {
     act(() => racine?.unmount());
     conteneur?.remove();
     vi.mocked(fetchDepotsGithub).mockRejectedValue(new Error('GitHub non connecté (501)'));
-    const panne = await monter(instantane([]));
+    const panne = await monter(instantane([]), compte);
     cliquer(bouton(panne, 'Connecter un dépôt GitHub'));
     await act(async () => {});
     const habit = panne.querySelector('.pj-gh-erreur');
@@ -429,8 +443,9 @@ describe('les Projets — les trois survivantes du balayage', () => {
     // résultats quand il y en a. Les deux mondes, sur la première action d'un
     // nouvel arrivant : connecter son dépôt. Ouvrir la section suffit à lancer la
     // liste (`lister('')` au clic).
+    const compte = { id: 'u-1' };
     vi.mocked(fetchDepotsGithub).mockResolvedValue({ depots: [] } as never);
-    const vide = await monter(instantane([]));
+    const vide = await monter(instantane([]), compte);
     cliquer(bouton(vide, 'Connecter un dépôt GitHub'));
     await act(async () => {});
     expect(vide.textContent, 'une recherche sans résultat le DIT').toContain(
@@ -451,7 +466,7 @@ describe('les Projets — les trois survivantes du balayage', () => {
         },
       ],
     } as never);
-    const plein = await monter(instantane([]));
+    const plein = await monter(instantane([]), compte);
     cliquer(bouton(plein, 'Connecter un dépôt GitHub'));
     await act(async () => {});
     expect(plein.textContent, 'le dépôt trouvé se montre').toContain('octo/rucher');
