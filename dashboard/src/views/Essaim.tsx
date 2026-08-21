@@ -2,7 +2,7 @@
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
 import { jamaisRienRecu } from './etat-sondage';
-import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
+import { fetchBaptemes, fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
 import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
@@ -10,6 +10,7 @@ import { DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
+import { useEffect, useState } from 'react';
 import './essaim.css';
 
 /** Sous-agents en vol sur un nœud : agrégés via les tâches qui lui sont assignées. */
@@ -30,17 +31,24 @@ function NodeCard({
   node,
   agents,
   racing,
+  bapt,
 }: {
   node: HiveNode;
   agents: SubAgent[];
   racing: boolean;
+  /** undefined = pas encore chargé ; null = constaté absent ; string = baptême. */
+  bapt: string | null | undefined;
 }) {
   const t = useT();
   const lang = useLang();
+  const label = bapt || node.name;
   return (
     <article className={`es-node ${node.status}`}>
       <header className="es-node-head">
-        <span className="es-node-name" title={node.name}>
+        <span
+          className={`es-node-name${bapt === null ? ' muted-text' : ''}`}
+          title={bapt ? `${bapt} · ${node.name}` : node.name}
+        >
           {racing && (
             <span
               className="es-race-badge"
@@ -51,13 +59,18 @@ function NodeCard({
               ◇
             </span>
           )}
-          {node.name}
+          {bapt === null ? t('Pas encore baptisée', 'Not baptised yet') : label}
         </span>
         <span className={`conn ${node.status}`}>
           <span className="conn-dot" />
           {node.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')}
         </span>
       </header>
+      {(bapt || bapt === null) && (
+        <div className="es-node-tech muted-text">
+          {t('Technique', 'Technical')} · {node.name}
+        </div>
+      )}
       <div className="es-node-meta">
         <span className="chip es-chip">{libelleAgent(node.agentType, lang === 'en')}</span>
         <span>{node.ownerName}</span>
@@ -483,6 +496,27 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
   for (const r of liveRaces)
     for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
 
+  /** nodeId → baptême constaté ; null map = silence ; baptemes null = pas chargé. */
+  const [baptemes, setBaptemes] = useState<Record<string, string | null> | null>(null);
+  const nodeIdsKey = snapshot.nodes.map((n) => n.id).join(',');
+  useEffect(() => {
+    let vivant = true;
+    fetchBaptemes()
+      .then((r) => {
+        if (!vivant) return;
+        const map: Record<string, string | null> = {};
+        for (const id of nodeIdsKey.split(',').filter(Boolean)) map[id] = null;
+        for (const b of r.baptemes) map[b.nodeId] = b.nom;
+        setBaptemes(map);
+      })
+      .catch(() => {
+        // Échec : garder les noms techniques, ne pas affirmer « pas baptisée ».
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [nodeIdsKey, refreshTick]);
+
   return (
     <div className="mc-view es-view">
       <div className="es-layout">
@@ -509,6 +543,7 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
                     node={n}
                     agents={activeAgentsOf(n.id, snapshot.tasks, agentsByTask)}
                     racing={racingNodes.has(n.id)}
+                    bapt={baptemes ? (baptemes[n.id] ?? null) : undefined}
                   />
                 ))}
               </div>

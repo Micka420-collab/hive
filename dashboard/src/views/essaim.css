@@ -161,6 +161,11 @@
   white-space: nowrap;
 }
 
+.es-node-tech {
+  font-size: 12px;
+  margin-top: -2px;
+}
+
 .es-node-meta {
   display: flex;
   align-items: center;
