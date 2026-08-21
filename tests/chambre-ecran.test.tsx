@@ -28,12 +28,19 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ),
   repondreRequisition: vi.fn(),
   appliquerMotif: vi.fn(),
-  noterHorizon: vi.fn(),
+  ajouterHorizon: vi.fn(),
   demarrerAtelier: vi.fn(),
   arreterAtelier: vi.fn(),
 }));
 
-import { fetchChambre } from '../dashboard/src/api';
+import {
+  ajouterHorizon,
+  appliquerMotif,
+  fetchChambre,
+  fetchMotifs,
+  repondreRequisition,
+} from '../dashboard/src/api';
+import type { MotifCatalogue } from '../dashboard/src/api';
 import Chambre from '../dashboard/src/views/Chambre';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -105,6 +112,14 @@ function poste(over: Partial<ChambrePoste> = {}): ChambrePoste {
 beforeEach(() => {
   setLang('fr');
   vi.mocked(fetchChambre).mockReset().mockResolvedValue(poste());
+  vi.mocked(repondreRequisition).mockReset().mockResolvedValue({ ok: true, statut: 'accordee' });
+  vi.mocked(ajouterHorizon)
+    .mockReset()
+    .mockResolvedValue({ ok: true, entree: { id: 'n1', kind: 'fait', texte: 'x' } });
+  vi.mocked(appliquerMotif)
+    .mockReset()
+    .mockResolvedValue({ ok: true, motifId: 'm1', taskIds: [], titres: [] });
+  vi.mocked(fetchMotifs).mockReset().mockResolvedValue({ motifs: [] });
 });
 
 afterEach(() => {
@@ -114,7 +129,10 @@ afterEach(() => {
   conteneur = null;
 });
 
-async function monter(onNavigate: ViewProps['onNavigate'] = () => {}): Promise<HTMLElement> {
+async function monter(
+  onNavigate: ViewProps['onNavigate'] = () => {},
+  events: ViewProps['events'] = [],
+): Promise<HTMLElement> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -122,10 +140,25 @@ async function monter(onNavigate: ViewProps['onNavigate'] = () => {}): Promise<H
     snapshot: {
       projects: [],
       nodes: [],
-      tasks: [],
-      tasksTotal: 0,
+      tasks: [
+        {
+          id: 't1',
+          projectId: PROJECT_ID,
+          title: 'Écrire le pont MCP',
+          prompt: 'pont',
+          status: 'running',
+          dependsOn: [],
+          assignedNodeId: NODE_ID,
+          result: null,
+          branch: null,
+          attempts: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      tasksTotal: 1,
     } as unknown as StateSnapshot,
-    events: [],
+    events,
     agentsByTask: {},
     deferred: new Set(),
     onOpenTask: () => {},
@@ -137,6 +170,13 @@ async function monter(onNavigate: ViewProps['onNavigate'] = () => {}): Promise<H
   await act(async () => racine?.render(<Chambre {...props} />));
   await act(async () => {});
   return document.body;
+}
+
+async function cliquer(el: Element): Promise<void> {
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+  await act(async () => {});
 }
 
 describe('Chambre à l’écran', () => {
@@ -152,7 +192,7 @@ describe('Chambre à l’écran', () => {
     expect(actif?.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('navigue les onglets au clavier (ArrowDown)', async () => {
+  it('navigue les onglets au clavier (ArrowDown / Home)', async () => {
     const dom = await monter();
     const tablist = dom.querySelector('[data-testid="chambre-sections"]') as HTMLElement;
     const fiche = dom.querySelector('#ch-tab-fiche') as HTMLButtonElement;
@@ -170,16 +210,29 @@ describe('Chambre à l’écran', () => {
     expect(travail.getAttribute('aria-selected')).toBe('true');
     expect(travail.tabIndex).toBe(0);
     expect(fiche.tabIndex).toBe(-1);
+
+    await act(async () => {
+      tablist.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }),
+      );
+    });
+    await act(async () => {});
+    expect(
+      (dom.querySelector('#ch-tab-fiche') as HTMLButtonElement).getAttribute('aria-selected'),
+    ).toBe('true');
   });
 
-  it('ouvre le Rayon depuis le bouton d’en-tête', async () => {
+  it('ouvre le Rayon depuis le bouton d’en-tête et depuis un chemin constaté', async () => {
     const onNavigate = vi.fn();
     const dom = await monter(onNavigate);
     const btn = dom.querySelector('[data-testid="chambre-ouvrir-rayon"]') as HTMLButtonElement;
     expect(btn).toBeTruthy();
-    await act(async () => {
-      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
+    await cliquer(btn);
+    expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
+
+    const chemin = dom.querySelector('button.ch-lien-chemin') as HTMLButtonElement;
+    expect(chemin?.textContent).toContain('src/pont/mcp.ts');
+    await cliquer(chemin);
     expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
   });
 
@@ -191,5 +244,109 @@ describe('Chambre à l’écran', () => {
     expect(titres).toContain('Journal');
     expect(titres).toContain('Missions');
     expect(titres.some((t) => t.startsWith('Ordinateur'))).toBe(true);
+  });
+
+  it('accorde une réquisition depuis le bandeau À trancher', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-1',
+            nodeId: NODE_ID,
+            genre: 'cle_api',
+            libelle: 'Clé Seedance',
+            detail: 'Pour le pont vidéo',
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    expect(dom.textContent).toContain('À trancher');
+    expect(dom.textContent).toContain('Clé Seedance');
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    );
+    expect(accorder).toBeTruthy();
+    await cliquer(accorder!);
+    expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee');
+  });
+
+  it('parcourt Travail, Intégrations (motifs) et Suivi (horizon)', async () => {
+    const motif: MotifCatalogue = {
+      id: 'm1',
+      domaine: 'revue',
+      libelleFr: 'Revue courte',
+      libelleEn: 'Short review',
+      etapes: [
+        { id: 'e1', titreFr: 'a', titreEn: 'a' },
+        { id: 'e2', titreFr: 'b', titreEn: 'b' },
+      ],
+    };
+    vi.mocked(fetchMotifs).mockResolvedValue({ motifs: [motif] });
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        fabriques: [
+          {
+            id: 'f1',
+            genre: 'script',
+            libelle: 'lint',
+            nomScript: 'lint.sh',
+            statut: 'ouverte',
+            creeA: 1,
+          },
+        ],
+        horizon: {
+          faits: [{ id: 'h1', texte: 'Compile', source: 'demo', creeA: 1 }],
+          hypotheses: [{ id: 'h2', texte: 'Seedance ok', source: 'demo', creeA: 1 }],
+        },
+      }),
+    );
+    const dom = await monter();
+
+    await cliquer(dom.querySelector('#ch-tab-travail')!);
+    expect(dom.textContent).toContain('Outils en cours');
+    expect(dom.textContent).toContain('src/pont/mcp.ts');
+
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    expect(dom.textContent).toContain('Fabrique');
+    expect(dom.textContent).toContain('lint');
+    expect(dom.textContent).toContain('Revue courte');
+    const appliquer = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Appliquer'),
+    );
+    expect(appliquer).toBeTruthy();
+    await cliquer(appliquer!);
+    expect(appliquerMotif).toHaveBeenCalled();
+
+    await cliquer(dom.querySelector('#ch-tab-suivi')!);
+    expect(dom.textContent).toContain('Compile');
+    expect(dom.textContent).toContain('Seedance ok');
+    const input = dom.querySelector('input[placeholder="Constater…"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, 'Un fait constaté');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const form = input.closest('form')!;
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    expect(ajouterHorizon).toHaveBeenCalledWith(PROJECT_ID, 'fait', 'Un fait constaté');
+  });
+
+  it('filtre les missions (Terminées)', async () => {
+    const dom = await monter();
+    const filtres = dom.querySelector('[data-testid="chambre-filtres-taches"]')!;
+    const terminees = [...filtres.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Terminées'),
+    )!;
+    await cliquer(terminees);
+    expect(terminees.getAttribute('aria-pressed')).toBe('true');
   });
 });
