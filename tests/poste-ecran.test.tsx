@@ -162,6 +162,12 @@ function cliquer(el: Element): void {
   });
 }
 
+/** Clic + flush des effets (fetchChambre / fetchWaggle / baptêmes). */
+async function cliquerEtAttendre(el: Element): Promise<void> {
+  cliquer(el);
+  await act(async () => {});
+}
+
 describe('le panneau des nœuds — la machine se lit sur la carte', () => {
   it('LA CARTE AFFICHE LE BAPTÊME CONSTATÉ quand l’API le fournit', async () => {
     vi.mocked(fetchBaptemes).mockResolvedValue({
@@ -237,7 +243,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
       (c.textContent ?? '').includes('ruche-fenetre'),
     );
-    cliquer(carte as Element);
+    await cliquerEtAttendre(carte as Element);
     const fiche = dom.querySelector('[role="dialog"]');
     expect(fiche, 'la fiche s’ouvre').toBeTruthy();
     expect(fiche?.textContent).toContain('ruche-fenetre');
@@ -278,8 +284,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
       (c.textContent ?? '').includes('ruche-fenetre'),
     );
-    cliquer(carte as Element);
-    await act(async () => {});
+    await cliquerEtAttendre(carte as Element);
     const fiche = dom.querySelector('[role="dialog"]');
     expect(fiche?.textContent).toContain('Capucine');
     expect(fiche?.textContent).toContain('Technique');
@@ -304,13 +309,13 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
         (c.textContent ?? '').includes(nom),
       ) as Element;
 
-    cliquer(carte('ruche-vive'));
+    await cliquerEtAttendre(carte('ruche-vive'));
     const ficheVive = dom.querySelector('[role="dialog"]')?.textContent ?? '';
     expect(ficheVive, 'la machine en ligne s’annonce en ligne').toContain('en ligne');
     expect(ficheVive, 'et jamais hors ligne').not.toContain('hors ligne');
     cliquer(dom.querySelector('.modal-close') as Element);
 
-    cliquer(carte('ruche-muette'));
+    await cliquerEtAttendre(carte('ruche-muette'));
     const ficheMuette = dom.querySelector('[role="dialog"]')?.textContent ?? '';
     expect(ficheMuette, 'la machine hors ligne s’annonce hors ligne').toContain('hors ligne');
     expect(ficheMuette, 'et jamais en ligne').not.toContain('en ligne');
@@ -319,7 +324,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
   it('CLIQUER UNE MISSION OUVRE LE TIROIR — et referme la fiche', async () => {
     const ouvrir = vi.fn();
     const dom = await monterAvecFiche(NOEUDS, MISSIONS, ouvrir);
-    cliquer(
+    await cliquerEtAttendre(
       [...dom.querySelectorAll('.node-card')].find((c) =>
         (c.textContent ?? '').includes('ruche-fenetre'),
       ) as Element,
@@ -337,7 +342,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
 
   it('SANS MISSIONS : la fiche le dit, sans inventer de liste', async () => {
     const dom = await monterAvecFiche(NOEUDS, [], () => {});
-    cliquer(
+    await cliquerEtAttendre(
       [...dom.querySelectorAll('.node-card')].find((c) =>
         (c.textContent ?? '').includes('ruche-manchot'),
       ) as Element,
@@ -373,12 +378,11 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
       topNodeId: 'n-ruche-manchot',
     } as never);
     const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
-    cliquer(
+    await cliquerEtAttendre(
       [...dom.querySelectorAll('.node-card')].find((c) =>
         (c.textContent ?? '').includes('ruche-fenetre'),
       ) as Element,
     );
-    await act(async () => {});
     const nectar = dom.querySelector('.fo-nectar');
     expect(nectar, 'la ligne de nectar se montre').toBeTruthy();
     expect(nectar?.textContent).toContain('24 nectar');
@@ -413,8 +417,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
         (c.textContent ?? '').includes(nom),
       ) as Element;
 
-    cliquer(carte('ruche-fenetre'));
-    await act(async () => {});
+    await cliquerEtAttendre(carte('ruche-fenetre'));
     expect(dom.querySelector('.fo-nectar')?.textContent).toContain('8 nectar');
     expect(
       dom.querySelector('.fo-nectar')?.textContent,
@@ -423,8 +426,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
 
     // Ferme, puis ouvre la voisine — absente du classement : le nectar se tait.
     cliquer(dom.querySelector('.modal-close') as Element);
-    cliquer(carte('ruche-manchot'));
-    await act(async () => {});
+    await cliquerEtAttendre(carte('ruche-manchot'));
     expect(dom.querySelector('[role="dialog"]')?.textContent).toContain('ruche-manchot');
     expect(
       dom.querySelector('.fo-nectar'),

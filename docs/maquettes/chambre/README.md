@@ -14,6 +14,7 @@ Maquette HTML : `index.html` · captures : `chambre-maquette-fidele.png`,
   réalisateur / producteur inventés)
 
 L’UI live (`dashboard/src/views/Chambre.tsx` + `chambre.css`) suit ce look.
+Entrées : fiche nœud (Ruche), curseur Rayon, **carte Essaim** → `#/chambre/<nodeId>`.
 
 ## Figma
 

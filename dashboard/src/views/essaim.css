@@ -80,6 +80,12 @@
   outline: none;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .es-node-ouvre {
+    transition: none;
+  }
+}
+
 .es-node.offline {
   opacity: 0.6;
 }
