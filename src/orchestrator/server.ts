@@ -1953,6 +1953,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const code = v.motif === 'inconnue' ? 404 : 409;
         return reply.code(code).send({ error: v.motif });
       }
+      // La clé reste chez la Queen / Intendance — on constate la décision, pas le secret.
+      emitEvent('requisition_reponse', {
+        id: req.params.id,
+        statut: v.statut,
+      });
       return { ok: true, statut: v.statut };
     },
   );
@@ -3201,6 +3206,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         dernierApportHumain: store.dernierApportHumain(),
         now: Date.now(),
       }),
+      horizonEntrees: store.compterHorizon(projectId),
     };
     return { ...etat, decision: deciderPas(etat) };
   };
@@ -3646,6 +3652,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             pr: ouverte.pr,
             fusionnee: r.fusionnee,
           });
+          // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
+          // (Chantiers pourra enfin juger le script déclaré).
+          if (r.fusionnee) {
+            for (const f of store.listerFabriques(projectId)) {
+              if (f.statut !== 'proposee' && f.statut !== 'en_revue') continue;
+              if (f.taskId && f.taskId !== ouverte.taskId) continue;
+              store.poserStatutFabrique(f.id, 'mergee');
+            }
+          }
           return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
         } catch (e) {
           // Un refus de GitHub (405 : conflit, CI rouge, revue exigée) n'est
@@ -5579,8 +5594,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!(await assurerMiroir(project, reply))) return reply;
 
       // LE DÉPÔT DÉCIDE. `intentionHumaine` n'est volontairement pas passée.
-      const verdict = jugerChantier(await scriptsDuMiroir(project), req.params.nom);
+      const scripts = await scriptsDuMiroir(project);
+      const verdict = jugerChantier(scripts, req.params.nom);
       if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+
+      // ADR 0010 lot 8 : une fabrique encore ouverte pour CE script bloque.
+      const { fabriqueBloqueChantier, jugerFabriqueAvantChantier, expliquerRefusFabrique } =
+        await import('./fabrique.js');
+      const gate = fabriqueBloqueChantier(store.listerFabriques(project.id), req.params.nom);
+      if (!gate.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(gate.motif) });
+      }
+      const avant = jugerFabriqueAvantChantier({
+        nomScript: req.params.nom,
+        scriptsMiroir: scripts,
+        mergeLanded: gate.mergeLanded,
+      });
+      if (!avant.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(avant.motif) });
+      }
 
       const node = store
         .listNodes()

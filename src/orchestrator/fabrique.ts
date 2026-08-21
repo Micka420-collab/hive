@@ -82,6 +82,23 @@ export function jugerFabriqueAvantChantier(opts: {
   return { ok: true };
 }
 
+/**
+ * Une fabrique encore ouverte (proposée / en revue) pour CE script bloque le
+ * chantier — doctrine lot 8 : pas d'exécution avant merge landé.
+ */
+export function fabriqueBloqueChantier(
+  fabriques: readonly { nomScript: string | null; statut: StatutFabrique }[],
+  nomScript: string,
+): { ok: true; mergeLanded: boolean } | { ok: false; motif: MotifRefusFabrique } {
+  const liees = fabriques.filter((f) => f.nomScript === nomScript);
+  if (liees.some((f) => f.statut === 'proposee' || f.statut === 'en_revue')) {
+    return { ok: false, motif: 'pas_encore_merge' };
+  }
+  // Aucune fabrique suivie, ou au moins une mergee → le miroir peut décider.
+  const mergeLanded = liees.length === 0 || liees.some((f) => f.statut === 'mergee');
+  return { ok: true, mergeLanded };
+}
+
 /** Prompt de tâche pour qu'une ouvrière écrive l'artefact dans le dépôt. */
 export function promptFabrique(opts: {
   genre: GenreFabrique;

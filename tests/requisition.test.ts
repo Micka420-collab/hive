@@ -63,6 +63,30 @@ describe('HiveStore — réquisitions', () => {
     expect(store.pruneRequisitions(1, Date.now() + 10)).toBe(1);
   });
 
+  it('exemple Seedance : cle_api → Accorder — sans stocker de secret', () => {
+    // Parcours produit (ADR 0010 lot 7) : l’ouvrière demande une clé ; l’humain
+    // accorde depuis la Chambre ; le secret vit dans l’env Queen, jamais ici.
+    const store = new HiveStore(':memory:');
+    noeud(store, 'n-capucine');
+    const o = store.ouvrirRequisition(
+      'n-capucine',
+      'cle_api',
+      'Clé Seedance',
+      'Pour le pont vidéo',
+    );
+    expect(o.ok).toBe(true);
+    if (!o.ok) return;
+    const ouvertes = store.listerRequisitions({ nodeId: 'n-capucine', statut: 'ouverte' });
+    expect(ouvertes[0]?.libelle).toBe('Clé Seedance');
+    expect(ouvertes[0]?.detail).toMatch(/vidéo/);
+    expect(JSON.stringify(ouvertes)).not.toMatch(/sk-|secret|SEEDANCE_KEY/i);
+    expect(store.repondreRequisition(o.id, 'accordee')).toEqual({
+      ok: true,
+      statut: 'accordee',
+    });
+    expect(store.listerRequisitions({ statut: 'ouverte' })).toHaveLength(0);
+  });
+
   it('refuse nœud inconnu et genre inventé', () => {
     const store = new HiveStore(':memory:');
     expect(store.ouvrirRequisition('x', 'mcp', 'x')).toEqual({

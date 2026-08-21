@@ -2112,6 +2112,15 @@ export class HiveStore {
     return out;
   }
 
+  /** Compte brut du ledger (pour garde-fou essaim, pas pour l’écran). */
+  compterHorizon(projectId: string): number {
+    return (
+      this.db
+        .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
+        .get(projectId) as { n: number }
+    ).n;
+  }
+
   pruneHorizon(retentionMs: number, now = Date.now()): number {
     const cutoff = now - retentionMs;
     return this.db.prepare('DELETE FROM horizon_ledger WHERE creeA < ?').run(cutoff).changes;

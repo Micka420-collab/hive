@@ -71,6 +71,8 @@ import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { lignesDeLogs } from './brood.js';
 import { SOLITUDE_JOURS } from './derive.js';
 import type { Derive } from './derive.js';
+import { horizonDepasseBudgetTaches } from './horizon.js';
+import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import { evaluerCaste } from './polyethisme.js';
 import type { Antecedents, Caste } from './polyethisme.js';
 
@@ -340,6 +342,11 @@ export interface EtatEssaim {
    * dégrade, et s'arrêter avant d'avoir pourri le projet.
    */
   derive: Derive;
+  /**
+   * Nombre d'entrées du carnet d'horizon (faits + hypothèses). Si trop gros
+   * pour le plafond d'instantané, `deciderPas` halte (ADR 0010 lot 9).
+   */
+  horizonEntrees: number;
 }
 
 export interface Decision {
@@ -394,6 +401,10 @@ export function deciderPas(etat: EtatEssaim): Decision {
       'halte',
       `dérive non mesurable après ${Math.round(etat.derive.solitudeJours)} jour(s) sans regard humain : ${etat.derive.motif}`,
     );
+  }
+  // Carnet d'horizon trop gros → halte (pas d'injection massive dans l'instantané).
+  if (horizonDepasseBudgetTaches(etat.horizonEntrees, LIMITE_TACHES_INSTANTANE)) {
+    return decision('halte', 'carnet d’horizon trop gros pour l’instantané');
   }
 
   if (etat.plafond === 'bloque') return decision('plafond', 'plafond de dépense atteint');

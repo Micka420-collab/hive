@@ -14,13 +14,13 @@ describe('motifs', () => {
     expect(MOTIFS.some((m) => m.id === 'jeu-3d')).toBe(true);
   });
 
-  it('jeu-3d : fabrique avant assets', () => {
+  it('jeu-3d : Blender/fabrique avant assets', () => {
     const v = appliquerMotif('jeu-3d', 'fr');
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     const ids = v.motif.etapes.map((e) => e.id);
     expect(ids.indexOf('fabrique')).toBeLessThan(ids.indexOf('assets'));
-    expect(v.titres[0]).toMatch(/outillage|Fabriquer/i);
+    expect(v.titres[0]).toMatch(/Blender|Fabriquer/i);
   });
 
   it('refuse un diff git collé', () => {

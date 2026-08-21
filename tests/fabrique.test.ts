@@ -43,6 +43,20 @@ describe('fabrique — jugement chantier', () => {
     ).toEqual({ ok: true });
   });
 
+  it('fabrique ouverte bloque le chantier ; mergee ou absente laisse passer', async () => {
+    const { fabriqueBloqueChantier } = await import('../src/orchestrator/fabrique.js');
+    expect(
+      fabriqueBloqueChantier([{ nomScript: 'outil:3d', statut: 'proposee' }], 'outil:3d'),
+    ).toEqual({ ok: false, motif: 'pas_encore_merge' });
+    expect(
+      fabriqueBloqueChantier([{ nomScript: 'outil:3d', statut: 'en_revue' }], 'outil:3d'),
+    ).toEqual({ ok: false, motif: 'pas_encore_merge' });
+    expect(
+      fabriqueBloqueChantier([{ nomScript: 'outil:3d', statut: 'mergee' }], 'outil:3d'),
+    ).toEqual({ ok: true, mergeLanded: true });
+    expect(fabriqueBloqueChantier([], 'outil:3d')).toEqual({ ok: true, mergeLanded: true });
+  });
+
   it('prompt sans secret', () => {
     expect(promptFabrique({ genre: 'script_npm', libelle: 'X', nomScript: 'x' })).toMatch(
       /APRÈS merge/,

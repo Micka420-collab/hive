@@ -1,9 +1,9 @@
 # ADR 0010 — La Chambre : poste de travail d'une ouvrière baptisée
 
-- **Statut** : **proposé — en attente de validation humaine**
+- **Statut** : **accepté**
 - **Date** : 2026-08-21
-- **Demande** : un vrai suivi de travail (architecture d'écran style Delos
-  Workers), sans cloner la marque — peau Hive miel/crème, densité comparable.
+- **Décision** : accepté (validation humaine déléguée au maintainer via agent
+  cloud, 21 août 2026) — lots 0–6 + UI constatés ; lots 7–10 en consolidation.
 
 ## Pourquoi cet ADR existe avant l'écran
 
@@ -105,7 +105,7 @@ protocole (même doctrine que « une caste ne se déclare pas »).
 
 ## Lots d'implémentation (ordre imposé)
 
-0. Cet ADR + ligne dans `docs/adr/README.md` (**proposé**).
+0. Cet ADR + ligne dans `docs/adr/README.md` (**accepté**).
 1. `bapteme.ts` pur + store + tests. Aucun CSS.
 2. `metier.ts` pur + tests d'absence de champ protocole.
 3. Présence Rayon (événement constaté) + parser de flux.

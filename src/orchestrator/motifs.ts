@@ -39,8 +39,8 @@ export const MOTIFS: readonly MotifInterProjet[] = Object.freeze([
     etapes: Object.freeze([
       Object.freeze({
         id: 'fabrique',
-        titreFr: 'Fabriquer / déclarer l’outillage 3D (script, pont) dans le dépôt',
-        titreEn: 'Forge / declare 3D tooling (script, bridge) in the repo',
+        titreFr: 'Fabriquer / déclarer Blender (ou pont 3D) dans le dépôt avant les assets',
+        titreEn: 'Forge / declare Blender (or 3D bridge) in the repo before assets',
       }),
       Object.freeze({
         id: 'pipeline',
