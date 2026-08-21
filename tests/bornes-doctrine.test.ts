@@ -92,6 +92,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   machines_noeuds: 'une ligne par machine provisionnée',
   modeles_noeuds:
     'une liste de modèles par machine — clé primaire nodeId, écrasée à la ré-inscription',
+  baptemes:
+    'une ligne par ouvrière baptisée par la Reine (ADR 0010) — clé primaire nodeId ; collision de noms refusée',
   abonnements: 'une ligne par compte abonné',
   budgets: 'un plafond par projet',
   essaim: 'clé primaire `projectId` — une seule ligne par projet, par construction',

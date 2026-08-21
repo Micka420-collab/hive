@@ -20,6 +20,7 @@ import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
 import type { SessionHote } from './horloge-hote.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
+import { jugerBapteme, normaliserNomBapteme, type VerdictBapteme } from './bapteme.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -803,6 +804,18 @@ CREATE TABLE IF NOT EXISTS modeles_noeuds (
   modeles TEXT NOT NULL,
   majA    INTEGER NOT NULL
 );
+
+-- Baptême Reine (ADR 0010) : le nom affiché d'une ouvrière. TABLE LATÉRALE —
+-- on n'ALTÈRE pas « nodes.name » (règle 2). Le nœud ne pose PAS ce nom via le
+-- protocole ; seule la Reine (API / CLI) écrit ici. UNIQUE insensible à la
+-- casse : une collision est refusée avant l'INSERT (bapteme.ts), et l'index
+-- double la garde.
+CREATE TABLE IF NOT EXISTS baptemes (
+  nodeId   TEXT PRIMARY KEY REFERENCES nodes(id),
+  nom      TEXT NOT NULL,
+  baptiseA INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_baptemes_nom ON baptemes(nom COLLATE NOCASE);
 `;
 
 interface ProjectRow {
@@ -1394,6 +1407,72 @@ export class HiveStore {
     return (this.db.prepare(`${NODE_SELECT} ORDER BY n.name`).all() as NodeRowBrut[]).map(
       rowToNode,
     );
+  }
+
+  // ─── Baptêmes (ADR 0010) ───────────────────────────────────────────────────
+  //
+  // Identité affichée POSÉE PAR LA REINE. Absent ⇒ l'écran ne montre pas de
+  // prénom inventé (règle d'or Chambre). `nodes.name` reste le libellé
+  // technique d'inscription ; il n'est plus la source d'identité humaine.
+
+  /** Le baptême d'un nœud, ou `null` s'il n'en a pas (jamais inventé). */
+  lireBapteme(nodeId: string): { nom: string; baptiseA: number } | null {
+    const row = this.db
+      .prepare('SELECT nom, baptiseA FROM baptemes WHERE nodeId = ?')
+      .get(nodeId) as { nom: string; baptiseA: number } | undefined;
+    return row ?? null;
+  }
+
+  /** Tous les baptêmes — pour lister les collisions et l'API Chambre. */
+  listerBaptemes(): { nodeId: string; nom: string; baptiseA: number }[] {
+    return this.db
+      .prepare('SELECT nodeId, nom, baptiseA FROM baptemes ORDER BY nom COLLATE NOCASE')
+      .all() as { nodeId: string; nom: string; baptiseA: number }[];
+  }
+
+  /**
+   * Baptise (ou rebaptise) une ouvrière.
+   *
+   * Le jugement pur vit dans `bapteme.ts` ; ici on vérifie l'existence du nœud
+   * et on persiste. Collision = autre `nodeId` portant déjà ce nom.
+   */
+  baptiser(
+    nodeId: string,
+    brut: string,
+    now = Date.now(),
+  ): VerdictBapteme | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const pris = this.listerBaptemes()
+      .filter((b) => b.nodeId !== nodeId)
+      .map((b) => b.nom);
+    const verdict = jugerBapteme(brut, pris);
+    if (!verdict.ok) return verdict;
+    this.db
+      .prepare(
+        'INSERT INTO baptemes (nodeId, nom, baptiseA) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(nodeId) DO UPDATE SET nom = excluded.nom, baptiseA = excluded.baptiseA',
+      )
+      .run(nodeId, verdict.nom, now);
+    return verdict;
+  }
+
+  /**
+   * Retire le baptême. N'invente pas de nom de remplacement — l'ouvrière
+   * redevient sans nom baptisé.
+   */
+  debaptiser(nodeId: string): boolean {
+    const r = this.db.prepare('DELETE FROM baptemes WHERE nodeId = ?').run(nodeId);
+    return r.changes > 0;
+  }
+
+  /** Résout un nom baptisé → nodeId, ou `null`. */
+  nodeIdParBapteme(nom: string): string | null {
+    const cible = normaliserNomBapteme(nom);
+    if (!cible) return null;
+    const row = this.db
+      .prepare('SELECT nodeId FROM baptemes WHERE nom = ? COLLATE NOCASE')
+      .get(cible) as { nodeId: string } | undefined;
+    return row?.nodeId ?? null;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
