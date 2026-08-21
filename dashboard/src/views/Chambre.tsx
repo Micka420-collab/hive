@@ -269,7 +269,12 @@ export default function Chambre({
                 {poste.caste ? ` · ${poste.caste}` : ''}
               </p>
 
-              <div className="ch-onglets" role="tablist" aria-label={t('Sections', 'Sections')}>
+              <div
+                className="ch-onglets"
+                role="tablist"
+                aria-label={t('Sections', 'Sections')}
+                data-testid="chambre-sections"
+              >
                 {(
                   [
                     ['fiche', t('Fiche', 'Sheet')],
@@ -282,6 +287,8 @@ export default function Chambre({
                     key={id}
                     type="button"
                     role="tab"
+                    id={`ch-tab-${id}`}
+                    aria-controls={`ch-panel-${id}`}
                     aria-selected={onglet === id}
                     className={onglet === id ? 'actif' : ''}
                     onClick={() => setOnglet(id)}
@@ -291,220 +298,231 @@ export default function Chambre({
                 ))}
               </div>
 
-              {onglet === 'fiche' && (
-                <ul className="ch-meta">
-                  <li>
-                    <span className="ch-meta-k">{t('Statut', 'Status')}</span>
-                    <span className="ch-meta-v ch-statut-dot">
-                      {poste.node.status === 'online'
-                        ? t('En ligne', 'Online')
-                        : t('Hors ligne', 'Offline')}
-                    </span>
-                  </li>
-                  {metier && (
+              <div
+                className="ch-onglet-corps"
+                id={`ch-panel-${onglet}`}
+                role="tabpanel"
+                aria-labelledby={`ch-tab-${onglet}`}
+                data-onglet={onglet}
+                data-testid="chambre-onglet-corps"
+              >
+                {onglet === 'fiche' && (
+                  <ul className="ch-meta">
                     <li>
-                      <span className="ch-meta-k">{t('Métier', 'Role')}</span>
-                      <span className="ch-meta-v">{metier}</span>
+                      <span className="ch-meta-k">{t('Statut', 'Status')}</span>
+                      <span className="ch-meta-v ch-statut-dot">
+                        {poste.node.status === 'online'
+                          ? t('En ligne', 'Online')
+                          : t('Hors ligne', 'Offline')}
+                      </span>
                     </li>
-                  )}
-                  {poste.caste && (
-                    <li>
-                      <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
-                      <span className="ch-meta-v">{poste.caste}</span>
-                    </li>
-                  )}
-                  <li>
-                    <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
-                    <span className="ch-meta-v">{poste.node.ownerName}</span>
-                  </li>
-                  <li>
-                    <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
-                    <span className="ch-meta-v">{poste.node.agentType}</span>
-                  </li>
-                  <li>
-                    <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
-                    <span className="ch-meta-v">
-                      {poste.node.running}/{poste.node.maxConcurrency}
-                    </span>
-                  </li>
-                  {!titre && (
-                    <li>
-                      <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
-                      <span className="ch-meta-v">{poste.node.nameTechnique}</span>
-                    </li>
-                  )}
-                </ul>
-              )}
-
-              {onglet === 'travail' &&
-                (poste.presences.length > 0 ? (
-                  <div className="ch-presences">
-                    <h4>{t('Outils en cours (constatés)', 'Live tools (observed)')}</h4>
-                    <ul>
-                      {poste.presences.map((p) => (
-                        <li key={p.toolUseId}>
-                          <span className="ch-outil">{p.outil}</span> {p.chemin}
-                          <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <p className="ch-silence">
-                    {t('Aucun fichier ouvert constaté.', 'No open file observed.')}
-                  </p>
-                ))}
-
-              {onglet === 'integrations' && (
-                <div className="ch-fabrique">
-                  <h4>{t('Fabrique', 'Forge')}</h4>
-                  {(poste.fabriques?.length ?? 0) === 0 ? (
-                    <p className="ch-silence">
-                      {t(
-                        'Aucun outil en fabrique pour ce projet.',
-                        'No forge tool for this project.',
-                      )}
-                    </p>
-                  ) : (
-                    <ul>
-                      {poste.fabriques!.map((f) => (
-                        <li key={f.id}>
-                          <strong>{f.libelle}</strong>
-                          <span className="ch-silence">
-                            {' '}
-                            · {f.genre} · {f.statut}
-                            {f.nomScript ? ` · ${f.nomScript}` : ''}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <p className="ch-note">
-                    {t(
-                      'Chantiers ne lance qu’après merge + script déclaré.',
-                      'Chantiers runs only after merge + declared script.',
+                    {metier && (
+                      <li>
+                        <span className="ch-meta-k">{t('Métier', 'Role')}</span>
+                        <span className="ch-meta-v">{metier}</span>
+                      </li>
                     )}
-                  </p>
-                  <h4>{t('Motifs', 'Motifs')}</h4>
-                  {!poste.projectId ? (
+                    {poste.caste && (
+                      <li>
+                        <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
+                        <span className="ch-meta-v">{poste.caste}</span>
+                      </li>
+                    )}
+                    <li>
+                      <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
+                      <span className="ch-meta-v">{poste.node.ownerName}</span>
+                    </li>
+                    <li>
+                      <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
+                      <span className="ch-meta-v">{poste.node.agentType}</span>
+                    </li>
+                    <li>
+                      <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
+                      <span className="ch-meta-v">
+                        {poste.node.running}/{poste.node.maxConcurrency}
+                      </span>
+                    </li>
+                    {!titre && (
+                      <li>
+                        <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
+                        <span className="ch-meta-v">{poste.node.nameTechnique}</span>
+                      </li>
+                    )}
+                  </ul>
+                )}
+
+                {onglet === 'travail' &&
+                  (poste.presences.length > 0 ? (
+                    <div className="ch-presences">
+                      <h4>{t('Outils en cours (constatés)', 'Live tools (observed)')}</h4>
+                      <ul>
+                        {poste.presences.map((p) => (
+                          <li key={p.toolUseId}>
+                            <span className="ch-outil">{p.outil}</span> {p.chemin}
+                            <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
                     <p className="ch-silence">
+                      {t('Aucun fichier ouvert constaté.', 'No open file observed.')}
+                    </p>
+                  ))}
+
+                {onglet === 'integrations' && (
+                  <div className="ch-fabrique">
+                    <h4>{t('Fabrique', 'Forge')}</h4>
+                    {(poste.fabriques?.length ?? 0) === 0 ? (
+                      <p className="ch-silence">
+                        {t(
+                          'Aucun outil en fabrique pour ce projet.',
+                          'No forge tool for this project.',
+                        )}
+                      </p>
+                    ) : (
+                      <ul>
+                        {poste.fabriques!.map((f) => (
+                          <li key={f.id}>
+                            <strong>{f.libelle}</strong>
+                            <span className="ch-silence">
+                              {' '}
+                              · {f.genre} · {f.statut}
+                              {f.nomScript ? ` · ${f.nomScript}` : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="ch-note">
                       {t(
-                        'Pas de projet — impossible d’appliquer un motif.',
-                        'No project — cannot apply a motif.',
+                        'Chantiers ne lance qu’après merge + script déclaré.',
+                        'Chantiers runs only after merge + declared script.',
                       )}
                     </p>
-                  ) : motifs.length === 0 ? (
-                    <p className="ch-silence">{t('Catalogue vide.', 'Empty catalogue.')}</p>
-                  ) : (
-                    <ul className="ch-motifs">
-                      {motifs.map((m) => (
-                        <li key={m.id}>
-                          <span>
-                            {langCode === 'en' ? m.libelleEn : m.libelleFr}
-                            <span className="ch-silence"> · {m.etapes.length} étapes</span>
-                          </span>
-                          <button
-                            type="button"
-                            className="btn ghost"
-                            disabled={busyMotif === m.id}
-                            onClick={() => {
-                              if (!poste.projectId) return;
-                              setBusyMotif(m.id);
-                              void appliquerMotif(poste.projectId, m.id, { lang: langCode })
-                                .then(rafraichir)
-                                .finally(() => setBusyMotif(null));
+                    <h4>{t('Motifs', 'Motifs')}</h4>
+                    {!poste.projectId ? (
+                      <p className="ch-silence">
+                        {t(
+                          'Pas de projet — impossible d’appliquer un motif.',
+                          'No project — cannot apply a motif.',
+                        )}
+                      </p>
+                    ) : motifs.length === 0 ? (
+                      <p className="ch-silence">{t('Catalogue vide.', 'Empty catalogue.')}</p>
+                    ) : (
+                      <ul className="ch-motifs">
+                        {motifs.map((m) => (
+                          <li key={m.id}>
+                            <span>
+                              {langCode === 'en' ? m.libelleEn : m.libelleFr}
+                              <span className="ch-silence"> · {m.etapes.length} étapes</span>
+                            </span>
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              disabled={busyMotif === m.id}
+                              onClick={() => {
+                                if (!poste.projectId) return;
+                                setBusyMotif(m.id);
+                                void appliquerMotif(poste.projectId, m.id, { lang: langCode })
+                                  .then(rafraichir)
+                                  .finally(() => setBusyMotif(null));
+                              }}
+                            >
+                              {t('Appliquer', 'Apply')}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {onglet === 'suivi' && (
+                  <div className="ch-horizon">
+                    <h4>{t('Horizon', 'Horizon')}</h4>
+                    {!poste.horizon ? (
+                      <p className="ch-silence">
+                        {t(
+                          'Pas de projet rattaché — pas de carnet.',
+                          'No linked project — no ledger.',
+                        )}
+                      </p>
+                    ) : (
+                      <>
+                        <p className="ch-horizon-label">{t('Faits', 'Facts')}</p>
+                        {poste.horizon.faits.length === 0 ? (
+                          <p className="ch-silence">{t('Aucun fait.', 'No facts.')}</p>
+                        ) : (
+                          <ul>
+                            {poste.horizon.faits.map((f) => (
+                              <li key={f.id}>{f.texte}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <p className="ch-horizon-label">{t('Hypothèses', 'Hypotheses')}</p>
+                        {poste.horizon.hypotheses.length === 0 ? (
+                          <p className="ch-silence">{t('Aucune hypothèse.', 'No hypotheses.')}</p>
+                        ) : (
+                          <ul className="ch-hypotheses">
+                            {poste.horizon.hypotheses.map((h) => (
+                              <li key={h.id}>{h.texte}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {poste.projectId && (
+                          <form
+                            className="ch-horizon-form"
+                            onSubmit={(ev) => {
+                              ev.preventDefault();
+                              const texte = brouillonHorizon.trim();
+                              if (!texte || !poste.projectId) return;
+                              setBusyHorizon(true);
+                              void ajouterHorizon(poste.projectId, kindHorizon, texte)
+                                .then(() => {
+                                  setBrouillonHorizon('');
+                                  rafraichir();
+                                })
+                                .finally(() => setBusyHorizon(false));
                             }}
                           >
-                            {t('Appliquer', 'Apply')}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              {onglet === 'suivi' && (
-                <div className="ch-horizon">
-                  <h4>{t('Horizon', 'Horizon')}</h4>
-                  {!poste.horizon ? (
-                    <p className="ch-silence">
-                      {t(
-                        'Pas de projet rattaché — pas de carnet.',
-                        'No linked project — no ledger.',
-                      )}
-                    </p>
-                  ) : (
-                    <>
-                      <p className="ch-horizon-label">{t('Faits', 'Facts')}</p>
-                      {poste.horizon.faits.length === 0 ? (
-                        <p className="ch-silence">{t('Aucun fait.', 'No facts.')}</p>
-                      ) : (
-                        <ul>
-                          {poste.horizon.faits.map((f) => (
-                            <li key={f.id}>{f.texte}</li>
-                          ))}
-                        </ul>
-                      )}
-                      <p className="ch-horizon-label">{t('Hypothèses', 'Hypotheses')}</p>
-                      {poste.horizon.hypotheses.length === 0 ? (
-                        <p className="ch-silence">{t('Aucune hypothèse.', 'No hypotheses.')}</p>
-                      ) : (
-                        <ul className="ch-hypotheses">
-                          {poste.horizon.hypotheses.map((h) => (
-                            <li key={h.id}>{h.texte}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {poste.projectId && (
-                        <form
-                          className="ch-horizon-form"
-                          onSubmit={(ev) => {
-                            ev.preventDefault();
-                            const texte = brouillonHorizon.trim();
-                            if (!texte || !poste.projectId) return;
-                            setBusyHorizon(true);
-                            void ajouterHorizon(poste.projectId, kindHorizon, texte)
-                              .then(() => {
-                                setBrouillonHorizon('');
-                                rafraichir();
-                              })
-                              .finally(() => setBusyHorizon(false));
-                          }}
-                        >
-                          <label className="ch-horizon-label" htmlFor="ch-horizon-kind">
-                            {t('Ajouter', 'Add')}
-                          </label>
-                          <select
-                            id="ch-horizon-kind"
-                            value={kindHorizon}
-                            onChange={(e) =>
-                              setKindHorizon(e.target.value === 'hypothese' ? 'hypothese' : 'fait')
-                            }
-                          >
-                            <option value="fait">{t('Fait', 'Fact')}</option>
-                            <option value="hypothese">{t('Hypothèse', 'Hypothesis')}</option>
-                          </select>
-                          <input
-                            type="text"
-                            maxLength={500}
-                            value={brouillonHorizon}
-                            onChange={(e) => setBrouillonHorizon(e.target.value)}
-                            placeholder={t('Constater…', 'Observe…')}
-                          />
-                          <button
-                            type="submit"
-                            className="btn primary ch-btn-accorder"
-                            disabled={busyHorizon || !brouillonHorizon.trim()}
-                          >
-                            {t('Noter', 'Note')}
-                          </button>
-                        </form>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+                            <label className="ch-horizon-label" htmlFor="ch-horizon-kind">
+                              {t('Ajouter', 'Add')}
+                            </label>
+                            <select
+                              id="ch-horizon-kind"
+                              value={kindHorizon}
+                              onChange={(e) =>
+                                setKindHorizon(
+                                  e.target.value === 'hypothese' ? 'hypothese' : 'fait',
+                                )
+                              }
+                            >
+                              <option value="fait">{t('Fait', 'Fact')}</option>
+                              <option value="hypothese">{t('Hypothèse', 'Hypothesis')}</option>
+                            </select>
+                            <input
+                              type="text"
+                              maxLength={500}
+                              value={brouillonHorizon}
+                              onChange={(e) => setBrouillonHorizon(e.target.value)}
+                              placeholder={t('Constater…', 'Observe…')}
+                            />
+                            <button
+                              type="submit"
+                              className="btn primary ch-btn-accorder"
+                              disabled={busyHorizon || !brouillonHorizon.trim()}
+                            >
+                              {t('Noter', 'Note')}
+                            </button>
+                          </form>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>

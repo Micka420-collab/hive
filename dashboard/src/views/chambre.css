@@ -328,6 +328,19 @@
 
 /* ─── Identité ─── */
 
+.ch-onglet-corps {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  animation: ch-stream-in 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-onglet-corps {
+    animation: none;
+  }
+}
+
 .ch-eyebrow {
   margin: 0 0 4px;
   font-size: 0.68rem;
