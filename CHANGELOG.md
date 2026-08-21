@@ -17,8 +17,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   baptême (sinon silence). Cartes nœud (Ruche + Essaim) : baptême via
   `GET /api/baptemes` (jeton ruche ; partage → 401) — sinon « Pas encore
   baptisée » ; échec API → nom technique (pas de mensonge). Clic Essaim →
-  Chambre. Échap → Ruche ; chemins → focus fichier Rayon (déplie les dossiers
-  parents) ; sans projet lié → silence du lien. Maquette :
+  Chambre. Échap → Ruche (pas pendant saisie / dialogue) ; chemins → focus
+  fichier Rayon (déplie les dossiers parents) ; sans projet lié → silence du
+  lien ; clic chemin du bandeau **En train de…** → ouvre dans l’arbre.
+  Pastille **EDIT** / point de statut Fiche alignés sur le constaté. Maquette :
   `docs/maquettes/chambre/`. Capture + démo :
   `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
 

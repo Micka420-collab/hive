@@ -148,11 +148,36 @@ export default function Chambre({
       .catch(() => setMotifs([]));
   }, [onglet]);
 
+  // Onglets : colonne desktop, rangée sous 960px — aria-orientation suit le layout.
+  const [ongletsHorizontaux, setOngletsHorizontaux] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 960px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 960px)');
+    const sync = () => setOngletsHorizontaux(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return;
       // Ne pas voler Échap à un dialogue / tiroir modal ouvert.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      // Ni à un champ en cours de saisie (horizon, etc.).
+      const el = document.activeElement;
+      if (el) {
+        const tag = el.tagName;
+        if (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          (el as HTMLElement).isContentEditable
+        ) {
+          return;
+        }
+      }
       ev.preventDefault();
       onNavigate('ruche');
     };
@@ -225,6 +250,7 @@ export default function Chambre({
   const badgeClass = (badge: string) => {
     const b = badge.toLowerCase();
     if (b === 'read') return 'ch-badge ch-badge-read';
+    if (b === 'edit') return 'ch-badge ch-badge-edit';
     if (b === 'write') return 'ch-badge ch-badge-write';
     if (b === 'fail' || b === 'échec') return 'ch-badge ch-badge-fail';
     return 'ch-badge';
@@ -350,7 +376,7 @@ export default function Chambre({
                 role="tablist"
                 aria-label={t('Sections', 'Sections')}
                 data-testid="chambre-sections"
-                aria-orientation="vertical"
+                aria-orientation={ongletsHorizontaux ? 'horizontal' : 'vertical'}
                 onKeyDown={(e) => {
                   const ordre: OngletId[] = ['fiche', 'travail', 'integrations', 'suivi'];
                   const i = ordre.indexOf(onglet);
@@ -406,7 +432,11 @@ export default function Chambre({
                   <ul className="ch-meta">
                     <li>
                       <span className="ch-meta-k">{t('Statut', 'Status')}</span>
-                      <span className="ch-meta-v ch-statut-dot">
+                      <span
+                        className={`ch-meta-v ch-statut-dot${
+                          poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
+                        }`}
+                      >
                         {poste.node.status === 'online'
                           ? t('En ligne', 'Online')
                           : t('Hors ligne', 'Offline')}

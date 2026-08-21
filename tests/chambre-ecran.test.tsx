@@ -297,6 +297,50 @@ describe('Chambre à l’écran', () => {
     expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee');
   });
 
+  it('refuse une réquisition depuis le bandeau À trancher', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-2',
+            nodeId: NODE_ID,
+            genre: 'mcp',
+            libelle: 'Serveur Figma',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    vi.mocked(repondreRequisition).mockResolvedValue({ ok: true, statut: 'refusee' });
+    const dom = await monter();
+    const refuser = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Refuser'),
+    ) as HTMLButtonElement;
+    await cliquer(refuser);
+    expect(repondreRequisition).toHaveBeenCalledWith('req-2', 'refusee');
+  });
+
+  it('dit que l’atelier est éteint (HIVE_ATELIER=off)', async () => {
+    const dom = await monter();
+    expect(dom.textContent).toMatch(/Bureau de recette éteint/);
+    expect(dom.textContent).toContain('HIVE_ATELIER=off');
+  });
+
+  it('pastille EDIT distincte pour une présence Edit', async () => {
+    const dom = await monter();
+    const edit = dom.querySelector('.ch-badge-edit');
+    expect(edit?.textContent).toBe('EDIT');
+  });
+
+  it('point de statut hors ligne sur la Fiche', async () => {
+    const dom = await monter();
+    expect(dom.querySelector('.ch-statut-dot.ch-statut-off')).toBeTruthy();
+    expect(dom.querySelector('.ch-statut-dot.ch-statut-on')).toBeNull();
+  });
+
   it('Échap ramène à la Ruche', async () => {
     const onNavigate = vi.fn();
     await monter(onNavigate);
@@ -304,6 +348,33 @@ describe('Chambre à l’écran', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(onNavigate).toHaveBeenCalledWith('ruche');
+  });
+
+  it('Échap ne vole pas un dialogue modal ouvert', async () => {
+    const onNavigate = vi.fn();
+    await monter(onNavigate);
+    const dlg = document.createElement('div');
+    dlg.setAttribute('role', 'dialog');
+    dlg.setAttribute('aria-modal', 'true');
+    document.body.appendChild(dlg);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onNavigate).not.toHaveBeenCalled();
+    dlg.remove();
+  });
+
+  it('Échap ne quitte pas pendant la saisie Horizon', async () => {
+    const onNavigate = vi.fn();
+    const dom = await monter(onNavigate);
+    await cliquer(dom.querySelector('#ch-tab-suivi')!);
+    const champ = dom.querySelector('.ch-horizon-form input') as HTMLInputElement;
+    expect(champ).toBeTruthy();
+    champ.focus();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('parcourt Travail, Intégrations (motifs) et Suivi (horizon)', async () => {

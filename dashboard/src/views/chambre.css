@@ -420,6 +420,16 @@
   background: color-mix(in srgb, var(--ch-miel) 12%, transparent);
 }
 
+.ch-onglets button:focus-visible,
+.ch-filtres button:focus-visible,
+.ch-btn-accorder:focus-visible,
+.ch-btn-refuser:focus-visible,
+.ch-brand-back:focus-visible,
+.ch-lien-rayon:focus-visible {
+  outline: 2px solid var(--ch-miel-fonce);
+  outline-offset: 2px;
+}
+
 .ch-meta {
   list-style: none;
   margin: 0;
@@ -461,6 +471,16 @@
   height: 7px;
   border-radius: 50%;
   background: var(--ch-miel);
+}
+
+.ch-statut-dot.ch-statut-on::before {
+  background: #2f6b3a;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 18%, transparent);
+}
+
+.ch-statut-dot.ch-statut-off::before {
+  background: var(--ch-mute);
+  box-shadow: none;
 }
 
 .ch-presences h4,
@@ -603,6 +623,10 @@
 
 .ch-badge-read {
   background: color-mix(in srgb, #6b8f71 32%, white);
+}
+
+.ch-badge-edit {
+  background: color-mix(in srgb, #c47a2c 42%, white);
 }
 
 .ch-badge-write {

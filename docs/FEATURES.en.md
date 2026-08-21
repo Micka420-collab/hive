@@ -168,7 +168,8 @@ no fake desktop). On **node cards**, the observed baptism (`GET /api/baptemes`,
 hive token) is the title — otherwise “Not baptised yet”. On the **Comb**,
 cursors show who is on which path
 (baptismal name, otherwise silence) — a click opens that worker’s **Chambre**;
-the **Working on…** strip lists presence even when the repo mirror is empty.
+the **Working on…** strip lists presence even when the repo mirror is empty —
+a click on the **path** opens the file in the tree.
 On **Swarm**, worker cards (and the Waggle board) show the observed baptism;
 a click opens the **Chambre** too.
 **Requisitions** (API key, MCP, binary,

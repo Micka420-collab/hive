@@ -64,7 +64,19 @@ let conteneur: HTMLElement | null = null;
 beforeEach(() => {
   setLang('fr');
   vi.mocked(getPartage).mockReturnValue(null);
-  vi.mocked(fetchPresences).mockClear();
+  vi.mocked(fetchPresences).mockReset().mockResolvedValue({
+    presences: [
+      {
+        nodeId: 'node-capucine',
+        bapteme: 'Capucine',
+        chemin: 'src/pont/mcp.ts',
+        outil: 'Edit',
+        toolUseId: 'tu1',
+        taskId: 't1',
+        constateA: 1,
+      },
+    ],
+  });
 });
 
 afterEach(() => {
@@ -140,6 +152,33 @@ describe('curseur Rayon → Chambre', () => {
     expect(bandeau?.textContent).toContain('En train de');
     expect(bandeau?.textContent).toContain('src/pont/mcp.ts');
     expect(bandeau?.textContent).toContain('Capucine');
+  });
+
+  it('sans baptême, le curseur reste muet (outil, pas de prénom inventé)', async () => {
+    vi.mocked(fetchPresences).mockResolvedValue({
+      presences: [
+        {
+          nodeId: 'node-anonyme',
+          bapteme: null,
+          chemin: 'src/a.ts',
+          outil: 'Read',
+          toolUseId: 'tu-muet',
+          taskId: 't2',
+          constateA: 1,
+        },
+      ],
+    } as never);
+    const onNavigate = vi.fn();
+    const dom = await monter(onNavigate);
+    const curseur = dom.querySelector('[data-testid="ry-curseur-poste"]') as HTMLButtonElement;
+    expect(curseur).toBeTruthy();
+    expect(curseur.classList.contains('ry-curseur-muet')).toBe(true);
+    expect(curseur.textContent).toBe('Read');
+    expect(curseur.textContent).not.toMatch(/Capucine|Anonyme|ouvrière/i);
+    await act(async () => {
+      curseur.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(onNavigate).toHaveBeenCalledWith('chambre', 'node-anonyme');
   });
 
   it('un clic sur le chemin du bandeau ouvre le fichier dans l’arbre', async () => {

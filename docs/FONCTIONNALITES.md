@@ -184,7 +184,8 @@ jeton ruche) remplace le nom technique en titre — sinon « Pas encore
 baptisée ». Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
 (baptême, sinon silence) — un clic ouvre la **Chambre** de cette ouvrière ;
 le bandeau **En train de…** liste les présences même si le miroir du dépôt
-est vide. Sur l’**Essaim**, les cartes ouvrières (et le Waggle) portent le
+est vide — un clic sur le **chemin** ouvre le fichier dans l’arbre. Sur
+l’**Essaim**, les cartes ouvrières (et le Waggle) portent le
 baptême constaté ; un clic ouvre aussi la **Chambre**. Les **réquisitions**
 (clé API, MCP, binaire, atelier,
 logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
