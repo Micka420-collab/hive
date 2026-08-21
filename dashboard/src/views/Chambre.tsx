@@ -58,7 +58,7 @@ function CheminConstate({
   className,
 }: {
   chemin: string;
-  projectId: string | null;
+  projectId: string | null | undefined;
   onNavigate: ViewProps['onNavigate'];
   className?: string;
 }) {
@@ -503,7 +503,7 @@ export default function Chambre({
                             <span className="ch-outil">{p.outil}</span>{' '}
                             <CheminConstate
                               chemin={p.chemin}
-                              projectId={poste.projectId ?? null}
+                              projectId={poste.projectId}
                               onNavigate={onNavigate}
                             />
                             <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
@@ -692,7 +692,7 @@ export default function Chambre({
                   <span className="ch-log-body">
                     <CheminConstate
                       chemin={p.chemin}
-                      projectId={poste.projectId ?? null}
+                      projectId={poste.projectId}
                       onNavigate={onNavigate}
                       className="ch-log-resume"
                     />
