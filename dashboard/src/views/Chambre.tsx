@@ -640,27 +640,12 @@ export default function Chambre({
                 <li key={`s-${p.toolUseId}`}>
                   <span className={badgeClass(p.outil)}>{p.outil.toUpperCase()}</span>
                   <span className="ch-log-body">
-                    {poste.projectId ? (
-                      <button
-                        type="button"
-                        className="ch-log-resume ch-lien-chemin"
-                        title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
-                        onClick={() => {
-                          demanderFocusFichier(p.chemin);
-                          onNavigate('rayon', poste.projectId!);
-                        }}
-                      >
-                        {p.chemin}
-                      </button>
-                    ) : (
-                      <span className="ch-log-resume">
-                        {p.chemin}
-                        <span className="muted-text">
-                          {' '}
-                          · {t('pas de projet lié', 'no linked project')}
-                        </span>
-                      </span>
-                    )}
+                    <CheminConstate
+                      chemin={p.chemin}
+                      projectId={poste.projectId}
+                      onNavigate={onNavigate}
+                      className="ch-log-resume"
+                    />
                   </span>
                   <span className="ch-log-time">{timeShort(p.constateA)}</span>
                 </li>

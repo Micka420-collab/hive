@@ -117,11 +117,28 @@
 }
 
 .ry-presences-chemin {
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.ry-presences-chemin:hover,
+.ry-presences-chemin:focus-visible {
+  text-decoration-color: currentColor;
+  outline: none;
 }
 
 .ry-arbre {

@@ -141,4 +141,48 @@ describe('curseur Rayon → Chambre', () => {
     expect(bandeau?.textContent).toContain('src/pont/mcp.ts');
     expect(bandeau?.textContent).toContain('Capucine');
   });
+
+  it('un clic sur le chemin du bandeau ouvre le fichier dans l’arbre', async () => {
+    const { fetchFichierRayon, fetchRayon } = await import('../dashboard/src/api');
+    vi.mocked(fetchFichierRayon).mockResolvedValue({
+      chemin: 'src/pont/mcp.ts',
+      contenu: 'export {}',
+      langage: 'typescript',
+      taille: 10,
+      tronque: false,
+    } as never);
+    vi.mocked(fetchRayon).mockImplementation(async (_p: string, chemin = '') => {
+      if (chemin === '') {
+        return {
+          chemin: '',
+          entrees: [{ chemin: 'src', nom: 'src', type: 'dossier', taille: 0 }],
+        } as never;
+      }
+      if (chemin === 'src') {
+        return {
+          chemin: 'src',
+          entrees: [{ chemin: 'src/pont', nom: 'pont', type: 'dossier', taille: 0 }],
+        } as never;
+      }
+      if (chemin === 'src/pont') {
+        return {
+          chemin: 'src/pont',
+          entrees: [{ chemin: 'src/pont/mcp.ts', nom: 'mcp.ts', type: 'fichier', taille: 42 }],
+        } as never;
+      }
+      return { chemin, entrees: [] } as never;
+    });
+    const dom = await monter(vi.fn());
+    const chemin = dom.querySelector('[data-testid="ry-presences-chemin"]') as HTMLButtonElement;
+    expect(chemin).toBeTruthy();
+    await act(async () => {
+      chemin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(vi.mocked(fetchFichierRayon)).toHaveBeenCalledWith('p1', 'src/pont/mcp.ts');
+    expect(dom.querySelector('.ry-entree.active')?.textContent).toContain('mcp.ts');
+  });
 });

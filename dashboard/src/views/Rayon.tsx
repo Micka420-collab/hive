@@ -431,7 +431,17 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                   {c.bapteme ?? c.outil}
                 </button>
                 <span className="ry-presences-outil">{c.outil}</span>
-                <code className="ry-presences-chemin">{c.chemin}</code>
+                <button
+                  type="button"
+                  className="ry-presences-chemin"
+                  data-testid="ry-presences-chemin"
+                  title={t('Ouvrir dans l’arbre', 'Open in the tree')}
+                  onClick={() => {
+                    if (projet) void revelerEtOuvrir(projet.id, c.chemin);
+                  }}
+                >
+                  {c.chemin}
+                </button>
               </li>
             ))}
           </ul>
