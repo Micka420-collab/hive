@@ -169,6 +169,8 @@ hive token) is the title — otherwise “Not baptised yet”. On the **Comb**,
 cursors show who is on which path
 (baptismal name, otherwise silence) — a click opens that worker’s **Chambre**;
 the **Working on…** strip lists presence even when the repo mirror is empty.
+On **Swarm**, worker cards (and the Waggle board) show the observed baptism;
+a click opens the **Chambre** too.
 **Requisitions** (API key, MCP, binary,
 studio, software) are granted or denied from the Chambre — secrets stay on the
 Queen. A share link **never** sees these identities.

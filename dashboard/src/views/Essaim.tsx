@@ -2,26 +2,16 @@
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
 import { jamaisRienRecu } from './etat-sondage';
-import { fetchBaptemes, fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
+import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
 import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
+import { nomConstate, useBaptemes } from '../useBaptemes';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
-import { useEffect, useState } from 'react';
 import './essaim.css';
-
-/** Affiche le baptême constaté s’il existe, sinon le nom technique. */
-function nomConstate(
-  baptemes: Record<string, string | null> | null | undefined,
-  nodeId: string,
-  technique: string,
-): string {
-  const b = baptemes?.[nodeId];
-  return b || technique;
-}
 
 /** Sous-agents en vol sur un nœud : agrégés via les tâches qui lui sont assignées. */
 function activeAgentsOf(
@@ -553,25 +543,8 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
     for (const d of r.drones) if (d.status === 'running') racingNodes.add(d.nodeId);
 
   /** nodeId → baptême constaté ; null map = silence ; baptemes null = pas chargé. */
-  const [baptemes, setBaptemes] = useState<Record<string, string | null> | null>(null);
   const nodeIdsKey = snapshot.nodes.map((n) => n.id).join(',');
-  useEffect(() => {
-    let vivant = true;
-    fetchBaptemes()
-      .then((r) => {
-        if (!vivant) return;
-        const map: Record<string, string | null> = {};
-        for (const id of nodeIdsKey.split(',').filter(Boolean)) map[id] = null;
-        for (const b of r.baptemes) map[b.nodeId] = b.nom;
-        setBaptemes(map);
-      })
-      .catch(() => {
-        // Échec : garder les noms techniques, ne pas affirmer « pas baptisée ».
-      });
-    return () => {
-      vivant = false;
-    };
-  }, [nodeIdsKey, refreshTick]);
+  const baptemes = useBaptemes(nodeIdsKey, refreshTick);
 
   return (
     <div className="mc-view es-view">

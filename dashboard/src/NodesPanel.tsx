@@ -16,11 +16,12 @@
 import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
-import { fetchBaptemes, fetchChambre, fetchWaggle } from './api';
+import { fetchChambre, fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
+import { useBaptemes } from './useBaptemes';
 
 const AGENT_ICON: Record<string, string> = {
   shell: '○',
@@ -220,30 +221,10 @@ export function NodesPanel({
   const lang = useLang();
   const online = nodes.filter((n) => n.status === 'online').length;
   const [ouverte, setOuverte] = useState<string | null>(null);
-  /** nodeId → baptême constaté ; null map entry = silence ; baptemes null = pas chargé. */
-  const [baptemes, setBaptemes] = useState<Record<string, string | null> | null>(null);
   const fiche =
     tasks && onOpenTask && ouverte ? (nodes.find((n) => n.id === ouverte) ?? null) : null;
   const nodeIdsKey = nodes.map((n) => n.id).join(',');
-
-  useEffect(() => {
-    let vivant = true;
-    fetchBaptemes()
-      .then((r) => {
-        if (!vivant) return;
-        const map: Record<string, string | null> = {};
-        for (const id of nodeIdsKey.split(',').filter(Boolean)) map[id] = null;
-        for (const b of r.baptemes) map[b.nodeId] = b.nom;
-        setBaptemes(map);
-      })
-      .catch(() => {
-        // Échec réseau / 401 : ne pas affirmer « Pas encore baptisée » —
-        // on laisse baptemes à null et on garde les noms techniques.
-      });
-    return () => {
-      vivant = false;
-    };
-  }, [nodeIdsKey]);
+  const baptemes = useBaptemes(nodeIdsKey);
 
   return (
     <section className="card panel">
