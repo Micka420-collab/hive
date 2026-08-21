@@ -173,6 +173,17 @@ Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur le projet) →
 Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la Reine propose
 une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
+## 🪑 Chambre — poste d’ouvrière (ADR 0010)
+
+Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir le poste**
+(`#/chambre/<nodeId>`) : identité baptisée, métier de cycle, caste, fichiers
+ouverts **constatés** (Read/Edit/Write), journal et tâches de **cette**
+ouvrière, et l’**Ordinateur** = Atelier noVNC (ou « éteint » — pas de faux
+bureau). Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
+(baptême, sinon silence). Les **réquisitions** (clé API, MCP, binaire, atelier,
+logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
+chez la Queen. Un lien de partage **ne voit jamais** ces identités.
+
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
 Dans **« Nouveau projet »**, décrivez l'objectif en langage naturel et cliquez

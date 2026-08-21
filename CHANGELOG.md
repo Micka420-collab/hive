@@ -9,13 +9,12 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **Chambre (ADR 0010, lots 0–5).** Poste d’ouvrière baptisée : baptême Reine
-  (`bapteme.ts`), métier de cycle (`metier.ts`), **présence Rayon** constatée
-  depuis Read/Edit/Write (`presence.ts` + parser stream-json + store
-  `presences_rayon`, câblé dans `task_update`). **API** `GET /api/chambre/:nodeId`
-  (jeton de ruche seulement — jamais via partage). **Vue** `#/chambre/<nodeId>`
-  à 4 zones (identité, journal, activité, Ordinateur = Atelier noVNC), entrée
-  « Ouvrir le poste » depuis la fiche nœud. Absences = silence (pas de théâtre).
+- **Chambre (ADR 0010, lots 0–7).** Poste d’ouvrière baptisée : baptême Reine,
+  métier de cycle, présence Rayon (Read/Edit/Write), API `GET /api/chambre/:nodeId`,
+  vue `#/chambre/<nodeId>` (4 zones + Atelier noVNC), **curseurs Rayon**
+  (`GET /api/presences`, badges sur l’arbre — baptême ou silence),
+  **réquisitions** (`cle_api` / `mcp` / `binaire` / `atelier` / `logiciel`,
+  accorder/refuser depuis la Chambre). Partage : jamais d’identités actives.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a

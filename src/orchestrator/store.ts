@@ -28,6 +28,13 @@ import {
   type OutilPresence,
   type PresenceFichier,
 } from '../shared/presence.js';
+import {
+  validerGenreRequisition,
+  validerLibelleRequisition,
+  type GenreRequisition,
+  type MotifRefusRequisition,
+  type StatutRequisition,
+} from './requisition.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -847,6 +854,21 @@ CREATE TABLE IF NOT EXISTS presences_rayon (
   PRIMARY KEY (nodeId, toolUseId)
 );
 CREATE INDEX IF NOT EXISTS idx_presences_rayon_task ON presences_rayon(taskId);
+
+-- Réquisitions (ADR 0010) : besoins émis pour l'humain. TABLE LATÉRALE.
+-- Closées (accordée/refusée) → pruneRequisitions. Jamais de secret ici —
+-- seulement le genre + libellé. Clés chez la Queen / Intendance.
+CREATE TABLE IF NOT EXISTS requisitions (
+  id      TEXT PRIMARY KEY,
+  nodeId  TEXT NOT NULL REFERENCES nodes(id),
+  genre   TEXT NOT NULL,
+  libelle TEXT NOT NULL,
+  detail  TEXT,
+  statut  TEXT NOT NULL,
+  creeA   INTEGER NOT NULL,
+  closA   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_requisitions_statut ON requisitions(statut);
 `;
 
 interface ProjectRow {
@@ -1686,6 +1708,162 @@ export class HiveStore {
   prunePresences(retentionMs: number, now = Date.now()): number {
     const cutoff = now - retentionMs;
     return this.db.prepare('DELETE FROM presences_rayon WHERE constateA < ?').run(cutoff).changes;
+  }
+
+  // ─── Réquisitions (ADR 0010) ───────────────────────────────────────────────
+
+  ouvrirRequisition(
+    nodeId: string,
+    genreBrut: string,
+    libelleBrut: string,
+    detail: string | null = null,
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; genre: GenreRequisition; libelle: string }
+    | { ok: false; motif: MotifRefusRequisition } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const g = validerGenreRequisition(genreBrut);
+    if (!g.ok) return g;
+    const l = validerLibelleRequisition(libelleBrut);
+    if (!l.ok) return l;
+    const detailClean =
+      typeof detail === 'string' && detail.trim() ? detail.trim().slice(0, 2_000) : null;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
+      )
+      .run(id, nodeId, g.genre, l.libelle, detailClean, 'ouverte', now);
+    return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  lireRequisition(id: string): {
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    detail: string | null;
+    statut: StatutRequisition;
+    creeA: number;
+    closA: number | null;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE id = ?',
+      )
+      .get(id) as
+      | {
+          id: string;
+          nodeId: string;
+          genre: string;
+          libelle: string;
+          detail: string | null;
+          statut: string;
+          creeA: number;
+          closA: number | null;
+        }
+      | undefined;
+    if (!row) return null;
+    const g = validerGenreRequisition(row.genre);
+    if (!g.ok) return null;
+    if (row.statut !== 'ouverte' && row.statut !== 'accordee' && row.statut !== 'refusee') {
+      return null;
+    }
+    return {
+      id: row.id,
+      nodeId: row.nodeId,
+      genre: g.genre,
+      libelle: row.libelle,
+      detail: row.detail,
+      statut: row.statut,
+      creeA: row.creeA,
+      closA: row.closA,
+    };
+  }
+
+  listerRequisitions(opts?: { nodeId?: string; statut?: StatutRequisition }): Array<{
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    detail: string | null;
+    statut: StatutRequisition;
+    creeA: number;
+    closA: number | null;
+  }> {
+    let sql =
+      'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE 1=1';
+    const args: unknown[] = [];
+    if (opts?.nodeId) {
+      sql += ' AND nodeId = ?';
+      args.push(opts.nodeId);
+    }
+    if (opts?.statut) {
+      sql += ' AND statut = ?';
+      args.push(opts.statut);
+    }
+    sql += ' ORDER BY creeA DESC LIMIT 200';
+    const rows = this.db.prepare(sql).all(...args) as Array<{
+      id: string;
+      nodeId: string;
+      genre: string;
+      libelle: string;
+      detail: string | null;
+      statut: string;
+      creeA: number;
+      closA: number | null;
+    }>;
+    const out: Array<{
+      id: string;
+      nodeId: string;
+      genre: GenreRequisition;
+      libelle: string;
+      detail: string | null;
+      statut: StatutRequisition;
+      creeA: number;
+      closA: number | null;
+    }> = [];
+    for (const r of rows) {
+      const g = validerGenreRequisition(r.genre);
+      if (!g.ok) continue;
+      if (r.statut !== 'ouverte' && r.statut !== 'accordee' && r.statut !== 'refusee') continue;
+      out.push({
+        id: r.id,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        detail: r.detail,
+        statut: r.statut,
+        creeA: r.creeA,
+        closA: r.closA,
+      });
+    }
+    return out;
+  }
+
+  repondreRequisition(
+    id: string,
+    decision: 'accordee' | 'refusee',
+    now = Date.now(),
+  ): { ok: true; statut: StatutRequisition } | { ok: false; motif: MotifRefusRequisition } {
+    const cur = this.lireRequisition(id);
+    if (!cur) return { ok: false, motif: 'inconnue' };
+    if (cur.statut !== 'ouverte') return { ok: false, motif: 'deja_close' };
+    this.db
+      .prepare('UPDATE requisitions SET statut = ?, closA = ? WHERE id = ?')
+      .run(decision, now, id);
+    return { ok: true, statut: decision };
+  }
+
+  /** Élage les réquisitions closes trop anciennes (les ouvertes restent). */
+  pruneRequisitions(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db
+      .prepare(
+        "DELETE FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?",
+      )
+      .run(cutoff).changes;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {

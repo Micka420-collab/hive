@@ -11,6 +11,7 @@ import {
   expliquerRefusPresence,
   jugerCheminPresence,
   outilPresenceDe,
+  presenceCorrespondAuRayon,
   validerOutilPresence,
 } from '../src/shared/presence.js';
 import { HiveStore } from '../src/orchestrator/store.js';
@@ -132,5 +133,12 @@ describe('HiveStore — présences Rayon', () => {
     expect(store.effacerPresencesTache('tk')).toBe(1);
     store.remplacerPresences('n1', [{ toolUseId: 't2', chemin: 'b.ts', outil: 'Read' }], 'tk2', 2);
     expect(store.effacerPresencesNoeud('n1')).toBe(1);
+  });
+
+  it('presenceCorrespondAuRayon matche relatif et suffixe absolu', () => {
+    expect(presenceCorrespondAuRayon('src/a.ts', 'src/a.ts')).toBe(true);
+    expect(presenceCorrespondAuRayon('/tmp/w/src/a.ts', 'src/a.ts')).toBe(true);
+    expect(presenceCorrespondAuRayon('foosrc/a.ts', 'src/a.ts')).toBe(false);
+    expect(presenceCorrespondAuRayon('../x', 'src/a.ts')).toBe(false);
   });
 });

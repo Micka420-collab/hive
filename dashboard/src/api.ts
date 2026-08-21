@@ -1741,9 +1741,68 @@ export interface ChambrePoste {
     constateA: number;
   }>;
   tasks: Task[];
+  requisitions?: Array<{
+    id: string;
+    nodeId: string;
+    genre: string;
+    libelle: string;
+    detail: string | null;
+    statut: string;
+    creeA: number;
+    closA: number | null;
+  }>;
   atelier: EtatAtelier;
 }
 
 export function fetchChambre(nodeId: string): Promise<ChambrePoste> {
   return api<ChambrePoste>(`/api/chambre/${encodeURIComponent(nodeId)}`);
+}
+
+/** Curseur Rayon — présence + baptême (null = silence, pas de prénom inventé). */
+export interface PresenceCurseur {
+  nodeId: string;
+  bapteme: string | null;
+  chemin: string;
+  outil: string;
+  toolUseId: string;
+  taskId: string | null;
+  constateA: number;
+}
+
+/** Jeton de ruche seulement — pas via partage. */
+export function fetchPresences(): Promise<{ presences: PresenceCurseur[] }> {
+  return api<{ presences: PresenceCurseur[] }>('/api/presences');
+}
+
+export interface RequisitionPoste {
+  id: string;
+  nodeId: string;
+  genre: string;
+  libelle: string;
+  detail: string | null;
+  statut: 'ouverte' | 'accordee' | 'refusee';
+  creeA: number;
+  closA: number | null;
+  bapteme?: string | null;
+}
+
+export function fetchRequisitions(opts?: {
+  nodeId?: string;
+  statut?: string;
+}): Promise<{ requisitions: RequisitionPoste[] }> {
+  const q = new URLSearchParams();
+  if (opts?.nodeId) q.set('nodeId', opts.nodeId);
+  if (opts?.statut) q.set('statut', opts.statut);
+  const s = q.toString();
+  return api(`/api/requisitions${s ? `?${s}` : ''}`);
+}
+
+export function repondreRequisition(
+  id: string,
+  decision: 'accordee' | 'refusee',
+): Promise<{ ok: boolean; statut: string }> {
+  return api(`/api/requisitions/${encodeURIComponent(id)}/repondre`, {
+    method: 'POST',
+    body: JSON.stringify({ decision }),
+  });
 }

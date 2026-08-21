@@ -123,3 +123,23 @@ export function expliquerRefusPresence(
   };
   return (lang === 'en' ? en : fr)[motif];
 }
+
+/**
+ * La présence (souvent absolue) correspond-elle au chemin relatif du Rayon ?
+ * Aucune invention : si on ne peut pas matcher proprement → false.
+ */
+export function presenceCorrespondAuRayon(cheminPresence: string, cheminRayon: string): boolean {
+  const p = jugerCheminPresence(cheminPresence);
+  const r = jugerCheminPresence(cheminRayon);
+  if (!p.ok || !r.ok) return false;
+  const a = p.chemin.replace(/^\/+/, '').toLowerCase();
+  const b = r.chemin.replace(/^\/+/, '').toLowerCase();
+  if (a === b) return true;
+  // Absolu côté agent : `…/workspace/src/a.ts` ↔ `src/a.ts`
+  if (a.endsWith('/' + b) || a.endsWith(b)) {
+    // Exiger une frontière de segment (pas `foosrc/a.ts` ↔ `src/a.ts`)
+    const idx = a.length - b.length;
+    return idx === 0 || a[idx - 1] === '/';
+  }
+  return false;
+}

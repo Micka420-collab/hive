@@ -30,13 +30,21 @@
 //    faire.
 
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
-import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
+import {
+  fetchApercu,
+  fetchFichierRayon,
+  fetchPresences,
+  fetchRayon,
+  getPartage,
+  proposerRetouche,
+} from '../api';
+import type { ApercuProjet, EntreeRayon, FichierRayon, PresenceCurseur } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
 import { consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
+import { presenceCorrespondAuRayon } from '../../../src/shared/presence.js';
 import { useT } from '../i18n';
 import './rayon.css';
 
@@ -74,6 +82,39 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
   const [attirerSg, setAttirerSg] = useState(false);
+  /** Curseurs — absents en partage ; [] = silence. */
+  const [curseurs, setCurseurs] = useState<PresenceCurseur[]>([]);
+
+  useEffect(() => {
+    if (parPartage) {
+      setCurseurs([]);
+      return;
+    }
+    let vivant = true;
+    const charger = () => {
+      void fetchPresences()
+        .then((r) => {
+          if (vivant) setCurseurs(r.presences);
+        })
+        .catch(() => {
+          if (vivant) setCurseurs([]);
+        });
+    };
+    charger();
+    const id = window.setInterval(charger, 4_000);
+    return () => {
+      vivant = false;
+      window.clearInterval(id);
+    };
+  }, [parPartage, refreshTick]);
+
+  const curseursPour = (cheminRayon: string): PresenceCurseur[] => {
+    const out: PresenceCurseur[] = [];
+    for (const c of curseurs) {
+      if (presenceCorrespondAuRayon(c.chemin, cheminRayon)) out.push(c);
+    }
+    return out;
+  };
 
   const voirApercu = async () => {
     if (!projet) return;
@@ -184,6 +225,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     return noeud.entrees.map((e) => {
       const estDossier = e.type === 'dossier';
       const deplie = dossiers[e.chemin]?.ouvert ?? false;
+      const qui = estDossier ? [] : curseursPour(e.chemin);
       return (
         <div key={e.chemin}>
           <button
@@ -196,6 +238,15 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
               {icone(e, deplie)}
             </span>
             <span className="ry-nom">{e.nom}</span>
+            {qui.length > 0 && (
+              <span className="ry-curseurs" title={qui.map((q) => q.outil).join(', ')}>
+                {qui.map((q) => (
+                  <span key={q.toolUseId} className="ry-curseur">
+                    {q.bapteme ?? '·'}
+                  </span>
+                ))}
+              </span>
+            )}
             {!estDossier && <span className="ry-taille">{taille(e.taille, t)}</span>}
           </button>
           {estDossier && rendre(e.chemin, profondeur + 1)}

@@ -273,6 +273,13 @@ export const SAUVEGARDES_RETENTION = 5_000;
 export const PRESENCES_RETENTION_MS = 60 * 60_000;
 
 /**
+ * Réquisitions closes (ADR 0010) : on garde l'historique récent, on élague
+ * le reste. Les ouvertes ne sont JAMAIS élaguées — un besoin sans réponse
+ * doit rester visible.
+ */
+export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
+
+/**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
  * (doctrine, règle 3), câblée dans le tick.
  *
@@ -1796,8 +1803,120 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         },
         presences,
         tasks,
+        requisitions: store.listerRequisitions({ nodeId: node.id, statut: 'ouverte' }),
         atelier: await etatAtelier({ env: process.env }),
       };
+    },
+  );
+
+  /**
+   * Curseurs Rayon (ADR 0010 lot 6) — toutes les présences ouvertes + baptême.
+   * Jeton de ruche UNIQUEMENT. Partage → 401 (pas d'identités actives).
+   */
+  app.get('/api/presences', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const rows = store.listerPresences();
+    return {
+      presences: rows.map((p) => {
+        const b = store.lireBapteme(p.nodeId);
+        return {
+          nodeId: p.nodeId,
+          /** Null si pas baptisée — le Rayon n'invente pas de prénom. */
+          bapteme: b?.nom ?? null,
+          chemin: p.chemin,
+          outil: p.outil,
+          toolUseId: p.toolUseId,
+          taskId: p.taskId,
+          constateA: p.constateA,
+        };
+      }),
+    };
+  });
+
+  /**
+   * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
+   * Jeton de ruche uniquement. Aucun secret dans le corps.
+   */
+  app.get('/api/requisitions', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const q = req.query as { statut?: string; nodeId?: string };
+    const statut =
+      q.statut === 'ouverte' || q.statut === 'accordee' || q.statut === 'refusee'
+        ? q.statut
+        : undefined;
+    const rows = store.listerRequisitions({
+      ...(typeof q.nodeId === 'string' ? { nodeId: q.nodeId } : {}),
+      ...(statut ? { statut } : {}),
+    });
+    return {
+      requisitions: rows.map((r) => ({
+        ...r,
+        bapteme: store.lireBapteme(r.nodeId)?.nom ?? null,
+      })),
+    };
+  });
+
+  app.post<{
+    Body: { nodeId: string; genre: string; libelle: string; detail?: string };
+  }>(
+    '/api/requisitions',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            detail: { type: 'string', maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ouvrirRequisition(
+        req.body.nodeId,
+        req.body.genre,
+        req.body.libelle,
+        req.body.detail ?? null,
+      );
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif });
+      }
+      return { ok: true, id: v.id, genre: v.genre, libelle: v.libelle };
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee' } }>(
+    '/api/requisitions/:id/repondre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+        body: {
+          type: 'object',
+          required: ['decision'],
+          additionalProperties: false,
+          properties: {
+            decision: { type: 'string', enum: ['accordee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.repondreRequisition(req.params.id, req.body.decision);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, statut: v.statut };
     },
   );
 
@@ -7528,6 +7647,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneLivraisons(LIVRAISONS_RETENTION);
       // Présences Rayon orphelines (outil jamais refermé / nœud parti).
       store.prunePresences(PRESENCES_RETENTION_MS);
+      // Réquisitions closes trop vieilles (les ouvertes restent).
+      store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes

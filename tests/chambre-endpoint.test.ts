@@ -110,4 +110,62 @@ describe('GET /api/chambre/:nodeId', () => {
       expect.objectContaining({ chemin: 'src/a.ts', outil: 'Edit' }),
     ]);
   });
+
+  it('GET /api/presences : 401 sans jeton ; curseurs avec baptême', async () => {
+    const srv = await demarrer();
+    expect((await fetch(`${srv.url}/api/presences`)).status).toBe(401);
+    srv.store.registerNode({
+      nodeId: 'n-3',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    srv.store.baptiser('n-3', 'Iris', 1);
+    srv.store.remplacerPresences(
+      'n-3',
+      [{ toolUseId: 't', chemin: 'src/x.ts', outil: 'Read' }],
+      null,
+      2,
+    );
+    const res = await fetch(`${srv.url}/api/presences`, { headers });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      presences: Array<{ bapteme: string | null; chemin: string }>;
+    };
+    expect(body.presences).toEqual([
+      expect.objectContaining({ bapteme: 'Iris', chemin: 'src/x.ts' }),
+    ]);
+  });
+
+  it('réquisitions : ouvrir et répondre via API', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-4',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    const cree = await fetch(`${srv.url}/api/requisitions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        nodeId: 'n-4',
+        genre: 'cle_api',
+        libelle: 'Clé Seedance',
+      }),
+    });
+    expect(cree.status).toBe(200);
+    const { id } = (await cree.json()) as { id: string };
+    const chambre = await fetch(`${srv.url}/api/chambre/n-4`, { headers });
+    const corps = (await chambre.json()) as { requisitions: unknown[] };
+    expect(corps.requisitions).toHaveLength(1);
+    const rep = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee' }),
+    });
+    expect(rep.status).toBe(200);
+  });
 });

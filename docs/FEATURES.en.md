@@ -159,6 +159,16 @@ the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
 a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
 timeline.
 
+## 🪑 Chambre — worker station (ADR 0010)
+
+From a **node sheet** (Hive view) → **Open workstation** (`#/chambre/<nodeId>`):
+baptismal name, cycle role, caste, **observed** open files (Read/Edit/Write),
+that worker’s journal and tasks, and **Computer** = Atelier noVNC (or “off” —
+no fake desktop). On the **Comb**, cursors show who is on which path
+(baptismal name, otherwise silence). **Requisitions** (API key, MCP, binary,
+studio, software) are granted or denied from the Chambre — secrets stay on the
+Queen. A share link **never** sees these identities.
+
 ## 🧠 Queen Bee — from brief to DAG
 
 In **"New project"**, describe the goal in natural language and click

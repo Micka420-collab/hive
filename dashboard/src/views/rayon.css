@@ -107,14 +107,31 @@
   padding-left: 6px;
 }
 
-.ry-icone {
+.ry-nom {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-curseurs {
+  display: flex;
+  gap: 3px;
   flex: none;
-  width: 1.5em;
-  text-align: center;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  font-style: normal;
+  max-width: 40%;
+}
+
+.ry-curseur {
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--miel, #f6c445) 45%, white);
+  color: var(--text, #2a241c);
+  max-width: 6.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ry-nom {

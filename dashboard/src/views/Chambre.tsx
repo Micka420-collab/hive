@@ -5,11 +5,21 @@
 
 import './chambre.css';
 import { useEffect, useMemo, useState } from 'react';
-import { arreterAtelier, demarrerAtelier, fetchAtelier, fetchChambre } from '../api';
+import {
+  arreterAtelier,
+  demarrerAtelier,
+  fetchAtelier,
+  fetchChambre,
+  repondreRequisition,
+} from '../api';
 import type { ChambrePoste, EtatAtelier } from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleMetier } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
+import {
+  libelleGenreRequisition,
+  type GenreRequisition,
+} from '../../../src/orchestrator/requisition.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
@@ -187,6 +197,45 @@ export default function Chambre({
                 <p className="muted-text ch-silence">
                   {t('Aucun fichier ouvert constaté.', 'No open file observed.')}
                 </p>
+              )}
+              {(poste.requisitions?.length ?? 0) > 0 && (
+                <div className="ch-req">
+                  <h4>{t('Réquisitions', 'Requisitions')}</h4>
+                  <ul>
+                    {poste.requisitions!.map((r) => (
+                      <li key={r.id}>
+                        <strong>
+                          {libelleGenreRequisition(
+                            r.genre as GenreRequisition,
+                            lang === 'en' ? 'en' : 'fr',
+                          )}
+                        </strong>
+                        {' — '}
+                        {r.libelle}
+                        <div className="ch-req-actions">
+                          <button
+                            type="button"
+                            className="btn primary"
+                            onClick={() =>
+                              void repondreRequisition(r.id, 'accordee').then(rafraichir)
+                            }
+                          >
+                            {t('Accorder', 'Grant')}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            onClick={() =>
+                              void repondreRequisition(r.id, 'refusee').then(rafraichir)
+                            }
+                          >
+                            {t('Refuser', 'Deny')}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </>
           ) : (
