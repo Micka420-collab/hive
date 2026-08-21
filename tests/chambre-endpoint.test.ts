@@ -138,6 +138,25 @@ describe('GET /api/chambre/:nodeId', () => {
     ]);
   });
 
+  it('GET /api/baptemes : 401 sans jeton ; liste constatée', async () => {
+    const srv = await demarrer();
+    expect((await fetch(`${srv.url}/api/baptemes`)).status).toBe(401);
+    srv.store.registerNode({
+      nodeId: 'n-b1',
+      name: 'tech',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    srv.store.baptiser('n-b1', 'Capucine', 1);
+    const res = await fetch(`${srv.url}/api/baptemes`, { headers });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      baptemes: Array<{ nodeId: string; nom: string }>;
+    };
+    expect(body.baptemes).toEqual([expect.objectContaining({ nodeId: 'n-b1', nom: 'Capucine' })]);
+  });
+
   it('réquisitions : ouvrir et répondre via API', async () => {
     const srv = await demarrer();
     srv.store.registerNode({

@@ -14,9 +14,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   filtrées, **Ordinateur** noVNC (Plein écran). Baptême display — données
   constatées seulement. Curseur Rayon → ouvre la Chambre ; bandeau
   **En train de…** si le miroir du dépôt est vide. Fiche nœud : titre =
-  baptême (sinon silence). Échap → Ruche ; chemins → focus fichier Rayon.
-  Maquette : `docs/maquettes/chambre/`. Capture + démo :
-  `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
+  baptême (sinon silence). Cartes nœud : baptême via `GET /api/baptemes`
+  (jeton ruche ; partage → 401) — sinon « Pas encore baptisée ». Échap →
+  Ruche ; chemins → focus fichier Rayon. Maquette : `docs/maquettes/chambre/`.
+  Capture + démo : `docs/images/dashboard-chambre.png`,
+  `docs/media/chambre-presentation-demo.mp4`.
 
 - **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
   vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,

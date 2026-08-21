@@ -179,7 +179,9 @@ Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir le poste**
 (`#/chambre/<nodeId>`) : identité baptisée, métier de cycle, caste, fichiers
 ouverts **constatés** (Read/Edit/Write), **Journal** et **Missions** de **cette**
 ouvrière, et l’**Ordinateur** = Atelier noVNC (ou « éteint » — pas de faux
-bureau). Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
+bureau). Sur les **cartes nœud**, le baptême constaté (`GET /api/baptemes`,
+jeton ruche) remplace le nom technique en titre — sinon « Pas encore
+baptisée ». Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
 (baptême, sinon silence) — un clic ouvre la **Chambre** de cette ouvrière ;
 le bandeau **En train de…** liste les présences même si le miroir du dépôt
 est vide. Les **réquisitions** (clé API, MCP, binaire, atelier,

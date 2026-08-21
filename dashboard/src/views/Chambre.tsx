@@ -264,7 +264,7 @@ export default function Chambre({
                         .finally(() => setBusyReqId(null));
                     }}
                   >
-                    {t('Accorder', 'Grant')}
+                    {busyReqId === r.id ? t('…', '…') : t('Accorder', 'Grant')}
                   </button>
                   <button
                     type="button"
@@ -277,7 +277,7 @@ export default function Chambre({
                         .finally(() => setBusyReqId(null));
                     }}
                   >
-                    {t('Refuser', 'Deny')}
+                    {busyReqId === r.id ? t('…', '…') : t('Refuser', 'Deny')}
                   </button>
                 </span>
               </li>

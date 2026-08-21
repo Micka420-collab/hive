@@ -41,9 +41,10 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
       atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
     }),
   ),
+  fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
-import { fetchChambre, fetchWaggle } from '../dashboard/src/api';
+import { fetchBaptemes, fetchChambre, fetchWaggle } from '../dashboard/src/api';
 import { NodesPanel } from '../dashboard/src/NodesPanel';
 import { setLang } from '../dashboard/src/i18n';
 
@@ -84,6 +85,7 @@ beforeEach(() => {
       tasks: [],
       atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
     }));
+  vi.mocked(fetchBaptemes).mockReset().mockResolvedValue({ baptemes: [] });
 });
 afterEach(() => {
   act(() => racine?.unmount());
@@ -159,6 +161,20 @@ function cliquer(el: Element): void {
 }
 
 describe('le panneau des nœuds — la machine se lit sur la carte', () => {
+  it('LA CARTE AFFICHE LE BAPTÊME CONSTATÉ quand l’API le fournit', async () => {
+    vi.mocked(fetchBaptemes).mockResolvedValue({
+      baptemes: [{ nodeId: 'n-ruche-fenetre', nom: 'Capucine', baptiseA: 1 }],
+    });
+    const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
+    await act(async () => {});
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('Capucine'),
+    );
+    expect(carte).toBeTruthy();
+    expect(carte?.textContent).toContain('Technique');
+    expect(carte?.textContent).toContain('ruche-fenetre');
+  });
+
   it('L’OUVRIÈRE WINDOWS PORTE SA PUCE 🪟 — c’était la question d’origine', async () => {
     const dom = await monter([
       ouvriere('ruche-fenetre', 'windows'),

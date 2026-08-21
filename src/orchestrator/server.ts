@@ -1849,6 +1849,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   /**
+   * Baptêmes (ADR 0010) — liste constatée pour les cartes nœud.
+   * Jeton de ruche UNIQUEMENT. Partage → 401 (pas d'identités).
+   */
+  app.get('/api/baptemes', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      baptemes: store.listerBaptemes().map((b) => ({
+        nodeId: b.nodeId,
+        nom: b.nom,
+        baptiseA: b.baptiseA,
+      })),
+    };
+  });
+
+  /**
    * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
    * Jeton de ruche uniquement. Aucun secret dans le corps.
    */

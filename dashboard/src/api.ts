@@ -1788,6 +1788,13 @@ export function fetchPresences(): Promise<{ presences: PresenceCurseur[] }> {
   return api<{ presences: PresenceCurseur[] }>('/api/presences');
 }
 
+/** Baptêmes constatés — jeton de ruche seulement (pas via partage). */
+export function fetchBaptemes(): Promise<{
+  baptemes: Array<{ nodeId: string; nom: string; baptiseA: number }>;
+}> {
+  return api('/api/baptemes');
+}
+
 export interface RequisitionPoste {
   id: string;
   nodeId: string;

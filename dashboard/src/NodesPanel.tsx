@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
-import { fetchChambre, fetchWaggle } from './api';
+import { fetchBaptemes, fetchChambre, fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
@@ -220,8 +220,29 @@ export function NodesPanel({
   const lang = useLang();
   const online = nodes.filter((n) => n.status === 'online').length;
   const [ouverte, setOuverte] = useState<string | null>(null);
+  /** nodeId → baptême constaté ; null map entry = silence ; baptemes null = pas chargé. */
+  const [baptemes, setBaptemes] = useState<Record<string, string | null> | null>(null);
   const fiche =
     tasks && onOpenTask && ouverte ? (nodes.find((n) => n.id === ouverte) ?? null) : null;
+  const nodeIdsKey = nodes.map((n) => n.id).join(',');
+
+  useEffect(() => {
+    let vivant = true;
+    fetchBaptemes()
+      .then((r) => {
+        if (!vivant) return;
+        const map: Record<string, string | null> = {};
+        for (const id of nodeIdsKey.split(',').filter(Boolean)) map[id] = null;
+        for (const b of r.baptemes) map[b.nodeId] = b.nom;
+        setBaptemes(map);
+      })
+      .catch(() => {
+        if (vivant) setBaptemes({});
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [nodeIdsKey]);
 
   return (
     <section className="card panel">
@@ -232,41 +253,51 @@ export function NodesPanel({
         </span>
       </header>
       <ul className="node-list">
-        {nodes.map((n) => (
-          <li
-            key={n.id}
-            className={`node-card ${n.status}`}
-            {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
-          >
-            <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
-              {initials(n.name)}
-              <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
-            </div>
-            <div className="node-body">
-              <div className="nc-name">
-                {n.name}
-                <span className={`dot ${n.status}`} title={n.status} />
+        {nodes.map((n) => {
+          const bapt = baptemes ? (baptemes[n.id] ?? null) : undefined;
+          const label = bapt || n.name;
+          return (
+            <li
+              key={n.id}
+              className={`node-card ${n.status}`}
+              {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
+            >
+              <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
+                {initials(label)}
+                <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
               </div>
-              <div className="node-meta">
-                {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
-                {/* La machine derrière l'ouvrière — « quelles ouvrières
-                    tournent sous Windows ? » se lit ici, pas dans un log.
-                    Absente (nœud d'une version antérieure) : rien, plutôt
-                    qu'une plateforme inventée. */}
-                {n.plateforme && (
-                  <span className="node-plateforme" title={n.plateforme}>
-                    {' '}
-                    · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+              <div className="node-body">
+                <div className="nc-name">
+                  <span className={bapt ? undefined : bapt === null ? 'muted-text' : undefined}>
+                    {bapt === null ? t('Pas encore baptisée', 'Not baptised yet') : label}
                   </span>
-                )}
+                  <span className={`dot ${n.status}`} title={n.status} />
+                </div>
+                <div className="node-meta">
+                  {(bapt || bapt === null) && (
+                    <>
+                      <span className="muted-text">
+                        {t('Technique', 'Technical')} · {n.name}
+                      </span>
+                      {' · '}
+                    </>
+                  )}
+                  {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
+                  {n.plateforme && (
+                    <span className="node-plateforme" title={n.plateforme}>
+                      {' '}
+                      · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+                    </span>
+                  )}
+                </div>
+                <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
               </div>
-              <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
-            </div>
-            <div className="node-load">
-              {n.running}/{n.maxConcurrency}
-            </div>
-          </li>
-        ))}
+              <div className="node-load">
+                {n.running}/{n.maxConcurrency}
+              </div>
+            </li>
+          );
+        })}
         {nodes.length === 0 && (
           <li className="empty">
             {t(
