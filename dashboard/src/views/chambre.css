@@ -871,6 +871,16 @@ button.ch-lien-chemin:focus-visible {
   color: #b33;
 }
 
+.ch-err-soft {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--ch-mute);
+  background: color-mix(in srgb, #b33 8%, var(--ch-papier));
+  border: 1px solid color-mix(in srgb, #b33 18%, var(--ch-ligne));
+  border-radius: 10px;
+}
+
 @media (max-width: 960px) {
   .ch-grid {
     grid-template-columns: 1fr;

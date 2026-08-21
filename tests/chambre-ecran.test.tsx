@@ -447,6 +447,7 @@ describe('Chambre à l’écran', () => {
       await new Promise((r) => setTimeout(r, 4100));
     });
     expect(dom.textContent).toContain('Capucine');
+    expect(dom.textContent).toContain('Actualisation interrompue');
     expect(dom.textContent).not.toMatch(/Chargement…|Loading…/);
   });
 

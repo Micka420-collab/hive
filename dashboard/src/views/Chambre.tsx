@@ -306,6 +306,12 @@ export default function Chambre({
         </div>
       </header>
 
+      {err && poste ? (
+        <p className="ch-err-soft" role="status">
+          {t('Actualisation interrompue', 'Refresh interrupted')} · {err}
+        </p>
+      ) : null}
+
       {reqs.length > 0 && (
         <div className="ch-hitl" role="region" aria-label={t('À trancher', 'Needs a decision')}>
           <div className="ch-hitl-lead">

@@ -183,8 +183,10 @@ Cross-project **motifs** (e.g. 3D game: forge before assets) create ordered
 tasks — never another repo’s diff.
 
 On screen: **Needs a decision** banner (requisitions), **Journal** with live
-**tool stream**, filtered **Missions**, Sheet / Work / Integrations / Horizon tabs (ledger + forge).
-Mockup: `docs/maquettes/chambre/`.
+**tool stream** (READ/EDIT/WRITE badges), filtered **Missions**, Sheet / Work /
+Integrations / Horizon tabs (ledger + forge). **Open Rayon** focuses the latest
+observed path (otherwise navigation only). Escape → Hive, except while typing /
+in a dialog / in the Atelier iframe. Mockup: `docs/maquettes/chambre/`.
 
 ## 🧠 Queen Bee — from brief to DAG
 

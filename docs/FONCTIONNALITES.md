@@ -198,8 +198,11 @@ l’instantané). Les **motifs** inter-projets (ex. jeu-3d : fabrique avant asse
 créent des tâches ordonnées — jamais le diff d’un autre dépôt.
 
 À l’écran : bandeau **À trancher** (réquisitions), **Journal** avec
-**flux outils** constatés, **Missions** filtrées, onglets Fiche / Travail /
-Intégrations / Suivi (horizon + fabrique). Maquette : `docs/maquettes/chambre/`.
+**flux outils** constatés (pastilles READ/EDIT/WRITE), **Missions** filtrées,
+onglets Fiche / Travail / Intégrations / Suivi (horizon + fabrique).
+**Voir le Rayon** pose le focus sur la présence la plus récente (sinon
+navigation seule). Échap → Ruche, sauf saisie / dialogue / iframe Atelier.
+Maquette : `docs/maquettes/chambre/`.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
