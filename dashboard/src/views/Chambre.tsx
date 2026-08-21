@@ -258,6 +258,11 @@ export default function Chambre({
     return 'ch-badge';
   };
 
+  const rayonAide =
+    poste && poste.presences[0]
+      ? t('Ouvrir le Rayon sur le fichier constaté', 'Open Rayon on the observed file')
+      : t('Ouvrir le Rayon du projet', 'Open the project Rayon');
+
   return (
     <div className="mc-view ch-view">
       <header className="ch-brand">
@@ -283,16 +288,8 @@ export default function Chambre({
               type="button"
               className="btn ghost ch-lien-rayon"
               data-testid="chambre-ouvrir-rayon"
-              title={
-                poste.presences[0]
-                  ? t('Ouvrir le Rayon sur le fichier constaté', 'Open Rayon on the observed file')
-                  : t('Ouvrir le Rayon du projet', 'Open the project Rayon')
-              }
-              aria-label={
-                poste.presences[0]
-                  ? t('Ouvrir le Rayon sur le fichier constaté', 'Open Rayon on the observed file')
-                  : t('Ouvrir le Rayon du projet', 'Open the project Rayon')
-              }
+              title={rayonAide}
+              aria-label={rayonAide}
               onClick={() => {
                 const recent = [...poste.presences].sort((a, b) => b.constateA - a.constateA)[0];
                 if (recent?.chemin) demanderFocusFichier(recent.chemin);
