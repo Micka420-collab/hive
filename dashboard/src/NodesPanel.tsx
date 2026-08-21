@@ -237,7 +237,8 @@ export function NodesPanel({
         setBaptemes(map);
       })
       .catch(() => {
-        if (vivant) setBaptemes({});
+        // Échec réseau / 401 : ne pas affirmer « Pas encore baptisée » —
+        // on laisse baptemes à null et on garde les noms techniques.
       });
     return () => {
       vivant = false;

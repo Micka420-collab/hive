@@ -113,6 +113,7 @@ async function monter(nodes: HiveNode[]): Promise<HTMLElement> {
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
   await act(async () => racine?.render(<NodesPanel nodes={nodes} />));
+  await act(async () => {});
   // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
   // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
   return document.body;
@@ -149,6 +150,7 @@ async function monterAvecFiche(
   await act(async () =>
     racine?.render(<NodesPanel nodes={nodes} tasks={tasks} onOpenTask={onOpenTask} />),
   );
+  await act(async () => {});
   // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
   // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
   return document.body;
@@ -166,13 +168,33 @@ describe('le panneau des nœuds — la machine se lit sur la carte', () => {
       baptemes: [{ nodeId: 'n-ruche-fenetre', nom: 'Capucine', baptiseA: 1 }],
     });
     const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
-    await act(async () => {});
     const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
       (c.textContent ?? '').includes('Capucine'),
     );
     expect(carte).toBeTruthy();
     expect(carte?.textContent).toContain('Technique');
     expect(carte?.textContent).toContain('ruche-fenetre');
+  });
+
+  it('SI L’API BAPTÊMES ÉCHOUE : nom technique, pas « Pas encore baptisée »', async () => {
+    vi.mocked(fetchBaptemes).mockRejectedValue(new Error('401'));
+    const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    expect(carte).toBeTruthy();
+    expect(carte?.textContent).not.toContain('Pas encore baptisée');
+    expect(carte?.textContent).not.toContain('Technique');
+  });
+
+  it('LISTE VIDE CONSTATÉE : « Pas encore baptisée », pas un prénom inventé', async () => {
+    vi.mocked(fetchBaptemes).mockResolvedValue({ baptemes: [] });
+    const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
+    const carte = [...dom.querySelectorAll('.node-card')][0];
+    expect(carte?.textContent).toContain('Pas encore baptisée');
+    expect(carte?.textContent).toContain('Technique');
+    expect(carte?.textContent).toContain('ruche-fenetre');
+    expect(carte?.textContent).not.toMatch(/Adrien|Capucine/);
   });
 
   it('L’OUVRIÈRE WINDOWS PORTE SA PUCE 🪟 — c’était la question d’origine', async () => {
