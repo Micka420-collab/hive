@@ -611,6 +611,29 @@
   text-overflow: ellipsis;
 }
 
+button.ch-lien-chemin {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 550;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ch-miel, #f2b441) 55%, transparent);
+  text-underline-offset: 2px;
+}
+
+button.ch-lien-chemin:hover,
+button.ch-lien-chemin:focus-visible {
+  color: var(--ch-encre, #1a1a1a);
+  text-decoration-color: var(--ch-miel, #f2b441);
+}
+
 .ch-log-detail {
   font-size: 0.75rem;
   color: var(--ch-mute);
@@ -641,6 +664,16 @@
   font-size: 0.72rem;
   cursor: pointer;
   color: inherit;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-filtres button {
+    transition: none;
+  }
 }
 
 .ch-filtres button.actif {

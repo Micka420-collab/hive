@@ -561,9 +561,9 @@ export default function Chambre({
           )}
         </aside>
 
-        <section className="ch-zone ch-journal" aria-label={t('Activité', 'Activity')}>
+        <section className="ch-zone ch-journal" aria-label={t('Journal', 'Journal')}>
           <div className="ch-zone-head">
-            <h3>{t('Activité', 'Activity')}</h3>
+            <h3>{t('Journal', 'Journal')}</h3>
           </div>
           {poste && poste.presences.length > 0 && (
             <ul className="ch-timeline ch-stream" aria-live="polite">
@@ -571,7 +571,18 @@ export default function Chambre({
                 <li key={`s-${p.toolUseId}`}>
                   <span className={badgeClass(p.outil)}>{p.outil.toUpperCase()}</span>
                   <span className="ch-log-body">
-                    <span className="ch-log-resume">{p.chemin}</span>
+                    {poste.projectId ? (
+                      <button
+                        type="button"
+                        className="ch-log-resume ch-lien-chemin"
+                        title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
+                        onClick={() => onNavigate('rayon', poste.projectId!)}
+                      >
+                        {p.chemin}
+                      </button>
+                    ) : (
+                      <span className="ch-log-resume">{p.chemin}</span>
+                    )}
                   </span>
                   <span className="ch-log-time">{timeShort(p.constateA)}</span>
                 </li>
@@ -580,7 +591,7 @@ export default function Chambre({
           )}
           {journal.length === 0 && !(poste && poste.presences.length > 0) ? (
             <p className="ch-silence">
-              {t('Pas encore d’activité pour cette ouvrière.', 'No activity for this worker yet.')}
+              {t('Pas encore de journal pour cette ouvrière.', 'No journal for this worker yet.')}
             </p>
           ) : journal.length > 0 ? (
             <ul className="ch-timeline">
@@ -605,14 +616,14 @@ export default function Chambre({
           ) : null}
         </section>
 
-        <section className="ch-zone ch-activite" aria-label={t('Tâches', 'Tasks')}>
+        <section className="ch-zone ch-activite" aria-label={t('Missions', 'Missions')}>
           <div className="ch-zone-head">
-            <h3>{t('Tâches', 'Tasks')}</h3>
+            <h3>{t('Missions', 'Missions')}</h3>
           </div>
           <div
             className="ch-filtres"
             role="group"
-            aria-label={t('Filtrer les tâches', 'Filter tasks')}
+            aria-label={t('Filtrer les missions', 'Filter missions')}
             data-testid="chambre-filtres-taches"
           >
             {(
@@ -662,7 +673,7 @@ export default function Chambre({
           )}
         </section>
 
-        <section className="ch-zone ch-ordi" aria-label={t('Studio', 'Studio')}>
+        <section className="ch-zone ch-ordi" aria-label={t('Ordinateur', 'Computer')}>
           <AtelierPoste
             etat={poste?.atelier ?? null}
             busy={busyAtelier}
@@ -708,7 +719,7 @@ function AtelierPoste({
     return (
       <div className="ch-ordi-chrome">
         <div className="ch-ordi-top">
-          <h3>{t('Studio — noVNC', 'Studio — noVNC')}</h3>
+          <h3>{t('Ordinateur — noVNC', 'Computer — noVNC')}</h3>
         </div>
         <div className="ch-ordi-off">
           <p className="ch-silence">{t('État de l’atelier inconnu.', 'Studio state unknown.')}</p>
@@ -721,7 +732,7 @@ function AtelierPoste({
     return (
       <div className="ch-ordi-chrome">
         <div className="ch-ordi-top">
-          <h3>{t('Studio — noVNC', 'Studio — noVNC')}</h3>
+          <h3>{t('Ordinateur — noVNC', 'Computer — noVNC')}</h3>
         </div>
         <div className="ch-ordi-off">
           <p>
@@ -749,7 +760,7 @@ function AtelierPoste({
   return (
     <div className="ch-ordi-chrome">
       <div className="ch-ordi-top">
-        <h3>{t('Studio — noVNC', 'Studio — noVNC')}</h3>
+        <h3>{t('Ordinateur — noVNC', 'Computer — noVNC')}</h3>
         <div className="ch-ordi-actions">
           <a className="btn ghost" href={etat.ecran} target="_blank" rel="noreferrer">
             {t('Plein écran', 'Fullscreen')}
