@@ -73,6 +73,8 @@
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "happy-dom": "^20.11.1",
+    "mammoth": "^1.12.1",
+    "pdfjs-dist": "^6.2.108",
     "prettier": "^3.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

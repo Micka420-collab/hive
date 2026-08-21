@@ -215,6 +215,7 @@ import type { Caste, ModePolyethisme } from './polyethisme.js';
 // rangée, ce qui rend l'observation repliable (le bandit apprend).
 import { ECHELONS, REGLAGES, versEchelon } from './garde-fou.js';
 import type { Echelon } from './garde-fou.js';
+import { CHAT_ENVOI_MAX } from '../shared/reine-pieces.js';
 import { askConcierge, askConciergeStream, sousAgentsDepuisEvenements } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
@@ -4470,7 +4471,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           required: ['message'],
           additionalProperties: false,
           properties: {
-            message: { type: 'string', minLength: 1, maxLength: 2000 },
+            message: { type: 'string', minLength: 1, maxLength: CHAT_ENVOI_MAX },
             projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
             stream: { type: 'boolean' },
           },

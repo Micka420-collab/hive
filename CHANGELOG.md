@@ -9,6 +9,12 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **🎤 Reine vocale + documents.** Vue 👑 : micro (Web Speech), lecture à voix
+  haute des réponses, joindre PDF / Word `.docx` / texte / code (extraction
+  navigateur via `pdfjs` + `mammoth`, bundlés dashboard — 0 dep runtime nœud).
+  Vidéo/audio : refus clair (pas de fausse transcription). Plafond chat porté
+  à 40 000 caractères. Module pur `reine-pieces` + bancs.
+
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
   des échecs + une étape (puce → Rayon). (3) Pouls Plein Essaim sur la Ruche
