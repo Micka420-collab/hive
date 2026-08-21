@@ -270,6 +270,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
             onClick={() => (estDossier ? basculer(e.chemin) : void ouvrir(e.chemin))}
             title={e.chemin}
             aria-expanded={estDossier ? deplie : undefined}
+            aria-current={!estDossier && ouvert === e.chemin ? 'true' : undefined}
           >
             <span className="ry-icone" aria-hidden="true">
               {icone(e, deplie)}

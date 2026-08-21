@@ -223,5 +223,6 @@ describe('curseur Rayon → Chambre', () => {
     });
     expect(vi.mocked(fetchFichierRayon)).toHaveBeenCalledWith('p1', 'src/pont/mcp.ts');
     expect(dom.querySelector('.ry-entree.active')?.textContent).toContain('mcp.ts');
+    expect(dom.querySelector('.ry-entree.active')?.getAttribute('aria-current')).toBe('true');
   });
 });

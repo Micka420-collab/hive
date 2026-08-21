@@ -685,7 +685,7 @@ export default function Chambre({
             <h3>{t('Journal', 'Journal')}</h3>
           </div>
           {poste && poste.presences.length > 0 && (
-            <ul className="ch-timeline ch-stream" aria-live="polite">
+            <ul className="ch-timeline ch-stream">
               {poste.presences.map((p) => (
                 <li key={`s-${p.toolUseId}`}>
                   <span className={badgeClass(p.outil)}>{p.outil.toUpperCase()}</span>

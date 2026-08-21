@@ -44,18 +44,18 @@ function NodeCard({
   const t = useT();
   const lang = useLang();
   const label = bapt || node.name;
+  const ouvrirTitre = onOuvrirPoste
+    ? bapt
+      ? t(`Ouvrir la Chambre · ${bapt}`, `Open the Chambre · ${bapt}`)
+      : t('Ouvrir la Chambre', 'Open the Chambre')
+    : undefined;
   return (
     <article
       className={`es-node ${node.status}${onOuvrirPoste ? ' es-node-ouvre' : ''}`}
       data-testid={onOuvrirPoste ? 'essaim-ouvrir-chambre' : undefined}
       {...(onOuvrirPoste ? activateProps(() => onOuvrirPoste(node.id)) : {})}
-      title={
-        onOuvrirPoste
-          ? bapt
-            ? t(`Ouvrir la Chambre · ${bapt}`, `Open the Chambre · ${bapt}`)
-            : t('Ouvrir la Chambre', 'Open the Chambre')
-          : undefined
-      }
+      title={ouvrirTitre}
+      aria-label={ouvrirTitre}
     >
       <header className="es-node-head">
         <span
