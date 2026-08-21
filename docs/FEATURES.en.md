@@ -147,15 +147,17 @@ reports, pulse, nectar, anomalies and memory — 100% offline) and **AI** (if
 `claude-haiku-4-5`; the key never leaves the orchestrator, and the model only
 receives the hive's real numbers). AI and live replies **stream** over SSE when
 the client asks (`stream: true` or `Accept: text/event-stream`) — the dashboard
-Queen bubble and `npm run cli -- ask` share that path. The prompt also sees
-read-only **in-flight work**, **sub-agents**, and **Full Swarm** state — the
-Queen never raises autonomy or rewrites git. The Queen also guides the project
-owner: best practices per project type (web, API, mobile, data, e-commerce,
-CLI) and an effective brief structure. In AI mode, Anthropic **token counts**
-show on each reply (and for the session). Mode chips link Chat → Plan
-(Projects / Queen Bee) → Autonomy (Full Swarm on the project) → Backups
-(Comb). When recent failures sit next to a checkpoint, the Queen offers a
-**Restore…** chip that opens the Comb timeline.
+Queen bubble and `npm run cli -- ask` share that path. Leaving the view,
+**Clear**, or **Ctrl+C** on `hive ask` aborts the stream (no error bubble /
+`(interrompu)`). The prompt also sees read-only **in-flight work**,
+**sub-agents**, and **Full Swarm** state — the Queen never raises autonomy or
+rewrites git. The Queen also guides the project owner: best practices per
+project type (web, API, mobile, data, e-commerce, CLI) and an effective brief
+structure. In AI mode, Anthropic **token counts** show on each reply (and for
+the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
+(Full Swarm on the project) → Backups (Comb). When recent failures sit next to
+a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
+timeline.
 
 ## 🧠 Queen Bee — from brief to DAG
 

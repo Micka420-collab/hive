@@ -161,15 +161,17 @@ hors-ligne) et **IA** (si `ANTHROPIC_API_KEY` est définie côté Queen :
 l'orchestrateur, et le modèle ne reçoit que les chiffres réels de la ruche).
 État réel comme IA **fluxent** en SSE quand le client le demande (`stream:
 true` ou `Accept: text/event-stream`) — la bulle Reine du dashboard et
-`npm run cli -- ask` partagent ce chemin. Le prompt voit aussi, en lecture
-seule, le **travail en cours**, les **sous-agents** et l’état **Plein Essaim**
-— la Reine n’élève jamais l’autonomie ni ne réécrit git. La Reine guide aussi
-le donneur d'ordre : bonnes pratiques par type de projet (web, API, mobile,
-data, e-commerce, CLI) et structure de brief efficace. En mode IA, le décompte
-de **tokens** Anthropic s’affiche sur chaque réponse (et en session). La barre
-de modes relie Chat → Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur
-le projet) → Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la
-Reine propose une puce **Restaurer…** qui ouvre la timeline du Rayon.
+`npm run cli -- ask` partagent ce chemin. Quitter la vue, **Effacer**, ou
+**Ctrl+C** sur `hive ask` coupe le flux (pas de bulle d’erreur /
+`(interrompu)`). Le prompt voit aussi, en lecture seule, le **travail en
+cours**, les **sous-agents** et l’état **Plein Essaim** — la Reine n’élève
+jamais l’autonomie ni ne réécrit git. La Reine guide aussi le donneur d'ordre :
+bonnes pratiques par type de projet (web, API, mobile, data, e-commerce, CLI)
+et structure de brief efficace. En mode IA, le décompte de **tokens** Anthropic
+s’affiche sur chaque réponse (et en session). La barre de modes relie Chat →
+Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur le projet) →
+Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la Reine propose
+une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
