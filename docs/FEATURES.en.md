@@ -169,6 +169,12 @@ no fake desktop). On the **Comb**, cursors show who is on which path
 studio, software) are granted or denied from the Chambre — secrets stay on the
 Queen. A share link **never** sees these identities.
 
+**Forge** proposes a tool (npm script, bridge, MCP) as a task → review → merge;
+Chantiers may run it only **after** merge and declaration in `package.json`.
+**Horizon** keeps a facts ≠ hypotheses ledger (without bloating the snapshot).
+Cross-project **motifs** (e.g. 3D game: forge before assets) create ordered
+tasks — never another repo’s diff.
+
 ## 🧠 Queen Bee — from brief to DAG
 
 In **"New project"**, describe the goal in natural language and click

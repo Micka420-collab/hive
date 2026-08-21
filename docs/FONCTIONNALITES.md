@@ -184,6 +184,12 @@ bureau). Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
 logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
 chez la Queen. Un lien de partage **ne voit jamais** ces identités.
 
+La **fabrique** propose un outil (script npm, pont, MCP) comme tâche → revue →
+merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans
+`package.json`. L’**horizon** tient un carnet faits ≠ hypothèses (sans gonfler
+l’instantané). Les **motifs** inter-projets (ex. jeu-3d : fabrique avant assets)
+créent des tâches ordonnées — jamais le diff d’un autre dépôt.
+
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
 Dans **« Nouveau projet »**, décrivez l'objectif en langage naturel et cliquez

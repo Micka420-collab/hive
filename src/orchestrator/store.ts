@@ -35,6 +35,20 @@ import {
   type MotifRefusRequisition,
   type StatutRequisition,
 } from './requisition.js';
+import {
+  validerGenreFabrique,
+  validerLibelleFabrique,
+  type GenreFabrique,
+  type MotifRefusFabrique,
+  type StatutFabrique,
+} from './fabrique.js';
+import {
+  HORIZON_LECTURE_MAX,
+  validerKindHorizon,
+  validerTexteHorizon,
+  type EntreeHorizon,
+  type MotifRefusHorizon,
+} from './horizon.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -869,6 +883,33 @@ CREATE TABLE IF NOT EXISTS requisitions (
   closA   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_requisitions_statut ON requisitions(statut);
+
+-- Fabrique (ADR 0010 lot 8) : propositions d'outil dans le dépôt.
+-- Chantier seulement après statut mergee + script déclaré.
+CREATE TABLE IF NOT EXISTS fabriques (
+  id         TEXT PRIMARY KEY,
+  projectId  TEXT NOT NULL REFERENCES projects(id),
+  nodeId     TEXT REFERENCES nodes(id),
+  genre      TEXT NOT NULL,
+  libelle    TEXT NOT NULL,
+  nomScript  TEXT,
+  taskId     TEXT,
+  statut     TEXT NOT NULL,
+  creeA      INTEGER NOT NULL,
+  closA      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fabriques_projet ON fabriques(projectId);
+
+-- Horizon (ADR 0010 lot 9) : faits ≠ hypothèses. Borné + pruneHorizon.
+CREATE TABLE IF NOT EXISTS horizon_ledger (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  kind      TEXT NOT NULL,
+  texte     TEXT NOT NULL,
+  source    TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_horizon_projet ON horizon_ledger(projectId, creeA DESC);
 `;
 
 interface ProjectRow {
@@ -1864,6 +1905,216 @@ export class HiveStore {
         "DELETE FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?",
       )
       .run(cutoff).changes;
+  }
+
+  // ─── Fabrique (ADR 0010 lot 8) ─────────────────────────────────────────────
+
+  ouvrirFabrique(
+    projectId: string,
+    genreBrut: string,
+    libelleBrut: string,
+    opts?: { nodeId?: string; nomScript?: string; taskId?: string },
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; genre: GenreFabrique; libelle: string }
+    | { ok: false; motif: MotifRefusFabrique } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'projet_inconnu' };
+    const g = validerGenreFabrique(genreBrut);
+    if (!g.ok) return g;
+    const l = validerLibelleFabrique(libelleBrut);
+    if (!l.ok) return l;
+    if (opts?.nodeId && !this.getNode(opts.nodeId)) return { ok: false, motif: 'projet_inconnu' };
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO fabriques (id, projectId, nodeId, genre, libelle, nomScript, taskId, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)',
+      )
+      .run(
+        id,
+        projectId,
+        opts?.nodeId ?? null,
+        g.genre,
+        l.libelle,
+        opts?.nomScript ?? null,
+        opts?.taskId ?? null,
+        'proposee',
+        now,
+      );
+    return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  listerFabriques(projectId: string): Array<{
+    id: string;
+    projectId: string;
+    nodeId: string | null;
+    genre: GenreFabrique;
+    libelle: string;
+    nomScript: string | null;
+    taskId: string | null;
+    statut: StatutFabrique;
+    creeA: number;
+    closA: number | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, projectId, nodeId, genre, libelle, nomScript, taskId, statut, creeA, closA ' +
+          'FROM fabriques WHERE projectId = ? ORDER BY creeA DESC LIMIT 100',
+      )
+      .all(projectId) as Array<{
+      id: string;
+      projectId: string;
+      nodeId: string | null;
+      genre: string;
+      libelle: string;
+      nomScript: string | null;
+      taskId: string | null;
+      statut: string;
+      creeA: number;
+      closA: number | null;
+    }>;
+    const out: Array<{
+      id: string;
+      projectId: string;
+      nodeId: string | null;
+      genre: GenreFabrique;
+      libelle: string;
+      nomScript: string | null;
+      taskId: string | null;
+      statut: StatutFabrique;
+      creeA: number;
+      closA: number | null;
+    }> = [];
+    for (const r of rows) {
+      const g = validerGenreFabrique(r.genre);
+      if (!g.ok) continue;
+      if (
+        r.statut !== 'proposee' &&
+        r.statut !== 'en_revue' &&
+        r.statut !== 'mergee' &&
+        r.statut !== 'refusee'
+      ) {
+        continue;
+      }
+      out.push({
+        id: r.id,
+        projectId: r.projectId,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        nomScript: r.nomScript,
+        taskId: r.taskId,
+        statut: r.statut,
+        creeA: r.creeA,
+        closA: r.closA,
+      });
+    }
+    return out;
+  }
+
+  poserStatutFabrique(
+    id: string,
+    statut: StatutFabrique,
+    now = Date.now(),
+  ): { ok: true } | { ok: false; motif: MotifRefusFabrique } {
+    const row = this.db.prepare('SELECT id, statut FROM fabriques WHERE id = ?').get(id) as
+      { id: string; statut: string } | undefined;
+    if (!row) return { ok: false, motif: 'inconnue' };
+    if (row.statut === 'mergee' || row.statut === 'refusee') {
+      return { ok: false, motif: 'deja_close' };
+    }
+    const clos = statut === 'mergee' || statut === 'refusee' ? now : null;
+    this.db
+      .prepare('UPDATE fabriques SET statut = ?, closA = ? WHERE id = ?')
+      .run(statut, clos, id);
+    return { ok: true };
+  }
+
+  pruneFabriques(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db
+      .prepare(
+        "DELETE FROM fabriques WHERE statut IN ('mergee','refusee') AND closA IS NOT NULL AND closA < ?",
+      )
+      .run(cutoff).changes;
+  }
+
+  // ─── Horizon (ADR 0010 lot 9) ──────────────────────────────────────────────
+
+  ajouterHorizon(
+    projectId: string,
+    kindBrut: string,
+    texteBrut: string,
+    source = 'reine',
+    now = Date.now(),
+  ): { ok: true; entree: EntreeHorizon } | { ok: false; motif: MotifRefusHorizon } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'projet_inconnu' };
+    const k = validerKindHorizon(kindBrut);
+    if (!k.ok) return k;
+    const t = validerTexteHorizon(texteBrut);
+    if (!t.ok) return t;
+    const count = (
+      this.db
+        .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
+        .get(projectId) as {
+        n: number;
+      }
+    ).n;
+    if (count >= HORIZON_LECTURE_MAX * 5) return { ok: false, motif: 'trop_dentrees' };
+    const id = randomUUID();
+    const src = (source || 'reine').trim().slice(0, 80) || 'reine';
+    this.db
+      .prepare(
+        'INSERT INTO horizon_ledger (id, projectId, kind, texte, source, creeA) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, projectId, k.kind, t.texte, src, now);
+    return {
+      ok: true,
+      entree: {
+        id,
+        projectId,
+        kind: k.kind,
+        texte: t.texte,
+        source: src,
+        creeA: now,
+      },
+    };
+  }
+
+  listerHorizon(projectId: string, limite = HORIZON_LECTURE_MAX): EntreeHorizon[] {
+    const cap = Math.max(1, Math.min(limite, HORIZON_LECTURE_MAX));
+    const rows = this.db
+      .prepare(
+        'SELECT id, projectId, kind, texte, source, creeA FROM horizon_ledger ' +
+          'WHERE projectId = ? ORDER BY creeA DESC LIMIT ?',
+      )
+      .all(projectId, cap) as Array<{
+      id: string;
+      projectId: string;
+      kind: string;
+      texte: string;
+      source: string;
+      creeA: number;
+    }>;
+    const out: EntreeHorizon[] = [];
+    for (const r of rows) {
+      const k = validerKindHorizon(r.kind);
+      if (!k.ok) continue;
+      out.push({
+        id: r.id,
+        projectId: r.projectId,
+        kind: k.kind,
+        texte: r.texte,
+        source: r.source,
+        creeA: r.creeA,
+      });
+    }
+    return out;
+  }
+
+  pruneHorizon(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM horizon_ledger WHERE creeA < ?').run(cutoff).changes;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {

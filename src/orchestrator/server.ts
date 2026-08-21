@@ -279,6 +279,9 @@ export const PRESENCES_RETENTION_MS = 60 * 60_000;
  */
 export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
+/** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
+export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
 /**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
  * (doctrine, règle 3), câblée dans le tick.
@@ -1920,6 +1923,256 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // ─── Fabrique / Horizon / Motifs (ADR 0010 lots 8–10) ───────────────────────
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/fabriques',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { fabriques: store.listerFabriques(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: {
+      genre: string;
+      libelle: string;
+      nomScript?: string;
+      nodeId?: string;
+      creerTache?: boolean;
+    };
+  }>(
+    '/api/projects/:projectId/fabriques',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            nomScript: { type: 'string', maxLength: 80 },
+            nodeId: { type: 'string', maxLength: 64 },
+            creerTache: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { promptFabrique, validerGenreFabrique } = await import('./fabrique.js');
+      const g = validerGenreFabrique(req.body.genre);
+      if (!g.ok) return reply.code(400).send({ error: g.motif });
+      let taskId: string | undefined;
+      if (req.body.creerTache !== false) {
+        const prompt = promptFabrique({
+          genre: g.genre,
+          libelle: req.body.libelle,
+          nomScript: req.body.nomScript,
+        });
+        const task = store.createTask({
+          projectId,
+          title: `Fabrique : ${req.body.libelle}`.slice(0, 120),
+          prompt,
+        });
+        store.patchTask(task.id, { status: 'ready' });
+        taskId = task.id;
+      }
+      const v = store.ouvrirFabrique(projectId, req.body.genre, req.body.libelle, {
+        nodeId: req.body.nodeId,
+        nomScript: req.body.nomScript,
+        taskId,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.motif });
+      return { ok: true, id: v.id, taskId: taskId ?? null };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; id: string };
+    Body: { statut: 'en_revue' | 'mergee' | 'refusee' };
+  }>(
+    '/api/projects/:projectId/fabriques/:id/statut',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['statut'],
+          additionalProperties: false,
+          properties: {
+            statut: { type: 'string', enum: ['en_revue', 'mergee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.poserStatutFabrique(req.params.id, req.body.statut);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, statut: req.body.statut };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { nomScript: string; scriptsMiroir: Record<string, string>; mergeLanded: boolean };
+  }>(
+    '/api/projects/:projectId/fabriques/juger-chantier',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nomScript', 'scriptsMiroir', 'mergeLanded'],
+          additionalProperties: false,
+          properties: {
+            nomScript: { type: 'string', minLength: 1, maxLength: 80 },
+            scriptsMiroir: { type: 'object' },
+            mergeLanded: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { jugerFabriqueAvantChantier } = await import('./fabrique.js');
+      const scripts = req.body.scriptsMiroir ?? {};
+      const clean: Record<string, string> = {};
+      for (const [k, v] of Object.entries(scripts)) {
+        if (typeof k === 'string' && typeof v === 'string') clean[k] = v;
+      }
+      return jugerFabriqueAvantChantier({
+        nomScript: req.body.nomScript,
+        scriptsMiroir: clean,
+        mergeLanded: req.body.mergeLanded === true,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/horizon',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { resumeHorizon } = await import('./horizon.js');
+      const entrees = store.listerHorizon(req.params.projectId);
+      return { ...resumeHorizon(entrees), entrees };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { kind: string; texte: string; source?: string };
+  }>(
+    '/api/projects/:projectId/horizon',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['kind', 'texte'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', minLength: 1, maxLength: 20 },
+            texte: { type: 'string', minLength: 1, maxLength: 500 },
+            source: { type: 'string', maxLength: 80 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ajouterHorizon(
+        req.params.projectId,
+        req.body.kind,
+        req.body.texte,
+        req.body.source ?? 'reine',
+      );
+      if (!v.ok) {
+        const code = v.motif === 'projet_inconnu' ? 404 : 400;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, entree: v.entree };
+    },
+  );
+
+  app.get('/api/motifs', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const { MOTIFS } = await import('./motifs.js');
+    return {
+      motifs: MOTIFS.map((m) => ({
+        id: m.id,
+        domaine: m.domaine,
+        libelleFr: m.libelleFr,
+        libelleEn: m.libelleEn,
+        etapes: m.etapes.map((e) => ({ id: e.id, titreFr: e.titreFr, titreEn: e.titreEn })),
+      })),
+    };
+  });
+
+  app.post<{
+    Params: { projectId: string; motifId: string };
+    Body: { lang?: string; corps?: string };
+  }>(
+    '/api/projects/:projectId/motifs/:motifId/appliquer',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            lang: { type: 'string', enum: ['fr', 'en'] },
+            corps: { type: 'string', maxLength: 50_000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { appliquerMotif } = await import('./motifs.js');
+      const lang = req.body?.lang === 'en' ? 'en' : 'fr';
+      const v = appliquerMotif(req.params.motifId, lang, req.body?.corps);
+      if (!v.ok) {
+        const code = v.motif === 'diff_interdit' ? 400 : 404;
+        return reply.code(code).send({ error: v.motif });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of v.titres) {
+        const task = store.createTask({
+          projectId: req.params.projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Motif « ${v.motif.id} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: v.motif.id, taskIds, titres: v.titres };
+    },
+  );
+
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();
@@ -2912,7 +3165,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       const e = etatEssaim(req.params.projectId);
       const suivi = cadencier.suivi(req.params.projectId);
-      return {
+      const body: Record<string, unknown> = {
         niveau: e.niveau,
         decision: e.decision,
         gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
@@ -2936,6 +3189,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           dernierTourA: suivi.dernierTourA,
         },
       };
+      // Horizon (faits ≠ hypothèses) : jeton de ruche seulement — pas le partage.
+      if (authorized(req)) {
+        const { resumeHorizon } = await import('./horizon.js');
+        body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
+      }
+      return body;
     },
   );
 
@@ -7649,6 +7908,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.prunePresences(PRESENCES_RETENTION_MS);
       // Réquisitions closes trop vieilles (les ouvertes restent).
       store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
+      store.pruneFabriques(REQUISITIONS_RETENTION_MS);
+      store.pruneHorizon(HORIZON_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes
