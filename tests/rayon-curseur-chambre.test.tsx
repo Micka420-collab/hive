@@ -64,19 +64,21 @@ let conteneur: HTMLElement | null = null;
 beforeEach(() => {
   setLang('fr');
   vi.mocked(getPartage).mockReturnValue(null);
-  vi.mocked(fetchPresences).mockReset().mockResolvedValue({
-    presences: [
-      {
-        nodeId: 'node-capucine',
-        bapteme: 'Capucine',
-        chemin: 'src/pont/mcp.ts',
-        outil: 'Edit',
-        toolUseId: 'tu1',
-        taskId: 't1',
-        constateA: 1,
-      },
-    ],
-  });
+  vi.mocked(fetchPresences)
+    .mockReset()
+    .mockResolvedValue({
+      presences: [
+        {
+          nodeId: 'node-capucine',
+          bapteme: 'Capucine',
+          chemin: 'src/pont/mcp.ts',
+          outil: 'Edit',
+          toolUseId: 'tu1',
+          taskId: 't1',
+          constateA: 1,
+        },
+      ],
+    });
 });
 
 afterEach(() => {
@@ -129,6 +131,7 @@ describe('curseur Rayon → Chambre', () => {
     const curseur = dom.querySelector('[data-testid="ry-curseur-poste"]') as HTMLButtonElement;
     expect(curseur).toBeTruthy();
     expect(curseur.textContent).toContain('Capucine');
+    expect(curseur.getAttribute('aria-label')).toMatch(/Capucine.*ouvrir le poste/i);
     await act(async () => {
       curseur.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });

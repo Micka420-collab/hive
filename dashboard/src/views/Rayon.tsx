@@ -285,25 +285,27 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                 .map((q) => (q.bapteme ? `${q.bapteme} · ${q.outil}` : q.outil))
                 .join(' · ')}
             >
-              {qui.map((q) => (
-                <button
-                  key={q.toolUseId}
-                  type="button"
-                  className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}${q.bapteme ? '' : ' ry-curseur-muet'}`}
-                  title={
-                    q.bapteme
-                      ? t(
-                          `${q.bapteme} · ${q.outil} — ouvrir le poste`,
-                          `${q.bapteme} · ${q.outil} — open workstation`,
-                        )
-                      : t(`${q.outil} — ouvrir le poste`, `${q.outil} — open workstation`)
-                  }
-                  data-testid="ry-curseur-poste"
-                  onClick={() => onNavigate('chambre', q.nodeId)}
-                >
-                  {q.bapteme ?? q.outil}
-                </button>
-              ))}
+              {qui.map((q) => {
+                const ouvrir = q.bapteme
+                  ? t(
+                      `${q.bapteme} · ${q.outil} — ouvrir le poste`,
+                      `${q.bapteme} · ${q.outil} — open workstation`,
+                    )
+                  : t(`${q.outil} — ouvrir le poste`, `${q.outil} — open workstation`);
+                return (
+                  <button
+                    key={q.toolUseId}
+                    type="button"
+                    className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}${q.bapteme ? '' : ' ry-curseur-muet'}`}
+                    title={ouvrir}
+                    aria-label={ouvrir}
+                    data-testid="ry-curseur-poste"
+                    onClick={() => onNavigate('chambre', q.nodeId)}
+                  >
+                    {q.bapteme ?? q.outil}
+                  </button>
+                );
+              })}
             </span>
           )}
           {estDossier && rendre(e.chemin, profondeur + 1)}
@@ -414,38 +416,40 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
         >
           <span className="ry-presences-live-titre">{t('En train de…', 'Working on…')}</span>
           <ul>
-            {curseurs.map((c) => (
-              <li key={c.toolUseId}>
-                <button
-                  type="button"
-                  className={`ry-curseur ry-curseur-${c.outil.toLowerCase()}${c.bapteme ? '' : ' ry-curseur-muet'}`}
-                  data-testid="ry-curseur-poste"
-                  title={
-                    c.bapteme
-                      ? t(
-                          `${c.bapteme} · ${c.outil} — ouvrir le poste`,
-                          `${c.bapteme} · ${c.outil} — open workstation`,
-                        )
-                      : t(`${c.outil} — ouvrir le poste`, `${c.outil} — open workstation`)
-                  }
-                  onClick={() => onNavigate('chambre', c.nodeId)}
-                >
-                  {c.bapteme ?? c.outil}
-                </button>
-                <span className="ry-presences-outil">{c.outil}</span>
-                <button
-                  type="button"
-                  className="ry-presences-chemin"
-                  data-testid="ry-presences-chemin"
-                  title={t('Ouvrir dans l’arbre', 'Open in the tree')}
-                  onClick={() => {
-                    if (projet) void revelerEtOuvrir(projet.id, c.chemin);
-                  }}
-                >
-                  {c.chemin}
-                </button>
-              </li>
-            ))}
+            {curseurs.map((c) => {
+              const ouvrir = c.bapteme
+                ? t(
+                    `${c.bapteme} · ${c.outil} — ouvrir le poste`,
+                    `${c.bapteme} · ${c.outil} — open workstation`,
+                  )
+                : t(`${c.outil} — ouvrir le poste`, `${c.outil} — open workstation`);
+              return (
+                <li key={c.toolUseId}>
+                  <button
+                    type="button"
+                    className={`ry-curseur ry-curseur-${c.outil.toLowerCase()}${c.bapteme ? '' : ' ry-curseur-muet'}`}
+                    data-testid="ry-curseur-poste"
+                    title={ouvrir}
+                    aria-label={ouvrir}
+                    onClick={() => onNavigate('chambre', c.nodeId)}
+                  >
+                    {c.bapteme ?? c.outil}
+                  </button>
+                  <span className="ry-presences-outil">{c.outil}</span>
+                  <button
+                    type="button"
+                    className="ry-presences-chemin"
+                    data-testid="ry-presences-chemin"
+                    title={t('Ouvrir dans l’arbre', 'Open in the tree')}
+                    onClick={() => {
+                      if (projet) void revelerEtOuvrir(projet.id, c.chemin);
+                    }}
+                  >
+                    {c.chemin}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </aside>
       )}

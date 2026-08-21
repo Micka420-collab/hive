@@ -256,7 +256,12 @@ export function NodesPanel({
                   <span className={bapt ? undefined : bapt === null ? 'muted-text' : undefined}>
                     {bapt === null ? t('Pas encore baptisée', 'Not baptised yet') : label}
                   </span>
-                  <span className={`dot ${n.status}`} title={n.status} />
+                  <span
+                    className={`dot ${n.status}`}
+                    title={
+                      n.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')
+                    }
+                  />
                 </div>
                 <div className="node-meta">
                   {(bapt || bapt === null) && (
