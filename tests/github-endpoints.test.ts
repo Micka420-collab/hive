@@ -67,6 +67,15 @@ describe('sans jeton — l’état par défaut de toute ruche', () => {
     expect(j.detail).toMatch(/jamais écrit en base/i);
   });
 
+  it('GET /api/github/status dit clairement que GitHub n’est pas branché', async () => {
+    const r = await fetch(`${base}/api/github/status`, { headers });
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { configure: boolean; detail?: string };
+    expect(j.configure).toBe(false);
+    expect(j.detail).toContain('HIVE_GITHUB_TOKEN');
+    expect(JSON.stringify(j)).not.toMatch(/ghp_/);
+  });
+
   it('l’import répond pareil, plutôt que d’échouer plus loin', async () => {
     const r = await fetch(`${base}/api/github/import`, {
       method: 'POST',
@@ -102,6 +111,16 @@ describe('avec un jeton — mais GitHub injoignable', () => {
 
   afterEach(() => {
     delete process.env.HIVE_GITHUB_API;
+  });
+
+  it('GET /api/github/status confirme la présence du jeton sans le révéler', async () => {
+    const r = await fetch(`${base}/api/github/status`, { headers });
+    expect(r.status).toBe(200);
+    const texte = await r.text();
+    expect(texte).not.toContain('ghp_bidon_pour_test');
+    const j = JSON.parse(texte) as { configure: boolean; detail?: string };
+    expect(j.configure).toBe(true);
+    expect(j.detail).toBeUndefined();
   });
 
   it('rend un 502 nommé, jamais une trace de pile', async () => {

@@ -2,7 +2,7 @@
 // la session. Le dashboard fonctionne entièrement sans compte — la session
 // n'ajoute que l'identité (projets personnels, rôles à venir).
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { authLogin, authMe, authRegister, clearJwt, saveJwt } from './api';
 import type { AuthUser } from './api';
 import { useT } from './i18n';
@@ -24,6 +24,9 @@ const MDP_MIN = 12;
 const _accordServeur: typeof LONGUEUR_MIN = MDP_MIN;
 void _accordServeur;
 
+/** Ouverture du modal depuis un autre écran (ex. connecteur GitHub). */
+export const EVENT_OUVRIR_COMPTE = 'hive:ouvrir-compte';
+
 interface Props {
   user: AuthUser | null;
   onUser: (user: AuthUser | null) => void;
@@ -32,6 +35,13 @@ interface Props {
 export function AccountPanel({ user, onUser }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (user) return;
+    const ouvrir = () => setOpen(true);
+    window.addEventListener(EVENT_OUVRIR_COMPTE, ouvrir);
+    return () => window.removeEventListener(EVENT_OUVRIR_COMPTE, ouvrir);
+  }, [user]);
 
   if (user) {
     return (

@@ -381,6 +381,31 @@ h3 {
   box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.18);
 }
 
+.token-input-err {
+  border-color: color-mix(in srgb, var(--danger, #c44) 70%, var(--border));
+  color: var(--text);
+}
+
+.token-input-err:focus {
+  border-color: var(--danger, #c44);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #c44) 22%, transparent);
+}
+
+.mc-token-banner {
+  margin: 0;
+  padding: 10px 18px;
+  background: color-mix(in srgb, var(--danger, #c44) 12%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--danger, #c44) 35%, var(--border));
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.mc-token-banner p {
+  margin: 0;
+  max-width: 72rem;
+}
+
 .conn {
   display: inline-flex;
   align-items: center;
