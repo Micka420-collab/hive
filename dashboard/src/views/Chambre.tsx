@@ -432,7 +432,13 @@ export default function Chambre({
                                 {p.chemin}
                               </button>
                             ) : (
-                              p.chemin
+                              <>
+                                <span>{p.chemin}</span>
+                                <span className="muted-text">
+                                  {' '}
+                                  · {t('pas de projet lié', 'no linked project')}
+                                </span>
+                              </>
                             )}
                             <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
                           </li>
@@ -627,7 +633,13 @@ export default function Chambre({
                         {p.chemin}
                       </button>
                     ) : (
-                      <span className="ch-log-resume">{p.chemin}</span>
+                      <span className="ch-log-resume">
+                        {p.chemin}
+                        <span className="muted-text">
+                          {' '}
+                          · {t('pas de projet lié', 'no linked project')}
+                        </span>
+                      </span>
                     )}
                   </span>
                   <span className="ch-log-time">{timeShort(p.constateA)}</span>

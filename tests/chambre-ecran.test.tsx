@@ -236,6 +236,17 @@ describe('Chambre à l’écran', () => {
     expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
   });
 
+  it('chemin constaté SANS projet lié : silence du lien, pas de faux Rayon', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(poste({ projectId: null, tasks: [] }));
+    const onNavigate = vi.fn();
+    const dom = await monter(onNavigate);
+    expect(dom.querySelector('[data-testid="chambre-ouvrir-rayon"]')).toBeNull();
+    expect(dom.querySelector('button.ch-lien-chemin')).toBeNull();
+    expect(dom.textContent).toContain('src/pont/mcp.ts');
+    expect(dom.textContent).toContain('pas de projet lié');
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
   it('nomme les zones Journal / Missions / Ordinateur', async () => {
     const dom = await monter();
     const titres = [...dom.querySelectorAll('.ch-zone-head h3, .ch-ordi-top h3')].map(
