@@ -473,7 +473,9 @@ describe('Chambre à l’écran', () => {
         await vi.advanceTimersByTimeAsync(4_000);
       });
       expect(dom.textContent).toContain('Capucine');
-      expect(dom.textContent).toContain('Actualisation interrompue');
+      expect(dom.querySelector('[data-testid="chambre-poll-soft"]')?.textContent).toMatch(
+        /Actualisation interrompue/,
+      );
       expect(dom.textContent).not.toMatch(/Chargement…|Loading…/);
     } finally {
       vi.useRealTimers();

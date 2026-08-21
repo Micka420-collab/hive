@@ -310,7 +310,7 @@ export default function Chambre({
       </header>
 
       {err && poste ? (
-        <p className="ch-err-soft" role="status">
+        <p className="ch-err-soft" role="status" data-testid="chambre-poll-soft">
           {t('Actualisation interrompue', 'Refresh interrupted')} · {err}
         </p>
       ) : null}
