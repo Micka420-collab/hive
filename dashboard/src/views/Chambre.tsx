@@ -288,6 +288,11 @@ export default function Chambre({
                   ? t('Ouvrir le Rayon sur le fichier constaté', 'Open Rayon on the observed file')
                   : t('Ouvrir le Rayon du projet', 'Open the project Rayon')
               }
+              aria-label={
+                poste.presences[0]
+                  ? t('Ouvrir le Rayon sur le fichier constaté', 'Open Rayon on the observed file')
+                  : t('Ouvrir le Rayon du projet', 'Open the project Rayon')
+              }
               onClick={() => {
                 const recent = [...poste.presences].sort((a, b) => b.constateA - a.constateA)[0];
                 if (recent?.chemin) demanderFocusFichier(recent.chemin);
