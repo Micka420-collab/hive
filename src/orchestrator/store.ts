@@ -21,6 +21,7 @@ import type { SessionHote } from './horloge-hote.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
 import { jugerBapteme, normaliserNomBapteme, type VerdictBapteme } from './bapteme.js';
+import { validerMetier, type MetierCycle, type VerdictMetier } from './metier.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -816,6 +817,15 @@ CREATE TABLE IF NOT EXISTS baptemes (
   baptiseA INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_baptemes_nom ON baptemes(nom COLLATE NOCASE);
+
+-- Métier de cycle (ADR 0010) : orthogonal à la caste. TABLE LATÉRALE, une
+-- ligne par nœud. Assigné par la Reine / l'essaim — jamais déclaré par le
+-- protocole. Absent ⇒ l'écran ne montre pas de métier inventé.
+CREATE TABLE IF NOT EXISTS metiers_cycle (
+  nodeId   TEXT PRIMARY KEY REFERENCES nodes(id),
+  metier   TEXT NOT NULL,
+  assigneA INTEGER NOT NULL
+);
 `;
 
 interface ProjectRow {
@@ -1473,6 +1483,58 @@ export class HiveStore {
       .prepare('SELECT nodeId FROM baptemes WHERE nom = ? COLLATE NOCASE')
       .get(cible) as { nodeId: string } | undefined;
     return row?.nodeId ?? null;
+  }
+
+  // ─── Métiers de cycle (ADR 0010) ───────────────────────────────────────────
+
+  /** Métier assigné, ou `null` — jamais inventé. */
+  lireMetier(nodeId: string): { metier: MetierCycle; assigneA: number } | null {
+    const row = this.db
+      .prepare('SELECT metier, assigneA FROM metiers_cycle WHERE nodeId = ?')
+      .get(nodeId) as { metier: string; assigneA: number } | undefined;
+    if (!row) return null;
+    const v = validerMetier(row.metier);
+    if (!v.ok) return null; // ligne corrompue ⇒ silence, pas de théâtre
+    return { metier: v.metier, assigneA: row.assigneA };
+  }
+
+  listerMetiers(): { nodeId: string; metier: MetierCycle; assigneA: number }[] {
+    const rows = this.db
+      .prepare('SELECT nodeId, metier, assigneA FROM metiers_cycle ORDER BY assigneA DESC')
+      .all() as { nodeId: string; metier: string; assigneA: number }[];
+    const out: { nodeId: string; metier: MetierCycle; assigneA: number }[] = [];
+    for (const r of rows) {
+      const v = validerMetier(r.metier);
+      if (v.ok) out.push({ nodeId: r.nodeId, metier: v.metier, assigneA: r.assigneA });
+    }
+    return out;
+  }
+
+  /**
+   * Assigne (ou réassigne) un métier de cycle. Le nœud ne peut pas s'appeler
+   * lui-même — cette méthode n'est branchée que côté Reine (API ultérieure).
+   */
+  assignerMetier(
+    nodeId: string,
+    brut: string,
+    now = Date.now(),
+  ): VerdictMetier | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const verdict = validerMetier(brut);
+    if (!verdict.ok) return verdict;
+    this.db
+      .prepare(
+        'INSERT INTO metiers_cycle (nodeId, metier, assigneA) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(nodeId) DO UPDATE SET metier = excluded.metier, assigneA = excluded.assigneA',
+      )
+      .run(nodeId, verdict.metier, now);
+    return verdict;
+  }
+
+  /** Retire le métier — l'ouvrière n'a plus de cycle affiché. */
+  retirerMetier(nodeId: string): boolean {
+    const r = this.db.prepare('DELETE FROM metiers_cycle WHERE nodeId = ?').run(nodeId);
+    return r.changes > 0;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
