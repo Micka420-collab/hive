@@ -90,7 +90,9 @@ beforeEach(() => {
   vi.mocked(fetchBalance)
     .mockReset()
     .mockResolvedValue(null as never);
-  vi.mocked(fetchStatutGithub).mockReset().mockResolvedValue({ configure: true } as never);
+  vi.mocked(fetchStatutGithub)
+    .mockReset()
+    .mockResolvedValue({ configure: true } as never);
 });
 afterEach(() => {
   vi.useRealTimers();

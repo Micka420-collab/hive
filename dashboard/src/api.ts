@@ -37,13 +37,17 @@ export class ApiError extends Error {
  * apporte autre chose. Sans ça, un 501 GitHub ne montrait que « GitHub non
  * connecté » et cachait la marche à suivre (`detail`) déjà écrite côté serveur.
  */
-export function messageApi(body: {
-  error?: string;
-  message?: string;
-  detail?: string;
-}, statut: number): { message: string; detail?: string } {
+export function messageApi(
+  body: {
+    error?: string;
+    message?: string;
+    detail?: string;
+  },
+  statut: number,
+): { message: string; detail?: string } {
   const court = body.message ?? body.error ?? tNow(`Erreur ${statut}`, `Error ${statut}`);
-  const detail = typeof body.detail === 'string' && body.detail.trim() ? body.detail.trim() : undefined;
+  const detail =
+    typeof body.detail === 'string' && body.detail.trim() ? body.detail.trim() : undefined;
   if (!detail || detail === court) return detail ? { message: court, detail } : { message: court };
   return { message: `${court} — ${detail}`, detail };
 }
@@ -1596,8 +1600,7 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
     };
 
     ws.onclose = (ev: CloseEvent) => {
-      const authError =
-        ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
+      const authError = ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
       handlers.onStatus(false, {
         authError,
         ...(ev.reason ? { reason: ev.reason } : {}),

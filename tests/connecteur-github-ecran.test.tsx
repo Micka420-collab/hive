@@ -254,10 +254,9 @@ describe('le connecteur GitHub : une liste où chaque ligne parle pour elle', ()
     // suffisait pas : l'écran proposait quand même le bouton. On exige
     // maintenant le compte avant toute liste.
     const sansCompte = await ouvrirLeConnecteur([depot('rucher/miel')], null);
-    expect(
-      sansCompte.textContent,
-      'sans compte, rien n’invite à se connecter',
-    ).toContain('Se connecter pour importer');
+    expect(sansCompte.textContent, 'sans compte, rien n’invite à se connecter').toContain(
+      'Se connecter pour importer',
+    );
     expect(
       sansCompte.querySelector('.pj-gh-liste'),
       'la liste des dépôts s’affiche sans compte',
