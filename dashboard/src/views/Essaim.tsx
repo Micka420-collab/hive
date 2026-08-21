@@ -6,7 +6,7 @@ import { fetchBaptemes, fetchPheromones, fetchPolyethisme, fetchRaces, fetchWagg
 import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
-import { DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
+import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
@@ -42,18 +42,24 @@ function NodeCard({
   agents,
   racing,
   bapt,
+  onOuvrirPoste,
 }: {
   node: HiveNode;
   agents: SubAgent[];
   racing: boolean;
   /** undefined = pas encore chargé ; null = constaté absent ; string = baptême. */
   bapt: string | null | undefined;
+  onOuvrirPoste?: (nodeId: string) => void;
 }) {
   const t = useT();
   const lang = useLang();
   const label = bapt || node.name;
   return (
-    <article className={`es-node ${node.status}`}>
+    <article
+      className={`es-node ${node.status}${onOuvrirPoste ? ' es-node-ouvre' : ''}`}
+      {...(onOuvrirPoste ? activateProps(() => onOuvrirPoste(node.id)) : {})}
+      title={onOuvrirPoste ? t('Ouvrir la Chambre', 'Open the Chambre') : undefined}
+    >
       <header className="es-node-head">
         <span
           className={`es-node-name${bapt === null ? ' muted-text' : ''}`}
@@ -526,7 +532,7 @@ function PolyethismeCard({
   );
 }
 
-export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProps) {
+export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate }: ViewProps) {
   const t = useT();
   const waggle = useApiPoll(fetchWaggle, 30_000, refreshTick);
   const races = useApiPoll(fetchRaces, 15_000, refreshTick);
@@ -594,6 +600,7 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
                     agents={activeAgentsOf(n.id, snapshot.tasks, agentsByTask)}
                     racing={racingNodes.has(n.id)}
                     bapt={baptemes ? (baptemes[n.id] ?? null) : undefined}
+                    onOuvrirPoste={(id) => onNavigate('chambre', id)}
                   />
                 ))}
               </div>

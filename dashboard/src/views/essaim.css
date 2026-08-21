@@ -66,6 +66,20 @@
   min-width: 0;
 }
 
+.es-node-ouvre {
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.es-node-ouvre:hover,
+.es-node-ouvre:focus-visible {
+  border-color: var(--accent, #9d5605);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #9d5605) 35%, transparent);
+  outline: none;
+}
+
 .es-node.offline {
   opacity: 0.6;
 }

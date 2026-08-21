@@ -16,10 +16,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   **En train de…** si le miroir du dépôt est vide. Fiche nœud : titre =
   baptême (sinon silence). Cartes nœud (Ruche + Essaim) : baptême via
   `GET /api/baptemes` (jeton ruche ; partage → 401) — sinon « Pas encore
-  baptisée » ; échec API → nom technique (pas de mensonge). Échap →
-  Ruche ; chemins → focus fichier Rayon (déplie les dossiers parents). Maquette :
-  `docs/maquettes/chambre/`. Capture + démo : `docs/images/dashboard-chambre.png`,
-  `docs/media/chambre-presentation-demo.mp4`.
+  baptisée » ; échec API → nom technique (pas de mensonge). Clic Essaim →
+  Chambre. Échap → Ruche ; chemins → focus fichier Rayon (déplie les dossiers
+  parents). Maquette : `docs/maquettes/chambre/`. Capture + démo :
+  `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
 
 - **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
   vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,

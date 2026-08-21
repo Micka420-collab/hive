@@ -216,6 +216,36 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(c.textContent).toContain('ruche-nord');
   });
 
+  it('UN CLIC SUR LA CARTE OUVRE LA CHAMBRE — même geste que le curseur Rayon', async () => {
+    const onNavigate = vi.fn();
+    const { tasks, agents } = enVol(1);
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    const props = {
+      snapshot: {
+        projects: [],
+        nodes: [noeud()],
+        tasks,
+        tasksTotal: tasks.length,
+      } as unknown as StateSnapshot,
+      events: [],
+      agentsByTask: agents,
+      deferred: new Set(),
+      onOpenTask: () => {},
+      onNavigate,
+      refreshTick: 0,
+    } as unknown as ViewProps;
+    await act(async () => racine?.render(<Essaim {...props} />));
+    await act(async () => {});
+    const c = carte(conteneur, 'ruche-nord');
+    expect(c.classList.contains('es-node-ouvre')).toBe(true);
+    await act(async () => {
+      c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(onNavigate).toHaveBeenCalledWith('chambre', 'n-1');
+  });
+
   it('UNE OUVRIÈRE MONTRE SON NOM, SA CHARGE ET SES SOUS-AGENTS — sinon rien ici ne mesure rien', async () => {
     // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER (§ 9 unvicicenties) ──────────────
     const { tasks, agents } = enVol(2);
