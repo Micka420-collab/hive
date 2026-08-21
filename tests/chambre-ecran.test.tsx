@@ -355,6 +355,28 @@ describe('Chambre à l’écran', () => {
     expect(dom.querySelector('.ch-statut-dot.ch-statut-on')).toBeNull();
   });
 
+  it('point de statut en ligne quand le nœud est online', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        node: {
+          id: NODE_ID,
+          status: 'online',
+          plateforme: 'linux',
+          agentType: 'shell',
+          ownerName: 'moi',
+          running: 1,
+          maxConcurrency: 2,
+          lastSeen: 1,
+          nameTechnique: 'ma-machine',
+        },
+      }),
+    );
+    const dom = await monter();
+    expect(dom.querySelector('.ch-statut-dot.ch-statut-on')).toBeTruthy();
+    expect(dom.querySelector('.ch-live-off')).toBeNull();
+    expect(dom.textContent).toMatch(/en ligne/i);
+  });
+
   it('Échap ramène à la Ruche', async () => {
     const onNavigate = vi.fn();
     await monter(onNavigate);

@@ -848,9 +848,10 @@ function AtelierPoste({
               type="button"
               className="btn primary ch-btn-accorder"
               disabled={busy}
+              aria-busy={busy}
               onClick={() => void agir(demarrerAtelier)}
             >
-              {t('Allumer l’atelier', 'Start the computer')}
+              {busy ? t('…', '…') : t('Allumer l’atelier', 'Start the computer')}
             </button>
           )}
           {etat.mode === 'off' && <p className="ch-silence">HIVE_ATELIER=off</p>}
@@ -871,9 +872,10 @@ function AtelierPoste({
             type="button"
             className="btn ghost"
             disabled={busy}
+            aria-busy={busy}
             onClick={() => void agir(arreterAtelier)}
           >
-            {t('Éteindre', 'Stop')}
+            {busy ? t('…', '…') : t('Éteindre', 'Stop')}
           </button>
         </div>
       </div>
