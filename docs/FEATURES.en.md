@@ -159,6 +159,12 @@ the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
 a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
 timeline.
 
+In the dashboard 👑 Queen view: **mic** (browser Web Speech dictation),
+**voice** (read replies aloud), and **attach** documents (PDF, Word `.docx`,
+text, code…). The browser **extracts text** before send — video and audio are
+not auto-transcribed (attach a script or dictate). No API key crosses the
+browser.
+
 ## 🧠 Queen Bee — from brief to DAG
 
 In **"New project"**, describe the goal in natural language and click

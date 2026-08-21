@@ -300,10 +300,86 @@
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: var(--r-sm);
   box-shadow: none;
+  flex-wrap: wrap;
+}
+
+.rn-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rn-attach,
+.rn-mic,
+.rn-tts {
+  flex-shrink: 0;
+  font-size: 12.5px;
+}
+
+.rn-mic-on,
+.rn-tts-on {
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+  color: var(--encre, var(--text));
+  background: color-mix(in srgb, var(--miel) 18%, var(--panel));
+}
+
+.rn-pieces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rn-pieces li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.rn-piece-ok {
+  background: color-mix(in srgb, var(--miel) 8%, var(--panel));
+}
+
+.rn-piece-warn {
+  background: color-mix(in srgb, var(--danger, #c44) 8%, var(--panel));
+}
+
+.rn-piece-nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rn-piece-x {
+  flex-shrink: 0;
+  padding: 2px 8px;
+}
+
+.rn-piece-err {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--danger, #a33);
+}
+
+.rn-interim {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .rn-input {
   flex: 1;
+  min-width: 140px;
   resize: none;
   min-height: 40px;
   max-height: 180px;

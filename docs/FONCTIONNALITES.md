@@ -173,6 +173,12 @@ Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur le projet) →
 Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la Reine propose
 une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
+Dans la vue 👑 Reine du tableau de bord : **micro** (dictée Web Speech du
+navigateur), **voix** (lecture à haute voix des réponses), et **joindre** des
+documents (PDF, Word `.docx`, texte, code…). Le navigateur **extrait le texte**
+avant l’envoi — la vidéo et l’audio ne sont pas transcrits automatiquement
+(joignez un script ou dictez). Aucune clé d’API ne traverse le navigateur.
+
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
 Dans **« Nouveau projet »**, décrivez l'objectif en langage naturel et cliquez

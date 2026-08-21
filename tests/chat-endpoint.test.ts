@@ -88,10 +88,11 @@ describe('POST /api/chat — la Reine répond', () => {
       body: JSON.stringify({ message: '' }),
     });
     expect(empty.status).toBe(400);
+    const { CHAT_ENVOI_MAX } = await import('../src/shared/reine-pieces.js');
     const long = await fetch(`${base}/api/chat`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ message: 'x'.repeat(2001) }),
+      body: JSON.stringify({ message: 'x'.repeat(CHAT_ENVOI_MAX + 1) }),
     });
     expect(long.status).toBe(400);
   });
