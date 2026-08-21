@@ -9,11 +9,15 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Chambre UI fidèle à la maquette produit.** Crème `#FDF8F0` / miel `#F2B441`,
+  bandeau **À trancher**, timeline Activité (pastilles EDIT/READ), pills de
+  tâches, Studio noVNC (Plein écran). Baptême display — données constatées
+  seulement. Maquette : `docs/maquettes/chambre/`.
+
 - **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
   vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,
-  **motifs**. Écran : bandeau HITL « À trancher », flux outils, onglets
-  Fiche/Travail/Intégrations/Suivi. Maquette HTML + frames :
-  `docs/maquettes/chambre/`. Partage : jamais d’identités. ADR **proposé**.
+  **motifs**. Écran : bandeau HITL, flux outils, onglets
+  Fiche/Travail/Intégrations/Suivi. Partage : jamais d’identités. ADR **proposé**.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a

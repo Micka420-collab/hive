@@ -7,6 +7,8 @@
 export interface LigneJournalChambre {
   resume: string;
   detail: string | null;
+  /** Pastille timeline (EDIT / READ / …) — dérivée du constat, jamais inventée. */
+  badge: string;
 }
 
 /**
@@ -26,8 +28,9 @@ export function resumerEvenementChambre(
 
   if (outil && chemin) {
     return {
-      resume: `${outil} · ${chemin}`,
+      resume: chemin,
       detail: taskId,
+      badge: outil.toUpperCase().slice(0, 6),
     };
   }
   if (type.includes('fail') || type.includes('error') || type === 'task_failed') {
@@ -36,10 +39,11 @@ export function resumerEvenementChambre(
     return {
       resume: quoi,
       detail: pourquoi ? (lang === 'en' ? `why: ${pourquoi}` : `pourquoi : ${pourquoi}`) : null,
+      badge: lang === 'en' ? 'FAIL' : 'ÉCHEC',
     };
   }
   if (title) {
-    return { resume: title, detail: type };
+    return { resume: title, detail: type, badge: 'TASK' };
   }
-  return { resume: type, detail: taskId };
+  return { resume: type, detail: taskId, badge: 'LOG' };
 }

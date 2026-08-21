@@ -159,18 +159,41 @@ export default function Chambre({
       ? libelleMetier(poste.metier.metier as MetierCycle, langCode)
       : null;
 
+  const pillPour = (status: TaskStatus): { className: string; label: string } => {
+    if (status === 'running' || status === 'assigned') {
+      return { className: 'ch-pill ch-pill-cours', label: t('En cours', 'In progress') };
+    }
+    if (status === 'done') {
+      return { className: 'ch-pill ch-pill-done', label: t('Terminé', 'Done') };
+    }
+    if (status === 'failed') {
+      return { className: 'ch-pill ch-pill-fail', label: t('Échec', 'Failed') };
+    }
+    return { className: 'ch-pill ch-pill-pause', label: t('En pause', 'Paused') };
+  };
+
+  const badgeClass = (badge: string) => {
+    const b = badge.toLowerCase();
+    if (b === 'read') return 'ch-badge ch-badge-read';
+    if (b === 'write') return 'ch-badge ch-badge-write';
+    if (b === 'fail' || b === 'échec') return 'ch-badge ch-badge-fail';
+    return 'ch-badge';
+  };
+
   return (
     <div className="mc-view ch-view">
-      <header className="ch-bar">
-        <button type="button" className="btn ghost" onClick={() => onNavigate('ruche')}>
+      <header className="ch-brand">
+        <button
+          type="button"
+          className="btn ghost ch-brand-back"
+          onClick={() => onNavigate('ruche')}
+        >
           ← {t('Ruche', 'Hive')}
         </button>
-        <h2 className="ch-titre">
-          {titre ?? t('Poste ouvrière', 'Worker station')}
-          {!titre && poste && (
-            <span className="ch-tech muted-text"> · {poste.node.nameTechnique}</span>
-          )}
-        </h2>
+        <div className="ch-brand-mark">
+          <p className="ch-brand-hive">Hive</p>
+          <p className="ch-brand-sub">{t('Chambre · poste ouvrière', 'Chambre · workstation')}</p>
+        </div>
         {poste?.node.status === 'online' ? (
           <span className="ch-live" aria-live="polite">
             {t('en ligne', 'online')}
@@ -182,9 +205,13 @@ export default function Chambre({
 
       {reqs.length > 0 && (
         <div className="ch-hitl" role="region" aria-label={t('À trancher', 'Needs a decision')}>
-          <strong className="ch-hitl-titre">
-            {t('À trancher', 'Needs a decision')} · {reqs.length}
-          </strong>
+          <div className="ch-hitl-lead">
+            <span className="ch-hitl-titre">{t('À trancher', 'Needs a decision')}</span>
+            <span className="ch-hitl-sous">
+              {t('Des décisions d’approbation sont en attente', 'Approval decisions are pending')} ·{' '}
+              {reqs.length}
+            </span>
+          </div>
           <ul className="ch-hitl-list">
             {reqs.map((r) => (
               <li key={r.id}>
@@ -197,14 +224,14 @@ export default function Chambre({
                 <span className="ch-req-actions">
                   <button
                     type="button"
-                    className="btn primary"
+                    className="btn primary ch-btn-accorder"
                     onClick={() => void repondreRequisition(r.id, 'accordee').then(rafraichir)}
                   >
                     {t('Accorder', 'Grant')}
                   </button>
                   <button
                     type="button"
-                    className="btn ghost"
+                    className="btn ghost ch-btn-refuser"
                     onClick={() => void repondreRequisition(r.id, 'refusee').then(rafraichir)}
                   >
                     {t('Refuser', 'Deny')}
@@ -218,14 +245,21 @@ export default function Chambre({
 
       <div className="ch-grid">
         <aside className="ch-zone ch-identite" aria-label={t('Identité', 'Identity')}>
-          <h3>{t('Identité', 'Identity')}</h3>
           {poste ? (
             <>
+              <p className="ch-eyebrow">{t('Baptême', 'Baptism')}</p>
               <p className="ch-nom">
                 {titre ?? (
                   <span className="muted-text">{t('Pas encore baptisée', 'Not baptised yet')}</span>
                 )}
               </p>
+              <p className="ch-sous-nom">
+                {metier
+                  ? `${t('Métier', 'Role')} · ${metier}`
+                  : t('Métier non assigné', 'No role assigned')}
+                {poste.caste ? ` · ${poste.caste}` : ''}
+              </p>
+
               <div className="ch-onglets" role="tablist">
                 {(
                   [
@@ -251,26 +285,45 @@ export default function Chambre({
               {onglet === 'fiche' && (
                 <ul className="ch-meta">
                   <li>
-                    {poste.node.status === 'online'
-                      ? t('en ligne', 'online')
-                      : t('hors ligne', 'offline')}
+                    <span className="ch-meta-k">{t('Statut', 'Status')}</span>
+                    <span className="ch-meta-v ch-statut-dot">
+                      {poste.node.status === 'online'
+                        ? t('En ligne', 'Online')
+                        : t('Hors ligne', 'Offline')}
+                    </span>
                   </li>
                   {metier && (
                     <li>
-                      {t('Métier', 'Role')}: {metier}
+                      <span className="ch-meta-k">{t('Métier', 'Role')}</span>
+                      <span className="ch-meta-v">{metier}</span>
                     </li>
                   )}
                   {poste.caste && (
                     <li>
-                      {t('Caste', 'Caste')}: {poste.caste}
+                      <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
+                      <span className="ch-meta-v">{poste.caste}</span>
                     </li>
                   )}
                   <li>
-                    {poste.node.ownerName} · {poste.node.agentType}
+                    <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
+                    <span className="ch-meta-v">{poste.node.ownerName}</span>
                   </li>
                   <li>
-                    {poste.node.running}/{poste.node.maxConcurrency} {t('en vol', 'in flight')}
+                    <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
+                    <span className="ch-meta-v">{poste.node.agentType}</span>
                   </li>
+                  <li>
+                    <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
+                    <span className="ch-meta-v">
+                      {poste.node.running}/{poste.node.maxConcurrency}
+                    </span>
+                  </li>
+                  {!titre && (
+                    <li>
+                      <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
+                      <span className="ch-meta-v">{poste.node.nameTechnique}</span>
+                    </li>
+                  )}
                 </ul>
               )}
 
@@ -288,7 +341,7 @@ export default function Chambre({
                     </ul>
                   </div>
                 ) : (
-                  <p className="muted-text ch-silence">
+                  <p className="ch-silence">
                     {t('Aucun fichier ouvert constaté.', 'No open file observed.')}
                   </p>
                 ))}
@@ -297,7 +350,7 @@ export default function Chambre({
                 <div className="ch-fabrique">
                   <h4>{t('Fabrique', 'Forge')}</h4>
                   {(poste.fabriques?.length ?? 0) === 0 ? (
-                    <p className="muted-text">
+                    <p className="ch-silence">
                       {t(
                         'Aucun outil en fabrique pour ce projet.',
                         'No forge tool for this project.',
@@ -308,7 +361,7 @@ export default function Chambre({
                       {poste.fabriques!.map((f) => (
                         <li key={f.id}>
                           <strong>{f.libelle}</strong>
-                          <span className="muted-text">
+                          <span className="ch-silence">
                             {' '}
                             · {f.genre} · {f.statut}
                             {f.nomScript ? ` · ${f.nomScript}` : ''}
@@ -317,7 +370,7 @@ export default function Chambre({
                       ))}
                     </ul>
                   )}
-                  <p className="ch-note muted-text">
+                  <p className="ch-note">
                     {t(
                       'Chantiers ne lance qu’après merge + script déclaré.',
                       'Chantiers runs only after merge + declared script.',
@@ -325,21 +378,21 @@ export default function Chambre({
                   </p>
                   <h4>{t('Motifs', 'Motifs')}</h4>
                   {!poste.projectId ? (
-                    <p className="muted-text">
+                    <p className="ch-silence">
                       {t(
                         'Pas de projet — impossible d’appliquer un motif.',
                         'No project — cannot apply a motif.',
                       )}
                     </p>
                   ) : motifs.length === 0 ? (
-                    <p className="muted-text">{t('Catalogue vide.', 'Empty catalogue.')}</p>
+                    <p className="ch-silence">{t('Catalogue vide.', 'Empty catalogue.')}</p>
                   ) : (
                     <ul className="ch-motifs">
                       {motifs.map((m) => (
                         <li key={m.id}>
                           <span>
                             {langCode === 'en' ? m.libelleEn : m.libelleFr}
-                            <span className="muted-text"> · {m.etapes.length} étapes</span>
+                            <span className="ch-silence"> · {m.etapes.length} étapes</span>
                           </span>
                           <button
                             type="button"
@@ -366,7 +419,7 @@ export default function Chambre({
                 <div className="ch-horizon">
                   <h4>{t('Horizon', 'Horizon')}</h4>
                   {!poste.horizon ? (
-                    <p className="muted-text">
+                    <p className="ch-silence">
                       {t(
                         'Pas de projet rattaché — pas de carnet.',
                         'No linked project — no ledger.',
@@ -376,7 +429,7 @@ export default function Chambre({
                     <>
                       <p className="ch-horizon-label">{t('Faits', 'Facts')}</p>
                       {poste.horizon.faits.length === 0 ? (
-                        <p className="muted-text ch-silence">{t('Aucun fait.', 'No facts.')}</p>
+                        <p className="ch-silence">{t('Aucun fait.', 'No facts.')}</p>
                       ) : (
                         <ul>
                           {poste.horizon.faits.map((f) => (
@@ -386,9 +439,7 @@ export default function Chambre({
                       )}
                       <p className="ch-horizon-label">{t('Hypothèses', 'Hypotheses')}</p>
                       {poste.horizon.hypotheses.length === 0 ? (
-                        <p className="muted-text ch-silence">
-                          {t('Aucune hypothèse.', 'No hypotheses.')}
-                        </p>
+                        <p className="ch-silence">{t('Aucune hypothèse.', 'No hypotheses.')}</p>
                       ) : (
                         <ul className="ch-hypotheses">
                           {poste.horizon.hypotheses.map((h) => (
@@ -434,7 +485,7 @@ export default function Chambre({
                           />
                           <button
                             type="submit"
-                            className="btn primary"
+                            className="btn primary ch-btn-accorder"
                             disabled={busyHorizon || !brouillonHorizon.trim()}
                           >
                             {t('Noter', 'Note')}
@@ -447,32 +498,33 @@ export default function Chambre({
               )}
             </>
           ) : (
-            <p className="muted-text">{t('Chargement…', 'Loading…')}</p>
+            <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
           )}
         </aside>
 
-        <section className="ch-zone ch-journal" aria-label={t('Journal', 'Activity')}>
-          <h3>{t('Journal d’activité', 'Activity log')}</h3>
+        <section className="ch-zone ch-journal" aria-label={t('Activité', 'Activity')}>
+          <div className="ch-zone-head">
+            <h3>{t('Activité', 'Activity')}</h3>
+          </div>
           {poste && poste.presences.length > 0 && (
-            <div className="ch-stream" aria-live="polite">
-              <h4>{t('Flux outils', 'Tool stream')}</h4>
-              <ul>
-                {poste.presences.map((p) => (
-                  <li key={`s-${p.toolUseId}`}>
-                    <span className="ch-log-time">{timeShort(p.constateA)}</span>
-                    <span className="ch-outil">{p.outil}</span>
-                    <span className="ch-chemin">{p.chemin}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ul className="ch-timeline ch-stream" aria-live="polite">
+              {poste.presences.map((p) => (
+                <li key={`s-${p.toolUseId}`}>
+                  <span className={badgeClass(p.outil)}>{p.outil.toUpperCase()}</span>
+                  <span className="ch-log-body">
+                    <span className="ch-log-resume">{p.chemin}</span>
+                  </span>
+                  <span className="ch-log-time">{timeShort(p.constateA)}</span>
+                </li>
+              ))}
+            </ul>
           )}
-          {journal.length === 0 ? (
-            <p className="muted-text">
+          {journal.length === 0 && !(poste && poste.presences.length > 0) ? (
+            <p className="ch-silence">
               {t('Pas encore d’activité pour cette ouvrière.', 'No activity for this worker yet.')}
             </p>
-          ) : (
-            <ul className="ch-log">
+          ) : journal.length > 0 ? (
+            <ul className="ch-timeline">
               {journal.map((ev) => {
                 const ligne = resumerEvenementChambre(
                   ev.type,
@@ -481,20 +533,23 @@ export default function Chambre({
                 );
                 return (
                   <li key={ev.id}>
-                    <span className="ch-log-time">{timeShort(ev.ts)}</span>
+                    <span className={badgeClass(ligne.badge)}>{ligne.badge}</span>
                     <span className="ch-log-body">
                       <span className="ch-log-resume">{ligne.resume}</span>
                       {ligne.detail && <span className="ch-log-detail">{ligne.detail}</span>}
                     </span>
+                    <span className="ch-log-time">{timeShort(ev.ts)}</span>
                   </li>
                 );
               })}
             </ul>
-          )}
+          ) : null}
         </section>
 
-        <section className="ch-zone ch-activite" aria-label={t('Activité', 'Tasks')}>
-          <h3>{t('Missions', 'Tasks')}</h3>
+        <section className="ch-zone ch-activite" aria-label={t('Tâches', 'Tasks')}>
+          <div className="ch-zone-head">
+            <h3>{t('Tâches', 'Tasks')}</h3>
+          </div>
           <div className="ch-filtres" role="tablist">
             {(
               [
@@ -517,31 +572,34 @@ export default function Chambre({
             ))}
           </div>
           {activite.length === 0 ? (
-            <p className="muted-text">{t('Rien dans ce filtre.', 'Nothing in this filter.')}</p>
+            <p className="ch-silence">{t('Rien dans ce filtre.', 'Nothing in this filter.')}</p>
           ) : (
             <ul className="ch-taches">
-              {activite.slice(0, 24).map((tk) => (
-                <li key={tk.id}>
-                  <button type="button" className="ch-tache" onClick={() => onOpenTask(tk.id)}>
-                    {tk.title}
-                  </button>
-                  {filtre === 'echecs' && (
-                    <span className="ch-echec-hint muted-text">
-                      {t(
-                        'quoi : échec · suite : ouvrir la tâche',
-                        'what: failed · next: open task',
-                      )}
-                    </span>
-                  )}
-                  <span className="ch-tache-time">{timeShort(tk.updatedAt)}</span>
-                </li>
-              ))}
+              {activite.slice(0, 24).map((tk) => {
+                const pill = pillPour(tk.status);
+                return (
+                  <li key={tk.id}>
+                    <button type="button" className="ch-tache" onClick={() => onOpenTask(tk.id)}>
+                      {tk.title}
+                    </button>
+                    <span className={pill.className}>{pill.label}</span>
+                    {filtre === 'echecs' && (
+                      <span className="ch-echec-hint">
+                        {t(
+                          'quoi : échec · suite : ouvrir la tâche',
+                          'what: failed · next: open task',
+                        )}
+                      </span>
+                    )}
+                    <span className="ch-tache-time">{timeShort(tk.updatedAt)}</span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
 
-        <section className="ch-zone ch-ordi" aria-label={t('Ordinateur', 'Computer')}>
-          <h3>{t('Ordinateur', 'Computer')}</h3>
+        <section className="ch-zone ch-ordi" aria-label={t('Studio', 'Studio')}>
           <AtelierPoste
             etat={poste?.atelier ?? null}
             busy={busyAtelier}
@@ -584,54 +642,77 @@ function AtelierPoste({
   };
 
   if (!etat) {
-    return <p className="muted-text">{t('État de l’atelier inconnu.', 'Studio state unknown.')}</p>;
+    return (
+      <div className="ch-ordi-chrome">
+        <div className="ch-ordi-top">
+          <h3>{t('Studio — noVNC', 'Studio — noVNC')}</h3>
+        </div>
+        <div className="ch-ordi-off">
+          <p className="ch-silence">{t('État de l’atelier inconnu.', 'Studio state unknown.')}</p>
+        </div>
+      </div>
+    );
   }
 
   if (!etat.actif) {
     return (
-      <div className="ch-ordi-off">
-        <p>
-          {t(
-            'Bureau de recette éteint sur la machine de la ruche — on n’invente pas d’écran.',
-            'Acceptance desktop is off on the hive computer — no fake screen.',
+      <div className="ch-ordi-chrome">
+        <div className="ch-ordi-top">
+          <h3>{t('Studio — noVNC', 'Studio — noVNC')}</h3>
+        </div>
+        <div className="ch-ordi-off">
+          <p>
+            {t(
+              'Bureau de recette éteint sur la machine de la ruche — on n’invente pas d’écran.',
+              'Acceptance desktop is off on the hive computer — no fake screen.',
+            )}
+          </p>
+          {etat.mode !== 'off' && (
+            <button
+              type="button"
+              className="btn primary ch-btn-accorder"
+              disabled={busy}
+              onClick={() => void agir(demarrerAtelier)}
+            >
+              {t('Allumer l’atelier', 'Start the studio')}
+            </button>
           )}
-        </p>
-        {etat.mode !== 'off' && (
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy}
-            onClick={() => void agir(demarrerAtelier)}
-          >
-            {t('Allumer l’atelier', 'Start the studio')}
-          </button>
-        )}
-        {etat.mode === 'off' && <p className="muted-text">HIVE_ATELIER=off</p>}
+          {etat.mode === 'off' && <p className="ch-silence">HIVE_ATELIER=off</p>}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="ch-ordi-on">
-      <div className="ch-ordi-actions">
-        <button
-          type="button"
-          className="btn ghost"
-          disabled={busy}
-          onClick={() => void agir(arreterAtelier)}
-        >
-          {t('Éteindre', 'Stop')}
-        </button>
-        <a className="btn ghost" href={etat.ecran} target="_blank" rel="noreferrer">
-          {t('Ouvrir l’écran', 'Open screen')}
-        </a>
+    <div className="ch-ordi-chrome">
+      <div className="ch-ordi-top">
+        <h3>{t('Studio — noVNC', 'Studio — noVNC')}</h3>
+        <div className="ch-ordi-actions">
+          <a className="btn ghost" href={etat.ecran} target="_blank" rel="noreferrer">
+            {t('Plein écran', 'Fullscreen')}
+          </a>
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={busy}
+            onClick={() => void agir(arreterAtelier)}
+          >
+            {t('Éteindre', 'Stop')}
+          </button>
+        </div>
       </div>
-      <iframe
-        className="ch-vnc"
-        title={t('Écran de l’atelier', 'Studio screen')}
-        src={etat.ecran}
-        sandbox="allow-scripts allow-same-origin allow-forms"
-      />
+      <div className="ch-ordi-on">
+        <iframe
+          className="ch-vnc"
+          title={t('Écran de l’atelier', 'Studio screen')}
+          src={etat.ecran}
+          sandbox="allow-scripts allow-same-origin allow-forms"
+        />
+      </div>
+      <div className="ch-ordi-foot">
+        <span>{t('Connecté', 'Connected')}</span>
+        <span>noVNC</span>
+      </div>
     </div>
   );
 }
