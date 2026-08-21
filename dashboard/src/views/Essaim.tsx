@@ -13,6 +13,16 @@ import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/share
 import { useEffect, useState } from 'react';
 import './essaim.css';
 
+/** Affiche le baptême constaté s’il existe, sinon le nom technique. */
+function nomConstate(
+  baptemes: Record<string, string | null> | null | undefined,
+  nodeId: string,
+  technique: string,
+): string {
+  const b = baptemes?.[nodeId];
+  return b || technique;
+}
+
 /** Sous-agents en vol sur un nœud : agrégés via les tâches qui lui sont assignées. */
 function activeAgentsOf(
   nodeId: string,
@@ -107,7 +117,13 @@ function NodeCard({
 const MEDALS = ['1', '2', '3'];
 
 /** Podium des trois meilleurs butineurs — le n°1 danse (waggle dance). */
-function Podium({ nodes }: { nodes: NodeNectar[] }) {
+function Podium({
+  nodes,
+  baptemes,
+}: {
+  nodes: NodeNectar[];
+  baptemes: Record<string, string | null> | null;
+}) {
   const t = useT();
   const top = nodes.slice(0, 3);
   // Ordre visuel : 2e à gauche, 1er au centre, 3e à droite.
@@ -117,13 +133,17 @@ function Podium({ nodes }: { nodes: NodeNectar[] }) {
       {order.map((i) => {
         const n = top[i];
         if (!n) return null;
+        const affiche = nomConstate(baptemes, n.nodeId, n.name);
         return (
           <div key={n.nodeId} className={`es-podium-slot es-rank-${i + 1}`}>
             <span className={i === 0 ? 'es-medal es-dance' : 'es-medal'} aria-hidden="true">
               {MEDALS[i]}
             </span>
-            <span className="es-podium-name" title={n.name}>
-              {n.name}
+            <span
+              className="es-podium-name"
+              title={affiche === n.name ? n.name : `${affiche} · ${n.name}`}
+            >
+              {affiche}
             </span>
             <span className="es-podium-score">
               {n.score} {t('nectar', 'nectar')}
@@ -136,34 +156,46 @@ function Podium({ nodes }: { nodes: NodeNectar[] }) {
 }
 
 /** Liste complète : barres de nectar proportionnelles au score du n°1. */
-function NectarList({ board }: { board: WaggleBoard }) {
+function NectarList({
+  board,
+  baptemes,
+}: {
+  board: WaggleBoard;
+  baptemes: Record<string, string | null> | null;
+}) {
   const maxScore = Math.max(1, board.nodes[0]?.score ?? 1);
   return (
     <ul className="es-nectar-list">
-      {board.nodes.map((n, i) => (
-        <li key={n.nodeId} className="es-nectar-row">
-          <span className="es-rank">{i + 1}</span>
-          <div>
-            <div className="es-nectar-head">
-              <span className="es-nectar-name" title={n.name}>
-                {n.name}
-              </span>
-              <span className="es-nectar-stats">
-                {Math.round(n.successRate * 100)} % · {formatMs(n.avgDurationMs)} · ✔ {n.tasksDone}{' '}
-                ✘ {n.tasksFailed}
-                {n.raceWins > 0 && <> · ◇ {n.raceWins}</>}
-              </span>
+      {board.nodes.map((n, i) => {
+        const affiche = nomConstate(baptemes, n.nodeId, n.name);
+        return (
+          <li key={n.nodeId} className="es-nectar-row">
+            <span className="es-rank">{i + 1}</span>
+            <div>
+              <div className="es-nectar-head">
+                <span
+                  className="es-nectar-name"
+                  title={affiche === n.name ? n.name : `${affiche} · ${n.name}`}
+                >
+                  {affiche}
+                </span>
+                <span className="es-nectar-stats">
+                  {Math.round(n.successRate * 100)} % · {formatMs(n.avgDurationMs)} · ✔{' '}
+                  {n.tasksDone} ✘ {n.tasksFailed}
+                  {n.raceWins > 0 && <> · ◇ {n.raceWins}</>}
+                </span>
+              </div>
+              <div className="es-bar">
+                <div
+                  className="es-bar-fill"
+                  style={{ width: `${Math.round((n.score / maxScore) * 100)}%` }}
+                />
+              </div>
             </div>
-            <div className="es-bar">
-              <div
-                className="es-bar-fill"
-                style={{ width: `${Math.round((n.score / maxScore) * 100)}%` }}
-              />
-            </div>
-          </div>
-          <span className="es-score">{n.score}</span>
-        </li>
-      ))}
+            <span className="es-score">{n.score}</span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -172,15 +204,19 @@ function NectarList({ board }: { board: WaggleBoard }) {
 function RacesCard({
   races,
   snapshot,
+  baptemes,
 }: {
   races: { taskId: string; factor: number; drones: { nodeId: string; status: string }[] }[];
   snapshot: ViewProps['snapshot'];
+  baptemes: Record<string, string | null> | null;
 }) {
   const t = useT();
   const titleOf = (taskId: string): string =>
     snapshot.tasks.find((task) => task.id === taskId)?.title ?? `${taskId.slice(0, 8)}…`;
-  const nameOf = (nodeId: string): string =>
-    snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
+  const nameOf = (nodeId: string): string => {
+    const tech = snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
+    return nomConstate(baptemes, nodeId, tech);
+  };
   const ICON: Record<string, string> = { running: '▸', failed: '✘', succeeded: '◆' };
   // Statuts traduits : le title/aria porte l'état, l'emoji seul ne suffit
   // ni aux lecteurs d'écran ni aux opérateurs non anglophones.
@@ -245,10 +281,12 @@ function RacesCard({
 function PheromonesCard({
   traces,
   snapshot,
+  baptemes,
 }: {
   /** `null` : première réponse pas encore arrivée (état de chargement). */
   traces: TraceePheromone[] | null;
   snapshot: StateSnapshot;
+  baptemes: Record<string, string | null> | null;
 }) {
   const t = useT();
   // Traces déjà triées par score décroissant côté serveur : le premier nœud
@@ -261,8 +299,10 @@ function PheromonesCard({
   }
   // Échelle commune à tous les nœuds : les barres sont comparables entre eux.
   const maxAbs = Math.max(1, ...(traces ?? []).map((trace) => Math.abs(trace.score)));
-  const nameOf = (nodeId: string): string =>
-    snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
+  const nameOf = (nodeId: string): string => {
+    const tech = snapshot.nodes.find((n) => n.id === nodeId)?.name ?? `${nodeId.slice(0, 8)}…`;
+    return nomConstate(baptemes, nodeId, tech);
+  };
 
   return (
     <section className="card">
@@ -374,7 +414,13 @@ function CasteBadge({ caste }: { caste: Caste }) {
   return <span className={`es-caste es-caste-${caste}`}>{libelle[caste]}</span>;
 }
 
-function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
+function PolyethismeCard({
+  vue,
+  baptemes,
+}: {
+  vue: VuePolyethisme | null;
+  baptemes: Record<string, string | null> | null;
+}) {
   const t = useT();
   if (!vue) return null;
   // L'écart entre demandé et effectif n'est PAS un détail : c'est lui qui
@@ -421,11 +467,15 @@ function PolyethismeCard({ vue }: { vue: VuePolyethisme | null }) {
               // laisserait l'hôte deviner pourquoi son nœud stagne.
               const cible = n.caste === 'nourrice' ? vue.seuils.batisseuse : vue.seuils.butineuse;
               const manque = Math.max(0, cible - n.productions);
+              const affiche = nomConstate(baptemes, n.nodeId, n.name);
               return (
                 <li key={n.nodeId} className="es-poly-row">
                   <div className="es-poly-head">
-                    <span className="es-poly-name" title={n.name}>
-                      {n.name}
+                    <span
+                      className="es-poly-name"
+                      title={affiche === n.name ? n.name : `${affiche} · ${n.name}`}
+                    >
+                      {affiche}
                     </span>
                     <CasteBadge caste={n.caste} />
                   </div>
@@ -553,15 +603,21 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
               en erreur (orchestrateur plus ancien sans la route, ou réseau),
               la carte disparaît — la vue Essaim, elle, reste intacte. */}
           {!jamaisRienRecu(pheromones) && (
-            <PheromonesCard traces={pheromones.data?.traces ?? null} snapshot={snapshot} />
+            <PheromonesCard
+              traces={pheromones.data?.traces ?? null}
+              snapshot={snapshot}
+              baptemes={baptemes}
+            />
           )}
           {/* Même dégradation propre : un orchestrateur plus ancien n'a pas la
               route, et la vue Essaim doit rester entière sans elle. */}
-          <PolyethismeCard vue={poly.data} />
+          <PolyethismeCard vue={poly.data} baptemes={baptemes} />
         </div>
 
         <div className="es-right-col">
-          {liveRaces.length > 0 && <RacesCard races={liveRaces} snapshot={snapshot} />}
+          {liveRaces.length > 0 && (
+            <RacesCard races={liveRaces} snapshot={snapshot} baptemes={baptemes} />
+          )}
           <section className="card">
             <header className="panel-head">
               <h2>Waggle Board</h2>
@@ -585,8 +641,8 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick }: ViewProp
             )}
             {board && board.nodes.length > 0 && (
               <>
-                <Podium nodes={board.nodes} />
-                <NectarList board={board} />
+                <Podium nodes={board.nodes} baptemes={baptemes} />
+                <NectarList board={board} baptemes={baptemes} />
               </>
             )}
           </section>
