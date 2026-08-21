@@ -281,7 +281,16 @@ export default function Chambre({
               type="button"
               className="btn ghost ch-lien-rayon"
               data-testid="chambre-ouvrir-rayon"
-              onClick={() => onNavigate('rayon', poste.projectId!)}
+              title={
+                poste.presences[0]
+                  ? t('Ouvrir le Rayon sur le fichier constaté', 'Open Rayon on the observed file')
+                  : t('Ouvrir le Rayon du projet', 'Open the project Rayon')
+              }
+              onClick={() => {
+                const recent = [...poste.presences].sort((a, b) => b.constateA - a.constateA)[0];
+                if (recent?.chemin) demanderFocusFichier(recent.chemin);
+                onNavigate('rayon', poste.projectId!);
+              }}
             >
               {t('Voir le Rayon', 'Open Rayon')}
             </button>

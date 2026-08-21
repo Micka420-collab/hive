@@ -224,16 +224,30 @@ describe('Chambre à l’écran', () => {
 
   it('ouvre le Rayon depuis le bouton d’en-tête et depuis un chemin constaté', async () => {
     const onNavigate = vi.fn();
+    sessionStorage.clear();
     const dom = await monter(onNavigate);
     const btn = dom.querySelector('[data-testid="chambre-ouvrir-rayon"]') as HTMLButtonElement;
     expect(btn).toBeTruthy();
     await cliquer(btn);
     expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
+    expect(sessionStorage.getItem('hive.focus')).toBe('fichier:src/pont/mcp.ts');
 
+    sessionStorage.clear();
     const chemin = dom.querySelector('button.ch-lien-chemin') as HTMLButtonElement;
     expect(chemin?.textContent).toContain('src/pont/mcp.ts');
     await cliquer(chemin);
     expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
+    expect(sessionStorage.getItem('hive.focus')).toBe('fichier:src/pont/mcp.ts');
+  });
+
+  it('Voir le Rayon sans présence : navigation seule, pas de focus inventé', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(poste({ presences: [] }));
+    const onNavigate = vi.fn();
+    sessionStorage.clear();
+    const dom = await monter(onNavigate);
+    await cliquer(dom.querySelector('[data-testid="chambre-ouvrir-rayon"]')!);
+    expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
+    expect(sessionStorage.getItem('hive.focus')).toBeNull();
   });
 
   it('chemin constaté SANS projet lié : silence du lien, pas de faux Rayon', async () => {
