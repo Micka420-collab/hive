@@ -100,7 +100,7 @@ function FicheOuvriere({
         if (vivant) setBapteme(p.bapteme?.nom ?? null);
       })
       .catch(() => {
-        if (vivant) setBapteme(null);
+        /* Panne API ≠ « Pas encore baptisée » — garder le nom technique. */
       });
     return () => {
       vivant = false;

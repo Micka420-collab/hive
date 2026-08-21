@@ -138,7 +138,8 @@
 .ry-presences-chemin:hover,
 .ry-presences-chemin:focus-visible {
   text-decoration-color: currentColor;
-  outline: none;
+  outline: 2px solid color-mix(in srgb, var(--miel, #f2b441) 75%, transparent);
+  outline-offset: 2px;
 }
 
 .ry-arbre {
@@ -189,6 +190,12 @@
 
 .ry-entree:hover {
   background: color-mix(in srgb, var(--miel) 6%, var(--panel));
+}
+
+.ry-entree:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--miel, #f2b441) 75%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--miel) 8%, var(--panel));
 }
 
 .ry-entree.active {

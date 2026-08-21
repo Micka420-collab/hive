@@ -295,6 +295,18 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     );
   });
 
+  it('SI fetchChambre ÉCHOUE SUR LA FICHE : nom technique, pas « Pas encore baptisée »', async () => {
+    vi.mocked(fetchChambre).mockRejectedValue(new Error('503'));
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    await cliquerEtAttendre(carte as Element);
+    const titre = dom.querySelector('#fiche-ouvriere-titre')?.textContent ?? '';
+    expect(titre).toContain('ruche-fenetre');
+    expect(titre).not.toContain('Pas encore baptisée');
+  });
+
   it('LA FICHE DIT L’ÉTAT DE LA MACHINE — « en ligne » pour la vive, « hors ligne » pour la muette', async () => {
     // Le panneau d'admin sert à DÉCIDER : couper une ouvrière, en relancer une.
     // Sans la garde `status === 'online'`, une machine EN LIGNE s'annoncerait

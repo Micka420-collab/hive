@@ -130,7 +130,7 @@ export default function Chambre({
         setErr(null);
       })
       .catch((e) => {
-        setPoste(null);
+        // Un blip réseau ne doit pas vider un poste déjà constaté.
         setErr(e instanceof Error ? e.message : String(e));
       });
   };
@@ -173,6 +173,7 @@ export default function Chambre({
           tag === 'INPUT' ||
           tag === 'TEXTAREA' ||
           tag === 'SELECT' ||
+          tag === 'IFRAME' ||
           (el as HTMLElement).isContentEditable
         ) {
           return;
@@ -562,6 +563,7 @@ export default function Chambre({
                               type="button"
                               className="btn ghost"
                               disabled={busyMotif === m.id}
+                              aria-busy={busyMotif === m.id}
                               onClick={() => {
                                 if (!poste.projectId) return;
                                 setBusyMotif(m.id);
@@ -570,7 +572,7 @@ export default function Chambre({
                                   .finally(() => setBusyMotif(null));
                               }}
                             >
-                              {t('Appliquer', 'Apply')}
+                              {busyMotif === m.id ? t('…', '…') : t('Appliquer', 'Apply')}
                             </button>
                           </li>
                         ))}
@@ -643,18 +645,21 @@ export default function Chambre({
                               <option value="hypothese">{t('Hypothèse', 'Hypothesis')}</option>
                             </select>
                             <input
+                              id="ch-horizon-texte"
                               type="text"
                               maxLength={500}
                               value={brouillonHorizon}
                               onChange={(e) => setBrouillonHorizon(e.target.value)}
                               placeholder={t('Constater…', 'Observe…')}
+                              aria-label={t('Constater…', 'Observe…')}
                             />
                             <button
                               type="submit"
                               className="btn primary ch-btn-accorder"
                               disabled={busyHorizon || !brouillonHorizon.trim()}
+                              aria-busy={busyHorizon}
                             >
-                              {t('Noter', 'Note')}
+                              {busyHorizon ? t('…', '…') : t('Noter', 'Note')}
                             </button>
                           </form>
                         )}

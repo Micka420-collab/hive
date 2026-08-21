@@ -413,6 +413,43 @@ describe('Chambre à l’écran', () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  it('Échap ne quitte pas si le focus est dans l’iframe Atelier', async () => {
+    const onNavigate = vi.fn();
+    await monter(onNavigate);
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => iframe,
+    });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onNavigate).not.toHaveBeenCalled();
+    iframe.remove();
+    // Restaurer activeElement (happy-dom).
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => document.body,
+    });
+  });
+
+  it('un blip fetchChambre ne vide pas un poste déjà chargé', async () => {
+    let rejet = false;
+    vi.mocked(fetchChambre).mockImplementation(async () => {
+      if (rejet) throw new Error('blip');
+      return poste();
+    });
+    const dom = await monter();
+    expect(dom.textContent).toContain('Capucine');
+    rejet = true;
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 4100));
+    });
+    expect(dom.textContent).toContain('Capucine');
+    expect(dom.textContent).not.toMatch(/Chargement…|Loading…/);
+  });
+
   it('parcourt Travail, Intégrations (motifs) et Suivi (horizon)', async () => {
     const motif: MotifCatalogue = {
       id: 'm1',
