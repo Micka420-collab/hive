@@ -240,6 +240,7 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     await act(async () => {});
     const c = carte(conteneur, 'ruche-nord');
     expect(c.classList.contains('es-node-ouvre')).toBe(true);
+    expect(c.getAttribute('data-testid')).toBe('essaim-ouvrir-chambre');
     await act(async () => {
       c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });

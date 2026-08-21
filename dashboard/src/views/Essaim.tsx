@@ -47,6 +47,7 @@ function NodeCard({
   return (
     <article
       className={`es-node ${node.status}${onOuvrirPoste ? ' es-node-ouvre' : ''}`}
+      data-testid={onOuvrirPoste ? 'essaim-ouvrir-chambre' : undefined}
       {...(onOuvrirPoste ? activateProps(() => onOuvrirPoste(node.id)) : {})}
       title={onOuvrirPoste ? t('Ouvrir la Chambre', 'Open the Chambre') : undefined}
     >

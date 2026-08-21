@@ -44,7 +44,8 @@ Comme dans un éditeur + le poste d'un collègue :
 4. **Droite bas — Ordinateur** = l'Atelier existant (noVNC). S'il est éteint,
    le **dire**. Interdit d'inventer un faux bureau.
 
-Entrée : fiche `NodesPanel` → « Ouvrir le poste ». Hash `#/chambre/<nodeId>`.
+Entrée : fiche `NodesPanel` → « Ouvrir le poste » ; carte **Essaim** ;
+curseur **Rayon**. Hash `#/chambre/<nodeId>`.
 Rayon : présence fichier (qui édite quel path), constatée depuis les outils
 Read/Edit/Write — jamais du théâtre.
 
