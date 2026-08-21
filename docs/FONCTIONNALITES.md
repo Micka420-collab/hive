@@ -180,8 +180,9 @@ Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir le poste**
 ouverts **constatés** (Read/Edit/Write), **Journal** et **Missions** de **cette**
 ouvrière, et l’**Ordinateur** = Atelier noVNC (ou « éteint » — pas de faux
 bureau). Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
-(baptême, sinon silence) — un clic ouvre la **Chambre** de cette ouvrière.
-Les **réquisitions** (clé API, MCP, binaire, atelier,
+(baptême, sinon silence) — un clic ouvre la **Chambre** de cette ouvrière ;
+le bandeau **En train de…** liste les présences même si le miroir du dépôt
+est vide. Les **réquisitions** (clé API, MCP, binaire, atelier,
 logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
 chez la Queen. Un lien de partage **ne voit jamais** ces identités.
 
