@@ -63,6 +63,10 @@ Shots of the running app (`npm run ruche`), not mockups.
 2. **The AIs work in parallel.** Each task goes to a member's computer, in an
    isolated folder. You watch progress live.
 3. **You validate, then it merges.** Nothing passes without your say-so.
+4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
+   (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
+   never inventing what isn’t there. Detail:
+   **[docs/FEATURES.en.md](docs/FEATURES.en.md)** (Chambre section).
 
 ## ⚡ Install
 

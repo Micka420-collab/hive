@@ -64,6 +64,10 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 2. **Les IA travaillent en parallèle.** Chaque tâche part sur l'ordinateur d'un
    membre, dans un dossier isolé. L'avancement s'affiche en direct.
 3. **Vous validez, puis ça fusionne.** Rien ne passe sans votre accord.
+4. **Vous ouvrez le poste d'une ouvrière.** Ruche → fiche du nœud →
+   **Ouvrir le poste** (Chambre) : nom baptisé, fichiers **constatés**, Atelier
+   noVNC, réquisitions — sans inventer ce qui n'est pas là. Détail :
+   **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)** (section Chambre).
 
 ## ⚡ Installation
 
