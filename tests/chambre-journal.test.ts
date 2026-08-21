@@ -11,11 +11,7 @@ describe('resumerEvenementChambre', () => {
   });
 
   it('échec : quoi + pourquoi, sans inventer', () => {
-    const l = resumerEvenementChambre(
-      'task_failed',
-      { title: 'Pont MCP', error: 'timeout' },
-      'fr',
-    );
+    const l = resumerEvenementChambre('task_failed', { title: 'Pont MCP', error: 'timeout' }, 'fr');
     expect(l.resume).toBe('Pont MCP');
     expect(l.detail).toContain('timeout');
   });

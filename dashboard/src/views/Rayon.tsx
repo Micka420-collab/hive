@@ -239,9 +239,16 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
             </span>
             <span className="ry-nom">{e.nom}</span>
             {qui.length > 0 && (
-              <span className="ry-curseurs" title={qui.map((q) => q.outil).join(', ')}>
+              <span
+                className="ry-curseurs"
+                title={qui.map((q) => `${q.bapteme ?? '·'} · ${q.outil}`).join(' · ')}
+              >
                 {qui.map((q) => (
-                  <span key={q.toolUseId} className="ry-curseur">
+                  <span
+                    key={q.toolUseId}
+                    className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}`}
+                    title={`${q.bapteme ?? '·'} · ${q.outil}`}
+                  >
                     {q.bapteme ?? '·'}
                   </span>
                 ))}

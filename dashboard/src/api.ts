@@ -1846,3 +1846,14 @@ export function appliquerMotif(
     },
   );
 }
+
+export function ajouterHorizon(
+  projectId: string,
+  kind: 'fait' | 'hypothese',
+  texte: string,
+): Promise<{ ok: boolean; entree: { id: string; kind: string; texte: string } }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/horizon`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, texte, source: 'chambre' }),
+  });
+}

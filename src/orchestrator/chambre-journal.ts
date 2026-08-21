@@ -31,17 +31,11 @@ export function resumerEvenementChambre(
     };
   }
   if (type.includes('fail') || type.includes('error') || type === 'task_failed') {
-    const quoi =
-      title ??
-      (lang === 'en' ? 'Task failed' : 'Tâche en échec');
+    const quoi = title ?? (lang === 'en' ? 'Task failed' : 'Tâche en échec');
     const pourquoi = error ?? motif;
     return {
       resume: quoi,
-      detail: pourquoi
-        ? lang === 'en'
-          ? `why: ${pourquoi}`
-          : `pourquoi : ${pourquoi}`
-        : null,
+      detail: pourquoi ? (lang === 'en' ? `why: ${pourquoi}` : `pourquoi : ${pourquoi}`) : null,
     };
   }
   if (title) {

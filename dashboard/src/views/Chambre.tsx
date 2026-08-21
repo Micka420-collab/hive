@@ -11,6 +11,7 @@
 import './chambre.css';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ajouterHorizon,
   appliquerMotif,
   arreterAtelier,
   demarrerAtelier,
@@ -79,6 +80,9 @@ export default function Chambre({
   const [onglet, setOnglet] = useState<OngletId>('fiche');
   const [motifs, setMotifs] = useState<MotifCatalogue[]>([]);
   const [busyMotif, setBusyMotif] = useState<string | null>(null);
+  const [brouillonHorizon, setBrouillonHorizon] = useState('');
+  const [kindHorizon, setKindHorizon] = useState<'fait' | 'hypothese'>('fait');
+  const [busyHorizon, setBusyHorizon] = useState(false);
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -185,9 +189,7 @@ export default function Chambre({
             {reqs.map((r) => (
               <li key={r.id}>
                 <span>
-                  <em>
-                    {libelleGenreRequisition(r.genre as GenreRequisition, langCode)}
-                  </em>
+                  <em>{libelleGenreRequisition(r.genre as GenreRequisition, langCode)}</em>
                   {' — '}
                   {r.libelle}
                   {r.detail ? <span className="muted-text"> · {r.detail}</span> : null}
@@ -394,6 +396,51 @@ export default function Chambre({
                           ))}
                         </ul>
                       )}
+                      {poste.projectId && (
+                        <form
+                          className="ch-horizon-form"
+                          onSubmit={(ev) => {
+                            ev.preventDefault();
+                            const texte = brouillonHorizon.trim();
+                            if (!texte || !poste.projectId) return;
+                            setBusyHorizon(true);
+                            void ajouterHorizon(poste.projectId, kindHorizon, texte)
+                              .then(() => {
+                                setBrouillonHorizon('');
+                                rafraichir();
+                              })
+                              .finally(() => setBusyHorizon(false));
+                          }}
+                        >
+                          <label className="ch-horizon-label" htmlFor="ch-horizon-kind">
+                            {t('Ajouter', 'Add')}
+                          </label>
+                          <select
+                            id="ch-horizon-kind"
+                            value={kindHorizon}
+                            onChange={(e) =>
+                              setKindHorizon(e.target.value === 'hypothese' ? 'hypothese' : 'fait')
+                            }
+                          >
+                            <option value="fait">{t('Fait', 'Fact')}</option>
+                            <option value="hypothese">{t('Hypothèse', 'Hypothesis')}</option>
+                          </select>
+                          <input
+                            type="text"
+                            maxLength={500}
+                            value={brouillonHorizon}
+                            onChange={(e) => setBrouillonHorizon(e.target.value)}
+                            placeholder={t('Constater…', 'Observe…')}
+                          />
+                          <button
+                            type="submit"
+                            className="btn primary"
+                            disabled={busyHorizon || !brouillonHorizon.trim()}
+                          >
+                            {t('Noter', 'Note')}
+                          </button>
+                        </form>
+                      )}
                     </>
                   )}
                 </div>
@@ -480,7 +527,10 @@ export default function Chambre({
                   </button>
                   {filtre === 'echecs' && (
                     <span className="ch-echec-hint muted-text">
-                      {t('quoi : échec · suite : ouvrir la tâche', 'what: failed · next: open task')}
+                      {t(
+                        'quoi : échec · suite : ouvrir la tâche',
+                        'what: failed · next: open task',
+                      )}
                     </span>
                   )}
                   <span className="ch-tache-time">{timeShort(tk.updatedAt)}</span>

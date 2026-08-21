@@ -130,6 +130,24 @@
   opacity: 0.9;
 }
 
+.ch-horizon-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.ch-horizon-form select,
+.ch-horizon-form input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--miel, #f6c445) 40%, transparent);
+  background: var(--papier, #fffdf8);
+  color: inherit;
+}
+
 .ch-note {
   font-size: 0.78rem;
   margin: 8px 0 0;

@@ -16,12 +16,12 @@ recréation manuelle depuis les tokens listés dans la Frame 05.
 
 ## Références retenues (pas de clone)
 
-| Source | Idée gardée dans Hive |
-|--------|------------------------|
-| Magentic-One | Ledger faits ≠ hypothèses (horizon), borné |
-| Voyager | Fabrique d’outil **dans** le dépôt, puis exécution |
-| Agentic UX 2026 | Activity panel ≠ chat ; approval gates HITL |
-| Swarm / orchestration dashboards | File « À trancher », flux outils live |
+| Source                           | Idée gardée dans Hive                              |
+| -------------------------------- | -------------------------------------------------- |
+| Magentic-One                     | Ledger faits ≠ hypothèses (horizon), borné         |
+| Voyager                          | Fabrique d’outil **dans** le dépôt, puis exécution |
+| Agentic UX 2026                  | Activity panel ≠ chat ; approval gates HITL        |
+| Swarm / orchestration dashboards | File « À trancher », flux outils live              |
 
 ## Invariants
 

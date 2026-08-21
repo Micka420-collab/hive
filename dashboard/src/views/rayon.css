@@ -132,6 +132,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  animation: ry-curseur-in 0.35s ease-out;
+}
+
+.ry-curseur-edit {
+  background: color-mix(in srgb, var(--miel, #f6c445) 65%, white);
+}
+
+.ry-curseur-write {
+  background: color-mix(in srgb, #c47a2c 35%, white);
+}
+
+.ry-curseur-read {
+  background: color-mix(in srgb, #6b8f71 30%, white);
+}
+
+@keyframes ry-curseur-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-curseur {
+    animation: none;
+  }
 }
 
 .ry-nom {
