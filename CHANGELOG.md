@@ -18,8 +18,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **🔏 Installeurs sur Pages + empreinte affichée (lot 8, prep).** `pages.yml`
   copie `install.sh` / `install.ps1` vers `site/` et publie `install.sha256`.
-  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc montre la
-  variante télécharger → hasher → lire → exécuter (ADR 0002).
+  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc (README +
+  INSTALLATION) montre la variante télécharger → hasher → lire → exécuter
+  (Pages / `install.sha256`, ADR 0002) — sans promettre une Release signée.
 
 - **💾 Timeline de sauvegardes (code récupérable).** Chaque production réussie
   avec un diff devient une étape (`sauvegardes` latérale, survit à
@@ -30,10 +31,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   la timeline) ; après restauration, **Ouvrir dans la Miellerie**. Aperçu
   patch borné + **Copier**. Pouls Plein Essaim : relecture toutes les 30 s
   sans flash.
-- **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
-  (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
-  Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;
-  Plein Essaim : autonomie sur plusieurs jours.
+- **🎙 Reine en flux (SSE) + multi-agents en lecture.** `/api/chat` accepte
+  `stream` / `Accept: text/event-stream` : deltas puis `done`. Contexte enrichi
+  (`enCours`, `sousAgents`, `essaim` Plein Essaim) — la Reine **cite** l’essaim,
+  elle ne change pas le niveau d’autonomie et ne réécrit jamais le dépôt.
+  UI Reine : bulle progressive. `hive ask` partage le même chemin SSE ; banc
+  CLI + FEATURES EN (table Comb) + README variante prudente Windows (Pages /
+  `install.sha256`, sans 2ᵉ `irm` qui casserait la garde d’annonce).
+
+- **DEFINITION §E : empreintes Pages** mesurées ; Release signée reste 🔒. Parser SSE Anthropic : bancs text_delta vide / message_start.
+
+- **Reine : abort du flux SSE** au démontage ou « Effacer » (AbortSignal), sans bulle d’erreur.
+- **`hive ask` : Ctrl+C** coupe le flux SSE (AbortSignal), message `(interrompu)`.
+- **Carnet lot 8** : empreintes Pages ✅ / Release signée 🔒 (ETAPES plus « à faire »).
 
 ### Changed
 

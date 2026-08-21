@@ -33,11 +33,25 @@ class ChatHttpError extends Error {
   }
 }
 
-async function askQueen(message: string, projectId?: string): Promise<ChatResponse> {
+async function askQueen(
+  message: string,
+  projectId: string | undefined,
+  onDelta?: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-hive-token': getToken() },
-    body: JSON.stringify(projectId ? { message, projectId } : { message }),
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      'x-hive-token': getToken(),
+    },
+    body: JSON.stringify({
+      message,
+      stream: true,
+      ...(projectId ? { projectId } : {}),
+    }),
+    signal,
   });
   if (!res.ok) {
     let msg = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
@@ -49,7 +63,70 @@ async function askQueen(message: string, projectId?: string): Promise<ChatRespon
     }
     throw new ChatHttpError(msg, res.status);
   }
-  return (await res.json()) as ChatResponse;
+
+  const ctype = res.headers.get('content-type') ?? '';
+  // Hub ancien sans SSE : JSON classique.
+  if (!ctype.includes('text/event-stream') || !res.body) {
+    return (await res.json()) as ChatResponse;
+  }
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let assemble = '';
+  let final: ChatResponse | null = null;
+
+  const traiterData = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    let ev: {
+      type?: string;
+      text?: string;
+      reply?: string;
+      source?: 'live' | 'llm';
+      suggestions?: string[];
+      usage?: ChatResponse['usage'];
+    };
+    try {
+      ev = JSON.parse(trimmed) as typeof ev;
+    } catch {
+      return;
+    }
+    if (ev.type === 'delta' && typeof ev.text === 'string') {
+      assemble += ev.text;
+      onDelta?.(ev.text);
+    } else if (ev.type === 'done' && typeof ev.reply === 'string') {
+      final = {
+        reply: ev.reply,
+        source: ev.source === 'llm' ? 'llm' : 'live',
+        suggestions: ev.suggestions,
+        usage: ev.usage,
+      };
+    }
+  };
+
+  for (;;) {
+    if (signal?.aborted) {
+      await reader.cancel().catch(() => undefined);
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split('\n');
+    buf = parts.pop() ?? '';
+    for (const line of parts) {
+      const t = line.trimEnd();
+      if (t.startsWith('data:')) traiterData(t.slice(5).trimStart());
+    }
+  }
+  if (buf.trim().startsWith('data:')) traiterData(buf.trim().slice(5).trimStart());
+
+  if (final) return final;
+  if (assemble.trim()) {
+    return { reply: assemble, source: 'llm' };
+  }
+  throw new Error(tNow('Réponse stream vide.', 'Empty stream reply.'));
 }
 
 // ─── Modèle de conversation + persistance de session ─────────────────────────
@@ -132,6 +209,8 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
 
   const threadRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  /** Coupe le flux SSE au démontage ou à « Effacer » — pas de bulle d’erreur. */
+  const abortRef = useRef<AbortController | null>(null);
 
   // Suggestions affichées : celles de la Reine, sinon les défauts (langue courante).
   const shownSuggestions = suggestions.length > 0 ? suggestions : defaultSuggestions(t);
@@ -141,6 +220,12 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   useEffect(() => {
     sessionStorage.setItem(CHAT_KEY, JSON.stringify({ messages, suggestions }));
   }, [messages, suggestions]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // Auto-scroll en bas du fil à chaque nouveau message ou pendant la réflexion.
   useEffect(() => {
@@ -182,21 +267,69 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
     const ta = areaRef.current;
     if (ta) ta.style.height = 'auto';
     setPending(true);
+    const queenId = uid();
+    let streamed = false;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const res = await askQueen(text, projectId || undefined);
-      if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
-      appendPersist(
-        {
-          id: uid(),
-          role: 'queen',
-          text: res.reply,
-          ts: Date.now(),
-          source: res.source,
-          usage: res.usage,
+      const res = await askQueen(
+        text,
+        projectId || undefined,
+        (delta) => {
+          if (!streamed) {
+            streamed = true;
+            appendPersist({
+              id: queenId,
+              role: 'queen',
+              text: delta,
+              ts: Date.now(),
+              source: 'llm',
+            });
+            setPending(false);
+            return;
+          }
+          setMessages((m) =>
+            m.map((msg) => (msg.id === queenId ? { ...msg, text: msg.text + delta } : msg)),
+          );
         },
-        res.suggestions && res.suggestions.length > 0 ? res.suggestions : undefined,
+        ac.signal,
       );
+      if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
+      if (streamed) {
+        // Finalise le bulle déjà créée (source / usage / suggestions).
+        const stored = readChat();
+        const messages = stored.messages.map((msg) =>
+          msg.id === queenId
+            ? {
+                ...msg,
+                text: res.reply,
+                source: res.source,
+                usage: res.usage,
+              }
+            : msg,
+        );
+        const suggestions =
+          res.suggestions && res.suggestions.length > 0 ? res.suggestions : stored.suggestions;
+        sessionStorage.setItem(CHAT_KEY, JSON.stringify({ messages, suggestions }));
+        setMessages(messages);
+        if (res.suggestions && res.suggestions.length > 0) setSuggestions(res.suggestions);
+      } else {
+        appendPersist(
+          {
+            id: queenId,
+            role: 'queen',
+            text: res.reply,
+            ts: Date.now(),
+            source: res.source,
+            usage: res.usage,
+          },
+          res.suggestions && res.suggestions.length > 0 ? res.suggestions : undefined,
+        );
+      }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      if (e instanceof Error && e.name === 'AbortError') return;
       // 404/501 = endpoint pas encore déployé → accueil dégradé, sans badge.
       const absent = e instanceof ChatHttpError && (e.status === 404 || e.status === 501);
       const detail = e instanceof Error ? e.message : String(e);
@@ -206,7 +339,11 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
             `La Reine n’a pas pu répondre : ${detail}. Réessayez dans un instant.`,
             `The Queen could not reply: ${detail}. Please try again in a moment.`,
           );
-      appendPersist({ id: uid(), role: 'queen', text: reply, ts: Date.now() });
+      if (streamed) {
+        setMessages((m) => m.map((msg) => (msg.id === queenId ? { ...msg, text: reply } : msg)));
+      } else {
+        appendPersist({ id: queenId, role: 'queen', text: reply, ts: Date.now() });
+      }
     } finally {
       setPending(false);
     }
@@ -230,6 +367,7 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   };
 
   const clear = () => {
+    abortRef.current?.abort();
     setMessages([]);
     setSuggestions([]);
     setTokensSession(0);

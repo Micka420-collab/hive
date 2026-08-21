@@ -100,8 +100,10 @@ function repond(corps: unknown, statut = 200): ReturnType<typeof vi.fn> {
     return Promise.resolve({
       ok: statut >= 200 && statut < 300,
       status: statut,
+      headers: { get: () => 'application/json' },
+      body: null,
       json: () => Promise.resolve(corps),
-    } as Response);
+    } as unknown as Response);
   });
   vi.stubGlobal('fetch', faux);
   return faux;
@@ -507,5 +509,33 @@ describe('G. tokens IA et modes de navigation', () => {
     expect(sessionStorage.getItem('hive.focus')).toBe('sauvegardes');
     const apres = faux.mock.calls.filter((c) => String(c[0]).includes('/api/chat')).length;
     expect(apres, 'un envoi chat supplémentaire').toBe(avant);
+  });
+
+  it('EFFACER ABOTE LE FETCH EN COURS — pas de bulle d’erreur', async () => {
+    let signalVu: AbortSignal | undefined;
+    const faux = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const cible = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+      if (!cible.includes('/api/chat')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ mode: 'off', actif: false }),
+        } as Response);
+      }
+      signalVu = init?.signal ?? undefined;
+      return new Promise(() => {
+        /* ne résout jamais : on aboie avant la réponse */
+      });
+    });
+    vi.stubGlobal('fetch', faux);
+    const dom = await monter();
+    ecrire(dom, 'question longue');
+    await cliquer(envoyer(dom));
+    expect(signalVu, 'fetch chat sans AbortSignal').toBeTruthy();
+    const clearBtn = dom.querySelector('button.rn-clear');
+    expect(clearBtn, 'Effacer après un message utilisateur').toBeTruthy();
+    await cliquer(clearBtn!);
+    expect(signalVu!.aborted, 'le signal doit être aborté').toBe(true);
+    expect(dom.textContent ?? '').not.toMatch(/n’a pas pu répondre|could not reply/i);
   });
 });

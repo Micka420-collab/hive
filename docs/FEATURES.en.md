@@ -17,7 +17,7 @@ keyboard-navigable (keys **1-9**, `0`, `h`, `i`, `c`) through a honeycomb sideba
 | View               | What you do there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 🐝 **Hive**        | Overview: 2D/3D Swarm View, KPIs, **Full Swarm pulse** (level / pause / drift → Projects), clickable honeycomb, queue, journal.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 👑 **Queen**       | Talk to the hive in **your language**: progress, health, leaderboard, brief-scoping help. Anthropic token counts, Chat / Plan / Autonomy / Backups modes, **Restore…** chip when failures sit next to a checkpoint.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 👑 **Queen**       | Talk to the hive in **your language**: progress, health, leaderboard, brief-scoping help. **SSE streaming** (progressive text), read-only multi-agent / Full Swarm context, Anthropic token counts, Chat / Plan / Autonomy / Backups modes, **Restore…** chip when failures sit next to a checkpoint.                                                                                                                                                                                                                                                                                                                                            |
 | 🍯 **Honey House** | **Review what the AIs produced**: per-file diffs, logs, Parliament verdict **and surface — did two agents go to the same place, or not**, keyboard approve (a) / reject (x), then Honeycomb merge.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ⬡ **Projects**     | Progress reports, brief→DAG workshop (Queen Bee), merge planning and launch, Sting conflicts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 🐝 **The Comb**    | **The project's code, readable**: file tree, highlighted editor, preview of the site produced, edit → task (with an `avant_retouche` safety net), and a **checkpoint timeline** (view the patch; restore opens a task).                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -50,14 +50,15 @@ always remains an explicit human gesture.
 
 What members could see so far were **tasks**: titles, states, diffs. Never the
 code. You worked on a project without being able to open it — like helping fix
-an engine without being allowed to lift the hood. The Comb lifts the hood: a
-file tree, a syntax-highlighted editor (16 languages), a **preview** of the site
-the AI just wrote, and — for the Queen — an **edit** that becomes a task.
-Successful diffs are kept as **checkpoints** on the Comb: you can **view** (and
-**copy**) the patch before acting — large diffs are truncated in the preview;
-restore opens a **task** for the swarm (never a silent rewrite of the repo),
-with a shortcut into the Honey House. An edit from the Comb first records an
-`avant_retouche` reverse patch so a later restore can undo the proposal.
+an engine without being allowed to lift the hood. The Comb lifts the hood.
+
+| What you find     | For whom                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tree + editor** | Any bee with access to the project. Highlighting for 16 languages, files capped at 512 KiB.                                           |
+| **Preview**       | The site the AI just wrote, **rendered** — not only its diff.                                                                         |
+| **Edit**          | Queen only. Fixing a line on screen creates a **task**, never a write. `avant_retouche` reverse-patch safety net before the proposal. |
+| **Backups**       | Checkpoint timeline (captured diff); **view / copy the patch**; restore opens a **task**, then a Honey House shortcut.                |
+| **Share link**    | Show progress and code **without handing over the hive**: distinct token, expiring, revocable.                                        |
 
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
@@ -135,20 +136,28 @@ back in that language:
 ```bash
 npm run cli -- ask "Où en est le projet ?"
 npm run cli -- ask "Which node works best?"
-# or: POST /api/chat { "message": "…", "projectId"?: "…" } · 👑 Queen view in the dashboard
+# or: POST /api/chat { "message": "…", "projectId"?: "…", "stream"?: true }
+#     · Accept: text/event-stream → deltas then done
+#     · 👑 Queen view and `hive ask` (same progressive SSE path)
 ```
 
 Two modes, never blocking: **live state** (deterministic answers composed from
 reports, pulse, nectar, anomalies and memory — 100% offline) and **AI** (if
 `ANTHROPIC_API_KEY` is set on the Queen: `HIVE_CHAT_MODEL`, default
 `claude-haiku-4-5`; the key never leaves the orchestrator, and the model only
-receives the hive's real numbers). The Queen also guides the project owner:
-best practices per project type (web, API, mobile, data, e-commerce, CLI) and
-an effective brief structure. In AI mode, Anthropic **token counts** show on
-each reply (and for the session). Mode chips link Chat → Plan (Projects /
-Queen Bee) → Autonomy (Full Swarm on the project) → Backups (Comb). When recent
-failures sit next to a checkpoint, the Queen offers a **Restore…** chip that
-opens the Comb timeline.
+receives the hive's real numbers). AI and live replies **stream** over SSE when
+the client asks (`stream: true` or `Accept: text/event-stream`) — the dashboard
+Queen bubble and `npm run cli -- ask` share that path. Leaving the view,
+**Clear**, or **Ctrl+C** on `hive ask` aborts the stream (no error bubble /
+`(interrompu)`). The prompt also sees read-only **in-flight work**,
+**sub-agents**, and **Full Swarm** state — the Queen never raises autonomy or
+rewrites git. The Queen also guides the project owner: best practices per
+project type (web, API, mobile, data, e-commerce, CLI) and an effective brief
+structure. In AI mode, Anthropic **token counts** show on each reply (and for
+the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
+(Full Swarm on the project) → Backups (Comb). When recent failures sit next to
+a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
+timeline.
 
 ## 🧠 Queen Bee — from brief to DAG
 

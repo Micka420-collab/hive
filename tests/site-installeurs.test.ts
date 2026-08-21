@@ -21,6 +21,34 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
     expect(wf).toContain('install.sha256');
   });
 
+  it('README FR et EN annoncent la variante prudente Windows + Pages', () => {
+    // Sans ça, Linux a le pipe prudent documenté et Windows reste « irm | run »
+    // sans manifeste — le défaut que le lot 8 (empreintes Pages) devait fermer.
+    for (const f of ['README.md', 'README.en.md'] as const) {
+      const txt = lire(f);
+      expect(txt).toContain('micka420-collab.github.io/hive/install.ps1');
+      expect(txt).toContain('install.sha256');
+      expect(txt).toMatch(/Get-FileHash|sha256sum/);
+    }
+  });
+
+  it('INSTALLATION.md ne promet plus une Release pour l’empreinte', () => {
+    // Le manifeste vit sur Pages ; une Release signée reste 🔒. Dire « Release /
+    // install.sha256 » laisse croire qu’un tag signé existe déjà.
+    const txt = lire('docs/INSTALLATION.md');
+    expect(txt).toContain('micka420-collab.github.io/hive/install.sha256');
+    expect(txt).toContain('Get-FileHash');
+    expect(txt).toMatch(/Release GitHub signée|signed GitHub Release/i);
+    expect(txt).not.toMatch(/publié avec la Release\s*\/\s*`?site\/install\.sha256/);
+  });
+
+  it('ADR 0002 amende : empreinte Pages avant Release signée', () => {
+    const adr = lire('docs/adr/0002-distribution-one-liners.md');
+    expect(adr).toContain('install.sha256');
+    expect(adr).toMatch(/Amendement du 21 août 2026/);
+    expect(adr).toMatch(/Pages avant la Release/);
+  });
+
   it('install.sh et install.ps1 annoncent l’empreinte dans le source', () => {
     const sh = lire('install.sh');
     expect(sh).toContain('annoncer_empreinte');

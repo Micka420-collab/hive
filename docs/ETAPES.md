@@ -64,9 +64,10 @@ Barrière au 3 août : `typecheck`, `lint`, **2 998 tests passés / 3 sautés** 
 2. **La vitrine fait 13 sections et ~11 400 px** là où la maquette en fait 7 et
    3 865. Le premier écran est juste ; la page est trois fois trop longue.
    **Demande un arbitrage** (voir plus bas).
-3. **Lot 8 — pas de Release, pas d'empreintes.** Le chemin annoncé
-   (`curl … | sh`) clone `main` et fonctionne ; il n'y a simplement aucune
-   version figée à installer. La moitié « Release » est bloquée.
+3. **Lot 8 — Release signée absente ; empreintes Pages posées.** Le chemin
+   annoncé (`curl … | sh`) clone `main` et fonctionne. Pages publie
+   `install.sha256` + les deux scripts (variante prudente documentée). Une
+   **Release GitHub signée** (version figée) reste bloquée (comptes humains).
 4. ~~**Lot 9 🟡 — les fichiers de service sont écrits, jamais acceptés.** Aucune
    CI ne peut vérifier que `systemctl` / `launchctl` / `schtasks` les avalent.~~
    **Faux, et cher.** Cette phrase décrivait `systemctl enable` — pas la question
@@ -1614,7 +1615,7 @@ des quatre chemins a été rejoué après l'extraction, à l'identique.
 | 5   | `hive doctor` + `--json`                                             | ✅   | 12 diagnostics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 6   | ACL Windows, chemins, **matrice CI 3 OS**                            | ✅   | Les trois vertes. macOS est passée **du premier coup** — ma prédiction de rouge était fausse.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 7   | Paquet npm + `bin` + provenance                                      | 🚫   | **Bloqué** — compte npm de l'utilisateur.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| 8   | `install.ps1`, `install.sh`, empreintes, Release                     | 🟡   | Les deux existent et sont exercés en CI — `install.ps1` sous PowerShell **7 et 5.1**, qui a rendu trois défauts réels. Empreintes + Release restent à faire.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 8   | `install.ps1`, `install.sh`, empreintes, Release                     | 🟡   | Scripts exercés en CI (PowerShell **7 et 5.1**). **Empreintes Pages** (`install.sha256`) + variante prudente README/INSTALLATION/ADR 0002 : ✅ mesurées. **Release signée** : 🔒 comptes humains.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | 9   | Service (systemd user / tâche planifiée / launchd) + désinstallation | 🟡   | **Les deux moitiés livrées.** `hive desinstaller` (inventaire par défaut, `.env` et base jamais touchés) et `hive service install\|status\|logs\|uninstall` — unité systemd durcie, LaunchAgent, tâche planifiée, plan pur vérifié pour les 3 plateformes depuis n'importe laquelle, échappement éprouvé sur chemins hostiles. **Cette case disait : « aucune CI ne peut vérifier que `systemctl`/`launchctl`/`schtasks` ACCEPTENT ces fichiers ». C'était faux, et ça masquait un défaut fatal** — l'unité systemd était REFUSÉE (`WorkingDirectory=` cité → `unit will not be started`), et `EnvironmentFile=` cité était ignoré **en silence**, donc un service qui démarrait sans aucun secret. `systemd-analyze verify` le disait en 28 ms. Corrigé ; `tests/service-accepte.test.ts` soumet désormais le fichier au juge de chaque plateforme à chaque CI (`systemd-analyze verify`, `plutil -lint`, `schtasks /Create /XML`), avec la version d'avant le correctif comme contre-épreuve. **Reste 🟡 et non ✅ : le fichier est ACCEPTÉ, il n'est pas DÉMARRÉ** — `systemctl --user enable --now` demande un bus de session qu'aucun runner n'a. |
 | 10  | Dockerfile, compose, GHCR signé, sauvegarde SQLite                   | 🟡   | Dockerfile, compose et sauvegarde livrés. **La première construction réelle a rendu un défaut que rien d'autre n'aurait vu** : `npm ci` lance `prepare` — donc `tsc` — aux deux étages, y compris celui qui vient de retirer TypeScript (§ 4.3 de `docs/ERREURS.md`). GHCR/cosign restent **bloqués**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | 11  | Docs FR/EN, CHANGELOG, `docs/INSTALLATION.md`                        | ✅   | READMEs, CHANGELOG et `docs/INSTALLATION.md` — les trois présents et tenus. Les deux READMEs ont été **resserrés** : le détail exhaustif vit dans `docs/FONCTIONNALITES.md` et `docs/FEATURES.en.md`, rien n'a été perdu.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -5853,8 +5854,11 @@ fichiers à chaque CI. Aucun runner n'a le bus de session qu'exige
 ### 2.3 — Empreintes et Release (lot 8)
 
 `install.sh` et `install.ps1` existent et sont exercés (PowerShell 7 **et** 5.1).
-Les empreintes publiées et la Release n'existent pas. Conséquence pour un
-arrivant prudent : rien à vérifier avant d'exécuter un script téléchargé.
+**Empreintes Pages** : `pages.yml` publie `install.sha256` à côté des scripts ;
+README / INSTALLATION / ADR 0002 (amende 21 août) montrent télécharger → hasher
+→ lire. **Release GitHub signée** : absente (🔒). Conséquence : un arrivant
+prudent peut comparer au manifeste Pages ; ça ne remplace pas un tag signé
+(dépôt compromis = script + manifeste).
 
 ### 2.4 — Première impression : README et vitrine (#63)
 
@@ -11717,3 +11721,59 @@ Lire avant d’agir — même doctrine que l’empreinte des installeurs.
 | --------------------------------------------------------- | ------------------------- |
 | Pulse miel sur la timeline après focus Reine              | `Rayon.tsx`, `rayon.css`  |
 | Aperçu patch tronqué (12 Ko) + **Copier** le patch entier | `SauvegardesTimeline.tsx` |
+
+### 15. Suite du 21 août (nuit) — Reine SSE + multi-agents lecture
+
+| fait                                                         | où                                     |
+| ------------------------------------------------------------ | -------------------------------------- |
+| `/api/chat` SSE (deltas → done) + Anthropic `stream: true`   | `server.ts`, `planner.ts`, `concierge` |
+| Contexte `enCours` / `sousAgents` / `essaim` (lecture seule) | `concierge.ts`                         |
+| UI Reine : bulle progressive                                 | `Reine.tsx`                            |
+| Bancs stream + endpoint SSE                                  | `tests/chat-stream`, `chat-endpoint`   |
+
+Pas de rewrite git silencieux, pas de 2ᵉ autonomie. CI verte PR #341.
+
+### 16. Suite du 21 août (nuit) — docs empreintes + banc CLI SSE
+
+| fait                                                     | où                                     |
+| -------------------------------------------------------- | -------------------------------------- |
+| Table Comb (Backups…) alignée FR ; `hive ask` = même SSE | `FEATURES.en.md`, `FONCTIONNALITES.md` |
+| Variante prudente Windows (Pages + `install.sha256`)     | `README.md` / `README.en.md`           |
+| Banc : chemin SSE CLI + garde README Pages               | `ask-cli`, `site-installeurs`          |
+| Badges / tableau A → **4449**                            | README, site, DEFINITION               |
+
+Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
+`commande-annoncee`).
+
+### 17. Suite du 21 août (nuit) — INSTALLATION.md honnête sur Pages
+
+| fait                                                           | où                       |
+| -------------------------------------------------------------- | ------------------------ |
+| Empreinte = Pages (pas « Release / sha256 ») + Windows prudent | `docs/INSTALLATION.md`   |
+| Garde : ne pas re-promettre une Release pour l’empreinte       | `tests/site-installeurs` |
+| ADR 0002 amendé : empreinte Pages avant Release                | `docs/adr/0002-…`        |
+| Badges / tableau A → **4451**                                  | README, site, DEFINITION |
+
+### 18. Suite du 21 août (nuit) — DEFINITION E + parser SSE
+
+| fait                                                             | où                          |
+| ---------------------------------------------------------------- | --------------------------- |
+| §E : empreintes Pages ✅ / Release signée 🔒                     | `DEFINITION-DE-SORTIE.md`   |
+| Bancs `parserTrameAnthropic` (vide / json_delta / message_start) | `tests/chat-stream.test.ts` |
+| Badges / tableau A → **4453**                                    | README, site, DEFINITION    |
+
+### 19. Suite du 21 août (nuit) — abort flux Reine
+
+| fait                                                       | où                       |
+| ---------------------------------------------------------- | ------------------------ |
+| AbortSignal : démontage / Effacer coupe le SSE sans erreur | `Reine.tsx`              |
+| Banc Effacer → `signal.aborted`                            | `reine-conversation`     |
+| Badges / tableau A → **4454**                              | README, site, DEFINITION |
+
+### 20. Suite du 21 août (nuit) — CLI ask SIGINT
+
+| fait                                 | où           |
+| ------------------------------------ | ------------ |
+| Ctrl+C → AbortSignal sur `hive ask`  | `src/cli.ts` |
+| Garde source SIGINT / `(interrompu)` | `ask-cli`    |
+| Badges / tableau A → **4455**        | DEFINITION   |

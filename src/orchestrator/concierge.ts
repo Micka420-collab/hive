@@ -13,7 +13,7 @@
 
 import type { Ghost } from './ghost.js';
 import type { Memory } from './hive-mind.js';
-import type { LlmFn } from './planner.js';
+import type { LlmFn, LlmStreamFn } from './planner.js';
 import { lireLlm } from './planner.js';
 import type { ProjectReport } from './project-report.js';
 import type { HivePulse } from './pulse.js';
@@ -49,6 +49,37 @@ export interface ConciergeContext {
     title: string;
     drones: { nodeId: string; status: string }[];
   }[];
+  /**
+   * Tâches vivantes (assignées / en cours) — multi-agents : qui travaille où.
+   * Lecture seule ; la Reine ne lance pas de travail.
+   */
+  enCours?: {
+    taskId: string;
+    title: string;
+    status: string;
+    nodeId: string | null;
+    nodeName: string | null;
+  }[];
+  /**
+   * Sous-agents vus dans le dernier `task_progress` par tâche (lecture seule).
+   * Complète `enCours` sans inventer un second système d’autonomie.
+   */
+  sousAgents?: {
+    taskId: string;
+    nodeId: string;
+    agents: { name: string; status: string }[];
+  }[];
+  /**
+   * Instantané Plein Essaim du projet focalisé — lecture seule.
+   * La Reine n’appelle jamais POST /essaim ; le mode Autonomie mène aux Projets.
+   */
+  essaim?: {
+    niveau: string;
+    pas: string;
+    motif: string;
+    enPause: boolean;
+    derive: string;
+  } | null;
   /** Projet ciblé par la question (optionnel). */
   focusProjectId?: string | null;
 }
@@ -489,6 +520,46 @@ function ms(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`;
 }
 
+/** Lignes multi-agents / Plein Essaim — lecture seule, état réel uniquement. */
+function lignesEssaimVivant(ctx: ConciergeContext, lang: Lang): string[] {
+  const out: string[] = [];
+  const enCours = ctx.enCours ?? [];
+  if (enCours.length > 0) {
+    const detail = enCours
+      .slice(0, 5)
+      .map((t) => {
+        const ou = t.nodeName ? clean(t.nodeName) : t.nodeId ? t.nodeId.slice(0, 8) : '—';
+        return lang === 'fr'
+          ? `« ${clean(t.title)} » (${t.status}) sur ${ou}`
+          : `“${clean(t.title)}” (${t.status}) on ${ou}`;
+      })
+      .join(lang === 'fr' ? ' · ' : ' · ');
+    out.push(
+      lang === 'fr'
+        ? `En cours : ${enCours.length} tâche(s) — ${detail}`
+        : `In flight: ${enCours.length} task(s) — ${detail}`,
+    );
+  }
+  const sous = ctx.sousAgents ?? [];
+  if (sous.length > 0) {
+    const agents = sous
+      .flatMap((s) => s.agents)
+      .slice(0, 6)
+      .map((a) => `${clean(a.name, 40)} [${a.status}]`)
+      .join(', ');
+    out.push(lang === 'fr' ? `Sous-agents vus : ${agents}` : `Sub-agents seen: ${agents}`);
+  }
+  if (ctx.essaim) {
+    const e = ctx.essaim;
+    out.push(
+      lang === 'fr'
+        ? `Plein Essaim : niveau « ${e.niveau} », pas « ${e.pas} »${e.enPause ? ' (en pause)' : ''} · dérive ${e.derive}`
+        : `Full Swarm: level “${e.niveau}”, step “${e.pas}”${e.enPause ? ' (paused)' : ''} · drift ${e.derive}`,
+    );
+  }
+  return out;
+}
+
 function progressReply(ctx: ConciergeContext, lang: Lang): string {
   if (ctx.reports.length === 0) {
     return lang === 'fr'
@@ -518,7 +589,7 @@ function progressReply(ctx: ConciergeContext, lang: Lang): string {
     lang === 'fr'
       ? `🐝 ${ctx.pulse.activeNodes} nœud(s) actif(s) · taux de succès global ${pct(ctx.pulse.successRate)}`
       : `🐝 ${ctx.pulse.activeNodes} active node(s) · overall success rate ${pct(ctx.pulse.successRate)}`;
-  return [...lines, nodesLine].join('\n');
+  return [...lines, nodesLine, ...lignesEssaimVivant(ctx, lang)].join('\n');
 }
 
 function recentReply(ctx: ConciergeContext, lang: Lang): string {
@@ -579,7 +650,7 @@ function nodesReply(ctx: ConciergeContext, lang: Lang): string {
     lang === 'fr'
       ? `🍯 Classement des ouvrières (${ctx.waggle.totalTasksDone} tâche(s) butinées) :`
       : `🍯 Worker leaderboard (${ctx.waggle.totalTasksDone} task(s) gathered):`;
-  return [head, ...lines].join('\n');
+  return [head, ...lines, ...lignesEssaimVivant(ctx, lang)].join('\n');
 }
 
 function racesReply(ctx: ConciergeContext, lang: Lang): string {
@@ -825,6 +896,28 @@ export function buildChatPrompt(
       dronesEnVol: r.drones.filter((d) => d.status === 'running').length,
       dronesEnroles: r.drones.length,
     })),
+    travailEnCours: (ctx.enCours ?? []).slice(0, 12).map((t) => ({
+      tache: clean(t.title),
+      statut: t.status,
+      noeud: t.nodeName ? clean(t.nodeName) : null,
+    })),
+    sousAgents: (ctx.sousAgents ?? []).slice(0, 8).map((s) => ({
+      tacheId: s.taskId,
+      noeud: clean(s.nodeId, 40),
+      agents: s.agents.slice(0, 8).map((a) => ({
+        nom: clean(a.name, 60),
+        statut: a.status,
+      })),
+    })),
+    essaim: ctx.essaim
+      ? {
+          niveau: ctx.essaim.niveau,
+          pas: ctx.essaim.pas,
+          motif: clean(ctx.essaim.motif, 160),
+          enPause: ctx.essaim.enPause,
+          derive: ctx.essaim.derive,
+        }
+      : null,
     anomalies: ctx.ghosts
       .slice(0, 5)
       .map((g) => ({ type: g.kind, gravite: g.severity, detail: clean(g.detail, 200) })),
@@ -844,6 +937,7 @@ export function buildChatPrompt(
     'LANGUE : détecte la langue du message de l utilisateur et réponds TOUJOURS dans cette langue, quelle qu elle soit.',
     'Ton : chaleureux et concis (8 lignes max), accessible aux non-techniciens comme aux développeurs.',
     'RÈGLE ABSOLUE : tu ne cites QUE les chiffres présents dans le contexte JSON ci-dessous. Tu n inventes jamais une donnée, un projet ou un nœud.',
+    'Multi-agents : tu peux citer travailEnCours, sousAgents et essaim (Plein Essaim) s ils sont présents — en lecture seule. Tu ne changes JAMAIS le niveau d autonomie, tu ne réécris JAMAIS le dépôt git, tu ne crées pas de tâche de restauration toi-même : oriente vers Projets (Autonomie) ou Rayon → Sauvegardes.',
     'Si on te demande de l aide pour cadrer un projet : donne 3 à 5 bonnes pratiques concrètes adaptées au type de projet, puis la structure de brief « Objectif · Utilisateurs · Fonctionnalités · Pile technique · Contraintes (tests, doc) », et oriente vers la vue Projets → « ✨ Proposer un plan ».',
     'Rappelle quand c est pertinent que tout le code produit est soumis à revue humaine (la Miellerie) avant merge.',
     '',
@@ -863,8 +957,13 @@ export function chatModel(env: NodeJS.ProcessEnv = process.env): string {
 
 export interface AskOptions {
   llm?: LlmFn;
+  /** Flux token à token (Anthropic stream). Si absent, `askConciergeStream` utilise `llm` en un seul jet. */
+  llmStream?: LlmStreamFn;
   model?: string;
 }
+
+export type ChatStreamEvent =
+  { type: 'delta'; text: string } | { type: 'done'; answer: ConciergeAnswer };
 
 /**
  * Point d'entrée : répond à la question, dans la langue de la question. Avec
@@ -907,4 +1006,98 @@ export async function askConcierge(
   } catch {
     return live; // le modèle est un plus, jamais un point de panne
   }
+}
+
+/**
+ * Même contrat que `askConcierge`, en générateur : deltas texte puis `done`.
+ * Sans LLM → un seul événement `done` (live). Échec stream → `done` live.
+ */
+export async function* askConciergeStream(
+  question: string,
+  ctx: ConciergeContext,
+  opts: AskOptions = {},
+): AsyncGenerator<ChatStreamEvent> {
+  const live = answerLive(question, ctx);
+  if (!opts.llmStream && !opts.llm) {
+    yield { type: 'done', answer: live };
+    return;
+  }
+  const { system, user } = buildChatPrompt(question, ctx);
+  const model = opts.model ?? chatModel();
+  try {
+    let full = '';
+    let usage: ConciergeAnswer['usage'];
+    if (opts.llmStream) {
+      for await (const chunk of opts.llmStream({ system, user, model, maxTokens: 800 })) {
+        if (chunk.kind === 'text') {
+          full += chunk.text;
+          yield { type: 'delta', text: chunk.text };
+        } else if (chunk.kind === 'usage') {
+          usage = {
+            inputTokens: chunk.usage.inputTokens,
+            outputTokens: chunk.usage.outputTokens,
+            totalTokens: chunk.usage.inputTokens + chunk.usage.outputTokens,
+          };
+        }
+      }
+    } else if (opts.llm) {
+      const brut = await opts.llm({ system, user, model, maxTokens: 800 });
+      const lu = lireLlm(brut);
+      full = lu.text;
+      if (lu.usage) {
+        usage = {
+          inputTokens: lu.usage.inputTokens,
+          outputTokens: lu.usage.outputTokens,
+          totalTokens: lu.usage.inputTokens + lu.usage.outputTokens,
+        };
+      }
+      if (full) yield { type: 'delta', text: full };
+    }
+    const reply = full.trim();
+    if (!reply) {
+      yield { type: 'done', answer: live };
+      return;
+    }
+    yield {
+      type: 'done',
+      answer: {
+        reply,
+        source: 'llm',
+        lang: live.lang,
+        suggestions: live.suggestions,
+        ...(usage ? { usage } : {}),
+      },
+    };
+  } catch {
+    yield { type: 'done', answer: live };
+  }
+}
+
+/** Derniers sous-agents par tâche depuis les événements `task_progress`. */
+export function sousAgentsDepuisEvenements(
+  events: HiveEvent[],
+): NonNullable<ConciergeContext['sousAgents']> {
+  const parTache = new Map<
+    string,
+    { taskId: string; nodeId: string; agents: { name: string; status: string }[] }
+  >();
+  for (const e of events) {
+    if (e.type !== 'task_progress') continue;
+    const taskId = typeof e.payload.taskId === 'string' ? e.payload.taskId : null;
+    const nodeId = typeof e.payload.nodeId === 'string' ? e.payload.nodeId : null;
+    const raw = e.payload.subAgents;
+    if (!taskId || !nodeId || !Array.isArray(raw) || raw.length === 0) continue;
+    const agents = raw
+      .map((a) => {
+        if (!a || typeof a !== 'object') return null;
+        const o = a as { name?: unknown; status?: unknown };
+        if (typeof o.name !== 'string' || typeof o.status !== 'string') return null;
+        return { name: o.name, status: o.status };
+      })
+      .filter((x): x is { name: string; status: string } => x !== null)
+      .slice(0, 12);
+    if (agents.length === 0) continue;
+    parTache.set(taskId, { taskId, nodeId, agents });
+  }
+  return [...parTache.values()].slice(-8);
 }

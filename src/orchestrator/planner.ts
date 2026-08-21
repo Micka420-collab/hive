@@ -369,6 +369,119 @@ export function llmPlannerAvailable(env: NodeJS.ProcessEnv = process.env): boole
   return Boolean(env.ANTHROPIC_API_KEY);
 }
 
+/** Morceau d’un flux Messages Anthropic (texte ou usage final). */
+export type LlmStreamChunk =
+  | { kind: 'text'; text: string }
+  | { kind: 'usage'; usage: { inputTokens: number; outputTokens: number } };
+
+export type LlmStreamFn = (args: {
+  system: string;
+  user: string;
+  model: string;
+  maxTokens: number;
+}) => AsyncGenerator<LlmStreamChunk>;
+
+/**
+ * Parse une trame SSE Anthropic (une ou plusieurs lignes `data: …`).
+ * Exposée pour les bancs — le producteur HTTP l’utilise ligne à ligne.
+ */
+export function parserTrameAnthropic(data: string): LlmStreamChunk | null {
+  const trimmed = data.trim();
+  if (!trimmed || trimmed === '[DONE]') return null;
+  let parsed: {
+    type?: string;
+    delta?: { type?: string; text?: string };
+    usage?: { input_tokens?: number; output_tokens?: number };
+    message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  };
+  try {
+    parsed = JSON.parse(trimmed) as typeof parsed;
+  } catch {
+    return null;
+  }
+  if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+    const text = parsed.delta.text ?? '';
+    return text ? { kind: 'text', text } : null;
+  }
+  if (parsed.type === 'message_delta' || parsed.type === 'message_start') {
+    const u = parsed.usage ?? parsed.message?.usage;
+    const inputTokens = u?.input_tokens;
+    const outputTokens = u?.output_tokens;
+    if (
+      typeof inputTokens === 'number' &&
+      Number.isFinite(inputTokens) &&
+      typeof outputTokens === 'number' &&
+      Number.isFinite(outputTokens)
+    ) {
+      return { kind: 'usage', usage: { inputTokens, outputTokens } };
+    }
+  }
+  return null;
+}
+
+/**
+ * Variante streaming de `anthropicLlm` — même pile (fetch brut, pas de SDK).
+ * Anthropic `stream: true` → générateur de deltas texte + usage.
+ */
+export function anthropicLlmStream(env: NodeJS.ProcessEnv = process.env): LlmStreamFn {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  const baseUrl = (env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/+$/, '');
+  return async function* ({ system, user, model, maxTokens }) {
+    if (!apiKey) {
+      throw new Error(
+        "ANTHROPIC_API_KEY absente : le chat IA requiert une clé API (elle reste locale à l'orchestrateur).",
+      );
+    }
+    const res = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        stream: true,
+        system,
+        messages: [{ role: 'user', content: user }],
+      }),
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      throw new Error(
+        `appel API Claude (stream) échoué : ${errBody?.error?.message ?? `HTTP ${res.status}`}`,
+      );
+    }
+    if (!res.body) throw new Error('réponse stream sans corps.');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        const t = line.trimEnd();
+        if (!t.startsWith('data:')) continue;
+        const chunk = parserTrameAnthropic(t.slice(5).trimStart());
+        if (chunk) yield chunk;
+      }
+    }
+    if (buf.trim()) {
+      const t = buf.trim();
+      if (t.startsWith('data:')) {
+        const chunk = parserTrameAnthropic(t.slice(5).trimStart());
+        if (chunk) yield chunk;
+      }
+    }
+  };
+}
+
 /**
  * Implémentation `LlmFn` par défaut : appel HTTP direct à l'API Messages de
  * Claude (aucune dépendance SDK, conforme à la pile légère imposée). La clé

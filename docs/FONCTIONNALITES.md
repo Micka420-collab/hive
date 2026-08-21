@@ -18,7 +18,7 @@ ruche, navigable au clavier (touches **1-9**, `0`, `h`, `i`, `c`) via une sideba
 | Vue               | Ce qu'on y fait                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, **pouls Plein Essaim** (niveau / pause / dérive → Projets), rayon de miel cliquable, file d'attente, journal.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief. Tokens Anthropic, modes Chat / Plan / Autonomie / Sauvegardes, puce **Restaurer…** si échecs + étape.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief. **Flux SSE** (texte progressif), contexte multi-agents / Plein Essaim en lecture, tokens Anthropic, modes Chat / Plan / Autonomie / Sauvegardes, puce **Restaurer…**.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, verdict du Parlement **et surface — deux agents allés au même endroit, ou pas**, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ⬡ **Projets**     | Connecter un dépôt GitHub, rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting, équipe, partage en lecture, Conseil des Éclaireuses.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 🐝 **Rayon**      | **Le code du projet, lisible** : arbre de fichiers, éditeur coloré, aperçu du site produit, retouche → tâche (avec filet `avant_retouche`), et **timeline de sauvegardes** (voir le patch, restaurer ouvre une tâche).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -149,7 +149,9 @@ dans cette langue :
 ```bash
 npm run cli -- ask "Où en est le projet ?"
 npm run cli -- ask "Which node works best?"
-# ou : POST /api/chat { "message": "…", "projectId"?: "…" } · vue 👑 Reine du dashboard
+# ou : POST /api/chat { "message": "…", "projectId"?: "…", "stream"?: true }
+#     · Accept: text/event-stream → deltas puis done
+#     · vue 👑 Reine et `hive ask` (même chemin SSE progressif)
 ```
 
 Deux modes, jamais bloquants : **état réel** (réponses déterministes composées
@@ -157,13 +159,19 @@ depuis les rapports, le pouls, le nectar, les anomalies et la mémoire — 100 %
 hors-ligne) et **IA** (si `ANTHROPIC_API_KEY` est définie côté Queen :
 `HIVE_CHAT_MODEL`, défaut `claude-haiku-4-5` ; la clé ne quitte jamais
 l'orchestrateur, et le modèle ne reçoit que les chiffres réels de la ruche).
-La Reine guide aussi le donneur d'ordre : bonnes pratiques par type de projet
-(web, API, mobile, data, e-commerce, CLI) et structure de brief efficace.
-En mode IA, le décompte de **tokens** Anthropic s’affiche sur chaque réponse
-(et en session). La barre de modes relie Chat → Plan (Projets / Queen Bee) →
-Autonomie (Plein Essaim sur le projet) → Sauvegardes (Rayon). S’il y a des
-échecs récents et une étape, la Reine propose une puce **Restaurer…** qui
-ouvre la timeline du Rayon.
+État réel comme IA **fluxent** en SSE quand le client le demande (`stream:
+true` ou `Accept: text/event-stream`) — la bulle Reine du dashboard et
+`npm run cli -- ask` partagent ce chemin. Quitter la vue, **Effacer**, ou
+**Ctrl+C** sur `hive ask` coupe le flux (pas de bulle d’erreur /
+`(interrompu)`). Le prompt voit aussi, en lecture seule, le **travail en
+cours**, les **sous-agents** et l’état **Plein Essaim** — la Reine n’élève
+jamais l’autonomie ni ne réécrit git. La Reine guide aussi le donneur d'ordre :
+bonnes pratiques par type de projet (web, API, mobile, data, e-commerce, CLI)
+et structure de brief efficace. En mode IA, le décompte de **tokens** Anthropic
+s’affiche sur chaque réponse (et en session). La barre de modes relie Chat →
+Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur le projet) →
+Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la Reine propose
+une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
