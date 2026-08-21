@@ -130,5 +130,15 @@ describe('curseur Rayon → Chambre', () => {
       'Identités absentes',
     );
     expect(dom.querySelectorAll('[data-testid="ry-curseur-poste"]')).toHaveLength(0);
+    expect(dom.querySelector('[data-testid="ry-presences-live"]')).toBeNull();
+  });
+
+  it('liste les présences même si le fichier n’est pas dans l’arbre', async () => {
+    const onNavigate = vi.fn();
+    const dom = await monter(onNavigate);
+    const bandeau = dom.querySelector('[data-testid="ry-presences-live"]');
+    expect(bandeau?.textContent).toContain('En train de');
+    expect(bandeau?.textContent).toContain('src/pont/mcp.ts');
+    expect(bandeau?.textContent).toContain('Capucine');
   });
 });

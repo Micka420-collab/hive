@@ -369,6 +369,40 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
         </section>
       )}
 
+      {!parPartage && curseurs.length > 0 && (
+        <aside
+          className="ry-presences-live"
+          aria-label={t('Présences constatées', 'Observed presence')}
+          data-testid="ry-presences-live"
+        >
+          <span className="ry-presences-live-titre">{t('En train de…', 'Working on…')}</span>
+          <ul>
+            {curseurs.map((c) => (
+              <li key={c.toolUseId}>
+                <button
+                  type="button"
+                  className={`ry-curseur ry-curseur-${c.outil.toLowerCase()}`}
+                  data-testid="ry-curseur-poste"
+                  title={
+                    c.bapteme
+                      ? t(
+                          `${c.bapteme} · ${c.outil} — ouvrir le poste`,
+                          `${c.bapteme} · ${c.outil} — open workstation`,
+                        )
+                      : c.outil
+                  }
+                  onClick={() => onNavigate('chambre', c.nodeId)}
+                >
+                  {c.bapteme ?? '·'}
+                </button>
+                <span className="ry-presences-outil">{c.outil}</span>
+                <code className="ry-presences-chemin">{c.chemin}</code>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
+
       <div className="ry-corps">
         <nav className="ry-arbre" aria-label={t('Fichiers du projet', 'Project files')}>
           {chargement && (

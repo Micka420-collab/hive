@@ -69,6 +69,61 @@
   min-height: 0;
 }
 
+.ry-presences-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--miel, #f2b441) 40%, transparent);
+  border-radius: var(--r-sm, 8px);
+  background: color-mix(in srgb, var(--miel, #f2b441) 12%, var(--panel, #fff));
+}
+
+.ry-presences-live-titre {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute, #7a7164);
+  flex: none;
+}
+
+.ry-presences-live ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ry-presences-live li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ry-presences-outil {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute, #7a7164);
+}
+
+.ry-presences-chemin {
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .ry-arbre {
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
