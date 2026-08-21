@@ -189,13 +189,16 @@ function FicheOuvriere({
             <button
               type="button"
               className="btn primary"
+              data-testid="fiche-ouvrir-chambre"
               onClick={() => {
                 const id = noeud.id;
                 onClose();
                 onOuvrirPoste(id);
               }}
             >
-              {t('Ouvrir le poste', 'Open workstation')}
+              {bapteme
+                ? t(`Ouvrir le poste · ${bapteme}`, `Open workstation · ${bapteme}`)
+                : t('Ouvrir le poste', 'Open workstation')}
             </button>
           </footer>
         )}

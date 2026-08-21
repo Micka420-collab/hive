@@ -143,12 +143,20 @@ async function monterAvecFiche(
   nodes: HiveNode[],
   tasks: Task[],
   onOpenTask: (id: string) => void,
+  onOuvrirPoste?: (nodeId: string) => void,
 ): Promise<HTMLElement> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
   await act(async () =>
-    racine?.render(<NodesPanel nodes={nodes} tasks={tasks} onOpenTask={onOpenTask} />),
+    racine?.render(
+      <NodesPanel
+        nodes={nodes}
+        tasks={tasks}
+        onOpenTask={onOpenTask}
+        onOuvrirPoste={onOuvrirPoste}
+      />,
+    ),
   );
   await act(async () => {});
   // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
@@ -293,6 +301,40 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     expect(fiche?.querySelector('#fiche-ouvriere-titre')?.textContent).not.toContain(
       'ruche-fenetre',
     );
+  });
+
+  it('Ouvrir le poste nomme le baptême constaté et navigue vers la Chambre', async () => {
+    vi.mocked(fetchChambre).mockImplementation(async (nodeId: string) => ({
+      nodeId,
+      bapteme: { nom: 'Capucine', baptiseA: 1 },
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: nodeId,
+        status: 'online',
+        plateforme: 'windows',
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'ruche-fenetre',
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }));
+    const onPoste = vi.fn();
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {}, onPoste);
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    await cliquerEtAttendre(carte as Element);
+    const btn = dom.querySelector('[data-testid="fiche-ouvrir-chambre"]') as HTMLButtonElement;
+    expect(btn?.textContent).toContain('Capucine');
+    await cliquerEtAttendre(btn);
+    expect(onPoste).toHaveBeenCalledWith('n-ruche-fenetre');
+    expect(dom.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('SI fetchChambre ÉCHOUE SUR LA FICHE : nom technique, pas « Pas encore baptisée »', async () => {
