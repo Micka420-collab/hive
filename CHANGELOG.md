@@ -21,7 +21,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fichier Rayon (déplie les dossiers parents) ; **Voir le Rayon** pose le focus
   sur la présence la plus récente (sinon navigation seule) ; sans projet lié →
   silence du lien ; clic chemin du bandeau **En train de…** → ouvre dans l’arbre.
-  Pastille **EDIT** / point de statut Fiche alignés sur le constaté. Maquette :
+  Pastille **EDIT** / point de statut Fiche alignés sur le constaté. Journal :
+  lignes READ/EDIT/WRITE → même `CheminConstate`. Maquette :
   `docs/maquettes/chambre/`. Capture + démo :
   `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
 
