@@ -56,6 +56,9 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 <p align="center">
   <img src="docs/images/dashboard-reine.png" width="840" alt="Tableau de bord — vue Reine, atelier de recette et chat.">
 </p>
+<p align="center">
+  <img src="docs/images/dashboard-chambre.png" width="840" alt="Tableau de bord — Chambre, poste ouvrière baptisée Capucine, bandeau À trancher, abeille et fleur.">
+</p>
 
 ## 🔁 Comment ça marche
 

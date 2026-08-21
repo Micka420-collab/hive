@@ -55,6 +55,9 @@ Shots of the running app (`npm run ruche`), not mockups.
 <p align="center">
   <img src="docs/images/dashboard-reine.png" width="840" alt="Dashboard — Queen view, recette workshop and chat.">
 </p>
+<p align="center">
+  <img src="docs/images/dashboard-chambre.png" width="840" alt="Dashboard — Chambre worker station Capucine, Needs a decision banner, bee and flower.">
+</p>
 
 ## 🔁 How it works
 
