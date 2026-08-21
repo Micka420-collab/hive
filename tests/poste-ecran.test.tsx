@@ -303,7 +303,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     );
   });
 
-  it('Ouvrir le poste nomme le baptême constaté et navigue vers la Chambre', async () => {
+  it('Ouvrir la Chambre nomme le baptême constaté et navigue', async () => {
     vi.mocked(fetchChambre).mockImplementation(async (nodeId: string) => ({
       nodeId,
       bapteme: { nom: 'Capucine', baptiseA: 1 },
@@ -331,7 +331,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     );
     await cliquerEtAttendre(carte as Element);
     const btn = dom.querySelector('[data-testid="fiche-ouvrir-chambre"]') as HTMLButtonElement;
-    expect(btn?.textContent).toContain('Capucine');
+    expect(btn?.textContent).toMatch(/Ouvrir la Chambre · Capucine/);
     await cliquerEtAttendre(btn);
     expect(onPoste).toHaveBeenCalledWith('n-ruche-fenetre');
     expect(dom.querySelector('[role="dialog"]')).toBeNull();

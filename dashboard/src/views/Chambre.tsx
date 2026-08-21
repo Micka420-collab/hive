@@ -29,12 +29,28 @@ import {
   libelleGenreRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
+import { libelleGenreFabrique, libelleStatutFabrique } from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
 
 type OngletId = 'fiche' | 'travail' | 'integrations' | 'suivi';
+
+function libelleCaste(caste: string, t: (fr: string, en: string) => string): string {
+  if (caste === 'nourrice') return t('nourrice', 'nurse');
+  if (caste === 'batisseuse') return t('bâtisseuse', 'builder');
+  if (caste === 'butineuse') return t('butineuse', 'forager');
+  return caste;
+}
+
+function classeStatutFabrique(statut: string): string {
+  if (statut === 'proposee') return 'ch-fab-proposee';
+  if (statut === 'en_revue') return 'ch-fab-revue';
+  if (statut === 'mergee') return 'ch-fab-mergee';
+  if (statut === 'refusee') return 'ch-fab-refusee';
+  return 'ch-fab-inconnu';
+}
 
 function missionsFiltrees(
   tasks: Task[],
@@ -116,12 +132,19 @@ export default function Chambre({
   const [busyAtelier, setBusyAtelier] = useState(false);
   const [filtre, setFiltre] = useState<'cours' | 'pause' | 'terminees' | 'echecs'>('cours');
   const [onglet, setOnglet] = useState<OngletId>('fiche');
-  const [motifs, setMotifs] = useState<MotifCatalogue[]>([]);
+  const [motifs, setMotifs] = useState<MotifCatalogue[] | null>(null);
+  const [errMotifs, setErrMotifs] = useState<string | null>(null);
   const [busyMotif, setBusyMotif] = useState<string | null>(null);
   const [brouillonHorizon, setBrouillonHorizon] = useState('');
   const [kindHorizon, setKindHorizon] = useState<'fait' | 'hypothese'>('fait');
   const [busyHorizon, setBusyHorizon] = useState(false);
   const [busyReqId, setBusyReqId] = useState<string | null>(null);
+  const [errHitl, setErrHitl] = useState<string | null>(null);
+  const [statusHitl, setStatusHitl] = useState<string | null>(null);
+  const [errMotif, setErrMotif] = useState<string | null>(null);
+  const [statusMotif, setStatusMotif] = useState<string | null>(null);
+  const [errHorizon, setErrHorizon] = useState<string | null>(null);
+  const [statusHorizon, setStatusHorizon] = useState<string | null>(null);
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -144,9 +167,17 @@ export default function Chambre({
 
   useEffect(() => {
     if (onglet !== 'integrations') return;
+    setMotifs(null);
+    setErrMotifs(null);
     void fetchMotifs()
-      .then((r) => setMotifs(r.motifs))
-      .catch(() => setMotifs([]));
+      .then((r) => {
+        setMotifs(r.motifs);
+        setErrMotifs(null);
+      })
+      .catch((e) => {
+        setMotifs([]);
+        setErrMotifs(e instanceof Error ? e.message : String(e));
+      });
   }, [onglet]);
 
   // Onglets : colonne desktop, rangée sous 960px — aria-orientation suit le layout.
@@ -211,8 +242,8 @@ export default function Chambre({
       <div className="mc-view ch-view">
         <p className="muted-text">
           {t(
-            'Aucune ouvrière sélectionnée — ouvrez un poste depuis la fiche d’un nœud.',
-            'No worker selected — open a workstation from a node sheet.',
+            'Aucune ouvrière sélectionnée — ouvrez la Chambre depuis la fiche d’un nœud.',
+            'No worker selected — open the Chambre from a node sheet.',
           )}
         </p>
       </div>
@@ -324,6 +355,16 @@ export default function Chambre({
               {reqs.length}
             </span>
           </div>
+          {errHitl ? (
+            <p className="ch-err-soft" role="status">
+              {errHitl}
+            </p>
+          ) : null}
+          {statusHitl ? (
+            <p className="ch-status-soft" role="status" aria-live="polite">
+              {statusHitl}
+            </p>
+          ) : null}
           <ul className="ch-hitl-list">
             {reqs.map((r) => (
               <li key={r.id}>
@@ -342,8 +383,16 @@ export default function Chambre({
                     aria-label={t(`Accorder — ${r.libelle}`, `Grant — ${r.libelle}`)}
                     onClick={() => {
                       setBusyReqId(r.id);
+                      setErrHitl(null);
+                      setStatusHitl(null);
                       void repondreRequisition(r.id, 'accordee')
-                        .then(rafraichir)
+                        .then(() => {
+                          setStatusHitl(t('Accordée', 'Granted'));
+                          rafraichir();
+                        })
+                        .catch((e) => {
+                          setErrHitl(e instanceof Error ? e.message : String(e));
+                        })
                         .finally(() => setBusyReqId(null));
                     }}
                   >
@@ -357,8 +406,16 @@ export default function Chambre({
                     aria-label={t(`Refuser — ${r.libelle}`, `Deny — ${r.libelle}`)}
                     onClick={() => {
                       setBusyReqId(r.id);
+                      setErrHitl(null);
+                      setStatusHitl(null);
                       void repondreRequisition(r.id, 'refusee')
-                        .then(rafraichir)
+                        .then(() => {
+                          setStatusHitl(t('Refusée', 'Denied'));
+                          rafraichir();
+                        })
+                        .catch((e) => {
+                          setErrHitl(e instanceof Error ? e.message : String(e));
+                        })
                         .finally(() => setBusyReqId(null));
                     }}
                   >
@@ -389,7 +446,7 @@ export default function Chambre({
                 {metier
                   ? `${t('Métier', 'Role')} · ${metier}`
                   : t('Métier non assigné', 'No role assigned')}
-                {poste.caste ? ` · ${poste.caste}` : ''}
+                {poste.caste ? ` · ${libelleCaste(poste.caste, t)}` : ''}
               </p>
 
               <div
@@ -422,7 +479,7 @@ export default function Chambre({
                     ['fiche', t('Fiche', 'Sheet')],
                     ['travail', t('Travail', 'Work')],
                     ['integrations', t('Intégrations', 'Integrations')],
-                    ['suivi', t('Suivi', 'Horizon')],
+                    ['suivi', t('Suivi', 'Follow-up')],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -472,7 +529,7 @@ export default function Chambre({
                     {poste.caste && (
                       <li>
                         <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
-                        <span className="ch-meta-v">{poste.caste}</span>
+                        <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
                       </li>
                     )}
                     <li>
@@ -535,11 +592,16 @@ export default function Chambre({
                     ) : (
                       <ul>
                         {poste.fabriques!.map((f) => (
-                          <li key={f.id}>
+                          <li key={f.id} className="ch-fab-ligne">
                             <strong>{f.libelle}</strong>
+                            <span
+                              className={`ch-fab-pill ${classeStatutFabrique(f.statut)}`}
+                              title={f.statut}
+                            >
+                              {libelleStatutFabrique(f.statut, langCode)}
+                            </span>
                             <span className="ch-silence">
-                              {' '}
-                              · {f.genre} · {f.statut}
+                              {libelleGenreFabrique(f.genre, langCode)}
                               {f.nomScript ? ` · ${f.nomScript}` : ''}
                             </span>
                           </li>
@@ -560,35 +622,74 @@ export default function Chambre({
                           'No project — cannot apply a motif.',
                         )}
                       </p>
+                    ) : errMotifs ? (
+                      <p className="ch-err-soft" role="status">
+                        {t('Catalogue injoignable', 'Catalogue unreachable')}
+                        {errMotifs ? ` · ${errMotifs}` : ''}
+                      </p>
+                    ) : motifs === null ? (
+                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
                     ) : motifs.length === 0 ? (
                       <p className="ch-silence">{t('Catalogue vide.', 'Empty catalogue.')}</p>
                     ) : (
                       <ul className="ch-motifs">
-                        {motifs.map((m) => (
-                          <li key={m.id}>
-                            <span>
-                              {langCode === 'en' ? m.libelleEn : m.libelleFr}
-                              <span className="ch-silence"> · {m.etapes.length} étapes</span>
-                            </span>
-                            <button
-                              type="button"
-                              className="btn ghost"
-                              disabled={busyMotif === m.id}
-                              aria-busy={busyMotif === m.id}
-                              onClick={() => {
-                                if (!poste.projectId) return;
-                                setBusyMotif(m.id);
-                                void appliquerMotif(poste.projectId, m.id, { lang: langCode })
-                                  .then(rafraichir)
-                                  .finally(() => setBusyMotif(null));
-                              }}
-                            >
-                              {busyMotif === m.id ? t('…', '…') : t('Appliquer', 'Apply')}
-                            </button>
-                          </li>
-                        ))}
+                        {motifs.map((m) => {
+                          const libelle = langCode === 'en' ? m.libelleEn : m.libelleFr;
+                          return (
+                            <li key={m.id}>
+                              <span>
+                                {libelle}
+                                <span className="ch-silence">
+                                  {' '}
+                                  · {m.etapes.length} {t('étapes', 'steps')}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                className="btn ghost"
+                                disabled={busyMotif === m.id}
+                                aria-busy={busyMotif === m.id}
+                                aria-label={t(`Appliquer — ${libelle}`, `Apply — ${libelle}`)}
+                                onClick={() => {
+                                  if (!poste.projectId) return;
+                                  setBusyMotif(m.id);
+                                  setErrMotif(null);
+                                  setStatusMotif(null);
+                                  void appliquerMotif(poste.projectId, m.id, { lang: langCode })
+                                    .then((r) => {
+                                      const n = r.taskIds?.length ?? r.titres?.length ?? 0;
+                                      setStatusMotif(
+                                        t(
+                                          `Motif appliqué · ${n} tâches`,
+                                          `Motif applied · ${n} tasks`,
+                                        ),
+                                      );
+                                      setFiltre('pause');
+                                      rafraichir();
+                                    })
+                                    .catch((e) => {
+                                      setErrMotif(e instanceof Error ? e.message : String(e));
+                                    })
+                                    .finally(() => setBusyMotif(null));
+                                }}
+                              >
+                                {busyMotif === m.id ? t('…', '…') : t('Appliquer', 'Apply')}
+                              </button>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
+                    {errMotif ? (
+                      <p className="ch-err-soft" role="status">
+                        {errMotif}
+                      </p>
+                    ) : null}
+                    {statusMotif ? (
+                      <p className="ch-status-soft" role="status" aria-live="polite">
+                        {statusMotif}
+                      </p>
+                    ) : null}
                   </div>
                 )}
 
@@ -610,7 +711,13 @@ export default function Chambre({
                         ) : (
                           <ul>
                             {poste.horizon.faits.map((f) => (
-                              <li key={f.id}>{f.texte}</li>
+                              <li key={f.id}>
+                                <span>{f.texte}</span>
+                                <span className="ch-silence">
+                                  {' '}
+                                  · {f.source} · {timeShort(f.creeA)}
+                                </span>
+                              </li>
                             ))}
                           </ul>
                         )}
@@ -620,7 +727,13 @@ export default function Chambre({
                         ) : (
                           <ul className="ch-hypotheses">
                             {poste.horizon.hypotheses.map((h) => (
-                              <li key={h.id}>{h.texte}</li>
+                              <li key={h.id}>
+                                <span>{h.texte}</span>
+                                <span className="ch-silence">
+                                  {' '}
+                                  · {h.source} · {timeShort(h.creeA)}
+                                </span>
+                              </li>
                             ))}
                           </ul>
                         )}
@@ -632,10 +745,24 @@ export default function Chambre({
                               const texte = brouillonHorizon.trim();
                               if (!texte || !poste.projectId) return;
                               setBusyHorizon(true);
-                              void ajouterHorizon(poste.projectId, kindHorizon, texte)
+                              setErrHorizon(null);
+                              setStatusHorizon(null);
+                              const kind = kindHorizon;
+                              void ajouterHorizon(poste.projectId, kind, texte)
                                 .then(() => {
                                   setBrouillonHorizon('');
+                                  setStatusHorizon(
+                                    kind === 'fait'
+                                      ? t('Fait noté', 'Fact noted')
+                                      : t('Hypothèse notée', 'Hypothesis noted'),
+                                  );
                                   rafraichir();
+                                  queueMicrotask(() => {
+                                    document.getElementById('ch-horizon-texte')?.focus();
+                                  });
+                                })
+                                .catch((e) => {
+                                  setErrHorizon(e instanceof Error ? e.message : String(e));
                                 })
                                 .finally(() => setBusyHorizon(false));
                             }}
@@ -655,6 +782,9 @@ export default function Chambre({
                               <option value="fait">{t('Fait', 'Fact')}</option>
                               <option value="hypothese">{t('Hypothèse', 'Hypothesis')}</option>
                             </select>
+                            <label className="ch-horizon-label" htmlFor="ch-horizon-texte">
+                              {t('Texte', 'Text')}
+                            </label>
                             <input
                               id="ch-horizon-texte"
                               type="text"
@@ -662,7 +792,6 @@ export default function Chambre({
                               value={brouillonHorizon}
                               onChange={(e) => setBrouillonHorizon(e.target.value)}
                               placeholder={t('Constater…', 'Observe…')}
-                              aria-label={t('Constater…', 'Observe…')}
                             />
                             <button
                               type="submit"
@@ -672,6 +801,16 @@ export default function Chambre({
                             >
                               {busyHorizon ? t('…', '…') : t('Noter', 'Note')}
                             </button>
+                            {errHorizon ? (
+                              <p className="ch-err-soft" role="status">
+                                {errHorizon}
+                              </p>
+                            ) : null}
+                            {statusHorizon ? (
+                              <p className="ch-status-soft" role="status" aria-live="polite">
+                                {statusHorizon}
+                              </p>
+                            ) : null}
                           </form>
                         )}
                       </>
@@ -825,17 +964,20 @@ function AtelierPoste({
   onChange: (e: EtatAtelier) => void;
 }) {
   const t = useT();
+  const [errAtelier, setErrAtelier] = useState<string | null>(null);
 
   const agir = async (fn: () => Promise<unknown>) => {
     onBusy(true);
+    setErrAtelier(null);
     try {
       await fn();
       onChange(await fetchAtelier());
-    } catch {
+    } catch (e) {
+      setErrAtelier(e instanceof Error ? e.message : String(e));
       try {
         onChange(await fetchAtelier());
       } catch {
-        /* */
+        /* état inconnu — le message d'erreur suffit */
       }
     } finally {
       onBusy(false);
@@ -879,7 +1021,16 @@ function AtelierPoste({
               {busy ? t('…', '…') : t('Allumer l’atelier', 'Start the computer')}
             </button>
           )}
-          {etat.mode === 'off' && <p className="ch-silence">HIVE_ATELIER=off</p>}
+          {etat.mode === 'off' && (
+            <p className="ch-silence">
+              {t('Atelier désactivé (HIVE_ATELIER=off)', 'Studio disabled (HIVE_ATELIER=off)')}
+            </p>
+          )}
+          {errAtelier ? (
+            <p className="ch-err-soft" role="status">
+              {errAtelier}
+            </p>
+          ) : null}
         </div>
       </div>
     );
@@ -890,7 +1041,13 @@ function AtelierPoste({
       <div className="ch-ordi-top">
         <h3>{t('Ordinateur — noVNC', 'Computer — noVNC')}</h3>
         <div className="ch-ordi-actions">
-          <a className="btn ghost" href={etat.ecran} target="_blank" rel="noreferrer">
+          <a
+            className="btn ghost"
+            href={etat.ecran}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t('Plein écran — atelier', 'Fullscreen — computer')}
+          >
             {t('Plein écran', 'Fullscreen')}
           </a>
           <button
@@ -898,6 +1055,7 @@ function AtelierPoste({
             className="btn ghost"
             disabled={busy}
             aria-busy={busy}
+            aria-label={t('Éteindre l’atelier', 'Stop the computer')}
             onClick={() => void agir(arreterAtelier)}
           >
             {busy ? t('…', '…') : t('Éteindre', 'Stop')}
@@ -915,6 +1073,11 @@ function AtelierPoste({
       <div className="ch-ordi-foot">
         <span>{t('Connecté', 'Connected')}</span>
         <span>noVNC</span>
+        {errAtelier ? (
+          <span className="ch-err-soft" role="status">
+            {errAtelier}
+          </span>
+        ) : null}
       </div>
     </div>
   );

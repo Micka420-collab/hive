@@ -189,6 +189,12 @@ import {
 } from './essaim.js';
 import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essaim.js';
 import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
+import { marquerFabriquesMergeesApresFusion } from './fabrique.js';
+import {
+  doitNoterFaitDeriveDegradee,
+  SOURCE_HORIZON_DERIVE,
+  texteFaitDeriveDegradee,
+} from './horizon.js';
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -1923,6 +1929,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!v.ok) {
         return reply.code(400).send({ error: v.motif });
       }
+      emitEvent('requisition_ouverte', {
+        id: v.id,
+        nodeId: req.body.nodeId,
+        genre: v.genre,
+        libelle: v.libelle,
+      });
       return { ok: true, id: v.id, genre: v.genre, libelle: v.libelle };
     },
   );
@@ -2987,6 +2999,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               branche: l.branche,
               etat: r.fusionnee ? 'fusionnee' : l.etat,
             });
+            // ADR 0010 lot 8 : même règle que la voie autonome — merge landé
+            // → fabriques liées passent « mergee » (Chantiers peut juger).
+            if (r.fusionnee) {
+              marquerFabriquesMergeesApresFusion(store, req.body.projectId, l.taskId);
+            }
           }
         }
         emitEvent('delivery_merged', {
@@ -3208,6 +3225,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }),
       horizonEntrees: store.compterHorizon(projectId),
     };
+    // ADR 0010 lot 9 : stall / dérive dégradée → un FAIT dans le carnet
+    // (pas une hypothèse). Anti-spam : au plus une fois par fenêtre.
+    if (etat.derive.etat === 'degradee') {
+      const now = Date.now();
+      if (doitNoterFaitDeriveDegradee(store.listerHorizon(projectId), now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveDegradee(etat.derive.motif || 'la ruche se dégrade'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    }
     return { ...etat, decision: deciderPas(etat) };
   };
 
@@ -3655,11 +3687,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
           // (Chantiers pourra enfin juger le script déclaré).
           if (r.fusionnee) {
-            for (const f of store.listerFabriques(projectId)) {
-              if (f.statut !== 'proposee' && f.statut !== 'en_revue') continue;
-              if (f.taskId && f.taskId !== ouverte.taskId) continue;
-              store.poserStatutFabrique(f.id, 'mergee');
-            }
+            marquerFabriquesMergeesApresFusion(store, projectId, ouverte.taskId);
           }
           return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
         } catch (e) {

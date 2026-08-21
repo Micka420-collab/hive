@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   HORIZON_LECTURE_MAX,
   VERSION_HORIZON,
+  doitNoterFaitDeriveDegradee,
   horizonDepasseBudgetTaches,
   resumeHorizon,
+  texteFaitDeriveDegradee,
   validerKindHorizon,
 } from '../src/orchestrator/horizon.js';
 import { HiveStore } from '../src/orchestrator/store.js';
@@ -48,6 +50,42 @@ describe('horizon — forme', () => {
     expect(horizonDepasseBudgetTaches(LIMITE_TACHES_INSTANTANE, LIMITE_TACHES_INSTANTANE)).toBe(
       true,
     );
+  });
+
+  it('anti-spam fait dérive dégradée', () => {
+    expect(texteFaitDeriveDegradee('trop de hollow')).toMatch(/^Dérive dégradée — trop de hollow$/);
+    const now = 1_000_000;
+    expect(doitNoterFaitDeriveDegradee([], now)).toBe(true);
+    expect(
+      doitNoterFaitDeriveDegradee(
+        [
+          {
+            id: '1',
+            projectId: 'p',
+            kind: 'fait',
+            texte: 'Dérive dégradée — x',
+            source: 'derive',
+            creeA: now - 1000,
+          },
+        ],
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      doitNoterFaitDeriveDegradee(
+        [
+          {
+            id: '1',
+            projectId: 'p',
+            kind: 'fait',
+            texte: 'Dérive dégradée — x',
+            source: 'derive',
+            creeA: now - 7 * 60 * 60 * 1000,
+          },
+        ],
+        now,
+      ),
+    ).toBe(true);
   });
 });
 

@@ -23,6 +23,15 @@ describe('motifs', () => {
     expect(v.titres[0]).toMatch(/Blender|Fabriquer/i);
   });
 
+  it('cli-outil : fabrique avant packaging', () => {
+    const v = appliquerMotif('cli-outil', 'fr');
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    const ids = v.motif.etapes.map((e) => e.id);
+    expect(ids.indexOf('fabrique')).toBeLessThan(ids.indexOf('packaging'));
+    expect(v.titres[0]).toMatch(/fabrique|script/i);
+  });
+
   it('refuse un diff git collé', () => {
     expect(refuserDiffColle('diff --git a/x b/x\n--- a/x\n+++ b/x\n')).toEqual({
       ok: false,

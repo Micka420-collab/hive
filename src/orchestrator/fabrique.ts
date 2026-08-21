@@ -99,6 +99,36 @@ export function fabriqueBloqueChantier(
   return { ok: true, mergeLanded };
 }
 
+/**
+ * Après un merge landé (voie humaine ou essaim) : les fabriques encore ouvertes
+ * liées à la tâche fusionnée passent `mergee`. Sans `taskId` sur la fabrique,
+ * elle suit aussi (proposition orpheline du même projet) — même règle que le
+ * runner d'essaim.
+ */
+export function marquerFabriquesMergeesApresFusion(
+  store: {
+    listerFabriques(projectId: string): readonly {
+      id: string;
+      statut: StatutFabrique;
+      taskId?: string | null;
+    }[];
+    poserStatutFabrique(
+      id: string,
+      statut: StatutFabrique,
+    ): { ok: true } | { ok: false; motif: MotifRefusFabrique };
+  },
+  projectId: string,
+  taskId: string,
+): number {
+  let n = 0;
+  for (const f of store.listerFabriques(projectId)) {
+    if (f.statut !== 'proposee' && f.statut !== 'en_revue') continue;
+    if (f.taskId && f.taskId !== taskId) continue;
+    if (store.poserStatutFabrique(f.id, 'mergee').ok) n += 1;
+  }
+  return n;
+}
+
 /** Prompt de tâche pour qu'une ouvrière écrive l'artefact dans le dépôt. */
 export function promptFabrique(opts: {
   genre: GenreFabrique;
@@ -143,4 +173,45 @@ export function expliquerRefusFabrique(
     deja_close: 'That forge entry is already closed.',
   };
   return (lang === 'en' ? en : fr)[motif];
+}
+
+/** Libellé d’écran pour un genre de fabrique (jamais le snake_case brut). */
+export function libelleGenreFabrique(genre: string, lang: 'fr' | 'en' = 'fr'): string {
+  const fr: Record<GenreFabrique, string> = {
+    script_npm: 'Script npm',
+    pont: 'Pont',
+    mcp: 'MCP',
+  };
+  const en: Record<GenreFabrique, string> = {
+    script_npm: 'npm script',
+    pont: 'Bridge',
+    mcp: 'MCP',
+  };
+  if (estGenreFabrique(genre)) return (lang === 'en' ? en : fr)[genre];
+  return genre;
+}
+
+/** Libellé d’écran pour un statut de fabrique. */
+export function libelleStatutFabrique(statut: string, lang: 'fr' | 'en' = 'fr'): string {
+  const fr: Record<StatutFabrique, string> = {
+    proposee: 'proposée',
+    en_revue: 'en revue',
+    mergee: 'mergée',
+    refusee: 'refusée',
+  };
+  const en: Record<StatutFabrique, string> = {
+    proposee: 'proposed',
+    en_revue: 'in review',
+    mergee: 'merged',
+    refusee: 'denied',
+  };
+  if (
+    statut === 'proposee' ||
+    statut === 'en_revue' ||
+    statut === 'mergee' ||
+    statut === 'refusee'
+  ) {
+    return (lang === 'en' ? en : fr)[statut];
+  }
+  return statut;
 }

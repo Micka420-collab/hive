@@ -197,8 +197,8 @@ function FicheOuvriere({
               }}
             >
               {bapteme
-                ? t(`Ouvrir le poste · ${bapteme}`, `Open workstation · ${bapteme}`)
-                : t('Ouvrir le poste', 'Open workstation')}
+                ? t(`Ouvrir la Chambre · ${bapteme}`, `Open the Chambre · ${bapteme}`)
+                : t('Ouvrir la Chambre', 'Open the Chambre')}
             </button>
           </footer>
         )}
@@ -245,6 +245,7 @@ export function NodesPanel({
             <li
               key={n.id}
               className={`node-card ${n.status}`}
+              aria-label={t(`Fiche · ${label}`, `Sheet · ${label}`)}
               {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
             >
               <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>

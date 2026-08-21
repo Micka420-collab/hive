@@ -44,7 +44,7 @@ Comme dans un éditeur + le poste d'un collègue :
 4. **Droite bas — Ordinateur** = l'Atelier existant (noVNC). S'il est éteint,
    le **dire**. Interdit d'inventer un faux bureau.
 
-Entrée : fiche `NodesPanel` → « Ouvrir le poste » ; carte **Essaim** ;
+Entrée : fiche `NodesPanel` → « Ouvrir la Chambre » ; carte **Essaim** ;
 curseur **Rayon**. Hash `#/chambre/<nodeId>`.
 Rayon : présence fichier (qui édite quel path), constatée depuis les outils
 Read/Edit/Write — jamais du théâtre. Depuis la Chambre, **Voir le Rayon** (et
@@ -113,10 +113,10 @@ protocole (même doctrine que « une caste ne se déclare pas »).
    de partage : toujours sans identités actives.
 5. Vue Chambre 4 zones.
 6. Curseurs Rayon.
-7. Réquisitions + exemple Seedance.
-8. Fabrique (pas de chantier avant merge).
-9. `horizon.ts` + branchement essaim.
-10. Motifs inter-projets.
+7. Réquisitions + exemple Seedance. _(consolidé : événement `requisition_ouverte`)_
+8. Fabrique (pas de chantier avant merge). _(consolidé : fusion humaine = autonome → `mergee`)_
+9. `horizon.ts` + branchement essaim. _(consolidé : fait auto si dérive dégradée)_
+10. Motifs inter-projets. _(consolidé : `jeu-3d` + `cli-outil`)_
 11. Docs `FONCTIONNALITES` + README + CHANGELOG.
 
 **Règle d'or :** un écran qui invente un nom, un métier ou un fichier ouvert est

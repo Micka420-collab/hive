@@ -219,10 +219,13 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   // viewport de l’arbre — sinon un chemin profond reste hors écran.
   useEffect(() => {
     if (!ouvert) return;
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const id = window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>('.ry-entree.active')?.scrollIntoView({
         block: 'nearest',
-        behavior: 'smooth',
+        behavior: reduced ? 'auto' : 'smooth',
       });
     });
     return () => window.cancelAnimationFrame(id);
@@ -234,9 +237,12 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     if (!focus) return;
     if (focus === FOCUS_SAUVEGARDES) {
       setAttirerSg(true);
+      const reduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const id = window.requestAnimationFrame(() => {
         document.getElementById('ry-sauvegardes')?.scrollIntoView({
-          behavior: 'smooth',
+          behavior: reduced ? 'auto' : 'smooth',
           block: 'start',
         });
       });
@@ -526,18 +532,33 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                 <div className="ry-retouche">
                   <input
                     className="ry-note"
+                    type="text"
                     placeholder={t(
                       'Pourquoi ce changement ? (facultatif, mais ça aide l’ouvrière)',
                       'Why this change? (optional, but it helps the worker)',
+                    )}
+                    aria-label={t(
+                      'Note pour l’ouvrière (facultatif)',
+                      'Note for the worker (optional)',
                     )}
                     value={retouche.note}
                     onChange={(e) => setRetouche((r) => (r ? { ...r, note: e.target.value } : r))}
                     maxLength={400}
                   />
-                  <button className="btn" disabled={envoi} onClick={() => void envoyer()}>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={envoi}
+                    onClick={() => void envoyer()}
+                  >
                     {envoi ? '…' : t('Envoyer à l’essaim', 'Send to the swarm')}
                   </button>
-                  <button className="btn ghost" disabled={envoi} onClick={() => setRetouche(null)}>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={envoi}
+                    onClick={() => setRetouche(null)}
+                  >
                     {t('Abandonner', 'Discard')}
                   </button>
                 </div>
