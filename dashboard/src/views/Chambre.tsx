@@ -1,18 +1,25 @@
-// Chambre — poste de travail d'une ouvrière baptisée (ADR 0010, lot 5).
+// Chambre — poste de travail d'une ouvrière baptisée (ADR 0010).
 //
 // Quatre zones. Rien n'est inventé : baptême / métier / présence absents ⇒
 // l'écran se tait. Zone Ordinateur = Atelier existant (noVNC), ou « éteint ».
+//
+// Améliorations (réfs Magentic-One / agentic UX 2026) :
+// - file HITL réquisitions en bandeau (approval gate)
+// - journal = activity panel (outil·chemin, échecs quoi/pourquoi)
+// - onglets Identité : Fiche / Travail / Intégrations / Suivi (horizon + fabrique)
 
 import './chambre.css';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  appliquerMotif,
   arreterAtelier,
   demarrerAtelier,
   fetchAtelier,
   fetchChambre,
+  fetchMotifs,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier } from '../api';
+import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleMetier } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
@@ -20,9 +27,12 @@ import {
   libelleGenreRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
+import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
+
+type OngletId = 'fiche' | 'travail' | 'integrations' | 'suivi';
 
 function missionsFiltrees(
   tasks: Task[],
@@ -60,11 +70,15 @@ export default function Chambre({
 }: ViewProps) {
   const t = useT();
   const lang = useLang();
+  const langCode = lang === 'en' ? 'en' : 'fr';
   const nodeId = selectedId ?? '';
   const [poste, setPoste] = useState<ChambrePoste | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busyAtelier, setBusyAtelier] = useState(false);
   const [filtre, setFiltre] = useState<'cours' | 'pause' | 'terminees' | 'echecs'>('cours');
+  const [onglet, setOnglet] = useState<OngletId>('fiche');
+  const [motifs, setMotifs] = useState<MotifCatalogue[]>([]);
+  const [busyMotif, setBusyMotif] = useState<string | null>(null);
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -85,7 +99,13 @@ export default function Chambre({
     return () => window.clearInterval(id);
   }, [nodeId]);
 
-  // Fusion live : tâches du snapshot pour CETTE ouvrière (plus frais que le GET).
+  useEffect(() => {
+    if (onglet !== 'integrations') return;
+    void fetchMotifs()
+      .then((r) => setMotifs(r.motifs))
+      .catch(() => setMotifs([]));
+  }, [onglet]);
+
   const tasksLive = useMemo(() => {
     if (!nodeId) return [];
     const fromSnap = snapshot.tasks.filter(
@@ -103,6 +123,7 @@ export default function Chambre({
   );
 
   const activite = missionsFiltrees(tasksLive, filtre);
+  const reqs = poste?.requisitions ?? [];
 
   if (!nodeId) {
     return (
@@ -131,7 +152,7 @@ export default function Chambre({
   const titre = poste?.bapteme?.nom;
   const metier =
     poste?.metier && (poste.metier.metier as MetierCycle)
-      ? libelleMetier(poste.metier.metier as MetierCycle, lang === 'en' ? 'en' : 'fr')
+      ? libelleMetier(poste.metier.metier as MetierCycle, langCode)
       : null;
 
   return (
@@ -146,10 +167,54 @@ export default function Chambre({
             <span className="ch-tech muted-text"> · {poste.node.nameTechnique}</span>
           )}
         </h2>
+        {poste?.node.status === 'online' ? (
+          <span className="ch-live" aria-live="polite">
+            {t('en ligne', 'online')}
+          </span>
+        ) : (
+          <span className="ch-live ch-live-off">{t('hors ligne', 'offline')}</span>
+        )}
       </header>
 
+      {reqs.length > 0 && (
+        <div className="ch-hitl" role="region" aria-label={t('À trancher', 'Needs a decision')}>
+          <strong className="ch-hitl-titre">
+            {t('À trancher', 'Needs a decision')} · {reqs.length}
+          </strong>
+          <ul className="ch-hitl-list">
+            {reqs.map((r) => (
+              <li key={r.id}>
+                <span>
+                  <em>
+                    {libelleGenreRequisition(r.genre as GenreRequisition, langCode)}
+                  </em>
+                  {' — '}
+                  {r.libelle}
+                  {r.detail ? <span className="muted-text"> · {r.detail}</span> : null}
+                </span>
+                <span className="ch-req-actions">
+                  <button
+                    type="button"
+                    className="btn primary"
+                    onClick={() => void repondreRequisition(r.id, 'accordee').then(rafraichir)}
+                  >
+                    {t('Accorder', 'Grant')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => void repondreRequisition(r.id, 'refusee').then(rafraichir)}
+                  >
+                    {t('Refuser', 'Deny')}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="ch-grid">
-        {/* 1 — Identité */}
         <aside className="ch-zone ch-identite" aria-label={t('Identité', 'Identity')}>
           <h3>{t('Identité', 'Identity')}</h3>
           {poste ? (
@@ -159,82 +224,178 @@ export default function Chambre({
                   <span className="muted-text">{t('Pas encore baptisée', 'Not baptised yet')}</span>
                 )}
               </p>
-              <ul className="ch-meta">
-                <li>
-                  {poste.node.status === 'online'
-                    ? t('en ligne', 'online')
-                    : t('hors ligne', 'offline')}
-                </li>
-                {metier && (
+              <div className="ch-onglets" role="tablist">
+                {(
+                  [
+                    ['fiche', t('Fiche', 'Sheet')],
+                    ['travail', t('Travail', 'Work')],
+                    ['integrations', t('Intégrations', 'Integrations')],
+                    ['suivi', t('Suivi', 'Horizon')],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={onglet === id}
+                    className={onglet === id ? 'actif' : ''}
+                    onClick={() => setOnglet(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {onglet === 'fiche' && (
+                <ul className="ch-meta">
                   <li>
-                    {t('Métier', 'Role')}: {metier}
+                    {poste.node.status === 'online'
+                      ? t('en ligne', 'online')
+                      : t('hors ligne', 'offline')}
                   </li>
-                )}
-                {poste.caste && (
+                  {metier && (
+                    <li>
+                      {t('Métier', 'Role')}: {metier}
+                    </li>
+                  )}
+                  {poste.caste && (
+                    <li>
+                      {t('Caste', 'Caste')}: {poste.caste}
+                    </li>
+                  )}
                   <li>
-                    {t('Caste', 'Caste')}: {poste.caste}
+                    {poste.node.ownerName} · {poste.node.agentType}
                   </li>
-                )}
-                <li>
-                  {poste.node.ownerName} · {poste.node.agentType}
-                </li>
-                <li>
-                  {poste.node.running}/{poste.node.maxConcurrency} {t('en vol', 'in flight')}
-                </li>
-              </ul>
-              {poste.presences.length > 0 ? (
-                <div className="ch-presences">
-                  <h4>{t('Fichiers ouverts', 'Open files')}</h4>
-                  <ul>
-                    {poste.presences.map((p) => (
-                      <li key={p.toolUseId}>
-                        <span className="ch-outil">{p.outil}</span> {p.chemin}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="muted-text ch-silence">
-                  {t('Aucun fichier ouvert constaté.', 'No open file observed.')}
-                </p>
+                  <li>
+                    {poste.node.running}/{poste.node.maxConcurrency} {t('en vol', 'in flight')}
+                  </li>
+                </ul>
               )}
-              {(poste.requisitions?.length ?? 0) > 0 && (
-                <div className="ch-req">
-                  <h4>{t('Réquisitions', 'Requisitions')}</h4>
-                  <ul>
-                    {poste.requisitions!.map((r) => (
-                      <li key={r.id}>
-                        <strong>
-                          {libelleGenreRequisition(
-                            r.genre as GenreRequisition,
-                            lang === 'en' ? 'en' : 'fr',
-                          )}
-                        </strong>
-                        {' — '}
-                        {r.libelle}
-                        <div className="ch-req-actions">
-                          <button
-                            type="button"
-                            className="btn primary"
-                            onClick={() =>
-                              void repondreRequisition(r.id, 'accordee').then(rafraichir)
-                            }
-                          >
-                            {t('Accorder', 'Grant')}
-                          </button>
+
+              {onglet === 'travail' &&
+                (poste.presences.length > 0 ? (
+                  <div className="ch-presences">
+                    <h4>{t('Outils en cours (constatés)', 'Live tools (observed)')}</h4>
+                    <ul>
+                      {poste.presences.map((p) => (
+                        <li key={p.toolUseId}>
+                          <span className="ch-outil">{p.outil}</span> {p.chemin}
+                          <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="muted-text ch-silence">
+                    {t('Aucun fichier ouvert constaté.', 'No open file observed.')}
+                  </p>
+                ))}
+
+              {onglet === 'integrations' && (
+                <div className="ch-fabrique">
+                  <h4>{t('Fabrique', 'Forge')}</h4>
+                  {(poste.fabriques?.length ?? 0) === 0 ? (
+                    <p className="muted-text">
+                      {t(
+                        'Aucun outil en fabrique pour ce projet.',
+                        'No forge tool for this project.',
+                      )}
+                    </p>
+                  ) : (
+                    <ul>
+                      {poste.fabriques!.map((f) => (
+                        <li key={f.id}>
+                          <strong>{f.libelle}</strong>
+                          <span className="muted-text">
+                            {' '}
+                            · {f.genre} · {f.statut}
+                            {f.nomScript ? ` · ${f.nomScript}` : ''}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="ch-note muted-text">
+                    {t(
+                      'Chantiers ne lance qu’après merge + script déclaré.',
+                      'Chantiers runs only after merge + declared script.',
+                    )}
+                  </p>
+                  <h4>{t('Motifs', 'Motifs')}</h4>
+                  {!poste.projectId ? (
+                    <p className="muted-text">
+                      {t(
+                        'Pas de projet — impossible d’appliquer un motif.',
+                        'No project — cannot apply a motif.',
+                      )}
+                    </p>
+                  ) : motifs.length === 0 ? (
+                    <p className="muted-text">{t('Catalogue vide.', 'Empty catalogue.')}</p>
+                  ) : (
+                    <ul className="ch-motifs">
+                      {motifs.map((m) => (
+                        <li key={m.id}>
+                          <span>
+                            {langCode === 'en' ? m.libelleEn : m.libelleFr}
+                            <span className="muted-text"> · {m.etapes.length} étapes</span>
+                          </span>
                           <button
                             type="button"
                             className="btn ghost"
-                            onClick={() =>
-                              void repondreRequisition(r.id, 'refusee').then(rafraichir)
-                            }
+                            disabled={busyMotif === m.id}
+                            onClick={() => {
+                              if (!poste.projectId) return;
+                              setBusyMotif(m.id);
+                              void appliquerMotif(poste.projectId, m.id, { lang: langCode })
+                                .then(rafraichir)
+                                .finally(() => setBusyMotif(null));
+                            }}
                           >
-                            {t('Refuser', 'Deny')}
+                            {t('Appliquer', 'Apply')}
                           </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {onglet === 'suivi' && (
+                <div className="ch-horizon">
+                  <h4>{t('Horizon', 'Horizon')}</h4>
+                  {!poste.horizon ? (
+                    <p className="muted-text">
+                      {t(
+                        'Pas de projet rattaché — pas de carnet.',
+                        'No linked project — no ledger.',
+                      )}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="ch-horizon-label">{t('Faits', 'Facts')}</p>
+                      {poste.horizon.faits.length === 0 ? (
+                        <p className="muted-text ch-silence">{t('Aucun fait.', 'No facts.')}</p>
+                      ) : (
+                        <ul>
+                          {poste.horizon.faits.map((f) => (
+                            <li key={f.id}>{f.texte}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="ch-horizon-label">{t('Hypothèses', 'Hypotheses')}</p>
+                      {poste.horizon.hypotheses.length === 0 ? (
+                        <p className="muted-text ch-silence">
+                          {t('Aucune hypothèse.', 'No hypotheses.')}
+                        </p>
+                      ) : (
+                        <ul className="ch-hypotheses">
+                          {poste.horizon.hypotheses.map((h) => (
+                            <li key={h.id}>{h.texte}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </>
@@ -243,28 +404,50 @@ export default function Chambre({
           )}
         </aside>
 
-        {/* 2 — Journal */}
-        <section className="ch-zone ch-journal" aria-label={t('Journal', 'Log')}>
-          <h3>{t('Journal', 'Log')}</h3>
+        <section className="ch-zone ch-journal" aria-label={t('Journal', 'Activity')}>
+          <h3>{t('Journal d’activité', 'Activity log')}</h3>
+          {poste && poste.presences.length > 0 && (
+            <div className="ch-stream" aria-live="polite">
+              <h4>{t('Flux outils', 'Tool stream')}</h4>
+              <ul>
+                {poste.presences.map((p) => (
+                  <li key={`s-${p.toolUseId}`}>
+                    <span className="ch-log-time">{timeShort(p.constateA)}</span>
+                    <span className="ch-outil">{p.outil}</span>
+                    <span className="ch-chemin">{p.chemin}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {journal.length === 0 ? (
             <p className="muted-text">
               {t('Pas encore d’activité pour cette ouvrière.', 'No activity for this worker yet.')}
             </p>
           ) : (
             <ul className="ch-log">
-              {journal.map((ev) => (
-                <li key={ev.id}>
-                  <span className="ch-log-time">{timeShort(ev.ts)}</span>
-                  <span className="ch-log-type">{ev.type}</span>
-                </li>
-              ))}
+              {journal.map((ev) => {
+                const ligne = resumerEvenementChambre(
+                  ev.type,
+                  ev.payload as Record<string, unknown>,
+                  langCode,
+                );
+                return (
+                  <li key={ev.id}>
+                    <span className="ch-log-time">{timeShort(ev.ts)}</span>
+                    <span className="ch-log-body">
+                      <span className="ch-log-resume">{ligne.resume}</span>
+                      {ligne.detail && <span className="ch-log-detail">{ligne.detail}</span>}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
 
-        {/* 3 — Activité */}
-        <section className="ch-zone ch-activite" aria-label={t('Activité', 'Activity')}>
-          <h3>{t('Activité', 'Activity')}</h3>
+        <section className="ch-zone ch-activite" aria-label={t('Activité', 'Tasks')}>
+          <h3>{t('Missions', 'Tasks')}</h3>
           <div className="ch-filtres" role="tablist">
             {(
               [
@@ -295,6 +478,11 @@ export default function Chambre({
                   <button type="button" className="ch-tache" onClick={() => onOpenTask(tk.id)}>
                     {tk.title}
                   </button>
+                  {filtre === 'echecs' && (
+                    <span className="ch-echec-hint muted-text">
+                      {t('quoi : échec · suite : ouvrir la tâche', 'what: failed · next: open task')}
+                    </span>
+                  )}
                   <span className="ch-tache-time">{timeShort(tk.updatedAt)}</span>
                 </li>
               ))}
@@ -302,7 +490,6 @@ export default function Chambre({
           )}
         </section>
 
-        {/* 4 — Ordinateur = Atelier */}
         <section className="ch-zone ch-ordi" aria-label={t('Ordinateur', 'Computer')}>
           <h3>{t('Ordinateur', 'Computer')}</h3>
           <AtelierPoste
@@ -336,7 +523,6 @@ function AtelierPoste({
       await fn();
       onChange(await fetchAtelier());
     } catch {
-      /* l'état suivant le dira */
       try {
         onChange(await fetchAtelier());
       } catch {
@@ -394,7 +580,6 @@ function AtelierPoste({
         className="ch-vnc"
         title={t('Écran de l’atelier', 'Studio screen')}
         src={etat.ecran}
-        // noVNC est local ; sandbox minimale pour ne pas élargir.
         sandbox="allow-scripts allow-same-origin allow-forms"
       />
     </div>

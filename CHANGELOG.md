@@ -9,12 +9,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **Chambre (ADR 0010, lots 0–11).** Poste ouvrière : baptême, métier, présence,
-  vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique** (outil dans
-  le dépôt — chantier seulement après merge + script déclaré), **horizon**
-  (faits ≠ hypothèses, borné, branché sur l’essaim), **motifs** inter-projets
-  (procédures ordonnées, refus des diffs collés). Docs README + FONCTIONNALITES
-  FR/EN. Partage : jamais d’identités. ADR encore **proposé** (validation humaine).
+- **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
+  vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,
+  **motifs**. Écran : bandeau HITL « À trancher », flux outils, onglets
+  Fiche/Travail/Intégrations/Suivi. Maquette HTML + frames :
+  `docs/maquettes/chambre/`. Partage : jamais d’identités. ADR **proposé**.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a

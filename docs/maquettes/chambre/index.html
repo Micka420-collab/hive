@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Maquette Chambre — Hive (ADR 0010)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --creme: #f7f1e6;
+      --creme-profond: #efe6d6;
+      --miel: #f6c445;
+      --miel-fonce: #d4a017;
+      --encre: #2a241c;
+      --papier: #fffdf8;
+      --ligne: color-mix(in srgb, var(--miel) 35%, transparent);
+      --font-display: 'Bricolage Grotesque', Georgia, serif;
+      --font-body: 'Source Serif 4', Georgia, serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--encre);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--miel) 28%, transparent), transparent 60%),
+        radial-gradient(900px 500px at 90% 0%, color-mix(in srgb, #c4a574 18%, transparent), transparent 55%),
+        var(--creme);
+      line-height: 1.45;
+    }
+    header.page {
+      padding: 48px 32px 24px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    header.page h1 {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 4vw, 3rem);
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+    }
+    header.page p { margin: 0; max-width: 52ch; opacity: 0.85; }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px;
+      font-size: 0.85rem;
+    }
+    .meta span {
+      background: var(--papier);
+      border: 1px solid var(--ligne);
+      border-radius: 999px;
+      padding: 4px 12px;
+    }
+    .board {
+      display: flex; flex-direction: column; gap: 48px;
+      padding: 16px 32px 80px;
+      max-width: 1280px; margin: 0 auto;
+    }
+    .frame-label {
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 0 0 12px;
+      opacity: 0.7;
+    }
+    .frame {
+      background: var(--creme-profond);
+      border: 1px solid var(--ligne);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 18px 40px color-mix(in srgb, var(--encre) 8%, transparent);
+    }
+    .screen {
+      background: var(--papier);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--ligne);
+      min-height: 540px;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px;
+      background: color-mix(in srgb, #1c1814 92%, #5a4630);
+      color: #f7f1e6;
+      font-size: 0.8rem;
+    }
+    .topbar .brand {
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: var(--miel);
+    }
+    .chrome {
+      padding: 14px 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--miel) 8%, transparent), transparent 120px),
+        var(--papier);
+    }
+    .bar { display: flex; align-items: center; gap: 12px; }
+    .bar h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+    }
+    .pill {
+      margin-left: auto;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #2f6b3a;
+    }
+    .hitl {
+      background: color-mix(in srgb, var(--miel) 22%, #fffdf8);
+      border: 1px solid color-mix(in srgb, var(--miel) 55%, transparent);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .hitl strong {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+    .hitl-row {
+      display: flex; justify-content: space-between; gap: 12px; align-items: center;
+      font-size: 0.9rem;
+    }
+    .btns { display: flex; gap: 6px; }
+    .btn {
+      border-radius: 6px;
+      border: 1px solid var(--ligne);
+      background: transparent;
+      padding: 5px 10px;
+      font: inherit;
+      font-size: 0.8rem;
+      cursor: default;
+    }
+    .btn.primary {
+      background: var(--miel);
+      border-color: var(--miel-fonce);
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 2fr 1fr;
+      grid-template-rows: 1fr 1.1fr;
+      grid-template-areas:
+        'identite journal activite'
+        'identite journal ordi';
+      gap: 12px;
+      min-height: 420px;
+      flex: 1;
+    }
+    .zone {
+      background: var(--papier);
+      border: 1px solid var(--ligne);
+      border-radius: 8px;
+      padding: 12px 14px;
+      overflow: hidden;
+    }
+    .zone h3 {
+      margin: 0 0 10px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      opacity: 0.7;
+      font-family: var(--font-display);
+    }
+    .identite { grid-area: identite; }
+    .journal { grid-area: journal; }
+    .activite { grid-area: activite; }
+    .ordi { grid-area: ordi; display: flex; flex-direction: column; }
+    .nom {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      margin: 0 0 8px;
+    }
+    .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+    .tab {
+      font-size: 0.7rem;
+      border: 1px solid var(--ligne);
+      border-radius: 6px;
+      padding: 3px 8px;
+      background: transparent;
+    }
+    .tab.on {
+      background: color-mix(in srgb, var(--miel) 55%, white);
+      border-color: var(--miel);
+    }
+    .meta-list, .log, .tasks, .tools {
+      list-style: none; margin: 0; padding: 0; font-size: 0.85rem;
+    }
+    .meta-list li, .log li, .tasks li, .tools li {
+      padding: 4px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--miel) 15%, transparent);
+    }
+    .tools { font-family: var(--font-mono); font-size: 0.78rem; }
+    .outil { display: inline-block; min-width: 3.2em; color: color-mix(in srgb, var(--miel) 20%, var(--encre)); }
+    .log li { display: flex; gap: 10px; }
+    .time { flex: 0 0 3.5em; opacity: 0.6; font-variant-numeric: tabular-nums; font-size: 0.8rem; }
+    .filters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+    .vnc {
+      flex: 1;
+      min-height: 140px;
+      border-radius: 6px;
+      border: 1px solid var(--ligne);
+      background:
+        repeating-linear-gradient(0deg, transparent, transparent 11px, color-mix(in srgb, #fff 4%, transparent) 12px),
+        linear-gradient(160deg, #2a241c, #1a1814 60%, #3d3226);
+      color: #d9cbb0;
+      display: grid;
+      place-items: center;
+      font-size: 0.8rem;
+      font-family: var(--font-mono);
+    }
+    .vnc.off {
+      background: var(--creme-profond);
+      color: var(--encre);
+      opacity: 0.85;
+    }
+    .mobile .screen { max-width: 390px; margin: 0 auto; min-height: 720px; }
+    .mobile .grid {
+      grid-template-columns: 1fr;
+      grid-template-areas: 'identite' 'activite' 'journal' 'ordi';
+      grid-template-rows: auto;
+    }
+    .tokens {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .swatch {
+      border-radius: 10px;
+      border: 1px solid var(--ligne);
+      overflow: hidden;
+      background: var(--papier);
+      font-size: 0.75rem;
+    }
+    .swatch i {
+      display: block;
+      height: 64px;
+    }
+    .swatch b { display: block; padding: 8px 10px 2px; font-family: var(--font-display); }
+    .swatch code { display: block; padding: 0 10px 10px; font-family: var(--font-mono); opacity: 0.7; }
+    .notes {
+      background: var(--papier);
+      border: 1px dashed var(--ligne);
+      border-radius: 12px;
+      padding: 16px 18px;
+      font-size: 0.92rem;
+    }
+    .notes h3 { margin-top: 0; font-family: var(--font-display); }
+    .notes ul { margin: 0; padding-left: 1.2em; }
+    @media (max-width: 900px) {
+      .board, header.page { padding-left: 16px; padding-right: 16px; }
+      .desktop .grid {
+        grid-template-columns: 1fr;
+        grid-template-areas: 'identite' 'activite' 'journal' 'ordi';
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="page">
+    <h1>Hive · Chambre</h1>
+    <p>
+      Maquette complète du poste ouvrière (ADR 0010) — miel / crème, constaté seulement.
+      Prête à coller dans Figma (frames Desktop / Mobile / HITL / Atelier off / Tokens).
+    </p>
+    <div class="meta">
+      <span>Réfs : Magentic-One ledger · Voyager forge · agentic UX activity panel</span>
+      <span>Pas de thème sombre Delos · pas de portrait inventé</span>
+      <span>Import Figma : File → New → coller captures / frames HTML</span>
+    </div>
+  </header>
+
+  <div class="board">
+    <section>
+      <p class="frame-label">Frame 01 — Desktop · Capucine · réquisition ouverte</p>
+      <div class="frame desktop">
+        <div class="screen">
+          <div class="topbar">
+            <span class="brand">Hive</span>
+            <span>Mission Control</span>
+            <span style="margin-left:auto;opacity:.7">Ruche · Chambre</span>
+          </div>
+          <div class="chrome">
+            <div class="bar">
+              <span class="btn">← Ruche</span>
+              <h2>Capucine</h2>
+              <span class="pill">en ligne</span>
+            </div>
+            <div class="hitl">
+              <strong>À trancher · 1</strong>
+              <div class="hitl-row">
+                <span><em>Clé API</em> — Clé Seedance</span>
+                <span class="btns"><span class="btn primary">Accorder</span><span class="btn">Refuser</span></span>
+              </div>
+            </div>
+            <div class="grid">
+              <aside class="zone identite">
+                <h3>Identité</h3>
+                <p class="nom">Capucine</p>
+                <div class="tabs">
+                  <span class="tab on">Fiche</span>
+                  <span class="tab">Travail</span>
+                  <span class="tab">Intégrations</span>
+                  <span class="tab">Suivi</span>
+                </div>
+                <ul class="meta-list">
+                  <li>en ligne</li>
+                  <li>Métier : édite</li>
+                  <li>Caste : butineuse</li>
+                  <li>hôte · claude-code</li>
+                  <li>1/2 en vol</li>
+                </ul>
+              </aside>
+              <section class="zone journal">
+                <h3>Journal d’activité</h3>
+                <ul class="tools" style="margin-bottom:10px">
+                  <li><span class="outil">Edit</span> src/pont/mcp.ts</li>
+                  <li><span class="outil">Read</span> package.json</li>
+                </ul>
+                <ul class="log">
+                  <li><span class="time">14:02</span><span>Edit · src/pont/mcp.ts</span></li>
+                  <li><span class="time">14:01</span><span>Pont MCP · running</span></li>
+                  <li><span class="time">13:58</span><span>Plan validé</span></li>
+                </ul>
+              </section>
+              <section class="zone activite">
+                <h3>Missions</h3>
+                <div class="filters">
+                  <span class="tab on">En cours</span>
+                  <span class="tab">En pause</span>
+                  <span class="tab">Terminées</span>
+                  <span class="tab">Échecs</span>
+                </div>
+                <ul class="tasks">
+                  <li>Écrire le pont MCP Seedance</li>
+                  <li>Relire le diff Miellerie</li>
+                </ul>
+              </section>
+              <section class="zone ordi">
+                <h3>Ordinateur</h3>
+                <div class="vnc">noVNC · atelier allumé</div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <p class="frame-label">Frame 02 — Desktop · onglet Suivi (faits ≠ hypothèses)</p>
+      <div class="frame">
+        <div class="screen" style="min-height:auto">
+          <div class="chrome">
+            <div class="bar"><h2>Capucine</h2><span class="pill">en ligne</span></div>
+            <div class="grid" style="min-height:280px;grid-template-rows:1fr">
+              <aside class="zone identite" style="grid-row:1/-1">
+                <h3>Identité</h3>
+                <p class="nom">Capucine</p>
+                <div class="tabs">
+                  <span class="tab">Fiche</span>
+                  <span class="tab">Travail</span>
+                  <span class="tab">Intégrations</span>
+                  <span class="tab on">Suivi</span>
+                </div>
+                <p style="font-size:.72rem;text-transform:uppercase;opacity:.7;margin:10px 0 4px">Faits</p>
+                <ul class="meta-list">
+                  <li>Le pont compile sur Node 24</li>
+                  <li>Merge fabrique lint atterri</li>
+                </ul>
+                <p style="font-size:.72rem;text-transform:uppercase;opacity:.7;margin:10px 0 4px">Hypothèses</p>
+                <ul class="meta-list" style="font-style:italic;opacity:.9">
+                  <li>Seedance acceptera le format v2</li>
+                </ul>
+              </aside>
+              <section class="zone journal">
+                <h3>Journal</h3>
+                <p style="opacity:.7;font-size:.9rem">Activity panel séparé du chat Reine — pas de mélange conversation / outils.</p>
+              </section>
+              <section class="zone activite">
+                <h3>Missions</h3>
+                <ul class="tasks"><li>Écrire le pont MCP Seedance</li></ul>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <p class="frame-label">Frame 03 — Desktop · Atelier éteint (pas de faux bureau)</p>
+      <div class="frame">
+        <div class="screen" style="min-height:auto">
+          <div class="chrome">
+            <div class="bar"><h2>Poste ouvrière · worker</h2><span class="pill" style="color:#888">hors ligne</span></div>
+            <div class="zone ordi">
+              <h3>Ordinateur</h3>
+              <div class="vnc off">
+                Bureau de recette éteint — on n’invente pas d’écran.
+              </div>
+              <div style="margin-top:8px"><span class="btn primary">Allumer l’atelier</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mobile">
+      <p class="frame-label">Frame 04 — Mobile · 390×844</p>
+      <div class="frame">
+        <div class="screen">
+          <div class="topbar"><span class="brand">Hive</span><span style="margin-left:auto">Chambre</span></div>
+          <div class="chrome">
+            <div class="bar"><h2>Capucine</h2><span class="pill">en ligne</span></div>
+            <div class="hitl">
+              <strong>À trancher · 1</strong>
+              <div class="hitl-row" style="flex-direction:column;align-items:stretch">
+                <span>Clé API — Seedance</span>
+                <span class="btns"><span class="btn primary">Accorder</span><span class="btn">Refuser</span></span>
+              </div>
+            </div>
+            <div class="grid">
+              <aside class="zone identite">
+                <h3>Identité</h3>
+                <p class="nom">Capucine</p>
+                <ul class="meta-list"><li>Métier : édite</li><li>1/2 en vol</li></ul>
+              </aside>
+              <section class="zone activite">
+                <h3>Missions</h3>
+                <ul class="tasks"><li>Écrire le pont MCP</li></ul>
+              </section>
+              <section class="zone journal">
+                <h3>Journal</h3>
+                <ul class="log"><li><span class="time">14:02</span><span>Edit · mcp.ts</span></li></ul>
+              </section>
+              <section class="zone ordi">
+                <h3>Ordinateur</h3>
+                <div class="vnc" style="min-height:100px">noVNC</div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <p class="frame-label">Frame 05 — Design tokens</p>
+      <div class="frame">
+        <div class="tokens">
+          <div class="swatch"><i style="background:#f7f1e6"></i><b>Crème</b><code>#F7F1E6</code></div>
+          <div class="swatch"><i style="background:#fffdf8"></i><b>Papier</b><code>#FFFDF8</code></div>
+          <div class="swatch"><i style="background:#f6c445"></i><b>Miel</b><code>#F6C445</code></div>
+          <div class="swatch"><i style="background:#d4a017"></i><b>Miel foncé</b><code>#D4A017</code></div>
+          <div class="swatch"><i style="background:#2a241c"></i><b>Encre</b><code>#2A241C</code></div>
+          <div class="swatch"><i style="background:#2f6b3a"></i><b>En ligne</b><code>#2F6B3A</code></div>
+        </div>
+        <p style="margin:16px 0 0;font-size:.9rem">
+          Display : <strong>Bricolage Grotesque</strong> · Corps : <strong>Source Serif 4</strong> · Mono : <strong>JetBrains Mono</strong>
+        </p>
+      </div>
+    </section>
+
+    <section class="notes">
+      <h3>Handoff Figma</h3>
+      <ul>
+        <li>Ouvrir ce fichier dans le navigateur, capturer chaque Frame 01–05 (ou importer via html.to.design / Anima).</li>
+        <li>Dans Cursor Desktop : authentifier le serveur MCP <strong>Figma</strong>, puis redemander « pousse la maquette Chambre sur Figma ».</li>
+        <li>Invariants ADR 0010 : pas de faux mail / visio / portrait ; Atelier off = message clair ; partage sans identités.</li>
+        <li>Références produit (idées, pas clones) : Magentic-One task ledger (faits/hypothèses), Voyager skill library → fabrique dans le dépôt, agentic UX activity panel ≠ chat.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

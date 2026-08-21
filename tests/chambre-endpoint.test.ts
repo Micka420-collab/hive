@@ -168,4 +168,46 @@ describe('GET /api/chambre/:nodeId', () => {
     });
     expect(rep.status).toBe(200);
   });
+
+  it('expose horizon + fabriques du projet dominant (sinon null / [])', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-5',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    const sans = await fetch(`${srv.url}/api/chambre/n-5`, { headers });
+    const corpsSans = (await sans.json()) as {
+      projectId: string | null;
+      horizon: unknown;
+      fabriques: unknown[];
+    };
+    expect(corpsSans.projectId).toBeNull();
+    expect(corpsSans.horizon).toBeNull();
+    expect(corpsSans.fabriques).toEqual([]);
+
+    const p = srv.store.createProject({ name: 'Chambre horizon' });
+    const tache = srv.store.createTask({
+      projectId: p.id,
+      title: 'Édite le pont',
+      prompt: 'prompt',
+    });
+    srv.store.patchTask(tache.id, { assignedNodeId: 'n-5', status: 'running' });
+    expect(srv.store.ajouterHorizon(p.id, 'fait', 'Le pont compile', 'test').ok).toBe(true);
+    expect(
+      srv.store.ouvrirFabrique(p.id, 'script_npm', 'Script lint', { nomScript: 'lint' }).ok,
+    ).toBe(true);
+
+    const avec = await fetch(`${srv.url}/api/chambre/n-5`, { headers });
+    const corps = (await avec.json()) as {
+      projectId: string;
+      horizon: { faits: Array<{ texte: string }>; hypotheses: unknown[] };
+      fabriques: Array<{ libelle: string }>;
+    };
+    expect(corps.projectId).toBe(p.id);
+    expect(corps.horizon.faits.some((f) => f.texte.includes('pont'))).toBe(true);
+    expect(corps.fabriques.some((f) => f.libelle.includes('lint'))).toBe(true);
+  });
 });

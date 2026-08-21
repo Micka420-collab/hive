@@ -190,6 +190,10 @@ merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans
 l’instantané). Les **motifs** inter-projets (ex. jeu-3d : fabrique avant assets)
 créent des tâches ordonnées — jamais le diff d’un autre dépôt.
 
+À l’écran : bandeau **À trancher** (réquisitions), journal d’activité avec
+**flux outils** constatés, onglets Fiche / Travail / Intégrations / Suivi
+(horizon + fabrique). Maquette : `docs/maquettes/chambre/`.
+
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 
 Dans **« Nouveau projet »**, décrivez l'objectif en langage naturel et cliquez

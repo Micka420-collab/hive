@@ -1722,6 +1722,8 @@ export interface ChambrePoste {
   bapteme: { nom: string; baptiseA: number } | null;
   metier: { metier: string; assigneA: number } | null;
   caste: string;
+  /** Projet dominant (dernière tâche) — pour horizon / fabrique. */
+  projectId?: string | null;
   node: {
     id: string;
     status: string;
@@ -1750,6 +1752,18 @@ export interface ChambrePoste {
     statut: string;
     creeA: number;
     closA: number | null;
+  }>;
+  horizon?: {
+    faits: Array<{ id: string; texte: string; source: string; creeA: number }>;
+    hypotheses: Array<{ id: string; texte: string; source: string; creeA: number }>;
+  } | null;
+  fabriques?: Array<{
+    id: string;
+    genre: string;
+    libelle: string;
+    nomScript: string | null;
+    statut: string;
+    creeA: number;
   }>;
   atelier: EtatAtelier;
 }
@@ -1805,4 +1819,30 @@ export function repondreRequisition(
     method: 'POST',
     body: JSON.stringify({ decision }),
   });
+}
+
+export interface MotifCatalogue {
+  id: string;
+  domaine: string;
+  libelleFr: string;
+  libelleEn: string;
+  etapes: Array<{ id: string; titreFr: string; titreEn: string }>;
+}
+
+export function fetchMotifs(): Promise<{ motifs: MotifCatalogue[] }> {
+  return api('/api/motifs');
+}
+
+export function appliquerMotif(
+  projectId: string,
+  motifId: string,
+  opts?: { lang?: 'fr' | 'en' },
+): Promise<{ ok: boolean; motifId: string; taskIds: string[]; titres: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/motifs/${encodeURIComponent(motifId)}/appliquer`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ lang: opts?.lang ?? 'fr' }),
+    },
+  );
 }

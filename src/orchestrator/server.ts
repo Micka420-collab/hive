@@ -1787,11 +1787,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 80);
+      // Projet dominant = dernière tâche touchée — pour horizon / fabrique à l'écran.
+      const projectId = tasks[0]?.projectId ?? null;
+      let horizon: { faits: unknown[]; hypotheses: unknown[] } | null = null;
+      let fabriques: unknown[] = [];
+      if (projectId) {
+        const { resumeHorizon } = await import('./horizon.js');
+        horizon = resumeHorizon(store.listerHorizon(projectId));
+        fabriques = store.listerFabriques(projectId).slice(0, 24);
+      }
       return {
         nodeId: node.id,
         bapteme,
         metier,
         caste: casteDe(node.id),
+        projectId,
         node: {
           id: node.id,
           status: node.status,
@@ -1807,6 +1817,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         presences,
         tasks,
         requisitions: store.listerRequisitions({ nodeId: node.id, statut: 'ouverte' }),
+        horizon,
+        fabriques,
         atelier: await etatAtelier({ env: process.env }),
       };
     },
