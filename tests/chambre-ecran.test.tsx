@@ -349,6 +349,27 @@ describe('Chambre à l’écran', () => {
     expect(edit?.textContent).toBe('EDIT');
   });
 
+  it('un événement journal outil+chemin devient un lien Rayon', async () => {
+    const onNavigate = vi.fn();
+    sessionStorage.clear();
+    const events = [
+      {
+        id: 'ev1',
+        ts: 2,
+        type: 'tool',
+        payload: { nodeId: NODE_ID, outil: 'Read', chemin: 'docs/ADR.md', taskId: 't1' },
+      },
+    ];
+    const dom = await monter(onNavigate, events as never);
+    const liens = [...dom.querySelectorAll('button.ch-lien-chemin')].filter((b) =>
+      (b.textContent ?? '').includes('docs/ADR.md'),
+    );
+    expect(liens.length).toBeGreaterThanOrEqual(1);
+    await cliquer(liens[0]!);
+    expect(sessionStorage.getItem('hive.focus')).toBe('fichier:docs/ADR.md');
+    expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
+  });
+
   it('point de statut hors ligne sur la Fiche', async () => {
     const dom = await monter();
     expect(dom.querySelector('.ch-statut-dot.ch-statut-off')).toBeTruthy();

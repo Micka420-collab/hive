@@ -718,7 +718,16 @@ export default function Chambre({
                   <li key={ev.id}>
                     <span className={badgeClass(ligne.badge)}>{ligne.badge}</span>
                     <span className="ch-log-body">
-                      <span className="ch-log-resume">{ligne.resume}</span>
+                      {['READ', 'EDIT', 'WRITE'].includes(ligne.badge) ? (
+                        <CheminConstate
+                          chemin={ligne.resume}
+                          projectId={poste?.projectId ?? null}
+                          onNavigate={onNavigate}
+                          className="ch-log-resume"
+                        />
+                      ) : (
+                        <span className="ch-log-resume">{ligne.resume}</span>
+                      )}
                       {ligne.detail && <span className="ch-log-detail">{ligne.detail}</span>}
                     </span>
                     <span className="ch-log-time">{timeShort(ev.ts)}</span>
