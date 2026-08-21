@@ -22,6 +22,12 @@ import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
 import { jugerBapteme, normaliserNomBapteme, type VerdictBapteme } from './bapteme.js';
 import { validerMetier, type MetierCycle, type VerdictMetier } from './metier.js';
+import {
+  jugerCheminPresence,
+  validerOutilPresence,
+  type OutilPresence,
+  type PresenceFichier,
+} from '../shared/presence.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -826,6 +832,21 @@ CREATE TABLE IF NOT EXISTS metiers_cycle (
   metier   TEXT NOT NULL,
   assigneA INTEGER NOT NULL
 );
+
+-- Présence Rayon (ADR 0010) : fichiers OUVERTS constatés (Read/Edit/Write).
+-- TABLE LATÉRALE — une ligne par (nœud, toolUseId). Absent ⇒ l'écran ne
+-- montre PAS de fichier ouvert inventé. Élagage : prunePresences (rétention)
+-- + effacement à la fin de tâche.
+CREATE TABLE IF NOT EXISTS presences_rayon (
+  nodeId    TEXT NOT NULL REFERENCES nodes(id),
+  toolUseId TEXT NOT NULL,
+  chemin    TEXT NOT NULL,
+  outil     TEXT NOT NULL,
+  taskId    TEXT,
+  constateA INTEGER NOT NULL,
+  PRIMARY KEY (nodeId, toolUseId)
+);
+CREATE INDEX IF NOT EXISTS idx_presences_rayon_task ON presences_rayon(taskId);
 `;
 
 interface ProjectRow {
@@ -1535,6 +1556,136 @@ export class HiveStore {
   retirerMetier(nodeId: string): boolean {
     const r = this.db.prepare('DELETE FROM metiers_cycle WHERE nodeId = ?').run(nodeId);
     return r.changes > 0;
+  }
+
+  // ─── Présences Rayon (ADR 0010) ────────────────────────────────────────────
+  //
+  // Fichiers ouverts CONSTATÉS. `null` / liste vide = rien à montrer (pas de
+  // théâtre). Remplacées par le snapshot courant du nœud à chaque progrès.
+
+  /** Présences ouvertes d'une ouvrière — vide si aucune observation. */
+  lirePresences(
+    nodeId: string,
+  ): Array<PresenceFichier & { taskId: string | null; constateA: number }> {
+    const rows = this.db
+      .prepare(
+        'SELECT toolUseId, chemin, outil, taskId, constateA FROM presences_rayon ' +
+          'WHERE nodeId = ? ORDER BY constateA DESC',
+      )
+      .all(nodeId) as Array<{
+      toolUseId: string;
+      chemin: string;
+      outil: string;
+      taskId: string | null;
+      constateA: number;
+    }>;
+    const out: Array<PresenceFichier & { taskId: string | null; constateA: number }> = [];
+    for (const r of rows) {
+      const o = validerOutilPresence(r.outil);
+      const c = jugerCheminPresence(r.chemin);
+      if (!o.ok || !c.ok) continue;
+      out.push({
+        toolUseId: r.toolUseId,
+        chemin: c.chemin,
+        outil: o.outil,
+        taskId: r.taskId,
+        constateA: r.constateA,
+      });
+    }
+    return out;
+  }
+
+  listerPresences(): Array<{
+    nodeId: string;
+    toolUseId: string;
+    chemin: string;
+    outil: OutilPresence;
+    taskId: string | null;
+    constateA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT nodeId, toolUseId, chemin, outil, taskId, constateA FROM presences_rayon ' +
+          'ORDER BY constateA DESC',
+      )
+      .all() as Array<{
+      nodeId: string;
+      toolUseId: string;
+      chemin: string;
+      outil: string;
+      taskId: string | null;
+      constateA: number;
+    }>;
+    const out: Array<{
+      nodeId: string;
+      toolUseId: string;
+      chemin: string;
+      outil: OutilPresence;
+      taskId: string | null;
+      constateA: number;
+    }> = [];
+    for (const r of rows) {
+      const o = validerOutilPresence(r.outil);
+      const c = jugerCheminPresence(r.chemin);
+      if (!o.ok || !c.ok) continue;
+      out.push({
+        nodeId: r.nodeId,
+        toolUseId: r.toolUseId,
+        chemin: c.chemin,
+        outil: o.outil,
+        taskId: r.taskId,
+        constateA: r.constateA,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Remplace les présences OUVERTES d'un nœud pour une tâche par le snapshot
+   * constaté. Snapshot vide ⇒ efface (plus rien d'ouvert). Nœud inconnu ⇒ refus.
+   */
+  remplacerPresences(
+    nodeId: string,
+    snapshot: PresenceFichier[],
+    taskId: string | null = null,
+    now = Date.now(),
+  ): { ok: true } | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM presences_rayon WHERE nodeId = ?').run(nodeId);
+      const ins = this.db.prepare(
+        'INSERT INTO presences_rayon (nodeId, toolUseId, chemin, outil, taskId, constateA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (const p of snapshot) {
+        const o = validerOutilPresence(p.outil);
+        const c = jugerCheminPresence(p.chemin);
+        if (!o.ok || !c.ok) continue;
+        if (typeof p.toolUseId !== 'string' || p.toolUseId.length === 0) continue;
+        ins.run(nodeId, p.toolUseId, c.chemin, o.outil, taskId, now);
+      }
+    });
+    tx();
+    return { ok: true };
+  }
+
+  /** Efface toute présence d'un nœud (hors ligne, fin de tâche…). */
+  effacerPresencesNoeud(nodeId: string): number {
+    return this.db.prepare('DELETE FROM presences_rayon WHERE nodeId = ?').run(nodeId).changes;
+  }
+
+  /** Efface les présences liées à une tâche terminée. */
+  effacerPresencesTache(taskId: string): number {
+    return this.db.prepare('DELETE FROM presences_rayon WHERE taskId = ?').run(taskId).changes;
+  }
+
+  /**
+   * Borne d'élagage (règle 3) : les présences trop vieilles (outil jamais
+   * refermé, nœud disparu…) ne traînent pas.
+   */
+  prunePresences(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM presences_rayon WHERE constateA < ?').run(cutoff).changes;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {

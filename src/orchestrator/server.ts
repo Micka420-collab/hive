@@ -266,6 +266,13 @@ export const RESULT_RETENTION = 5_000;
 export const SAUVEGARDES_RETENTION = 5_000;
 
 /**
+ * Présences Rayon (ADR 0010) : fichiers ouverts constatés. Une présence qui
+ * traîne plus d'une heure (outil jamais refermé, nœud disparu) est élaguée —
+ * l'écran ne doit pas montrer un fichier « encore ouvert » inventé.
+ */
+export const PRESENCES_RETENTION_MS = 60 * 60_000;
+
+/**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
  * (doctrine, règle 3), câblée dans le tick.
  *
@@ -7125,7 +7132,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (msg.onShift !== undefined) nodeOnShift.set(nodeId, msg.onShift);
             break;
           case 'task_update':
-            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
+            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log, msg.presences);
             break;
           case 'task_result': {
             // ─── LE HUB SAVAIT DIRE NON, ET NE LE DISAIT JAMAIS ──────────────
@@ -7465,6 +7472,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneSauvegardes(SAUVEGARDES_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
+      // Présences Rayon orphelines (outil jamais refermé / nœud parti).
+      store.prunePresences(PRESENCES_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes

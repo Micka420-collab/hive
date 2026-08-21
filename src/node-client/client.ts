@@ -376,6 +376,7 @@ export class HiveNodeClient {
             taskId: task.id,
             status: 'running',
             ...(p.subAgents ? { subAgents: p.subAgents } : {}),
+            ...(p.presences ? { presences: p.presences } : {}),
             ...(p.log ? { log: p.log } : {}),
           });
         },

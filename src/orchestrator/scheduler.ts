@@ -5,6 +5,7 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+import type { PresenceFichier } from '../shared/presence.js';
 // L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
@@ -679,7 +680,13 @@ export class Scheduler {
   }
 
   /** Le nœud confirme le démarrage effectif (assigned → running) et le progrès des sous-agents. */
-  handleTaskUpdate(nodeId: string, taskId: string, subAgents?: SubAgent[], log?: string): void {
+  handleTaskUpdate(
+    nodeId: string,
+    taskId: string,
+    subAgents?: SubAgent[],
+    log?: string,
+    presences?: PresenceFichier[],
+  ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
     // SAUF si le nœud est un drone enrôlé : son progrès est visible (télémétrie
@@ -688,13 +695,17 @@ export class Scheduler {
     if (task.assignedNodeId !== nodeId) {
       const race = this.races.get(taskId);
       if (race?.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
-        const hasProgress = (subAgents !== undefined && subAgents.length > 0) || log !== undefined;
+        const hasProgress =
+          (subAgents !== undefined && subAgents.length > 0) ||
+          log !== undefined ||
+          presences !== undefined;
         if (hasProgress) {
           this.emit('task_progress', {
             taskId,
             nodeId,
             ...(subAgents && subAgents.length > 0 ? { subAgents } : {}),
             ...(log !== undefined ? { log: log.slice(0, 2000) } : {}),
+            ...(presences !== undefined ? { presences } : {}),
           });
         }
       }
@@ -707,16 +718,21 @@ export class Scheduler {
       // Un nœud exécute enfin la tâche : l'agent fonctionne, on oublie les refus infra.
       this.infraRejects.delete(taskId);
     }
+    // Snapshot présence Rayon — constaté, jamais inventé (ADR 0010).
+    if (presences !== undefined) {
+      this.store.remplacerPresences(nodeId, presences, taskId);
+    }
     // Émettre le progrès dès qu'il y a des sous-agents OU un log : les agents
     // réels (claude-code, codex) n'envoient qu'un log, sans sous-agents — sans
     // ce OR, le journal du dashboard resterait vide pendant leur exécution.
     const hasSubAgents = subAgents !== undefined && subAgents.length > 0;
-    if (hasSubAgents || log) {
+    if (hasSubAgents || log || presences !== undefined) {
       this.emit('task_progress', {
         taskId,
         nodeId,
         ...(hasSubAgents ? { subAgents } : {}),
         ...(log ? { log: log.slice(0, 2000) } : {}),
+        ...(presences !== undefined ? { presences } : {}),
       });
     }
   }
@@ -845,6 +861,10 @@ export class Scheduler {
     }
 
     this.store.fermerHorlogeHote(task.id, Date.now());
+
+    // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
+    this.store.effacerPresencesTache(task.id);
+    this.store.effacerPresencesNoeud(nodeId);
 
     // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
     // oublie l'historique de refus infra pour cette tâche.
