@@ -191,7 +191,12 @@ export default function Chambre({
           ← {t('Ruche', 'Hive')}
         </button>
         <div className="ch-brand-mark">
-          <p className="ch-brand-hive">Hive</p>
+          <p className="ch-brand-hive">
+            Hive
+            <span className="ch-brand-hex" aria-hidden="true">
+              <HexMiel />
+            </span>
+          </p>
           <p className="ch-brand-sub">{t('Chambre · poste ouvrière', 'Chambre · workstation')}</p>
         </div>
         {poste?.node.status === 'online' ? (
@@ -247,6 +252,10 @@ export default function Chambre({
         <aside className="ch-zone ch-identite" aria-label={t('Identité', 'Identity')}>
           {poste ? (
             <>
+              <div className="ch-ornement" aria-hidden="true">
+                <AbeilleOrnement />
+                <FleurOrnement />
+              </div>
               <p className="ch-eyebrow">{t('Baptême', 'Baptism')}</p>
               <p className="ch-nom">
                 {titre ?? (
@@ -714,5 +723,127 @@ function AtelierPoste({
         <span>noVNC</span>
       </div>
     </div>
+  );
+}
+
+/** Hexagone miel — marque Hive à côté du wordmark. */
+function HexMiel() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+      <path d="M12 2.2 20.2 7v10L12 21.8 3.8 17V7L12 2.2Z" fill="#F2B441" fillOpacity="0.95" />
+      <path d="M12 6.2 16.8 9v6L12 17.8 7.2 15V9L12 6.2Z" fill="#1A1A1A" fillOpacity="0.88" />
+    </svg>
+  );
+}
+
+/**
+ * Abeille décorative (maquette) — ornement de marque, pas un portrait.
+ * Position : haut gauche du panneau identité.
+ */
+function AbeilleOrnement() {
+  return (
+    <svg
+      className="ch-abeille"
+      viewBox="0 0 64 48"
+      width="52"
+      height="40"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* ailes */}
+      <ellipse cx="18" cy="18" rx="14" ry="9" fill="#F7F1E6" stroke="#C4A574" strokeWidth="1.2" />
+      <ellipse cx="46" cy="18" rx="14" ry="9" fill="#F7F1E6" stroke="#C4A574" strokeWidth="1.2" />
+      {/* corps */}
+      <ellipse cx="32" cy="26" rx="11" ry="14" fill="#F2B441" />
+      <path
+        d="M24 18.5h16M23.5 24h17M24 29.5h16M25.5 35h13"
+        stroke="#1A1A1A"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      {/* tête */}
+      <circle cx="32" cy="10" r="6.2" fill="#1A1A1A" />
+      <circle cx="29.6" cy="9.2" r="1.1" fill="#F6C445" />
+      <circle cx="34.4" cy="9.2" r="1.1" fill="#F6C445" />
+      {/* antennes */}
+      <path
+        d="M28.5 5.2C26 2.4 23.2 2 21.5 3.2M35.5 5.2C38 2.4 40.8 2 42.5 3.2"
+        stroke="#1A1A1A"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Fleur botanique (ligne, teinte cire) — rappel « Capucine », pas une photo.
+ * Position : haut droite du panneau identité.
+ */
+function FleurOrnement() {
+  return (
+    <svg
+      className="ch-fleur"
+      viewBox="0 0 120 140"
+      width="110"
+      height="128"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M62 132C58 104 54 78 48 52"
+        stroke="#C4A574"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path d="M50 86C38 78 28 82 22 90" stroke="#C4A574" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M54 68C66 58 78 62 86 72" stroke="#C4A574" strokeWidth="1.2" strokeLinecap="round" />
+      {/* feuilles */}
+      <path
+        d="M50 86C40 72 28 70 22 78C30 86 42 90 50 86Z"
+        stroke="#C4A574"
+        strokeWidth="1.2"
+        fill="#C4A574"
+        fillOpacity="0.12"
+      />
+      <path
+        d="M54 68C64 54 78 52 86 60C78 70 64 72 54 68Z"
+        stroke="#C4A574"
+        strokeWidth="1.2"
+        fill="#C4A574"
+        fillOpacity="0.1"
+      />
+      {/* corolle type capucine */}
+      <path
+        d="M48 52C40 40 42 28 52 22C58 30 60 40 56 50"
+        stroke="#C4A574"
+        strokeWidth="1.3"
+        fill="#F2B441"
+        fillOpacity="0.14"
+      />
+      <path
+        d="M48 52C56 38 68 32 78 36C72 46 64 52 54 54"
+        stroke="#C4A574"
+        strokeWidth="1.3"
+        fill="#F2B441"
+        fillOpacity="0.18"
+      />
+      <path
+        d="M48 52C36 48 30 36 34 26C44 28 50 38 50 48"
+        stroke="#C4A574"
+        strokeWidth="1.3"
+        fill="#F2B441"
+        fillOpacity="0.12"
+      />
+      <circle cx="48" cy="44" r="3.2" fill="#F2B441" fillOpacity="0.55" />
+      {/* bouton secondaire */}
+      <path
+        d="M70 78C66 70 68 62 74 58C78 64 78 72 74 78"
+        stroke="#C4A574"
+        strokeWidth="1.1"
+        fill="#F2B441"
+        fillOpacity="0.1"
+      />
+    </svg>
   );
 }
