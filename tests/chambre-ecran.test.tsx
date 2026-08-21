@@ -235,6 +235,7 @@ describe('Chambre à l’écran', () => {
     sessionStorage.clear();
     const chemin = dom.querySelector('button.ch-lien-chemin') as HTMLButtonElement;
     expect(chemin?.textContent).toContain('src/pont/mcp.ts');
+    expect(chemin.getAttribute('aria-label')).toMatch(/src\/pont\/mcp\.ts.*Rayon/i);
     await cliquer(chemin);
     expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
     expect(sessionStorage.getItem('hive.focus')).toBe('fichier:src/pont/mcp.ts');

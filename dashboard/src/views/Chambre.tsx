@@ -69,6 +69,7 @@ function CheminConstate({
         type="button"
         className={className ? `${className} ch-lien-chemin` : 'ch-lien-chemin'}
         title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
+        aria-label={t(`${chemin} — ouvrir dans le Rayon`, `${chemin} — open in Rayon`)}
         onClick={() => {
           demanderFocusFichier(chemin);
           onNavigate('rayon', projectId);
