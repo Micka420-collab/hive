@@ -19,9 +19,31 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchWaggle: vi.fn(() =>
     Promise.resolve({ nodes: [], totalTasksDone: 0, totalTasksFailed: 0, topNodeId: null }),
   ),
+  fetchChambre: vi.fn(() =>
+    Promise.resolve({
+      nodeId: 'x',
+      bapteme: null,
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: 'x',
+        status: 'online',
+        plateforme: null,
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'x',
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }),
+  ),
 }));
 
-import { fetchWaggle } from '../dashboard/src/api';
+import { fetchChambre, fetchWaggle } from '../dashboard/src/api';
 import { NodesPanel } from '../dashboard/src/NodesPanel';
 import { setLang } from '../dashboard/src/i18n';
 
@@ -40,6 +62,28 @@ beforeEach(() => {
       totalTasksFailed: 0,
       topNodeId: null,
     } as never);
+  vi.mocked(fetchChambre)
+    .mockReset()
+    .mockImplementation(async (nodeId: string) => ({
+      nodeId,
+      bapteme: null,
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: nodeId,
+        status: 'online',
+        plateforme: null,
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: nodeId.replace(/^n-/, ''),
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }));
 });
 afterEach(() => {
   act(() => racine?.unmount());
@@ -169,6 +213,43 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     ).not.toContain('La mission du manchot');
     // Le compte dit le vrai : une butinée, une échouée.
     expect(fiche?.textContent).toContain('✔ 1 · ✘ 1');
+  });
+
+  it('LA FICHE TITRE AU BAPTÊME CONSTATÉ — le name technique reste secondaire', async () => {
+    vi.mocked(fetchChambre).mockImplementation(async (nodeId: string) => ({
+      nodeId,
+      bapteme: { nom: 'Capucine', baptiseA: 1 },
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: nodeId,
+        status: 'online',
+        plateforme: 'windows',
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'ruche-fenetre',
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }));
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    cliquer(carte as Element);
+    await act(async () => {});
+    const fiche = dom.querySelector('[role="dialog"]');
+    expect(fiche?.textContent).toContain('Capucine');
+    expect(fiche?.textContent).toContain('Technique');
+    expect(fiche?.textContent).toContain('ruche-fenetre');
+    expect(fiche?.querySelector('#fiche-ouvriere-titre')?.textContent).toContain('Capucine');
+    expect(fiche?.querySelector('#fiche-ouvriere-titre')?.textContent).not.toContain(
+      'ruche-fenetre',
+    );
   });
 
   it('LA FICHE DIT L’ÉTAT DE LA MACHINE — « en ligne » pour la vive, « hors ligne » pour la muette', async () => {
