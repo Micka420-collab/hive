@@ -428,13 +428,23 @@ describe('Chambre à l’écran', () => {
     const onNavigate = vi.fn();
     const dom = await monter(onNavigate);
     await cliquer(dom.querySelector('#ch-tab-suivi')!);
-    const champ = dom.querySelector('.ch-horizon-form input') as HTMLInputElement;
+    await act(async () => {});
+    const champ = dom.querySelector('#ch-horizon-texte') as HTMLInputElement;
     expect(champ).toBeTruthy();
-    champ.focus();
+    // happy-dom + ordre mélangé : focus() ne tient pas toujours — on force
+    // activeElement comme pour le banc iframe (sinon Échap ramène à la Ruche).
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => champ,
+    });
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(onNavigate).not.toHaveBeenCalled();
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => document.body,
+    });
   });
 
   it('Échap ne quitte pas si le focus est dans l’iframe Atelier', async () => {
