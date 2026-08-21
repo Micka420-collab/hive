@@ -99,6 +99,36 @@ export function fabriqueBloqueChantier(
   return { ok: true, mergeLanded };
 }
 
+/**
+ * Après un merge landé (voie humaine ou essaim) : les fabriques encore ouvertes
+ * liées à la tâche fusionnée passent `mergee`. Sans `taskId` sur la fabrique,
+ * elle suit aussi (proposition orpheline du même projet) — même règle que le
+ * runner d'essaim.
+ */
+export function marquerFabriquesMergeesApresFusion(
+  store: {
+    listerFabriques(projectId: string): readonly {
+      id: string;
+      statut: StatutFabrique;
+      taskId?: string | null;
+    }[];
+    poserStatutFabrique(
+      id: string,
+      statut: StatutFabrique,
+    ): { ok: true } | { ok: false; motif: MotifRefusFabrique };
+  },
+  projectId: string,
+  taskId: string,
+): number {
+  let n = 0;
+  for (const f of store.listerFabriques(projectId)) {
+    if (f.statut !== 'proposee' && f.statut !== 'en_revue') continue;
+    if (f.taskId && f.taskId !== taskId) continue;
+    if (store.poserStatutFabrique(f.id, 'mergee').ok) n += 1;
+  }
+  return n;
+}
+
 /** Prompt de tâche pour qu'une ouvrière écrive l'artefact dans le dépôt. */
 export function promptFabrique(opts: {
   genre: GenreFabrique;

@@ -85,6 +85,41 @@ export function horizonDepasseBudgetTaches(
   return entreesHorizon > Math.min(HORIZON_LECTURE_MAX * 5, Math.floor(plafondInstantane / 10));
 }
 
+/** Source stable des faits auto-écrits quand la dérive est dégradée. */
+export const SOURCE_HORIZON_DERIVE = 'derive';
+
+/** Fenêtre anti-spam : un fait « dérive dégradée » au plus toutes les 6 h. */
+export const FENETRE_FAIT_DERIVE_MS = 6 * 60 * 60 * 1000;
+
+/** Texte borné d'un fait auto-posé à la halte pour dérive dégradée. */
+export function texteFaitDeriveDegradee(motif: string): string {
+  const base = 'Dérive dégradée';
+  const m = motif.replace(/\s+/g, ' ').trim();
+  if (!m) return base;
+  const sep = ' — ';
+  const budget = HORIZON_TEXTE_MAX - base.length - sep.length;
+  if (budget <= 0) return base.slice(0, HORIZON_TEXTE_MAX);
+  return `${base}${sep}${m.slice(0, budget)}`;
+}
+
+/**
+ * Faut-il encore écrire un fait « dérive dégradée » ?
+ * Évite de saturer le carnet à chaque GET / cycle runner.
+ */
+export function doitNoterFaitDeriveDegradee(
+  entrees: readonly EntreeHorizon[],
+  now: number,
+  fenetreMs = FENETRE_FAIT_DERIVE_MS,
+): boolean {
+  return !entrees.some(
+    (e) =>
+      e.kind === 'fait' &&
+      e.source === SOURCE_HORIZON_DERIVE &&
+      e.texte.startsWith('Dérive dégradée') &&
+      now - e.creeA < fenetreMs,
+  );
+}
+
 export function expliquerRefusHorizon(motif: MotifRefusHorizon, lang: 'fr' | 'en' = 'fr'): string {
   const fr: Record<MotifRefusHorizon, string> = {
     vide: 'Entrée d’horizon incomplète.',

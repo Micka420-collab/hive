@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   VERSION_FABRIQUE,
   jugerFabriqueAvantChantier,
+  marquerFabriquesMergeesApresFusion,
   promptFabrique,
   validerGenreFabrique,
 } from '../src/orchestrator/fabrique.js';
@@ -61,6 +62,26 @@ describe('fabrique — jugement chantier', () => {
     expect(promptFabrique({ genre: 'script_npm', libelle: 'X', nomScript: 'x' })).toMatch(
       /APRÈS merge/,
     );
+  });
+
+  it('marquerFabriquesMergeesApresFusion lie taskId et orphelines', () => {
+    const store = new HiveStore(':memory:');
+    const p = store.createProject({ name: 'P' });
+    const liee = store.ouvrirFabrique(p.id, 'script_npm', 'A', {
+      nomScript: 'a',
+      taskId: 't-1',
+    });
+    const orpheline = store.ouvrirFabrique(p.id, 'script_npm', 'B', { nomScript: 'b' });
+    const autre = store.ouvrirFabrique(p.id, 'script_npm', 'C', {
+      nomScript: 'c',
+      taskId: 't-2',
+    });
+    expect(liee.ok && orpheline.ok && autre.ok).toBe(true);
+    if (!liee.ok || !orpheline.ok || !autre.ok) return;
+    expect(marquerFabriquesMergeesApresFusion(store, p.id, 't-1')).toBe(2);
+    expect(store.listerFabriques(p.id).find((f) => f.id === liee.id)?.statut).toBe('mergee');
+    expect(store.listerFabriques(p.id).find((f) => f.id === orpheline.id)?.statut).toBe('mergee');
+    expect(store.listerFabriques(p.id).find((f) => f.id === autre.id)?.statut).toBe('proposee');
   });
 });
 

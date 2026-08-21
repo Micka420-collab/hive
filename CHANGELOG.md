@@ -10,9 +10,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 - **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers
-  tant que le merge n’a pas atterri ; fusion PR → statut fabrique `mergee` ;
-  essaim halte si le carnet d’horizon dépasse le budget d’instantané ; motif
-  jeu-3d nomme Blender ; exemple Seedance (réquisition `cle_api` sans secret).
+  tant que le merge n’a pas atterri ; fusion PR (humaine **et** autonome) →
+  statut fabrique `mergee` ; dérive dégradée → fait auto dans l’horizon
+  (anti-spam) ; essaim halte si le carnet dépasse le budget d’instantané ;
+  motifs `jeu-3d` + `cli-outil` (fabrique avant livraison) ; réquisition
+  ouverte émet `requisition_ouverte` ; exemple Seedance (`cle_api` sans secret).
 
 ### Added
 

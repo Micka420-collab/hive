@@ -77,6 +77,29 @@ export const MOTIFS: readonly MotifInterProjet[] = Object.freeze([
       }),
     ]),
   }),
+  Object.freeze({
+    id: 'cli-outil',
+    domaine: 'outillage',
+    libelleFr: 'CLI — fabrique / script déclaré avant packaging',
+    libelleEn: 'CLI — forge / declared script before packaging',
+    etapes: Object.freeze([
+      Object.freeze({
+        id: 'fabrique',
+        titreFr: 'Déclarer le script CLI dans le dépôt (fabrique) avant packaging',
+        titreEn: 'Declare the CLI script in the repo (forge) before packaging',
+      }),
+      Object.freeze({
+        id: 'tests',
+        titreFr: 'Couvrir le CLI par des tests une fois le script déclaré',
+        titreEn: 'Cover the CLI with tests once the script is declared',
+      }),
+      Object.freeze({
+        id: 'packaging',
+        titreFr: 'Packager / publier seulement après merge de la fabrique',
+        titreEn: 'Package / publish only after the forge merge',
+      }),
+    ]),
+  }),
 ]);
 
 export function motifParId(id: string): MotifInterProjet | null {
@@ -116,12 +139,19 @@ export function appliquerMotif(
   const m = motifParId(motifId);
   if (!m) return { ok: false, motif: 'inconnu' };
   const titres = m.etapes.map((e) => (lang === 'en' ? e.titreEn : e.titreFr));
-  // Invariant : fabrique/outillage avant assets pour jeu-3d
+  // Invariant : fabrique/outillage avant la livraison tangible.
   if (m.id === 'jeu-3d') {
     const iFab = m.etapes.findIndex((e) => e.id === 'fabrique');
     const iAssets = m.etapes.findIndex((e) => e.id === 'assets');
     if (iFab < 0 || iAssets < 0 || iFab >= iAssets) {
       // Catalogue corrompu — silence plutôt que mauvais ordre
+      return { ok: false, motif: 'inconnu' };
+    }
+  }
+  if (m.id === 'cli-outil') {
+    const iFab = m.etapes.findIndex((e) => e.id === 'fabrique');
+    const iPack = m.etapes.findIndex((e) => e.id === 'packaging');
+    if (iFab < 0 || iPack < 0 || iFab >= iPack) {
       return { ok: false, motif: 'inconnu' };
     }
   }
