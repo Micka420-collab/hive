@@ -339,6 +339,7 @@ export default function Chambre({
                     className="btn primary ch-btn-accorder"
                     disabled={busyReqId === r.id}
                     aria-busy={busyReqId === r.id}
+                    aria-label={t(`Accorder — ${r.libelle}`, `Grant — ${r.libelle}`)}
                     onClick={() => {
                       setBusyReqId(r.id);
                       void repondreRequisition(r.id, 'accordee')
@@ -353,6 +354,7 @@ export default function Chambre({
                     className="btn ghost ch-btn-refuser"
                     disabled={busyReqId === r.id}
                     aria-busy={busyReqId === r.id}
+                    aria-label={t(`Refuser — ${r.libelle}`, `Deny — ${r.libelle}`)}
                     onClick={() => {
                       setBusyReqId(r.id);
                       void repondreRequisition(r.id, 'refusee')

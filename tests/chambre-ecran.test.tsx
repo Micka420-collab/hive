@@ -306,6 +306,8 @@ describe('Chambre à l’écran', () => {
     await cliquer(accorder);
     expect(accorder.disabled).toBe(true);
     expect(refuser.disabled).toBe(true);
+    expect(accorder.getAttribute('aria-label')).toMatch(/Accorder.*Seedance/i);
+    expect(refuser.getAttribute('aria-label')).toMatch(/Refuser.*Seedance/i);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 40));
     });
