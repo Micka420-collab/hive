@@ -425,7 +425,8 @@
 .ch-btn-accorder:focus-visible,
 .ch-btn-refuser:focus-visible,
 .ch-brand-back:focus-visible,
-.ch-lien-rayon:focus-visible {
+.ch-lien-rayon:focus-visible,
+.ch-tache:focus-visible {
   outline: 2px solid var(--ch-miel-fonce);
   outline-offset: 2px;
 }

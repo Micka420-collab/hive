@@ -15,6 +15,8 @@ Maquette HTML : `index.html` · captures : `chambre-maquette-fidele.png`,
 
 L’UI live (`dashboard/src/views/Chambre.tsx` + `chambre.css`) suit ce look.
 Entrées : fiche nœud (Ruche), curseur Rayon, **carte Essaim** → `#/chambre/<nodeId>`.
+Chemins constatés → focus Rayon (parents dépliés) ; **Voir le Rayon** pose le
+focus sur la présence récente. Échap → Ruche (sauf saisie / dialogue / iframe).
 
 ## Figma
 
