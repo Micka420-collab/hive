@@ -10,9 +10,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - **Chambre UI fidèle à la maquette produit.** Crème `#FDF8F0` / miel `#F2B441`,
-  bandeau **À trancher**, timeline Activité (pastilles EDIT/READ), pills de
-  tâches, Studio noVNC (Plein écran). Baptême display — données constatées
-  seulement. Maquette : `docs/maquettes/chambre/`.
+  bandeau **À trancher**, **Journal** (pastilles EDIT/READ), **Missions**
+  filtrées, **Ordinateur** noVNC (Plein écran). Baptême display — données
+  constatées seulement. Curseur Rayon → ouvre la Chambre. Maquette :
+  `docs/maquettes/chambre/`. Capture + démo : `docs/images/dashboard-chambre.png`,
+  `docs/media/chambre-presentation-demo.mp4`.
 
 - **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
   vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,

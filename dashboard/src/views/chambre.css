@@ -99,6 +99,23 @@
   border-radius: 50%;
   background: #2f6b3a;
   box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 22%, transparent);
+  animation: ch-live-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes ch-live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, #2f6b3a 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-live::before {
+    animation: none;
+  }
 }
 
 .ch-live-off {

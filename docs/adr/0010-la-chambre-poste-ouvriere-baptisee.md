@@ -39,7 +39,7 @@ Comme dans un éditeur + le poste d'un collègue :
    Intégrations / Suivi. Pas de faux mail, visio, téléphone, portrait stock.
 2. **Centre — journal daté** de CETTE ouvrière (plan, diffs, logs, captures),
    pas le chat Reine.
-3. **Droite haut — Activité** filtrée (En cours / En pause / Terminées /
+3. **Droite haut — Missions** filtrées (En cours / En pause / Terminées /
    Échecs) sur les `TaskStatus` de **cette** ouvrière seulement + horodatage.
 4. **Droite bas — Ordinateur** = l'Atelier existant (noVNC). S'il est éteint,
    le **dire**. Interdit d'inventer un faux bureau.
