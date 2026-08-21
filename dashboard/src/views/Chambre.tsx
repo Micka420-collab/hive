@@ -785,8 +785,8 @@ function FleurOrnement() {
     <svg
       className="ch-fleur"
       viewBox="0 0 120 140"
-      width="110"
-      height="128"
+      width="88"
+      height="102"
       fill="none"
       aria-hidden="true"
     >
