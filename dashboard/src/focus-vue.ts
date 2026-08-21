@@ -40,3 +40,17 @@ export function cheminDepuisFocus(focus: string | null): string | null {
   const c = focus.slice(FOCUS_FICHIER_PREFIX.length).trim();
   return c.length > 0 ? c : null;
 }
+
+/**
+ * Parents d’un chemin fichier, racine exclue — pour déplier l’arbre Rayon
+ * avant d’ouvrir `src/a/b.ts` → `['src', 'src/a']`.
+ */
+export function parentsDuChemin(chemin: string): string[] {
+  const parts = chemin.split('/').filter((p) => p.length > 0);
+  if (parts.length <= 1) return [];
+  const out: string[] = [];
+  for (let i = 1; i < parts.length; i++) {
+    out.push(parts.slice(0, i).join('/'));
+  }
+  return out;
+}

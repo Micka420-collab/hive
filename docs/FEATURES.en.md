@@ -164,7 +164,9 @@ timeline.
 From a **node sheet** (Hive view) → **Open workstation** (`#/chambre/<nodeId>`):
 baptismal name, cycle role, caste, **observed** open files (Read/Edit/Write),
 that worker’s **Journal** and **Missions**, and **Computer** = Atelier noVNC (or “off” —
-no fake desktop). On the **Comb**, cursors show who is on which path
+no fake desktop). On **node cards**, the observed baptism (`GET /api/baptemes`,
+hive token) is the title — otherwise “Not baptised yet”. On the **Comb**,
+cursors show who is on which path
 (baptismal name, otherwise silence) — a click opens that worker’s **Chambre**;
 the **Working on…** strip lists presence even when the repo mirror is empty.
 **Requisitions** (API key, MCP, binary,

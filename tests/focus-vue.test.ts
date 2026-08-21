@@ -10,6 +10,7 @@ import {
   demanderFocusFichier,
   FOCUS_FICHIER_PREFIX,
   FOCUS_SAUVEGARDES,
+  parentsDuChemin,
 } from '../dashboard/src/focus-vue.js';
 
 afterEach(() => {
@@ -29,5 +30,11 @@ describe('focus-vue', () => {
     expect(f).toBe(`${FOCUS_FICHIER_PREFIX}src/pont/mcp.ts`);
     expect(cheminDepuisFocus(f)).toBe('src/pont/mcp.ts');
     expect(cheminDepuisFocus(FOCUS_SAUVEGARDES)).toBeNull();
+  });
+
+  it('parentsDuChemin déplie la hiérarchie sans la racine', () => {
+    expect(parentsDuChemin('README.md')).toEqual([]);
+    expect(parentsDuChemin('src/pont/mcp.ts')).toEqual(['src', 'src/pont']);
+    expect(parentsDuChemin('/src/a.ts')).toEqual(['src']);
   });
 });

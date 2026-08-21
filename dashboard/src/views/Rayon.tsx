@@ -40,7 +40,12 @@ import {
 } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon, PresenceCurseur } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
-import { cheminDepuisFocus, consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
+import {
+  cheminDepuisFocus,
+  consommerFocus,
+  FOCUS_SAUVEGARDES,
+  parentsDuChemin,
+} from '../focus-vue';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -175,30 +180,6 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     void charger(projet.id, '').finally(() => setChargement(false));
   }, [projet?.id, charger]);
 
-  // Reine → Sauvegardes, ou Chambre → chemin constaté.
-  useEffect(() => {
-    const focus = consommerFocus();
-    if (!focus) return;
-    if (focus === FOCUS_SAUVEGARDES) {
-      setAttirerSg(true);
-      const id = window.requestAnimationFrame(() => {
-        document.getElementById('ry-sauvegardes')?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
-      });
-      const fin = window.setTimeout(() => setAttirerSg(false), 1800);
-      return () => {
-        window.cancelAnimationFrame(id);
-        window.clearTimeout(fin);
-      };
-    }
-    const chemin = cheminDepuisFocus(focus);
-    if (chemin && projet) {
-      void ouvrir(chemin);
-    }
-  }, [projet?.id, refreshTick]);
-
   const basculer = (chemin: string) => {
     const connu = dossiers[chemin];
     if (connu) {
@@ -224,6 +205,40 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
       setErreur(e instanceof Error ? e.message : String(e));
     }
   };
+
+  /** Déplie les dossiers parents (lazy), puis ouvre le fichier constaté. */
+  const revelerEtOuvrir = async (projectId: string, chemin: string) => {
+    await charger(projectId, '');
+    for (const parent of parentsDuChemin(chemin)) {
+      await charger(projectId, parent);
+    }
+    await ouvrir(chemin);
+  };
+
+  // Reine → Sauvegardes, ou Chambre → chemin constaté (déplie les parents).
+  useEffect(() => {
+    const focus = consommerFocus();
+    if (!focus) return;
+    if (focus === FOCUS_SAUVEGARDES) {
+      setAttirerSg(true);
+      const id = window.requestAnimationFrame(() => {
+        document.getElementById('ry-sauvegardes')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      });
+      const fin = window.setTimeout(() => setAttirerSg(false), 1800);
+      return () => {
+        window.cancelAnimationFrame(id);
+        window.clearTimeout(fin);
+      };
+    }
+    const chemin = cheminDepuisFocus(focus);
+    if (chemin && projet) {
+      void revelerEtOuvrir(projet.id, chemin);
+    }
+    // Intentionnellement borné à projet + tick (focus one-shot).
+  }, [projet?.id, refreshTick, charger]);
 
   /** Rend un dossier et, s'il est déplié, ses enfants — récursivement. */
   const rendre = (chemin: string, profondeur: number): React.ReactNode => {
