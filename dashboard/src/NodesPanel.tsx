@@ -52,11 +52,13 @@ function FicheOuvriere({
   noeud,
   tasks,
   onOpenTask,
+  onOuvrirPoste,
   onClose,
 }: {
   noeud: HiveNode;
   tasks: Task[];
   onOpenTask: (id: string) => void;
+  onOuvrirPoste?: (nodeId: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -162,6 +164,22 @@ function FicheOuvriere({
             ))}
           </ul>
         )}
+
+        {onOuvrirPoste && (
+          <footer className="fo-actions" style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => {
+                const id = noeud.id;
+                onClose();
+                onOuvrirPoste(id);
+              }}
+            >
+              {t('Ouvrir le poste', 'Open workstation')}
+            </button>
+          </footer>
+        )}
       </div>
     </Voile>
   );
@@ -171,11 +189,14 @@ export function NodesPanel({
   nodes,
   tasks,
   onOpenTask,
+  onOuvrirPoste,
 }: {
   nodes: HiveNode[];
   /** Fournies : les cartes deviennent cliquables et ouvrent la fiche. */
   tasks?: Task[];
   onOpenTask?: (id: string) => void;
+  /** Chambre (ADR 0010) — ouvre `#/chambre/<nodeId>`. */
+  onOuvrirPoste?: (nodeId: string) => void;
 }) {
   const t = useT();
   const lang = useLang();
@@ -248,6 +269,7 @@ export function NodesPanel({
             setOuverte(null);
             onOpenTask(id);
           }}
+          onOuvrirPoste={onOuvrirPoste}
           onClose={() => setOuverte(null)}
         />
       )}

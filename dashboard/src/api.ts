@@ -1715,3 +1715,35 @@ export function demarrerAtelier(): Promise<{ ok: boolean; plan?: string[] }> {
 export function arreterAtelier(): Promise<{ ok: boolean }> {
   return api('/api/atelier/arreter', { method: 'POST', body: '{}' });
 }
+
+/** Réponse de `GET /api/chambre/:nodeId` — absences = null / [] (pas de théâtre). */
+export interface ChambrePoste {
+  nodeId: string;
+  bapteme: { nom: string; baptiseA: number } | null;
+  metier: { metier: string; assigneA: number } | null;
+  caste: string;
+  node: {
+    id: string;
+    status: string;
+    plateforme: string | null;
+    agentType: string;
+    ownerName: string;
+    running: number;
+    maxConcurrency: number;
+    lastSeen: number | null;
+    nameTechnique: string;
+  };
+  presences: Array<{
+    toolUseId: string;
+    chemin: string;
+    outil: string;
+    taskId: string | null;
+    constateA: number;
+  }>;
+  tasks: Task[];
+  atelier: EtatAtelier;
+}
+
+export function fetchChambre(nodeId: string): Promise<ChambrePoste> {
+  return api<ChambrePoste>(`/api/chambre/${encodeURIComponent(nodeId)}`);
+}

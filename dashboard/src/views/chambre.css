@@ -1,0 +1,239 @@
+/* Chambre — poste ouvrière (ADR 0010). Miel / crème, pas de thème sombre Delos. */
+
+.ch-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+
+.ch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ch-titre {
+  margin: 0;
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.ch-tech {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.ch-err {
+  color: var(--rouge, #b33);
+}
+
+.ch-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr) minmax(200px, 1fr);
+  grid-template-rows: minmax(180px, 1fr) minmax(200px, 1.1fr);
+  grid-template-areas:
+    'identite journal activite'
+    'identite journal ordi';
+  gap: 12px;
+  flex: 1;
+  min-height: 420px;
+}
+
+.ch-zone {
+  background: var(--panel, #fffdf8);
+  border: 1px solid color-mix(in srgb, var(--miel, #f6c445) 35%, transparent);
+  border-radius: var(--r-sm, 8px);
+  padding: 12px 14px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.ch-zone h3 {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--encre, #2a241c) 65%, transparent);
+}
+
+.ch-identite {
+  grid-area: identite;
+}
+
+.ch-journal {
+  grid-area: journal;
+}
+
+.ch-activite {
+  grid-area: activite;
+}
+
+.ch-ordi {
+  grid-area: ordi;
+  display: flex;
+  flex-direction: column;
+}
+
+.ch-nom {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+}
+
+.ch-meta {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.ch-presences h4 {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.ch-presences ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.78rem;
+}
+
+.ch-outil {
+  display: inline-block;
+  min-width: 3.2em;
+  color: color-mix(in srgb, var(--miel, #f6c445) 20%, var(--encre, #2a241c));
+}
+
+.ch-silence {
+  font-size: 0.85rem;
+}
+
+.ch-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.ch-log li {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--miel, #f6c445) 18%, transparent);
+}
+
+.ch-log-time {
+  flex: 0 0 4.5em;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-log-type {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.8rem;
+}
+
+.ch-filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ch-filtres button {
+  border: 1px solid color-mix(in srgb, var(--miel, #f6c445) 40%, transparent);
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ch-filtres button.actif {
+  background: color-mix(in srgb, var(--miel, #f6c445) 55%, white);
+  border-color: var(--miel, #f6c445);
+}
+
+.ch-taches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ch-taches li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--miel, #f6c445) 15%, transparent);
+}
+
+.ch-tache {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.ch-tache:hover {
+  text-decoration: underline;
+}
+
+.ch-tache-time {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.ch-ordi-off,
+.ch-ordi-on {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ch-ordi-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ch-vnc {
+  flex: 1;
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid color-mix(in srgb, var(--miel, #f6c445) 30%, transparent);
+  border-radius: 6px;
+  background: #1a1814;
+}
+
+@media (max-width: 960px) {
+  .ch-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      'identite'
+      'activite'
+      'journal'
+      'ordi';
+    min-height: 0;
+  }
+
+  .ch-vnc {
+    min-height: 220px;
+  }
+}

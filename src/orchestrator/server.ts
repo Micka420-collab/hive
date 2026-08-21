@@ -1747,6 +1747,60 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return { ok: true };
   });
 
+  /**
+   * Chambre (ADR 0010) — lecture du poste d'UNE ouvrière.
+   *
+   * Jeton de ruche UNIQUEMENT. Un lien de partage ne doit JAMAIS voir les
+   * identités qui travaillent (baptême, métier, présence, tâches du nœud).
+   * Champs absents ⇒ null / [] : l'écran n'invente rien.
+   */
+  app.get<{ Params: { nodeId: string } }>(
+    '/api/chambre/:nodeId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const node = store.getNode(req.params.nodeId);
+      if (!node) return reply.code(404).send({ error: 'ouvrière inconnue' });
+      const bapteme = store.lireBapteme(node.id);
+      const metier = store.lireMetier(node.id);
+      const presences = store.lirePresences(node.id);
+      const tasks = store
+        .listTasks()
+        .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 80);
+      return {
+        nodeId: node.id,
+        bapteme,
+        metier,
+        caste: casteDe(node.id),
+        node: {
+          id: node.id,
+          status: node.status,
+          plateforme: node.plateforme ?? null,
+          agentType: node.agentType,
+          ownerName: node.ownerName,
+          running: node.running,
+          maxConcurrency: node.maxConcurrency,
+          lastSeen: node.lastSeen,
+          /** Libellé technique d'inscription — PAS l'identité baptisée. */
+          nameTechnique: node.name,
+        },
+        presences,
+        tasks,
+        atelier: await etatAtelier({ env: process.env }),
+      };
+    },
+  );
+
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();
