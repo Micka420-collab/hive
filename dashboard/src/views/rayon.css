@@ -134,6 +134,25 @@
   box-shadow: none;
 }
 
+.ry-ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  min-width: 0;
+}
+
+.ry-ligne > .ry-entree {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.ry-ligne > .ry-curseurs {
+  flex: none;
+  padding-right: 6px;
+}
+
 .ry-entree {
   display: flex;
   align-items: center;
@@ -211,6 +230,13 @@
 
 .ry-curseur-read {
   background: color-mix(in srgb, #6b8f71 30%, white);
+}
+
+.ry-curseur-muet {
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.9;
 }
 
 @keyframes ry-curseur-in {

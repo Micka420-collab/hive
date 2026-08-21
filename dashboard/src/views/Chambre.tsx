@@ -22,6 +22,7 @@ import {
 } from '../api';
 import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
 import { useLang, useT } from '../i18n';
+import { demanderFocusFichier } from '../focus-vue';
 import { libelleMetier } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
 import {
@@ -83,6 +84,7 @@ export default function Chambre({
   const [brouillonHorizon, setBrouillonHorizon] = useState('');
   const [kindHorizon, setKindHorizon] = useState<'fait' | 'hypothese'>('fait');
   const [busyHorizon, setBusyHorizon] = useState(false);
+  const [busyReqId, setBusyReqId] = useState<string | null>(null);
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -109,6 +111,18 @@ export default function Chambre({
       .then((r) => setMotifs(r.motifs))
       .catch(() => setMotifs([]));
   }, [onglet]);
+
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      // Ne pas voler Échap à un dialogue / tiroir modal ouvert.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      ev.preventDefault();
+      onNavigate('ruche');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onNavigate]);
 
   const tasksLive = useMemo(() => {
     if (!nodeId) return [];
@@ -242,14 +256,26 @@ export default function Chambre({
                   <button
                     type="button"
                     className="btn primary ch-btn-accorder"
-                    onClick={() => void repondreRequisition(r.id, 'accordee').then(rafraichir)}
+                    disabled={busyReqId === r.id}
+                    onClick={() => {
+                      setBusyReqId(r.id);
+                      void repondreRequisition(r.id, 'accordee')
+                        .then(rafraichir)
+                        .finally(() => setBusyReqId(null));
+                    }}
                   >
                     {t('Accorder', 'Grant')}
                   </button>
                   <button
                     type="button"
                     className="btn ghost ch-btn-refuser"
-                    onClick={() => void repondreRequisition(r.id, 'refusee').then(rafraichir)}
+                    disabled={busyReqId === r.id}
+                    onClick={() => {
+                      setBusyReqId(r.id);
+                      void repondreRequisition(r.id, 'refusee')
+                        .then(rafraichir)
+                        .finally(() => setBusyReqId(null));
+                    }}
                   >
                     {t('Refuser', 'Deny')}
                   </button>
@@ -390,7 +416,22 @@ export default function Chambre({
                       <ul>
                         {poste.presences.map((p) => (
                           <li key={p.toolUseId}>
-                            <span className="ch-outil">{p.outil}</span> {p.chemin}
+                            <span className="ch-outil">{p.outil}</span>{' '}
+                            {poste.projectId ? (
+                              <button
+                                type="button"
+                                className="ch-lien-chemin"
+                                title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
+                                onClick={() => {
+                                  demanderFocusFichier(p.chemin);
+                                  onNavigate('rayon', poste.projectId!);
+                                }}
+                              >
+                                {p.chemin}
+                              </button>
+                            ) : (
+                              p.chemin
+                            )}
                             <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
                           </li>
                         ))}
@@ -576,7 +617,10 @@ export default function Chambre({
                         type="button"
                         className="ch-log-resume ch-lien-chemin"
                         title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
-                        onClick={() => onNavigate('rayon', poste.projectId!)}
+                        onClick={() => {
+                          demanderFocusFichier(p.chemin);
+                          onNavigate('rayon', poste.projectId!);
+                        }}
                       >
                         {p.chemin}
                       </button>

@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
-import { fetchWaggle } from './api';
+import { fetchChambre, fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
@@ -83,6 +83,8 @@ function FicheOuvriere({
   // entre à l'ouverture, et il RETOURNE à la carte qu'on a cliquée en sortant.
   const dialogRef = useDialog<HTMLDivElement>(onClose);
   const [nectar, setNectar] = useState<NodeNectar | null>(null);
+  /** Baptême constaté — null = silence (pas le name technique inventé en titre). */
+  const [bapteme, setBapteme] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let vivant = true;
     fetchWaggle()
@@ -92,10 +94,20 @@ function FicheOuvriere({
       .catch(() => {
         /* classement injoignable : la fiche vit sans lui */
       });
+    fetchChambre(noeud.id)
+      .then((p) => {
+        if (vivant) setBapteme(p.bapteme?.nom ?? null);
+      })
+      .catch(() => {
+        if (vivant) setBapteme(null);
+      });
     return () => {
       vivant = false;
     };
   }, [noeud.id]);
+
+  const titreAffiche =
+    bapteme === undefined ? noeud.name : (bapteme ?? t('Pas encore baptisée', 'Not baptised yet'));
 
   return (
     <Voile onClose={onClose}>
@@ -109,7 +121,8 @@ function FicheOuvriere({
       >
         <header className="modal-head">
           <h2 id="fiche-ouvriere-titre">
-            {AGENT_ICON[noeud.agentType] ?? '•'} {noeud.name}
+            {AGENT_ICON[noeud.agentType] ?? '•'}{' '}
+            <span className={bapteme ? undefined : 'muted-text'}>{titreAffiche}</span>
           </h2>
           <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
@@ -128,6 +141,11 @@ function FicheOuvriere({
           {noeud.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')} ·{' '}
           {noeud.running}/{noeud.maxConcurrency} {t('en vol', 'in flight')}
         </p>
+        {bapteme !== undefined && (
+          <p className="fo-technique muted-text">
+            {t('Technique', 'Technical')} · {noeud.name}
+          </p>
+        )}
 
         {nectar && (
           <p className="fo-nectar">

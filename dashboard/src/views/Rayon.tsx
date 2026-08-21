@@ -40,7 +40,7 @@ import {
 } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon, PresenceCurseur } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
-import { consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
+import { cheminDepuisFocus, consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -175,21 +175,28 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     void charger(projet.id, '').finally(() => setChargement(false));
   }, [projet?.id, charger]);
 
-  // Reine → mode Sauvegardes / puce Restaurer… : scroller + pulse la timeline.
+  // Reine → Sauvegardes, ou Chambre → chemin constaté.
   useEffect(() => {
-    if (consommerFocus() !== FOCUS_SAUVEGARDES) return;
-    setAttirerSg(true);
-    const id = window.requestAnimationFrame(() => {
-      document.getElementById('ry-sauvegardes')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
+    const focus = consommerFocus();
+    if (!focus) return;
+    if (focus === FOCUS_SAUVEGARDES) {
+      setAttirerSg(true);
+      const id = window.requestAnimationFrame(() => {
+        document.getElementById('ry-sauvegardes')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
       });
-    });
-    const fin = window.setTimeout(() => setAttirerSg(false), 1800);
-    return () => {
-      window.cancelAnimationFrame(id);
-      window.clearTimeout(fin);
-    };
+      const fin = window.setTimeout(() => setAttirerSg(false), 1800);
+      return () => {
+        window.cancelAnimationFrame(id);
+        window.clearTimeout(fin);
+      };
+    }
+    const chemin = cheminDepuisFocus(focus);
+    if (chemin && projet) {
+      void ouvrir(chemin);
+    }
   }, [projet?.id, refreshTick]);
 
   const basculer = (chemin: string) => {
@@ -227,8 +234,9 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
       const deplie = dossiers[e.chemin]?.ouvert ?? false;
       const qui = estDossier ? [] : curseursPour(e.chemin);
       return (
-        <div key={e.chemin}>
+        <div key={e.chemin} className="ry-ligne">
           <button
+            type="button"
             className={`ry-entree${ouvert === e.chemin ? ' active' : ''}`}
             style={{ paddingLeft: `${8 + profondeur * 14}px` }}
             onClick={() => (estDossier ? basculer(e.chemin) : void ouvrir(e.chemin))}
@@ -238,37 +246,36 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
               {icone(e, deplie)}
             </span>
             <span className="ry-nom">{e.nom}</span>
-            {qui.length > 0 && (
-              <span
-                className="ry-curseurs"
-                title={qui.map((q) => `${q.bapteme ?? '·'} · ${q.outil}`).join(' · ')}
-              >
-                {qui.map((q) => (
-                  <button
-                    key={q.toolUseId}
-                    type="button"
-                    className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}`}
-                    title={
-                      q.bapteme
-                        ? t(
-                            `${q.bapteme} · ${q.outil} — ouvrir le poste`,
-                            `${q.bapteme} · ${q.outil} — open workstation`,
-                          )
-                        : `${q.outil}`
-                    }
-                    data-testid="ry-curseur-poste"
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      onNavigate('chambre', q.nodeId);
-                    }}
-                  >
-                    {q.bapteme ?? '·'}
-                  </button>
-                ))}
-              </span>
-            )}
             {!estDossier && <span className="ry-taille">{taille(e.taille, t)}</span>}
           </button>
+          {qui.length > 0 && (
+            <span
+              className="ry-curseurs"
+              title={qui
+                .map((q) => (q.bapteme ? `${q.bapteme} · ${q.outil}` : q.outil))
+                .join(' · ')}
+            >
+              {qui.map((q) => (
+                <button
+                  key={q.toolUseId}
+                  type="button"
+                  className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}${q.bapteme ? '' : ' ry-curseur-muet'}`}
+                  title={
+                    q.bapteme
+                      ? t(
+                          `${q.bapteme} · ${q.outil} — ouvrir le poste`,
+                          `${q.bapteme} · ${q.outil} — open workstation`,
+                        )
+                      : t(`${q.outil} — ouvrir le poste`, `${q.outil} — open workstation`)
+                  }
+                  data-testid="ry-curseur-poste"
+                  onClick={() => onNavigate('chambre', q.nodeId)}
+                >
+                  {q.bapteme ?? q.outil}
+                </button>
+              ))}
+            </span>
+          )}
           {estDossier && rendre(e.chemin, profondeur + 1)}
         </div>
       );
@@ -381,7 +388,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
               <li key={c.toolUseId}>
                 <button
                   type="button"
-                  className={`ry-curseur ry-curseur-${c.outil.toLowerCase()}`}
+                  className={`ry-curseur ry-curseur-${c.outil.toLowerCase()}${c.bapteme ? '' : ' ry-curseur-muet'}`}
                   data-testid="ry-curseur-poste"
                   title={
                     c.bapteme
@@ -389,11 +396,11 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                           `${c.bapteme} · ${c.outil} — ouvrir le poste`,
                           `${c.bapteme} · ${c.outil} — open workstation`,
                         )
-                      : c.outil
+                      : t(`${c.outil} — ouvrir le poste`, `${c.outil} — open workstation`)
                   }
                   onClick={() => onNavigate('chambre', c.nodeId)}
                 >
-                  {c.bapteme ?? '·'}
+                  {c.bapteme ?? c.outil}
                 </button>
                 <span className="ry-presences-outil">{c.outil}</span>
                 <code className="ry-presences-chemin">{c.chemin}</code>

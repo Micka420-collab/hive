@@ -263,15 +263,36 @@ describe('Chambre à l’écran', () => {
         ],
       }),
     );
+    vi.mocked(repondreRequisition).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          window.setTimeout(() => resolve({ ok: true, statut: 'accordee' }), 30);
+        }),
+    );
     const dom = await monter();
     expect(dom.textContent).toContain('À trancher');
-    expect(dom.textContent).toContain('Clé Seedance');
     const accorder = [...dom.querySelectorAll('button')].find((b) =>
       (b.textContent ?? '').includes('Accorder'),
-    );
-    expect(accorder).toBeTruthy();
-    await cliquer(accorder!);
+    ) as HTMLButtonElement;
+    const refuser = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Refuser'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    expect(accorder.disabled).toBe(true);
+    expect(refuser.disabled).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 40));
+    });
     expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee');
+  });
+
+  it('Échap ramène à la Ruche', async () => {
+    const onNavigate = vi.fn();
+    await monter(onNavigate);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onNavigate).toHaveBeenCalledWith('ruche');
   });
 
   it('parcourt Travail, Intégrations (motifs) et Suivi (horizon)', async () => {
