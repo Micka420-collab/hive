@@ -722,7 +722,7 @@ function AtelierPoste({
           <h3>{t('Ordinateur — noVNC', 'Computer — noVNC')}</h3>
         </div>
         <div className="ch-ordi-off">
-          <p className="ch-silence">{t('État de l’atelier inconnu.', 'Studio state unknown.')}</p>
+          <p className="ch-silence">{t('État de l’atelier inconnu.', 'Computer state unknown.')}</p>
         </div>
       </div>
     );
@@ -748,7 +748,7 @@ function AtelierPoste({
               disabled={busy}
               onClick={() => void agir(demarrerAtelier)}
             >
-              {t('Allumer l’atelier', 'Start the studio')}
+              {t('Allumer l’atelier', 'Start the computer')}
             </button>
           )}
           {etat.mode === 'off' && <p className="ch-silence">HIVE_ATELIER=off</p>}
@@ -778,7 +778,7 @@ function AtelierPoste({
       <div className="ch-ordi-on">
         <iframe
           className="ch-vnc"
-          title={t('Écran de l’atelier', 'Studio screen')}
+          title={t('Écran de l’atelier', 'Computer screen')}
           src={etat.ecran}
           sandbox="allow-scripts allow-same-origin allow-forms"
         />
