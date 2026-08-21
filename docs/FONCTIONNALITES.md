@@ -177,10 +177,11 @@ une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
 Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir le poste**
 (`#/chambre/<nodeId>`) : identité baptisée, métier de cycle, caste, fichiers
-ouverts **constatés** (Read/Edit/Write), journal et tâches de **cette**
+ouverts **constatés** (Read/Edit/Write), **Journal** et **Missions** de **cette**
 ouvrière, et l’**Ordinateur** = Atelier noVNC (ou « éteint » — pas de faux
 bureau). Sur le **Rayon**, des curseurs montrent qui lit/édite quel chemin
-(baptême, sinon silence). Les **réquisitions** (clé API, MCP, binaire, atelier,
+(baptême, sinon silence) — un clic ouvre la **Chambre** de cette ouvrière.
+Les **réquisitions** (clé API, MCP, binaire, atelier,
 logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
 chez la Queen. Un lien de partage **ne voit jamais** ces identités.
 
@@ -190,9 +191,9 @@ merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans
 l’instantané). Les **motifs** inter-projets (ex. jeu-3d : fabrique avant assets)
 créent des tâches ordonnées — jamais le diff d’un autre dépôt.
 
-À l’écran : bandeau **À trancher** (réquisitions), journal d’activité avec
-**flux outils** constatés, onglets Fiche / Travail / Intégrations / Suivi
-(horizon + fabrique). Maquette : `docs/maquettes/chambre/`.
+À l’écran : bandeau **À trancher** (réquisitions), **Journal** avec
+**flux outils** constatés, **Missions** filtrées, onglets Fiche / Travail /
+Intégrations / Suivi (horizon + fabrique). Maquette : `docs/maquettes/chambre/`.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 

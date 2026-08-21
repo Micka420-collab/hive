@@ -244,13 +244,26 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                 title={qui.map((q) => `${q.bapteme ?? '·'} · ${q.outil}`).join(' · ')}
               >
                 {qui.map((q) => (
-                  <span
+                  <button
                     key={q.toolUseId}
+                    type="button"
                     className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}`}
-                    title={`${q.bapteme ?? '·'} · ${q.outil}`}
+                    title={
+                      q.bapteme
+                        ? t(
+                            `${q.bapteme} · ${q.outil} — ouvrir le poste`,
+                            `${q.bapteme} · ${q.outil} — open workstation`,
+                          )
+                        : `${q.outil}`
+                    }
+                    data-testid="ry-curseur-poste"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      onNavigate('chambre', q.nodeId);
+                    }}
                   >
                     {q.bapteme ?? '·'}
-                  </span>
+                  </button>
                 ))}
               </span>
             )}
@@ -302,6 +315,11 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
         {projet?.repoUrl && (
           <code className="ry-depot">{sansIdentifiants(projet.repoUrl) ?? '—'}</code>
         )}
+        {parPartage ? (
+          <span className="ry-partage-note" data-testid="ry-partage-identites">
+            {t('Identités absentes · lecture seule', 'Identities hidden · read-only')}
+          </span>
+        ) : null}
         <button className="btn ghost ry-apercu-btn" onClick={() => void voirApercu()}>
           {t('Aperçu', 'Preview')}
         </button>

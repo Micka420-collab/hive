@@ -163,9 +163,10 @@ timeline.
 
 From a **node sheet** (Hive view) → **Open workstation** (`#/chambre/<nodeId>`):
 baptismal name, cycle role, caste, **observed** open files (Read/Edit/Write),
-that worker’s journal and tasks, and **Computer** = Atelier noVNC (or “off” —
+that worker’s **Journal** and **Missions**, and **Computer** = Atelier noVNC (or “off” —
 no fake desktop). On the **Comb**, cursors show who is on which path
-(baptismal name, otherwise silence). **Requisitions** (API key, MCP, binary,
+(baptismal name, otherwise silence) — a click opens that worker’s **Chambre**.
+**Requisitions** (API key, MCP, binary,
 studio, software) are granted or denied from the Chambre — secrets stay on the
 Queen. A share link **never** sees these identities.
 
@@ -175,8 +176,8 @@ Chantiers may run it only **after** merge and declaration in `package.json`.
 Cross-project **motifs** (e.g. 3D game: forge before assets) create ordered
 tasks — never another repo’s diff.
 
-On screen: **Needs a decision** banner (requisitions), activity log with live
-**tool stream**, Sheet / Work / Integrations / Horizon tabs (ledger + forge).
+On screen: **Needs a decision** banner (requisitions), **Journal** with live
+**tool stream**, filtered **Missions**, Sheet / Work / Integrations / Horizon tabs (ledger + forge).
 Mockup: `docs/maquettes/chambre/`.
 
 ## 🧠 Queen Bee — from brief to DAG

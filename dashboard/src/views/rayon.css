@@ -122,7 +122,11 @@
 }
 
 .ry-curseur {
+  appearance: none;
+  border: 0;
+  font: inherit;
   font-size: 10px;
+  font-weight: 600;
   line-height: 1.2;
   padding: 1px 5px;
   border-radius: 4px;
@@ -132,7 +136,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
   animation: ry-curseur-in 0.35s ease-out;
+}
+
+.ry-curseur:hover,
+.ry-curseur:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--miel, #f2b441) 75%, transparent);
+  outline-offset: 1px;
 }
 
 .ry-curseur-edit {
@@ -389,6 +400,14 @@
   flex: none;
   font-size: 11.5px;
   padding: 3px 10px;
+}
+
+.ry-partage-note {
+  margin-left: auto;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--mute, #7a7164);
+  white-space: nowrap;
 }
 
 .ry-cadre {
