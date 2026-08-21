@@ -435,20 +435,25 @@ describe('Chambre à l’écran', () => {
   });
 
   it('un blip fetchChambre ne vide pas un poste déjà chargé', async () => {
-    let rejet = false;
-    vi.mocked(fetchChambre).mockImplementation(async () => {
-      if (rejet) throw new Error('blip');
-      return poste();
-    });
-    const dom = await monter();
-    expect(dom.textContent).toContain('Capucine');
-    rejet = true;
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 4100));
-    });
-    expect(dom.textContent).toContain('Capucine');
-    expect(dom.textContent).toContain('Actualisation interrompue');
-    expect(dom.textContent).not.toMatch(/Chargement…|Loading…/);
+    vi.useFakeTimers();
+    try {
+      let rejet = false;
+      vi.mocked(fetchChambre).mockImplementation(async () => {
+        if (rejet) throw new Error('blip');
+        return poste();
+      });
+      const dom = await monter();
+      expect(dom.textContent).toContain('Capucine');
+      rejet = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+      expect(dom.textContent).toContain('Capucine');
+      expect(dom.textContent).toContain('Actualisation interrompue');
+      expect(dom.textContent).not.toMatch(/Chargement…|Loading…/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('parcourt Travail, Intégrations (motifs) et Suivi (horizon)', async () => {
