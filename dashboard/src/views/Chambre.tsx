@@ -199,13 +199,25 @@ export default function Chambre({
           </p>
           <p className="ch-brand-sub">{t('Chambre · poste ouvrière', 'Chambre · workstation')}</p>
         </div>
-        {poste?.node.status === 'online' ? (
-          <span className="ch-live" aria-live="polite">
-            {t('en ligne', 'online')}
-          </span>
-        ) : (
-          <span className="ch-live ch-live-off">{t('hors ligne', 'offline')}</span>
-        )}
+        <div className="ch-brand-aside">
+          {poste?.projectId ? (
+            <button
+              type="button"
+              className="btn ghost ch-lien-rayon"
+              data-testid="chambre-ouvrir-rayon"
+              onClick={() => onNavigate('rayon', poste.projectId!)}
+            >
+              {t('Voir le Rayon', 'Open Rayon')}
+            </button>
+          ) : null}
+          {poste?.node.status === 'online' ? (
+            <span className="ch-live" aria-live="polite">
+              {t('en ligne', 'online')}
+            </span>
+          ) : (
+            <span className="ch-live ch-live-off">{t('hors ligne', 'offline')}</span>
+          )}
+        </div>
       </header>
 
       {reqs.length > 0 && (
@@ -274,6 +286,25 @@ export default function Chambre({
                 role="tablist"
                 aria-label={t('Sections', 'Sections')}
                 data-testid="chambre-sections"
+                aria-orientation="vertical"
+                onKeyDown={(e) => {
+                  const ordre: OngletId[] = ['fiche', 'travail', 'integrations', 'suivi'];
+                  const i = ordre.indexOf(onglet);
+                  if (i < 0) return;
+                  let next = i;
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowRight')
+                    next = (i + 1) % ordre.length;
+                  else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft')
+                    next = (i - 1 + ordre.length) % ordre.length;
+                  else if (e.key === 'Home') next = 0;
+                  else if (e.key === 'End') next = ordre.length - 1;
+                  else return;
+                  e.preventDefault();
+                  setOnglet(ordre[next]!);
+                  queueMicrotask(() => {
+                    document.getElementById(`ch-tab-${ordre[next]}`)?.focus();
+                  });
+                }}
               >
                 {(
                   [
@@ -290,6 +321,7 @@ export default function Chambre({
                     id={`ch-tab-${id}`}
                     aria-controls={`ch-panel-${id}`}
                     aria-selected={onglet === id}
+                    tabIndex={onglet === id ? 0 : -1}
                     className={onglet === id ? 'actif' : ''}
                     onClick={() => setOnglet(id)}
                   >
@@ -577,7 +609,12 @@ export default function Chambre({
           <div className="ch-zone-head">
             <h3>{t('Tâches', 'Tasks')}</h3>
           </div>
-          <div className="ch-filtres" role="tablist">
+          <div
+            className="ch-filtres"
+            role="group"
+            aria-label={t('Filtrer les tâches', 'Filter tasks')}
+            data-testid="chambre-filtres-taches"
+          >
             {(
               [
                 ['cours', t('En cours', 'In progress')],
@@ -589,8 +626,7 @@ export default function Chambre({
               <button
                 key={id}
                 type="button"
-                role="tab"
-                aria-selected={filtre === id}
+                aria-pressed={filtre === id}
                 className={filtre === id ? 'actif' : ''}
                 onClick={() => setFiltre(id)}
               >

@@ -592,6 +592,7 @@ export function App() {
             )}
             <button
               className="btn ghost mc-lang"
+              data-testid="mc-lang"
               onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
               title={t('Basculer l’interface en anglais', 'Switch interface to French')}
             >

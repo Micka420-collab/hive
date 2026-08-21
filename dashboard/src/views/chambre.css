@@ -70,8 +70,19 @@
   font-size: 0.8rem !important;
 }
 
-.ch-live {
+.ch-brand-aside {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ch-lien-rayon {
+  border-radius: 999px !important;
+  font-size: 0.78rem !important;
+}
+
+.ch-live {
   display: inline-flex;
   align-items: center;
   gap: 6px;
