@@ -1,0 +1,910 @@
+/* Chambre — fidèle à la maquette produit (miel / crème, poste ouvrière ADR 0010).
+   Pas de thème sombre Delos. Absences = silence. */
+
+.ch-view {
+  --ch-creme: #fdf8f0;
+  --ch-papier: #fffdf8;
+  --ch-miel: #f2b441;
+  --ch-miel-fonce: #d49a1a;
+  --ch-encre: #1a1a1a;
+  --ch-mute: color-mix(in srgb, var(--ch-encre) 55%, transparent);
+  --ch-ligne: color-mix(in srgb, var(--ch-miel) 28%, #e8dfd0);
+  --ch-ombre: 0 10px 28px color-mix(in srgb, var(--ch-encre) 6%, transparent);
+  --ch-rayon: 12px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+  padding: 4px 2px 8px;
+  background:
+    radial-gradient(
+      900px 420px at 8% -20%,
+      color-mix(in srgb, var(--ch-miel) 18%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      700px 360px at 92% 0%,
+      color-mix(in srgb, #c4a574 12%, transparent),
+      transparent 50%
+    ),
+    var(--ch-creme);
+  border-radius: var(--ch-rayon);
+  color: var(--ch-encre);
+}
+
+.ch-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ch-brand-mark {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ch-brand-hive {
+  margin: 0;
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.ch-brand-sub {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ch-mute);
+}
+
+.ch-brand-back {
+  border-radius: 999px !important;
+  font-size: 0.8rem !important;
+}
+
+.ch-brand-aside {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ch-lien-rayon {
+  border-radius: 999px !important;
+  font-size: 0.78rem !important;
+}
+
+.ch-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #2f6b3a;
+}
+
+.ch-live::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2f6b3a;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 22%, transparent);
+  animation: ch-live-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes ch-live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, #2f6b3a 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-live::before {
+    animation: none;
+  }
+}
+
+.ch-live-off {
+  color: var(--ch-mute);
+}
+
+.ch-live-off::before {
+  background: var(--ch-mute);
+  box-shadow: none;
+}
+
+/* ─── HITL banner (maquette « À trancher ») ─── */
+
+.ch-hitl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--ch-miel) 16%, var(--ch-papier));
+  border: 1px solid color-mix(in srgb, var(--ch-miel) 55%, transparent);
+  border-radius: 14px;
+  box-shadow: var(--ch-ombre);
+  animation: ch-hitl-in 0.4s ease-out;
+}
+
+@keyframes ch-hitl-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-hitl {
+    animation: none;
+  }
+}
+
+.ch-hitl-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ch-hitl-titre {
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.ch-hitl-sous {
+  font-size: 0.82rem;
+  color: var(--ch-mute);
+}
+
+.ch-hitl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 280px;
+}
+
+.ch-hitl-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.ch-hitl-list em {
+  font-style: normal;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ch-miel-fonce) 70%, var(--ch-encre));
+}
+
+.ch-req-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ch-btn-accorder {
+  background: var(--ch-miel) !important;
+  border-color: var(--ch-miel-fonce) !important;
+  color: var(--ch-encre) !important;
+  font-weight: 650 !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+}
+
+.ch-btn-refuser {
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  border: 1px solid color-mix(in srgb, var(--ch-encre) 22%, transparent) !important;
+  background: transparent !important;
+}
+
+/* ─── Grid 4 zones ─── */
+
+.ch-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.95fr) minmax(0, 1.55fr) minmax(220px, 1fr);
+  grid-template-rows: minmax(200px, 1fr) minmax(220px, 1.05fr);
+  grid-template-areas:
+    'identite journal activite'
+    'identite journal ordi';
+  gap: 14px;
+  flex: 1;
+  min-height: 460px;
+}
+
+.ch-zone {
+  background: var(--ch-papier);
+  border: 1px solid var(--ch-ligne);
+  border-radius: var(--ch-rayon);
+  padding: 16px 16px 14px;
+  overflow: auto;
+  min-height: 0;
+  box-shadow: var(--ch-ombre);
+}
+
+.ch-zone-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ch-zone-head h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ch-mute);
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+}
+
+.ch-identite {
+  grid-area: identite;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: auto;
+}
+
+.ch-ornement {
+  position: relative;
+  height: 56px;
+  margin: -4px 0 4px;
+  pointer-events: none;
+  /* Groupe abeille + fleur ancré en haut à gauche (maquette). */
+}
+
+.ch-abeille {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  z-index: 2;
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--ch-encre) 8%, transparent));
+  animation: ch-abeille-pose 0.6s ease-out;
+}
+
+.ch-fleur {
+  position: absolute;
+  left: 40px;
+  top: -18px;
+  z-index: 1;
+  opacity: 0.78;
+  transform: rotate(6deg);
+  animation: ch-fleur-in 0.7s ease-out;
+}
+
+@keyframes ch-abeille-pose {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ch-fleur-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.78;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-abeille,
+  .ch-fleur {
+    animation: none;
+  }
+}
+
+.ch-brand-hive {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ch-brand-hex {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.ch-journal {
+  grid-area: journal;
+}
+
+.ch-activite {
+  grid-area: activite;
+}
+
+.ch-ordi {
+  grid-area: ordi;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ─── Identité ─── */
+
+.ch-onglet-corps {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  animation: ch-stream-in 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-onglet-corps {
+    animation: none;
+  }
+}
+
+.ch-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ch-mute);
+}
+
+.ch-nom {
+  margin: 0 0 6px;
+  font-size: clamp(1.55rem, 2.4vw, 2rem);
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.ch-sous-nom {
+  margin: 0 0 14px;
+  font-size: 0.82rem;
+  color: var(--ch-mute);
+}
+
+.ch-onglets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 14px;
+}
+
+.ch-onglets button {
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ch-encre);
+  transition: background 0.15s ease;
+}
+
+.ch-onglets button.actif {
+  background: color-mix(in srgb, var(--ch-miel) 55%, white);
+  font-weight: 600;
+}
+
+.ch-onglets button:hover:not(.actif) {
+  background: color-mix(in srgb, var(--ch-miel) 12%, transparent);
+}
+
+.ch-onglets button:focus-visible,
+.ch-filtres button:focus-visible,
+.ch-btn-accorder:focus-visible,
+.ch-btn-refuser:focus-visible,
+.ch-brand-back:focus-visible,
+.ch-lien-rayon:focus-visible,
+.ch-tache:focus-visible {
+  outline: 2px solid var(--ch-miel-fonce);
+  outline-offset: 2px;
+}
+
+.ch-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ch-meta li {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.ch-meta-k {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ch-mute);
+}
+
+.ch-meta-v {
+  font-weight: 500;
+}
+
+.ch-statut-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ch-statut-dot::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ch-miel);
+}
+
+.ch-statut-dot.ch-statut-on::before {
+  background: #2f6b3a;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 18%, transparent);
+}
+
+.ch-statut-dot.ch-statut-off::before {
+  background: var(--ch-mute);
+  box-shadow: none;
+}
+
+.ch-presences h4,
+.ch-fabrique h4,
+.ch-horizon h4 {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ch-mute);
+}
+
+.ch-presences ul,
+.ch-fabrique ul,
+.ch-horizon ul,
+.ch-motifs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.ch-presences li,
+.ch-fabrique li,
+.ch-horizon li {
+  padding: 6px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ch-ligne) 80%, transparent);
+}
+
+.ch-outil {
+  display: inline-block;
+  min-width: 3.2em;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ch-miel-fonce) 50%, var(--ch-encre));
+}
+
+.ch-silence,
+.ch-note {
+  font-size: 0.82rem;
+  color: var(--ch-mute);
+}
+
+.ch-note {
+  margin: 10px 0 14px;
+}
+
+.ch-motifs li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ch-ligne) 80%, transparent);
+}
+
+.ch-horizon-label {
+  margin: 12px 0 4px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ch-mute);
+}
+
+.ch-hypotheses li {
+  font-style: italic;
+  opacity: 0.92;
+}
+
+.ch-horizon-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.ch-horizon-form select,
+.ch-horizon-form input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--ch-ligne);
+  background: var(--ch-creme);
+  color: inherit;
+}
+
+/* ─── Activité timeline ─── */
+
+.ch-stream {
+  margin-bottom: 12px;
+}
+
+.ch-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ch-timeline li {
+  display: grid;
+  grid-template-columns: 4.2em 1fr auto;
+  gap: 10px 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ch-ligne) 85%, transparent);
+  animation: ch-stream-in 0.35s ease-out;
+}
+
+@keyframes ch-stream-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-timeline li {
+    animation: none;
+  }
+}
+
+.ch-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.55em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--ch-miel) 55%, white);
+  color: var(--ch-encre);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.ch-badge-read {
+  background: color-mix(in srgb, #6b8f71 32%, white);
+}
+
+.ch-badge-edit {
+  background: color-mix(in srgb, #c47a2c 42%, white);
+}
+
+.ch-badge-write {
+  background: color-mix(in srgb, #c47a2c 38%, white);
+}
+
+.ch-badge-fail,
+.ch-badge-échec {
+  background: color-mix(in srgb, #b33 28%, white);
+}
+
+.ch-log-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ch-log-resume {
+  font-size: 0.92rem;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button.ch-lien-chemin {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 550;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ch-miel, #f2b441) 55%, transparent);
+  text-underline-offset: 2px;
+}
+
+button.ch-lien-chemin:hover,
+button.ch-lien-chemin:focus-visible {
+  color: var(--ch-encre, #1a1a1a);
+  text-decoration-color: var(--ch-miel, #f2b441);
+}
+
+.ch-log-detail {
+  font-size: 0.75rem;
+  color: var(--ch-mute);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.ch-log-time {
+  font-size: 0.75rem;
+  color: var(--ch-mute);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ─── Missions ─── */
+
+.ch-filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ch-filtres button {
+  border: 1px solid var(--ch-ligne);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: inherit;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-filtres button {
+    transition: none;
+  }
+}
+
+.ch-filtres button.actif {
+  background: color-mix(in srgb, var(--ch-miel) 55%, white);
+  border-color: var(--ch-miel);
+  font-weight: 600;
+}
+
+.ch-taches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ch-taches li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ch-ligne) 85%, transparent);
+}
+
+.ch-tache {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  font-weight: 550;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ch-tache:hover {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ch-miel) 70%, transparent);
+}
+
+.ch-pill {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ch-encre) 8%, white);
+  color: var(--ch-encre);
+}
+
+.ch-pill-cours {
+  background: color-mix(in srgb, var(--ch-miel) 45%, white);
+}
+
+.ch-pill-pause {
+  background: color-mix(in srgb, var(--ch-encre) 8%, white);
+  color: var(--ch-mute);
+}
+
+.ch-pill-done {
+  background: color-mix(in srgb, #6b8f71 28%, white);
+}
+
+.ch-pill-fail {
+  background: color-mix(in srgb, #b33 22%, white);
+}
+
+.ch-tache-time {
+  font-size: 0.72rem;
+  color: var(--ch-mute);
+  flex: none;
+}
+
+.ch-echec-hint {
+  flex: 1 1 100%;
+  font-size: 0.72rem;
+  color: var(--ch-mute);
+}
+
+/* ─── Studio / Ordinateur ─── */
+
+.ch-ordi-chrome {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ch-ordi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ch-ligne);
+  background: color-mix(in srgb, var(--ch-creme) 70%, white);
+}
+
+.ch-ordi-top h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ch-mute);
+  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+}
+
+.ch-ordi-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ch-ordi-off,
+.ch-ordi-on {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+}
+
+.ch-ordi-off p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ch-mute);
+}
+
+.ch-vnc {
+  flex: 1;
+  width: 100%;
+  min-height: 160px;
+  border: none;
+  border-radius: 8px;
+  background: #1a1814;
+}
+
+.ch-ordi-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--ch-ligne);
+  font-size: 0.72rem;
+  color: var(--ch-mute);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.ch-err {
+  color: #b33;
+}
+
+.ch-err-soft {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--ch-mute);
+  background: color-mix(in srgb, #b33 8%, var(--ch-papier));
+  border: 1px solid color-mix(in srgb, #b33 18%, var(--ch-ligne));
+  border-radius: 10px;
+}
+
+@media (max-width: 960px) {
+  .ch-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      'identite'
+      'activite'
+      'journal'
+      'ordi';
+    min-height: 0;
+  }
+
+  .ch-onglets {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .ch-meta li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .ch-vnc {
+    min-height: 220px;
+  }
+}

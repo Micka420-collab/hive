@@ -60,6 +60,7 @@ function etat(p: Partial<EtatEssaim> = {}): EtatEssaim {
     // Les fixtures de ce fichier testent la GOUVERNANCE : la dérive y est
     // saine, sauf là où un test la met explicitement en cause.
     derive: mesurerDerive({ productions: [], dernierApportHumain: NOW, now: NOW }),
+    horizonEntrees: 0,
     ...p,
   };
 }
@@ -400,6 +401,13 @@ describe('essaim — la halte : la ruche s’arrête quand elle se dégrade', ()
     })),
     dernierApportHumain: NOW - JOUR,
     now: NOW,
+  });
+
+  it('un carnet d’horizon trop gros halte (ADR 0010 lot 9)', () => {
+    // Plafond instantané 2000 → budget horizon = min(400, 200) = 200.
+    const d = deciderPas(etat({ horizonEntrees: 201, tachesPretes: 5 }));
+    expect(d.pas).toBe('halte');
+    expect(d.motif).toMatch(/horizon/);
   });
 
   it('une dérive dégradée arrête tout, même avec du travail prêt', () => {

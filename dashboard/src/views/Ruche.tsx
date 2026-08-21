@@ -153,7 +153,12 @@ export default function Ruche({
             <aside className="col-side">
               {/* Les tâches et le geste d'ouverture : les cartes deviennent des
                   fiches coéquipières (mission « Le Poste », lot 2). */}
-              <NodesPanel nodes={snapshot.nodes} tasks={snapshot.tasks} onOpenTask={onOpenTask} />
+              <NodesPanel
+                nodes={snapshot.nodes}
+                tasks={snapshot.tasks}
+                onOpenTask={onOpenTask}
+                onOuvrirPoste={(id) => onNavigate('chambre', id)}
+              />
 
               <section className="card panel">
                 <header className="panel-head">

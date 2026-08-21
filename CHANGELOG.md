@@ -7,7 +7,36 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers
+  tant que le merge n’a pas atterri ; fusion PR → statut fabrique `mergee` ;
+  essaim halte si le carnet d’horizon dépasse le budget d’instantané ; motif
+  jeu-3d nomme Blender ; exemple Seedance (réquisition `cle_api` sans secret).
+
 ### Added
+
+- **Chambre UI fidèle à la maquette produit.** Crème `#FDF8F0` / miel `#F2B441`,
+  bandeau **À trancher**, **Journal** (pastilles EDIT/READ), **Missions**
+  filtrées, **Ordinateur** noVNC (Plein écran). Baptême display — données
+  constatées seulement. Curseur Rayon → ouvre la Chambre ; bandeau
+  **En train de…** si le miroir du dépôt est vide. Fiche nœud : titre =
+  baptême (sinon silence). Cartes nœud (Ruche + Essaim) : baptême via
+  `GET /api/baptemes` (jeton ruche ; partage → 401) — sinon « Pas encore
+  baptisée » ; échec API → nom technique (pas de mensonge). Clic Essaim →
+  Chambre. Échap → Ruche (pas pendant saisie / dialogue) ; chemins → focus
+  fichier Rayon (déplie les dossiers parents) ; **Voir le Rayon** pose le focus
+  sur la présence la plus récente (sinon navigation seule) ; sans projet lié →
+  silence du lien ; clic chemin du bandeau **En train de…** → ouvre dans l’arbre.
+  Pastille **EDIT** / point de statut Fiche alignés sur le constaté. Journal :
+  lignes READ/EDIT/WRITE → même `CheminConstate`. Maquette :
+  `docs/maquettes/chambre/`. Capture + démo :
+  `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
+
+- **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
+  vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,
+  **motifs**. Écran : bandeau HITL, flux outils, onglets
+  Fiche/Travail/Intégrations/Suivi. Partage : jamais d’identités. ADR **proposé**.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a

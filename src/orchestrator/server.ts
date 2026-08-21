@@ -266,6 +266,23 @@ export const RESULT_RETENTION = 5_000;
 export const SAUVEGARDES_RETENTION = 5_000;
 
 /**
+ * Présences Rayon (ADR 0010) : fichiers ouverts constatés. Une présence qui
+ * traîne plus d'une heure (outil jamais refermé, nœud disparu) est élaguée —
+ * l'écran ne doit pas montrer un fichier « encore ouvert » inventé.
+ */
+export const PRESENCES_RETENTION_MS = 60 * 60_000;
+
+/**
+ * Réquisitions closes (ADR 0010) : on garde l'historique récent, on élague
+ * le reste. Les ouvertes ne sont JAMAIS élaguées — un besoin sans réponse
+ * doit rester visible.
+ */
+export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
+
+/** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
+export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
+/**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
  * (doctrine, règle 3), câblée dans le tick.
  *
@@ -1747,6 +1764,454 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return { ok: true };
   });
 
+  /**
+   * Chambre (ADR 0010) — lecture du poste d'UNE ouvrière.
+   *
+   * Jeton de ruche UNIQUEMENT. Un lien de partage ne doit JAMAIS voir les
+   * identités qui travaillent (baptême, métier, présence, tâches du nœud).
+   * Champs absents ⇒ null / [] : l'écran n'invente rien.
+   */
+  app.get<{ Params: { nodeId: string } }>(
+    '/api/chambre/:nodeId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const node = store.getNode(req.params.nodeId);
+      if (!node) return reply.code(404).send({ error: 'ouvrière inconnue' });
+      const bapteme = store.lireBapteme(node.id);
+      const metier = store.lireMetier(node.id);
+      const presences = store.lirePresences(node.id);
+      const tasks = store
+        .listTasks()
+        .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 80);
+      // Projet dominant = dernière tâche touchée — pour horizon / fabrique à l'écran.
+      const projectId = tasks[0]?.projectId ?? null;
+      let horizon: { faits: unknown[]; hypotheses: unknown[] } | null = null;
+      let fabriques: unknown[] = [];
+      if (projectId) {
+        const { resumeHorizon } = await import('./horizon.js');
+        horizon = resumeHorizon(store.listerHorizon(projectId));
+        fabriques = store.listerFabriques(projectId).slice(0, 24);
+      }
+      return {
+        nodeId: node.id,
+        bapteme,
+        metier,
+        caste: casteDe(node.id),
+        projectId,
+        node: {
+          id: node.id,
+          status: node.status,
+          plateforme: node.plateforme ?? null,
+          agentType: node.agentType,
+          ownerName: node.ownerName,
+          running: node.running,
+          maxConcurrency: node.maxConcurrency,
+          lastSeen: node.lastSeen,
+          /** Libellé technique d'inscription — PAS l'identité baptisée. */
+          nameTechnique: node.name,
+        },
+        presences,
+        tasks,
+        requisitions: store.listerRequisitions({ nodeId: node.id, statut: 'ouverte' }),
+        horizon,
+        fabriques,
+        atelier: await etatAtelier({ env: process.env }),
+      };
+    },
+  );
+
+  /**
+   * Curseurs Rayon (ADR 0010 lot 6) — toutes les présences ouvertes + baptême.
+   * Jeton de ruche UNIQUEMENT. Partage → 401 (pas d'identités actives).
+   */
+  app.get('/api/presences', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const rows = store.listerPresences();
+    return {
+      presences: rows.map((p) => {
+        const b = store.lireBapteme(p.nodeId);
+        return {
+          nodeId: p.nodeId,
+          /** Null si pas baptisée — le Rayon n'invente pas de prénom. */
+          bapteme: b?.nom ?? null,
+          chemin: p.chemin,
+          outil: p.outil,
+          toolUseId: p.toolUseId,
+          taskId: p.taskId,
+          constateA: p.constateA,
+        };
+      }),
+    };
+  });
+
+  /**
+   * Baptêmes (ADR 0010) — liste constatée pour les cartes nœud.
+   * Jeton de ruche UNIQUEMENT. Partage → 401 (pas d'identités).
+   */
+  app.get('/api/baptemes', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      baptemes: store.listerBaptemes().map((b) => ({
+        nodeId: b.nodeId,
+        nom: b.nom,
+        baptiseA: b.baptiseA,
+      })),
+    };
+  });
+
+  /**
+   * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
+   * Jeton de ruche uniquement. Aucun secret dans le corps.
+   */
+  app.get('/api/requisitions', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const q = req.query as { statut?: string; nodeId?: string };
+    const statut =
+      q.statut === 'ouverte' || q.statut === 'accordee' || q.statut === 'refusee'
+        ? q.statut
+        : undefined;
+    const rows = store.listerRequisitions({
+      ...(typeof q.nodeId === 'string' ? { nodeId: q.nodeId } : {}),
+      ...(statut ? { statut } : {}),
+    });
+    return {
+      requisitions: rows.map((r) => ({
+        ...r,
+        bapteme: store.lireBapteme(r.nodeId)?.nom ?? null,
+      })),
+    };
+  });
+
+  app.post<{
+    Body: { nodeId: string; genre: string; libelle: string; detail?: string };
+  }>(
+    '/api/requisitions',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            detail: { type: 'string', maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ouvrirRequisition(
+        req.body.nodeId,
+        req.body.genre,
+        req.body.libelle,
+        req.body.detail ?? null,
+      );
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif });
+      }
+      return { ok: true, id: v.id, genre: v.genre, libelle: v.libelle };
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee' } }>(
+    '/api/requisitions/:id/repondre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+        body: {
+          type: 'object',
+          required: ['decision'],
+          additionalProperties: false,
+          properties: {
+            decision: { type: 'string', enum: ['accordee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.repondreRequisition(req.params.id, req.body.decision);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      // La clé reste chez la Queen / Intendance — on constate la décision, pas le secret.
+      emitEvent('requisition_reponse', {
+        id: req.params.id,
+        statut: v.statut,
+      });
+      return { ok: true, statut: v.statut };
+    },
+  );
+
+  // ─── Fabrique / Horizon / Motifs (ADR 0010 lots 8–10) ───────────────────────
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/fabriques',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { fabriques: store.listerFabriques(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: {
+      genre: string;
+      libelle: string;
+      nomScript?: string;
+      nodeId?: string;
+      creerTache?: boolean;
+    };
+  }>(
+    '/api/projects/:projectId/fabriques',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            nomScript: { type: 'string', maxLength: 80 },
+            nodeId: { type: 'string', maxLength: 64 },
+            creerTache: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { promptFabrique, validerGenreFabrique } = await import('./fabrique.js');
+      const g = validerGenreFabrique(req.body.genre);
+      if (!g.ok) return reply.code(400).send({ error: g.motif });
+      let taskId: string | undefined;
+      if (req.body.creerTache !== false) {
+        const prompt = promptFabrique({
+          genre: g.genre,
+          libelle: req.body.libelle,
+          nomScript: req.body.nomScript,
+        });
+        const task = store.createTask({
+          projectId,
+          title: `Fabrique : ${req.body.libelle}`.slice(0, 120),
+          prompt,
+        });
+        store.patchTask(task.id, { status: 'ready' });
+        taskId = task.id;
+      }
+      const v = store.ouvrirFabrique(projectId, req.body.genre, req.body.libelle, {
+        nodeId: req.body.nodeId,
+        nomScript: req.body.nomScript,
+        taskId,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.motif });
+      return { ok: true, id: v.id, taskId: taskId ?? null };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; id: string };
+    Body: { statut: 'en_revue' | 'mergee' | 'refusee' };
+  }>(
+    '/api/projects/:projectId/fabriques/:id/statut',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['statut'],
+          additionalProperties: false,
+          properties: {
+            statut: { type: 'string', enum: ['en_revue', 'mergee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.poserStatutFabrique(req.params.id, req.body.statut);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, statut: req.body.statut };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { nomScript: string; scriptsMiroir: Record<string, string>; mergeLanded: boolean };
+  }>(
+    '/api/projects/:projectId/fabriques/juger-chantier',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nomScript', 'scriptsMiroir', 'mergeLanded'],
+          additionalProperties: false,
+          properties: {
+            nomScript: { type: 'string', minLength: 1, maxLength: 80 },
+            scriptsMiroir: { type: 'object' },
+            mergeLanded: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { jugerFabriqueAvantChantier } = await import('./fabrique.js');
+      const scripts = req.body.scriptsMiroir ?? {};
+      const clean: Record<string, string> = {};
+      for (const [k, v] of Object.entries(scripts)) {
+        if (typeof k === 'string' && typeof v === 'string') clean[k] = v;
+      }
+      return jugerFabriqueAvantChantier({
+        nomScript: req.body.nomScript,
+        scriptsMiroir: clean,
+        mergeLanded: req.body.mergeLanded === true,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/horizon',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { resumeHorizon } = await import('./horizon.js');
+      const entrees = store.listerHorizon(req.params.projectId);
+      return { ...resumeHorizon(entrees), entrees };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { kind: string; texte: string; source?: string };
+  }>(
+    '/api/projects/:projectId/horizon',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['kind', 'texte'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', minLength: 1, maxLength: 20 },
+            texte: { type: 'string', minLength: 1, maxLength: 500 },
+            source: { type: 'string', maxLength: 80 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ajouterHorizon(
+        req.params.projectId,
+        req.body.kind,
+        req.body.texte,
+        req.body.source ?? 'reine',
+      );
+      if (!v.ok) {
+        const code = v.motif === 'projet_inconnu' ? 404 : 400;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, entree: v.entree };
+    },
+  );
+
+  app.get('/api/motifs', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const { MOTIFS } = await import('./motifs.js');
+    return {
+      motifs: MOTIFS.map((m) => ({
+        id: m.id,
+        domaine: m.domaine,
+        libelleFr: m.libelleFr,
+        libelleEn: m.libelleEn,
+        etapes: m.etapes.map((e) => ({ id: e.id, titreFr: e.titreFr, titreEn: e.titreEn })),
+      })),
+    };
+  });
+
+  app.post<{
+    Params: { projectId: string; motifId: string };
+    Body: { lang?: string; corps?: string };
+  }>(
+    '/api/projects/:projectId/motifs/:motifId/appliquer',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            lang: { type: 'string', enum: ['fr', 'en'] },
+            corps: { type: 'string', maxLength: 50_000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { appliquerMotif } = await import('./motifs.js');
+      const lang = req.body?.lang === 'en' ? 'en' : 'fr';
+      const v = appliquerMotif(req.params.motifId, lang, req.body?.corps);
+      if (!v.ok) {
+        const code = v.motif === 'diff_interdit' ? 400 : 404;
+        return reply.code(code).send({ error: v.motif });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of v.titres) {
+        const task = store.createTask({
+          projectId: req.params.projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Motif « ${v.motif.id} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: v.motif.id, taskIds, titres: v.titres };
+    },
+  );
+
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();
@@ -2741,6 +3206,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         dernierApportHumain: store.dernierApportHumain(),
         now: Date.now(),
       }),
+      horizonEntrees: store.compterHorizon(projectId),
     };
     return { ...etat, decision: deciderPas(etat) };
   };
@@ -2754,7 +3220,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       const e = etatEssaim(req.params.projectId);
       const suivi = cadencier.suivi(req.params.projectId);
-      return {
+      const body: Record<string, unknown> = {
         niveau: e.niveau,
         decision: e.decision,
         gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
@@ -2778,6 +3244,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           dernierTourA: suivi.dernierTourA,
         },
       };
+      // Horizon (faits ≠ hypothèses) : jeton de ruche seulement — pas le partage.
+      if (authorized(req)) {
+        const { resumeHorizon } = await import('./horizon.js');
+        body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
+      }
+      return body;
     },
   );
 
@@ -3180,6 +3652,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             pr: ouverte.pr,
             fusionnee: r.fusionnee,
           });
+          // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
+          // (Chantiers pourra enfin juger le script déclaré).
+          if (r.fusionnee) {
+            for (const f of store.listerFabriques(projectId)) {
+              if (f.statut !== 'proposee' && f.statut !== 'en_revue') continue;
+              if (f.taskId && f.taskId !== ouverte.taskId) continue;
+              store.poserStatutFabrique(f.id, 'mergee');
+            }
+          }
           return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
         } catch (e) {
           // Un refus de GitHub (405 : conflit, CI rouge, revue exigée) n'est
@@ -5113,8 +5594,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!(await assurerMiroir(project, reply))) return reply;
 
       // LE DÉPÔT DÉCIDE. `intentionHumaine` n'est volontairement pas passée.
-      const verdict = jugerChantier(await scriptsDuMiroir(project), req.params.nom);
+      const scripts = await scriptsDuMiroir(project);
+      const verdict = jugerChantier(scripts, req.params.nom);
       if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+
+      // ADR 0010 lot 8 : une fabrique encore ouverte pour CE script bloque.
+      const { fabriqueBloqueChantier, jugerFabriqueAvantChantier, expliquerRefusFabrique } =
+        await import('./fabrique.js');
+      const gate = fabriqueBloqueChantier(store.listerFabriques(project.id), req.params.nom);
+      if (!gate.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(gate.motif) });
+      }
+      const avant = jugerFabriqueAvantChantier({
+        nomScript: req.params.nom,
+        scriptsMiroir: scripts,
+        mergeLanded: gate.mergeLanded,
+      });
+      if (!avant.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(avant.motif) });
+      }
 
       const node = store
         .listNodes()
@@ -7147,7 +7645,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (msg.onShift !== undefined) nodeOnShift.set(nodeId, msg.onShift);
             break;
           case 'task_update':
-            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
+            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log, msg.presences);
             break;
           case 'task_result': {
             // ─── LE HUB SAVAIT DIRE NON, ET NE LE DISAIT JAMAIS ──────────────
@@ -7487,6 +7985,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneSauvegardes(SAUVEGARDES_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
+      // Présences Rayon orphelines (outil jamais refermé / nœud parti).
+      store.prunePresences(PRESENCES_RETENTION_MS);
+      // Réquisitions closes trop vieilles (les ouvertes restent).
+      store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
+      store.pruneFabriques(REQUISITIONS_RETENTION_MS);
+      store.pruneHorizon(HORIZON_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes

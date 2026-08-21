@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4460%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-4576%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -56,6 +56,14 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 <p align="center">
   <img src="docs/images/dashboard-reine.png" width="840" alt="Tableau de bord — vue Reine, atelier de recette et chat.">
 </p>
+<p align="center">
+  <img src="docs/images/dashboard-chambre.png" width="840" alt="Tableau de bord — Chambre, poste ouvrière baptisée Capucine, bandeau À trancher, abeille et fleur.">
+</p>
+<p align="center">
+  <a href="docs/media/chambre-presentation-demo.mp4">Vidéo — parcours Chambre (FR)</a>
+  ·
+  <a href="docs/media/README.md">médias</a>
+</p>
 
 ## 🔁 Comment ça marche
 
@@ -64,6 +72,10 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 2. **Les IA travaillent en parallèle.** Chaque tâche part sur l'ordinateur d'un
    membre, dans un dossier isolé. L'avancement s'affiche en direct.
 3. **Vous validez, puis ça fusionne.** Rien ne passe sans votre accord.
+4. **Vous ouvrez le poste d'une ouvrière.** Ruche → fiche du nœud →
+   **Ouvrir le poste** (Chambre) : nom baptisé, fichiers **constatés**, Atelier
+   noVNC, réquisitions — sans inventer ce qui n'est pas là. Détail :
+   **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)** (section Chambre).
 
 ## ⚡ Installation
 

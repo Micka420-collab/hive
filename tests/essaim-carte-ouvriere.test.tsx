@@ -72,9 +72,16 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRaces: vi.fn(() => Promise.resolve({ races: [] })),
   fetchPheromones: vi.fn(() => Promise.resolve(null)),
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
+  fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
-import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../dashboard/src/api';
+import {
+  fetchBaptemes,
+  fetchPheromones,
+  fetchPolyethisme,
+  fetchRaces,
+  fetchWaggle,
+} from '../dashboard/src/api';
 import Essaim from '../dashboard/src/views/Essaim';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,6 +106,7 @@ beforeEach(() => {
   vi.mocked(fetchPolyethisme)
     .mockReset()
     .mockResolvedValue(null as never);
+  vi.mocked(fetchBaptemes).mockReset().mockResolvedValue({ baptemes: [] });
 });
 
 afterEach(() => {
@@ -165,10 +173,10 @@ async function monter(
   return conteneur;
 }
 
-/** La carte d'une ouvrière, désignée par SON nom — jamais par son rang. */
+/** La carte d'une ouvrière, désignée par SON nom technique — jamais par son rang. */
 function carte(dom: HTMLElement, nom: string): HTMLElement {
   const c = [...dom.querySelectorAll<HTMLElement>('article.es-node')].find((e) =>
-    (e.querySelector('.es-node-name')?.textContent ?? '').includes(nom),
+    (e.textContent ?? '').includes(nom),
   );
   if (!c) throw new Error(`la carte de « ${nom} » est introuvable`);
   return c;
@@ -197,6 +205,50 @@ function enVol(n: number, prefixe = 'a'): { tasks: Task[]; agents: Record<string
 }
 
 describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
+  it('LE BAPTÊME CONSTATÉ EST LE TITRE — le nom technique reste secondaire', async () => {
+    vi.mocked(fetchBaptemes).mockResolvedValue({
+      baptemes: [{ nodeId: 'n-1', nom: 'Capucine', baptiseA: 1 }],
+    });
+    const dom = await monter([noeud()]);
+    const c = carte(dom, 'Capucine');
+    expect(c.querySelector('.es-node-name')?.textContent).toContain('Capucine');
+    expect(c.textContent).toContain('Technique');
+    expect(c.textContent).toContain('ruche-nord');
+  });
+
+  it('UN CLIC SUR LA CARTE OUVRE LA CHAMBRE — même geste que le curseur Rayon', async () => {
+    const onNavigate = vi.fn();
+    const { tasks, agents } = enVol(1);
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    const props = {
+      snapshot: {
+        projects: [],
+        nodes: [noeud()],
+        tasks,
+        tasksTotal: tasks.length,
+      } as unknown as StateSnapshot,
+      events: [],
+      agentsByTask: agents,
+      deferred: new Set(),
+      onOpenTask: () => {},
+      onNavigate,
+      refreshTick: 0,
+    } as unknown as ViewProps;
+    await act(async () => racine?.render(<Essaim {...props} />));
+    await act(async () => {});
+    const c = carte(conteneur, 'ruche-nord');
+    expect(c.classList.contains('es-node-ouvre')).toBe(true);
+    expect(c.getAttribute('data-testid')).toBe('essaim-ouvrir-chambre');
+    expect(c.getAttribute('title')).toMatch(/Ouvrir la Chambre/);
+    expect(c.getAttribute('aria-label')).toMatch(/Ouvrir la Chambre/);
+    await act(async () => {
+      c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(onNavigate).toHaveBeenCalledWith('chambre', 'n-1');
+  });
+
   it('UNE OUVRIÈRE MONTRE SON NOM, SA CHARGE ET SES SOUS-AGENTS — sinon rien ici ne mesure rien', async () => {
     // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER (§ 9 unvicicenties) ──────────────
     const { tasks, agents } = enVol(2);

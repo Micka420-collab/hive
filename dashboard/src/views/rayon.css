@@ -69,6 +69,79 @@
   min-height: 0;
 }
 
+.ry-presences-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--miel, #f2b441) 40%, transparent);
+  border-radius: var(--r-sm, 8px);
+  background: color-mix(in srgb, var(--miel, #f2b441) 12%, var(--panel, #fff));
+}
+
+.ry-presences-live-titre {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute, #7a7164);
+  flex: none;
+}
+
+.ry-presences-live ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ry-presences-live li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ry-presences-outil {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute, #7a7164);
+}
+
+.ry-presences-chemin {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.ry-presences-chemin:hover,
+.ry-presences-chemin:focus-visible {
+  text-decoration-color: currentColor;
+  outline: 2px solid color-mix(in srgb, var(--miel, #f2b441) 75%, transparent);
+  outline-offset: 2px;
+}
+
 .ry-arbre {
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
@@ -77,6 +150,25 @@
   padding: 6px 0;
   min-height: 0;
   box-shadow: none;
+}
+
+.ry-ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  min-width: 0;
+}
+
+.ry-ligne > .ry-entree {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.ry-ligne > .ry-curseurs {
+  flex: none;
+  padding-right: 6px;
 }
 
 .ry-entree {
@@ -100,6 +192,12 @@
   background: color-mix(in srgb, var(--miel) 6%, var(--panel));
 }
 
+.ry-entree:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--miel, #f2b441) 75%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--miel) 8%, var(--panel));
+}
+
 .ry-entree.active {
   background: color-mix(in srgb, var(--miel) 14%, var(--panel));
   color: var(--text);
@@ -107,14 +205,77 @@
   padding-left: 6px;
 }
 
-.ry-icone {
+.ry-nom {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-curseurs {
+  display: flex;
+  gap: 3px;
   flex: none;
-  width: 1.5em;
-  text-align: center;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  font-style: normal;
+  max-width: 40%;
+}
+
+.ry-curseur {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--miel, #f6c445) 45%, white);
+  color: var(--text, #2a241c);
+  max-width: 6.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: ry-curseur-in 0.35s ease-out;
+}
+
+.ry-curseur:hover,
+.ry-curseur:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--miel, #f2b441) 75%, transparent);
+  outline-offset: 1px;
+}
+
+.ry-curseur-edit {
+  background: color-mix(in srgb, var(--miel, #f6c445) 65%, white);
+}
+
+.ry-curseur-write {
+  background: color-mix(in srgb, #c47a2c 35%, white);
+}
+
+.ry-curseur-read {
+  background: color-mix(in srgb, #6b8f71 30%, white);
+}
+
+.ry-curseur-muet {
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+@keyframes ry-curseur-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-curseur {
+    animation: none;
+  }
 }
 
 .ry-nom {
@@ -344,6 +505,14 @@
   flex: none;
   font-size: 11.5px;
   padding: 3px 10px;
+}
+
+.ry-partage-note {
+  margin-left: auto;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--mute, #7a7164);
+  white-space: nowrap;
 }
 
 .ry-cadre {

@@ -59,6 +59,7 @@ const Rayon = lazy(() => import('./views/Rayon'));
 const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
+const Chambre = lazy(() => import('./views/Chambre'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -215,8 +216,11 @@ function NavGlyph({ id }: { id: ViewId }) {
  * un administrateur qui ouvre son signet arrive AVANT que `/api/auth/me` ait
  * répondu, et le renvoyer sur la Ruche à cet instant-là serait un bug qu'on
  * ne saurait pas reproduire.
+ *
+ * `chambre` n'a volontairement PAS de case nav (ADR 0010) : entrée depuis la
+ * fiche nœud uniquement (`#/chambre/<nodeId>`).
  */
-const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
+const VIEW_IDS = new Set<string>([...NAV.map((n) => n.id), 'chambre']);
 
 /** #/vue/id → { view, selectedId } (fallback ruche sur hash inconnu). */
 function parseHash(): { view: ViewId; selectedId: string | null } {
@@ -592,6 +596,7 @@ export function App() {
             )}
             <button
               className="btn ghost mc-lang"
+              data-testid="mc-lang"
               onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
               title={t('Basculer l’interface en anglais', 'Switch interface to French')}
             >
@@ -657,6 +662,7 @@ export function App() {
           {route.view === 'intendance' && <Intendance {...viewProps} />}
           {route.view === 'cerveau' && <Cerveau {...viewProps} />}
           {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+          {route.view === 'chambre' && <Chambre {...viewProps} />}
         </Suspense>
       </div>
 

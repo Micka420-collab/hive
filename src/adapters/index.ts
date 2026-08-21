@@ -2,6 +2,7 @@
 // ruche via l'interface AgentAdapter — l'orchestrateur n'a jamais besoin de
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
+import type { PresenceFichier } from '../shared/presence.js';
 import type { SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createCodexAdapter } from './codex.js';
@@ -12,6 +13,8 @@ import { createShellAdapter } from './shell.js';
 
 export interface AdapterProgress {
   subAgents?: SubAgent[];
+  /** Snapshot des fichiers ouverts constatés (ADR 0010). */
+  presences?: PresenceFichier[];
   log?: string;
 }
 

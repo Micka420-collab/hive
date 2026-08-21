@@ -30,12 +30,28 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchReport: vi.fn(),
   clearPartage: vi.fn(),
+  getPartage: vi.fn(() => ({ token: 'share-demo', projectId: 'p-invite' })),
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
   fetchFichierRayon: vi.fn(() => Promise.resolve(null)),
   fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
+  fetchPresences: vi.fn(() =>
+    Promise.resolve({
+      presences: [
+        {
+          nodeId: 'n1',
+          bapteme: 'Capucine',
+          chemin: 'secret.ts',
+          outil: 'Edit',
+          toolUseId: 'tu',
+          taskId: null,
+          constateA: 1,
+        },
+      ],
+    }),
+  ),
 }));
 
-import { fetchReport } from '../dashboard/src/api';
+import { fetchPresences, fetchReport, getPartage } from '../dashboard/src/api';
 import Partage from '../dashboard/src/views/Partage';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -93,6 +109,17 @@ describe('l’écran de partage vu par un invité', () => {
     expect(dom.textContent, 'et l’attente a disparu').not.toContain('Ouverture du rayon');
     // Le contraste explicite : le nom et l'avancement sont là.
     expect(dom.textContent, 'l’avancement se lit').toContain('2/5');
+  });
+
+  it('LE PARTAGE NE MONTRE PAS QUI TRAVAILLE — doctrine ADR 0010', async () => {
+    vi.mocked(fetchReport).mockResolvedValue(RAPPORT);
+    const dom = await monter();
+    expect(getPartage()).not.toBeNull();
+    expect(dom.textContent).toContain('Vous ne voyez pas qui travaille');
+    expect(dom.querySelectorAll('.ry-curseur')).toHaveLength(0);
+    expect(dom.textContent).not.toContain('Capucine');
+    // Même si l’API présences répondrait, le mode partage ne l’appelle pas.
+    expect(fetchPresences).not.toHaveBeenCalled();
   });
 
   // ─── LE CHEMIN D'ÉCHEC, QUE RIEN N'EMPRUNTAIT ──────────────────────────────

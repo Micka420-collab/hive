@@ -4,6 +4,7 @@
 import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
 import type { PlateformeNoeud } from './machine.js';
+import type { PresenceFichier } from './presence.js';
 import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
@@ -33,6 +34,8 @@ export const LIMITS = {
   log: 512 * 1024,
   diff: 1024 * 1024,
   subAgents: 32,
+  /** Fichiers ouverts constatés (présence Rayon) dans un task_update. */
+  presences: 16,
   maxConcurrency: 16,
   /** Nombre max de modèles qu'un nœud peut déclarer savoir faire tourner. */
   modeles: 16,
@@ -94,6 +97,11 @@ export interface TaskUpdateMsg {
   taskId: string;
   status: 'running';
   subAgents?: SubAgent[];
+  /**
+   * Snapshot des fichiers ouverts constatés (Read/Edit/Write) — ADR 0010.
+   * Absent ou `[]` = rien d'ouvert (ne pas inventer à l'écran).
+   */
+  presences?: PresenceFichier[];
   log?: string;
 }
 
@@ -351,6 +359,24 @@ function isSubAgents(v: unknown): v is SubAgent[] {
   });
 }
 
+/** Snapshot présence Rayon — toolUseId Claude peut dépasser ID_PATTERN. */
+function isPresences(v: unknown): v is PresenceFichier[] {
+  if (!Array.isArray(v) || v.length > LIMITS.presences) return false;
+  return v.every((p) => {
+    if (typeof p !== 'object' || p === null) return false;
+    const r = p as Record<string, unknown>;
+    return (
+      typeof r.toolUseId === 'string' &&
+      r.toolUseId.length >= 1 &&
+      r.toolUseId.length <= 128 &&
+      typeof r.chemin === 'string' &&
+      r.chemin.length >= 1 &&
+      r.chemin.length <= 500 &&
+      (r.outil === 'Read' || r.outil === 'Edit' || r.outil === 'Write')
+    );
+  });
+}
+
 /** Liste d'identifiants de tâches (bornée), tolérant l'absence. */
 function isIdList(v: unknown): v is string[] {
   return Array.isArray(v) && v.length <= 1000 && v.every((x) => isId(x));
@@ -498,10 +524,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isId(m.taskId) &&
         m.status === 'running' &&
         (m.subAgents === undefined || isSubAgents(m.subAgents)) &&
+        (m.presences === undefined || isPresences(m.presences)) &&
         (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log))
       ) {
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
+        if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
         return msg;
       }

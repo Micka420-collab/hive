@@ -1773,3 +1773,152 @@ export function demarrerAtelier(): Promise<{ ok: boolean; plan?: string[] }> {
 export function arreterAtelier(): Promise<{ ok: boolean }> {
   return api('/api/atelier/arreter', { method: 'POST', body: '{}' });
 }
+
+/** Réponse de `GET /api/chambre/:nodeId` — absences = null / [] (pas de théâtre). */
+export interface ChambrePoste {
+  nodeId: string;
+  bapteme: { nom: string; baptiseA: number } | null;
+  metier: { metier: string; assigneA: number } | null;
+  caste: string;
+  /** Projet dominant (dernière tâche) — pour horizon / fabrique. */
+  projectId?: string | null;
+  node: {
+    id: string;
+    status: string;
+    plateforme: string | null;
+    agentType: string;
+    ownerName: string;
+    running: number;
+    maxConcurrency: number;
+    lastSeen: number | null;
+    nameTechnique: string;
+  };
+  presences: Array<{
+    toolUseId: string;
+    chemin: string;
+    outil: string;
+    taskId: string | null;
+    constateA: number;
+  }>;
+  tasks: Task[];
+  requisitions?: Array<{
+    id: string;
+    nodeId: string;
+    genre: string;
+    libelle: string;
+    detail: string | null;
+    statut: string;
+    creeA: number;
+    closA: number | null;
+  }>;
+  horizon?: {
+    faits: Array<{ id: string; texte: string; source: string; creeA: number }>;
+    hypotheses: Array<{ id: string; texte: string; source: string; creeA: number }>;
+  } | null;
+  fabriques?: Array<{
+    id: string;
+    genre: string;
+    libelle: string;
+    nomScript: string | null;
+    statut: string;
+    creeA: number;
+  }>;
+  atelier: EtatAtelier;
+}
+
+export function fetchChambre(nodeId: string): Promise<ChambrePoste> {
+  return api<ChambrePoste>(`/api/chambre/${encodeURIComponent(nodeId)}`);
+}
+
+/** Curseur Rayon — présence + baptême (null = silence, pas de prénom inventé). */
+export interface PresenceCurseur {
+  nodeId: string;
+  bapteme: string | null;
+  chemin: string;
+  outil: string;
+  toolUseId: string;
+  taskId: string | null;
+  constateA: number;
+}
+
+/** Jeton de ruche seulement — pas via partage. */
+export function fetchPresences(): Promise<{ presences: PresenceCurseur[] }> {
+  return api<{ presences: PresenceCurseur[] }>('/api/presences');
+}
+
+/** Baptêmes constatés — jeton de ruche seulement (pas via partage). */
+export function fetchBaptemes(): Promise<{
+  baptemes: Array<{ nodeId: string; nom: string; baptiseA: number }>;
+}> {
+  return api('/api/baptemes');
+}
+
+export interface RequisitionPoste {
+  id: string;
+  nodeId: string;
+  genre: string;
+  libelle: string;
+  detail: string | null;
+  statut: 'ouverte' | 'accordee' | 'refusee';
+  creeA: number;
+  closA: number | null;
+  bapteme?: string | null;
+}
+
+export function fetchRequisitions(opts?: {
+  nodeId?: string;
+  statut?: string;
+}): Promise<{ requisitions: RequisitionPoste[] }> {
+  const q = new URLSearchParams();
+  if (opts?.nodeId) q.set('nodeId', opts.nodeId);
+  if (opts?.statut) q.set('statut', opts.statut);
+  const s = q.toString();
+  return api(`/api/requisitions${s ? `?${s}` : ''}`);
+}
+
+export function repondreRequisition(
+  id: string,
+  decision: 'accordee' | 'refusee',
+): Promise<{ ok: boolean; statut: string }> {
+  return api(`/api/requisitions/${encodeURIComponent(id)}/repondre`, {
+    method: 'POST',
+    body: JSON.stringify({ decision }),
+  });
+}
+
+export interface MotifCatalogue {
+  id: string;
+  domaine: string;
+  libelleFr: string;
+  libelleEn: string;
+  etapes: Array<{ id: string; titreFr: string; titreEn: string }>;
+}
+
+export function fetchMotifs(): Promise<{ motifs: MotifCatalogue[] }> {
+  return api('/api/motifs');
+}
+
+export function appliquerMotif(
+  projectId: string,
+  motifId: string,
+  opts?: { lang?: 'fr' | 'en' },
+): Promise<{ ok: boolean; motifId: string; taskIds: string[]; titres: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/motifs/${encodeURIComponent(motifId)}/appliquer`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ lang: opts?.lang ?? 'fr' }),
+    },
+  );
+}
+
+export function ajouterHorizon(
+  projectId: string,
+  kind: 'fait' | 'hypothese',
+  texte: string,
+): Promise<{ ok: boolean; entree: { id: string; kind: string; texte: string } }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/horizon`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, texte, source: 'chambre' }),
+  });
+}

@@ -20,6 +20,35 @@ import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
 import type { SessionHote } from './horloge-hote.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
+import { jugerBapteme, normaliserNomBapteme, type VerdictBapteme } from './bapteme.js';
+import { validerMetier, type MetierCycle, type VerdictMetier } from './metier.js';
+import {
+  jugerCheminPresence,
+  validerOutilPresence,
+  type OutilPresence,
+  type PresenceFichier,
+} from '../shared/presence.js';
+import {
+  validerGenreRequisition,
+  validerLibelleRequisition,
+  type GenreRequisition,
+  type MotifRefusRequisition,
+  type StatutRequisition,
+} from './requisition.js';
+import {
+  validerGenreFabrique,
+  validerLibelleFabrique,
+  type GenreFabrique,
+  type MotifRefusFabrique,
+  type StatutFabrique,
+} from './fabrique.js';
+import {
+  HORIZON_LECTURE_MAX,
+  validerKindHorizon,
+  validerTexteHorizon,
+  type EntreeHorizon,
+  type MotifRefusHorizon,
+} from './horizon.js';
 import { rankMemories } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -803,6 +832,84 @@ CREATE TABLE IF NOT EXISTS modeles_noeuds (
   modeles TEXT NOT NULL,
   majA    INTEGER NOT NULL
 );
+
+-- Baptême Reine (ADR 0010) : le nom affiché d'une ouvrière. TABLE LATÉRALE —
+-- on n'ALTÈRE pas « nodes.name » (règle 2). Le nœud ne pose PAS ce nom via le
+-- protocole ; seule la Reine (API / CLI) écrit ici. UNIQUE insensible à la
+-- casse : une collision est refusée avant l'INSERT (bapteme.ts), et l'index
+-- double la garde.
+CREATE TABLE IF NOT EXISTS baptemes (
+  nodeId   TEXT PRIMARY KEY REFERENCES nodes(id),
+  nom      TEXT NOT NULL,
+  baptiseA INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_baptemes_nom ON baptemes(nom COLLATE NOCASE);
+
+-- Métier de cycle (ADR 0010) : orthogonal à la caste. TABLE LATÉRALE, une
+-- ligne par nœud. Assigné par la Reine / l'essaim — jamais déclaré par le
+-- protocole. Absent ⇒ l'écran ne montre pas de métier inventé.
+CREATE TABLE IF NOT EXISTS metiers_cycle (
+  nodeId   TEXT PRIMARY KEY REFERENCES nodes(id),
+  metier   TEXT NOT NULL,
+  assigneA INTEGER NOT NULL
+);
+
+-- Présence Rayon (ADR 0010) : fichiers OUVERTS constatés (Read/Edit/Write).
+-- TABLE LATÉRALE — une ligne par (nœud, toolUseId). Absent ⇒ l'écran ne
+-- montre PAS de fichier ouvert inventé. Élagage : prunePresences (rétention)
+-- + effacement à la fin de tâche.
+CREATE TABLE IF NOT EXISTS presences_rayon (
+  nodeId    TEXT NOT NULL REFERENCES nodes(id),
+  toolUseId TEXT NOT NULL,
+  chemin    TEXT NOT NULL,
+  outil     TEXT NOT NULL,
+  taskId    TEXT,
+  constateA INTEGER NOT NULL,
+  PRIMARY KEY (nodeId, toolUseId)
+);
+CREATE INDEX IF NOT EXISTS idx_presences_rayon_task ON presences_rayon(taskId);
+
+-- Réquisitions (ADR 0010) : besoins émis pour l'humain. TABLE LATÉRALE.
+-- Closées (accordée/refusée) → pruneRequisitions. Jamais de secret ici —
+-- seulement le genre + libellé. Clés chez la Queen / Intendance.
+CREATE TABLE IF NOT EXISTS requisitions (
+  id      TEXT PRIMARY KEY,
+  nodeId  TEXT NOT NULL REFERENCES nodes(id),
+  genre   TEXT NOT NULL,
+  libelle TEXT NOT NULL,
+  detail  TEXT,
+  statut  TEXT NOT NULL,
+  creeA   INTEGER NOT NULL,
+  closA   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_requisitions_statut ON requisitions(statut);
+
+-- Fabrique (ADR 0010 lot 8) : propositions d'outil dans le dépôt.
+-- Chantier seulement après statut mergee + script déclaré.
+CREATE TABLE IF NOT EXISTS fabriques (
+  id         TEXT PRIMARY KEY,
+  projectId  TEXT NOT NULL REFERENCES projects(id),
+  nodeId     TEXT REFERENCES nodes(id),
+  genre      TEXT NOT NULL,
+  libelle    TEXT NOT NULL,
+  nomScript  TEXT,
+  taskId     TEXT,
+  statut     TEXT NOT NULL,
+  creeA      INTEGER NOT NULL,
+  closA      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fabriques_projet ON fabriques(projectId);
+
+-- Horizon (ADR 0010 lot 9) : faits ≠ hypothèses. Borné + pruneHorizon.
+CREATE TABLE IF NOT EXISTS horizon_ledger (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  kind      TEXT NOT NULL,
+  texte     TEXT NOT NULL,
+  source    TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_horizon_projet ON horizon_ledger(projectId, creeA DESC);
 `;
 
 interface ProjectRow {
@@ -1394,6 +1501,629 @@ export class HiveStore {
     return (this.db.prepare(`${NODE_SELECT} ORDER BY n.name`).all() as NodeRowBrut[]).map(
       rowToNode,
     );
+  }
+
+  // ─── Baptêmes (ADR 0010) ───────────────────────────────────────────────────
+  //
+  // Identité affichée POSÉE PAR LA REINE. Absent ⇒ l'écran ne montre pas de
+  // prénom inventé (règle d'or Chambre). `nodes.name` reste le libellé
+  // technique d'inscription ; il n'est plus la source d'identité humaine.
+
+  /** Le baptême d'un nœud, ou `null` s'il n'en a pas (jamais inventé). */
+  lireBapteme(nodeId: string): { nom: string; baptiseA: number } | null {
+    const row = this.db
+      .prepare('SELECT nom, baptiseA FROM baptemes WHERE nodeId = ?')
+      .get(nodeId) as { nom: string; baptiseA: number } | undefined;
+    return row ?? null;
+  }
+
+  /** Tous les baptêmes — pour lister les collisions et l'API Chambre. */
+  listerBaptemes(): { nodeId: string; nom: string; baptiseA: number }[] {
+    return this.db
+      .prepare('SELECT nodeId, nom, baptiseA FROM baptemes ORDER BY nom COLLATE NOCASE')
+      .all() as { nodeId: string; nom: string; baptiseA: number }[];
+  }
+
+  /**
+   * Baptise (ou rebaptise) une ouvrière.
+   *
+   * Le jugement pur vit dans `bapteme.ts` ; ici on vérifie l'existence du nœud
+   * et on persiste. Collision = autre `nodeId` portant déjà ce nom.
+   */
+  baptiser(
+    nodeId: string,
+    brut: string,
+    now = Date.now(),
+  ): VerdictBapteme | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const pris = this.listerBaptemes()
+      .filter((b) => b.nodeId !== nodeId)
+      .map((b) => b.nom);
+    const verdict = jugerBapteme(brut, pris);
+    if (!verdict.ok) return verdict;
+    this.db
+      .prepare(
+        'INSERT INTO baptemes (nodeId, nom, baptiseA) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(nodeId) DO UPDATE SET nom = excluded.nom, baptiseA = excluded.baptiseA',
+      )
+      .run(nodeId, verdict.nom, now);
+    return verdict;
+  }
+
+  /**
+   * Retire le baptême. N'invente pas de nom de remplacement — l'ouvrière
+   * redevient sans nom baptisé.
+   */
+  debaptiser(nodeId: string): boolean {
+    const r = this.db.prepare('DELETE FROM baptemes WHERE nodeId = ?').run(nodeId);
+    return r.changes > 0;
+  }
+
+  /** Résout un nom baptisé → nodeId, ou `null`. */
+  nodeIdParBapteme(nom: string): string | null {
+    const cible = normaliserNomBapteme(nom);
+    if (!cible) return null;
+    const row = this.db
+      .prepare('SELECT nodeId FROM baptemes WHERE nom = ? COLLATE NOCASE')
+      .get(cible) as { nodeId: string } | undefined;
+    return row?.nodeId ?? null;
+  }
+
+  // ─── Métiers de cycle (ADR 0010) ───────────────────────────────────────────
+
+  /** Métier assigné, ou `null` — jamais inventé. */
+  lireMetier(nodeId: string): { metier: MetierCycle; assigneA: number } | null {
+    const row = this.db
+      .prepare('SELECT metier, assigneA FROM metiers_cycle WHERE nodeId = ?')
+      .get(nodeId) as { metier: string; assigneA: number } | undefined;
+    if (!row) return null;
+    const v = validerMetier(row.metier);
+    if (!v.ok) return null; // ligne corrompue ⇒ silence, pas de théâtre
+    return { metier: v.metier, assigneA: row.assigneA };
+  }
+
+  listerMetiers(): { nodeId: string; metier: MetierCycle; assigneA: number }[] {
+    const rows = this.db
+      .prepare('SELECT nodeId, metier, assigneA FROM metiers_cycle ORDER BY assigneA DESC')
+      .all() as { nodeId: string; metier: string; assigneA: number }[];
+    const out: { nodeId: string; metier: MetierCycle; assigneA: number }[] = [];
+    for (const r of rows) {
+      const v = validerMetier(r.metier);
+      if (v.ok) out.push({ nodeId: r.nodeId, metier: v.metier, assigneA: r.assigneA });
+    }
+    return out;
+  }
+
+  /**
+   * Assigne (ou réassigne) un métier de cycle. Le nœud ne peut pas s'appeler
+   * lui-même — cette méthode n'est branchée que côté Reine (API ultérieure).
+   */
+  assignerMetier(
+    nodeId: string,
+    brut: string,
+    now = Date.now(),
+  ): VerdictMetier | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const verdict = validerMetier(brut);
+    if (!verdict.ok) return verdict;
+    this.db
+      .prepare(
+        'INSERT INTO metiers_cycle (nodeId, metier, assigneA) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(nodeId) DO UPDATE SET metier = excluded.metier, assigneA = excluded.assigneA',
+      )
+      .run(nodeId, verdict.metier, now);
+    return verdict;
+  }
+
+  /** Retire le métier — l'ouvrière n'a plus de cycle affiché. */
+  retirerMetier(nodeId: string): boolean {
+    const r = this.db.prepare('DELETE FROM metiers_cycle WHERE nodeId = ?').run(nodeId);
+    return r.changes > 0;
+  }
+
+  // ─── Présences Rayon (ADR 0010) ────────────────────────────────────────────
+  //
+  // Fichiers ouverts CONSTATÉS. `null` / liste vide = rien à montrer (pas de
+  // théâtre). Remplacées par le snapshot courant du nœud à chaque progrès.
+
+  /** Présences ouvertes d'une ouvrière — vide si aucune observation. */
+  lirePresences(
+    nodeId: string,
+  ): Array<PresenceFichier & { taskId: string | null; constateA: number }> {
+    const rows = this.db
+      .prepare(
+        'SELECT toolUseId, chemin, outil, taskId, constateA FROM presences_rayon ' +
+          'WHERE nodeId = ? ORDER BY constateA DESC',
+      )
+      .all(nodeId) as Array<{
+      toolUseId: string;
+      chemin: string;
+      outil: string;
+      taskId: string | null;
+      constateA: number;
+    }>;
+    const out: Array<PresenceFichier & { taskId: string | null; constateA: number }> = [];
+    for (const r of rows) {
+      const o = validerOutilPresence(r.outil);
+      const c = jugerCheminPresence(r.chemin);
+      if (!o.ok || !c.ok) continue;
+      out.push({
+        toolUseId: r.toolUseId,
+        chemin: c.chemin,
+        outil: o.outil,
+        taskId: r.taskId,
+        constateA: r.constateA,
+      });
+    }
+    return out;
+  }
+
+  listerPresences(): Array<{
+    nodeId: string;
+    toolUseId: string;
+    chemin: string;
+    outil: OutilPresence;
+    taskId: string | null;
+    constateA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT nodeId, toolUseId, chemin, outil, taskId, constateA FROM presences_rayon ' +
+          'ORDER BY constateA DESC',
+      )
+      .all() as Array<{
+      nodeId: string;
+      toolUseId: string;
+      chemin: string;
+      outil: string;
+      taskId: string | null;
+      constateA: number;
+    }>;
+    const out: Array<{
+      nodeId: string;
+      toolUseId: string;
+      chemin: string;
+      outil: OutilPresence;
+      taskId: string | null;
+      constateA: number;
+    }> = [];
+    for (const r of rows) {
+      const o = validerOutilPresence(r.outil);
+      const c = jugerCheminPresence(r.chemin);
+      if (!o.ok || !c.ok) continue;
+      out.push({
+        nodeId: r.nodeId,
+        toolUseId: r.toolUseId,
+        chemin: c.chemin,
+        outil: o.outil,
+        taskId: r.taskId,
+        constateA: r.constateA,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Remplace les présences OUVERTES d'un nœud pour une tâche par le snapshot
+   * constaté. Snapshot vide ⇒ efface (plus rien d'ouvert). Nœud inconnu ⇒ refus.
+   */
+  remplacerPresences(
+    nodeId: string,
+    snapshot: PresenceFichier[],
+    taskId: string | null = null,
+    now = Date.now(),
+  ): { ok: true } | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM presences_rayon WHERE nodeId = ?').run(nodeId);
+      const ins = this.db.prepare(
+        'INSERT INTO presences_rayon (nodeId, toolUseId, chemin, outil, taskId, constateA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (const p of snapshot) {
+        const o = validerOutilPresence(p.outil);
+        const c = jugerCheminPresence(p.chemin);
+        if (!o.ok || !c.ok) continue;
+        if (typeof p.toolUseId !== 'string' || p.toolUseId.length === 0) continue;
+        ins.run(nodeId, p.toolUseId, c.chemin, o.outil, taskId, now);
+      }
+    });
+    tx();
+    return { ok: true };
+  }
+
+  /** Efface toute présence d'un nœud (hors ligne, fin de tâche…). */
+  effacerPresencesNoeud(nodeId: string): number {
+    return this.db.prepare('DELETE FROM presences_rayon WHERE nodeId = ?').run(nodeId).changes;
+  }
+
+  /** Efface les présences liées à une tâche terminée. */
+  effacerPresencesTache(taskId: string): number {
+    return this.db.prepare('DELETE FROM presences_rayon WHERE taskId = ?').run(taskId).changes;
+  }
+
+  /**
+   * Borne d'élagage (règle 3) : les présences trop vieilles (outil jamais
+   * refermé, nœud disparu…) ne traînent pas.
+   */
+  prunePresences(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM presences_rayon WHERE constateA < ?').run(cutoff).changes;
+  }
+
+  // ─── Réquisitions (ADR 0010) ───────────────────────────────────────────────
+
+  ouvrirRequisition(
+    nodeId: string,
+    genreBrut: string,
+    libelleBrut: string,
+    detail: string | null = null,
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; genre: GenreRequisition; libelle: string }
+    | { ok: false; motif: MotifRefusRequisition } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const g = validerGenreRequisition(genreBrut);
+    if (!g.ok) return g;
+    const l = validerLibelleRequisition(libelleBrut);
+    if (!l.ok) return l;
+    const detailClean =
+      typeof detail === 'string' && detail.trim() ? detail.trim().slice(0, 2_000) : null;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
+      )
+      .run(id, nodeId, g.genre, l.libelle, detailClean, 'ouverte', now);
+    return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  lireRequisition(id: string): {
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    detail: string | null;
+    statut: StatutRequisition;
+    creeA: number;
+    closA: number | null;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE id = ?',
+      )
+      .get(id) as
+      | {
+          id: string;
+          nodeId: string;
+          genre: string;
+          libelle: string;
+          detail: string | null;
+          statut: string;
+          creeA: number;
+          closA: number | null;
+        }
+      | undefined;
+    if (!row) return null;
+    const g = validerGenreRequisition(row.genre);
+    if (!g.ok) return null;
+    if (row.statut !== 'ouverte' && row.statut !== 'accordee' && row.statut !== 'refusee') {
+      return null;
+    }
+    return {
+      id: row.id,
+      nodeId: row.nodeId,
+      genre: g.genre,
+      libelle: row.libelle,
+      detail: row.detail,
+      statut: row.statut,
+      creeA: row.creeA,
+      closA: row.closA,
+    };
+  }
+
+  listerRequisitions(opts?: { nodeId?: string; statut?: StatutRequisition }): Array<{
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    detail: string | null;
+    statut: StatutRequisition;
+    creeA: number;
+    closA: number | null;
+  }> {
+    let sql =
+      'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE 1=1';
+    const args: unknown[] = [];
+    if (opts?.nodeId) {
+      sql += ' AND nodeId = ?';
+      args.push(opts.nodeId);
+    }
+    if (opts?.statut) {
+      sql += ' AND statut = ?';
+      args.push(opts.statut);
+    }
+    sql += ' ORDER BY creeA DESC LIMIT 200';
+    const rows = this.db.prepare(sql).all(...args) as Array<{
+      id: string;
+      nodeId: string;
+      genre: string;
+      libelle: string;
+      detail: string | null;
+      statut: string;
+      creeA: number;
+      closA: number | null;
+    }>;
+    const out: Array<{
+      id: string;
+      nodeId: string;
+      genre: GenreRequisition;
+      libelle: string;
+      detail: string | null;
+      statut: StatutRequisition;
+      creeA: number;
+      closA: number | null;
+    }> = [];
+    for (const r of rows) {
+      const g = validerGenreRequisition(r.genre);
+      if (!g.ok) continue;
+      if (r.statut !== 'ouverte' && r.statut !== 'accordee' && r.statut !== 'refusee') continue;
+      out.push({
+        id: r.id,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        detail: r.detail,
+        statut: r.statut,
+        creeA: r.creeA,
+        closA: r.closA,
+      });
+    }
+    return out;
+  }
+
+  repondreRequisition(
+    id: string,
+    decision: 'accordee' | 'refusee',
+    now = Date.now(),
+  ): { ok: true; statut: StatutRequisition } | { ok: false; motif: MotifRefusRequisition } {
+    const cur = this.lireRequisition(id);
+    if (!cur) return { ok: false, motif: 'inconnue' };
+    if (cur.statut !== 'ouverte') return { ok: false, motif: 'deja_close' };
+    this.db
+      .prepare('UPDATE requisitions SET statut = ?, closA = ? WHERE id = ?')
+      .run(decision, now, id);
+    return { ok: true, statut: decision };
+  }
+
+  /** Élage les réquisitions closes trop anciennes (les ouvertes restent). */
+  pruneRequisitions(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db
+      .prepare(
+        "DELETE FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?",
+      )
+      .run(cutoff).changes;
+  }
+
+  // ─── Fabrique (ADR 0010 lot 8) ─────────────────────────────────────────────
+
+  ouvrirFabrique(
+    projectId: string,
+    genreBrut: string,
+    libelleBrut: string,
+    opts?: { nodeId?: string; nomScript?: string; taskId?: string },
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; genre: GenreFabrique; libelle: string }
+    | { ok: false; motif: MotifRefusFabrique } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'projet_inconnu' };
+    const g = validerGenreFabrique(genreBrut);
+    if (!g.ok) return g;
+    const l = validerLibelleFabrique(libelleBrut);
+    if (!l.ok) return l;
+    if (opts?.nodeId && !this.getNode(opts.nodeId)) return { ok: false, motif: 'projet_inconnu' };
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO fabriques (id, projectId, nodeId, genre, libelle, nomScript, taskId, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)',
+      )
+      .run(
+        id,
+        projectId,
+        opts?.nodeId ?? null,
+        g.genre,
+        l.libelle,
+        opts?.nomScript ?? null,
+        opts?.taskId ?? null,
+        'proposee',
+        now,
+      );
+    return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  listerFabriques(projectId: string): Array<{
+    id: string;
+    projectId: string;
+    nodeId: string | null;
+    genre: GenreFabrique;
+    libelle: string;
+    nomScript: string | null;
+    taskId: string | null;
+    statut: StatutFabrique;
+    creeA: number;
+    closA: number | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, projectId, nodeId, genre, libelle, nomScript, taskId, statut, creeA, closA ' +
+          'FROM fabriques WHERE projectId = ? ORDER BY creeA DESC LIMIT 100',
+      )
+      .all(projectId) as Array<{
+      id: string;
+      projectId: string;
+      nodeId: string | null;
+      genre: string;
+      libelle: string;
+      nomScript: string | null;
+      taskId: string | null;
+      statut: string;
+      creeA: number;
+      closA: number | null;
+    }>;
+    const out: Array<{
+      id: string;
+      projectId: string;
+      nodeId: string | null;
+      genre: GenreFabrique;
+      libelle: string;
+      nomScript: string | null;
+      taskId: string | null;
+      statut: StatutFabrique;
+      creeA: number;
+      closA: number | null;
+    }> = [];
+    for (const r of rows) {
+      const g = validerGenreFabrique(r.genre);
+      if (!g.ok) continue;
+      if (
+        r.statut !== 'proposee' &&
+        r.statut !== 'en_revue' &&
+        r.statut !== 'mergee' &&
+        r.statut !== 'refusee'
+      ) {
+        continue;
+      }
+      out.push({
+        id: r.id,
+        projectId: r.projectId,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        nomScript: r.nomScript,
+        taskId: r.taskId,
+        statut: r.statut,
+        creeA: r.creeA,
+        closA: r.closA,
+      });
+    }
+    return out;
+  }
+
+  poserStatutFabrique(
+    id: string,
+    statut: StatutFabrique,
+    now = Date.now(),
+  ): { ok: true } | { ok: false; motif: MotifRefusFabrique } {
+    const row = this.db.prepare('SELECT id, statut FROM fabriques WHERE id = ?').get(id) as
+      { id: string; statut: string } | undefined;
+    if (!row) return { ok: false, motif: 'inconnue' };
+    if (row.statut === 'mergee' || row.statut === 'refusee') {
+      return { ok: false, motif: 'deja_close' };
+    }
+    const clos = statut === 'mergee' || statut === 'refusee' ? now : null;
+    this.db
+      .prepare('UPDATE fabriques SET statut = ?, closA = ? WHERE id = ?')
+      .run(statut, clos, id);
+    return { ok: true };
+  }
+
+  pruneFabriques(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db
+      .prepare(
+        "DELETE FROM fabriques WHERE statut IN ('mergee','refusee') AND closA IS NOT NULL AND closA < ?",
+      )
+      .run(cutoff).changes;
+  }
+
+  // ─── Horizon (ADR 0010 lot 9) ──────────────────────────────────────────────
+
+  ajouterHorizon(
+    projectId: string,
+    kindBrut: string,
+    texteBrut: string,
+    source = 'reine',
+    now = Date.now(),
+  ): { ok: true; entree: EntreeHorizon } | { ok: false; motif: MotifRefusHorizon } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'projet_inconnu' };
+    const k = validerKindHorizon(kindBrut);
+    if (!k.ok) return k;
+    const t = validerTexteHorizon(texteBrut);
+    if (!t.ok) return t;
+    const count = (
+      this.db
+        .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
+        .get(projectId) as {
+        n: number;
+      }
+    ).n;
+    if (count >= HORIZON_LECTURE_MAX * 5) return { ok: false, motif: 'trop_dentrees' };
+    const id = randomUUID();
+    const src = (source || 'reine').trim().slice(0, 80) || 'reine';
+    this.db
+      .prepare(
+        'INSERT INTO horizon_ledger (id, projectId, kind, texte, source, creeA) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, projectId, k.kind, t.texte, src, now);
+    return {
+      ok: true,
+      entree: {
+        id,
+        projectId,
+        kind: k.kind,
+        texte: t.texte,
+        source: src,
+        creeA: now,
+      },
+    };
+  }
+
+  listerHorizon(projectId: string, limite = HORIZON_LECTURE_MAX): EntreeHorizon[] {
+    const cap = Math.max(1, Math.min(limite, HORIZON_LECTURE_MAX));
+    const rows = this.db
+      .prepare(
+        'SELECT id, projectId, kind, texte, source, creeA FROM horizon_ledger ' +
+          'WHERE projectId = ? ORDER BY creeA DESC LIMIT ?',
+      )
+      .all(projectId, cap) as Array<{
+      id: string;
+      projectId: string;
+      kind: string;
+      texte: string;
+      source: string;
+      creeA: number;
+    }>;
+    const out: EntreeHorizon[] = [];
+    for (const r of rows) {
+      const k = validerKindHorizon(r.kind);
+      if (!k.ok) continue;
+      out.push({
+        id: r.id,
+        projectId: r.projectId,
+        kind: k.kind,
+        texte: r.texte,
+        source: r.source,
+        creeA: r.creeA,
+      });
+    }
+    return out;
+  }
+
+  /** Compte brut du ledger (pour garde-fou essaim, pas pour l’écran). */
+  compterHorizon(projectId: string): number {
+    return (
+      this.db
+        .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
+        .get(projectId) as { n: number }
+    ).n;
+  }
+
+  pruneHorizon(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM horizon_ledger WHERE creeA < ?').run(cutoff).changes;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
