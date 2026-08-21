@@ -441,6 +441,10 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                     className="ry-presences-chemin"
                     data-testid="ry-presences-chemin"
                     title={t('Ouvrir dans l’arbre', 'Open in the tree')}
+                    aria-label={t(
+                      `${c.chemin} — ouvrir dans l’arbre`,
+                      `${c.chemin} — open in the tree`,
+                    )}
                     onClick={() => {
                       if (projet) void revelerEtOuvrir(projet.id, c.chemin);
                     }}

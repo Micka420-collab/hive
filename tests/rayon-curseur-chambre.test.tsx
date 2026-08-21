@@ -217,6 +217,7 @@ describe('curseur Rayon → Chambre', () => {
     const dom = await monter(vi.fn());
     const chemin = dom.querySelector('[data-testid="ry-presences-chemin"]') as HTMLButtonElement;
     expect(chemin).toBeTruthy();
+    expect(chemin.getAttribute('aria-label')).toMatch(/src\/pont\/mcp\.ts/);
     await act(async () => {
       chemin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
