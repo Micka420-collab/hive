@@ -269,7 +269,7 @@ export default function Chambre({
                 {poste.caste ? ` · ${poste.caste}` : ''}
               </p>
 
-              <div className="ch-onglets" role="tablist">
+              <div className="ch-onglets" role="tablist" aria-label={t('Sections', 'Sections')}>
                 {(
                   [
                     ['fiche', t('Fiche', 'Sheet')],
