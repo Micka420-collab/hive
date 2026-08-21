@@ -91,6 +91,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   proposerRetouche: vi.fn(),
   fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
+  fetchPresences: vi.fn(() => Promise.resolve({ presences: [] })),
 }));
 
 import {

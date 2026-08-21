@@ -215,6 +215,19 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     await ouvrir(chemin);
   };
 
+  // Après ouverture (focus Chambre ou clic), amener l’entrée active dans le
+  // viewport de l’arbre — sinon un chemin profond reste hors écran.
+  useEffect(() => {
+    if (!ouvert) return;
+    const id = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('.ry-entree.active')?.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [ouvert]);
+
   // Reine → Sauvegardes, ou Chambre → chemin constaté (déplie les parents).
   useEffect(() => {
     const focus = consommerFocus();

@@ -106,7 +106,8 @@ protocole (même doctrine que « une caste ne se déclare pas »).
 1. `bapteme.ts` pur + store + tests. Aucun CSS.
 2. `metier.ts` pur + tests d'absence de champ protocole.
 3. Présence Rayon (événement constaté) + parser de flux.
-4. API lecture. Lien de partage : toujours sans identités actives.
+4. API lecture (`/api/chambre/:nodeId`, `/api/presences`, `/api/baptemes`). Lien
+   de partage : toujours sans identités actives.
 5. Vue Chambre 4 zones.
 6. Curseurs Rayon.
 7. Réquisitions + exemple Seedance.
