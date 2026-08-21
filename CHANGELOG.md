@@ -18,7 +18,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `GET /api/baptemes` (jeton ruche ; partage → 401) — sinon « Pas encore
   baptisée » ; échec API → nom technique (pas de mensonge). Clic Essaim →
   Chambre. Échap → Ruche ; chemins → focus fichier Rayon (déplie les dossiers
-  parents). Maquette : `docs/maquettes/chambre/`. Capture + démo :
+  parents) ; sans projet lié → silence du lien. Maquette :
+  `docs/maquettes/chambre/`. Capture + démo :
   `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
 
 - **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,

@@ -50,6 +50,42 @@ function missionsFiltrees(
   return tasks.filter((t) => ok.has(t.status));
 }
 
+/** Chemin constaté → lien Rayon si projet lié, sinon silence du faux focus. */
+function CheminConstate({
+  chemin,
+  projectId,
+  onNavigate,
+  className,
+}: {
+  chemin: string;
+  projectId: string | null;
+  onNavigate: ViewProps['onNavigate'];
+  className?: string;
+}) {
+  const t = useT();
+  if (projectId) {
+    return (
+      <button
+        type="button"
+        className={className ? `${className} ch-lien-chemin` : 'ch-lien-chemin'}
+        title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
+        onClick={() => {
+          demanderFocusFichier(chemin);
+          onNavigate('rayon', projectId);
+        }}
+      >
+        {chemin}
+      </button>
+    );
+  }
+  return (
+    <span className={className}>
+      {chemin}
+      <span className="muted-text"> · {t('pas de projet lié', 'no linked project')}</span>
+    </span>
+  );
+}
+
 function evenementsDuNoeud(events: HiveEvent[], nodeId: string, tasks: Task[]): HiveEvent[] {
   const taskIds = new Set(tasks.map((t) => t.id));
   return events
@@ -419,27 +455,11 @@ export default function Chambre({
                         {poste.presences.map((p) => (
                           <li key={p.toolUseId}>
                             <span className="ch-outil">{p.outil}</span>{' '}
-                            {poste.projectId ? (
-                              <button
-                                type="button"
-                                className="ch-lien-chemin"
-                                title={t('Ouvrir dans le Rayon', 'Open in Rayon')}
-                                onClick={() => {
-                                  demanderFocusFichier(p.chemin);
-                                  onNavigate('rayon', poste.projectId!);
-                                }}
-                              >
-                                {p.chemin}
-                              </button>
-                            ) : (
-                              <>
-                                <span>{p.chemin}</span>
-                                <span className="muted-text">
-                                  {' '}
-                                  · {t('pas de projet lié', 'no linked project')}
-                                </span>
-                              </>
-                            )}
+                            <CheminConstate
+                              chemin={p.chemin}
+                              projectId={poste.projectId}
+                              onNavigate={onNavigate}
+                            />
                             <span className="ch-tache-time"> {timeShort(p.constateA)}</span>
                           </li>
                         ))}
