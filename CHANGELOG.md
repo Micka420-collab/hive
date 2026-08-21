@@ -43,6 +43,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Reine : abort du flux SSE** au démontage ou « Effacer » (AbortSignal), sans bulle d’erreur.
 - **`hive ask` : Ctrl+C** coupe le flux SSE (AbortSignal), message `(interrompu)`.
+- **Carnet lot 8** : empreintes Pages ✅ / Release signée 🔒 (ETAPES plus « à faire »).
 
 ### Changed
 
