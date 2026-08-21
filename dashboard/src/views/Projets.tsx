@@ -16,6 +16,7 @@ import {
   fetchConseil,
   fetchConseils,
   fetchDepotsGithub,
+  fetchStatutGithub,
   fetchMembresProjet,
   fetchMergePlan,
   fetchPartages,
@@ -47,6 +48,7 @@ import type {
   PlanResponse,
   ProjetPublicVue,
   SessionConseil,
+  StatutGithub,
 } from '../api';
 import { useLang, useT } from '../i18n';
 import { GesteIrreversible, ProgressBar, STATUS_ICON, statusLabel } from '../ui';
@@ -1270,19 +1272,33 @@ export function ProjetsOuverts({
  * presse-papiers — pour un gain nul, puisque c'est l'orchestrateur qui appelle
  * GitHub, pas le navigateur.
  *
- * Quand le jeton manque, le serveur répond 501 avec la marche à suivre : on
- * l'affiche telle quelle plutôt que d'inventer un message qui dériverait.
+ * Quand le jeton manque, le serveur répond 501 (ou `/api/github/status`) avec
+ * la marche à suivre : on l'affiche telle quelle plutôt que d'inventer un
+ * message qui dériverait.
+ *
+ * ─── COMPTE OBLIGATOIRE ICI ──────────────────────────────────────────────────
+ *
+ * Sans compte, l'import crée un projet orphelin (ownerId null) — un
+ * administrateur doit l'adopter avant que quiconque s'en serve. Ce n'est plus
+ * le parcours proposé : on demande de se connecter d'abord, et le dépôt
+ * appartient alors à la personne qui l'a connecté.
  */
 function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImporte: () => void }) {
   const t = useT();
   const [ouvert, setOuvert] = useState(false);
   const [filtre, setFiltre] = useState('');
   const [depots, setDepots] = useState<DepotsGithub | null>(null);
+  const [statut, setStatut] = useState<StatutGithub | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [occupe, setOccupe] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
 
+  const ouvrirCompte = () => {
+    window.dispatchEvent(new CustomEvent('hive:ouvrir-compte'));
+  };
+
   const lister = (q: string) => {
+    if (!user) return;
     setCharge(true);
     setErreur(null);
     fetchDepotsGithub(q)
@@ -1291,7 +1307,32 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
       .finally(() => setCharge(false));
   };
 
+  // Compte qui arrive (modal) ou panneau qui s'ouvre : on reprend sans
+  // forcer à refermer. Sans compte on n'appelle pas GitHub.
+  useEffect(() => {
+    if (!ouvert) return;
+    if (!user) {
+      setDepots(null);
+      return;
+    }
+    setErreur(null);
+    fetchStatutGithub()
+      .then((s) => {
+        setStatut(s);
+        if (!s.configure && s.detail) setErreur(s.detail);
+        else {
+          setCharge(true);
+          fetchDepotsGithub(filtre)
+            .then(setDepots)
+            .catch((e: unknown) => setErreur(errMsg(e)))
+            .finally(() => setCharge(false));
+        }
+      })
+      .catch((e: unknown) => setErreur(errMsg(e)));
+  }, [user, ouvert]);
+
   const importer = (fullName: string) => {
+    if (!user) return;
     setOccupe(fullName);
     setErreur(null);
     importerDepotGithub(fullName)
@@ -1303,22 +1344,18 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
       .finally(() => setOccupe(null));
   };
 
+  const ouvrir = () => setOuvert(true);
+
   if (!ouvert) {
     return (
       <section className="card pj-gh-repli">
-        <button
-          className="btn"
-          onClick={() => {
-            setOuvert(true);
-            lister('');
-          }}
-        >
+        <button className="btn" onClick={ouvrir}>
           {t('Connecter un dépôt GitHub', 'Connect a GitHub repository')}
         </button>
         <span className="pj-gh-aide">
           {t(
-            'Vos dépôts, les plus récents d’abord. Le jeton reste sur l’orchestrateur.',
-            'Your repositories, most recent first. The token stays on the orchestrator.',
+            'Vos dépôts, les plus récents d’abord. Connectez-vous d’abord — le jeton GitHub reste sur l’orchestrateur.',
+            'Your repositories, most recent first. Sign in first — the GitHub token stays on the orchestrator.',
           )}
         </span>
       </section>
@@ -1337,73 +1374,89 @@ function ConnecteurGithub({ user, onImporte }: { user: AuthUser | null; onImport
         </button>
       </header>
 
-      <div className="pj-run pj-gh-barre">
-        <input
-          className="pj-testcmd"
-          type="text"
-          placeholder={t(
-            'Filtrer (nom, description, langage)',
-            'Filter (name, description, language)',
+      {!user ? (
+        <div className="pj-gh-compte">
+          <p className="pj-gh-aide">
+            {t(
+              'Connectez votre compte Hive pour que le dépôt vous appartienne tout de suite. Sans compte, un administrateur devrait l’adopter — ce n’est plus le parcours proposé.',
+              'Sign in to your Hive account so the repository is yours right away. Without an account an administrator would have to adopt it — that is no longer the path we offer.',
+            )}
+          </p>
+          <button className="btn primary" type="button" onClick={ouvrirCompte}>
+            {t('Se connecter pour importer', 'Sign in to import')}
+          </button>
+        </div>
+      ) : (
+        <>
+          {statut && !statut.configure && !erreur && statut.detail && (
+            <p className="panel-error pj-gh-erreur">{statut.detail}</p>
           )}
-          value={filtre}
-          onChange={(e) => setFiltre(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && lister(filtre)}
-          aria-label={t('Filtrer les dépôts', 'Filter repositories')}
-        />
-        <button className="btn" onClick={() => lister(filtre)} disabled={charge}>
-          {charge ? t('Lecture…', 'Reading…') : t('Chercher', 'Search')}
-        </button>
-      </div>
 
-      {/* Le 501 « GitHub non connecté » porte la marche à suivre complète :
-          on la montre telle quelle. La reformuler ici la ferait diverger de
-          celle du serveur, et c'est celle du serveur qui est juste. */}
-      {erreur && <p className="panel-error pj-gh-erreur">{erreur}</p>}
-
-      {!user && (
-        <p className="pj-gh-aide">
-          {t(
-            'Sans compte connecté, le dépôt sera connecté à la ruche sans propriétaire — un administrateur devra l’adopter pour que quelqu’un puisse s’en servir.',
-            'Without a signed-in account, the repository will be connected with no owner — an administrator will have to adopt it before anyone can use it.',
-          )}
-        </p>
-      )}
-
-      {depots && (
-        <ul className="pj-gh-liste">
-          {depots.depots.length === 0 && (
-            <li className="pj-gh-vide">
-              {t('Aucun dépôt ne correspond.', 'No repository matches.')}
-            </li>
-          )}
-          {depots.depots.map((d) => (
-            <li key={d.fullName} className={d.importe ? 'pj-gh-deja' : ''}>
-              <div className="pj-gh-nom">
-                <strong>{d.fullName}</strong>
-                {d.prive && <span className="pj-vis private">{t('privé', 'private')}</span>}
-                {d.archive && <span className="pj-gh-tag">{t('archivé', 'archived')}</span>}
-                {d.langage && <span className="pj-gh-tag">{d.langage}</span>}
-              </div>
-              {/* Même famille : muté en `||`, une description absente rend un
-                  `<span>` vide et stylé plutôt que rien. L'entrée qui tranche
-                  est un dépôt sans description. */}
-              {d.description && <span className="pj-gh-desc">{d.description}</span>}
-              {d.importe ? (
-                <span className="pj-gh-etat">{t('déjà connecté', 'already connected')}</span>
-              ) : (
-                <button
-                  className="btn"
-                  disabled={occupe !== null}
-                  onClick={() => importer(d.fullName)}
-                >
-                  {occupe === d.fullName
-                    ? t('Connexion…', 'Connecting…')
-                    : t('Connecter', 'Connect')}
-                </button>
+          <div className="pj-run pj-gh-barre">
+            <input
+              className="pj-testcmd"
+              type="text"
+              placeholder={t(
+                'Filtrer (nom, description, langage)',
+                'Filter (name, description, language)',
               )}
-            </li>
-          ))}
-        </ul>
+              value={filtre}
+              onChange={(e) => setFiltre(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && lister(filtre)}
+              aria-label={t('Filtrer les dépôts', 'Filter repositories')}
+              disabled={statut?.configure === false}
+            />
+            <button
+              className="btn"
+              onClick={() => lister(filtre)}
+              disabled={charge || statut?.configure === false}
+            >
+              {charge ? t('Lecture…', 'Reading…') : t('Chercher', 'Search')}
+            </button>
+          </div>
+
+          {/* Le 501 « GitHub non connecté » porte la marche à suivre complète :
+              on la montre telle quelle. La reformuler ici la ferait diverger de
+              celle du serveur, et c'est celle du serveur qui est juste. */}
+          {erreur && <p className="panel-error pj-gh-erreur">{erreur}</p>}
+
+          {depots && statut?.configure !== false && (
+            <ul className="pj-gh-liste">
+              {depots.depots.length === 0 && (
+                <li className="pj-gh-vide">
+                  {t('Aucun dépôt ne correspond.', 'No repository matches.')}
+                </li>
+              )}
+              {depots.depots.map((d) => (
+                <li key={d.fullName} className={d.importe ? 'pj-gh-deja' : ''}>
+                  <div className="pj-gh-nom">
+                    <strong>{d.fullName}</strong>
+                    {d.prive && <span className="pj-vis private">{t('privé', 'private')}</span>}
+                    {d.archive && <span className="pj-gh-tag">{t('archivé', 'archived')}</span>}
+                    {d.langage && <span className="pj-gh-tag">{d.langage}</span>}
+                  </div>
+                  {/* Même famille : muté en `||`, une description absente rend un
+                      `<span>` vide et stylé plutôt que rien. L'entrée qui tranche
+                      est un dépôt sans description. */}
+                  {d.description && <span className="pj-gh-desc">{d.description}</span>}
+                  {d.importe ? (
+                    <span className="pj-gh-etat">{t('déjà connecté', 'already connected')}</span>
+                  ) : (
+                    <button
+                      className="btn"
+                      disabled={occupe !== null}
+                      onClick={() => importer(d.fullName)}
+                    >
+                      {occupe === d.fullName
+                        ? t('Connexion…', 'Connecting…')
+                        : t('Connecter', 'Connect')}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );

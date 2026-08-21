@@ -1602,7 +1602,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const authorized = (req: FastifyRequest): boolean =>
     tokenMatches(req.headers['x-hive-token'], config.token);
 
-  const reject = (reply: FastifyReply) => reply.code(401).send({ error: 'token invalide' });
+  const reject = (reply: FastifyReply) =>
+    reply.code(401).send({
+      error: 'token invalide',
+      detail:
+        'Le jeton du tableau de bord (champ « Jeton » en haut à droite) doit être ' +
+        'exactement la valeur de HIVE_TOKEN dans le fichier .env de l’orchestrateur. ' +
+        'Ce n’est pas le jeton GitHub (HIVE_GITHUB_TOKEN).',
+    });
 
   /** Requête authentifiée par JWT utilisateur. */
   interface AuthRequest extends FastifyRequest {
@@ -2640,6 +2647,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
     });
   }
+
+  /** Sonde : le jeton GitHub est-il posé ? Ne révèle jamais sa valeur. */
+  app.get('/api/github/status', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!jetonGithub) {
+      return {
+        configure: false,
+        detail:
+          'Définissez HIVE_GITHUB_TOKEN dans l’environnement de l’orchestrateur, puis relancez-le. ' +
+          'Créez un jeton sur https://github.com/settings/tokens avec la portée « repo » pour voir vos dépôts privés. ' +
+          'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
+      };
+    }
+    return { configure: true };
+  });
 
   /** Traduit une erreur GitHub en réponse actionnable, sans jamais fuiter le jeton. */
   function repondreErreurGithub(reply: FastifyReply, err: unknown): FastifyReply {

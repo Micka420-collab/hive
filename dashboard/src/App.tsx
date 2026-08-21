@@ -265,6 +265,7 @@ export function App() {
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
+  const [tokenAuthError, setTokenAuthError] = useState(false);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
   const [route, setRoute] = useState(parseHash);
@@ -343,8 +344,10 @@ export function App() {
         // quand rien ne change est le contrat : même référence, pas de rendu.
         setDeferred((prev) => transitionDifferees(prev, ev.type, taskId) as Set<string>);
       },
-      onStatus: (up) => {
+      onStatus: (up, meta) => {
         setConnected(up);
+        if (up) setTokenAuthError(false);
+        else if (meta?.authError) setTokenAuthError(true);
         // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
         // émis pendant une coupure ne sont jamais rejoués par le serveur.
         if (up) {
@@ -461,6 +464,7 @@ export function App() {
     // gratuite perd les événements émis pendant la fenêtre de coupure.
     if (token === getToken()) return;
     saveToken(token);
+    setTokenAuthError(false);
     setFeedKey((k) => k + 1);
   };
 
@@ -602,13 +606,14 @@ export function App() {
             <InvitePanel />
             <input
               type="password"
-              className="token-input"
+              className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
               placeholder={t('Jeton', 'Token')}
               title={t('Token de la ruche (x-hive-token)', 'Hive token (x-hive-token)')}
               value={token}
               onChange={(e) => setTokenState(e.target.value)}
               onBlur={applyToken}
               onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+              aria-invalid={tokenAuthError || undefined}
             />
             {unsyncedReviews > 0 && (
               <span
@@ -627,6 +632,17 @@ export function App() {
             </span>
           </div>
         </header>
+
+        {tokenAuthError && (
+          <div className="mc-token-banner" role="alert">
+            <p>
+              {t(
+                'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
+                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
+              )}
+            </p>
+          </div>
+        )}
 
         <Suspense
           fallback={

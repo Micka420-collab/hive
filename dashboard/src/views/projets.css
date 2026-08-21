@@ -936,6 +936,22 @@
   padding: 0;
 }
 
+.pj-gh-compte {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+}
+
+.pj-gh-compte .pj-gh-aide {
+  padding: 0;
+  max-width: 42rem;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .pj-gh-barre {
   padding: 12px 14px 0;
 }
