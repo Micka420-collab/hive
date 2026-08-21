@@ -15,6 +15,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (anti-spam) ; essaim halte si le carnet dépasse le budget d’instantané ;
   motifs `jeu-3d` + `cli-outil` (fabrique avant livraison) ; réquisition
   ouverte émet `requisition_ouverte` ; exemple Seedance (`cle_api` sans secret).
+- **Chambre polish.** Feedback d’erreur HITL / motifs / horizon / atelier ;
+  libellés fabrique & caste ; pastilles de statut ; « Ouvrir la Chambre »
+  unifié ; focus-visible miel étendu ; Rayon respecte `prefers-reduced-motion`.
 
 ### Added
 

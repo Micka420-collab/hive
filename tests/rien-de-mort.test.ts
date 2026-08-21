@@ -212,7 +212,7 @@ describe('LA MÊME RÈGLE, APPLIQUÉE AUX VUES', () => {
 
   it('CHAQUE VUE A SA CASE DANS LA BARRE — sinon elle n’existe que pour qui connaît l’URL', () => {
     // `Partage` est la seule exception historique : lien de partage, pas de barre.
-    // `Chambre` (ADR 0010) : entrée depuis la fiche nœud « Ouvrir le poste »,
+    // `Chambre` (ADR 0010) : entrée depuis la fiche nœud « Ouvrir la Chambre »,
     // pas une 14ᵉ case nav — le poste d’une ouvrière n’est pas une destination
     // de barre globale.
     const SANS_CASE = new Set([

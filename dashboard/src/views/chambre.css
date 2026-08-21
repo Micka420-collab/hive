@@ -426,9 +426,65 @@
 .ch-btn-refuser:focus-visible,
 .ch-brand-back:focus-visible,
 .ch-lien-rayon:focus-visible,
-.ch-tache:focus-visible {
+.ch-tache:focus-visible,
+.ch-motifs button:focus-visible,
+.ch-horizon-form select:focus-visible,
+.ch-horizon-form input:focus-visible,
+.ch-ordi-actions a:focus-visible,
+.ch-ordi-actions button:focus-visible,
+.ch-ordi-off button:focus-visible {
   outline: 2px solid var(--ch-miel-fonce);
   outline-offset: 2px;
+}
+
+.ch-status-soft {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: color-mix(in srgb, #2f6b3a 70%, var(--ch-encre));
+}
+
+.ch-fab-ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.ch-fab-pill {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ch-ligne) 80%, transparent);
+}
+
+.ch-fab-proposee {
+  background: color-mix(in srgb, var(--ch-creme, #fdf8f0) 80%, white);
+  color: var(--ch-mute);
+}
+
+.ch-fab-revue {
+  background: color-mix(in srgb, var(--ch-miel) 45%, white);
+  color: var(--ch-encre);
+}
+
+.ch-fab-mergee {
+  background: color-mix(in srgb, #2f6b3a 18%, white);
+  color: #2f6b3a;
+  border-color: color-mix(in srgb, #2f6b3a 30%, transparent);
+}
+
+.ch-fab-refusee {
+  background: color-mix(in srgb, #a33 12%, white);
+  color: #8a3030;
+}
+
+.ch-fab-inconnu {
+  background: transparent;
+  color: var(--ch-mute);
 }
 
 .ch-meta {

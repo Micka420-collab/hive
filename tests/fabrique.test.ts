@@ -64,6 +64,14 @@ describe('fabrique — jugement chantier', () => {
     );
   });
 
+  it('libellés genre et statut FR/EN', async () => {
+    const { libelleGenreFabrique, libelleStatutFabrique } =
+      await import('../src/orchestrator/fabrique.js');
+    expect(libelleGenreFabrique('script_npm', 'fr')).toMatch(/npm/i);
+    expect(libelleStatutFabrique('mergee', 'fr')).toBe('mergée');
+    expect(libelleStatutFabrique('en_revue', 'en')).toBe('in review');
+  });
+
   it('marquerFabriquesMergeesApresFusion lie taskId et orphelines', () => {
     const store = new HiveStore(':memory:');
     const p = store.createProject({ name: 'P' });

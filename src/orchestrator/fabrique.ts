@@ -174,3 +174,44 @@ export function expliquerRefusFabrique(
   };
   return (lang === 'en' ? en : fr)[motif];
 }
+
+/** Libellé d’écran pour un genre de fabrique (jamais le snake_case brut). */
+export function libelleGenreFabrique(genre: string, lang: 'fr' | 'en' = 'fr'): string {
+  const fr: Record<GenreFabrique, string> = {
+    script_npm: 'Script npm',
+    pont: 'Pont',
+    mcp: 'MCP',
+  };
+  const en: Record<GenreFabrique, string> = {
+    script_npm: 'npm script',
+    pont: 'Bridge',
+    mcp: 'MCP',
+  };
+  if (estGenreFabrique(genre)) return (lang === 'en' ? en : fr)[genre];
+  return genre;
+}
+
+/** Libellé d’écran pour un statut de fabrique. */
+export function libelleStatutFabrique(statut: string, lang: 'fr' | 'en' = 'fr'): string {
+  const fr: Record<StatutFabrique, string> = {
+    proposee: 'proposée',
+    en_revue: 'en revue',
+    mergee: 'mergée',
+    refusee: 'refusée',
+  };
+  const en: Record<StatutFabrique, string> = {
+    proposee: 'proposed',
+    en_revue: 'in review',
+    mergee: 'merged',
+    refusee: 'denied',
+  };
+  if (
+    statut === 'proposee' ||
+    statut === 'en_revue' ||
+    statut === 'mergee' ||
+    statut === 'refusee'
+  ) {
+    return (lang === 'en' ? en : fr)[statut];
+  }
+  return statut;
+}

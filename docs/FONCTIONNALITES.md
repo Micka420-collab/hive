@@ -175,7 +175,7 @@ une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
 ## 🪑 Chambre — poste d’ouvrière (ADR 0010)
 
-Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir le poste**
+Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir la Chambre**
 (`#/chambre/<nodeId>`, libellé · baptême si constaté) : identité baptisée, métier de cycle, caste, fichiers
 ouverts **constatés** (Read/Edit/Write), **Journal** et **Missions** de **cette**
 ouvrière, et l’**Ordinateur** = Atelier noVNC (ou « éteint » — pas de faux

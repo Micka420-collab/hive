@@ -343,7 +343,7 @@ describe('Chambre à l’écran', () => {
   it('dit que l’atelier est éteint (HIVE_ATELIER=off)', async () => {
     const dom = await monter();
     expect(dom.textContent).toMatch(/Bureau de recette éteint/);
-    expect(dom.textContent).toContain('HIVE_ATELIER=off');
+    expect(dom.textContent).toMatch(/Atelier désactivé \(HIVE_ATELIER=off\)/);
   });
 
   it('pastille EDIT distincte pour une présence Edit', async () => {
@@ -494,15 +494,21 @@ describe('Chambre à l’écran', () => {
       ],
     };
     vi.mocked(fetchMotifs).mockResolvedValue({ motifs: [motif] });
+    vi.mocked(appliquerMotif).mockResolvedValue({
+      ok: true,
+      motifId: 'm1',
+      taskIds: ['t-a', 't-b'],
+      titres: ['a', 'b'],
+    });
     vi.mocked(fetchChambre).mockResolvedValue(
       poste({
         fabriques: [
           {
             id: 'f1',
-            genre: 'script',
+            genre: 'script_npm',
             libelle: 'lint',
             nomScript: 'lint.sh',
-            statut: 'ouverte',
+            statut: 'proposee',
             creeA: 1,
           },
         ],
@@ -522,18 +528,23 @@ describe('Chambre à l’écran', () => {
     await act(async () => {});
     expect(dom.textContent).toContain('Fabrique');
     expect(dom.textContent).toContain('lint');
+    expect(dom.textContent).toMatch(/proposée/);
     expect(dom.textContent).toContain('Revue courte');
     const appliquer = [...dom.querySelectorAll('button')].find((b) =>
       (b.textContent ?? '').includes('Appliquer'),
-    );
+    ) as HTMLButtonElement;
     expect(appliquer).toBeTruthy();
-    await cliquer(appliquer!);
+    expect(appliquer.getAttribute('aria-label')).toMatch(/Appliquer.*Revue courte/i);
+    await cliquer(appliquer);
+    await act(async () => {});
     expect(appliquerMotif).toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/Motif appliqué/);
 
     await cliquer(dom.querySelector('#ch-tab-suivi')!);
     expect(dom.textContent).toContain('Compile');
     expect(dom.textContent).toContain('Seedance ok');
-    const input = dom.querySelector('input[placeholder="Constater…"]') as HTMLInputElement;
+    expect(dom.textContent).toMatch(/demo/);
+    const input = dom.querySelector('#ch-horizon-texte') as HTMLInputElement;
     expect(input).toBeTruthy();
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -546,6 +557,16 @@ describe('Chambre à l’écran', () => {
     });
     await act(async () => {});
     expect(ajouterHorizon).toHaveBeenCalledWith(PROJECT_ID, 'fait', 'Un fait constaté');
+    expect(dom.textContent).toMatch(/Fait noté/);
+  });
+
+  it('affiche Catalogue injoignable si fetchMotifs échoue', async () => {
+    vi.mocked(fetchMotifs).mockRejectedValue(new Error('réseau'));
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    expect(dom.textContent).toMatch(/Catalogue injoignable/);
+    expect(dom.textContent).not.toMatch(/Catalogue vide/);
   });
 
   it('filtre les missions (Terminées)', async () => {
