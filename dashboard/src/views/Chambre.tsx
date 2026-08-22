@@ -1342,8 +1342,8 @@ export default function Chambre({
             <p className="ch-silence">{grantReq.libelle}</p>
             <p className="ch-silence muted-text">
               {t(
-                'Écrit sur la Queen (.env) — jamais sur le nœud ni dans le journal.',
-                'Written on the Queen (.env) — never on the node or in the journal.',
+                'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Sur une ruche mono-machine, le nœud local recharge ce fichier à la reprise ; un nœud distant garde ses propres credentials.',
+                'Written on the Queen (.env) — never in the DB or journal. On a single-machine hive the local node reloads this file on resume; a remote node keeps its own credentials.',
               )}
             </p>
             <label className="ch-grant-field">
