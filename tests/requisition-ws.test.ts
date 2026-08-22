@@ -118,7 +118,7 @@ describe('réquisition — protocole nœud', () => {
     const rep = await fetch(`${base}/api/requisitions/${ack.id}/repondre`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ decision: 'accordee' }),
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-test-seedance' }),
     });
     expect(rep.status).toBe(200);
 

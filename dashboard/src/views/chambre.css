@@ -964,3 +964,51 @@ button.ch-lien-chemin:focus-visible {
     min-height: 220px;
   }
 }
+
+.ch-fab-form,
+.ch-motif-perso-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ch-fab-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.ch-fab-field input,
+.ch-fab-field select,
+.ch-fab-field textarea {
+  max-width: 100%;
+}
+
+.ch-dialog {
+  background: var(--ch-cream, #fdf8f0);
+  border: 1px solid var(--ch-honey, #f2b441);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  max-width: 28rem;
+  width: 100%;
+  box-shadow: 0 8px 32px rgb(23 19 12 / 12%);
+}
+
+.ch-dialog-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.ch-motif-etapes {
+  margin: 0.35rem 0 0.5rem 1.1rem;
+  font-size: 0.85rem;
+}
+
+.ch-motif-toggle {
+  text-align: left;
+  padding-left: 0;
+}

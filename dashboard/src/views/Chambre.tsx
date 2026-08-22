@@ -13,23 +13,36 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ajouterHorizon,
   appliquerMotif,
+  appliquerMotifPerso,
   arreterAtelier,
+  creerMotifPerso,
   demarrerAtelier,
   fetchAtelier,
   fetchChambre,
   fetchMotifs,
+  fetchMotifsPerso,
+  jugerFabriqueChantier,
+  lancerChantier,
+  ouvrirFabrique,
+  poserStatutFabrique,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
+import type { ChambrePoste, EtatAtelier, MotifCatalogue, MotifPerso, RequisitionPoste } from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
+import { useDialog, Voile } from '../ui';
 import { libelleMetier } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
 import {
   libelleGenreRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
-import { libelleGenreFabrique, libelleStatutFabrique } from '../../../src/orchestrator/fabrique.js';
+import { nomEnvDepuisLibelle } from '../../../src/orchestrator/requisition-env.js';
+import {
+  expliquerRefusFabrique,
+  libelleGenreFabrique,
+  libelleStatutFabrique,
+} from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
@@ -145,6 +158,30 @@ export default function Chambre({
   const [statusMotif, setStatusMotif] = useState<string | null>(null);
   const [errHorizon, setErrHorizon] = useState<string | null>(null);
   const [statusHorizon, setStatusHorizon] = useState<string | null>(null);
+  const [grantReq, setGrantReq] = useState<RequisitionPoste | null>(null);
+  const [grantSecret, setGrantSecret] = useState('');
+  const [grantEnvVar, setGrantEnvVar] = useState('');
+  const [motifsPerso, setMotifsPerso] = useState<MotifPerso[] | null>(null);
+  const [persoLibelle, setPersoLibelle] = useState('');
+  const [persoEtapes, setPersoEtapes] = useState('');
+  const [busyPerso, setBusyPerso] = useState(false);
+  const [motifConfirm, setMotifConfirm] = useState<MotifCatalogue | null>(null);
+  const [motifExpandid, setMotifExpandid] = useState<string | null>(null);
+  const [fabGenre, setFabGenre] = useState('script_npm');
+  const [fabLibelle, setFabLibelle] = useState('');
+  const [fabNomScript, setFabNomScript] = useState('');
+  const [busyFabrique, setBusyFabrique] = useState<string | null>(null);
+  const [errFabrique, setErrFabrique] = useState<string | null>(null);
+  const [statusFabrique, setStatusFabrique] = useState<string | null>(null);
+  const [verdictFab, setVerdictFab] = useState<Record<string, { ok: boolean; text: string }>>({});
+
+  const fermerGrant = () => {
+    setGrantReq(null);
+    setGrantSecret('');
+    setGrantEnvVar('');
+  };
+  const grantDialogRef = useDialog<HTMLDivElement>(fermerGrant);
+  const motifConfirmRef = useDialog<HTMLDivElement>(() => setMotifConfirm(null));
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -168,6 +205,7 @@ export default function Chambre({
   useEffect(() => {
     if (onglet !== 'integrations') return;
     setMotifs(null);
+    setMotifsPerso(null);
     setErrMotifs(null);
     void fetchMotifs()
       .then((r) => {
@@ -178,7 +216,12 @@ export default function Chambre({
         setMotifs([]);
         setErrMotifs(e instanceof Error ? e.message : String(e));
       });
-  }, [onglet]);
+    if (poste?.projectId) {
+      void fetchMotifsPerso(poste.projectId)
+        .then((r) => setMotifsPerso(r.motifs))
+        .catch(() => setMotifsPerso([]));
+    }
+  }, [onglet, poste?.projectId]);
 
   // Onglets : colonne desktop, rangée sous 960px — aria-orientation suit le layout.
   const [ongletsHorizontaux, setOngletsHorizontaux] = useState(
@@ -382,6 +425,13 @@ export default function Chambre({
                     aria-busy={busyReqId === r.id}
                     aria-label={t(`Accorder — ${r.libelle}`, `Grant — ${r.libelle}`)}
                     onClick={() => {
+                      if (r.genre === 'cle_api') {
+                        setGrantReq(r as RequisitionPoste);
+                        setGrantEnvVar(nomEnvDepuisLibelle(r.libelle));
+                        setGrantSecret('');
+                        setErrHitl(null);
+                        return;
+                      }
                       setBusyReqId(r.id);
                       setErrHitl(null);
                       setStatusHitl(null);
@@ -582,6 +632,68 @@ export default function Chambre({
                 {onglet === 'integrations' && (
                   <div className="ch-fabrique">
                     <h4>{t('Fabrique', 'Forge')}</h4>
+                    {poste.projectId ? (
+                      <form
+                        className="ch-fab-form"
+                        onSubmit={(ev) => {
+                          ev.preventDefault();
+                          if (!poste.projectId || !fabLibelle.trim()) return;
+                          setBusyFabrique('proposer');
+                          setErrFabrique(null);
+                          setStatusFabrique(null);
+                          void ouvrirFabrique(poste.projectId, {
+                            genre: fabGenre,
+                            libelle: fabLibelle.trim(),
+                            nomScript: fabNomScript.trim() || undefined,
+                            nodeId,
+                          })
+                            .then(() => {
+                              setFabLibelle('');
+                              setFabNomScript('');
+                              setStatusFabrique(t('Proposition ouverte', 'Proposal opened'));
+                              rafraichir();
+                            })
+                            .catch((e) => {
+                              setErrFabrique(e instanceof Error ? e.message : String(e));
+                            })
+                            .finally(() => setBusyFabrique(null));
+                        }}
+                      >
+                        <label className="ch-fab-field">
+                          <span>{t('Genre', 'Kind')}</span>
+                          <select value={fabGenre} onChange={(e) => setFabGenre(e.target.value)}>
+                            <option value="script_npm">script npm</option>
+                            <option value="pont">pont</option>
+                            <option value="mcp">MCP</option>
+                          </select>
+                        </label>
+                        <label className="ch-fab-field">
+                          <span>{t('Libellé', 'Label')}</span>
+                          <input
+                            value={fabLibelle}
+                            onChange={(e) => setFabLibelle(e.target.value)}
+                            maxLength={200}
+                            required
+                          />
+                        </label>
+                        <label className="ch-fab-field">
+                          <span>{t('Script npm (optionnel)', 'npm script (optional)')}</span>
+                          <input
+                            value={fabNomScript}
+                            onChange={(e) => setFabNomScript(e.target.value)}
+                            maxLength={80}
+                            placeholder="lint"
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn primary"
+                          disabled={busyFabrique === 'proposer'}
+                        >
+                          {busyFabrique === 'proposer' ? t('…', '…') : t('Proposer', 'Propose')}
+                        </button>
+                      </form>
+                    ) : null}
                     {(poste.fabriques?.length ?? 0) === 0 ? (
                       <p className="ch-silence">
                         {t(
@@ -604,10 +716,107 @@ export default function Chambre({
                               {libelleGenreFabrique(f.genre, langCode)}
                               {f.nomScript ? ` · ${f.nomScript}` : ''}
                             </span>
+                            {poste.projectId && f.statut === 'proposee' ? (
+                              <span className="ch-req-actions">
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === f.id}
+                                  onClick={() => {
+                                    setBusyFabrique(f.id);
+                                    void poserStatutFabrique(poste.projectId!, f.id, 'en_revue')
+                                      .then(() => rafraichir())
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Revue', 'Review')}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === f.id}
+                                  onClick={() => {
+                                    setBusyFabrique(f.id);
+                                    void poserStatutFabrique(poste.projectId!, f.id, 'refusee')
+                                      .then(() => rafraichir())
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Refuser', 'Deny')}
+                                </button>
+                              </span>
+                            ) : null}
+                            {poste.projectId && f.statut === 'mergee' && f.nomScript ? (
+                              <span className="ch-req-actions">
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === `j-${f.id}`}
+                                  onClick={() => {
+                                    setBusyFabrique(`j-${f.id}`);
+                                    void jugerFabriqueChantier(poste.projectId!, f.nomScript!)
+                                      .then((v) => {
+                                        setVerdictFab((prev) => ({
+                                          ...prev,
+                                          [f.id]: {
+                                            ok: v.ok,
+                                            text: v.ok
+                                              ? t('Chantier autorisé', 'Chantier allowed')
+                                              : expliquerRefusFabrique(
+                                                  (v.motif ?? 'non_declare') as 'non_declare',
+                                                  langCode,
+                                                ),
+                                          },
+                                        }));
+                                      })
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Juger Chantiers', 'Judge Chantiers')}
+                                </button>
+                                {verdictFab[f.id]?.ok ? (
+                                  <button
+                                    type="button"
+                                    className="btn primary"
+                                    disabled={busyFabrique === `l-${f.id}`}
+                                    onClick={() => {
+                                      setBusyFabrique(`l-${f.id}`);
+                                      void lancerChantier(poste.projectId!, f.nomScript!)
+                                        .then(() => {
+                                          setStatusFabrique(
+                                            t('Chantier lancé', 'Chantier started'),
+                                          );
+                                        })
+                                        .catch((e) => {
+                                          setErrFabrique(
+                                            e instanceof Error ? e.message : String(e),
+                                          );
+                                        })
+                                        .finally(() => setBusyFabrique(null));
+                                    }}
+                                  >
+                                    {t('Lancer', 'Run')}
+                                  </button>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            {verdictFab[f.id] ? (
+                              <p className="ch-status-soft">{verdictFab[f.id]!.text}</p>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
                     )}
+                    {errFabrique ? (
+                      <p className="ch-err-soft" role="status">
+                        {errFabrique}
+                      </p>
+                    ) : null}
+                    {statusFabrique ? (
+                      <p className="ch-status-soft" role="status">
+                        {statusFabrique}
+                      </p>
+                    ) : null}
                     <p className="ch-note">
                       {t(
                         'Chantiers ne lance qu’après merge + script déclaré.',
@@ -635,43 +844,39 @@ export default function Chambre({
                       <ul className="ch-motifs">
                         {motifs.map((m) => {
                           const libelle = langCode === 'en' ? m.libelleEn : m.libelleFr;
+                          const ouvert = motifExpandid === m.id;
                           return (
                             <li key={m.id}>
                               <span>
-                                {libelle}
-                                <span className="ch-silence">
-                                  {' '}
-                                  · {m.etapes.length} {t('étapes', 'steps')}
-                                </span>
+                                <button
+                                  type="button"
+                                  className="btn ghost ch-motif-toggle"
+                                  aria-expanded={ouvert}
+                                  onClick={() => setMotifExpandid(ouvert ? null : m.id)}
+                                >
+                                  {libelle}
+                                  <span className="ch-silence">
+                                    {' '}
+                                    · {m.etapes.length} {t('étapes', 'steps')}
+                                  </span>
+                                </button>
                               </span>
+                              {ouvert ? (
+                                <ol className="ch-motif-etapes">
+                                  {m.etapes.map((e) => (
+                                    <li key={e.id}>
+                                      {langCode === 'en' ? e.titreEn : e.titreFr}
+                                    </li>
+                                  ))}
+                                </ol>
+                              ) : null}
                               <button
                                 type="button"
                                 className="btn ghost"
                                 disabled={busyMotif === m.id}
                                 aria-busy={busyMotif === m.id}
                                 aria-label={t(`Appliquer — ${libelle}`, `Apply — ${libelle}`)}
-                                onClick={() => {
-                                  if (!poste.projectId) return;
-                                  setBusyMotif(m.id);
-                                  setErrMotif(null);
-                                  setStatusMotif(null);
-                                  void appliquerMotif(poste.projectId, m.id, { lang: langCode })
-                                    .then((r) => {
-                                      const n = r.taskIds?.length ?? r.titres?.length ?? 0;
-                                      setStatusMotif(
-                                        t(
-                                          `Motif appliqué · ${n} tâches`,
-                                          `Motif applied · ${n} tasks`,
-                                        ),
-                                      );
-                                      setFiltre('pause');
-                                      rafraichir();
-                                    })
-                                    .catch((e) => {
-                                      setErrMotif(e instanceof Error ? e.message : String(e));
-                                    })
-                                    .finally(() => setBusyMotif(null));
-                                }}
+                                onClick={() => setMotifConfirm(m)}
                               >
                                 {busyMotif === m.id ? t('…', '…') : t('Appliquer', 'Apply')}
                               </button>
@@ -680,6 +885,102 @@ export default function Chambre({
                         })}
                       </ul>
                     )}
+                    {poste.projectId ? (
+                      <>
+                        <h4>{t('Procédures perso', 'Custom procedures')}</h4>
+                        <form
+                          className="ch-motif-perso-form"
+                          onSubmit={(ev) => {
+                            ev.preventDefault();
+                            if (!poste.projectId) return;
+                            const etapes = persoEtapes
+                              .split('\n')
+                              .map((l) => l.trim())
+                              .filter(Boolean);
+                            setBusyPerso(true);
+                            setErrMotif(null);
+                            void creerMotifPerso(poste.projectId, {
+                              libelle: persoLibelle.trim(),
+                              etapes,
+                            })
+                              .then(() => {
+                                setPersoLibelle('');
+                                setPersoEtapes('');
+                                setStatusMotif(t('Procédure enregistrée', 'Procedure saved'));
+                                return fetchMotifsPerso(poste.projectId!);
+                              })
+                              .then((r) => setMotifsPerso(r.motifs))
+                              .catch((e) => {
+                                setErrMotif(e instanceof Error ? e.message : String(e));
+                              })
+                              .finally(() => setBusyPerso(false));
+                          }}
+                        >
+                          <label className="ch-fab-field">
+                            <span>{t('Libellé', 'Label')}</span>
+                            <input
+                              value={persoLibelle}
+                              onChange={(e) => setPersoLibelle(e.target.value)}
+                              maxLength={120}
+                              required
+                            />
+                          </label>
+                          <label className="ch-fab-field">
+                            <span>{t('Étapes (une par ligne)', 'Steps (one per line)')}</span>
+                            <textarea
+                              value={persoEtapes}
+                              onChange={(e) => setPersoEtapes(e.target.value)}
+                              rows={4}
+                              required
+                            />
+                          </label>
+                          <button type="submit" className="btn primary" disabled={busyPerso}>
+                            {busyPerso ? t('…', '…') : t('Créer', 'Create')}
+                          </button>
+                        </form>
+                        {(motifsPerso?.length ?? 0) > 0 ? (
+                          <ul className="ch-motifs">
+                            {motifsPerso!.map((m) => (
+                              <li key={m.id}>
+                                <span>
+                                  {m.libelle}
+                                  <span className="ch-silence">
+                                    {' '}
+                                    · {m.etapes.length} {t('étapes', 'steps')}
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyMotif === m.id}
+                                  onClick={() => {
+                                    if (!poste.projectId) return;
+                                    setBusyMotif(m.id);
+                                    void appliquerMotifPerso(poste.projectId, m.id)
+                                      .then((r) => {
+                                        setStatusMotif(
+                                          t(
+                                            `Procédure appliquée · ${r.taskIds.length} tâches`,
+                                            `Procedure applied · ${r.taskIds.length} tasks`,
+                                          ),
+                                        );
+                                        setFiltre('pause');
+                                        rafraichir();
+                                      })
+                                      .catch((e) => {
+                                        setErrMotif(e instanceof Error ? e.message : String(e));
+                                      })
+                                      .finally(() => setBusyMotif(null));
+                                  }}
+                                >
+                                  {t('Appliquer', 'Apply')}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : null}
                     {errMotif ? (
                       <p className="ch-err-soft" role="status">
                         {errMotif}
@@ -948,6 +1249,134 @@ export default function Chambre({
           />
         </section>
       </div>
+
+      {grantReq ? (
+        <Voile onClose={fermerGrant}>
+          <div
+            ref={grantDialogRef}
+            className="ch-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ch-grant-titre"
+          >
+            <h3 id="ch-grant-titre">{t('Accorder la clé', 'Grant the key')}</h3>
+            <p className="ch-silence">{grantReq.libelle}</p>
+            <label className="ch-fab-field">
+              <span>{t('Variable .env Queen', 'Queen .env variable')}</span>
+              <input
+                value={grantEnvVar}
+                onChange={(e) => setGrantEnvVar(e.target.value.toUpperCase())}
+                maxLength={64}
+                required
+              />
+            </label>
+            <label className="ch-fab-field">
+              <span>{t('Clé (secret)', 'Key (secret)')}</span>
+              <input
+                type="password"
+                value={grantSecret}
+                onChange={(e) => setGrantSecret(e.target.value)}
+                autoComplete="off"
+                required
+              />
+            </label>
+            <p className="ch-note">
+              {t(
+                'La clé est écrite dans .env sur la Queen — jamais sur le nœud.',
+                'The key is written to .env on the Queen — never on the node.',
+              )}
+            </p>
+            <div className="ch-dialog-actions">
+              <button type="button" className="btn ghost" onClick={fermerGrant}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busyReqId === grantReq.id}
+                onClick={() => {
+                  setBusyReqId(grantReq.id);
+                  setErrHitl(null);
+                  void repondreRequisition(grantReq.id, 'accordee', {
+                    secret: grantSecret,
+                    envVar: grantEnvVar.trim() || undefined,
+                  })
+                    .then((r) => {
+                      setStatusHitl(
+                        r.envVar
+                          ? t(`Clé posée (${r.envVar})`, `Key set (${r.envVar})`)
+                          : t('Accordée', 'Granted'),
+                      );
+                      fermerGrant();
+                      rafraichir();
+                    })
+                    .catch((e) => {
+                      setErrHitl(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => setBusyReqId(null));
+                }}
+              >
+                {busyReqId === grantReq.id ? t('…', '…') : t('Accorder', 'Grant')}
+              </button>
+            </div>
+          </div>
+        </Voile>
+      ) : null}
+
+      {motifConfirm && poste?.projectId ? (
+        <Voile onClose={() => setMotifConfirm(null)}>
+          <div
+            ref={motifConfirmRef}
+            className="ch-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ch-motif-confirm-titre"
+          >
+            <h3 id="ch-motif-confirm-titre">{t('Appliquer le motif ?', 'Apply motif?')}</h3>
+            <p>
+              {langCode === 'en' ? motifConfirm.libelleEn : motifConfirm.libelleFr}
+              {' · '}
+              {motifConfirm.etapes.length} {t('tâches chaînées', 'chained tasks')}
+            </p>
+            <ol className="ch-motif-etapes">
+              {motifConfirm.etapes.map((e) => (
+                <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
+              ))}
+            </ol>
+            <div className="ch-dialog-actions">
+              <button type="button" className="btn ghost" onClick={() => setMotifConfirm(null)}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busyMotif === motifConfirm.id}
+                onClick={() => {
+                  const pid = poste.projectId!;
+                  setBusyMotif(motifConfirm.id);
+                  setErrMotif(null);
+                  void appliquerMotif(pid, motifConfirm.id, { lang: langCode })
+                    .then((r) => {
+                      const n = r.taskIds?.length ?? 0;
+                      setStatusMotif(
+                        t(`Motif appliqué · ${n} tâches`, `Motif applied · ${n} tasks`),
+                      );
+                      setMotifConfirm(null);
+                      setFiltre('pause');
+                      rafraichir();
+                    })
+                    .catch((e) => {
+                      setErrMotif(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => setBusyMotif(null));
+                }}
+              >
+                {t('Confirmer', 'Confirm')}
+              </button>
+            </div>
+          </div>
+        </Voile>
+      ) : null}
     </div>
   );
 }

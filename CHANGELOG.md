@@ -9,6 +9,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **ADR 0010 — gaps lots 7–10.** Accorder `cle_api` pose la clé dans `.env`
+  Queen (dialogue Chambre, jamais sur le nœud). Fabrique consultative depuis
+  l’onglet Intégrations (proposer, revue, juger Chantiers, lancer). Motifs :
+  aperçu + confirmation ; procédures perso par projet. Horizon injecté dans
+  `hiveContext` et conseil (au-delà de la halte, borné).
+
+### Changed
+
 - **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
   `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
   secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`

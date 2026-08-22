@@ -196,7 +196,15 @@ import {
   SOURCE_HORIZON_DERIVE,
   texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
+  texteHorizonPourContexte,
 } from './horizon.js';
+import {
+  estNomEnvValide,
+  expliquerRefusSecret,
+  nomEnvDepuisLibelle,
+  poserCleQueenEnv,
+  validerSecretRequisition,
+} from './requisition-env.js';
 import { expliquerRefusRequisition } from './requisition.js';
 import {
   CORPUS_GARDIENNES,
@@ -684,6 +692,36 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * clone` ; la base, non.
    */
   const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'));
+
+  /** Scripts déclarés dans le `package.json` miroir d'un projet. */
+  const lireScriptsMiroir = async (project: Project): Promise<Record<string, string>> => {
+    try {
+      const fichier = await rayons.lire(project.id, 'package.json');
+      const brut: unknown = JSON.parse(fichier.contenu);
+      const bloc =
+        typeof brut === 'object' && brut !== null
+          ? (brut as Record<string, unknown>).scripts
+          : null;
+      if (typeof bloc !== 'object' || bloc === null) return {};
+      const scripts: Record<string, string> = {};
+      for (const [k, v] of Object.entries(bloc)) {
+        if (typeof v === 'string') scripts[k] = v;
+      }
+      return scripts;
+    } catch {
+      return {};
+    }
+  };
+
+  const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
+    const base = [projet.name, projet.description ?? '', projet.repoUrl ?? '']
+      .filter(Boolean)
+      .join(' — ');
+    const horizon = texteHorizonPourContexte(store.listerHorizon(projectId));
+    return horizon ? `${base}\n\n${horizon}` : base;
+  };
+
+  const cheminEnvQueen = path.join(process.cwd(), '.env');
   // Le dossier du savoir, à côté de la base — le même chemin que
   // `empreinte.ts` annonce sous la clé « cerveau », et que `hive desinstaller`
   // affiche. Résolu UNE fois : le contenu, lui, est relu à chaque tâche.
@@ -1014,6 +1052,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         (lecons ? lecons.length + 2 : 0) -
         (dejaPris ? dejaPris + 2 : 0),
     );
+    const budgetHorizon =
+      LIMITS.hiveContext -
+      (savoir ? savoir.length + 2 : 0) -
+      (lecons ? lecons.length + 2 : 0) -
+      (souvenirs ? souvenirs.length + 2 : 0) -
+      (dejaPris ? dejaPris + 2 : 0);
+    const horizon =
+      budgetHorizon > 80
+        ? texteHorizonPourContexte(store.listerHorizon(task.projectId), budgetHorizon - 2)
+        : '';
     return {
       // ─── L'ORDRE EST UNE DÉCISION, PAS UNE HABITUDE ────────────────────────
       //
@@ -1027,7 +1075,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, lecons, souvenirs].filter(Boolean).join('\n\n'),
+      //
+      // L'horizon (faits ≠ hypothèses) vient EN DERNIER : lecture seule, borné,
+      // jamais injecté comme tâches — ADR 0010 lot 9 au-delà de la halte.
+      hiveContext: [savoir, lecons, souvenirs, horizon].filter(Boolean).join('\n\n'),
       echecs: lecons ? echecs.length : 0,
       // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
       // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
@@ -1942,7 +1993,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee' } }>(
+  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee'; secret?: string; envVar?: string } }>(
     '/api/requisitions/:id/repondre',
     {
       schema: {
@@ -1957,6 +2008,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           additionalProperties: false,
           properties: {
             decision: { type: 'string', enum: ['accordee', 'refusee'] },
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
           },
         },
       },
@@ -1965,6 +2018,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorized(req)) return reject(reply);
       const cur = store.lireRequisition(req.params.id);
       if (!cur) return reply.code(404).send({ error: 'inconnue' });
+      let envPose: string | undefined;
+      if (req.body.decision === 'accordee' && cur.genre === 'cle_api') {
+        const vs = validerSecretRequisition(req.body.secret);
+        if (!vs.ok) {
+          return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+        }
+        const nomEnv =
+          req.body.envVar && estNomEnvValide(req.body.envVar)
+            ? req.body.envVar
+            : nomEnvDepuisLibelle(cur.libelle);
+        try {
+          poserCleQueenEnv(
+            cheminEnvQueen,
+            nomEnv,
+            vs.secret,
+            `Réquisition ${cur.libelle} (accordée depuis la Chambre)`,
+          );
+          process.env[nomEnv] = vs.secret;
+          envPose = nomEnv;
+        } catch {
+          return reply.code(500).send({ error: 'ecriture_env' });
+        }
+      }
       const v = store.repondreRequisition(req.params.id, req.body.decision);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
@@ -1974,16 +2050,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       emitEvent('requisition_reponse', {
         id: req.params.id,
         statut: v.statut,
+        ...(envPose ? { envVar: envPose } : {}),
       });
       const ws = nodeSockets.get(cur.nodeId);
-      if (ws) {
+      if (ws && (v.statut === 'accordee' || v.statut === 'refusee')) {
         send(ws, {
           type: 'requisition_result',
           id: req.params.id,
           statut: v.statut,
         });
       }
-      return { ok: true, statut: v.statut };
+      return { ok: true, statut: v.statut, ...(envPose ? { envVar: envPose } : {}) };
     },
   );
 
@@ -2091,14 +2168,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   app.post<{
     Params: { projectId: string };
-    Body: { nomScript: string; scriptsMiroir: Record<string, string>; mergeLanded: boolean };
+    Body: { nomScript: string; scriptsMiroir?: Record<string, string>; mergeLanded?: boolean };
   }>(
     '/api/projects/:projectId/fabriques/juger-chantier',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['nomScript', 'scriptsMiroir', 'mergeLanded'],
+          required: ['nomScript'],
           additionalProperties: false,
           properties: {
             nomScript: { type: 'string', minLength: 1, maxLength: 80 },
@@ -2110,19 +2187,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      if (!store.getProject(req.params.projectId)) {
+      const project = store.getProject(req.params.projectId);
+      if (!project) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
-      const { jugerFabriqueAvantChantier } = await import('./fabrique.js');
-      const scripts = req.body.scriptsMiroir ?? {};
+      const { jugerFabriqueAvantChantier, fabriqueBloqueChantier } = await import('./fabrique.js');
+      let scriptsMiroir = req.body.scriptsMiroir;
+      let mergeLanded = req.body.mergeLanded;
+      if (scriptsMiroir === undefined || mergeLanded === undefined) {
+        if (!(await assurerMiroir(project, reply))) return;
+        if (scriptsMiroir === undefined) {
+          scriptsMiroir = await lireScriptsMiroir(project);
+        }
+        if (mergeLanded === undefined) {
+          const gate = fabriqueBloqueChantier(
+            store.listerFabriques(project.id),
+            req.body.nomScript,
+          );
+          mergeLanded = gate.ok ? gate.mergeLanded : false;
+        }
+      }
       const clean: Record<string, string> = {};
-      for (const [k, v] of Object.entries(scripts)) {
+      for (const [k, v] of Object.entries(scriptsMiroir ?? {})) {
         if (typeof k === 'string' && typeof v === 'string') clean[k] = v;
       }
       return jugerFabriqueAvantChantier({
         nomScript: req.body.nomScript,
         scriptsMiroir: clean,
-        mergeLanded: req.body.mergeLanded === true,
+        mergeLanded: mergeLanded === true,
       });
     },
   );
@@ -2234,6 +2326,86 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         prevId = task.id;
       }
       return { ok: true, motifId: v.motif.id, taskIds, titres: v.titres };
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/motifs/perso',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { motifs: store.listerMotifsProjet(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { libelle: string; etapes: string[] };
+  }>(
+    '/api/projects/:projectId/motifs/perso',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['libelle', 'etapes'],
+          additionalProperties: false,
+          properties: {
+            libelle: { type: 'string', minLength: 1, maxLength: 120 },
+            etapes: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 8,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { expliquerRefusMotifPerso } = await import('./motifs.js');
+      const v = store.creerMotifProjet(projectId, req.body.libelle, req.body.etapes);
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif, message: expliquerRefusMotifPerso(v.motif) });
+      }
+      return { ok: true, id: v.id, libelle: v.libelle, etapes: v.etapes };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; motifId: string } }>(
+    '/api/projects/:projectId/motifs/perso/:motifId/appliquer',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const m = store.lireMotifProjet(req.params.motifId);
+      if (!m || m.projectId !== projectId) {
+        return reply.code(404).send({ error: 'inconnu' });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of m.etapes) {
+        const task = store.createTask({
+          projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Procédure « ${m.libelle} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: m.id, taskIds, titres: m.etapes };
     },
   );
 
@@ -3488,9 +3660,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (deja) return Promise.resolve(`conseil déjà ouvert (${deja.id})`);
         const session = ouvrirConseil(depConseil, {
           projectId,
-          contexteProjet: [projet.name, projet.description ?? '', projet.repoUrl ?? '']
-            .filter(Boolean)
-            .join(' — '),
+          contexteProjet: contexteProjetAvecHorizon(projectId, projet),
         });
         return Promise.resolve(`conseil ${session.id} ouvert`);
       },
@@ -4322,9 +4492,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const session = ouvrirConseil(depConseil, {
         projectId: project.id,
         ...(req.body?.question ? { question: req.body.question } : {}),
-        contexteProjet: [project.name, project.description ?? '', project.repoUrl ?? '']
-          .filter(Boolean)
-          .join(' — '),
+        contexteProjet: contexteProjetAvecHorizon(project.id, project),
       });
       return reply.code(201).send(vueSession(session.id));
     },
@@ -5567,27 +5735,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   //      quel appelant cocher « c'est un humain qui le demande ».
 
   /** Les scripts déclarés par le miroir d'un projet, ou `{}` s'il n'y en a pas. */
-  const scriptsDuMiroir = async (project: Project): Promise<Record<string, string>> => {
-    try {
-      const fichier = await rayons.lire(project.id, 'package.json');
-      const brut: unknown = JSON.parse(fichier.contenu);
-      const bloc =
-        typeof brut === 'object' && brut !== null
-          ? (brut as Record<string, unknown>).scripts
-          : null;
-      if (typeof bloc !== 'object' || bloc === null) return {};
-      const scripts: Record<string, string> = {};
-      for (const [k, v] of Object.entries(bloc)) {
-        if (typeof v === 'string') scripts[k] = v;
-      }
-      return scripts;
-    } catch {
-      // Pas de `package.json`, illisible, ou miroir absent : aucun chantier.
-      // Rendre `{}` plutôt que lever laisse `jugerChantier` produire le bon
-      // message — « ce dépôt n'en déclare aucun » — au lieu d'un 500.
-      return {};
-    }
-  };
+  const scriptsDuMiroir = lireScriptsMiroir;
 
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/chantiers',

@@ -152,6 +152,35 @@ export function doitNoterFaitDeriveASurveiller(
   );
 }
 
+/** Budget par défaut du bloc horizon injecté dans hiveContext / conseil. */
+export const HORIZON_CONTEXTE_BUDGET = 1_500;
+
+/**
+ * Texte borné pour le contexte ouvrière — faits et hypothèses séparés, jamais confondus.
+ */
+export function texteHorizonPourContexte(
+  entrees: readonly EntreeHorizon[],
+  budgetChars = HORIZON_CONTEXTE_BUDGET,
+): string {
+  const { faits, hypotheses } = resumeHorizon(entrees, 24);
+  const lignes: string[] = [];
+  if (faits.length > 0) {
+    lignes.push('Horizon — faits :');
+    for (const f of faits) lignes.push(`• ${f.texte}`);
+  }
+  if (hypotheses.length > 0) {
+    if (lignes.length) lignes.push('');
+    lignes.push('Horizon — hypothèses :');
+    for (const h of hypotheses) lignes.push(`• ${h.texte}`);
+  }
+  if (lignes.length === 0) return '';
+  let texte = lignes.join('\n');
+  if (texte.length > budgetChars) {
+    texte = `${texte.slice(0, Math.max(0, budgetChars - 1))}…`;
+  }
+  return texte;
+}
+
 export function expliquerRefusHorizon(motif: MotifRefusHorizon, lang: 'fr' | 'en' = 'fr'): string {
   const fr: Record<MotifRefusHorizon, string> = {
     vide: 'Entrée d’horizon incomplète.',

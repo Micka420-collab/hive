@@ -183,9 +183,11 @@ describe('GET /api/chambre/:nodeId', () => {
     const rep = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ decision: 'accordee' }),
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-test-seedance' }),
     });
     expect(rep.status).toBe(200);
+    const corpsRep = (await rep.json()) as { envVar?: string };
+    expect(corpsRep.envVar).toBe('SEEDANCE_API_KEY');
   });
 
   it('expose horizon + fabriques du projet dominant (sinon null / [])', async () => {
