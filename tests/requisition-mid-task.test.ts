@@ -30,6 +30,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
+      envPath: path.join(dir, '.env'),
       simulation: true,
       tickMs: 60,
     });

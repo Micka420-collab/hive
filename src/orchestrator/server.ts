@@ -499,6 +499,11 @@ export interface ServerConfig {
    */
   relivraisonMinMs?: number;
   /**
+   * Chemin du `.env` Queen (grant `cle_api`). Défaut : `.env` dans le cwd.
+   * Les tests passent un fichier à côté de `dbPath` pour ne pas polluer le dépôt.
+   */
+  envPath?: string;
+  /**
    * HIVE_BALANCE : off | observation | strict. Défaut `observation` — la ruche
    * pèse ce qu'elle dépense sans jamais rien bloquer. Optionnel ici (et non
    * requis comme le reste) pour que tout appelant existant de `createServer`
@@ -685,7 +690,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
-  const cheminEnvQueen = path.join(process.cwd(), '.env');
+  const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
     const base = [projet.name, projet.description ?? '', projet.repoUrl ?? '']

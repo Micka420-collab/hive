@@ -24,6 +24,7 @@ beforeEach(async () => {
     token: TOKEN,
     corsOrigins: ['http://localhost:5173'],
     dbPath: path.join(dir, 'ws.db'),
+    envPath: path.join(dir, '.env'),
     simulation: false,
     tickMs: 10_000,
   });

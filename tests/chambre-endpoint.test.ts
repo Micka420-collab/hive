@@ -1,6 +1,6 @@
 // Chambre — API lecture (ADR 0010 lot 4). Identités : jeton de ruche seulement.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,6 +29,7 @@ describe('GET /api/chambre/:nodeId', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
+      envPath: path.join(dir, '.env'),
       simulation: true,
       tickMs: 60,
     });
@@ -224,6 +225,11 @@ describe('GET /api/chambre/:nodeId', () => {
     expect(rep.status).toBe(200);
     const body = (await rep.json()) as { envVar?: string };
     expect(body.envVar).toBe('SEEDANCE_API_KEY');
+    expect(process.env.SEEDANCE_API_KEY).toBe('sk-seedance-test');
+    const envPath = path.join(dir!, '.env');
+    expect(readFileSync(envPath, 'utf8')).toContain('SEEDANCE_API_KEY=sk-seedance-test');
+    expect(readFileSync(envPath, 'utf8')).not.toMatch(/sk-seedance-test.*sk-seedance-test/);
+    delete process.env.SEEDANCE_API_KEY;
   });
 
   it('expose horizon + fabriques du projet dominant (sinon null / [])', async () => {
