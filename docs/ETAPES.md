@@ -11777,3 +11777,106 @@ Toujours pas de Release signée (🔒). Pas de 2ᵉ `irm` commenté (garde
 | Ctrl+C → AbortSignal sur `hive ask`  | `src/cli.ts` |
 | Garde source SIGINT / `(interrompu)` | `ask-cli`    |
 | Badges / tableau A → **4455**        | DEFINITION   |
+
+## La Chronique : 34 sur 34, et six bornes traversées toujours du même côté
+
+Cinquième vue balayée de bout en bout. Base épinglée dans l'atelier
+(`LOUPE_BASE=e93b252`, vérifiée 398 ajoutées / 0 retirée) :
+
+```text
+34 mutation(s) possible(s) sur le diff, 34 examinée(s).
+27 défendues, 7 SANS TEST
+```
+
+**Vingt pour cent.** La Reine en rendait 71 %, la Ruche 44 %. La Chronique est
+la mieux défendue des cinq — elle avait DEUX bancs à elle (`chronique-journal`,
+`chronique-clavier`) là où la Reine n'en avait aucun.
+
+### Ce que les deux bancs existants tenaient, et ce qu'ils ne tenaient pas
+
+`chronique-clavier` éprouve que la touche ARRIVE : `e.key === ' '`, la garde
+`isTyping() || modalOpen()`, le verrou `inReplay`. Le balayage les confirme
+toutes défendues — y compris les cinq étiquettes de `isTyping`, tuées par le
+seul cas POSITIF du fichier.
+
+Il n'éprouvait jamais ce que la touche DÉCIDE. La règle « rejouer depuis le
+début » est écrite deux fois, à l'identique :
+
+```text
+togglePlay()   if (!playing && idx >= lastIdx) setIdx(0);   ← le BOUTON ▶
+onKey(' ')     if (!playing && idx >= last)    setIdx(0);   ← la TOUCHE
+```
+
+Les QUATRE mutations de ces deux lignes étaient nues. Ce n'est donc pas une
+jumelle tenue par l'autre (§ 9 unquinquagicenties) : c'est la même décision
+dupliquée et défendue nulle part.
+
+### Les six bornes, et ce qu'elles ont en commun
+
+Le second lot de nues ne ressemble pas au premier. Ce ne sont pas des lignes
+jamais exécutées — les bancs les traversent à CHAQUE cas. Ce sont des lignes
+qu'on n'atteint QUE PAR UN CÔTÉ :
+
+| décision                        | ce que les décors posaient | le bord jamais vu |
+| ------------------------------- | -------------------------- | ----------------- |
+| `frame.projects > 1`            | `projects: 1`              | le pluriel        |
+| `frame.nodesTotal > 1`          | `nodesTotal: 1`            | le pluriel        |
+| `full.length > 120`             | `payload {}` → 2 signes    | 120 pile          |
+| `allRows.length > visible` (×2) | 0 ligne / `visible` 300    | 300 pile, et 301  |
+| `events.length > 0` (2e vide)   | 0 ou N, jamais les deux    | le journal VIDE   |
+
+Aucune ne casse le rendu. Elles écrivent « 1 projets », coupent une charge qui
+tenait, proposent « voir plus » quand tout est montré, et — la plus coûteuse —
+affichent les DEUX phrases de vide ensemble : « Rien pour l'instant. » suivi de
+« Aucun événement ne passe les filtres actifs. » La ruche n'a rien vécu, et on
+accuse les filtres.
+
+Cette dernière est celle que `chronique-journal` existe pour défendre : son
+en-tête argumente que les deux vides ne doivent pas se confondre. Le banc
+éprouvait chaque phrase DANS SON CAS ; aucun cas ne vérifiait qu'il n'y en a
+qu'UNE.
+
+### La septième est ÉQUIVALENTE, et c'est mesuré
+
+`el instanceof HTMLElement` → `instanceof Object` a survécu aux deux balayages.
+Sonde sur le CHEMIN D'APPEL, pas sur la forme de la ligne :
+
+```text
+valeur                            activeElement ?        sain    muté
+<svg tabindex="0">                OUI (a focus())        false   undefined
+createElementNS('urn:x','INPUT')  NON (pas de focus(),   false   true
+                                  l'appeler jette)
+```
+
+La seule valeur qui rend un vrai `true` ne peut jamais ÊTRE
+`document.activeElement`. Celle qui est atteignable rend `undefined` — faux
+comme l'autre. Le raisonnement d'abord annoncé (« aucun `tagName` hors HTML ne
+peut correspondre ») était FAUX sous une conclusion juste : § 9
+duosexagicenties.
+
+### Rejeu, un mutant à la fois
+
+```text
+TENU · B1  togglePlay : === → !==        TENU · P1  projets : > → >=
+TENU · B2  togglePlay : && → ||          TENU · P2  nœuds : > → >=
+TENU · B3  togglePlay : >= → >           TENU · T1  charge 120 : > → >=
+TENU · K1  clavier : && → ||             TENU · V1  voir plus : && → ||
+TENU · K2  clavier : >= → >              TENU · V2  voir plus : > → >=
+TENU · L1  boucle de lecture : < → <=    TENU · D1  second vide : > → >=
+TENU · L2  pause automatique : >= → >
+TENU · E1  bande d'erreur : Error → Object
+TENU · F1  familyOf conflits : || → &&
+
+ÉQUIVALENT · H1  isTyping : instanceof HTMLElement → Object
+
+═══ TENUS : 15 sur 15 ÉPROUVABLES ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre. Le banc de la
+relecture a d'abord attendu 500 ms d'horloge murale ; le tamis des ordres l'a
+fait rougir en CI (graine 23757) et il est passé aux minuteurs simulés — les
+neuf mutations qu'il ferme ont été rejouées CONTRE la version réécrite.
+
+Delta du terrain : `Chronique.tsx` passe de « jamais balayée » à **34/34
+balayé, 6 nues fermées, 1 équivalente consignée**. Restent jamais balayées :
+MonEspace (434), shared (502).
