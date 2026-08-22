@@ -19,8 +19,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   absent (ENOENT / « échec du lancement ») → `binaire` ; `requisition_open` +
   `taskId` ; pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
 - **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
-  mcp/logiciel → fabrique ; binaire → hint install. Modal grant : `envVar` en
-  lecture seule pour les réquisitions.
+  mcp/logiciel → fabrique ; binaire → hint install nommé (`messageAccordBinaire`).
+  Modal grant : `envVar` en lecture seule pour les réquisitions.
 - **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
   `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
   `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés

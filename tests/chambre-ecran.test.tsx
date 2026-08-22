@@ -470,6 +470,69 @@ describe('Chambre à l’écran', () => {
     expect(dom.textContent).toMatch(/fabrique proposée|forge proposal/i);
   });
 
+  it('Accorder binaire affiche un hint nommé', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-bin',
+            nodeId: NODE_ID,
+            genre: 'binaire',
+            libelle: 'Binaire claude',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-bin', 'accordee');
+    expect(ouvrirFabrique).not.toHaveBeenCalled();
+    expect(demarrerAtelier).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/installez « claude »|install « claude »/i);
+  });
+
+  it('Accorder logiciel ouvre une fabrique script_npm', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-log',
+            nodeId: NODE_ID,
+            genre: 'logiciel',
+            libelle: 'Outil lint maison',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-log', 'accordee');
+    expect(ouvrirFabrique).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({
+        genre: 'script_npm',
+        libelle: 'Outil lint maison',
+        nodeId: NODE_ID,
+      }),
+    );
+  });
+
   it('refuse une réquisition depuis le bandeau À trancher', async () => {
     vi.mocked(fetchChambre).mockResolvedValue(
       poste({

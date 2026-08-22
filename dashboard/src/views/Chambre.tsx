@@ -44,6 +44,7 @@ import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
 import {
   libelleGenreRequisition,
+  messageAccordBinaire,
   suiteAccordRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
@@ -499,11 +500,10 @@ export default function Chambre({
                             }
                           } else if (suite.action === 'fabrique') {
                             if (!poste?.projectId) {
-                              setStatusHitl(t('Accordée', 'Granted'));
-                              setErrHitl(
+                              setStatusHitl(
                                 t(
-                                  'Pas de projet lié — ouvrez Intégrations pour proposer une fabrique.',
-                                  'No linked project — open Integrations to propose a forge item.',
+                                  'Accordée — aucun projet lié : ouvrez Intégrations pour proposer une fabrique une fois un projet rattaché.',
+                                  'Granted — no linked project: open Integrations to propose a forge item once a project is attached.',
                                 ),
                               );
                             } else {
@@ -526,12 +526,7 @@ export default function Chambre({
                               }
                             }
                           } else if (suite.action === 'hint_binaire') {
-                            setStatusHitl(
-                              t(
-                                'Accordée — installez l’outil sur le poste (hive doctor / CLI), puis relancez le nœud.',
-                                'Granted — install the tool on the host (hive doctor / CLI), then restart the node.',
-                              ),
-                            );
+                            setStatusHitl(messageAccordBinaire(r.libelle, langCode));
                           } else {
                             setStatusHitl(t('Accordée', 'Granted'));
                           }

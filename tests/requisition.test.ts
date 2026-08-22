@@ -6,6 +6,7 @@ import {
   VERSION_REQUISITION,
   expliquerRefusRequisition,
   libelleGenreRequisition,
+  messageAccordBinaire,
   suiteAccordRequisition,
   validerGenreRequisition,
   validerLibelleRequisition,
@@ -46,6 +47,12 @@ describe('réquisition — forme', () => {
       genreFabrique: 'script_npm',
     });
     expect(suiteAccordRequisition('binaire')).toEqual({ action: 'hint_binaire' });
+  });
+
+  it('messageAccordBinaire nomme l’outil du libellé', () => {
+    expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/« claude »/);
+    expect(messageAccordBinaire('Binaire / CLI (Claude Code)', 'en')).toMatch(/Claude Code/);
+    expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/hive doctor/);
   });
 });
 
