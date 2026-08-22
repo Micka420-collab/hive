@@ -216,9 +216,20 @@ describe('réquisition si credentials manquantes', () => {
   });
 
   it('claude-code avec ~/.claude → silence même sans clé env', () => {
-    const existe = (p: string) => p.endsWith('.claude');
+    const existe = (p: string) => /[/\\]\.claude$/.test(p);
     expect(
-      requisitionSiCredentialsManquantes('claude-code', { HOME: '/home/moi' }, { existe }),
+      requisitionSiCredentialsManquantes(
+        'claude-code',
+        { HOME: '/home/moi' },
+        { existe, plateforme: 'linux' },
+      ),
+    ).toBeNull();
+    expect(
+      requisitionSiCredentialsManquantes(
+        'claude-code',
+        { USERPROFILE: 'C:\\Users\\moi' },
+        { existe, plateforme: 'win32' },
+      ),
     ).toBeNull();
   });
 
