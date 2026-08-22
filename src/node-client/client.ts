@@ -10,7 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
-import { requisitionSiCredentialsManquantes } from './agent-detect.js';
+import { agentBinairePresent, requisitionSiCredentialsManquantes } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
@@ -62,6 +62,11 @@ export interface NodeClientOptions {
    * suite. C'est le même motif que `adapter`.
    */
   bac?: { fournisseur: Fournisseur; variables: readonly string[] };
+  /**
+   * Présence du binaire agent (tests / override). Défaut : sonde PATH réelle.
+   * Sert à la reprise après Accorder `binaire` sans relancer un ENOENT immédiat.
+   */
+  verifierBinaireAgent?: () => Promise<boolean>;
 }
 
 /**
@@ -92,6 +97,10 @@ export class HiveNodeClient {
     workspace: Workspace;
     started: number;
     ctrl: AbortController;
+    /** Genre de la réquisition qui a mis en pause (cle_api | binaire | …). */
+    genre: string;
+    libelle: string;
+    detail?: string;
   } | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
@@ -448,6 +457,9 @@ export class HiveNodeClient {
             workspace,
             started,
             ctrl,
+            genre: req.genre,
+            libelle: req.libelle,
+            detail: req.detail,
           };
           this.ouvrirRequisition(req.genre, req.libelle, req.detail, task.id);
           this.send({
@@ -506,11 +518,31 @@ export class HiveNodeClient {
     }
   }
 
-  /** Reprend une tâche après réquisition accordée — credentials configurés localement. */
+  /** Reprend une tâche après réquisition accordée — credentials / binaire prêts. */
   private async reprendreApresRequisition(): Promise<void> {
     const attente = this.attenteRequisition;
     if (!attente) return;
-    const { task, repoUrl: _repoUrl, hiveContext, modele, workspace, started, ctrl } = attente;
+    const { task, hiveContext, modele, workspace, started, ctrl, genre, libelle, detail } = attente;
+
+    if (genre === 'binaire') {
+      const pret = this.opts.verifierBinaireAgent
+        ? await this.opts.verifierBinaireAgent()
+        : await agentBinairePresent(this.opts.agentType as AgentType);
+      if (!pret) {
+        // Garder la pause : Accorder ne veut pas dire « le CLI est là ».
+        // Relancer tout de suite brûlerait la pause en task_reject ENOENT.
+        this.log(`⏸ ${task.title} : binaire toujours absent après Accorder — nouvelle réquisition`);
+        this.send({
+          type: 'task_update',
+          taskId: task.id,
+          status: 'running',
+          log: '⏸ Binaire toujours absent — installez-le, puis Accordez à nouveau.',
+        });
+        this.ouvrirRequisition(genre, libelle, detail, task.id);
+        return;
+      }
+    }
+
     this.attenteRequisition = null;
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     try {
@@ -542,6 +574,24 @@ export class HiveNodeClient {
         },
       });
       if (!result.success && result.infra) {
+        const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        if (encore?.genre === 'binaire') {
+          this.attenteRequisition = {
+            ...attente,
+            genre: encore.genre,
+            libelle: encore.libelle,
+            detail: encore.detail,
+          };
+          this.ouvrirRequisition(encore.genre, encore.libelle, encore.detail, task.id);
+          this.send({
+            type: 'task_update',
+            taskId: task.id,
+            status: 'running',
+            log: '⏸ Binaire encore absent après reprise — nouvelle réquisition.',
+          });
+          this.log(`⏸ ${task.title} : ENOENT à la reprise — pause conservée`);
+          return;
+        }
         this.send({
           type: 'task_reject',
           taskId: task.id,
@@ -573,8 +623,10 @@ export class HiveNodeClient {
         subAgents: [],
       });
     } finally {
-      this.active.delete(task.id);
-      workspace.cleanup();
+      if (!this.attenteRequisition) {
+        this.active.delete(task.id);
+        workspace.cleanup();
+      }
     }
   }
 

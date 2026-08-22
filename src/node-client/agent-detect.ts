@@ -517,3 +517,30 @@ export async function detectAllAgents(
   found.push('shell');
   return found;
 }
+
+/**
+ * Le binaire de l'agent est-il encore sur le PATH (ou chemins natifs) ?
+ * Sert à la reprise mid-task après Accorder `binaire` : sans ça on relancerait
+ * tout de suite un spawn ENOENT et on perdrait la pause.
+ */
+export async function agentBinairePresent(
+  agent: AgentType,
+  opts: {
+    sonder?: Sonde;
+    plateforme?: string;
+    env?: NodeJS.ProcessEnv;
+    existe?: (chemin: string) => boolean;
+  } = {},
+): Promise<boolean> {
+  if (agent === 'shell' || agent === 'custom') return true;
+  const probe = PROBES.find((p) => p.agent === agent);
+  if (!probe) return false;
+  return firstPresent(
+    probe.bins,
+    opts.sonder ?? probeBin,
+    opts.plateforme ?? process.platform,
+    opts.env ?? process.env,
+    opts.existe ?? existsSync,
+    probe.signature,
+  );
+}

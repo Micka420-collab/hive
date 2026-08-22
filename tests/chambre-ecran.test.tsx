@@ -497,6 +497,7 @@ describe('Chambre à l’écran', () => {
     expect(ouvrirFabrique).not.toHaveBeenCalled();
     expect(demarrerAtelier).not.toHaveBeenCalled();
     expect(dom.textContent).toMatch(/installez « claude »|install « claude »/i);
+    expect(dom.textContent).toMatch(/Accordez à nouveau|Grant again/i);
   });
 
   it('Accorder logiciel ouvre une fabrique script_npm', async () => {

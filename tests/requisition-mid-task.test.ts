@@ -145,6 +145,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     const taskId = tasks[0]!.id;
 
     let phase: 'fail' | 'ok' = 'fail';
+    let binOk = false;
     const adapter: AgentAdapter = {
       name: 'fail-enoent',
       async run() {
@@ -171,6 +172,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       workRoot: path.join(dir, 'work'),
       adapter,
       quiet: true,
+      verifierBinaireAgent: async () => binOk,
     });
     client.start();
 
@@ -190,8 +192,32 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     expect(reqId, 'réquisition binaire ouverte').toBeTruthy();
     expect(genre).toBe('binaire');
 
+    // Accorder alors que le CLI manque encore → pause conservée, nouvelle req.
+    const repTropTot = await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee' }),
+    });
+    expect(repTropTot.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(server.store.getTask(taskId)?.status).not.toBe('done');
+
+    const deadlineReq2 = Date.now() + 12_000;
+    let reqId2: string | undefined;
+    while (Date.now() < deadlineReq2) {
+      const rows = server.store.listerRequisitions({ statut: 'ouverte' });
+      const hit = rows.find((r) => r.taskId === taskId && r.genre === 'binaire');
+      if (hit) {
+        reqId2 = hit.id;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    expect(reqId2, 'seconde réquisition binaire (CLI encore absent)').toBeTruthy();
+
     phase = 'ok';
-    const rep = await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
+    binOk = true;
+    const rep = await fetch(`${base}/api/requisitions/${reqId2}/repondre`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ decision: 'accordee' }),

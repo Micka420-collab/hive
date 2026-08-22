@@ -95,12 +95,12 @@ export function messageAccordBinaire(libelle: string, lang: 'fr' | 'en' = 'fr'):
   if (lang === 'en') {
     return (
       `Granted — install « ${outil} » on the host (PATH / hive doctor), ` +
-      `then restart the node so the task can resume.`
+      `then Grant again: the task resumes only once the binary is present.`
     );
   }
   return (
     `Accordée — installez « ${outil} » sur le poste (PATH / hive doctor), ` +
-    `puis relancez le nœud pour reprendre la tâche.`
+    `puis Accordez à nouveau : la tâche reprend seulement si le binaire est là.`
   );
 }
 

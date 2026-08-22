@@ -18,6 +18,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Boucle réquisition mid-task.** Échec infra auth → `cle_api` ; binaire
   absent (ENOENT / « échec du lancement ») → `binaire` ; `requisition_open` +
   `taskId` ; pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
+  Accorder `binaire` sans CLI encore présent : pause conservée + nouvelle
+  réquisition (plus de `task_reject` immédiat).
 - **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
   mcp/logiciel → fabrique ; binaire → hint install nommé (`messageAccordBinaire`).
   Modal grant : `envVar` en lecture seule pour les réquisitions.

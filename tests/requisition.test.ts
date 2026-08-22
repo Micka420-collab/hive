@@ -52,7 +52,8 @@ describe('réquisition — forme', () => {
   it('messageAccordBinaire nomme l’outil du libellé', () => {
     expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/« claude »/);
     expect(messageAccordBinaire('Binaire / CLI (Claude Code)', 'en')).toMatch(/Claude Code/);
-    expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/hive doctor/);
+    expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/Accordez à nouveau/);
+    expect(messageAccordBinaire('Binaire claude', 'en')).toMatch(/Grant again/);
   });
 });
 
