@@ -13386,3 +13386,47 @@ C'est le pendant « état » de § 9 tersexagicenties : là, un décor figeait u
 CHAMP et une borne n'était jamais franchie ; ici, un décor néglige une MÉMOIRE
 et deux cas se contaminent. Dans les deux cas, ce qui trompe n'est pas
 l'assertion — c'est ce qu'on n'a pas pensé à faire varier, ou à effacer.
+
+## 9 quinsexagicenties. Une liste de « reste à faire » est une mesure, et c'est celle qui se périme le plus cher
+
+Deux consignes différentes réveillent cette session — un tour toutes les heures,
+un autre toutes les trois heures. Chacune porte sa liste de points ouverts.
+Vérifiées le 22 août, en mutant ou en lisant le code, jamais en croyant la note :
+
+| Point nommé « ouvert »             | État réel                                             |
+| ---------------------------------- | ----------------------------------------------------- |
+| Balance `arme && cible !== null`   | DÉFENDUE ×2 (`vues-sentinelles`)                      |
+| Cerveau `serviIlYaJours === null`  | DÉFENDUE ×3 (suite entière)                           |
+| `server.ts` `find` de la livraison | DÉFENDUE (`polyethisme-livraison`)                    |
+| `getSnapshot()` sans LIMIT         | BORNÉE (`LIMITE_TACHES_INSTANTANE`, `SELECT … LIMIT`) |
+| table `tasks` sans élagueur        | `pruneTasks` existe ET est appelée (`server.ts`)      |
+
+Cinq sur cinq. Zéro travail à faire, et l'inventaire a coûté vingt minutes là où
+suivre la liste en aurait coûté plusieurs heures de bancs écrits pour des gardes
+qui tenaient déjà.
+
+### Pourquoi celle-là coûte plus cher que les autres périmées
+
+Un tableau périmé dans un document se lit une fois de temps en temps. Une
+CONSIGNE périmée, elle, est le mécanisme qui dirige chaque session sans
+surveillance : elle ne dort pas, elle réveille et elle ORIENTE. Une session qui
+la suit sans vérifier écrit des bancs pour du code déjà défendu, les mesure
+verts, et conclut honnêtement qu'elle a bien travaillé.
+
+C'est le même défaut que § 9 quaterquadragicenties (« on ne répare pas une
+mesure datée, on la refuse ») déplacé de l'objet MESURÉ vers l'instrument qui
+DISTRIBUE le travail — et le carnet n'avait encore rien à cet endroit-là.
+
+### La leçon
+
+**Avant de prendre un point sur une liste de restes, vérifier qu'il est encore
+un reste.** Pour une garde, ça se mesure : on la mute et on relance. Pour une
+borne, ça se lit : on cherche l'appelant. Dans les deux cas c'est des minutes,
+et ça évite d'écrire un banc dont le seul effet serait de faire croire qu'on a
+fermé quelque chose.
+
+Et le corollaire, pour qui tient la liste : **une consigne qui nomme du travail
+se re-date comme un badge.** Celle-ci nomme, au 22 août, cinq points tous
+fermés ; elle continuera d'y envoyer des sessions tant qu'elle n'est pas
+réécrite. Ce n'est pas au dépôt de le corriger — la consigne vit ailleurs — mais
+c'est au carnet de le dire.
