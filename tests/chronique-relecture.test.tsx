@@ -305,3 +305,71 @@ describe('la bande d’erreur du Time-Lapse ne recopie pas n’importe quoi', ()
     expect(bande, 'le rejet non-Error n’est pas rendu par String()').toContain('[object Object]');
   });
 });
+
+// ─── LES RACCOURCIS SE TAISENT QUAND ON ÉCRIT ────────────────────────────────
+//
+// `isTyping()` neutralise les raccourcis pendant que le focus est dans un
+// contrôle. Sa liste est écrite en `||` de fin de ligne :
+//
+//     tag === 'INPUT' ||
+//     tag === 'TEXTAREA' ||        ← chacun de ces `||` a été NU
+//     tag === 'SELECT' ||
+//     tag === 'BUTTON' ||
+//     tag === 'A' ||
+//     el.isContentEditable
+//
+// La loupe ne savait pas muter un opérateur en FIN de ligne (§ 9
+// septuagicenties) ; règle corrigée, le fichier rend 39 candidates au lieu de
+// 34 et QUATRE de ces `||` sont sortis nus.
+//
+// Ce que coûte chacun : `&&` lie plus fort que `||`, donc muter la ligne du
+// TEXTAREA donne `INPUT || (TEXTAREA && SELECT) || …`. Un élément ne peut pas
+// porter deux balises à la fois : le terme est TOUJOURS faux, et le textarea
+// cesse d'être reconnu. Taper une espace dans un champ de saisie déclencherait
+// alors la relecture du Time-Lapse au lieu d'insérer l'espace.
+//
+// Le discriminateur est celui que ce fichier utilise déjà : à `3/3`, une espace
+// rembobine à `1/3`. Si le raccourci se tait, la position ne bouge pas.
+
+/** Un contrôle focalisé HORS du composant — `isTyping` lit le focus du document. */
+function focaliser(tag: string): HTMLElement {
+  const el = document.createElement(tag);
+  if (tag === 'A') (el as HTMLAnchorElement).href = '#';
+  document.body.appendChild(el);
+  el.focus();
+  return el;
+}
+
+describe('espace ne pilote pas la frise quand le focus est dans un contrôle', () => {
+  for (const tag of ['TEXTAREA', 'SELECT', 'BUTTON', 'A'] as const) {
+    it(`ESPACE EST IGNORÉE QUAND LE FOCUS EST DANS UN ${tag}`, async () => {
+      const dom = await monter();
+      await entrerDansLaFrise(dom);
+      await frapper('ArrowRight');
+      await frapper('ArrowRight');
+      expect(position(dom), 'la frise n’est pas au bout avant la frappe').toBe('3/3');
+
+      const el = focaliser(tag);
+      expect(document.activeElement, `le ${tag} n’a pas pris le focus`).toBe(el);
+      try {
+        await frapper(' ');
+        expect(position(dom), `le raccourci a tiré alors qu’on écrit dans un ${tag}`).toBe('3/3');
+      } finally {
+        el.remove();
+      }
+    });
+  }
+
+  // Le bord positif : sans lui, un `isTyping` qui rendrait TOUJOURS vrai
+  // passerait les quatre cas ci-dessus sans rien mesurer.
+  it('ESPACE PILOTE BIEN LA FRISE QUAND RIEN N’EST FOCALISÉ', async () => {
+    const dom = await monter();
+    await entrerDansLaFrise(dom);
+    await frapper('ArrowRight');
+    await frapper('ArrowRight');
+    expect(position(dom)).toBe('3/3');
+
+    await frapper(' ');
+    expect(position(dom), 'espace ne rembobine plus alors que rien n’a le focus').toBe('1/3');
+  });
+});

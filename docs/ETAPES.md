@@ -12597,3 +12597,75 @@ que « le rayon d'action se mesure » veut dire concrètement.
 
 Delta du terrain : `livraison.ts` **38/38, zéro nue**. `src` : 371 candidates
 recensées, 91 jouées (le rebalayage ne rejoue pas du terrain neuf).
+
+## Chronique.tsx rebalayé : 39 au lieu de 34, et quatre raccourcis qui tiraient en écrivant
+
+Dernier fichier que le rayon d'action désignait. Base épinglée inchangée
+`e93b252`, plafond inchangé : seule la règle a changé.
+
+```
+avant : LOUPE : 34 mutation(s) possible(s) — 7 nues (6 fermées, 1 équivalente)
+après : LOUPE : 39 mutation(s) possible(s) — 5 nues
+```
+
+Les cinq vivent toutes dans la MÊME garde, celle qui fait taire les raccourcis
+clavier pendant qu'on écrit :
+
+```ts
+function isTyping(): boolean {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' || // ← nues : les quatre `||` de fin de ligne
+    tag === 'SELECT' ||
+    tag === 'BUTTON' ||
+    tag === 'A' ||
+    el.isContentEditable
+  );
+}
+```
+
+### Ce que chaque mutant coûte
+
+`&&` lie plus fort que `||`. Muter la ligne du TEXTAREA donne
+`INPUT || (TEXTAREA && SELECT) || …` : un élément ne peut pas porter deux
+balises, le terme est TOUJOURS faux, et le textarea cesse d'être reconnu.
+
+**Taper une espace dans un champ de saisie déclencherait la relecture du
+Time-Lapse au lieu d'insérer l'espace.** Idem pour un select, un bouton, un
+lien. C'est un défaut qu'un humain rencontre au premier usage, et qu'aucun
+balayage n'avait pu voir parce que la règle ne lisait pas ces opérateurs.
+
+### Le banc, et son bord positif
+
+Quatre cas — un par balise — plus **un cinquième qui vérifie l'inverse** :
+sans focus, l'espace pilote bien la frise. Sans ce bord, un `isTyping` qui
+rendrait toujours vrai passerait les quatre premiers sans rien mesurer.
+
+```
+═══ REJEU DES QUATRE || DE FIN DE LIGNE ═══
+  ✔ TENU · C1 TEXTAREA    ✔ TENU · C3 BUTTON
+  ✔ TENU · C2 SELECT      ✔ TENU · C4 A
+
+═══ TENUS : 4 sur 4 ═══
+```
+
+### La cinquième n'est pas une nue : elle était consignée mais pas MARQUÉE
+
+`instanceof HTMLElement → instanceof Object` avait été jugée équivalente au
+§ 9 duosexagicenties. Le jugement était au carnet — pas dans le code, sous la
+forme que la loupe sait lire. Elle le re-signalait donc à chaque passe, et
+chaque passe redemandait le même jugement humain.
+
+La marque est posée, et elle NOMME la mutation comme la loupe l'exige. Elle
+redit aussi la correction de § 9 duosexagicenties : la première note prétendait
+qu'aucun `tagName` non-HTML ne pouvait valoir « INPUT », et une sonde l'a
+démentie — `createElementNS('urn:x', 'INPUT')` en produit un. Le verdict tient
+pour une autre raison, elle vérifiable : un tel élément n'a pas de `focus()`,
+donc il ne peut jamais devenir `document.activeElement`.
+
+Delta du terrain : `Chronique.tsx` **39/39, 4 nues fermées, 1 équivalente
+marquée**. Le rayon d'action du § 9 septuagicenties est entièrement traité —
+les deux fichiers qui portaient la signature sont rebalayés.
