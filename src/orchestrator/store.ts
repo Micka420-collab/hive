@@ -1887,7 +1887,7 @@ export class HiveStore {
     id: string,
     decision: 'accordee' | 'refusee',
     now = Date.now(),
-  ): { ok: true; statut: StatutRequisition } | { ok: false; motif: MotifRefusRequisition } {
+  ): { ok: true; statut: 'accordee' | 'refusee' } | { ok: false; motif: MotifRefusRequisition } {
     const cur = this.lireRequisition(id);
     if (!cur) return { ok: false, motif: 'inconnue' };
     if (cur.statut !== 'ouverte') return { ok: false, motif: 'deja_close' };
