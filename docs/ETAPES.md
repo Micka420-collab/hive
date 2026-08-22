@@ -12837,3 +12837,60 @@ un verdict sur elles — c'est une liste de travail, et cette fois le mot
 
 Delta du terrain : `polyethisme.ts` **28/28, 5 nues fermées, 1 marquée
 inatteignable**.
+
+## La forme NÉGATIVE du motif : 26 sondées, 18 nues — et cinq dans le protocole
+
+Suite directe du § 9 quaterseptuagicenties, qui a révélé que le recensement du
+motif `typeof`/`null` ne cherchait qu'une de ses deux écritures. La forme
+négative — `typeof x !== 'object' || x === null` — compte 28 occurrences ; 26
+sondées (la ligne de commentaire de `server.ts` et la garde déjà marquée de
+`polyethisme.ts` sont écartées, et c'est dit).
+
+Liste des cibles **générée par le `grep` dans le script lui-même**, pas
+recopiée : le motif est visible à côté du compte, ce que la leçon exige.
+
+```
+═══ 8 défendues, 18 NUES sur 26 ═══
+```
+
+La forme négative est nettement moins tenue que la positive (5 nues sur 10).
+
+### Les cinq de `protocol.ts` sont les plus conséquentes
+
+`protocol.ts` valide les messages échangés entre la ruche et ses nœuds — des
+données qu'un PAIR envoie, que la ruche ne choisit pas.
+
+```ts
+if (typeof s !== 'object' || s === null) return false;   // isSubAgents
+if (typeof p !== 'object' || p === null) return false;   // isPresences
+if (typeof d !== 'object' || d === null) return false;   // isMergeDiffs
+if (typeof c !== 'object' || c === null) return false;   // isMergeConflicts
+if (typeof data !== 'object' || data === null || …) return null;  // parseServerMessage
+```
+
+Mué, `null` traverse et l'indexation LÈVE. Un `[null]` glissé dans une liste
+transforme « message rejeté » en « connexion qui casse ». Il suffit d'un.
+
+Vérifié avant d'écrire le banc (§ 9 duoseptuagicenties) : les deux `try` du
+fichier n'enveloppent que `JSON.parse`, donc la levée se propage — ces mutants
+sont bien observables, pas absorbés par un filet.
+
+### Pourquoi le décor est `[null]` et rien d'autre
+
+Un `{}` ou un `{id: 42}` est rejeté proprement dans LES DEUX mondes : la garde
+de forme passe, et les vérifications de champs disent non. Seul `null` sépare
+les deux, parce que seul `null` a `typeof === 'object'` sans être indexable. Un
+décor avec `{}` aurait été vert des deux côtés — du décor au sens propre.
+
+Rejeu : **TENUS 5 sur 5**, plus deux bords positifs (une liste bien formée
+reste acceptée, un message serveur valide reste lu) sans lesquels un parseur
+rendant toujours `null` passerait les cinq cas sans rien mesurer.
+
+### Ce qui reste
+
+**Treize nues** de la forme négative ne sont pas encore fermées :
+`workflow.ts:242`, `partage.ts:164`, `invite.ts:74`, `presence.ts:98`,
+`nuage.ts` (4), `eclaireuse.ts` (2), `server.ts:5558`, `presence-parser.ts:55`,
+`subagent-parser.ts:65`. Chacune demande d'être lue avant d'être éprouvée —
+la sonde dit « la suite ne le voit pas », pas « c'est un défaut » : la moitié
+des nues du lot précédent se sont révélées équivalentes ou inatteignables.
