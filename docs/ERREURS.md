@@ -13781,3 +13781,65 @@ MESURE, pas une déduction.** Un défaut a une signature ; on la cherche, et on
 rebalaye les fichiers qui la portent. Suspecter tout le passé par principe n'est
 pas de la rigueur — c'est renoncer à mesurer, avec le ton de quelqu'un qui
 mesure.
+
+## 9 duoseptuagicenties. Un `catch` large rend les gardes qu'il entoure IMMUNES à la mutation
+
+Sonde ciblée du motif `typeof x === 'object' && x !== null` : dix occurrences
+restantes, **cinq survivantes**. En les lisant une par une, quatre des cinq
+partagent une même cause, et ce n'est pas celle qu'on attend.
+
+Trois vivent à l'intérieur d'un `try/catch` :
+
+```js
+try {
+  const brut = JSON.parse(readFileSync(…));
+  const bloc = typeof brut === 'object' && brut !== null ? brut.scripts : null;
+  if (typeof bloc === 'object' && bloc !== null) { … }
+} catch {
+  scripts = {};        // ← le même résultat que la garde produisait
+}
+```
+
+Mué en `||`, `null` traverse et l'indexation LÈVE. Mais le `catch` transforme
+cette levée en `{}` — exactement ce que la garde rendait. **Les deux mondes
+sortent la même valeur, donc aucun banc ne peut les distinguer.** Le mutant est
+équivalent, non parce que le code est indifférent, mais parce qu'un filet en
+aval absorbe la différence.
+
+### Ce que ça change dans la lecture d'un verdict
+
+Un balayage par mutation mesure ce qui est OBSERVABLE. Un `catch` large réduit
+l'observable : il replie plusieurs chemins d'exécution sur une seule sortie. À
+l'intérieur de son périmètre, la loupe est donc structurellement myope, et elle
+le sera toujours — ce n'est pas un défaut de l'instrument à corriger comme
+l'angle mort du § 9 septuagicenties, c'est une propriété du code mesuré.
+
+Conséquence pratique, et elle est inconfortable : **la correction de ces gardes
+ne peut pas être mesurée, elle doit être argumentée.** Elles restent utiles —
+les retirer ferait de l'exception un mécanisme de contrôle ordinaire, ce qui
+est pire à lire et plus lent — mais leur justesse repose sur une lecture, pas
+sur un banc.
+
+### Le corollaire qui compte pour le reste du dépôt
+
+Un `catch` sans discernement ne masque pas que des mutations : il masque aussi
+les VRAIES fautes du même bloc. `catch {}` ne distingue pas « pas de
+`package.json` » — le cas prévu, documenté — d'un `TypeError` introduit par une
+refonte. Le premier est une absence normale, le second un bug, et le filet les
+rend identiques.
+
+La règle qui en découle, pour les blocs à écrire : **attraper ce qu'on attend,
+laisser passer ce qu'on n'attend pas.** Un `catch` qui nomme son cas (fichier
+absent, JSON invalide) redonne à la mutation la visibilité qu'un `catch` nu lui
+retire — et rend au lecteur l'information qu'un filet trop large avale.
+
+### La cinquième, elle, était une vraie nue
+
+`nuage.ts` n'a AUCUN `try/catch`. Son `meta()` mué rend `null` ou `undefined`,
+et la ligne suivante lève sur une charge Stripe sans `metadata` — c'est-à-dire
+sur une entrée que la ruche ne choisit pas, puisqu'elle arrive par un webhook.
+Fermée par trois bancs, rejeu tenu.
+
+**La différence entre les quatre et la cinquième ne se voit pas sur la ligne.**
+Elle se voit à dix lignes de là, dans la présence ou l'absence d'un filet. Une
+garde ne se juge jamais seule.

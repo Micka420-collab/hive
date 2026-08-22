@@ -12669,3 +12669,59 @@ donc il ne peut jamais devenir `document.activeElement`.
 Delta du terrain : `Chronique.tsx` **39/39, 4 nues fermées, 1 équivalente
 marquée**. Le rayon d'action du § 9 septuagicenties est entièrement traité —
 les deux fichiers qui portaient la signature sont rebalayés.
+
+## Le motif `typeof null` sondé jusqu'au bout : 10 occurrences, 5 nues
+
+Fin de la tâche #98. Le recensement du § 9 octosexagicenties nommait les
+occurrences non mesurées ; celles de `github.ts` ont été fermées par le
+rebalayage, restaient dix.
+
+### Pourquoi une sonde ciblée plutôt que dix balayages
+
+Dix balayages complets, base épinglée par fichier, auraient coûté une heure
+chacun pour répondre à une question déjà nommée : _ce `&&`-ci, mué en `||`,
+quelqu'un le voit-il ?_ La sonde pose exactement cette question — une mutation
+par occurrence, la suite ENTIÈRE en juge, ligne de base vérifiée verte d'abord,
+arbre restauré après chaque tour.
+
+Ce n'est pas un balayage et ça ne le remplace pas : la loupe trouve des
+candidates qu'on n'a pas nommées, la sonde ne juge que celles qu'on lui donne.
+
+```
+═══ LIGNE DE BASE : verte. On peut muter. ═══
+
+  ✔ défendue   · src/shared/issue.ts:111        🔴 SANS TEST · src/orchestrator/server.ts:5550
+  ✔ défendue   · src/shared/issue.ts:121        🔴 SANS TEST · src/orchestrator/server.ts:7461
+  ✔ défendue   · src/orchestrator/planner.ts:82 🔴 SANS TEST · src/node-client/client.ts:616
+  ✔ défendue   · dashboard/src/views/shared.tsx:129  🔴 SANS TEST · src/node-client/client.ts:619
+  ✔ défendue   · dashboard/src/views/sondage.ts:69   🔴 SANS TEST · src/orchestrator/nuage.ts:90
+
+═══ 5 défendues, 5 NUES sur 10 ═══
+```
+
+### Une seule des cinq était une vraie nue
+
+`nuage.ts:90` — le traducteur d'événements Stripe, **sans aucun `try/catch`
+dans le fichier**. Mué, `meta()` rend `null` ou `undefined`, et `m.projectId`
+lève. Une charge de webhook sans `metadata` tuait le traducteur au lieu d'être
+refusée proprement.
+
+Trois bancs (absent, `null`, et le bord positif d'une charge complète), rejeu
+**TENU**.
+
+### Les quatre autres sont équivalentes, et pour la même raison
+
+Elles vivent dans un `try/catch` dont le repli rend exactement ce que la garde
+produisait — ou, pour `server.ts:7461`, protègent une branche inatteignable au
+point d'appel. Marquées dans le code au format que la loupe sait lire, avec le
+raisonnement, pour qu'aucune passe ne redemande le même jugement.
+
+La leçon est au § 9 duoseptuagicenties : **un `catch` large rend immunes à la
+mutation les gardes qu'il entoure**, parce qu'il replie plusieurs chemins sur
+une seule sortie. Ce n'est pas un défaut de l'instrument — c'est une propriété
+du code mesuré, et elle vaut aussi pour les vraies fautes que ce `catch`
+avalera.
+
+Delta du terrain : motif `typeof null` **entièrement mesuré** — 15 occurrences
+recensées, 15 jugées, 6 nues fermées au total (concierge 1, livraison 1,
+github 2, nuage 1, plus une retirée), le reste défendu ou marqué équivalent.
