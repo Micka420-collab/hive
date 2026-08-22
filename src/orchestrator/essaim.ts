@@ -419,6 +419,22 @@ export function deciderPas(etat: EtatEssaim): Decision {
     );
   }
 
+  // Indicateurs à surveiller sans travail en vol → délibérer (revoir l'horizon
+  // plutôt qu'inventer de nouvelles tâches).
+  const surveiller = etat.derive.indicateurs.filter((i) => i.etat === 'a_surveiller');
+  if (
+    surveiller.length > 0 &&
+    etat.tachesEnCours === 0 &&
+    etat.tachesPretes === 0 &&
+    !etat.conseilEnCours &&
+    !etat.verdictANourrir
+  ) {
+    return decision(
+      'deliberer',
+      `indicateur(s) à surveiller (${surveiller.map((i) => i.cle).join(', ')}) — revoir avant d'inventer`,
+    );
+  }
+
   // Fusionner ce qui est relu, si et seulement si le niveau ET l'inscription
   // du dépôt l'autorisent. Les deux, jamais l'un sans l'autre.
   if (etat.prAFusionner > 0) {

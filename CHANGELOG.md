@@ -9,6 +9,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Polish autonomie.** API baptême/métier (`POST /api/baptemes`, `/api/metiers`) ;
+  checklist « prêt pour l’autonomie » + timeline cycles dans Plein Essaim ;
+  baptême et métier depuis la Chambre ; filtre Chronique « Essaim » ;
+  avertissement nœuds shell ; veille techno légère dans le planner (`queen-veille.ts`) ;
+  délibération prioritaire quand la dérive signale `a_surveiller`.
 - **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
   identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
   boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
