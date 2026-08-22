@@ -29,6 +29,8 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   repondreRequisition: vi.fn(),
   appliquerMotif: vi.fn(),
   ajouterHorizon: vi.fn(),
+  ouvrirFabrique: vi.fn(),
+  poserStatutFabrique: vi.fn(),
   demarrerAtelier: vi.fn(),
   arreterAtelier: vi.fn(),
 }));
@@ -38,6 +40,8 @@ import {
   appliquerMotif,
   fetchChambre,
   fetchMotifs,
+  ouvrirFabrique,
+  poserStatutFabrique,
   repondreRequisition,
 } from '../dashboard/src/api';
 import type { MotifCatalogue } from '../dashboard/src/api';
@@ -272,7 +276,7 @@ describe('Chambre à l’écran', () => {
     expect(titres.some((t) => t.startsWith('Ordinateur'))).toBe(true);
   });
 
-  it('accorde une réquisition depuis le bandeau À trancher', async () => {
+  it('accorde une réquisition cle_api via modal grant', async () => {
     vi.mocked(fetchChambre).mockResolvedValue(
       poste({
         requisitions: [
@@ -300,18 +304,32 @@ describe('Chambre à l’écran', () => {
     const accorder = [...dom.querySelectorAll('button')].find((b) =>
       (b.textContent ?? '').includes('Accorder'),
     ) as HTMLButtonElement;
-    const refuser = [...dom.querySelectorAll('button')].find((b) =>
-      (b.textContent ?? '').includes('Refuser'),
-    ) as HTMLButtonElement;
     await cliquer(accorder);
-    expect(accorder.disabled).toBe(true);
-    expect(refuser.disabled).toBe(true);
-    expect(accorder.getAttribute('aria-label')).toMatch(/Accorder.*Seedance/i);
-    expect(refuser.getAttribute('aria-label')).toMatch(/Refuser.*Seedance/i);
+    const dialog = dom.querySelector('.ch-grant-dialog');
+    expect(dialog).toBeTruthy();
+    expect(dom.textContent).toContain('Accorder la clé');
+    const envInput = dialog!.querySelector('input[type="text"]') as HTMLInputElement;
+    const secretInput = dialog!.querySelector('input[type="password"]') as HTMLInputElement;
+    expect(envInput.value).toBe('SEEDANCE_API_KEY');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(secretInput, 'sk-seedance-test');
+      secretInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const confirmer = [...dialog!.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(confirmer);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 40));
     });
-    expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee');
+    expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee', {
+      secret: 'sk-seedance-test',
+      envVar: 'SEEDANCE_API_KEY',
+    });
   });
 
   it('refuse une réquisition depuis le bandeau À trancher', async () => {
@@ -338,6 +356,33 @@ describe('Chambre à l’écran', () => {
     ) as HTMLButtonElement;
     await cliquer(refuser);
     expect(repondreRequisition).toHaveBeenCalledWith('req-2', 'refusee');
+  });
+
+  it('passe une fabrique proposée en revue', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        fabriques: [
+          {
+            id: 'fab-1',
+            genre: 'script_npm',
+            libelle: 'Lint CI',
+            nomScript: 'lint',
+            statut: 'proposee',
+            creeA: 1,
+          },
+        ],
+      }),
+    );
+    vi.mocked(poserStatutFabrique).mockResolvedValue({ ok: true, statut: 'en_revue' });
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    const revue = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').trim() === 'Revue',
+    ) as HTMLButtonElement;
+    expect(revue).toBeTruthy();
+    await cliquer(revue);
+    expect(poserStatutFabrique).toHaveBeenCalledWith(PROJECT_ID, 'fab-1', 'en_revue');
   });
 
   it('dit que l’atelier est éteint (HIVE_ATELIER=off)', async () => {

@@ -516,6 +516,11 @@ export class HiveNodeClient {
     this.attenteRequisition = null;
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     try {
+      try {
+        process.loadEnvFile('.env');
+      } catch {
+        /* pas de .env local */
+      }
       workspace.env = buildSandboxEnv(workspace.cwd, this.opts.keepEnv ?? []);
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }

@@ -196,10 +196,18 @@ import {
   SOURCE_HORIZON_DERIVE,
   texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
+  texteHorizonPourContexte,
 } from './horizon.js';
 import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
 import { expliquerRefusRequisition } from './requisition.js';
+import {
+  estNomEnvValide,
+  expliquerRefusSecret,
+  nomEnvDepuisLibelle,
+  poserCleQueenEnv,
+  validerSecretRequisition,
+} from './requisition-env.js';
 import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,
@@ -677,6 +685,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
+  const cheminEnvQueen = path.join(process.cwd(), '.env');
 
   /**
    * Le Rayon — miroir en lecture seule du code des projets.
@@ -1017,8 +1026,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         (lecons ? lecons.length + 2 : 0) -
         (dejaPris ? dejaPris + 2 : 0),
     );
-    const veille =
-      conseilVeilleBrief(`${task.title} ${task.prompt}`) ?? '';
+    const budgetHorizon =
+      LIMITS.hiveContext -
+      (savoir ? savoir.length + 2 : 0) -
+      (lecons ? lecons.length + 2 : 0) -
+      (souvenirs ? souvenirs.length + 2 : 0) -
+      (dejaPris ? dejaPris + 2 : 0);
+    const horizon =
+      budgetHorizon > 80
+        ? texteHorizonPourContexte(store.listerHorizon(task.projectId), budgetHorizon - 2)
+        : '';
+    const veille = conseilVeilleBrief(`${task.title} ${task.prompt}`) ?? '';
     return {
       // ─── L'ORDRE EST UNE DÉCISION, PAS UNE HABITUDE ────────────────────────
       //
@@ -1032,7 +1050,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, lecons, souvenirs, veille].filter(Boolean).join('\n\n'),
+      hiveContext: [savoir, lecons, souvenirs, horizon, veille].filter(Boolean).join('\n\n'),
       echecs: lecons ? echecs.length : 0,
       // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
       // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
@@ -2025,7 +2043,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee' } }>(
+  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee'; secret?: string; envVar?: string } }>(
     '/api/requisitions/:id/repondre',
     {
       schema: {
@@ -2040,6 +2058,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           additionalProperties: false,
           properties: {
             decision: { type: 'string', enum: ['accordee', 'refusee'] },
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
           },
         },
       },
@@ -2048,6 +2068,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorized(req)) return reject(reply);
       const cur = store.lireRequisition(req.params.id);
       if (!cur) return reply.code(404).send({ error: 'inconnue' });
+      let envPose: string | undefined;
+      if (req.body.decision === 'accordee' && cur.genre === 'cle_api') {
+        const vs = validerSecretRequisition(req.body.secret);
+        if (!vs.ok) {
+          return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+        }
+        const nomEnv =
+          req.body.envVar && estNomEnvValide(req.body.envVar)
+            ? req.body.envVar
+            : nomEnvDepuisLibelle(cur.libelle);
+        try {
+          poserCleQueenEnv(
+            cheminEnvQueen,
+            nomEnv,
+            vs.secret,
+            `Réquisition ${cur.libelle} (accordée depuis la Chambre)`,
+          );
+          process.env[nomEnv] = vs.secret;
+          envPose = nomEnv;
+        } catch {
+          return reply.code(500).send({ error: 'ecriture_env' });
+        }
+      }
       const v = store.repondreRequisition(req.params.id, req.body.decision);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
@@ -2057,6 +2100,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       emitEvent('requisition_reponse', {
         id: req.params.id,
         statut: v.statut,
+        ...(envPose ? { envVar: envPose } : {}),
       });
       const ws = nodeSockets.get(cur.nodeId);
       if (ws && (v.statut === 'accordee' || v.statut === 'refusee')) {
@@ -2066,7 +2110,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           statut: v.statut,
         });
       }
-      return { ok: true, statut: v.statut };
+      return { ok: true, statut: v.statut, ...(envPose ? { envVar: envPose } : {}) };
     },
   );
 

@@ -17,6 +17,16 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   premier cycle runner.
 - **Hive Mind hybride.** `rankMemoriesHybrid` : BM25 + trigrammes pour projets longs.
 - **Story produit.** `PourquoiHive` dans Mon espace et Chronique (vs Cursor/Devin).
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+- **Grant cle_api Chambre → `.env` Queen.** Modal HITL pour saisir variable et secret ;
+  `requisition-env.ts` écrit atomiquement sur l'hôte ; le nœud recharge `.env` à la reprise.
+- **Horizon dans le contexte ouvrière.** `texteHorizonPourContexte` injecté dans
+  `construireHiveContext` (budget tokens restant).
+- **Fabrique UI Chambre.** Formulaire « Proposer », boutons Revue/Refuser, juger/lancer Chantiers.
 
 ### Changed
 
@@ -26,9 +36,6 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Réquisition proactive à l'enregistrement si credentials agent absents (`requisitionSiCredentialsManquantes`).
 - **Polish autonomie.** API baptême/métier ; checklist Essaim ; Chambre baptême/métier ;
   veille planner ; délibération si `a_surveiller`.
-
-### Changed
-
 - **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
   `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
   secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`

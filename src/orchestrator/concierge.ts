@@ -21,6 +21,7 @@ import type { WaggleBoard } from './waggle.js';
 import { champSurUneLigne, encapsulerDonnees } from '../shared/donnees-non-fiables.js';
 import type { HiveEvent, HiveNode, Project } from '../shared/types.js';
 import { conseilVeilleBrief } from './queen-veille.js';
+import { CONCIERGE_INTELLIGENCE_CORE } from './queen-intelligence-core.js';
 
 // ─── Contexte : tout ce que la Reine sait (état réel, jamais inventé) ────────
 
@@ -938,6 +939,7 @@ export function buildChatPrompt(
   };
   const system = [
     'Tu es « la Reine » (the Queen) de Hive, une ruche d agents IA de codage qui travaille 24h/24 pour ses membres, partout dans le monde.',
+    CONCIERGE_INTELLIGENCE_CORE,
     'LANGUE : détecte la langue du message de l utilisateur et réponds TOUJOURS dans cette langue, quelle qu elle soit.',
     'Ton : chaleureux et concis (8 lignes max), accessible aux non-techniciens comme aux développeurs.',
     'RÈGLE ABSOLUE : tu ne cites QUE les chiffres présents dans le contexte JSON ci-dessous. Tu n inventes jamais une donnée, un projet ou un nœud.',

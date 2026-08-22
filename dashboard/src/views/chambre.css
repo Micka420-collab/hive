@@ -972,6 +972,73 @@ button.ch-lien-chemin:focus-visible {
   border-radius: 10px;
 }
 
+.ch-grant-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 92vw);
+  padding: 20px 22px;
+  background: var(--ch-papier);
+  border: 1px solid var(--ch-ligne);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px color-mix(in srgb, #1a1814 18%, transparent);
+}
+
+.ch-grant-dialog h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ch-encre);
+}
+
+.ch-grant-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--ch-mute);
+}
+
+.ch-grant-field input {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  border: 1px solid var(--ch-ligne);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ch-encre);
+}
+
+.ch-grant-field input:focus-visible {
+  outline: 2px solid var(--ch-miel);
+  outline-offset: 1px;
+}
+
+.ch-grant-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ch-fab-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ch-fab-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.ch-fab-field input,
+.ch-fab-field select {
+  max-width: 100%;
+}
+
 @media (max-width: 960px) {
   .ch-grid {
     grid-template-columns: 1fr;

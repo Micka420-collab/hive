@@ -76,6 +76,32 @@ export function resumeHorizon(
   return { faits, hypotheses };
 }
 
+/** Budget injecté dans hiveContext (faits ≠ hypothèses, lecture seule). */
+export const HORIZON_CONTEXTE_BUDGET = 800;
+
+export function texteHorizonPourContexte(
+  entrees: readonly EntreeHorizon[],
+  budgetChars = HORIZON_CONTEXTE_BUDGET,
+): string {
+  const { faits, hypotheses } = resumeHorizon(entrees, 24);
+  const lignes: string[] = [];
+  if (faits.length > 0) {
+    lignes.push('Horizon — faits :');
+    for (const f of faits) lignes.push(`• ${f.texte}`);
+  }
+  if (hypotheses.length > 0) {
+    if (lignes.length) lignes.push('');
+    lignes.push('Horizon — hypothèses :');
+    for (const h of hypotheses) lignes.push(`• ${h.texte}`);
+  }
+  if (lignes.length === 0) return '';
+  let texte = lignes.join('\n');
+  if (texte.length > budgetChars) {
+    texte = `${texte.slice(0, Math.max(0, budgetChars - 1))}…`;
+  }
+  return texte;
+}
+
 /** L'horizon ne doit pas gonfler l'instantané de tâches. */
 export function horizonDepasseBudgetTaches(
   entreesHorizon: number,

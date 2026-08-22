@@ -98,7 +98,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ decision: 'accordee' }),
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-midtask-test' }),
     });
 
     const deadlineDone = Date.now() + 12_000;

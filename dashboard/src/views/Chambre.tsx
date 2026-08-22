@@ -20,6 +20,10 @@ import {
   fetchAtelier,
   fetchChambre,
   fetchMotifs,
+  jugerFabriqueChantier,
+  lancerChantier,
+  ouvrirFabrique,
+  poserStatutFabrique,
   repondreRequisition,
 } from '../api';
 import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
@@ -31,11 +35,14 @@ import {
   libelleGenreRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
-import { libelleGenreFabrique, libelleStatutFabrique } from '../../../src/orchestrator/fabrique.js';
+import { libelleGenreFabrique, libelleStatutFabrique, expliquerRefusFabrique } from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
+import { nomEnvDepuisLibelle } from '../../../src/orchestrator/requisition-env.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
+import { useDialog, Voile } from '../ui';
+import type { RequisitionPoste } from '../api';
 
 type OngletId = 'fiche' | 'travail' | 'integrations' | 'suivi';
 
@@ -152,6 +159,23 @@ export default function Chambre({
   const [errBapteme, setErrBapteme] = useState<string | null>(null);
   const [busyMetier, setBusyMetier] = useState(false);
   const [errMetier, setErrMetier] = useState<string | null>(null);
+  const [grantReq, setGrantReq] = useState<RequisitionPoste | null>(null);
+  const [grantSecret, setGrantSecret] = useState('');
+  const [grantEnvVar, setGrantEnvVar] = useState('');
+  const [fabGenre, setFabGenre] = useState('script_npm');
+  const [fabLibelle, setFabLibelle] = useState('');
+  const [fabNomScript, setFabNomScript] = useState('');
+  const [busyFabrique, setBusyFabrique] = useState<string | null>(null);
+  const [errFabrique, setErrFabrique] = useState<string | null>(null);
+  const [statusFabrique, setStatusFabrique] = useState<string | null>(null);
+  const [verdictFab, setVerdictFab] = useState<Record<string, { ok: boolean; text: string }>>({});
+
+  const fermerGrant = () => {
+    setGrantReq(null);
+    setGrantSecret('');
+    setGrantEnvVar('');
+  };
+  const grantDialogRef = useDialog<HTMLDivElement>(fermerGrant);
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -389,6 +413,12 @@ export default function Chambre({
                     aria-busy={busyReqId === r.id}
                     aria-label={t(`Accorder — ${r.libelle}`, `Grant — ${r.libelle}`)}
                     onClick={() => {
+                      if (r.genre === 'cle_api') {
+                        setGrantReq(r);
+                        setGrantSecret('');
+                        setGrantEnvVar(nomEnvDepuisLibelle(r.libelle));
+                        return;
+                      }
                       setBusyReqId(r.id);
                       setErrHitl(null);
                       setStatusHitl(null);
@@ -657,6 +687,68 @@ export default function Chambre({
                 {onglet === 'integrations' && (
                   <div className="ch-fabrique">
                     <h4>{t('Fabrique', 'Forge')}</h4>
+                    {poste.projectId ? (
+                      <form
+                        className="ch-fab-form"
+                        onSubmit={(ev) => {
+                          ev.preventDefault();
+                          if (!poste.projectId || !fabLibelle.trim()) return;
+                          setBusyFabrique('proposer');
+                          setErrFabrique(null);
+                          setStatusFabrique(null);
+                          void ouvrirFabrique(poste.projectId, {
+                            genre: fabGenre,
+                            libelle: fabLibelle.trim(),
+                            nomScript: fabNomScript.trim() || undefined,
+                            nodeId,
+                          })
+                            .then(() => {
+                              setFabLibelle('');
+                              setFabNomScript('');
+                              setStatusFabrique(t('Proposition ouverte', 'Proposal opened'));
+                              rafraichir();
+                            })
+                            .catch((e) => {
+                              setErrFabrique(e instanceof Error ? e.message : String(e));
+                            })
+                            .finally(() => setBusyFabrique(null));
+                        }}
+                      >
+                        <label className="ch-fab-field">
+                          <span>{t('Genre', 'Kind')}</span>
+                          <select value={fabGenre} onChange={(e) => setFabGenre(e.target.value)}>
+                            <option value="script_npm">script npm</option>
+                            <option value="pont">pont</option>
+                            <option value="mcp">MCP</option>
+                          </select>
+                        </label>
+                        <label className="ch-fab-field">
+                          <span>{t('Libellé', 'Label')}</span>
+                          <input
+                            value={fabLibelle}
+                            onChange={(e) => setFabLibelle(e.target.value)}
+                            maxLength={200}
+                            required
+                          />
+                        </label>
+                        <label className="ch-fab-field">
+                          <span>{t('Script npm (optionnel)', 'npm script (optional)')}</span>
+                          <input
+                            value={fabNomScript}
+                            onChange={(e) => setFabNomScript(e.target.value)}
+                            maxLength={80}
+                            placeholder="lint"
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn primary"
+                          disabled={busyFabrique === 'proposer'}
+                        >
+                          {busyFabrique === 'proposer' ? t('…', '…') : t('Proposer', 'Propose')}
+                        </button>
+                      </form>
+                    ) : null}
                     {(poste.fabriques?.length ?? 0) === 0 ? (
                       <p className="ch-silence">
                         {t(
@@ -679,10 +771,107 @@ export default function Chambre({
                               {libelleGenreFabrique(f.genre, langCode)}
                               {f.nomScript ? ` · ${f.nomScript}` : ''}
                             </span>
+                            {poste.projectId && f.statut === 'proposee' ? (
+                              <span className="ch-req-actions">
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === f.id}
+                                  onClick={() => {
+                                    setBusyFabrique(f.id);
+                                    void poserStatutFabrique(poste.projectId!, f.id, 'en_revue')
+                                      .then(() => rafraichir())
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Revue', 'Review')}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === f.id}
+                                  onClick={() => {
+                                    setBusyFabrique(f.id);
+                                    void poserStatutFabrique(poste.projectId!, f.id, 'refusee')
+                                      .then(() => rafraichir())
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Refuser', 'Deny')}
+                                </button>
+                              </span>
+                            ) : null}
+                            {poste.projectId && f.statut === 'mergee' && f.nomScript ? (
+                              <span className="ch-req-actions">
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === `j-${f.id}`}
+                                  onClick={() => {
+                                    setBusyFabrique(`j-${f.id}`);
+                                    void jugerFabriqueChantier(poste.projectId!, f.nomScript!)
+                                      .then((v) => {
+                                        setVerdictFab((prev) => ({
+                                          ...prev,
+                                          [f.id]: {
+                                            ok: v.ok,
+                                            text: v.ok
+                                              ? t('Chantier autorisé', 'Chantier allowed')
+                                              : expliquerRefusFabrique(
+                                                  (v.motif ?? 'non_declare') as 'non_declare',
+                                                  langCode,
+                                                ),
+                                          },
+                                        }));
+                                      })
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Juger Chantiers', 'Judge Chantiers')}
+                                </button>
+                                {verdictFab[f.id]?.ok ? (
+                                  <button
+                                    type="button"
+                                    className="btn primary"
+                                    disabled={busyFabrique === `l-${f.id}`}
+                                    onClick={() => {
+                                      setBusyFabrique(`l-${f.id}`);
+                                      void lancerChantier(poste.projectId!, f.nomScript!)
+                                        .then(() => {
+                                          setStatusFabrique(
+                                            t('Chantier lancé', 'Chantier started'),
+                                          );
+                                        })
+                                        .catch((e) => {
+                                          setErrFabrique(
+                                            e instanceof Error ? e.message : String(e),
+                                          );
+                                        })
+                                        .finally(() => setBusyFabrique(null));
+                                    }}
+                                  >
+                                    {t('Lancer', 'Run')}
+                                  </button>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            {verdictFab[f.id] ? (
+                              <p className="ch-status-soft">{verdictFab[f.id]!.text}</p>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
                     )}
+                    {errFabrique ? (
+                      <p className="ch-err-soft" role="status">
+                        {errFabrique}
+                      </p>
+                    ) : null}
+                    {statusFabrique ? (
+                      <p className="ch-status-soft" role="status">
+                        {statusFabrique}
+                      </p>
+                    ) : null}
                     <p className="ch-note">
                       {t(
                         'Chantiers ne lance qu’après merge + script déclaré.',
@@ -1023,6 +1212,76 @@ export default function Chambre({
           />
         </section>
       </div>
+
+      {grantReq ? (
+        <Voile onClose={fermerGrant}>
+          <div
+            ref={grantDialogRef}
+            className="ch-grant-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ch-grant-titre"
+          >
+            <h3 id="ch-grant-titre">{t('Accorder la clé', 'Grant the key')}</h3>
+            <p className="ch-silence">{grantReq.libelle}</p>
+            <p className="ch-silence muted-text">
+              {t(
+                'Écrit sur la Queen (.env) — jamais sur le nœud ni dans le journal.',
+                'Written on the Queen (.env) — never on the node or in the journal.',
+              )}
+            </p>
+            <label className="ch-grant-field">
+              <span>{t('Variable .env Queen', 'Queen .env variable')}</span>
+              <input
+                type="text"
+                value={grantEnvVar}
+                onChange={(e) => setGrantEnvVar(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="ch-grant-field">
+              <span>{t('Clé (secret)', 'Key (secret)')}</span>
+              <input
+                type="password"
+                value={grantSecret}
+                onChange={(e) => setGrantSecret(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <div className="ch-grant-actions">
+              <button type="button" className="btn ghost" onClick={fermerGrant}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busyReqId === grantReq.id || grantSecret.trim() === ''}
+                aria-busy={busyReqId === grantReq.id}
+                onClick={() => {
+                  setBusyReqId(grantReq.id);
+                  setErrHitl(null);
+                  void repondreRequisition(grantReq.id, 'accordee', {
+                    secret: grantSecret,
+                    envVar: grantEnvVar.trim() || undefined,
+                  })
+                    .then(() => {
+                      setStatusHitl(t('Accordée', 'Granted'));
+                      fermerGrant();
+                      rafraichir();
+                    })
+                    .catch((e) => {
+                      setErrHitl(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => setBusyReqId(null));
+                }}
+              >
+                {busyReqId === grantReq.id ? t('…', '…') : t('Accorder', 'Grant')}
+              </button>
+            </div>
+          </div>
+        </Voile>
+      ) : null}
     </div>
   );
 }
