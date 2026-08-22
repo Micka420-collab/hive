@@ -13729,3 +13729,55 @@ Corollaire pour lire un rapport de couverture, quel qu'il soit : **« N sur N »
 ne dit rien tant qu'on ne sait pas d'où vient le N.** Un dénominateur produit
 par l'outil qu'on interroge n'est pas une mesure du terrain, c'est une mesure
 de l'outil.
+
+## 9 unseptuagicenties. Le RAYON D'ACTION d'un défaut se mesure ; il ne se déduit pas du défaut
+
+Trouver un angle mort dans un instrument donne envie de suspecter tout ce qu'il
+a mesuré avant. C'est le bon réflexe, et il a été mal appliqué.
+
+L'angle mort du § 9 septuagicenties — les opérateurs en fin de ligne — a été
+découvert dans `github.ts`. J'ai écrit dans la foulée, au carnet ET dans le
+corps de la PR :
+
+> `livraison.ts` n'est pas encore rebalayé ; son « 38 sur 38 » vaut ce que
+> valait l'ancien « 32 sur 32 ».
+
+Mesuré ensuite : **38 avant, 38 après, zéro nue.** `livraison.ts` n'écrit
+aucune condition sur plusieurs lignes — `grep -c "&&$\|||$"` y rend **0**. Le
+défaut ne pouvait pas l'atteindre. Son compte était déjà complet.
+
+### Une réserve n'est pas gratuite
+
+L'erreur ressemble à de la prudence, ce qui la rend facile à écrire et difficile
+à voir. Mais une réserve est une AFFIRMATION sur l'état du monde : elle dit
+« ce résultat est suspect ». Fausse, elle coûte deux fois —
+
+- elle salit un travail sain, et quiconque lit le carnet ou la PR repart avec
+  une inquiétude qui n'a pas d'objet ;
+- elle envoie une session refaire une heure de machine pour reconfirmer ce qui
+  était déjà mesuré.
+
+Le sens de l'erreur est inversé par rapport au reste de ce journal — ici on
+alarme au lieu de rassurer — mais c'est la même faute : **écrire un état du
+monde qu'on n'a pas constaté.**
+
+### Ce qu'il fallait faire, et ce que ça coûtait
+
+Le rayon d'action de CET angle mort se mesure par une commande :
+
+```
+grep -c "&&$\|||$" <fichier>
+```
+
+Trois secondes par fichier. La question juste n'est pas « quels résultats sont
+désormais suspects ? » mais **« par quel motif exact ce défaut se manifeste-t-il,
+et où ce motif est-il présent ? »** La première appelle une intuition, la
+seconde un `grep`.
+
+### La leçon
+
+**Quand un instrument est corrigé, la liste de ce qu'il faut refaire est une
+MESURE, pas une déduction.** Un défaut a une signature ; on la cherche, et on
+rebalaye les fichiers qui la portent. Suspecter tout le passé par principe n'est
+pas de la rigueur — c'est renoncer à mesurer, avec le ton de quelqu'un qui
+mesure.

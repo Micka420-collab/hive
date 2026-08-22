@@ -12537,3 +12537,63 @@ pas encore comme candidates. Le seul chiffre qui compte est celui d'aujourd'hui 
 Reste de la tâche #100 : `livraison.ts` n'a pas encore été rebalayé avec la
 règle corrigée. Tant que ce n'est pas fait, son « 38 sur 38 » vaut ce que vaut
 l'ancien « 32 sur 32 » de github.ts.
+
+## `livraison.ts` rebalayé : 38 inchangé, zéro nue — la réserve était FAUSSE
+
+Le lot précédent a écrit, ici et dans le corps de la PR :
+
+> `livraison.ts` n'a pas encore été rebalayé avec la règle corrigée. Tant que
+> ce n'est pas fait, son « 38 sur 38 » vaut ce que vaut l'ancien « 32 sur 32 »
+> de github.ts.
+
+Mesuré, base épinglée inchangée `05ad40f`, règle corrigée :
+
+```
+LOUPE : 38 mutation(s) possible(s) sur le diff, 38 examinée(s).
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+**Trente-huit avant, trente-huit après.** La règle de fin de ligne n'ajoute
+aucune candidate à ce fichier, pour une raison qui se vérifie en une commande :
+
+```
+grep -c "&&$\|||$" src/orchestrator/livraison.ts   →  0
+```
+
+`livraison.ts` n'écrit aucune condition sur plusieurs lignes. Son « 38 sur 38 »
+était donc DÉJÀ complet pour cette classe d'opérateurs — contrairement à ce que
+la réserve affirmait. Et les six nues fermées au lot précédent tiennent : la
+loupe ne voit plus rien de nu sur ce fichier.
+
+### Ce que la réserve avait de faux
+
+Elle généralisait d'un fichier à l'autre. L'angle mort a été trouvé DANS
+`github.ts`, qui porte six lignes finissant par un opérateur ; il n'en découlait
+rien sur `livraison.ts`, qui n'en porte aucune. J'ai supposé un rayon d'action
+au lieu de le mesurer, et j'ai jeté le doute sur un résultat qui était sain.
+
+C'est prudent dans l'intention et faux dans le fait. Une réserve non mesurée est
+une affirmation comme une autre — elle se vérifie avant d'être écrite.
+
+### Le rayon d'action, MESURÉ sur les huit fichiers balayés
+
+La leçon § 9 unseptuagicenties demande de chercher la signature du défaut plutôt
+que de suspecter en bloc. Faite, en une commande par fichier :
+
+| Fichier balayé           | Lignes finissant par `&&`/`\|\|` | À rebalayer ?         |
+| ------------------------ | -------------------------------- | --------------------- |
+| `github.ts`              | 6                                | fait — 2 nues fermées |
+| `Chronique.tsx`          | 5                                | **OUI, pas encore**   |
+| `MonEspace.tsx`          | 0                                | non                   |
+| `shared.tsx`             | 0                                | non                   |
+| `concierge.ts`           | 0                                | non                   |
+| `cerveau-physique.ts`    | 0                                | non                   |
+| `cerveau-designation.ts` | 0                                | non                   |
+| `livraison.ts`           | 0                                | non — confirmé 38/38  |
+
+**Deux fichiers sur huit** portent la signature. Six sont prouvés hors
+d'atteinte, et ça se dit en une ligne au lieu d'une heure de machine. C'est ce
+que « le rayon d'action se mesure » veut dire concrètement.
+
+Delta du terrain : `livraison.ts` **38/38, zéro nue**. `src` : 371 candidates
+recensées, 91 jouées (le rebalayage ne rejoue pas du terrain neuf).
