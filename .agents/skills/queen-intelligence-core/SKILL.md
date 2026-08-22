@@ -11,11 +11,11 @@ Full spec: `docs/QUEEN-INTELLIGENCE-CORE.md`
 
 Shared prompt fragments: `src/orchestrator/queen-intelligence-core.ts`
 
-| Export | Consumer |
-| --- | --- |
+| Export                        | Consumer                                            |
+| ----------------------------- | --------------------------------------------------- |
 | `CONCIERGE_INTELLIGENCE_CORE` | `concierge.ts` → `buildChatPrompt` (Reine chat LLM) |
-| `QUEEN_BEE_INTELLIGENCE_CORE` | embedded in `QUEEN_BEE_SYSTEM_PROMPT` |
-| `QUEEN_BEE_SYSTEM_PROMPT` | `queen-bee.ts` → `briefToDAG` |
+| `QUEEN_BEE_INTELLIGENCE_CORE` | embedded in `QUEEN_BEE_SYSTEM_PROMPT`               |
+| `QUEEN_BEE_SYSTEM_PROMPT`     | `queen-bee.ts` → `briefToDAG`                       |
 
 ## Identity (summary)
 
@@ -30,16 +30,16 @@ OBJECTIF → contraintes → capacités disponibles → manques → recherche te
 → choix → architecture → plan → agents → exécution → tests → amélioration
 ```
 
-Always ask: *What capabilities are needed? What exists? What can I get autonomously? What needs human input?*
+Always ask: _What capabilities are needed? What exists? What can I get autonomously? What needs human input?_
 
 ## Resource categories
 
-| Cat | Meaning | Action |
-| --- | --- | --- |
-| A | Autonomous | Do it |
-| B | Needs authorization | Explain + ask |
-| C | Secret (API key, token) | Ask for data only |
-| D | Human decision (cost, trade-off) | Present options |
+| Cat | Meaning                          | Action            |
+| --- | -------------------------------- | ----------------- |
+| A   | Autonomous                       | Do it             |
+| B   | Needs authorization              | Explain + ask     |
+| C   | Secret (API key, token)          | Ask for data only |
+| D   | Human decision (cost, trade-off) | Present options   |
 
 When asking the user for anything, structure: **what · why · what you tried · why you can't alone · alternative · impact**.
 
