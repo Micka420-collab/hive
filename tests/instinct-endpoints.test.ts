@@ -29,7 +29,7 @@ describe('endpoints de l’instinct de ruche', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 80,
       // ─── POURQUOI CE TEST DÉBRIDE L'ESPACEMENT ───────────────────────────
       //

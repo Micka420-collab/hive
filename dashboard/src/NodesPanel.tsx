@@ -228,6 +228,7 @@ export function NodesPanel({
     tasks && onOpenTask && ouverte ? (nodes.find((n) => n.id === ouverte) ?? null) : null;
   const nodeIdsKey = nodes.map((n) => n.id).join(',');
   const baptemes = useBaptemes(nodeIdsKey);
+  const shellNodes = nodes.filter((n) => n.agentType === 'shell' || n.agentType === 'sim');
 
   return (
     <section className="card panel">
@@ -237,6 +238,14 @@ export function NodesPanel({
           {online}/{nodes.length} {t('en ligne', 'online')}
         </span>
       </header>
+      {shellNodes.length > 0 && (
+        <p className="node-shell-avert">
+          {t(
+            `${shellNodes.length} nœud(s) en mode shell/simulation — les diffs ne viennent pas d’un agent de codage réel. Installez Claude Code, Codex ou un agent compatible pour une autonomie crédible.`,
+            `${shellNodes.length} node(s) in shell/simulation mode — diffs do not come from a real coding agent. Install Claude Code, Codex, or a compatible agent for credible autonomy.`,
+          )}
+        </p>
+      )}
       <ul className="node-list">
         {nodes.map((n) => {
           const bapt = baptemes ? (baptemes[n.id] ?? null) : undefined;

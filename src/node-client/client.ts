@@ -10,6 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
+import { requisitionSiCredentialsManquantes } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -78,6 +79,8 @@ export class HiveNodeClient {
   private readonly activeMerges = new Set<string>();
   private readonly activeChantiers = new Set<string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  /** Évite de spammer la Chambre à chaque reconnexion WebSocket. */
+  private requisitionCredentialEnvoyee = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
@@ -136,6 +139,23 @@ export class HiveNodeClient {
 
   get runningCount(): number {
     return this.active.size;
+  }
+
+  /**
+   * Ouvre une réquisition (clé API, MCP, binaire…) — ADR 0010 lot 7.
+   * Le secret ne transite jamais : l'humain accorde depuis la Chambre.
+   */
+  ouvrirRequisition(genre: string, libelle: string, detail?: string): void {
+    if (!this.nodeId) {
+      this.log('réquisition ignorée : nœud non enregistré');
+      return;
+    }
+    this.send({
+      type: 'requisition_open',
+      genre,
+      libelle,
+      ...(detail ? { detail } : {}),
+    });
   }
 
   // ─── Connexion ───────────────────────────────────────────────────────────
@@ -202,6 +222,7 @@ export class HiveNodeClient {
         this.nodeId = msg.nodeId;
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
+        this.proposerRequisitionCredentialsSiBesoin();
         break;
       case 'assign_task':
         void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext, msg.modele);
@@ -217,6 +238,14 @@ export class HiveNodeClient {
         break;
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
+        break;
+      case 'requisition_ack':
+        this.log(
+          `réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`,
+        );
+        break;
+      case 'requisition_result':
+        this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
         break;
       default:
         break; // state/event : réservés au dashboard
@@ -245,6 +274,15 @@ export class HiveNodeClient {
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+  }
+
+  /** Réquisition proactive si l'agent réel n'a pas d'identifiants locaux (ADR 0010). */
+  private proposerRequisitionCredentialsSiBesoin(): void {
+    if (this.requisitionCredentialEnvoyee) return;
+    const req = requisitionSiCredentialsManquantes(this.opts.agentType);
+    if (!req) return;
+    this.requisitionCredentialEnvoyee = true;
+    this.ouvrirRequisition(req.genre, req.libelle, req.detail);
   }
 
   /**

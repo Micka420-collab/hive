@@ -14,6 +14,8 @@ import {
   ajouterHorizon,
   appliquerMotif,
   arreterAtelier,
+  assignerMetierOuvriere,
+  baptiserOuvriere,
   demarrerAtelier,
   fetchAtelier,
   fetchChambre,
@@ -23,7 +25,7 @@ import {
 import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
-import { libelleMetier } from '../../../src/orchestrator/metier.js';
+import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
 import {
   libelleGenreRequisition,
@@ -145,6 +147,11 @@ export default function Chambre({
   const [statusMotif, setStatusMotif] = useState<string | null>(null);
   const [errHorizon, setErrHorizon] = useState<string | null>(null);
   const [statusHorizon, setStatusHorizon] = useState<string | null>(null);
+  const [brouillonBapteme, setBrouillonBapteme] = useState('');
+  const [busyBapteme, setBusyBapteme] = useState(false);
+  const [errBapteme, setErrBapteme] = useState<string | null>(null);
+  const [busyMetier, setBusyMetier] = useState(false);
+  const [errMetier, setErrMetier] = useState<string | null>(null);
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -507,6 +514,7 @@ export default function Chambre({
                 data-testid="chambre-onglet-corps"
               >
                 {onglet === 'fiche' && (
+                  <>
                   <ul className="ch-meta">
                     <li>
                       <span className="ch-meta-k">{t('Statut', 'Status')}</span>
@@ -553,6 +561,73 @@ export default function Chambre({
                       </li>
                     )}
                   </ul>
+                  {!titre && nodeId && (
+                    <form
+                      className="ch-bapteme-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!brouillonBapteme.trim()) return;
+                        setBusyBapteme(true);
+                        setErrBapteme(null);
+                        void baptiserOuvriere(nodeId, brouillonBapteme.trim())
+                          .then(() => {
+                            setBrouillonBapteme('');
+                            rafraichir();
+                          })
+                          .catch((ex) => {
+                            setErrBapteme(ex instanceof Error ? ex.message : String(ex));
+                          })
+                          .finally(() => setBusyBapteme(false));
+                      }}
+                    >
+                      <label className="ch-bapteme-label">
+                        {t('Baptiser cette ouvrière', 'Baptise this worker')}
+                        <input
+                          type="text"
+                          value={brouillonBapteme}
+                          maxLength={40}
+                          placeholder={t('Prénom (Reine)', 'First name (Queen)')}
+                          disabled={busyBapteme}
+                          onChange={(ev) => setBrouillonBapteme(ev.target.value)}
+                        />
+                      </label>
+                      <button type="submit" className="btn" disabled={busyBapteme || !brouillonBapteme.trim()}>
+                        {busyBapteme ? '…' : t('Baptiser', 'Baptise')}
+                      </button>
+                      {errBapteme && <p className="ch-err">{errBapteme}</p>}
+                    </form>
+                  )}
+                  {nodeId && (
+                    <div className="ch-metier-form">
+                      <span className="ch-meta-k">{t('Métier de cycle', 'Cycle role')}</span>
+                      <div className="ch-metier-btns">
+                        {METIERS.map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            className={
+                              poste?.metier?.metier === m ? 'btn actif ch-metier-btn' : 'btn ch-metier-btn'
+                            }
+                            disabled={busyMetier}
+                            onClick={() => {
+                              setBusyMetier(true);
+                              setErrMetier(null);
+                              void assignerMetierOuvriere(nodeId, m)
+                                .then(() => rafraichir())
+                                .catch((ex) => {
+                                  setErrMetier(ex instanceof Error ? ex.message : String(ex));
+                                })
+                                .finally(() => setBusyMetier(false));
+                            }}
+                          >
+                            {libelleMetier(m, langCode)}
+                          </button>
+                        ))}
+                      </div>
+                      {errMetier && <p className="ch-err">{errMetier}</p>}
+                    </div>
+                  )}
+                  </>
                 )}
 
                 {onglet === 'travail' &&

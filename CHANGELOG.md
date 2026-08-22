@@ -7,6 +7,22 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
+  en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
+  pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
+  Réquisition proactive à l'enregistrement si credentials agent absents (`requisitionSiCredentialsManquantes`).
+- **Polish autonomie.** API baptême/métier ; checklist Essaim ; Chambre baptême/métier ;
+  veille planner ; délibération si `a_surveiller`.
+
+### Changed
+
+- **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
+  `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
+  secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`
+  (anti-spam 6 h, distinct de « dégradée »).
+
 ### Changed
 
 - **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers

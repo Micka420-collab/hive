@@ -12,6 +12,7 @@
 // quel via POST /api/projects/:id/tasks.
 
 import { LIMITS } from '../shared/protocol.js';
+import { conseilVeilleBrief } from './queen-veille.js';
 
 /** Tâche produite par le planner : la forme exacte attendue par l'API de tâches. */
 export interface PlannedTask {
@@ -307,7 +308,9 @@ export function buildPlannerPrompt(brief: string): { system: string; user: strin
     'Réponds UNIQUEMENT par un tableau JSON, sans texte ni balises Markdown autour.',
     'Exemple : [{"id":"socle","title":"Échafauder","prompt":"Créer la structure du dépôt.","dependsOn":[]}]',
   ].join('\n');
-  return { system, user: brief.trim() };
+  const veille = conseilVeilleBrief(brief);
+  const user = veille ? `${brief.trim()}\n\n${veille}` : brief.trim();
+  return { system, user };
 }
 
 /**

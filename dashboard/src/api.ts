@@ -785,9 +785,31 @@ export interface RunnerUi {
   dernierTourA: number;
 }
 
+/** Checklist « prêt pour l'autonomie réelle » — calculée côté Queen. */
+export interface PretEssaimUi {
+  runner: boolean;
+  gouvernantes: boolean;
+  noeudsEnLigne: boolean;
+  agentsReels: boolean;
+  depot: boolean;
+  derive: boolean;
+  plafond: boolean;
+  repo: boolean;
+}
+
+export interface CycleEssaimUi {
+  ts: number;
+  projectId?: string;
+  pas?: string;
+  motif?: string;
+  issue?: string;
+  detail?: string;
+}
+
 export interface EtatEssaimUi {
   niveau: NiveauEssaim;
   runner?: RunnerUi;
+  pret?: PretEssaimUi;
   derive: DeriveUi;
   decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;
@@ -800,6 +822,13 @@ export interface EtatEssaimUi {
 
 export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
   return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
+}
+
+export function fetchEssaimCycles(
+  projectId: string,
+  limit = 12,
+): Promise<{ cycles: CycleEssaimUi[] }> {
+  return api(`/api/projects/${projectId}/essaim/cycles?limit=${limit}`);
 }
 
 /**
@@ -1851,6 +1880,30 @@ export function fetchBaptemes(): Promise<{
   baptemes: Array<{ nodeId: string; nom: string; baptiseA: number }>;
 }> {
   return api('/api/baptemes');
+}
+
+export function baptiserOuvriere(
+  nodeId: string,
+  nom: string,
+): Promise<{ ok: boolean; nom: string }> {
+  return api('/api/baptemes', {
+    method: 'POST',
+    body: JSON.stringify({ nodeId, nom }),
+  });
+}
+
+export function debaptiserOuvriere(nodeId: string): Promise<{ ok: boolean }> {
+  return api(`/api/baptemes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+}
+
+export function assignerMetierOuvriere(
+  nodeId: string,
+  metier: string,
+): Promise<{ ok: boolean; metier: string }> {
+  return api('/api/metiers', {
+    method: 'POST',
+    body: JSON.stringify({ nodeId, metier }),
+  });
 }
 
 export interface RequisitionPoste {
