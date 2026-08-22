@@ -12894,3 +12894,67 @@ rendant toujours `null` passerait les cinq cas sans rien mesurer.
 `subagent-parser.ts:65`. Chacune demande d'être lue avant d'être éprouvée —
 la sonde dit « la suite ne le voit pas », pas « c'est un défaut » : la moitié
 des nues du lot précédent se sont révélées équivalentes ou inatteignables.
+
+## La garde de couverture bloque #348 et #352 — et ce qu'elle demande vraiment
+
+Mesuré sur `cursor/boucle-production-ab4e` fusionnée avec `main` (`768b24e`) :
+
+    Functions : 78.24 % (2860/3655) — seuil global 78.8 %
+
+Une seule jambe de CI le voit, `ubuntu-latest`, la seule qui ajoute
+`--coverage`. Les sept autres sont vertes : le défaut n'est pas dans le code,
+il est dans ce que le code n'éprouve pas.
+
+### Ce que la branche doit, et ce qu'elle a hérité
+
+Ces branches ajoutent ~2 000 lignes. Le seuil ne dit pas « ce code est
+mauvais » : il dit que le dénominateur a grandi plus vite que le numérateur.
+Les plus grands trous sont ANTÉRIEURS — `src/cli.ts` à 0/94, `dashboard/src/api.ts`
+à 31/123 (et ce dernier ne se modifie pas, contrainte du dépôt).
+
+**Il manque 21 fonctions couvertes.** Écrire vingt-et-un bancs choisis pour
+faire bouger un chiffre serait écrire des tests pour une métrique — exactement
+ce que ce dépôt refuse partout ailleurs. Un banc se choisit pour ce qu'il
+défend.
+
+### Fait : `src/adapters/cursor.ts`, 1 fonction couverte sur 4 → 3 sur 4
+
+La cible qui valait le travail pour elle-même. Ce module compose l'`argv` d'un
+processus RÉELLEMENT LANCÉ, et choisit quel binaire lancer. Deux décisions y
+portent tout :
+
+· le prompt reste DERNIER, derrière `--`. Sans ce séparateur, un prompt qui
+commence par un tiret est lu comme UNE OPTION par le binaire ;
+· `--force` applique les modifications. Sans lui, `agent -p` se contente de
+PROPOSER : l'ouvrière rendrait un diff vide en croyant avoir travaillé.
+
+Rejeu, quatre mutants, **TENUS 4 sur 4** : séparateur retiré, `--force` retiré,
+ordre des binaires inversé, `HIVE_CURSOR_BIN` qui ne prime plus.
+
+### Mesuré au passage : la couverture des fonctions VARIE d'un tour à l'autre
+
+Le banc ci-dessus fait passer `cursor.ts` de 1/4 à 3/4, et le total global reste
+à **2860/3655 — identique**. Deux fonctions gagnées, deux perdues ailleurs.
+Cause : la suite tourne dans des ordres différents (le tamis des ordres, § 9
+quinquaquadragicenties), et la couverture des fonctions n'est pas déterministe.
+
+Un seuil DUR sur une mesure qui bouge est fragile par construction : une branche
+peut rougir sans rien avoir aggravé. À rouvrir — soit un seuil avec marge, soit
+une mesure faite dans un ordre fixe.
+
+### Ce qui reste, et pourquoi je ne l'ai pas fait seul
+
+Le plus gros gisement des branches est `src/node-client/join.ts` : **0 fonction
+couverte sur 11, 0 instruction sur 96**. C'est le chemin par lequel un nœud
+rejoint la ruche en décodant une invitation reçue d'un tiers — donc du code
+qu'on VEUT éprouver.
+
+Mais ses quatre fonctions nommées sont traversées de `fetch`, `readline`,
+`console.error` et d'un `main()` qui s'exécute à l'import. Les couvrir demande
+de REMANIER le module pour l'injection de dépendances. C'est un changement de
+conception sur la branche d'un autre, pas un correctif de couverture — il se
+décide, il ne se glisse pas dans un lot de nuit.
+
+Les autres cibles honnêtes, mesurées : `agent-detect.ts` 19/23, `queen-bee.ts`
+3/5, `motifs.ts` 9/11, `protocol.ts` 22/24, `horizon.ts` 13/14,
+`requisition-env.ts` 8/9, `scheduler.ts` 79/80.
