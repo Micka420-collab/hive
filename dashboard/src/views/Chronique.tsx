@@ -22,6 +22,7 @@ type Family =
   | 'conflits'
   | 'memoire'
   | 'instinct'
+  | 'essaim'
   | 'balance'
   | 'autres';
 
@@ -34,6 +35,7 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
   { id: 'conflits', fr: 'Conflits', en: 'Conflicts' },
   { id: 'memoire', fr: 'Mémoire', en: 'Memory' },
   { id: 'instinct', fr: 'Instinct', en: 'Instinct' },
+  { id: 'essaim', fr: 'Essaim', en: 'Swarm' },
   { id: 'balance', fr: 'Balance', en: 'Balance' },
   { id: 'autres', fr: 'Autres', en: 'Other' },
 ];
@@ -54,8 +56,18 @@ const INSTINCT = new Set(['pheromone_route', 'thermo_shift', 'brood_context']);
  */
 const BALANCE = new Set(['balance_alert', 'balance_cap_reached', 'balance_cap_set']);
 
+const ESSAIM = new Set([
+  'essaim_cycle',
+  'swarm_level_set',
+  'swarm_task_created',
+  'bapteme_pose',
+  'bapteme_retire',
+  'metier_assigne',
+]);
+
 function familyOf(type: string): Family {
   if (INSTINCT.has(type)) return 'instinct';
+  if (ESSAIM.has(type)) return 'essaim';
   if (BALANCE.has(type)) return 'balance';
   if (type === 'conflict_detected' || type === 'task_conflict_deferred') return 'conflits';
   if (type.startsWith('drone')) return 'courses';
@@ -126,6 +138,7 @@ export default function Chronique({ events }: ViewProps) {
       conflits: 0,
       memoire: 0,
       instinct: 0,
+      essaim: 0,
       balance: 0,
       autres: 0,
     };

@@ -191,10 +191,15 @@ import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essa
 import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
 import { marquerFabriquesMergeesApresFusion } from './fabrique.js';
 import {
+  doitNoterFaitDeriveASurveiller,
   doitNoterFaitDeriveDegradee,
   SOURCE_HORIZON_DERIVE,
+  texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
 } from './horizon.js';
+import { expliquerRefusBapteme } from './bapteme.js';
+import { METIERS, expliquerRefusMetier } from './metier.js';
+import { expliquerRefusRequisition } from './requisition.js';
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -1876,6 +1881,83 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     };
   });
 
+  /** La Reine baptise — geste humain, jeton de ruche uniquement. */
+  app.post<{ Body: { nodeId: string; nom: string } }>(
+    '/api/baptemes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'nom'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            nom: { type: 'string', minLength: 1, maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.baptiser(req.body.nodeId, req.body.nom);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusBapteme(verdict.motif) });
+      }
+      emitEvent('bapteme_pose', { nodeId: req.body.nodeId, nom: verdict.nom });
+      return { ok: true, nodeId: req.body.nodeId, nom: verdict.nom };
+    },
+  );
+
+  app.delete<{ Params: { nodeId: string } }>('/api/baptemes/:nodeId', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!store.getNode(req.params.nodeId)) {
+      return reply.code(404).send({ error: 'ouvrière inconnue' });
+    }
+    const ok = store.debaptiser(req.params.nodeId);
+    if (!ok) return reply.code(404).send({ error: 'aucun baptême à retirer' });
+    emitEvent('bapteme_retire', { nodeId: req.params.nodeId });
+    return { ok: true };
+  });
+
+  /** Métiers de cycle assignés — lecture constatée. */
+  app.get('/api/metiers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      metiers: store.listerMetiers(),
+      catalogue: METIERS,
+    };
+  });
+
+  /** La Reine assigne un métier de cycle — liste fermée. */
+  app.post<{ Body: { nodeId: string; metier: string } }>(
+    '/api/metiers',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'metier'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            metier: { type: 'string', minLength: 1, maxLength: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.assignerMetier(req.body.nodeId, req.body.metier);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusMetier(verdict.motif) });
+      }
+      emitEvent('metier_assigne', {
+        nodeId: req.body.nodeId,
+        metier: verdict.metier,
+      });
+      return { ok: true, nodeId: req.body.nodeId, metier: verdict.metier };
+    },
+  );
+
   /**
    * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
    * Jeton de ruche uniquement. Aucun secret dans le corps.
@@ -1960,6 +2042,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
+      const cur = store.lireRequisition(req.params.id);
+      if (!cur) return reply.code(404).send({ error: 'inconnue' });
       const v = store.repondreRequisition(req.params.id, req.body.decision);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
@@ -1970,6 +2054,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         id: req.params.id,
         statut: v.statut,
       });
+      const ws = nodeSockets.get(cur.nodeId);
+      if (ws) {
+        send(ws, {
+          type: 'requisition_result',
+          id: req.params.id,
+          statut: v.statut,
+        });
+      }
       return { ok: true, statut: v.statut };
     },
   );
@@ -3225,15 +3317,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }),
       horizonEntrees: store.compterHorizon(projectId),
     };
-    // ADR 0010 lot 9 : stall / dérive dégradée → un FAIT dans le carnet
-    // (pas une hypothèse). Anti-spam : au plus une fois par fenêtre.
+    // ADR 0010 lot 9 : stall / dérive → FAIT dans le carnet (pas hypothèse).
+    // Anti-spam : au plus une fois par fenêtre et par niveau.
+    const now = Date.now();
+    const horizonProjet = store.listerHorizon(projectId);
     if (etat.derive.etat === 'degradee') {
-      const now = Date.now();
-      if (doitNoterFaitDeriveDegradee(store.listerHorizon(projectId), now)) {
+      if (doitNoterFaitDeriveDegradee(horizonProjet, now)) {
         store.ajouterHorizon(
           projectId,
           'fait',
           texteFaitDeriveDegradee(etat.derive.motif || 'la ruche se dégrade'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    } else if (etat.derive.etat === 'a_surveiller') {
+      if (doitNoterFaitDeriveASurveiller(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveASurveiller(etat.derive.motif || 'signaux à surveiller'),
           SOURCE_HORIZON_DERIVE,
           now,
         );
@@ -3281,7 +3385,52 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const { resumeHorizon } = await import('./horizon.js');
         body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
       }
+      const nodes = store.listNodes();
+      const enLigne = nodes.filter((n) => n.status === 'online').length;
+      const agentsReels = nodes.some((n) => n.agentType !== 'shell' && n.agentType !== 'sim');
+      const projet = store.getProject(req.params.projectId);
+      const veutFusion = e.niveau === 'plein';
+      const gouv = gouvernantes(e.noeuds);
+      body.pret = {
+        runner: modeRunner === 'on',
+        gouvernantes: gouv.length >= GOUVERNANTES_MIN,
+        noeudsEnLigne: enLigne >= 1,
+        agentsReels,
+        depot: !veutFusion || e.depotInscrit,
+        derive: e.derive.etat !== 'degradee',
+        plafond: e.plafond !== 'bloque',
+        repo: !veutFusion || depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      };
       return body;
+    },
+  );
+
+  /** Derniers cycles du runner pour ce projet — journal essaim_cycle. */
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
+    '/api/projects/:projectId/essaim/cycles',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
+      const pid = req.params.projectId;
+      const cycles = store
+        .listEvents(0, 800)
+        .filter(
+          (ev) =>
+            ev.type === 'essaim_cycle' &&
+            typeof ev.payload === 'object' &&
+            ev.payload !== null &&
+            (ev.payload as { projectId?: string }).projectId === pid,
+        )
+        .slice(-lim)
+        .reverse()
+        .map((ev) => ({
+          ts: ev.ts,
+          ...(ev.payload as Record<string, unknown>),
+        }));
+      return { cycles };
     },
   );
 
@@ -7762,6 +7911,30 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               msg.retryAfterMs,
             );
             break;
+          case 'requisition_open': {
+            const v = store.ouvrirRequisition(nodeId, msg.genre, msg.libelle, msg.detail ?? null);
+            if (!v.ok) {
+              send(ws, {
+                type: 'error',
+                message: expliquerRefusRequisition(v.motif),
+              });
+              break;
+            }
+            emitEvent('requisition_ouverte', {
+              id: v.id,
+              nodeId,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            send(ws, {
+              type: 'requisition_ack',
+              id: v.id,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            stateDirty = true;
+            break;
+          }
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.
             // Un REFUS du nœud (Night Shift…) est un échec explicite — jamais

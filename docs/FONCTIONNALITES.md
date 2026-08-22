@@ -144,7 +144,11 @@ dans du code qui va très bien.
 
 Chaque membre (donneur d'ordre comme porteur de nœud) peut interroger la ruche
 en langage naturel — la langue du message est détectée et la réponse arrive
-dans cette langue :
+dans cette langue. La Reine applique l'**Intelligence Core** (spec :
+`docs/QUEEN-INTELLIGENCE-CORE.md`) : diagnostic stratégique, réutilisation
+des technologies existantes, catégories de ressources A/B/C/D, et réduction de
+la dépendance humaine — tout en ne citant que l'état réel de la ruche pour les
+questions de suivi :
 
 ```bash
 npm run cli -- ask "Où en est le projet ?"
@@ -208,7 +212,9 @@ Maquette : `docs/maquettes/chambre/`.
 
 Dans **« Nouveau projet »**, décrivez l'objectif en langage naturel et cliquez
 **« ✨ Générer les tâches »** : Hive propose un graphe de tâches, éditable avant
-lancement. En terminal : `POST /api/plan { "brief": "…" }`.
+lancement. Queen Bee applique la même **Intelligence Core** : diagnostic du brief,
+biais vers les solutions existantes, tâches marquant les besoins humains (clés,
+décisions), et rationale explicite. En terminal : `POST /api/plan { "brief": "…" }`.
 
 Le planner est **pluggable**, avec repli automatique — jamais bloquant :
 
