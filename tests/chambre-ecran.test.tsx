@@ -43,7 +43,6 @@ import {
   appliquerMotif,
   fetchChambre,
   fetchMotifs,
-  ouvrirFabrique,
   poserStatutFabrique,
   fetchMotifsPerso,
   creerMotifPerso,
@@ -383,8 +382,8 @@ describe('Chambre à l’écran', () => {
     const dom = await monter();
     await cliquer(dom.querySelector('#ch-tab-integrations')!);
     await act(async () => {});
-    const revue = [...dom.querySelectorAll('button')].find((b) =>
-      (b.textContent ?? '').trim() === 'Revue',
+    const revue = [...dom.querySelectorAll('button')].find(
+      (b) => (b.textContent ?? '').trim() === 'Revue',
     ) as HTMLButtonElement;
     expect(revue).toBeTruthy();
     await cliquer(revue);
@@ -658,6 +657,13 @@ describe('Chambre à l’écran', () => {
     expect(appliquer).toBeTruthy();
     expect(appliquer.getAttribute('aria-label')).toMatch(/Appliquer.*Revue courte/i);
     await cliquer(appliquer);
+    await act(async () => {});
+    expect(dom.textContent).toMatch(/Appliquer le motif/);
+    const confirmer = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Confirmer'),
+    ) as HTMLButtonElement;
+    expect(confirmer).toBeTruthy();
+    await cliquer(confirmer);
     await act(async () => {});
     expect(appliquerMotif).toHaveBeenCalled();
     expect(dom.textContent).toMatch(/Motif appliqué/);

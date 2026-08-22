@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
 import { requisitionSiCredentialsManquantes } from './agent-detect.js';
+import type { AgentType } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -252,9 +253,7 @@ export class HiveNodeClient {
         this.log(`erreur du hub : ${msg.message}`);
         break;
       case 'requisition_ack':
-        this.log(
-          `réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`,
-        );
+        this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
         break;
       case 'requisition_result':
         this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
@@ -295,7 +294,7 @@ export class HiveNodeClient {
   /** Réquisition proactive si l'agent réel n'a pas d'identifiants locaux (ADR 0010). */
   private proposerRequisitionCredentialsSiBesoin(): void {
     if (this.requisitionCredentialEnvoyee) return;
-    const req = requisitionSiCredentialsManquantes(this.opts.agentType);
+    const req = requisitionSiCredentialsManquantes(this.opts.agentType as AgentType);
     if (!req) return;
     this.requisitionCredentialEnvoyee = true;
     this.ouvrirRequisition(req.genre, req.libelle, req.detail);
@@ -438,11 +437,7 @@ export class HiveNodeClient {
       });
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
-        const req = requisitionDepuisEchecInfra(
-          this.opts.agentType,
-          result.logs,
-          task.title,
-        );
+        const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -512,7 +507,7 @@ export class HiveNodeClient {
   private async reprendreApresRequisition(): Promise<void> {
     const attente = this.attenteRequisition;
     if (!attente) return;
-    const { task, repoUrl, hiveContext, modele, workspace, started, ctrl } = attente;
+    const { task, repoUrl: _repoUrl, hiveContext, modele, workspace, started, ctrl } = attente;
     this.attenteRequisition = null;
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     try {

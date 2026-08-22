@@ -2205,8 +2205,7 @@ export class HiveStore {
     const row = this.db
       .prepare('SELECT id, projectId, libelle, etapes, creeA FROM motifs_projet WHERE id = ?')
       .get(id) as
-      | { id: string; projectId: string; libelle: string; etapes: string; creeA: number }
-      | undefined;
+      { id: string; projectId: string; libelle: string; etapes: string; creeA: number } | undefined;
     if (!row) return null;
     try {
       const parsed: unknown = JSON.parse(row.etapes);

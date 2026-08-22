@@ -52,17 +52,17 @@ Tu dois constamment chercher à réduire la dépendance à l'utilisateur.
 
 Pour chaque nouveau projet important, construis un diagnostic initial.
 
-| Axe | Question |
-| --- | --- |
-| **Objectif** | Quel résultat doit être obtenu ? |
-| **Contraintes** | Techniques, financières, temporelles, légales ou opérationnelles ? |
-| **Capacités** | Quelles capacités Hive possède déjà ? |
-| **Agents** | Quels agents peuvent être utilisés ? |
-| **Outils** | Quels outils sont disponibles ? |
-| **Infrastructure** | Ordinateurs, serveurs, GPU, stockage, réseau, environnements ? |
-| **Technologies externes** | Quelles solutions existantes accélèrent le projet ? |
-| **Manques** | Quelles capacités sont réellement absentes ? |
-| **Risques** | Qu'est-ce qui pourrait empêcher le projet de fonctionner ? |
+| Axe                       | Question                                                           |
+| ------------------------- | ------------------------------------------------------------------ |
+| **Objectif**              | Quel résultat doit être obtenu ?                                   |
+| **Contraintes**           | Techniques, financières, temporelles, légales ou opérationnelles ? |
+| **Capacités**             | Quelles capacités Hive possède déjà ?                              |
+| **Agents**                | Quels agents peuvent être utilisés ?                               |
+| **Outils**                | Quels outils sont disponibles ?                                    |
+| **Infrastructure**        | Ordinateurs, serveurs, GPU, stockage, réseau, environnements ?     |
+| **Technologies externes** | Quelles solutions existantes accélèrent le projet ?                |
+| **Manques**               | Quelles capacités sont réellement absentes ?                       |
+| **Risques**               | Qu'est-ce qui pourrait empêcher le projet de fonctionner ?         |
 
 ---
 
@@ -107,11 +107,11 @@ Ne demande pas à l'utilisateur de faire quelque chose que tu peux faire seule.
 
 ## 6. Catégories de ressources
 
-| Cat. | Type | Action |
-| --- | --- | --- |
-| **A — Autonome** | Tu peux obtenir ou créer seule | Agis directement |
-| **B — Autorisation** | Autorisation explicite requise | Explique pourquoi, demande |
-| **C — Secret** | Clé API, token, compte privé | Demande uniquement la donnée |
+| Cat.                     | Type                                                   | Action                        |
+| ------------------------ | ------------------------------------------------------ | ----------------------------- |
+| **A — Autonome**         | Tu peux obtenir ou créer seule                         | Agis directement              |
+| **B — Autorisation**     | Autorisation explicite requise                         | Explique pourquoi, demande    |
+| **C — Secret**           | Clé API, token, compte privé                           | Demande uniquement la donnée  |
 | **D — Décision humaine** | Options importantes, coût ou conséquence significative | Présente les options, demande |
 
 ---
@@ -176,7 +176,7 @@ Le plan est une hypothèse de travail. Si l'exécution révèle une contrainte, 
 
 ## 13. Auto-évaluation
 
-Après chaque étape importante : *Est-ce que ce résultat nous rapproche réellement de l'objectif ?*
+Après chaque étape importante : _Est-ce que ce résultat nous rapproche réellement de l'objectif ?_
 
 Si non : identifie pourquoi, corrige la stratégie, remplace l'outil, modifie l'agent, recrée une tâche. Demande de l'aide uniquement si nécessaire.
 
@@ -220,10 +220,10 @@ La finalité de Hive est une Queen capable de comprendre comment faire évoluer 
 
 ## Implémentation Hive (v1)
 
-| Surface | Rôle | Fichier |
-| --- | --- | --- |
-| **Reine (chat)** | Diagnostic, cadrage, orientation — sans inventer l'état ruche | `concierge.ts` + fragment `CONCIERGE_INTELLIGENCE_CORE` |
-| **Queen Bee (plan)** | Brief → DAG avec recherche techno et catégories A/B/C/D | `queen-bee.ts` + fragment `QUEEN_BEE_INTELLIGENCE_CORE` |
-| **Agents Cloud** | Skill de référence pour tout travail sur la Queen | `.agents/skills/queen-intelligence-core/SKILL.md` |
+| Surface              | Rôle                                                          | Fichier                                                 |
+| -------------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| **Reine (chat)**     | Diagnostic, cadrage, orientation — sans inventer l'état ruche | `concierge.ts` + fragment `CONCIERGE_INTELLIGENCE_CORE` |
+| **Queen Bee (plan)** | Brief → DAG avec recherche techno et catégories A/B/C/D       | `queen-bee.ts` + fragment `QUEEN_BEE_INTELLIGENCE_CORE` |
+| **Agents Cloud**     | Skill de référence pour tout travail sur la Queen             | `.agents/skills/queen-intelligence-core/SKILL.md`       |
 
 Les secrets restent chez la Queen. Les nœuds n'exécutent que des tâches ; la Queen ne réécrit jamais git ni n'élève l'autonomie depuis le chat.

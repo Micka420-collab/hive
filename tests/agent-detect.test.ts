@@ -19,7 +19,12 @@
 
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { candidates, cheminsNatifs, detectBestAgent, requisitionSiCredentialsManquantes } from '../src/node-client/agent-detect.js';
+import {
+  candidates,
+  cheminsNatifs,
+  detectBestAgent,
+  requisitionSiCredentialsManquantes,
+} from '../src/node-client/agent-detect.js';
 
 describe('LES VARIANTES DE BINAIRE, PAR PLATEFORME', () => {
   it('sur un système POSIX, le nom est pris tel quel', () => {
@@ -218,7 +223,11 @@ describe('réquisition si credentials manquantes', () => {
   });
 
   it('grok sans clé ni session → réquisition', () => {
-    const r = requisitionSiCredentialsManquantes('grok', { HOME: '/home/moi' }, { existe: () => false });
+    const r = requisitionSiCredentialsManquantes(
+      'grok',
+      { HOME: '/home/moi' },
+      { existe: () => false },
+    );
     expect(r?.genre).toBe('cle_api');
     expect(r?.libelle).toMatch(/Grok/i);
   });

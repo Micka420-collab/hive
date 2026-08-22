@@ -28,3 +28,54 @@ describe('HiveStore — motifs perso', () => {
     expect(store.lireMotifProjet(c.id)?.libelle).toBe('Procédure test');
   });
 });
+
+describe('API motifs perso', () => {
+  it('crée et applique en tâches chaînées', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { createServer } = await import('../src/orchestrator/server.js');
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-motif-perso-'));
+    const TOKEN = 'jeton-motif-perso-assez-long';
+    const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+    const server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: true,
+      tickMs: 60_000,
+    });
+    try {
+      const projet = (await (
+        await fetch(`${server.url}/api/projects`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ name: 'Perso' }),
+        })
+      ).json()) as { id: string };
+      const cree = await fetch(`${server.url}/api/projects/${projet.id}/motifs/perso`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ libelle: 'Flux perso', etapes: ['A', 'B'] }),
+      });
+      expect(cree.status).toBe(200);
+      const body = (await cree.json()) as { id: string };
+      const appl = await fetch(
+        `${server.url}/api/projects/${projet.id}/motifs/perso/${body.id}/appliquer`,
+        { method: 'POST', headers, body: '{}' },
+      );
+      expect(appl.status).toBe(200);
+      const res = (await appl.json()) as { taskIds: string[] };
+      expect(res.taskIds).toHaveLength(2);
+      const t0 = server.store.getTask(res.taskIds[0]!);
+      const t1 = server.store.getTask(res.taskIds[1]!);
+      expect(t0?.status).toBe('ready');
+      expect(t1?.dependsOn).toEqual([res.taskIds[0]]);
+    } finally {
+      await server.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -408,8 +408,7 @@ export function requisitionSiCredentialsManquantes(
     return {
       genre: 'cle_api',
       libelle: 'Clé xAI ou session Grok',
-      detail:
-        'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.',
+      detail: 'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.',
     };
   }
 

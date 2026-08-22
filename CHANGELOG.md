@@ -28,6 +28,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `construireHiveContext` (budget tokens restant).
 - **Fabrique UI Chambre.** Formulaire « Proposer », boutons Revue/Refuser, juger/lancer Chantiers.
 - **Motifs perso.** Procédures par projet (`motifs_projet`) : créer depuis la Chambre, appliquer en tâches ordonnées.
+- **Motifs catalogue — confirmation.** Aperçu des étapes (toggle) + dialogue avant appliquer.
 
 ### Changed
 

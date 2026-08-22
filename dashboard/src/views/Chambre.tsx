@@ -38,7 +38,11 @@ import {
   libelleGenreRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
-import { libelleGenreFabrique, libelleStatutFabrique, expliquerRefusFabrique } from '../../../src/orchestrator/fabrique.js';
+import {
+  libelleGenreFabrique,
+  libelleStatutFabrique,
+  expliquerRefusFabrique,
+} from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
 import { nomEnvDepuisLibelle } from '../../../src/orchestrator/requisition-env.js';
 import { timeShort } from './shared';
@@ -176,6 +180,8 @@ export default function Chambre({
   const [persoLibelle, setPersoLibelle] = useState('');
   const [persoEtapes, setPersoEtapes] = useState('');
   const [busyPerso, setBusyPerso] = useState(false);
+  const [motifConfirm, setMotifConfirm] = useState<MotifCatalogue | null>(null);
+  const [motifExpandid, setMotifExpandid] = useState<string | null>(null);
 
   const fermerGrant = () => {
     setGrantReq(null);
@@ -183,6 +189,7 @@ export default function Chambre({
     setGrantEnvVar('');
   };
   const grantDialogRef = useDialog<HTMLDivElement>(fermerGrant);
+  const motifConfirmRef = useDialog<HTMLDivElement>(() => setMotifConfirm(null));
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -558,118 +565,124 @@ export default function Chambre({
               >
                 {onglet === 'fiche' && (
                   <>
-                  <ul className="ch-meta">
-                    <li>
-                      <span className="ch-meta-k">{t('Statut', 'Status')}</span>
-                      <span
-                        className={`ch-meta-v ch-statut-dot${
-                          poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
-                        }`}
+                    <ul className="ch-meta">
+                      <li>
+                        <span className="ch-meta-k">{t('Statut', 'Status')}</span>
+                        <span
+                          className={`ch-meta-v ch-statut-dot${
+                            poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
+                          }`}
+                        >
+                          {poste.node.status === 'online'
+                            ? t('En ligne', 'Online')
+                            : t('Hors ligne', 'Offline')}
+                        </span>
+                      </li>
+                      {metier && (
+                        <li>
+                          <span className="ch-meta-k">{t('Métier', 'Role')}</span>
+                          <span className="ch-meta-v">{metier}</span>
+                        </li>
+                      )}
+                      {poste.caste && (
+                        <li>
+                          <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
+                          <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
+                        </li>
+                      )}
+                      <li>
+                        <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
+                        <span className="ch-meta-v">{poste.node.ownerName}</span>
+                      </li>
+                      <li>
+                        <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
+                        <span className="ch-meta-v">{poste.node.agentType}</span>
+                      </li>
+                      <li>
+                        <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
+                        <span className="ch-meta-v">
+                          {poste.node.running}/{poste.node.maxConcurrency}
+                        </span>
+                      </li>
+                      {!titre && (
+                        <li>
+                          <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
+                          <span className="ch-meta-v">{poste.node.nameTechnique}</span>
+                        </li>
+                      )}
+                    </ul>
+                    {!titre && nodeId && (
+                      <form
+                        className="ch-bapteme-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!brouillonBapteme.trim()) return;
+                          setBusyBapteme(true);
+                          setErrBapteme(null);
+                          void baptiserOuvriere(nodeId, brouillonBapteme.trim())
+                            .then(() => {
+                              setBrouillonBapteme('');
+                              rafraichir();
+                            })
+                            .catch((ex) => {
+                              setErrBapteme(ex instanceof Error ? ex.message : String(ex));
+                            })
+                            .finally(() => setBusyBapteme(false));
+                        }}
                       >
-                        {poste.node.status === 'online'
-                          ? t('En ligne', 'Online')
-                          : t('Hors ligne', 'Offline')}
-                      </span>
-                    </li>
-                    {metier && (
-                      <li>
-                        <span className="ch-meta-k">{t('Métier', 'Role')}</span>
-                        <span className="ch-meta-v">{metier}</span>
-                      </li>
+                        <label className="ch-bapteme-label">
+                          {t('Baptiser cette ouvrière', 'Baptise this worker')}
+                          <input
+                            type="text"
+                            value={brouillonBapteme}
+                            maxLength={40}
+                            placeholder={t('Prénom (Reine)', 'First name (Queen)')}
+                            disabled={busyBapteme}
+                            onChange={(ev) => setBrouillonBapteme(ev.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn"
+                          disabled={busyBapteme || !brouillonBapteme.trim()}
+                        >
+                          {busyBapteme ? '…' : t('Baptiser', 'Baptise')}
+                        </button>
+                        {errBapteme && <p className="ch-err">{errBapteme}</p>}
+                      </form>
                     )}
-                    {poste.caste && (
-                      <li>
-                        <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
-                        <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
-                      </li>
-                    )}
-                    <li>
-                      <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
-                      <span className="ch-meta-v">{poste.node.ownerName}</span>
-                    </li>
-                    <li>
-                      <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
-                      <span className="ch-meta-v">{poste.node.agentType}</span>
-                    </li>
-                    <li>
-                      <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
-                      <span className="ch-meta-v">
-                        {poste.node.running}/{poste.node.maxConcurrency}
-                      </span>
-                    </li>
-                    {!titre && (
-                      <li>
-                        <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
-                        <span className="ch-meta-v">{poste.node.nameTechnique}</span>
-                      </li>
-                    )}
-                  </ul>
-                  {!titre && nodeId && (
-                    <form
-                      className="ch-bapteme-form"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!brouillonBapteme.trim()) return;
-                        setBusyBapteme(true);
-                        setErrBapteme(null);
-                        void baptiserOuvriere(nodeId, brouillonBapteme.trim())
-                          .then(() => {
-                            setBrouillonBapteme('');
-                            rafraichir();
-                          })
-                          .catch((ex) => {
-                            setErrBapteme(ex instanceof Error ? ex.message : String(ex));
-                          })
-                          .finally(() => setBusyBapteme(false));
-                      }}
-                    >
-                      <label className="ch-bapteme-label">
-                        {t('Baptiser cette ouvrière', 'Baptise this worker')}
-                        <input
-                          type="text"
-                          value={brouillonBapteme}
-                          maxLength={40}
-                          placeholder={t('Prénom (Reine)', 'First name (Queen)')}
-                          disabled={busyBapteme}
-                          onChange={(ev) => setBrouillonBapteme(ev.target.value)}
-                        />
-                      </label>
-                      <button type="submit" className="btn" disabled={busyBapteme || !brouillonBapteme.trim()}>
-                        {busyBapteme ? '…' : t('Baptiser', 'Baptise')}
-                      </button>
-                      {errBapteme && <p className="ch-err">{errBapteme}</p>}
-                    </form>
-                  )}
-                  {nodeId && (
-                    <div className="ch-metier-form">
-                      <span className="ch-meta-k">{t('Métier de cycle', 'Cycle role')}</span>
-                      <div className="ch-metier-btns">
-                        {METIERS.map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            className={
-                              poste?.metier?.metier === m ? 'btn actif ch-metier-btn' : 'btn ch-metier-btn'
-                            }
-                            disabled={busyMetier}
-                            onClick={() => {
-                              setBusyMetier(true);
-                              setErrMetier(null);
-                              void assignerMetierOuvriere(nodeId, m)
-                                .then(() => rafraichir())
-                                .catch((ex) => {
-                                  setErrMetier(ex instanceof Error ? ex.message : String(ex));
-                                })
-                                .finally(() => setBusyMetier(false));
-                            }}
-                          >
-                            {libelleMetier(m, langCode)}
-                          </button>
-                        ))}
+                    {nodeId && (
+                      <div className="ch-metier-form">
+                        <span className="ch-meta-k">{t('Métier de cycle', 'Cycle role')}</span>
+                        <div className="ch-metier-btns">
+                          {METIERS.map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              className={
+                                poste?.metier?.metier === m
+                                  ? 'btn actif ch-metier-btn'
+                                  : 'btn ch-metier-btn'
+                              }
+                              disabled={busyMetier}
+                              onClick={() => {
+                                setBusyMetier(true);
+                                setErrMetier(null);
+                                void assignerMetierOuvriere(nodeId, m)
+                                  .then(() => rafraichir())
+                                  .catch((ex) => {
+                                    setErrMetier(ex instanceof Error ? ex.message : String(ex));
+                                  })
+                                  .finally(() => setBusyMetier(false));
+                              }}
+                            >
+                              {libelleMetier(m, langCode)}
+                            </button>
+                          ))}
+                        </div>
+                        {errMetier && <p className="ch-err">{errMetier}</p>}
                       </div>
-                      {errMetier && <p className="ch-err">{errMetier}</p>}
-                    </div>
-                  )}
+                    )}
                   </>
                 )}
 
@@ -912,43 +925,37 @@ export default function Chambre({
                       <ul className="ch-motifs">
                         {motifs.map((m) => {
                           const libelle = langCode === 'en' ? m.libelleEn : m.libelleFr;
+                          const ouvert = motifExpandid === m.id;
                           return (
                             <li key={m.id}>
                               <span>
-                                {libelle}
-                                <span className="ch-silence">
-                                  {' '}
-                                  · {m.etapes.length} {t('étapes', 'steps')}
-                                </span>
+                                <button
+                                  type="button"
+                                  className="btn ghost ch-motif-toggle"
+                                  aria-expanded={ouvert}
+                                  onClick={() => setMotifExpandid(ouvert ? null : m.id)}
+                                >
+                                  {libelle}
+                                  <span className="ch-silence">
+                                    {' '}
+                                    · {m.etapes.length} {t('étapes', 'steps')}
+                                  </span>
+                                </button>
                               </span>
+                              {ouvert ? (
+                                <ol className="ch-motif-etapes">
+                                  {m.etapes.map((e) => (
+                                    <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
+                                  ))}
+                                </ol>
+                              ) : null}
                               <button
                                 type="button"
                                 className="btn ghost"
                                 disabled={busyMotif === m.id}
                                 aria-busy={busyMotif === m.id}
                                 aria-label={t(`Appliquer — ${libelle}`, `Apply — ${libelle}`)}
-                                onClick={() => {
-                                  if (!poste.projectId) return;
-                                  setBusyMotif(m.id);
-                                  setErrMotif(null);
-                                  setStatusMotif(null);
-                                  void appliquerMotif(poste.projectId, m.id, { lang: langCode })
-                                    .then((r) => {
-                                      const n = r.taskIds?.length ?? r.titres?.length ?? 0;
-                                      setStatusMotif(
-                                        t(
-                                          `Motif appliqué · ${n} tâches`,
-                                          `Motif applied · ${n} tasks`,
-                                        ),
-                                      );
-                                      setFiltre('pause');
-                                      rafraichir();
-                                    })
-                                    .catch((e) => {
-                                      setErrMotif(e instanceof Error ? e.message : String(e));
-                                    })
-                                    .finally(() => setBusyMotif(null));
-                                }}
+                                onClick={() => setMotifConfirm(m)}
                               >
                                 {busyMotif === m.id ? t('…', '…') : t('Appliquer', 'Apply')}
                               </button>
@@ -1386,6 +1393,61 @@ export default function Chambre({
                 }}
               >
                 {busyReqId === grantReq.id ? t('…', '…') : t('Accorder', 'Grant')}
+              </button>
+            </div>
+          </div>
+        </Voile>
+      ) : null}
+
+      {motifConfirm && poste?.projectId ? (
+        <Voile onClose={() => setMotifConfirm(null)}>
+          <div
+            ref={motifConfirmRef}
+            className="ch-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ch-motif-confirm-titre"
+          >
+            <h3 id="ch-motif-confirm-titre">{t('Appliquer le motif ?', 'Apply motif?')}</h3>
+            <p>
+              {langCode === 'en' ? motifConfirm.libelleEn : motifConfirm.libelleFr}
+              {' · '}
+              {motifConfirm.etapes.length} {t('tâches chaînées', 'chained tasks')}
+            </p>
+            <ol className="ch-motif-etapes">
+              {motifConfirm.etapes.map((e) => (
+                <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
+              ))}
+            </ol>
+            <div className="ch-dialog-actions">
+              <button type="button" className="btn ghost" onClick={() => setMotifConfirm(null)}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busyMotif === motifConfirm.id}
+                onClick={() => {
+                  const pid = poste.projectId!;
+                  setBusyMotif(motifConfirm.id);
+                  setErrMotif(null);
+                  void appliquerMotif(pid, motifConfirm.id, { lang: langCode })
+                    .then((r) => {
+                      const n = r.taskIds?.length ?? 0;
+                      setStatusMotif(
+                        t(`Motif appliqué · ${n} tâches`, `Motif applied · ${n} tasks`),
+                      );
+                      setMotifConfirm(null);
+                      setFiltre('pause');
+                      rafraichir();
+                    })
+                    .catch((e) => {
+                      setErrMotif(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => setBusyMotif(null));
+                }}
+              >
+                {t('Confirmer', 'Confirm')}
               </button>
             </div>
           </div>

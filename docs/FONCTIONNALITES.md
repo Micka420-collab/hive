@@ -193,13 +193,16 @@ l’**Essaim**, les cartes ouvrières (et le Waggle) portent le
 baptême constaté ; un clic ouvre aussi la **Chambre**. Les **réquisitions**
 (clé API, MCP, binaire, atelier,
 logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
-chez la Queen. Un lien de partage **ne voit jamais** ces identités.
+chez la Queen (une réquisition `cle_api` ouvre un modal qui écrit la clé dans
+le `.env` Queen, jamais en base ni sur le nœud). Un lien de partage **ne voit jamais** ces identités.
 
 La **fabrique** propose un outil (script npm, pont, MCP) comme tâche → revue →
 merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans
 `package.json`. L’**horizon** tient un carnet faits ≠ hypothèses (sans gonfler
 l’instantané). Les **motifs** inter-projets (ex. jeu-3d : fabrique avant assets)
-créent des tâches ordonnées — jamais le diff d’un autre dépôt.
+créent des tâches ordonnées — jamais le diff d’un autre dépôt — avec aperçu des
+étapes et confirmation avant application. Les **procédures perso** (par projet)
+se créent aussi depuis la Chambre.
 
 À l’écran : bandeau **À trancher** (réquisitions), **Journal** avec
 **flux outils** constatés (pastilles READ/EDIT/WRITE), **Missions** filtrées,

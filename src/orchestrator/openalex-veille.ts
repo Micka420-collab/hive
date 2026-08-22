@@ -60,10 +60,7 @@ export async function snippetOpenAlexPourBrief(
       titre: String(w.title ?? 'Sans titre').slice(0, 200),
       annee: typeof w.publication_year === 'number' ? w.publication_year : null,
       citations: typeof w.cited_by_count === 'number' ? w.cited_by_count : 0,
-      doi:
-        typeof w.doi === 'string'
-          ? w.doi.replace(/^https?:\/\/doi\.org\//i, '')
-          : null,
+      doi: typeof w.doi === 'string' ? w.doi.replace(/^https?:\/\/doi\.org\//i, '') : null,
     }));
 
     const lignes = extraits.map(

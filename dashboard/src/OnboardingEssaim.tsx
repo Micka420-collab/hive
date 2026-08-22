@@ -109,7 +109,10 @@ export function OnboardingEssaim({ projectId }: { projectId: string }) {
   const actif = steps.find((s) => !s.ok) ?? steps[steps.length - 1]!;
 
   return (
-    <section className="onboarding-essaim" aria-label={t('Premier cycle autonome', 'First autonomous cycle')}>
+    <section
+      className="onboarding-essaim"
+      aria-label={t('Premier cycle autonome', 'First autonomous cycle')}
+    >
       <header className="onboarding-entete">
         <h3>{t('Chemin vers le premier cycle', 'Path to the first cycle')}</h3>
         <button type="button" className="btn ghost btn-sm" onClick={() => setFerme(true)}>
@@ -124,11 +127,14 @@ export function OnboardingEssaim({ projectId }: { projectId: string }) {
       </p>
       <ol className="onboarding-etapes">
         {steps.map((s) => (
-          <li key={s.id} className={s.ok ? 'onboarding-ok' : s.id === actif.id ? 'onboarding-actif' : ''}>
+          <li
+            key={s.id}
+            className={s.ok ? 'onboarding-ok' : s.id === actif.id ? 'onboarding-actif' : ''}
+          >
             <span className="onboarding-puce">{s.ok ? '✓' : '○'}</span>
             <div>
               <strong>{t(s.fr, s.en)}</strong>
-              {(!s.ok && s.id === actif.id) && (
+              {!s.ok && s.id === actif.id && (
                 <p className="onboarding-hint">{t(s.hintFr, s.hintEn)}</p>
               )}
             </div>
