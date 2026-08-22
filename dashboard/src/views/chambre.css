@@ -1020,7 +1020,8 @@ button.ch-lien-chemin:focus-visible {
   margin-top: 4px;
 }
 
-.ch-fab-form {
+.ch-fab-form,
+.ch-motif-perso-form {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1035,7 +1036,8 @@ button.ch-lien-chemin:focus-visible {
 }
 
 .ch-fab-field input,
-.ch-fab-field select {
+.ch-fab-field select,
+.ch-fab-field textarea {
   max-width: 100%;
 }
 

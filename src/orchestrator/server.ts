@@ -2364,6 +2364,86 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/motifs/perso',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { motifs: store.listerMotifsProjet(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { libelle: string; etapes: string[] };
+  }>(
+    '/api/projects/:projectId/motifs/perso',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['libelle', 'etapes'],
+          additionalProperties: false,
+          properties: {
+            libelle: { type: 'string', minLength: 1, maxLength: 120 },
+            etapes: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 8,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { expliquerRefusMotifPerso } = await import('./motifs.js');
+      const v = store.creerMotifProjet(projectId, req.body.libelle, req.body.etapes);
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif, message: expliquerRefusMotifPerso(v.motif) });
+      }
+      return { ok: true, id: v.id, libelle: v.libelle, etapes: v.etapes };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; motifId: string } }>(
+    '/api/projects/:projectId/motifs/perso/:motifId/appliquer',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const m = store.lireMotifProjet(req.params.motifId);
+      if (!m || m.projectId !== projectId) {
+        return reply.code(404).send({ error: 'inconnu' });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of m.etapes) {
+        const task = store.createTask({
+          projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Procédure « ${m.libelle} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: m.id, taskIds, titres: m.etapes };
+    },
+  );
+
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     return store.getSnapshot();

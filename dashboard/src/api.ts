@@ -1970,6 +1970,37 @@ export function appliquerMotif(
   );
 }
 
+export interface MotifPerso {
+  id: string;
+  libelle: string;
+  etapes: string[];
+  creeA: number;
+}
+
+export function fetchMotifsPerso(projectId: string): Promise<{ motifs: MotifPerso[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/motifs/perso`);
+}
+
+export function creerMotifPerso(
+  projectId: string,
+  body: { libelle: string; etapes: string[] },
+): Promise<{ ok: boolean; id: string; libelle: string; etapes: string[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/motifs/perso`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function appliquerMotifPerso(
+  projectId: string,
+  motifId: string,
+): Promise<{ ok: boolean; motifId: string; taskIds: string[]; titres: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/motifs/perso/${encodeURIComponent(motifId)}/appliquer`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
 export function ouvrirFabrique(
   projectId: string,
   body: {

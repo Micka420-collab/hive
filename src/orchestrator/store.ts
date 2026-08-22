@@ -49,6 +49,7 @@ import {
   type EntreeHorizon,
   type MotifRefusHorizon,
 } from './horizon.js';
+import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
 import { rankMemoriesHybrid } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
@@ -911,6 +912,16 @@ CREATE TABLE IF NOT EXISTS horizon_ledger (
   creeA     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_horizon_projet ON horizon_ledger(projectId, creeA DESC);
+
+-- Motifs perso (ADR 0010 lot 10) : procédures créées depuis la Chambre, par projet.
+CREATE TABLE IF NOT EXISTS motifs_projet (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  libelle   TEXT NOT NULL,
+  etapes    TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA DESC);
 `;
 
 interface ProjectRow {
@@ -2134,6 +2145,83 @@ export class HiveStore {
   pruneHorizon(retentionMs: number, now = Date.now()): number {
     const cutoff = now - retentionMs;
     return this.db.prepare('DELETE FROM horizon_ledger WHERE creeA < ?').run(cutoff).changes;
+  }
+
+  // ─── Motifs perso (ADR 0010 lot 10) ────────────────────────────────────────
+
+  creerMotifProjet(
+    projectId: string,
+    libelleBrut: string,
+    etapesBrutes: unknown,
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; libelle: string; etapes: string[] }
+    | { ok: false; motif: MotifPersoRefus } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'vide' };
+    const v = validerMotifPerso(libelleBrut, etapesBrutes);
+    if (!v.ok) return v;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO motifs_projet (id, projectId, libelle, etapes, creeA) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(id, projectId, v.libelle, JSON.stringify(v.etapes), now);
+    return { ok: true, id, libelle: v.libelle, etapes: v.etapes };
+  }
+
+  listerMotifsProjet(projectId: string): Array<{
+    id: string;
+    libelle: string;
+    etapes: string[];
+    creeA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, libelle, etapes, creeA FROM motifs_projet WHERE projectId = ? ORDER BY creeA DESC LIMIT 32',
+      )
+      .all(projectId) as Array<{ id: string; libelle: string; etapes: string; creeA: number }>;
+    const out: Array<{ id: string; libelle: string; etapes: string[]; creeA: number }> = [];
+    for (const r of rows) {
+      try {
+        const parsed: unknown = JSON.parse(r.etapes);
+        if (!Array.isArray(parsed)) continue;
+        const v = validerMotifPerso(r.libelle, parsed);
+        if (!v.ok) continue;
+        out.push({ id: r.id, libelle: v.libelle, etapes: v.etapes, creeA: r.creeA });
+      } catch {
+        continue;
+      }
+    }
+    return out;
+  }
+
+  lireMotifProjet(id: string): {
+    id: string;
+    projectId: string;
+    libelle: string;
+    etapes: string[];
+    creeA: number;
+  } | null {
+    const row = this.db
+      .prepare('SELECT id, projectId, libelle, etapes, creeA FROM motifs_projet WHERE id = ?')
+      .get(id) as
+      | { id: string; projectId: string; libelle: string; etapes: string; creeA: number }
+      | undefined;
+    if (!row) return null;
+    try {
+      const parsed: unknown = JSON.parse(row.etapes);
+      const v = validerMotifPerso(row.libelle, parsed);
+      if (!v.ok) return null;
+      return {
+        id: row.id,
+        projectId: row.projectId,
+        libelle: v.libelle,
+        etapes: v.etapes,
+        creeA: row.creeA,
+      };
+    } catch {
+      return null;
+    }
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {

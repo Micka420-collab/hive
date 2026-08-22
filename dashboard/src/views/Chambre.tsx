@@ -13,20 +13,23 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ajouterHorizon,
   appliquerMotif,
+  appliquerMotifPerso,
   arreterAtelier,
   assignerMetierOuvriere,
   baptiserOuvriere,
+  creerMotifPerso,
   demarrerAtelier,
   fetchAtelier,
   fetchChambre,
   fetchMotifs,
+  fetchMotifsPerso,
   jugerFabriqueChantier,
   lancerChantier,
   ouvrirFabrique,
   poserStatutFabrique,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
+import type { ChambrePoste, EtatAtelier, MotifCatalogue, MotifPerso } from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
 import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
@@ -169,6 +172,10 @@ export default function Chambre({
   const [errFabrique, setErrFabrique] = useState<string | null>(null);
   const [statusFabrique, setStatusFabrique] = useState<string | null>(null);
   const [verdictFab, setVerdictFab] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [motifsPerso, setMotifsPerso] = useState<MotifPerso[] | null>(null);
+  const [persoLibelle, setPersoLibelle] = useState('');
+  const [persoEtapes, setPersoEtapes] = useState('');
+  const [busyPerso, setBusyPerso] = useState(false);
 
   const fermerGrant = () => {
     setGrantReq(null);
@@ -199,6 +206,7 @@ export default function Chambre({
   useEffect(() => {
     if (onglet !== 'integrations') return;
     setMotifs(null);
+    setMotifsPerso(null);
     setErrMotifs(null);
     void fetchMotifs()
       .then((r) => {
@@ -209,7 +217,12 @@ export default function Chambre({
         setMotifs([]);
         setErrMotifs(e instanceof Error ? e.message : String(e));
       });
-  }, [onglet]);
+    if (poste?.projectId) {
+      void fetchMotifsPerso(poste.projectId)
+        .then((r) => setMotifsPerso(r.motifs))
+        .catch(() => setMotifsPerso([]));
+    }
+  }, [onglet, poste?.projectId]);
 
   // Onglets : colonne desktop, rangée sous 960px — aria-orientation suit le layout.
   const [ongletsHorizontaux, setOngletsHorizontaux] = useState(
@@ -944,6 +957,102 @@ export default function Chambre({
                         })}
                       </ul>
                     )}
+                    {poste.projectId ? (
+                      <>
+                        <h4>{t('Procédures perso', 'Custom procedures')}</h4>
+                        <form
+                          className="ch-motif-perso-form"
+                          onSubmit={(ev) => {
+                            ev.preventDefault();
+                            if (!poste.projectId) return;
+                            const etapes = persoEtapes
+                              .split('\n')
+                              .map((l) => l.trim())
+                              .filter(Boolean);
+                            setBusyPerso(true);
+                            setErrMotif(null);
+                            void creerMotifPerso(poste.projectId, {
+                              libelle: persoLibelle.trim(),
+                              etapes,
+                            })
+                              .then(() => {
+                                setPersoLibelle('');
+                                setPersoEtapes('');
+                                setStatusMotif(t('Procédure enregistrée', 'Procedure saved'));
+                                return fetchMotifsPerso(poste.projectId!);
+                              })
+                              .then((r) => setMotifsPerso(r.motifs))
+                              .catch((e) => {
+                                setErrMotif(e instanceof Error ? e.message : String(e));
+                              })
+                              .finally(() => setBusyPerso(false));
+                          }}
+                        >
+                          <label className="ch-fab-field">
+                            <span>{t('Libellé', 'Label')}</span>
+                            <input
+                              value={persoLibelle}
+                              onChange={(e) => setPersoLibelle(e.target.value)}
+                              maxLength={120}
+                              required
+                            />
+                          </label>
+                          <label className="ch-fab-field">
+                            <span>{t('Étapes (une par ligne)', 'Steps (one per line)')}</span>
+                            <textarea
+                              value={persoEtapes}
+                              onChange={(e) => setPersoEtapes(e.target.value)}
+                              rows={4}
+                              required
+                            />
+                          </label>
+                          <button type="submit" className="btn primary" disabled={busyPerso}>
+                            {busyPerso ? t('…', '…') : t('Créer', 'Create')}
+                          </button>
+                        </form>
+                        {(motifsPerso?.length ?? 0) > 0 ? (
+                          <ul className="ch-motifs">
+                            {motifsPerso!.map((m) => (
+                              <li key={m.id}>
+                                <span>
+                                  {m.libelle}
+                                  <span className="ch-silence">
+                                    {' '}
+                                    · {m.etapes.length} {t('étapes', 'steps')}
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyMotif === m.id}
+                                  onClick={() => {
+                                    if (!poste.projectId) return;
+                                    setBusyMotif(m.id);
+                                    void appliquerMotifPerso(poste.projectId, m.id)
+                                      .then((r) => {
+                                        setStatusMotif(
+                                          t(
+                                            `Procédure appliquée · ${r.taskIds.length} tâches`,
+                                            `Procedure applied · ${r.taskIds.length} tasks`,
+                                          ),
+                                        );
+                                        setFiltre('pause');
+                                        rafraichir();
+                                      })
+                                      .catch((e) => {
+                                        setErrMotif(e instanceof Error ? e.message : String(e));
+                                      })
+                                      .finally(() => setBusyMotif(null));
+                                  }}
+                                >
+                                  {t('Appliquer', 'Apply')}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : null}
                     {errMotif ? (
                       <p className="ch-err-soft" role="status">
                         {errMotif}

@@ -31,6 +31,9 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ajouterHorizon: vi.fn(),
   ouvrirFabrique: vi.fn(),
   poserStatutFabrique: vi.fn(),
+  fetchMotifsPerso: vi.fn(() => Promise.resolve({ motifs: [] })),
+  creerMotifPerso: vi.fn(),
+  appliquerMotifPerso: vi.fn(),
   demarrerAtelier: vi.fn(),
   arreterAtelier: vi.fn(),
 }));
@@ -42,6 +45,9 @@ import {
   fetchMotifs,
   ouvrirFabrique,
   poserStatutFabrique,
+  fetchMotifsPerso,
+  creerMotifPerso,
+  appliquerMotifPerso,
   repondreRequisition,
 } from '../dashboard/src/api';
 import type { MotifCatalogue } from '../dashboard/src/api';
@@ -383,6 +389,67 @@ describe('Chambre à l’écran', () => {
     expect(revue).toBeTruthy();
     await cliquer(revue);
     expect(poserStatutFabrique).toHaveBeenCalledWith(PROJECT_ID, 'fab-1', 'en_revue');
+  });
+
+  it('crée et applique une procédure perso', async () => {
+    vi.mocked(fetchMotifsPerso).mockResolvedValue({
+      motifs: [
+        {
+          id: 'mp-1',
+          libelle: 'Mon flux',
+          etapes: ['Étape A', 'Étape B'],
+          creeA: 1,
+        },
+      ],
+    });
+    vi.mocked(creerMotifPerso).mockResolvedValue({
+      ok: true,
+      id: 'mp-1',
+      libelle: 'Mon flux',
+      etapes: ['Étape A', 'Étape B'],
+    });
+    vi.mocked(appliquerMotifPerso).mockResolvedValue({
+      ok: true,
+      motifId: 'mp-1',
+      taskIds: ['t-a', 't-b'],
+      titres: ['Étape A', 'Étape B'],
+    });
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    expect(dom.textContent).toContain('Procédures perso');
+    const libelle = dom.querySelector('.ch-motif-perso-form input') as HTMLInputElement;
+    const etapes = dom.querySelector('.ch-motif-perso-form textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      const setterInput = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      const setterTextarea = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!;
+      setterInput.call(libelle, 'Mon flux');
+      libelle.dispatchEvent(new Event('input', { bubbles: true }));
+      setterTextarea.call(etapes, 'Étape A\nÉtape B');
+      etapes.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const creer = [...dom.querySelectorAll('.ch-motif-perso-form button')].find((b) =>
+      (b.textContent ?? '').includes('Créer'),
+    ) as HTMLButtonElement;
+    await cliquer(creer);
+    expect(creerMotifPerso).toHaveBeenCalledWith(PROJECT_ID, {
+      libelle: 'Mon flux',
+      etapes: ['Étape A', 'Étape B'],
+    });
+    await act(async () => {});
+    const appliquer = [...dom.querySelectorAll('button')].find(
+      (b) =>
+        (b.textContent ?? '').includes('Appliquer') &&
+        b.closest('.ch-motifs')?.textContent?.includes('Mon flux'),
+    ) as HTMLButtonElement;
+    await cliquer(appliquer);
+    expect(appliquerMotifPerso).toHaveBeenCalledWith(PROJECT_ID, 'mp-1');
   });
 
   it('dit que l’atelier est éteint (HIVE_ATELIER=off)', async () => {
