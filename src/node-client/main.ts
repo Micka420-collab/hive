@@ -13,6 +13,10 @@ import {
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
+import {
+  demarrageNoeudAutorise,
+  messageRefusShellProduction,
+} from '../shared/agent-production.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
@@ -81,6 +85,11 @@ const detecte = forceAgent
   : await detectBestAgent();
 const agentType: AgentType = detecte.agent;
 const tousAgents = await detectAllAgents();
+
+if (!demarrageNoeudAutorise(agentType)) {
+  console.error(`✘ ${messageRefusShellProduction('fr')}\n`);
+  process.exit(2);
+}
 
 console.log(`   Agents détectés : ${tousAgents.map((a) => libelleAgent(a)).join(', ')}`);
 console.log(`   Agent utilisé   : ${detecte.label}`);

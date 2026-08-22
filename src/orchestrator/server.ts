@@ -1270,6 +1270,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   const scheduler = new Scheduler(store, {
+    simulation: config.simulation,
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',

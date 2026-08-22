@@ -48,6 +48,7 @@ import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
+import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
 import type { BandeThermo } from './thermo.js';
 
@@ -73,6 +74,8 @@ const TICKS_CONFIRMATION_THERMO = 2;
 export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
+  /** Mode démo : autorise l'assignation aux nœuds shell/simulation. */
+  simulation?: boolean;
   /** Appelé quand une tâche est assignée — le serveur pousse alors `assign_task` au nœud. */
   onAssign?: (nodeId: string, task: Task, modele?: string) => void;
   /** Appelé pour annuler le travail d'un nœud (drone perdant) — le serveur envoie `cancel_task`. */
@@ -1529,6 +1532,9 @@ export class Scheduler {
         .filter(
           (n) =>
             n.status === 'online' &&
+            assignationProductionAutorisee(n.agentType, {
+              simulation: this.opts.simulation,
+            }) &&
             // Thermorégulation : sous ventilation, la capacité de chaque nœud
             // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
             // s'arrête pas, elle ralentit).
