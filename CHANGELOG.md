@@ -7,6 +7,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Polish autonomie.** API baptême/métier (`POST /api/baptemes`, `/api/metiers`) ;
+  checklist « prêt pour l’autonomie » + timeline cycles dans Plein Essaim ;
+  baptême et métier depuis la Chambre ; filtre Chronique « Essaim » ;
+  avertissement nœuds shell ; veille techno légère dans le planner (`queen-veille.ts`) ;
+  délibération prioritaire quand la dérive signale `a_surveiller`.
+
 ### Changed
 
 - **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers

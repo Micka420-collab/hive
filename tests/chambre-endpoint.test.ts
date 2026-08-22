@@ -157,6 +157,42 @@ describe('GET /api/chambre/:nodeId', () => {
     expect(body.baptemes).toEqual([expect.objectContaining({ nodeId: 'n-b1', nom: 'Capucine' })]);
   });
 
+  it('POST /api/baptemes et /api/metiers : la Reine nomme et assigne', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-b2',
+      name: 'tech',
+      ownerName: 'hôte',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    const bapt = await fetch(`${srv.url}/api/baptemes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ nodeId: 'n-b2', nom: 'Violette' }),
+    });
+    expect(bapt.status).toBe(200);
+    const met = await fetch(`${srv.url}/api/metiers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ nodeId: 'n-b2', metier: 'edite' }),
+    });
+    expect(met.status).toBe(200);
+    const ch = await fetch(`${srv.url}/api/chambre/n-b2`, { headers });
+    const body = (await ch.json()) as {
+      bapteme: { nom: string };
+      metier: { metier: string };
+    };
+    expect(body.bapteme.nom).toBe('Violette');
+    expect(body.metier.metier).toBe('edite');
+    const collision = await fetch(`${srv.url}/api/baptemes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ nodeId: 'n-b2', nom: 'claude-code' }),
+    });
+    expect(collision.status).toBe(400);
+  });
+
   it('réquisitions : ouvrir et répondre via API', async () => {
     const srv = await demarrer();
     srv.store.registerNode({
