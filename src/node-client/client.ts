@@ -650,10 +650,16 @@ export class HiveNodeClient {
       let scripts: Record<string, string> = {};
       try {
         const brut: unknown = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        // loupe : équivalent — && → ||. Le `catch` de ce bloc rend
+        // `scripts = {}`, et la garde de la ligne suivante y mène aussi. Mué,
+        // un `package.json` valant `null` lève à l'indexation et retombe dans
+        // le même `{}`.
         const bloc =
           typeof brut === 'object' && brut !== null
             ? (brut as Record<string, unknown>).scripts
             : null;
+        // loupe : équivalent — && → ||. Même raison : `Object.entries(null)`
+        // lève, le `catch` rend `{}`, et c'est ce que la garde produisait.
         if (typeof bloc === 'object' && bloc !== null) {
           for (const [k, v] of Object.entries(bloc)) {
             if (typeof v === 'string') scripts[k] = v;

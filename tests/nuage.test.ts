@@ -98,3 +98,59 @@ describe('isolement des bases', () => {
     expect(a?.startsWith(path.resolve(dir))).toBe(true);
   });
 });
+
+// ─── UNE CHARGE STRIPE SANS `metadata` NE DOIT PAS FAIRE LEVER ───────────────
+//
+// Sonde ciblée du motif `typeof x === 'object' && x !== null` (§ 9
+// octosexagicenties) : dix occurrences restantes, CINQ nues. Celle-ci est la
+// seule des cinq qui ne soit pas rattrapée par un `catch` englobant —
+// `nuage.ts` n'en a aucun.
+//
+//     function meta(obj) {
+//       const m = obj.metadata;
+//       return typeof m === 'object' && m !== null ? m : {};
+//     }
+//
+// `typeof null === 'object'` rend VRAI : c'est donc le `&&` qui écarte
+// `null`, et lui seul. Mué en `||` :
+//
+//   · `metadata: null`   → `true || false`  → rend `null`
+//   · pas de `metadata`  → `false || true`  → rend `undefined`
+//
+// Dans les deux cas la ligne suivante (`m.projectId`) LÈVE un TypeError. Le
+// traducteur d'événements Stripe meurt au lieu de refuser proprement une
+// charge qu'il ne sait pas lire — et il est appelé sur un webhook, donc sur
+// une entrée que la ruche ne choisit pas.
+describe('le traducteur Stripe survit à une charge sans metadata', () => {
+  const socle = {
+    type: 'customer.subscription.created',
+    created: 1_700_000_000,
+    data: { object: { id: 'sub_1', current_period_end: 1_800_000_000 } },
+  };
+
+  it('REFUSE proprement quand `metadata` est absent', () => {
+    expect(evenementDepuisStripe(socle)).toBeNull();
+  });
+
+  it('REFUSE proprement quand `metadata` vaut null', () => {
+    expect(
+      evenementDepuisStripe({
+        ...socle,
+        data: { object: { ...socle.data.object, metadata: null } },
+      }),
+    ).toBeNull();
+  });
+
+  // Le bord positif : sans lui, un `meta()` qui rendrait TOUJOURS `{}`
+  // passerait les deux cas ci-dessus sans rien mesurer.
+  it('LIT l’événement quand `metadata` porte projet et plan', () => {
+    const e = evenementDepuisStripe({
+      ...socle,
+      data: {
+        object: { ...socle.data.object, metadata: { projectId: 'p-1', plan: 'essaim' } },
+      },
+    });
+    expect(e, 'une charge complète devrait être lue').not.toBeNull();
+    expect(e?.projectId).toBe('p-1');
+  });
+});
