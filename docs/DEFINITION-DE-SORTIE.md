@@ -53,15 +53,23 @@
 > ensemble : on re-mesure, on réécrit les quatre nombres, **et on re-date ce
 > titre**. C'est ce que dit le refus, et c'est ce qui a été fait ici.
 
-| Critère                  | Comment on le mesure                                     | Verdict                                          |
-| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
-| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
-| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4629** (4621 verts, 8 ignorés, **0 rouge**) |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)        |
-| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 17 nus trouvés sur ce lot — tous fermés       |
-| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                 |
+| Critère                  | Comment on le mesure                                     | Verdict                                                                                                    |
+| ------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                                                                             |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                                                                                    |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4629** (4621 verts, 8 ignorés, **0 rouge**)                                                           |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)                                                                  |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                                                                                   |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ **95 examinés, 35 nues → 33 fermées, 1 équivalente consignée, 1 retirée** (§ terrain, `docs/ETAPES.md`) |
+| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                                                                           |
+
+- ⚠️ **« SUR CE LOT » N'EST PAS UN RÉFÉRENT.** Cette case a annoncé « 17 nus
+  trouvés sur ce lot — tous fermés » pendant quatre lots de plus, dont trois
+  qui ont touché ce fichier sans la relire. Un lot est un mot qui glisse : il
+  désigne toujours le dernier, donc plus rien dès qu'un autre arrive, et le
+  chiffre reste vrai à l'endroit exact où il a cessé de l'être. Le compte porte
+  désormais un terrain nommé et renvoie au carnet, où chaque balayage est daté
+  par son fichier et sa base épinglée.
 
 - ⚠️ **CE QUE VALAIENT LES « RIEN DE NU » D'AVANT LE 15 AOÛT.** La loupe ne
   vérifiait pas que la suite était VERTE avant de muter. Sur une suite déjà

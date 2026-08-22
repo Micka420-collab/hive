@@ -13430,3 +13430,56 @@ se re-date comme un badge.** Celle-ci nomme, au 22 août, cinq points tous
 fermés ; elle continuera d'y envoyer des sessions tant qu'elle n'est pas
 réécrite. Ce n'est pas au dépôt de le corriger — la consigne vit ailleurs — mais
 c'est au carnet de le dire.
+
+## 9 sexsexagicenties. Un chiffre juste et un sujet qui glisse : « sur ce lot » n'est pas un référent
+
+Le tableau A de `docs/DEFINITION-DE-SORTIE.md` certifie le critère « rien de
+neuf n'est nu ». Sa case disait :
+
+```
+✅ 17 nus trouvés sur ce lot — tous fermés
+```
+
+Le chiffre était exact le jour où il a été écrit. Il l'est resté — mais quatre
+balayages plus tard, le terrain valait **95 examinés, 35 nues, 33 fermées, 1
+équivalente, 1 retirée**. La case certifiait un cinquième du travail qu'elle
+prétendait certifier, dans le sens rassurant, sur la ligne qui SERT de garantie.
+
+### Ce n'est pas une case oubliée
+
+Cette PR a touché ce fichier **trois fois** — le tableau de couverture, puis
+deux fois le compte de bancs — sans que la ligne d'à côté soit relue une seule
+fois. Ce n'est pas de la négligence de relecture : c'est que rien ne la
+DÉSIGNAIT comme périmée. Les quatre comptes de bancs sont gardés par
+`compte-tests.mjs`, qui les compare à la mesure et refuse le décalage. La case
+de la loupe n'est gardée par rien, et une case que rien ne garde ne signale
+jamais qu'elle a vieilli.
+
+### Le défaut est dans le SUJET, pas dans la fraîcheur
+
+C'est ce qui le sépare de § 9 quaterquadragicenties (une mesure datée se refuse)
+et de § 9 quinsexagicenties (une liste de restes se périme). Là, un chiffre
+cessait d'être vrai. Ici **le chiffre n'a jamais cessé d'être vrai** : 17 nus
+ont bien été trouvés, et ils ont bien tous été fermés. C'est « ce lot » qui a
+bougé sous lui.
+
+Un déictique n'a pas de valeur, il a une direction. « Ce lot », « le dernier
+balayage », « la version actuelle », « ici » : au moment de l'écriture chacun
+désigne une chose précise, et à chaque tour suivant il en désigne une autre sans
+que le texte change d'un octet. Une phrase fausse se corrige ; une phrase dont
+le sujet glisse reste littéralement vraie tout en devenant trompeuse, ce qui est
+la forme la plus tenace — elle survit à la relecture, parce qu'à la relecture
+elle est juste.
+
+### La leçon
+
+**Dans une mesure consignée, le sujet se nomme comme le chiffre se mesure.** Pas
+« sur ce lot » mais le terrain, le fichier, la base épinglée — quelque chose
+qu'un lecteur puisse aller rouvrir six mois plus tard et retrouver identique. Un
+renvoi au carnet vaut mieux qu'un adjectif démonstratif : le carnet, lui, date
+chaque balayage par son fichier et sa base.
+
+Et le corollaire opérationnel : **quand on touche un document de certification,
+on relit les lignes VOISINES de celle qu'on vient de changer.** Une case s'édite
+seule, mais elle se lit dans un tableau — et c'est le tableau entier qui est
+présenté comme la mesure.
