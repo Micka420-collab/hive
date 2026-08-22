@@ -11880,3 +11880,87 @@ neuf mutations qu'il ferme ont été rejouées CONTRE la version réécrite.
 Delta du terrain : `Chronique.tsx` passe de « jamais balayée » à **34/34
 balayé, 6 nues fermées, 1 équivalente consignée**. Restent jamais balayées :
 MonEspace (434), shared (502).
+
+## Mon Espace : 18 sur 18, et un décor qui choisissait toujours le même bord
+
+Sixième vue balayée de bout en bout. Base épinglée dans l'atelier
+(`LOUPE_BASE=c9591f4`, vérifiée 439 ajoutées / 0 retirée) :
+
+```text
+18 mutation(s) possible(s) sur le diff, 18 examinée(s).
+9 défendues, 9 SANS TEST
+```
+
+**Cinquante pour cent** — le pire ratio depuis la Reine (71 %), et devant la
+Ruche (44 %). La vue avait pourtant son banc, `mon-espace-lecture`, dont le
+balayage confirme toutes les gardes : le chiffre des heures et ses deux bornes,
+l'habit du projet arrêté, l'étiquette de plan, le grand livre en retard.
+
+### Ce n'est pas le banc qui manquait, c'est le DÉCOR qui ne variait pas
+
+`mon-espace-lecture` construit ses projets par une fabrique `projet()` dont
+quatre champs ne bougent jamais — et ce sont exactement les quatre que les
+gardes nues interrogent :
+
+| champ du décor  | valeur figée | la garde qui n'est jamais franchie |
+| --------------- | ------------ | ---------------------------------- |
+| `role`          | `'member'`   | la pastille « propriétaire »       |
+| `joursRestants` | `-1`         | tout le bloc « Période »           |
+| `serveurs`      | `[]`         | tout le bloc « Machines »          |
+| `partConsommee` | `null`       | la jauge de quota                  |
+
+Un décor n'est jamais neutre : à chaque champ il CHOISIT un côté de chaque
+borne. Tant qu'il ne varie pas, la ligne est traversée à chaque cas et éprouvée
+zéro fois. C'est le même constat que sur la Chronique — là c'étaient
+`projects: 1` et `payload: {}` — mais ici il porte sur **neuf** mutations d'un
+coup, parce qu'un seul décor alimente tout l'écran.
+
+### Le compte à rebours d'abonnement, nu dans les TROIS sens
+
+```tsx
+{p.joursRestants >= 0 && (          // → ||  : ne s'affiche QU'APRÈS l'échéance
+                                    // → >   : muet le dernier jour
+  … p.joursRestants === 0           // → !== : « se termine aujourd'hui »
+      ? 'se termine aujourd’hui'    //         TOUS LES JOURS SAUF celui-là
+      : `${p.joursRestants} jour(s) restant(s)`
+```
+
+C'est ce qui prévient qu'un abonnement se termine. Les trois mutations
+survivent, et le carnet portait DÉJÀ la trace du cas :
+
+> « **MonEspace — « expire aujourd'hui » (0 jour).** Le sentinel voisin
+> éprouvait… »
+
+Le cas avait été NOMMÉ, et il n'était pas TENU. Une inquiétude écrite n'est pas
+une garde — c'est le versant « décor » de § 9 sexvicicenties, où un commentaire
+qui explique se prenait pour un test.
+
+### Et la jauge, dont le fichier écrit lui-même pourquoi elle ne doit pas paraître
+
+```tsx
+{/* Sans plafond, PAS de jauge : une barre à zéro dirait « rien dépensé »
+    alors que la vérité est « rien ne vous borne ». */}
+{p.partConsommee === null ? (
+```
+
+Mutée, la vue rend EXACTEMENT la barre à zéro que le commentaire interdit :
+`null >= 1` et `null >= 0.9` sont faux, `Math.round(null * 100)` vaut 0. La
+phrase était juste, la garde était nue, et le banc de cette vue cite § 9
+sexvicicenties dans son propre en-tête.
+
+### Rejeu, un mutant à la fois
+
+```text
+TENU · T1  tuile machines : > → >=        TENU · J3  jour même : === → !==
+TENU · O1  propriétaire : && → ||         TENU · S1  machines : && → ||
+TENU · O2  propriétaire : === → !==       TENU · S2  machines : > → >=
+TENU · J1  période : && → ||              TENU · Q1  jauge : === → !==
+TENU · J2  période : >= → >
+
+═══ TENUS : 9 sur 9 ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+Delta du terrain : `MonEspace.tsx` passe de « jamais balayée » à **18/18
+balayé, 9 nues fermées**. Reste jamais balayée : shared (502).

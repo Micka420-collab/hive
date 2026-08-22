@@ -13273,3 +13273,64 @@ Et le signe qui aurait dû alerter plus tôt : j'ai écrit « je ne suis pas sû
 comportement de `isContentEditable` sous happy-dom » DANS la même phrase qui
 concluait à l'équivalence. Une incertitude nommée et non levée est une dette,
 pas une nuance.
+
+## 9 tersexagicenties. Un décor n'est pas neutre : à chaque champ, il choisit un bord
+
+`MonEspace.tsx` avait son banc. `mon-espace-lecture` éprouve le chiffre des
+heures et ses deux bornes, l'habit du projet arrêté, l'étiquette de plan, le
+grand livre en retard — le balayage confirme toutes ces gardes défendues.
+
+La vue a rendu **9 nues sur 18**. Le pire ratio depuis la Reine, qui elle
+n'avait aucun banc.
+
+### Les neuf tiennent à quatre champs qui ne bougent pas
+
+Le banc construit ses projets par une fabrique :
+
+```js
+const projet = (over = {}) => ({
+  role: 'member', // …donc la pastille « propriétaire » ne s'allume jamais
+  joursRestants: -1, // …donc le bloc « Période » ne s'ouvre jamais
+  serveurs: [], // …donc le bloc « Machines » ne s'ouvre jamais
+  partConsommee: null, // …donc la jauge n'est jamais rendue
+  ...over,
+});
+```
+
+Chaque valeur est raisonnable. Prises ensemble, elles décident que quatre
+régions de l'écran ne seront JAMAIS rendues — et neuf mutations y vivent.
+
+### Ce qui rend la faute difficile à voir
+
+Une ligne jamais exécutée se repère : la couverture la montre en rouge. Ces
+lignes-là sont exécutées à CHAQUE cas — la fabrique passe dessus, la condition
+est évaluée, le fichier compte dans la couverture. Ce qui manque n'est pas le
+passage, c'est le SECOND BORD. La couverture de ligne ne sait pas dire
+« franchie toujours dans le même sens ».
+
+C'est ce que la mutation, elle, dit tout de suite.
+
+### La leçon
+
+**Une fabrique de décor est une suite de décisions sur des bornes, pas un
+remplissage.** Un champ dont la valeur ne varie jamais entre les cas est une
+borne qu'on a choisie une fois pour toutes, et le banc qui s'en sert éprouve
+tout SAUF elle.
+
+Le geste : à l'écriture d'un banc, relire la fabrique en se demandant, champ par
+champ, _quelle garde de la vue lit ce champ, et est-ce que je lui donne les deux
+côtés ?_ Là où la réponse est non, c'est nu — sans avoir besoin de la loupe pour
+l'apprendre.
+
+### Le cas était NOMMÉ, et ce n'était pas suffisant
+
+Le carnet portait déjà :
+
+> « **MonEspace — « expire aujourd'hui » (0 jour).** Le sentinel voisin
+> éprouvait… »
+
+Le jour même de l'échéance avait été remarqué. Trois mutations du compte à
+rebours ont quand même survécu, dont exactement celle-là. **Une inquiétude
+écrite n'est pas une garde** — c'est le versant « décor » de § 9 sexvicicenties,
+où un commentaire qui explique se prenait pour un test. Ici c'est une note de
+carnet qui se prenait pour un cas.
