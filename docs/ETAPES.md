@@ -12118,3 +12118,44 @@ Restauré PAR COPIE après chaque tour, arbre vérifié propre.
 
 Plus aucune vue de `dashboard/src/views` n'est « jamais balayée ». Le lot #87 —
 « terrain dashboard/src/views : balayage fichier par fichier » — est clos.
+
+## Les six « nues restantes » de la consigne étaient toutes DÉFENDUES
+
+La consigne du tour de chantier nomme, depuis plusieurs jours, trois restes de
+balayage : Balance (`arme && cible !== null`), Cerveau (`serviIlYaJours ===
+null`), `server.ts` (le `find` de la livraison). Vérifiés un par un — mutés,
+suite entière relancée, verdict affiché :
+
+```text
+TENU · Balance   arme && cible !== null  → ||        (vues-sentinelles)
+TENU · Balance   arme && cible !== null  → ===       (vues-sentinelles)
+TENU · Cerveau   serviIlYaJours === null → !==  ×3   (suite entière)
+TENU · server.ts inspections.find(taskId ===) → !==  (polyethisme-livraison)
+
+═══ SURVIVANTS : 0 sur 6 ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+Les bancs qui les tiennent portent des noms qui disent exactement le cas —
+« BALANCE : le geste ARMÉ dit ce qu'il va faire — sinon on confirme à
+l'aveugle », « UNE BUTINEUSE JUGÉE `hollow` SUR CETTE TÂCHE-CI est retenue ».
+Ils ont été écrits depuis que la consigne a été rédigée.
+
+### Une liste de restes est une MESURE, et elle se périme comme les autres
+
+C'est la même faute que le tableau D de `DEFINITION-DE-SORTIE.md` ce matin, à
+un autre endroit : un relevé juste le jour où il a été pris, recopié ensuite
+sans être refait. Sauf que celui-ci est plus coûteux — il ne dort pas dans un
+document, il RÉVEILLE une session toutes les heures et lui désigne du travail
+déjà fait.
+
+Le geste qui coûte le moins : **muter d'abord, croire la mesure, pas la note.**
+Six mutations, six suites relancées, une vingtaine de minutes — contre une
+heure de banc écrit pour une garde qui tenait déjà.
+
+**Ce qui reste vraiment du balayage, à ce jour :** rien de nommé. Les sept
+fichiers de `dashboard/src/views` sont balayés entiers (74 mutations, 26 nues,
+25 fermées, 1 équivalente). Les six points de la consigne sont défendus. Le
+prochain balayage utile est un balayage ÉLARGI à base épinglée sur du terrain
+non encore regardé — pas une reprise de cette liste.
