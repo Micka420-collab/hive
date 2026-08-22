@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import {
   HORIZON_LECTURE_MAX,
   VERSION_HORIZON,
+  doitNoterFaitDeriveASurveiller,
   doitNoterFaitDeriveDegradee,
   horizonDepasseBudgetTaches,
   resumeHorizon,
+  texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
   validerKindHorizon,
 } from '../src/orchestrator/horizon.js';
@@ -86,6 +88,29 @@ describe('horizon — forme', () => {
         now,
       ),
     ).toBe(true);
+  });
+
+  it('anti-spam fait dérive à surveiller', () => {
+    expect(texteFaitDeriveASurveiller('hausse lente')).toMatch(
+      /^Dérive à surveiller — hausse lente$/,
+    );
+    const now = 2_000_000;
+    expect(doitNoterFaitDeriveASurveiller([], now)).toBe(true);
+    expect(
+      doitNoterFaitDeriveASurveiller(
+        [
+          {
+            id: '1',
+            projectId: 'p',
+            kind: 'fait',
+            texte: 'Dérive à surveiller — x',
+            source: 'derive',
+            creeA: now - 1000,
+          },
+        ],
+        now,
+      ),
+    ).toBe(false);
   });
 });
 
