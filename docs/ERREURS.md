@@ -13200,3 +13200,76 @@ et durable, parce qu'une ligne de carnet ne se relit pas.
 DÉCIDER si l'on balaye ; il ne sert pas à régler le balayage. Et un plafond se
 pose AU-DESSUS du compte, jamais à l'égalité pile — la marge ne coûte rien,
 l'égalité approximative coûte la moitié.
+
+## 9 duosexagicenties. Une conclusion juste tirée d'une prémisse fausse n'est pas un savoir — et c'est la PRÉMISSE qu'on écrit
+
+Le balayage de la Chronique a laissé un survivant :
+
+```text
+🔴 SANS TEST · isTyping()  ·  el instanceof HTMLElement → instanceof Object
+```
+
+J'ai annoncé « probablement équivalent », avec sa raison :
+
+> « Un `SVGElement` passe `instanceof Object`, mais son `tagName` vaut `svg` en
+> minuscules, il ne correspond à aucune étiquette de la liste, et son
+> `isContentEditable` est `undefined`. Les deux versions rendent `false`. »
+
+**Le verdict était bon. La raison était fausse.** Une sonde qui compare les deux
+versions sur treize valeurs l'a séparé du premier coup :
+
+```text
+valeur                        instanceof     sain    muté
+                              HTMLElement
+<svg tabindex="0">            false          false   undefined
+createElementNS('urn:x','INPUT')  false      false   true      ◀ SÉPARE
+```
+
+Un élément d'un autre espace de noms NOMMÉ `INPUT` porte un `tagName` en
+MAJUSCULES : le muté entre dans la liste et rend un vrai `true`. Ma phrase
+« aucun `tagName` ne peut correspondre » était simplement inexacte.
+
+### Ce qui rend quand même le mutant équivalent
+
+La bonne raison est ailleurs, et elle est sur le CHEMIN D'APPEL :
+
+```text
+<svg tabindex="0">     peut être document.activeElement   → sain false, muté undefined
+createElementNS INPUT  n'a PAS de focus() — l'appeler jette → ne peut JAMAIS l'être
+```
+
+La seule valeur qui sépare vraiment ne peut pas atteindre la fonction : elle
+n'est pas focalisable, donc `document.activeElement` ne la portera jamais. Celle
+qui est atteignable rend `undefined` au lieu de `false` — falsy des deux côtés,
+donc `if (isTyping() || modalOpen())` ne bouge pas d'un cheveu.
+
+C'est § 9 duoquinquagicenties appliqué à une équivalence plutôt qu'à une
+couverture : **l'éprouvabilité se juge sur ce que l'appelant peut fournir.**
+
+### Pourquoi la prémisse comptait plus que le verdict
+
+Si je n'avais pas exécuté la sonde, j'aurais consigné :
+
+> « Équivalent : aucun `tagName` hors HTML ne peut correspondre aux étiquettes. »
+
+Une phrase FAUSSE, dans le carnet, sous une conclusion JUSTE — donc jamais
+relue, jamais contredite par un banc, et disponible pour justifier le prochain
+`instanceof` élargi « par le même raisonnement ». Le carnet ne garde pas des
+verdicts, il garde des RAISONS : c'est la raison qui sera recopiée.
+
+Deux fautes voisines, déjà payées, disent la même chose sous un autre angle :
+§ 9 quinquagicenties (nommer le mutant EXACT, pas son cousin) et
+§ 9 octoquinquagicenties (un nombre inventé emprunte l'autorité d'un nombre
+mesuré). Ici c'est un RAISONNEMENT qui emprunte l'autorité d'une mesure.
+
+### La leçon
+
+**Une équivalence annoncée se prouve comme un test : par exécution, y compris sa
+raison.** « Je pense qu'aucune entrée ne les sépare » est une hypothèse ; la
+sonde qui ÉNUMÈRE les entrées et affiche les deux sorties côte à côte est la
+mesure. Elles coûtent quelques minutes et ne se ressemblent pas.
+
+Et le signe qui aurait dû alerter plus tôt : j'ai écrit « je ne suis pas sûr du
+comportement de `isContentEditable` sous happy-dom » DANS la même phrase qui
+concluait à l'équivalence. Une incertitude nommée et non levée est une dette,
+pas une nuance.
