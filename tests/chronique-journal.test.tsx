@@ -196,4 +196,43 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     expect(dom.textContent).toContain('Tâches 2');
     expect(dom.textContent).toContain('Nœuds 1');
   });
+
+  it('LES DEUX TYPES DE CONFLIT TOMBENT DANS « Conflits », et nulle part ailleurs', async () => {
+    // ─── CE QUE LE CAS VOISIN NE POUVAIT PAS VOIR ──────────────────────────
+    //
+    // Le cas ci-dessus s'appelle « les compteurs disent le VRAI compte » et il
+    // est vert — avec `task_done`, `task_failed` et `node_connected`. Aucun
+    // événement de CONFLIT n'y entre, donc la ligne qui les reconnaît n'a
+    // jamais tourné :
+    //
+    //     if (type === 'conflict_detected' || type === 'task_conflict_deferred')
+    //
+    // Le balayage l'a rendue SANS TEST. Mutée en `&&`, aucun type ne vaut les
+    // deux à la fois : la famille est TOUJOURS VIDE. Le filtre 🛡️ — celui
+    // qu'on ouvre justement quand on cherche pourquoi une fusion coince —
+    // afficherait 0 pour l'éternité, pendant que les deux événements se
+    // cachent, l'un dans « Tâches » (il commence par `task`), l'autre dans
+    // « Autres ».
+    //
+    // Un compteur peut donc être éprouvé sans que la FAMILLE le soit : le test
+    // couvrait la ligne du total, pas la décision qui l'alimente.
+    const dom = await monterChronique([
+      evenement(1, 'conflict_detected'),
+      evenement(2, 'task_conflict_deferred'),
+      evenement(3, 'task_done'),
+    ]);
+
+    const compte = (nom: string): string => {
+      const puce = [...dom.querySelectorAll('.filters .chip')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      );
+      if (!puce) throw new Error(`la puce « ${nom} » est introuvable`);
+      return puce.querySelector('.chip-count')?.textContent?.trim() ?? '';
+    };
+
+    expect(compte('Conflits'), 'la famille des conflits est vide').toBe('2');
+    // …et la preuve qu'ils ne sont pas allés se ranger ailleurs :
+    expect(compte('Tâches'), 'un conflit a été compté comme tâche').toBe('1');
+    expect(compte('Autres'), 'un conflit a été compté comme « autres »').toBe('0');
+  });
 });

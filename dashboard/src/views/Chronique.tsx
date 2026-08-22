@@ -75,6 +75,19 @@ const STATUSES: TaskStatus[] = ['pending', 'ready', 'assigned', 'running', 'done
  */
 function isTyping(): boolean {
   const el = document.activeElement;
+  // loupe : équivalent — instanceof HTMLElement → instanceof Object.
+  //
+  // Le mutant ne se distingue que sur un élément dont le `tagName` vaut
+  // exactement « INPUT » (ou l'un des autres) SANS être un HTMLElement. Seul
+  // `createElementNS` d'un espace de noms étranger le produit :
+  // `document.createElementNS('urn:x', 'INPUT')` rend bien `tagName === 'INPUT'`
+  // — la première version de cette note prétendait le contraire, et une sonde
+  // l'a démentie (§ 9 duosexagicenties : la PRÉMISSE aussi se mesure).
+  //
+  // Le verdict tient pour une autre raison, celle-là vérifiable : un tel
+  // élément n'a pas de méthode `focus()`, donc il ne peut jamais devenir
+  // `document.activeElement`. La branche est inatteignable, et un test qui ne
+  // peut pas rougir n'est pas de la couverture.
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
   return (

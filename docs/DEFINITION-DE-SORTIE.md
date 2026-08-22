@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `844e44e` + ce commit, 21 août 2026)
+## A. Le code tient — ✅ mesuré (arbre `1b46c1e` + ce commit, 22 août 2026)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -53,15 +53,23 @@
 > ensemble : on re-mesure, on réécrit les quatre nombres, **et on re-date ce
 > titre**. C'est ce que dit le refus, et c'est ce qui a été fait ici.
 
-| Critère                  | Comment on le mesure                                     | Verdict                                          |
-| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ |
-| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                   |
-| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                          |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4582** (4574 verts, 8 ignorés, **0 rouge**) |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)        |
-| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                         |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ 17 nus trouvés sur ce lot — tous fermés       |
-| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                 |
+| Critère                  | Comment on le mesure                                     | Verdict                                                                                                    |
+| ------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                                                                             |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                                                                                    |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4679** (4671 verts, 8 ignorés, **0 rouge**)                                                           |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)                                                                  |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                                                                                   |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ **95 examinés, 35 nues → 33 fermées, 1 équivalente consignée, 1 retirée** (§ terrain, `docs/ETAPES.md`) |
+| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                                                                           |
+
+- ⚠️ **« SUR CE LOT » N'EST PAS UN RÉFÉRENT.** Cette case a annoncé « 17 nus
+  trouvés sur ce lot — tous fermés » pendant quatre lots de plus, dont trois
+  qui ont touché ce fichier sans la relire. Un lot est un mot qui glisse : il
+  désigne toujours le dernier, donc plus rien dès qu'un autre arrive, et le
+  chiffre reste vrai à l'endroit exact où il a cessé de l'être. Le compte porte
+  désormais un terrain nommé et renvoie au carnet, où chaque balayage est daté
+  par son fichier et sa base épinglée.
 
 - ⚠️ **CE QUE VALAIENT LES « RIEN DE NU » D'AVANT LE 15 AOÛT.** La loupe ne
   vérifiait pas que la suite était VERTE avant de muter. Sur une suite déjà
@@ -375,14 +383,26 @@ par un banc (`tests/couverture-reproductible.test.ts`, muté rouge : il lie le
 fournisseur déclaré au `provider` de `vitest.config.ts` et exige qu'il se
 résolve).
 
-**Mesure datée (15 août 2026, arbre `90c1694` + ce lot) :**
+**Mesure datée (22 août 2026, arbre `679fde8` + ce lot) :**
 
-| Dimension    | Couverture  | Détail          | 14 août |
+| Dimension    | Couverture  | Détail          | 15 août |
 | ------------ | ----------- | --------------- | ------- |
-| Lignes       | **76,97 %** | 9 484 / 12 321  | 75,43 % |
-| Branches     | 71,88 %     | 7 774 / 10 814  | 69,48 % |
-| Fonctions    | 76,43 %     | 2 323 / 3 039   | 74,33 % |
-| Instructions | 75,81 %     | 10 803 / 14 250 | 74,19 % |
+| Lignes       | **78,08 %** | 11 091 / 14 204 | 76,97 % |
+| Branches     | 72,76 %     | 9 286 / 12 761  | 71,88 % |
+| Fonctions    | 79,21 %     | 2 748 / 3 469   | 76,43 % |
+| Instructions | 76,66 %     | 12 611 / 16 449 | 75,81 % |
+
+> **CE TABLEAU AVAIT CESSÉ D'ÊTRE UNE MESURE, ET IL A FALLU LE POINT DE SORTIE
+> POUR LE VOIR.** La colonne du 15 août portait 12 321 lignes ; l'arbre en porte
+> 14 204. Ce ne sont pas les COUVERTS qui avaient bougé, ce sont les
+> DÉNOMINATEURS — le tableau décrivait un dépôt plus petit que celui qui
+> existait. Daté, il restait faux, exactement comme le tableau A l'avait été le
+> 16 août. La date ne périme rien toute seule.
+>
+> Le cliquet, lui, était resté sur la mesure du 15 : 75,7 / 71,7 / 76,3 / 76,8,
+> soit jusqu'à 2,9 points SOUS le réel. Il ne mordait plus. **Un cliquet qui ne
+> mord plus n'est pas un cliquet, c'est un chiffre**, et il laissait éroder en
+> silence tout ce qui séparait les deux. Il est remonté sur la mesure.
 
 ### ✅ LE SEUIL EST CÂBLÉ — un cliquet, mesuré et exercé
 
