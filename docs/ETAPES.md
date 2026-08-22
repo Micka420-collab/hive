@@ -12302,3 +12302,64 @@ consigne ici, avec son fichier et sa base.
 Delta du terrain : `dashboard/src/views` **entièrement balayé** (7 vues + les
 deux modules de décision du Cerveau). Le terrain `src` reste très largement non
 balayé — 371 candidates recensées, 21 jouées.
+
+## livraison.ts : 38 sur 38 — six nues sur le chemin qui ouvre une pull request
+
+Deuxième balayage ÉLARGI hors des vues, et le premier sur le chemin d'écriture.
+Base épinglée `05ad40f` (parent de `c38aff5`, création du fichier), plafond 400
+très au-dessus du compte pour qu'aucune mutation ne soit échantillonnée.
+
+```
+LOUPE : 38 mutation(s) possible(s) sur le diff, 38 examinée(s).
+════ CODE NEUF QUE RIEN NE DÉFEND ════   6 nues
+```
+
+### Pourquoi ce module-là méritait d'être choisi
+
+Les sept vues balayées avant lui décidaient de ce qu'un humain VOIT.
+`livraison.ts` décide de ce que la ruche ÉCRIT sur le dépôt de quelqu'un :
+branche, commit, pull request, fusion. Une garde nue n'y produit pas un
+affichage faux — elle produit un acte, ou l'absence d'un acte, sur un dépôt
+qui n'appartient pas à la ruche.
+
+### Les six, et ce que chacune coûte
+
+| Nue                                            | Ce qui casse                                                                             |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `merged === true \|\| merged_at !== ''` → `&&` | une PR fusionnée signalée par un seul champ est lue « non fusionnée » — la ruche relivre |
+| `typeof fusionnableBrut === 'boolean'` → `!==` | `mergeable` rendu `null` quand il EST connu                                              |
+| `typeof o === 'object' && o !== null` → `\|\|` | `typeof null === 'object'` ⇒ `null` passe, l'indexation LÈVE                             |
+| `ref.length > 200` → `>=`                      | un nom de branche de 200 caractères pile devient invalide                                |
+| `fichiers.length > 50` → `>=`                  | « … et 0 de plus » écrit dans le corps de la PR                                          |
+| le `>` de « Attendu : un entier > 0. »         | le conseil rendu à l'humain demande `>= 0` puis refuse zéro                              |
+
+La troisième est **la même que celle du Concierge**, dans un autre module et
+sur une autre ligne : `typeof null === 'object'` rend vrai, donc un `&&` mué en
+`||` ne protège plus de `null` — il l'invite. Deux modules sans rapport, écrits
+à des moments différents, portant la même faute : ce n'est pas une étourderie,
+c'est une propriété de JavaScript que la relecture ne voit pas.
+
+### Rejeu, un mutant à la fois
+
+```
+═══ REJEU, UN MUTANT À LA FOIS ═══
+  ✔ TENU · M1 fusion : || → &&        ✔ TENU · M4 refValide : > → >=
+  ✔ TENU · M2 mergeable : === → !==   ✔ TENU · M5 corpsPr : > → >=
+  ✔ TENU · M3 champ : && → ||         ✔ TENU · M6 conseil : > → >=
+
+═══ TENUS : 6 sur 6 ═══
+```
+
+Arbre restauré et vérifié après chaque tour, aucun orphelin.
+
+### La sixième n'est pas un équivalent, et ne se range pas comme tel
+
+Le `>` muté vit dans une CHAÎNE — « Attendu : un entier > 0. » — pas dans une
+comparaison. Aucun calcul ne change ; c'est le conseil rendu à l'humain qui
+devient faux, et qui demande un entier `>= 0` avant de refuser zéro. Un mutant
+qui ne change que du texte reste un mutant : le texte est la sortie. Il se ferme
+par une assertion sur le conseil, pas par une note d'équivalence.
+
+Delta du terrain : `livraison.ts` **38/38 balayé, 6 nues fermées**. `src` reste
+très largement non balayé — 371 candidates recensées, **59 jouées** (21 du
+Concierge + 38 d'ici).

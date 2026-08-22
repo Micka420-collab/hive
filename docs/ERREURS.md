@@ -13540,3 +13540,80 @@ Corollaire pour qui rédige une consigne : **offrir la porte de sortie dans la
 même phrase que la tâche, c'est la faire choisir.** Une consigne qui dit « fais
 X, ou sinon documente pourquoi tu ne peux pas » a déjà rendu le second terme
 acceptable avant que le premier ait été essayé.
+
+## 9 octosexagicenties. `typeof null === 'object'` : le même piège dans deux modules sans rapport
+
+Le Concierge, le 22 août au matin :
+
+```js
+if (typeof e !== 'object' || e === null || …) continue;   // muté en &&
+```
+
+`livraison.ts`, le même jour l'après-midi :
+
+```js
+return typeof o === 'object' && o !== null ? (o as Record<string, unknown>)[cle] : undefined;
+```
+
+Deux fichiers écrits à des moments différents, par des chemins différents, pour
+des besoins différents. Une seule et même nue, et un seul et même mécanisme :
+
+**`typeof null` rend `'object'`.** Le test de forme dit donc OUI à `null`, et
+c'est la comparaison d'à côté qui le rattrape. Les deux ne sont pas deux
+vérifications indépendantes dont l'une renforcerait l'autre : la seconde EXISTE
+uniquement parce que la première ment sur ce cas précis. Les relier par le mauvais
+opérateur ne fait pas « une garde un peu plus faible » — ça retire entièrement la
+seule ligne qui protégeait, et le déréférencement LÈVE.
+
+### Pourquoi la relecture ne le voit pas
+
+Les deux lignes se lisent bien. « C'est un objet ET ce n'est pas nul » sonne comme
+une ceinture et des bretelles — deux précautions du même côté, dont on pourrait
+croire que perdre l'une laisse l'autre. C'est faux ici, et ça se voit seulement
+si l'on sait, au moment de lire, que `typeof null === 'object'`. Une relecture
+attentive qui l'ignore validera les deux formes.
+
+C'est pourquoi la loupe trouve ça et pas nous : elle ne relit pas, elle EXÉCUTE.
+
+### Ce que ça change pour la suite du balayage
+
+Une nue qui apparaît deux fois dans deux modules étrangers n'est pas une
+étourderie, c'est un MOTIF. Il en découle une consigne de balayage, pas seulement
+une correction :
+
+**Quand une nue se répète, chercher ses sœurs avant de la fermer.** Le motif
+`typeof x === 'object' && x !== null` se cherche en une commande sur tout le
+dépôt ; chaque occurrence est une nue potentielle, et chacune se mesure. Fermer
+la deuxième sans chercher la troisième, c'est traiter un symptôme deux fois.
+
+### Le recensement, fait plutôt que promis
+
+La consigne ci-dessus s'appliquerait mal à elle-même si elle restait un conseil.
+Le motif cherché sur tout le dépôt, le 22 août :
+
+```
+grep -rn "typeof [A-Za-z_.]* === 'object'" --include=*.ts --include=*.tsx \
+  src dashboard/src scripts
+```
+
+**Treize occurrences, dans neuf fichiers.** Deux sont désormais MESURÉES et
+défendues — `concierge.ts` et `livraison.ts`, les deux qui ont donné cette
+leçon. Les onze autres vivent dans `shared/issue.ts`, `orchestrator/nuage.ts`,
+`orchestrator/server.ts` (deux), `orchestrator/github.ts` (deux),
+`node-client/client.ts` (deux), `views/shared.tsx`, `views/sondage.ts` et
+`orchestrator/planner.ts` — **et aucune n'a été mutée à ce jour.**
+
+Cette phrase est le contraire d'un verdict. Elle ne dit pas que ces onze lignes
+sont nues : elle dit que personne ne le sait, et que le seul moyen de le savoir
+est de les muter une par une, chacune sur sa base épinglée. Le recensement a
+coûté une commande ; il transforme un angle mort en liste de travail nommée,
+ce qui est tout ce qu'on peut honnêtement en tirer sans balayer.
+
+### La leçon
+
+**Deux conditions côte à côte ne sont pas forcément deux gardes.** Quand la
+seconde n'est là que pour réparer un mensonge de la première, elles forment UNE
+garde en deux morceaux, et l'opérateur qui les relie porte toute la sûreté.
+Ces endroits-là se marquent — par un test qui passe `null`, pas par un
+commentaire — parce que le prochain lecteur, humain ou machine, verra une
+redondance là où il y a une dépendance.
