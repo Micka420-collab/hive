@@ -698,10 +698,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     try {
       const fichier = await rayons.lire(project.id, 'package.json');
       const brut: unknown = JSON.parse(fichier.contenu);
+      // loupe : équivalent — && → ||. Le `catch` de ce bloc et le
+      // `if (typeof bloc !== 'object' …)` juste dessous mènent TOUS DEUX à
+      // `{}`. Mué en `||`, un `package.json` valant `null` fait lever
+      // l'indexation — et le `catch` rend `{}`, exactement comme la garde
+      // l'aurait fait. Aucun banc ne peut distinguer les deux mondes.
       const bloc =
         typeof brut === 'object' && brut !== null
           ? (brut as Record<string, unknown>).scripts
           : null;
+      // loupe : équivalent — || → &&. Même raison que la ligne marquée
+      // au-dessus : mué, `Object.entries(null)` lève, et le `catch` de ce bloc
+      // rend `{}` — exactement ce que la garde aurait rendu.
       if (typeof bloc !== 'object' || bloc === null) return {};
       const scripts: Record<string, string> = {};
       for (const [k, v] of Object.entries(bloc)) {
@@ -709,6 +717,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       return scripts;
     } catch {
+      // Pas de `package.json`, illisible, ou miroir absent : aucun chantier.
+      // Rendre `{}` plutôt que lever laisse `jugerChantier` produire le bon
+      // message — « ce dépôt n'en déclare aucun » — au lieu d'un 500.
       return {};
     }
   };
@@ -7631,6 +7642,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
+  // loupe : équivalent — && → ||. Le repli `config.port` est INATTEIGNABLE
+  // ici : `listen({ port, host })` rend toujours un `AddressInfo`, jamais une
+  // chaîne (ce serait une socket Unix, que ce code ne demande jamais) ni
+  // `null` (le `await` vient de réussir). La garde reste, parce que le type
+  // l'exige ; la branche qu'elle protège n'est pas jouable.
   const port = typeof address === 'object' && address !== null ? address.port : config.port;
 
   // ─── WebSocket temps réel ──────────────────────────────────────────────────

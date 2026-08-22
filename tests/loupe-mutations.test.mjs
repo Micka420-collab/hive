@@ -715,3 +715,68 @@ describe('le HTML n’est pas muet : son `<script>` est du JavaScript', () => {
     );
   });
 });
+
+// ─── L'OPÉRATEUR EN FIN DE LIGNE, QUE LA TABLE NE POUVAIT PAS VOIR ───────────
+//
+// Deuxième angle mort de la même famille, trouvé le 22 août pendant le balayage
+// de `github.ts`. La table `ECHANGES` porte ` && ` et ` || ` AVEC LEURS DEUX
+// ESPACES — une précaution délibérée, pour que ` >= ` ne contienne pas ` > `.
+// Mais un opérateur en FIN de ligne n'a pas d'espace après lui :
+//
+//     const lot =
+//       typeof brut === 'object' &&      ← invisible
+//       brut !== null &&                 ← invisible
+//       Array.isArray(…)
+//
+// C'est exactement la forme que Prettier donne à toute condition un peu longue.
+// Le dépôt comptait **168 lignes** finissant par `&&` ou `||` le jour où ce banc
+// a été écrit : autant de décisions qu'aucun balayage n'avait jamais pu muter,
+// pendant que la loupe imprimait « balayé entier » sur les fichiers qui les
+// contiennent.
+//
+// C'est le défaut de § 9 unsexagicenties par l'autre bout : là, un plafond
+// sous-comptait les candidates ; ici, la RÈGLE elle-même n'en produit pas.
+// Dans les deux cas le rapport est rassurant et le terrain n'a pas été vu.
+describe('la loupe sait muter un opérateur en fin de ligne', () => {
+  it('mute le `&&` terminal d’une condition écrite sur plusieurs lignes', () => {
+    const ligne = "      typeof brut === 'object' &&";
+    const m = mutationsDeLigne(ligne);
+    const libelles = m.map((x) => x.quoi);
+    expect(libelles, 'le `&&` terminal ne produit aucun candidat').toContain('&& → ||');
+    const mutant = m.find((x) => x.quoi === '&& → ||');
+    expect(mutant.apres).toBe("      typeof brut === 'object' ||");
+  });
+
+  it('mute le `||` terminal', () => {
+    const m = mutationsDeLigne('      b.pousseA - a.pousseA ||');
+    expect(m.map((x) => x.quoi)).toContain('|| → &&');
+    expect(m.find((x) => x.quoi === '|| → &&').apres).toBe('      b.pousseA - a.pousseA &&');
+  });
+
+  it('n’ôte pas le candidat que la table trouvait déjà sur la même ligne', () => {
+    // La ligne porte AUSSI un ` === ` mutable. La nouvelle règle s'ajoute, elle
+    // ne remplace pas : sans cette assertion, une régression qui écraserait la
+    // première mutation passerait inaperçue.
+    const libelles = quoi("      typeof brut === 'object' &&");
+    expect(libelles).toContain('=== → !==');
+    expect(libelles).toContain('&& → ||');
+  });
+
+  it('refuse le `&&` TERMINAL quand la ligne en porte deux', () => {
+    // La ligne porte un `&&` au milieu (que la table mute légitimement : un seul
+    // ` && ` avec ses deux espaces) et un `&&` terminal. La règle de fin de
+    // ligne doit s'abstenir — sinon deux candidates portent le MÊME libellé et
+    // le verdict ne nomme plus sa mutation.
+    const m = mutationsDeLigne('  if (a && b) return c &&');
+    const et = m.filter((x) => x.quoi === '&& → ||');
+    expect(et, 'deux candidates indiscernables sur la même ligne').toHaveLength(1);
+    expect(et[0].apres, 'c’est le `&&` terminal qui a été muté').toBe('  if (a || b) return c &&');
+  });
+
+  it('ne touche pas une ligne dont le `&&` n’est pas terminal', () => {
+    // Le cas déjà couvert par la table ne doit pas produire DEUX fois la même
+    // mutation : un doublon gonflerait le compte de candidates sans rien mesurer.
+    const libelles = quoi('  if (a && b) return null;');
+    expect(libelles.filter((l) => l === '&& → ||')).toHaveLength(1);
+  });
+});
