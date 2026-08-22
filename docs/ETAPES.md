@@ -12725,3 +12725,47 @@ avalera.
 Delta du terrain : motif `typeof null` **entièrement mesuré** — 15 occurrences
 recensées, 15 jugées, 6 nues fermées au total (concierge 1, livraison 1,
 github 2, nuage 1, plus une retirée), le reste défendu ou marqué équivalent.
+
+## gardiennes.ts : 16 sur 16, une nue — le classement des griefs
+
+Le contrôle d'entrée du nectar, balayé sur base épinglée `6cd5d4e` (parent de
+`ae03f28`). Le fichier ne porte **aucune** ligne finissant par un opérateur —
+mesuré avant de lancer — donc son compte n'est pas gonflé par la règle corrigée
+et se compare directement à un balayage d'avant.
+
+```
+LOUPE : 16 mutation(s) possible(s) sur le diff, 16 examinée(s).
+════ CODE NEUF QUE RIEN NE DÉFEND ════
+· src/orchestrator/gardiennes.ts — || → &&
+    .sort((a, b) => b.occurrences - a.occurrences || a.code.localeCompare(b.code)),
+```
+
+Seize candidates pour 667 lignes : le fichier est très commenté, et un
+commentaire ne se mute pas. Quinze gardes déjà défendues — la moitié des bancs
+de ce module porte sur les FAUX POSITIFS, et ça se voit.
+
+### Ce que la nue coûte
+
+Le classement par fréquence disparaît au profit de l'alphabet. Le grief le plus
+fréquent — celui qu'un humain doit lire en premier dans le rapport des
+Gardiennes — se retrouve où son nom le place.
+
+### Deux bancs, parce qu'un comparateur a deux comportements
+
+Le banc voisin ne pouvait pas voir ce mutant : il donne deux griefs à
+occurrences égales, et sur ce corpus l'ordre alphabétique coïncide avec l'ordre
+d'insertion. **Vérifié, pas supposé — sous le mutant, ce banc PASSE.**
+
+Il en fallait donc deux, chacun asymétrique sur un seul axe :
+
+- fréquences différentes, alphabet contraire → tient la clé primaire ;
+- fréquences égales, ordre d'insertion contraire → tient le départage.
+
+Rejeu : **TENU**, et chacun des deux rougit séparément.
+
+La leçon est au § 9 terseptuagicenties : quand du code CLASSE, le décor doit
+rendre les ordres candidats incompatibles. La question n'est pas « ces valeurs
+sont-elles réalistes ? » mais « quel AUTRE tri rendrait exactement cette
+liste ? ».
+
+Delta du terrain : `gardiennes.ts` **16/16, 1 nue fermée**.

@@ -13843,3 +13843,58 @@ Fermée par trois bancs, rejeu tenu.
 **La différence entre les quatre et la cinquième ne se voit pas sur la ligne.**
 Elle se voit à dix lignes de là, dans la présence ou l'absence d'un filet. Une
 garde ne se juge jamais seule.
+
+## 9 terseptuagicenties. Un comparateur à deux clés demande deux décors, et chacun asymétrique sur SA clé
+
+Balayage de `gardiennes.ts` : 16 mutations, une seule nue, et c'est le départage
+du classement des griefs.
+
+```js
+.sort((a, b) => b.occurrences - a.occurrences || a.code.localeCompare(b.code))
+```
+
+Mué en `&&`, l'expression rend `localeCompare` **dès que les occurrences
+diffèrent** — `x && y` vaut `y` quand `x` est vrai. Le classement par fréquence
+disparaît ; la liste devient alphabétique. Le grief le plus fréquent, celui
+qu'un humain doit lire en premier, se retrouve à la place que son nom lui donne.
+
+### Le banc existant ne pouvait pas le voir, et ce n'était pas une négligence
+
+Il donnait deux griefs, `empty_diff` et `logs_contradict`, **à occurrences
+égales**. Sur ce corpus :
+
+- le monde d'origine (`||`) départage par l'alphabet → `empty_diff` d'abord ;
+- le monde mué (`&&`) rend `0`, donc le tri stable garde l'ordre d'insertion →
+  `empty_diff` d'abord, puisqu'il a été rencontré en premier.
+
+**Les deux mondes rendent la même liste.** Le banc est vert dans les deux cas —
+mesuré, pas déduit : sous le mutant, il passe.
+
+La faute n'est pas d'avoir mal choisi les valeurs. C'est qu'un corpus où
+plusieurs ordres COÏNCIDENT ne peut départager aucun d'eux. Ici l'ordre
+alphabétique, l'ordre d'insertion et l'ordre de fréquence donnaient tous le même
+résultat : trois hypothèses différentes, une seule sortie.
+
+### Ce que ça impose comme méthode
+
+Un comparateur à deux clés a deux comportements, et il faut **deux décors**,
+chacun asymétrique sur une seule clé :
+
+| Ce qu'on veut tenir         | Le décor qui le tient                                      |
+| --------------------------- | ---------------------------------------------------------- |
+| la clé PRIMAIRE (fréquence) | fréquences différentes **et** ordre alphabétique CONTRAIRE |
+| le DÉPARTAGE (alphabet)     | fréquences égales **et** ordre d'insertion CONTRAIRE       |
+
+Un seul axe brisé par test. Deux axes brisés d'un coup rendraient le banc vert
+ou rouge sans qu'on sache lequel a parlé — c'est la même règle que la loupe
+s'applique en refusant de muter une ligne portant deux opérateurs identiques.
+
+### La leçon
+
+**Quand du code CLASSE, le décor doit rendre les ordres candidats
+incompatibles.** Trier trois éléments dont le nom, la date et le rang vont dans
+le même sens ne prouve rien : il faut que l'ordre attendu soit le seul que le
+corpus autorise. La question à se poser en écrivant le décor n'est pas « ces
+valeurs sont-elles réalistes ? » mais **« quel AUTRE tri rendrait exactement
+cette liste ? »** — et s'il en existe un, changer les valeurs jusqu'à ce qu'il
+n'en existe plus.
