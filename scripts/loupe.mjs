@@ -718,6 +718,38 @@ export function mutationsDeLigne(ligne) {
       quoi: `${de.trim()} → ${vers.trim()}`,
     });
   }
+  // ─── L'OPÉRATEUR EN FIN DE LIGNE ──────────────────────────────────────────
+  //
+  // `ECHANGES` porte ses motifs AVEC LEURS DEUX ESPACES, et c'est indispensable
+  // (` >= ` ne doit pas contenir ` > `). Mais un opérateur qui TERMINE la ligne
+  // n'a pas d'espace après lui, et c'est la forme que Prettier donne à toute
+  // condition un peu longue :
+  //
+  //     const lot =
+  //       typeof brut === 'object' &&
+  //       brut !== null &&
+  //       Array.isArray(…)
+  //
+  // Ces `&&`-là étaient INVISIBLES. Le 22 août, le dépôt comptait 168 lignes
+  // finissant par `&&` ou `||` — autant de décisions qu'aucun balayage n'avait
+  // jamais pu muter, pendant que la loupe imprimait « balayé entier » sur les
+  // fichiers qui les portent. C'est § 9 unsexagicenties par l'autre bout : là un
+  // plafond sous-comptait les candidates, ici la RÈGLE n'en produisait pas.
+  //
+  // La garde d'ambiguïté est la même que celle de la table, mais elle compte
+  // l'opérateur NU (`&&`, pas ` && `) : une ligne qui en porte deux — un au
+  // milieu, un à la fin — rendrait deux candidates au libellé identique, et un
+  // verdict qui ne nomme plus sa mutation ne vaut rien.
+  const fin = /(\s)(&&|\|\|)\s*$/.exec(ligne);
+  if (fin !== null && ligne.split(fin[2]).length - 1 === 1) {
+    const inverse = fin[2] === '&&' ? '||' : '&&';
+    out.push({
+      avant: ligne,
+      apres: ligne.replace(/(\s)(?:&&|\|\|)(\s*)$/, `$1${inverse}$2`),
+      quoi: `${fin[2]} → ${inverse}`,
+    });
+  }
+
   // `??` : le repli sur ABSENCE devient un repli sur FAUSSETÉ — mais seulement
   // là où les deux peuvent différer (voir `REPLI_QUI_MORD`).
   if (ligne.split(' ?? ').length - 1 === 1) {

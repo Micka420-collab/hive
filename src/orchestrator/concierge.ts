@@ -535,7 +535,12 @@ function lignesEssaimVivant(ctx: ConciergeContext, lang: Lang): string[] {
           ? `« ${clean(t.title)} » (${t.status}) sur ${ou}`
           : `“${clean(t.title)}” (${t.status}) on ${ou}`;
       })
-      .join(lang === 'fr' ? ' · ' : ' · ');
+      // Un seul séparateur : les deux langues coupent le détail de la même
+      // façon. C'était un ternaire dont les DEUX branches étaient identiques —
+      // le balayage le rendait « SANS TEST » à chaque passe, et aucun test ne
+      // pouvait le tuer puisqu'aucune entrée ne distingue ses deux moitiés.
+      // Une nue ÉQUIVALENTE par construction se retire, elle ne se consigne pas.
+      .join(' · ');
     out.push(
       lang === 'fr'
         ? `En cours : ${enCours.length} tâche(s) — ${detail}`
