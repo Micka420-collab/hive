@@ -488,6 +488,65 @@ describe('Gardiennes : la vue dérivée (pure, bornée)', () => {
     expect(vue.recentes.map((l) => l.id)).toEqual([5, 4]); // borné, plus récent d'abord
   });
 
+  // ─── LE CLASSEMENT DES GRIEFS, ET POURQUOI LE BANC D'À CÔTÉ NE LE MESURE PAS ──
+  //
+  // Balayage élargi de `gardiennes.ts` (base épinglée `6cd5d4e`) : 16 mutations,
+  // 16 examinées, UNE SEULE nue — le départage du tri.
+  //
+  //     .sort((a, b) => b.occurrences - a.occurrences || a.code.localeCompare(b.code))
+  //
+  // Mué en `&&`, l'expression rend `localeCompare` DÈS QUE les occurrences
+  // diffèrent (`x && y` vaut `y` quand `x` est vrai) : le classement par
+  // fréquence disparaît, et la liste devient alphabétique. Le grief le plus
+  // fréquent — celui qu'un humain doit lire en premier — se retrouve où son
+  // nom le place.
+  //
+  // Le banc voisin ne pouvait pas le voir : il donne DEUX GRIEFS À OCCURRENCES
+  // ÉGALES, et pour ce corpus l'ordre alphabétique coïncide avec l'ordre
+  // d'insertion. Les deux mondes rendaient la même liste. C'est du décor, au
+  // sens exact du carnet — pas par négligence, mais parce qu'un corpus
+  // symétrique ne départage rien.
+  //
+  // Il faut donc deux mises en scène, chacune asymétrique sur UN axe :
+  //
+  //   · fréquences DIFFÉRENTES, ordre alphabétique CONTRAIRE → tient le `||`
+  //   · fréquences ÉGALES, ordre d'insertion CONTRAIRE       → tient le départage
+  const griefDe = (code: Grief['code']): Grief => ({
+    code,
+    poids: 1,
+    compte: 1,
+    chemins: [],
+    extrait: '',
+  });
+
+  it('le grief le PLUS FRÉQUENT vient en tête, même s’il finit l’alphabet', () => {
+    // `surface_missed` est alphabétiquement APRÈS `empty_diff` : si le
+    // classement par fréquence tombe, il passe second et le banc rougit.
+    const vue = replierInspections([
+      ligne(3, { griefs: [griefDe('surface_missed')] }),
+      ligne(2, { griefs: [griefDe('surface_missed')] }),
+      ligne(1, { griefs: [griefDe('surface_missed'), griefDe('empty_diff')] }),
+    ]);
+    expect(vue.griefs).toEqual([
+      { code: 'surface_missed', occurrences: 3 },
+      { code: 'empty_diff', occurrences: 1 },
+    ]);
+  });
+
+  it('à ÉGALITÉ de fréquence, l’alphabet départage — pas l’ordre d’arrivée', () => {
+    // `surface_missed` est rencontré EN PREMIER, donc inséré en premier dans la
+    // Map. Sans le départage, un tri stable le laisserait en tête ; avec lui,
+    // `empty_diff` passe devant. Le corpus est asymétrique exprès.
+    const vue = replierInspections([
+      ligne(2, { griefs: [griefDe('surface_missed')] }),
+      ligne(1, { griefs: [griefDe('empty_diff')] }),
+    ]);
+    expect(vue.griefs).toEqual([
+      { code: 'empty_diff', occurrences: 1 },
+      { code: 'surface_missed', occurrences: 1 },
+    ]);
+  });
+
   it('un corpus vide rend une vue vide, jamais NaN ni undefined', () => {
     expect(replierInspections([])).toEqual({
       version: VERSION_GARDIENNES,

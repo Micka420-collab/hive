@@ -13082,3 +13082,877 @@ C'est le versant PROCÉDURAL de § 9 quaterquinquagicenties : là, un total en p
 se prenait pour une mesure ; ici, c'est un seuil de méthode. Dans les deux cas la
 faute est la même — **un chiffre écrit sans sa provenance emprunte l'autorité de
 ceux qui en ont une.**
+
+## 9 novemquinquagicenties. Une base épinglée ne dit rien de l'ARBRE qu'elle mesure
+
+`LOUPE_BASE=e93b252`, vérifiée : 400 ajoutées / 0 retirée sur `Chronique.tsx`.
+Le chiffre était juste. Le balayage a tourné huit minutes avant que je regarde
+autre chose que lui.
+
+La branche avait **236 commits de retard** sur `origin/main`, et `Chronique.tsx`
+y avait changé — 24 lignes insérées, 26 retirées. Le fichier que je mutais
+n'existait plus. La première nue relevée (`|| → &&` dans `isTyping`) portait sur
+une ligne que `main` avait déjà réécrite.
+
+### Ce que la base épingle, et ce qu'elle n'épingle pas
+
+Un diff a DEUX extrémités. `LOUPE_BASE` en fixe une ; l'autre est `HEAD`, et
+`HEAD` se périme tout seul pendant qu'on travaille. Vérifier « 400 ajoutées /
+0 retirée » confirme que la base est bien AVANT la naissance du fichier — ça ne
+dit rien de la fraîcheur du fichier lui-même.
+
+L'arithmétique était exacte sur le mauvais fichier, et rien dans le verdict de la
+loupe ne pouvait le signaler : elle mesure ce qu'on lui donne.
+
+### La leçon
+
+**Avant d'épingler une base, épingler l'arbre.** `git fetch origin main` et
+`git rev-list --left-right --count HEAD...origin/main` coûtent deux secondes ;
+le balayage coûte une heure. Le geste bon marché passe en premier.
+
+Corollaire pour la relance d'une session : une PR fusionnée ne se prolonge pas.
+La branche repart de `main`, et TOUT relevé pris avant ce départ est à jeter —
+pas à réconcilier.
+
+---
+
+## 9 sexagicenties. « Le processus est arrêté » est une affirmation sur l'ENVELOPPE, pas sur le travail
+
+`TaskStop` a rendu `Successfully stopped task`. Le balayage a continué huit
+minutes de plus.
+
+L'outil avait tué `npm run loupe` — l'enveloppe. `node scripts/loupe.mjs` a
+survécu, réattaché à `init` (PPID 1), et il a continué à muter le fichier et à
+lancer des suites entières.
+
+### Deux lectures fausses en sont sorties, et toutes deux avaient l'air vraies
+
+**L'arbre propre.** `git status --porcelain` n'a rien rendu, j'en ai conclu que
+la restauration avait tenu. J'avais échantillonné l'instant ENTRE deux mutations.
+Un arbre lu une fois pendant qu'un muteur vit ne prouve rien — il donne l'état à
+un instant qu'on n'a pas choisi.
+
+**Le typecheck rouge.** Puis :
+
+```text
+dashboard/src/views/Chronique.tsx(84,5): error TS2367:
+  This comparison appears to be unintentional because
+  the types '"SELECT"' and '"BUTTON"' have no overlap.
+```
+
+Un fichier réel, une ligne réelle, un code d'erreur réel. C'était le résidu de
+l'orphelin — `tag !== 'SELECT'` — pas un défaut de `main`. Restauration faite,
+les deux typechecks passent. Sans la recherche de processus, je « corrigeais »
+un bug qui n'existait pas, sur la branche de quelqu'un d'autre.
+
+### La leçon
+
+**Un tueur se vérifie par `ps`, jamais par son propre compte rendu.** Et tant
+qu'un muteur peut vivre, aucune lecture de l'arbre n'est une mesure : ni
+`git status`, ni `tsc`, ni la suite.
+
+Le geste qui répare : lancer par `setsid`, tuer le GROUPE (`kill -KILL -PGID`),
+puis CONSTATER l'absence. Trois lignes, et la question ne se repose plus.
+
+---
+
+## 9 unsexagicenties. Un réplica qui CONFIGURE son original finit par le sous-mesurer
+
+Pour choisir la profondeur d'un balayage sans payer une suite, j'avais écrit un
+petit compteur qui rejoue la règle de candidature de la loupe. Il a rendu **33**.
+J'ai posé `LOUPE_MAX=33`. La loupe a répondu :
+
+```text
+LOUPE : 34 mutation(s) possible(s) sur le diff, 17 examinée(s).
+```
+
+Elle en voit **34**. Et son pas d'échantillonnage vaut `ceil(total / plafond)` :
+
+```js
+const pas = Math.max(1, Math.ceil(toutes.length / plafond)); // ceil(34/33) = 2
+const retenues = toutes.filter((_, i) => i % pas === 0).slice(0, plafond); // 17
+```
+
+Un plafond d'UNE UNITÉ sous le compte ne retire pas une mutation : **il en
+retire la moitié.**
+
+### Pourquoi c'est plus qu'un décalage d'un
+
+Le réplica n'était pas faux par accident : il APPROXIME une règle qui vit dans
+un autre fichier (lignes ambiguës, `??` restreint, gardes de point d'entrée). Un
+écart d'une unité était certain à terme. La faute est de l'avoir utilisé pour
+RÉGLER l'instrument qu'il imite — l'approximation est passée du côté de la
+mesure.
+
+Et le désaccord ne s'est pas annoncé comme une erreur : il s'est annoncé comme
+une mesure plus discrète. Sortie 0, verdict lisible, moitié du fichier vue.
+
+### Ce que ça aurait écrit
+
+§ 9 quinquinquagicenties a MESURÉ ce qu'un demi-balayage coûte : la moitié de la
+Ruche avait rendu deux nues sur sept. J'aurais écrit « Chronique balayée entière »
+en ayant vu dix-sept mutations sur trente-quatre — faux dans le sens rassurant,
+et durable, parce qu'une ligne de carnet ne se relit pas.
+
+### La leçon
+
+**On demande son compte à l'instrument, pas à son imitation.** Le réplica sert à
+DÉCIDER si l'on balaye ; il ne sert pas à régler le balayage. Et un plafond se
+pose AU-DESSUS du compte, jamais à l'égalité pile — la marge ne coûte rien,
+l'égalité approximative coûte la moitié.
+
+## 9 duosexagicenties. Une conclusion juste tirée d'une prémisse fausse n'est pas un savoir — et c'est la PRÉMISSE qu'on écrit
+
+Le balayage de la Chronique a laissé un survivant :
+
+```text
+🔴 SANS TEST · isTyping()  ·  el instanceof HTMLElement → instanceof Object
+```
+
+J'ai annoncé « probablement équivalent », avec sa raison :
+
+> « Un `SVGElement` passe `instanceof Object`, mais son `tagName` vaut `svg` en
+> minuscules, il ne correspond à aucune étiquette de la liste, et son
+> `isContentEditable` est `undefined`. Les deux versions rendent `false`. »
+
+**Le verdict était bon. La raison était fausse.** Une sonde qui compare les deux
+versions sur treize valeurs l'a séparé du premier coup :
+
+```text
+valeur                        instanceof     sain    muté
+                              HTMLElement
+<svg tabindex="0">            false          false   undefined
+createElementNS('urn:x','INPUT')  false      false   true      ◀ SÉPARE
+```
+
+Un élément d'un autre espace de noms NOMMÉ `INPUT` porte un `tagName` en
+MAJUSCULES : le muté entre dans la liste et rend un vrai `true`. Ma phrase
+« aucun `tagName` ne peut correspondre » était simplement inexacte.
+
+### Ce qui rend quand même le mutant équivalent
+
+La bonne raison est ailleurs, et elle est sur le CHEMIN D'APPEL :
+
+```text
+<svg tabindex="0">     peut être document.activeElement   → sain false, muté undefined
+createElementNS INPUT  n'a PAS de focus() — l'appeler jette → ne peut JAMAIS l'être
+```
+
+La seule valeur qui sépare vraiment ne peut pas atteindre la fonction : elle
+n'est pas focalisable, donc `document.activeElement` ne la portera jamais. Celle
+qui est atteignable rend `undefined` au lieu de `false` — falsy des deux côtés,
+donc `if (isTyping() || modalOpen())` ne bouge pas d'un cheveu.
+
+C'est § 9 duoquinquagicenties appliqué à une équivalence plutôt qu'à une
+couverture : **l'éprouvabilité se juge sur ce que l'appelant peut fournir.**
+
+### Pourquoi la prémisse comptait plus que le verdict
+
+Si je n'avais pas exécuté la sonde, j'aurais consigné :
+
+> « Équivalent : aucun `tagName` hors HTML ne peut correspondre aux étiquettes. »
+
+Une phrase FAUSSE, dans le carnet, sous une conclusion JUSTE — donc jamais
+relue, jamais contredite par un banc, et disponible pour justifier le prochain
+`instanceof` élargi « par le même raisonnement ». Le carnet ne garde pas des
+verdicts, il garde des RAISONS : c'est la raison qui sera recopiée.
+
+Deux fautes voisines, déjà payées, disent la même chose sous un autre angle :
+§ 9 quinquagicenties (nommer le mutant EXACT, pas son cousin) et
+§ 9 octoquinquagicenties (un nombre inventé emprunte l'autorité d'un nombre
+mesuré). Ici c'est un RAISONNEMENT qui emprunte l'autorité d'une mesure.
+
+### La leçon
+
+**Une équivalence annoncée se prouve comme un test : par exécution, y compris sa
+raison.** « Je pense qu'aucune entrée ne les sépare » est une hypothèse ; la
+sonde qui ÉNUMÈRE les entrées et affiche les deux sorties côte à côte est la
+mesure. Elles coûtent quelques minutes et ne se ressemblent pas.
+
+Et le signe qui aurait dû alerter plus tôt : j'ai écrit « je ne suis pas sûr du
+comportement de `isContentEditable` sous happy-dom » DANS la même phrase qui
+concluait à l'équivalence. Une incertitude nommée et non levée est une dette,
+pas une nuance.
+
+## 9 tersexagicenties. Un décor n'est pas neutre : à chaque champ, il choisit un bord
+
+`MonEspace.tsx` avait son banc. `mon-espace-lecture` éprouve le chiffre des
+heures et ses deux bornes, l'habit du projet arrêté, l'étiquette de plan, le
+grand livre en retard — le balayage confirme toutes ces gardes défendues.
+
+La vue a rendu **9 nues sur 18**. Le pire ratio depuis la Reine, qui elle
+n'avait aucun banc.
+
+### Les neuf tiennent à quatre champs qui ne bougent pas
+
+Le banc construit ses projets par une fabrique :
+
+```js
+const projet = (over = {}) => ({
+  role: 'member', // …donc la pastille « propriétaire » ne s'allume jamais
+  joursRestants: -1, // …donc le bloc « Période » ne s'ouvre jamais
+  serveurs: [], // …donc le bloc « Machines » ne s'ouvre jamais
+  partConsommee: null, // …donc la jauge n'est jamais rendue
+  ...over,
+});
+```
+
+Chaque valeur est raisonnable. Prises ensemble, elles décident que quatre
+régions de l'écran ne seront JAMAIS rendues — et neuf mutations y vivent.
+
+### Ce qui rend la faute difficile à voir
+
+Une ligne jamais exécutée se repère : la couverture la montre en rouge. Ces
+lignes-là sont exécutées à CHAQUE cas — la fabrique passe dessus, la condition
+est évaluée, le fichier compte dans la couverture. Ce qui manque n'est pas le
+passage, c'est le SECOND BORD. La couverture de ligne ne sait pas dire
+« franchie toujours dans le même sens ».
+
+C'est ce que la mutation, elle, dit tout de suite.
+
+### La leçon
+
+**Une fabrique de décor est une suite de décisions sur des bornes, pas un
+remplissage.** Un champ dont la valeur ne varie jamais entre les cas est une
+borne qu'on a choisie une fois pour toutes, et le banc qui s'en sert éprouve
+tout SAUF elle.
+
+Le geste : à l'écriture d'un banc, relire la fabrique en se demandant, champ par
+champ, _quelle garde de la vue lit ce champ, et est-ce que je lui donne les deux
+côtés ?_ Là où la réponse est non, c'est nu — sans avoir besoin de la loupe pour
+l'apprendre.
+
+### Le cas était NOMMÉ, et ce n'était pas suffisant
+
+Le carnet portait déjà :
+
+> « **MonEspace — « expire aujourd'hui » (0 jour).** Le sentinel voisin
+> éprouvait… »
+
+Le jour même de l'échéance avait été remarqué. Trois mutations du compte à
+rebours ont quand même survécu, dont exactement celle-là. **Une inquiétude
+écrite n'est pas une garde** — c'est le versant « décor » de § 9 sexvicicenties,
+où un commentaire qui explique se prenait pour un test. Ici c'est une note de
+carnet qui se prenait pour un cas.
+
+## 9 quatersexagicenties. L'état de MODULE survit à tout ce qu'un banc croit nettoyer
+
+Le banc de l'outbox des revues (`shared.tsx`) a rougi sur trois cas d'un coup,
+et pas là où il éprouvait : les assertions étaient justes, le décor était sale.
+
+```js
+beforeEach(() => {
+  localStorage.clear(); // ← nettoie le STOCKAGE
+  vi.mocked(postReview).mockReset();
+  hydrateReviews({}); // ← nettoie le CACHE
+});
+```
+
+Trois lignes de remise à zéro, et pourtant le deuxième cas voyait encore le
+premier. Ce qui restait n'était ni dans le stockage ni dans le cache :
+
+```js
+const postChains = new Map<string, Promise<void>>();   // au niveau MODULE
+const locallyPending = new Set<string>();              // au niveau MODULE
+```
+
+Un POST volontairement laissé EN VOL par le premier cas laisse sa chaîne dans
+`postChains`. Le cas suivant appelle `setReview` sur la même tâche, `enqueuePost`
+enchaîne derrière la promesse jamais dénouée — et le `.then` qui devait purger
+l'outbox n'arrive jamais. Le cas rougit en accusant la garde qu'il éprouvait.
+
+### Pourquoi c'est la faute du BANC et pas du module
+
+Sérialiser les POST par tâche est correct : c'est ce qui empêche deux verdicts
+de se doubler. Le module a raison de garder cet état entre deux appels — c'est
+sa fonction.
+
+Le banc, lui, avait supposé que « remettre à zéro » se limitait à ce qu'il
+pouvait NOMMER : le stockage, les mocks, le cache. L'état qu'on ne peut pas
+atteindre depuis l'extérieur n'apparaît dans aucun `clear()`, et c'est
+précisément celui qui traverse les cas.
+
+### La leçon
+
+**Un `beforeEach` ne nettoie que ce qu'il peut nommer.** Avant d'écrire un banc
+sur un module à état, lire ses variables de haut niveau et se demander, pour
+chacune : _qui la remet à zéro entre deux cas ?_ Là où la réponse est
+« personne », il faut soit une porte de remise à zéro, soit — plus simple et
+sans toucher au code de production — **une CLÉ DIFFÉRENTE par cas**. Ici, une
+tâche par cas (`t-change`, `t-transitoire`, `t-concurrent`…) : les chaînes ne se
+croisent plus, et le module garde son état légitime.
+
+C'est le pendant « état » de § 9 tersexagicenties : là, un décor figeait un
+CHAMP et une borne n'était jamais franchie ; ici, un décor néglige une MÉMOIRE
+et deux cas se contaminent. Dans les deux cas, ce qui trompe n'est pas
+l'assertion — c'est ce qu'on n'a pas pensé à faire varier, ou à effacer.
+
+## 9 quinsexagicenties. Une liste de « reste à faire » est une mesure, et c'est celle qui se périme le plus cher
+
+Deux consignes différentes réveillent cette session — un tour toutes les heures,
+un autre toutes les trois heures. Chacune porte sa liste de points ouverts.
+Vérifiées le 22 août, en mutant ou en lisant le code, jamais en croyant la note :
+
+| Point nommé « ouvert »             | État réel                                             |
+| ---------------------------------- | ----------------------------------------------------- |
+| Balance `arme && cible !== null`   | DÉFENDUE ×2 (`vues-sentinelles`)                      |
+| Cerveau `serviIlYaJours === null`  | DÉFENDUE ×3 (suite entière)                           |
+| `server.ts` `find` de la livraison | DÉFENDUE (`polyethisme-livraison`)                    |
+| `getSnapshot()` sans LIMIT         | BORNÉE (`LIMITE_TACHES_INSTANTANE`, `SELECT … LIMIT`) |
+| table `tasks` sans élagueur        | `pruneTasks` existe ET est appelée (`server.ts`)      |
+
+Cinq sur cinq. Zéro travail à faire, et l'inventaire a coûté vingt minutes là où
+suivre la liste en aurait coûté plusieurs heures de bancs écrits pour des gardes
+qui tenaient déjà.
+
+### Pourquoi celle-là coûte plus cher que les autres périmées
+
+Un tableau périmé dans un document se lit une fois de temps en temps. Une
+CONSIGNE périmée, elle, est le mécanisme qui dirige chaque session sans
+surveillance : elle ne dort pas, elle réveille et elle ORIENTE. Une session qui
+la suit sans vérifier écrit des bancs pour du code déjà défendu, les mesure
+verts, et conclut honnêtement qu'elle a bien travaillé.
+
+C'est le même défaut que § 9 quaterquadragicenties (« on ne répare pas une
+mesure datée, on la refuse ») déplacé de l'objet MESURÉ vers l'instrument qui
+DISTRIBUE le travail — et le carnet n'avait encore rien à cet endroit-là.
+
+### La leçon
+
+**Avant de prendre un point sur une liste de restes, vérifier qu'il est encore
+un reste.** Pour une garde, ça se mesure : on la mute et on relance. Pour une
+borne, ça se lit : on cherche l'appelant. Dans les deux cas c'est des minutes,
+et ça évite d'écrire un banc dont le seul effet serait de faire croire qu'on a
+fermé quelque chose.
+
+Et le corollaire, pour qui tient la liste : **une consigne qui nomme du travail
+se re-date comme un badge.** Celle-ci nomme, au 22 août, cinq points tous
+fermés ; elle continuera d'y envoyer des sessions tant qu'elle n'est pas
+réécrite. Ce n'est pas au dépôt de le corriger — la consigne vit ailleurs — mais
+c'est au carnet de le dire.
+
+## 9 sexsexagicenties. Un chiffre juste et un sujet qui glisse : « sur ce lot » n'est pas un référent
+
+Le tableau A de `docs/DEFINITION-DE-SORTIE.md` certifie le critère « rien de
+neuf n'est nu ». Sa case disait :
+
+```
+✅ 17 nus trouvés sur ce lot — tous fermés
+```
+
+Le chiffre était exact le jour où il a été écrit. Il l'est resté — mais quatre
+balayages plus tard, le terrain valait **95 examinés, 35 nues, 33 fermées, 1
+équivalente, 1 retirée**. La case certifiait un cinquième du travail qu'elle
+prétendait certifier, dans le sens rassurant, sur la ligne qui SERT de garantie.
+
+### Ce n'est pas une case oubliée
+
+Cette PR a touché ce fichier **trois fois** — le tableau de couverture, puis
+deux fois le compte de bancs — sans que la ligne d'à côté soit relue une seule
+fois. Ce n'est pas de la négligence de relecture : c'est que rien ne la
+DÉSIGNAIT comme périmée. Les quatre comptes de bancs sont gardés par
+`compte-tests.mjs`, qui les compare à la mesure et refuse le décalage. La case
+de la loupe n'est gardée par rien, et une case que rien ne garde ne signale
+jamais qu'elle a vieilli.
+
+### Le défaut est dans le SUJET, pas dans la fraîcheur
+
+C'est ce qui le sépare de § 9 quaterquadragicenties (une mesure datée se refuse)
+et de § 9 quinsexagicenties (une liste de restes se périme). Là, un chiffre
+cessait d'être vrai. Ici **le chiffre n'a jamais cessé d'être vrai** : 17 nus
+ont bien été trouvés, et ils ont bien tous été fermés. C'est « ce lot » qui a
+bougé sous lui.
+
+Un déictique n'a pas de valeur, il a une direction. « Ce lot », « le dernier
+balayage », « la version actuelle », « ici » : au moment de l'écriture chacun
+désigne une chose précise, et à chaque tour suivant il en désigne une autre sans
+que le texte change d'un octet. Une phrase fausse se corrige ; une phrase dont
+le sujet glisse reste littéralement vraie tout en devenant trompeuse, ce qui est
+la forme la plus tenace — elle survit à la relecture, parce qu'à la relecture
+elle est juste.
+
+### La leçon
+
+**Dans une mesure consignée, le sujet se nomme comme le chiffre se mesure.** Pas
+« sur ce lot » mais le terrain, le fichier, la base épinglée — quelque chose
+qu'un lecteur puisse aller rouvrir six mois plus tard et retrouver identique. Un
+renvoi au carnet vaut mieux qu'un adjectif démonstratif : le carnet, lui, date
+chaque balayage par son fichier et sa base.
+
+Et le corollaire opérationnel : **quand on touche un document de certification,
+on relit les lignes VOISINES de celle qu'on vient de changer.** Une case s'édite
+seule, mais elle se lit dans un tableau — et c'est le tableau entier qui est
+présenté comme la mesure.
+
+## 9 septensexagicenties. « Hors d'atteinte du banc » décrit une FORME de code, jamais une décision
+
+La consigne de nuit nomme le glisser au canevas du Cerveau et ajoute, en toutes
+lettres : « si happy-dom ne peut pas le jouer, le DOCUMENTER honnêtement plutôt
+que simuler ». L'intention est juste — mieux vaut une note vraie qu'un banc qui
+mime. Mais elle offre une porte de sortie AVANT d'avoir posé la seule question
+qui compte.
+
+### Les deux options offertes n'étaient pas les seules
+
+La consigne pose l'alternative ainsi :
+
+1. jouer la décision dans son environnement — impossible, `getContext` rend
+   `null` sous happy-dom, la boucle entière n'est jamais exécutée ;
+2. écrire honnêtement au carnet qu'elle est hors d'atteinte.
+
+Il en existait une troisième, et c'est celle que le dépôt avait déjà prise :
+**sortir la décision de l'environnement qui l'empêche.** La force ne dépend
+d'aucun contexte de dessin — elle prend des corps, des bornes, un pas de temps,
+et rend des corps déplacés. Hors du canevas, elle s'éprouve à la milliseconde.
+
+Mesuré ce 22 août, base épinglée `e01d5f5` : **21 mutations sur 21 défendues**,
+dont le `p.id === cadre.attrapeId` (« le doigt gagne ») que le balayage d'alors
+avait trouvé nu, et toute la surface du glisser — `priseAuDoigt`,
+`deplacementDuGlisse`, `estUnClic`. Aucune n'a eu besoin d'un canevas.
+
+### Ce que la porte de sortie coûte quand on la prend trop tôt
+
+Une note « hors d'atteinte du banc » a l'allure d'une reddition honnête, et
+c'est ce qui la rend dangereuse : elle se relit comme une preuve d'avoir
+cherché. Elle GÈLE l'écart. Le code reste tel quel, la garde reste nue, et la
+note devient la raison de ne plus y revenir — un angle mort avec un certificat.
+
+L'honnêteté n'est pas en cause. Ce qui manque, c'est l'ordre des questions.
+« Puis-je éprouver ce code ? » se répond par oui ou non sur la forme ACTUELLE.
+« Puis-je éprouver cette décision ? » se répond en demandant de quoi la décision
+dépend vraiment — et une décision qui ne dépend que de ses arguments est
+toujours éprouvable, quel que soit l'endroit où elle est écrite aujourd'hui.
+
+### La leçon
+
+**Avant d'écrire « intestable », séparer la DÉCISION de son DÉCOR.** Le décor —
+canevas, réseau, horloge, système de fichiers — est ce que le banc ne sait pas
+tenir. La décision, elle, est presque toujours une fonction de ses arguments.
+Quand les deux sont dans la même fonction, c'est la fonction qui est hors
+d'atteinte, pas la règle qu'elle applique.
+
+Le repli honnête reste le bon quand la décision elle-même EST le décor —
+« l'image s'affiche-t-elle correctement », « le fichier est-il verrouillé par un
+autre processus ». Il se prend alors en connaissance de cause, et il se date :
+c'est un constat sur un environnement, et les environnements changent.
+
+Corollaire pour qui rédige une consigne : **offrir la porte de sortie dans la
+même phrase que la tâche, c'est la faire choisir.** Une consigne qui dit « fais
+X, ou sinon documente pourquoi tu ne peux pas » a déjà rendu le second terme
+acceptable avant que le premier ait été essayé.
+
+## 9 octosexagicenties. `typeof null === 'object'` : le même piège dans deux modules sans rapport
+
+Le Concierge, le 22 août au matin :
+
+```js
+if (typeof e !== 'object' || e === null || …) continue;   // muté en &&
+```
+
+`livraison.ts`, le même jour l'après-midi :
+
+```js
+return typeof o === 'object' && o !== null ? (o as Record<string, unknown>)[cle] : undefined;
+```
+
+Deux fichiers écrits à des moments différents, par des chemins différents, pour
+des besoins différents. Une seule et même nue, et un seul et même mécanisme :
+
+**`typeof null` rend `'object'`.** Le test de forme dit donc OUI à `null`, et
+c'est la comparaison d'à côté qui le rattrape. Les deux ne sont pas deux
+vérifications indépendantes dont l'une renforcerait l'autre : la seconde EXISTE
+uniquement parce que la première ment sur ce cas précis. Les relier par le mauvais
+opérateur ne fait pas « une garde un peu plus faible » — ça retire entièrement la
+seule ligne qui protégeait, et le déréférencement LÈVE.
+
+### Pourquoi la relecture ne le voit pas
+
+Les deux lignes se lisent bien. « C'est un objet ET ce n'est pas nul » sonne comme
+une ceinture et des bretelles — deux précautions du même côté, dont on pourrait
+croire que perdre l'une laisse l'autre. C'est faux ici, et ça se voit seulement
+si l'on sait, au moment de lire, que `typeof null === 'object'`. Une relecture
+attentive qui l'ignore validera les deux formes.
+
+C'est pourquoi la loupe trouve ça et pas nous : elle ne relit pas, elle EXÉCUTE.
+
+### Ce que ça change pour la suite du balayage
+
+Une nue qui apparaît deux fois dans deux modules étrangers n'est pas une
+étourderie, c'est un MOTIF. Il en découle une consigne de balayage, pas seulement
+une correction :
+
+**Quand une nue se répète, chercher ses sœurs avant de la fermer.** Le motif
+`typeof x === 'object' && x !== null` se cherche en une commande sur tout le
+dépôt ; chaque occurrence est une nue potentielle, et chacune se mesure. Fermer
+la deuxième sans chercher la troisième, c'est traiter un symptôme deux fois.
+
+### Le recensement, fait plutôt que promis
+
+La consigne ci-dessus s'appliquerait mal à elle-même si elle restait un conseil.
+Le motif cherché sur tout le dépôt, le 22 août :
+
+```
+grep -rn "typeof [A-Za-z_.]* === 'object'" --include=*.ts --include=*.tsx \
+  src dashboard/src scripts
+```
+
+**Treize occurrences, dans neuf fichiers.** Deux sont désormais MESURÉES et
+défendues — `concierge.ts` et `livraison.ts`, les deux qui ont donné cette
+leçon. Les onze autres vivent dans `shared/issue.ts`, `orchestrator/nuage.ts`,
+`orchestrator/server.ts` (deux), `orchestrator/github.ts` (deux),
+`node-client/client.ts` (deux), `views/shared.tsx`, `views/sondage.ts` et
+`orchestrator/planner.ts` — **et aucune n'a été mutée à ce jour.**
+
+Cette phrase est le contraire d'un verdict. Elle ne dit pas que ces onze lignes
+sont nues : elle dit que personne ne le sait, et que le seul moyen de le savoir
+est de les muter une par une, chacune sur sa base épinglée. Le recensement a
+coûté une commande ; il transforme un angle mort en liste de travail nommée,
+ce qui est tout ce qu'on peut honnêtement en tirer sans balayer.
+
+### La leçon
+
+**Deux conditions côte à côte ne sont pas forcément deux gardes.** Quand la
+seconde n'est là que pour réparer un mensonge de la première, elles forment UNE
+garde en deux morceaux, et l'opérateur qui les relie porte toute la sûreté.
+Ces endroits-là se marquent — par un test qui passe `null`, pas par un
+commentaire — parce que le prochain lecteur, humain ou machine, verra une
+redondance là où il y a une dépendance.
+
+## 9 novemsexagicenties. Le commentaire garde une ligne ; il ne garde pas la SUIVANTE
+
+Dans `listerWorkflows`, deux lignes se suivent. La première porte un
+avertissement de huit lignes :
+
+```js
+// ⚠ CET ENDPOINT NE REND PAS UN TABLEAU. Il rend `{ total_count, workflows }`
+// … Traiter la réponse comme un tableau rendrait une liste VIDE sans erreur,
+// et « ce dépôt n'a aucun workflow » est un mensonge parfaitement crédible.
+const lot = typeof brut === 'object' && … ? … : null;
+```
+
+Cette ligne-là est **défendue** : le balayage l'a mutée, un banc a rougi.
+Quelques lignes plus bas, sans commentaire :
+
+```js
+if (lot.length < PAR_PAGE) break;
+```
+
+**Nue.** Mutée en `<=`, une page PLEINE arrête la pagination : au-delà de cent
+workflows, la ruche n'en montre que cent. Le résultat est le mensonge EXACT
+contre lequel le commentaire du dessus met en garde — une liste tronquée que
+rien ne signale — obtenu par l'autre bout de la même boucle.
+
+### Ce que ça dit du rôle d'un commentaire
+
+Le commentaire a fait son travail : la ligne qu'il protège a un banc. Il a même
+fait plus que son travail, puisqu'il nomme le mode de panne. Ce qu'il n'a pas
+pu faire, c'est s'étendre au reste de la fonction — parce qu'un commentaire ne
+sait pas de quoi il est le voisin.
+
+Le raisonnement qui manquait n'est pas « cette ligne est-elle risquée ? » mais
+**« quelles AUTRES lignes peuvent produire ce même mensonge ? »**. Ici, deux :
+la forme mal lue (protégée) et la pagination arrêtée trop tôt (nue). Un troisième
+chemin existe d'ailleurs — l'API qui rend une page pleine puis une erreur — et
+il est couvert par le `if (!rep.ok) throw`, lui aussi défendu.
+
+### Pourquoi la loupe le trouve et la relecture non
+
+Une relecture suit le fil du commentaire : elle vérifie ce qu'il annonce, le
+trouve correct, et poursuit rassurée. La présence d'un avertissement DÉTOURNE
+l'attention du voisinage, parce qu'elle donne le sentiment que l'endroit a
+déjà été pensé. C'est le contraire d'un défaut de vigilance : c'est de la
+vigilance dépensée là où quelqu'un l'a déjà dépensée.
+
+La loupe n'a pas cette faiblesse : elle ne lit pas les commentaires, et elle
+mute la ligne d'à côté avec la même indifférence.
+
+### La leçon
+
+**Un commentaire qui nomme un mode de panne est une invitation à chercher les
+AUTRES chemins vers cette même panne, pas une preuve que l'endroit est sûr.**
+Quand on en croise un — le sien ou celui d'un autre — la question utile n'est
+pas « la ligne commentée est-elle juste ? », mais « par où d'autre ce résultat
+faux peut-il sortir ? ». Chacun de ces chemins se mute ; ceux qui survivent
+sont nus, quel que soit le soin déjà visible autour d'eux.
+
+## 9 septuagicenties. Une garde qui protège la JUSTESSE peut rétrécir la COUVERTURE, en silence
+
+La table de mutations de la loupe porte ses opérateurs avec leurs deux espaces :
+
+```js
+[' && ', ' || '],
+[' >= ', ' > '],
+```
+
+La raison est bonne, et elle est écrite juste au-dessus dans le fichier : sans
+les espaces, `>=` contiendrait `>`, la loupe produirait `a >== b`, le
+fichier cesserait de s'analyser, la suite entière échouerait — et le mutant
+passerait pour tué. La garde empêche un mensonge dans le sens rassurant.
+
+Elle en a créé un autre. Un opérateur qui TERMINE la ligne n'a pas d'espace
+après lui, et c'est la forme que Prettier impose à toute condition longue.
+**168 lignes du dépôt** finissaient par `&&` ou `||` — jamais mutables, dans des
+fichiers déclarés « balayés entiers ».
+
+### Les deux mensonges ne se ressemblent pas
+
+Le premier — celui que la garde empêche — est BRUYANT quand il se produit : la
+suite devient rouge partout, on cherche, on trouve. Le second est SILENCIEUX :
+la loupe compte ses candidates, les examine toutes, et imprime « 32 sur 32 ».
+Le rapport est exact. Ce qu'il ne dit pas, c'est que le dénominateur a été
+fabriqué par la règle elle-même.
+
+C'est la différence entre « mesuré et faux » et « jamais regardé ». Le premier
+se corrige ; le second ne se signale pas.
+
+### Comment celui-ci a été trouvé, et pourquoi ce n'est pas de la chance
+
+Pas par relecture de la règle — elle se lit très bien, elle explique même sa
+propre précaution. Il a été trouvé en VÉRIFIANT UNE AFFIRMATION : le
+recensement du § 9 octosexagicenties annonçait onze occurrences non mesurées
+d'un motif, dont deux dans un fichier qui venait d'être balayé entier. Les deux
+faits ne pouvaient pas être vrais ensemble.
+
+C'est la seule méthode qui marche sur ce genre de défaut. Un angle mort ne se
+voit pas en regardant l'instrument ; il se voit quand deux comptes rendus se
+contredisent, et qu'on refuse d'en arrondir un.
+
+### La leçon
+
+**Toute garde qui restreint ce qu'un instrument accepte restreint aussi ce
+qu'il VOIT, et la seconde restriction n'est écrite nulle part.** Quand on
+resserre une règle pour empêcher un faux positif, la question à poser dans la
+même minute est : « qu'est-ce que ce resserrement rend désormais invisible ? »
+La réponse se mesure — ici, un `grep` de trois secondes aurait donné 168.
+
+Corollaire pour lire un rapport de couverture, quel qu'il soit : **« N sur N »
+ne dit rien tant qu'on ne sait pas d'où vient le N.** Un dénominateur produit
+par l'outil qu'on interroge n'est pas une mesure du terrain, c'est une mesure
+de l'outil.
+
+## 9 unseptuagicenties. Le RAYON D'ACTION d'un défaut se mesure ; il ne se déduit pas du défaut
+
+Trouver un angle mort dans un instrument donne envie de suspecter tout ce qu'il
+a mesuré avant. C'est le bon réflexe, et il a été mal appliqué.
+
+L'angle mort du § 9 septuagicenties — les opérateurs en fin de ligne — a été
+découvert dans `github.ts`. J'ai écrit dans la foulée, au carnet ET dans le
+corps de la PR :
+
+> `livraison.ts` n'est pas encore rebalayé ; son « 38 sur 38 » vaut ce que
+> valait l'ancien « 32 sur 32 ».
+
+Mesuré ensuite : **38 avant, 38 après, zéro nue.** `livraison.ts` n'écrit
+aucune condition sur plusieurs lignes — `grep -c "&&$\|||$"` y rend **0**. Le
+défaut ne pouvait pas l'atteindre. Son compte était déjà complet.
+
+### Une réserve n'est pas gratuite
+
+L'erreur ressemble à de la prudence, ce qui la rend facile à écrire et difficile
+à voir. Mais une réserve est une AFFIRMATION sur l'état du monde : elle dit
+« ce résultat est suspect ». Fausse, elle coûte deux fois —
+
+- elle salit un travail sain, et quiconque lit le carnet ou la PR repart avec
+  une inquiétude qui n'a pas d'objet ;
+- elle envoie une session refaire une heure de machine pour reconfirmer ce qui
+  était déjà mesuré.
+
+Le sens de l'erreur est inversé par rapport au reste de ce journal — ici on
+alarme au lieu de rassurer — mais c'est la même faute : **écrire un état du
+monde qu'on n'a pas constaté.**
+
+### Ce qu'il fallait faire, et ce que ça coûtait
+
+Le rayon d'action de CET angle mort se mesure par une commande :
+
+```
+grep -c "&&$\|||$" <fichier>
+```
+
+Trois secondes par fichier. La question juste n'est pas « quels résultats sont
+désormais suspects ? » mais **« par quel motif exact ce défaut se manifeste-t-il,
+et où ce motif est-il présent ? »** La première appelle une intuition, la
+seconde un `grep`.
+
+### La leçon
+
+**Quand un instrument est corrigé, la liste de ce qu'il faut refaire est une
+MESURE, pas une déduction.** Un défaut a une signature ; on la cherche, et on
+rebalaye les fichiers qui la portent. Suspecter tout le passé par principe n'est
+pas de la rigueur — c'est renoncer à mesurer, avec le ton de quelqu'un qui
+mesure.
+
+## 9 duoseptuagicenties. Un `catch` large rend les gardes qu'il entoure IMMUNES à la mutation
+
+Sonde ciblée du motif `typeof x === 'object' && x !== null` : dix occurrences
+restantes, **cinq survivantes**. En les lisant une par une, quatre des cinq
+partagent une même cause, et ce n'est pas celle qu'on attend.
+
+Trois vivent à l'intérieur d'un `try/catch` :
+
+```js
+try {
+  const brut = JSON.parse(readFileSync(…));
+  const bloc = typeof brut === 'object' && brut !== null ? brut.scripts : null;
+  if (typeof bloc === 'object' && bloc !== null) { … }
+} catch {
+  scripts = {};        // ← le même résultat que la garde produisait
+}
+```
+
+Mué en `||`, `null` traverse et l'indexation LÈVE. Mais le `catch` transforme
+cette levée en `{}` — exactement ce que la garde rendait. **Les deux mondes
+sortent la même valeur, donc aucun banc ne peut les distinguer.** Le mutant est
+équivalent, non parce que le code est indifférent, mais parce qu'un filet en
+aval absorbe la différence.
+
+### Ce que ça change dans la lecture d'un verdict
+
+Un balayage par mutation mesure ce qui est OBSERVABLE. Un `catch` large réduit
+l'observable : il replie plusieurs chemins d'exécution sur une seule sortie. À
+l'intérieur de son périmètre, la loupe est donc structurellement myope, et elle
+le sera toujours — ce n'est pas un défaut de l'instrument à corriger comme
+l'angle mort du § 9 septuagicenties, c'est une propriété du code mesuré.
+
+Conséquence pratique, et elle est inconfortable : **la correction de ces gardes
+ne peut pas être mesurée, elle doit être argumentée.** Elles restent utiles —
+les retirer ferait de l'exception un mécanisme de contrôle ordinaire, ce qui
+est pire à lire et plus lent — mais leur justesse repose sur une lecture, pas
+sur un banc.
+
+### Le corollaire qui compte pour le reste du dépôt
+
+Un `catch` sans discernement ne masque pas que des mutations : il masque aussi
+les VRAIES fautes du même bloc. `catch {}` ne distingue pas « pas de
+`package.json` » — le cas prévu, documenté — d'un `TypeError` introduit par une
+refonte. Le premier est une absence normale, le second un bug, et le filet les
+rend identiques.
+
+La règle qui en découle, pour les blocs à écrire : **attraper ce qu'on attend,
+laisser passer ce qu'on n'attend pas.** Un `catch` qui nomme son cas (fichier
+absent, JSON invalide) redonne à la mutation la visibilité qu'un `catch` nu lui
+retire — et rend au lecteur l'information qu'un filet trop large avale.
+
+### La cinquième, elle, était une vraie nue
+
+`nuage.ts` n'a AUCUN `try/catch`. Son `meta()` mué rend `null` ou `undefined`,
+et la ligne suivante lève sur une charge Stripe sans `metadata` — c'est-à-dire
+sur une entrée que la ruche ne choisit pas, puisqu'elle arrive par un webhook.
+Fermée par trois bancs, rejeu tenu.
+
+**La différence entre les quatre et la cinquième ne se voit pas sur la ligne.**
+Elle se voit à dix lignes de là, dans la présence ou l'absence d'un filet. Une
+garde ne se juge jamais seule.
+
+## 9 terseptuagicenties. Un comparateur à deux clés demande deux décors, et chacun asymétrique sur SA clé
+
+Balayage de `gardiennes.ts` : 16 mutations, une seule nue, et c'est le départage
+du classement des griefs.
+
+```js
+.sort((a, b) => b.occurrences - a.occurrences || a.code.localeCompare(b.code))
+```
+
+Mué en `&&`, l'expression rend `localeCompare` **dès que les occurrences
+diffèrent** — `x && y` vaut `y` quand `x` est vrai. Le classement par fréquence
+disparaît ; la liste devient alphabétique. Le grief le plus fréquent, celui
+qu'un humain doit lire en premier, se retrouve à la place que son nom lui donne.
+
+### Le banc existant ne pouvait pas le voir, et ce n'était pas une négligence
+
+Il donnait deux griefs, `empty_diff` et `logs_contradict`, **à occurrences
+égales**. Sur ce corpus :
+
+- le monde d'origine (`||`) départage par l'alphabet → `empty_diff` d'abord ;
+- le monde mué (`&&`) rend `0`, donc le tri stable garde l'ordre d'insertion →
+  `empty_diff` d'abord, puisqu'il a été rencontré en premier.
+
+**Les deux mondes rendent la même liste.** Le banc est vert dans les deux cas —
+mesuré, pas déduit : sous le mutant, il passe.
+
+La faute n'est pas d'avoir mal choisi les valeurs. C'est qu'un corpus où
+plusieurs ordres COÏNCIDENT ne peut départager aucun d'eux. Ici l'ordre
+alphabétique, l'ordre d'insertion et l'ordre de fréquence donnaient tous le même
+résultat : trois hypothèses différentes, une seule sortie.
+
+### Ce que ça impose comme méthode
+
+Un comparateur à deux clés a deux comportements, et il faut **deux décors**,
+chacun asymétrique sur une seule clé :
+
+| Ce qu'on veut tenir         | Le décor qui le tient                                      |
+| --------------------------- | ---------------------------------------------------------- |
+| la clé PRIMAIRE (fréquence) | fréquences différentes **et** ordre alphabétique CONTRAIRE |
+| le DÉPARTAGE (alphabet)     | fréquences égales **et** ordre d'insertion CONTRAIRE       |
+
+Un seul axe brisé par test. Deux axes brisés d'un coup rendraient le banc vert
+ou rouge sans qu'on sache lequel a parlé — c'est la même règle que la loupe
+s'applique en refusant de muter une ligne portant deux opérateurs identiques.
+
+### La leçon
+
+**Quand du code CLASSE, le décor doit rendre les ordres candidats
+incompatibles.** Trier trois éléments dont le nom, la date et le rang vont dans
+le même sens ne prouve rien : il faut que l'ordre attendu soit le seul que le
+corpus autorise. La question à se poser en écrivant le décor n'est pas « ces
+valeurs sont-elles réalistes ? » mais **« quel AUTRE tri rendrait exactement
+cette liste ? »** — et s'il en existe un, changer les valeurs jusqu'à ce qu'il
+n'en existe plus.
+
+## 9 quaterseptuagicenties. Un recensement est une MESURE, et son motif de recherche en est le dénominateur
+
+Une heure après avoir écrit § 9 septuagicenties — _« une garde qui protège la
+justesse rétrécit la couverture en silence »_ — j'ai commis la même faute, dans
+le geste même qui la documentait.
+
+Le recensement du motif `typeof null` cherchait ceci :
+
+```
+grep -rn "typeof [A-Za-z_.]* === 'object'"      →  13 occurrences
+```
+
+Treize trouvées, treize jugées, et l'annonce poussée dans le dépôt : **« motif
+entièrement mesuré »**. La forme NÉGATIVE de la même garde n'a jamais été
+cherchée :
+
+```
+grep -rn "typeof [A-Za-z_.]* !== 'object'"      →  28 occurrences
+```
+
+`typeof x !== 'object' || x === null` est le même garde-fou écrit à l'envers,
+avec la même faiblesse (`typeof null` rend `'object'`, donc c'est l'opérateur
+qui protège) et la même mutation. **Le recensement couvrait 13 sur 41.**
+
+### Ce qui rend cette faute difficile à voir
+
+Un recensement se présente comme un inventaire, et un inventaire a l'air complet
+par nature. Mais un `grep` ne rend pas « les occurrences du motif » : il rend
+« les lignes qui correspondent à CETTE EXPRESSION ». Ce sont deux choses
+différentes, et la seconde se fait passer pour la première dès qu'on écrit le
+compte sans écrire la requête à côté.
+
+Le mot « entièrement » est celui qui coûte. Sans lui, treize occurrences jugées
+restent treize occurrences jugées — un fait vrai et utile. Avec lui, le fait
+devient une couverture, et la couverture est fausse.
+
+### Ce qui l'a révélé, et ce n'était pas une relecture
+
+Le balayage de `polyethisme.ts` a rendu nue une ligne portant la forme négative.
+Deux comptes rendus se contredisaient : « motif entièrement mesuré » d'un côté,
+« voici une occurrence non mesurée » de l'autre. C'est la même méthode qu'au
+§ 9 septuagicenties — **un angle mort ne se voit pas dans l'instrument, il se
+voit quand deux affirmations ne peuvent pas être vraies ensemble.**
+
+### La leçon
+
+**Un compte d'occurrences ne vaut rien sans le motif qui l'a produit, écrit à
+côté de lui.** « 13 occurrences » est une opinion ; « 13 occurrences de
+`typeof x === 'object'` » est une mesure, et un lecteur peut immédiatement
+demander : et la forme négative ? et `!x || typeof x !== 'object'` ? et
+`x instanceof Object` ?
+
+Corollaire, pour tout ce qui se cherche par motif : **avant d'écrire
+« entièrement », chercher la forme CONTRAIRE de ce qu'on vient de chercher.**
+Une garde s'écrit presque toujours dans les deux sens, et le second sens est
+celui qu'on oublie — précisément parce qu'on a en tête celui qu'on vient de
+lire.
