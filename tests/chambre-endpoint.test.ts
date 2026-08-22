@@ -84,8 +84,12 @@ describe('GET /api/chambre/:nodeId', () => {
       agentType: 'shell',
       maxConcurrency: 1,
     });
-    expect(srv.store.baptiser('n-2', 'Capucine', 1000)).toEqual({ ok: true, nom: 'Capucine' });
-    expect(srv.store.assignerMetier('n-2', 'edite', 1001)).toEqual({
+    // Timestamps « maintenant » : le tick prune les présences > 1 h
+    // (PRESENCES_RETENTION_MS) — 1000/1002 (époque Unix) disparaissaient
+    // avant le GET dès qu’un tick passait (flake ubuntu).
+    const t0 = Date.now();
+    expect(srv.store.baptiser('n-2', 'Capucine', t0)).toEqual({ ok: true, nom: 'Capucine' });
+    expect(srv.store.assignerMetier('n-2', 'edite', t0 + 1)).toEqual({
       ok: true,
       metier: 'edite',
     });
@@ -94,7 +98,7 @@ describe('GET /api/chambre/:nodeId', () => {
         'n-2',
         [{ toolUseId: 'toolu_1', chemin: 'src/a.ts', outil: 'Edit' }],
         't1',
-        1002,
+        t0 + 2,
       ),
     ).toEqual({ ok: true });
 
@@ -122,12 +126,13 @@ describe('GET /api/chambre/:nodeId', () => {
       agentType: 'shell',
       maxConcurrency: 1,
     });
-    srv.store.baptiser('n-3', 'Iris', 1);
+    const t0 = Date.now();
+    srv.store.baptiser('n-3', 'Iris', t0);
     srv.store.remplacerPresences(
       'n-3',
       [{ toolUseId: 't', chemin: 'src/x.ts', outil: 'Read' }],
       null,
-      2,
+      t0 + 1,
     );
     const res = await fetch(`${srv.url}/api/presences`, { headers });
     expect(res.status).toBe(200);
@@ -149,7 +154,7 @@ describe('GET /api/chambre/:nodeId', () => {
       agentType: 'shell',
       maxConcurrency: 1,
     });
-    srv.store.baptiser('n-b1', 'Capucine', 1);
+    srv.store.baptiser('n-b1', 'Capucine', Date.now());
     const res = await fetch(`${srv.url}/api/baptemes`, { headers });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
