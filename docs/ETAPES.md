@@ -12251,3 +12251,54 @@ Restauré PAR COPIE après chaque tour, arbre vérifié propre.
 Delta du terrain : `concierge.ts` **21/21 balayé, 8 nues fermées, 1 retirée**.
 Le terrain `src` reste très largement non balayé — 371 candidates recensées,
 21 jouées. Ce chiffre-là se dit, il ne s'arrondit pas.
+
+## Le Cerveau : 21 sur 21 — le glisser au canevas, mesuré au lieu d'être cru
+
+Dernier point de la consigne de nuit jamais vérifié : « `attrape.current.id` du
+glisser au canevas — si happy-dom ne peut pas le jouer, le DOCUMENTER
+honnêtement plutôt que simuler ».
+
+Base épinglée `e01d5f5` (parent de `784fc86`, où la physique est sortie du
+canevas), les deux modules de décision balayés séparément, plafond très
+au-dessus du compte pour qu'aucune mutation ne soit échantillonnée en silence.
+
+```
+LOUPE : 1 mutation(s) possible(s) sur le diff, 1 examinée(s).
+  ✔ défendue · cerveau-physique.ts · === → !==
+             if (p.id === cadre.attrapeId) continue; // le doigt gagne
+
+LOUPE : 20 mutation(s) possible(s) sur le diff, 20 examinée(s).
+  ✔ défendue ×20 · cerveau-designation.ts
+
+════ LA LOUPE NE VOIT RIEN DE NU ════
+```
+
+Arbre vérifié restauré, aucun orphelin.
+
+### Ce que la consigne nommait, et ce que la mesure rend
+
+| Garde nommée                          | Verdict               |
+| ------------------------------------- | --------------------- |
+| `attrape.current.id` (le glisser)     | ✔ via `attrapeId`     |
+| `serviIlYaJours === null` (Cerveau)   | ✔ défendue, deux fois |
+| `priseAuDoigt` — `=== null` du fond   | ✔ défendue            |
+| `deplacementDuGlisse` — `!== null`    | ✔ défendue            |
+| `estUnClic` — `<= SEUIL_GLISSE`       | ✔ défendue            |
+| `corpsSousLePoint` — le `&&` du doigt | ✔ défendue            |
+
+**21 sur 21 défendues, zéro nue.** Rien à fermer, et surtout rien à documenter
+comme « hors d'atteinte » : la question ne se pose plus, parce que les décisions
+ne vivent plus dans le canevas.
+
+### Pourquoi ce balayage ne s'ajoute PAS au compte du tableau A
+
+Le critère « rien de neuf n'est nu » porte sur le **diff ajouté par la
+branche**. Ces 21 mutations portent sur du terrain qui PRÉCÈDE la branche, sur
+une base épinglée à lui. Les additionner rendrait un nombre plus flatteur en
+mélangeant deux sujets — exactement la faute que § 9 sexsexagicenties vient de
+consigner sur cette même case. Le tableau A garde ses 95 ; ce balayage-ci se
+consigne ici, avec son fichier et sa base.
+
+Delta du terrain : `dashboard/src/views` **entièrement balayé** (7 vues + les
+deux modules de décision du Cerveau). Le terrain `src` reste très largement non
+balayé — 371 candidates recensées, 21 jouées.

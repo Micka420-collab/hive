@@ -13483,3 +13483,60 @@ Et le corollaire opérationnel : **quand on touche un document de certification,
 on relit les lignes VOISINES de celle qu'on vient de changer.** Une case s'édite
 seule, mais elle se lit dans un tableau — et c'est le tableau entier qui est
 présenté comme la mesure.
+
+## 9 septensexagicenties. « Hors d'atteinte du banc » décrit une FORME de code, jamais une décision
+
+La consigne de nuit nomme le glisser au canevas du Cerveau et ajoute, en toutes
+lettres : « si happy-dom ne peut pas le jouer, le DOCUMENTER honnêtement plutôt
+que simuler ». L'intention est juste — mieux vaut une note vraie qu'un banc qui
+mime. Mais elle offre une porte de sortie AVANT d'avoir posé la seule question
+qui compte.
+
+### Les deux options offertes n'étaient pas les seules
+
+La consigne pose l'alternative ainsi :
+
+1. jouer la décision dans son environnement — impossible, `getContext` rend
+   `null` sous happy-dom, la boucle entière n'est jamais exécutée ;
+2. écrire honnêtement au carnet qu'elle est hors d'atteinte.
+
+Il en existait une troisième, et c'est celle que le dépôt avait déjà prise :
+**sortir la décision de l'environnement qui l'empêche.** La force ne dépend
+d'aucun contexte de dessin — elle prend des corps, des bornes, un pas de temps,
+et rend des corps déplacés. Hors du canevas, elle s'éprouve à la milliseconde.
+
+Mesuré ce 22 août, base épinglée `e01d5f5` : **21 mutations sur 21 défendues**,
+dont le `p.id === cadre.attrapeId` (« le doigt gagne ») que le balayage d'alors
+avait trouvé nu, et toute la surface du glisser — `priseAuDoigt`,
+`deplacementDuGlisse`, `estUnClic`. Aucune n'a eu besoin d'un canevas.
+
+### Ce que la porte de sortie coûte quand on la prend trop tôt
+
+Une note « hors d'atteinte du banc » a l'allure d'une reddition honnête, et
+c'est ce qui la rend dangereuse : elle se relit comme une preuve d'avoir
+cherché. Elle GÈLE l'écart. Le code reste tel quel, la garde reste nue, et la
+note devient la raison de ne plus y revenir — un angle mort avec un certificat.
+
+L'honnêteté n'est pas en cause. Ce qui manque, c'est l'ordre des questions.
+« Puis-je éprouver ce code ? » se répond par oui ou non sur la forme ACTUELLE.
+« Puis-je éprouver cette décision ? » se répond en demandant de quoi la décision
+dépend vraiment — et une décision qui ne dépend que de ses arguments est
+toujours éprouvable, quel que soit l'endroit où elle est écrite aujourd'hui.
+
+### La leçon
+
+**Avant d'écrire « intestable », séparer la DÉCISION de son DÉCOR.** Le décor —
+canevas, réseau, horloge, système de fichiers — est ce que le banc ne sait pas
+tenir. La décision, elle, est presque toujours une fonction de ses arguments.
+Quand les deux sont dans la même fonction, c'est la fonction qui est hors
+d'atteinte, pas la règle qu'elle applique.
+
+Le repli honnête reste le bon quand la décision elle-même EST le décor —
+« l'image s'affiche-t-elle correctement », « le fichier est-il verrouillé par un
+autre processus ». Il se prend alors en connaissance de cause, et il se date :
+c'est un constat sur un environnement, et les environnements changent.
+
+Corollaire pour qui rédige une consigne : **offrir la porte de sortie dans la
+même phrase que la tâche, c'est la faire choisir.** Une consigne qui dit « fais
+X, ou sinon documente pourquoi tu ne peux pas » a déjà rendu le second terme
+acceptable avant que le premier ait été essayé.
