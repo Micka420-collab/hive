@@ -14,6 +14,7 @@ describe('requisition-env', () => {
     expect(nomEnvDepuisLibelle('Clé Anthropic')).toBe('ANTHROPIC_API_KEY');
     expect(nomEnvDepuisLibelle('Clé OpenAI (Codex)')).toBe('OPENAI_API_KEY');
     expect(nomEnvDepuisLibelle('Clé ou session Anthropic (Claude Code)')).toBe('ANTHROPIC_API_KEY');
+    expect(nomEnvDepuisLibelle('Clé ou session Cursor')).toBe('CURSOR_API_KEY');
     expect(nomEnvDepuisLibelle('Clé xAI ou session Grok')).toBe('XAI_API_KEY');
     expect(validerSecretRequisition('sk-test')).toEqual({ ok: true, secret: 'sk-test' });
     expect(validerSecretRequisition('')).toEqual({ ok: false, motif: 'vide' });

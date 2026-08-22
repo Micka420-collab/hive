@@ -9,6 +9,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
+  `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
+  `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
+  (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
+  **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
 - **Boucle réquisition mid-task.** Échec infra auth → `requisition_open` + `taskId` ;
   pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
 - **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;

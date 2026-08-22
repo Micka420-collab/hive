@@ -46,10 +46,11 @@ describe('les adaptateurs à CLI connue posent le terminateur `--`', () => {
     expect(src, "le prompt ne doit plus suivre '-p' directement").not.toContain("'-p', prompt");
   });
 
-  it('codex : `--` sépare la sous-commande du prompt', () => {
-    const src = lire('../src/adapters/codex.ts');
-    expect(src).toContain("'exec', '--', task.prompt");
-    expect(src).not.toContain("'exec', task.prompt");
+  it('cursor : le prompt est le DERNIER argument, derrière `--`', () => {
+    const src = lire('../src/adapters/cursor.ts');
+    expect(src).toContain("...drapeauxModele,\n    '--',\n    prompt,");
+    expect(src).toContain("'--force'");
+    expect(src, "le prompt ne doit pas suivre '-p' directement").not.toContain("'-p', prompt");
   });
 
   it('custom : la CLI est inconnue, donc c’est le TEXTE qu’on neutralise', () => {

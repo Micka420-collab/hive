@@ -96,7 +96,15 @@ describe('LE CHOIX DE L’AGENT', () => {
     expect(vu.agent).toBe('claude-code');
   });
 
-  it('faute de Claude Code, Codex est pris — pas le repli simulé', async () => {
+  it('faute de Claude Code, Cursor est pris avant Codex', async () => {
+    const vu = await detectBestAgent({}, async (argv) => {
+      const b = argv[0] ?? '';
+      return b.startsWith('agent') || b.startsWith('cursor-agent');
+    });
+    expect(vu.agent).toBe('cursor');
+  });
+
+  it('faute de Claude Code et Cursor, Codex est pris — pas le repli simulé', async () => {
     const vu = await detectBestAgent({}, async (argv) => (argv[0] ?? '').startsWith('codex'));
     expect(vu.agent).toBe('codex');
   });
@@ -233,13 +241,30 @@ describe('réquisition si credentials manquantes', () => {
     ).toBeNull();
   });
 
-  it('grok sans clé ni session → réquisition', () => {
+  it('cursor sans clé ni ~/.cursor → réquisition', () => {
     const r = requisitionSiCredentialsManquantes(
-      'grok',
+      'cursor',
       { HOME: '/home/moi' },
       { existe: () => false },
     );
     expect(r?.genre).toBe('cle_api');
-    expect(r?.libelle).toMatch(/Grok/i);
+    expect(r?.libelle).toMatch(/Cursor/i);
+  });
+
+  it('cursor avec CURSOR_API_KEY → silence', () => {
+    expect(
+      requisitionSiCredentialsManquantes('cursor', { CURSOR_API_KEY: 'key' }),
+    ).toBeNull();
+  });
+
+  it('cursor avec ~/.cursor → silence même sans clé env', () => {
+    const existe = (p: string) => /[/\\]\.cursor$/.test(p);
+    expect(
+      requisitionSiCredentialsManquantes(
+        'cursor',
+        { HOME: '/home/moi' },
+        { existe, plateforme: 'linux' },
+      ),
+    ).toBeNull();
   });
 });

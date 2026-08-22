@@ -8,15 +8,16 @@ import { bornerConcurrence, identiteStable } from './identite-noeud.js';
 import {
   agentCredentialEnv,
   detectAllAgents,
-  detectBestAgent,
   messageAgent,
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
+import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
+import { createInterface } from 'node:readline/promises';
 
 try {
   process.loadEnvFile('.env');
@@ -74,12 +75,24 @@ if (bac.refuse) {
 // La détection vient APRÈS le bac à sable : un nœud que l'isolement refuse
 // n'a pas à sonder quoi que ce soit, et l'humain lit d'abord ce qui l'arrête.
 //
-// `HIVE_AGENT` garde le dernier mot : le forcer à `shell` reste la façon
-// d'avoir un nœud de test qui n'exécute rien pour de vrai.
-const forceAgent = (process.env.HIVE_AGENT ?? '').trim() as AgentType | '';
-const detecte = forceAgent
-  ? { agent: forceAgent, label: libelleAgent(forceAgent) }
-  : await detectBestAgent();
+// `HIVE_AGENT` garde le dernier mot. S'il est absent et que PLUSIEURS agents
+// réels sont là (Claude, Cursor, Codex…), on DEMANDE lequel retenir — sauf
+// hors TTY, où l'ordre de préférence de `detectBestAgent` s'applique.
+const demanderAgent =
+  process.stdin.isTTY && process.stdout.isTTY
+    ? async (question: string): Promise<string> => {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          return await rl.question(question);
+        } finally {
+          rl.close();
+        }
+      }
+    : undefined;
+const detecte = await resoudreAgentAuDemarrage({
+  stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  demander: demanderAgent,
+});
 const agentType: AgentType = detecte.agent;
 const tousAgents = await detectAllAgents();
 

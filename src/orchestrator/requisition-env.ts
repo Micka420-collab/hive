@@ -24,6 +24,10 @@ const CATALOGUE_ENV: Record<string, string> = {
   'cle xai': 'XAI_API_KEY',
   'clé xai ou session grok': 'XAI_API_KEY',
   'cle xai ou session grok': 'XAI_API_KEY',
+  'clé ou session cursor': 'CURSOR_API_KEY',
+  'cle ou session cursor': 'CURSOR_API_KEY',
+  'clé cursor': 'CURSOR_API_KEY',
+  'cle cursor': 'CURSOR_API_KEY',
 };
 
 /** Indices dans le libellé (après normalisation) → variable d’environnement. */
@@ -31,6 +35,7 @@ const INDICES_ENV: Array<{ re: RegExp; nom: string }> = [
   { re: /seedance/, nom: 'SEEDANCE_API_KEY' },
   { re: /openai|codex/, nom: 'OPENAI_API_KEY' },
   { re: /anthropic|claude/, nom: 'ANTHROPIC_API_KEY' },
+  { re: /\bcursor\b/, nom: 'CURSOR_API_KEY' },
   { re: /\bxai\b|grok/, nom: 'XAI_API_KEY' },
 ];
 
