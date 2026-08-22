@@ -7910,12 +7910,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             );
             break;
           case 'requisition_open': {
-            const v = store.ouvrirRequisition(
-              nodeId,
-              msg.genre,
-              msg.libelle,
-              msg.detail ?? null,
-            );
+            const v = store.ouvrirRequisition(nodeId, msg.genre, msg.libelle, msg.detail ?? null);
             if (!v.ok) {
               send(ws, {
                 type: 'error',

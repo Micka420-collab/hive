@@ -176,9 +176,11 @@ describe('essaim — l’ordre des portes EST la politique', () => {
           seuil: 70,
           constat: 'qualité en baisse',
         },
-        ...mesurerDerive({ productions: [], dernierApportHumain: NOW, now: NOW }).indicateurs.filter(
-          (i) => i.cle !== 'qualite',
-        ),
+        ...mesurerDerive({
+          productions: [],
+          dernierApportHumain: NOW,
+          now: NOW,
+        }).indicateurs.filter((i) => i.cle !== 'qualite'),
       ],
     };
     const d = deciderPas(etat({ derive, tachesEnCours: 0, tachesPretes: 0 }));

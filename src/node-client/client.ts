@@ -10,7 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
-import { requisitionSiCredentialsManquantes } from './agent-detect.js';
+import { estAgentType, requisitionSiCredentialsManquantes } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -240,9 +240,7 @@ export class HiveNodeClient {
         this.log(`erreur du hub : ${msg.message}`);
         break;
       case 'requisition_ack':
-        this.log(
-          `réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`,
-        );
+        this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
         break;
       case 'requisition_result':
         this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
@@ -279,7 +277,15 @@ export class HiveNodeClient {
   /** Réquisition proactive si l'agent réel n'a pas d'identifiants locaux (ADR 0010). */
   private proposerRequisitionCredentialsSiBesoin(): void {
     if (this.requisitionCredentialEnvoyee) return;
-    const req = requisitionSiCredentialsManquantes(this.opts.agentType);
+    // `opts.agentType` est une CHAÎNE LIBRE : `getAdapter` en accepte d'autres
+    // que les cinq connus (`hermes-agent`), et `HIVE_AGENT` laisse l'humain en
+    // écrire n'importe laquelle. Un `as AgentType` compilerait en mentant sur
+    // la valeur ; la garde dit la vérité et ne change rien au comportement —
+    // `requisitionSiCredentialsManquantes` retombait déjà sur `null` pour un
+    // agent qu'elle ne connaît pas.
+    const agent = this.opts.agentType;
+    if (!estAgentType(agent)) return;
+    const req = requisitionSiCredentialsManquantes(agent);
     if (!req) return;
     this.requisitionCredentialEnvoyee = true;
     this.ouvrirRequisition(req.genre, req.libelle, req.detail);

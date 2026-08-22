@@ -131,7 +131,11 @@ function ChecklistAutonomie({ pret, t }: { pret: PretEssaimUi; t: ReturnType<typ
     },
     { ok: pret.derive, fr: 'Santé du projet non dégradée', en: 'Project health not degraded' },
     { ok: pret.plafond, fr: 'Plafond de dépense non bloqué', en: 'Spend cap not blocked' },
-    { ok: pret.repo, fr: 'Dépôt GitHub connu (si fusion autonome)', en: 'GitHub repo known (if auto-merge)' },
+    {
+      ok: pret.repo,
+      fr: 'Dépôt GitHub connu (si fusion autonome)',
+      en: 'GitHub repo known (if auto-merge)',
+    },
     {
       ok: pret.depot,
       fr: 'Dépôt autorisé pour fusion (si niveau plein)',
@@ -181,10 +185,7 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
 
   const recharger = useCallback(async () => {
     try {
-      const [e, c] = await Promise.all([
-        fetchEssaim(projectId),
-        fetchEssaimCycles(projectId, 10),
-      ]);
+      const [e, c] = await Promise.all([fetchEssaim(projectId), fetchEssaimCycles(projectId, 10)]);
       setEtat(e);
       setCycles(c.cycles);
       setErreur('');

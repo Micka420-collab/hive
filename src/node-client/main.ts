@@ -13,10 +13,7 @@ import {
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
-import {
-  demarrageNoeudAutorise,
-  messageRefusShellProduction,
-} from '../shared/agent-production.js';
+import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
