@@ -13674,3 +13674,58 @@ Quand on en croise un — le sien ou celui d'un autre — la question utile n'es
 pas « la ligne commentée est-elle juste ? », mais « par où d'autre ce résultat
 faux peut-il sortir ? ». Chacun de ces chemins se mute ; ceux qui survivent
 sont nus, quel que soit le soin déjà visible autour d'eux.
+
+## 9 septuagicenties. Une garde qui protège la JUSTESSE peut rétrécir la COUVERTURE, en silence
+
+La table de mutations de la loupe porte ses opérateurs avec leurs deux espaces :
+
+```js
+[' && ', ' || '],
+[' >= ', ' > '],
+```
+
+La raison est bonne, et elle est écrite juste au-dessus dans le fichier : sans
+les espaces, `>=` contiendrait `>`, la loupe produirait `a >== b`, le
+fichier cesserait de s'analyser, la suite entière échouerait — et le mutant
+passerait pour tué. La garde empêche un mensonge dans le sens rassurant.
+
+Elle en a créé un autre. Un opérateur qui TERMINE la ligne n'a pas d'espace
+après lui, et c'est la forme que Prettier impose à toute condition longue.
+**168 lignes du dépôt** finissaient par `&&` ou `||` — jamais mutables, dans des
+fichiers déclarés « balayés entiers ».
+
+### Les deux mensonges ne se ressemblent pas
+
+Le premier — celui que la garde empêche — est BRUYANT quand il se produit : la
+suite devient rouge partout, on cherche, on trouve. Le second est SILENCIEUX :
+la loupe compte ses candidates, les examine toutes, et imprime « 32 sur 32 ».
+Le rapport est exact. Ce qu'il ne dit pas, c'est que le dénominateur a été
+fabriqué par la règle elle-même.
+
+C'est la différence entre « mesuré et faux » et « jamais regardé ». Le premier
+se corrige ; le second ne se signale pas.
+
+### Comment celui-ci a été trouvé, et pourquoi ce n'est pas de la chance
+
+Pas par relecture de la règle — elle se lit très bien, elle explique même sa
+propre précaution. Il a été trouvé en VÉRIFIANT UNE AFFIRMATION : le
+recensement du § 9 octosexagicenties annonçait onze occurrences non mesurées
+d'un motif, dont deux dans un fichier qui venait d'être balayé entier. Les deux
+faits ne pouvaient pas être vrais ensemble.
+
+C'est la seule méthode qui marche sur ce genre de défaut. Un angle mort ne se
+voit pas en regardant l'instrument ; il se voit quand deux comptes rendus se
+contredisent, et qu'on refuse d'en arrondir un.
+
+### La leçon
+
+**Toute garde qui restreint ce qu'un instrument accepte restreint aussi ce
+qu'il VOIT, et la seconde restriction n'est écrite nulle part.** Quand on
+resserre une règle pour empêcher un faux positif, la question à poser dans la
+même minute est : « qu'est-ce que ce resserrement rend désormais invisible ? »
+La réponse se mesure — ici, un `grep` de trois secondes aurait donné 168.
+
+Corollaire pour lire un rapport de couverture, quel qu'il soit : **« N sur N »
+ne dit rien tant qu'on ne sait pas d'où vient le N.** Un dénominateur produit
+par l'outil qu'on interroge n'est pas une mesure du terrain, c'est une mesure
+de l'outil.

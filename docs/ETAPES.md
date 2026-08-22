@@ -12419,3 +12419,63 @@ motif `typeof null` du lot précédent : ça se lit juste, et ça ne l'est pas.
 
 Delta du terrain : `github.ts` **32/32 balayé, 7 nues fermées**. `src` : 371
 candidates recensées, **91 jouées** (21 Concierge + 38 livraison + 32 ici).
+
+## La loupe ne voyait pas l'opérateur en FIN DE LIGNE — 168 lignes hors d'atteinte
+
+Trouvé en vérifiant une affirmation du lot précédent. Le recensement du § 9
+octosexagicenties annonçait onze occurrences non mesurées du motif
+`typeof x === 'object' && x !== null` ; deux vivent dans `github.ts`, qui venait
+d'être balayé « 32 sur 32 ». Elles auraient donc dû être mesurées.
+
+Elles ne l'étaient pas. Le journal du balayage ne porte, pour ces lignes, qu'un
+`=== → !==` défendu — jamais le `&& → ||`, qui est pourtant TOUT l'enjeu du
+motif.
+
+### La cause, et pourquoi elle est invisible
+
+`ECHANGES` porte ses motifs avec leurs deux espaces (`loupe.mjs:152`) :
+
+```js
+[' && ', ' || '],
+```
+
+Cette précaution est nécessaire et documentée : sans elle, `>=` contiendrait
+`>` et la loupe casserait la syntaxe. Mais un opérateur qui TERMINE la ligne
+n'a pas d'espace après lui — et c'est la forme que Prettier donne à toute
+condition un peu longue :
+
+```js
+const lot =
+  typeof brut === 'object' &&      // invisible
+  brut !== null &&                 // invisible
+  Array.isArray(…)
+```
+
+**Mesuré le 22 août : 168 lignes du dépôt finissent par `&&` ou `||`**, contre
+1495 occurrences `&&`/`||` mutables. Un peu plus de dix pour cent des
+opérateurs booléens n'avaient jamais pu être mutés — dans les fichiers déjà
+déclarés « balayés entiers ».
+
+### Ce que ça oblige à corriger dans ce carnet
+
+Les comptes des lots précédents (`21/21`, `38/38`, `32/32`) restent exacts :
+c'est bien tout ce que la loupe avait produit comme candidates. Mais **« balayé
+entier » disait plus que ça.** La formule juste est « toutes les candidates
+produites ont été examinées » — ce qui ne dit rien des décisions que la règle
+ne savait pas atteindre.
+
+Les fichiers du chemin d'écriture (`livraison.ts`, `github.ts`) seront rebalayés
+avec la règle corrigée ; les comptes qui en sortiront ne seront pas comparables
+aux précédents, et c'est le signe que la correction sert à quelque chose.
+
+### La correction, et son banc
+
+La règle de fin de ligne s'ajoute à la table, avec la MÊME garde d'ambiguïté —
+mais elle compte l'opérateur nu (`&&`), pas espacé : une ligne portant un `&&`
+au milieu et un `&&` à la fin rendrait deux candidates au libellé identique, et
+un verdict qui ne nomme plus sa mutation ne vaut rien.
+
+Cinq bancs neufs dans `tests/loupe-mutations.test.mjs`, écrits AVANT le
+correctif et vus rouges : le `&&` terminal, le `||` terminal, la coexistence
+avec le `===` de la même ligne, le refus de la ligne ambiguë, et l'absence de
+doublon sur une ligne déjà couverte par la table.
