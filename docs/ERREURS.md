@@ -13956,3 +13956,134 @@ Corollaire, pour tout ce qui se cherche par motif : **avant d'écrire
 Une garde s'écrit presque toujours dans les deux sens, et le second sens est
 celui qu'on oublie — précisément parce qu'on a en tête celui qu'on vient de
 lire.
+
+## 9 quinquaseptuagicenties. Une garde ne se juge pas seule : sa nécessité est une propriété de tout ce qui l'entoure
+
+Treize gardes restaient à juger dans la forme négative du motif `typeof`/`null`.
+Pour un `grep`, elles sont **la même ligne** — au nom de la variable près :
+
+```
+if (typeof x !== 'object' || x === null) return null;
+```
+
+Sept étaient nues. **Six ne l'étaient pas**, et pour cinq raisons différentes.
+Aucune de ces raisons ne se lit sur la ligne.
+
+| Ligne               | Pourquoi le mutant survit                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `partage.ts:164`    | la garde vit DANS un `try` dont le `catch` rend `null`                 |
+| `server.ts:5558`    | idem, un étage plus haut dans la même fonction                         |
+| `eclaireuse.ts:233` | le regex amont n'accepte qu'une charge `{…}` : `null` n'arrive jamais  |
+| `eclaireuse.ts:272` | idem, sa jumelle                                                       |
+| `nuage.ts:79`       | l'unique APPELANT a déjà écarté `null` vingt-six lignes plus bas       |
+| `nuage.ts:84`       | l'aval tolère la valeur non refusée, et la rejette pour un autre motif |
+
+### La seule qui m'a résisté
+
+`nuage.ts:84` mérite d'être racontée, parce que le raisonnement évident y est
+faux :
+
+> La garde écarte `null`. Si je la retire, `null` passe. Donc elle est nue.
+
+Les deux premières phrases sont vraies. La conclusion ne suit pas. Ce que le
+mutant laisse passer, c'est un `obj` que la fonction RENVOIE au lieu de refuser
+— et en aval, `meta(obj)` lit `.metadata` dessus. Sur une primitive, cette
+lecture rend `undefined` sans lever ; sur `null`, l'appelant l'arrête à son
+`if (!obj)`. Puis le `if (!projectId …)` qui suit rend `null` de toute façon.
+**Tous les chemins arrivent au même `null`.** Il faut descendre deux fonctions
+plus bas pour le voir.
+
+### Ce que ça généralise
+
+§ 9 duoseptuagicenties disait qu'un `catch` large rend immunes les gardes qu'il
+entoure : une immunité **par le haut**. Ce lot en montre les deux autres faces.
+
+- **Par le bas** : l'aval tolère ce que la garde refusait, et refuse plus loin
+  pour un autre motif. `nuage.ts:84`.
+- **Par le côté** : l'appelant a déjà fait le travail, et la garde est
+  inatteignable. `nuage.ts:79` — lire la fonction qui la contient ne suffit
+  pas, il faut lire qui l'appelle.
+
+D'où la règle, qui vaut pour tout balayage à venir : **le `grep` trouve la
+garde ; seul le graphe d'appels dit si elle est nue.**
+
+### Les deux façons de se tromper ne coûtent pas la même chose
+
+Classer une nue en équivalente laisse un vrai défaut ouvert AVEC un commentaire
+qui affirme qu'il n'en est pas un — pire que le silence, parce que le
+commentaire vaccine contre la prochaine relecture. Classer une équivalente en
+nue produit un banc qui ne peut pas rougir : du décor.
+
+### Ce qui a rendu ce lot sûr, et ce n'était pas le raisonnement
+
+Les six ont été **muées une à une contre la suite ENTIÈRE**, pas contre le banc
+du lot. Les six ont survécu — 4690 verts à chaque fois. Si une seule avait
+rougi, mon classement aurait été faux et le banc que j'avais décidé de ne pas
+écrire aurait été exactement celui qui manquait.
+
+Un raisonnement d'équivalence est une hypothèse. Il se vérifie en muant et en
+regardant, comme tout le reste.
+
+## 9 sexseptuagicenties. Un harnais de mesure doit ÉCHOUER FERMÉ — sinon il rend un verdict sur une expérience qui n'a pas eu lieu
+
+Rejeu d'un mutant sur `agent-detect.ts`. Le harnais a affiché :
+
+```
+  SURVIT ← décor
+```
+
+C'était faux. La mutation n'avait **jamais été appliquée**.
+
+### Les deux défauts, et c'est leur composition qui coûte
+
+Le script posait le mutant en Python, puis lançait le banc en shell :
+
+```bash
+python3 - <<'PY'
+...
+assert s.count(a) == 1          # ← 1er défaut : l'ancre existait DEUX fois
+...
+PY
+npx vitest run "$BANC" >/dev/null 2>&1 && echo "SURVIT" || echo "TENU"
+```
+
+1. **L'ancre était fragile.** `plateforme === 'win32' ? env.USERPROFILE : env.HOME`
+   apparaît à la ligne 104 **et** à la ligne 397. `count == 1` a échoué, et
+   l'`assert` a fait sortir Python en erreur.
+
+2. **Le harnais a continué quand même.** La ligne suivante ne regardait pas le
+   code de sortie du bloc précédent : elle a lancé le banc sur du code **sain**,
+   l'a vu vert, et a conclu « SURVIT ». Le verdict le plus grave qu'un rejeu
+   puisse rendre — « ce banc est du décor » — sorti d'une expérience qui ne
+   s'est pas déroulée.
+
+Aucun des deux, seul, n'aurait menti. Une ancre fragile aurait fait un message
+d'erreur ; un harnais qui continue aurait mesuré un vrai mutant. C'est leur
+composition qui produit une phrase fausse et confiante.
+
+### La règle
+
+> Un harnais de mesure doit **échouer fermé**. Quand l'étape de préparation
+> rate, le résultat est « pas de résultat » — jamais la valeur par défaut d'un
+> chemin qui n'a pas été pris.
+
+En pratique, trois gestes qui ne coûtent rien :
+
+- **vérifier que la mutation est DANS le fichier** avant de lancer le banc
+  (`grep` la forme mutée), pas seulement que l'outil de substitution a rendu 0 ;
+- **abandonner** sur échec de pose, avec un message qui dit « aucun verdict
+  rendu » plutôt qu'un verdict ;
+- **viser par numéro de ligne** quand l'ancre textuelle n'est pas unique — une
+  ancre qu'on croit unique et qui ne l'est pas est le cas normal, pas le cas rare.
+
+### Ce que ça dit de plus large
+
+C'est la même maladie que le reste de ce journal, appliquée à l'instrument
+lui-même : § 9 sexagicenties (un arbre sale pendant une mutation), § 9
+sexsexagicenties (un résumé daté lu comme un fait), § 9 quaterseptuagicenties
+(un recensement dont le motif est le dénominateur). À chaque fois, **un outil
+qui rapporte autre chose que ce qu'il a mesuré**.
+
+La différence ici : l'outil était celui qui sert précisément à ne pas se
+tromper. Un juge qui se trompe sur ses propres conclusions ne dégrade pas la
+mesure — il la retourne, parce qu'on lui fait confiance par construction.
