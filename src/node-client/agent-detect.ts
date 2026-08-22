@@ -297,9 +297,7 @@ async function firstPresent(
   // (tests) décide elle-même.
   const checkPour = (bin: string): Sonde => {
     const sig = bin === 'agent' ? signature : undefined;
-    return sig && sonder === probeBin
-      ? (argv) => probeBin(argv, 4_000, sig)
-      : sonder;
+    return sig && sonder === probeBin ? (argv) => probeBin(argv, 4_000, sig) : sonder;
   };
   for (const bin of bins) {
     const check = checkPour(bin);

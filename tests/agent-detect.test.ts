@@ -252,9 +252,7 @@ describe('réquisition si credentials manquantes', () => {
   });
 
   it('cursor avec CURSOR_API_KEY → silence', () => {
-    expect(
-      requisitionSiCredentialsManquantes('cursor', { CURSOR_API_KEY: 'key' }),
-    ).toBeNull();
+    expect(requisitionSiCredentialsManquantes('cursor', { CURSOR_API_KEY: 'key' })).toBeNull();
   });
 
   it('cursor avec ~/.cursor → silence même sans clé env', () => {

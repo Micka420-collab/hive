@@ -31,7 +31,13 @@ import {
   poserStatutFabrique,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier, FournisseurCleApi, MotifCatalogue, MotifPerso } from '../api';
+import type {
+  ChambrePoste,
+  EtatAtelier,
+  FournisseurCleApi,
+  MotifCatalogue,
+  MotifPerso,
+} from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
 import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
@@ -795,9 +801,7 @@ export default function Chambre({
                                   setErrCles(null);
                                 }}
                               >
-                                {presente
-                                  ? t('Remplacer', 'Replace')
-                                  : t('Ajouter', 'Add')}
+                                {presente ? t('Remplacer', 'Replace') : t('Ajouter', 'Add')}
                               </button>
                             </li>
                           );
@@ -1492,9 +1496,7 @@ export default function Chambre({
                       libelle: grantCatalogue.libelle,
                     })
                       .then((r) => {
-                        setStatusCles(
-                          t(`Clé posée · ${r.envVar}`, `Key saved · ${r.envVar}`),
-                        );
+                        setStatusCles(t(`Clé posée · ${r.envVar}`, `Key saved · ${r.envVar}`));
                         fermerGrant();
                         void fetchQueenCles().then((res) => {
                           setFournisseursCle(res.fournisseurs);

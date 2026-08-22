@@ -18,15 +18,7 @@ const CURSOR_TIMEOUT_MS = 15 * 60_000;
  */
 export function argvCursor(prompt: string, modele?: string): string[] {
   const drapeauxModele = modele ? ['--model', modele] : [];
-  return [
-    '-p',
-    '--force',
-    '--output-format',
-    'stream-json',
-    ...drapeauxModele,
-    '--',
-    prompt,
-  ];
+  return ['-p', '--force', '--output-format', 'stream-json', ...drapeauxModele, '--', prompt];
 }
 
 /**

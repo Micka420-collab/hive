@@ -2066,7 +2066,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       const libelle = (req.body.libelle ?? nom).trim() || nom;
       try {
-        poserCleQueenEnv(cheminEnvQueen, nom, vs.secret, `Clé ${libelle} (posée depuis la Chambre)`);
+        poserCleQueenEnv(
+          cheminEnvQueen,
+          nom,
+          vs.secret,
+          `Clé ${libelle} (posée depuis la Chambre)`,
+        );
         process.env[nom] = vs.secret;
       } catch {
         return reply.code(500).send({ error: 'ecriture_env' });

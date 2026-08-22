@@ -5,11 +5,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { bornerConcurrence, identiteStable } from './identite-noeud.js';
-import {
-  agentCredentialEnv,
-  detectAllAgents,
-  messageAgent,
-} from './agent-detect.js';
+import { agentCredentialEnv, detectAllAgents, messageAgent } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
