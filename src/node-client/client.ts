@@ -218,6 +218,12 @@ export class HiveNodeClient {
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
         break;
+      case 'requisition_ack':
+        this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
+        break;
+      case 'requisition_result':
+        this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
+        break;
       default:
         break; // state/event : réservés au dashboard
     }

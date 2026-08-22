@@ -14,6 +14,18 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   baptême et métier depuis la Chambre ; filtre Chronique « Essaim » ;
   avertissement nœuds shell ; veille techno légère dans le planner (`queen-veille.ts`) ;
   délibération prioritaire quand la dérive signale `a_surveiller`.
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+
+### Changed
+
+- **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
+  `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
+  secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`
+  (anti-spam 6 h, distinct de « dégradée »).
 
 ### Changed
 

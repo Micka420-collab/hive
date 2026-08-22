@@ -41,6 +41,10 @@ export const LIMITS = {
   modeles: 16,
   /** Contexte Hive Mind joint à une assignation (borné : injecté dans le prompt). */
   hiveContext: 8_000,
+  /** Genre / libellé / détail d'une réquisition ouverte par le nœud (ADR 0010). */
+  requisitionGenre: 40,
+  requisitionLibelle: 200,
+  requisitionDetail: 2_000,
   /** Nombre max de diffs joints à un merge. */
   mergeDiffs: 200,
   /** Nombre max d'arguments d'une commande de test, et longueur de chaque. */
@@ -143,6 +147,19 @@ export interface SubscribeMsg {
   token: string;
 }
 
+/**
+ * Réquisition ouverte par une ouvrière connectée (ADR 0010 lot 7).
+ *
+ * Le `nodeId` vient de la connexion authentifiée — jamais du message. Aucun
+ * secret ne transite : seulement genre + libellé + détail optionnel.
+ */
+export interface RequisitionOpenMsg {
+  type: 'requisition_open';
+  genre: string;
+  libelle: string;
+  detail?: string;
+}
+
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
 export interface MergeConflictReport {
   taskId: string;
@@ -205,6 +222,7 @@ export type ClientMessage =
   | TaskResultMsg
   | TaskRejectMsg
   | SubscribeMsg
+  | RequisitionOpenMsg
   | MergeResultMsg
   | ChantierResultMsg;
 
@@ -248,6 +266,23 @@ export interface EventMsg {
 export interface ErrorMsg {
   type: 'error';
   message: string;
+}
+
+/** Accusé de réception d'une réquisition ouverte via le protocole nœud. */
+export interface RequisitionAckMsg {
+  type: 'requisition_ack';
+  id: string;
+  genre: string;
+  libelle: string;
+}
+
+/**
+ * Décision humaine relayée au nœud — jamais le secret (clé chez la Queen).
+ */
+export interface RequisitionResultMsg {
+  type: 'requisition_result';
+  id: string;
+  statut: 'accordee' | 'refusee';
 }
 
 /** Un diff de tâche à intégrer lors d'un merge. */
@@ -315,6 +350,8 @@ export type ServerMessage =
   | StateMsg
   | EventMsg
   | ErrorMsg
+  | RequisitionAckMsg
+  | RequisitionResultMsg
   | AssignMergeMsg
   | AssignChantierMsg;
 
@@ -325,6 +362,8 @@ const SERVER_MESSAGE_TYPES = new Set([
   'state',
   'event',
   'error',
+  'requisition_ack',
+  'requisition_result',
   'assign_merge',
   'assign_chantier',
 ]);
@@ -574,6 +613,22 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (isStr(m.token, LIMITS.token)) return { type: 'subscribe', token: m.token };
       return null;
     }
+    case 'requisition_open': {
+      if (
+        isStr(m.genre, LIMITS.requisitionGenre) &&
+        isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail))
+      ) {
+        const msg: RequisitionOpenMsg = {
+          type: 'requisition_open',
+          genre: m.genre,
+          libelle: m.libelle,
+        };
+        if (m.detail !== undefined) msg.detail = m.detail as string;
+        return msg;
+      }
+      return null;
+    }
     case 'merge_result': {
       if (
         isId(m.mergeId) &&
@@ -675,6 +730,21 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'cancel_task':
       return isId(m.taskId) && isStrAllowEmpty(m.reason, LIMITS.name)
         ? { type: 'cancel_task', taskId: m.taskId, reason: m.reason }
+        : null;
+    case 'requisition_ack':
+      return isId(m.id) &&
+        isStr(m.genre, LIMITS.requisitionGenre) &&
+        isStr(m.libelle, LIMITS.requisitionLibelle)
+        ? {
+            type: 'requisition_ack',
+            id: m.id,
+            genre: m.genre,
+            libelle: m.libelle,
+          }
+        : null;
+    case 'requisition_result':
+      return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
+        ? { type: 'requisition_result', id: m.id, statut: m.statut }
         : null;
     case 'assign_merge': {
       // Sensible côté nœud : déclenche un clone + application de patches + tests.
