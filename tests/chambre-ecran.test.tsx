@@ -301,9 +301,6 @@ describe('Chambre à l’écran', () => {
     const accorder = [...dom.querySelectorAll('button')].find((b) =>
       (b.textContent ?? '').includes('Accorder'),
     ) as HTMLButtonElement;
-    const refuser = [...dom.querySelectorAll('button')].find((b) =>
-      (b.textContent ?? '').includes('Refuser'),
-    ) as HTMLButtonElement;
     await cliquer(accorder);
     await act(async () => {});
     expect(dom.querySelector('[role="dialog"]')).toBeTruthy();
@@ -313,8 +310,8 @@ describe('Chambre à l’écran', () => {
       setter.call(secretInput, 'sk-test');
       secretInput.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const accorderDialog = [...dom.querySelectorAll('[role="dialog"] button')].find((b) =>
-      (b.textContent ?? '').trim() === 'Accorder',
+    const accorderDialog = [...dom.querySelectorAll('[role="dialog"] button')].find(
+      (b) => (b.textContent ?? '').trim() === 'Accorder',
     ) as HTMLButtonElement;
     await cliquer(accorderDialog);
     await act(async () => {

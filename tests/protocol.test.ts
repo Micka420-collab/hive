@@ -214,9 +214,7 @@ describe('parseClientMessage', () => {
       detail: 'pour vidéo',
     });
     expect(
-      parseClientMessage(
-        JSON.stringify({ type: 'requisition_open', genre: '', libelle: 'x' }),
-      ),
+      parseClientMessage(JSON.stringify({ type: 'requisition_open', genre: '', libelle: 'x' })),
     ).toBeNull();
     expect(
       parseClientMessage(

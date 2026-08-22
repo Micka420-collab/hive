@@ -2004,7 +2004,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee'; secret?: string; envVar?: string } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { decision: 'accordee' | 'refusee'; secret?: string; envVar?: string };
+  }>(
     '/api/requisitions/:id/repondre',
     {
       schema: {
@@ -7939,12 +7942,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             );
             break;
           case 'requisition_open': {
-            const v = store.ouvrirRequisition(
-              nodeId,
-              msg.genre,
-              msg.libelle,
-              msg.detail ?? null,
-            );
+            const v = store.ouvrirRequisition(nodeId, msg.genre, msg.libelle, msg.detail ?? null);
             if (!v.ok) {
               send(ws, {
                 type: 'error',

@@ -27,7 +27,13 @@ import {
   poserStatutFabrique,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier, MotifCatalogue, MotifPerso, RequisitionPoste } from '../api';
+import type {
+  ChambrePoste,
+  EtatAtelier,
+  MotifCatalogue,
+  MotifPerso,
+  RequisitionPoste,
+} from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
 import { useDialog, Voile } from '../ui';
@@ -864,9 +870,7 @@ export default function Chambre({
                               {ouvert ? (
                                 <ol className="ch-motif-etapes">
                                   {m.etapes.map((e) => (
-                                    <li key={e.id}>
-                                      {langCode === 'en' ? e.titreEn : e.titreFr}
-                                    </li>
+                                    <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
                                   ))}
                                 </ol>
                               ) : null}
