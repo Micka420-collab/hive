@@ -12041,3 +12041,80 @@ travailler est le 4.
 - ⚠ **Machines Windows / macOS RÉELLES** : la matrice CI les couvre à chaque PR
   (installation → tableau → projet → invité → travail). Ce n'est pas la même
   chose qu'un poste humain, et ça se dit comme tel.
+
+## shared.tsx : 22 sur 22 — et le balayage du terrain des vues est CLOS
+
+Septième et dernier fichier jamais balayé de `dashboard/src/views`. Base
+épinglée (`LOUPE_BASE=e93b252`, vérifiée 503 ajoutées / 0 retirée) :
+
+```text
+22 mutation(s) possible(s) sur le diff, 22 examinée(s).
+12 défendues, 10 SANS TEST
+```
+
+### Ce fichier n'est pas une vue, et ça change la nature des nues
+
+Les six vues balayées avant lui rendaient des nues D'AFFICHAGE : un pluriel
+fautif, une tuile « chaude » à zéro, une pastille de propriété inversée. On lit
+un mensonge à l'écran ; la donnée, elle, est intacte.
+
+`shared.tsx` est le module que TOUTES les vues importent, et six de ses dix nues
+vivent dans la machinerie qui décide si le verdict d'un humain est **gardé,
+jeté ou rejoué** :
+
+| Nue                                    | Ce qui est perdu                                        |
+| -------------------------------------- | ------------------------------------------------------- |
+| succès `&&` → `\|\|`                   | un verdict changé pendant le vol perd sa marque         |
+| succès `===` → `!==`                   | les deux moitiés à l'envers                             |
+| échec `&&` → `\|\|`                    | une panne TRANSITOIRE purge au lieu de garder           |
+| échec `instanceof ApiError` → `Object` | tout objet portant `status: 404` purge                  |
+| drain `!==` → `===`                    | le verdict d'un collègue arrivé pendant le vol est jeté |
+| repli `===` → `!==`                    | le repli ne garde QUE les retraits                      |
+
+Les quatre autres sont les cas dégénérés de la sparkline — série vide, point
+unique (`width / 0` → `Infinity`), série toute à zéro, et le battement qui
+s'anime sur un trait plat.
+
+**Chacune des six premières échoue en SILENCE, en annonçant le succès.** Le
+commentaire du fichier énonce pourtant le contrat exact — « Échec DÉFINITIF […]
+l'entrée est purgée. Échec transitoire […] l'entrée reste, re-postée » — et rien
+ne le tenait. Un commentaire qui explique n'est pas une garde
+(§ 9 sexvicicenties) ; celui-ci gardait la donnée d'un utilisateur.
+
+### Le banc a dû apprendre à tenir un POST EN VOL
+
+Ces gardes ne se franchissent pas avec un décor : elles se franchissent avec un
+ORDRE. Le banc dénoue les promesses À LA MAIN (`enVol()`), sans jamais consulter
+d'horloge — le vol d'un POST est un ÉTAT, pas un délai.
+
+Deux fautes payées en l'écrivant, toutes deux dues à l'état de MODULE :
+`postChains` et `locallyPending` survivent à `localStorage.clear()`, donc une
+chaîne non dénouée bloquait le cas suivant sur la même tâche. Chaque cas prend
+désormais SA tâche. La leçon est portée en § 9 quatersexagicenties.
+
+### Rejeu, un mutant à la fois
+
+```text
+TENU · S1 succès : && → ||          TENU · V1 série vide : === → !==
+TENU · S2 succès : === → !==        TENU · V2 point unique : > → >=
+TENU · E1 échec : && → ||           TENU · V3 série nulle : === → !==
+TENU · E2 échec : ApiError → Object TENU · V4 battement : && → ||
+TENU · C1 drain : !== → ===
+TENU · R1 repli : === → !==
+
+═══ TENUS : 10 sur 10 ═══
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+### Le terrain, clos
+
+| Vue       | Balayé | Nues   | Fermées | Équivalentes |
+| --------- | ------ | ------ | ------- | ------------ |
+| Chronique | 34/34  | 7      | 6       | 1            |
+| MonEspace | 18/18  | 9      | 9       | —            |
+| shared    | 22/22  | 10     | 10      | —            |
+| **Total** | **74** | **26** | **25**  | **1**        |
+
+Plus aucune vue de `dashboard/src/views` n'est « jamais balayée ». Le lot #87 —
+« terrain dashboard/src/views : balayage fichier par fichier » — est clos.

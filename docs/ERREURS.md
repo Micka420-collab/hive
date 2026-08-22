@@ -13334,3 +13334,55 @@ rebours ont quand même survécu, dont exactement celle-là. **Une inquiétude
 écrite n'est pas une garde** — c'est le versant « décor » de § 9 sexvicicenties,
 où un commentaire qui explique se prenait pour un test. Ici c'est une note de
 carnet qui se prenait pour un cas.
+
+## 9 quatersexagicenties. L'état de MODULE survit à tout ce qu'un banc croit nettoyer
+
+Le banc de l'outbox des revues (`shared.tsx`) a rougi sur trois cas d'un coup,
+et pas là où il éprouvait : les assertions étaient justes, le décor était sale.
+
+```js
+beforeEach(() => {
+  localStorage.clear(); // ← nettoie le STOCKAGE
+  vi.mocked(postReview).mockReset();
+  hydrateReviews({}); // ← nettoie le CACHE
+});
+```
+
+Trois lignes de remise à zéro, et pourtant le deuxième cas voyait encore le
+premier. Ce qui restait n'était ni dans le stockage ni dans le cache :
+
+```js
+const postChains = new Map<string, Promise<void>>();   // au niveau MODULE
+const locallyPending = new Set<string>();              // au niveau MODULE
+```
+
+Un POST volontairement laissé EN VOL par le premier cas laisse sa chaîne dans
+`postChains`. Le cas suivant appelle `setReview` sur la même tâche, `enqueuePost`
+enchaîne derrière la promesse jamais dénouée — et le `.then` qui devait purger
+l'outbox n'arrive jamais. Le cas rougit en accusant la garde qu'il éprouvait.
+
+### Pourquoi c'est la faute du BANC et pas du module
+
+Sérialiser les POST par tâche est correct : c'est ce qui empêche deux verdicts
+de se doubler. Le module a raison de garder cet état entre deux appels — c'est
+sa fonction.
+
+Le banc, lui, avait supposé que « remettre à zéro » se limitait à ce qu'il
+pouvait NOMMER : le stockage, les mocks, le cache. L'état qu'on ne peut pas
+atteindre depuis l'extérieur n'apparaît dans aucun `clear()`, et c'est
+précisément celui qui traverse les cas.
+
+### La leçon
+
+**Un `beforeEach` ne nettoie que ce qu'il peut nommer.** Avant d'écrire un banc
+sur un module à état, lire ses variables de haut niveau et se demander, pour
+chacune : _qui la remet à zéro entre deux cas ?_ Là où la réponse est
+« personne », il faut soit une porte de remise à zéro, soit — plus simple et
+sans toucher au code de production — **une CLÉ DIFFÉRENTE par cas**. Ici, une
+tâche par cas (`t-change`, `t-transitoire`, `t-concurrent`…) : les chaînes ne se
+croisent plus, et le module garde son état légitime.
+
+C'est le pendant « état » de § 9 tersexagicenties : là, un décor figeait un
+CHAMP et une borne n'était jamais franchie ; ici, un décor néglige une MÉMOIRE
+et deux cas se contaminent. Dans les deux cas, ce qui trompe n'est pas
+l'assertion — c'est ce qu'on n'a pas pensé à faire varier, ou à effacer.
