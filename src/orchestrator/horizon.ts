@@ -6,6 +6,8 @@
 //
 // MODULE PUR — aucune I/O. `now` est un paramètre si besoin.
 
+import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+
 export const VERSION_HORIZON = 1;
 
 export const KINDS_HORIZON = ['fait', 'hypothese'] as const;
@@ -76,6 +78,37 @@ export function resumeHorizon(
   return { faits, hypotheses };
 }
 
+/** Budget injecté dans hiveContext (faits ≠ hypothèses, lecture seule). */
+export const HORIZON_CONTEXTE_BUDGET = 800;
+
+/** Plafond par entrée une fois injectée en consigne (anti-monopolisation). */
+export const HORIZON_LIGNE_MAX = 200;
+
+export function texteHorizonPourContexte(
+  entrees: readonly EntreeHorizon[],
+  budgetChars = HORIZON_CONTEXTE_BUDGET,
+): string {
+  const { faits, hypotheses } = resumeHorizon(entrees, 24);
+  const lignes: string[] = [];
+  if (faits.length > 0) {
+    lignes.push('Horizon — faits :');
+    // `champSurUneLigne` : sauts de ligne aplatis + délimiteurs neutralisés —
+    // ce texte repart en CONSIGNE ouvrière (cf. brood / livraison / issue).
+    for (const f of faits) lignes.push(`• ${champSurUneLigne(f.texte, HORIZON_LIGNE_MAX)}`);
+  }
+  if (hypotheses.length > 0) {
+    if (lignes.length) lignes.push('');
+    lignes.push('Horizon — hypothèses :');
+    for (const h of hypotheses) lignes.push(`• ${champSurUneLigne(h.texte, HORIZON_LIGNE_MAX)}`);
+  }
+  if (lignes.length === 0) return '';
+  let texte = lignes.join('\n');
+  if (texte.length > budgetChars) {
+    texte = `${texte.slice(0, Math.max(0, budgetChars - 1))}…`;
+  }
+  return texte;
+}
+
 /** L'horizon ne doit pas gonfler l'instantané de tâches. */
 export function horizonDepasseBudgetTaches(
   entreesHorizon: number,
@@ -102,6 +135,20 @@ export function texteFaitDeriveDegradee(motif: string): string {
   return `${base}${sep}${m.slice(0, budget)}`;
 }
 
+/** Préfixe stable des faits auto « à surveiller » (seuil resserré, pas encore halte). */
+export const PREFIXE_FAIT_DERIVE_SURVEILLER = 'Dérive à surveiller';
+
+/** Texte borné d'un fait auto-posé quand la dérive passe en `a_surveiller`. */
+export function texteFaitDeriveASurveiller(motif: string): string {
+  const base = PREFIXE_FAIT_DERIVE_SURVEILLER;
+  const m = motif.replace(/\s+/g, ' ').trim();
+  if (!m) return base;
+  const sep = ' — ';
+  const budget = HORIZON_TEXTE_MAX - base.length - sep.length;
+  if (budget <= 0) return base.slice(0, HORIZON_TEXTE_MAX);
+  return `${base}${sep}${m.slice(0, budget)}`;
+}
+
 /**
  * Faut-il encore écrire un fait « dérive dégradée » ?
  * Évite de saturer le carnet à chaque GET / cycle runner.
@@ -116,6 +163,24 @@ export function doitNoterFaitDeriveDegradee(
       e.kind === 'fait' &&
       e.source === SOURCE_HORIZON_DERIVE &&
       e.texte.startsWith('Dérive dégradée') &&
+      now - e.creeA < fenetreMs,
+  );
+}
+
+/**
+ * Faut-il encore écrire un fait « dérive à surveiller » ?
+ * Même fenêtre anti-spam que la dégradée — deux niveaux, deux préfixes.
+ */
+export function doitNoterFaitDeriveASurveiller(
+  entrees: readonly EntreeHorizon[],
+  now: number,
+  fenetreMs = FENETRE_FAIT_DERIVE_MS,
+): boolean {
+  return !entrees.some(
+    (e) =>
+      e.kind === 'fait' &&
+      e.source === SOURCE_HORIZON_DERIVE &&
+      e.texte.startsWith(PREFIXE_FAIT_DERIVE_SURVEILLER) &&
       now - e.creeA < fenetreMs,
   );
 }

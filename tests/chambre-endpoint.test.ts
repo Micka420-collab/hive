@@ -1,6 +1,6 @@
 // Chambre — API lecture (ADR 0010 lot 4). Identités : jeton de ruche seulement.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,6 +29,7 @@ describe('GET /api/chambre/:nodeId', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
+      envPath: path.join(dir, '.env'),
       simulation: true,
       tickMs: 60,
     });
@@ -83,8 +84,12 @@ describe('GET /api/chambre/:nodeId', () => {
       agentType: 'shell',
       maxConcurrency: 1,
     });
-    expect(srv.store.baptiser('n-2', 'Capucine', 1000)).toEqual({ ok: true, nom: 'Capucine' });
-    expect(srv.store.assignerMetier('n-2', 'edite', 1001)).toEqual({
+    // Timestamps « maintenant » : le tick prune les présences > 1 h
+    // (PRESENCES_RETENTION_MS) — 1000/1002 (époque Unix) disparaissaient
+    // avant le GET dès qu’un tick passait (flake ubuntu).
+    const t0 = Date.now();
+    expect(srv.store.baptiser('n-2', 'Capucine', t0)).toEqual({ ok: true, nom: 'Capucine' });
+    expect(srv.store.assignerMetier('n-2', 'edite', t0 + 1)).toEqual({
       ok: true,
       metier: 'edite',
     });
@@ -93,7 +98,7 @@ describe('GET /api/chambre/:nodeId', () => {
         'n-2',
         [{ toolUseId: 'toolu_1', chemin: 'src/a.ts', outil: 'Edit' }],
         't1',
-        1002,
+        t0 + 2,
       ),
     ).toEqual({ ok: true });
 
@@ -121,12 +126,13 @@ describe('GET /api/chambre/:nodeId', () => {
       agentType: 'shell',
       maxConcurrency: 1,
     });
-    srv.store.baptiser('n-3', 'Iris', 1);
+    const t0 = Date.now();
+    srv.store.baptiser('n-3', 'Iris', t0);
     srv.store.remplacerPresences(
       'n-3',
       [{ toolUseId: 't', chemin: 'src/x.ts', outil: 'Read' }],
       null,
-      2,
+      t0 + 1,
     );
     const res = await fetch(`${srv.url}/api/presences`, { headers });
     expect(res.status).toBe(200);
@@ -148,13 +154,49 @@ describe('GET /api/chambre/:nodeId', () => {
       agentType: 'shell',
       maxConcurrency: 1,
     });
-    srv.store.baptiser('n-b1', 'Capucine', 1);
+    srv.store.baptiser('n-b1', 'Capucine', Date.now());
     const res = await fetch(`${srv.url}/api/baptemes`, { headers });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       baptemes: Array<{ nodeId: string; nom: string }>;
     };
     expect(body.baptemes).toEqual([expect.objectContaining({ nodeId: 'n-b1', nom: 'Capucine' })]);
+  });
+
+  it('POST /api/baptemes et /api/metiers : la Reine nomme et assigne', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-b2',
+      name: 'tech',
+      ownerName: 'hôte',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    const bapt = await fetch(`${srv.url}/api/baptemes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ nodeId: 'n-b2', nom: 'Violette' }),
+    });
+    expect(bapt.status).toBe(200);
+    const met = await fetch(`${srv.url}/api/metiers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ nodeId: 'n-b2', metier: 'edite' }),
+    });
+    expect(met.status).toBe(200);
+    const ch = await fetch(`${srv.url}/api/chambre/n-b2`, { headers });
+    const body = (await ch.json()) as {
+      bapteme: { nom: string };
+      metier: { metier: string };
+    };
+    expect(body.bapteme.nom).toBe('Violette');
+    expect(body.metier.metier).toBe('edite');
+    const collision = await fetch(`${srv.url}/api/baptemes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ nodeId: 'n-b2', nom: 'claude-code' }),
+    });
+    expect(collision.status).toBe(400);
   });
 
   it('réquisitions : ouvrir et répondre via API', async () => {
@@ -183,9 +225,125 @@ describe('GET /api/chambre/:nodeId', () => {
     const rep = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ decision: 'accordee' }),
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-seedance-test' }),
     });
     expect(rep.status).toBe(200);
+    const body = (await rep.json()) as { envVar?: string };
+    expect(body.envVar).toBe('SEEDANCE_API_KEY');
+    expect(process.env.SEEDANCE_API_KEY).toBe('sk-seedance-test');
+    const envPath = path.join(dir!, '.env');
+    expect(readFileSync(envPath, 'utf8')).toContain('SEEDANCE_API_KEY=sk-seedance-test');
+    expect(readFileSync(envPath, 'utf8')).not.toMatch(/sk-seedance-test.*sk-seedance-test/);
+    delete process.env.SEEDANCE_API_KEY;
+  });
+
+  it('réquisition déjà close : 409 sans réécrire le .env', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-close',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    const cree = await fetch(`${srv.url}/api/requisitions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        nodeId: 'n-close',
+        genre: 'cle_api',
+        libelle: 'Clé Seedance',
+      }),
+    });
+    const { id } = (await cree.json()) as { id: string };
+    await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-premier' }),
+    });
+    const envPath = path.join(dir!, '.env');
+    const avant = readFileSync(envPath, 'utf8');
+    const replay = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-deuxieme-hostile' }),
+    });
+    expect(replay.status).toBe(409);
+    expect(readFileSync(envPath, 'utf8')).toBe(avant);
+    expect(readFileSync(envPath, 'utf8')).not.toContain('sk-deuxieme');
+    delete process.env.SEEDANCE_API_KEY;
+  });
+
+  it('envVar différent du dérivé → 400 env_refuse', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-env',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    const cree = await fetch(`${srv.url}/api/requisitions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        nodeId: 'n-env',
+        genre: 'cle_api',
+        libelle: 'Clé Seedance',
+      }),
+    });
+    const { id } = (await cree.json()) as { id: string };
+    const bad = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        decision: 'accordee',
+        secret: 'sk-x',
+        envVar: 'HIVE_JWT_SECRET',
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const corps = (await bad.json()) as { error: string };
+    expect(corps.error).toBe('env_refuse');
+    expect(
+      existsSync(path.join(dir!, '.env')) ? readFileSync(path.join(dir!, '.env'), 'utf8') : '',
+    ).not.toContain('HIVE_JWT_SECRET');
+  });
+
+  it('GET/POST /api/queen/cles : catalogue + pose OpenRouter sans stocker le secret en base', async () => {
+    const srv = await demarrer();
+    const liste = await fetch(`${srv.url}/api/queen/cles`, { headers });
+    expect(liste.status).toBe(200);
+    const corps = (await liste.json()) as {
+      fournisseurs: Array<{ id: string; envVar: string }>;
+      presence: Array<{ id: string; presente: boolean }>;
+    };
+    expect(corps.fournisseurs.some((f) => f.id === 'openrouter')).toBe(true);
+    expect(corps.presence.find((p) => p.id === 'openrouter')?.presente).toBe(false);
+
+    const pose = await fetch(`${srv.url}/api/queen/cles`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        secret: 'sk-or-test-key',
+        envVar: 'OPENROUTER_API_KEY',
+        libelle: 'OpenRouter',
+      }),
+    });
+    expect(pose.status).toBe(200);
+    const body = (await pose.json()) as { ok: boolean; envVar: string };
+    expect(body.envVar).toBe('OPENROUTER_API_KEY');
+    expect(process.env.OPENROUTER_API_KEY).toBe('sk-or-test-key');
+    const envPath = path.join(dir!, '.env');
+    expect(readFileSync(envPath, 'utf8')).toContain('OPENROUTER_API_KEY=sk-or-test-key');
+
+    const apres = await fetch(`${srv.url}/api/queen/cles`, { headers });
+    const vu = (await apres.json()) as {
+      presence: Array<{ id: string; presente: boolean }>;
+    };
+    expect(vu.presence.find((p) => p.id === 'openrouter')?.presente).toBe(true);
+    expect(JSON.stringify(vu)).not.toContain('sk-or-test');
+    delete process.env.OPENROUTER_API_KEY;
   });
 
   it('expose horizon + fabriques du projet dominant (sinon null / [])', async () => {

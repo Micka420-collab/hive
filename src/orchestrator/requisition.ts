@@ -66,6 +66,44 @@ export function libelleGenreRequisition(genre: GenreRequisition, lang: 'fr' | 'e
   return (lang === 'en' ? en : fr)[genre];
 }
 
+/**
+ * Quoi faire APRÈS un Accorder réussi — hors `cle_api` (qui a son modal).
+ * Sans ça, Accorder ne faisait que basculer le statut : un no-op déguisé.
+ */
+export type SuiteAccordRequisition =
+  | { action: 'modal_cle' }
+  | { action: 'atelier' }
+  | { action: 'fabrique'; genreFabrique: 'mcp' | 'script_npm' | 'pont' }
+  | { action: 'hint_binaire' };
+
+export function suiteAccordRequisition(genre: GenreRequisition): SuiteAccordRequisition {
+  if (genre === 'cle_api') return { action: 'modal_cle' };
+  if (genre === 'atelier') return { action: 'atelier' };
+  if (genre === 'mcp') return { action: 'fabrique', genreFabrique: 'mcp' };
+  if (genre === 'logiciel') return { action: 'fabrique', genreFabrique: 'script_npm' };
+  return { action: 'hint_binaire' };
+}
+
+/**
+ * Message HITL après Accorder `binaire` — nomme l’outil du libellé
+ * (ex. « Binaire claude » → installez « claude ») plutôt qu’un toast générique.
+ */
+export function messageAccordBinaire(libelle: string, lang: 'fr' | 'en' = 'fr'): string {
+  const brut = libelle.trim();
+  const entreParens = brut.match(/\(([^)]+)\)\s*$/);
+  const outil = (entreParens?.[1] ?? brut.replace(/^Binaire\s+/i, '')).trim() || brut || 'CLI';
+  if (lang === 'en') {
+    return (
+      `Granted — install « ${outil} » on the host (PATH / hive doctor), ` +
+      `then restart the node so the task can resume.`
+    );
+  }
+  return (
+    `Accordée — installez « ${outil} » sur le poste (PATH / hive doctor), ` +
+    `puis relancez le nœud pour reprendre la tâche.`
+  );
+}
+
 export function expliquerRefusRequisition(
   motif: MotifRefusRequisition,
   lang: 'fr' | 'en' = 'fr',

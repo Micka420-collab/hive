@@ -7,6 +7,58 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Clés API proactives (OpenRouter & co).** Catalogue Chambre → Intégrations :
+  OpenRouter, Anthropic, OpenAI, xAI, Cursor, Seedance, ou variable libre ;
+  `GET/POST /api/queen/cles` écrit le `.env` Queen (jamais la valeur en base).
+- **Relecture Claude (#348) intégrée.** Horizon neutralisé (`champSurUneLigne`) ;
+  grant : validation puis transition puis écriture ; `envVar` = dérivé du libellé ;
+  motifs : `ordre` dans la donnée + `catalogueCoherent` ; étapes perso = une ligne.
+- **Boucle réquisition mid-task.** Échec infra auth → `cle_api` ; binaire
+  absent (ENOENT / « échec du lancement ») → `binaire` ; `requisition_open` +
+  `taskId` ; pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
+- **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
+  mcp/logiciel → fabrique ; binaire → hint install nommé (`messageAccordBinaire`).
+  Modal grant : `envVar` en lecture seule pour les réquisitions.
+- **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
+  `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
+  `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
+  (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
+  **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
+- **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
+  veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
+- **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au
+  premier cycle runner.
+- **Hive Mind hybride.** `rankMemoriesHybrid` : BM25 + trigrammes pour projets longs.
+- **Story produit.** `PourquoiHive` dans Mon espace et Chronique (vs Cursor/Devin).
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+- **Grant cle_api Chambre → `.env` Queen.** Modal HITL pour saisir variable et secret ;
+  `requisition-env.ts` écrit atomiquement sur l'hôte ; le nœud recharge `.env` à la reprise.
+  Mapping libellés agents (Codex/Claude/Grok/Seedance) → variables standard.
+- **Horizon dans le contexte ouvrière.** `texteHorizonPourContexte` injecté dans
+  `construireHiveContext` (budget tokens restant) et dans le contexte conseil.
+- **Fabrique UI Chambre.** Formulaire « Proposer », boutons Revue/Refuser, juger/lancer Chantiers.
+- **Motifs perso.** Procédures par projet (`motifs_projet`) : créer depuis la Chambre, appliquer en tâches ordonnées.
+- **Motifs catalogue — confirmation.** Aperçu des étapes (toggle) + dialogue avant appliquer.
+
+### Changed
+
+- **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
+  en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
+  pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
+  Réquisition proactive à l'enregistrement si credentials agent absents (`requisitionSiCredentialsManquantes`).
+- **Polish autonomie.** API baptême/métier ; checklist Essaim ; Chambre baptême/métier ;
+  veille planner ; délibération si `a_surveiller`.
+- **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
+  `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
+  secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`
+  (anti-spam 6 h, distinct de « dégradée »).
+
 ### Changed
 
 - **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers

@@ -60,15 +60,22 @@ describe('LE NŒUD QU’ON LANCE CHEZ SOI (`npm run node`)', () => {
   });
 
   it('DÉTECTE, comme le fait le chemin de l’ami depuis toujours', () => {
-    expect(NU).toMatch(/detectBestAgent\(\)/);
+    // La détection (et le menu si plusieurs agents) vit dans
+    // `resoudreAgentAuDemarrage` — qui appelle `detectBestAgent` hors TTY.
+    expect(NU).toMatch(/resoudreAgentAuDemarrage\(/);
   });
 
   it('HIVE_AGENT garde le dernier mot', () => {
     // Forcer `shell` reste la façon d'avoir un nœud de test qui n'exécute
-    // rien pour de vrai. La détection ne doit pas retirer ce choix.
-    expect(NU).toMatch(/HIVE_AGENT/);
-    expect(NU, 'la valeur forcée doit court-circuiter la détection').toMatch(
-      /forceAgent\s*\?[\s\S]*?await detectBestAgent\(\)/,
+    // rien pour de vrai. La détection ne doit pas retirer ce choix — c'est
+    // `resoudreAgentAuDemarrage` qui lit HIVE_AGENT en premier.
+    const CHOIX = readFileSync(
+      new URL('../src/node-client/choisir-agent.ts', import.meta.url),
+      'utf8',
+    ).replace(/^\s*\/\/.*$/gm, '');
+    expect(CHOIX).toMatch(/HIVE_AGENT/);
+    expect(CHOIX, 'la valeur forcée doit court-circuiter la détection').toMatch(
+      /force[\s\S]*?labelPour/,
     );
   });
 
@@ -86,10 +93,7 @@ describe('LE NŒUD QU’ON LANCE CHEZ SOI (`npm run node`)', () => {
     // Un nœud que l'isolement refuse n'a pas à sonder quoi que ce soit — et
     // l'humain doit lire d'abord ce qui l'arrête.
     const bac = NU.indexOf('bac.refuse');
-    // `await detectBestAgent`, et non `detectBestAgent` : la première
-    // occurrence du nom nu est la LIGNE D'IMPORT, tout en haut — la garde
-    // était donc rouge quoi qu'il arrive. Elle a échoué en me le disant.
-    const sonde = NU.indexOf('await detectBestAgent');
+    const sonde = NU.indexOf('await resoudreAgentAuDemarrage');
     expect(bac, 'le refus du bac doit être dans la source').toBeGreaterThan(-1);
     expect(sonde, 'la détection doit venir après le refus du bac').toBeGreaterThan(bac);
   });
@@ -109,6 +113,7 @@ describe('CE QU’ON DIT À L’HUMAIN — et pourquoi la nuance compte', () => 
 
   it('UN VRAI AGENT NE MÉRITE AUCUN AVERTISSEMENT', () => {
     expect(messageAgent('claude-code', ['claude-code', 'shell'])).toBeNull();
+    expect(messageAgent('cursor', ['cursor', 'shell'])).toBeNull();
     expect(messageAgent('codex', ['codex', 'shell'])).toBeNull();
     expect(messageAgent('custom', ['custom', 'shell'])).toBeNull();
   });
@@ -243,6 +248,7 @@ describe('GROK BUILD — l’agent de xAI, branché comme les autres', () => {
     // et un binaire homonyme hostile ne demande rien d'autre.
     expect(envSonde({ XAI_API_KEY: 'xai-secret', PATH: '/usr/bin' }).XAI_API_KEY).toBeUndefined();
     expect(SECRETS_JAMAIS_SONDES).toContain('XAI_API_KEY');
+    expect(SECRETS_JAMAIS_SONDES).toContain('CURSOR_API_KEY');
   });
 
   it('N’EST PAS TRAITÉ COMME UN PAQUET NPM', () => {

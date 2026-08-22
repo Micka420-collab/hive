@@ -12,6 +12,8 @@
 //   QUEEN_BEE_MODEL     — modèle (défaut : anthropic/claude-sonnet-4)
 
 import { LIMITS } from '../shared/protocol.js';
+import { conseilVeilleBrief } from './queen-veille.js';
+import { QUEEN_BEE_SYSTEM_PROMPT } from './queen-intelligence-core.js';
 
 export interface QueenBeeConfig {
   apiKey: string;
@@ -36,36 +38,18 @@ export interface BriefResult {
   model: string;
 }
 
-const SYSTEM_PROMPT = `Tu es Queen Bee, l'architecte d'une ruche d'agents IA. Ton rôle : analyser un brief de projet logiciel et le découper en tâches atomiques avec leurs dépendances.
-
-RÈGLES :
-- Chaque tâche doit être INDÉPENDANTE sauf dépendance explicite (pas de chevauchement)
-- max 12 tâches (si le projet est gros, regroupe intelligemment)
-- Chaque tâche a : un titre court (max 80 chars), un prompt détaillé pour un agent de codage, et optionnellement des dépendances (ids d'autres tâches)
-- Les ids sont optionnels : si absents, je les génère (T1, T2…)
-- Ordonne les tâches pour maximiser le parallélisme (peu de dépendances = plus d'agents en parallèle)
-- Sois concret : le prompt doit dire CE QU'IL FAUT FAIRE, pas juste le résultat attendu
-
-FORMAT DE RÉPONSE (JSON uniquement, pas de markdown) :
-{
-  "rationale": "Explication du découpage en 1-2 phrases",
-  "tasks": [
-    {
-      "id": "setup-db",
-      "title": "Mettre en place la base de données",
-      "prompt": "Crée le schéma SQL pour...",
-      "dependsOn": []
-    }
-  ]
-}`;
-
 function buildUserPrompt(brief: string, language: string): string {
-  return `Analyse ce brief de projet et découpe-le en tâches atomiques pour des agents de codage.
-
-Langue : ${language}
-
-BRIEF :
-${brief}`;
+  const veille = conseilVeilleBrief(brief);
+  const corps = [
+    `Analyse ce brief de projet et découpe-le en tâches atomiques pour des agents de codage.`,
+    '',
+    `Langue : ${language}`,
+    '',
+    'BRIEF :',
+    brief,
+  ];
+  if (veille) corps.push('', veille);
+  return corps.join('\n');
 }
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -100,7 +84,7 @@ export async function briefToDAG(brief: string, config: QueenBeeConfig): Promise
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: QUEEN_BEE_SYSTEM_PROMPT },
           { role: 'user', content: buildUserPrompt(brief, language) },
         ],
         temperature: 0.3,

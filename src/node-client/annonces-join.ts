@@ -84,7 +84,7 @@ export function annonceAgent(
   if (!auMoinsUnReel) {
     return (
       '   ℹ Aucun agent IA détecté : mode « shell simulé » (sûr, sans exécution réelle).\n' +
-      '     Installez Claude Code ou Codex, ou définissez HIVE_AGENT, pour du vrai travail.'
+      '     Installez Claude Code, Cursor ou Codex, ou définissez HIVE_AGENT, pour du vrai travail.'
     );
   }
   return '   ℹ Agent « shell simulé » forcé (HIVE_AGENT) alors que des agents réels sont disponibles.';

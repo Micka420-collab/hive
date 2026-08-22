@@ -147,7 +147,7 @@ describe('de la production réelle à la caste, puis au cadre', { shuffle: false
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 60,
       // Les deux doivent être allumés : sans Gardiennes, aucune inspection
       // n'est rangée et le polyéthisme s'éteint de lui-même.

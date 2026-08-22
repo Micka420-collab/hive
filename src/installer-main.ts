@@ -322,7 +322,9 @@ async function main(): Promise<void> {
   // `existant` a été lu avant les sondes (voir plus haut) : le relire ici
   // ouvrirait la porte à deux vérités pour un même fichier.
   const neuf = !existsSync(CHEMIN_ENV);
-  const reglages = composerReglages(existant);
+  const reglages = composerReglages(existant, undefined, undefined, {
+    sansAgentReel: !agent,
+  });
   const ajoutees = reglages.filter((r) => !existant.has(r.cle)).map((r) => r.cle);
 
   fait.env = {

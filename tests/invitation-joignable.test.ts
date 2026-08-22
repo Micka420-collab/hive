@@ -45,6 +45,7 @@ describe('l’invitation prévient quand elle ne peut pas aboutir', () => {
 describe('l’agent se dit avec le nom que l’humain connaît', () => {
   it('les identifiants techniques deviennent des noms de marque', () => {
     expect(libelleAgent('claude-code')).toBe('Claude Code');
+    expect(libelleAgent('cursor')).toBe('Cursor');
     expect(libelleAgent('codex')).toBe('Codex');
   });
 

@@ -191,10 +191,27 @@ import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essa
 import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
 import { marquerFabriquesMergeesApresFusion } from './fabrique.js';
 import {
+  doitNoterFaitDeriveASurveiller,
   doitNoterFaitDeriveDegradee,
   SOURCE_HORIZON_DERIVE,
+  texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
+  texteHorizonPourContexte,
 } from './horizon.js';
+import { expliquerRefusBapteme } from './bapteme.js';
+import { METIERS, expliquerRefusMetier } from './metier.js';
+import { expliquerRefusRequisition } from './requisition.js';
+import {
+  FOURNISSEURS_CLE,
+  estEnvQueenAutorisee,
+  estNomEnvValide,
+  expliquerRefusSecret,
+  nomEnvDepuisLibelle,
+  poserCleQueenEnv,
+  presenceClesCatalogue,
+  validerSecretRequisition,
+} from './requisition-env.js';
+import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -485,6 +502,11 @@ export interface ServerConfig {
    */
   relivraisonMinMs?: number;
   /**
+   * Chemin du `.env` Queen (grant `cle_api`). Défaut : `.env` dans le cwd.
+   * Les tests passent un fichier à côté de `dbPath` pour ne pas polluer le dépôt.
+   */
+  envPath?: string;
+  /**
    * HIVE_BALANCE : off | observation | strict. Défaut `observation` — la ruche
    * pèse ce qu'elle dépense sans jamais rien bloquer. Optionnel ici (et non
    * requis comme le reste) pour que tout appelant existant de `createServer`
@@ -671,6 +693,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   }
 
   const store = new HiveStore(config.dbPath);
+  const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
+
+  const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
+    const base = [projet.name, projet.description ?? '', projet.repoUrl ?? '']
+      .filter(Boolean)
+      .join(' — ');
+    const horizon = texteHorizonPourContexte(store.listerHorizon(projectId));
+    return horizon ? `${base}\n\n${horizon}` : base;
+  };
 
   /**
    * Le Rayon — miroir en lecture seule du code des projets.
@@ -1011,6 +1042,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         (lecons ? lecons.length + 2 : 0) -
         (dejaPris ? dejaPris + 2 : 0),
     );
+    const budgetHorizon =
+      LIMITS.hiveContext -
+      (savoir ? savoir.length + 2 : 0) -
+      (lecons ? lecons.length + 2 : 0) -
+      (souvenirs ? souvenirs.length + 2 : 0) -
+      (dejaPris ? dejaPris + 2 : 0);
+    const horizon =
+      budgetHorizon > 80
+        ? texteHorizonPourContexte(store.listerHorizon(task.projectId), budgetHorizon - 2)
+        : '';
+    const veille = conseilVeilleBrief(`${task.title} ${task.prompt}`) ?? '';
     return {
       // ─── L'ORDRE EST UNE DÉCISION, PAS UNE HABITUDE ────────────────────────
       //
@@ -1024,7 +1066,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, lecons, souvenirs].filter(Boolean).join('\n\n'),
+      hiveContext: [savoir, lecons, souvenirs, horizon, veille].filter(Boolean).join('\n\n'),
       echecs: lecons ? echecs.length : 0,
       // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
       // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
@@ -1268,6 +1310,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   const scheduler = new Scheduler(store, {
+    simulation: config.simulation,
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',
@@ -1876,6 +1919,83 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     };
   });
 
+  /** La Reine baptise — geste humain, jeton de ruche uniquement. */
+  app.post<{ Body: { nodeId: string; nom: string } }>(
+    '/api/baptemes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'nom'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            nom: { type: 'string', minLength: 1, maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.baptiser(req.body.nodeId, req.body.nom);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusBapteme(verdict.motif) });
+      }
+      emitEvent('bapteme_pose', { nodeId: req.body.nodeId, nom: verdict.nom });
+      return { ok: true, nodeId: req.body.nodeId, nom: verdict.nom };
+    },
+  );
+
+  app.delete<{ Params: { nodeId: string } }>('/api/baptemes/:nodeId', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!store.getNode(req.params.nodeId)) {
+      return reply.code(404).send({ error: 'ouvrière inconnue' });
+    }
+    const ok = store.debaptiser(req.params.nodeId);
+    if (!ok) return reply.code(404).send({ error: 'aucun baptême à retirer' });
+    emitEvent('bapteme_retire', { nodeId: req.params.nodeId });
+    return { ok: true };
+  });
+
+  /** Métiers de cycle assignés — lecture constatée. */
+  app.get('/api/metiers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      metiers: store.listerMetiers(),
+      catalogue: METIERS,
+    };
+  });
+
+  /** La Reine assigne un métier de cycle — liste fermée. */
+  app.post<{ Body: { nodeId: string; metier: string } }>(
+    '/api/metiers',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'metier'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            metier: { type: 'string', minLength: 1, maxLength: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.assignerMetier(req.body.nodeId, req.body.metier);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusMetier(verdict.motif) });
+      }
+      emitEvent('metier_assigne', {
+        nodeId: req.body.nodeId,
+        metier: verdict.metier,
+      });
+      return { ok: true, nodeId: req.body.nodeId, metier: verdict.metier };
+    },
+  );
+
   /**
    * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
    * Jeton de ruche uniquement. Aucun secret dans le corps.
@@ -1898,6 +2018,69 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       })),
     };
   });
+
+  // Catalogue + pose proactive de clés API Queen (OpenRouter, Anthropic…).
+  // Même doctrine que le grant HITL : secret uniquement dans `.env`, jamais
+  // en base. Présence = booléen, jamais la valeur.
+  app.get('/api/queen/cles', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      fournisseurs: FOURNISSEURS_CLE.map((f) => ({
+        id: f.id,
+        libelleFr: f.libelleFr,
+        libelleEn: f.libelleEn,
+        envVar: f.envVar,
+        hintFr: f.hintFr,
+        hintEn: f.hintEn,
+      })),
+      presence: presenceClesCatalogue(cheminEnvQueen),
+    };
+  });
+
+  app.post<{
+    Body: { secret: string; envVar: string; libelle?: string };
+  }>(
+    '/api/queen/cles',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['secret', 'envVar'],
+          additionalProperties: false,
+          properties: {
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
+            libelle: { type: 'string', maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const vs = validerSecretRequisition(req.body.secret);
+      if (!vs.ok) {
+        return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+      }
+      const nom = req.body.envVar.trim();
+      if (!estNomEnvValide(nom) || !estEnvQueenAutorisee(nom)) {
+        return reply.code(400).send({ error: 'env_invalide' });
+      }
+      const libelle = (req.body.libelle ?? nom).trim() || nom;
+      try {
+        poserCleQueenEnv(
+          cheminEnvQueen,
+          nom,
+          vs.secret,
+          `Clé ${libelle} (posée depuis la Chambre)`,
+        );
+        process.env[nom] = vs.secret;
+      } catch {
+        return reply.code(500).send({ error: 'ecriture_env' });
+      }
+      emitEvent('queen_cle_posee', { envVar: nom, libelle });
+      return { ok: true, envVar: nom };
+    },
+  );
 
   app.post<{
     Body: { nodeId: string; genre: string; libelle: string; detail?: string };
@@ -1939,7 +2122,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee' } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { decision: 'accordee' | 'refusee'; secret?: string; envVar?: string };
+  }>(
     '/api/requisitions/:id/repondre',
     {
       schema: {
@@ -1954,23 +2140,74 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           additionalProperties: false,
           properties: {
             decision: { type: 'string', enum: ['accordee', 'refusee'] },
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
           },
         },
       },
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
+      const cur = store.lireRequisition(req.params.id);
+      if (!cur) return reply.code(404).send({ error: 'inconnue' });
+
+      // Valider AVANT la transition ; écrire APRÈS. Sinon : (a) une réquisition
+      // déjà close réécrit le .env puis 409 ; (b) une transition « accordée »
+      // sans secret valide laisse une réquisition close sans clé.
+      let secretValide: string | undefined;
+      let nomEnv: string | undefined;
+      if (req.body.decision === 'accordee' && cur.genre === 'cle_api') {
+        const vs = validerSecretRequisition(req.body.secret);
+        if (!vs.ok) {
+          return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+        }
+        const derive = nomEnvDepuisLibelle(cur.libelle);
+        if (req.body.envVar !== undefined && req.body.envVar !== derive) {
+          return reply.code(400).send({ error: 'env_refuse', attendu: derive });
+        }
+        if (!estNomEnvValide(derive) || !estEnvQueenAutorisee(derive)) {
+          return reply.code(400).send({ error: 'env_invalide' });
+        }
+        secretValide = vs.secret;
+        nomEnv = derive;
+      }
+
       const v = store.repondreRequisition(req.params.id, req.body.decision);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
         return reply.code(code).send({ error: v.motif });
       }
+
+      let envPose: string | undefined;
+      if (secretValide && nomEnv) {
+        try {
+          poserCleQueenEnv(
+            cheminEnvQueen,
+            nomEnv,
+            secretValide,
+            `Réquisition ${cur.libelle} (accordée depuis la Chambre)`,
+          );
+          process.env[nomEnv] = secretValide;
+          envPose = nomEnv;
+        } catch {
+          return reply.code(500).send({ error: 'ecriture_env' });
+        }
+      }
       // La clé reste chez la Queen / Intendance — on constate la décision, pas le secret.
       emitEvent('requisition_reponse', {
         id: req.params.id,
         statut: v.statut,
+        ...(envPose ? { envVar: envPose } : {}),
       });
-      return { ok: true, statut: v.statut };
+      const ws = nodeSockets.get(cur.nodeId);
+      if (ws && (v.statut === 'accordee' || v.statut === 'refusee')) {
+        send(ws, {
+          type: 'requisition_result',
+          id: req.params.id,
+          statut: v.statut,
+        });
+      }
+      return { ok: true, statut: v.statut, ...(envPose ? { envVar: envPose } : {}) };
     },
   );
 
@@ -2221,6 +2458,86 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         prevId = task.id;
       }
       return { ok: true, motifId: v.motif.id, taskIds, titres: v.titres };
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/motifs/perso',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { motifs: store.listerMotifsProjet(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { libelle: string; etapes: string[] };
+  }>(
+    '/api/projects/:projectId/motifs/perso',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['libelle', 'etapes'],
+          additionalProperties: false,
+          properties: {
+            libelle: { type: 'string', minLength: 1, maxLength: 120 },
+            etapes: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 8,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { expliquerRefusMotifPerso } = await import('./motifs.js');
+      const v = store.creerMotifProjet(projectId, req.body.libelle, req.body.etapes);
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif, message: expliquerRefusMotifPerso(v.motif) });
+      }
+      return { ok: true, id: v.id, libelle: v.libelle, etapes: v.etapes };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; motifId: string } }>(
+    '/api/projects/:projectId/motifs/perso/:motifId/appliquer',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const m = store.lireMotifProjet(req.params.motifId);
+      if (!m || m.projectId !== projectId) {
+        return reply.code(404).send({ error: 'inconnu' });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of m.etapes) {
+        const task = store.createTask({
+          projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Procédure « ${m.libelle} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: m.id, taskIds, titres: m.etapes };
     },
   );
 
@@ -3225,15 +3542,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }),
       horizonEntrees: store.compterHorizon(projectId),
     };
-    // ADR 0010 lot 9 : stall / dérive dégradée → un FAIT dans le carnet
-    // (pas une hypothèse). Anti-spam : au plus une fois par fenêtre.
+    // ADR 0010 lot 9 : stall / dérive → FAIT dans le carnet (pas hypothèse).
+    // Anti-spam : au plus une fois par fenêtre et par niveau.
+    const now = Date.now();
+    const horizonProjet = store.listerHorizon(projectId);
     if (etat.derive.etat === 'degradee') {
-      const now = Date.now();
-      if (doitNoterFaitDeriveDegradee(store.listerHorizon(projectId), now)) {
+      if (doitNoterFaitDeriveDegradee(horizonProjet, now)) {
         store.ajouterHorizon(
           projectId,
           'fait',
           texteFaitDeriveDegradee(etat.derive.motif || 'la ruche se dégrade'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    } else if (etat.derive.etat === 'a_surveiller') {
+      if (doitNoterFaitDeriveASurveiller(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveASurveiller(etat.derive.motif || 'signaux à surveiller'),
           SOURCE_HORIZON_DERIVE,
           now,
         );
@@ -3281,7 +3610,52 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const { resumeHorizon } = await import('./horizon.js');
         body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
       }
+      const nodes = store.listNodes();
+      const enLigne = nodes.filter((n) => n.status === 'online').length;
+      const agentsReels = nodes.some((n) => n.agentType !== 'shell' && n.agentType !== 'sim');
+      const projet = store.getProject(req.params.projectId);
+      const veutFusion = e.niveau === 'plein';
+      const gouv = gouvernantes(e.noeuds);
+      body.pret = {
+        runner: modeRunner === 'on',
+        gouvernantes: gouv.length >= GOUVERNANTES_MIN,
+        noeudsEnLigne: enLigne >= 1,
+        agentsReels,
+        depot: !veutFusion || e.depotInscrit,
+        derive: e.derive.etat !== 'degradee',
+        plafond: e.plafond !== 'bloque',
+        repo: !veutFusion || depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      };
       return body;
+    },
+  );
+
+  /** Derniers cycles du runner pour ce projet — journal essaim_cycle. */
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
+    '/api/projects/:projectId/essaim/cycles',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
+      const pid = req.params.projectId;
+      const cycles = store
+        .listEvents(0, 800)
+        .filter(
+          (ev) =>
+            ev.type === 'essaim_cycle' &&
+            typeof ev.payload === 'object' &&
+            ev.payload !== null &&
+            (ev.payload as { projectId?: string }).projectId === pid,
+        )
+        .slice(-lim)
+        .reverse()
+        .map((ev) => ({
+          ts: ev.ts,
+          ...(ev.payload as Record<string, unknown>),
+        }));
+      return { cycles };
     },
   );
 
@@ -3463,9 +3837,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (deja) return Promise.resolve(`conseil déjà ouvert (${deja.id})`);
         const session = ouvrirConseil(depConseil, {
           projectId,
-          contexteProjet: [projet.name, projet.description ?? '', projet.repoUrl ?? '']
-            .filter(Boolean)
-            .join(' — '),
+          contexteProjet: contexteProjetAvecHorizon(projectId, projet),
         });
         return Promise.resolve(`conseil ${session.id} ouvert`);
       },
@@ -4297,9 +4669,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const session = ouvrirConseil(depConseil, {
         projectId: project.id,
         ...(req.body?.question ? { question: req.body.question } : {}),
-        contexteProjet: [project.name, project.description ?? '', project.repoUrl ?? '']
-          .filter(Boolean)
-          .join(' — '),
+        contexteProjet: contexteProjetAvecHorizon(project.id, project),
       });
       return reply.code(201).send(vueSession(session.id));
     },
@@ -7749,6 +8119,36 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               msg.retryAfterMs,
             );
             break;
+          case 'requisition_open': {
+            const v = store.ouvrirRequisition(
+              nodeId,
+              msg.genre,
+              msg.libelle,
+              msg.detail ?? null,
+              msg.taskId ?? null,
+            );
+            if (!v.ok) {
+              send(ws, {
+                type: 'error',
+                message: expliquerRefusRequisition(v.motif),
+              });
+              break;
+            }
+            emitEvent('requisition_ouverte', {
+              id: v.id,
+              nodeId,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            send(ws, {
+              type: 'requisition_ack',
+              id: v.id,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            stateDirty = true;
+            break;
+          }
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.
             // Un REFUS du nœud (Night Shift…) est un échec explicite — jamais

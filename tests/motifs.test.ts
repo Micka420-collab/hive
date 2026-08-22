@@ -5,6 +5,7 @@ import {
   MOTIFS,
   VERSION_MOTIFS,
   appliquerMotif,
+  catalogueCoherent,
   refuserDiffColle,
 } from '../src/orchestrator/motifs.js';
 
@@ -14,6 +15,10 @@ describe('motifs', () => {
     expect(MOTIFS.some((m) => m.id === 'jeu-3d')).toBe(true);
   });
 
+  it('catalogueCoherent : tout le catalogue respecte son ordre déclaré', () => {
+    expect(catalogueCoherent()).toEqual([]);
+  });
+
   it('jeu-3d : Blender/fabrique avant assets', () => {
     const v = appliquerMotif('jeu-3d', 'fr');
     expect(v.ok).toBe(true);
@@ -21,6 +26,15 @@ describe('motifs', () => {
     const ids = v.motif.etapes.map((e) => e.id);
     expect(ids.indexOf('fabrique')).toBeLessThan(ids.indexOf('assets'));
     expect(v.titres[0]).toMatch(/Blender|Fabriquer/i);
+  });
+
+  it('saas-api : contrat avant backend avant UI (enfin gardé)', () => {
+    const v = appliquerMotif('saas-api', 'fr');
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    const ids = v.motif.etapes.map((e) => e.id);
+    expect(ids.indexOf('contrat')).toBeLessThan(ids.indexOf('backend'));
+    expect(ids.indexOf('backend')).toBeLessThan(ids.indexOf('ui'));
   });
 
   it('cli-outil : fabrique avant packaging', () => {
@@ -48,5 +62,22 @@ describe('motifs', () => {
 
   it('motif inconnu', () => {
     expect(appliquerMotif('inexistant')).toEqual({ ok: false, motif: 'inconnu' });
+  });
+
+  it('catalogueCoherent détecte un ordre cassé', () => {
+    const faux = [
+      {
+        id: 'casse',
+        domaine: 'x',
+        libelleFr: 'x',
+        libelleEn: 'x',
+        etapes: [
+          { id: 'apres', titreFr: 'a', titreEn: 'a' },
+          { id: 'avant', titreFr: 'b', titreEn: 'b' },
+        ],
+        ordre: [['avant', 'apres'] as const],
+      },
+    ];
+    expect(catalogueCoherent(faux)).toEqual(['casse: avant doit précéder apres']);
   });
 });

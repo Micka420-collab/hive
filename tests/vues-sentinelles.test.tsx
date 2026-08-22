@@ -53,6 +53,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
   setProjectPlafond: vi.fn(() => Promise.resolve({ definiPar: null, updatedAt: null })),
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
+  fetchEssaimCycles: vi.fn(() => Promise.resolve({ cycles: [] })),
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
   billetServeur: vi.fn(() =>

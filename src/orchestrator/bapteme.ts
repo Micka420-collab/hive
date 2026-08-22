@@ -31,6 +31,8 @@ export const NOMS_TECHNIQUES_REFUSES: readonly string[] = Object.freeze([
   'claude-code',
   'claude_code',
   'claudecode',
+  'cursor',
+  'cursor-agent',
   'codex',
   'shell',
   'sim',

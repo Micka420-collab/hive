@@ -11,10 +11,11 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { agentCredentialEnv, detectAllAgents, detectBestAgent } from './agent-detect.js';
+import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
+import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { optionBac, preparerBac } from './bac.js';
 import { CODE } from '../codes-sortie.js';
-import type { AgentType } from './agent-detect.js';
+import { libelleAgent } from '../shared/agent-libelle.js';
 import { HiveNodeClient } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
 import { decoderBillet, encoderBillet, jugerTransport, urlHttpDeRuche } from '../shared/acces.js';
@@ -153,13 +154,27 @@ async function main(): Promise<void> {
   const url = billet ? billet.url : invite!.url;
   const label = billet ? billet.label : invite!.label;
 
-  // Choix de l'agent : HIVE_AGENT force le choix, sinon détection automatique.
+  // Choix de l'agent : HIVE_AGENT force le choix ; sinon détection, et si
+  // plusieurs agents réels sont là on DEMANDE lequel retenir (TTY).
   // IMPORTANT : la détection sonde des binaires du PATH (spawn `--version`) ; on
   // ne met PAS le token dans l'environnement avant, sinon un binaire homonyme
   // malveillant (claude.cmd déposé en tête de PATH) l'hériterait. Le token n'est
   // exposé qu'ensuite, pour le seul adaptateur choisi.
-  const forced = process.env.HIVE_AGENT as AgentType | undefined;
-  const detected = forced ? { agent: forced, label: forced } : await detectBestAgent();
+  const demanderAgent =
+    process.stdin.isTTY && process.stdout.isTTY
+      ? async (question: string): Promise<string> => {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          try {
+            return await rl.question(question);
+          } finally {
+            rl.close();
+          }
+        }
+      : undefined;
+  const detected = await resoudreAgentAuDemarrage({
+    stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    demander: demanderAgent,
+  });
   const allAgents = await detectAllAgents();
 
   const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
@@ -174,7 +189,7 @@ async function main(): Promise<void> {
   // trouvé « transport === 'clair_public' » sans aucune garde.
   const avertissement = avertissementTransport(jugerTransport(url));
   if (avertissement) console.log(avertissement);
-  console.log(`   Agents détectés : ${allAgents.join(', ')}`);
+  console.log(`   Agents détectés : ${allAgents.map((a) => libelleAgent(a)).join(', ')}`);
   console.log(`   Agent utilisé   : ${detected.label}`);
   const motAgent = annonceAgent(detected.agent, allAgents);
   if (motAgent) console.log(motAgent);

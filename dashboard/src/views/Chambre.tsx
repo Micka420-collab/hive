@@ -13,27 +13,53 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ajouterHorizon,
   appliquerMotif,
+  appliquerMotifPerso,
   arreterAtelier,
+  assignerMetierOuvriere,
+  baptiserOuvriere,
+  creerMotifPerso,
   demarrerAtelier,
   fetchAtelier,
   fetchChambre,
   fetchMotifs,
+  fetchMotifsPerso,
+  fetchQueenCles,
+  jugerFabriqueChantier,
+  lancerChantier,
+  ouvrirFabrique,
+  poserQueenCle,
+  poserStatutFabrique,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier, MotifCatalogue } from '../api';
+import type {
+  ChambrePoste,
+  EtatAtelier,
+  FournisseurCleApi,
+  MotifCatalogue,
+  MotifPerso,
+} from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
-import { libelleMetier } from '../../../src/orchestrator/metier.js';
+import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
 import {
   libelleGenreRequisition,
+  messageAccordBinaire,
+  suiteAccordRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
-import { libelleGenreFabrique, libelleStatutFabrique } from '../../../src/orchestrator/fabrique.js';
+import {
+  libelleGenreFabrique,
+  libelleStatutFabrique,
+  expliquerRefusFabrique,
+} from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
+import { nomEnvDepuisLibelle } from '../../../src/orchestrator/requisition-env.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
+import { useDialog, Voile } from '../ui';
+import type { RequisitionPoste } from '../api';
 
 type OngletId = 'fiche' | 'travail' | 'integrations' | 'suivi';
 
@@ -145,6 +171,46 @@ export default function Chambre({
   const [statusMotif, setStatusMotif] = useState<string | null>(null);
   const [errHorizon, setErrHorizon] = useState<string | null>(null);
   const [statusHorizon, setStatusHorizon] = useState<string | null>(null);
+  const [brouillonBapteme, setBrouillonBapteme] = useState('');
+  const [busyBapteme, setBusyBapteme] = useState(false);
+  const [errBapteme, setErrBapteme] = useState<string | null>(null);
+  const [busyMetier, setBusyMetier] = useState(false);
+  const [errMetier, setErrMetier] = useState<string | null>(null);
+  const [grantReq, setGrantReq] = useState<RequisitionPoste | null>(null);
+  const [grantSecret, setGrantSecret] = useState('');
+  const [grantEnvVar, setGrantEnvVar] = useState('');
+  const [fabGenre, setFabGenre] = useState('script_npm');
+  const [fabLibelle, setFabLibelle] = useState('');
+  const [fabNomScript, setFabNomScript] = useState('');
+  const [busyFabrique, setBusyFabrique] = useState<string | null>(null);
+  const [errFabrique, setErrFabrique] = useState<string | null>(null);
+  const [statusFabrique, setStatusFabrique] = useState<string | null>(null);
+  const [verdictFab, setVerdictFab] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [motifsPerso, setMotifsPerso] = useState<MotifPerso[] | null>(null);
+  const [persoLibelle, setPersoLibelle] = useState('');
+  const [persoEtapes, setPersoEtapes] = useState('');
+  const [busyPerso, setBusyPerso] = useState(false);
+  const [motifConfirm, setMotifConfirm] = useState<MotifCatalogue | null>(null);
+  const [motifExpandid, setMotifExpandid] = useState<string | null>(null);
+  const [fournisseursCle, setFournisseursCle] = useState<FournisseurCleApi[] | null>(null);
+  const [presenceCle, setPresenceCle] = useState<Record<string, boolean>>({});
+  const [errCles, setErrCles] = useState<string | null>(null);
+  const [statusCles, setStatusCles] = useState<string | null>(null);
+  const [grantCatalogue, setGrantCatalogue] = useState<{
+    libelle: string;
+    envVar: string;
+    hint: string;
+  } | null>(null);
+  const [busyCle, setBusyCle] = useState(false);
+
+  const fermerGrant = () => {
+    setGrantReq(null);
+    setGrantCatalogue(null);
+    setGrantSecret('');
+    setGrantEnvVar('');
+  };
+  const grantDialogRef = useDialog<HTMLDivElement>(fermerGrant);
+  const motifConfirmRef = useDialog<HTMLDivElement>(() => setMotifConfirm(null));
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -168,7 +234,10 @@ export default function Chambre({
   useEffect(() => {
     if (onglet !== 'integrations') return;
     setMotifs(null);
+    setMotifsPerso(null);
     setErrMotifs(null);
+    setFournisseursCle(null);
+    setErrCles(null);
     void fetchMotifs()
       .then((r) => {
         setMotifs(r.motifs);
@@ -178,7 +247,24 @@ export default function Chambre({
         setMotifs([]);
         setErrMotifs(e instanceof Error ? e.message : String(e));
       });
-  }, [onglet]);
+    void fetchQueenCles()
+      .then((r) => {
+        setFournisseursCle(r.fournisseurs);
+        const map: Record<string, boolean> = {};
+        for (const p of r.presence) map[p.id] = p.presente;
+        setPresenceCle(map);
+        setErrCles(null);
+      })
+      .catch((e) => {
+        setFournisseursCle([]);
+        setErrCles(e instanceof Error ? e.message : String(e));
+      });
+    if (poste?.projectId) {
+      void fetchMotifsPerso(poste.projectId)
+        .then((r) => setMotifsPerso(r.motifs))
+        .catch(() => setMotifsPerso([]));
+    }
+  }, [onglet, poste?.projectId]);
 
   // Onglets : colonne desktop, rangée sous 960px — aria-orientation suit le layout.
   const [ongletsHorizontaux, setOngletsHorizontaux] = useState(
@@ -382,12 +468,68 @@ export default function Chambre({
                     aria-busy={busyReqId === r.id}
                     aria-label={t(`Accorder — ${r.libelle}`, `Grant — ${r.libelle}`)}
                     onClick={() => {
+                      const genre = r.genre as GenreRequisition;
+                      const suite = suiteAccordRequisition(genre);
+                      if (suite.action === 'modal_cle') {
+                        setGrantReq(r);
+                        setGrantSecret('');
+                        setGrantEnvVar(nomEnvDepuisLibelle(r.libelle));
+                        return;
+                      }
                       setBusyReqId(r.id);
                       setErrHitl(null);
                       setStatusHitl(null);
                       void repondreRequisition(r.id, 'accordee')
-                        .then(() => {
-                          setStatusHitl(t('Accordée', 'Granted'));
+                        .then(async () => {
+                          if (suite.action === 'atelier') {
+                            try {
+                              await demarrerAtelier();
+                              setStatusHitl(
+                                t('Accordée — atelier allumé', 'Granted — studio started'),
+                              );
+                            } catch (e) {
+                              setStatusHitl(t('Accordée', 'Granted'));
+                              setErrHitl(
+                                e instanceof Error
+                                  ? e.message
+                                  : t(
+                                      'Atelier non démarré (HIVE_ATELIER ?)',
+                                      'Studio not started (HIVE_ATELIER?)',
+                                    ),
+                              );
+                            }
+                          } else if (suite.action === 'fabrique') {
+                            if (!poste?.projectId) {
+                              setStatusHitl(
+                                t(
+                                  'Accordée — aucun projet lié : ouvrez Intégrations pour proposer une fabrique une fois un projet rattaché.',
+                                  'Granted — no linked project: open Integrations to propose a forge item once a project is attached.',
+                                ),
+                              );
+                            } else {
+                              try {
+                                await ouvrirFabrique(poste.projectId, {
+                                  genre: suite.genreFabrique,
+                                  libelle: r.libelle,
+                                  nodeId,
+                                });
+                                setOnglet('integrations');
+                                setStatusHitl(
+                                  t(
+                                    'Accordée — fabrique proposée (Intégrations)',
+                                    'Granted — forge proposal opened (Integrations)',
+                                  ),
+                                );
+                              } catch (e) {
+                                setStatusHitl(t('Accordée', 'Granted'));
+                                setErrHitl(e instanceof Error ? e.message : String(e));
+                              }
+                            }
+                          } else if (suite.action === 'hint_binaire') {
+                            setStatusHitl(messageAccordBinaire(r.libelle, langCode));
+                          } else {
+                            setStatusHitl(t('Accordée', 'Granted'));
+                          }
                           rafraichir();
                         })
                         .catch((e) => {
@@ -507,52 +649,126 @@ export default function Chambre({
                 data-testid="chambre-onglet-corps"
               >
                 {onglet === 'fiche' && (
-                  <ul className="ch-meta">
-                    <li>
-                      <span className="ch-meta-k">{t('Statut', 'Status')}</span>
-                      <span
-                        className={`ch-meta-v ch-statut-dot${
-                          poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
-                        }`}
+                  <>
+                    <ul className="ch-meta">
+                      <li>
+                        <span className="ch-meta-k">{t('Statut', 'Status')}</span>
+                        <span
+                          className={`ch-meta-v ch-statut-dot${
+                            poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
+                          }`}
+                        >
+                          {poste.node.status === 'online'
+                            ? t('En ligne', 'Online')
+                            : t('Hors ligne', 'Offline')}
+                        </span>
+                      </li>
+                      {metier && (
+                        <li>
+                          <span className="ch-meta-k">{t('Métier', 'Role')}</span>
+                          <span className="ch-meta-v">{metier}</span>
+                        </li>
+                      )}
+                      {poste.caste && (
+                        <li>
+                          <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
+                          <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
+                        </li>
+                      )}
+                      <li>
+                        <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
+                        <span className="ch-meta-v">{poste.node.ownerName}</span>
+                      </li>
+                      <li>
+                        <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
+                        <span className="ch-meta-v">{poste.node.agentType}</span>
+                      </li>
+                      <li>
+                        <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
+                        <span className="ch-meta-v">
+                          {poste.node.running}/{poste.node.maxConcurrency}
+                        </span>
+                      </li>
+                      {!titre && (
+                        <li>
+                          <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
+                          <span className="ch-meta-v">{poste.node.nameTechnique}</span>
+                        </li>
+                      )}
+                    </ul>
+                    {!titre && nodeId && (
+                      <form
+                        className="ch-bapteme-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!brouillonBapteme.trim()) return;
+                          setBusyBapteme(true);
+                          setErrBapteme(null);
+                          void baptiserOuvriere(nodeId, brouillonBapteme.trim())
+                            .then(() => {
+                              setBrouillonBapteme('');
+                              rafraichir();
+                            })
+                            .catch((ex) => {
+                              setErrBapteme(ex instanceof Error ? ex.message : String(ex));
+                            })
+                            .finally(() => setBusyBapteme(false));
+                        }}
                       >
-                        {poste.node.status === 'online'
-                          ? t('En ligne', 'Online')
-                          : t('Hors ligne', 'Offline')}
-                      </span>
-                    </li>
-                    {metier && (
-                      <li>
-                        <span className="ch-meta-k">{t('Métier', 'Role')}</span>
-                        <span className="ch-meta-v">{metier}</span>
-                      </li>
+                        <label className="ch-bapteme-label">
+                          {t('Baptiser cette ouvrière', 'Baptise this worker')}
+                          <input
+                            type="text"
+                            value={brouillonBapteme}
+                            maxLength={40}
+                            placeholder={t('Prénom (Reine)', 'First name (Queen)')}
+                            disabled={busyBapteme}
+                            onChange={(ev) => setBrouillonBapteme(ev.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn"
+                          disabled={busyBapteme || !brouillonBapteme.trim()}
+                        >
+                          {busyBapteme ? '…' : t('Baptiser', 'Baptise')}
+                        </button>
+                        {errBapteme && <p className="ch-err">{errBapteme}</p>}
+                      </form>
                     )}
-                    {poste.caste && (
-                      <li>
-                        <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
-                        <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
-                      </li>
+                    {nodeId && (
+                      <div className="ch-metier-form">
+                        <span className="ch-meta-k">{t('Métier de cycle', 'Cycle role')}</span>
+                        <div className="ch-metier-btns">
+                          {METIERS.map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              className={
+                                poste?.metier?.metier === m
+                                  ? 'btn actif ch-metier-btn'
+                                  : 'btn ch-metier-btn'
+                              }
+                              disabled={busyMetier}
+                              onClick={() => {
+                                setBusyMetier(true);
+                                setErrMetier(null);
+                                void assignerMetierOuvriere(nodeId, m)
+                                  .then(() => rafraichir())
+                                  .catch((ex) => {
+                                    setErrMetier(ex instanceof Error ? ex.message : String(ex));
+                                  })
+                                  .finally(() => setBusyMetier(false));
+                              }}
+                            >
+                              {libelleMetier(m, langCode)}
+                            </button>
+                          ))}
+                        </div>
+                        {errMetier && <p className="ch-err">{errMetier}</p>}
+                      </div>
                     )}
-                    <li>
-                      <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
-                      <span className="ch-meta-v">{poste.node.ownerName}</span>
-                    </li>
-                    <li>
-                      <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
-                      <span className="ch-meta-v">{poste.node.agentType}</span>
-                    </li>
-                    <li>
-                      <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
-                      <span className="ch-meta-v">
-                        {poste.node.running}/{poste.node.maxConcurrency}
-                      </span>
-                    </li>
-                    {!titre && (
-                      <li>
-                        <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
-                        <span className="ch-meta-v">{poste.node.nameTechnique}</span>
-                      </li>
-                    )}
-                  </ul>
+                  </>
                 )}
 
                 {onglet === 'travail' &&
@@ -581,7 +797,133 @@ export default function Chambre({
 
                 {onglet === 'integrations' && (
                   <div className="ch-fabrique">
+                    <h4>{t('Clés API', 'API keys')}</h4>
+                    <p className="ch-silence">
+                      {t(
+                        'OpenRouter, Anthropic, OpenAI… écrites dans le .env Queen (jamais en base).',
+                        'OpenRouter, Anthropic, OpenAI… written to the Queen .env (never in the DB).',
+                      )}
+                    </p>
+                    {errCles ? (
+                      <p className="ch-err-soft" role="status">
+                        {errCles}
+                      </p>
+                    ) : null}
+                    {statusCles ? (
+                      <p className="ch-status-soft" role="status" aria-live="polite">
+                        {statusCles}
+                      </p>
+                    ) : null}
+                    {fournisseursCle === null ? (
+                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+                    ) : (
+                      <ul className="ch-cles-list">
+                        {fournisseursCle.map((f) => {
+                          const libelle = langCode === 'en' ? f.libelleEn : f.libelleFr;
+                          const hint = langCode === 'en' ? f.hintEn : f.hintFr;
+                          const presente = Boolean(presenceCle[f.id]);
+                          return (
+                            <li key={f.id} className="ch-cle-ligne">
+                              <span>
+                                <strong>{libelle}</strong>
+                                {f.envVar ? (
+                                  <span className="ch-silence"> · {f.envVar}</span>
+                                ) : null}
+                                <span className="ch-silence"> — {hint}</span>
+                                {presente ? (
+                                  <span className="ch-cle-ok" title={t('Présente', 'Present')}>
+                                    {' '}
+                                    · {t('posée', 'set')}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn primary ch-btn-accorder"
+                                onClick={() => {
+                                  setGrantReq(null);
+                                  setGrantCatalogue({
+                                    libelle,
+                                    envVar: f.envVar,
+                                    hint,
+                                  });
+                                  setGrantEnvVar(f.envVar);
+                                  setGrantSecret('');
+                                  setStatusCles(null);
+                                  setErrCles(null);
+                                }}
+                              >
+                                {presente ? t('Remplacer', 'Replace') : t('Ajouter', 'Add')}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+
                     <h4>{t('Fabrique', 'Forge')}</h4>
+                    {poste.projectId ? (
+                      <form
+                        className="ch-fab-form"
+                        onSubmit={(ev) => {
+                          ev.preventDefault();
+                          if (!poste.projectId || !fabLibelle.trim()) return;
+                          setBusyFabrique('proposer');
+                          setErrFabrique(null);
+                          setStatusFabrique(null);
+                          void ouvrirFabrique(poste.projectId, {
+                            genre: fabGenre,
+                            libelle: fabLibelle.trim(),
+                            nomScript: fabNomScript.trim() || undefined,
+                            nodeId,
+                          })
+                            .then(() => {
+                              setFabLibelle('');
+                              setFabNomScript('');
+                              setStatusFabrique(t('Proposition ouverte', 'Proposal opened'));
+                              rafraichir();
+                            })
+                            .catch((e) => {
+                              setErrFabrique(e instanceof Error ? e.message : String(e));
+                            })
+                            .finally(() => setBusyFabrique(null));
+                        }}
+                      >
+                        <label className="ch-fab-field">
+                          <span>{t('Genre', 'Kind')}</span>
+                          <select value={fabGenre} onChange={(e) => setFabGenre(e.target.value)}>
+                            <option value="script_npm">script npm</option>
+                            <option value="pont">pont</option>
+                            <option value="mcp">MCP</option>
+                          </select>
+                        </label>
+                        <label className="ch-fab-field">
+                          <span>{t('Libellé', 'Label')}</span>
+                          <input
+                            value={fabLibelle}
+                            onChange={(e) => setFabLibelle(e.target.value)}
+                            maxLength={200}
+                            required
+                          />
+                        </label>
+                        <label className="ch-fab-field">
+                          <span>{t('Script npm (optionnel)', 'npm script (optional)')}</span>
+                          <input
+                            value={fabNomScript}
+                            onChange={(e) => setFabNomScript(e.target.value)}
+                            maxLength={80}
+                            placeholder="lint"
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn primary"
+                          disabled={busyFabrique === 'proposer'}
+                        >
+                          {busyFabrique === 'proposer' ? t('…', '…') : t('Proposer', 'Propose')}
+                        </button>
+                      </form>
+                    ) : null}
                     {(poste.fabriques?.length ?? 0) === 0 ? (
                       <p className="ch-silence">
                         {t(
@@ -604,10 +946,107 @@ export default function Chambre({
                               {libelleGenreFabrique(f.genre, langCode)}
                               {f.nomScript ? ` · ${f.nomScript}` : ''}
                             </span>
+                            {poste.projectId && f.statut === 'proposee' ? (
+                              <span className="ch-req-actions">
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === f.id}
+                                  onClick={() => {
+                                    setBusyFabrique(f.id);
+                                    void poserStatutFabrique(poste.projectId!, f.id, 'en_revue')
+                                      .then(() => rafraichir())
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Revue', 'Review')}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === f.id}
+                                  onClick={() => {
+                                    setBusyFabrique(f.id);
+                                    void poserStatutFabrique(poste.projectId!, f.id, 'refusee')
+                                      .then(() => rafraichir())
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Refuser', 'Deny')}
+                                </button>
+                              </span>
+                            ) : null}
+                            {poste.projectId && f.statut === 'mergee' && f.nomScript ? (
+                              <span className="ch-req-actions">
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyFabrique === `j-${f.id}`}
+                                  onClick={() => {
+                                    setBusyFabrique(`j-${f.id}`);
+                                    void jugerFabriqueChantier(poste.projectId!, f.nomScript!)
+                                      .then((v) => {
+                                        setVerdictFab((prev) => ({
+                                          ...prev,
+                                          [f.id]: {
+                                            ok: v.ok,
+                                            text: v.ok
+                                              ? t('Chantier autorisé', 'Chantier allowed')
+                                              : expliquerRefusFabrique(
+                                                  (v.motif ?? 'non_declare') as 'non_declare',
+                                                  langCode,
+                                                ),
+                                          },
+                                        }));
+                                      })
+                                      .finally(() => setBusyFabrique(null));
+                                  }}
+                                >
+                                  {t('Juger Chantiers', 'Judge Chantiers')}
+                                </button>
+                                {verdictFab[f.id]?.ok ? (
+                                  <button
+                                    type="button"
+                                    className="btn primary"
+                                    disabled={busyFabrique === `l-${f.id}`}
+                                    onClick={() => {
+                                      setBusyFabrique(`l-${f.id}`);
+                                      void lancerChantier(poste.projectId!, f.nomScript!)
+                                        .then(() => {
+                                          setStatusFabrique(
+                                            t('Chantier lancé', 'Chantier started'),
+                                          );
+                                        })
+                                        .catch((e) => {
+                                          setErrFabrique(
+                                            e instanceof Error ? e.message : String(e),
+                                          );
+                                        })
+                                        .finally(() => setBusyFabrique(null));
+                                    }}
+                                  >
+                                    {t('Lancer', 'Run')}
+                                  </button>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            {verdictFab[f.id] ? (
+                              <p className="ch-status-soft">{verdictFab[f.id]!.text}</p>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
                     )}
+                    {errFabrique ? (
+                      <p className="ch-err-soft" role="status">
+                        {errFabrique}
+                      </p>
+                    ) : null}
+                    {statusFabrique ? (
+                      <p className="ch-status-soft" role="status">
+                        {statusFabrique}
+                      </p>
+                    ) : null}
                     <p className="ch-note">
                       {t(
                         'Chantiers ne lance qu’après merge + script déclaré.',
@@ -635,43 +1074,37 @@ export default function Chambre({
                       <ul className="ch-motifs">
                         {motifs.map((m) => {
                           const libelle = langCode === 'en' ? m.libelleEn : m.libelleFr;
+                          const ouvert = motifExpandid === m.id;
                           return (
                             <li key={m.id}>
                               <span>
-                                {libelle}
-                                <span className="ch-silence">
-                                  {' '}
-                                  · {m.etapes.length} {t('étapes', 'steps')}
-                                </span>
+                                <button
+                                  type="button"
+                                  className="btn ghost ch-motif-toggle"
+                                  aria-expanded={ouvert}
+                                  onClick={() => setMotifExpandid(ouvert ? null : m.id)}
+                                >
+                                  {libelle}
+                                  <span className="ch-silence">
+                                    {' '}
+                                    · {m.etapes.length} {t('étapes', 'steps')}
+                                  </span>
+                                </button>
                               </span>
+                              {ouvert ? (
+                                <ol className="ch-motif-etapes">
+                                  {m.etapes.map((e) => (
+                                    <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
+                                  ))}
+                                </ol>
+                              ) : null}
                               <button
                                 type="button"
                                 className="btn ghost"
                                 disabled={busyMotif === m.id}
                                 aria-busy={busyMotif === m.id}
                                 aria-label={t(`Appliquer — ${libelle}`, `Apply — ${libelle}`)}
-                                onClick={() => {
-                                  if (!poste.projectId) return;
-                                  setBusyMotif(m.id);
-                                  setErrMotif(null);
-                                  setStatusMotif(null);
-                                  void appliquerMotif(poste.projectId, m.id, { lang: langCode })
-                                    .then((r) => {
-                                      const n = r.taskIds?.length ?? r.titres?.length ?? 0;
-                                      setStatusMotif(
-                                        t(
-                                          `Motif appliqué · ${n} tâches`,
-                                          `Motif applied · ${n} tasks`,
-                                        ),
-                                      );
-                                      setFiltre('pause');
-                                      rafraichir();
-                                    })
-                                    .catch((e) => {
-                                      setErrMotif(e instanceof Error ? e.message : String(e));
-                                    })
-                                    .finally(() => setBusyMotif(null));
-                                }}
+                                onClick={() => setMotifConfirm(m)}
                               >
                                 {busyMotif === m.id ? t('…', '…') : t('Appliquer', 'Apply')}
                               </button>
@@ -680,6 +1113,102 @@ export default function Chambre({
                         })}
                       </ul>
                     )}
+                    {poste.projectId ? (
+                      <>
+                        <h4>{t('Procédures perso', 'Custom procedures')}</h4>
+                        <form
+                          className="ch-motif-perso-form"
+                          onSubmit={(ev) => {
+                            ev.preventDefault();
+                            if (!poste.projectId) return;
+                            const etapes = persoEtapes
+                              .split('\n')
+                              .map((l) => l.trim())
+                              .filter(Boolean);
+                            setBusyPerso(true);
+                            setErrMotif(null);
+                            void creerMotifPerso(poste.projectId, {
+                              libelle: persoLibelle.trim(),
+                              etapes,
+                            })
+                              .then(() => {
+                                setPersoLibelle('');
+                                setPersoEtapes('');
+                                setStatusMotif(t('Procédure enregistrée', 'Procedure saved'));
+                                return fetchMotifsPerso(poste.projectId!);
+                              })
+                              .then((r) => setMotifsPerso(r.motifs))
+                              .catch((e) => {
+                                setErrMotif(e instanceof Error ? e.message : String(e));
+                              })
+                              .finally(() => setBusyPerso(false));
+                          }}
+                        >
+                          <label className="ch-fab-field">
+                            <span>{t('Libellé', 'Label')}</span>
+                            <input
+                              value={persoLibelle}
+                              onChange={(e) => setPersoLibelle(e.target.value)}
+                              maxLength={120}
+                              required
+                            />
+                          </label>
+                          <label className="ch-fab-field">
+                            <span>{t('Étapes (une par ligne)', 'Steps (one per line)')}</span>
+                            <textarea
+                              value={persoEtapes}
+                              onChange={(e) => setPersoEtapes(e.target.value)}
+                              rows={4}
+                              required
+                            />
+                          </label>
+                          <button type="submit" className="btn primary" disabled={busyPerso}>
+                            {busyPerso ? t('…', '…') : t('Créer', 'Create')}
+                          </button>
+                        </form>
+                        {(motifsPerso?.length ?? 0) > 0 ? (
+                          <ul className="ch-motifs">
+                            {motifsPerso!.map((m) => (
+                              <li key={m.id}>
+                                <span>
+                                  {m.libelle}
+                                  <span className="ch-silence">
+                                    {' '}
+                                    · {m.etapes.length} {t('étapes', 'steps')}
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  disabled={busyMotif === m.id}
+                                  onClick={() => {
+                                    if (!poste.projectId) return;
+                                    setBusyMotif(m.id);
+                                    void appliquerMotifPerso(poste.projectId, m.id)
+                                      .then((r) => {
+                                        setStatusMotif(
+                                          t(
+                                            `Procédure appliquée · ${r.taskIds.length} tâches`,
+                                            `Procedure applied · ${r.taskIds.length} tasks`,
+                                          ),
+                                        );
+                                        setFiltre('pause');
+                                        rafraichir();
+                                      })
+                                      .catch((e) => {
+                                        setErrMotif(e instanceof Error ? e.message : String(e));
+                                      })
+                                      .finally(() => setBusyMotif(null));
+                                  }}
+                                >
+                                  {t('Appliquer', 'Apply')}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : null}
                     {errMotif ? (
                       <p className="ch-err-soft" role="status">
                         {errMotif}
@@ -948,6 +1477,195 @@ export default function Chambre({
           />
         </section>
       </div>
+
+      {grantReq || grantCatalogue ? (
+        <Voile onClose={fermerGrant}>
+          <div
+            ref={grantDialogRef}
+            className="ch-grant-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ch-grant-titre"
+          >
+            <h3 id="ch-grant-titre">
+              {grantCatalogue
+                ? t('Ajouter une clé API', 'Add an API key')
+                : t('Accorder la clé', 'Grant the key')}
+            </h3>
+            <p className="ch-silence">{grantCatalogue?.libelle ?? grantReq!.libelle}</p>
+            {grantCatalogue?.hint ? (
+              <p className="ch-silence muted-text">{grantCatalogue.hint}</p>
+            ) : null}
+            <p className="ch-silence muted-text">
+              {t(
+                'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Mono-machine : le nœud local recharge ce fichier à la reprise. Nœud distant / Cursor sur une autre machine : posez aussi la clé sur CE poste (CURSOR_API_KEY, etc.) — la Queen ne pousse pas de secrets aux ouvrières.',
+                'Written on the Queen (.env) — never in the DB or journal. Single-machine: the local node reloads this file on resume. Remote node / Cursor on another machine: also set the key on THAT host (CURSOR_API_KEY, etc.) — the Queen never pushes secrets to workers.',
+              )}
+            </p>
+            <label className="ch-grant-field">
+              <span>{t('Variable .env Queen', 'Queen .env variable')}</span>
+              <input
+                type="text"
+                value={grantEnvVar}
+                onChange={(e) => {
+                  // Réquisition HITL : le nom est dérivé du libellé (serveur
+                  // refuse tout autre). Catalogue « Autre » : libre.
+                  if (grantReq) return;
+                  setGrantEnvVar(e.target.value);
+                }}
+                readOnly={Boolean(grantReq)}
+                aria-readonly={grantReq ? true : undefined}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={grantCatalogue && !grantCatalogue.envVar ? 'GROQ_API_KEY' : undefined}
+              />
+            </label>
+            <p className="ch-silence muted-text">
+              {grantReq
+                ? t(
+                    'Nom fixé par le libellé de la réquisition — non modifiable (évite d’écraser HIVE_*).',
+                    'Name fixed by the requisition label — not editable (avoids overwriting HIVE_*).',
+                  )
+                : grantCatalogue && !grantCatalogue.envVar
+                  ? t(
+                      'Choisissez un nom UPPER_SNAKE (hors préfixe HIVE_).',
+                      'Pick an UPPER_SNAKE name (not HIVE_*).',
+                    )
+                  : null}
+            </p>
+            <label className="ch-grant-field">
+              <span>{t('Clé (secret)', 'Key (secret)')}</span>
+              <input
+                type="password"
+                value={grantSecret}
+                onChange={(e) => setGrantSecret(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <div className="ch-grant-actions">
+              <button type="button" className="btn ghost" onClick={fermerGrant}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={
+                  busyCle ||
+                  busyReqId === (grantReq?.id ?? '') ||
+                  grantSecret.trim() === '' ||
+                  grantEnvVar.trim() === ''
+                }
+                aria-busy={busyCle || busyReqId === (grantReq?.id ?? '')}
+                onClick={() => {
+                  const secret = grantSecret;
+                  const envVar = grantEnvVar.trim();
+                  if (grantCatalogue) {
+                    setBusyCle(true);
+                    setErrCles(null);
+                    void poserQueenCle({
+                      secret,
+                      envVar,
+                      libelle: grantCatalogue.libelle,
+                    })
+                      .then((r) => {
+                        setStatusCles(t(`Clé posée · ${r.envVar}`, `Key saved · ${r.envVar}`));
+                        fermerGrant();
+                        void fetchQueenCles().then((res) => {
+                          setFournisseursCle(res.fournisseurs);
+                          const map: Record<string, boolean> = {};
+                          for (const p of res.presence) map[p.id] = p.presente;
+                          setPresenceCle(map);
+                        });
+                      })
+                      .catch((e) => {
+                        setErrCles(e instanceof Error ? e.message : String(e));
+                      })
+                      .finally(() => setBusyCle(false));
+                    return;
+                  }
+                  if (!grantReq) return;
+                  setBusyReqId(grantReq.id);
+                  setErrHitl(null);
+                  void repondreRequisition(grantReq.id, 'accordee', {
+                    secret,
+                    envVar: envVar || undefined,
+                  })
+                    .then(() => {
+                      setStatusHitl(t('Accordée', 'Granted'));
+                      fermerGrant();
+                      rafraichir();
+                    })
+                    .catch((e) => {
+                      setErrHitl(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => setBusyReqId(null));
+                }}
+              >
+                {busyCle || busyReqId === (grantReq?.id ?? '')
+                  ? t('…', '…')
+                  : grantCatalogue
+                    ? t('Enregistrer', 'Save')
+                    : t('Accorder', 'Grant')}
+              </button>
+            </div>
+          </div>
+        </Voile>
+      ) : null}
+
+      {motifConfirm && poste?.projectId ? (
+        <Voile onClose={() => setMotifConfirm(null)}>
+          <div
+            ref={motifConfirmRef}
+            className="ch-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ch-motif-confirm-titre"
+          >
+            <h3 id="ch-motif-confirm-titre">{t('Appliquer le motif ?', 'Apply motif?')}</h3>
+            <p>
+              {langCode === 'en' ? motifConfirm.libelleEn : motifConfirm.libelleFr}
+              {' · '}
+              {motifConfirm.etapes.length} {t('tâches chaînées', 'chained tasks')}
+            </p>
+            <ol className="ch-motif-etapes">
+              {motifConfirm.etapes.map((e) => (
+                <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
+              ))}
+            </ol>
+            <div className="ch-dialog-actions">
+              <button type="button" className="btn ghost" onClick={() => setMotifConfirm(null)}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busyMotif === motifConfirm.id}
+                onClick={() => {
+                  const pid = poste.projectId!;
+                  setBusyMotif(motifConfirm.id);
+                  setErrMotif(null);
+                  void appliquerMotif(pid, motifConfirm.id, { lang: langCode })
+                    .then((r) => {
+                      const n = r.taskIds?.length ?? 0;
+                      setStatusMotif(
+                        t(`Motif appliqué · ${n} tâches`, `Motif applied · ${n} tasks`),
+                      );
+                      setMotifConfirm(null);
+                      setFiltre('pause');
+                      rafraichir();
+                    })
+                    .catch((e) => {
+                      setErrMotif(e instanceof Error ? e.message : String(e));
+                    })
+                    .finally(() => setBusyMotif(null));
+                }}
+              >
+                {t('Confirmer', 'Confirm')}
+              </button>
+            </div>
+          </div>
+        </Voile>
+      ) : null}
     </div>
   );
 }

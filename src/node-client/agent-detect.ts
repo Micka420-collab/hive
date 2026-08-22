@@ -10,21 +10,47 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
 
-export type AgentType = 'claude-code' | 'codex' | 'grok' | 'custom' | 'shell';
+export type AgentType = 'claude-code' | 'cursor' | 'codex' | 'grok' | 'custom' | 'shell';
 
 interface AgentProbe {
-  agent: Exclude<AgentType, 'shell'>;
+  agent: Exclude<AgentType, 'shell' | 'custom'>;
   /** Binaires candidats (Windows ajoute .cmd/.exe automatiquement via la sonde). */
   bins: string[];
   label: string;
+  /**
+   * Sous-chaîne attendue dans la sortie de `--version` (insensible à la casse).
+   * Sert à écarter les homonymes génériques — surtout `agent`, nom du CLI Cursor
+   * mais aussi de bien d'autres outils.
+   */
+  signature?: string;
 }
 
+/**
+ * Ordre de préférence quand plusieurs agents sont là et qu'on ne demande pas
+ * (hors TTY, CI) : Claude Code, puis Cursor, puis Codex, puis Grok.
+ */
 const PROBES: AgentProbe[] = [
   { agent: 'claude-code', bins: ['claude'], label: 'Claude Code' },
+  // `cursor-agent` : nom historique unique. `agent` : binaire actuel de l'installeur
+  // Cursor — exige la signature pour ne pas confondre avec un autre `agent`.
+  {
+    agent: 'cursor',
+    bins: ['cursor-agent', 'agent'],
+    label: 'Cursor',
+    signature: 'cursor',
+  },
   { agent: 'codex', bins: ['codex'], label: 'Codex' },
   // `grok-build` : binaire Rust natif, donc aucun shim `.cmd` à contourner.
   { agent: 'grok', bins: ['grok'], label: 'Grok Build' },
 ];
+
+/** Libellé d'affichage pour un `AgentType` (détecté ou forcé). */
+export function labelPour(agent: AgentType): string {
+  if (agent === 'shell') return 'shell (simulé)';
+  if (agent === 'custom') return 'commande personnalisée (HIVE_AGENT_CMD)';
+  const probe = PROBES.find((p) => p.agent === agent);
+  return probe?.label ?? agent;
+}
 
 /**
  * Variantes d'un binaire à essayer, selon la plateforme.
@@ -114,7 +140,8 @@ export function messageAgent(agent: AgentType, tous: readonly AgentType[]): stri
   return tous.some((a) => a !== 'shell')
     ? '   ℹ Agent « shell simulé » forcé par HIVE_AGENT alors qu’un agent réel est disponible.'
     : '   ℹ Aucun agent IA détecté : mode « shell simulé » — les diffs produits sont FAUX.\n' +
-        '     Installez Claude Code (`npm i -g @anthropic-ai/claude-code`), puis relancez.';
+        '     Installez Claude Code (`npm i -g @anthropic-ai/claude-code`), Cursor\n' +
+        '     (`curl https://cursor.com/install -fsS | bash`), ou Codex, puis relancez.';
 }
 
 /**
@@ -159,6 +186,7 @@ export const SECRETS_JAMAIS_SONDES: readonly string[] = [
   'ANTHROPIC_AUTH_TOKEN',
   'OPENAI_API_KEY',
   'XAI_API_KEY',
+  'CURSOR_API_KEY',
   'QUEEN_BEE_API_KEY',
   'OPENROUTER_API_KEY',
 ];
@@ -181,10 +209,16 @@ export function envSonde(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  *  - timeout → « incertain », traité comme absent (on ne route pas de vraies
  *    tâches vers un binaire qui se bloque) ;
  *  - code de sortie ≠ 0, ou erreur de lancement (ENOENT, EACCES…) → absent.
+ *  - `signature` fournie → la sortie doit la contenir (insensible à la casse),
+ *    sinon un homonyme générique (`agent`) compterait à tort.
  * Un environnement cassé retombe ainsi sur le shell simulé (sûr) plutôt que
  * d'envoyer du travail — et le token — à un binaire douteux.
  */
-function probeBin(argv: readonly string[], timeoutMs = 4_000): Promise<boolean> {
+function probeBin(
+  argv: readonly string[],
+  timeoutMs = 4_000,
+  signature?: string,
+): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (found: boolean): void => {
@@ -193,18 +227,28 @@ function probeBin(argv: readonly string[], timeoutMs = 4_000): Promise<boolean> 
       resolve(found);
     };
     let child;
+    let sortie = '';
     try {
       const [bin, ...avant] = argv;
       child = spawn(bin ?? '', [...avant, '--version'], {
         shell: false,
         windowsHide: true,
-        stdio: 'ignore',
+        // On capture stdout/stderr seulement si une signature est exigée —
+        // sinon `ignore` évite de gonfler la mémoire pour rien.
+        stdio: signature ? ['ignore', 'pipe', 'pipe'] : 'ignore',
         // Un binaire qu'on n'a pas encore identifié n'hérite d'aucun secret.
         env: envSonde(process.env),
       });
     } catch {
       finish(false);
       return;
+    }
+    if (signature) {
+      const cap = (chunk: Buffer): void => {
+        if (sortie.length < 8_192) sortie += chunk.toString();
+      };
+      child.stdout?.on('data', cap);
+      child.stderr?.on('data', cap);
     }
     const timer = setTimeout(() => {
       child.kill();
@@ -217,7 +261,15 @@ function probeBin(argv: readonly string[], timeoutMs = 4_000): Promise<boolean> 
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      finish(code === 0); // signal positif : le binaire a répondu correctement
+      if (code !== 0) {
+        finish(false);
+        return;
+      }
+      if (signature && !sortie.toLowerCase().includes(signature.toLowerCase())) {
+        finish(false);
+        return;
+      }
+      finish(true);
     });
   });
 }
@@ -236,16 +288,27 @@ async function firstPresent(
   plateforme: string,
   env: NodeJS.ProcessEnv,
   existe: (chemin: string) => boolean,
+  signature?: string,
 ): Promise<boolean> {
+  // Signature : uniquement pour le binaire générique `agent` (CLI Cursor), et
+  // uniquement avec la sonde réelle. `cursor-agent` est déjà un nom unique —
+  // lui exiger « cursor » dans `--version` casserait une install parfaitement
+  // valide dont la bannière ne répète pas la marque. Une sonde injectée
+  // (tests) décide elle-même.
+  const checkPour = (bin: string): Sonde => {
+    const sig = bin === 'agent' ? signature : undefined;
+    return sig && sonder === probeBin ? (argv) => probeBin(argv, 4_000, sig) : sonder;
+  };
   for (const bin of bins) {
+    const check = checkPour(bin);
     for (const candidate of candidates(bin, plateforme)) {
-      if (await sonder([candidate])) return true;
+      if (await check([candidate])) return true;
     }
     // Le PATH n'a rien donné : l'agent peut vivre à un endroit connu qu'il
     // n'expose qu'au shell de connexion (voir `cheminsNatifs`). On ne sonde que
     // ce qui existe — lancer un chemin absent ne dirait rien de plus.
     for (const chemin of cheminsNatifs(bin, env, plateforme)) {
-      if (existe(chemin) && (await sonder([chemin]))) return true;
+      if (existe(chemin) && (await check([chemin]))) return true;
     }
     // ─── LE SHIM `.cmd`, CONTOURNÉ PAR LE HAUT ─────────────────────────────
     //
@@ -277,7 +340,7 @@ async function firstPresent(
     // a-t-il trouvé quelque chose ? ». Elle en est un proxy, et c'est ce proxy
     // qui rend le mutant indistinguable.
     const parNode = argvAgent(bin, env, plateforme, existe);
-    if (parNode.length > 1 && (await sonder(parNode))) return true;
+    if (parNode.length > 1 && (await check(parNode))) return true;
   }
   return false;
 }
@@ -288,8 +351,12 @@ export interface DetectedAgent {
 }
 
 /**
- * Détecte le meilleur agent disponible, dans l'ordre : Claude Code, puis Codex,
- * sinon l'adaptateur `shell` simulé (toujours disponible, sûr).
+ * Détecte le meilleur agent disponible, dans l'ordre : Claude Code, Cursor,
+ * Codex, Grok — sinon l'adaptateur `shell` simulé (toujours disponible, sûr).
+ *
+ * Quand plusieurs agents sont installés et qu'un terminal est disponible, le
+ * démarrage demande lequel retenir (`choisir-agent.ts`) : cette fonction reste
+ * le repli hors TTY et le défaut proposé dans le menu.
  */
 export async function detectBestAgent(
   env: NodeJS.ProcessEnv = process.env,
@@ -317,14 +384,14 @@ export async function detectBestAgent(
   // Choix explicite du membre : une commande libre (n'importe quelle IA CLI) via
   // HIVE_AGENT_CMD prime sur la détection automatique.
   if ((env.HIVE_AGENT_CMD ?? '').trim()) {
-    return { agent: 'custom', label: 'commande personnalisée (HIVE_AGENT_CMD)' };
+    return { agent: 'custom', label: labelPour('custom') };
   }
   for (const probe of PROBES) {
-    if (await firstPresent(probe.bins, sonder, plateforme, env, existe)) {
+    if (await firstPresent(probe.bins, sonder, plateforme, env, existe, probe.signature)) {
       return { agent: probe.agent, label: probe.label };
     }
   }
-  return { agent: 'shell', label: 'shell (simulé)' };
+  return { agent: 'shell', label: labelPour('shell') };
 }
 
 /**
@@ -340,6 +407,10 @@ export function agentCredentialEnv(agent: AgentType): string[] {
   if (agent === 'claude-code') {
     return [...configDirs, 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'];
   }
+  if (agent === 'cursor') {
+    // CURSOR_API_KEY pour les scripts ; ~/.cursor porte la session login.
+    return [...configDirs, 'CURSOR_API_KEY'];
+  }
   if (agent === 'codex') {
     return [...configDirs, 'OPENAI_API_KEY', 'OPENAI_BASE_URL'];
   }
@@ -350,6 +421,81 @@ export function agentCredentialEnv(agent: AgentType): string[] {
     return [...configDirs, 'XAI_API_KEY', 'GROK_HOME'];
   }
   return configDirs;
+}
+
+/** Réquisition à ouvrir quand l'agent réel n'a pas d'identifiants locaux. */
+export type RequisitionCredential = {
+  genre: 'cle_api';
+  libelle: string;
+  detail: string;
+};
+
+/**
+ * Si l'agent détecté ne peut pas s'authentifier localement, propose une
+ * réquisition (ADR 0010). Le secret ne transite jamais : l'humain configure
+ * le poste ou accorde depuis la Chambre (Queen / Intendance).
+ */
+export function requisitionSiCredentialsManquantes(
+  agent: AgentType,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: {
+    existe?: (chemin: string) => boolean;
+    plateforme?: string;
+  } = {},
+): RequisitionCredential | null {
+  const existe = opts.existe ?? existsSync;
+  const plateforme = opts.plateforme ?? process.platform;
+  if (agent === 'shell' || agent === 'custom') return null;
+
+  const maison = (plateforme === 'win32' ? env.USERPROFILE : env.HOME)?.trim();
+  const p = plateforme === 'win32' ? path.win32 : path.posix;
+
+  if (agent === 'claude-code') {
+    if ((env.ANTHROPIC_API_KEY ?? '').trim()) return null;
+    if ((env.ANTHROPIC_AUTH_TOKEN ?? '').trim()) return null;
+    if (maison && existe(p.join(maison, '.claude'))) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé ou session Anthropic (Claude Code)',
+      detail:
+        'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
+        'Connectez-vous avec `claude login` localement, ou accordez une clé depuis la Chambre.',
+    };
+  }
+
+  if (agent === 'cursor') {
+    if ((env.CURSOR_API_KEY ?? '').trim()) return null;
+    if (maison && existe(p.join(maison, '.cursor'))) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé ou session Cursor',
+      detail:
+        'CURSOR_API_KEY absente et aucun dossier ~/.cursor détecté sur ce poste. ' +
+        'Connectez-vous avec `agent login` localement, ou posez CURSOR_API_KEY.',
+    };
+  }
+
+  if (agent === 'codex') {
+    if ((env.OPENAI_API_KEY ?? '').trim()) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé OpenAI (Codex)',
+      detail: 'OPENAI_API_KEY absente sur ce nœud — l’agent ne pourra pas s’authentifier.',
+    };
+  }
+
+  if (agent === 'grok') {
+    if ((env.XAI_API_KEY ?? '').trim()) return null;
+    const grokHome = (env.GROK_HOME ?? (maison ? p.join(maison, '.grok') : '')).trim();
+    if (grokHome && existe(grokHome)) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé xAI ou session Grok',
+      detail: 'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.',
+    };
+  }
+
+  return null;
 }
 
 /** Liste tous les agents détectés (pour information / diagnostic). */
@@ -364,7 +510,9 @@ export async function detectAllAgents(
   const found: AgentType[] = [];
   if ((env.HIVE_AGENT_CMD ?? '').trim()) found.push('custom');
   for (const probe of PROBES) {
-    if (await firstPresent(probe.bins, sonder, plateforme, env, existe)) found.push(probe.agent);
+    if (await firstPresent(probe.bins, sonder, plateforme, env, existe, probe.signature)) {
+      found.push(probe.agent);
+    }
   }
   found.push('shell');
   return found;

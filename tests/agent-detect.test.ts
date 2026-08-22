@@ -19,7 +19,12 @@
 
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { candidates, cheminsNatifs, detectBestAgent } from '../src/node-client/agent-detect.js';
+import {
+  candidates,
+  cheminsNatifs,
+  detectBestAgent,
+  requisitionSiCredentialsManquantes,
+} from '../src/node-client/agent-detect.js';
 
 describe('LES VARIANTES DE BINAIRE, PAR PLATEFORME', () => {
   it('sur un système POSIX, le nom est pris tel quel', () => {
@@ -91,7 +96,15 @@ describe('LE CHOIX DE L’AGENT', () => {
     expect(vu.agent).toBe('claude-code');
   });
 
-  it('faute de Claude Code, Codex est pris — pas le repli simulé', async () => {
+  it('faute de Claude Code, Cursor est pris avant Codex', async () => {
+    const vu = await detectBestAgent({}, async (argv) => {
+      const b = argv[0] ?? '';
+      return b.startsWith('agent') || b.startsWith('cursor-agent');
+    });
+    expect(vu.agent).toBe('cursor');
+  });
+
+  it('faute de Claude Code et Cursor, Codex est pris — pas le repli simulé', async () => {
     const vu = await detectBestAgent({}, async (argv) => (argv[0] ?? '').startsWith('codex'));
     expect(vu.agent).toBe('codex');
   });
@@ -189,5 +202,67 @@ describe('LE CHOIX DE L’AGENT', () => {
     });
     expect(vu.agent).toBe('custom');
     expect(appels, 'la sonde ne doit pas tourner quand le membre a choisi').toBe(0);
+  });
+});
+
+describe('réquisition si credentials manquantes', () => {
+  it('shell et custom : rien à demander', () => {
+    expect(requisitionSiCredentialsManquantes('shell', {})).toBeNull();
+    expect(requisitionSiCredentialsManquantes('custom', {})).toBeNull();
+  });
+
+  it('codex sans OPENAI_API_KEY → réquisition cle_api', () => {
+    const r = requisitionSiCredentialsManquantes('codex', {});
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/OpenAI/i);
+  });
+
+  it('claude-code avec clé env → silence', () => {
+    expect(
+      requisitionSiCredentialsManquantes('claude-code', { ANTHROPIC_API_KEY: 'sk-x' }),
+    ).toBeNull();
+  });
+
+  it('claude-code avec ~/.claude → silence même sans clé env', () => {
+    const existe = (p: string) => /[/\\]\.claude$/.test(p);
+    expect(
+      requisitionSiCredentialsManquantes(
+        'claude-code',
+        { HOME: '/home/moi' },
+        { existe, plateforme: 'linux' },
+      ),
+    ).toBeNull();
+    expect(
+      requisitionSiCredentialsManquantes(
+        'claude-code',
+        { USERPROFILE: 'C:\\Users\\moi' },
+        { existe, plateforme: 'win32' },
+      ),
+    ).toBeNull();
+  });
+
+  it('cursor sans clé ni ~/.cursor → réquisition', () => {
+    const r = requisitionSiCredentialsManquantes(
+      'cursor',
+      { HOME: '/home/moi' },
+      { existe: () => false },
+    );
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/Cursor/i);
+  });
+
+  it('cursor avec CURSOR_API_KEY → silence', () => {
+    expect(requisitionSiCredentialsManquantes('cursor', { CURSOR_API_KEY: 'key' })).toBeNull();
+  });
+
+  it('cursor avec ~/.cursor → silence même sans clé env', () => {
+    const existe = (p: string) => /[/\\]\.cursor$/.test(p);
+    expect(
+      requisitionSiCredentialsManquantes(
+        'cursor',
+        { HOME: '/home/moi' },
+        { existe, plateforme: 'linux' },
+      ),
+    ).toBeNull();
   });
 });

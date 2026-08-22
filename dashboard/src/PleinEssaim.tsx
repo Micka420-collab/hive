@@ -14,9 +14,10 @@
 // d'écriture pour un détail du réglage. C'est exactement ce qu'il ne faut pas.
 
 import { useCallback, useEffect, useState } from 'react';
-import { fetchEssaim, setEssaim } from './api';
-import type { EtatEssaimUi, NiveauEssaim, PasEssaim } from './api';
+import { fetchEssaim, fetchEssaimCycles, setEssaim } from './api';
+import type { CycleEssaimUi, EtatEssaimUi, NiveauEssaim, PasEssaim, PretEssaimUi } from './api';
 import { useT } from './i18n';
+import { timeShort } from './views/shared';
 
 /** Rafraîchissement : la décision change quand l'état de la ruche change. */
 const PERIODE_MS = 5_000;
@@ -106,15 +107,87 @@ function descriptionNiveau(n: NiveauEssaim, t: ReturnType<typeof useT>): string 
   }
 }
 
+function ChecklistAutonomie({ pret, t }: { pret: PretEssaimUi; t: ReturnType<typeof useT> }) {
+  const lignes: { ok: boolean; fr: string; en: string }[] = [
+    {
+      ok: pret.runner,
+      fr: 'Runner allumé (HIVE_RUNNER=on sur l’hôte)',
+      en: 'Runner on (HIVE_RUNNER=on on the host)',
+    },
+    {
+      ok: pret.noeudsEnLigne,
+      fr: 'Au moins une ouvrière en ligne',
+      en: 'At least one worker online',
+    },
+    {
+      ok: pret.agentsReels,
+      fr: 'Agent de codage réel (pas shell/simulation)',
+      en: 'Real coding agent (not shell/simulation)',
+    },
+    {
+      ok: pret.gouvernantes,
+      fr: 'Gouvernantes éligibles (caste + preuves)',
+      en: 'Eligible governing workers (caste + track record)',
+    },
+    { ok: pret.derive, fr: 'Santé du projet non dégradée', en: 'Project health not degraded' },
+    { ok: pret.plafond, fr: 'Plafond de dépense non bloqué', en: 'Spend cap not blocked' },
+    {
+      ok: pret.repo,
+      fr: 'Dépôt GitHub connu (si fusion autonome)',
+      en: 'GitHub repo known (if auto-merge)',
+    },
+    {
+      ok: pret.depot,
+      fr: 'Dépôt autorisé pour fusion (si niveau plein)',
+      en: 'Repository enrolled for merge (if full level)',
+    },
+  ];
+  const ok = lignes.filter((l) => l.ok).length;
+  return (
+    <div className="essaim-pret" aria-label={t('Prêt pour l’autonomie', 'Ready for autonomy')}>
+      <span className="essaim-etiquette">
+        {t('Prêt pour l’autonomie', 'Ready for autonomy')} · {ok}/{lignes.length}
+      </span>
+      <ul className="essaim-pret-liste">
+        {lignes.map((l) => (
+          <li key={l.en} className={l.ok ? 'essaim-pret-ok' : 'essaim-pret-ko'}>
+            <span aria-hidden="true">{l.ok ? '✓' : '○'}</span> {t(l.fr, l.en)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function libelleIssueCycle(issue: string | undefined, t: ReturnType<typeof useT>): string {
+  switch (issue) {
+    case 'agi':
+      return t('a agi', 'acted');
+    case 'observe':
+      return t('observe', 'observed');
+    case 'abandonne':
+      return t('abandonné', 'abandoned');
+    case 'echoue':
+      return t('échec', 'failed');
+    case 'non_branche':
+      return t('non branché', 'not wired');
+    default:
+      return issue ?? '—';
+  }
+}
+
 export function PleinEssaim({ projectId }: { projectId: string }) {
   const t = useT();
   const [etat, setEtat] = useState<EtatEssaimUi | null>(null);
+  const [cycles, setCycles] = useState<CycleEssaimUi[] | null>(null);
   const [erreur, setErreur] = useState<string>('');
   const [occupe, setOccupe] = useState(false);
 
   const recharger = useCallback(async () => {
     try {
-      setEtat(await fetchEssaim(projectId));
+      const [e, c] = await Promise.all([fetchEssaim(projectId), fetchEssaimCycles(projectId, 10)]);
+      setEtat(e);
+      setCycles(c.cycles);
       setErreur('');
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e));
@@ -196,6 +269,29 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
             `The hive gave up on this project after ${etat.runner.echecs} consecutive failures. Set the autonomy level again below to restart it.`,
           )}
         </p>
+      )}
+
+      {etat.pret && <ChecklistAutonomie pret={etat.pret} t={t} />}
+
+      {cycles && cycles.length > 0 && (
+        <div className="essaim-cycles">
+          <span className="essaim-etiquette">{t('Derniers cycles', 'Recent cycles')}</span>
+          <ul>
+            {cycles.map((c, i) => (
+              <li key={`${c.ts}-${i}`}>
+                <time>{timeShort(c.ts)}</time>{' '}
+                <span className="essaim-cycle-pas">{c.pas ?? '?'}</span>{' '}
+                <span className="essaim-cycle-issue">{libelleIssueCycle(c.issue, t)}</span>
+                {c.detail ? (
+                  <span className="essaim-cycle-detail" title={c.detail}>
+                    {' '}
+                    — {c.detail.length > 60 ? `${c.detail.slice(0, 60)}…` : c.detail}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* La Dérive : ce qui rend une autonomie de plusieurs semaines

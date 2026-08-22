@@ -10,6 +10,8 @@ import {
   buildHiveContext,
   HIVE_CONTEXT_HEADER,
   rankMemories,
+  rankMemoriesHybrid,
+  scoreNgram,
   summarizeTask,
   tokenize,
   type Memory,
@@ -61,6 +63,16 @@ describe('récupération (moteur pur)', () => {
     // Corpus ou requête vide → aucun souvenir.
     expect(rankMemories('', corpus)).toHaveLength(0);
     expect(rankMemories('jwt', [])).toHaveLength(0);
+  });
+
+  it('hybride BM25 + trigrammes rappelle les paraphrases', () => {
+    const corpus = [
+      mem(1, 'a', 'Auth module', 'implement user sign-in flow with tokens'),
+      mem(2, 'b', 'Billing', 'stripe webhook integration'),
+    ];
+    expect(scoreNgram('sign in flow', 'implement user sign-in flow')).toBeGreaterThan(0);
+    const ranked = rankMemoriesHybrid('connexion utilisateur token', corpus, 1);
+    expect(ranked[0]?.memory.taskId).toBe('a');
   });
 
   it('À SCORE ÉGAL, LE PLUS RÉCENT GAGNE', () => {
@@ -393,7 +405,7 @@ describe('injection bout-en-bout', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 80,
     });
 
