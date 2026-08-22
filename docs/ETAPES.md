@@ -12479,3 +12479,61 @@ Cinq bancs neufs dans `tests/loupe-mutations.test.mjs`, écrits AVANT le
 correctif et vus rouges : le `&&` terminal, le `||` terminal, la coexistence
 avec le `===` de la même ligne, le refus de la ligne ambiguë, et l'absence de
 doublon sur une ligne déjà couverte par la table.
+
+## Le rebalayage de github.ts : 36 au lieu de 32, et DEUX nues cachées par la règle
+
+Vérification du correctif de fin de ligne, sur le fichier même qui l'avait
+révélé. Base épinglée inchangée (`3f23478`), plafond inchangé (400) : seule la
+règle a changé.
+
+```
+avant le correctif : LOUPE : 32 mutation(s) possible(s), 32 examinée(s) — 7 nues
+après le correctif : LOUPE : 36 mutation(s) possible(s), 36 examinée(s) — 2 nues
+```
+
+**Quatre candidates de plus**, et deux d'entre elles NUES :
+
+```
+════ CODE NEUF QUE RIEN NE DÉFEND ════
+· src/orchestrator/github.ts — && → ||     typeof brut === 'object' &&
+· src/orchestrator/github.ts — && → ||     brut !== null &&
+```
+
+Ce sont **exactement** les deux occurrences que le recensement du § 9
+octosexagicenties avait nommées « jamais mutées » dans ce fichier. Le
+recensement disait vrai ; c'est la loupe qui ne pouvait pas le contredire.
+
+### Ce que les mutants cassent
+
+`typeof null === 'object'` rend VRAI : c'est donc le `&&` qui écarte `null`.
+Muté en `||`, la précédence défait le garde-fou des deux côtés —
+`a || (b && c)` pour le premier, `(a && b) || c` pour le second — et
+l'indexation de `null` LÈVE. Une réponse JSON valant littéralement `null`
+tue la lecture au lieu de rendre une liste vide.
+
+Deux sites, `listerWorkflows` et `lireRuns`, la même forme copiée.
+
+### Rejeu, un mutant à la fois, sur les DEUX sites
+
+```
+═══ REJEU DES DEUX NUES DE FIN DE LIGNE ═══
+  ✔ TENU · F1 listerWorkflows : typeof && → ||
+  ✔ TENU · F2 listerWorkflows : brut !== null && → ||
+  ✔ TENU · F3 lireRuns : typeof && → ||
+  ✔ TENU · F4 lireRuns : brut !== null && → ||
+
+═══ TENUS : 4 sur 4 ═══
+```
+
+### Les deux comptes ne se comparent pas
+
+`32` et `36` ne mesurent pas la même chose : le premier compte ce qu'une règle
+incomplète savait produire, le second ce qu'une règle corrigée produit sur le
+même terrain. Écrire « on est passé de 7 nues à 2 » serait un progrès
+imaginaire — les sept d'avant ont été fermées, et les deux d'ici n'existaient
+pas encore comme candidates. Le seul chiffre qui compte est celui d'aujourd'hui :
+**36 examinées, 2 nues, 2 fermées.**
+
+Reste de la tâche #100 : `livraison.ts` n'a pas encore été rebalayé avec la
+règle corrigée. Tant que ce n'est pas fait, son « 38 sur 38 » vaut ce que vaut
+l'ancien « 32 sur 32 » de github.ts.

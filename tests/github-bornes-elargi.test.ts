@@ -187,3 +187,45 @@ describe('lireRuns — une limite de zéro est une limite', () => {
     });
   });
 });
+
+// ─── LES DEUX NUES QUE LA LOUPE NE POUVAIT PAS VOIR ──────────────────────────
+//
+// Ce fichier a d'abord fermé sept nues d'un balayage à 32 candidates. La règle
+// de mutation ignorait alors les opérateurs en FIN de ligne (§ 9
+// septuagicenties) — or les deux gardes ci-dessous sont écrites sur plusieurs
+// lignes, la forme que Prettier impose :
+//
+//     const lot =
+//       typeof brut === 'object' &&
+//       brut !== null &&
+//       Array.isArray((brut as Record<string, unknown>).workflows)
+//
+// Règle corrigée, le même fichier rend **36 candidates** au lieu de 32, et
+// deux des quatre nouvelles sont NUES. Ce sont exactement les deux occurrences
+// que le recensement du § 9 octosexagicenties avait nommées « jamais mutées ».
+//
+// Ce qui casse, dans les deux cas : `typeof null === 'object'` rend VRAI, donc
+// c'est le `&&` qui écarte `null`. Muté en `||`, la précédence fait tomber le
+// garde-fou — `a || (b && c)` d'un côté, `(a && b) || c` de l'autre — et
+// l'indexation de `null` LÈVE. Une réponse JSON valant littéralement `null`
+// (un corps « null », que `rep.json()` rend tel quel) fait donc mourir la
+// lecture au lieu de rendre une liste vide.
+describe('une réponse JSON valant `null` ne doit pas faire LEVER la lecture', () => {
+  function fetcheurNul(): Fetcheur {
+    return async () => reponse(null);
+  }
+
+  it('listerWorkflows rend une liste vide plutôt que de lever', async () => {
+    const { workflows, tronque } = await listerWorkflows(
+      { ...OPTS, fetcheur: fetcheurNul() },
+      DEPOT,
+    );
+    expect(workflows).toEqual([]);
+    expect(tronque).toBe(false);
+  });
+
+  it('lireRuns rend une liste vide plutôt que de lever', async () => {
+    const runs = await lireRuns({ ...OPTS, fetcheur: fetcheurNul() }, DEPOT);
+    expect(runs).toEqual([]);
+  });
+});
