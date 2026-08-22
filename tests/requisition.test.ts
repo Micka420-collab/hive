@@ -6,6 +6,7 @@ import {
   VERSION_REQUISITION,
   expliquerRefusRequisition,
   libelleGenreRequisition,
+  suiteAccordRequisition,
   validerGenreRequisition,
   validerLibelleRequisition,
 } from '../src/orchestrator/requisition.js';
@@ -31,6 +32,20 @@ describe('réquisition — forme', () => {
     expect(libelleGenreRequisition('cle_api', 'fr')).toMatch(/Clé/i);
     expect(libelleGenreRequisition('cle_api', 'en')).toMatch(/API/i);
     expect(expliquerRefusRequisition('deja_close', 'fr')).toMatch(/déjà/i);
+  });
+
+  it('suiteAccordRequisition : Accorder n’est plus un no-op hors cle_api', () => {
+    expect(suiteAccordRequisition('cle_api')).toEqual({ action: 'modal_cle' });
+    expect(suiteAccordRequisition('atelier')).toEqual({ action: 'atelier' });
+    expect(suiteAccordRequisition('mcp')).toEqual({
+      action: 'fabrique',
+      genreFabrique: 'mcp',
+    });
+    expect(suiteAccordRequisition('logiciel')).toEqual({
+      action: 'fabrique',
+      genreFabrique: 'script_npm',
+    });
+    expect(suiteAccordRequisition('binaire')).toEqual({ action: 'hint_binaire' });
   });
 });
 

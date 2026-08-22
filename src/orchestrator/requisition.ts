@@ -66,6 +66,24 @@ export function libelleGenreRequisition(genre: GenreRequisition, lang: 'fr' | 'e
   return (lang === 'en' ? en : fr)[genre];
 }
 
+/**
+ * Quoi faire APRÈS un Accorder réussi — hors `cle_api` (qui a son modal).
+ * Sans ça, Accorder ne faisait que basculer le statut : un no-op déguisé.
+ */
+export type SuiteAccordRequisition =
+  | { action: 'modal_cle' }
+  | { action: 'atelier' }
+  | { action: 'fabrique'; genreFabrique: 'mcp' | 'script_npm' | 'pont' }
+  | { action: 'hint_binaire' };
+
+export function suiteAccordRequisition(genre: GenreRequisition): SuiteAccordRequisition {
+  if (genre === 'cle_api') return { action: 'modal_cle' };
+  if (genre === 'atelier') return { action: 'atelier' };
+  if (genre === 'mcp') return { action: 'fabrique', genreFabrique: 'mcp' };
+  if (genre === 'logiciel') return { action: 'fabrique', genreFabrique: 'script_npm' };
+  return { action: 'hint_binaire' };
+}
+
 export function expliquerRefusRequisition(
   motif: MotifRefusRequisition,
   lang: 'fr' | 'en' = 'fr',

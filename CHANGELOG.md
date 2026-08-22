@@ -15,6 +15,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Relecture Claude (#348) intégrée.** Horizon neutralisé (`champSurUneLigne`) ;
   grant : validation puis transition puis écriture ; `envVar` = dérivé du libellé ;
   motifs : `ordre` dans la donnée + `catalogueCoherent` ; étapes perso = une ligne.
+- **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
+  mcp/logiciel → fabrique ; binaire → hint install. Modal grant : `envVar` en
+  lecture seule pour les réquisitions.
 - **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
   `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
   `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés

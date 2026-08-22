@@ -57,9 +57,11 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 import {
   ajouterHorizon,
   appliquerMotif,
+  demarrerAtelier,
   fetchChambre,
   fetchMotifs,
   fetchQueenCles,
+  ouvrirFabrique,
   poserQueenCle,
   poserStatutFabrique,
   fetchMotifsPerso,
@@ -147,6 +149,10 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, motifId: 'm1', taskIds: [], titres: [] });
   vi.mocked(fetchMotifs).mockReset().mockResolvedValue({ motifs: [] });
+  vi.mocked(demarrerAtelier).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(ouvrirFabrique).mockReset().mockResolvedValue({ ok: true, id: 'fab-1' });
+  vi.mocked(poserQueenCle).mockReset();
+  vi.mocked(poserStatutFabrique).mockReset();
 });
 
 afterEach(() => {
@@ -160,6 +166,13 @@ async function monter(
   onNavigate: ViewProps['onNavigate'] = () => {},
   events: ViewProps['events'] = [],
 ): Promise<HTMLElement> {
+  // Un seul root à la fois — un second monter() sans afterEach polluait le DOM.
+  if (racine) {
+    act(() => racine!.unmount());
+    conteneur?.remove();
+    racine = null;
+    conteneur = null;
+  }
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -334,6 +347,7 @@ describe('Chambre à l’écran', () => {
     const envInput = dialog!.querySelector('input[type="text"]') as HTMLInputElement;
     const secretInput = dialog!.querySelector('input[type="password"]') as HTMLInputElement;
     expect(envInput.value).toBe('SEEDANCE_API_KEY');
+    expect(envInput.readOnly).toBe(true);
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
@@ -389,6 +403,71 @@ describe('Chambre à l’écran', () => {
       envVar: 'OPENROUTER_API_KEY',
       libelle: 'OpenRouter',
     });
+  });
+
+  it('Accorder atelier allume le studio', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-atelier',
+            nodeId: NODE_ID,
+            genre: 'atelier',
+            libelle: 'Bureau de recette',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-atelier', 'accordee');
+    expect(demarrerAtelier).toHaveBeenCalled();
+    expect(ouvrirFabrique).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/atelier allumé|studio started/i);
+  });
+
+  it('Accorder mcp ouvre une fabrique (Intégrations)', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-mcp',
+            nodeId: NODE_ID,
+            genre: 'mcp',
+            libelle: 'Pont MCP docs',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-mcp', 'accordee');
+    expect(ouvrirFabrique).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({
+        genre: 'mcp',
+        libelle: 'Pont MCP docs',
+        nodeId: NODE_ID,
+      }),
+    );
+    expect(demarrerAtelier).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/fabrique proposée|forge proposal/i);
   });
 
   it('refuse une réquisition depuis le bandeau À trancher', async () => {

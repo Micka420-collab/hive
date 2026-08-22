@@ -191,10 +191,12 @@ le bandeau **En train de…** liste les présences même si le miroir du dépôt
 est vide — un clic sur le **chemin** ouvre le fichier dans l’arbre. Sur
 l’**Essaim**, les cartes ouvrières (et le Waggle) portent le
 baptême constaté ; un clic ouvre aussi la **Chambre**. Les **réquisitions**
-(clé API, MCP, binaire, atelier,
-logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
-chez la Queen (une réquisition `cle_api` ouvre un modal qui écrit la clé dans
-le `.env` Queen, jamais en base ni sur le nœud). Un lien de partage **ne voit jamais** ces identités.
+(clé API, MCP, binaire, atelier, logiciel) s’accordent ou se refusent depuis la
+Chambre — Accorder n’est plus un no-op : `cle_api` ouvre le modal `.env` Queen ;
+`atelier` allume le bureau de recette ; `mcp` / `logiciel` proposent une entrée
+Fabrique ; `binaire` rappelle d’installer l’outil sur le poste. Les secrets
+restent chez la Queen (jamais en base ni poussés aux nœuds distants). Un lien
+de partage **ne voit jamais** ces identités.
 
 La **fabrique** propose un outil (script npm, pont, MCP) comme tâche → revue →
 merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans

@@ -44,6 +44,7 @@ import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
 import {
   libelleGenreRequisition,
+  suiteAccordRequisition,
   type GenreRequisition,
 } from '../../../src/orchestrator/requisition.js';
 import {
@@ -466,7 +467,9 @@ export default function Chambre({
                     aria-busy={busyReqId === r.id}
                     aria-label={t(`Accorder — ${r.libelle}`, `Grant — ${r.libelle}`)}
                     onClick={() => {
-                      if (r.genre === 'cle_api') {
+                      const genre = r.genre as GenreRequisition;
+                      const suite = suiteAccordRequisition(genre);
+                      if (suite.action === 'modal_cle') {
                         setGrantReq(r);
                         setGrantSecret('');
                         setGrantEnvVar(nomEnvDepuisLibelle(r.libelle));
@@ -476,8 +479,62 @@ export default function Chambre({
                       setErrHitl(null);
                       setStatusHitl(null);
                       void repondreRequisition(r.id, 'accordee')
-                        .then(() => {
-                          setStatusHitl(t('Accordée', 'Granted'));
+                        .then(async () => {
+                          if (suite.action === 'atelier') {
+                            try {
+                              await demarrerAtelier();
+                              setStatusHitl(
+                                t('Accordée — atelier allumé', 'Granted — studio started'),
+                              );
+                            } catch (e) {
+                              setStatusHitl(t('Accordée', 'Granted'));
+                              setErrHitl(
+                                e instanceof Error
+                                  ? e.message
+                                  : t(
+                                      'Atelier non démarré (HIVE_ATELIER ?)',
+                                      'Studio not started (HIVE_ATELIER?)',
+                                    ),
+                              );
+                            }
+                          } else if (suite.action === 'fabrique') {
+                            if (!poste?.projectId) {
+                              setStatusHitl(t('Accordée', 'Granted'));
+                              setErrHitl(
+                                t(
+                                  'Pas de projet lié — ouvrez Intégrations pour proposer une fabrique.',
+                                  'No linked project — open Integrations to propose a forge item.',
+                                ),
+                              );
+                            } else {
+                              try {
+                                await ouvrirFabrique(poste.projectId, {
+                                  genre: suite.genreFabrique,
+                                  libelle: r.libelle,
+                                  nodeId,
+                                });
+                                setOnglet('integrations');
+                                setStatusHitl(
+                                  t(
+                                    'Accordée — fabrique proposée (Intégrations)',
+                                    'Granted — forge proposal opened (Integrations)',
+                                  ),
+                                );
+                              } catch (e) {
+                                setStatusHitl(t('Accordée', 'Granted'));
+                                setErrHitl(e instanceof Error ? e.message : String(e));
+                              }
+                            }
+                          } else if (suite.action === 'hint_binaire') {
+                            setStatusHitl(
+                              t(
+                                'Accordée — installez l’outil sur le poste (hive doctor / CLI), puis relancez le nœud.',
+                                'Granted — install the tool on the host (hive doctor / CLI), then restart the node.',
+                              ),
+                            );
+                          } else {
+                            setStatusHitl(t('Accordée', 'Granted'));
+                          }
                           rafraichir();
                         })
                         .catch((e) => {
@@ -1446,8 +1503,8 @@ export default function Chambre({
             ) : null}
             <p className="ch-silence muted-text">
               {t(
-                'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Sur une ruche mono-machine, le nœud local recharge ce fichier à la reprise ; un nœud distant garde ses propres credentials.',
-                'Written on the Queen (.env) — never in the DB or journal. On a single-machine hive the local node reloads this file on resume; a remote node keeps its own credentials.',
+                'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Mono-machine : le nœud local recharge ce fichier à la reprise. Nœud distant / Cursor sur une autre machine : posez aussi la clé sur CE poste (CURSOR_API_KEY, etc.) — la Queen ne pousse pas de secrets aux ouvrières.',
+                'Written on the Queen (.env) — never in the DB or journal. Single-machine: the local node reloads this file on resume. Remote node / Cursor on another machine: also set the key on THAT host (CURSOR_API_KEY, etc.) — the Queen never pushes secrets to workers.',
               )}
             </p>
             <label className="ch-grant-field">
@@ -1455,12 +1512,32 @@ export default function Chambre({
               <input
                 type="text"
                 value={grantEnvVar}
-                onChange={(e) => setGrantEnvVar(e.target.value)}
+                onChange={(e) => {
+                  // Réquisition HITL : le nom est dérivé du libellé (serveur
+                  // refuse tout autre). Catalogue « Autre » : libre.
+                  if (grantReq) return;
+                  setGrantEnvVar(e.target.value);
+                }}
+                readOnly={Boolean(grantReq)}
+                aria-readonly={grantReq ? true : undefined}
                 autoComplete="off"
                 spellCheck={false}
                 placeholder={grantCatalogue && !grantCatalogue.envVar ? 'GROQ_API_KEY' : undefined}
               />
             </label>
+            <p className="ch-silence muted-text">
+              {grantReq
+                ? t(
+                    'Nom fixé par le libellé de la réquisition — non modifiable (évite d’écraser HIVE_*).',
+                    'Name fixed by the requisition label — not editable (avoids overwriting HIVE_*).',
+                  )
+                : grantCatalogue && !grantCatalogue.envVar
+                  ? t(
+                      'Choisissez un nom UPPER_SNAKE (hors préfixe HIVE_).',
+                      'Pick an UPPER_SNAKE name (not HIVE_*).',
+                    )
+                  : null}
+            </p>
             <label className="ch-grant-field">
               <span>{t('Clé (secret)', 'Key (secret)')}</span>
               <input
