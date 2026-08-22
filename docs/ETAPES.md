@@ -12159,3 +12159,95 @@ fichiers de `dashboard/src/views` sont balayés entiers (74 mutations, 26 nues,
 25 fermées, 1 équivalente). Les six points de la consigne sont défendus. Le
 prochain balayage utile est un balayage ÉLARGI à base épinglée sur du terrain
 non encore regardé — pas une reprise de cette liste.
+
+## Le Concierge : 21 sur 21 — premier balayage ÉLARGI hors des vues
+
+Base épinglée dans l'atelier (`LOUPE_BASE=d7f6194`, HEAD~250) :
+
+```text
+21 mutation(s) possible(s) sur le diff, 21 examinée(s).
+12 défendues, 9 SANS TEST
+```
+
+### Pourquoi « élargi » a fini RESSERRÉ
+
+Le périmètre `src` entier rend **371 candidates** — onze heures de machine. Le
+carnet interdit d'en échantillonner et de le présenter comme un balayage
+(§ 9 quinquinquagicenties : la moitié de la Ruche n'avait rendu qu'un tiers de
+ses nues). Un balayage ENTIER sur un module choisi vaut mieux qu'un
+demi-balayage sur tout : le périmètre a donc été resserré jusqu'à ce qu'il tienne.
+
+Les modules que la consigne nommait — `livraison.ts`, `gardiennes.ts`,
+`polyethisme.ts`, `balance.ts` — rendent **0 ligne ajoutée** contre cette base :
+ils sont plus vieux qu'elle. Un balayage élargi ne les atteint pas ; il leur
+faut leur propre base épinglée, et c'est un autre lot.
+
+### Les trois familles
+
+**Les listes vides** (`enCours`, `sous`, `echecs`) — mutées en `>=`, la ligne se
+pousse sur une liste VIDE : « En cours : 0 tâche(s) — » sans en nommer une. Et
+le conseil de restauration s'affiche sans le moindre échec, invitant à défaire
+ce qui vient de réussir. C'est l'état où une ruche passe le plus clair de son
+temps, et aucun décor ne l'atteignait.
+
+**La langue** — trois `lang === 'fr'`, dont un DÉFENDU. Voir plus bas : c'est là
+que le banc s'est fait prendre.
+
+**Le filtre d'entrée** — `sousAgentsDepuisEvenements` lit du `payload` de
+journal, de la donnée dont la forme n'est pas garantie. Ses deux refus étaient
+nus, et `||` mué en `&&` ne refuse plus que si TOUTES les conditions tombent :
+
+```text
+!a || typeof a !== 'object'     `null` passe (typeof null === 'object'),
+                                puis `o.name` JETTE sur la lecture du journal
+name/status non-chaînes         { name: 'x', status: 42 } passe, et un status
+                                numérique file en aval
+```
+
+### Une nue ÉQUIVALENTE s'est retirée, elle ne s'est pas consignée
+
+```js
+.join(lang === 'fr' ? ' · ' : ' · ')
+```
+
+Les deux branches sont identiques au signe près : aucune entrée ne les
+distingue, donc aucun test ne peut la tuer. La loupe la rendait « SANS TEST » à
+chaque passe — non parce qu'elle est intestable, mais parce que son équivalence
+n'avait jamais été CONSIGNÉE (la loupe a quatre issues, pas deux : `mord` ×
+`marquée` ; sans marque, un équivalent tombe dans le même seau qu'une nue).
+
+Le ternaire a été RETIRÉ plutôt que marqué. Une ligne dont les deux moitiés sont
+le même texte n'a pas besoin d'une consignation : elle a besoin de disparaître.
+
+### Le banc s'est fait prendre trois fois, et c'est la même faute
+
+1. **Décor court-circuité.** Premier jet : `reports: []`. `progressReply` répond
+   « Aucun projet dans la ruche » et n'atteint JAMAIS les lignes vivantes. Les
+   deux cas « le concierge se tait » étaient VERTS — sur du code sain comme sur
+   le mutant. § 9 unvicicenties en pleine forme.
+2. **Décor incomplet.** `pulse: null` : `ctx.pulse.activeNodes` jette. Les cas
+   ne s'assertaient plus, ils tombaient.
+3. **Cible fausse.** Les cas de langue visaient « En cours : » / « In flight: »
+   — le SEUL des trois ternaires de ce bloc que le balayage n'avait PAS rendu
+   nu. Verts des deux côtés. Les deux vraies nues sont le détail par tâche
+   (`« … » sur` / `“ … ” on`) et la ligne des sous-agents.
+
+Les trois fois, j'avais écrit l'assertion d'après ce que je SUPPOSAIS que le
+code rendait. Les trois fois, c'est le rejeu — pas la suite verte — qui l'a dit.
+
+### Rejeu, un mutant à la fois
+
+```text
+TENU · E1 en cours : > → >=        TENU · V1 filtre objet : || → &&
+TENU · E2 sous-agents : > → >=     TENU · V2 filtre chaînes : || → &&
+TENU · L1 détail : === → !==       TENU · F1 compte des échecs : === → !==
+TENU · L2 sous-agents : === → !==  TENU · F2 conseil : > → >=
+
+═══ TENUS : 8 sur 8 ═══   (+ 1 équivalente RETIRÉE)
+```
+
+Restauré PAR COPIE après chaque tour, arbre vérifié propre.
+
+Delta du terrain : `concierge.ts` **21/21 balayé, 8 nues fermées, 1 retirée**.
+Le terrain `src` reste très largement non balayé — 371 candidates recensées,
+21 jouées. Ce chiffre-là se dit, il ne s'arrondit pas.
