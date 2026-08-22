@@ -9,6 +9,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
+  en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
+  pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
+  Réquisition proactive à l'enregistrement si credentials agent absents (`requisitionSiCredentialsManquantes`).
 - **Polish autonomie.** API baptême/métier (`POST /api/baptemes`, `/api/metiers`) ;
   checklist « prêt pour l’autonomie » + timeline cycles dans Plein Essaim ;
   baptême et métier depuis la Chambre ; filtre Chronique « Essaim » ;

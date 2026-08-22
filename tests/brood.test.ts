@@ -207,7 +207,7 @@ describe('câblage bout-en-bout : la 2e ouvrière hérite des leçons', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 80,
     });
 

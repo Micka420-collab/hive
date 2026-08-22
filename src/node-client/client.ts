@@ -10,6 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
+import { estAgentType, requisitionSiCredentialsManquantes } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -78,6 +79,8 @@ export class HiveNodeClient {
   private readonly activeMerges = new Set<string>();
   private readonly activeChantiers = new Set<string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  /** Évite de spammer la Chambre à chaque reconnexion WebSocket. */
+  private requisitionCredentialEnvoyee = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
@@ -136,6 +139,23 @@ export class HiveNodeClient {
 
   get runningCount(): number {
     return this.active.size;
+  }
+
+  /**
+   * Ouvre une réquisition (clé API, MCP, binaire…) — ADR 0010 lot 7.
+   * Le secret ne transite jamais : l'humain accorde depuis la Chambre.
+   */
+  ouvrirRequisition(genre: string, libelle: string, detail?: string): void {
+    if (!this.nodeId) {
+      this.log('réquisition ignorée : nœud non enregistré');
+      return;
+    }
+    this.send({
+      type: 'requisition_open',
+      genre,
+      libelle,
+      ...(detail ? { detail } : {}),
+    });
   }
 
   // ─── Connexion ───────────────────────────────────────────────────────────
@@ -202,6 +222,7 @@ export class HiveNodeClient {
         this.nodeId = msg.nodeId;
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
+        this.proposerRequisitionCredentialsSiBesoin();
         break;
       case 'assign_task':
         void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext, msg.modele);
@@ -251,6 +272,23 @@ export class HiveNodeClient {
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+  }
+
+  /** Réquisition proactive si l'agent réel n'a pas d'identifiants locaux (ADR 0010). */
+  private proposerRequisitionCredentialsSiBesoin(): void {
+    if (this.requisitionCredentialEnvoyee) return;
+    // `opts.agentType` est une CHAÎNE LIBRE : `getAdapter` en accepte d'autres
+    // que les cinq connus (`hermes-agent`), et `HIVE_AGENT` laisse l'humain en
+    // écrire n'importe laquelle. Un `as AgentType` compilerait en mentant sur
+    // la valeur ; la garde dit la vérité et ne change rien au comportement —
+    // `requisitionSiCredentialsManquantes` retombait déjà sur `null` pour un
+    // agent qu'elle ne connaît pas.
+    const agent = this.opts.agentType;
+    if (!estAgentType(agent)) return;
+    const req = requisitionSiCredentialsManquantes(agent);
+    if (!req) return;
+    this.requisitionCredentialEnvoyee = true;
+    this.ouvrirRequisition(req.genre, req.libelle, req.detail);
   }
 
   /**

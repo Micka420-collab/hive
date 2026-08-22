@@ -120,7 +120,7 @@ describe("flux complet d'invitation", () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 80,
     });
   });

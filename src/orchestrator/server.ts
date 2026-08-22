@@ -23,6 +23,7 @@ import {
   secretJwtDepuisEnv,
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
+import { shellForce } from '../shared/agent-production.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
@@ -1273,6 +1274,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   const scheduler = new Scheduler(store, {
+    // ─── DEUX QUESTIONS QU'IL NE FAUT PAS CONFONDRE ──────────────────────────
+    //
+    // `config.simulation` (HIVE_SIMULATION=1) relâche TROIS GARDES DE SÉCURITÉ
+    // plus haut dans cette fonction : jeton trivial toléré, secret de session
+    // absent toléré, secret de webhook absent toléré. Ce drapeau ne doit
+    // JAMAIS s'élargir — `HIVE_AGENT=shell` ouvrirait ces trois portes-là à
+    // qui pose une variable d'environnement.
+    //
+    // « ce nœud peut-il recevoir du travail de démonstration » est une
+    // question DIFFÉRENTE, et elle ne relâche aucune sécurité. Le message de
+    // `messageRefusShellProduction` promet DEUX trappes — « HIVE_SIMULATION=1
+    // ou HIVE_AGENT=shell » — et `demarrageNoeudAutorise` les honore toutes
+    // les deux. L'ordonnanceur n'en honorait qu'une : un nœud démarré sur la
+    // foi du message restait éligible à rien, et sa tâche courait sans fin.
+    //
+    // Un message qui annonce un contrat que le code n'honore pas est un
+    // mensonge lent. Ici les deux portes disent enfin la même chose.
+    simulation: config.simulation || shellForce(process.env),
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',
