@@ -113,4 +113,96 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     }
     expect(server.store.getTask(taskId)?.status).toBe('done');
   });
+
+  it('infra ENOENT → réquisition binaire avec taskId ; accordee → tâche done', async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-req-bin-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      envPath: path.join(dir, '.env'),
+      simulation: true,
+      tickMs: 60,
+    });
+    const base = `http://127.0.0.1:${server.port}`;
+
+    const project = (await (
+      await fetch(`${base}/api/projects`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: 'Req binaire' }),
+      })
+    ).json()) as { id: string };
+    const tasks = (await (
+      await fetch(`${base}/api/projects/${project.id}/tasks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ tasks: [{ title: 'Spawn test', prompt: 'work' }] }),
+      })
+    ).json()) as Task[];
+    const taskId = tasks[0]!.id;
+
+    let phase: 'fail' | 'ok' = 'fail';
+    const adapter: AgentAdapter = {
+      name: 'fail-enoent',
+      async run() {
+        if (phase === 'fail') {
+          return {
+            success: false,
+            diff: '',
+            logs: '[hive] échec du lancement de « claude » : spawn claude ENOENT',
+            subAgents: [],
+            infra: true,
+          };
+        }
+        return { success: true, diff: 'diff ok', logs: 'ok', subAgents: [] };
+      },
+    };
+
+    client = new HiveNodeClient({
+      url: `ws://127.0.0.1:${server.port}/ws`,
+      token: TOKEN,
+      name: 'mid-bin-node',
+      ownerName: 'test',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+      workRoot: path.join(dir, 'work'),
+      adapter,
+      quiet: true,
+    });
+    client.start();
+
+    const deadlineReq = Date.now() + 12_000;
+    let reqId: string | undefined;
+    let genre: string | undefined;
+    while (Date.now() < deadlineReq) {
+      const rows = server.store.listerRequisitions({ statut: 'ouverte' });
+      const hit = rows.find((r) => r.taskId === taskId);
+      if (hit) {
+        reqId = hit.id;
+        genre = hit.genre;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    expect(reqId, 'réquisition binaire ouverte').toBeTruthy();
+    expect(genre).toBe('binaire');
+
+    phase = 'ok';
+    const rep = await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee' }),
+    });
+    expect(rep.status).toBe(200);
+
+    const deadlineDone = Date.now() + 12_000;
+    while (Date.now() < deadlineDone) {
+      if (server.store.getTask(taskId)?.status === 'done') break;
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    expect(server.store.getTask(taskId)?.status).toBe('done');
+  });
 });

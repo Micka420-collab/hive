@@ -456,13 +456,16 @@ export class HiveNodeClient {
             status: 'running',
             log: '⏸ Réquisition ouverte — en attente de décision humaine (Chambre).',
           });
-          this.log(`⏸ ${task.title} : réquisition credentials — pause`);
+          this.log(`⏸ ${task.title} : réquisition ${req.genre} — pause`);
           return;
         }
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason: 'agent indisponible (auth/quota)',
+          reason:
+            req?.genre === 'binaire'
+              ? 'agent indisponible (binaire absent)'
+              : 'agent indisponible (auth/quota)',
           infra: true,
         });
         this.log(`⇄ ${task.title} : agent indisponible → réaffectation`);

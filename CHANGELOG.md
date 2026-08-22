@@ -15,6 +15,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Relecture Claude (#348) intégrée.** Horizon neutralisé (`champSurUneLigne`) ;
   grant : validation puis transition puis écriture ; `envVar` = dérivé du libellé ;
   motifs : `ordre` dans la donnée + `catalogueCoherent` ; étapes perso = une ligne.
+- **Boucle réquisition mid-task.** Échec infra auth → `cle_api` ; binaire
+  absent (ENOENT / « échec du lancement ») → `binaire` ; `requisition_open` +
+  `taskId` ; pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
 - **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
   mcp/logiciel → fabrique ; binaire → hint install. Modal grant : `envVar` en
   lecture seule pour les réquisitions.
@@ -23,8 +26,6 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
   (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
   **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
-- **Boucle réquisition mid-task.** Échec infra auth → `requisition_open` + `taskId` ;
-  pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
 - **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
   veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
 - **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au

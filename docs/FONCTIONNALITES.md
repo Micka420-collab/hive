@@ -194,7 +194,9 @@ baptême constaté ; un clic ouvre aussi la **Chambre**. Les **réquisitions**
 (clé API, MCP, binaire, atelier, logiciel) s’accordent ou se refusent depuis la
 Chambre — Accorder n’est plus un no-op : `cle_api` ouvre le modal `.env` Queen ;
 `atelier` allume le bureau de recette ; `mcp` / `logiciel` proposent une entrée
-Fabrique ; `binaire` rappelle d’installer l’outil sur le poste. Les secrets
+Fabrique ; `binaire` rappelle d’installer l’outil sur le poste. En cours de tâche,
+un échec infra auth ouvre `cle_api` ; un CLI absent (ENOENT) ouvre `binaire` —
+pause, reprise après Accorder. Les secrets
 restent chez la Queen (jamais en base ni poussés aux nœuds distants). Un lien
 de partage **ne voit jamais** ces identités.
 
