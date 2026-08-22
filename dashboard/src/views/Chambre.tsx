@@ -515,118 +515,124 @@ export default function Chambre({
               >
                 {onglet === 'fiche' && (
                   <>
-                  <ul className="ch-meta">
-                    <li>
-                      <span className="ch-meta-k">{t('Statut', 'Status')}</span>
-                      <span
-                        className={`ch-meta-v ch-statut-dot${
-                          poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
-                        }`}
+                    <ul className="ch-meta">
+                      <li>
+                        <span className="ch-meta-k">{t('Statut', 'Status')}</span>
+                        <span
+                          className={`ch-meta-v ch-statut-dot${
+                            poste.node.status === 'online' ? ' ch-statut-on' : ' ch-statut-off'
+                          }`}
+                        >
+                          {poste.node.status === 'online'
+                            ? t('En ligne', 'Online')
+                            : t('Hors ligne', 'Offline')}
+                        </span>
+                      </li>
+                      {metier && (
+                        <li>
+                          <span className="ch-meta-k">{t('Métier', 'Role')}</span>
+                          <span className="ch-meta-v">{metier}</span>
+                        </li>
+                      )}
+                      {poste.caste && (
+                        <li>
+                          <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
+                          <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
+                        </li>
+                      )}
+                      <li>
+                        <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
+                        <span className="ch-meta-v">{poste.node.ownerName}</span>
+                      </li>
+                      <li>
+                        <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
+                        <span className="ch-meta-v">{poste.node.agentType}</span>
+                      </li>
+                      <li>
+                        <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
+                        <span className="ch-meta-v">
+                          {poste.node.running}/{poste.node.maxConcurrency}
+                        </span>
+                      </li>
+                      {!titre && (
+                        <li>
+                          <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
+                          <span className="ch-meta-v">{poste.node.nameTechnique}</span>
+                        </li>
+                      )}
+                    </ul>
+                    {!titre && nodeId && (
+                      <form
+                        className="ch-bapteme-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!brouillonBapteme.trim()) return;
+                          setBusyBapteme(true);
+                          setErrBapteme(null);
+                          void baptiserOuvriere(nodeId, brouillonBapteme.trim())
+                            .then(() => {
+                              setBrouillonBapteme('');
+                              rafraichir();
+                            })
+                            .catch((ex) => {
+                              setErrBapteme(ex instanceof Error ? ex.message : String(ex));
+                            })
+                            .finally(() => setBusyBapteme(false));
+                        }}
                       >
-                        {poste.node.status === 'online'
-                          ? t('En ligne', 'Online')
-                          : t('Hors ligne', 'Offline')}
-                      </span>
-                    </li>
-                    {metier && (
-                      <li>
-                        <span className="ch-meta-k">{t('Métier', 'Role')}</span>
-                        <span className="ch-meta-v">{metier}</span>
-                      </li>
+                        <label className="ch-bapteme-label">
+                          {t('Baptiser cette ouvrière', 'Baptise this worker')}
+                          <input
+                            type="text"
+                            value={brouillonBapteme}
+                            maxLength={40}
+                            placeholder={t('Prénom (Reine)', 'First name (Queen)')}
+                            disabled={busyBapteme}
+                            onChange={(ev) => setBrouillonBapteme(ev.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn"
+                          disabled={busyBapteme || !brouillonBapteme.trim()}
+                        >
+                          {busyBapteme ? '…' : t('Baptiser', 'Baptise')}
+                        </button>
+                        {errBapteme && <p className="ch-err">{errBapteme}</p>}
+                      </form>
                     )}
-                    {poste.caste && (
-                      <li>
-                        <span className="ch-meta-k">{t('Caste', 'Caste')}</span>
-                        <span className="ch-meta-v">{libelleCaste(poste.caste, t)}</span>
-                      </li>
-                    )}
-                    <li>
-                      <span className="ch-meta-k">{t('Hôte', 'Host')}</span>
-                      <span className="ch-meta-v">{poste.node.ownerName}</span>
-                    </li>
-                    <li>
-                      <span className="ch-meta-k">{t('Agent', 'Agent')}</span>
-                      <span className="ch-meta-v">{poste.node.agentType}</span>
-                    </li>
-                    <li>
-                      <span className="ch-meta-k">{t('En vol', 'In flight')}</span>
-                      <span className="ch-meta-v">
-                        {poste.node.running}/{poste.node.maxConcurrency}
-                      </span>
-                    </li>
-                    {!titre && (
-                      <li>
-                        <span className="ch-meta-k">{t('Technique', 'Technical')}</span>
-                        <span className="ch-meta-v">{poste.node.nameTechnique}</span>
-                      </li>
-                    )}
-                  </ul>
-                  {!titre && nodeId && (
-                    <form
-                      className="ch-bapteme-form"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!brouillonBapteme.trim()) return;
-                        setBusyBapteme(true);
-                        setErrBapteme(null);
-                        void baptiserOuvriere(nodeId, brouillonBapteme.trim())
-                          .then(() => {
-                            setBrouillonBapteme('');
-                            rafraichir();
-                          })
-                          .catch((ex) => {
-                            setErrBapteme(ex instanceof Error ? ex.message : String(ex));
-                          })
-                          .finally(() => setBusyBapteme(false));
-                      }}
-                    >
-                      <label className="ch-bapteme-label">
-                        {t('Baptiser cette ouvrière', 'Baptise this worker')}
-                        <input
-                          type="text"
-                          value={brouillonBapteme}
-                          maxLength={40}
-                          placeholder={t('Prénom (Reine)', 'First name (Queen)')}
-                          disabled={busyBapteme}
-                          onChange={(ev) => setBrouillonBapteme(ev.target.value)}
-                        />
-                      </label>
-                      <button type="submit" className="btn" disabled={busyBapteme || !brouillonBapteme.trim()}>
-                        {busyBapteme ? '…' : t('Baptiser', 'Baptise')}
-                      </button>
-                      {errBapteme && <p className="ch-err">{errBapteme}</p>}
-                    </form>
-                  )}
-                  {nodeId && (
-                    <div className="ch-metier-form">
-                      <span className="ch-meta-k">{t('Métier de cycle', 'Cycle role')}</span>
-                      <div className="ch-metier-btns">
-                        {METIERS.map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            className={
-                              poste?.metier?.metier === m ? 'btn actif ch-metier-btn' : 'btn ch-metier-btn'
-                            }
-                            disabled={busyMetier}
-                            onClick={() => {
-                              setBusyMetier(true);
-                              setErrMetier(null);
-                              void assignerMetierOuvriere(nodeId, m)
-                                .then(() => rafraichir())
-                                .catch((ex) => {
-                                  setErrMetier(ex instanceof Error ? ex.message : String(ex));
-                                })
-                                .finally(() => setBusyMetier(false));
-                            }}
-                          >
-                            {libelleMetier(m, langCode)}
-                          </button>
-                        ))}
+                    {nodeId && (
+                      <div className="ch-metier-form">
+                        <span className="ch-meta-k">{t('Métier de cycle', 'Cycle role')}</span>
+                        <div className="ch-metier-btns">
+                          {METIERS.map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              className={
+                                poste?.metier?.metier === m
+                                  ? 'btn actif ch-metier-btn'
+                                  : 'btn ch-metier-btn'
+                              }
+                              disabled={busyMetier}
+                              onClick={() => {
+                                setBusyMetier(true);
+                                setErrMetier(null);
+                                void assignerMetierOuvriere(nodeId, m)
+                                  .then(() => rafraichir())
+                                  .catch((ex) => {
+                                    setErrMetier(ex instanceof Error ? ex.message : String(ex));
+                                  })
+                                  .finally(() => setBusyMetier(false));
+                              }}
+                            >
+                              {libelleMetier(m, langCode)}
+                            </button>
+                          ))}
+                        </div>
+                        {errMetier && <p className="ch-err">{errMetier}</p>}
                       </div>
-                      {errMetier && <p className="ch-err">{errMetier}</p>}
-                    </div>
-                  )}
+                    )}
                   </>
                 )}
 
