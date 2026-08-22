@@ -13082,3 +13082,121 @@ C'est le versant PROCÉDURAL de § 9 quaterquinquagicenties : là, un total en p
 se prenait pour une mesure ; ici, c'est un seuil de méthode. Dans les deux cas la
 faute est la même — **un chiffre écrit sans sa provenance emprunte l'autorité de
 ceux qui en ont une.**
+
+## 9 novemquinquagicenties. Une base épinglée ne dit rien de l'ARBRE qu'elle mesure
+
+`LOUPE_BASE=e93b252`, vérifiée : 400 ajoutées / 0 retirée sur `Chronique.tsx`.
+Le chiffre était juste. Le balayage a tourné huit minutes avant que je regarde
+autre chose que lui.
+
+La branche avait **236 commits de retard** sur `origin/main`, et `Chronique.tsx`
+y avait changé — 24 lignes insérées, 26 retirées. Le fichier que je mutais
+n'existait plus. La première nue relevée (`|| → &&` dans `isTyping`) portait sur
+une ligne que `main` avait déjà réécrite.
+
+### Ce que la base épingle, et ce qu'elle n'épingle pas
+
+Un diff a DEUX extrémités. `LOUPE_BASE` en fixe une ; l'autre est `HEAD`, et
+`HEAD` se périme tout seul pendant qu'on travaille. Vérifier « 400 ajoutées /
+0 retirée » confirme que la base est bien AVANT la naissance du fichier — ça ne
+dit rien de la fraîcheur du fichier lui-même.
+
+L'arithmétique était exacte sur le mauvais fichier, et rien dans le verdict de la
+loupe ne pouvait le signaler : elle mesure ce qu'on lui donne.
+
+### La leçon
+
+**Avant d'épingler une base, épingler l'arbre.** `git fetch origin main` et
+`git rev-list --left-right --count HEAD...origin/main` coûtent deux secondes ;
+le balayage coûte une heure. Le geste bon marché passe en premier.
+
+Corollaire pour la relance d'une session : une PR fusionnée ne se prolonge pas.
+La branche repart de `main`, et TOUT relevé pris avant ce départ est à jeter —
+pas à réconcilier.
+
+---
+
+## 9 sexagicenties. « Le processus est arrêté » est une affirmation sur l'ENVELOPPE, pas sur le travail
+
+`TaskStop` a rendu `Successfully stopped task`. Le balayage a continué huit
+minutes de plus.
+
+L'outil avait tué `npm run loupe` — l'enveloppe. `node scripts/loupe.mjs` a
+survécu, réattaché à `init` (PPID 1), et il a continué à muter le fichier et à
+lancer des suites entières.
+
+### Deux lectures fausses en sont sorties, et toutes deux avaient l'air vraies
+
+**L'arbre propre.** `git status --porcelain` n'a rien rendu, j'en ai conclu que
+la restauration avait tenu. J'avais échantillonné l'instant ENTRE deux mutations.
+Un arbre lu une fois pendant qu'un muteur vit ne prouve rien — il donne l'état à
+un instant qu'on n'a pas choisi.
+
+**Le typecheck rouge.** Puis :
+
+```text
+dashboard/src/views/Chronique.tsx(84,5): error TS2367:
+  This comparison appears to be unintentional because
+  the types '"SELECT"' and '"BUTTON"' have no overlap.
+```
+
+Un fichier réel, une ligne réelle, un code d'erreur réel. C'était le résidu de
+l'orphelin — `tag !== 'SELECT'` — pas un défaut de `main`. Restauration faite,
+les deux typechecks passent. Sans la recherche de processus, je « corrigeais »
+un bug qui n'existait pas, sur la branche de quelqu'un d'autre.
+
+### La leçon
+
+**Un tueur se vérifie par `ps`, jamais par son propre compte rendu.** Et tant
+qu'un muteur peut vivre, aucune lecture de l'arbre n'est une mesure : ni
+`git status`, ni `tsc`, ni la suite.
+
+Le geste qui répare : lancer par `setsid`, tuer le GROUPE (`kill -KILL -PGID`),
+puis CONSTATER l'absence. Trois lignes, et la question ne se repose plus.
+
+---
+
+## 9 unsexagicenties. Un réplica qui CONFIGURE son original finit par le sous-mesurer
+
+Pour choisir la profondeur d'un balayage sans payer une suite, j'avais écrit un
+petit compteur qui rejoue la règle de candidature de la loupe. Il a rendu **33**.
+J'ai posé `LOUPE_MAX=33`. La loupe a répondu :
+
+```text
+LOUPE : 34 mutation(s) possible(s) sur le diff, 17 examinée(s).
+```
+
+Elle en voit **34**. Et son pas d'échantillonnage vaut `ceil(total / plafond)` :
+
+```js
+const pas = Math.max(1, Math.ceil(toutes.length / plafond)); // ceil(34/33) = 2
+const retenues = toutes.filter((_, i) => i % pas === 0).slice(0, plafond); // 17
+```
+
+Un plafond d'UNE UNITÉ sous le compte ne retire pas une mutation : **il en
+retire la moitié.**
+
+### Pourquoi c'est plus qu'un décalage d'un
+
+Le réplica n'était pas faux par accident : il APPROXIME une règle qui vit dans
+un autre fichier (lignes ambiguës, `??` restreint, gardes de point d'entrée). Un
+écart d'une unité était certain à terme. La faute est de l'avoir utilisé pour
+RÉGLER l'instrument qu'il imite — l'approximation est passée du côté de la
+mesure.
+
+Et le désaccord ne s'est pas annoncé comme une erreur : il s'est annoncé comme
+une mesure plus discrète. Sortie 0, verdict lisible, moitié du fichier vue.
+
+### Ce que ça aurait écrit
+
+§ 9 quinquinquagicenties a MESURÉ ce qu'un demi-balayage coûte : la moitié de la
+Ruche avait rendu deux nues sur sept. J'aurais écrit « Chronique balayée entière »
+en ayant vu dix-sept mutations sur trente-quatre — faux dans le sens rassurant,
+et durable, parce qu'une ligne de carnet ne se relit pas.
+
+### La leçon
+
+**On demande son compte à l'instrument, pas à son imitation.** Le réplica sert à
+DÉCIDER si l'on balaye ; il ne sert pas à régler le balayage. Et un plafond se
+pose AU-DESSUS du compte, jamais à l'égalité pile — la marge ne coûte rien,
+l'égalité approximative coûte la moitié.
