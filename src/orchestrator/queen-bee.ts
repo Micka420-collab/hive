@@ -12,6 +12,7 @@
 //   QUEEN_BEE_MODEL     — modèle (défaut : anthropic/claude-sonnet-4)
 
 import { LIMITS } from '../shared/protocol.js';
+import { conseilVeilleBrief } from './queen-veille.js';
 
 export interface QueenBeeConfig {
   apiKey: string;
@@ -60,12 +61,17 @@ FORMAT DE RÉPONSE (JSON uniquement, pas de markdown) :
 }`;
 
 function buildUserPrompt(brief: string, language: string): string {
-  return `Analyse ce brief de projet et découpe-le en tâches atomiques pour des agents de codage.
-
-Langue : ${language}
-
-BRIEF :
-${brief}`;
+  const veille = conseilVeilleBrief(brief);
+  const corps = [
+    `Analyse ce brief de projet et découpe-le en tâches atomiques pour des agents de codage.`,
+    '',
+    `Langue : ${language}`,
+    '',
+    'BRIEF :',
+    brief,
+  ];
+  if (veille) corps.push('', veille);
+  return corps.join('\n');
 }
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';

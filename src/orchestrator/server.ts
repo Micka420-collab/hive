@@ -200,6 +200,7 @@ import {
 import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
 import { expliquerRefusRequisition } from './requisition.js';
+import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -1016,6 +1017,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         (lecons ? lecons.length + 2 : 0) -
         (dejaPris ? dejaPris + 2 : 0),
     );
+    const veille =
+      conseilVeilleBrief(`${task.title} ${task.prompt}`) ?? '';
     return {
       // ─── L'ORDRE EST UNE DÉCISION, PAS UNE HABITUDE ────────────────────────
       //
@@ -1029,7 +1032,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, lecons, souvenirs].filter(Boolean).join('\n\n'),
+      hiveContext: [savoir, lecons, souvenirs, veille].filter(Boolean).join('\n\n'),
       echecs: lecons ? echecs.length : 0,
       // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
       // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
@@ -7905,6 +7908,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               msg.genre,
               msg.libelle,
               msg.detail ?? null,
+              msg.taskId ?? null,
             );
             if (!v.ok) {
               send(ws, {

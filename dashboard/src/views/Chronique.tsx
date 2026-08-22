@@ -11,6 +11,8 @@ import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { TaskStatus } from '../../../src/shared/types';
 import './chronique.css';
+import { PourquoiHive } from '../PourquoiHive';
+import '../onboarding.css';
 
 // ─── Familles d'événements (chips de filtre) ────────────────────────────────
 
@@ -405,6 +407,7 @@ export default function Chronique({ events }: ViewProps) {
             </li>
           )}
         </ul>
+        {events.length === 0 && <PourquoiHive compact />}
       </section>
     </div>
   );

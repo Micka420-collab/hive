@@ -9,6 +9,17 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Boucle réquisition mid-task.** Échec infra auth → `requisition_open` + `taskId` ;
+  pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
+- **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
+  veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
+- **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au
+  premier cycle runner.
+- **Hive Mind hybride.** `rankMemoriesHybrid` : BM25 + trigrammes pour projets longs.
+- **Story produit.** `PourquoiHive` dans Mon espace et Chronique (vs Cursor/Devin).
+
+### Changed
+
 - **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
   en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
   pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).

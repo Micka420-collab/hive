@@ -49,7 +49,7 @@ import {
   type EntreeHorizon,
   type MotifRefusHorizon,
 } from './horizon.js';
-import { rankMemories } from './hive-mind.js';
+import { rankMemoriesHybrid } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
   HiveEvent,
@@ -878,6 +878,7 @@ CREATE TABLE IF NOT EXISTS requisitions (
   genre   TEXT NOT NULL,
   libelle TEXT NOT NULL,
   detail  TEXT,
+  taskId  TEXT,
   statut  TEXT NOT NULL,
   creeA   INTEGER NOT NULL,
   closA   INTEGER
@@ -1758,6 +1759,7 @@ export class HiveStore {
     genreBrut: string,
     libelleBrut: string,
     detail: string | null = null,
+    taskId: string | null = null,
     now = Date.now(),
   ):
     | { ok: true; id: string; genre: GenreRequisition; libelle: string }
@@ -1769,13 +1771,14 @@ export class HiveStore {
     if (!l.ok) return l;
     const detailClean =
       typeof detail === 'string' && detail.trim() ? detail.trim().slice(0, 2_000) : null;
+    const taskClean = typeof taskId === 'string' && taskId.trim() ? taskId.trim() : null;
     const id = randomUUID();
     this.db
       .prepare(
-        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, statut, creeA, closA) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
+        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)',
       )
-      .run(id, nodeId, g.genre, l.libelle, detailClean, 'ouverte', now);
+      .run(id, nodeId, g.genre, l.libelle, detailClean, taskClean, 'ouverte', now);
     return { ok: true, id, genre: g.genre, libelle: l.libelle };
   }
 
@@ -1785,13 +1788,14 @@ export class HiveStore {
     genre: GenreRequisition;
     libelle: string;
     detail: string | null;
+    taskId: string | null;
     statut: StatutRequisition;
     creeA: number;
     closA: number | null;
   } | null {
     const row = this.db
       .prepare(
-        'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE id = ?',
+        'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE id = ?',
       )
       .get(id) as
       | {
@@ -1800,6 +1804,7 @@ export class HiveStore {
           genre: string;
           libelle: string;
           detail: string | null;
+          taskId: string | null;
           statut: string;
           creeA: number;
           closA: number | null;
@@ -1817,6 +1822,7 @@ export class HiveStore {
       genre: g.genre,
       libelle: row.libelle,
       detail: row.detail,
+      taskId: row.taskId,
       statut: row.statut,
       creeA: row.creeA,
       closA: row.closA,
@@ -1829,12 +1835,13 @@ export class HiveStore {
     genre: GenreRequisition;
     libelle: string;
     detail: string | null;
+    taskId: string | null;
     statut: StatutRequisition;
     creeA: number;
     closA: number | null;
   }> {
     let sql =
-      'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE 1=1';
+      'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE 1=1';
     const args: unknown[] = [];
     if (opts?.nodeId) {
       sql += ' AND nodeId = ?';
@@ -1851,6 +1858,7 @@ export class HiveStore {
       genre: string;
       libelle: string;
       detail: string | null;
+      taskId: string | null;
       statut: string;
       creeA: number;
       closA: number | null;
@@ -1861,6 +1869,7 @@ export class HiveStore {
       genre: GenreRequisition;
       libelle: string;
       detail: string | null;
+      taskId: string | null;
       statut: StatutRequisition;
       creeA: number;
       closA: number | null;
@@ -1875,6 +1884,7 @@ export class HiveStore {
         genre: g.genre,
         libelle: r.libelle,
         detail: r.detail,
+        taskId: r.taskId,
         statut: r.statut,
         creeA: r.creeA,
         closA: r.closA,
@@ -4644,9 +4654,9 @@ export class HiveStore {
     return row.n;
   }
 
-  /** Récupère les souvenirs pertinents pour une requête (BM25 sur le corpus récent). */
+  /** Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent). */
   searchMemories(query: string, limit = 3): ScoredMemory[] {
-    return rankMemories(query, this.listMemories(500), limit);
+    return rankMemoriesHybrid(query, this.listMemories(500), limit);
   }
 
   /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */

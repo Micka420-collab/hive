@@ -158,6 +158,8 @@ export interface RequisitionOpenMsg {
   genre: string;
   libelle: string;
   detail?: string;
+  /** Tâche bloquée en attente de décision humaine (mid-task, ADR 0010). */
+  taskId?: string;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -617,7 +619,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (
         isStr(m.genre, LIMITS.requisitionGenre) &&
         isStr(m.libelle, LIMITS.requisitionLibelle) &&
-        (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail))
+        (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail)) &&
+        (m.taskId === undefined || isId(m.taskId))
       ) {
         const msg: RequisitionOpenMsg = {
           type: 'requisition_open',
@@ -625,6 +628,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           libelle: m.libelle,
         };
         if (m.detail !== undefined) msg.detail = m.detail as string;
+        if (m.taskId !== undefined) msg.taskId = m.taskId as string;
         return msg;
       }
       return null;

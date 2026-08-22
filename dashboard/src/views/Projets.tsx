@@ -54,6 +54,7 @@ import { useLang, useT } from '../i18n';
 import { GesteIrreversible, ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
+import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
 import { Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -1817,6 +1818,7 @@ function ProjectCard({
           c'est délibéré — on ne propose pas à quelqu'un d'allumer une
           gouvernance autonome avant de lui avoir montré ce que la ruche
           dépense. */}
+      <OnboardingEssaim projectId={project.id} />
       <PleinEssaim projectId={project.id} />
       {/* L'Agent Garde-Fous : le réglage appris du trou de vol, opt-in par projet,
           juste sous l'autonomie — les deux réglages « jusqu'où la ruche va seule ». */}

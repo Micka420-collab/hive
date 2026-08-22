@@ -23,6 +23,7 @@ import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
 
@@ -81,6 +82,16 @@ export class HiveNodeClient {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   /** Évite de spammer la Chambre à chaque reconnexion WebSocket. */
   private requisitionCredentialEnvoyee = false;
+  /** Tâche en pause le temps qu'un humain tranche une réquisition (boucle B/C/D). */
+  private attenteRequisition: {
+    task: Task;
+    repoUrl: string | null;
+    hiveContext?: string;
+    modele?: string;
+    workspace: Workspace;
+    started: number;
+    ctrl: AbortController;
+  } | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
@@ -145,7 +156,7 @@ export class HiveNodeClient {
    * Ouvre une réquisition (clé API, MCP, binaire…) — ADR 0010 lot 7.
    * Le secret ne transite jamais : l'humain accorde depuis la Chambre.
    */
-  ouvrirRequisition(genre: string, libelle: string, detail?: string): void {
+  ouvrirRequisition(genre: string, libelle: string, detail?: string, taskId?: string): void {
     if (!this.nodeId) {
       this.log('réquisition ignorée : nœud non enregistré');
       return;
@@ -155,6 +166,7 @@ export class HiveNodeClient {
       genre,
       libelle,
       ...(detail ? { detail } : {}),
+      ...(taskId ? { taskId } : {}),
     });
   }
 
@@ -246,6 +258,10 @@ export class HiveNodeClient {
         break;
       case 'requisition_result':
         this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
+        if (this.attenteRequisition) {
+          if (msg.statut === 'accordee') void this.reprendreApresRequisition();
+          else void this.abandonnerApresRequisition(msg.statut);
+        }
         break;
       default:
         break; // state/event : réservés au dashboard
@@ -383,6 +399,7 @@ export class HiveNodeClient {
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
     let workspace: Workspace | null = null;
+    let conserverWorkspace = false;
     try {
       workspace = await prepareWorkspace(
         this.workRoot,
@@ -419,10 +436,34 @@ export class HiveNodeClient {
           });
         },
       });
-      // Échec d'INFRASTRUCTURE (agent injoignable/non authentifié, quota) : on ne
-      // brûle PAS une tentative — on demande une réaffectation (token-failover),
-      // pour qu'un autre nœud dont l'agent fonctionne reprenne la tâche.
+      // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
+        const req = requisitionDepuisEchecInfra(
+          this.opts.agentType,
+          result.logs,
+          task.title,
+        );
+        if (req && workspace && !this.attenteRequisition) {
+          conserverWorkspace = true;
+          this.attenteRequisition = {
+            task,
+            repoUrl,
+            hiveContext,
+            modele,
+            workspace,
+            started,
+            ctrl,
+          };
+          this.ouvrirRequisition(req.genre, req.libelle, req.detail, task.id);
+          this.send({
+            type: 'task_update',
+            taskId: task.id,
+            status: 'running',
+            log: '⏸ Réquisition ouverte — en attente de décision humaine (Chambre).',
+          });
+          this.log(`⏸ ${task.title} : réquisition credentials — pause`);
+          return;
+        }
         this.send({
           type: 'task_reject',
           taskId: task.id,
@@ -460,9 +501,99 @@ export class HiveNodeClient {
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
-      this.active.delete(task.id);
-      workspace?.cleanup();
+      if (!conserverWorkspace) {
+        this.active.delete(task.id);
+        workspace?.cleanup();
+      }
     }
+  }
+
+  /** Reprend une tâche après réquisition accordée — credentials configurés localement. */
+  private async reprendreApresRequisition(): Promise<void> {
+    const attente = this.attenteRequisition;
+    if (!attente) return;
+    const { task, repoUrl, hiveContext, modele, workspace, started, ctrl } = attente;
+    this.attenteRequisition = null;
+    this.log(`↻ reprise de ${task.title} après réquisition accordée`);
+    try {
+      workspace.env = buildSandboxEnv(workspace.cwd, this.opts.keepEnv ?? []);
+      const taskForAgent = hiveContext
+        ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
+        : task;
+      const result = await this.adapter.run(taskForAgent, {
+        cwd: workspace.cwd,
+        env: workspace.env,
+        attempt: task.attempts + 1,
+        signal: ctrl.signal,
+        ...(modele ? { modele } : {}),
+        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        onProgress: (p) => {
+          this.send({
+            type: 'task_update',
+            taskId: task.id,
+            status: 'running',
+            ...(p.subAgents ? { subAgents: p.subAgents } : {}),
+            ...(p.presences ? { presences: p.presences } : {}),
+            ...(p.log ? { log: p.log } : {}),
+          });
+        },
+      });
+      if (!result.success && result.infra) {
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: 'agent indisponible après réquisition',
+          infra: true,
+        });
+        return;
+      }
+      const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      this.send({
+        type: 'task_result',
+        taskId: task.id,
+        success: result.success,
+        diff: diff.slice(0, LIMITS.diff),
+        logs: result.logs.slice(0, LIMITS.log),
+        durationMs: Date.now() - started,
+        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+      });
+      this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.send({
+        type: 'task_result',
+        taskId: task.id,
+        success: false,
+        diff: '',
+        logs: `[nœud] reprise après réquisition : ${message}`,
+        durationMs: Date.now() - started,
+        subAgents: [],
+      });
+    } finally {
+      this.active.delete(task.id);
+      workspace.cleanup();
+    }
+  }
+
+  /** Abandonne la tâche en pause quand la réquisition est refusée. */
+  private async abandonnerApresRequisition(statut: string): Promise<void> {
+    const attente = this.attenteRequisition;
+    if (!attente) return;
+    const { task, workspace, started, ctrl } = attente;
+    this.attenteRequisition = null;
+    ctrl.abort();
+    this.send({
+      type: 'task_result',
+      taskId: task.id,
+      success: false,
+      diff: '',
+      logs: `[nœud] réquisition ${statut} — tâche interrompue`,
+      durationMs: Date.now() - started,
+      subAgents: [],
+    });
+    this.log(`✘ ${task.title} : réquisition ${statut}`);
+    this.active.delete(task.id);
+    workspace.cleanup();
   }
 
   // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
