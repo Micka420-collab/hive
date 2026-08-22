@@ -588,6 +588,16 @@ h3 {
 }
 
 /* ─── Cartes de nœuds ─────────────────────────────────────────────────── */
+.node-shell-avert {
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--orange, #c4841a);
+  background: rgba(242, 180, 65, 0.12);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gold, #8a4f05);
+}
 .node-list,
 .queue,
 .journal {
