@@ -197,12 +197,9 @@ import {
   texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
 } from './horizon.js';
-<<<<<<< HEAD
 import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
-=======
 import { expliquerRefusRequisition } from './requisition.js';
->>>>>>> 048a604 (ADR 0010: réquisitions protocole nœud + horizon a_surveiller)
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -2059,7 +2056,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         statut: v.statut,
       });
       const ws = nodeSockets.get(cur.nodeId);
-      if (ws) {
+      if (ws && (v.statut === 'accordee' || v.statut === 'refusee')) {
         send(ws, {
           type: 'requisition_result',
           id: req.params.id,

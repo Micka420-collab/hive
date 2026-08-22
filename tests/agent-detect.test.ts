@@ -19,7 +19,7 @@
 
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { candidates, cheminsNatifs, detectBestAgent } from '../src/node-client/agent-detect.js';
+import { candidates, cheminsNatifs, detectBestAgent, requisitionSiCredentialsManquantes } from '../src/node-client/agent-detect.js';
 
 describe('LES VARIANTES DE BINAIRE, PAR PLATEFORME', () => {
   it('sur un système POSIX, le nom est pris tel quel', () => {
@@ -189,5 +189,37 @@ describe('LE CHOIX DE L’AGENT', () => {
     });
     expect(vu.agent).toBe('custom');
     expect(appels, 'la sonde ne doit pas tourner quand le membre a choisi').toBe(0);
+  });
+});
+
+describe('réquisition si credentials manquantes', () => {
+  it('shell et custom : rien à demander', () => {
+    expect(requisitionSiCredentialsManquantes('shell', {})).toBeNull();
+    expect(requisitionSiCredentialsManquantes('custom', {})).toBeNull();
+  });
+
+  it('codex sans OPENAI_API_KEY → réquisition cle_api', () => {
+    const r = requisitionSiCredentialsManquantes('codex', {});
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/OpenAI/i);
+  });
+
+  it('claude-code avec clé env → silence', () => {
+    expect(
+      requisitionSiCredentialsManquantes('claude-code', { ANTHROPIC_API_KEY: 'sk-x' }),
+    ).toBeNull();
+  });
+
+  it('claude-code avec ~/.claude → silence même sans clé env', () => {
+    const existe = (p: string) => p.endsWith('.claude');
+    expect(
+      requisitionSiCredentialsManquantes('claude-code', { HOME: '/home/moi' }, { existe }),
+    ).toBeNull();
+  });
+
+  it('grok sans clé ni session → réquisition', () => {
+    const r = requisitionSiCredentialsManquantes('grok', { HOME: '/home/moi' }, { existe: () => false });
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/Grok/i);
   });
 });

@@ -352,6 +352,70 @@ export function agentCredentialEnv(agent: AgentType): string[] {
   return configDirs;
 }
 
+/** Réquisition à ouvrir quand l'agent réel n'a pas d'identifiants locaux. */
+export type RequisitionCredential = {
+  genre: 'cle_api';
+  libelle: string;
+  detail: string;
+};
+
+/**
+ * Si l'agent détecté ne peut pas s'authentifier localement, propose une
+ * réquisition (ADR 0010). Le secret ne transite jamais : l'humain configure
+ * le poste ou accorde depuis la Chambre (Queen / Intendance).
+ */
+export function requisitionSiCredentialsManquantes(
+  agent: AgentType,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: {
+    existe?: (chemin: string) => boolean;
+    plateforme?: string;
+  } = {},
+): RequisitionCredential | null {
+  const existe = opts.existe ?? existsSync;
+  const plateforme = opts.plateforme ?? process.platform;
+  if (agent === 'shell' || agent === 'custom') return null;
+
+  const maison = (plateforme === 'win32' ? env.USERPROFILE : env.HOME)?.trim();
+  const p = plateforme === 'win32' ? path.win32 : path.posix;
+
+  if (agent === 'claude-code') {
+    if ((env.ANTHROPIC_API_KEY ?? '').trim()) return null;
+    if ((env.ANTHROPIC_AUTH_TOKEN ?? '').trim()) return null;
+    if (maison && existe(p.join(maison, '.claude'))) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé ou session Anthropic (Claude Code)',
+      detail:
+        'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
+        'Connectez-vous avec `claude login` localement, ou accordez une clé depuis la Chambre.',
+    };
+  }
+
+  if (agent === 'codex') {
+    if ((env.OPENAI_API_KEY ?? '').trim()) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé OpenAI (Codex)',
+      detail: 'OPENAI_API_KEY absente sur ce nœud — l’agent ne pourra pas s’authentifier.',
+    };
+  }
+
+  if (agent === 'grok') {
+    if ((env.XAI_API_KEY ?? '').trim()) return null;
+    const grokHome = (env.GROK_HOME ?? (maison ? p.join(maison, '.grok') : '')).trim();
+    if (grokHome && existe(grokHome)) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé xAI ou session Grok',
+      detail:
+        'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.',
+    };
+  }
+
+  return null;
+}
+
 /** Liste tous les agents détectés (pour information / diagnostic). */
 export async function detectAllAgents(
   env: NodeJS.ProcessEnv = process.env,

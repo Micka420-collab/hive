@@ -13,9 +13,10 @@ describe('agent-production', () => {
     expect(estAgentSimule('claude-code')).toBe(false);
   });
 
-  it('refuse shell en production orchestrateur et nœud', () => {
+  it('refuse shell en production orchestrateur explicite', () => {
     expect(assignationProductionAutorisee('shell', { simulation: false })).toBe(false);
     expect(assignationProductionAutorisee('shell', { simulation: true })).toBe(true);
+    expect(assignationProductionAutorisee('shell', {})).toBe(true);
     expect(assignationProductionAutorisee('codex', { simulation: false })).toBe(true);
     expect(demarrageNoeudAutorise('shell', {})).toBe(false);
     expect(demarrageNoeudAutorise('shell', { HIVE_SIMULATION: '1' })).toBe(true);

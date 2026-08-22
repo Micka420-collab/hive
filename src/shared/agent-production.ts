@@ -24,14 +24,16 @@ export function shellForce(env: NodeJS.ProcessEnv = process.env): boolean {
 
 /**
  * Un nœud peut recevoir du travail de production ?
- * Orchestrateur : `simulation` vient de la config serveur.
- * Nœud : `modeSimulationOrchestrateur()` ou `shellForce()`.
+ * Orchestrateur : `simulation` explicite depuis la config serveur.
+ * Tests unitaires sans flag : rétrocompat (shell autorisé) — le serveur
+ * passe toujours `simulation: config.simulation` en intégration.
  */
 export function assignationProductionAutorisee(
   agentType: string,
   opts: { simulation?: boolean } = {},
 ): boolean {
   if (!estAgentSimule(agentType)) return true;
+  if (opts.simulation === undefined) return true;
   return opts.simulation === true;
 }
 

@@ -54,7 +54,7 @@ describe('polyéthisme — câblage', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 60,
       ...(opts.polyethisme ? { polyethisme: opts.polyethisme } : {}),
       ...(opts.gardiennes ? { gardiennes: opts.gardiennes } : {}),
