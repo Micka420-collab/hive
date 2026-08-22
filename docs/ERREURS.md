@@ -13956,3 +13956,70 @@ Corollaire, pour tout ce qui se cherche par motif : **avant d'écrire
 Une garde s'écrit presque toujours dans les deux sens, et le second sens est
 celui qu'on oublie — précisément parce qu'on a en tête celui qu'on vient de
 lire.
+
+## 9 quinquaseptuagicenties. Une garde ne se juge pas seule : sa nécessité est une propriété de tout ce qui l'entoure
+
+Treize gardes restaient à juger dans la forme négative du motif `typeof`/`null`.
+Pour un `grep`, elles sont **la même ligne** — au nom de la variable près :
+
+```
+if (typeof x !== 'object' || x === null) return null;
+```
+
+Sept étaient nues. **Six ne l'étaient pas**, et pour cinq raisons différentes.
+Aucune de ces raisons ne se lit sur la ligne.
+
+| Ligne               | Pourquoi le mutant survit                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `partage.ts:164`    | la garde vit DANS un `try` dont le `catch` rend `null`                 |
+| `server.ts:5558`    | idem, un étage plus haut dans la même fonction                         |
+| `eclaireuse.ts:233` | le regex amont n'accepte qu'une charge `{…}` : `null` n'arrive jamais  |
+| `eclaireuse.ts:272` | idem, sa jumelle                                                       |
+| `nuage.ts:79`       | l'unique APPELANT a déjà écarté `null` vingt-six lignes plus bas       |
+| `nuage.ts:84`       | l'aval tolère la valeur non refusée, et la rejette pour un autre motif |
+
+### La seule qui m'a résisté
+
+`nuage.ts:84` mérite d'être racontée, parce que le raisonnement évident y est
+faux :
+
+> La garde écarte `null`. Si je la retire, `null` passe. Donc elle est nue.
+
+Les deux premières phrases sont vraies. La conclusion ne suit pas. Ce que le
+mutant laisse passer, c'est un `obj` que la fonction RENVOIE au lieu de refuser
+— et en aval, `meta(obj)` lit `.metadata` dessus. Sur une primitive, cette
+lecture rend `undefined` sans lever ; sur `null`, l'appelant l'arrête à son
+`if (!obj)`. Puis le `if (!projectId …)` qui suit rend `null` de toute façon.
+**Tous les chemins arrivent au même `null`.** Il faut descendre deux fonctions
+plus bas pour le voir.
+
+### Ce que ça généralise
+
+§ 9 duoseptuagicenties disait qu'un `catch` large rend immunes les gardes qu'il
+entoure : une immunité **par le haut**. Ce lot en montre les deux autres faces.
+
+- **Par le bas** : l'aval tolère ce que la garde refusait, et refuse plus loin
+  pour un autre motif. `nuage.ts:84`.
+- **Par le côté** : l'appelant a déjà fait le travail, et la garde est
+  inatteignable. `nuage.ts:79` — lire la fonction qui la contient ne suffit
+  pas, il faut lire qui l'appelle.
+
+D'où la règle, qui vaut pour tout balayage à venir : **le `grep` trouve la
+garde ; seul le graphe d'appels dit si elle est nue.**
+
+### Les deux façons de se tromper ne coûtent pas la même chose
+
+Classer une nue en équivalente laisse un vrai défaut ouvert AVEC un commentaire
+qui affirme qu'il n'en est pas un — pire que le silence, parce que le
+commentaire vaccine contre la prochaine relecture. Classer une équivalente en
+nue produit un banc qui ne peut pas rougir : du décor.
+
+### Ce qui a rendu ce lot sûr, et ce n'était pas le raisonnement
+
+Les six ont été **muées une à une contre la suite ENTIÈRE**, pas contre le banc
+du lot. Les six ont survécu — 4690 verts à chaque fois. Si une seule avait
+rougi, mon classement aurait été faux et le banc que j'avais décidé de ne pas
+écrire aurait été exactement celui qui manquait.
+
+Un raisonnement d'équivalence est une hypothèse. Il se vérifie en muant et en
+regardant, comme tout le reste.

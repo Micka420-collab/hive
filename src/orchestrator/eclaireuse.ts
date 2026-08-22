@@ -230,6 +230,10 @@ export function lireProposition(
   } catch {
     return null;
   }
+  // loupe : équivalent — || → &&. INATTEIGNABLE : `RE_PROPOSITION` ne capture
+  // qu'une charge entre accolades. `JSON.parse` d'une telle charge ou bien
+  // lève (rattrapé juste au-dessus), ou bien rend un objet non nul. Jamais
+  // `null`, jamais une primitive.
   if (typeof brut !== 'object' || brut === null) return null;
   const d = brut as Record<string, unknown>;
 
@@ -269,6 +273,8 @@ export function lireAvis(
   } catch {
     return null;
   }
+  // loupe : équivalent — || → &&. INATTEIGNABLE, pour la même raison que sa
+  // jumelle plus haut : `RE_AVIS` n'accepte qu'une charge entre accolades.
   if (typeof brut !== 'object' || brut === null) return null;
   const d = brut as Record<string, unknown>;
   if (d.type !== 'soutien' && d.type !== 'arret') return null;
