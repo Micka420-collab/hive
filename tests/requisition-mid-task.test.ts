@@ -96,11 +96,15 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     expect(reqId, 'réquisition ouverte liée à la tâche').toBeTruthy();
 
     phase = 'ok';
-    await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
+    const rep = await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ decision: 'accordee', secret: 'sk-midtask-test' }),
     });
+    expect(rep.status).toBe(200);
+    const repBody = (await rep.json()) as { envVar?: string };
+    expect(repBody.envVar).toBe('OPENAI_API_KEY');
+    delete process.env.OPENAI_API_KEY;
 
     const deadlineDone = Date.now() + 12_000;
     while (Date.now() < deadlineDone) {

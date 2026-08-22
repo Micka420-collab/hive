@@ -1830,16 +1830,7 @@ export interface ChambrePoste {
     constateA: number;
   }>;
   tasks: Task[];
-  requisitions?: Array<{
-    id: string;
-    nodeId: string;
-    genre: string;
-    libelle: string;
-    detail: string | null;
-    statut: string;
-    creeA: number;
-    closA: number | null;
-  }>;
+  requisitions?: RequisitionPoste[];
   horizon?: {
     faits: Array<{ id: string; texte: string; source: string; creeA: number }>;
     hypotheses: Array<{ id: string; texte: string; source: string; creeA: number }>;
