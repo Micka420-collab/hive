@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   FOURNISSEURS_CLE,
+  estEnvQueenAutorisee,
   nomEnvDepuisLibelle,
   poserCleQueenEnv,
   presenceClesCatalogue,
@@ -55,6 +56,29 @@ describe('requisition-env', () => {
       const or = rows.find((r) => r.id === 'openrouter');
       expect(or?.presente).toBe(true);
       expect(JSON.stringify(rows)).not.toContain('sk-secret');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuse les secrets de forme invalide', () => {
+    expect(validerSecretRequisition('')).toEqual({ ok: false, motif: 'vide' });
+    expect(validerSecretRequisition('a '.repeat(300)).ok).toBe(false);
+    expect(validerSecretRequisition('a'.repeat(600))).toEqual({ ok: false, motif: 'trop_long' });
+  });
+
+  it('estEnvQueenAutorisee bloque le préfixe HIVE_', () => {
+    expect(estEnvQueenAutorisee('OPENROUTER_API_KEY')).toBe(true);
+    expect(estEnvQueenAutorisee('HIVE_JWT_SECRET')).toBe(false);
+    expect(estEnvQueenAutorisee('HIVE_TOKEN')).toBe(false);
+    expect(estEnvQueenAutorisee('GITHUB_TOKEN')).toBe(false);
+  });
+
+  it('poserCleQueenEnv refuse un nom invalide', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-badnom-'));
+    const envPath = path.join(dir, '.env');
+    try {
+      expect(() => poserCleQueenEnv(envPath, 'not-valid', 'x', 't')).toThrow(/invalide/i);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

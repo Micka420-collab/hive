@@ -12,6 +12,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Clés API proactives (OpenRouter & co).** Catalogue Chambre → Intégrations :
   OpenRouter, Anthropic, OpenAI, xAI, Cursor, Seedance, ou variable libre ;
   `GET/POST /api/queen/cles` écrit le `.env` Queen (jamais la valeur en base).
+- **Relecture Claude (#348) intégrée.** Horizon neutralisé (`champSurUneLigne`) ;
+  grant : validation puis transition puis écriture ; `envVar` = dérivé du libellé ;
+  motifs : `ordre` dans la donnée + `catalogueCoherent` ; étapes perso = une ligne.
 - **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
   `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
   `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés

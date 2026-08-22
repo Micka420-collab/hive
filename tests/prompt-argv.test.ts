@@ -25,6 +25,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { argvCursor } from '../src/adapters/cursor.js';
 import { texteNonOption } from '../src/adapters/prompt-argv.js';
 
 const lire = (rel: string): string =>
@@ -47,8 +48,27 @@ describe('les adaptateurs à CLI connue posent le terminateur `--`', () => {
   });
 
   it('cursor : le prompt est le DERNIER argument, derrière `--`', () => {
+    // On éprouve la FONCTION, pas la mise en forme Prettier du tableau source
+    // (un return sur une ligne aplatissait l'ancre et faisait rougir la CI).
+    expect(argvCursor('hello')).toEqual([
+      '-p',
+      '--force',
+      '--output-format',
+      'stream-json',
+      '--',
+      'hello',
+    ]);
+    expect(argvCursor('--version', 'gpt')).toEqual([
+      '-p',
+      '--force',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'gpt',
+      '--',
+      '--version',
+    ]);
     const src = lire('../src/adapters/cursor.ts');
-    expect(src).toContain("...drapeauxModele,\n    '--',\n    prompt,");
     expect(src).toContain("'--force'");
     expect(src, "le prompt ne doit pas suivre '-p' directement").not.toContain("'-p', prompt");
   });

@@ -13,6 +13,17 @@ describe('motifs perso — forme', () => {
     expect(validerMotifPerso('', ['x'])).toEqual({ ok: false, motif: 'vide' });
     expect(validerMotifPerso('x', [])).toEqual({ ok: false, motif: 'vide' });
   });
+
+  it('refuse une étape multi-ligne (un diff ne peut plus entrer)', () => {
+    expect(validerMotifPerso('x', ['diff --git a/x b/x\n+++ b/x\n@@ -1 +1 @@\n+stolen'])).toEqual({
+      ok: false,
+      motif: 'multi_ligne',
+    });
+    expect(validerMotifPerso('x', ['titre\nsuite'])).toEqual({
+      ok: false,
+      motif: 'multi_ligne',
+    });
+  });
 });
 
 describe('HiveStore — motifs perso', () => {

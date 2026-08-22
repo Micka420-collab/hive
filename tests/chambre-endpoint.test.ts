@@ -1,6 +1,6 @@
 // Chambre — API lecture (ADR 0010 lot 4). Identités : jeton de ruche seulement.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -230,6 +230,79 @@ describe('GET /api/chambre/:nodeId', () => {
     expect(readFileSync(envPath, 'utf8')).toContain('SEEDANCE_API_KEY=sk-seedance-test');
     expect(readFileSync(envPath, 'utf8')).not.toMatch(/sk-seedance-test.*sk-seedance-test/);
     delete process.env.SEEDANCE_API_KEY;
+  });
+
+  it('réquisition déjà close : 409 sans réécrire le .env', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-close',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    const cree = await fetch(`${srv.url}/api/requisitions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        nodeId: 'n-close',
+        genre: 'cle_api',
+        libelle: 'Clé Seedance',
+      }),
+    });
+    const { id } = (await cree.json()) as { id: string };
+    await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-premier' }),
+    });
+    const envPath = path.join(dir!, '.env');
+    const avant = readFileSync(envPath, 'utf8');
+    const replay = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision: 'accordee', secret: 'sk-deuxieme-hostile' }),
+    });
+    expect(replay.status).toBe(409);
+    expect(readFileSync(envPath, 'utf8')).toBe(avant);
+    expect(readFileSync(envPath, 'utf8')).not.toContain('sk-deuxieme');
+    delete process.env.SEEDANCE_API_KEY;
+  });
+
+  it('envVar différent du dérivé → 400 env_refuse', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-env',
+      name: 'w',
+      ownerName: 'hôte',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
+    const cree = await fetch(`${srv.url}/api/requisitions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        nodeId: 'n-env',
+        genre: 'cle_api',
+        libelle: 'Clé Seedance',
+      }),
+    });
+    const { id } = (await cree.json()) as { id: string };
+    const bad = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        decision: 'accordee',
+        secret: 'sk-x',
+        envVar: 'HIVE_JWT_SECRET',
+      }),
+    });
+    expect(bad.status).toBe(400);
+    const corps = (await bad.json()) as { error: string };
+    expect(corps.error).toBe('env_refuse');
+    expect(
+      existsSync(path.join(dir!, '.env')) ? readFileSync(path.join(dir!, '.env'), 'utf8') : '',
+    ).not.toContain('HIVE_JWT_SECRET');
   });
 
   it('GET/POST /api/queen/cles : catalogue + pose OpenRouter sans stocker le secret en base', async () => {

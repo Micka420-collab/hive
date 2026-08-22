@@ -18,6 +18,8 @@ const CURSOR_TIMEOUT_MS = 15 * 60_000;
  */
 export function argvCursor(prompt: string, modele?: string): string[] {
   const drapeauxModele = modele ? ['--model', modele] : [];
+  // Même mise en forme que `argvClaude` : Prettier n'aplatit pas ce tableau
+  // (print width), et le test `prompt-argv` ancre l'ordre `--` puis prompt.
   return ['-p', '--force', '--output-format', 'stream-json', ...drapeauxModele, '--', prompt];
 }
 

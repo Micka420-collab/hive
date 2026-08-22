@@ -203,6 +203,7 @@ import { METIERS, expliquerRefusMetier } from './metier.js';
 import { expliquerRefusRequisition } from './requisition.js';
 import {
   FOURNISSEURS_CLE,
+  estEnvQueenAutorisee,
   estNomEnvValide,
   expliquerRefusSecret,
   nomEnvDepuisLibelle,
@@ -2061,7 +2062,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
       }
       const nom = req.body.envVar.trim();
-      if (!estNomEnvValide(nom)) {
+      if (!estNomEnvValide(nom) || !estEnvQueenAutorisee(nom)) {
         return reply.code(400).send({ error: 'env_invalide' });
       }
       const libelle = (req.body.libelle ?? nom).trim() || nom;
@@ -2149,33 +2150,48 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!authorized(req)) return reject(reply);
       const cur = store.lireRequisition(req.params.id);
       if (!cur) return reply.code(404).send({ error: 'inconnue' });
-      let envPose: string | undefined;
+
+      // Valider AVANT la transition ; écrire APRÈS. Sinon : (a) une réquisition
+      // déjà close réécrit le .env puis 409 ; (b) une transition « accordée »
+      // sans secret valide laisse une réquisition close sans clé.
+      let secretValide: string | undefined;
+      let nomEnv: string | undefined;
       if (req.body.decision === 'accordee' && cur.genre === 'cle_api') {
         const vs = validerSecretRequisition(req.body.secret);
         if (!vs.ok) {
           return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
         }
-        const nomEnv =
-          req.body.envVar && estNomEnvValide(req.body.envVar)
-            ? req.body.envVar
-            : nomEnvDepuisLibelle(cur.libelle);
-        try {
-          poserCleQueenEnv(
-            cheminEnvQueen,
-            nomEnv,
-            vs.secret,
-            `Réquisition ${cur.libelle} (accordée depuis la Chambre)`,
-          );
-          process.env[nomEnv] = vs.secret;
-          envPose = nomEnv;
-        } catch {
-          return reply.code(500).send({ error: 'ecriture_env' });
+        const derive = nomEnvDepuisLibelle(cur.libelle);
+        if (req.body.envVar !== undefined && req.body.envVar !== derive) {
+          return reply.code(400).send({ error: 'env_refuse', attendu: derive });
         }
+        if (!estNomEnvValide(derive) || !estEnvQueenAutorisee(derive)) {
+          return reply.code(400).send({ error: 'env_invalide' });
+        }
+        secretValide = vs.secret;
+        nomEnv = derive;
       }
+
       const v = store.repondreRequisition(req.params.id, req.body.decision);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
         return reply.code(code).send({ error: v.motif });
+      }
+
+      let envPose: string | undefined;
+      if (secretValide && nomEnv) {
+        try {
+          poserCleQueenEnv(
+            cheminEnvQueen,
+            nomEnv,
+            secretValide,
+            `Réquisition ${cur.libelle} (accordée depuis la Chambre)`,
+          );
+          process.env[nomEnv] = secretValide;
+          envPose = nomEnv;
+        } catch {
+          return reply.code(500).send({ error: 'ecriture_env' });
+        }
       }
       // La clé reste chez la Queen / Intendance — on constate la décision, pas le secret.
       emitEvent('requisition_reponse', {

@@ -23,9 +23,14 @@ export interface MotifInterProjet {
   libelleFr: string;
   libelleEn: string;
   etapes: readonly MotifEtape[];
+  /**
+   * Paires [avant, après] : l'étape `avant` doit précéder `après` dans
+   * `etapes`. L'invariant vit ICI, pas dans des `if (m.id === …)` inatteignables.
+   */
+  ordre: readonly (readonly [string, string])[];
 }
 
-export type MotifRefusMotif = 'inconnu' | 'diff_interdit' | 'projet_inconnu' | 'vide';
+export type MotifRefusMotif = 'inconnu' | 'diff_interdit' | 'projet_inconnu' | 'vide' | 'catalogue';
 
 /**
  * Catalogue figé. Étendre = PR + tests — pas un dictionnaire libre agent.
@@ -53,6 +58,7 @@ export const MOTIFS: readonly MotifInterProjet[] = Object.freeze([
         titreEn: 'Add 3D assets once tooling is merged',
       }),
     ]),
+    ordre: Object.freeze([Object.freeze(['fabrique', 'assets'] as const)]),
   }),
   Object.freeze({
     id: 'saas-api',
@@ -75,6 +81,10 @@ export const MOTIFS: readonly MotifInterProjet[] = Object.freeze([
         titreFr: 'Brancher l’UI sur le contrat stable',
         titreEn: 'Wire the UI to the stable contract',
       }),
+    ]),
+    ordre: Object.freeze([
+      Object.freeze(['contrat', 'backend'] as const),
+      Object.freeze(['backend', 'ui'] as const),
     ]),
   }),
   Object.freeze({
@@ -99,15 +109,37 @@ export const MOTIFS: readonly MotifInterProjet[] = Object.freeze([
         titreEn: 'Package / publish only after the forge merge',
       }),
     ]),
+    ordre: Object.freeze([Object.freeze(['fabrique', 'packaging'] as const)]),
   }),
 ]);
+
+/**
+ * Vérifie que chaque paire `ordre` est respectée dans `etapes`.
+ * Rendu : liste de fautes (vide = catalogue cohérent). Un banc unique :
+ * `expect(catalogueCoherent()).toEqual([])`.
+ */
+export function catalogueCoherent(motifs: readonly MotifInterProjet[] = MOTIFS): string[] {
+  const fautes: string[] = [];
+  for (const m of motifs) {
+    for (const [avant, apres] of m.ordre) {
+      const i = m.etapes.findIndex((e) => e.id === avant);
+      const j = m.etapes.findIndex((e) => e.id === apres);
+      if (i < 0 || j < 0 || i >= j) {
+        fautes.push(`${m.id}: ${avant} doit précéder ${apres}`);
+      }
+    }
+  }
+  return fautes;
+}
 
 export function motifParId(id: string): MotifInterProjet | null {
   return MOTIFS.find((m) => m.id === id) ?? null;
 }
 
 /**
- * Refuse explicitement un corps qui ressemble à un diff collé d'ailleurs.
+ * Refuse un corps qui ressemble à un diff collé (champ libre de
+ * `appliquerMotif`). Les étapes perso, elles, sont des titres : une ligne
+ * (`validerMotifPerso`) — pas besoin de renifleur là.
  */
 export function refuserDiffColle(
   brut: unknown,
@@ -115,7 +147,6 @@ export function refuserDiffColle(
   if (typeof brut !== 'string') return { ok: true };
   const t = brut.trim();
   if (!t) return { ok: true };
-  // Indices forts d'un patch git collé — on refuse, motifs = procédures only.
   if (/^diff --git /m.test(t)) return { ok: false, motif: 'diff_interdit' };
   if (/^\+\+\+ b\//m.test(t) && /^--- a\//m.test(t)) return { ok: false, motif: 'diff_interdit' };
   if (/^@@ -\d+/m.test(t) && t.split('\n').length > 8) {
@@ -138,29 +169,17 @@ export function appliquerMotif(
   }
   const m = motifParId(motifId);
   if (!m) return { ok: false, motif: 'inconnu' };
+  // Catalogue corrompu ≠ motif inconnu : on le dit franchement.
+  const fautes = catalogueCoherent([m]);
+  if (fautes.length > 0) return { ok: false, motif: 'catalogue' };
   const titres = m.etapes.map((e) => (lang === 'en' ? e.titreEn : e.titreFr));
-  // Invariant : fabrique/outillage avant la livraison tangible.
-  if (m.id === 'jeu-3d') {
-    const iFab = m.etapes.findIndex((e) => e.id === 'fabrique');
-    const iAssets = m.etapes.findIndex((e) => e.id === 'assets');
-    if (iFab < 0 || iAssets < 0 || iFab >= iAssets) {
-      // Catalogue corrompu — silence plutôt que mauvais ordre
-      return { ok: false, motif: 'inconnu' };
-    }
-  }
-  if (m.id === 'cli-outil') {
-    const iFab = m.etapes.findIndex((e) => e.id === 'fabrique');
-    const iPack = m.etapes.findIndex((e) => e.id === 'packaging');
-    if (iFab < 0 || iPack < 0 || iFab >= iPack) {
-      return { ok: false, motif: 'inconnu' };
-    }
-  }
   return { ok: true, motif: m, titres };
 }
 
 export function expliquerRefusMotif(motif: MotifRefusMotif, lang: 'fr' | 'en' = 'fr'): string {
   const fr: Record<MotifRefusMotif, string> = {
     inconnu: 'Motif inconnu.',
+    catalogue: 'Catalogue de motifs incohérent — l’ordre déclaré n’est pas respecté.',
     diff_interdit:
       'Coller le diff d’un autre dépôt est interdit — un motif est une procédure, pas du code.',
     projet_inconnu: 'Projet inconnu.',
@@ -168,6 +187,7 @@ export function expliquerRefusMotif(motif: MotifRefusMotif, lang: 'fr' | 'en' = 
   };
   const en: Record<MotifRefusMotif, string> = {
     inconnu: 'Unknown motif.',
+    catalogue: 'Motif catalogue is inconsistent — declared order is not respected.',
     diff_interdit: 'Pasting another repo’s diff is forbidden — a motif is a procedure, not code.',
     projet_inconnu: 'Unknown project.',
     vide: 'Empty request.',
@@ -180,7 +200,7 @@ export const MOTIF_PERSO_ETAPES_MAX = 8;
 export const MOTIF_PERSO_LIBELLE_MAX = 120;
 export const MOTIF_PERSO_TITRE_MAX = 200;
 
-export type MotifPersoRefus = 'vide' | 'trop_long' | 'trop_etapes' | 'etape_vide';
+export type MotifPersoRefus = 'vide' | 'trop_long' | 'trop_etapes' | 'etape_vide' | 'multi_ligne';
 
 export function validerMotifPerso(
   libelleBrut: string,
@@ -197,7 +217,10 @@ export function validerMotifPerso(
   const etapes: string[] = [];
   for (const e of etapesBrutes) {
     if (typeof e !== 'string') return { ok: false, motif: 'etape_vide' };
-    const t = e.replace(/\s+/g, ' ').trim();
+    // Une étape est un TITRE : une seule ligne. Un diff (ou tout multi-ligne)
+    // ne peut structurellement plus entrer — plus besoin de renifleur de patch.
+    if (/[\r\n]/.test(e)) return { ok: false, motif: 'multi_ligne' };
+    const t = e.trim();
     if (!t) return { ok: false, motif: 'etape_vide' };
     if (t.length > MOTIF_PERSO_TITRE_MAX) return { ok: false, motif: 'trop_long' };
     etapes.push(t);
@@ -211,12 +234,14 @@ export function expliquerRefusMotifPerso(motif: MotifPersoRefus, lang: 'fr' | 'e
     trop_long: 'Libellé ou étape trop long.',
     trop_etapes: `Au plus ${MOTIF_PERSO_ETAPES_MAX} étapes.`,
     etape_vide: 'Chaque étape doit être non vide.',
+    multi_ligne: 'Chaque étape est un titre sur une seule ligne — pas un diff.',
   };
   const en: Record<MotifPersoRefus, string> = {
     vide: 'Label and at least one step are required.',
     trop_long: 'Label or step too long.',
     trop_etapes: `At most ${MOTIF_PERSO_ETAPES_MAX} steps.`,
     etape_vide: 'Each step must be non-empty.',
+    multi_ligne: 'Each step is a single-line title — not a diff.',
   };
   return (lang === 'en' ? en : fr)[motif];
 }

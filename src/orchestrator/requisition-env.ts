@@ -146,6 +146,18 @@ export function estNomEnvValide(nom: string): boolean {
   return /^[A-Z][A-Z0-9_]{0,63}$/.test(nom);
 }
 
+/**
+ * Variables que la Chambre n'a PAS le droit d'écraser via grant / catalogue.
+ * `estNomEnvValide` les accepte (forme OK) ; c'est ici qu'on refuse la portée.
+ */
+export function estEnvQueenAutorisee(nom: string): boolean {
+  if (!estNomEnvValide(nom)) return false;
+  // Tout le préfixe HIVE_ : jetons, JWT, webhooks, invites…
+  if (nom.startsWith('HIVE_')) return false;
+  if (nom === 'GITHUB_TOKEN' || nom === 'STRIPE_SECRET_KEY') return false;
+  return true;
+}
+
 export function validerSecretRequisition(
   brut: unknown,
 ): { ok: true; secret: string } | { ok: false; motif: MotifRefusSecret } {
