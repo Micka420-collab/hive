@@ -13898,3 +13898,61 @@ corpus autorise. La question à se poser en écrivant le décor n'est pas « ces
 valeurs sont-elles réalistes ? » mais **« quel AUTRE tri rendrait exactement
 cette liste ? »** — et s'il en existe un, changer les valeurs jusqu'à ce qu'il
 n'en existe plus.
+
+## 9 quaterseptuagicenties. Un recensement est une MESURE, et son motif de recherche en est le dénominateur
+
+Une heure après avoir écrit § 9 septuagicenties — _« une garde qui protège la
+justesse rétrécit la couverture en silence »_ — j'ai commis la même faute, dans
+le geste même qui la documentait.
+
+Le recensement du motif `typeof null` cherchait ceci :
+
+```
+grep -rn "typeof [A-Za-z_.]* === 'object'"      →  13 occurrences
+```
+
+Treize trouvées, treize jugées, et l'annonce poussée dans le dépôt : **« motif
+entièrement mesuré »**. La forme NÉGATIVE de la même garde n'a jamais été
+cherchée :
+
+```
+grep -rn "typeof [A-Za-z_.]* !== 'object'"      →  28 occurrences
+```
+
+`typeof x !== 'object' || x === null` est le même garde-fou écrit à l'envers,
+avec la même faiblesse (`typeof null` rend `'object'`, donc c'est l'opérateur
+qui protège) et la même mutation. **Le recensement couvrait 13 sur 41.**
+
+### Ce qui rend cette faute difficile à voir
+
+Un recensement se présente comme un inventaire, et un inventaire a l'air complet
+par nature. Mais un `grep` ne rend pas « les occurrences du motif » : il rend
+« les lignes qui correspondent à CETTE EXPRESSION ». Ce sont deux choses
+différentes, et la seconde se fait passer pour la première dès qu'on écrit le
+compte sans écrire la requête à côté.
+
+Le mot « entièrement » est celui qui coûte. Sans lui, treize occurrences jugées
+restent treize occurrences jugées — un fait vrai et utile. Avec lui, le fait
+devient une couverture, et la couverture est fausse.
+
+### Ce qui l'a révélé, et ce n'était pas une relecture
+
+Le balayage de `polyethisme.ts` a rendu nue une ligne portant la forme négative.
+Deux comptes rendus se contredisaient : « motif entièrement mesuré » d'un côté,
+« voici une occurrence non mesurée » de l'autre. C'est la même méthode qu'au
+§ 9 septuagicenties — **un angle mort ne se voit pas dans l'instrument, il se
+voit quand deux affirmations ne peuvent pas être vraies ensemble.**
+
+### La leçon
+
+**Un compte d'occurrences ne vaut rien sans le motif qui l'a produit, écrit à
+côté de lui.** « 13 occurrences » est une opinion ; « 13 occurrences de
+`typeof x === 'object'` » est une mesure, et un lecteur peut immédiatement
+demander : et la forme négative ? et `!x || typeof x !== 'object'` ? et
+`x instanceof Object` ?
+
+Corollaire, pour tout ce qui se cherche par motif : **avant d'écrire
+« entièrement », chercher la forme CONTRAIRE de ce qu'on vient de chercher.**
+Une garde s'écrit presque toujours dans les deux sens, et le second sens est
+celui qu'on oublie — précisément parce qu'on a en tête celui qu'on vient de
+lire.

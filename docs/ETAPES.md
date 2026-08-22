@@ -12769,3 +12769,71 @@ sont-elles réalistes ? » mais « quel AUTRE tri rendrait exactement cette
 liste ? ».
 
 Delta du terrain : `gardiennes.ts` **16/16, 1 nue fermée**.
+
+## polyethisme.ts : 28 sur 28, cinq nues — et un recensement qui couvrait UN TIERS
+
+Le module qui encadre une ouvrière selon son expérience et décide du sort de sa
+production. Base épinglée `04bdaad`, zéro ligne finissant par un opérateur.
+
+```
+LOUPE : 28 mutation(s) possible(s) sur le diff, 28 examinée(s).
+════ CODE NEUF QUE RIEN NE DÉFEND ════   6 signalées
+```
+
+### Cinq vraies, une inatteignable
+
+| Nue                                | Ce qui casse                                                                                                                                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caste === 'batisseuse'` → `!==`   | les castes ÉCHANGENT leur consigne : une bâtisseuse s'entend dire « le périmètre est indicatif », une butineuse « reste dans le périmètre annoncé » — deux ordres CONTRAIRES, à la mauvaise personne |
+| `perimetre.length > 0` → `>=`      | « PÉRIMÈTRE ANNONCÉ : » suivi de rien                                                                                                                                                                |
+| `sensibles.length > 0` → `>=` (×2) | « SURFACE SENSIBLE » crié sur une tâche qui n'en touche aucune                                                                                                                                       |
+| `cv.raison \|\| gabarit` → `&&`    | le motif rendu à l'humain : une raison FOURNIE est remplacée par « contre-visite : refaire »                                                                                                         |
+
+La sixième — `typeof brut !== 'object' \|\| brut === null` — n'en est pas une.
+**Sondée** : le regex `HIVE_CONTRE_VISITE[ \t]+(\{.*\})` n'accepte qu'une charge
+entre accolades, et une charge de cette forme ou bien lève dans `JSON.parse`
+(rattrapée), ou bien rend un objet non nul. Aucune entrée n'atteint son
+`return null`. Marquée, pas éprouvée — un test qui ne peut pas rougir est du
+décor.
+
+Rejeu : **TENUS 5 sur 5**.
+
+### Le banc s'est trompé le premier, trois fois
+
+Écrit sur des prémisses fausses, il a rougi avant toute livraison :
+
+- `src/orchestrator/server.ts` n'est PAS une surface sensible — `FRAGMENTS_SENSIBLES`
+  liste `auth`, `session`, `token`, `.env`… pas `server` ;
+- `lireContreVisite` n'avale pas du JSON brut, il extrait la DERNIÈRE ligne
+  `HIVE_CONTRE_VISITE {…}` ;
+- et de là, la découverte que la garde est inatteignable.
+
+Trois suppositions, trois démentis, aucun livré. C'est le rôle du banc de dire
+non avant le dépôt.
+
+## ⚠ CORRECTION — « le motif typeof/null entièrement mesuré » était FAUX
+
+Le lot précédent a écrit, et poussé : « motif `typeof null` **entièrement
+mesuré** — 15 occurrences recensées, 15 jugées ». C'est faux, et la nue de
+`polyethisme.ts` l'a révélé.
+
+Le recensement cherchait `typeof x === 'object'`. Il ne cherchait PAS la forme
+négative, `typeof x !== 'object' || x === null`, qui est la MÊME garde écrite à
+l'envers. Mesuré :
+
+```
+forme positive (recensée)  : 13
+forme négative (MANQUÉE)   : 28
+```
+
+**Le recensement couvrait un tiers de la surface réelle** (13 sur 41), et
+l'annonce disait « entièrement ». C'est § 9 septuagicenties commis une seconde
+fois, par moi, dans le geste même qui le documentait : un motif de recherche
+trop étroit rend un compte exact sur un dénominateur qu'il a fabriqué.
+
+Les 28 occurrences de la forme négative sont donc **non mesurées**. Ce n'est pas
+un verdict sur elles — c'est une liste de travail, et cette fois le mot
+« entièrement » n'y figure pas.
+
+Delta du terrain : `polyethisme.ts` **28/28, 5 nues fermées, 1 marquée
+inatteignable**.

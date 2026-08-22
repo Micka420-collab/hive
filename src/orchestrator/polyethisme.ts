@@ -588,6 +588,13 @@ export function lireContreVisite(sortie: string): ContreVisite | null {
   } catch {
     return null;
   }
+  // loupe : équivalent — || → &&. Cette garde est INATTEIGNABLE, et ça se
+  // sonde : `RE_CONTRE_VISITE` n'accepte qu'une charge entre accolades
+  // (`(\{.*\})`), et une charge de cette forme ou bien lève dans `JSON.parse`
+  // — rattrapée juste au-dessus — ou bien rend un objet non nul. Aucune entrée
+  // n'atteint ce `return null`. La garde reste, parce que le type de `brut` est
+  // `unknown` et que la ligne suivante l'affine ; la branche, elle, ne se joue
+  // pas.
   if (typeof brut !== 'object' || brut === null) return null;
   const o = brut as Record<string, unknown>;
 
