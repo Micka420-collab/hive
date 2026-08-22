@@ -102,6 +102,20 @@ export function texteFaitDeriveDegradee(motif: string): string {
   return `${base}${sep}${m.slice(0, budget)}`;
 }
 
+/** Préfixe stable des faits auto « à surveiller » (seuil resserré, pas encore halte). */
+export const PREFIXE_FAIT_DERIVE_SURVEILLER = 'Dérive à surveiller';
+
+/** Texte borné d'un fait auto-posé quand la dérive passe en `a_surveiller`. */
+export function texteFaitDeriveASurveiller(motif: string): string {
+  const base = PREFIXE_FAIT_DERIVE_SURVEILLER;
+  const m = motif.replace(/\s+/g, ' ').trim();
+  if (!m) return base;
+  const sep = ' — ';
+  const budget = HORIZON_TEXTE_MAX - base.length - sep.length;
+  if (budget <= 0) return base.slice(0, HORIZON_TEXTE_MAX);
+  return `${base}${sep}${m.slice(0, budget)}`;
+}
+
 /**
  * Faut-il encore écrire un fait « dérive dégradée » ?
  * Évite de saturer le carnet à chaque GET / cycle runner.
@@ -116,6 +130,24 @@ export function doitNoterFaitDeriveDegradee(
       e.kind === 'fait' &&
       e.source === SOURCE_HORIZON_DERIVE &&
       e.texte.startsWith('Dérive dégradée') &&
+      now - e.creeA < fenetreMs,
+  );
+}
+
+/**
+ * Faut-il encore écrire un fait « dérive à surveiller » ?
+ * Même fenêtre anti-spam que la dégradée — deux niveaux, deux préfixes.
+ */
+export function doitNoterFaitDeriveASurveiller(
+  entrees: readonly EntreeHorizon[],
+  now: number,
+  fenetreMs = FENETRE_FAIT_DERIVE_MS,
+): boolean {
+  return !entrees.some(
+    (e) =>
+      e.kind === 'fait' &&
+      e.source === SOURCE_HORIZON_DERIVE &&
+      e.texte.startsWith(PREFIXE_FAIT_DERIVE_SURVEILLER) &&
       now - e.creeA < fenetreMs,
   );
 }

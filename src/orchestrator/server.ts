@@ -191,12 +191,18 @@ import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essa
 import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
 import { marquerFabriquesMergeesApresFusion } from './fabrique.js';
 import {
+  doitNoterFaitDeriveASurveiller,
   doitNoterFaitDeriveDegradee,
   SOURCE_HORIZON_DERIVE,
+  texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
 } from './horizon.js';
+<<<<<<< HEAD
 import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
+=======
+import { expliquerRefusRequisition } from './requisition.js';
+>>>>>>> 048a604 (ADR 0010: réquisitions protocole nœud + horizon a_surveiller)
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -2040,6 +2046,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
+      const cur = store.lireRequisition(req.params.id);
+      if (!cur) return reply.code(404).send({ error: 'inconnue' });
       const v = store.repondreRequisition(req.params.id, req.body.decision);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
@@ -2050,6 +2058,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         id: req.params.id,
         statut: v.statut,
       });
+      const ws = nodeSockets.get(cur.nodeId);
+      if (ws) {
+        send(ws, {
+          type: 'requisition_result',
+          id: req.params.id,
+          statut: v.statut,
+        });
+      }
       return { ok: true, statut: v.statut };
     },
   );
@@ -3305,15 +3321,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }),
       horizonEntrees: store.compterHorizon(projectId),
     };
-    // ADR 0010 lot 9 : stall / dérive dégradée → un FAIT dans le carnet
-    // (pas une hypothèse). Anti-spam : au plus une fois par fenêtre.
+    // ADR 0010 lot 9 : stall / dérive → FAIT dans le carnet (pas hypothèse).
+    // Anti-spam : au plus une fois par fenêtre et par niveau.
+    const now = Date.now();
+    const horizonProjet = store.listerHorizon(projectId);
     if (etat.derive.etat === 'degradee') {
-      const now = Date.now();
-      if (doitNoterFaitDeriveDegradee(store.listerHorizon(projectId), now)) {
+      if (doitNoterFaitDeriveDegradee(horizonProjet, now)) {
         store.ajouterHorizon(
           projectId,
           'fait',
           texteFaitDeriveDegradee(etat.derive.motif || 'la ruche se dégrade'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    } else if (etat.derive.etat === 'a_surveiller') {
+      if (doitNoterFaitDeriveASurveiller(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveASurveiller(etat.derive.motif || 'signaux à surveiller'),
           SOURCE_HORIZON_DERIVE,
           now,
         );
@@ -7874,6 +7902,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               msg.retryAfterMs,
             );
             break;
+          case 'requisition_open': {
+            const v = store.ouvrirRequisition(
+              nodeId,
+              msg.genre,
+              msg.libelle,
+              msg.detail ?? null,
+            );
+            if (!v.ok) {
+              send(ws, {
+                type: 'error',
+                message: expliquerRefusRequisition(v.motif),
+              });
+              break;
+            }
+            emitEvent('requisition_ouverte', {
+              id: v.id,
+              nodeId,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            send(ws, {
+              type: 'requisition_ack',
+              id: v.id,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            stateDirty = true;
+            break;
+          }
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.
             // Un REFUS du nœud (Night Shift…) est un échec explicite — jamais
