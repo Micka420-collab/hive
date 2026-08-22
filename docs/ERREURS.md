@@ -14023,3 +14023,67 @@ rougi, mon classement aurait été faux et le banc que j'avais décidé de ne pa
 
 Un raisonnement d'équivalence est une hypothèse. Il se vérifie en muant et en
 regardant, comme tout le reste.
+
+## 9 sexseptuagicenties. Un harnais de mesure doit ÉCHOUER FERMÉ — sinon il rend un verdict sur une expérience qui n'a pas eu lieu
+
+Rejeu d'un mutant sur `agent-detect.ts`. Le harnais a affiché :
+
+```
+  SURVIT ← décor
+```
+
+C'était faux. La mutation n'avait **jamais été appliquée**.
+
+### Les deux défauts, et c'est leur composition qui coûte
+
+Le script posait le mutant en Python, puis lançait le banc en shell :
+
+```bash
+python3 - <<'PY'
+...
+assert s.count(a) == 1          # ← 1er défaut : l'ancre existait DEUX fois
+...
+PY
+npx vitest run "$BANC" >/dev/null 2>&1 && echo "SURVIT" || echo "TENU"
+```
+
+1. **L'ancre était fragile.** `plateforme === 'win32' ? env.USERPROFILE : env.HOME`
+   apparaît à la ligne 104 **et** à la ligne 397. `count == 1` a échoué, et
+   l'`assert` a fait sortir Python en erreur.
+
+2. **Le harnais a continué quand même.** La ligne suivante ne regardait pas le
+   code de sortie du bloc précédent : elle a lancé le banc sur du code **sain**,
+   l'a vu vert, et a conclu « SURVIT ». Le verdict le plus grave qu'un rejeu
+   puisse rendre — « ce banc est du décor » — sorti d'une expérience qui ne
+   s'est pas déroulée.
+
+Aucun des deux, seul, n'aurait menti. Une ancre fragile aurait fait un message
+d'erreur ; un harnais qui continue aurait mesuré un vrai mutant. C'est leur
+composition qui produit une phrase fausse et confiante.
+
+### La règle
+
+> Un harnais de mesure doit **échouer fermé**. Quand l'étape de préparation
+> rate, le résultat est « pas de résultat » — jamais la valeur par défaut d'un
+> chemin qui n'a pas été pris.
+
+En pratique, trois gestes qui ne coûtent rien :
+
+- **vérifier que la mutation est DANS le fichier** avant de lancer le banc
+  (`grep` la forme mutée), pas seulement que l'outil de substitution a rendu 0 ;
+- **abandonner** sur échec de pose, avec un message qui dit « aucun verdict
+  rendu » plutôt qu'un verdict ;
+- **viser par numéro de ligne** quand l'ancre textuelle n'est pas unique — une
+  ancre qu'on croit unique et qui ne l'est pas est le cas normal, pas le cas rare.
+
+### Ce que ça dit de plus large
+
+C'est la même maladie que le reste de ce journal, appliquée à l'instrument
+lui-même : § 9 sexagicenties (un arbre sale pendant une mutation), § 9
+sexsexagicenties (un résumé daté lu comme un fait), § 9 quaterseptuagicenties
+(un recensement dont le motif est le dénominateur). À chaque fois, **un outil
+qui rapporte autre chose que ce qu'il a mesuré**.
+
+La différence ici : l'outil était celui qui sert précisément à ne pas se
+tromper. Un juge qui se trompe sur ses propres conclusions ne dégrade pas la
+mesure — il la retourne, parce qu'on lui fait confiance par construction.
