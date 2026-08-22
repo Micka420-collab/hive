@@ -13617,3 +13617,60 @@ garde en deux morceaux, et l'opérateur qui les relie porte toute la sûreté.
 Ces endroits-là se marquent — par un test qui passe `null`, pas par un
 commentaire — parce que le prochain lecteur, humain ou machine, verra une
 redondance là où il y a une dépendance.
+
+## 9 novemsexagicenties. Le commentaire garde une ligne ; il ne garde pas la SUIVANTE
+
+Dans `listerWorkflows`, deux lignes se suivent. La première porte un
+avertissement de huit lignes :
+
+```js
+// ⚠ CET ENDPOINT NE REND PAS UN TABLEAU. Il rend `{ total_count, workflows }`
+// … Traiter la réponse comme un tableau rendrait une liste VIDE sans erreur,
+// et « ce dépôt n'a aucun workflow » est un mensonge parfaitement crédible.
+const lot = typeof brut === 'object' && … ? … : null;
+```
+
+Cette ligne-là est **défendue** : le balayage l'a mutée, un banc a rougi.
+Quelques lignes plus bas, sans commentaire :
+
+```js
+if (lot.length < PAR_PAGE) break;
+```
+
+**Nue.** Mutée en `<=`, une page PLEINE arrête la pagination : au-delà de cent
+workflows, la ruche n'en montre que cent. Le résultat est le mensonge EXACT
+contre lequel le commentaire du dessus met en garde — une liste tronquée que
+rien ne signale — obtenu par l'autre bout de la même boucle.
+
+### Ce que ça dit du rôle d'un commentaire
+
+Le commentaire a fait son travail : la ligne qu'il protège a un banc. Il a même
+fait plus que son travail, puisqu'il nomme le mode de panne. Ce qu'il n'a pas
+pu faire, c'est s'étendre au reste de la fonction — parce qu'un commentaire ne
+sait pas de quoi il est le voisin.
+
+Le raisonnement qui manquait n'est pas « cette ligne est-elle risquée ? » mais
+**« quelles AUTRES lignes peuvent produire ce même mensonge ? »**. Ici, deux :
+la forme mal lue (protégée) et la pagination arrêtée trop tôt (nue). Un troisième
+chemin existe d'ailleurs — l'API qui rend une page pleine puis une erreur — et
+il est couvert par le `if (!rep.ok) throw`, lui aussi défendu.
+
+### Pourquoi la loupe le trouve et la relecture non
+
+Une relecture suit le fil du commentaire : elle vérifie ce qu'il annonce, le
+trouve correct, et poursuit rassurée. La présence d'un avertissement DÉTOURNE
+l'attention du voisinage, parce qu'elle donne le sentiment que l'endroit a
+déjà été pensé. C'est le contraire d'un défaut de vigilance : c'est de la
+vigilance dépensée là où quelqu'un l'a déjà dépensée.
+
+La loupe n'a pas cette faiblesse : elle ne lit pas les commentaires, et elle
+mute la ligne d'à côté avec la même indifférence.
+
+### La leçon
+
+**Un commentaire qui nomme un mode de panne est une invitation à chercher les
+AUTRES chemins vers cette même panne, pas une preuve que l'endroit est sûr.**
+Quand on en croise un — le sien ou celui d'un autre — la question utile n'est
+pas « la ligne commentée est-elle juste ? », mais « par où d'autre ce résultat
+faux peut-il sortir ? ». Chacun de ces chemins se mute ; ceux qui survivent
+sont nus, quel que soit le soin déjà visible autour d'eux.

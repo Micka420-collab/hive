@@ -12363,3 +12363,59 @@ par une assertion sur le conseil, pas par une note d'équivalence.
 Delta du terrain : `livraison.ts` **38/38 balayé, 6 nues fermées**. `src` reste
 très largement non balayé — 371 candidates recensées, **59 jouées** (21 du
 Concierge + 38 d'ici).
+
+## github.ts : 32 sur 32 — sept nues une couche SOUS la livraison
+
+Troisième balayage élargi, base épinglée `3f23478` (parent de `3135684`),
+plafond 400. `github.ts` porte ce sur quoi `livraison.ts` s'appuie —
+`estFullName`, `expliquerStatut`, `ErreurGithub`, `entetes`. Le lot précédent a
+fermé six nues au-dessus ; celles-ci sont en dessous, sur le même chemin.
+
+```
+LOUPE : 32 mutation(s) possible(s) sur le diff, 32 examinée(s).
+════ CODE NEUF QUE RIEN NE DÉFEND ════   7 nues
+```
+
+| Nue                                  | Ce qui casse                                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `texte(d.name) \|\| fullName` → `&&` | un dépôt nommé s'affiche sous son `full_name`, un dépôt sans nom devient une ligne vide                                 |
+| `!isInteger(n) \|\| n <= 0` → `&&`   | `1.5` passe la validation et part dans une URL d'API                                                                    |
+| `numero <= 0` → `< 0`                | zéro passe — `/issues/0` n'est pas une issue                                                                            |
+| `lot.length < PAR_PAGE` → `<=`       | **une page pleine arrête la pagination** : au-delà de cent workflows, la ruche n'en montre que cent, sans rien signaler |
+| `o.limite ?? 20` → `\|\|`            | une limite explicite de zéro devient vingt                                                                              |
+| deux `>` dans des CONSEILS           | la ruche demande un entier « >= 0 » puis refuse zéro                                                                    |
+
+La quatrième est la plus coûteuse : le commentaire d'à côté met en garde, sur
+la ligne du dessus, contre exactement ce genre de mensonge silencieux — « ce
+dépôt n'a aucun workflow » est un mensonge parfaitement crédible. La garde qui
+l'empêchait à la page suivante n'était, elle, tenue par rien.
+
+### Rejeu, un mutant à la fois
+
+```
+═══ REJEU, UN MUTANT À LA FOIS ═══
+  ✔ TENU · G1 nom du dépôt : || → &&      ✔ TENU · G5 pagination : < → <=
+  ✔ TENU · G2 issue : || → &&             ✔ TENU · G6 conseil workflow : > → >=
+  ✔ TENU · G3 issue : <= → <              ✔ TENU · G7 limite : ?? → ||
+  ✔ TENU · G4 conseil issue : > → >=
+
+═══ TENUS : 7 sur 7 ═══
+```
+
+Arbre restauré et vérifié, aucun orphelin.
+
+### Le banc s'est trompé le premier, et il l'a dit
+
+La mise en scène de la pagination demandait une première page PLEINE et une
+seconde courte. Le faux fetcheur choisissait par `url.includes('page=1')` —
+or `per_page=100` CONTIENT « page=1 » (« per_**page=1**00 »). Les trois pages
+ont donc rendu la première : 300 workflows au lieu de 103.
+
+Le banc a rougi immédiatement, parce que le bord était asymétrique. Écrit avec
+deux pages courtes, il aurait passé dans les deux mondes sans jamais mesurer la
+borne — et l'erreur d'ancre serait restée invisible sous un banc vert. Une
+sous-chaîne qui se glisse dans une autre est la même famille de faute que le
+motif `typeof null` du lot précédent : ça se lit juste, et ça ne l'est pas.
+
+Delta du terrain : `github.ts` **32/32 balayé, 7 nues fermées**. `src` : 371
+candidates recensées, **91 jouées** (21 Concierge + 38 livraison + 32 ici).
