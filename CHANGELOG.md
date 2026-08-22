@@ -7,6 +7,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+
 ### Changed
 
 - **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
