@@ -1879,10 +1879,15 @@ export function fetchRequisitions(opts?: {
 export function repondreRequisition(
   id: string,
   decision: 'accordee' | 'refusee',
-): Promise<{ ok: boolean; statut: string }> {
+  opts?: { secret?: string; envVar?: string },
+): Promise<{ ok: boolean; statut: string; envVar?: string }> {
   return api(`/api/requisitions/${encodeURIComponent(id)}/repondre`, {
     method: 'POST',
-    body: JSON.stringify({ decision }),
+    body: JSON.stringify({
+      decision,
+      ...(opts?.secret ? { secret: opts.secret } : {}),
+      ...(opts?.envVar ? { envVar: opts.envVar } : {}),
+    }),
   });
 }
 
@@ -1910,6 +1915,74 @@ export function appliquerMotif(
       body: JSON.stringify({ lang: opts?.lang ?? 'fr' }),
     },
   );
+}
+
+export interface MotifPerso {
+  id: string;
+  libelle: string;
+  etapes: string[];
+  creeA: number;
+}
+
+export function fetchMotifsPerso(projectId: string): Promise<{ motifs: MotifPerso[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/motifs/perso`);
+}
+
+export function creerMotifPerso(
+  projectId: string,
+  body: { libelle: string; etapes: string[] },
+): Promise<{ ok: boolean; id: string; libelle: string; etapes: string[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/motifs/perso`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function appliquerMotifPerso(
+  projectId: string,
+  motifId: string,
+): Promise<{ ok: boolean; motifId: string; taskIds: string[]; titres: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/motifs/perso/${encodeURIComponent(motifId)}/appliquer`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
+export function ouvrirFabrique(
+  projectId: string,
+  body: {
+    genre: string;
+    libelle: string;
+    nomScript?: string;
+    nodeId?: string;
+    creerTache?: boolean;
+  },
+): Promise<{ ok: boolean; id: string; taskId?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/fabriques`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function poserStatutFabrique(
+  projectId: string,
+  fabriqueId: string,
+  statut: 'en_revue' | 'mergee' | 'refusee',
+): Promise<{ ok: boolean; statut: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/fabriques/${encodeURIComponent(fabriqueId)}/statut`,
+    { method: 'POST', body: JSON.stringify({ statut }) },
+  );
+}
+
+export function jugerFabriqueChantier(
+  projectId: string,
+  nomScript: string,
+): Promise<{ ok: boolean; motif?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/fabriques/juger-chantier`, {
+    method: 'POST',
+    body: JSON.stringify({ nomScript }),
+  });
 }
 
 export function ajouterHorizon(

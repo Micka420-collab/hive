@@ -105,6 +105,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'cache reconstructible, une ligne par projet AYANT DÉPENSÉ ; sa perte se rattrape',
   horloge_soldes:
     'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
+  motifs_projet:
+    'procédures perso créées depuis la Chambre — poignée par projet, jamais auto-générées',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

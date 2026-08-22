@@ -174,3 +174,49 @@ export function expliquerRefusMotif(motif: MotifRefusMotif, lang: 'fr' | 'en' = 
   };
   return (lang === 'en' ? en : fr)[motif];
 }
+
+/** Procédures perso créées depuis la Chambre — bornées, pas de diff. */
+export const MOTIF_PERSO_ETAPES_MAX = 8;
+export const MOTIF_PERSO_LIBELLE_MAX = 120;
+export const MOTIF_PERSO_TITRE_MAX = 200;
+
+export type MotifPersoRefus = 'vide' | 'trop_long' | 'trop_etapes' | 'etape_vide';
+
+export function validerMotifPerso(
+  libelleBrut: string,
+  etapesBrutes: unknown,
+): { ok: true; libelle: string; etapes: string[] } | { ok: false; motif: MotifPersoRefus } {
+  if (typeof libelleBrut !== 'string') return { ok: false, motif: 'vide' };
+  const libelle = libelleBrut.replace(/\s+/g, ' ').trim();
+  if (!libelle) return { ok: false, motif: 'vide' };
+  if (libelle.length > MOTIF_PERSO_LIBELLE_MAX) return { ok: false, motif: 'trop_long' };
+  if (!Array.isArray(etapesBrutes) || etapesBrutes.length === 0) {
+    return { ok: false, motif: 'vide' };
+  }
+  if (etapesBrutes.length > MOTIF_PERSO_ETAPES_MAX) return { ok: false, motif: 'trop_etapes' };
+  const etapes: string[] = [];
+  for (const e of etapesBrutes) {
+    if (typeof e !== 'string') return { ok: false, motif: 'etape_vide' };
+    const t = e.replace(/\s+/g, ' ').trim();
+    if (!t) return { ok: false, motif: 'etape_vide' };
+    if (t.length > MOTIF_PERSO_TITRE_MAX) return { ok: false, motif: 'trop_long' };
+    etapes.push(t);
+  }
+  return { ok: true, libelle, etapes };
+}
+
+export function expliquerRefusMotifPerso(motif: MotifPersoRefus, lang: 'fr' | 'en' = 'fr'): string {
+  const fr: Record<MotifPersoRefus, string> = {
+    vide: 'Libellé et au moins une étape sont requis.',
+    trop_long: 'Libellé ou étape trop long.',
+    trop_etapes: `Au plus ${MOTIF_PERSO_ETAPES_MAX} étapes.`,
+    etape_vide: 'Chaque étape doit être non vide.',
+  };
+  const en: Record<MotifPersoRefus, string> = {
+    vide: 'Label and at least one step are required.',
+    trop_long: 'Label or step too long.',
+    trop_etapes: `At most ${MOTIF_PERSO_ETAPES_MAX} steps.`,
+    etape_vide: 'Each step must be non-empty.',
+  };
+  return (lang === 'en' ? en : fr)[motif];
+}

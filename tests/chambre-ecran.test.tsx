@@ -16,6 +16,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchChambre: vi.fn(),
   fetchMotifs: vi.fn(() => Promise.resolve({ motifs: [] })),
+  fetchMotifsPerso: vi.fn(() => Promise.resolve({ motifs: [] })),
   fetchAtelier: vi.fn(() =>
     Promise.resolve({
       mode: 'off',
@@ -304,14 +305,26 @@ describe('Chambre à l’écran', () => {
       (b.textContent ?? '').includes('Refuser'),
     ) as HTMLButtonElement;
     await cliquer(accorder);
-    expect(accorder.disabled).toBe(true);
-    expect(refuser.disabled).toBe(true);
-    expect(accorder.getAttribute('aria-label')).toMatch(/Accorder.*Seedance/i);
-    expect(refuser.getAttribute('aria-label')).toMatch(/Refuser.*Seedance/i);
+    await act(async () => {});
+    expect(dom.querySelector('[role="dialog"]')).toBeTruthy();
+    const secretInput = dom.querySelector('input[type="password"]') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(secretInput, 'sk-test');
+      secretInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const accorderDialog = [...dom.querySelectorAll('[role="dialog"] button')].find((b) =>
+      (b.textContent ?? '').trim() === 'Accorder',
+    ) as HTMLButtonElement;
+    await cliquer(accorderDialog);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 40));
     });
-    expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee');
+    expect(repondreRequisition).toHaveBeenCalledWith(
+      'req-1',
+      'accordee',
+      expect.objectContaining({ secret: 'sk-test' }),
+    );
   });
 
   it('refuse une réquisition depuis le bandeau À trancher', async () => {
@@ -546,6 +559,11 @@ describe('Chambre à l’écran', () => {
     expect(appliquer).toBeTruthy();
     expect(appliquer.getAttribute('aria-label')).toMatch(/Appliquer.*Revue courte/i);
     await cliquer(appliquer);
+    await act(async () => {});
+    const confirmer = [...dom.querySelectorAll('[role="dialog"] button')].find((b) =>
+      (b.textContent ?? '').includes('Confirmer'),
+    ) as HTMLButtonElement;
+    await cliquer(confirmer);
     await act(async () => {});
     expect(appliquerMotif).toHaveBeenCalled();
     expect(dom.textContent).toMatch(/Motif appliqué/);

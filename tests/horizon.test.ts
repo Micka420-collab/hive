@@ -4,10 +4,13 @@ import { describe, expect, it } from 'vitest';
 import {
   HORIZON_LECTURE_MAX,
   VERSION_HORIZON,
+  doitNoterFaitDeriveASurveiller,
   doitNoterFaitDeriveDegradee,
   horizonDepasseBudgetTaches,
   resumeHorizon,
+  texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
+  texteHorizonPourContexte,
   validerKindHorizon,
 } from '../src/orchestrator/horizon.js';
 import { HiveStore } from '../src/orchestrator/store.js';
@@ -86,6 +89,54 @@ describe('horizon — forme', () => {
         now,
       ),
     ).toBe(true);
+  });
+
+  it('anti-spam fait dérive à surveiller', () => {
+    expect(texteFaitDeriveASurveiller('hausse lente')).toMatch(
+      /^Dérive à surveiller — hausse lente$/,
+    );
+    const now = 2_000_000;
+    expect(doitNoterFaitDeriveASurveiller([], now)).toBe(true);
+    expect(
+      doitNoterFaitDeriveASurveiller(
+        [
+          {
+            id: '1',
+            projectId: 'p',
+            kind: 'fait',
+            texte: 'Dérive à surveiller — x',
+            source: 'derive',
+            creeA: now - 1000,
+          },
+        ],
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it('texteHorizonPourContexte sépare faits et hypothèses', () => {
+    const txt = texteHorizonPourContexte([
+      {
+        id: '1',
+        projectId: 'p',
+        kind: 'fait',
+        texte: 'Build vert',
+        source: 'test',
+        creeA: 1,
+      },
+      {
+        id: '2',
+        projectId: 'p',
+        kind: 'hypothese',
+        texte: 'Peut ralentir',
+        source: 'test',
+        creeA: 2,
+      },
+    ]);
+    expect(txt).toMatch(/faits/i);
+    expect(txt).toMatch(/hypothèses/i);
+    expect(txt).toContain('Build vert');
+    expect(txt).toContain('Peut ralentir');
   });
 });
 
