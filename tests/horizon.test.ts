@@ -10,6 +10,7 @@ import {
   resumeHorizon,
   texteFaitDeriveASurveiller,
   texteFaitDeriveDegradee,
+  texteHorizonPourContexte,
   validerKindHorizon,
 } from '../src/orchestrator/horizon.js';
 import { HiveStore } from '../src/orchestrator/store.js';
@@ -111,6 +112,31 @@ describe('horizon — forme', () => {
         now,
       ),
     ).toBe(false);
+  });
+
+  it('texteHorizonPourContexte sépare faits et hypothèses', () => {
+    const txt = texteHorizonPourContexte([
+      {
+        id: '1',
+        projectId: 'p',
+        kind: 'fait',
+        texte: 'Build vert',
+        source: 'test',
+        creeA: 1,
+      },
+      {
+        id: '2',
+        projectId: 'p',
+        kind: 'hypothese',
+        texte: 'Peut ralentir',
+        source: 'test',
+        creeA: 2,
+      },
+    ]);
+    expect(txt).toMatch(/faits/i);
+    expect(txt).toMatch(/hypothèses/i);
+    expect(txt).toContain('Build vert');
+    expect(txt).toContain('Peut ralentir');
   });
 });
 

@@ -687,6 +687,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const store = new HiveStore(config.dbPath);
   const cheminEnvQueen = path.join(process.cwd(), '.env');
 
+  const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
+    const base = [projet.name, projet.description ?? '', projet.repoUrl ?? '']
+      .filter(Boolean)
+      .join(' — ');
+    const horizon = texteHorizonPourContexte(store.listerHorizon(projectId));
+    return horizon ? `${base}\n\n${horizon}` : base;
+  };
+
   /**
    * Le Rayon — miroir en lecture seule du code des projets.
    *
@@ -3743,9 +3751,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (deja) return Promise.resolve(`conseil déjà ouvert (${deja.id})`);
         const session = ouvrirConseil(depConseil, {
           projectId,
-          contexteProjet: [projet.name, projet.description ?? '', projet.repoUrl ?? '']
-            .filter(Boolean)
-            .join(' — '),
+          contexteProjet: contexteProjetAvecHorizon(projectId, projet),
         });
         return Promise.resolve(`conseil ${session.id} ouvert`);
       },
@@ -4577,9 +4583,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const session = ouvrirConseil(depConseil, {
         projectId: project.id,
         ...(req.body?.question ? { question: req.body.question } : {}),
-        contexteProjet: [project.name, project.description ?? '', project.repoUrl ?? '']
-          .filter(Boolean)
-          .join(' — '),
+        contexteProjet: contexteProjetAvecHorizon(project.id, project),
       });
       return reply.code(201).send(vueSession(session.id));
     },

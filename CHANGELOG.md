@@ -25,7 +25,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Grant cle_api Chambre → `.env` Queen.** Modal HITL pour saisir variable et secret ;
   `requisition-env.ts` écrit atomiquement sur l'hôte ; le nœud recharge `.env` à la reprise.
 - **Horizon dans le contexte ouvrière.** `texteHorizonPourContexte` injecté dans
-  `construireHiveContext` (budget tokens restant).
+  `construireHiveContext` (budget tokens restant) et dans le contexte conseil.
 - **Fabrique UI Chambre.** Formulaire « Proposer », boutons Revue/Refuser, juger/lancer Chantiers.
 - **Motifs perso.** Procédures par projet (`motifs_projet`) : créer depuis la Chambre, appliquer en tâches ordonnées.
 - **Motifs catalogue — confirmation.** Aperçu des étapes (toggle) + dialogue avant appliquer.
