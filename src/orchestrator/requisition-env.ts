@@ -14,11 +14,25 @@ const CATALOGUE_ENV: Record<string, string> = {
   seedance: 'SEEDANCE_API_KEY',
   'clé openai': 'OPENAI_API_KEY',
   'cle openai': 'OPENAI_API_KEY',
+  'clé openai (codex)': 'OPENAI_API_KEY',
+  'cle openai (codex)': 'OPENAI_API_KEY',
+  'clé ou session anthropic (claude code)': 'ANTHROPIC_API_KEY',
+  'cle ou session anthropic (claude code)': 'ANTHROPIC_API_KEY',
   'clé anthropic': 'ANTHROPIC_API_KEY',
   'cle anthropic': 'ANTHROPIC_API_KEY',
   'clé xai': 'XAI_API_KEY',
   'cle xai': 'XAI_API_KEY',
+  'clé xai ou session grok': 'XAI_API_KEY',
+  'cle xai ou session grok': 'XAI_API_KEY',
 };
+
+/** Indices dans le libellé (après normalisation) → variable d’environnement. */
+const INDICES_ENV: Array<{ re: RegExp; nom: string }> = [
+  { re: /seedance/, nom: 'SEEDANCE_API_KEY' },
+  { re: /openai|codex/, nom: 'OPENAI_API_KEY' },
+  { re: /anthropic|claude/, nom: 'ANTHROPIC_API_KEY' },
+  { re: /\bxai\b|grok/, nom: 'XAI_API_KEY' },
+];
 
 export const SECRET_REQUISITION_MAX = 512;
 
@@ -27,6 +41,9 @@ export type MotifRefusSecret = 'vide' | 'trop_long' | 'forme';
 export function nomEnvDepuisLibelle(libelle: string): string {
   const norm = libelle.trim().toLowerCase();
   if (CATALOGUE_ENV[norm]) return CATALOGUE_ENV[norm];
+  for (const { re, nom } of INDICES_ENV) {
+    if (re.test(norm)) return nom;
+  }
   const slug = libelle
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
