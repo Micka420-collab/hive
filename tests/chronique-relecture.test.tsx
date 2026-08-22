@@ -103,6 +103,7 @@ afterEach(() => {
   racine = null;
   conteneur = null;
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 async function monter(): Promise<HTMLElement> {
@@ -151,10 +152,25 @@ async function frapper(key: string): Promise<void> {
   await act(async () => {});
 }
 
-/** Laisse le vrai temps passer, DANS `act`, pour que React voie l'avance. */
-async function laisserTourner(ms: number): Promise<void> {
+/**
+ * Avance le temps SANS attendre l'horloge murale.
+ *
+ * ─── POURQUOI PAS UN `setTimeout` DE 500 ms ──────────────────────────────────
+ *
+ * La première version attendait vraiment 500 ms pour laisser passer un
+ * intervalle de 300. Verte ici, verte huit fois de suite — et le tamis des
+ * ordres l'a fait rougir en CI sur la graine 23757, là où la suite tourne
+ * trois fois dans des forks parallèles. 200 ms de marge sur une machine
+ * chargée, ce n'est pas une marge, c'est un pari.
+ *
+ * Le carnet interdit d'élargir un plafond pour faire taire un symptôme
+ * (§ 3.1) : la faute n'est pas que 500 soit trop court, c'est que le banc
+ * REGARDE L'HORLOGE. Les minuteurs simulés retirent la course entièrement —
+ * le même test devient vrai ou faux pour une raison, pas pour une charge.
+ */
+async function avancerDe(ms: number): Promise<void> {
   await act(async () => {
-    await new Promise((resoudre) => setTimeout(resoudre, ms));
+    await vi.advanceTimersByTimeAsync(ms);
   });
   await act(async () => {});
 }
@@ -257,10 +273,14 @@ describe('la frise avance seule, et s’arrête seule', () => {
     await entrerDansLaFrise(dom);
 
     expect(position(dom)).toBe('1/2');
+
+    // Les minuteurs simulés sont posés APRÈS le montage (qui dépend de
+    // promesses) et AVANT le clic, qui est ce qui crée l'intervalle.
+    vi.useFakeTimers();
     await cliquer(bouton(dom, 'Lecture'));
 
-    // Une image toutes les 300 ms : 500 ms suffisent pour une seule avance.
-    await laisserTourner(500);
+    // Une image toutes les 300 ms : une seule avance, sans rien attendre.
+    await avancerDe(350);
 
     expect(position(dom), 'la boucle de lecture n’a pas avancé la frise').toBe('2/2');
     expect(etatLecture(dom), 'la frise ne s’arrête pas d’elle-même à la fin').toBe('Lecture');
