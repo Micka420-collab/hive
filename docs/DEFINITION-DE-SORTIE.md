@@ -375,14 +375,26 @@ par un banc (`tests/couverture-reproductible.test.ts`, muté rouge : il lie le
 fournisseur déclaré au `provider` de `vitest.config.ts` et exige qu'il se
 résolve).
 
-**Mesure datée (15 août 2026, arbre `90c1694` + ce lot) :**
+**Mesure datée (22 août 2026, arbre `679fde8` + ce lot) :**
 
-| Dimension    | Couverture  | Détail          | 14 août |
+| Dimension    | Couverture  | Détail          | 15 août |
 | ------------ | ----------- | --------------- | ------- |
-| Lignes       | **76,97 %** | 9 484 / 12 321  | 75,43 % |
-| Branches     | 71,88 %     | 7 774 / 10 814  | 69,48 % |
-| Fonctions    | 76,43 %     | 2 323 / 3 039   | 74,33 % |
-| Instructions | 75,81 %     | 10 803 / 14 250 | 74,19 % |
+| Lignes       | **78,08 %** | 11 091 / 14 204 | 76,97 % |
+| Branches     | 72,76 %     | 9 286 / 12 761  | 71,88 % |
+| Fonctions    | 79,21 %     | 2 748 / 3 469   | 76,43 % |
+| Instructions | 76,66 %     | 12 611 / 16 449 | 75,81 % |
+
+> **CE TABLEAU AVAIT CESSÉ D'ÊTRE UNE MESURE, ET IL A FALLU LE POINT DE SORTIE
+> POUR LE VOIR.** La colonne du 15 août portait 12 321 lignes ; l'arbre en porte
+> 14 204. Ce ne sont pas les COUVERTS qui avaient bougé, ce sont les
+> DÉNOMINATEURS — le tableau décrivait un dépôt plus petit que celui qui
+> existait. Daté, il restait faux, exactement comme le tableau A l'avait été le
+> 16 août. La date ne périme rien toute seule.
+>
+> Le cliquet, lui, était resté sur la mesure du 15 : 75,7 / 71,7 / 76,3 / 76,8,
+> soit jusqu'à 2,9 points SOUS le réel. Il ne mordait plus. **Un cliquet qui ne
+> mord plus n'est pas un cliquet, c'est un chiffre**, et il laissait éroder en
+> silence tout ce qui séparait les deux. Il est remonté sur la mesure.
 
 ### ✅ LE SEUIL EST CÂBLÉ — un cliquet, mesuré et exercé
 

@@ -11964,3 +11964,80 @@ Restauré PAR COPIE après chaque tour, arbre vérifié propre.
 
 Delta du terrain : `MonEspace.tsx` passe de « jamais balayée » à **18/18
 balayé, 9 nues fermées**. Reste jamais balayée : shared (502).
+
+## Point de sortie — 22 août 2026, 06 h (11 jours)
+
+Sortie visée le **2 septembre 2026**. **Onze jours.**
+
+### 1. Livré ET VÉRIFIÉ depuis hier
+
+Vérifié = lancé, mesuré, ou fermé par un banc qu'on a VU rougir. Rien ici n'est
+« écrit ».
+
+| Lot                        | Mesure                                                           |
+| -------------------------- | ---------------------------------------------------------------- |
+| `Chronique.tsx` balayée    | 34/34 — 27 défendues, 7 nues → 6 fermées, 1 équivalente prouvée  |
+| `MonEspace.tsx` balayée    | 18/18 — 9 défendues, 9 nues → 9 fermées                          |
+| Rejeu, un mutant à la fois | 24 sur 24 éprouvables TENUES                                     |
+| Suite                      | 4 582 → **4 608** (4 600 verts, 8 ignorés)                       |
+| Leçons                     | 5 sections neuves (§ 9 novemquinquagicenties → tersexagicenties) |
+
+Deux rouges de CI **de mon fait**, trouvés et fermés : un compte de badges
+périmé (la porte de § 9 duoquadragicenties a mordu), et un banc qui regardait
+l'horloge murale (le tamis des ordres l'a fait rougir sur la graine 23757).
+Aucun n'a atteint `main`.
+
+### 2. Ce que ce point de sortie TROUVE de périmé
+
+**Le tableau D de `DEFINITION-DE-SORTIE.md` n'était plus une mesure.** Daté du
+15 août sur l'arbre `90c1694`, il annonçait 9 484 / 12 321 lignes. L'arbre en
+porte 14 204. Les DÉNOMINATEURS ont changé : le tableau décrivait un dépôt plus
+petit que celui qui existe.
+
+Re-mesuré ici, sur `679fde8` :
+
+| Dimension    | 15 août          | 22 août              | Écart |
+| ------------ | ---------------- | -------------------- | ----- |
+| Lignes       | 76,97 % (12 321) | **78,08 %** (14 204) | +1,11 |
+| Branches     | 71,88 % (10 814) | **72,76 %** (12 761) | +0,88 |
+| Fonctions    | 76,43 % (3 039)  | **79,21 %** (3 469)  | +2,78 |
+| Instructions | 75,81 % (14 250) | **76,66 %** (16 449) | +0,85 |
+
+La couverture a MONTÉ sur les quatre dimensions pendant que le dépôt
+grossissait. Mais le cliquet, lui, était resté à 75,7 / 71,7 / 76,3 / 76,8 : il
+ne mordait plus. Un cliquet qui ne mord plus n'est pas un cliquet, c'est un
+chiffre. Il est remonté sur la mesure, marge comprise (§ ci-dessous).
+
+### 3. Ce qui reste, par ce qui casse l'arrivant en premier
+
+1. 👤 **Identité visuelle de la vitrine (#63)** — la première chose qu'un
+   arrivant voit. **Décision d'édition de l'utilisateur**, pas la mienne.
+   BLOQUÉ, et c'est le premier point de la liste.
+2. **README GitHub au design de la vitrine** — la première impression côté
+   dépôt. En aval de #63, donc bloqué avec lui.
+3. 🔒 **Fusionner ce qui est fait.** Deux lots complets et verts attendent sur
+   la PR #346 : `sh scripts/fusionner.sh` est REFUSÉ par le classifieur de
+   permissions de la session. Ce n'est pas un défaut du dépôt — c'est un droit
+   que je n'ai pas. Tant qu'il manque, chaque lot fini s'empile.
+4. `shared.tsx` (502) — **dernière vue jamais balayée**. Interne, invisible pour
+   un arrivant.
+5. Balance (`arme && cible !== null`), Cerveau (`serviIlYaJours === null`, et le
+   glisser au canevas — à DOCUMENTER honnêtement si happy-dom ne peut pas le
+   jouer), `server.ts` (la livraison). Interne.
+
+Rien aux rangs 1 et 2 ne dépend de moi. Le premier point sur lequel je peux
+travailler est le 4.
+
+### 4. Hors d'atteinte — à dire, pas à faire semblant
+
+- 🔒 **Paquet npm signé**, **image GHCR + `cosign`**, **Release GitHub signée** :
+  comptes et clés qui ne sont pas les miens. `curl … | sh` depuis le dépôt
+  fonctionne sans eux ; « `npm i -g` » et « `docker pull` » d'un artefact
+  OFFICIEL restent une décision humaine.
+- 👤 **Tarifs de la vitrine**, **identité visuelle** : décisions commerciales et
+  éditoriales.
+- 🔒 **Fusionner** : voir le rang 3. Je peux préparer, mesurer, pousser et
+  garder vert ; je ne peux pas livrer.
+- ⚠ **Machines Windows / macOS RÉELLES** : la matrice CI les couvre à chaque PR
+  (installation → tableau → projet → invité → travail). Ce n'est pas la même
+  chose qu'un poste humain, et ça se dit comme tel.
