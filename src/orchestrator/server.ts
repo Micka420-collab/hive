@@ -2074,7 +2074,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         statut: v.statut,
       });
       const ws = nodeSockets.get(cur.nodeId);
-      if (ws && (v.statut === 'accordee' || v.statut === 'refusee')) {
+      if (ws) {
         send(ws, {
           type: 'requisition_result',
           id: req.params.id,
@@ -5723,6 +5723,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         typeof brut === 'object' && brut !== null
           ? (brut as Record<string, unknown>).scripts
           : null;
+      // loupe : équivalent — || → &&. Même raison que la ligne marquée au-dessus :
+      // mué, `Object.entries(null)` lève, et le `catch` de ce bloc rend `{}` —
+      // exactement ce que la garde aurait rendu.
       if (typeof bloc !== 'object' || bloc === null) return {};
       const scripts: Record<string, string> = {};
       for (const [k, v] of Object.entries(bloc)) {

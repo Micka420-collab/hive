@@ -13,6 +13,7 @@
 
 import { LIMITS } from '../shared/protocol.js';
 import { conseilVeilleBrief } from './queen-veille.js';
+import { QUEEN_BEE_INTELLIGENCE_CORE } from './queen-intelligence-core.js';
 
 /** Tâche produite par le planner : la forme exacte attendue par l'API de tâches. */
 export interface PlannedTask {
@@ -299,6 +300,7 @@ export function heuristicPlan(brief: string): PlannedTask[] {
 export function buildPlannerPrompt(brief: string): { system: string; user: string } {
   const system = [
     'Tu es « Queen Bee », la planificatrice de Hive.',
+    QUEEN_BEE_INTELLIGENCE_CORE,
     "On te donne le brief d'un projet logiciel. Découpe-le en un DAG minimal de tâches de codage, chacune réalisable indépendamment par une IA de codage.",
     'Contraintes :',
     '- 2 à 12 tâches, chacune atomique et confiable.',

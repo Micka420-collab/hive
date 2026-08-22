@@ -12894,3 +12894,46 @@ rendant toujours `null` passerait les cinq cas sans rien mesurer.
 `subagent-parser.ts:65`. Chacune demande d'être lue avant d'être éprouvée —
 la sonde dit « la suite ne le voit pas », pas « c'est un défaut » : la moitié
 des nues du lot précédent se sont révélées équivalentes ou inatteignables.
+
+## Forme négative, les treize restantes : 7 nues fermées, 6 indéfendables marquées
+
+Base épinglée `768b24e` (main, après la fusion de #353). Le recensement dit
+**30 occurrences** au dépôt, pas 28 comme le carnet l'annonçait — le vieux
+chiffre a été corrigé plutôt que recopié (§ 9 quaterseptuagicenties).
+
+### Les sept nues — `tests/nul-traverse-les-gardes-negatives.test.ts`
+
+| Ligne                   | Ce que la levée coûte                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow.ts:242`       | `lireRuns` boucle sans `try` : un `null` dans `workflow_runs` ne gâche pas une ligne, il vide la vue Chantiers                        |
+| `invite.ts:74`          | le `try` n'enveloppe que `JSON.parse`, et `JSON.parse('null')` RÉUSSIT : la ruche du destinataire tombe sur un lien reçu d'un inconnu |
+| `presence.ts:98`        | un outil appelé sans arguments porte `input: null` — une forme normale, pas une malformation                                          |
+| `presence-parser.ts:55` | `feed` est appelée sur chaque ligne du flux : la levée n'écarte pas une ligne, elle aveugle la ruche                                  |
+| `subagent-parser.ts:65` | même garde, même place, même coût                                                                                                     |
+| `nuage.ts:82`           | le `data` interne d'une charge Stripe                                                                                                 |
+| `nuage.ts:105`          | la charge entière : levée → 500 → Stripe relivre → lève encore. Une boucle de relivraison                                             |
+
+Rejeu : **TENUS 7 sur 7**, chacune muée `|| → &&` avec le banc au rouge. Quatre
+bords positifs accompagnent les sept, dont deux où le `null` PRÉCÈDE un bloc
+valide sur la même ligne de flux — sans eux, une liseuse rendant toujours `null`
+passerait les sept cas sans rien mesurer.
+
+### Les six indéfendables — marquées dans le code, pas éprouvées
+
+`partage.ts:164`, `server.ts:5558` (`catch` enveloppant) · `eclaireuse.ts:233`
+et `:272` (regex `\{.*\}` amont) · `nuage.ts:79` (garde de l'appelant) ·
+`nuage.ts:84` (tolérance en aval).
+
+Contre-épreuve : chacune muée contre la **suite entière**. Les six survivent,
+4690 verts à chaque tour. Le détail du raisonnement — et pourquoi le
+raisonnement évident est faux sur `nuage.ts:84` — vit en § 9
+quinquaseptuagicenties.
+
+### Ce qui reste de ce motif
+
+Rien de nu que je sache. Les 30 occurrences sont réparties : 5 fermées en #353,
+7 ici, 6 marquées ici, 1 marquée au lot polyéthisme (`polyethisme.ts:598`),
+1 hors portée (`loupe.mjs` ne se mute pas lui-même), le reste jugé défendu aux
+lots précédents. Cette phrase est une mesure, pas une impression — et son
+dénominateur est `grep -rn "typeof [A-Za-z_.]* !== 'object'" src dashboard/src
+scripts site`.
