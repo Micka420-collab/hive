@@ -202,10 +202,12 @@ import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
 import { expliquerRefusRequisition } from './requisition.js';
 import {
+  FOURNISSEURS_CLE,
   estNomEnvValide,
   expliquerRefusSecret,
   nomEnvDepuisLibelle,
   poserCleQueenEnv,
+  presenceClesCatalogue,
   validerSecretRequisition,
 } from './requisition-env.js';
 import { conseilVeilleBrief } from './queen-veille.js';
@@ -2015,6 +2017,64 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       })),
     };
   });
+
+  // Catalogue + pose proactive de clés API Queen (OpenRouter, Anthropic…).
+  // Même doctrine que le grant HITL : secret uniquement dans `.env`, jamais
+  // en base. Présence = booléen, jamais la valeur.
+  app.get('/api/queen/cles', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      fournisseurs: FOURNISSEURS_CLE.map((f) => ({
+        id: f.id,
+        libelleFr: f.libelleFr,
+        libelleEn: f.libelleEn,
+        envVar: f.envVar,
+        hintFr: f.hintFr,
+        hintEn: f.hintEn,
+      })),
+      presence: presenceClesCatalogue(cheminEnvQueen),
+    };
+  });
+
+  app.post<{
+    Body: { secret: string; envVar: string; libelle?: string };
+  }>(
+    '/api/queen/cles',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['secret', 'envVar'],
+          additionalProperties: false,
+          properties: {
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
+            libelle: { type: 'string', maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const vs = validerSecretRequisition(req.body.secret);
+      if (!vs.ok) {
+        return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+      }
+      const nom = req.body.envVar.trim();
+      if (!estNomEnvValide(nom)) {
+        return reply.code(400).send({ error: 'env_invalide' });
+      }
+      const libelle = (req.body.libelle ?? nom).trim() || nom;
+      try {
+        poserCleQueenEnv(cheminEnvQueen, nom, vs.secret, `Clé ${libelle} (posée depuis la Chambre)`);
+        process.env[nom] = vs.secret;
+      } catch {
+        return reply.code(500).send({ error: 'ecriture_env' });
+      }
+      emitEvent('queen_cle_posee', { envVar: nom, libelle });
+      return { ok: true, envVar: nom };
+    },
+  );
 
   app.post<{
     Body: { nodeId: string; genre: string; libelle: string; detail?: string };

@@ -27,6 +27,22 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
     }),
   ),
   repondreRequisition: vi.fn(),
+  fetchQueenCles: vi.fn(() =>
+    Promise.resolve({
+      fournisseurs: [
+        {
+          id: 'openrouter',
+          libelleFr: 'OpenRouter',
+          libelleEn: 'OpenRouter',
+          envVar: 'OPENROUTER_API_KEY',
+          hintFr: 'Queen Bee',
+          hintEn: 'Queen Bee',
+        },
+      ],
+      presence: [{ id: 'openrouter', envVar: 'OPENROUTER_API_KEY', presente: false }],
+    }),
+  ),
+  poserQueenCle: vi.fn(),
   appliquerMotif: vi.fn(),
   ajouterHorizon: vi.fn(),
   ouvrirFabrique: vi.fn(),
@@ -43,6 +59,8 @@ import {
   appliquerMotif,
   fetchChambre,
   fetchMotifs,
+  fetchQueenCles,
+  poserQueenCle,
   poserStatutFabrique,
   fetchMotifsPerso,
   creerMotifPerso,
@@ -334,6 +352,42 @@ describe('Chambre à l’écran', () => {
     expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee', {
       secret: 'sk-seedance-test',
       envVar: 'SEEDANCE_API_KEY',
+    });
+  });
+
+  it('ajoute OpenRouter depuis Intégrations → Clés API', async () => {
+    vi.mocked(poserQueenCle).mockResolvedValue({ ok: true, envVar: 'OPENROUTER_API_KEY' });
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    const ajouter = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Ajouter'),
+    ) as HTMLButtonElement;
+    expect(ajouter).toBeTruthy();
+    await cliquer(ajouter);
+    const dialog = dom.querySelector('.ch-grant-dialog');
+    expect(dialog).toBeTruthy();
+    expect(dom.textContent).toContain('Ajouter une clé API');
+    const envInput = dialog!.querySelector('input[type="text"]') as HTMLInputElement;
+    const secretInput = dialog!.querySelector('input[type="password"]') as HTMLInputElement;
+    expect(envInput.value).toBe('OPENROUTER_API_KEY');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(secretInput, 'sk-or-ui');
+      secretInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const sauver = [...dialog!.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Enregistrer'),
+    ) as HTMLButtonElement;
+    await cliquer(sauver);
+    await act(async () => {});
+    expect(poserQueenCle).toHaveBeenCalledWith({
+      secret: 'sk-or-ui',
+      envVar: 'OPENROUTER_API_KEY',
+      libelle: 'OpenRouter',
     });
   });
 
@@ -647,6 +701,9 @@ describe('Chambre à l’écran', () => {
 
     await cliquer(dom.querySelector('#ch-tab-integrations')!);
     await act(async () => {});
+    expect(dom.textContent).toContain('Clés API');
+    expect(dom.textContent).toContain('OpenRouter');
+    expect(fetchQueenCles).toHaveBeenCalled();
     expect(dom.textContent).toContain('Fabrique');
     expect(dom.textContent).toContain('lint');
     expect(dom.textContent).toMatch(/proposée/);

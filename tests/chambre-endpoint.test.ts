@@ -232,6 +232,42 @@ describe('GET /api/chambre/:nodeId', () => {
     delete process.env.SEEDANCE_API_KEY;
   });
 
+  it('GET/POST /api/queen/cles : catalogue + pose OpenRouter sans stocker le secret en base', async () => {
+    const srv = await demarrer();
+    const liste = await fetch(`${srv.url}/api/queen/cles`, { headers });
+    expect(liste.status).toBe(200);
+    const corps = (await liste.json()) as {
+      fournisseurs: Array<{ id: string; envVar: string }>;
+      presence: Array<{ id: string; presente: boolean }>;
+    };
+    expect(corps.fournisseurs.some((f) => f.id === 'openrouter')).toBe(true);
+    expect(corps.presence.find((p) => p.id === 'openrouter')?.presente).toBe(false);
+
+    const pose = await fetch(`${srv.url}/api/queen/cles`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        secret: 'sk-or-test-key',
+        envVar: 'OPENROUTER_API_KEY',
+        libelle: 'OpenRouter',
+      }),
+    });
+    expect(pose.status).toBe(200);
+    const body = (await pose.json()) as { ok: boolean; envVar: string };
+    expect(body.envVar).toBe('OPENROUTER_API_KEY');
+    expect(process.env.OPENROUTER_API_KEY).toBe('sk-or-test-key');
+    const envPath = path.join(dir!, '.env');
+    expect(readFileSync(envPath, 'utf8')).toContain('OPENROUTER_API_KEY=sk-or-test-key');
+
+    const apres = await fetch(`${srv.url}/api/queen/cles`, { headers });
+    const vu = (await apres.json()) as {
+      presence: Array<{ id: string; presente: boolean }>;
+    };
+    expect(vu.presence.find((p) => p.id === 'openrouter')?.presente).toBe(true);
+    expect(JSON.stringify(vu)).not.toContain('sk-or-test');
+    delete process.env.OPENROUTER_API_KEY;
+  });
+
   it('expose horizon + fabriques du projet dominant (sinon null / [])', async () => {
     const srv = await demarrer();
     srv.store.registerNode({

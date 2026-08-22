@@ -23,13 +23,15 @@ import {
   fetchChambre,
   fetchMotifs,
   fetchMotifsPerso,
+  fetchQueenCles,
   jugerFabriqueChantier,
   lancerChantier,
   ouvrirFabrique,
+  poserQueenCle,
   poserStatutFabrique,
   repondreRequisition,
 } from '../api';
-import type { ChambrePoste, EtatAtelier, MotifCatalogue, MotifPerso } from '../api';
+import type { ChambrePoste, EtatAtelier, FournisseurCleApi, MotifCatalogue, MotifPerso } from '../api';
 import { useLang, useT } from '../i18n';
 import { demanderFocusFichier } from '../focus-vue';
 import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
@@ -182,9 +184,20 @@ export default function Chambre({
   const [busyPerso, setBusyPerso] = useState(false);
   const [motifConfirm, setMotifConfirm] = useState<MotifCatalogue | null>(null);
   const [motifExpandid, setMotifExpandid] = useState<string | null>(null);
+  const [fournisseursCle, setFournisseursCle] = useState<FournisseurCleApi[] | null>(null);
+  const [presenceCle, setPresenceCle] = useState<Record<string, boolean>>({});
+  const [errCles, setErrCles] = useState<string | null>(null);
+  const [statusCles, setStatusCles] = useState<string | null>(null);
+  const [grantCatalogue, setGrantCatalogue] = useState<{
+    libelle: string;
+    envVar: string;
+    hint: string;
+  } | null>(null);
+  const [busyCle, setBusyCle] = useState(false);
 
   const fermerGrant = () => {
     setGrantReq(null);
+    setGrantCatalogue(null);
     setGrantSecret('');
     setGrantEnvVar('');
   };
@@ -215,6 +228,8 @@ export default function Chambre({
     setMotifs(null);
     setMotifsPerso(null);
     setErrMotifs(null);
+    setFournisseursCle(null);
+    setErrCles(null);
     void fetchMotifs()
       .then((r) => {
         setMotifs(r.motifs);
@@ -223,6 +238,18 @@ export default function Chambre({
       .catch((e) => {
         setMotifs([]);
         setErrMotifs(e instanceof Error ? e.message : String(e));
+      });
+    void fetchQueenCles()
+      .then((r) => {
+        setFournisseursCle(r.fournisseurs);
+        const map: Record<string, boolean> = {};
+        for (const p of r.presence) map[p.id] = p.presente;
+        setPresenceCle(map);
+        setErrCles(null);
+      })
+      .catch((e) => {
+        setFournisseursCle([]);
+        setErrCles(e instanceof Error ? e.message : String(e));
       });
     if (poste?.projectId) {
       void fetchMotifsPerso(poste.projectId)
@@ -712,6 +739,72 @@ export default function Chambre({
 
                 {onglet === 'integrations' && (
                   <div className="ch-fabrique">
+                    <h4>{t('Clés API', 'API keys')}</h4>
+                    <p className="ch-silence">
+                      {t(
+                        'OpenRouter, Anthropic, OpenAI… écrites dans le .env Queen (jamais en base).',
+                        'OpenRouter, Anthropic, OpenAI… written to the Queen .env (never in the DB).',
+                      )}
+                    </p>
+                    {errCles ? (
+                      <p className="ch-err-soft" role="status">
+                        {errCles}
+                      </p>
+                    ) : null}
+                    {statusCles ? (
+                      <p className="ch-status-soft" role="status" aria-live="polite">
+                        {statusCles}
+                      </p>
+                    ) : null}
+                    {fournisseursCle === null ? (
+                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+                    ) : (
+                      <ul className="ch-cles-list">
+                        {fournisseursCle.map((f) => {
+                          const libelle = langCode === 'en' ? f.libelleEn : f.libelleFr;
+                          const hint = langCode === 'en' ? f.hintEn : f.hintFr;
+                          const presente = Boolean(presenceCle[f.id]);
+                          return (
+                            <li key={f.id} className="ch-cle-ligne">
+                              <span>
+                                <strong>{libelle}</strong>
+                                {f.envVar ? (
+                                  <span className="ch-silence"> · {f.envVar}</span>
+                                ) : null}
+                                <span className="ch-silence"> — {hint}</span>
+                                {presente ? (
+                                  <span className="ch-cle-ok" title={t('Présente', 'Present')}>
+                                    {' '}
+                                    · {t('posée', 'set')}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn primary ch-btn-accorder"
+                                onClick={() => {
+                                  setGrantReq(null);
+                                  setGrantCatalogue({
+                                    libelle,
+                                    envVar: f.envVar,
+                                    hint,
+                                  });
+                                  setGrantEnvVar(f.envVar);
+                                  setGrantSecret('');
+                                  setStatusCles(null);
+                                  setErrCles(null);
+                                }}
+                              >
+                                {presente
+                                  ? t('Remplacer', 'Replace')
+                                  : t('Ajouter', 'Add')}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+
                     <h4>{t('Fabrique', 'Forge')}</h4>
                     {poste.projectId ? (
                       <form
@@ -1329,7 +1422,7 @@ export default function Chambre({
         </section>
       </div>
 
-      {grantReq ? (
+      {grantReq || grantCatalogue ? (
         <Voile onClose={fermerGrant}>
           <div
             ref={grantDialogRef}
@@ -1338,8 +1431,15 @@ export default function Chambre({
             aria-modal="true"
             aria-labelledby="ch-grant-titre"
           >
-            <h3 id="ch-grant-titre">{t('Accorder la clé', 'Grant the key')}</h3>
-            <p className="ch-silence">{grantReq.libelle}</p>
+            <h3 id="ch-grant-titre">
+              {grantCatalogue
+                ? t('Ajouter une clé API', 'Add an API key')
+                : t('Accorder la clé', 'Grant the key')}
+            </h3>
+            <p className="ch-silence">{grantCatalogue?.libelle ?? grantReq!.libelle}</p>
+            {grantCatalogue?.hint ? (
+              <p className="ch-silence muted-text">{grantCatalogue.hint}</p>
+            ) : null}
             <p className="ch-silence muted-text">
               {t(
                 'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Sur une ruche mono-machine, le nœud local recharge ce fichier à la reprise ; un nœud distant garde ses propres credentials.',
@@ -1354,6 +1454,7 @@ export default function Chambre({
                 onChange={(e) => setGrantEnvVar(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
+                placeholder={grantCatalogue && !grantCatalogue.envVar ? 'GROQ_API_KEY' : undefined}
               />
             </label>
             <label className="ch-grant-field">
@@ -1372,14 +1473,48 @@ export default function Chambre({
               <button
                 type="button"
                 className="btn primary"
-                disabled={busyReqId === grantReq.id || grantSecret.trim() === ''}
-                aria-busy={busyReqId === grantReq.id}
+                disabled={
+                  busyCle ||
+                  busyReqId === (grantReq?.id ?? '') ||
+                  grantSecret.trim() === '' ||
+                  grantEnvVar.trim() === ''
+                }
+                aria-busy={busyCle || busyReqId === (grantReq?.id ?? '')}
                 onClick={() => {
+                  const secret = grantSecret;
+                  const envVar = grantEnvVar.trim();
+                  if (grantCatalogue) {
+                    setBusyCle(true);
+                    setErrCles(null);
+                    void poserQueenCle({
+                      secret,
+                      envVar,
+                      libelle: grantCatalogue.libelle,
+                    })
+                      .then((r) => {
+                        setStatusCles(
+                          t(`Clé posée · ${r.envVar}`, `Key saved · ${r.envVar}`),
+                        );
+                        fermerGrant();
+                        void fetchQueenCles().then((res) => {
+                          setFournisseursCle(res.fournisseurs);
+                          const map: Record<string, boolean> = {};
+                          for (const p of res.presence) map[p.id] = p.presente;
+                          setPresenceCle(map);
+                        });
+                      })
+                      .catch((e) => {
+                        setErrCles(e instanceof Error ? e.message : String(e));
+                      })
+                      .finally(() => setBusyCle(false));
+                    return;
+                  }
+                  if (!grantReq) return;
                   setBusyReqId(grantReq.id);
                   setErrHitl(null);
                   void repondreRequisition(grantReq.id, 'accordee', {
-                    secret: grantSecret,
-                    envVar: grantEnvVar.trim() || undefined,
+                    secret,
+                    envVar: envVar || undefined,
                   })
                     .then(() => {
                       setStatusHitl(t('Accordée', 'Granted'));
@@ -1392,7 +1527,11 @@ export default function Chambre({
                     .finally(() => setBusyReqId(null));
                 }}
               >
-                {busyReqId === grantReq.id ? t('…', '…') : t('Accorder', 'Grant')}
+                {busyCle || busyReqId === (grantReq?.id ?? '')
+                  ? t('…', '…')
+                  : grantCatalogue
+                    ? t('Enregistrer', 'Save')
+                    : t('Accorder', 'Grant')}
               </button>
             </div>
           </div>

@@ -1935,6 +1935,33 @@ export function repondreRequisition(
   });
 }
 
+export interface FournisseurCleApi {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  envVar: string;
+  hintFr: string;
+  hintEn: string;
+}
+
+export function fetchQueenCles(): Promise<{
+  fournisseurs: FournisseurCleApi[];
+  presence: Array<{ id: string; envVar: string; presente: boolean }>;
+}> {
+  return api('/api/queen/cles');
+}
+
+export function poserQueenCle(body: {
+  secret: string;
+  envVar: string;
+  libelle?: string;
+}): Promise<{ ok: boolean; envVar: string }> {
+  return api('/api/queen/cles', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export interface MotifCatalogue {
   id: string;
   domaine: string;

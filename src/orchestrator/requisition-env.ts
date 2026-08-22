@@ -7,6 +7,80 @@ import { existsSync, readFileSync } from 'node:fs';
 import { ecrireAtomique } from '../ecriture-atomique.js';
 import { lireEnv } from '../installer.js';
 
+/** Un fournisseur proposable depuis la Chambre (catalogue « Ajouter une clé »). */
+export interface FournisseurCle {
+  readonly id: string;
+  readonly libelleFr: string;
+  readonly libelleEn: string;
+  /** Nom d'env prérempli ; vide = l'humain le choisit (entrée « Autre »). */
+  readonly envVar: string;
+  readonly hintFr: string;
+  readonly hintEn: string;
+}
+
+/**
+ * Catalogue des clés courantes. OpenRouter alimente Queen Bee ; Anthropic le
+ * planner et le chat Reine ; les autres servent aux agents / outils.
+ */
+export const FOURNISSEURS_CLE: readonly FournisseurCle[] = Object.freeze([
+  {
+    id: 'openrouter',
+    libelleFr: 'OpenRouter',
+    libelleEn: 'OpenRouter',
+    envVar: 'OPENROUTER_API_KEY',
+    hintFr: 'Queen Bee / briefs (compatible OpenAI)',
+    hintEn: 'Queen Bee / briefs (OpenAI-compatible)',
+  },
+  {
+    id: 'anthropic',
+    libelleFr: 'Anthropic',
+    libelleEn: 'Anthropic',
+    envVar: 'ANTHROPIC_API_KEY',
+    hintFr: 'Planner IA et chat de la Reine',
+    hintEn: 'IA planner and Queen chat',
+  },
+  {
+    id: 'openai',
+    libelleFr: 'OpenAI (Codex)',
+    libelleEn: 'OpenAI (Codex)',
+    envVar: 'OPENAI_API_KEY',
+    hintFr: 'Agent Codex sur les nœuds',
+    hintEn: 'Codex agent on nodes',
+  },
+  {
+    id: 'xai',
+    libelleFr: 'xAI (Grok)',
+    libelleEn: 'xAI (Grok)',
+    envVar: 'XAI_API_KEY',
+    hintFr: 'Agent Grok Build',
+    hintEn: 'Grok Build agent',
+  },
+  {
+    id: 'cursor',
+    libelleFr: 'Cursor',
+    libelleEn: 'Cursor',
+    envVar: 'CURSOR_API_KEY',
+    hintFr: 'CLI Cursor (agent -p)',
+    hintEn: 'Cursor CLI (agent -p)',
+  },
+  {
+    id: 'seedance',
+    libelleFr: 'Seedance',
+    libelleEn: 'Seedance',
+    envVar: 'SEEDANCE_API_KEY',
+    hintFr: 'Génération vidéo',
+    hintEn: 'Video generation',
+  },
+  {
+    id: 'custom',
+    libelleFr: 'Autre (personnalisé)',
+    libelleEn: 'Other (custom)',
+    envVar: '',
+    hintFr: 'Vous choisissez le nom de variable (ex. GROQ_API_KEY)',
+    hintEn: 'You choose the variable name (e.g. GROQ_API_KEY)',
+  },
+]);
+
 /** Catalogue optionnel pour libellés ambigus (clé normalisée minuscule). */
 const CATALOGUE_ENV: Record<string, string> = {
   'clé seedance': 'SEEDANCE_API_KEY',
@@ -28,11 +102,18 @@ const CATALOGUE_ENV: Record<string, string> = {
   'cle ou session cursor': 'CURSOR_API_KEY',
   'clé cursor': 'CURSOR_API_KEY',
   'cle cursor': 'CURSOR_API_KEY',
+  'clé openrouter': 'OPENROUTER_API_KEY',
+  'cle openrouter': 'OPENROUTER_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  'clé queen bee': 'QUEEN_BEE_API_KEY',
+  'cle queen bee': 'QUEEN_BEE_API_KEY',
+  'queen bee': 'QUEEN_BEE_API_KEY',
 };
 
 /** Indices dans le libellé (après normalisation) → variable d’environnement. */
 const INDICES_ENV: Array<{ re: RegExp; nom: string }> = [
   { re: /seedance/, nom: 'SEEDANCE_API_KEY' },
+  { re: /openrouter|queen\s*bee/, nom: 'OPENROUTER_API_KEY' },
   { re: /openai|codex/, nom: 'OPENAI_API_KEY' },
   { re: /anthropic|claude/, nom: 'ANTHROPIC_API_KEY' },
   { re: /\bcursor\b/, nom: 'CURSOR_API_KEY' },
@@ -74,6 +155,22 @@ export function validerSecretRequisition(
   if (secret.length > SECRET_REQUISITION_MAX) return { ok: false, motif: 'trop_long' };
   if (/\s/.test(secret)) return { ok: false, motif: 'forme' };
   return { ok: true, secret };
+}
+
+/**
+ * Quelles variables du catalogue (hors « custom ») sont déjà posées — jamais
+ * la valeur, seulement la présence (fichier `.env` ∪ process.env).
+ */
+export function presenceClesCatalogue(
+  cheminEnv: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Array<{ id: string; envVar: string; presente: boolean }> {
+  const fichier = existsSync(cheminEnv) ? lireEnv(readFileSync(cheminEnv, 'utf8')) : new Map();
+  return FOURNISSEURS_CLE.filter((f) => f.envVar !== '').map((f) => {
+    const dansFichier = (fichier.get(f.envVar) ?? '').trim() !== '';
+    const dansProcess = (env[f.envVar] ?? '').trim() !== '';
+    return { id: f.id, envVar: f.envVar, presente: dansFichier || dansProcess };
+  });
 }
 
 /**
