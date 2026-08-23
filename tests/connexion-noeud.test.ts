@@ -1,0 +1,142 @@
+// Croiser le binaire et la clé — la composition, éprouvée sans machine réelle.
+//
+// `connexion-agent.ts` tient la RÈGLE (module pur, ses propres bancs).
+// Ce fichier tient ce que `connexion.ts` en fait : interroger les deux sources,
+// et n'annoncer que ce qui est VRAI.
+
+import { describe, expect, it } from 'vitest';
+import {
+  conseilDemarrage,
+  diagnostiquerAgents,
+  unAgentEstPret,
+} from '../src/node-client/connexion.js';
+import type { AgentType } from '../src/node-client/agent-detect.js';
+
+/** Un poste : quels binaires, quel environnement. Rien n'est touché sur disque. */
+function poste(opts: { binaires?: AgentType[]; env?: NodeJS.ProcessEnv } = {}) {
+  return {
+    agentsPresents: () => Promise.resolve(opts.binaires ?? []),
+    env: opts.env ?? {},
+    // Aucun dossier de session locale : sans cela, un `~/.claude` présent sur
+    // la machine du banc ferait passer la clé pour présente.
+    existe: () => false,
+    plateforme: 'linux',
+  };
+}
+
+describe('le diagnostic croise les deux sources', () => {
+  it('un poste nu : rien n’est prêt, et rien ne se pose tout seul', async () => {
+    const etats = await diagnostiquerAgents(poste());
+    expect(etats.every((e) => e.verdict === 'rien')).toBe(true);
+    expect(etats.some((e) => e.poseAutomatique)).toBe(false);
+  });
+
+  it('LE CAS DE L’UTILISATEUR : la clé est dans .env, le binaire manque', async () => {
+    const etats = await diagnostiquerAgents(poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }));
+    const claude = etats.find((e) => e.agent === 'claude-code')!;
+    expect(claude.cle).toBe(true);
+    expect(claude.binaire).toBe(false);
+    expect(claude.verdict).toBe('binaire_manquant');
+    expect(claude.poseAutomatique).toBe(true);
+  });
+
+  it('binaire présent et clé présente : prêt', async () => {
+    const etats = await diagnostiquerAgents(
+      poste({ binaires: ['claude-code'], env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }),
+    );
+    expect(etats.find((e) => e.agent === 'claude-code')!.verdict).toBe('pret');
+  });
+
+  it('binaire présent, clé absente : il faut un humain, pas un paquet', async () => {
+    const etats = await diagnostiquerAgents(poste({ binaires: ['codex'] }));
+    const codex = etats.find((e) => e.agent === 'codex')!;
+    expect(codex.verdict).toBe('cle_manquante');
+    expect(codex.poseAutomatique).toBe(false);
+  });
+
+  it('chaque agent est jugé avec SA clé, jamais celle d’un autre', async () => {
+    const etats = await diagnostiquerAgents(poste({ env: { OPENAI_API_KEY: 'sk-de-banc' } }));
+    expect(etats.find((e) => e.agent === 'codex')!.cle).toBe(true);
+    expect(etats.find((e) => e.agent === 'claude-code')!.cle).toBe(false);
+    expect(etats.find((e) => e.agent === 'grok')!.cle).toBe(false);
+  });
+
+  it('`shell` n’est pas interrogé — il n’a ni binaire à poser ni clé à porter', async () => {
+    const etats = await diagnostiquerAgents(poste({ binaires: ['shell'] }));
+    expect(etats.map((e) => e.agent)).not.toContain('shell');
+    expect(etats.map((e) => e.agent)).not.toContain('custom');
+  });
+
+  it('l’ordre est TOTAL : le prêt d’abord, le réparable ensuite', async () => {
+    const etats = await diagnostiquerAgents(
+      poste({
+        binaires: ['codex'],
+        env: { OPENAI_API_KEY: 'sk-a', ANTHROPIC_API_KEY: 'sk-b' },
+      }),
+    );
+    expect(etats[0]!.agent).toBe('codex');
+    expect(etats[0]!.verdict).toBe('pret');
+    expect(etats[1]!.agent).toBe('claude-code');
+    expect(etats[1]!.poseAutomatique).toBe(true);
+  });
+
+  it('deux appels sur le même poste rendent la MÊME liste', async () => {
+    const p = poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc', XAI_API_KEY: 'sk-x' } });
+    const a = await diagnostiquerAgents(p);
+    const b = await diagnostiquerAgents(p);
+    expect(a.map((e) => e.agent)).toEqual(b.map((e) => e.agent));
+  });
+});
+
+describe('le conseil au démarrage', () => {
+  it('nomme LA commande exacte quand la clé est déjà là', async () => {
+    const etats = await diagnostiquerAgents(poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }));
+    const texte = conseilDemarrage(etats);
+    expect(texte).toContain('npm install -g @anthropic-ai/claude-code');
+    expect(texte).toContain('Claude Code');
+  });
+
+  it('se tait quand aucune clé n’est là — installer ne servirait à rien', async () => {
+    // Un binaire posé sans identifiants donne un agent qui refuse de
+    // travailler : l'utilisateur aurait suivi le conseil pour rien.
+    expect(conseilDemarrage(await diagnostiquerAgents(poste()))).toBeNull();
+  });
+
+  it('se tait aussi quand tout est déjà prêt', async () => {
+    const etats = await diagnostiquerAgents(
+      poste({ binaires: ['claude-code'], env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }),
+    );
+    expect(conseilDemarrage(etats)).toBeNull();
+  });
+
+  it('ne recrache JAMAIS la valeur de la clé', async () => {
+    const etats = await diagnostiquerAgents(
+      poste({ env: { ANTHROPIC_API_KEY: 'sk-secret-a-ne-pas-imprimer' } }),
+    );
+    expect(conseilDemarrage(etats)).not.toContain('sk-secret');
+    expect(conseilDemarrage(etats, 'en')).not.toContain('sk-secret');
+  });
+
+  it('parle anglais quand on le lui demande', async () => {
+    const etats = await diagnostiquerAgents(poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }));
+    expect(conseilDemarrage(etats, 'en')).toContain('only its CLI is missing');
+  });
+});
+
+describe('un agent est-il prêt ?', () => {
+  it('non sur un poste nu', async () => {
+    expect(unAgentEstPret(await diagnostiquerAgents(poste()))).toBe(false);
+  });
+
+  it('non quand il ne manque QUE le binaire — la clé seule ne code pas', async () => {
+    const etats = await diagnostiquerAgents(poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }));
+    expect(unAgentEstPret(etats)).toBe(false);
+  });
+
+  it('oui dès qu’un agent réel a binaire ET clé', async () => {
+    const etats = await diagnostiquerAgents(
+      poste({ binaires: ['grok'], env: { XAI_API_KEY: 'sk-de-banc' } }),
+    );
+    expect(unAgentEstPret(etats)).toBe(true);
+  });
+});

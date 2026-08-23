@@ -255,6 +255,34 @@ loin.
 
 ---
 
+## « Aucun agent de codage détecté » — alors que ma clé est là
+
+C'est le cas le plus fréquent, et le message d'erreur ne le disait pas.
+
+Hive cherche **deux choses** pour chaque agent, et elles sont indépendantes :
+
+| ce qui est cherché         | où                                        | exemple                           |
+| -------------------------- | ----------------------------------------- | --------------------------------- |
+| la **ligne de commande**   | sur le `PATH`, ou aux emplacements natifs | `claude`, `codex`, `cursor-agent` |
+| la **clé** (ou la session) | l'environnement, `.env` compris           | `ANTHROPIC_API_KEY`, `~/.claude`  |
+
+Un poste peut donc porter la clé sans la ligne de commande — et c'est le seul
+cas que Hive répare d'un `npm install`. Depuis ce lot, il vous le dit :
+
+```
+✘ Aucun agent de codage détecté. …
+La clé de Claude Code est déjà là — il ne manque que sa ligne de commande.
+  Une seule commande suffit :  npm install -g @anthropic-ai/claude-code
+```
+
+Et il se **tait** s'il n'a rien de vrai à proposer : poser une ligne de commande
+sans identifiants donne un agent qui refuse de travailler, et vous auriez suivi
+le conseil pour rien.
+
+Hive n'installe que ce qu'il sait nommer — `claude-code` et `codex`. Un agent
+inconnu ne se voit jamais proposer un `npm install` deviné : exécuter un nom
+venu d'ailleurs est exactement ce qu'un installeur ne doit pas faire.
+
 ## Si quelque chose ne va pas
 
 ```sh

@@ -10,6 +10,7 @@ import type { AgentType } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
+import { conseilDemarrage, diagnostiquerAgents } from './connexion.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
@@ -94,6 +95,18 @@ const tousAgents = await detectAllAgents();
 
 if (!demarrageNoeudAutorise(agentType)) {
   console.error(`✘ ${messageRefusShellProduction('fr')}\n`);
+  // Le message ci-dessus est le même pour tout le monde. Or les postes ne sont
+  // pas dans le même état : celui qui porte DÉJÀ sa clé dans `.env` n'a qu'un
+  // paquet à installer, et rien ne le lui disait. Le nœud mourait sur un
+  // conseil générique, la ruche affichait « 0 nœud actif », et personne ne
+  // savait qu'il s'en fallait d'une commande.
+  //
+  // `conseilDemarrage` ne parle QUE si c'est vrai : pas de clé, pas de
+  // conseil — installer une ligne de commande sans identifiants donne un agent
+  // qui refuse de travailler, et l'utilisateur aurait suivi le conseil pour
+  // rien.
+  const conseil = conseilDemarrage(await diagnostiquerAgents());
+  if (conseil) console.error(`${conseil}\n`);
   process.exit(2);
 }
 
