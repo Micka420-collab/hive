@@ -10,7 +10,25 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
 
-export type AgentType = 'claude-code' | 'cursor' | 'codex' | 'grok' | 'custom' | 'shell';
+/**
+ * Les agents dont la ruche connaît la FORME des identifiants.
+ *
+ * Source unique : le type en dérive, donc ajouter un agent ici suffit — la
+ * liste et le type ne peuvent plus se contredire.
+ *
+ * Attention : ce n'est PAS la liste des agents exécutables. `getAdapter`
+ * accepte une chaîne libre et connaît des noms absents d'ici (`hermes-agent`).
+ * D'où `estAgentType` juste dessous : un nom d'agent qui vient de
+ * `HIVE_AGENT` est une donnée d'entrée, pas une valeur de ce type.
+ */
+export const AGENT_TYPES = ['claude-code', 'cursor', 'codex', 'grok', 'custom', 'shell'] as const;
+
+export type AgentType = (typeof AGENT_TYPES)[number];
+
+/** Cette chaîne est-elle un agent dont on sait décrire les identifiants ? */
+export function estAgentType(v: unknown): v is AgentType {
+  return typeof v === 'string' && (AGENT_TYPES as readonly string[]).includes(v);
+}
 
 interface AgentProbe {
   agent: Exclude<AgentType, 'shell' | 'custom'>;

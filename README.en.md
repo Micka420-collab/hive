@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4774%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5044%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -175,8 +175,8 @@ Any coding AI plugs in through the `AgentAdapter` interface:
 | Adapter        | What it runs                                                                                                    |
 | -------------- | --------------------------------------------------------------------------------------------------------------- |
 | `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.                                                               |
-| `codex`        | `codex exec "<prompt>"`                                                                                         |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binary overridable via `HIVE_CURSOR_BIN`. |
+| `codex`        | `codex exec "<prompt>"`                                                                                         |
 | `grok`         | `grok -p "<prompt>"` — xAI’s CLI agent, Apache 2.0.                                                             |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                          |
 | `custom`       | Yours, via `HIVE_AGENT_CMD`.                                                                                    |

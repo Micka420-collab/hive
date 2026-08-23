@@ -26,6 +26,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { StatTiles } from '../dashboard/src/StatTiles';
 import { setLang } from '../dashboard/src/i18n';
 import type { HiveNode, StateSnapshot, Task } from '../src/shared/types';
+import type { NoteVue } from '../dashboard/src/horloge-vue';
 
 // ─── POURQUOI UN RENDU CLIENT, ET PAS `renderToStaticMarkup` ─────────────────
 //
@@ -66,13 +67,13 @@ beforeEach(() => {
   setLang('fr');
 });
 
-function rendre(tasks: Task[], tasksTotal: number): string {
+function rendre(tasks: Task[], tasksTotal: number, calibration?: NoteVue): string {
   const snapshot: StateSnapshot = { projects: [], nodes: NOEUDS, tasks, tasksTotal };
   const hote = document.createElement('div');
   document.body.appendChild(hote);
   const racine = createRoot(hote);
   act(() => {
-    racine.render(<StatTiles snapshot={snapshot} throughput={0} />);
+    racine.render(<StatTiles snapshot={snapshot} throughput={0} calibration={calibration} />);
   });
   const html = hote.innerHTML;
   act(() => {
@@ -138,5 +139,93 @@ describe('LA RANGÉE DE KPI DIT QUAND ELLE NE VOIT QU’UNE FENÊTRE', () => {
     expect(html, 'le dénominateur de la fraction a été remplacé par le total').toContain(
       '/2</span>',
     );
+  });
+});
+
+describe('LA TUILE DE L’HORLOGE — une horloge qui affiche sa propre erreur', () => {
+  // ─── CE QUE CETTE TUILE CHANGE ─────────────────────────────────────────────
+  //
+  // Une horloge qui affiche son erreur est utilisable ; une horloge faussement
+  // précise ne l'est pas. Tant que la note reste dans le journal sans jamais
+  // atteindre un écran, personne ne la regarde — et l'intervalle redevient un
+  // chiffre qu'on croit sur parole.
+
+  const TACHE = [tache('a', 'done')];
+
+  it('SANS NOTE : aucune tuile — et surtout pas une tuile vide', () => {
+    // La moitié qui tue la garde `calibration &&`. Une tuile « Horloge tenue »
+    // affichant « — » se lirait « la ruche ne se note pas », alors que la
+    // vérité est « le journal ne s'en souvient plus ».
+    const html = rendre(TACHE, 1);
+    expect(html).not.toContain('Horloge tenue');
+  });
+
+  // ─── L'ANCRE, ET POURQUOI ELLE A DÛ ÊTRE RESSERRÉE ─────────────────────────
+  //
+  // Le balayage a laissé TROIS survivantes sur la ligne de valeur de cette
+  // tuile. Cause : mes assertions portaient sur le texte ENTIER du rendu, où
+  // « 81 » et « % » apparaissent aussi dans le sous-titre (« 81 % tenues,
+  // visée 80 % »). Une valeur mutée en « — » restait donc verte, le sous-titre
+  // fournissant à lui seul de quoi satisfaire la garde.
+  //
+  // C'est la cécité de § 9 septemseptuagicenties sous une troisième forme :
+  // affirmer sur un texte qui contient DEUX sources, c'est ne rien affirmer sur
+  // aucune des deux. La classe `tile-value-mot` n'appartient qu'à cette tuile.
+  const valeur = (html: string): string => {
+    const m = /<div class="tile-value tile-value-mot">([\s\S]*?)<\/div>/.exec(html);
+    // `m?.[1]` et non `m[1]` : le groupe capturant est typé optionnel, et lui
+    // opposer un `!` échangerait une vérification contre une promesse — le banc
+    // rendrait alors « undefined » au lieu d'échouer là où il doit.
+    const dedans = m?.[1];
+    if (dedans === undefined) throw new Error('la valeur de la tuile d’horloge est introuvable');
+    return dedans.replace(/<[^>]+>/g, '');
+  };
+
+  it('AVEC NOTE : la VALEUR porte le pourcentage, et la phrase porte la visée', () => {
+    const html = rendre(TACHE, 1, { verdict: 'honnete', n: 42, partTenue: 0.81, ecart: 0.01 });
+    expect(html).toContain('Horloge tenue');
+    // La valeur, et rien qu'elle : « 81 » et « % » ensemble, sans tiret.
+    expect(valeur(html)).toContain('81');
+    expect(valeur(html), 'l’unité manque à la valeur').toContain('%');
+    expect(valeur(html), 'une note chiffrée ne se rend pas en tiret').not.toContain('—');
+    const texte = html.replace(/<[^>]+>/g, '');
+    expect(texte).toContain('honnête');
+    expect(texte).toContain('42 obs.');
+  });
+
+  it('OPTIMISTE est la SEULE peinte en alerte, et l’asymétrie est voulue', () => {
+    // ─── POURQUOI PAS PESSIMISTE AUSSI ──────────────────────────────────────
+    //
+    // `optimiste` veut dire que l'horloge promet PLUS COURT que la réalité :
+    // tout ce qui se planifie dessus déborde. `pessimiste` coûte de l'attente ;
+    // `optimiste` coûte des promesses tenues par personne. Peindre les deux
+    // pareil effacerait la seule chose que le verdict sert à dire.
+    const opt = rendre(TACHE, 1, { verdict: 'optimiste', n: 20, partTenue: 0.4, ecart: -0.4 });
+    const pes = rendre(TACHE, 1, { verdict: 'pessimiste', n: 20, partTenue: 0.99, ecart: 0.19 });
+    const hon = rendre(TACHE, 1, { verdict: 'honnete', n: 20, partTenue: 0.79, ecart: -0.01 });
+    // Le décor est choisi pour que « danger » ne puisse venir que d'ici : la
+    // seule autre tuile qui le porte est celle des ÉCHECS, et ce décor n'en a
+    // aucun (une tâche, terminée). Sans cette précaution, l'assertion serait
+    // vraie pour la mauvaise raison.
+    expect(rendre(TACHE, 1), 'le décor porte déjà un danger').not.toContain('danger');
+    expect(opt, 'l’optimisme doit se voir').toContain('danger');
+    expect(pes, 'le pessimisme n’est pas une panne').not.toContain('danger');
+    expect(hon, 'une horloge honnête n’alerte pas').not.toContain('danger');
+  });
+
+  it('TROP PEU : un tiret, et AUCUNE unité — jamais « 0 % »', () => {
+    // « 0 % tenues » ferait passer un manque de données pour un échec — la même
+    // faute que noter comme raté un refus de chiffrer.
+    //
+    // Les deux assertions sur la VALEUR sont les moitiés qui tuent les deux
+    // mutants de l'unité : `&&` → `||` la rendrait ici, `!==` → `===` la
+    // retirerait de la note chiffrée. Sans elles, « — % » et « 0 » passaient.
+    const html = rendre(TACHE, 1, { verdict: 'trop_peu', n: 3, partTenue: 0, ecart: 0 });
+    expect(valeur(html), 'un manque de données se dit en tiret').toContain('—');
+    expect(valeur(html), 'une unité sans chiffre ne veut rien dire').not.toContain('%');
+    expect(valeur(html), 'zéro n’est pas la note d’une ruche muette').not.toContain('0');
+    const texte = html.replace(/<[^>]+>/g, '');
+    expect(texte).toContain('Horloge tenue');
+    expect(texte).toContain('pas assez');
   });
 });

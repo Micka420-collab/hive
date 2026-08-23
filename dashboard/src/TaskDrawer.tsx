@@ -5,8 +5,11 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { cancelTask, fetchRace, fetchResults, raceTask } from './api';
 import type { DroneRace, RaceVictory } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
-import { useT } from './i18n';
+import { useLang, useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
+import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
+import { verdictAnnonce } from './horloge-vue';
+import type { VueHorloge } from './horloge-vue';
 
 // L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
 // ouvre le tiroir d'une tâche.
@@ -15,11 +18,20 @@ const CodeEditor = lazy(() => import('./CodeEditor'));
 interface Props {
   task: Task;
   nodes: HiveNode[];
+  /**
+   * Ce que la ruche avait annoncé pour CETTE tâche, replié du journal.
+   *
+   * Optionnel, et il faut qu'il le reste : le journal est élagué, donc une
+   * tâche assez vieille n'a plus son annonce. On n'affiche alors rien — mieux
+   * qu'un « — » qui laisserait croire que la ruche n'avait rien annoncé.
+   */
+  horloge?: VueHorloge;
   onClose: () => void;
 }
 
-export function TaskDrawer({ task, nodes, onClose }: Props) {
+export function TaskDrawer({ task, nodes, horloge, onClose }: Props) {
   const t = useT();
+  const lang = useLang();
   const [results, setResults] = useState<TaskResult[] | null>(null);
   const [tab, setTab] = useState<'diff' | 'logs'>('diff');
   const [busy, setBusy] = useState(false);
@@ -31,6 +43,16 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
   const [edited, setEdited] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const dialogRef = useDialog<HTMLElement>(onClose);
+
+  // Calculé ici et pas dans le JSX : le rendu ci-dessous s'en sert deux fois
+  // (choix du bloc, puis choix de la phrase), et deux appels pourraient
+  // diverger si l'un des deux oubliait un argument.
+  const verdict = verdictAnnonce(horloge?.annonce, task.result?.durationMs ?? -1);
+  // Le plafond sorti de l'optionnel : `verdict !== 'sans_objet'` IMPLIQUE qu'il
+  // existe, mais le compilateur ne peut pas le savoir — et le lui affirmer avec
+  // un `!` échangerait une vérification contre une promesse. Le rendu teste les
+  // deux, ce qui coûte une comparaison et ne peut pas mentir.
+  const plafondMs = horloge?.annonce?.p80Ms;
 
   useEffect(() => {
     let alive = true;
@@ -148,6 +170,12 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
           <dd className="mono">{task.branch ?? '—'}</dd>
           <dt>{t('Durée', 'Duration')}</dt>
           <dd>{task.result ? formatMs(task.result.durationMs) : '—'}</dd>
+          {horloge?.annonce && (
+            <>
+              <dt>{t('Annoncé', 'Announced')}</dt>
+              <dd className="horloge-annonce">{direAnnonce(horloge.annonce, lang)}</dd>
+            </>
+          )}
           <dt>{t('Dépendances', 'Dependencies')}</dt>
           <dd>{task.dependsOn.length > 0 ? task.dependsOn.length : t('aucune', 'none')}</dd>
           <dt>ID</dt>
@@ -179,6 +207,40 @@ export function TaskDrawer({ task, nodes, onClose }: Props) {
                     : '.'),
               );
             })()}
+          </p>
+        )}
+
+        {horloge?.horsDomaine && (
+          <p className="horloge-alerte" role="status">
+            {t(
+              `Sortie du domaine connu après ${direDuree(horloge.horsDomaine.ecouleMs, 'fr')} — plus longue que tout ce que la ruche avait observé (record : ${direDuree(horloge.horsDomaine.recordMs, 'fr')}).`,
+              `Out of the known domain after ${direDuree(horloge.horsDomaine.ecouleMs, 'en')} — longer than anything the hive had observed (record: ${direDuree(horloge.horsDomaine.recordMs, 'en')}).`,
+            )}
+          </p>
+        )}
+        {/*
+          L'ANNONCE, CONFRONTÉE AU RÉEL.
+
+          C'est la seule ligne de cet écran qui rende l'horloge réfutable : sans
+          elle, une annonce est un chiffre que personne ne repasse jamais, donc
+          un chiffre qu'on peut se permettre de faire n'importe comment. Avec
+          elle, chaque tâche finie porte publiquement le résultat du pari.
+
+          `sans_objet` n'est PAS affiché : sur socle « aucun », la ruche a dit
+          « je ne sais pas encore ». Rendre un verdict là-dessus noterait comme
+          un échec le fait d'avoir refusé de chiffrer.
+        */}
+        {task.result && verdict !== 'sans_objet' && plafondMs !== undefined && (
+          <p className={`horloge-verdict ${verdict}`} role="status">
+            {verdict === 'tenue'
+              ? t(
+                  `Annonce tenue : ${direDuree(task.result.durationMs, 'fr')} pour un plafond annoncé de ${direDuree(plafondMs, 'fr')}.`,
+                  `Announcement held: ${direDuree(task.result.durationMs, 'en')} against an announced ceiling of ${direDuree(plafondMs, 'en')}.`,
+                )
+              : t(
+                  `Annonce débordée : ${direDuree(task.result.durationMs, 'fr')} pour un plafond annoncé de ${direDuree(plafondMs, 'fr')}. Une annonce sur cinq est censée déborder — c'est leur RÉPÉTITION qui accuse l'horloge, pas celle-ci.`,
+                  `Announcement overrun: ${direDuree(task.result.durationMs, 'en')} against an announced ceiling of ${direDuree(plafondMs, 'en')}. One announcement in five is meant to overrun — it is their REPETITION that indicts the clock, not this one.`,
+                )}
           </p>
         )}
 

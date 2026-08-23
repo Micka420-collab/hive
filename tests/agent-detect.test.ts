@@ -251,6 +251,16 @@ describe('réquisition si credentials manquantes', () => {
     expect(r?.libelle).toMatch(/Cursor/i);
   });
 
+  it('grok sans clé ni session → réquisition', () => {
+    const r = requisitionSiCredentialsManquantes(
+      'grok',
+      { HOME: '/home/moi' },
+      { existe: () => false },
+    );
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/Grok/i);
+  });
+
   it('cursor avec CURSOR_API_KEY → silence', () => {
     expect(requisitionSiCredentialsManquantes('cursor', { CURSOR_API_KEY: 'key' })).toBeNull();
   });

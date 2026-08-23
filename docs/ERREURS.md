@@ -6570,6 +6570,27 @@ gratuit, et surtout : il apprend à pousser d'abord et à lire le rouge ensuite.
 > branche, pas au moment où on y pense. Une correction automatique n'est pas
 > un acquis : c'est un instantané, et il périme au commit suivant.
 
+### Reprise : et il ne suffit pas de le savoir — il ne faut pas POUSSER entre-temps
+
+Le 23 août, la même règle a été enfreinte par l'autre bout. Le lot d'affichage
+de l'horloge ajoutait 28 bancs ; je l'ai commis et **poussé** en sachant que les
+six annonces étaient périmées, avec l'intention de les re-mesurer dans le commit
+suivant, une fois le balayage fini et le compte définitif.
+
+La CI ne l'a pas attendu. Elle tourne sur la **tête poussée**, pas sur
+l'intention : suite verte (4861 sur 4869), garde-badge rouge, jambes `ubuntu` et
+`windows` en échec. Le commit suivant a effectivement tout réparé — mais entre
+les deux, la PR a porté un rouge que personne ne pouvait distinguer d'un vrai.
+
+> **Le complément** — un commit poussé doit être **vert tout seul**. « Je le
+> réparerai au suivant » n'est pas un plan : c'est un rouge publié, et un rouge
+> publié coûte à quiconque le lit avant la réparation. Soit les badges entrent
+> dans le même commit que les bancs qui les déplacent, soit on ne pousse pas
+> encore.
+
+Et c'est exactement pour cela que le garde existe. Il n'a pas failli : il a
+attrapé la faute au seul endroit où elle pouvait encore se voir.
+
 ---
 
 ## 9 octoquinquagies. La loupe interrompue laisse l'arbre MUTÉ — et le mutant qu'elle avait planté était un vrai trou
@@ -13956,3 +13977,285 @@ Corollaire, pour tout ce qui se cherche par motif : **avant d'écrire
 Une garde s'écrit presque toujours dans les deux sens, et le second sens est
 celui qu'on oublie — précisément parce qu'on a en tête celui qu'on vient de
 lire.
+
+## 9 quinquaseptuagicenties. Une garde ne se juge pas seule : sa nécessité est une propriété de tout ce qui l'entoure
+
+Treize gardes restaient à juger dans la forme négative du motif `typeof`/`null`.
+Pour un `grep`, elles sont **la même ligne** — au nom de la variable près :
+
+```
+if (typeof x !== 'object' || x === null) return null;
+```
+
+Sept étaient nues. **Six ne l'étaient pas**, et pour cinq raisons différentes.
+Aucune de ces raisons ne se lit sur la ligne.
+
+| Ligne               | Pourquoi le mutant survit                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `partage.ts:164`    | la garde vit DANS un `try` dont le `catch` rend `null`                 |
+| `server.ts:5558`    | idem, un étage plus haut dans la même fonction                         |
+| `eclaireuse.ts:233` | le regex amont n'accepte qu'une charge `{…}` : `null` n'arrive jamais  |
+| `eclaireuse.ts:272` | idem, sa jumelle                                                       |
+| `nuage.ts:79`       | l'unique APPELANT a déjà écarté `null` vingt-six lignes plus bas       |
+| `nuage.ts:84`       | l'aval tolère la valeur non refusée, et la rejette pour un autre motif |
+
+### La seule qui m'a résisté
+
+`nuage.ts:84` mérite d'être racontée, parce que le raisonnement évident y est
+faux :
+
+> La garde écarte `null`. Si je la retire, `null` passe. Donc elle est nue.
+
+Les deux premières phrases sont vraies. La conclusion ne suit pas. Ce que le
+mutant laisse passer, c'est un `obj` que la fonction RENVOIE au lieu de refuser
+— et en aval, `meta(obj)` lit `.metadata` dessus. Sur une primitive, cette
+lecture rend `undefined` sans lever ; sur `null`, l'appelant l'arrête à son
+`if (!obj)`. Puis le `if (!projectId …)` qui suit rend `null` de toute façon.
+**Tous les chemins arrivent au même `null`.** Il faut descendre deux fonctions
+plus bas pour le voir.
+
+### Ce que ça généralise
+
+§ 9 duoseptuagicenties disait qu'un `catch` large rend immunes les gardes qu'il
+entoure : une immunité **par le haut**. Ce lot en montre les deux autres faces.
+
+- **Par le bas** : l'aval tolère ce que la garde refusait, et refuse plus loin
+  pour un autre motif. `nuage.ts:84`.
+- **Par le côté** : l'appelant a déjà fait le travail, et la garde est
+  inatteignable. `nuage.ts:79` — lire la fonction qui la contient ne suffit
+  pas, il faut lire qui l'appelle.
+
+D'où la règle, qui vaut pour tout balayage à venir : **le `grep` trouve la
+garde ; seul le graphe d'appels dit si elle est nue.**
+
+### Les deux façons de se tromper ne coûtent pas la même chose
+
+Classer une nue en équivalente laisse un vrai défaut ouvert AVEC un commentaire
+qui affirme qu'il n'en est pas un — pire que le silence, parce que le
+commentaire vaccine contre la prochaine relecture. Classer une équivalente en
+nue produit un banc qui ne peut pas rougir : du décor.
+
+### Ce qui a rendu ce lot sûr, et ce n'était pas le raisonnement
+
+Les six ont été **muées une à une contre la suite ENTIÈRE**, pas contre le banc
+du lot. Les six ont survécu — 4690 verts à chaque fois. Si une seule avait
+rougi, mon classement aurait été faux et le banc que j'avais décidé de ne pas
+écrire aurait été exactement celui qui manquait.
+
+Un raisonnement d'équivalence est une hypothèse. Il se vérifie en muant et en
+regardant, comme tout le reste.
+
+## 9 sexseptuagicenties. Un harnais de mesure doit ÉCHOUER FERMÉ — sinon il rend un verdict sur une expérience qui n'a pas eu lieu
+
+Rejeu d'un mutant sur `agent-detect.ts`. Le harnais a affiché :
+
+```
+  SURVIT ← décor
+```
+
+C'était faux. La mutation n'avait **jamais été appliquée**.
+
+### Les deux défauts, et c'est leur composition qui coûte
+
+Le script posait le mutant en Python, puis lançait le banc en shell :
+
+```bash
+python3 - <<'PY'
+...
+assert s.count(a) == 1          # ← 1er défaut : l'ancre existait DEUX fois
+...
+PY
+npx vitest run "$BANC" >/dev/null 2>&1 && echo "SURVIT" || echo "TENU"
+```
+
+1. **L'ancre était fragile.** `plateforme === 'win32' ? env.USERPROFILE : env.HOME`
+   apparaît à la ligne 104 **et** à la ligne 397. `count == 1` a échoué, et
+   l'`assert` a fait sortir Python en erreur.
+
+2. **Le harnais a continué quand même.** La ligne suivante ne regardait pas le
+   code de sortie du bloc précédent : elle a lancé le banc sur du code **sain**,
+   l'a vu vert, et a conclu « SURVIT ». Le verdict le plus grave qu'un rejeu
+   puisse rendre — « ce banc est du décor » — sorti d'une expérience qui ne
+   s'est pas déroulée.
+
+Aucun des deux, seul, n'aurait menti. Une ancre fragile aurait fait un message
+d'erreur ; un harnais qui continue aurait mesuré un vrai mutant. C'est leur
+composition qui produit une phrase fausse et confiante.
+
+### La règle
+
+> Un harnais de mesure doit **échouer fermé**. Quand l'étape de préparation
+> rate, le résultat est « pas de résultat » — jamais la valeur par défaut d'un
+> chemin qui n'a pas été pris.
+
+En pratique, trois gestes qui ne coûtent rien :
+
+- **vérifier que la mutation est DANS le fichier** avant de lancer le banc
+  (`grep` la forme mutée), pas seulement que l'outil de substitution a rendu 0 ;
+- **abandonner** sur échec de pose, avec un message qui dit « aucun verdict
+  rendu » plutôt qu'un verdict ;
+- **viser par numéro de ligne** quand l'ancre textuelle n'est pas unique — une
+  ancre qu'on croit unique et qui ne l'est pas est le cas normal, pas le cas rare.
+
+### Ce que ça dit de plus large
+
+C'est la même maladie que le reste de ce journal, appliquée à l'instrument
+lui-même : § 9 sexagicenties (un arbre sale pendant une mutation), § 9
+sexsexagicenties (un résumé daté lu comme un fait), § 9 quaterseptuagicenties
+(un recensement dont le motif est le dénominateur). À chaque fois, **un outil
+qui rapporte autre chose que ce qu'il a mesuré**.
+
+La différence ici : l'outil était celui qui sert précisément à ne pas se
+tromper. Un juge qui se trompe sur ses propres conclusions ne dégrade pas la
+mesure — il la retourne, parce qu'on lui fait confiance par construction.
+
+## 9 septemseptuagicenties. Un banc qui n'affirme que le PARTAGÉ ne peut pas voir quelle branche a été prise
+
+La loupe a rendu nue une ligne que je venais d'écrire, et que je croyais
+défendue par un banc que je venais d'écrire aussi :
+
+```ts
+return lang === 'en' ? en : fr;
+```
+
+Mon banc bouclait sur les deux langues :
+
+```ts
+for (const lang of ['fr', 'en'] as const) {
+  const m = messageRefusShellProduction(lang);
+  expect(m).toContain('HIVE_SIMULATION=1');
+  expect(m).toContain('HIVE_AGENT=shell');
+}
+```
+
+Il a l'air de tout couvrir. Il ne couvre rien du sélecteur.
+
+### Pourquoi
+
+`HIVE_SIMULATION=1` et `HIVE_AGENT=shell` sont des noms de VARIABLES
+D'ENVIRONNEMENT : ils s'écrivent à l'identique dans les deux textes. Les deux
+assertions portent donc sur ce que les deux branches **ont en commun** — et une
+propriété commune aux deux branches est, par construction, aveugle à celle qui
+a été prise.
+
+Mué en `!==`, un francophone lit l'anglais et un anglophone lit le français, sur
+le message qu'on lit précisément quand plus rien ne marche. Pas une assertion ne
+bouge.
+
+### La règle
+
+> Pour éprouver un choix, il faut ancrer ce qui **distingue** les branches,
+> jamais ce qui les réunit.
+
+En pratique, sur un ternaire ou un `if/else` qui rend du texte : asserter le
+fragment PROPRE à chaque branche, **et** son absence dans l'autre.
+
+```ts
+expect(fr).toContain('Aucun agent de codage détecté');
+expect(en).not.toContain('Aucun agent de codage détecté');
+```
+
+Le `not.toContain` fait la moitié du travail : sans lui, un sélecteur qui
+rendrait la CONCATÉNATION des deux textes passerait encore.
+
+### Le piège de famille : l'assertion perdue à la copie
+
+Le même balayage a rendu nue une seconde ligne, dans `horizon.ts`, et le
+mécanisme est cousin. `doitNoterFaitDeriveASurveiller` a été écrite en copiant
+sa jumelle `doitNoterFaitDeriveDegradee` — et le banc a été copié aussi, **en
+perdant une assertion en route** : le cas de l'entrée VIEILLE, seul à éprouver
+que la fenêtre anti-spam est une fenêtre.
+
+Dans les deux cas, le banc portait le bon nom, appelait la bonne fonction, et
+passait au vert. Aucune relecture n'attrape ça. Seule la mutation dit ce qu'un
+banc ne mesure pas.
+
+### Corollaire pour le juge lui-même
+
+Ce balayage a failli ne jamais avoir lieu : lancé avec `LOUPE_CHEMINS` séparé
+par des ESPACES là où la loupe découpe sur des VIRGULES, il a rendu « aucune
+ligne mutable ajoutée par cette branche » — le même verdict que pour un diff
+réellement sans candidate. Deux situations que tout sépare — « j'ai regardé, il
+n'y a rien » et « je n'ai rien regardé » — rendues indistinguables en sortie.
+
+La loupe distingue désormais les deux et **sort en code 2** sur un périmètre qui
+ne désigne aucun fichier suivi : une invocation fautive est une erreur, pas un
+résultat. Même principe que § 9 sexseptuagicenties — un instrument doit échouer
+FERMÉ.
+
+---
+
+## 9 octoseptuagicenties. La loupe lit `BASE...HEAD` : un arbre NON COMMIS lui est invisible, et son silence se lit comme un verdict
+
+### Ce qui s'est passé
+
+Lot d'affichage de l'horloge écrit, barrière verte, et le balayage lancé sur les
+cinq fichiers touchés — base épinglée au dernier commit. Réponse :
+
+```
+LOUPE : aucune ligne mutable ajoutée par cette branche.
+        (rien à conclure — ce n’est PAS un feu vert.)
+```
+
+Le terrain contenait pourtant `reelMs <= annonce.p80Ms`, `taskId === null ||
+taskId === ''`, `typeof v === 'number' && Number.isFinite(v)`,
+`type.startsWith('duree')` — des candidates par poignées.
+
+La cause est d'une ligne :
+
+```js
+['diff', '-U0', `${BASE}...HEAD`, '--', ...cheminsDuBalayage(…)]
+```
+
+**`BASE...HEAD`, pas l'arbre de travail.** Le lot n'était pas encore commis :
+`HEAD` valait exactement la base épinglée, le diff était vide, et la loupe a dit
+la vérité — sur rien.
+
+### La leçon, et pourquoi elle n'est pas la même que les deux précédentes
+
+C'est la **troisième** manière d'obtenir ce message sans avoir rien mesuré :
+
+| Situation                                  | Ce que la loupe rendait      | Traitée par                     |
+| ------------------------------------------ | ---------------------------- | ------------------------------- |
+| `LOUPE_CHEMINS` séparé par des espaces     | « aucune ligne mutable »     | § 9 sexseptuagicenties → code 2 |
+| Périmètre ne désignant aucun fichier suivi | « aucune ligne mutable »     | idem                            |
+| **Rien de commis : `HEAD` == `BASE`**      | **« aucune ligne mutable »** | **ici**                         |
+
+Les deux premières ont été fermées en durcissant l'INVOCATION. La troisième est
+d'une autre nature : l'invocation est parfaitement correcte, le périmètre
+désigne bien des fichiers suivis, et le diff est légitimement vide. Ce qui
+manque n'est pas une validation d'argument — c'est que **la question posée et la
+question répondue ne sont pas la même**. On demande « mon travail est-il
+défendu ? » ; l'instrument répond « l'historique commis n'ajoute rien ».
+
+Le dépôt connaît déjà cette forme : § 9 sexseptuagicenties dit qu'un harnais
+doit échouer FERMÉ. Le complément que ce cas ajoute est plus fin — **un
+instrument doit aussi refuser de répondre quand ce qu'on lui montre n'est pas ce
+qu'on croit lui montrer**. Un diff vide dont le périmètre porte des
+modifications NON COMMISES n'est pas un résultat : c'est un malentendu, et il
+faut le dire avec la phrase qui le lève (« commite d'abord »), pas avec celle
+qui rassure.
+
+### Ce qui a été fait
+
+La loupe distingue désormais le diff vide « rien à muter » du diff vide « rien
+n'est commis » : quand `HEAD` ne diffère pas de la base **et** que le périmètre
+porte des changements non commis, elle sort en **code 2** en nommant les
+fichiers concernés. Trois manières d'obtenir un silence, trois messages, aucun
+qui ressemble à un feu vert.
+
+### Le corollaire d'exploitation, payé au passage
+
+L'outil qui portait le balayage a expiré à dix minutes ; le shell est mort, pas
+le processus `node` — qui a continué à muter l'arbre avec sa sortie standard
+branchée sur un tube fermé. Un `SIGTERM` n'a rien donné : le gestionnaire ne
+peut pas s'exécuter tant qu'un `execFileSync` tient la boucle, et chaque
+mutation lance une suite de deux minutes.
+
+Bilan : un fichier laissé **muté** dans l'arbre, un verrou orphelin, et aucun
+verdict. Le dépôt avait déjà consigné la moitié de cette leçon en
+§ 9 octoquinquagies (« la loupe interrompue laisse l'arbre MUTÉ ») ; ce qui
+s'ajoute ici est la cause en amont — **un balayage ne se lance pas au premier
+plan sous un outil qui a une expiration**. Il vit détaché, sa sortie va dans un
+fichier, et on va la lire. Le journal de reprise `.loupe-en-cours` a fait
+exactement son travail : sans lui, la mutation partait au commit suivant.

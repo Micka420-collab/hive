@@ -197,6 +197,40 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     expect(dom.textContent).toContain('Nœuds 1');
   });
 
+  it('LES DEUX ÉVÉNEMENTS D’HORLOGE TOMBENT DANS « Horloge », pas dans « Autres »', async () => {
+    // ─── POURQUOI CETTE FAMILLE MÉRITE SA PUCE ──────────────────────────────
+    //
+    // Sans elle, `duree_annoncee` et `duree_hors_domaine` tombent dans
+    // « Autres » — la case qu'on décoche en premier quand le journal déborde.
+    // Une annonce qu'on ne peut pas ISOLER ne peut pas être surveillée, et une
+    // horloge qu'on ne surveille pas redevient un chiffre qu'on croit sur
+    // parole : exactement ce que le module refuse de produire.
+    //
+    // La ligne éprouvée est `type.startsWith('duree')`. Elle est posée APRÈS
+    // celles de `task` et `node` — aucun de ces préfixes ne la précède, mais
+    // c'est l'ordre qu'il faut garder si un `duree_*` de tâche apparaissait.
+    //
+    // La note de calibration (`horloge_calibration`) rejoint la même puce SANS
+    // partager le préfixe `duree` : c'est la seconde moitié du `||`, et sans ce
+    // troisième événement elle ne serait jamais exercée.
+    const dom = await monterChronique([
+      evenement(1, 'duree_annoncee'),
+      evenement(2, 'duree_hors_domaine'),
+      evenement(3, 'task_done'),
+      evenement(4, 'horloge_calibration'),
+    ]);
+    const compte = (nom: string): string => {
+      const puce = [...dom.querySelectorAll('.filters .chip')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      );
+      if (!puce) throw new Error(`la puce « ${nom} » est introuvable`);
+      return puce.querySelector('.chip-count')?.textContent?.trim() ?? '';
+    };
+    expect(compte('Horloge'), 'les trois événements d’horloge').toBe('3');
+    expect(compte('Autres'), 'et rien ne fuit dans « Autres »').toBe('0');
+    expect(compte('Tâches'), 'la tâche reste chez elle').toBe('1');
+  });
+
   it('LES DEUX TYPES DE CONFLIT TOMBENT DANS « Conflits », et nulle part ailleurs', async () => {
     // ─── CE QUE LE CAS VOISIN NE POUVAIT PAS VOIR ──────────────────────────
     //

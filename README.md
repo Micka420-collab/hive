@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4774%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5044%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -176,8 +176,8 @@ Toute IA de codage se branche via l'interface `AgentAdapter` :
 | Adaptateur     | Ce qu'il lance                                                                                                |
 | -------------- | ------------------------------------------------------------------------------------------------------------- |
 | `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.                                                                   |
-| `codex`        | `codex exec "<prompt>"`                                                                                       |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binaire réglable par `HIVE_CURSOR_BIN`. |
+| `codex`        | `codex exec "<prompt>"`                                                                                       |
 | `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.                                                        |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                        |
 | `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                                                                               |
