@@ -153,6 +153,19 @@ export function jugerLicence(brut: unknown): VerdictLicence {
 
   // `OR` : on a le CHOIX, donc la moins grave décide.
   // `AND` (et le jeton seul) : tout s'applique, donc la plus grave décide.
+  //
+  // loupe : équivalent — < → <=, et > → >=. Les deux mutants ne diffèrent de
+  // l'original que sur une ÉGALITÉ de gravité : `<` garde `a`, `<=` prend `b`.
+  // Or `GRAVITE` associe à chacune des six familles une valeur DISTINCTE (0 à
+  // 5), donc `GRAVITE[a] === GRAVITE[b]` implique `a === b` — les deux branches
+  // rendent alors la même chaîne. Mesuré plutôt que supposé : sur les 25
+  // couples de familles × 2 opérateurs, ZÉRO désaccord, et chaque famille
+  // confrontée à elle-même se rend elle-même. Aucune entrée ne sépare les deux
+  // mondes ; un banc sur cette borne serait du décor.
+  //
+  // Ce qui PEUT casser, en revanche, c'est qu'une future famille reçoive une
+  // gravité déjà prise. Le banc « l'ordre des opérandes ne change rien » ci-
+  // dessous garde cette prémisse — c'est elle qu'il faut défendre, pas la borne.
   const retenue = aOu
     ? familles.reduce((a, b) => (GRAVITE[b] < GRAVITE[a] ? b : a))
     : familles.reduce((a, b) => (GRAVITE[b] > GRAVITE[a] ? b : a));

@@ -13279,3 +13279,40 @@ plus que ce que la loupe en dit — douze mutations, douze mortes.
 
 - la **réquisition humaine** (ADR 0010), qui sera l'appelant du transport ;
 - le **contrôle de licence**.
+
+---
+
+## La licence — 10 examinées, 2 équivalences PROUVÉES
+
+**Tâche #105, troisième lot.** Le seul risque du butinage qui ne se rattrape
+pas : un fichier trop gros se re-télécharge, un condensat faux se signale, un
+code hostile se retire ; une obligation de publication née de la distribution,
+non.
+
+Le module **tranche ce qu'il sait trancher** — les permissives — et **renvoie à
+l'humain tout le reste**. Un module qui devinerait ici rendrait un service dont
+personne ne veut. Et sa limite est dite avant ses règles : un champ `license`
+est une **déclaration du paquet**, jamais un fait ; le message le rappelle
+jusque dans le verdict le plus favorable.
+
+`Unlicense` et `UNLICENSED` sont **opposés** — un abandon au domaine public et
+un refus de licence. Un caractère d'écart, et le verdict le plus permissif
+tomberait sur le paquet le plus fermé. Un banc les sépare.
+
+### Les deux équivalences, mesurées avant d'être déclarées
+
+Le balayage a rendu nues les deux comparaisons de gravité (`<` et `>`). Elles
+sont **équivalentes**, et voici pourquoi plutôt que sur parole : les mutants ne
+diffèrent qu'à **égalité** de gravité, or `GRAVITE` donne à chacune des six
+familles une valeur **distincte** — l'égalité n'arrive donc qu'entre une famille
+et elle-même, et les deux branches rendent la même chaîne.
+
+Sonde exécutée avant d'écrire quoi que ce soit : **25 couples de familles × 2
+opérateurs, zéro désaccord d'ordre**. Contre-rejeu ensuite : les deux mutants
+**survivent** — l'équivalence est confirmée, pas supposée.
+
+**Ce qui est défendu à la place, c'est la prémisse.** Deux bancs gardent
+l'indépendance à l'ordre et l'idempotence d'une famille sur elle-même : le jour
+où une nouvelle famille recevra une gravité déjà prise, deux manifestes
+identiques au mot près rendraient deux décisions. C'est cela qu'il faut voir
+rougir — pas la borne.

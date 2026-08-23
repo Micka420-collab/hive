@@ -142,6 +142,45 @@ describe('les expressions SPDX — `OR` et `AND` ne se valent pas', () => {
     expect(v.famille).toBe('inconnue');
   });
 
+  it('L’ORDRE DES OPÉRANDES NE CHANGE RIEN — la prémisse de l’équivalence', () => {
+    // ─── CE QUE CE BANC GARDE, ET POURQUOI IL N'EST PAS LÀ POUR UN MUTANT ───
+    //
+    // Le balayage a rendu nues les deux comparaisons de gravité (`<` et `>`).
+    // Elles sont ÉQUIVALENTES, et c'est prouvé plutôt que supposé : les deux
+    // mutants ne diffèrent que sur une ÉGALITÉ de gravité, or chaque famille a
+    // une gravité distincte — donc l'égalité n'arrive qu'entre une famille et
+    // elle-même, et les deux branches rendent la même chaîne. Mesuré sur les 25
+    // couples × 2 opérateurs : zéro désaccord.
+    //
+    // Ce banc ne défend donc pas la borne : il défend la PRÉMISSE. Le jour où
+    // quelqu'un donnera à une nouvelle famille une gravité déjà prise, le
+    // verdict se mettrait à dépendre de l'ordre d'écriture des licences — deux
+    // manifestes identiques au mot près rendraient deux décisions. C'est cela
+    // qu'il faut voir rougir.
+    const parFamille = ['MIT', 'Licence-maison-1.0', 'LGPL-3.0', 'GPL-3.0', 'SSPL-1.0'];
+    for (const a of parFamille) {
+      for (const b of parFamille) {
+        for (const op of ['OR', 'AND']) {
+          expect(
+            jugerLicence(`${a} ${op} ${b}`).famille,
+            `${a} ${op} ${b} ne rend pas comme ${b} ${op} ${a}`,
+          ).toBe(jugerLicence(`${b} ${op} ${a}`).famille);
+        }
+      }
+    }
+  });
+
+  it('UNE FAMILLE CONFRONTÉE À ELLE-MÊME SE REND ELLE-MÊME', () => {
+    // L'autre moitié de la prémisse : sur l'égalité, le choix de branche ne
+    // doit rien changer. Si un jour il changeait quelque chose, l'équivalence
+    // consignée au-dessus cesserait d'être vraie — et ce banc le dirait.
+    for (const id of ['MIT', 'GPL-3.0', 'SSPL-1.0']) {
+      const attendu = jugerLicence(id).famille;
+      expect(jugerLicence(`${id} OR ${id}`).famille, id).toBe(attendu);
+      expect(jugerLicence(`${id} AND ${id}`).famille, id).toBe(attendu);
+    }
+  });
+
   it('l’expression rendue est celle qu’on a déclarée', () => {
     // Le verdict doit pouvoir être relu contre sa source : rendre une forme
     // reconstruite obligerait à faire confiance au module sur ce point aussi.
