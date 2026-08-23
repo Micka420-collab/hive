@@ -203,8 +203,52 @@ que ce dépôt a déjà consigné (lot 46). Ce qui manque :
   humain tranche depuis la Chambre, et c'est ce geste qui appellera `butiner` ;
 - le **contrôle de licence** — intégrer de l'AGPL sans le savoir est un risque
   juridique, pas technique, et il ne se rattrape pas ;
-- le **déballage** de l'archive : une archive qui contient `../` ou des liens
-  symboliques sort de la quarantaine à l'extraction (_tar slip_). La garde du
-  nom protège le fichier reçu, pas ce qu'il contient.
+  Chacun est un lot, et chacun se mesure avant d'être annoncé.
 
-Chacun est un lot, et chacun se mesure avant d'être annoncé.
+## Le déballage — `src/shared/deballage.ts`
+
+Le transport garantit que le **fichier reçu** porte un nom que le serveur n'a
+pas choisi. Il ne dit rien de ce que ce fichier **contient** — et une archive
+porte ses propres chemins, venus du même inconnu. C'est le _tar slip_, et il a
+touché à peu près tous les écosystèmes qui déballent des paquets.
+
+**Tout ou rien** : une seule entrée refusée écarte l'archive entière. Extraire
+« les bonnes » reviendrait à installer à moitié un paquet dont on vient
+d'établir qu'on ne lui fait pas confiance.
+
+### Les sept refus
+
+| Refus                | Ce qu'il coûterait                                                                                                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Remontée**         | `paquet/../../../.ssh/authorized_keys` — jugée sur le chemin **normalisé**, jamais sur la chaîne brute : `a/b/../../../etc` ne commence pas par `../` et sort pourtant |
+| **Chemin absolu**    | racine, lettre de lecteur, partage réseau — `path.join` ne protège d'**aucune** des trois                                                                              |
+| **Lien**             | refusé **en bloc**, jamais vérifié (voir ci-dessous)                                                                                                                   |
+| **Fichier spécial**  | périphérique, fifo, socket : rien de légitime dans un paquet, et un fifo fige le processus qui l'ouvre                                                                 |
+| **Nom réécrit**      | octet nul, caractère de contrôle, `CON`/`NUL`/`COM1`, point ou espace final que Windows retire en silence — le nom vérifié ne serait pas le nom écrit                  |
+| **Collision**        | deux entrées pour le même chemin, **casse comprise** (macOS, Windows) : la seconde écrase la première, donc on vérifie un contenu et on en installe un autre           |
+| **Nombre et taille** | quelques kilo-octets d'archive décrivent des millions d'entrées ou des téraoctets ; le plafond du transport porte sur l'archive **reçue**                              |
+
+### Pourquoi un lien ne se vérifie pas
+
+Contrôler la cible d'un lien puis extraire est une **course**. Entre les deux,
+une autre entrée de la même archive peut changer ce que la cible désigne :
+
+> `a` est un lien vers `/etc` — puis `a/passwd` est un fichier tout à fait
+> ordinaire, et l'écriture part dans `/etc/passwd` sans qu'aucun chemin n'ait eu
+> l'air suspect.
+
+C'est le contournement classique de ce genre de garde. Un lien se refuse.
+
+### Ce que le déballage ne promet pas
+
+Il juge des **métadonnées d'entrées**, telles qu'un lecteur d'archive les rend.
+Il ne garantit pas que l'extracteur respectera son verdict — c'est à l'appelant
+de n'extraire que ce qui est accepté, entrée par entrée. Et il ne dit rien du
+contenu des fichiers.
+
+### Une normalisation qui ne dépend pas du système
+
+`path.normalize` rend un résultat différent selon l'OS qui exécute. Une garde de
+sécurité qui juge autrement sous Windows et sous Linux est une garde qu'on ne
+peut pas raisonner : la normalisation est faite ici, à la main, et le verdict
+est le même partout.
