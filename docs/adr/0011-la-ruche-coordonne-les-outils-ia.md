@@ -63,9 +63,8 @@ construire. Il y a un contrat à **élargir**, et deux listes fermées à ouvrir
 
 ### Le défaut structurel, mesuré
 
-`getAdapter()` est un `switch`, `AGENT_TYPES` est un tuple `as const`. Ajouter
-un outil demande d'éditer **deux fichiers au moins**, et rien ne garde leur
-accord. Ce n'est pas une hypothèse :
+`getAdapter()` est un `switch`, `AGENT_TYPES` est un tuple `as const`. Un
+recensement automatique montre qu'ils ne coïncident pas :
 
 ```
 adaptateurs : shell, claude-code, cursor, codex, custom, grok, hermes-agent
@@ -74,9 +73,29 @@ détectables : claude-code, cursor, codex, grok, custom, shell
 ADAPTATEUR SANS DÉTECTION : hermes-agent
 ```
 
-`hermes-agent` a un adaptateur complet que **rien ne peut jamais lui assigner**.
-Le code est là, éprouvé, inatteignable. C'est le coût des listes fermées, déjà
-payé une fois — et il sera payé à chaque nouvel outil.
+**Correction apportée à ce document après relecture du code.** J'avais d'abord
+écrit que `hermes-agent` était « inatteignable ». C'est faux, et
+`tests/agent-type-garde.test.ts` le dit en toutes lettres : l'écart est
+**délibéré et gardé**. `getAdapter()` accepte une chaîne libre, donc
+`HIVE_AGENT=hermes-agent` l'assigne très bien. `AGENT_TYPES` ne liste pas les
+agents _exécutables_ — il liste ceux dont Hive sait **provisionner les
+identifiants**.
+
+Le vrai défaut est plus fin, et il n'en est pas moins réel. Ajouter un outil
+demande aujourd'hui de toucher **six endroits** :
+
+| #   | fichier                                  | ce qu'on y ajoute                  |
+| --- | ---------------------------------------- | ---------------------------------- |
+| 1   | `adapters/<outil>.ts`                    | l'adaptateur                       |
+| 2   | `adapters/index.ts`                      | une branche du `switch`            |
+| 3   | `agent-detect.ts` → `PROBES`             | comment le détecter                |
+| 4   | `agent-detect.ts` → `AGENT_TYPES`        | s'il faut lui provisionner une clé |
+| 5   | `agent-detect.ts` → `agentCredentialEnv` | quelles variables                  |
+| 6   | `agent-libelle.ts` → `MARQUES`           | son nom lisible                    |
+
+Une seule paire est gardée (`getAdapter` ↔ `AGENT_TYPES`). Les quatre autres
+peuvent diverger en silence — et c'est ce qui rend le § 18 (« ajouter dix
+outils sans modifier la Queen ») coûteux là où il devrait être trivial.
 
 ### Ce que la Queen ne sait pas faire, et qui bloque le § 11
 
@@ -156,11 +175,15 @@ tiennent. Les refondre pour cette mission serait détruire ce qui marche.
 
 ### Les quatre changements, et leur justification
 
-**A. Le registre s'ouvre.** `getAdapter()` devient une table alimentée à
-l'enregistrement, et `AGENT_TYPES` en est **dérivé** plutôt que recopié. Une
-sentinelle garde leur accord — c'est la technique déjà employée dans ce dépôt
-pour les catalogues qui doivent rester d'accord. `hermes-agent` cesse d'être
-inatteignable le jour même.
+**A. Un catalogue, six lectures.** Les six endroits ci-dessus deviennent des
+VUES d'une seule déclaration par outil — `PROBES`, `AGENT_TYPES`, les variables
+d'identifiants, le libellé, le paquet d'installation et la table des fabriques
+s'en dérivent. Ajouter un outil redevient l'ajout d'une entrée.
+
+L'écart voulu ne disparaît pas pour autant : une entrée déclare `identifiants:
+null` quand Hive ne sait pas provisionner sa clé, et `AGENT_TYPES` l'exclut
+comme aujourd'hui. La différence est qu'elle est alors **dite** plutôt que
+subie.
 
 **B. Le contrat déclare ses capacités.** `AgentAdapter` gagne un
 `capabilities()` — ce que l'outil sait _réellement_ faire :
