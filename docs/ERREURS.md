@@ -702,6 +702,62 @@ Windows. Le dépôt garde donc leur donnée commune par un banc, sans les unir.
 > source, l'autre en dérive. Questions différentes ⇒ deux tables, et une garde
 > sur ce qu'elles partagent.
 
+#### 2.14 bis — Un `fetch` non bouchonné dans un banc de rendu accuse un INNOCENT
+
+La jambe « la suite tient dans plusieurs ordres » a rougi sur la graine 23757.
+Rejouée sur l'arbre EXACT, avec la commande EXACTE que le tamis imprime :
+verte. Deux fois.
+
+Premier enseignement, avant même la cause : **une graine de mélange ne vaut que
+pour un ENSEMBLE DE BANCS DONNÉ**. J'ai d'abord rejoué 23757 sur un arbre qui
+comptait deux bancs de plus — la graine y produit un ordre entièrement
+différent, et son vert ne disait rien du rouge d'origine.
+
+La cause s'est trouvée ailleurs : mon banc de rendu neuf ne bouchonnait qu'UNE
+des trois fonctions réseau que le composant appelle.
+
+```
+$ npx vitest run tests/fiche-outils-ia.test.tsx 2>&1 | grep -c ECONNREFUSED
+32
+```
+
+`FicheOuvriere` tire `fetchWaggle` (bouchonnée), `fetchChambre` (oubliée), et —
+par le hook `useBaptemes`, donc **invisible dans le JSX** — `fetchBaptemes`
+(oubliée aussi). Trente-deux vraies connexions vers `127.0.0.1:3000` par
+lancement.
+
+Ce n'est pas qu'une nuisance de journal, et c'est là qu'est la leçon. Le rejet
+arrive de façon ASYNCHRONE, parfois après la fin du test qui l'a déclenché.
+Sous `--sequence.shuffle`, il retombe dans la fenêtre d'un banc voisin — qui
+rougit pour une faute qui n'est pas la sienne. C'est la forme la plus coûteuse
+de dépendance d'ordre : elle envoie chercher le défaut chez un innocent, et le
+coupable reste vert.
+
+Effet de bord aggravant : ces milliers de piles d'appels NOIENT le journal de
+CI. Le détail du banc rouge — la seule chose dont on ait besoin — se retrouve
+hors de la fenêtre que l'API des journaux accepte de rendre. Le bruit a
+littéralement effacé la preuve.
+
+Le compte, après chaque bouchon : **32 → 16 → 0**.
+
+> **Règle** — un banc de rendu qui monte un composant réseau bouchonne TOUTES
+> ses fonctions d'API, y compris celles qu'appellent ses HOOKS. La liste ne se
+> lit pas dans le JSX ; elle se MESURE :
+> `npx vitest run <banc> 2>&1 | grep -c ECONNREFUSED` doit rendre **0**.
+>
+> **Règle** — corriger la moitié d'une fuite se lit comme l'avoir fermée. Le
+> compte est passé de 32 à 16, et j'aurais pu m'arrêter là en croyant avoir
+> fini. Relire le compte APRÈS chaque bouchon, jusqu'à zéro.
+>
+> **Règle** — rejouer une graine de mélange n'a de sens que sur l'arbre où elle
+> a rougi, au banc près. Un banc ajouté entre-temps change l'ordre que la graine
+> produit, et le vert obtenu ne réfute rien.
+>
+> **Ce qui reste à faire** — cinq fichiers du dépôt portent déjà un commentaire
+> sur ce piège, chacun écrit après s'y être fait prendre. C'est le signe qu'il
+> faut une garde, pas un sixième commentaire : un jeu de bouchons PARTAGÉ que
+> les bancs de rendu importent au lieu de le recopier à moitié.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au

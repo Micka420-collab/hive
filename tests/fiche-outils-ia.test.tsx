@@ -26,11 +26,52 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HiveNode } from '../src/shared/types';
 import type { OutilConstate } from '../src/shared/protocol';
 
+// LES DEUX FONCTIONS RÉSEAU, PAS UNE.
+//
+// `FicheOuvriere` en appelle deux à l'ouverture : `fetchWaggle` (le nectar) et
+// `fetchChambre` (le baptême). Je n'avais bouchonné que la première — la
+// seconde partait EN VRAI vers `127.0.0.1:3000`, et ce banc crachait
+// 32 `ECONNREFUSED` par lancement, mesurés.
+//
+// Ce n'est pas qu'une nuisance de journal. Le rejet arrive de façon
+// asynchrone, parfois APRÈS la fin du test qui l'a déclenché : sous
+// `--sequence.shuffle`, il retombe dans la fenêtre d'un banc voisin, qui rougit
+// pour une faute qui n'est pas la sienne. C'est la forme la plus coûteuse de
+// dépendance d'ordre, parce qu'elle accuse un innocent.
+//
+// Le banc voisin (`poste-ecran.test.tsx`) bouchonne les deux depuis toujours.
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchWaggle: vi.fn(() =>
     Promise.resolve({ nodes: [], totalTasksDone: 0, totalTasksFailed: 0, topNodeId: null }),
   ),
+  fetchChambre: vi.fn(() =>
+    Promise.resolve({
+      nodeId: 'n-maya',
+      bapteme: null,
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: 'n-maya',
+        status: 'online',
+        plateforme: null,
+        agentType: 'shell',
+        ownerName: 'test',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'Maya',
+      },
+      presences: [],
+      tasks: [],
+    }),
+  ),
+  // TROISIÈME, et c'est la leçon : le compte est passé de 32 à 16, pas à 0.
+  // `useBaptemes` — un hook, pas un appel visible dans le JSX — tire
+  // `fetchBaptemes`. Corriger la moitié d'une fuite laisse croire qu'on l'a
+  // fermée ; seul le COMPTE mesuré dit la vérité, et il fallait le relire
+  // après chaque bouchon.
+  fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
 import { NodesPanel } from '../dashboard/src/NodesPanel';
