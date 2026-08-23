@@ -23,7 +23,12 @@ import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
-import type { AssignChantierMsg, AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
+import type {
+  AssignChantierMsg,
+  AssignMergeMsg,
+  ClientMessage,
+  OutilConstate,
+} from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
@@ -85,6 +90,21 @@ export function composeAgentPrompt(hiveContext: string | undefined, prompt: stri
 export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
+  /**
+   * Les constats d'outils à joindre à l'inscription — posés par l'appelant,
+   * jamais calculés ici.
+   *
+   * `null` tant que rien n'a été constaté, et c'est volontaire : un tableau
+   * vide se lirait comme « aucun outil sur cette machine », alors que la vérité
+   * serait « personne n'a regardé ». Deux silences différents, deux valeurs.
+   */
+  private outilsConstates: OutilConstate[] | null = null;
+
+  /** Pose ce que le diagnostic a vu. Rejouable : une reconnexion le renvoie. */
+  setOutilsConstates(outils: readonly OutilConstate[]): void {
+    this.outilsConstates = [...outils];
+  }
+
   private readonly active = new Map<string, AbortController>();
   /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
   private readonly activeMerges = new Set<string>();
@@ -213,6 +233,11 @@ export class HiveNodeClient {
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),
+        // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
+        // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
+        // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
+        // tourné : un tableau vide se lirait comme « rien d'installé ».
+        ...(this.outilsConstates ? { outils: this.outilsConstates } : {}),
       });
     });
 
