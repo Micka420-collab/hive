@@ -11,6 +11,7 @@ import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
+import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
@@ -99,13 +100,35 @@ const tousAgents = await detectAllAgents();
 // dessous, et le constat envoyé au hub à l'inscription.
 const etatsOutils = await diagnostiquerAgents();
 
-if (!demarrageNoeudAutorise(agentType)) {
+// ─── PRÉSENCE SANS PRODUCTION ───────────────────────────────────────────────
+//
+// Ici, ce nœud faisait `process.exit(2)`. Il imprimait un bon conseil dans un
+// terminal qu'on referme, et le tableau de bord ne montrait RIEN — pas
+// « machine sans outil », rien du tout, ce qui se lit « personne n'a essayé ».
+// C'était le tout premier lancement de quelqu'un qui débute, et le moment où la
+// ruche était la plus muette.
+//
+// Il REJOINT désormais la ruche, et n'y travaille pas. La fiche de l'ouvrière
+// dira ce que porte sa machine et ce qui lui manque, avec la commande exacte.
+//
+// Deux gardes tiennent la promesse « n'y travaille pas », une de chaque côté :
+// le hub n'assigne pas (`assignationProductionAutorisee`, désormais sur les
+// DEUX voies), et le nœud refuse s'il est tout de même sollicité
+// (`presenceSeule` plus bas). Une seule suffirait tant que l'autre côté est
+// correct — c'est précisément pourquoi il en faut deux.
+const entree = entreeEnRuche({
+  agentReel: demarrageNoeudAutorise(agentType),
+  // `demarrageNoeudAutorise` rend déjà `true` quand la simulation est voulue :
+  // la question est donc déjà tranchée par lui, et la repasser ici en ferait
+  // une seconde source de vérité. On lui laisse le dernier mot.
+  simulationVoulue: false,
+});
+
+if (entree.mode === 'presence') {
   console.error(`✘ ${messageRefusShellProduction('fr')}\n`);
   // Le message ci-dessus est le même pour tout le monde. Or les postes ne sont
   // pas dans le même état : celui qui porte DÉJÀ sa clé dans `.env` n'a qu'un
-  // paquet à installer, et rien ne le lui disait. Le nœud mourait sur un
-  // conseil générique, la ruche affichait « 0 nœud actif », et personne ne
-  // savait qu'il s'en fallait d'une commande.
+  // paquet à installer, et rien ne le lui disait.
   //
   // `conseilDemarrage` ne parle QUE si c'est vrai : pas de clé, pas de
   // conseil — installer une ligne de commande sans identifiants donne un agent
@@ -113,7 +136,7 @@ if (!demarrageNoeudAutorise(agentType)) {
   // rien.
   const conseil = conseilDemarrage(etatsOutils);
   if (conseil) console.error(`${conseil}\n`);
-  process.exit(2);
+  console.error(`${entree.motif ?? ''}\n`);
 }
 
 console.log(`   Agents détectés : ${tousAgents.map((a) => libelleAgent(a)).join(', ')}`);
@@ -154,6 +177,10 @@ const client = new HiveNodeClient({
   // Les modèles que l'opérateur déclare (HIVE_MODELES), pour l'Aiguillage appris.
   ...(modelesDeclares ? { modeles: modelesDeclares } : {}),
   ...optionBac(bac, variables),
+  // La seconde garde. `presenceSeule` n'est POSÉ que dans ce mode : un nœud de
+  // production ne porte pas le champ du tout, et ne peut donc pas se le voir
+  // basculer par accident.
+  ...(entree.mode === 'presence' ? { presenceSeule: true } : {}),
 });
 
 // ─── CE QUE LE NŒUD A VU, LE HUB DOIT L'APPRENDRE ───────────────────────────
@@ -170,7 +197,11 @@ const client = new HiveNodeClient({
 client.setOutilsConstates(constatsPourLeHub(etatsOutils));
 
 client.start();
-console.log('🐝 Nœud Hive démarré — Ctrl+C pour quitter la ruche.');
+console.log(
+  entree.mode === 'presence'
+    ? '🐝 Nœud Hive présent — visible dans la ruche, mais SANS produire. Ctrl+C pour quitter.'
+    : '🐝 Nœud Hive démarré — Ctrl+C pour quitter la ruche.',
+);
 
 process.on('SIGINT', () => {
   client.stop();

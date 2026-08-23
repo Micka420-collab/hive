@@ -1041,6 +1041,23 @@ export class Scheduler {
       .filter(
         (n) =>
           n.status === 'online' &&
+          // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
+          // production » l'a rendue nécessaire.
+          //
+          // Tant qu'un poste sans agent réel mourait avant de s'inscrire, aucun
+          // nœud simulé n'existait en production : la faille dormait. Depuis
+          // que ces machines REJOIGNENT la ruche, une course lancée à la main
+          // les aurait enrôlées, leur adaptateur `shell` aurait rendu un diff
+          // SIMULÉ, et la course l'aurait départagé contre du code réel. Un
+          // faux gagnant, dans la fonctionnalité dont tout l'objet est de
+          // départager.
+          //
+          // La garde suit la CONFIG DU SERVEUR, pas une opinion sur `shell` :
+          // en simulation assumée, les nœuds simulés courent — c'est la
+          // démonstration qu'on a demandée.
+          assignationProductionAutorisee(n.agentType, {
+            simulation: this.opts.simulation,
+          }) &&
           // Thermorégulation : une course MULTIPLIE la charge sur une ruche qui
           // souffre déjà — elle respecte donc la concurrence effective, comme
           // l'assignation automatique. Décision assumée : le geste explicite

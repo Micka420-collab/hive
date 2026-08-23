@@ -34,6 +34,7 @@ import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
 
@@ -63,6 +64,17 @@ export interface NodeClientOptions {
   nodeId?: string;
   /** Coupe les logs console (tests). */
   quiet?: boolean;
+  /**
+   * « Présence sans production » : ce poste rejoint la ruche pour SE MONTRER,
+   * pas pour travailler. Aucun agent de codage réel n'a été trouvé dessus.
+   *
+   * C'est la SECONDE garde, et elle est délibérément redondante avec celle du
+   * hub (`assignationProductionAutorisee`). Un hub d'une version plus ancienne,
+   * ou une voie d'assignation qu'on aura oublié de filtrer, ne connaîtra pas la
+   * règle. Le nœud, lui, la connaît toujours : c'est lui qui a constaté sa
+   * propre machine.
+   */
+  presenceSeule?: boolean;
   /**
    * Bac à sable résolu par l'appelant (main.ts), ou absent.
    *
@@ -415,6 +427,16 @@ export class HiveNodeClient {
         durationMs: 0,
         subAgents: [],
       });
+      return;
+    }
+    // « Présence sans production » : ce nœud s'est inscrit sans agent réel. Il
+    // REFUSE poliment plutôt que de lancer son adaptateur simulé — un diff
+    // inventé remonté comme du travail serait bien pire que le silence d'avant.
+    //
+    // `task_reject` et non `task_result` en échec : le refus ne brûle aucune
+    // tentative, et le hub peut servir un autre nœud dans la seconde.
+    if (refuseParPresence(this.opts.presenceSeule === true ? 'presence' : 'production')) {
+      this.send({ type: 'task_reject', taskId: task.id, reason: motifRefusPresence() });
       return;
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours

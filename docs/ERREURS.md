@@ -584,6 +584,48 @@ et c'est ainsi qu'une chaîne bilingue se retrouve figée dans une langue.
 > de la ruche — peut parfaitement n'en traduire qu'une, et aucun banc
 > francophone ne verrait la demi-ligne restée en anglais.
 
+#### 2.12 bis — Un appel HTTP dont on ne lit pas le statut rend TOUT le banc creux
+
+Le banc devait prouver qu'un nœud « présence » ne lance jamais son adaptateur,
+même quand le hub lui assigne une tâche. Il montait un vrai hub, un vrai nœud,
+comptait les lancements, et affirmait zéro. Vert du premier coup.
+
+La contre-épreuve l'a démasqué en une commande : j'ai ôté la garde qu'il
+prétendait défendre — **toujours vert**. Puis j'ai ôté l'autre garde —
+**toujours vert**. Un banc que deux mutations opposées ne font pas bouger ne
+mesure rien.
+
+La sonde a donné la raison en une ligne :
+
+```
+tache HTTP 404
+tache {"error":"introuvable"}
+```
+
+`POST /api/tasks` n'existe pas — la route est
+`POST /api/projects/:projectId/tasks`, et son corps est `{ tasks: [...] }`. Le
+`fetch` réussissait (une 404 n'est pas une exception), la tâche n'était jamais
+créée, et « aucun lancement » était vrai pour une raison qui n'avait rien à
+voir avec la garde.
+
+C'est le § 2.12 — « ça ne part pas » est vert quand RIEN ne part — mais par une
+porte nouvelle : ce n'est pas la logique du banc qui était fausse, c'est un
+appel réseau silencieusement raté au milieu de sa mise en place.
+
+> **Règle** — dans un banc de bout en bout, tout appel HTTP de MISE EN PLACE
+> s'assortit de son statut attendu (`expect(r.status).toBe(201)`). `fetch` ne
+> lève pas sur 4xx/5xx : une route renommée, un corps refusé, un jeton périmé
+> passent en silence et vident le banc de son sujet sans jamais le faire rougir.
+>
+> **Règle** — et quand le banc affirme une ABSENCE (« rien ne s'est lancé »,
+> « aucune écriture »), la mise en place doit prouver que la CONDITION était
+> réunie : ici, que la tâche a bien été assignée au nœud. Sans cette moitié,
+> l'absence constatée peut venir de n'importe où.
+>
+> **Le geste qui a tout révélé** est le moins coûteux de tous : ôter la garde et
+> relancer. Un banc neuf qui ne rougit pas sous cette mutation-là n'est pas
+> terminé — quel que soit le temps qu'on a passé à l'écrire.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au
