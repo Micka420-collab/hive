@@ -155,6 +155,21 @@ describe('le bandeau dit sur quelle IA la ruche est branchée', () => {
     expect(classe(dom)).toContain('mc-ia-reelle');
   });
 
+  it('une IA dont tous les nœuds sont MUETS n’est pas nommée parmi celles qui travaillent', async () => {
+    // La nue du balayage : `a.enLigne > 0` muté en `>= 0`. L'état reste
+    // « reelle » — Claude Code est bien en ligne — mais Codex, dont pas un
+    // nœud ne répond, se glisserait dans le bandeau VERT. Le bandeau dirait
+    // alors qu'une IA travaille alors qu'elle est éteinte : exactement le
+    // mensonge que ce voyant existe pour empêcher.
+    const dom = await monterAvec([
+      noeud('claude-code', 'online', 'n1'),
+      noeud('codex', 'offline', 'n2'),
+    ]);
+    expect(classe(dom)).toContain('mc-ia-reelle');
+    expect(mot(dom)).toBe('Claude Code');
+    expect(mot(dom)).not.toContain('Codex');
+  });
+
   it('l’info-bulle du cas rouge NOMME la commande à taper', async () => {
     const dom = await monterAvec([]);
     const el = dom.querySelector('[data-testid="mc-ia"]') as HTMLElement;
