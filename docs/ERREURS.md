@@ -6570,6 +6570,27 @@ gratuit, et surtout : il apprend à pousser d'abord et à lire le rouge ensuite.
 > branche, pas au moment où on y pense. Une correction automatique n'est pas
 > un acquis : c'est un instantané, et il périme au commit suivant.
 
+### Reprise : et il ne suffit pas de le savoir — il ne faut pas POUSSER entre-temps
+
+Le 23 août, la même règle a été enfreinte par l'autre bout. Le lot d'affichage
+de l'horloge ajoutait 28 bancs ; je l'ai commis et **poussé** en sachant que les
+six annonces étaient périmées, avec l'intention de les re-mesurer dans le commit
+suivant, une fois le balayage fini et le compte définitif.
+
+La CI ne l'a pas attendu. Elle tourne sur la **tête poussée**, pas sur
+l'intention : suite verte (4861 sur 4869), garde-badge rouge, jambes `ubuntu` et
+`windows` en échec. Le commit suivant a effectivement tout réparé — mais entre
+les deux, la PR a porté un rouge que personne ne pouvait distinguer d'un vrai.
+
+> **Le complément** — un commit poussé doit être **vert tout seul**. « Je le
+> réparerai au suivant » n'est pas un plan : c'est un rouge publié, et un rouge
+> publié coûte à quiconque le lit avant la réparation. Soit les badges entrent
+> dans le même commit que les bancs qui les déplacent, soit on ne pousse pas
+> encore.
+
+Et c'est exactement pour cela que le garde existe. Il n'a pas failli : il a
+attrapé la faute au seul endroit où elle pouvait encore se voir.
+
 ---
 
 ## 9 octoquinquagies. La loupe interrompue laisse l'arbre MUTÉ — et le mutant qu'elle avait planté était un vrai trou

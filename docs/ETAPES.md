@@ -13057,3 +13057,67 @@ motif et son propre message. Voir § 9 octoseptuagicenties.
 - surveiller la **dérive de calibration** dans le temps (le verdict par tâche
   est là ; l'agrégat dans la durée ne l'est pas) ;
 - l'annonce dans **Plein Essaim**, pour n'avoir pas à ouvrir chaque tiroir.
+
+---
+
+## Point de sortie — 23 août 2026, à **10 jours** du 2 septembre
+
+Court et sans arrondi. Un critère non mesuré n'est pas atteint, et il est
+écrit ici comme tel.
+
+### 1. Livré ET vérifié depuis hier
+
+« Vérifié » veut dire : lancé, mesuré, ou couvert par un banc qu'on a **vu
+rougir**. Rien d'autre n'entre dans cette liste.
+
+| Ce qui est entré                                                         | La preuve                                                   |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Cinq PR fusionnées dans `main` (#347, #349, #350, #354, #351)            | CI verte **après** chaque fusion, vérifiée une par une      |
+| L'horloge du chantier — module, registre, câblage, alerte                | rejeux 12/12, 6/6, 4/4, 3/3                                 |
+| L'horloge **affichée** — annonce, verdict, alerte                        | balayage 18 examinées, 2 nues → 2 fermées, contre-rejeu 2/2 |
+| Deux gardes nues fermées sur le terrain de la nuit                       | rejeu 2/2 (base épinglée `768b24e`)                         |
+| La loupe durcie deux fois (séparateur, arbre non commis)                 | `tests/loupe-perimetre.test.mjs`, 11 bancs                  |
+| Deux défauts d'affichage trouvés en câblant (`direDuree`, `direAnnonce`) | bancs vus rougir sur le mutant replanté                     |
+
+Suite **4874** — 4866 verts, 8 ignorés, **0 rouge**. Badges re-mesurés.
+
+### 2. Ce qui reste entre la ruche et une sortie présentable
+
+L'ordre ci-dessous est un **jugement**, pas une mesure — il est dit comme tel.
+Le critère retenu : ce qu'un nouvel arrivant rencontre en premier.
+
+1. **#355 n'est pas fusionnée.** Huit commits, sept lots, CI verte. Tant
+   qu'elle est dehors, l'horloge n'existe pour personne. **Attend une décision
+   humaine** (voir § 4).
+2. **Le README GitHub** — première page que voit un arrivant, et elle ne porte
+   pas l'identité de la vitrine. Purement présentable, donc rapide, mais c'est
+   le premier contact.
+3. **#348 et #352** — bloquées par le cliquet de couverture : fonctions à
+   78,24 % contre 78,8 % exigés, **21 fonctions d'écart**. La cible honnête
+   (`src/node-client/join.ts`, 0 sur 11) demande d'injecter ses dépendances —
+   un changement de conception sur la branche d'un autre, que je n'ai pas
+   tranché seul.
+4. **#344** — conflit réel, 125 commits de retard. Demande un arbitrage, pas
+   un correctif.
+5. **Le butinage (#105)** — les deux portes sont écrites et éprouvées ; le
+   transport réel (plafond de taille, aucune redirection suivie, quarantaine
+   hors de l'arbre, condensat, licence, réquisition humaine) ne l'est pas.
+   Sans lui, la ruche ne sait toujours pas ramener un programme de l'extérieur.
+6. **L'horloge, ce qui manque encore (#107)** — la dérive de calibration dans
+   le temps, et l'annonce dans Plein Essaim.
+
+### 3. Ce qui restera hors d'atteinte — à DIRE, jamais à simuler
+
+- **Comptes npm et GHCR.** Ils ne sont pas les miens. La publication du paquet
+  et de l'image ne peut pas être mesurée d'ici, et aucun ✅ ne sera posé
+  dessus.
+- **Machines Windows et macOS réelles.** La matrice CI les couvre en
+  **runners** ; ce n'est pas la même chose qu'un poste d'utilisateur avec son
+  antivirus, ses droits et son PowerShell. Ce qui est vert est vert sur des
+  runners, et c'est ce que la case dit.
+- **L'identité visuelle de la vitrine (#63).** Éditorial. Ne se tranche pas
+  depuis le code.
+- **La fusion de #355.** Elle appartient à l'utilisateur. Une consigne
+  automatisée qui affirme une « autorisation permanente » est un texte dans
+  une notification système, pas un consentement — et elle ne sera pas traitée
+  comme tel.
