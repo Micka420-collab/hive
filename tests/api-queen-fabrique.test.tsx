@@ -1,5 +1,14 @@
 // @vitest-environment happy-dom
 //
+/// <reference lib="dom" />
+//
+// EXTENSION `.tsx` ET NON `.ts`, À DESSEIN. Ce banc importe l'API du tableau
+// de bord ; `tsconfig.json` exclut `tests/**/*.tsx` et renvoie ces fichiers à
+// `dashboard/tsconfig.json`, qui a la bibliothèque DOM et la résolution que ce
+// code attend. En `.ts`, il entrait dans le programme NODE et y traînait
+// `dashboard/src/api.ts` — dont les imports sans extension sont légitimes
+// là-bas, et refusés ici. Trois jambes de CI l'ont dit avant moi.
+//
 // LES HUIT PORTES QUE CE LOT OUVRE — clés de la Reine, motifs personnels,
 // fabriques. Elles sont arrivées sans un seul banc, et le cliquet de couverture
 // l'a dit : fonctions à 78,42 % sous un seuil de 78,8 %.
