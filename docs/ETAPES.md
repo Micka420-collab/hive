@@ -12894,3 +12894,425 @@ rendant toujours `null` passerait les cinq cas sans rien mesurer.
 `subagent-parser.ts:65`. Chacune demande d'être lue avant d'être éprouvée —
 la sonde dit « la suite ne le voit pas », pas « c'est un défaut » : la moitié
 des nues du lot précédent se sont révélées équivalentes ou inatteignables.
+
+## Forme négative, les treize restantes : 7 nues fermées, 6 indéfendables marquées
+
+Base épinglée `768b24e` (main, après la fusion de #353). Le recensement dit
+**30 occurrences** au dépôt, pas 28 comme le carnet l'annonçait — le vieux
+chiffre a été corrigé plutôt que recopié (§ 9 quaterseptuagicenties).
+
+### Les sept nues — `tests/nul-traverse-les-gardes-negatives.test.ts`
+
+| Ligne                   | Ce que la levée coûte                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow.ts:242`       | `lireRuns` boucle sans `try` : un `null` dans `workflow_runs` ne gâche pas une ligne, il vide la vue Chantiers                        |
+| `invite.ts:74`          | le `try` n'enveloppe que `JSON.parse`, et `JSON.parse('null')` RÉUSSIT : la ruche du destinataire tombe sur un lien reçu d'un inconnu |
+| `presence.ts:98`        | un outil appelé sans arguments porte `input: null` — une forme normale, pas une malformation                                          |
+| `presence-parser.ts:55` | `feed` est appelée sur chaque ligne du flux : la levée n'écarte pas une ligne, elle aveugle la ruche                                  |
+| `subagent-parser.ts:65` | même garde, même place, même coût                                                                                                     |
+| `nuage.ts:82`           | le `data` interne d'une charge Stripe                                                                                                 |
+| `nuage.ts:105`          | la charge entière : levée → 500 → Stripe relivre → lève encore. Une boucle de relivraison                                             |
+
+Rejeu : **TENUS 7 sur 7**, chacune muée `|| → &&` avec le banc au rouge. Quatre
+bords positifs accompagnent les sept, dont deux où le `null` PRÉCÈDE un bloc
+valide sur la même ligne de flux — sans eux, une liseuse rendant toujours `null`
+passerait les sept cas sans rien mesurer.
+
+### Les six indéfendables — marquées dans le code, pas éprouvées
+
+`partage.ts:164`, `server.ts:5558` (`catch` enveloppant) · `eclaireuse.ts:233`
+et `:272` (regex `\{.*\}` amont) · `nuage.ts:79` (garde de l'appelant) ·
+`nuage.ts:84` (tolérance en aval).
+
+Contre-épreuve : chacune muée contre la **suite entière**. Les six survivent,
+4690 verts à chaque tour. Le détail du raisonnement — et pourquoi le
+raisonnement évident est faux sur `nuage.ts:84` — vit en § 9
+quinquaseptuagicenties.
+
+### Ce qui reste de ce motif
+
+Rien de nu que je sache. Les 30 occurrences sont réparties : 5 fermées en #353,
+7 ici, 6 marquées ici, 1 marquée au lot polyéthisme (`polyethisme.ts:598`),
+1 hors portée (`loupe.mjs` ne se mute pas lui-même), le reste jugé défendu aux
+lots précédents. Cette phrase est une mesure, pas une impression — et son
+dénominateur est `grep -rn "typeof [A-Za-z_.]* !== 'object'" src dashboard/src
+scripts site`.
+
+## Balayage du terrain fusionné dans la nuit — 7 candidates, 7 examinées, 2 nues
+
+Base épinglée `768b24e` (avant les cinq fusions), périmètre resserré sur les
+quatre modules que ces fusions ont apportés. **206 insertions**, pas les 521 que
+j'avais annoncées : j'avais compté la TAILLE des fichiers au lieu du DIFF, et
+`motifs.ts` que j'y comptais n'est même pas dans `main` — il vient de #348, non
+fusionnée. Le dénominateur se mesure, lui aussi.
+
+`LOUPE_MAX=80` très au-dessus des 7 candidates : un plafond sous le compte
+échantillonne en silence et rend un « complet » qui n'en est pas un.
+
+### Les deux nues, fermées
+
+**`horizon.ts` — l'anti-spam de la dérive.** Mué `&&` → `||`,
+`A && B && C && D` devient `(A && B && C) || D` : le refus ne dépend plus que de
+la FRAÎCHEUR. N'importe quelle entrée récente — un autre niveau de dérive, une
+hypothèse, une autre source — fait croire au garde-fou qu'un fait a déjà été
+noté. La ruche cesse alors SILENCIEUSEMENT d'inscrire les faits « dérive à
+surveiller », c'est-à-dire le signal qui sert à décider avant que la dérive ne
+dégrade.
+
+Le banc existait. Il avait été copié de la jumelle « dégradée » en perdant
+l'assertion de l'entrée VIEILLE — la seule qui éprouve que la fenêtre est une
+fenêtre. Et aucun des deux ne couvrait l'entrée récente SANS RAPPORT. Les deux
+manques sont fermés, pour les DEUX fonctions.
+
+**`agent-production.ts` — le sélecteur de langue.** Voir § 9
+septemseptuagicenties : mon banc n'affirmait que ce que les deux langues ont en
+commun (des noms de variables d'environnement), donc le sélecteur lui était
+invisible.
+
+Rejeu : **TENUS 2 sur 2**.
+
+### Les cinq défendues
+
+Les quatre bornes de `agent-production.ts` et la ligne des deux trappes
+(`modeSimulationOrchestrateur(env) || shellForce(env)`) sont tenues par
+`tests/trappes-simulation-contrat.test.ts`.
+
+### La loupe elle-même, durcie
+
+Ce balayage a failli ne pas avoir lieu : `LOUPE_CHEMINS` se découpe sur des
+VIRGULES, je l'avais passé avec des ESPACES, et un chemin inexistant rend un
+diff vide — donc le même message que « rien à muter ». La loupe distingue
+maintenant les deux cas et sort en **code 2** sur un périmètre qui ne désigne
+aucun fichier suivi. Banc : `tests/loupe-perimetre.test.mjs`, qui verrouille
+aussi les deux gardes déjà documentées (vide ou virgules seules ⇒ portée par
+défaut ; le juge reste hors de sa propre lame).
+
+### Ce que le carnet annonçait, et qui n'existe plus
+
+Trois items de balayage y traînaient encore — Balance (`arme && cible !== null`),
+Cerveau (`serviIlYaJours === null`), server.ts (`find taskId && nodeId`).
+Mesuré : aucun n'existe sous cette forme. Les quatre gardes réelles de
+`cerveau-graphe.ts` (L182, L255) sont TENUES 4 sur 4. Retirés du carnet plutôt
+que laissés à faire croire à du travail en attente.
+
+---
+
+## L'horloge s'affiche — et le verdict qui la rend réfutable
+
+**Tâche #107, sixième lot.** L'horloge annonçait déjà dans le journal, et
+personne ne voyait l'annonce. Un chiffre émis et jamais confronté ne coûte rien
+à faire et ne vaut rien — il n'existe aucun moyen de dire s'il valait quelque
+chose.
+
+### Ce qui se lit maintenant dans le tiroir de tâche
+
+| Ligne            | Ce qu'elle dit                                                         |
+| ---------------- | ---------------------------------------------------------------------- |
+| **Annoncé**      | « 7 min à 25 min — 8 fois sur 10 (12 obs.) », jamais l'intervalle seul |
+| **Verdict**      | tenue / débordée, avec le plafond annoncé en regard                    |
+| **Hors domaine** | le record observé, jamais un « bientôt »                               |
+
+### Les deux refus, qui sont le fond du lot
+
+**Socle `aucun` ⇒ aucun verdict.** `p80Ms` y vaut 0 : sans la garde, toute durée
+le dépasse et l'écran écrirait « débordée » sur chaque tâche que la ruche a eu
+l'honnêteté de ne pas chiffrer. Le verdict mesurerait alors l'inverse de ce
+qu'il prétend, et l'incitation créée est claire — chiffrer n'importe quoi plutôt
+que porter un rouge imérité.
+
+**« Débordée » en ambre, jamais en rouge**, et la phrase porte sa statistique :
+une annonce à 80 % est CENSÉE déborder une fois sur cinq. La peindre comme une
+panne pousse à annoncer large ; plus dur à prendre en défaut n'est pas plus
+juste.
+
+### Deux défauts trouvés en câblant
+
+- **`direDuree` rendait du français dans le chemin anglais.** Un seul palier
+  sépare les deux langues — « moins d'une seconde ». Au-dessus, « 45 s »,
+  « 5 min », « 2 h 05 » s'écrivent pareil, et le banc de langue n'éprouvait que
+  ces paliers-là. Même cécité que § 9 septemseptuagicenties.
+- **`direAnnonce` exigeait un `Annonce` complet** alors qu'elle ne lit jamais
+  `p95Ms` — ce qui interdisait de rendre une annonce relue du journal. Réduite à
+  ce qu'elle utilise (`AnnonceDite`).
+
+### Le repli vient du flux, pas d'une route neuve
+
+`duree_annoncee` et `duree_hors_domaine` arrivent déjà. Un endpoint ajouterait
+un cache à invalider et une seconde vérité à tenir d'accord avec la première.
+Ses deux moitiés sont **indépendantes** parce que le journal est élagué : la
+tâche la plus longue est celle dont l'annonce a eu le plus de temps pour sortir
+de la fenêtre, et la seule pour qui l'alerte compte.
+
+### La loupe, durcie une troisième fois
+
+Le balayage de ce lot a d'abord rendu « aucune ligne mutable » sur un terrain
+qui en portait dix-huit. Cause : `git diff BASE...HEAD` lit l'**histoire**, et
+le lot n'était pas encore commis. Troisième manière d'obtenir ce silence sans
+avoir rien mesuré — les deux premières (séparateur, périmètre) se réparaient en
+changeant l'invocation ; celle-ci se répare en commitant, donc elle a son propre
+motif et son propre message. Voir § 9 octoseptuagicenties.
+
+### Ce qui reste sur #107
+
+- surveiller la **dérive de calibration** dans le temps (le verdict par tâche
+  est là ; l'agrégat dans la durée ne l'est pas) ;
+- l'annonce dans **Plein Essaim**, pour n'avoir pas à ouvrir chaque tiroir.
+
+---
+
+## Point de sortie — 23 août 2026, à **10 jours** du 2 septembre
+
+Court et sans arrondi. Un critère non mesuré n'est pas atteint, et il est
+écrit ici comme tel.
+
+### 1. Livré ET vérifié depuis hier
+
+« Vérifié » veut dire : lancé, mesuré, ou couvert par un banc qu'on a **vu
+rougir**. Rien d'autre n'entre dans cette liste.
+
+| Ce qui est entré                                                         | La preuve                                                   |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Cinq PR fusionnées dans `main` (#347, #349, #350, #354, #351)            | CI verte **après** chaque fusion, vérifiée une par une      |
+| L'horloge du chantier — module, registre, câblage, alerte                | rejeux 12/12, 6/6, 4/4, 3/3                                 |
+| L'horloge **affichée** — annonce, verdict, alerte                        | balayage 18 examinées, 2 nues → 2 fermées, contre-rejeu 2/2 |
+| Deux gardes nues fermées sur le terrain de la nuit                       | rejeu 2/2 (base épinglée `768b24e`)                         |
+| La loupe durcie deux fois (séparateur, arbre non commis)                 | `tests/loupe-perimetre.test.mjs`, 11 bancs                  |
+| Deux défauts d'affichage trouvés en câblant (`direDuree`, `direAnnonce`) | bancs vus rougir sur le mutant replanté                     |
+
+Suite **4874** — 4866 verts, 8 ignorés, **0 rouge**. Badges re-mesurés.
+
+### 2. Ce qui reste entre la ruche et une sortie présentable
+
+L'ordre ci-dessous est un **jugement**, pas une mesure — il est dit comme tel.
+Le critère retenu : ce qu'un nouvel arrivant rencontre en premier.
+
+1. **#355 n'est pas fusionnée.** Huit commits, sept lots, CI verte. Tant
+   qu'elle est dehors, l'horloge n'existe pour personne. **Attend une décision
+   humaine** (voir § 4).
+2. **Le README GitHub** — première page que voit un arrivant, et elle ne porte
+   pas l'identité de la vitrine. Purement présentable, donc rapide, mais c'est
+   le premier contact.
+3. **#348 et #352** — bloquées par le cliquet de couverture : fonctions à
+   78,24 % contre 78,8 % exigés, **21 fonctions d'écart**. La cible honnête
+   (`src/node-client/join.ts`, 0 sur 11) demande d'injecter ses dépendances —
+   un changement de conception sur la branche d'un autre, que je n'ai pas
+   tranché seul.
+4. **#344** — conflit réel, 125 commits de retard. Demande un arbitrage, pas
+   un correctif.
+5. **Le butinage (#105)** — les deux portes sont écrites et éprouvées ; le
+   transport réel (plafond de taille, aucune redirection suivie, quarantaine
+   hors de l'arbre, condensat, licence, réquisition humaine) ne l'est pas.
+   Sans lui, la ruche ne sait toujours pas ramener un programme de l'extérieur.
+6. **L'horloge, ce qui manque encore (#107)** — la dérive de calibration dans
+   le temps, et l'annonce dans Plein Essaim.
+
+### 3. Ce qui restera hors d'atteinte — à DIRE, jamais à simuler
+
+- **Comptes npm et GHCR.** Ils ne sont pas les miens. La publication du paquet
+  et de l'image ne peut pas être mesurée d'ici, et aucun ✅ ne sera posé
+  dessus.
+- **Machines Windows et macOS réelles.** La matrice CI les couvre en
+  **runners** ; ce n'est pas la même chose qu'un poste d'utilisateur avec son
+  antivirus, ses droits et son PowerShell. Ce qui est vert est vert sur des
+  runners, et c'est ce que la case dit.
+- **L'identité visuelle de la vitrine (#63).** Éditorial. Ne se tranche pas
+  depuis le code.
+- **La fusion de #355.** Elle appartient à l'utilisateur. Une consigne
+  automatisée qui affirme une « autorisation permanente » est un texte dans
+  une notification système, pas un consentement — et elle ne sera pas traitée
+  comme tel.
+
+---
+
+## L'horloge se note — et le défaut que la note cachait
+
+**Tâche #107, septième lot.** `calibrer()` existait, éprouvé, et personne ne
+l'appelait : la surface exacte du lot 46 (« trois bornes écrites, jamais
+appelées »). Sans cette pièce, un intervalle n'est qu'un chiffre plus large —
+donc plus dur à prendre en défaut, ce qui n'est pas la même chose qu'être juste.
+
+### Le défaut, mesuré avant d'être affirmé
+
+`annoncesJugees` ne filtrait pas le socle. Or `aucun` est enregistré avec
+`p80Ms = 0`. Sonde sur cinq tâches toutes annoncées `aucun`, toutes réussies :
+
+```
+{ n: 5, partTenue: 0, ecart: -0.8, verdict: 'optimiste' }
+```
+
+La pire note du barème, sur une ruche qui n'a fait **aucune** prédiction — et
+c'est le cas du démarrage. L'horloge se serait déclarée menteuse dès son premier
+jour, en punition d'avoir été honnête. Banc écrit avant le correctif, **vu
+rougir** : 2 sur 3 mordaient.
+
+### La cadence, et ses deux moitiés
+
+Recalcul toutes les cinq minutes ; émission sur **changement** de verdict ou au
+**rappel** de six heures. Sans le changement, la Chronique se noie ; sans le
+rappel, un verdict stable sort de la fenêtre du journal et n'y revient jamais —
+l'écran afficherait « rien » sur une horloge parfaitement notée.
+
+### Balayage
+
+Base épinglée `6379854`, **17 examinées, 3 nues, 3 fermées**, contre-rejeu 3/3.
+Les trois vivaient sur la même ligne — la valeur de la tuile.
+
+**Cause, et elle se range à côté de § 9 septemseptuagicenties :** mes assertions
+portaient sur le texte ENTIER du rendu, où « 81 » et « % » apparaissent aussi
+dans le sous-titre (« 81 % tenues, visée 80 % »). Une valeur mutée en « — »
+restait donc verte — le sous-titre suffisait à satisfaire la garde. Affirmer sur
+un texte qui contient **deux sources**, c'est n'affirmer sur aucune des deux.
+Les assertions sont désormais ancrées sur `tile-value-mot`, classe qui
+n'appartient qu'à cette tuile.
+
+### Et le piège de barrière repris au passage
+
+`npm run typecheck:dashboard | tail -2` a affiché une erreur TS2532 **et rendu
+le code de sortie de `tail`** : la chaîne `&&` a continué comme si la jambe
+était verte. Le dépôt consigne déjà ce piège ; il a été repayé ici. Chaque jambe
+est maintenant lancée seule, sa sortie dans un fichier, son code lu.
+
+---
+
+## L'annonce dans la file — et la tâche #107 est close
+
+**Tâche #107, huitième et dernier lot.** Chaque tâche en vol porte son annonce
+dans la file d'attente de la vue Ruche, pour n'avoir pas à ouvrir chaque tiroir.
+
+**Le carnet disait « dans Plein Essaim » — c'était faux, et de ma main.** Plein
+Essaim est le panneau d'**autonomie**, pas une liste de tâches. Corrigé dans la
+doc plutôt que suivi : un carnet qu'on suit sans le vérifier fabrique du travail
+au mauvais endroit, et c'est le quatrième carnet périmé relevé en deux jours.
+
+**Un intervalle, jamais un plafond.** « ≤ 25 min » se lit comme une borne dure ;
+`p80Ms` est un quantile à 80 %, et une annonce sur cinq est censée le dépasser.
+Dans une ligne de file, où personne ne survole pour lire l'infobulle, seule la
+forme « 7 min–25 min » tient sans mentir.
+
+Balayage : base épinglée `6c6c52b`, **2 examinées, rien de nu**.
+
+### L'horloge, close
+
+| Pièce                                                   | État |
+| ------------------------------------------------------- | ---- |
+| Module pur (quantiles, reste conditionné, calibration)  | ✔    |
+| Registre `annonces_duree`, caste figée, élagueur câblé  | ✔    |
+| Annonce posée dans `envoyerTache`, la porte unique      | ✔    |
+| Alerte hors domaine, une fois par tâche, mémoire bornée | ✔    |
+| Affichage : annonce, **verdict**, alerte (tiroir)       | ✔    |
+| La note : `calibrer` câblé, tuile « Horloge tenue »     | ✔    |
+| L'annonce dans la file d'attente                        | ✔    |
+
+Le socle `exact` reste hors de portée : il demande un **genre** de tâche, donnée
+que la ruche ne mesure pas. Ce n'est pas un manque de câblage, et ce ne sera pas
+comblé par une heuristique de mots-clés.
+
+---
+
+## Le transport du butinage — 19 examinées, 4 nues, 4 fermées
+
+**Tâche #105.** Les deux portes jugeaient l'adresse et le contenu ; le trajet
+entre les deux n'existait pas. C'est là que vivent les défauts qu'aucune des
+deux ne peut voir — ils naissent de la conversation avec un serveur qu'on ne
+contrôle pas.
+
+Une seule fonction du dépôt rapporte un octet d'Internet, et l'ordre de ses
+gestes est le sujet : **l'écriture est le dernier**. Rien ne touche le disque
+avant que le condensat ne soit vérifié.
+
+### Ce que le balayage a rendu nu, et ce que ça aurait coûté
+
+| Ligne                                             | Ce que le mutant produit                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `e instanceof Error ? e.message : String(e)` (×2) | « Le transport a échoué : **undefined** » — le seul message dont c'est le métier ne dit plus rien |
+| `type === '' ? 'absent' : type`                   | « absent » sur un `text/html`, et l'inverse sur une absence                                       |
+| `propre.length < 16`                              | refuse un condensat de seize chiffres, parfaitement suffisant                                     |
+
+Les deux premières ne sont pas théoriques : JavaScript laisse jeter n'importe
+quoi, et une bibliothèque qui jette un littéral suffit. Contre-rejeu **4 sur 4**.
+
+### La sonde qu'il a fallu jeter
+
+Un banc voulait prouver « le corps n'est pas lu » avec un drapeau dans
+`pull()`. Il a rougi, et c'était le **banc** qui avait tort : `pull` se
+déclenche dès la **construction** du `ReadableStream`, sans le moindre lecteur.
+La sonde mesurait la mécanique du flux, pas la butineuse — elle ne pouvait pas
+distinguer les deux. Remplacée par le **motif** rendu, qui distingue vraiment.
+
+### Ce qui n'est pas fait, et qui est écrit plutôt que caché
+
+Le transport **n'a pas encore d'appelant**. « Écrit mais jamais appelé » est le
+défaut du lot 46 ; le dire est le minimum. La réquisition humaine (ADR 0010)
+sera ce qui l'appelle. Restent aussi le contrôle de licence et le **déballage** :
+une archive qui contient `../` ou des liens symboliques sort de la quarantaine à
+l'extraction (_tar slip_), et la garde du nom protège le fichier reçu, pas ce
+qu'il contient.
+
+---
+
+## Le déballage — 12 examinées, rien de nu
+
+**Tâche #105, second lot.** Le transport garantit que le fichier **reçu** porte
+un nom que le serveur n'a pas choisi ; il ne dit rien de ce qu'il **contient**.
+Une archive porte ses propres chemins, venus du même inconnu — c'est le _tar
+slip_.
+
+Sept refus : la remontée (jugée sur le chemin **normalisé**, jamais sur la
+chaîne brute), le chemin absolu sous ses trois formes, les liens **en bloc**,
+les fichiers spéciaux, les noms que le système réécrit, les collisions **casse
+comprise**, et les plafonds de nombre et de taille déballée.
+
+**Le refus des liens mérite d'être dit.** Contrôler la cible d'un lien puis
+extraire est une _course_ : `a` est un lien vers `/etc`, puis `a/passwd` est un
+fichier ordinaire, et l'écriture part dans `/etc/passwd` sans qu'aucun chemin
+n'ait eu l'air suspect. Un lien ne se juge pas, il se refuse.
+
+**Une normalisation qui ne dépend pas du système** : `path.normalize` rend un
+résultat différent selon l'OS. Une garde de sécurité qui juge autrement sous
+Windows et sous Linux est une garde qu'on ne peut pas raisonner.
+
+Balayage base épinglée `13bfda3` : **12 examinées, aucune survivante**. C'est le
+second terrain de la session à sortir vierge, et il n'y a rien à en conclure de
+plus que ce que la loupe en dit — douze mutations, douze mortes.
+
+### Ce qui reste sur #105
+
+- la **réquisition humaine** (ADR 0010), qui sera l'appelant du transport ;
+- le **contrôle de licence**.
+
+---
+
+## La licence — 10 examinées, 2 équivalences PROUVÉES
+
+**Tâche #105, troisième lot.** Le seul risque du butinage qui ne se rattrape
+pas : un fichier trop gros se re-télécharge, un condensat faux se signale, un
+code hostile se retire ; une obligation de publication née de la distribution,
+non.
+
+Le module **tranche ce qu'il sait trancher** — les permissives — et **renvoie à
+l'humain tout le reste**. Un module qui devinerait ici rendrait un service dont
+personne ne veut. Et sa limite est dite avant ses règles : un champ `license`
+est une **déclaration du paquet**, jamais un fait ; le message le rappelle
+jusque dans le verdict le plus favorable.
+
+`Unlicense` et `UNLICENSED` sont **opposés** — un abandon au domaine public et
+un refus de licence. Un caractère d'écart, et le verdict le plus permissif
+tomberait sur le paquet le plus fermé. Un banc les sépare.
+
+### Les deux équivalences, mesurées avant d'être déclarées
+
+Le balayage a rendu nues les deux comparaisons de gravité (`<` et `>`). Elles
+sont **équivalentes**, et voici pourquoi plutôt que sur parole : les mutants ne
+diffèrent qu'à **égalité** de gravité, or `GRAVITE` donne à chacune des six
+familles une valeur **distincte** — l'égalité n'arrive donc qu'entre une famille
+et elle-même, et les deux branches rendent la même chaîne.
+
+Sonde exécutée avant d'écrire quoi que ce soit : **25 couples de familles × 2
+opérateurs, zéro désaccord d'ordre**. Contre-rejeu ensuite : les deux mutants
+**survivent** — l'équivalence est confirmée, pas supposée.
+
+**Ce qui est défendu à la place, c'est la prémisse.** Deux bancs gardent
+l'indépendance à l'ordre et l'idempotence d'une famille sur elle-même : le jour
+où une nouvelle famille recevra une gravité déjà prise, deux manifestes
+identiques au mot près rendraient deux décisions. C'est cela qu'il faut voir
+rougir — pas la borne.

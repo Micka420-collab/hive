@@ -775,6 +775,63 @@ export function mutationsDeLigne(ligne) {
 }
 
 /** Les mutations candidates, une par (fichier, ligne, échange). */
+/**
+ * Que dire quand aucune candidate n'a été trouvée. PUR, donc éprouvable.
+ *
+ * ─── UN PÉRIMÈTRE QUI NE DÉSIGNE RIEN N'EST PAS UN PÉRIMÈTRE VIDE ────────────
+ *
+ * `git diff -- <chemin inexistant>` rend le vide, exactement comme un diff sans
+ * ligne mutable. Les deux verdicts sont INDISTINGUABLES en sortie, et le second
+ * se lit comme « rien à faire ».
+ *
+ * C'est le retour du défaut consigné plus haut — l'angle mort sur `scripts/`,
+ * où la loupe annonçait « aucune ligne mutable » sur un diff qui en ajoutait
+ * deux cents — sous une forme neuve. Là, c'était la portée PAR DÉFAUT qui était
+ * trop étroite ; ici, c'est la portée DEMANDÉE qui ne correspond à rien.
+ *
+ * Le piège le plus courant, et celui qui a fait naître cette fonction :
+ * `LOUPE_CHEMINS` se découpe sur des VIRGULES. « a.ts b.ts » est donc UN
+ * chemin, pas deux — un chemin qui n'existe pas, un diff vide, et un verdict
+ * rassurant sur un terrain que personne n'a regardé.
+ *
+ * Le code de sortie DIFFÈRE (2 au lieu de 0) : un périmètre fautif est une
+ * erreur d'invocation, pas un résultat. Un harnais qui enchaîne doit s'arrêter.
+ *
+ * ─── ET LA TROISIÈME MANIÈRE DE NE RIEN MESURER : NE RIEN AVOIR COMMIS ───────
+ *
+ * La loupe lit `BASE...HEAD` — l'HISTOIRE, jamais l'arbre de travail. Un lot
+ * écrit, éprouvé, mais pas encore commis lui est donc littéralement invisible :
+ * `HEAD` vaut la base, le diff est vide, et elle rend « aucune ligne mutable ».
+ * C'est vrai, et c'est vrai à propos de rien.
+ *
+ * Ce cas-ci n'est PAS de la même famille que le précédent. L'invocation est
+ * correcte, le périmètre désigne bien des fichiers suivis, le diff est
+ * légitimement vide. Ce qui cloche est ailleurs : la question posée (« mon
+ * travail est-il défendu ? ») et la question répondue (« l'historique commis
+ * ajoute-t-il du nu ? ») ne sont pas la même. Un instrument doit refuser de
+ * répondre quand ce qu'on lui montre n'est pas ce qu'on croit lui montrer —
+ * avec la phrase qui lève le malentendu, pas avec celle qui rassure.
+ *
+ * D'où le code 2 ici aussi : trois manières d'obtenir un silence, trois
+ * messages, et aucun qui ressemble à un feu vert.
+ *
+ * @param {number} nbFichiersSuivis  fichiers suivis que le périmètre désigne
+ * @param {string[]} demandes        les chemins tels qu'ils ont été demandés
+ * @param {string[]} nonCommis       fichiers du périmètre qui diffèrent de HEAD
+ */
+export function diagnosticSansCandidate(nbFichiersSuivis, demandes, nonCommis = []) {
+  if (nbFichiersSuivis === 0) {
+    return { code: 2, motif: 'perimetre_vide', demandes };
+  }
+  // Testé AVANT « rien à muter » : quand les deux sont vrais, celui qui informe
+  // est celui-ci. Dire « rien à muter » à quelqu'un dont le travail entier
+  // attend au bord de l'historique, c'est répondre à côté avec aplomb.
+  if (nonCommis.length > 0) {
+    return { code: 2, motif: 'arbre_non_commis', demandes, nonCommis };
+  }
+  return { code: 0, motif: 'rien_a_muter', demandes };
+}
+
 function candidates() {
   const out = [];
   for (const [fichier, lignes] of lignesAjoutees()) {
@@ -1215,9 +1272,59 @@ function principal() {
 
   const toutes = candidates();
   if (toutes.length === 0) {
+    // Avant de conclure, savoir si le périmètre désignait seulement quelque
+    // chose. Voir `diagnosticSansCandidate`.
+    const demandes = cheminsDuBalayage(process.env.LOUPE_CHEMINS).filter(
+      (c) => !c.startsWith(':(exclude)'),
+    );
+    const suivis = execFileSync('git', ['ls-files', '--', ...demandes], {
+      cwd: RACINE,
+      shell: false,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    })
+      .split('\n')
+      .filter((l) => l.trim() !== '');
+    // Ce que l'arbre porte et que l'histoire ignore encore : `diff --name-only
+    // HEAD` couvre l'indexé comme le non indexé ; `ls-files --others` ajoute les
+    // fichiers NEUFS, qui sont justement le cas le plus courant d'un lot pas
+    // encore commis. Sans eux, un module tout neuf resterait invisible aux deux.
+    const gitLignes = (args) =>
+      execFileSync('git', args, {
+        cwd: RACINE,
+        shell: false,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      })
+        .split('\n')
+        .filter((l) => l.trim() !== '');
+    const nonCommis = [
+      ...new Set([
+        ...gitLignes(['diff', '--name-only', 'HEAD', '--', ...demandes]),
+        ...gitLignes(['ls-files', '--others', '--exclude-standard', '--', ...demandes]),
+      ]),
+    ];
+    const d = diagnosticSansCandidate(suivis.length, demandes, nonCommis);
+    if (d.motif === 'arbre_non_commis') {
+      console.log('LOUPE : le diff est VIDE, mais le périmètre porte du travail NON COMMIS.');
+      console.log('        La loupe lit l’HISTOIRE (BASE...HEAD), jamais l’arbre de travail :');
+      console.log('        elle n’a donc rien regardé de ce que vous venez d’écrire.');
+      console.log('        Commitez d’abord, puis relancez. En attente :');
+      for (const f of nonCommis) console.log(`          · ${f}`);
+      process.exit(d.code);
+    }
+    if (d.motif === 'perimetre_vide') {
+      console.log('LOUPE : le périmètre demandé ne désigne AUCUN fichier suivi.');
+      console.log('        RIEN n’a été mesuré — ce n’est pas « rien à muter ».');
+      console.log(
+        `        LOUPE_CHEMINS se découpe sur des VIRGULES ; reçu ${demandes.length} chemin(s) :`,
+      );
+      for (const c of demandes) console.log(`          · ${c}`);
+      process.exit(d.code);
+    }
     console.log('LOUPE : aucune ligne mutable ajoutée par cette branche.');
     console.log('        (rien à conclure — ce n’est PAS un feu vert.)');
-    process.exit(0);
+    process.exit(d.code);
   }
 
   // Échantillon RÉGULIER plutôt qu'aléatoire : deux passages sur le même diff

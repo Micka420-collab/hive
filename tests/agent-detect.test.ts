@@ -19,7 +19,12 @@
 
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { candidates, cheminsNatifs, detectBestAgent } from '../src/node-client/agent-detect.js';
+import {
+  candidates,
+  cheminsNatifs,
+  detectBestAgent,
+  requisitionSiCredentialsManquantes,
+} from '../src/node-client/agent-detect.js';
 
 describe('LES VARIANTES DE BINAIRE, PAR PLATEFORME', () => {
   it('sur un système POSIX, le nom est pris tel quel', () => {
@@ -189,5 +194,63 @@ describe('LE CHOIX DE L’AGENT', () => {
     });
     expect(vu.agent).toBe('custom');
     expect(appels, 'la sonde ne doit pas tourner quand le membre a choisi').toBe(0);
+  });
+});
+
+describe('réquisition si credentials manquantes', () => {
+  it('shell et custom : rien à demander', () => {
+    expect(requisitionSiCredentialsManquantes('shell', {})).toBeNull();
+    expect(requisitionSiCredentialsManquantes('custom', {})).toBeNull();
+  });
+
+  it('codex sans OPENAI_API_KEY → réquisition cle_api', () => {
+    const r = requisitionSiCredentialsManquantes('codex', {});
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/OpenAI/i);
+  });
+
+  it('claude-code avec clé env → silence', () => {
+    expect(
+      requisitionSiCredentialsManquantes('claude-code', { ANTHROPIC_API_KEY: 'sk-x' }),
+    ).toBeNull();
+  });
+
+  // ─── CE BANC DÉPENDAIT DE LA MACHINE QUI L'EXÉCUTE ────────────────────────
+  //
+  // Il passait `{ HOME }` sans nommer la plateforme, et `plateforme` retombe
+  // sur `process.platform`. Sur Windows, la fonction lit `USERPROFILE` : la
+  // maison était introuvable, aucun `~/.claude` détecté, et une réquisition
+  // partait là où le banc attendait le silence. Vert sur Linux, rouge sur
+  // Windows — le banc mesurait le système d'exploitation du coureur.
+  //
+  // Épingler « linux » l'aurait rendu déterministe en laissant le chemin
+  // Windows sans aucun banc. Les DEUX sont donc joués : c'est le seul endroit
+  // du dépôt qui éprouve que `USERPROFILE` est bien la maison sous Windows.
+  it.each([
+    ['linux', { HOME: '/home/moi' }, '/home/moi/.claude'],
+    ['win32', { USERPROFILE: 'C:\\Users\\Moi' }, 'C:\\Users\\Moi\\.claude'],
+  ])('claude-code avec ~/.claude → silence même sans clé env (%s)', (plateforme, env, attendu) => {
+    const sondes: string[] = [];
+    const existe = (chemin: string) => {
+      sondes.push(chemin);
+      return chemin.endsWith('.claude');
+    };
+    expect(
+      requisitionSiCredentialsManquantes('claude-code', env, { existe, plateforme }),
+    ).toBeNull();
+    // Et le chemin sondé est celui de CETTE plateforme, avec son séparateur :
+    // sans cette ligne, une maison lue au mauvais endroit passerait inaperçue
+    // dès qu'un `existe` complaisant rendrait `true`.
+    expect(sondes).toContain(attendu);
+  });
+
+  it('grok sans clé ni session → réquisition', () => {
+    const r = requisitionSiCredentialsManquantes(
+      'grok',
+      { HOME: '/home/moi' },
+      { existe: () => false },
+    );
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/Grok/i);
   });
 });

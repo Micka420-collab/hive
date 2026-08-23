@@ -23,7 +23,7 @@ const config = (dbPath: string): ServerConfig => ({
   token: TOKEN,
   corsOrigins: ['http://localhost:5173'],
   dbPath,
-  simulation: false,
+  simulation: true,
   tickMs: 80,
 });
 

@@ -23,6 +23,9 @@ import {
   secretJwtDepuisEnv,
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
+import { shellForce } from '../shared/agent-production.js';
+import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
+import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
@@ -198,6 +201,8 @@ import {
   texteFaitDeriveDegradee,
   texteHorizonPourContexte,
 } from './horizon.js';
+import { expliquerRefusBapteme } from './bapteme.js';
+import { METIERS, expliquerRefusMetier } from './metier.js';
 import {
   estNomEnvValide,
   expliquerRefusSecret,
@@ -298,6 +303,54 @@ export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
 /** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
 export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
+/**
+ * Registre des annonces de durée (l'horloge du chantier). BORNE D'ÉLAGAGE de la
+ * table `annonces_duree` (doctrine, règle 3), câblée dans le tick.
+ *
+ * ─── POURQUOI UNE UNITÉ DIFFÉRENTE DE `RESULT_RETENTION`, ET PAS UN ORDRE ────
+ *
+ * `RESULT_RETENTION` est un NOMBRE DE LIGNES, pas une durée : au-delà, seules
+ * les colonnes lourdes (`diff`, `logs`) sont vidées — la LIGNE survit, donc
+ * `durationMs` aussi, indéfiniment. Comparer les deux bornes n'a donc pas de
+ * sens : elles ne mesurent pas la même chose.
+ *
+ * Ce qui compte pour l'horloge est ailleurs : l'annonce est la moitié
+ * PÉRISSABLE du couple. Le réel ne disparaît jamais ; la promesse, si. Une
+ * annonce élaguée fait donc silencieusement sortir une tâche de la calibration
+ * — sans erreur, sans trou visible, juste une note calculée sur moins de cas
+ * qu'on ne croit.
+ *
+ * Six mois : assez pour que la fenêtre de calibration couvre plusieurs saisons
+ * de la ruche, assez court pour que la table ne devienne pas un journal.
+ */
+const ANNONCES_RETENTION_MS = 180 * 24 * 60 * 60_000;
+
+/**
+ * À quel rythme l'horloge SE NOTE.
+ *
+ * Pas à chaque battement : la note ne bouge qu'aux atterrissages, et une
+ * requête de cinq cents lignes toutes les quelques secondes serait payée pour
+ * rien. Cinq minutes suffisent — une dérive de calibration se mesure en jours,
+ * pas en secondes.
+ */
+const CALIBRATION_PERIODE_MS = 5 * 60_000;
+
+/**
+ * Le rappel : même verdict inchangé, on le redit au bout de six heures.
+ *
+ * ─── POURQUOI « à chaque changement » NE SUFFIT PAS ──────────────────────────
+ *
+ * N'émettre que sur changement est la bonne règle pour un journal — un signal
+ * répété cesse d'être un signal. Mais le journal est ÉLAGUÉ : un verdict stable
+ * pendant une semaine sortirait de la fenêtre et n'y reviendrait jamais. L'écran
+ * afficherait alors « rien » sur une horloge parfaitement notée, et « rien » se
+ * lit « personne ne surveille ».
+ *
+ * Six heures : assez rare pour ne rien noyer, assez fréquent pour qu'une
+ * fenêtre de journal en contienne toujours un.
+ */
+const CALIBRATION_RAPPEL_MS = 6 * 60 * 60_000;
 
 /**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
@@ -1329,10 +1382,53 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
       });
+
+      // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
+      //     l'annonce ────────────────────────────────────────────────────────
+      //
+      // Ici et nulle part ailleurs, pour la raison qui gouverne déjà cette
+      // fonction : une seule porte vers les ouvrières. Une annonce posée à un
+      // second endroit serait une annonce qu'on oublie de mettre à jour.
+      //
+      // La caste est FIGÉE maintenant. Elle est vive — recalculée à chaque
+      // interrogation —, et la relire dans trois semaines pour expliquer cette
+      // durée-ci rendrait un historique faux.
+      //
+      // Le socle `aucun` est enregistré comme les autres : savoir que la ruche
+      // n'avait RIEN à dire ce jour-là fait partie de son histoire, et c'est ce
+      // qui permettra plus tard de dater le moment où elle a commencé à savoir.
+      const annonce = estimerDuree(store.historiqueDurees(), { caste: casteDe(nodeId) });
+      store.enregistrerAnnonce(task.id, nodeId, casteDe(nodeId), annonce);
+      emitEvent('duree_annoncee', {
+        taskId: task.id,
+        nodeId,
+        socle: annonce.socle,
+        n: annonce.n,
+        p50Ms: annonce.p50Ms,
+        p80Ms: annonce.p80Ms,
+      });
     }
   };
 
   const scheduler = new Scheduler(store, {
+    // ─── DEUX QUESTIONS QU'IL NE FAUT PAS CONFONDRE ──────────────────────────
+    //
+    // `config.simulation` (HIVE_SIMULATION=1) relâche TROIS GARDES DE SÉCURITÉ
+    // plus haut dans cette fonction : jeton trivial toléré, secret de session
+    // absent toléré, secret de webhook absent toléré. Ce drapeau ne doit
+    // JAMAIS s'élargir — `HIVE_AGENT=shell` ouvrirait ces trois portes-là à
+    // qui pose une variable d'environnement.
+    //
+    // « ce nœud peut-il recevoir du travail de démonstration » est une
+    // question DIFFÉRENTE, et elle ne relâche aucune sécurité. Le message de
+    // `messageRefusShellProduction` promet DEUX trappes — « HIVE_SIMULATION=1
+    // ou HIVE_AGENT=shell » — et `demarrageNoeudAutorise` les honore toutes
+    // les deux. L'ordonnanceur n'en honorait qu'une : un nœud démarré sur la
+    // foi du message restait éligible à rien, et sa tâche courait sans fin.
+    //
+    // Un message qui annonce un contrat que le code n'honore pas est un
+    // mensonge lent. Ici les deux portes disent enfin la même chose.
+    simulation: config.simulation || shellForce(process.env),
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',
@@ -1940,6 +2036,83 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       })),
     };
   });
+
+  /** La Reine baptise — geste humain, jeton de ruche uniquement. */
+  app.post<{ Body: { nodeId: string; nom: string } }>(
+    '/api/baptemes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'nom'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            nom: { type: 'string', minLength: 1, maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.baptiser(req.body.nodeId, req.body.nom);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusBapteme(verdict.motif) });
+      }
+      emitEvent('bapteme_pose', { nodeId: req.body.nodeId, nom: verdict.nom });
+      return { ok: true, nodeId: req.body.nodeId, nom: verdict.nom };
+    },
+  );
+
+  app.delete<{ Params: { nodeId: string } }>('/api/baptemes/:nodeId', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!store.getNode(req.params.nodeId)) {
+      return reply.code(404).send({ error: 'ouvrière inconnue' });
+    }
+    const ok = store.debaptiser(req.params.nodeId);
+    if (!ok) return reply.code(404).send({ error: 'aucun baptême à retirer' });
+    emitEvent('bapteme_retire', { nodeId: req.params.nodeId });
+    return { ok: true };
+  });
+
+  /** Métiers de cycle assignés — lecture constatée. */
+  app.get('/api/metiers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      metiers: store.listerMetiers(),
+      catalogue: METIERS,
+    };
+  });
+
+  /** La Reine assigne un métier de cycle — liste fermée. */
+  app.post<{ Body: { nodeId: string; metier: string } }>(
+    '/api/metiers',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'metier'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            metier: { type: 'string', minLength: 1, maxLength: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.assignerMetier(req.body.nodeId, req.body.metier);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusMetier(verdict.motif) });
+      }
+      emitEvent('metier_assigne', {
+        nodeId: req.body.nodeId,
+        metier: verdict.metier,
+      });
+      return { ok: true, nodeId: req.body.nodeId, metier: verdict.metier };
+    },
+  );
 
   /**
    * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
@@ -3492,7 +3665,52 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const { resumeHorizon } = await import('./horizon.js');
         body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
       }
+      const nodes = store.listNodes();
+      const enLigne = nodes.filter((n) => n.status === 'online').length;
+      const agentsReels = nodes.some((n) => n.agentType !== 'shell' && n.agentType !== 'sim');
+      const projet = store.getProject(req.params.projectId);
+      const veutFusion = e.niveau === 'plein';
+      const gouv = gouvernantes(e.noeuds);
+      body.pret = {
+        runner: modeRunner === 'on',
+        gouvernantes: gouv.length >= GOUVERNANTES_MIN,
+        noeudsEnLigne: enLigne >= 1,
+        agentsReels,
+        depot: !veutFusion || e.depotInscrit,
+        derive: e.derive.etat !== 'degradee',
+        plafond: e.plafond !== 'bloque',
+        repo: !veutFusion || depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      };
       return body;
+    },
+  );
+
+  /** Derniers cycles du runner pour ce projet — journal essaim_cycle. */
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
+    '/api/projects/:projectId/essaim/cycles',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
+      const pid = req.params.projectId;
+      const cycles = store
+        .listEvents(0, 800)
+        .filter(
+          (ev) =>
+            ev.type === 'essaim_cycle' &&
+            typeof ev.payload === 'object' &&
+            ev.payload !== null &&
+            (ev.payload as { projectId?: string }).projectId === pid,
+        )
+        .slice(-lim)
+        .reverse()
+        .map((ev) => ({
+          ts: ev.ts,
+          ...(ev.payload as Record<string, unknown>),
+        }));
+      return { cycles };
     },
   );
 
@@ -8111,6 +8329,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * passe) : sur dix ans, la mémoire ne dérive pas.
    */
   const contextesRelivres = new Map<string, string>();
+  /**
+   * Les tâches dont on a DÉJÀ dit qu'elles sortaient du domaine connu.
+   *
+   * Le tick repasse toutes les quelques secondes. Sans cette mémoire, la même
+   * tâche déclencherait le même avertissement des centaines de fois, et la
+   * Chronique se remplirait d'une seule nouvelle jusqu'à noyer tout le reste.
+   * Un signal répété cesse d'être un signal.
+   *
+   * Bornée par les tâches encore en vol (purge dans le tick) : sinon elle
+   * grandirait sans fin dans un processus qui tourne des mois.
+   */
+  const horsDomaineDits = new Set<string>();
+
+  /**
+   * La note de l'horloge : quand elle a été recalculée, et ce qu'elle a dit.
+   *
+   * `null` tant que rien n'a été émis — distinct de `'trop_peu'`, qui est un
+   * verdict à part entière et mérite d'être inscrit une fois : savoir que la
+   * ruche n'avait PAS ENCORE de quoi se noter fait partie de son histoire.
+   *
+   * Deux scalaires, jamais une collection : rien à élaguer ici.
+   */
+  let calibrationVueA = 0;
+  let calibrationDite: Calibration['verdict'] | null = null;
+  let calibrationDiteA = 0;
 
   /**
    * Quand chaque tâche muette a été re-servie pour la dernière fois.
@@ -8223,6 +8466,76 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Borne la croissance du journal, de la mémoire Hive Mind, des résultats
       // et des verdicts de garde (doctrine, règle 3 : une table nouvelle arrive
       // avec sa borne d'élagage, et la borne est CÂBLÉE, pas seulement écrite).
+      // ─── L'HORLOGE ALERTE : cette tâche est SORTIE du domaine connu ──────
+      //
+      // Elle court depuis plus longtemps que TOUT ce que la ruche a observé.
+      // Ce n'est pas « presque fini » — c'est qu'il n'existe plus une seule
+      // observation comparable, donc plus rien à estimer. L'instant précis où
+      // un humain a besoin d'être prévenu, et celui où un compte à rebours
+      // afficherait « bientôt » avec aplomb.
+      //
+      // UNE SEULE FOIS PAR TÂCHE. Le tick repasse toutes les quelques
+      // secondes ; sans mémoire, la Chronique se remplirait du même
+      // avertissement jusqu'à noyer tout le reste — un signal répété cesse
+      // d'être un signal.
+      {
+        const histoire = store.historiqueDurees();
+        for (const enVol of store.tachesEnVolAnnoncees()) {
+          if (horsDomaineDits.has(enVol.taskId)) continue;
+          const reste = resteEstime(histoire, maintenant - enVol.faiteA, { caste: enVol.caste });
+          if (reste.connu || reste.motif !== 'hors_domaine') continue;
+          horsDomaineDits.add(enVol.taskId);
+          emitEvent('duree_hors_domaine', {
+            taskId: enVol.taskId,
+            nodeId: enVol.nodeId,
+            ecouleMs: maintenant - enVol.faiteA,
+            recordMs: reste.recordMs,
+          });
+        }
+        // Bornée par les tâches ENCORE en vol : une tâche qui atterrit oublie
+        // son avertissement, et le redonnerait donc si elle repartait. Sans
+        // cette purge, la carte grandirait sans fin dans un processus qui
+        // tourne des mois — la même borne que `contextesRelivres` au-dessus.
+        if (horsDomaineDits.size > 0) {
+          const encore = new Set(store.tachesEnVolAnnoncees().map((t) => t.taskId));
+          for (const id of horsDomaineDits) if (!encore.has(id)) horsDomaineDits.delete(id);
+        }
+      }
+
+      // ─── L'HORLOGE SE NOTE ELLE-MÊME ──────────────────────────────────────
+      //
+      // C'est la pièce qui rend tout le reste utilisable. Sans elle, un
+      // intervalle n'est qu'un chiffre plus large — donc plus difficile à
+      // prendre en défaut, ce qui n'est PAS la même chose qu'être juste.
+      //
+      // On n'émet QUE sur changement de verdict, ou au rappel : un verdict
+      // répété toutes les cinq minutes noierait la Chronique, et un verdict
+      // jamais redit sortirait de la fenêtre du journal pour n'y plus revenir.
+      //
+      // La note ne compte que les annonces CHIFFRÉES — `annoncesJugees` écarte
+      // le socle « aucun », dont le `p80Ms` vaut 0. Sans cet écart, une ruche
+      // neuve, qui n'annonce rien parce qu'elle n'a pas d'historique, se
+      // déclarerait menteuse dès son premier jour.
+      if (maintenant - calibrationVueA >= CALIBRATION_PERIODE_MS) {
+        calibrationVueA = maintenant;
+        const note = calibrer(store.annoncesJugees());
+        const change = note.verdict !== calibrationDite;
+        const rappel = maintenant - calibrationDiteA >= CALIBRATION_RAPPEL_MS;
+        if (change || rappel) {
+          calibrationDite = note.verdict;
+          calibrationDiteA = maintenant;
+          emitEvent('horloge_calibration', {
+            verdict: note.verdict,
+            n: note.n,
+            // Trois décimales : au-delà, on afficherait une précision que
+            // quarante observations ne portent pas.
+            partTenue: Math.round(note.partTenue * 1000) / 1000,
+            ecart: Math.round(note.ecart * 1000) / 1000,
+            change,
+          });
+        }
+      }
+
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
@@ -8235,6 +8548,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
       store.pruneFabriques(REQUISITIONS_RETENTION_MS);
       store.pruneHorizon(HORIZON_RETENTION_MS);
+      // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
+      // colonnes mais ne supprime pas de ligne, donc `durationMs` survit.
+      store.pruneAnnonces(ANNONCES_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes

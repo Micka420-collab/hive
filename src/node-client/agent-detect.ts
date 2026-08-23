@@ -10,7 +10,25 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
 
-export type AgentType = 'claude-code' | 'codex' | 'grok' | 'custom' | 'shell';
+/**
+ * Les agents dont la ruche connaît la FORME des identifiants.
+ *
+ * Source unique : le type en dérive, donc ajouter un agent ici suffit — la
+ * liste et le type ne peuvent plus se contredire.
+ *
+ * Attention : ce n'est PAS la liste des agents exécutables. `getAdapter`
+ * accepte une chaîne libre et connaît des noms absents d'ici (`hermes-agent`).
+ * D'où `estAgentType` juste dessous : un nom d'agent qui vient de
+ * `HIVE_AGENT` est une donnée d'entrée, pas une valeur de ce type.
+ */
+export const AGENT_TYPES = ['claude-code', 'codex', 'grok', 'custom', 'shell'] as const;
+
+export type AgentType = (typeof AGENT_TYPES)[number];
+
+/** Cette chaîne est-elle un agent dont on sait décrire les identifiants ? */
+export function estAgentType(v: unknown): v is AgentType {
+  return typeof v === 'string' && (AGENT_TYPES as readonly string[]).includes(v);
+}
 
 interface AgentProbe {
   agent: Exclude<AgentType, 'shell'>;
@@ -350,6 +368,69 @@ export function agentCredentialEnv(agent: AgentType): string[] {
     return [...configDirs, 'XAI_API_KEY', 'GROK_HOME'];
   }
   return configDirs;
+}
+
+/** Réquisition à ouvrir quand l'agent réel n'a pas d'identifiants locaux. */
+export type RequisitionCredential = {
+  genre: 'cle_api';
+  libelle: string;
+  detail: string;
+};
+
+/**
+ * Si l'agent détecté ne peut pas s'authentifier localement, propose une
+ * réquisition (ADR 0010). Le secret ne transite jamais : l'humain configure
+ * le poste ou accorde depuis la Chambre (Queen / Intendance).
+ */
+export function requisitionSiCredentialsManquantes(
+  agent: AgentType,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: {
+    existe?: (chemin: string) => boolean;
+    plateforme?: string;
+  } = {},
+): RequisitionCredential | null {
+  const existe = opts.existe ?? existsSync;
+  const plateforme = opts.plateforme ?? process.platform;
+  if (agent === 'shell' || agent === 'custom') return null;
+
+  const maison = (plateforme === 'win32' ? env.USERPROFILE : env.HOME)?.trim();
+  const p = plateforme === 'win32' ? path.win32 : path.posix;
+
+  if (agent === 'claude-code') {
+    if ((env.ANTHROPIC_API_KEY ?? '').trim()) return null;
+    if ((env.ANTHROPIC_AUTH_TOKEN ?? '').trim()) return null;
+    if (maison && existe(p.join(maison, '.claude'))) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé ou session Anthropic (Claude Code)',
+      detail:
+        'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
+        'Connectez-vous avec `claude login` localement, ou accordez une clé depuis la Chambre.',
+    };
+  }
+
+  if (agent === 'codex') {
+    if ((env.OPENAI_API_KEY ?? '').trim()) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé OpenAI (Codex)',
+      detail: 'OPENAI_API_KEY absente sur ce nœud — l’agent ne pourra pas s’authentifier.',
+    };
+  }
+
+  if (agent === 'grok') {
+    if ((env.XAI_API_KEY ?? '').trim()) return null;
+    const grokHome = (env.GROK_HOME ?? (maison ? p.join(maison, '.grok') : '')).trim();
+    if (grokHome && existe(grokHome)) return null;
+    return {
+      genre: 'cle_api',
+      libelle: 'Clé xAI ou session Grok',
+      detail: 'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.',
+    };
+  }
+
+  return null;
 }
 
 /** Liste tous les agents détectés (pour information / diagnostic). */

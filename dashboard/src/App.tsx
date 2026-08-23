@@ -24,6 +24,7 @@ import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import { transitionDifferees } from './differees';
+import { annoncesDepuisEvenements } from './horloge-vue';
 import {
   compteAffiche,
   doitSonder,
@@ -499,6 +500,11 @@ export function App() {
   };
 
   const openTask = openTaskId ? (snapshot.tasks.find((t) => t.id === openTaskId) ?? null) : null;
+
+  // L'horloge du chantier, repliée depuis le journal déjà reçu. Calculée ici et
+  // non dans le tiroir : le repli parcourt tout le flux, et le refaire à chaque
+  // ouverture du tiroir le referait à chaque événement pendant qu'il est ouvert.
+  const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
   const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
 
   return (
@@ -667,7 +673,12 @@ export function App() {
       </div>
 
       {openTask && (
-        <TaskDrawer task={openTask} nodes={snapshot.nodes} onClose={() => setOpenTaskId(null)} />
+        <TaskDrawer
+          task={openTask}
+          nodes={snapshot.nodes}
+          horloge={annonces.get(openTask.id)}
+          onClose={() => setOpenTaskId(null)}
+        />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
     </div>

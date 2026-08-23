@@ -22,7 +22,9 @@ type Family =
   | 'conflits'
   | 'memoire'
   | 'instinct'
+  | 'essaim'
   | 'balance'
+  | 'horloge'
   | 'autres';
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
@@ -34,7 +36,9 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
   { id: 'conflits', fr: 'Conflits', en: 'Conflicts' },
   { id: 'memoire', fr: 'Mémoire', en: 'Memory' },
   { id: 'instinct', fr: 'Instinct', en: 'Instinct' },
+  { id: 'essaim', fr: 'Essaim', en: 'Swarm' },
   { id: 'balance', fr: 'Balance', en: 'Balance' },
+  { id: 'horloge', fr: 'Horloge', en: 'Clock' },
   { id: 'autres', fr: 'Autres', en: 'Other' },
 ];
 
@@ -54,8 +58,27 @@ const INSTINCT = new Set(['pheromone_route', 'thermo_shift', 'brood_context']);
  */
 const BALANCE = new Set(['balance_alert', 'balance_cap_reached', 'balance_cap_set']);
 
+const ESSAIM = new Set([
+  'essaim_cycle',
+  'swarm_level_set',
+  'swarm_task_created',
+  'bapteme_pose',
+  'bapteme_retire',
+  'metier_assigne',
+]);
+
+/**
+ * L'horloge du chantier : ce que la ruche a ANNONCÉ, et l'alerte quand une
+ * tâche sort du domaine où l'historique dit encore quelque chose.
+ *
+ * Famille à part, et pas « Autres » : « Autres » est la case qu'on décoche en
+ * premier quand le journal déborde. Une annonce qu'on ne peut pas isoler ne
+ * peut pas être surveillée, et une horloge qu'on ne surveille pas redevient un
+ * chiffre auquel on croit sur parole.
+ */
 function familyOf(type: string): Family {
   if (INSTINCT.has(type)) return 'instinct';
+  if (ESSAIM.has(type)) return 'essaim';
   if (BALANCE.has(type)) return 'balance';
   if (type === 'conflict_detected' || type === 'task_conflict_deferred') return 'conflits';
   if (type.startsWith('drone')) return 'courses';
@@ -63,6 +86,7 @@ function familyOf(type: string): Family {
   if (type.startsWith('memory')) return 'memoire';
   if (type.startsWith('task')) return 'taches';
   if (type.startsWith('node')) return 'noeuds';
+  if (type.startsWith('duree') || type.startsWith('horloge')) return 'horloge';
   return 'autres';
 }
 
@@ -126,7 +150,9 @@ export default function Chronique({ events }: ViewProps) {
       conflits: 0,
       memoire: 0,
       instinct: 0,
+      essaim: 0,
       balance: 0,
+      horloge: 0,
       autres: 0,
     };
     for (const ev of events) c[familyOf(ev.type)] += 1;

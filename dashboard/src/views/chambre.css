@@ -535,6 +535,40 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 18%, transparent);
 }
 
+.ch-bapteme-form {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.ch-bapteme-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 160px;
+}
+.ch-bapteme-label input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--ch-bordure, #e0d2b6);
+}
+.ch-metier-form {
+  margin-top: 14px;
+}
+.ch-metier-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ch-metier-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
 .ch-statut-dot.ch-statut-off::before {
   background: var(--ch-mute);
   box-shadow: none;

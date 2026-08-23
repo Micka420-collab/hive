@@ -211,7 +211,7 @@ describe('GET /api/projects/:id/merge (intégration)', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 80,
     });
     // Adaptateur qui renvoie un diff conflictuel selon la tâche.
