@@ -136,13 +136,74 @@ un signal répété cesse d'être un signal. Et cette mémoire est **purgée** d
 tâches qui ont atterri : la doctrine des bornes vaut aussi pour ce qui vit en
 mémoire, dans un processus qui tourne des mois.
 
+## Ce qui s'affiche, et pourquoi le verdict est la pièce maîtresse
+
+L'annonce se lit dans le **tiroir de tâche**, avec son `n` :
+
+> **Annoncé** — 7 min à 25 min — 8 fois sur 10 (12 obs.)
+
+Jamais l'intervalle seul. Sur 5 observations et sur 400, il ne se planifie pas
+pareil, et un intervalle sans son socle invite à une confiance qu'il n'a pas
+méritée.
+
+### Le verdict, sur chaque tâche finie
+
+> **Annonce tenue** — 15 min pour un plafond annoncé de 25 min.
+
+C'est **la seule ligne de l'écran qui rende l'horloge réfutable**. Une annonce
+qu'on n'oppose jamais à ce qui est arrivé ne coûte rien à faire et ne vaut rien :
+personne ne peut dire si elle valait quelque chose. `calibrer()` fait ce travail
+en gros, sur des dizaines d'annonces ; le verdict le fait au cas par cas, sous
+les yeux de qui ouvre la tâche.
+
+### Deux refus, et c'est là qu'est le fond
+
+**Sur socle `aucun`, aucun verdict.** `p80Ms` y vaut 0 — la ruche a dit « je ne
+sais pas encore ». Comparer le réel à ce 0 rendrait « débordée » sur chacune de
+ces tâches : on noterait comme une prédiction ratée un **refus de prédire**.
+L'effet à trois semaines est mécanique — on annonce n'importe quoi plutôt que de
+porter un rouge imérité, et le verdict finit par mesurer l'inverse de ce qu'il
+prétend.
+
+**« Débordée » reste en ambre, jamais en rouge**, et la phrase porte sa propre
+statistique : _une annonce sur cinq est censée déborder — c'est leur RÉPÉTITION
+qui accuse l'horloge, pas celle-ci._ Peindre une débordée comme une panne pousse
+à annoncer large pour n'être jamais pris en défaut. Plus dur à prendre en défaut
+n'est pas plus juste.
+
+### Sans annonce dans la fenêtre : rien du tout
+
+Pas un « — ». Le journal est élagué : une annonce assez vieille n'y est plus. Un
+tiret se lirait « la ruche n'avait rien annoncé » quand la vérité est « le
+journal ne s'en souvient plus » — deux faits opposés qu'un tiret confondrait.
+
+C'est la même raison qui rend les **deux moitiés indépendantes** : l'alerte hors
+domaine s'affiche même quand l'annonce a disparu. La tâche la plus longue est
+celle dont l'annonce a eu le plus de temps pour sortir de la fenêtre, et la seule
+pour qui l'alerte compte.
+
+### D'où viennent les chiffres
+
+Du **flux**, pas d'une route neuve. `duree_annoncee` et `duree_hors_domaine`
+arrivent déjà dans le journal que le tableau de bord reçoit ; `annoncesDepuisEvenements`
+les replie par tâche. Ouvrir un endpoint pour relire `annonces_duree`
+ajouterait un aller-retour, un cache à invalider et une seconde vérité à tenir
+d'accord avec la première.
+
+### Une famille à part dans la Chronique
+
+Les deux événements tombent sous la puce **Horloge**, pas sous « Autres ».
+« Autres » est la case qu'on décoche en premier quand le journal déborde : ce
+qu'on ne peut pas isoler ne se surveille pas, et une horloge qu'on ne surveille
+pas redevient un chiffre auquel on croit sur parole.
+
 ## Ce qui reste à brancher
 
-- **l'afficher** dans la Chronique et Plein Essaim, avec son `n` — les deux
-  événements (`duree_annoncee`, `duree_hors_domaine`) sont déjà émis, ils
-  n'attendent qu'un écran ;
 - **surveiller** le verdict de calibration dans le temps — une horloge qui
-  glisse vers `optimiste` signale que les tâches changent de nature.
+  glisse vers `optimiste` signale que les tâches changent de nature. Le verdict
+  par tâche est là ; l'agrégat dans la durée ne l'est pas encore ;
+- **Plein Essaim** — l'annonce sur les tâches en vol, pour n'avoir pas à ouvrir
+  chaque tiroir.
 
 ### Et ce que je n'inventerai pas
 

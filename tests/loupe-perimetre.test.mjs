@@ -45,6 +45,55 @@ describe('diagnosticSansCandidate — distinguer « rien vu » de « rien à voi
   });
 });
 
+describe('la TROISIÈME manière de ne rien mesurer : n’avoir rien commis', () => {
+  // ─── LE DÉFAUT QUI A FAIT NAÎTRE CE BLOC ───────────────────────────────────
+  //
+  // La loupe lit `BASE...HEAD` — l'HISTOIRE, jamais l'arbre de travail. Un lot
+  // entier écrit et éprouvé mais pas encore commis lui est donc invisible :
+  // `HEAD` vaut la base, le diff est vide, et elle rendait « aucune ligne
+  // mutable ». Vrai, et vrai à propos de rien.
+  //
+  // Ce cas-ci n'est pas une invocation fautive — il n'y a rien à corriger dans
+  // la ligne de commande. C'est la question posée et la question répondue qui
+  // divergent. D'où un motif distinct : les deux autres se réparent en changeant
+  // l'appel, celui-ci se répare en commitant.
+
+  it('du travail non commis dans le périmètre ⇒ code 2, et il NOMME les fichiers', () => {
+    const d = diagnosticSansCandidate(5, ['src'], ['src/neuf.ts', 'src/modifie.ts']);
+    expect(d.motif).toBe('arbre_non_commis');
+    expect(d.code).toBe(2);
+    // Nommer les fichiers n'est pas décoratif : sans la liste, le message
+    // laisse chercher ce qui n'a pas été commis dans un périmètre entier.
+    expect(d.nonCommis).toEqual(['src/neuf.ts', 'src/modifie.ts']);
+  });
+
+  it('L’ORDRE COMPTE : un périmètre vide l’emporte sur du non-commis', () => {
+    // Les deux peuvent être vrais ensemble — un chemin mal découpé ET un arbre
+    // sale. Celui qui doit parler est le périmètre : tant qu'il ne désigne
+    // rien, commiter ne changerait rigoureusement rien au verdict. Inverser les
+    // deux tests enverrait commiter quelqu'un dont l'invocation est cassée.
+    const d = diagnosticSansCandidate(0, ['src/a.ts src/b.ts'], ['src/a.ts']);
+    expect(d.motif).toBe('perimetre_vide');
+  });
+
+  it('ARBRE PROPRE : on retombe sur « rien à muter », et sur le code 0', () => {
+    // La moitié qui tue « toujours arbre_non_commis ». Une liste VIDE doit
+    // laisser passer le verdict légitime — sinon la loupe ne rendrait plus
+    // jamais de vert sur un diff honnêtement sans candidate.
+    const d = diagnosticSansCandidate(5, ['src'], []);
+    expect(d.motif).toBe('rien_a_muter');
+    expect(d.code).toBe(0);
+  });
+
+  it('SANS TROISIÈME ARGUMENT, le comportement d’avant est intact', () => {
+    // Le défaut `= []` est ce qui rend l'ajout rétro-compatible. S'il sautait,
+    // `nonCommis.length` lèverait sur chaque appel à deux arguments — et la
+    // loupe mourrait là où elle rendait un verdict.
+    expect(diagnosticSansCandidate(5, ['src']).motif).toBe('rien_a_muter');
+    expect(diagnosticSansCandidate(0, ['src']).motif).toBe('perimetre_vide');
+  });
+});
+
 describe('cheminsDuBalayage — le piège des espaces, éprouvé', () => {
   // LE CAS EXACT QUI A COÛTÉ UN BALAYAGE. Sans ce banc, rien n'empêcherait
   // quelqu'un de « simplifier » le découpage un jour.

@@ -12994,3 +12994,66 @@ Cerveau (`serviIlYaJours === null`), server.ts (`find taskId && nodeId`).
 Mesuré : aucun n'existe sous cette forme. Les quatre gardes réelles de
 `cerveau-graphe.ts` (L182, L255) sont TENUES 4 sur 4. Retirés du carnet plutôt
 que laissés à faire croire à du travail en attente.
+
+---
+
+## L'horloge s'affiche — et le verdict qui la rend réfutable
+
+**Tâche #107, sixième lot.** L'horloge annonçait déjà dans le journal, et
+personne ne voyait l'annonce. Un chiffre émis et jamais confronté ne coûte rien
+à faire et ne vaut rien — il n'existe aucun moyen de dire s'il valait quelque
+chose.
+
+### Ce qui se lit maintenant dans le tiroir de tâche
+
+| Ligne            | Ce qu'elle dit                                                         |
+| ---------------- | ---------------------------------------------------------------------- |
+| **Annoncé**      | « 7 min à 25 min — 8 fois sur 10 (12 obs.) », jamais l'intervalle seul |
+| **Verdict**      | tenue / débordée, avec le plafond annoncé en regard                    |
+| **Hors domaine** | le record observé, jamais un « bientôt »                               |
+
+### Les deux refus, qui sont le fond du lot
+
+**Socle `aucun` ⇒ aucun verdict.** `p80Ms` y vaut 0 : sans la garde, toute durée
+le dépasse et l'écran écrirait « débordée » sur chaque tâche que la ruche a eu
+l'honnêteté de ne pas chiffrer. Le verdict mesurerait alors l'inverse de ce
+qu'il prétend, et l'incitation créée est claire — chiffrer n'importe quoi plutôt
+que porter un rouge imérité.
+
+**« Débordée » en ambre, jamais en rouge**, et la phrase porte sa statistique :
+une annonce à 80 % est CENSÉE déborder une fois sur cinq. La peindre comme une
+panne pousse à annoncer large ; plus dur à prendre en défaut n'est pas plus
+juste.
+
+### Deux défauts trouvés en câblant
+
+- **`direDuree` rendait du français dans le chemin anglais.** Un seul palier
+  sépare les deux langues — « moins d'une seconde ». Au-dessus, « 45 s »,
+  « 5 min », « 2 h 05 » s'écrivent pareil, et le banc de langue n'éprouvait que
+  ces paliers-là. Même cécité que § 9 septemseptuagicenties.
+- **`direAnnonce` exigeait un `Annonce` complet** alors qu'elle ne lit jamais
+  `p95Ms` — ce qui interdisait de rendre une annonce relue du journal. Réduite à
+  ce qu'elle utilise (`AnnonceDite`).
+
+### Le repli vient du flux, pas d'une route neuve
+
+`duree_annoncee` et `duree_hors_domaine` arrivent déjà. Un endpoint ajouterait
+un cache à invalider et une seconde vérité à tenir d'accord avec la première.
+Ses deux moitiés sont **indépendantes** parce que le journal est élagué : la
+tâche la plus longue est celle dont l'annonce a eu le plus de temps pour sortir
+de la fenêtre, et la seule pour qui l'alerte compte.
+
+### La loupe, durcie une troisième fois
+
+Le balayage de ce lot a d'abord rendu « aucune ligne mutable » sur un terrain
+qui en portait dix-huit. Cause : `git diff BASE...HEAD` lit l'**histoire**, et
+le lot n'était pas encore commis. Troisième manière d'obtenir ce silence sans
+avoir rien mesuré — les deux premières (séparateur, périmètre) se réparaient en
+changeant l'invocation ; celle-ci se répare en commitant, donc elle a son propre
+motif et son propre message. Voir § 9 octoseptuagicenties.
+
+### Ce qui reste sur #107
+
+- surveiller la **dérive de calibration** dans le temps (le verdict par tâche
+  est là ; l'agrégat dans la durée ne l'est pas) ;
+- l'annonce dans **Plein Essaim**, pour n'avoir pas à ouvrir chaque tiroir.

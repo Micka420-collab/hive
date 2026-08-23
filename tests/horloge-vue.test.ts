@@ -116,6 +116,24 @@ describe('le repli du journal en annonces', () => {
     expect(par.size).toBe(0);
   });
 
+  it('UNE ALERTE À MOITIÉ LUE EST REFUSÉE — la moitié qui tue `||` → `&&`', () => {
+    // ─── SURVIVANTE DU BALAYAGE, FERMÉE ICI ─────────────────────────────────
+    //
+    // Les deux cas voisins donnaient les DEUX champs, ou AUCUN. Aucun ne
+    // séparait `||` de `&&` : il faut exactement UN champ manquant. Muté en
+    // `&&`, l'alerte passe avec `recordMs` indéfini — et l'écran écrit
+    // « record : undefined » au moment précis où il prétend informer.
+    const sansRecord = annoncesDepuisEvenements([
+      ev('duree_hors_domaine', { taskId: 't9', ecouleMs: 7_200_000 }),
+    ]);
+    expect(sansRecord.size).toBe(0);
+
+    const sansEcoule = annoncesDepuisEvenements([
+      ev('duree_hors_domaine', { taskId: 't9', recordMs: 3_600_000 }),
+    ]);
+    expect(sansEcoule.size).toBe(0);
+  });
+
   it('UN SOCLE INCONNU EST REFUSÉ', () => {
     const par = annoncesDepuisEvenements([annonce('t1', { socle: 'devinette' })]);
     expect(par.size).toBe(0);

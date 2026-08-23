@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `8554248` + ce commit, 22 août 2026)
+## A. Le code tient — ✅ mesuré (arbre `6ea9e4a` + ce commit, 23 août 2026)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -53,15 +53,15 @@
 > ensemble : on re-mesure, on réécrit les quatre nombres, **et on re-date ce
 > titre**. C'est ce que dit le refus, et c'est ce qui a été fait ici.
 
-| Critère                  | Comment on le mesure                                     | Verdict                                                                                                    |
-| ------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                                                                             |
-| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                                                                                    |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4841** (4833 verts, 8 ignorés, **0 rouge**)                                                           |
-| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)                                                                  |
-| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                                                                                   |
-| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ **95 examinés, 35 nues → 33 fermées, 1 équivalente consignée, 1 retirée** (§ terrain, `docs/ETAPES.md`) |
-| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                                                                           |
+| Critère                  | Comment on le mesure                                     | Verdict                                                                                                                                        |
+| ------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                                                                                                                 |
+| Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                                                                                                                        |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **4874** (4866 verts, 8 ignorés, **0 rouge**)                                                                                               |
+| Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)                                                                                                      |
+| L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                                                                                                                       |
+| Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ terrain de l'affichage de l'horloge (base `1b93c44`) : **18 examinées, 2 nues → 2 fermées, contre-rejeu 2/2** (§ terrain, `docs/ETAPES.md`) |
+| Seuil de couverture      | `npm test -- --coverage` (cliquet, jambe `ubuntu`)       | ✅ tenu — vu rougir à +0,1 point                                                                                                               |
 
 - ⚠️ **« SUR CE LOT » N'EST PAS UN RÉFÉRENT.** Cette case a annoncé « 17 nus
   trouvés sur ce lot — tous fermés » pendant quatre lots de plus, dont trois

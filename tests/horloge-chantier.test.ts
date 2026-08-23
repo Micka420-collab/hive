@@ -272,6 +272,14 @@ describe('ce que l’humain lit', () => {
     expect(direDuree(500, 'en')).toBe('under a second');
     expect(direDuree(500, 'en')).not.toContain('seconde');
     expect(direDuree(500, 'fr')).toBe(direDuree(500));
+    // ─── LA BORNE DE LA SECONDE, DANS LES DEUX SENS ────────────────────────
+    //
+    // Survivante du balayage : `< 1000` muté en `<= 1000` ne diffère qu'à
+    // 1000 ms PILE, et aucun cas ne s'y tenait. À la milliseconde près, le
+    // palier bascule — et « moins d'une seconde » pour une seconde entière
+    // est faux dans le seul sens qui compte : celui qui minimise.
+    expect(direDuree(999)).toContain('seconde');
+    expect(direDuree(1000)).toBe('1 s');
     expect(direDuree(45_000)).toBe('45 s');
     expect(direDuree(min(5))).toBe('5 min');
     expect(direDuree(min(120))).toBe('2 h');

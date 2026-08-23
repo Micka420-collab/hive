@@ -14161,3 +14161,80 @@ La loupe distingue désormais les deux et **sort en code 2** sur un périmètre 
 ne désigne aucun fichier suivi : une invocation fautive est une erreur, pas un
 résultat. Même principe que § 9 sexseptuagicenties — un instrument doit échouer
 FERMÉ.
+
+---
+
+## 9 octoseptuagicenties. La loupe lit `BASE...HEAD` : un arbre NON COMMIS lui est invisible, et son silence se lit comme un verdict
+
+### Ce qui s'est passé
+
+Lot d'affichage de l'horloge écrit, barrière verte, et le balayage lancé sur les
+cinq fichiers touchés — base épinglée au dernier commit. Réponse :
+
+```
+LOUPE : aucune ligne mutable ajoutée par cette branche.
+        (rien à conclure — ce n’est PAS un feu vert.)
+```
+
+Le terrain contenait pourtant `reelMs <= annonce.p80Ms`, `taskId === null ||
+taskId === ''`, `typeof v === 'number' && Number.isFinite(v)`,
+`type.startsWith('duree')` — des candidates par poignées.
+
+La cause est d'une ligne :
+
+```js
+['diff', '-U0', `${BASE}...HEAD`, '--', ...cheminsDuBalayage(…)]
+```
+
+**`BASE...HEAD`, pas l'arbre de travail.** Le lot n'était pas encore commis :
+`HEAD` valait exactement la base épinglée, le diff était vide, et la loupe a dit
+la vérité — sur rien.
+
+### La leçon, et pourquoi elle n'est pas la même que les deux précédentes
+
+C'est la **troisième** manière d'obtenir ce message sans avoir rien mesuré :
+
+| Situation                                  | Ce que la loupe rendait      | Traitée par                     |
+| ------------------------------------------ | ---------------------------- | ------------------------------- |
+| `LOUPE_CHEMINS` séparé par des espaces     | « aucune ligne mutable »     | § 9 sexseptuagicenties → code 2 |
+| Périmètre ne désignant aucun fichier suivi | « aucune ligne mutable »     | idem                            |
+| **Rien de commis : `HEAD` == `BASE`**      | **« aucune ligne mutable »** | **ici**                         |
+
+Les deux premières ont été fermées en durcissant l'INVOCATION. La troisième est
+d'une autre nature : l'invocation est parfaitement correcte, le périmètre
+désigne bien des fichiers suivis, et le diff est légitimement vide. Ce qui
+manque n'est pas une validation d'argument — c'est que **la question posée et la
+question répondue ne sont pas la même**. On demande « mon travail est-il
+défendu ? » ; l'instrument répond « l'historique commis n'ajoute rien ».
+
+Le dépôt connaît déjà cette forme : § 9 sexseptuagicenties dit qu'un harnais
+doit échouer FERMÉ. Le complément que ce cas ajoute est plus fin — **un
+instrument doit aussi refuser de répondre quand ce qu'on lui montre n'est pas ce
+qu'on croit lui montrer**. Un diff vide dont le périmètre porte des
+modifications NON COMMISES n'est pas un résultat : c'est un malentendu, et il
+faut le dire avec la phrase qui le lève (« commite d'abord »), pas avec celle
+qui rassure.
+
+### Ce qui a été fait
+
+La loupe distingue désormais le diff vide « rien à muter » du diff vide « rien
+n'est commis » : quand `HEAD` ne diffère pas de la base **et** que le périmètre
+porte des changements non commis, elle sort en **code 2** en nommant les
+fichiers concernés. Trois manières d'obtenir un silence, trois messages, aucun
+qui ressemble à un feu vert.
+
+### Le corollaire d'exploitation, payé au passage
+
+L'outil qui portait le balayage a expiré à dix minutes ; le shell est mort, pas
+le processus `node` — qui a continué à muter l'arbre avec sa sortie standard
+branchée sur un tube fermé. Un `SIGTERM` n'a rien donné : le gestionnaire ne
+peut pas s'exécuter tant qu'un `execFileSync` tient la boucle, et chaque
+mutation lance une suite de deux minutes.
+
+Bilan : un fichier laissé **muté** dans l'arbre, un verrou orphelin, et aucun
+verdict. Le dépôt avait déjà consigné la moitié de cette leçon en
+§ 9 octoquinquagies (« la loupe interrompue laisse l'arbre MUTÉ ») ; ce qui
+s'ajoute ici est la cause en amont — **un balayage ne se lance pas au premier
+plan sous un outil qui a une expiration**. Il vit détaché, sa sortie va dans un
+fichier, et on va la lire. Le journal de reprise `.loupe-en-cours` a fait
+exactement son travail : sans lui, la mutation partait au commit suivant.
