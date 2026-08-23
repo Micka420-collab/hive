@@ -14,8 +14,14 @@ import {
   refusExtraction,
 } from '../src/shared/reine-pieces.js';
 
-/** Pages rendues par le faux pdfjs — un banc les repose avant chaque cas. */
-let pagesPdf: string[][] = [];
+/**
+ * Pages rendues par le faux pdfjs — un banc les repose avant chaque cas.
+ *
+ * `unknown[]` et non `string[]` À DESSEIN : le module garde ses items par
+ * `'str' in it && typeof it.str === 'string'`, et cette garde ne peut se
+ * défendre que si un banc peut lui donner un `str` qui n'est PAS une chaîne.
+ */
+let pagesPdf: unknown[][] = [];
 /** Posé par un banc pour que `getDocument` jette, comme un PDF chiffré. */
 let pdfJette = false;
 /** Texte rendu par le faux mammoth (`undefined` = champ absent). */
@@ -31,7 +37,11 @@ vi.mock('pdfjs-dist', () => ({
         numPages: pagesPdf.length,
         getPage: async (n: number) => ({
           getTextContent: async () => ({
-            items: (pagesPdf[n - 1] ?? []).map((str) => ({ str })),
+            // Une chaîne est le cas courant, et s'écrit court. Un objet passe
+            // TEL QUEL : c'est ainsi qu'un banc pose un item mal formé.
+            items: (pagesPdf[n - 1] ?? []).map((v) =>
+              typeof v === 'object' && v !== null ? v : { str: v },
+            ),
           }),
         }),
       };
@@ -48,6 +58,9 @@ vi.mock('mammoth', () => ({
 
 const { extrairePiece } = await import('../dashboard/src/reine-extraire.js');
 
+/** Combien de fois le module a demandé le CONTENU d'un fichier. */
+let lectures = 0;
+
 /** Un `File` de la taille voulue, sans allouer 8 Mio pour autant. */
 function fichier(
   nom: string,
@@ -58,6 +71,25 @@ function fichier(
   if (opts.octets !== undefined) {
     Object.defineProperty(f, 'size', { value: opts.octets, configurable: true });
   }
+  // Compter les OUVERTURES, sans changer ce qui est lu. C'est la seule façon de
+  // distinguer « refusé sans être ouvert » de « ouvert, puis trouvé vide » : les
+  // deux rendent exactement le même refus, seul le travail fait diffère.
+  const texte = f.text.bind(f);
+  const tampon = f.arrayBuffer.bind(f);
+  Object.defineProperty(f, 'text', {
+    configurable: true,
+    value: () => {
+      lectures++;
+      return texte();
+    },
+  });
+  Object.defineProperty(f, 'arrayBuffer', {
+    configurable: true,
+    value: () => {
+      lectures++;
+      return tampon();
+    },
+  });
   return f;
 }
 
@@ -66,6 +98,7 @@ beforeEach(() => {
   pdfJette = false;
   texteDocx = '';
   docxJette = false;
+  lectures = 0;
 });
 
 describe('les constats faits avant toute lecture', () => {
@@ -74,6 +107,19 @@ describe('les constats faits avant toute lecture', () => {
     expect(piece.texte).toBeUndefined();
     expect(piece.refus).toBe(refusExtraction('texte'));
     expect(piece.octets).toBe(0);
+    // Le refus seul ne prouve RIEN : un fichier de zéro octet lu jusqu'au bout
+    // rendrait le même refus par le chemin « texte vide ». C'est le compteur
+    // qui distingue — et c'est lui qui défend la borne `size <= 0`, que la
+    // loupe a mutée en `size < 0` sans que rien ne rougisse.
+    expect(lectures).toBe(0);
+  });
+
+  it('un PDF de zéro octet n’est pas ouvert non plus', async () => {
+    pagesPdf = [['jamais lu']];
+    const piece = await extrairePiece(fichier('vide.pdf', '', { type: 'application/pdf' }));
+    expect(piece.refus).toBe(refusExtraction('pdf'));
+    expect(piece.texte).toBeUndefined();
+    expect(lectures).toBe(0);
   });
 
   it('un fichier trop lourd est refusé en nommant le plafond', async () => {
@@ -163,6 +209,15 @@ describe('le PDF', () => {
     const piece = await extrairePiece(fichier('doc.pdf', 'xxx', { type: 'application/pdf' }));
     expect(piece.genre).toBe('pdf');
     expect(piece.texte).toBe('Bonjour la ruche\n\nSeconde page');
+  });
+
+  it('un item dont le « str » n’est pas une chaîne est écarté', async () => {
+    // pdfjs mêle des items de texte et des marqueurs de contenu : seul un `str`
+    // de type chaîne est du texte. Sans la garde de TYPE, un nombre entrerait
+    // dans la page — c'est exactement ce qu'autorisait le mutant `&&` → `||`.
+    pagesPdf = [[{ str: 42 }, { str: 'vrai texte' }, { str: { nom: 'piège' } }]];
+    const piece = await extrairePiece(fichier('doc.pdf', 'xxx', { type: 'application/pdf' }));
+    expect(piece.texte).toBe('vrai texte');
   });
 
   it('une page sans texte ne laisse pas de trou entre les autres', async () => {

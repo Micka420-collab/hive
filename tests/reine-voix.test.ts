@@ -55,6 +55,18 @@ class FausseReconnaissance {
 
   /** Rejoue un lot de résultats comme le ferait le navigateur. */
   emettre(resultIndex: number, results: Resultat[]): void {
+    this.emettreBrut(resultIndex, results);
+  }
+
+  /**
+   * Le même envoi, mais sans exiger un TABLEAU.
+   *
+   * Le navigateur rend une liste vivante, pas un `Array` : elle expose
+   * `length` et des indices, et rien ne garantit qu'au-delà de `length` il n'y
+   * ait rien. C'est ce que ce chemin permet de poser — et c'est la seule façon
+   * d'éprouver que `length` fait autorité.
+   */
+  emettreBrut(resultIndex: number, results: ArrayLike<Resultat>): void {
     this.onresult?.(
       Object.assign(new Event('result'), { resultIndex, results }) as Event & {
         resultIndex: number;
@@ -273,6 +285,19 @@ describe('les résultats de la dictée', () => {
     const { rec, textes } = ecouter();
     rec.emettre(0, [{ isFinal: true }, { isFinal: true, 0: { transcript: 'suite' } }]);
     expect(textes).toEqual([['suite', true]]);
+  });
+
+  it('« length » fait autorité : ce qui est au-delà n’est pas lu', () => {
+    const { rec, textes } = ecouter();
+    // Une liste qui PORTE un indice au-delà de sa longueur annoncée. Le parcours
+    // doit s'arrêter à `length - 1` ; la loupe a montré qu'en le mutant en `<=`
+    // rien ne rougissait, faute d'un lot capable de faire la différence.
+    rec.emettreBrut(0, {
+      0: { isFinal: true, 0: { transcript: 'annoncé' } },
+      1: { isFinal: true, 0: { transcript: 'AU-DELÀ' } },
+      length: 1,
+    } as unknown as ArrayLike<Resultat>);
+    expect(textes).toEqual([['annoncé', true]]);
   });
 
   it('un lot entièrement vide n’annonce rien du tout', () => {

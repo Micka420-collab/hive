@@ -77,6 +77,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   juge ce que le module FAIT de ce qu'ils rendent, pas leur capacité à lire
   un PDF). Ils arrivaient sans banc, et le cliquet de couverture le disait —
   fonctions à 78,72 % sous un seuil de 78,8 %.
+  Les deux modules sont ensuite passés sous la loupe (base `727859b`) :
+  18 mutations possibles, 18 examinées, 15 défendues d'emblée. Les trois
+  nues sont fermées par des bancs, pas déclarées équivalentes — la garde de
+  TYPE sur `str` (un nombre entrait dans la page), la borne `size <= 0` (un
+  fichier vide était OUVERT sans que le refus change, seul un compteur
+  d'ouvertures pouvait le voir) et le parcours des résultats vocaux, où
+  `length` doit faire autorité sur ce que la liste porte au-delà.
+  Contre-rejeu : 3 mutants sur 3 font rougir la suite.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
