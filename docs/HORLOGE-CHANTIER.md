@@ -120,12 +120,27 @@ commentaires** — un appel commenté n'appelle rien, et une garde qui lit le te
 brut rassure précisément quand quelqu'un vient de désactiver l'appel à la main.
 Rejeu : commenter l'appel fait rougir.
 
+**L'alerte hors-domaine est câblée** dans le tick. À chaque passe, la ruche
+regarde les tâches encore en vol : celles qui courent depuis plus longtemps que
+_tout_ ce qu'elle a observé émettent `duree_hors_domaine`. Elles ne sont pas
+« presque finies » — il n'existe plus une seule observation comparable.
+
+L'instant de l'assignation vient de `annonces_duree.faiteA`, écrit par
+`envoyerTache` dans le même geste que l'envoi. Plus juste qu'un `updatedAt`, qui
+bouge à chaque changement et confondrait « assignée il y a deux heures » avec
+« statut retouché il y a deux minutes ».
+
+**Une seule fois par tâche.** Le tick repasse toutes les quelques secondes ;
+sans mémoire, la même tâche noierait la Chronique sous un seul avertissement —
+un signal répété cesse d'être un signal. Et cette mémoire est **purgée** des
+tâches qui ont atterri : la doctrine des bornes vaut aussi pour ce qui vit en
+mémoire, dans un processus qui tourne des mois.
+
 ## Ce qui reste à brancher
 
-- **l'afficher** dans la Chronique et Plein Essaim, avec son `n` — l'événement
-  `duree_annoncee` est déjà émis, il n'attend qu'un écran ;
-- **alerter** sur `hors_domaine` plutôt que le rendre en silence : c'est le
-  signal qu'une tâche est sortie du domaine connu ;
+- **l'afficher** dans la Chronique et Plein Essaim, avec son `n` — les deux
+  événements (`duree_annoncee`, `duree_hors_domaine`) sont déjà émis, ils
+  n'attendent qu'un écran ;
 - **surveiller** le verdict de calibration dans le temps — une horloge qui
   glisse vers `optimiste` signale que les tâches changent de nature.
 

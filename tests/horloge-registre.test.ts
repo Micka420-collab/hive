@@ -220,6 +220,90 @@ describe('la borne d’élagage — la doctrine, et le motif qui la règle', () 
   });
 });
 
+describe('les tâches ENCORE en vol — repérer celles qui sortent du domaine', () => {
+  it('ne rend que les tâches assignées ou en cours', () => {
+    const { store, projet } = ruche();
+    const enVol = store.createTask({
+      projectId: projet.id,
+      title: 'A',
+      prompt: 'p',
+      dependsOn: [],
+    });
+    store.enregistrerAnnonce(
+      enVol.id,
+      'n1',
+      'nourrice',
+      { socle: 'exact', n: 9, p50Ms: 1, p80Ms: 2 },
+      500,
+    );
+    store.patchTask(enVol.id, { status: 'running', assignedNodeId: 'n1' });
+    // Une tâche TERMINÉE ne vole plus : elle n'a plus rien à dépasser.
+    menerATerme(store, projet.id, { p80Ms: 1, reelMs: 1 });
+
+    const vol = store.tachesEnVolAnnoncees();
+    expect(vol).toHaveLength(1);
+    expect(vol[0]).toMatchObject({
+      taskId: enVol.id,
+      nodeId: 'n1',
+      caste: 'nourrice',
+      faiteA: 500,
+    });
+  });
+
+  it('une tâche en vol SANS annonce n’y figure pas — on ne saurait pas depuis quand', () => {
+    const { store, projet } = ruche();
+    const muette = store.createTask({
+      projectId: projet.id,
+      title: 'A',
+      prompt: 'p',
+      dependsOn: [],
+    });
+    store.patchTask(muette.id, { status: 'running', assignedNodeId: 'n1' });
+    expect(store.tachesEnVolAnnoncees()).toEqual([]);
+  });
+
+  it('les plus ANCIENNES d’abord — ce sont elles qui inquiètent', () => {
+    const { store, projet } = ruche();
+    for (const [titre, quand] of [
+      ['tard', 9_000],
+      ['tôt', 1_000],
+    ] as const) {
+      const t = store.createTask({
+        projectId: projet.id,
+        title: titre,
+        prompt: 'p',
+        dependsOn: [],
+      });
+      store.enregistrerAnnonce(
+        t.id,
+        'n1',
+        'nourrice',
+        { socle: 'exact', n: 9, p50Ms: 1, p80Ms: 2 },
+        quand,
+      );
+      store.patchTask(t.id, { status: 'running', assignedNodeId: 'n1' });
+    }
+    expect(store.tachesEnVolAnnoncees().map((v) => v.faiteA)).toEqual([1_000, 9_000]);
+  });
+
+  it('la lecture est bornée', () => {
+    const { store, projet } = ruche();
+    for (let i = 0; i < 5; i += 1) {
+      const t = store.createTask({ projectId: projet.id, title: 'V', prompt: 'p', dependsOn: [] });
+      store.enregistrerAnnonce(
+        t.id,
+        'n1',
+        'nourrice',
+        { socle: 'exact', n: 9, p50Ms: 1, p80Ms: 2 },
+        i,
+      );
+      store.patchTask(t.id, { status: 'running', assignedNodeId: 'n1' });
+    }
+    expect(store.tachesEnVolAnnoncees(2)).toHaveLength(2);
+    expect(store.tachesEnVolAnnoncees(0)).toHaveLength(1);
+  });
+});
+
 describe('bout en bout — la ruche note son horloge', () => {
   it('huit annonces tenues sur dix ⇒ verdict « honnête »', () => {
     const { store, projet } = ruche();

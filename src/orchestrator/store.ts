@@ -2116,6 +2116,30 @@ export class HiveStore {
   }
 
   /**
+   * Les tâches ENCORE en vol, avec l'instant où on les a annoncées.
+   *
+   * `faiteA` est l'instant exact de l'assignation — c'est `envoyerTache` qui
+   * l'écrit, dans le même geste que l'envoi. Plus juste qu'un `updatedAt`, qui
+   * bouge à chaque changement et confondrait « assignée il y a deux heures »
+   * avec « statut retouché il y a deux minutes ».
+   *
+   * Sert à repérer les tâches sorties du domaine connu : celles qui courent
+   * depuis plus longtemps que TOUT ce que la ruche a observé.
+   */
+  tachesEnVolAnnoncees(
+    limite = 200,
+  ): Array<{ taskId: string; nodeId: string; caste: string; faiteA: number }> {
+    const cap = Math.max(1, Math.min(limite, 2000));
+    return this.db
+      .prepare(
+        'SELECT a.taskId AS taskId, a.nodeId AS nodeId, a.caste AS caste, a.faiteA AS faiteA ' +
+          'FROM annonces_duree a JOIN tasks t ON t.id = a.taskId ' +
+          "WHERE t.status IN ('assigned', 'running') ORDER BY a.faiteA ASC LIMIT ?",
+      )
+      .all(cap) as Array<{ taskId: string; nodeId: string; caste: string; faiteA: number }>;
+  }
+
+  /**
    * Les annonces qui ont trouvé leur réel — de quoi noter l'horloge.
    *
    * On ne retient que les tâches RÉUSSIES : une tâche abandonnée n'a pas

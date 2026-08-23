@@ -24,7 +24,7 @@ import {
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
 import { shellForce } from '../shared/agent-production.js';
-import { estimerDuree } from '../shared/horloge-chantier.js';
+import { estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
@@ -8148,6 +8148,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * passe) : sur dix ans, la mémoire ne dérive pas.
    */
   const contextesRelivres = new Map<string, string>();
+  /**
+   * Les tâches dont on a DÉJÀ dit qu'elles sortaient du domaine connu.
+   *
+   * Le tick repasse toutes les quelques secondes. Sans cette mémoire, la même
+   * tâche déclencherait le même avertissement des centaines de fois, et la
+   * Chronique se remplirait d'une seule nouvelle jusqu'à noyer tout le reste.
+   * Un signal répété cesse d'être un signal.
+   *
+   * Bornée par les tâches encore en vol (purge dans le tick) : sinon elle
+   * grandirait sans fin dans un processus qui tourne des mois.
+   */
+  const horsDomaineDits = new Set<string>();
 
   /**
    * Quand chaque tâche muette a été re-servie pour la dernière fois.
@@ -8260,6 +8272,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Borne la croissance du journal, de la mémoire Hive Mind, des résultats
       // et des verdicts de garde (doctrine, règle 3 : une table nouvelle arrive
       // avec sa borne d'élagage, et la borne est CÂBLÉE, pas seulement écrite).
+      // ─── L'HORLOGE ALERTE : cette tâche est SORTIE du domaine connu ──────
+      //
+      // Elle court depuis plus longtemps que TOUT ce que la ruche a observé.
+      // Ce n'est pas « presque fini » — c'est qu'il n'existe plus une seule
+      // observation comparable, donc plus rien à estimer. L'instant précis où
+      // un humain a besoin d'être prévenu, et celui où un compte à rebours
+      // afficherait « bientôt » avec aplomb.
+      //
+      // UNE SEULE FOIS PAR TÂCHE. Le tick repasse toutes les quelques
+      // secondes ; sans mémoire, la Chronique se remplirait du même
+      // avertissement jusqu'à noyer tout le reste — un signal répété cesse
+      // d'être un signal.
+      {
+        const histoire = store.historiqueDurees();
+        for (const enVol of store.tachesEnVolAnnoncees()) {
+          if (horsDomaineDits.has(enVol.taskId)) continue;
+          const reste = resteEstime(histoire, maintenant - enVol.faiteA, { caste: enVol.caste });
+          if (reste.connu || reste.motif !== 'hors_domaine') continue;
+          horsDomaineDits.add(enVol.taskId);
+          emitEvent('duree_hors_domaine', {
+            taskId: enVol.taskId,
+            nodeId: enVol.nodeId,
+            ecouleMs: maintenant - enVol.faiteA,
+            recordMs: reste.recordMs,
+          });
+        }
+        // Bornée par les tâches ENCORE en vol : une tâche qui atterrit oublie
+        // son avertissement, et le redonnerait donc si elle repartait. Sans
+        // cette purge, la carte grandirait sans fin dans un processus qui
+        // tourne des mois — la même borne que `contextesRelivres` au-dessus.
+        if (horsDomaineDits.size > 0) {
+          const encore = new Set(store.tachesEnVolAnnoncees().map((t) => t.taskId));
+          for (const id of horsDomaineDits) if (!encore.has(id)) horsDomaineDits.delete(id);
+        }
+      }
+
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);

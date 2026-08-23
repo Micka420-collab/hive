@@ -66,6 +66,43 @@ describe('l’annonce est écrite au moment où elle est faite', () => {
   });
 });
 
+describe('l’alerte hors-domaine est câblée dans le tick', () => {
+  // Une tâche qui court depuis plus longtemps que TOUT ce que la ruche a
+  // observé n'est pas « presque finie » : il n'existe plus une seule
+  // observation comparable. C'est l'instant précis où un humain a besoin
+  // d'être prévenu — et celui où un compte à rebours afficherait « bientôt ».
+  it('`resteEstime` est APPELÉE, pas seulement importée', () => {
+    expect(SERVEUR).toContain('resteEstime(histoire,');
+    expect(SERVEUR).toContain("motif !== 'hors_domaine'");
+  });
+
+  it('elle émet un événement que la Chronique peut montrer', () => {
+    expect(SERVEUR).toContain("emitEvent('duree_hors_domaine'");
+  });
+
+  // ─── UN SIGNAL RÉPÉTÉ CESSE D'ÊTRE UN SIGNAL ──────────────────────────────
+  //
+  // Le tick repasse toutes les quelques secondes. Sans mémoire, la même tâche
+  // déclencherait le même avertissement des centaines de fois et noierait la
+  // Chronique — l'exact opposé de ce qu'une alerte doit faire.
+  it('elle ne se répète pas : la mémoire existe et garde l’avertissement', () => {
+    expect(SERVEUR).toContain('const horsDomaineDits = new Set<string>()');
+    expect(SERVEUR).toContain('if (horsDomaineDits.has(enVol.taskId)) continue;');
+    expect(SERVEUR).toContain('horsDomaineDits.add(enVol.taskId);');
+  });
+
+  // ─── ET CETTE MÉMOIRE EST BORNÉE ──────────────────────────────────────────
+  //
+  // La ruche tourne des mois. Un `Set` qui ne se vide jamais est une fuite,
+  // exactement comme une table sans élagueur — la doctrine des bornes vaut
+  // aussi pour ce qui vit en mémoire. Ses voisines `contextesRelivres` et
+  // `derniereRelivraison` portent déjà la même purge.
+  it('la mémoire est PURGÉE des tâches qui ont atterri', () => {
+    expect(SERVEUR).toContain('for (const id of horsDomaineDits) if (!encore.has(id))');
+    expect(SERVEUR).toContain('horsDomaineDits.delete(id)');
+  });
+});
+
 describe('la borne de la table neuve est câblée, pas seulement écrite', () => {
   // Même exigence que la doctrine des bornes, appliquée à `annonces_duree` :
   // elle grossit d'une ligne par tâche assignée, donc sous la MACHINE.
