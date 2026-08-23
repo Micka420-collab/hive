@@ -140,6 +140,49 @@ export function rankMemories(query: string, corpus: Memory[], limit = 3): Scored
     .slice(0, limit);
 }
 
+/** Trigrammes de caractères — rappel des paraphrases que BM25 rate. */
+export function scoreNgram(query: string, doc: string, n = 3): number {
+  const q = query.toLowerCase().replace(/\s+/g, ' ');
+  const d = doc.toLowerCase().replace(/\s+/g, ' ');
+  if (q.length < n || d.length < n) return 0;
+  const grams = (s: string): Set<string> => {
+    const set = new Set<string>();
+    for (let i = 0; i <= s.length - n; i++) set.add(s.slice(i, i + n));
+    return set;
+  };
+  const gq = grams(q);
+  const gd = grams(d);
+  let inter = 0;
+  for (const g of gq) if (gd.has(g)) inter++;
+  const union = gq.size + gd.size - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+/**
+ * Rappel hybride BM25 + trigrammes pour les projets longs (paraphrases, typo).
+ * BM25 reste dominant ; les n-grams débloquent les souvenirs hors vocabulaire exact.
+ */
+export function rankMemoriesHybrid(query: string, corpus: Memory[], limit = 3): ScoredMemory[] {
+  const bm25 = rankMemories(query, corpus, Math.max(limit * 4, 8));
+  const merged = new Map<number, ScoredMemory>();
+  for (const s of bm25) {
+    merged.set(s.memory.id, { memory: s.memory, score: s.score * 0.65 });
+  }
+  for (const memory of corpus) {
+    const ng = scoreNgram(query, `${memory.title} ${memory.content}`);
+    if (ng <= 0) continue;
+    const prev = merged.get(memory.id);
+    merged.set(memory.id, {
+      memory,
+      score: (prev?.score ?? 0) + ng * 3.5,
+    });
+  }
+  return [...merged.values()]
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || b.memory.createdAt - a.memory.createdAt)
+    .slice(0, limit);
+}
+
 /** Construit le texte d'un souvenir compact à partir d'une tâche réussie. */
 export function summarizeTask(title: string, prompt: string, logs: string): string {
   const cleanPrompt = prompt.replace(/\s+/g, ' ').trim().slice(0, 400);

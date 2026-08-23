@@ -6,6 +6,8 @@
 //
 // MODULE PUR — aucune I/O. `now` est un paramètre si besoin.
 
+import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+
 export const VERSION_HORIZON = 1;
 
 export const KINDS_HORIZON = ['fait', 'hypothese'] as const;
@@ -74,6 +76,37 @@ export function resumeHorizon(
     else if (e.kind === 'hypothese') hypotheses.push(e);
   }
   return { faits, hypotheses };
+}
+
+/** Budget injecté dans hiveContext (faits ≠ hypothèses, lecture seule). */
+export const HORIZON_CONTEXTE_BUDGET = 800;
+
+/** Plafond par entrée une fois injectée en consigne (anti-monopolisation). */
+export const HORIZON_LIGNE_MAX = 200;
+
+export function texteHorizonPourContexte(
+  entrees: readonly EntreeHorizon[],
+  budgetChars = HORIZON_CONTEXTE_BUDGET,
+): string {
+  const { faits, hypotheses } = resumeHorizon(entrees, 24);
+  const lignes: string[] = [];
+  if (faits.length > 0) {
+    lignes.push('Horizon — faits :');
+    // `champSurUneLigne` : sauts de ligne aplatis + délimiteurs neutralisés —
+    // ce texte repart en CONSIGNE ouvrière (cf. brood / livraison / issue).
+    for (const f of faits) lignes.push(`• ${champSurUneLigne(f.texte, HORIZON_LIGNE_MAX)}`);
+  }
+  if (hypotheses.length > 0) {
+    if (lignes.length) lignes.push('');
+    lignes.push('Horizon — hypothèses :');
+    for (const h of hypotheses) lignes.push(`• ${champSurUneLigne(h.texte, HORIZON_LIGNE_MAX)}`);
+  }
+  if (lignes.length === 0) return '';
+  let texte = lignes.join('\n');
+  if (texte.length > budgetChars) {
+    texte = `${texte.slice(0, Math.max(0, budgetChars - 1))}…`;
+  }
+  return texte;
 }
 
 /** L'horizon ne doit pas gonfler l'instantané de tâches. */

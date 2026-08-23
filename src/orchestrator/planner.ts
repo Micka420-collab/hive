@@ -13,6 +13,7 @@
 
 import { LIMITS } from '../shared/protocol.js';
 import { conseilVeilleBrief } from './queen-veille.js';
+import { snippetOpenAlexPourBrief } from './openalex-veille.js';
 import { QUEEN_BEE_INTELLIGENCE_CORE } from './queen-intelligence-core.js';
 
 /** Tâche produite par le planner : la forme exacte attendue par l'API de tâches. */
@@ -205,11 +206,21 @@ export function heuristicPlan(brief: string): PlannedTask[] {
     tasks.push({ id, title, prompt, dependsOn });
   };
 
+  const veille = conseilVeilleBrief(b);
+  if (veille) {
+    add(
+      'veille',
+      'Veille techno et état de l’art',
+      `${ctx}, ${veille} Produire une synthèse courte : alternatives, risques, recommandation avant d’implémenter.`,
+      [],
+    );
+  }
+
   add(
     'socle',
     'Échafauder le projet',
     `${ctx}, mettre en place la structure du dépôt, l'outillage (lint, tests, build) et un squelette exécutable.`,
-    [],
+    veille ? ['veille'] : [],
   );
 
   if (wants.data) {
@@ -313,6 +324,18 @@ export function buildPlannerPrompt(brief: string): { system: string; user: strin
   const veille = conseilVeilleBrief(brief);
   const user = veille ? `${brief.trim()}\n\n${veille}` : brief.trim();
   return { system, user };
+}
+
+/** Veille + extrait OpenAlex injectés dans le prompt planner (runtime). */
+export async function buildPlannerPromptAsync(
+  brief: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ system: string; user: string }> {
+  const base = buildPlannerPrompt(brief);
+  if (!conseilVeilleBrief(brief)) return base;
+  const snippet = await snippetOpenAlexPourBrief(brief, env);
+  if (!snippet) return base;
+  return { system: base.system, user: `${base.user}\n\n${snippet.texte}` };
 }
 
 /**
@@ -548,9 +571,9 @@ export function anthropicLlm(env: NodeJS.ProcessEnv = process.env): LlmFn {
 /** Planifie via l'IA (parse + nettoyage inclus). Lève si l'appel/parse échoue. */
 export async function llmPlan(
   brief: string,
-  opts: { llm: LlmFn; model: string },
+  opts: { llm: LlmFn; model: string; env?: NodeJS.ProcessEnv },
 ): Promise<PlannedTask[]> {
-  const { system, user } = buildPlannerPrompt(brief);
+  const { system, user } = await buildPlannerPromptAsync(brief, opts.env);
   const { text } = lireLlm(await opts.llm({ system, user, model: opts.model, maxTokens: 2048 }));
   const tasks = parsePlannerResponse(text);
   if (tasks.length === 0) throw new Error("le planner IA n'a produit aucune tâche.");
@@ -583,7 +606,7 @@ export async function planBrief(brief: string, opts: PlanOptions = {}): Promise<
   if (useLlm) {
     const llm = opts.llm ?? anthropicLlm(env);
     try {
-      return { tasks: await llmPlan(trimmed, { llm, model }), source: 'llm' };
+      return { tasks: await llmPlan(trimmed, { llm, model, env }), source: 'llm' };
     } catch (e) {
       if (opts.mode === 'llm') throw e instanceof Error ? e : new Error(String(e));
       // Mode auto : jamais bloquant, on sert un découpage déterministe.

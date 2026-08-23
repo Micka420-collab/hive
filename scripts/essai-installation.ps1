@@ -232,6 +232,7 @@ try {
   # `Start-Process` n'a pas de parametre d'environnement : on pose la variable
   # sur le processus courant, dont l'enfant herite.
   $env:HIVE_AGENT = 'shell'
+  $env:HIVE_SIMULATION = '1'
   $Ruche = Start-Process -FilePath 'npm.cmd' -ArgumentList @('run', 'ruche') `
     -WorkingDirectory $Cible -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $Cible 'ruche.log') `

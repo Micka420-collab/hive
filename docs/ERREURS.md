@@ -14259,3 +14259,52 @@ s'ajoute ici est la cause en amont — **un balayage ne se lance pas au premier
 plan sous un outil qui a une expiration**. Il vit détaché, sa sortie va dans un
 fichier, et on va la lire. Le journal de reprise `.loupe-en-cours` a fait
 exactement son travail : sans lui, la mutation partait au commit suivant.
+
+## Un banc qui touche au tableau de bord est un `.tsx`, même s'il ne rend rien
+
+J'ai écrit `tests/api-queen-fabrique.test.ts` — onze cas sur huit fonctions de
+`dashboard/src/api.ts`. Aucun rendu React, aucun JSX : `.ts` semblait le bon
+choix, et il ne l'était pas. Trois jambes de CI ont rougi en moins d'une
+minute :
+
+    tests/api-queen-fabrique.test.ts(36,8): error TS2835:
+      Relative import paths need explicit file extensions … Did you mean
+      '../dashboard/src/api.js'?
+
+La réparation évidente — ajouter `.js` — a rendu la faute PLUS grave, et c'est
+ce qui l'a expliquée :
+
+    dashboard/src/api.ts(1553,55): error TS2835: … '../../src/orchestrator/tableau.js'?
+    dashboard/src/api.ts(1671,54): error TS2835: … '../../src/shared/projet-public.js'?
+
+En résolvant l'import, `tsc` a tiré `dashboard/src/api.ts` DANS le programme
+node — où ses propres imports sans extension, parfaitement légitimes chez Vite,
+sont refusés. Le fichier n'était pas fautif ; il était jugé par le mauvais
+compilateur.
+
+`tsconfig.json` le dit déjà, en toutes lettres, six lignes au-dessus de la
+règle qui m'a mordu :
+
+    // ─── LE TSX EST LA CHAÎNE DU DASHBOARD, PAS CELLE-CI ───────────────
+    // Un test qui rend un composant React relève de `dashboard/tsconfig.json`
+    "exclude": ["tests/**/*.tsx"]
+
+Le commentaire dit « qui REND un composant ». La règle, elle, est plus large :
+c'est **tout banc qui importe du code du tableau de bord**, rendu ou pas. Le
+banc voisin `api-message-detail.test.tsx` porte d'ailleurs l'extension `.tsx`
+sans contenir la moindre balise — ce que j'avais pris pour une coquetterie.
+
+**La règle :** un banc qui importe quoi que ce soit de `dashboard/src/` est un
+`.tsx`. L'extension ne décrit pas ce que le fichier contient, elle décide quel
+compilateur le juge.
+
+### Et la cause en amont, qui n'est pas typographique
+
+Après avoir écrit ces bancs, j'ai lancé `npm run lint`. Vert. J'ai poussé.
+
+Je n'ai pas lancé `npm run typecheck`. La barrière a quatre jambes, elles
+attrapent des choses différentes, et le lint ne compile rien. Le dépôt porte
+déjà la leçon « chaque jambe séparément, jamais dans un tube » — pour la raison
+qu'un tube masque le code de sortie. J'ai respecté la lettre (pas de tube) et
+manqué le fond : **une jambe qu'on ne lance pas ne rend aucun verdict, et son
+silence ressemble à du vert.**

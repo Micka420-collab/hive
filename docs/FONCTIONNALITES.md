@@ -191,15 +191,22 @@ le bandeau **En train de…** liste les présences même si le miroir du dépôt
 est vide — un clic sur le **chemin** ouvre le fichier dans l’arbre. Sur
 l’**Essaim**, les cartes ouvrières (et le Waggle) portent le
 baptême constaté ; un clic ouvre aussi la **Chambre**. Les **réquisitions**
-(clé API, MCP, binaire, atelier,
-logiciel) s’accordent ou se refusent depuis la Chambre — les secrets restent
-chez la Queen. Un lien de partage **ne voit jamais** ces identités.
+(clé API, MCP, binaire, atelier, logiciel) s’accordent ou se refusent depuis la
+Chambre — Accorder n’est plus un no-op : `cle_api` ouvre le modal `.env` Queen ;
+`atelier` allume le bureau de recette ; `mcp` / `logiciel` proposent une entrée
+Fabrique ; `binaire` rappelle d’installer l’outil sur le poste. En cours de tâche,
+un échec infra auth ouvre `cle_api` ; un CLI absent (ENOENT) ouvre `binaire` —
+pause, reprise après Accorder. Les secrets
+restent chez la Queen (jamais en base ni poussés aux nœuds distants). Un lien
+de partage **ne voit jamais** ces identités.
 
 La **fabrique** propose un outil (script npm, pont, MCP) comme tâche → revue →
 merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans
 `package.json`. L’**horizon** tient un carnet faits ≠ hypothèses (sans gonfler
 l’instantané). Les **motifs** inter-projets (ex. jeu-3d : fabrique avant assets)
-créent des tâches ordonnées — jamais le diff d’un autre dépôt.
+créent des tâches ordonnées — jamais le diff d’un autre dépôt — avec aperçu des
+étapes et confirmation avant application. Les **procédures perso** (par projet)
+se créent aussi depuis la Chambre.
 
 À l’écran : bandeau **À trancher** (réquisitions), **Journal** avec
 **flux outils** constatés (pastilles READ/EDIT/WRITE), **Missions** filtrées,
@@ -207,6 +214,11 @@ onglets Fiche / Travail / Intégrations / Suivi (horizon + fabrique).
 **Voir le Rayon** pose le focus sur la présence la plus récente (sinon
 navigation seule). Échap → Ruche, sauf saisie / dialogue / iframe Atelier.
 Maquette : `docs/maquettes/chambre/`.
+Dans la vue 👑 Reine du tableau de bord : **micro** (dictée Web Speech du
+navigateur), **voix** (lecture à haute voix des réponses), et **joindre** des
+documents (PDF, Word `.docx`, texte, code…). Le navigateur **extrait le texte**
+avant l’envoi — la vidéo et l’audio ne sont pas transcrits automatiquement
+(joignez un script ou dictez). Aucune clé d’API ne traverse le navigateur.
 
 ## 🧠 Queen Bee — du brief au DAG (Palier 2)
 

@@ -188,6 +188,11 @@ On screen: **Needs a decision** banner (requisitions), **Journal** with live
 Integrations / Horizon tabs (ledger + forge). **Open Rayon** focuses the latest
 observed path (otherwise navigation only). Escape → Hive, except while typing /
 in a dialog / in the Atelier iframe. Mockup: `docs/maquettes/chambre/`.
+In the dashboard 👑 Queen view: **mic** (browser Web Speech dictation),
+**voice** (read replies aloud), and **attach** documents (PDF, Word `.docx`,
+text, code…). The browser **extracts text** before send — video and audio are
+not auto-transcribed (attach a script or dictate). No API key crosses the
+browser.
 
 ## 🧠 Queen Bee — from brief to DAG
 

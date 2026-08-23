@@ -25,6 +25,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { argvCursor } from '../src/adapters/cursor.js';
 import { texteNonOption } from '../src/adapters/prompt-argv.js';
 
 const lire = (rel: string): string =>
@@ -46,10 +47,30 @@ describe('les adaptateurs à CLI connue posent le terminateur `--`', () => {
     expect(src, "le prompt ne doit plus suivre '-p' directement").not.toContain("'-p', prompt");
   });
 
-  it('codex : `--` sépare la sous-commande du prompt', () => {
-    const src = lire('../src/adapters/codex.ts');
-    expect(src).toContain("'exec', '--', task.prompt");
-    expect(src).not.toContain("'exec', task.prompt");
+  it('cursor : le prompt est le DERNIER argument, derrière `--`', () => {
+    // On éprouve la FONCTION, pas la mise en forme Prettier du tableau source
+    // (un return sur une ligne aplatissait l'ancre et faisait rougir la CI).
+    expect(argvCursor('hello')).toEqual([
+      '-p',
+      '--force',
+      '--output-format',
+      'stream-json',
+      '--',
+      'hello',
+    ]);
+    expect(argvCursor('--version', 'gpt')).toEqual([
+      '-p',
+      '--force',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'gpt',
+      '--',
+      '--version',
+    ]);
+    const src = lire('../src/adapters/cursor.ts');
+    expect(src).toContain("'--force'");
+    expect(src, "le prompt ne doit pas suivre '-p' directement").not.toContain("'-p', prompt");
   });
 
   it('custom : la CLI est inconnue, donc c’est le TEXTE qu’on neutralise', () => {

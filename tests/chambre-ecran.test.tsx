@@ -27,8 +27,29 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
     }),
   ),
   repondreRequisition: vi.fn(),
+  fetchQueenCles: vi.fn(() =>
+    Promise.resolve({
+      fournisseurs: [
+        {
+          id: 'openrouter',
+          libelleFr: 'OpenRouter',
+          libelleEn: 'OpenRouter',
+          envVar: 'OPENROUTER_API_KEY',
+          hintFr: 'Queen Bee',
+          hintEn: 'Queen Bee',
+        },
+      ],
+      presence: [{ id: 'openrouter', envVar: 'OPENROUTER_API_KEY', presente: false }],
+    }),
+  ),
+  poserQueenCle: vi.fn(),
   appliquerMotif: vi.fn(),
   ajouterHorizon: vi.fn(),
+  ouvrirFabrique: vi.fn(),
+  poserStatutFabrique: vi.fn(),
+  fetchMotifsPerso: vi.fn(() => Promise.resolve({ motifs: [] })),
+  creerMotifPerso: vi.fn(),
+  appliquerMotifPerso: vi.fn(),
   demarrerAtelier: vi.fn(),
   arreterAtelier: vi.fn(),
 }));
@@ -36,8 +57,16 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 import {
   ajouterHorizon,
   appliquerMotif,
+  demarrerAtelier,
   fetchChambre,
   fetchMotifs,
+  fetchQueenCles,
+  ouvrirFabrique,
+  poserQueenCle,
+  poserStatutFabrique,
+  fetchMotifsPerso,
+  creerMotifPerso,
+  appliquerMotifPerso,
   repondreRequisition,
 } from '../dashboard/src/api';
 import type { MotifCatalogue } from '../dashboard/src/api';
@@ -120,6 +149,10 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, motifId: 'm1', taskIds: [], titres: [] });
   vi.mocked(fetchMotifs).mockReset().mockResolvedValue({ motifs: [] });
+  vi.mocked(demarrerAtelier).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(ouvrirFabrique).mockReset().mockResolvedValue({ ok: true, id: 'fab-1' });
+  vi.mocked(poserQueenCle).mockReset();
+  vi.mocked(poserStatutFabrique).mockReset();
 });
 
 afterEach(() => {
@@ -133,6 +166,13 @@ async function monter(
   onNavigate: ViewProps['onNavigate'] = () => {},
   events: ViewProps['events'] = [],
 ): Promise<HTMLElement> {
+  // Un seul root à la fois — un second monter() sans afterEach polluait le DOM.
+  if (racine) {
+    act(() => racine!.unmount());
+    conteneur?.remove();
+    racine = null;
+    conteneur = null;
+  }
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
@@ -272,7 +312,7 @@ describe('Chambre à l’écran', () => {
     expect(titres.some((t) => t.startsWith('Ordinateur'))).toBe(true);
   });
 
-  it('accorde une réquisition depuis le bandeau À trancher', async () => {
+  it('accorde une réquisition cle_api via modal grant', async () => {
     vi.mocked(fetchChambre).mockResolvedValue(
       poste({
         requisitions: [
@@ -300,18 +340,198 @@ describe('Chambre à l’écran', () => {
     const accorder = [...dom.querySelectorAll('button')].find((b) =>
       (b.textContent ?? '').includes('Accorder'),
     ) as HTMLButtonElement;
-    const refuser = [...dom.querySelectorAll('button')].find((b) =>
-      (b.textContent ?? '').includes('Refuser'),
-    ) as HTMLButtonElement;
     await cliquer(accorder);
-    expect(accorder.disabled).toBe(true);
-    expect(refuser.disabled).toBe(true);
-    expect(accorder.getAttribute('aria-label')).toMatch(/Accorder.*Seedance/i);
-    expect(refuser.getAttribute('aria-label')).toMatch(/Refuser.*Seedance/i);
+    const dialog = dom.querySelector('.ch-grant-dialog');
+    expect(dialog).toBeTruthy();
+    expect(dom.textContent).toContain('Accorder la clé');
+    const envInput = dialog!.querySelector('input[type="text"]') as HTMLInputElement;
+    const secretInput = dialog!.querySelector('input[type="password"]') as HTMLInputElement;
+    expect(envInput.value).toBe('SEEDANCE_API_KEY');
+    expect(envInput.readOnly).toBe(true);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(secretInput, 'sk-seedance-test');
+      secretInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const confirmer = [...dialog!.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(confirmer);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 40));
     });
-    expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee');
+    expect(repondreRequisition).toHaveBeenCalledWith('req-1', 'accordee', {
+      secret: 'sk-seedance-test',
+      envVar: 'SEEDANCE_API_KEY',
+    });
+  });
+
+  it('ajoute OpenRouter depuis Intégrations → Clés API', async () => {
+    vi.mocked(poserQueenCle).mockResolvedValue({ ok: true, envVar: 'OPENROUTER_API_KEY' });
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    const ajouter = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Ajouter'),
+    ) as HTMLButtonElement;
+    expect(ajouter).toBeTruthy();
+    await cliquer(ajouter);
+    const dialog = dom.querySelector('.ch-grant-dialog');
+    expect(dialog).toBeTruthy();
+    expect(dom.textContent).toContain('Ajouter une clé API');
+    const envInput = dialog!.querySelector('input[type="text"]') as HTMLInputElement;
+    const secretInput = dialog!.querySelector('input[type="password"]') as HTMLInputElement;
+    expect(envInput.value).toBe('OPENROUTER_API_KEY');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(secretInput, 'sk-or-ui');
+      secretInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const sauver = [...dialog!.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Enregistrer'),
+    ) as HTMLButtonElement;
+    await cliquer(sauver);
+    await act(async () => {});
+    expect(poserQueenCle).toHaveBeenCalledWith({
+      secret: 'sk-or-ui',
+      envVar: 'OPENROUTER_API_KEY',
+      libelle: 'OpenRouter',
+    });
+  });
+
+  it('Accorder atelier allume le studio', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-atelier',
+            nodeId: NODE_ID,
+            genre: 'atelier',
+            libelle: 'Bureau de recette',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-atelier', 'accordee');
+    expect(demarrerAtelier).toHaveBeenCalled();
+    expect(ouvrirFabrique).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/atelier allumé|studio started/i);
+  });
+
+  it('Accorder mcp ouvre une fabrique (Intégrations)', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-mcp',
+            nodeId: NODE_ID,
+            genre: 'mcp',
+            libelle: 'Pont MCP docs',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-mcp', 'accordee');
+    expect(ouvrirFabrique).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({
+        genre: 'mcp',
+        libelle: 'Pont MCP docs',
+        nodeId: NODE_ID,
+      }),
+    );
+    expect(demarrerAtelier).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/fabrique proposée|forge proposal/i);
+  });
+
+  it('Accorder binaire affiche un hint nommé', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-bin',
+            nodeId: NODE_ID,
+            genre: 'binaire',
+            libelle: 'Binaire claude',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-bin', 'accordee');
+    expect(ouvrirFabrique).not.toHaveBeenCalled();
+    expect(demarrerAtelier).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/installez « claude »|install « claude »/i);
+    expect(dom.textContent).toMatch(/Accordez à nouveau|Grant again/i);
+  });
+
+  it('Accorder logiciel ouvre une fabrique script_npm', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-log',
+            nodeId: NODE_ID,
+            genre: 'logiciel',
+            libelle: 'Outil lint maison',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    expect(repondreRequisition).toHaveBeenCalledWith('req-log', 'accordee');
+    expect(ouvrirFabrique).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({
+        genre: 'script_npm',
+        libelle: 'Outil lint maison',
+        nodeId: NODE_ID,
+      }),
+    );
   });
 
   it('refuse une réquisition depuis le bandeau À trancher', async () => {
@@ -338,6 +558,94 @@ describe('Chambre à l’écran', () => {
     ) as HTMLButtonElement;
     await cliquer(refuser);
     expect(repondreRequisition).toHaveBeenCalledWith('req-2', 'refusee');
+  });
+
+  it('passe une fabrique proposée en revue', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        fabriques: [
+          {
+            id: 'fab-1',
+            genre: 'script_npm',
+            libelle: 'Lint CI',
+            nomScript: 'lint',
+            statut: 'proposee',
+            creeA: 1,
+          },
+        ],
+      }),
+    );
+    vi.mocked(poserStatutFabrique).mockResolvedValue({ ok: true, statut: 'en_revue' });
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    const revue = [...dom.querySelectorAll('button')].find(
+      (b) => (b.textContent ?? '').trim() === 'Revue',
+    ) as HTMLButtonElement;
+    expect(revue).toBeTruthy();
+    await cliquer(revue);
+    expect(poserStatutFabrique).toHaveBeenCalledWith(PROJECT_ID, 'fab-1', 'en_revue');
+  });
+
+  it('crée et applique une procédure perso', async () => {
+    vi.mocked(fetchMotifsPerso).mockResolvedValue({
+      motifs: [
+        {
+          id: 'mp-1',
+          libelle: 'Mon flux',
+          etapes: ['Étape A', 'Étape B'],
+          creeA: 1,
+        },
+      ],
+    });
+    vi.mocked(creerMotifPerso).mockResolvedValue({
+      ok: true,
+      id: 'mp-1',
+      libelle: 'Mon flux',
+      etapes: ['Étape A', 'Étape B'],
+    });
+    vi.mocked(appliquerMotifPerso).mockResolvedValue({
+      ok: true,
+      motifId: 'mp-1',
+      taskIds: ['t-a', 't-b'],
+      titres: ['Étape A', 'Étape B'],
+    });
+    const dom = await monter();
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    expect(dom.textContent).toContain('Procédures perso');
+    const libelle = dom.querySelector('.ch-motif-perso-form input') as HTMLInputElement;
+    const etapes = dom.querySelector('.ch-motif-perso-form textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      const setterInput = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      const setterTextarea = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!;
+      setterInput.call(libelle, 'Mon flux');
+      libelle.dispatchEvent(new Event('input', { bubbles: true }));
+      setterTextarea.call(etapes, 'Étape A\nÉtape B');
+      etapes.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const creer = [...dom.querySelectorAll('.ch-motif-perso-form button')].find((b) =>
+      (b.textContent ?? '').includes('Créer'),
+    ) as HTMLButtonElement;
+    await cliquer(creer);
+    expect(creerMotifPerso).toHaveBeenCalledWith(PROJECT_ID, {
+      libelle: 'Mon flux',
+      etapes: ['Étape A', 'Étape B'],
+    });
+    await act(async () => {});
+    const appliquer = [...dom.querySelectorAll('button')].find(
+      (b) =>
+        (b.textContent ?? '').includes('Appliquer') &&
+        b.closest('.ch-motifs')?.textContent?.includes('Mon flux'),
+    ) as HTMLButtonElement;
+    await cliquer(appliquer);
+    expect(appliquerMotifPerso).toHaveBeenCalledWith(PROJECT_ID, 'mp-1');
   });
 
   it('dit que l’atelier est éteint (HIVE_ATELIER=off)', async () => {
@@ -536,6 +844,9 @@ describe('Chambre à l’écran', () => {
 
     await cliquer(dom.querySelector('#ch-tab-integrations')!);
     await act(async () => {});
+    expect(dom.textContent).toContain('Clés API');
+    expect(dom.textContent).toContain('OpenRouter');
+    expect(fetchQueenCles).toHaveBeenCalled();
     expect(dom.textContent).toContain('Fabrique');
     expect(dom.textContent).toContain('lint');
     expect(dom.textContent).toMatch(/proposée/);
@@ -546,6 +857,13 @@ describe('Chambre à l’écran', () => {
     expect(appliquer).toBeTruthy();
     expect(appliquer.getAttribute('aria-label')).toMatch(/Appliquer.*Revue courte/i);
     await cliquer(appliquer);
+    await act(async () => {});
+    expect(dom.textContent).toMatch(/Appliquer le motif/);
+    const confirmer = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Confirmer'),
+    ) as HTMLButtonElement;
+    expect(confirmer).toBeTruthy();
+    await cliquer(confirmer);
     await act(async () => {});
     expect(appliquerMotif).toHaveBeenCalled();
     expect(dom.textContent).toMatch(/Motif appliqué/);

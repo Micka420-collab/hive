@@ -8,9 +8,24 @@ import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { getToken } from '../api';
 import { AtelierRecette } from '../AtelierRecette';
-import { t as tNow, useT } from '../i18n';
+import { extrairePiece } from '../reine-extraire';
+import {
+  couperParole,
+  demarrerEcoute,
+  parlerTexte,
+  voixEcouteDisponible,
+  voixParoleDisponible,
+  type EtatEcoute,
+  type SessionEcoute,
+} from '../reine-voix';
+import { t as tNow, useLang, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { demanderFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
+import {
+  assemblerMessageReine,
+  expliquerAssemblage,
+  type PieceJointeTexte,
+} from '../../../src/shared/reine-pieces.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 
@@ -199,6 +214,7 @@ function welcomeDegraded(t: Translate): string {
 
 export default function Reine({ snapshot, onNavigate }: ViewProps) {
   const t = useT();
+  const lang = useLang();
   const [messages, setMessages] = useState<ChatMessage[]>(() => readChat().messages);
   const [suggestions, setSuggestions] = useState<string[]>(() => readChat().suggestions);
   const [draft, setDraft] = useState('');
@@ -206,9 +222,19 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   const [projectId, setProjectId] = useState('');
   /** Session : total tokens IA consommés dans cet onglet (indicatif). */
   const [tokensSession, setTokensSession] = useState(0);
+  const [pieces, setPieces] = useState<PieceJointeTexte[]>([]);
+  const [pieceErreur, setPieceErreur] = useState<string | null>(null);
+  const [pieceBusy, setPieceBusy] = useState(false);
+  const [ecoute, setEcoute] = useState<EtatEcoute>(() =>
+    voixEcouteDisponible() ? 'inactif' : 'indisponible',
+  );
+  const [paroleOn, setParoleOn] = useState(false);
+  const [interim, setInterim] = useState('');
 
   const threadRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const sessionEcoute = useRef<SessionEcoute | null>(null);
   /** Coupe le flux SSE au démontage ou à « Effacer » — pas de bulle d’erreur. */
   const abortRef = useRef<AbortController | null>(null);
 
@@ -224,6 +250,8 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      sessionEcoute.current?.stop();
+      couperParole();
     };
   }, []);
 
@@ -259,11 +287,29 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
     if (newSuggestions) setSuggestions(newSuggestions);
   };
 
-  const send = async (raw: string) => {
+  const send = async (raw: string, jointes: PieceJointeTexte[] = pieces) => {
     const text = raw.trim();
-    if (!text || pending) return;
-    appendPersist({ id: uid(), role: 'user', text, ts: Date.now() });
+    const assemble = assemblerMessageReine(text, jointes);
+    if (!assemble.ok) {
+      setPieceErreur(expliquerAssemblage(assemble.motif, lang === 'en' ? 'en' : 'fr'));
+      return;
+    }
+    if (pending) return;
+
+    const affiche =
+      jointes.length === 0
+        ? text
+        : [
+            text || t('(documents joints)', '(attached documents)'),
+            ...jointes.map((p) => `📎 ${p.nom}`),
+          ].join('\n');
+
+    appendPersist({ id: uid(), role: 'user', text: affiche, ts: Date.now() });
     setDraft('');
+    setPieces([]);
+    setPieceErreur(null);
+    setInterim('');
+    sessionEcoute.current?.stop();
     const ta = areaRef.current;
     if (ta) ta.style.height = 'auto';
     setPending(true);
@@ -274,7 +320,7 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
     abortRef.current = ac;
     try {
       const res = await askQueen(
-        text,
+        assemble.message,
         projectId || undefined,
         (delta) => {
           if (!streamed) {
@@ -296,6 +342,9 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
         ac.signal,
       );
       if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
+      if (paroleOn && res.reply) {
+        parlerTexte(res.reply, lang === 'en' ? 'en-US' : 'fr-FR');
+      }
       if (streamed) {
         // Finalise le bulle déjà créée (source / usage / suggestions).
         const stored = readChat();
@@ -349,6 +398,64 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
     }
   };
 
+  const joindreFichiers = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPieceBusy(true);
+    setPieceErreur(null);
+    const langue = lang === 'en' ? 'en' : 'fr';
+    try {
+      const ajoutees: PieceJointeTexte[] = [];
+      for (const f of Array.from(files)) {
+        ajoutees.push(await extrairePiece(f, langue));
+      }
+      setPieces((prev) => [...prev, ...ajoutees].slice(0, 6));
+    } catch {
+      setPieceErreur(t('Impossible de lire un des fichiers.', 'Could not read one of the files.'));
+    } finally {
+      setPieceBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const basculerMicro = () => {
+    if (ecoute === 'indisponible') {
+      setPieceErreur(
+        t(
+          'La dictée vocale n’est pas disponible dans ce navigateur (essayez Chrome ou Edge).',
+          'Speech-to-text is not available in this browser (try Chrome or Edge).',
+        ),
+      );
+      return;
+    }
+    if (ecoute === 'ecoute') {
+      sessionEcoute.current?.stop();
+      sessionEcoute.current = null;
+      setInterim('');
+      return;
+    }
+    setPieceErreur(null);
+    sessionEcoute.current = demarrerEcoute({
+      lang: lang === 'en' ? 'en-US' : 'fr-FR',
+      onEtat: setEcoute,
+      onErreur: () =>
+        setPieceErreur(
+          t(
+            'Micro refusé ou erreur d’écoute — vérifiez les permissions.',
+            'Microphone denied or listen error — check permissions.',
+          ),
+        ),
+      onTexte: (texte, final) => {
+        if (final) {
+          setDraft((d) => (d ? `${d.trim()} ${texte.trim()}` : texte.trim()));
+          setInterim('');
+          queueMicrotask(grow);
+        } else {
+          setInterim(texte);
+        }
+      },
+    });
+  };
+
   /**
    * Entrée envoie, Maj+Entrée insère une nouvelle ligne. Une Entrée de
    * validation de composition IME (japonais, chinois, coréen…) ne doit jamais
@@ -368,9 +475,14 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
 
   const clear = () => {
     abortRef.current?.abort();
+    sessionEcoute.current?.stop();
+    couperParole();
     setMessages([]);
     setSuggestions([]);
     setTokensSession(0);
+    setPieces([]);
+    setPieceErreur(null);
+    setInterim('');
     sessionStorage.removeItem(CHAT_KEY);
   };
 
@@ -565,14 +677,97 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
             </button>
           ))}
         </div>
+
+        {pieces.length > 0 && (
+          <ul className="rn-pieces" aria-label={t('Documents joints', 'Attached documents')}>
+            {pieces.map((p, i) => (
+              <li key={`${p.nom}-${i}`} className={p.texte ? 'rn-piece-ok' : 'rn-piece-warn'}>
+                <span className="rn-piece-nom">
+                  {p.nom}
+                  {!p.texte && p.refus ? ` — ${p.refus}` : ''}
+                </span>
+                <button
+                  type="button"
+                  className="btn ghost rn-piece-x"
+                  aria-label={t('Retirer', 'Remove')}
+                  onClick={() => setPieces((prev) => prev.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {pieceErreur && <p className="rn-piece-err">{pieceErreur}</p>}
+        {interim && (
+          <p className="rn-interim" aria-live="polite">
+            {interim}
+          </p>
+        )}
+
         <div className="rn-inputrow">
+          <input
+            ref={fileRef}
+            type="file"
+            className="rn-file"
+            multiple
+            accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.html,.htm,.xml,.yml,.yaml,.log,image/*,video/*,audio/*"
+            onChange={(e) => void joindreFichiers(e.target.files)}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <button
+            type="button"
+            className="btn ghost rn-attach"
+            disabled={pending || pieceBusy}
+            title={t(
+              'Joindre PDF, Word, texte, images… (la vidéo n’est pas transcrite)',
+              'Attach PDF, Word, text, images… (video is not transcribed)',
+            )}
+            onClick={() => fileRef.current?.click()}
+          >
+            {pieceBusy ? '…' : t('Joindre', 'Attach')}
+          </button>
+          <button
+            type="button"
+            className={`btn ghost rn-mic${ecoute === 'ecoute' ? ' rn-mic-on' : ''}`}
+            disabled={pending}
+            aria-pressed={ecoute === 'ecoute'}
+            title={
+              ecoute === 'indisponible'
+                ? t('Dictée indisponible', 'Dictation unavailable')
+                : ecoute === 'ecoute'
+                  ? t('Arrêter l’écoute', 'Stop listening')
+                  : t('Parler à la Reine', 'Talk to the Queen')
+            }
+            onClick={basculerMicro}
+          >
+            {ecoute === 'ecoute' ? t('Écoute…', 'Listening…') : t('Micro', 'Mic')}
+          </button>
+          {voixParoleDisponible() && (
+            <button
+              type="button"
+              className={`btn ghost rn-tts${paroleOn ? ' rn-tts-on' : ''}`}
+              aria-pressed={paroleOn}
+              title={t(
+                'Lire à voix haute les réponses de la Reine',
+                'Read the Queen’s replies aloud',
+              )}
+              onClick={() => {
+                if (paroleOn) couperParole();
+                setParoleOn((v) => !v);
+              }}
+            >
+              {t('Voix', 'Voice')}
+            </button>
+          )}
           <textarea
             ref={areaRef}
             className="rn-input"
             rows={1}
             placeholder={t(
-              'Votre question à la Reine… (Entrée pour envoyer, Maj+Entrée : nouvelle ligne)',
-              'Your question for the Queen… (Enter to send, Shift+Enter: new line)',
+              'Parlez ou écrivez à la Reine… (Entrée pour envoyer)',
+              'Talk or type to the Queen… (Enter to send)',
             )}
             value={draft}
             onChange={(e) => {
@@ -584,7 +779,7 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
           />
           <button
             className="btn primary rn-send"
-            disabled={pending || draft.trim() === ''}
+            disabled={pending || (draft.trim() === '' && pieces.length === 0)}
             onClick={() => void send(draft)}
           >
             {t('Envoyer', 'Send')}

@@ -49,7 +49,8 @@ import {
   type EntreeHorizon,
   type MotifRefusHorizon,
 } from './horizon.js';
-import { rankMemories } from './hive-mind.js';
+import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
+import { rankMemoriesHybrid } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
   HiveEvent,
@@ -878,6 +879,7 @@ CREATE TABLE IF NOT EXISTS requisitions (
   genre   TEXT NOT NULL,
   libelle TEXT NOT NULL,
   detail  TEXT,
+  taskId  TEXT,
   statut  TEXT NOT NULL,
   creeA   INTEGER NOT NULL,
   closA   INTEGER
@@ -935,6 +937,15 @@ CREATE TABLE IF NOT EXISTS annonces_duree (
   faiteA  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_annonces_faite ON annonces_duree(faiteA DESC);
+-- Motifs perso (ADR 0010 lot 10) : procédures créées depuis la Chambre, par projet.
+CREATE TABLE IF NOT EXISTS motifs_projet (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  libelle   TEXT NOT NULL,
+  etapes    TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA DESC);
 `;
 
 interface ProjectRow {
@@ -1783,6 +1794,7 @@ export class HiveStore {
     genreBrut: string,
     libelleBrut: string,
     detail: string | null = null,
+    taskId: string | null = null,
     now = Date.now(),
   ):
     | { ok: true; id: string; genre: GenreRequisition; libelle: string }
@@ -1794,13 +1806,14 @@ export class HiveStore {
     if (!l.ok) return l;
     const detailClean =
       typeof detail === 'string' && detail.trim() ? detail.trim().slice(0, 2_000) : null;
+    const taskClean = typeof taskId === 'string' && taskId.trim() ? taskId.trim() : null;
     const id = randomUUID();
     this.db
       .prepare(
-        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, statut, creeA, closA) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
+        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)',
       )
-      .run(id, nodeId, g.genre, l.libelle, detailClean, 'ouverte', now);
+      .run(id, nodeId, g.genre, l.libelle, detailClean, taskClean, 'ouverte', now);
     return { ok: true, id, genre: g.genre, libelle: l.libelle };
   }
 
@@ -1810,13 +1823,14 @@ export class HiveStore {
     genre: GenreRequisition;
     libelle: string;
     detail: string | null;
+    taskId: string | null;
     statut: StatutRequisition;
     creeA: number;
     closA: number | null;
   } | null {
     const row = this.db
       .prepare(
-        'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE id = ?',
+        'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE id = ?',
       )
       .get(id) as
       | {
@@ -1825,6 +1839,7 @@ export class HiveStore {
           genre: string;
           libelle: string;
           detail: string | null;
+          taskId: string | null;
           statut: string;
           creeA: number;
           closA: number | null;
@@ -1842,6 +1857,7 @@ export class HiveStore {
       genre: g.genre,
       libelle: row.libelle,
       detail: row.detail,
+      taskId: row.taskId,
       statut: row.statut,
       creeA: row.creeA,
       closA: row.closA,
@@ -1854,12 +1870,13 @@ export class HiveStore {
     genre: GenreRequisition;
     libelle: string;
     detail: string | null;
+    taskId: string | null;
     statut: StatutRequisition;
     creeA: number;
     closA: number | null;
   }> {
     let sql =
-      'SELECT id, nodeId, genre, libelle, detail, statut, creeA, closA FROM requisitions WHERE 1=1';
+      'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE 1=1';
     const args: unknown[] = [];
     if (opts?.nodeId) {
       sql += ' AND nodeId = ?';
@@ -1876,6 +1893,7 @@ export class HiveStore {
       genre: string;
       libelle: string;
       detail: string | null;
+      taskId: string | null;
       statut: string;
       creeA: number;
       closA: number | null;
@@ -1886,6 +1904,7 @@ export class HiveStore {
       genre: GenreRequisition;
       libelle: string;
       detail: string | null;
+      taskId: string | null;
       statut: StatutRequisition;
       creeA: number;
       closA: number | null;
@@ -1900,6 +1919,7 @@ export class HiveStore {
         genre: g.genre,
         libelle: r.libelle,
         detail: r.detail,
+        taskId: r.taskId,
         statut: r.statut,
         creeA: r.creeA,
         closA: r.closA,
@@ -2283,6 +2303,82 @@ export class HiveStore {
   pruneHorizon(retentionMs: number, now = Date.now()): number {
     const cutoff = now - retentionMs;
     return this.db.prepare('DELETE FROM horizon_ledger WHERE creeA < ?').run(cutoff).changes;
+  }
+
+  // ─── Motifs perso (ADR 0010 lot 10) ────────────────────────────────────────
+
+  creerMotifProjet(
+    projectId: string,
+    libelleBrut: string,
+    etapesBrutes: unknown,
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; libelle: string; etapes: string[] }
+    | { ok: false; motif: MotifPersoRefus } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'vide' };
+    const v = validerMotifPerso(libelleBrut, etapesBrutes);
+    if (!v.ok) return v;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO motifs_projet (id, projectId, libelle, etapes, creeA) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(id, projectId, v.libelle, JSON.stringify(v.etapes), now);
+    return { ok: true, id, libelle: v.libelle, etapes: v.etapes };
+  }
+
+  listerMotifsProjet(projectId: string): Array<{
+    id: string;
+    libelle: string;
+    etapes: string[];
+    creeA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, libelle, etapes, creeA FROM motifs_projet WHERE projectId = ? ORDER BY creeA DESC LIMIT 32',
+      )
+      .all(projectId) as Array<{ id: string; libelle: string; etapes: string; creeA: number }>;
+    const out: Array<{ id: string; libelle: string; etapes: string[]; creeA: number }> = [];
+    for (const r of rows) {
+      try {
+        const parsed: unknown = JSON.parse(r.etapes);
+        if (!Array.isArray(parsed)) continue;
+        const v = validerMotifPerso(r.libelle, parsed);
+        if (!v.ok) continue;
+        out.push({ id: r.id, libelle: v.libelle, etapes: v.etapes, creeA: r.creeA });
+      } catch {
+        continue;
+      }
+    }
+    return out;
+  }
+
+  lireMotifProjet(id: string): {
+    id: string;
+    projectId: string;
+    libelle: string;
+    etapes: string[];
+    creeA: number;
+  } | null {
+    const row = this.db
+      .prepare('SELECT id, projectId, libelle, etapes, creeA FROM motifs_projet WHERE id = ?')
+      .get(id) as
+      { id: string; projectId: string; libelle: string; etapes: string; creeA: number } | undefined;
+    if (!row) return null;
+    try {
+      const parsed: unknown = JSON.parse(row.etapes);
+      const v = validerMotifPerso(row.libelle, parsed);
+      if (!v.ok) return null;
+      return {
+        id: row.id,
+        projectId: row.projectId,
+        libelle: v.libelle,
+        etapes: v.etapes,
+        creeA: row.creeA,
+      };
+    } catch {
+      return null;
+    }
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
@@ -4803,9 +4899,9 @@ export class HiveStore {
     return row.n;
   }
 
-  /** Récupère les souvenirs pertinents pour une requête (BM25 sur le corpus récent). */
+  /** Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent). */
   searchMemories(query: string, limit = 3): ScoredMemory[] {
-    return rankMemories(query, this.listMemories(500), limit);
+    return rankMemoriesHybrid(query, this.listMemories(500), limit);
   }
 
   /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */

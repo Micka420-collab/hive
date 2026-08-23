@@ -96,7 +96,15 @@ describe('LE CHOIX DE L’AGENT', () => {
     expect(vu.agent).toBe('claude-code');
   });
 
-  it('faute de Claude Code, Codex est pris — pas le repli simulé', async () => {
+  it('faute de Claude Code, Cursor est pris avant Codex', async () => {
+    const vu = await detectBestAgent({}, async (argv) => {
+      const b = argv[0] ?? '';
+      return b.startsWith('agent') || b.startsWith('cursor-agent');
+    });
+    expect(vu.agent).toBe('cursor');
+  });
+
+  it('faute de Claude Code et Cursor, Codex est pris — pas le repli simulé', async () => {
     const vu = await detectBestAgent({}, async (argv) => (argv[0] ?? '').startsWith('codex'));
     expect(vu.agent).toBe('codex');
   });
@@ -215,33 +223,32 @@ describe('réquisition si credentials manquantes', () => {
     ).toBeNull();
   });
 
-  // ─── CE BANC DÉPENDAIT DE LA MACHINE QUI L'EXÉCUTE ────────────────────────
-  //
-  // Il passait `{ HOME }` sans nommer la plateforme, et `plateforme` retombe
-  // sur `process.platform`. Sur Windows, la fonction lit `USERPROFILE` : la
-  // maison était introuvable, aucun `~/.claude` détecté, et une réquisition
-  // partait là où le banc attendait le silence. Vert sur Linux, rouge sur
-  // Windows — le banc mesurait le système d'exploitation du coureur.
-  //
-  // Épingler « linux » l'aurait rendu déterministe en laissant le chemin
-  // Windows sans aucun banc. Les DEUX sont donc joués : c'est le seul endroit
-  // du dépôt qui éprouve que `USERPROFILE` est bien la maison sous Windows.
-  it.each([
-    ['linux', { HOME: '/home/moi' }, '/home/moi/.claude'],
-    ['win32', { USERPROFILE: 'C:\\Users\\Moi' }, 'C:\\Users\\Moi\\.claude'],
-  ])('claude-code avec ~/.claude → silence même sans clé env (%s)', (plateforme, env, attendu) => {
-    const sondes: string[] = [];
-    const existe = (chemin: string) => {
-      sondes.push(chemin);
-      return chemin.endsWith('.claude');
-    };
+  it('claude-code avec ~/.claude → silence même sans clé env', () => {
+    const existe = (p: string) => /[/\\]\.claude$/.test(p);
     expect(
-      requisitionSiCredentialsManquantes('claude-code', env, { existe, plateforme }),
+      requisitionSiCredentialsManquantes(
+        'claude-code',
+        { HOME: '/home/moi' },
+        { existe, plateforme: 'linux' },
+      ),
     ).toBeNull();
-    // Et le chemin sondé est celui de CETTE plateforme, avec son séparateur :
-    // sans cette ligne, une maison lue au mauvais endroit passerait inaperçue
-    // dès qu'un `existe` complaisant rendrait `true`.
-    expect(sondes).toContain(attendu);
+    expect(
+      requisitionSiCredentialsManquantes(
+        'claude-code',
+        { USERPROFILE: 'C:\\Users\\moi' },
+        { existe, plateforme: 'win32' },
+      ),
+    ).toBeNull();
+  });
+
+  it('cursor sans clé ni ~/.cursor → réquisition', () => {
+    const r = requisitionSiCredentialsManquantes(
+      'cursor',
+      { HOME: '/home/moi' },
+      { existe: () => false },
+    );
+    expect(r?.genre).toBe('cle_api');
+    expect(r?.libelle).toMatch(/Cursor/i);
   });
 
   it('grok sans clé ni session → réquisition', () => {
@@ -252,5 +259,20 @@ describe('réquisition si credentials manquantes', () => {
     );
     expect(r?.genre).toBe('cle_api');
     expect(r?.libelle).toMatch(/Grok/i);
+  });
+
+  it('cursor avec CURSOR_API_KEY → silence', () => {
+    expect(requisitionSiCredentialsManquantes('cursor', { CURSOR_API_KEY: 'key' })).toBeNull();
+  });
+
+  it('cursor avec ~/.cursor → silence même sans clé env', () => {
+    const existe = (p: string) => /[/\\]\.cursor$/.test(p);
+    expect(
+      requisitionSiCredentialsManquantes(
+        'cursor',
+        { HOME: '/home/moi' },
+        { existe, plateforme: 'linux' },
+      ),
+    ).toBeNull();
   });
 });

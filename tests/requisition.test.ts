@@ -6,6 +6,8 @@ import {
   VERSION_REQUISITION,
   expliquerRefusRequisition,
   libelleGenreRequisition,
+  messageAccordBinaire,
+  suiteAccordRequisition,
   validerGenreRequisition,
   validerLibelleRequisition,
 } from '../src/orchestrator/requisition.js';
@@ -31,6 +33,27 @@ describe('réquisition — forme', () => {
     expect(libelleGenreRequisition('cle_api', 'fr')).toMatch(/Clé/i);
     expect(libelleGenreRequisition('cle_api', 'en')).toMatch(/API/i);
     expect(expliquerRefusRequisition('deja_close', 'fr')).toMatch(/déjà/i);
+  });
+
+  it('suiteAccordRequisition : Accorder n’est plus un no-op hors cle_api', () => {
+    expect(suiteAccordRequisition('cle_api')).toEqual({ action: 'modal_cle' });
+    expect(suiteAccordRequisition('atelier')).toEqual({ action: 'atelier' });
+    expect(suiteAccordRequisition('mcp')).toEqual({
+      action: 'fabrique',
+      genreFabrique: 'mcp',
+    });
+    expect(suiteAccordRequisition('logiciel')).toEqual({
+      action: 'fabrique',
+      genreFabrique: 'script_npm',
+    });
+    expect(suiteAccordRequisition('binaire')).toEqual({ action: 'hint_binaire' });
+  });
+
+  it('messageAccordBinaire nomme l’outil du libellé', () => {
+    expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/« claude »/);
+    expect(messageAccordBinaire('Binaire / CLI (Claude Code)', 'en')).toMatch(/Claude Code/);
+    expect(messageAccordBinaire('Binaire claude', 'fr')).toMatch(/Accordez à nouveau/);
+    expect(messageAccordBinaire('Binaire claude', 'en')).toMatch(/Grant again/);
   });
 });
 

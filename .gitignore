@@ -1,4 +1,7 @@
-node_modules/
+# Sans la barre finale : « node_modules/ » ne vise qu'un dossier, et laisse
+# passer un LIEN nommé node_modules — c'est ainsi qu'un lien absolu vers
+# /home/user/hive/node_modules s'est retrouvé suivi sur une branche.
+node_modules
 dist/
 dashboard/dist/
 data/

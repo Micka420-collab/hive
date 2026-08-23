@@ -9,6 +9,70 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Les portes de ce lot passent sous banc.** Le cliquet de couverture refusait
+  la fusion — fonctions à 78,42 % sous un seuil de 78,8 — et il nommait juste :
+  trois blocs neufs arrivaient sans un cas.
+  `tests/api-queen-fabrique.test.ts` (11 cas) tient les huit portes ajoutées
+  ici : chemin, méthode, corps, jeton. Deux invariants y sont posés
+  explicitement — chaque segment variable passe par `encodeURIComponent` (un
+  identifiant portant `/` change sinon la route appelée), et le SECRET d'une
+  clé Reine voyage dans le CORPS, jamais dans l'URL (une URL se journalise, se
+  met en cache, part dans un `Referer`).
+  `tests/onboarding-essaim.test.tsx` (10 cas) tient les TROIS règles
+  d'effacement de la checklist du premier cycle, chacune un `return null`
+  isolé : une checklist qui reste affichée après coup se lit comme « il reste
+  du travail » alors qu'il n'en reste pas.
+  `tests/reine-voix-pieces-ecran.test.tsx` (14 cas) tient le câblage du micro
+  et des pièces jointes — les 211 lignes que la Reine vocale avait ajoutées
+  sans qu'aucun banc ne les touche. Les modules `reine-voix` et
+  `reine-extraire` y sont DOUBLÉS : ils ont leurs propres 53 cas, et un banc
+  d'écran qui rejouerait l'extraction d'un PDF mesurerait pdfjs, pas la vue.
+  Mesure après coup : fonctions 79,06 %, soit 0,26 point au-dessus du seuil —
+  quand le tremblement documenté d'une exécution à l'autre est de 0,06. Le
+  premier jet tombait à 78,80 % PILE : franchi, mais à cette hauteur la CI
+  rougit au hasard, et un cliquet intermittent est pire que pas de cliquet.
+
+- **Clés API proactives (OpenRouter & co).** Catalogue Chambre → Intégrations :
+  OpenRouter, Anthropic, OpenAI, xAI, Cursor, Seedance, ou variable libre ;
+  `GET/POST /api/queen/cles` écrit le `.env` Queen (jamais la valeur en base).
+- **Relecture Claude (#348) intégrée.** Horizon neutralisé (`champSurUneLigne`) ;
+  grant : validation puis transition puis écriture ; `envVar` = dérivé du libellé ;
+  motifs : `ordre` dans la donnée + `catalogueCoherent` ; étapes perso = une ligne.
+- **Boucle réquisition mid-task.** Échec infra auth → `cle_api` ; binaire
+  absent (ENOENT / « échec du lancement ») → `binaire` ; `requisition_open` +
+  `taskId` ; pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
+  Accorder `binaire` sans CLI encore présent : pause conservée + nouvelle
+  réquisition (plus de `task_reject` immédiat).
+- **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
+  mcp/logiciel → fabrique ; binaire → hint install nommé (`messageAccordBinaire`).
+  Modal grant : `envVar` en lecture seule pour les réquisitions.
+- **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
+  `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
+  `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
+  (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
+  **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
+- **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
+  veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
+- **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au
+  premier cycle runner.
+- **Hive Mind hybride.** `rankMemoriesHybrid` : BM25 + trigrammes pour projets longs.
+- **Story produit.** `PourquoiHive` dans Mon espace et Chronique (vs Cursor/Devin).
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+- **Grant cle_api Chambre → `.env` Queen.** Modal HITL pour saisir variable et secret ;
+  `requisition-env.ts` écrit atomiquement sur l'hôte ; le nœud recharge `.env` à la reprise.
+  Mapping libellés agents (Codex/Claude/Grok/Seedance) → variables standard.
+- **Horizon dans le contexte ouvrière.** `texteHorizonPourContexte` injecté dans
+  `construireHiveContext` (budget tokens restant) et dans le contexte conseil.
+- **Fabrique UI Chambre.** Formulaire « Proposer », boutons Revue/Refuser, juger/lancer Chantiers.
+- **Motifs perso.** Procédures par projet (`motifs_projet`) : créer depuis la Chambre, appliquer en tâches ordonnées.
+- **Motifs catalogue — confirmation.** Aperçu des étapes (toggle) + dialogue avant appliquer.
+
+### Changed
+
 - **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
   en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
   pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
@@ -26,6 +90,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Polish autonomie.** API baptême/métier ; checklist Essaim ; Chambre baptême/métier ;
+  veille planner ; délibération si `a_surveiller`.
 - **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
   `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
   secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`
@@ -66,6 +132,25 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,
   **motifs**. Écran : bandeau HITL, flux outils, onglets
   Fiche/Travail/Intégrations/Suivi. Partage : jamais d’identités. ADR **proposé**.
+- **🎤 Reine vocale + documents.** Vue 👑 : micro (Web Speech), lecture à voix
+  haute des réponses, joindre PDF / Word `.docx` / texte / code (extraction
+  navigateur via `pdfjs` + `mammoth`, bundlés dashboard — 0 dep runtime nœud).
+  Vidéo/audio : refus clair (pas de fausse transcription). Plafond chat porté
+  à 40 000 caractères. Module pur `reine-pieces` + bancs.
+  Les deux modules navigateur ont leurs bancs eux aussi : `reine-voix`
+  (28 cas — le décor Web Speech est posé à la main, happy-dom n'en fournit
+  pas) et `reine-extraire` (22 cas — `pdfjs` et `mammoth` doublés : le banc
+  juge ce que le module FAIT de ce qu'ils rendent, pas leur capacité à lire
+  un PDF). Ils arrivaient sans banc, et le cliquet de couverture le disait —
+  fonctions à 78,72 % sous un seuil de 78,8 %.
+  Les deux modules sont ensuite passés sous la loupe (base `727859b`) :
+  18 mutations possibles, 18 examinées, 15 défendues d'emblée. Les trois
+  nues sont fermées par des bancs, pas déclarées équivalentes — la garde de
+  TYPE sur `str` (un nombre entrait dans la page), la borne `size <= 0` (un
+  fichier vide était OUVERT sans que le refus change, seul un compteur
+  d'ouvertures pouvait le voir) et le parcours des résultats vocaux, où
+  `length` doit faire autorité sur ce que la liste porte au-delà.
+  Contre-rejeu : 3 mutants sur 3 font rougir la suite.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a

@@ -136,9 +136,10 @@ export function composerReglages(
   existant: Map<string, string>,
   jeton = engendrerJeton(),
   secretSession = engendrerJeton(LONGUEUR_SECRET_SESSION),
+  opts: { sansAgentReel?: boolean } = {},
 ): Reglage[] {
   const garde = (cle: string, defaut: string): string => existant.get(cle) ?? defaut;
-  return [
+  const reglages: Reglage[] = [
     {
       cle: 'HIVE_TOKEN',
       valeur: garde('HIVE_TOKEN', jeton),
@@ -194,6 +195,19 @@ export function composerReglages(
         'fraîchement installée ne se met pas à travailler toute seule pendant la nuit.',
     },
   ];
+  // Sans agent réel, la ruche ne peut travailler qu’en démo simulée. Sans ce
+  // flag, le scheduler refuse d’assigner aux nœuds shell — la première tâche
+  // resterait « ready » pour toujours (CI essai-installation, 90 s).
+  if (existant.has('HIVE_SIMULATION') || opts.sansAgentReel) {
+    reglages.push({
+      cle: 'HIVE_SIMULATION',
+      valeur: garde('HIVE_SIMULATION', opts.sansAgentReel ? '1' : '0'),
+      commentaire:
+        'Démo simulée : 1 = le scheduler accepte les nœuds shell. Passez à 0 (et installez ' +
+        'Claude Code / Codex) dès que la ruche produit du vrai code.',
+    });
+  }
+  return reglages;
 }
 
 /**

@@ -282,10 +282,14 @@ JETON=$(grep -m1 '^HIVE_TOKEN=' "$CIBLE/.env" | cut -d= -f2)
 #   3. C'EST CE QU'UN ARRIVANT OBTIENT SANS CLÉ D'API. Mesurer ce chemin-là
 #      n'est pas un repli, c'est le cas le plus fréquent.
 #
+# `HIVE_SIMULATION=1` est le jumeau côté Queen : sans lui, le scheduler refuse
+# d'assigner aux nœuds shell (production agents) et la tâche 7/7 reste « ready »
+# jusqu'au timeout 90 s.
+#
 # La disponibilité du bac à sable, elle, est le sujet de `hive doctor` — et
 # elle y est mesurée depuis qu'un ✔ posé sur un CLIENT plutôt qu'un SERVICE a
 # été trouvé (§ 9 novemtrigicenties).
-sh -c "cd '$CIBLE' && HIVE_AGENT=shell npm run ruche >'$CIBLE/ruche.log' 2>&1" &
+sh -c "cd '$CIBLE' && HIVE_AGENT=shell HIVE_SIMULATION=1 npm run ruche >'$CIBLE/ruche.log' 2>&1" &
 RUCHE_PID=$!
 
 # On attend qu'elle réponde, on ne dort pas un temps fixe : une attente en dur
