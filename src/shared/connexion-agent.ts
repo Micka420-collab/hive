@@ -37,13 +37,24 @@ export type VerdictConnexion =
   /** Le binaire est là, la clé non : il faut un humain (ou la Chambre). */
   | 'cle_manquante'
   /** Ni l'un ni l'autre : installer PUIS authentifier. */
-  | 'rien';
+  | 'rien'
+  /**
+   * La ruche ne sait pas où cet agent range ses identifiants.
+   *
+   * Ce n'est PAS un synonyme de « absente ». Cline lit sa propre configuration
+   * de fournisseur, et Hive n'a aucun moyen documenté de la lire. Dire « clé
+   * absente » serait aussi faux que dire « clé présente » — ce quatrième état
+   * existe pour ne pas avoir à choisir entre deux mensonges.
+   */
+  | 'cle_inconnue';
+
+/** Ce que la ruche a pu CONSTATER des identifiants — jamais leur valeur. */
+export type EtatCle = 'presente' | 'absente' | 'inconnue';
 
 export interface EtatAgent {
   readonly agent: string;
   readonly binaire: boolean;
-  /** Une clé ou une session locale a été CONSTATÉE — jamais sa valeur. */
-  readonly cle: boolean;
+  readonly cle: EtatCle;
   readonly verdict: VerdictConnexion;
   /**
    * La commande d'installation, en ARGUMENTS SÉPARÉS — jamais une ligne de
@@ -66,15 +77,22 @@ export const PAQUETS: Readonly<Record<string, readonly string[]>> = Object.freez
   codex: Object.freeze(['npm', 'install', '-g', '@openai/codex']),
 });
 
-export function juger(opts: { agent: string; binaire: boolean; cle: boolean }): EtatAgent {
+export function juger(opts: { agent: string; binaire: boolean; cle: EtatCle }): EtatAgent {
   const installation = PAQUETS[opts.agent] ?? null;
-  const verdict: VerdictConnexion = opts.binaire
-    ? opts.cle
-      ? 'pret'
-      : 'cle_manquante'
-    : opts.cle
-      ? 'binaire_manquant'
-      : 'rien';
+  // L'inconnu ne se replie sur AUCUN des trois autres : il les précède. Le
+  // replier sur « absente » ferait promettre une installation qui ne servirait
+  // à rien ; sur « présente », une orchestration qui échouerait à la première
+  // tâche.
+  const verdict: VerdictConnexion =
+    opts.cle === 'inconnue'
+      ? 'cle_inconnue'
+      : opts.binaire
+        ? opts.cle === 'presente'
+          ? 'pret'
+          : 'cle_manquante'
+        : opts.cle === 'presente'
+          ? 'binaire_manquant'
+          : 'rien';
   return {
     agent: opts.agent,
     binaire: opts.binaire,
@@ -90,6 +108,9 @@ export function juger(opts: { agent: string; binaire: boolean; cle: boolean }): 
 /** Ce qu'on affiche à l'humain, sans jamais promettre plus qu'on ne peut. */
 export function direVerdict(e: EtatAgent, lang: 'fr' | 'en' = 'fr'): string {
   const fr: Record<VerdictConnexion, string> = {
+    cle_inconnue: e.binaire
+      ? 'Installée. La ruche ne sait pas lire ses identifiants — lancez-la une fois pour vérifier.'
+      : 'Absente de ce poste, et la ruche ne sait pas lire ses identifiants.',
     pret: 'Prête à travailler.',
     binaire_manquant: e.poseAutomatique
       ? 'La clé est là, la ligne de commande non — la ruche peut l’installer.'
@@ -98,6 +119,9 @@ export function direVerdict(e: EtatAgent, lang: 'fr' | 'en' = 'fr'): string {
     rien: 'Ni ligne de commande ni clé sur ce poste.',
   };
   const en: Record<VerdictConnexion, string> = {
+    cle_inconnue: e.binaire
+      ? 'Installed. The hive cannot read its credentials — run it once to check.'
+      : 'Not on this machine, and the hive cannot read its credentials.',
     pret: 'Ready to work.',
     binaire_manquant: e.poseAutomatique
       ? 'The key is here, the CLI is not — the hive can install it.'

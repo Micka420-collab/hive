@@ -192,7 +192,9 @@ describe('l’accord avec ce que le dépôt savait déjà', () => {
     const manquants = OUTILS.filter(
       (o) => o.capacites.executionTache && sourceAdaptateur(o.id) === null,
     ).map((o) => o.id);
-    // `cline` est le seul attendu ici, et son entrée porte la mention.
-    expect(manquants).toEqual(['cline']);
+    // Plus aucun : `cline` a reçu son adaptateur. Si un outil est déclaré
+    // exécutant sans code pour l'exécuter, la Reine le choisira et la tâche
+    // mourra sur « Adaptateur inconnu ».
+    expect(manquants, `déclarés exécutants sans adaptateur : ${manquants.join(', ')}`).toEqual([]);
   });
 });

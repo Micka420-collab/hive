@@ -19,17 +19,18 @@
 // VALEUR d'une clé — seulement sa présence.
 
 import {
+  AGENTS_A_IDENTIFIANTS_CONNUS,
   detectAllAgents,
   requisitionSiCredentialsManquantes,
   type AgentType,
 } from './agent-detect.js';
 import { estAgentSimule } from '../shared/agent-production.js';
-import { juger, type EtatAgent } from '../shared/connexion-agent.js';
+import { juger, type EtatAgent, type EtatCle } from '../shared/connexion-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 
 /** Les agents qu'on interroge. `shell` et `custom` n'ont ni binaire à installer
  *  ni clé à porter : les inclure ne produirait que du bruit. */
-const INTERROGES: readonly AgentType[] = ['claude-code', 'cursor', 'codex', 'grok'];
+const INTERROGES: readonly AgentType[] = ['claude-code', 'cursor', 'cline', 'codex', 'grok'];
 
 export interface OutilsConnexion {
   /** Les agents dont le BINAIRE a été trouvé sur ce poste. */
@@ -38,6 +39,33 @@ export interface OutilsConnexion {
   env?: NodeJS.ProcessEnv;
   existe?: (chemin: string) => boolean;
   plateforme?: string;
+}
+
+/**
+ * Ce que la ruche peut CONSTATER des identifiants d'un agent.
+ *
+ * ─── LE PIÈGE QUE CETTE FONCTION ÉVITE ──────────────────────────────────────
+ *
+ * `requisitionSiCredentialsManquantes` rend `null` pour tout agent qu'elle ne
+ * connaît pas, et `null` veut dire « rien ne manque ». Lu naïvement, c'est
+ * indiscernable de « la clé est là ».
+ *
+ * La première version de ce module faisait exactement cette lecture. En
+ * ajoutant Cline — qui range ses identifiants dans SA propre configuration de
+ * fournisseur, que Hive n'a aucun moyen documenté de lire — elle aurait annoncé
+ * sa clé présente, puis proposé une installation automatique sur la foi d'une
+ * clé jamais vue.
+ *
+ * On ne demande donc son avis à la fonction QUE pour les agents dont elle a une
+ * branche à elle. Pour les autres, la seule réponse honnête est « inconnue ».
+ */
+function etatCle(agent: AgentType, env: NodeJS.ProcessEnv, outils: OutilsConnexion): EtatCle {
+  if (!AGENTS_A_IDENTIFIANTS_CONNUS.includes(agent)) return 'inconnue';
+  const manque = requisitionSiCredentialsManquantes(agent, env, {
+    ...(outils.existe ? { existe: outils.existe } : {}),
+    ...(outils.plateforme ? { plateforme: outils.plateforme } : {}),
+  });
+  return manque === null ? 'presente' : 'absente';
 }
 
 /**
@@ -54,12 +82,7 @@ export async function diagnostiquerAgents(outils: OutilsConnexion = {}): Promise
     juger({
       agent,
       binaire: presents.has(agent),
-      // `null` = rien ne manque, donc la clé (ou la session locale) est là.
-      cle:
-        requisitionSiCredentialsManquantes(agent, env, {
-          ...(outils.existe ? { existe: outils.existe } : {}),
-          ...(outils.plateforme ? { plateforme: outils.plateforme } : {}),
-        }) === null,
+      cle: etatCle(agent, env, outils),
     }),
   );
   const rang = (e: EtatAgent): number =>

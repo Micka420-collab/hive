@@ -145,7 +145,6 @@ export const OUTILS: readonly OutilIA[] = Object.freeze([
     installation: Object.freeze(['npm', 'install', '-g', 'cline']),
     capacites: executant(),
     niveau: 'execute',
-    limite: 'Adaptateur à écrire — le CLI headless existe (`cline --json`).',
   },
   {
     id: 'codex',

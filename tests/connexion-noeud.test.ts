@@ -10,7 +10,9 @@ import {
   diagnostiquerAgents,
   unAgentEstPret,
 } from '../src/node-client/connexion.js';
+import { AGENTS_A_IDENTIFIANTS_CONNUS } from '../src/node-client/agent-detect.js';
 import type { AgentType } from '../src/node-client/agent-detect.js';
+import { readFileSync } from 'node:fs';
 import { PAQUETS } from '../src/shared/connexion-agent.js';
 import { libelleAgent } from '../src/shared/agent-libelle.js';
 
@@ -29,14 +31,53 @@ function poste(opts: { binaires?: AgentType[]; env?: NodeJS.ProcessEnv } = {}) {
 describe('le diagnostic croise les deux sources', () => {
   it('un poste nu : rien n’est prêt, et rien ne se pose tout seul', async () => {
     const etats = await diagnostiquerAgents(poste());
-    expect(etats.every((e) => e.verdict === 'rien')).toBe(true);
+    expect(etats.some((e) => e.verdict === 'pret')).toBe(false);
     expect(etats.some((e) => e.poseAutomatique)).toBe(false);
+  });
+
+  it('un poste nu : ceux qu’on sait lire disent « rien », les autres « inconnue »', async () => {
+    // La distinction que le tri-état apporte. Avant lui, TOUT rendait « rien »
+    // — y compris pour un agent dont la ruche n'avait jamais su lire la clé.
+    const etats = await diagnostiquerAgents(poste());
+    for (const e of etats) {
+      const attendu = AGENTS_A_IDENTIFIANTS_CONNUS.includes(e.agent as never)
+        ? 'rien'
+        : 'cle_inconnue';
+      expect(e.verdict, `${e.agent}`).toBe(attendu);
+    }
+  });
+
+  it('LA SENTINELLE : la liste des agents lisibles suit les BRANCHES de la fonction', async () => {
+    // `AGENTS_A_IDENTIFIANTS_CONNUS` recopie à la main les agents que
+    // `requisitionSiCredentialsManquantes` sait vraiment juger. Je l'ai écrite
+    // de mémoire une première fois, et j'ai oublié `cursor` : le diagnostic
+    // annonçait alors « clé inconnue » pour un agent dont la ruche sait
+    // parfaitement lire les identifiants.
+    //
+    // On lit donc les branches dans la SOURCE plutôt que de les retenir.
+    const source = readFileSync(
+      new URL('../src/node-client/agent-detect.js', import.meta.url).pathname.replace(
+        /\.js$/,
+        '.ts',
+      ),
+      'utf8',
+    );
+    const corps = source.slice(
+      source.indexOf('export function requisitionSiCredentialsManquantes'),
+    );
+    const branches = [...corps.matchAll(/if \(agent === '([a-z-]+)'\)/g)]
+      .map((m) => m[1]!)
+      // `shell` et `custom` sortent par la garde du haut : ils n'ont pas
+      // d'identifiants du tout, ce qui n'est pas la même chose qu'inconnus.
+      .filter((a) => a !== 'shell' && a !== 'custom');
+
+    expect([...AGENTS_A_IDENTIFIANTS_CONNUS].sort()).toEqual([...new Set(branches)].sort());
   });
 
   it('LE CAS DE L’UTILISATEUR : la clé est dans .env, le binaire manque', async () => {
     const etats = await diagnostiquerAgents(poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }));
     const claude = etats.find((e) => e.agent === 'claude-code')!;
-    expect(claude.cle).toBe(true);
+    expect(claude.cle).toBe('presente');
     expect(claude.binaire).toBe(false);
     expect(claude.verdict).toBe('binaire_manquant');
     expect(claude.poseAutomatique).toBe(true);
@@ -58,9 +99,9 @@ describe('le diagnostic croise les deux sources', () => {
 
   it('chaque agent est jugé avec SA clé, jamais celle d’un autre', async () => {
     const etats = await diagnostiquerAgents(poste({ env: { OPENAI_API_KEY: 'sk-de-banc' } }));
-    expect(etats.find((e) => e.agent === 'codex')!.cle).toBe(true);
-    expect(etats.find((e) => e.agent === 'claude-code')!.cle).toBe(false);
-    expect(etats.find((e) => e.agent === 'grok')!.cle).toBe(false);
+    expect(etats.find((e) => e.agent === 'codex')!.cle).toBe('presente');
+    expect(etats.find((e) => e.agent === 'claude-code')!.cle).toBe('absente');
+    expect(etats.find((e) => e.agent === 'grok')!.cle).toBe('absente');
   });
 
   it('`shell` n’est pas interrogé — il n’a ni binaire à poser ni clé à porter', async () => {
