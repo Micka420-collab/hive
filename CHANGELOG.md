@@ -71,6 +71,12 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   navigateur via `pdfjs` + `mammoth`, bundlés dashboard — 0 dep runtime nœud).
   Vidéo/audio : refus clair (pas de fausse transcription). Plafond chat porté
   à 40 000 caractères. Module pur `reine-pieces` + bancs.
+  Les deux modules navigateur ont leurs bancs eux aussi : `reine-voix`
+  (28 cas — le décor Web Speech est posé à la main, happy-dom n'en fournit
+  pas) et `reine-extraire` (22 cas — `pdfjs` et `mammoth` doublés : le banc
+  juge ce que le module FAIT de ce qu'ils rendent, pas leur capacité à lire
+  un PDF). Ils arrivaient sans banc, et le cliquet de couverture le disait —
+  fonctions à 78,72 % sous un seuil de 78,8 %.
 
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
