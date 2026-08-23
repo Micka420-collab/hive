@@ -201,8 +201,7 @@ que ce dépôt a déjà consigné (lot 46). Ce qui manque :
 
 - la **réquisition humaine** (ADR 0010) : la butineuse ouvre une demande, un
   humain tranche depuis la Chambre, et c'est ce geste qui appellera `butiner` ;
-- le **contrôle de licence** — intégrer de l'AGPL sans le savoir est un risque
-  juridique, pas technique, et il ne se rattrape pas ;
+- le **contrôle de licence** — fait, voir plus bas ;
   Chacun est un lot, et chacun se mesure avant d'être annoncé.
 
 ## Le déballage — `src/shared/deballage.ts`
@@ -252,3 +251,53 @@ contenu des fichiers.
 sécurité qui juge autrement sous Windows et sous Linux est une garde qu'on ne
 peut pas raisonner : la normalisation est faite ici, à la main, et le verdict
 est le même partout.
+
+## La licence — `src/shared/licence-butinee.ts`
+
+**Le seul risque du butinage qui ne se rattrape pas.** Un fichier trop gros se
+re-télécharge, un condensat faux se signale, un code hostile se retire du dépôt.
+Intégrer du copyleft fort dans un produit qu'on distribue autrement **ne se
+retire pas** : l'obligation naît de la distribution, elle est rétroactive, et la
+seule réparation est juridique.
+
+### La limite, dite avant les règles
+
+**Un champ `license` est une déclaration du paquet, pas un fait.** Il peut être
+absent, faux, obsolète, ou contredit par un fichier `LICENSE` qui dit autre
+chose. « Permissive » veut dire « le paquet se déclare permissif », pas « vous
+avez le droit » — et le message le rappelle jusque dans le verdict le plus
+favorable.
+
+### Ce que le module tranche, et ce qu'il renvoie
+
+| Famille                                                           | Décision                                                                                   |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **permissive** (MIT, ISC, Apache-2.0, BSD-2/3, 0BSD, Unlicense…)  | intégrable sans décision                                                                   |
+| **copyleft faible** (LGPL, MPL, EPL, CDDL)                        | décision humaine                                                                           |
+| **copyleft fort** (GPL, AGPL)                                     | décision humaine — le message dit ce que ça coûte                                          |
+| **restreinte** (CC-BY-NC, SSPL, BUSL, `UNLICENSED`, propriétaire) | décision humaine                                                                           |
+| **inconnue**                                                      | décision humaine                                                                           |
+| **absente**                                                       | décision humaine — l'absence de licence est un **refus par défaut**, jamais une permission |
+
+La liste d'identifiants est volontairement **courte**. Une liste longue donne
+l'illusion de la couverture : mieux vaut vingt identifiants sûrs et un
+« inconnue » franc que deux cents dont la moitié est mal rangée. Un « inconnue »
+coûte une lecture ; un « permissive » erroné coûte un litige.
+
+> `Unlicense` et `UNLICENSED` sont **opposés** — un abandon au domaine public et
+> un refus de licence. Un caractère d'écart, et le verdict le plus permissif
+> tomberait sur le paquet le plus fermé.
+
+### `OR` et `AND` ne se valent pas
+
+`(MIT OR GPL-3.0)` offre un **choix** : on prend MIT, donc la **moins**
+contraignante décide. `MIT AND GPL-3.0` impose les **deux** : la **plus**
+contraignante décide.
+
+Les confondre se trompe dans un sens ou dans l'autre — refuser un paquet
+parfaitement intégrable (et une garde qui refuse à tort finit contournée), ou
+pire, laisser passer une obligation de publication en croyant avoir le choix.
+
+Une expression qui **mêle** les deux opérateurs est renvoyée à l'humain : sa
+portée dépend de parenthèses que ce module ne résout pas, et une lecture humaine
+coûte moins qu'une priorité mal devinée.
