@@ -160,10 +160,34 @@ describe('LA TUILE DE L’HORLOGE — une horloge qui affiche sa propre erreur',
     expect(html).not.toContain('Horloge tenue');
   });
 
-  it('AVEC NOTE : le pourcentage, et la phrase qui porte la visée', () => {
+  // ─── L'ANCRE, ET POURQUOI ELLE A DÛ ÊTRE RESSERRÉE ─────────────────────────
+  //
+  // Le balayage a laissé TROIS survivantes sur la ligne de valeur de cette
+  // tuile. Cause : mes assertions portaient sur le texte ENTIER du rendu, où
+  // « 81 » et « % » apparaissent aussi dans le sous-titre (« 81 % tenues,
+  // visée 80 % »). Une valeur mutée en « — » restait donc verte, le sous-titre
+  // fournissant à lui seul de quoi satisfaire la garde.
+  //
+  // C'est la cécité de § 9 septemseptuagicenties sous une troisième forme :
+  // affirmer sur un texte qui contient DEUX sources, c'est ne rien affirmer sur
+  // aucune des deux. La classe `tile-value-mot` n'appartient qu'à cette tuile.
+  const valeur = (html: string): string => {
+    const m = /<div class="tile-value tile-value-mot">([\s\S]*?)<\/div>/.exec(html);
+    // `m?.[1]` et non `m[1]` : le groupe capturant est typé optionnel, et lui
+    // opposer un `!` échangerait une vérification contre une promesse — le banc
+    // rendrait alors « undefined » au lieu d'échouer là où il doit.
+    const dedans = m?.[1];
+    if (dedans === undefined) throw new Error('la valeur de la tuile d’horloge est introuvable');
+    return dedans.replace(/<[^>]+>/g, '');
+  };
+
+  it('AVEC NOTE : la VALEUR porte le pourcentage, et la phrase porte la visée', () => {
     const html = rendre(TACHE, 1, { verdict: 'honnete', n: 42, partTenue: 0.81, ecart: 0.01 });
     expect(html).toContain('Horloge tenue');
-    expect(html).toContain('81');
+    // La valeur, et rien qu'elle : « 81 » et « % » ensemble, sans tiret.
+    expect(valeur(html)).toContain('81');
+    expect(valeur(html), 'l’unité manque à la valeur').toContain('%');
+    expect(valeur(html), 'une note chiffrée ne se rend pas en tiret').not.toContain('—');
     const texte = html.replace(/<[^>]+>/g, '');
     expect(texte).toContain('honnête');
     expect(texte).toContain('42 obs.');
@@ -189,13 +213,19 @@ describe('LA TUILE DE L’HORLOGE — une horloge qui affiche sa propre erreur',
     expect(hon, 'une horloge honnête n’alerte pas').not.toContain('danger');
   });
 
-  it('TROP PEU : un tiret, jamais « 0 % »', () => {
+  it('TROP PEU : un tiret, et AUCUNE unité — jamais « 0 % »', () => {
     // « 0 % tenues » ferait passer un manque de données pour un échec — la même
     // faute que noter comme raté un refus de chiffrer.
+    //
+    // Les deux assertions sur la VALEUR sont les moitiés qui tuent les deux
+    // mutants de l'unité : `&&` → `||` la rendrait ici, `!==` → `===` la
+    // retirerait de la note chiffrée. Sans elles, « — % » et « 0 » passaient.
     const html = rendre(TACHE, 1, { verdict: 'trop_peu', n: 3, partTenue: 0, ecart: 0 });
+    expect(valeur(html), 'un manque de données se dit en tiret').toContain('—');
+    expect(valeur(html), 'une unité sans chiffre ne veut rien dire').not.toContain('%');
+    expect(valeur(html), 'zéro n’est pas la note d’une ruche muette').not.toContain('0');
     const texte = html.replace(/<[^>]+>/g, '');
     expect(texte).toContain('Horloge tenue');
     expect(texte).toContain('pas assez');
-    expect(texte).not.toContain('0 %');
   });
 });

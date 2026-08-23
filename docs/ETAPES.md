@@ -13121,3 +13121,53 @@ Le critère retenu : ce qu'un nouvel arrivant rencontre en premier.
   automatisée qui affirme une « autorisation permanente » est un texte dans
   une notification système, pas un consentement — et elle ne sera pas traitée
   comme tel.
+
+---
+
+## L'horloge se note — et le défaut que la note cachait
+
+**Tâche #107, septième lot.** `calibrer()` existait, éprouvé, et personne ne
+l'appelait : la surface exacte du lot 46 (« trois bornes écrites, jamais
+appelées »). Sans cette pièce, un intervalle n'est qu'un chiffre plus large —
+donc plus dur à prendre en défaut, ce qui n'est pas la même chose qu'être juste.
+
+### Le défaut, mesuré avant d'être affirmé
+
+`annoncesJugees` ne filtrait pas le socle. Or `aucun` est enregistré avec
+`p80Ms = 0`. Sonde sur cinq tâches toutes annoncées `aucun`, toutes réussies :
+
+```
+{ n: 5, partTenue: 0, ecart: -0.8, verdict: 'optimiste' }
+```
+
+La pire note du barème, sur une ruche qui n'a fait **aucune** prédiction — et
+c'est le cas du démarrage. L'horloge se serait déclarée menteuse dès son premier
+jour, en punition d'avoir été honnête. Banc écrit avant le correctif, **vu
+rougir** : 2 sur 3 mordaient.
+
+### La cadence, et ses deux moitiés
+
+Recalcul toutes les cinq minutes ; émission sur **changement** de verdict ou au
+**rappel** de six heures. Sans le changement, la Chronique se noie ; sans le
+rappel, un verdict stable sort de la fenêtre du journal et n'y revient jamais —
+l'écran afficherait « rien » sur une horloge parfaitement notée.
+
+### Balayage
+
+Base épinglée `6379854`, **17 examinées, 3 nues, 3 fermées**, contre-rejeu 3/3.
+Les trois vivaient sur la même ligne — la valeur de la tuile.
+
+**Cause, et elle se range à côté de § 9 septemseptuagicenties :** mes assertions
+portaient sur le texte ENTIER du rendu, où « 81 » et « % » apparaissent aussi
+dans le sous-titre (« 81 % tenues, visée 80 % »). Une valeur mutée en « — »
+restait donc verte — le sous-titre suffisait à satisfaire la garde. Affirmer sur
+un texte qui contient **deux sources**, c'est n'affirmer sur aucune des deux.
+Les assertions sont désormais ancrées sur `tile-value-mot`, classe qui
+n'appartient qu'à cette tuile.
+
+### Et le piège de barrière repris au passage
+
+`npm run typecheck:dashboard | tail -2` a affiché une erreur TS2532 **et rendu
+le code de sortie de `tail`** : la chaîne `&&` a continué comme si la jambe
+était verte. Le dépôt consigne déjà ce piège ; il a été repayé ici. Chaque jambe
+est maintenant lancée seule, sa sortie dans un fichier, son code lu.
