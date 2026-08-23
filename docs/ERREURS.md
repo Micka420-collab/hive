@@ -626,6 +626,82 @@ appel réseau silencieusement raté au milieu de sa mise en place.
 > relancer. Un banc neuf qui ne rougit pas sous cette mutation-là n'est pas
 > terminé — quel que soit le temps qu'on a passé à l'écrire.
 
+#### 2.6 bis — Vérifier À LA SOURCE ne sert à rien si on vérifie la MAUVAISE chose
+
+En écrivant le catalogue des outils, j'ai inscrit pour Cline :
+
+```ts
+installation: Object.freeze(['npm', 'install', '-g', 'cline']),
+```
+
+Relisant plus tard, j'ai douté de ce nom de paquet — le reste du catalogue
+porte `installation: null` avec la mention « la ruche refuse de deviner ». Bon
+réflexe. J'ai donc interrogé le registre npm, et il a répondu :
+
+```
+cline : HTTP 200
+  description : Autonomous coding agent CLI …
+  bin         : {"cline":"bin/cline"}
+```
+
+Le paquet existe, il fait ce qu'on croit, son binaire porte le nom que la ruche
+cherche. J'ai conclu « vérifié » et je suis passé à la suite.
+
+C'est le banc du dépôt qui a dit non :
+
+```
+« cline » n'a pas de portée npm
+```
+
+`connexion-agent.test.ts` tient depuis longtemps que **tout paquet installé
+globalement porte une portée** (`@anthropic-ai/claude-code`, pas `claude-code`),
+parce qu'un nom sans portée sur le registre public est exposé au typosquat — et
+qu'un `npm install -g` est exactement l'endroit où l'on ne fait cette erreur
+qu'une fois.
+
+Ma vérification était vraie, sérieuse, faite à la source primaire… et sans
+rapport avec la question posée. « Ce paquet existe-t-il ? » et « ce nom
+est-il sûr à installer ? » sont deux questions différentes, et la seconde était
+déjà écrite dans le dépôt.
+
+Détail qui achève le dossier : `@cline/cli` EST porté — mais son binaire
+s'appelle `clite`, que `bins: ['cline']` ne cherche pas. La ruche installerait
+un paquet qu'elle ne saurait pas détecter ensuite. Deux mauvaises réponses ;
+`null` est la bonne, et `null` ne dit pas « impossible à installer », il dit
+« la ruche ne le fait pas à votre place ».
+
+> **Règle** — avant de conclure « vérifié », relire la GARDE qui existe déjà sur
+> ce terrain et vérifier ce QU'ELLE demande. Une source primaire consultée sur
+> la mauvaise question donne une confiance parfaitement injustifiée, et plus
+> solide que si l'on n'avait rien vérifié du tout.
+>
+> **Règle** — quand une garde en aval rougit sur une donnée écrite en amont,
+> DOUBLER la garde à la source. Ici elle vivait sur `PAQUETS` ; quelqu'un qui
+> ajoute un outil édite le CATALOGUE, et un rouge nommant `PAQUETS` l'enverrait
+> chercher au mauvais endroit.
+
+#### 2.6 ter — Deux tables qui répondent à la MÊME question dérivent toujours
+
+Le même lot a montré pourquoi ce nom de paquet vivait à deux endroits.
+
+`PAQUETS` (connexion-agent.ts) et `OUTILS[].installation` (catalogue-outils.ts)
+répondaient tous deux à « comment installe-t-on cet agent ? ». Le catalogue,
+écrit plus tard, connaissait Cline ; `PAQUETS` l'ignorait. La dérive était déjà
+là, silencieuse, et personne ne l'aurait vue avant qu'un utilisateur ne suive un
+conseil que la ruche ne donnait pas.
+
+`PAQUETS` en est maintenant DÉRIVÉ — une ligne, pas une copie.
+
+Le contraste avec `PAQUETS_AGENTS` (agent-windows.ts) est instructif : lui aussi
+porte un nom npm, et il ne doit PAS fusionner. Il répond à une autre question —
+où retrouver un agent DÉJÀ installé quand son shim n'est pas lançable sous
+Windows. Le dépôt garde donc leur donnée commune par un banc, sans les unir.
+
+> **Règle** — le critère n'est pas « ces deux tables se ressemblent-elles ? »
+> mais « répondent-elles à la MÊME question ? ». Même question ⇒ une seule
+> source, l'autre en dérive. Questions différentes ⇒ deux tables, et une garde
+> sur ce qu'elles partagent.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au

@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { direVerdict, juger, PAQUETS, type EtatAgent } from '../src/shared/connexion-agent.js';
 import { PAQUETS_AGENTS } from '../src/shared/agent-windows.js';
+import { OUTILS } from '../src/shared/catalogue-outils.js';
 
 describe('les quatre verdicts', () => {
   it('binaire ET clé : prête, rien à faire', () => {
@@ -136,6 +137,45 @@ describe('l’accord avec l’autre catalogue', () => {
     const installe = PAQUETS['claude-code']!;
     const nomInstalle = installe[installe.length - 1];
     expect(nomInstalle).toBe(PAQUETS_AGENTS['claude']!.paquet);
+  });
+
+  it('LA SENTINELLE : `PAQUETS` EST le catalogue, il ne le RECOPIE pas', () => {
+    // Cette liste était écrite à la main ici. Elle avait déjà dérivé : le
+    // catalogue savait installer Cline, `PAQUETS` l'ignorait — deux tables
+    // répondant à la MÊME question, dont une seule était relue.
+    //
+    // Elle en est maintenant DÉRIVÉE. Cette garde tient la dérivation elle-même
+    // : si quelqu'un la remplace un jour par une copie « pour éviter un
+    // import », le premier ajout au catalogue fera rougir ici.
+    const attendu = OUTILS.filter((o) => o.installation !== null).map((o) => o.id);
+    expect(Object.keys(PAQUETS).sort()).toEqual([...attendu].sort());
+    for (const o of OUTILS) {
+      if (o.installation === null) {
+        expect(
+          PAQUETS[o.id],
+          `${o.id} : le catalogue refuse de deviner, PAQUETS aussi`,
+        ).toBeUndefined();
+      } else {
+        expect(PAQUETS[o.id], o.id).toEqual(o.installation);
+      }
+    }
+  });
+
+  it('LA PORTÉE NPM EST EXIGÉE DANS LE CATALOGUE AUSSI — à la source, pas en aval', () => {
+    // La garde du dessous lit `PAQUETS`, qui dérive du catalogue : elle couvre
+    // donc déjà tout. Celle-ci la redouble À LA SOURCE pour que le message
+    // arrive au bon endroit — quelqu'un qui ajoute un outil édite le catalogue,
+    // pas ce fichier, et un rouge qui nomme `PAQUETS` l'enverrait chercher au
+    // mauvais endroit.
+    //
+    // C'est la règle que j'ai enfreinte en inscrivant `npm install -g cline` :
+    // le paquet existe bel et bien, mais son nom est SANS PORTÉE, et vérifier
+    // qu'un paquet existe ne répond pas à la question que cette garde pose.
+    for (const o of OUTILS) {
+      if (o.installation === null) continue;
+      const nom = o.installation[o.installation.length - 1]!;
+      expect(nom, `« ${nom} » (${o.id}) n’a pas de portée npm`).toMatch(/^@[^/]+\/[^/]+$/);
+    }
   });
 
   it('tout paquet que la ruche INSTALLE porte une portée npm explicite', () => {

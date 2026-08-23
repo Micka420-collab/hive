@@ -142,7 +142,26 @@ export const OUTILS: readonly OutilIA[] = Object.freeze([
     id: 'cline',
     nom: 'Cline',
     bins: ['cline'],
-    installation: Object.freeze(['npm', 'install', '-g', 'cline']),
+    // `null`, ET LE PAQUET EXISTE POURTANT.
+    //
+    // J'avais écrit `npm install -g cline`. Le registre confirme que ce paquet
+    // existe, qu'il s'annonce « Autonomous coding agent CLI », et que son `bin`
+    // est bien `cline`. J'ai donc vérifié — et vérifié la mauvaise chose.
+    //
+    // La règle du dépôt ne demande pas « ce paquet existe-t-il ? » mais « son
+    // nom porte-t-il une PORTÉE npm ? ». `connexion-agent.test.ts` la tient
+    // depuis longtemps : un nom sans portée (`cline`, pas `@qqch/cline`) est
+    // exposé au typosquat du registre public, et un `npm install -g` est
+    // exactement l'endroit où cette erreur ne se fait qu'une fois.
+    //
+    // `@cline/cli` est bien porté, lui — mais son binaire s'appelle `clite`,
+    // que `bins` ne cherche pas : la ruche installerait quelque chose qu'elle
+    // ne saurait pas détecter ensuite. Deux mauvaises réponses valent `null`.
+    //
+    // `null` ne veut donc pas dire « on ne peut pas l'installer » : il veut
+    // dire « la ruche ne le fait pas à votre place ». Cline s'installe très
+    // bien à la main, et la fiche le détectera dès qu'il sera sur le PATH.
+    installation: null,
     capacites: executant(),
     niveau: 'execute',
   },

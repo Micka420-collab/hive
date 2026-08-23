@@ -29,6 +29,8 @@
 // MODULE PUR — aucune I/O, aucune exécution. Il JUGE ; le nœud agit.
 
 /** Ce qu'il manque, et ce que ça implique. */
+import { OUTILS } from './catalogue-outils.js';
+
 export type VerdictConnexion =
   /** Binaire présent ET clé (ou session) présente : rien à faire. */
   | 'pret'
@@ -72,10 +74,30 @@ export interface EtatAgent {
  * nommer. Un agent inconnu ne se voit pas proposer un `npm i` deviné — ce
  * serait exécuter un nom venu d'ailleurs.
  */
-export const PAQUETS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'claude-code': Object.freeze(['npm', 'install', '-g', '@anthropic-ai/claude-code']),
-  codex: Object.freeze(['npm', 'install', '-g', '@openai/codex']),
-});
+/**
+ * Comment installer chaque agent — DÉRIVÉ du catalogue, jamais recopié.
+ *
+ * ─── POURQUOI CETTE LISTE N'EST PLUS ÉCRITE ICI ─────────────────────────────
+ *
+ * Elle l'était, et elle avait déjà dérivé : le catalogue savait installer Cline
+ * (`npm install -g cline`), cette liste-ci l'ignorait. Deux tables qui
+ * répondent à la MÊME question — « comment on l'installe » — finissent
+ * toujours par ne plus répondre pareil, et c'est celle qu'on ne relit pas qui
+ * ment.
+ *
+ * À ne pas confondre avec `PAQUETS_AGENTS` (agent-windows.ts), qui répond à une
+ * question DIFFÉRENTE : où retrouver un agent DÉJÀ installé quand son shim
+ * n'est pas lançable sous Windows. Les fusionner serait l'erreur inverse ; le
+ * banc qui garde leur nom npm commun reste en place.
+ *
+ * `installation: null` dans le catalogue veut dire « la ruche refuse de deviner
+ * un nom de paquet » — ces agents n'apparaissent donc pas ici, et c'est voulu.
+ */
+export const PAQUETS: Readonly<Record<string, readonly string[]>> = Object.freeze(
+  Object.fromEntries(
+    OUTILS.filter((o) => o.installation !== null).map((o) => [o.id, o.installation!]),
+  ),
+);
 
 export function juger(opts: { agent: string; binaire: boolean; cle: EtatCle }): EtatAgent {
   const installation = PAQUETS[opts.agent] ?? null;
