@@ -82,6 +82,19 @@ export function conseilDemarrage(
 ): string | null {
   const posable = etats.find((e) => e.poseAutomatique);
   if (!posable) return null;
+  // loupe : équivalent — `lang === 'en'` muté en `lang !== 'en'` ne change RIEN,
+  // et c'est mesuré, pas supposé. Seuls les agents du catalogue `PAQUETS`
+  // atteignent cette ligne (c'est `poseAutomatique` qui l'exige), et leurs
+  // libellés sont des NOMS DE MARQUE, identiques dans les deux langues :
+  //
+  //     claude-code   fr="Claude Code"   en="Claude Code"
+  //     codex         fr="Codex"         en="Codex"
+  //
+  // L'argument reste POSÉ malgré tout : le jour où le catalogue accueille un
+  // agent dont le nom se traduit, le retirer serait un défaut. Et pour que ce
+  // jour-là ne passe pas en silence, `connexion-noeud.test.ts` tient que TOUT
+  // agent de `PAQUETS` porte un libellé indépendant de la langue — l'ajout
+  // d'un nom traduisible fait rougir ce banc-là, pas celui-ci.
   const nom = libelleAgent(posable.agent, lang === 'en');
   const commande = posable.installation!.join(' ');
   return lang === 'en'

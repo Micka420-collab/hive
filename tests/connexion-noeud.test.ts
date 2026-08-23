@@ -11,6 +11,8 @@ import {
   unAgentEstPret,
 } from '../src/node-client/connexion.js';
 import type { AgentType } from '../src/node-client/agent-detect.js';
+import { PAQUETS } from '../src/shared/connexion-agent.js';
+import { libelleAgent } from '../src/shared/agent-libelle.js';
 
 /** Un poste : quels binaires, quel environnement. Rien n'est touché sur disque. */
 function poste(opts: { binaires?: AgentType[]; env?: NodeJS.ProcessEnv } = {}) {
@@ -120,6 +122,28 @@ describe('le conseil au démarrage', () => {
   it('parle anglais quand on le lui demande', async () => {
     const etats = await diagnostiquerAgents(poste({ env: { ANTHROPIC_API_KEY: 'sk-de-banc' } }));
     expect(conseilDemarrage(etats, 'en')).toContain('only its CLI is missing');
+  });
+});
+
+describe('la sentinelle de l’équivalence', () => {
+  it('tout agent du catalogue porte un libellé INDÉPENDANT de la langue', () => {
+    // Ce banc ne défend pas un comportement : il défend une ÉQUIVALENCE.
+    //
+    // Dans `conseilDemarrage`, la loupe a montré que muter `lang === 'en'` en
+    // `!==` ne change rien. C'est vrai — mais seulement parce que les deux
+    // agents du catalogue s'appellent « Claude Code » et « Codex » dans les
+    // deux langues. Cette vérité tient à une COÏNCIDENCE du catalogue, pas à
+    // une propriété du code.
+    //
+    // Le jour où quelqu'un ajoute à `PAQUETS` un agent dont le nom se traduit,
+    // l'équivalence tombe — et sans ce banc, elle tomberait EN SILENCE, en
+    // laissant derrière elle un commentaire qui affirmerait le contraire.
+    for (const agent of Object.keys(PAQUETS)) {
+      expect(
+        libelleAgent(agent, false),
+        `« ${agent} » se traduit : l’équivalence notée dans connexion.ts ne tient plus`,
+      ).toBe(libelleAgent(agent, true));
+    }
   });
 });
 
