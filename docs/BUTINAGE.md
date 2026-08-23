@@ -125,20 +125,86 @@ La règle `detournement-de-consigne` **ne remplace pas** cette neutralisation :
 elle la _signale_. Un paquet qui essaie de parler à votre agent a déjà dit ce
 qu'il voulait.
 
-## Ce qui reste à faire avant de brancher quoi que ce soit
+## Le transport — `src/orchestrator/butineuse.ts`
 
-Ces deux modules **jugent** ; rien ne va encore sur le réseau. Avant de câbler
-un téléchargement réel, il manque :
+**Une seule fonction du dépôt rapporte un fichier d'Internet.** Le dépôt porte
+déjà cette règle pour l'envoi de tâches, et pour la même raison : deux portes,
+c'est une porte qu'on oublie de garder.
 
-- le **transport** lui-même : plafond de taille (`BUTIN_OCTETS_MAX`, 25 Mio),
-  délai maximal, **aucune redirection suivie** (une redirection ramène une
-  adresse qui n'a pas passé la porte 1) ;
-- la **quarantaine** sur disque : hors de l'arbre de travail, en lecture seule,
-  jamais dans `node_modules` ;
-- la **vérification d'intégrité** : condensat attendu comparé au reçu ;
+L'ordre des gestes est le sujet :
+
+> juger l'adresse → ouvrir → juger les en-têtes → lire en comptant → condenser →
+> comparer → **écrire**
+
+L'écriture est le **dernier** geste. Rien ne touche le disque avant que le
+condensat ne soit vérifié : un fichier à demi écrit puis rejeté est un fichier
+que quelqu'un finira par trouver et croire bon.
+
+### Les cinq refus, et pourquoi chacun est nécessaire
+
+**1. Aucune redirection n'est suivie** (`redirect: 'error'`). Une redirection
+rend une adresse qui n'est _pas_ passée par la porte 1 : un hôte permis peut
+répondre « 302 → `http://169.254.169.254/…` » et toute la liste blanche devient
+décorative. C'est la forme canonique du SSRF. Re-soumettre la destination à la
+porte 1 serait tentant et insuffisant — entre le contrôle et la requête, le DNS
+peut changer (_rebinding_).
+
+**2. `Content-Length` est une déclaration, pas un fait.** Le plafond s'applique
+**deux fois** : sur l'annonce (pour refuser sans rien lire quand elle est
+franche) et sur le flux **octet par octet**. Un plafond qui ne garde que
+l'annonce est pire qu'aucun plafond — il donne l'impression que la question est
+traitée.
+
+**3. Le plafond se compte après décompression.** `fetch` décompresse `gzip` tout
+seul : 40 Kio sur le fil peuvent en rendre 4 Gio à la lecture. Compter les
+octets du _fil_ laisserait passer exactement l'attaque que le plafond existe
+pour arrêter.
+
+**4. Le nom du fichier ne vient jamais d'en face.** Ni de `Content-Disposition`,
+ni du chemin de l'URL. Un nom comme `../../.ssh/authorized_keys` sort de la
+quarantaine au moment même où on croit y écrire. Le nom est **dérivé du
+condensat de l'URL normalisée** — impossible à influencer, et il ne contient que
+des chiffres hexadécimaux.
+
+**5. Un délai maximal.** Un serveur qui envoie un octet toutes les trente
+secondes ne dépasse aucun plafond de taille et retient une ouvrière pour
+toujours.
+
+S'y ajoutent : `credentials: 'omit'` et `referrerPolicy: 'no-referrer'` — un
+butinage n'a aucune raison d'être authentifié, et une requête authentifiée vers
+un hôte tiers est une fuite en puissance. Et le **condensat SHA-256 est exigé
+avant la requête** : l'adresse dit _où_, le condensat dit _quoi_.
+
+### Ce que le transport promet, et ce qu'il ne promet pas
+
+Il promet que le fichier posé en quarantaine vient d'un hôte permis à une
+référence figée, n'a traversé aucune redirection, ne dépasse pas le plafond
+mesuré après décompression, porte le condensat exigé, et a un nom que le serveur
+n'a pas choisi.
+
+**Il ne promet pas qu'il est inoffensif.** Aucune de ces gardes ne lit le code —
+c'est le travail de `nectar-suspect.ts`, qui ne promet pas davantage.
+
+### `fetch` est injecté, et c'est une décision de sûreté
+
+On ne peut pas demander à un vrai serveur de mentir sur sa taille, de rediriger
+vers le service de métadonnées, ou de servir un condensat faux. Sans injection,
+aucune de ces gardes ne serait éprouvable — et **une garde de sécurité qu'aucun
+banc ne peut mettre en défaut est une garde dont personne ne sait si elle
+marche**.
+
+## Ce qui reste à faire
+
+Le transport existe et il est éprouvé. Il n'a **pas encore d'appelant** — c'est
+dit ici plutôt que caché, parce que « écrit mais jamais appelé » est le défaut
+que ce dépôt a déjà consigné (lot 46). Ce qui manque :
+
+- la **réquisition humaine** (ADR 0010) : la butineuse ouvre une demande, un
+  humain tranche depuis la Chambre, et c'est ce geste qui appellera `butiner` ;
 - le **contrôle de licence** — intégrer de l'AGPL sans le savoir est un risque
   juridique, pas technique, et il ne se rattrape pas ;
-- la **réquisition humaine** (ADR 0010) : la butineuse ouvre une demande, un
-  humain tranche depuis la Chambre.
+- le **déballage** de l'archive : une archive qui contient `../` ou des liens
+  symboliques sort de la quarantaine à l'extraction (_tar slip_). La garde du
+  nom protège le fichier reçu, pas ce qu'il contient.
 
 Chacun est un lot, et chacun se mesure avant d'être annoncé.
