@@ -222,6 +222,55 @@ describe('la butineuse rapporte — et seulement ce qui a passé les trois porte
     expect(r.ok === false && r.detail).toContain('socket coupé');
   });
 
+  it('CE QUI EST JETÉ SANS ÊTRE UNE ERREUR EST QUAND MÊME LISIBLE', async () => {
+    // ─── LA MOITIÉ QUI TUE `instanceof Error` → `instanceof Object` ──────────
+    //
+    // JavaScript laisse jeter n'importe quoi. Un objet nu passe `instanceof
+    // Object` sans avoir de `message` : le mutant écrirait « Le transport a
+    // échoué : undefined » — un détail qui ne dit RIEN à qui enquête, dans le
+    // seul message dont c'est le métier.
+    //
+    // Ce n'est pas théorique : une bibliothèque qui jette un littéral, un
+    // rejet de promesse porté par un objet de réponse, une valeur venue d'un
+    // simulacre — trois façons ordinaires d'arriver ici sans être une `Error`.
+    const fetchSimule = vi.fn(async () => {
+      throw { code: 'BIZARRE' };
+    });
+    const r = await butiner(
+      { url: URL_OK, condensat: sha(PETIT), quarantaine },
+      { fetch: fetchSimule as unknown as typeof globalThis.fetch },
+    );
+    expect(r.ok === false && r.motif).toBe('transport_casse');
+    expect(
+      r.ok === false && r.detail,
+      'un objet nu se dit, il ne rend pas « undefined »',
+    ).toContain('[object Object]');
+    expect(r.ok === false && r.detail).not.toContain('undefined');
+  });
+
+  it('MÊME CHOSE PENDANT LA LECTURE DU CORPS', async () => {
+    // Le second site du même ternaire. Le balayage les a rendus nus tous les
+    // deux, et fermer l'un sans l'autre laisserait la moitié du chemin muette
+    // — c'est justement pendant la lecture qu'un flux casse le plus souvent.
+    const flux = new ReadableStream<Uint8Array>({
+      pull() {
+        throw { raison: 'flux coupé' };
+      },
+    });
+    const fetchSimule = vi.fn(
+      async () =>
+        new Response(flux, { status: 200, headers: { 'content-type': 'application/gzip' } }),
+    );
+    const r = await butiner(
+      { url: URL_OK, condensat: sha(PETIT), quarantaine },
+      { fetch: fetchSimule as unknown as typeof globalThis.fetch },
+    );
+    expect(r.ok === false && r.motif).toBe('transport_casse');
+    expect(r.ok === false && r.detail).toContain('Lecture interrompue');
+    expect(r.ok === false && r.detail).not.toContain('undefined');
+    expect(contenuQuarantaine()).toHaveLength(0);
+  });
+
   it('LE DÉLAI DÉPASSÉ A SON PROPRE MOTIF', async () => {
     // Un `AbortError` confondu avec « transport cassé » ferait chercher une
     // panne réseau là où le serveur fait simplement traîner — deux enquêtes

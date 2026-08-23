@@ -13206,3 +13206,44 @@ Balayage : base épinglée `6c6c52b`, **2 examinées, rien de nu**.
 Le socle `exact` reste hors de portée : il demande un **genre** de tâche, donnée
 que la ruche ne mesure pas. Ce n'est pas un manque de câblage, et ce ne sera pas
 comblé par une heuristique de mots-clés.
+
+---
+
+## Le transport du butinage — 19 examinées, 4 nues, 4 fermées
+
+**Tâche #105.** Les deux portes jugeaient l'adresse et le contenu ; le trajet
+entre les deux n'existait pas. C'est là que vivent les défauts qu'aucune des
+deux ne peut voir — ils naissent de la conversation avec un serveur qu'on ne
+contrôle pas.
+
+Une seule fonction du dépôt rapporte un octet d'Internet, et l'ordre de ses
+gestes est le sujet : **l'écriture est le dernier**. Rien ne touche le disque
+avant que le condensat ne soit vérifié.
+
+### Ce que le balayage a rendu nu, et ce que ça aurait coûté
+
+| Ligne                                             | Ce que le mutant produit                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `e instanceof Error ? e.message : String(e)` (×2) | « Le transport a échoué : **undefined** » — le seul message dont c'est le métier ne dit plus rien |
+| `type === '' ? 'absent' : type`                   | « absent » sur un `text/html`, et l'inverse sur une absence                                       |
+| `propre.length < 16`                              | refuse un condensat de seize chiffres, parfaitement suffisant                                     |
+
+Les deux premières ne sont pas théoriques : JavaScript laisse jeter n'importe
+quoi, et une bibliothèque qui jette un littéral suffit. Contre-rejeu **4 sur 4**.
+
+### La sonde qu'il a fallu jeter
+
+Un banc voulait prouver « le corps n'est pas lu » avec un drapeau dans
+`pull()`. Il a rougi, et c'était le **banc** qui avait tort : `pull` se
+déclenche dès la **construction** du `ReadableStream`, sans le moindre lecteur.
+La sonde mesurait la mécanique du flux, pas la butineuse — elle ne pouvait pas
+distinguer les deux. Remplacée par le **motif** rendu, qui distingue vraiment.
+
+### Ce qui n'est pas fait, et qui est écrit plutôt que caché
+
+Le transport **n'a pas encore d'appelant**. « Écrit mais jamais appelé » est le
+défaut du lot 46 ; le dire est le minimum. La réquisition humaine (ADR 0010)
+sera ce qui l'appelle. Restent aussi le contrôle de licence et le **déballage** :
+une archive qui contient `../` ou des liens symboliques sort de la quarantaine à
+l'extraction (_tar slip_), et la garde du nom protège le fichier reçu, pas ce
+qu'il contient.

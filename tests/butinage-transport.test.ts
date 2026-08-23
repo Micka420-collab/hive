@@ -57,14 +57,23 @@ describe('jugerEnTetes — la réponse avant d’en lire un octet', () => {
     }
   });
 
-  it('UN type::HTML LÀ OÙ ON ATTEND UNE ARCHIVE EST REFUSÉ', () => {
+  it('UN type::HTML LÀ OÙ ON ATTEND UNE ARCHIVE EST REFUSÉ, et le DÉTAIL le nomme', () => {
     // Portail captif, page d'erreur rendue en 200, redirection déguisée : trois
     // façons de recevoir du HTML à la place d'un paquet, et aucune ne se
     // déballe.
+    //
+    // Le détail nomme le type REÇU, et « absent » quand il n'y en a pas. Les
+    // deux assertions ensemble tuent l'inversion de ce ternaire : muté, le
+    // message dirait « absent » sur un `text/html` et « vide » sur une absence
+    // — soit exactement l'inverse de ce que celui qui enquête a besoin de lire.
     const v = jugerEnTetes(200, 'text/html', null, PLAFOND);
     expect(v.ok === false && v.motif).toBe('type_refuse');
+    expect(v.ok === false && v.detail, 'le type reçu doit être nommé').toContain('text/html');
+    expect(v.ok === false && v.detail).not.toContain('absent');
+
     const vide = jugerEnTetes(200, null, null, PLAFOND);
     expect(vide.ok === false && vide.motif).toBe('type_refuse');
+    expect(vide.ok === false && vide.detail, 'une absence se dit « absent »').toContain('absent');
   });
 
   it('LE PARAMÈTRE APRÈS LE POINT-VIRGULE NE FAIT PAS PARTIE DU TYPE', () => {
@@ -149,6 +158,16 @@ describe('nomDeQuarantaine — le nom ne vient JAMAIS d’en face', () => {
     // dessus le même fichier, et personne ne s'en apercevrait.
     expect(() => nomDeQuarantaine('abc')).toThrow(/trop court/);
     expect(() => nomDeQuarantaine('')).toThrow();
+  });
+
+  it('PILE À SEIZE : la borne est franchie, pas atteinte', () => {
+    // La moitié qui tue `<` → `<=`. Seize chiffres hexadécimaux font 64 bits de
+    // distinction — assez pour nommer sans collision. Refuser à l'égalité
+    // rejetterait un condensat parfaitement suffisant, et l'échec serait
+    // attribué à l'appelant.
+    expect(() => nomDeQuarantaine('0123456789abcdef')).not.toThrow();
+    expect(nomDeQuarantaine('0123456789abcdef')).toBe('butin-0123456789abcdef.bin');
+    expect(() => nomDeQuarantaine('0123456789abcde')).toThrow(/trop court/);
   });
 
   it('LE MÊME CONDENSAT REND LE MÊME NOM', () => {
