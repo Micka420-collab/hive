@@ -31,11 +31,18 @@ UTIL="${HIVE_UTILISATEUR:-hive}"
 PORT="${HIVE_PORT:-7777}"
 RESEAU_LOCAL="${HIVE_RESEAU:-192.168.0.0/16}"
 
-dire() { printf '%s\n' "$*"; }
-mourir() { printf '✘ %s\n' "$*" >&2; exit 1; }
+# Les MÊMES codes que `src/codes-sortie.ts` et `install.sh` : un script
+# appelant n'a qu'une table à connaître.
+CODE_ERREUR=1
+CODE_PREREQUIS=2
 
-[ "$(id -u)" -eq 0 ] || mourir "à lancer en root (sudo) — il pose un service système."
-command -v apt-get >/dev/null 2>&1 || mourir "ce script vise Debian/Ubuntu (apt-get introuvable)."
+dire() { printf '%s\n' "$*"; }
+mourir() { printf '✘ %s\n' "$*" >&2; exit $CODE_ERREUR; }
+# « Il manque quelque chose sur cette machine, et réessayer n'y changera rien. »
+manque() { printf '✘ %s\n' "$*" >&2; exit $CODE_PREREQUIS; }
+
+[ "$(id -u)" -eq 0 ] || manque "à lancer en root (sudo) — il pose un service système."
+command -v apt-get >/dev/null 2>&1 || manque "ce script vise Debian/Ubuntu (apt-get introuvable)."
 
 dire "→ 1/6  Paquets de base"
 export DEBIAN_FRONTEND=noninteractive
@@ -81,7 +88,18 @@ while [ "$essai" -le 3 ]; do
     dire "     base SQLite : ouverte et vérifiée"
     break
   fi
-  [ "$essai" -eq 3 ] && mourir "better-sqlite3 reste inutilisable après 3 essais — la ruche naîtrait morte. Vérifiez build-essential et python3."
+  if [ "$essai" -eq 3 ]; then
+    dire ""
+    dire "  Le paquet peut être PRÉSENT et son binaire natif inutilisable : npm"
+    dire "  bloque les scripts d'installation depuis la 11.17, et le binaire"
+    dire "  compilé pour une autre version de Node ne se remplace pas tout seul."
+    dire "  \`npm install\` ne touche pas un paquet déjà à la bonne version — il"
+    dire "  rend 0 et la panne reste entière. Seul \`rebuild\` refait le binaire :"
+    dire ""
+    dire "      cd $RACINE && sudo -u $UTIL npm rebuild better-sqlite3"
+    dire ""
+    manque "better-sqlite3 reste inutilisable après 3 essais — la ruche naîtrait morte."
+  fi
   dire "     npm a écarté une dépendance optionnelle (essai $essai sur 3) — on recommence"
   su -s /bin/sh -c "cd '$RACINE' && npm install --silent" "$UTIL" || true
   essai=$((essai + 1))
