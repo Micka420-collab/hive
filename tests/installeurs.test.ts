@@ -30,6 +30,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NODE_MIN, conseilServeur, messagePrerequisNode, nodeSuffisant } from '../src/installer.js';
 import { NODE_MINIMUM } from '../src/shared/doctor.js';
@@ -45,6 +46,15 @@ import {
 } from '../src/tui/rendu.js';
 
 const RACINE = new URL('..', import.meta.url);
+/**
+ * La racine EN CHEMIN DE FICHIER — par `fileURLToPath`, jamais `.pathname`.
+ *
+ * `new URL('.', RACINE).pathname` rend « /D:/a/hive/ » sous Windows, avec une
+ * barre AVANT la lettre de lecteur, et un `spawn` qui reçoit ça en `cwd`
+ * échoue. Ici la mine DORMAIT : `lancer()` ne part que sous
+ * `runIf(shellPosix)`, faux sous Windows. Elle n'en était pas moins amorcée.
+ */
+const RACINE_CHEMIN = fileURLToPath(RACINE);
 const lire = (f: string): string => readFileSync(new URL(f, RACINE), 'utf8');
 
 /** La source sans ses commentaires — sinon la prose ferait passer les gardes. */
@@ -599,7 +609,7 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
   const lancer = (args: string[], chemin?: string): { code: number; sortie: string } => {
     try {
       const sortie = execFileSync('sh', ['install.sh', ...args], {
-        cwd: new URL('.', RACINE).pathname,
+        cwd: RACINE_CHEMIN,
         encoding: 'utf8',
         env: { ...process.env, NO_COLOR: '1', ...(chemin ? { PATH: chemin } : {}) },
       });

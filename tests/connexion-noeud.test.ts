@@ -13,6 +13,7 @@ import {
 import { AGENTS_A_IDENTIFIANTS_CONNUS } from '../src/node-client/agent-detect.js';
 import type { AgentType } from '../src/node-client/agent-detect.js';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PAQUETS } from '../src/shared/connexion-agent.js';
 import { libelleAgent } from '../src/shared/agent-libelle.js';
 
@@ -55,11 +56,14 @@ describe('le diagnostic croise les deux sources', () => {
     // parfaitement lire les identifiants.
     //
     // On lit donc les branches dans la SOURCE plutôt que de les retenir.
+    //
+    // `fileURLToPath` et non `.pathname` : sous Windows, `.pathname` rend
+    // « /D:/a/hive/... » avec une barre de tête, et `readFileSync` va alors
+    // chercher « D:\D:\a\hive\... ». C'est la morsure qui a rougi la jambe
+    // windows-latest de cette branche. Le reste du dépôt utilise partout
+    // `fileURLToPath` — je m'y range.
     const source = readFileSync(
-      new URL('../src/node-client/agent-detect.js', import.meta.url).pathname.replace(
-        /\.js$/,
-        '.ts',
-      ),
+      fileURLToPath(new URL('../src/node-client/agent-detect.ts', import.meta.url)),
       'utf8',
     );
     const corps = source.slice(

@@ -1888,6 +1888,54 @@ qu'il imprime — sur les trois systèmes de la CI.
 > pas les deux formes ci-dessus, et sur deux systèmes sur trois elles se
 > comportent à l'identique.
 
+#### 6.1 quater — La cinquième fois, et la fin des avertissements en prose
+
+`tests/connexion-noeud.test.ts`, fichier NEUF, lisait la source d'un module
+pour en extraire ses branches :
+
+```js
+new URL('../src/node-client/agent-detect.js', import.meta.url).pathname.replace(/\.js$/, '.ts');
+```
+
+```
+ENOENT: no such file or directory,
+open 'D:\D:\a\hive\hive\src\node-client\agent-detect.ts'
+```
+
+Le même défaut, la même lettre doublée, la même jambe CI. Ce qui rend cette
+récurrence-là utile, ce n'est pas qu'elle soit arrivée — c'est **l'état du
+dépôt au moment où elle est arrivée** : la règle était écrite ici, en trois
+paragraphes, et RECOPIÉE en tête de six fichiers (`loupe.mjs`, `lancer.mjs`,
+`ruche.mjs`, `empreinte.test.ts`, `fusionner.test.ts`,
+`essai-installation.test.ts`).
+
+Six avertissements. Tous dans des fichiers **déjà corrigés**. Aucun sur le
+chemin du fichier neuf, qui ne les a jamais croisés.
+
+Le balayage qui a suivi a d'ailleurs trouvé une **mine dormante** que personne
+ne cherchait : `tests/installeurs.test.ts` passait
+`new URL('.', RACINE).pathname` en `cwd` d'un `execFileSync`. Elle n'avait
+jamais mordu parce que l'appelant ne part que sous `runIf(shellPosix)`, faux
+sous Windows. Amorcée, mais jamais atteinte — donc invisible à la CI.
+
+> **Règle** — au bout de la troisième récurrence d'un même défaut, la prose
+> n'est plus le remède ; c'est le symptôme. Un avertissement écrit dans les
+> fichiers déjà corrigés ne protège que ceux-là, et le prochain fichier ne sait
+> pas qu'il existe. Seule une garde qui **balaie l'arbre** protège le code pas
+> encore écrit.
+>
+> `tests/chemin-de-fichier-windows.test.ts` le fait : il parcourt `src/`,
+> `tests/`, `scripts/` et `dashboard/src/`, et rougit sur tout `.pathname` pris
+> sur une URL de **fichier** — bâtie depuis `import.meta.url` directement, ou
+> par une constante du fichier. Le `url.pathname` d'un routage HTTP n'est pas
+> visé et ne l'a jamais été.
+>
+> **Règle** — une garde qui s'EXCLUT elle-même doit borner son exclusion.
+> Celle-ci contient les formes fautives dans ses fixtures : c'est ainsi qu'on a
+> vu son détecteur mordre. Elle affirme donc que l'exclusion vaut **un** fichier
+> et que ce fichier existe — sinon un nom mal orthographié dans la liste
+> n'exclurait rien, ou l'exclusion s'élargirait sans que rien ne rougisse.
+
 ### 6.1 bis — Un handle ouvert ne se voit PAS sous Linux
 
 Dix-neuf tests du lot 17 sont passés ici et sont tombés en CI Windows, tous sur
