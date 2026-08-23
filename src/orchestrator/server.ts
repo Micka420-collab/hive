@@ -24,6 +24,7 @@ import {
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
 import { shellForce } from '../shared/agent-production.js';
+import { estimerDuree } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
@@ -1291,6 +1292,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // Le modèle choisi par l'Aiguillage, s'il y en a un : le nœud le passe à
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
+      });
+
+      // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
+      //     l'annonce ────────────────────────────────────────────────────────
+      //
+      // Ici et nulle part ailleurs, pour la raison qui gouverne déjà cette
+      // fonction : une seule porte vers les ouvrières. Une annonce posée à un
+      // second endroit serait une annonce qu'on oublie de mettre à jour.
+      //
+      // La caste est FIGÉE maintenant. Elle est vive — recalculée à chaque
+      // interrogation —, et la relire dans trois semaines pour expliquer cette
+      // durée-ci rendrait un historique faux.
+      //
+      // Le socle `aucun` est enregistré comme les autres : savoir que la ruche
+      // n'avait RIEN à dire ce jour-là fait partie de son histoire, et c'est ce
+      // qui permettra plus tard de dater le moment où elle a commencé à savoir.
+      const annonce = estimerDuree(store.historiqueDurees(), { caste: casteDe(nodeId) });
+      store.enregistrerAnnonce(task.id, nodeId, casteDe(nodeId), annonce);
+      emitEvent('duree_annoncee', {
+        taskId: task.id,
+        nodeId,
+        socle: annonce.socle,
+        n: annonce.n,
+        p50Ms: annonce.p50Ms,
+        p80Ms: annonce.p80Ms,
       });
     }
   };
