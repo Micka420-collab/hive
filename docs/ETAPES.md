@@ -13247,3 +13247,35 @@ sera ce qui l'appelle. Restent aussi le contrôle de licence et le **déballage*
 une archive qui contient `../` ou des liens symboliques sort de la quarantaine à
 l'extraction (_tar slip_), et la garde du nom protège le fichier reçu, pas ce
 qu'il contient.
+
+---
+
+## Le déballage — 12 examinées, rien de nu
+
+**Tâche #105, second lot.** Le transport garantit que le fichier **reçu** porte
+un nom que le serveur n'a pas choisi ; il ne dit rien de ce qu'il **contient**.
+Une archive porte ses propres chemins, venus du même inconnu — c'est le _tar
+slip_.
+
+Sept refus : la remontée (jugée sur le chemin **normalisé**, jamais sur la
+chaîne brute), le chemin absolu sous ses trois formes, les liens **en bloc**,
+les fichiers spéciaux, les noms que le système réécrit, les collisions **casse
+comprise**, et les plafonds de nombre et de taille déballée.
+
+**Le refus des liens mérite d'être dit.** Contrôler la cible d'un lien puis
+extraire est une _course_ : `a` est un lien vers `/etc`, puis `a/passwd` est un
+fichier ordinaire, et l'écriture part dans `/etc/passwd` sans qu'aucun chemin
+n'ait eu l'air suspect. Un lien ne se juge pas, il se refuse.
+
+**Une normalisation qui ne dépend pas du système** : `path.normalize` rend un
+résultat différent selon l'OS. Une garde de sécurité qui juge autrement sous
+Windows et sous Linux est une garde qu'on ne peut pas raisonner.
+
+Balayage base épinglée `13bfda3` : **12 examinées, aucune survivante**. C'est le
+second terrain de la session à sortir vierge, et il n'y a rien à en conclure de
+plus que ce que la loupe en dit — douze mutations, douze mortes.
+
+### Ce qui reste sur #105
+
+- la **réquisition humaine** (ADR 0010), qui sera l'appelant du transport ;
+- le **contrôle de licence**.
