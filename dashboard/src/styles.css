@@ -2722,3 +2722,42 @@ button.mc-cell:focus-visible {
 .btn.geste-irr-oui:hover:not(:disabled) {
   background: rgba(168, 64, 42, 0.1);
 }
+
+/* ─── L'horloge du chantier, dans le tiroir de tâche ────────────────────────
+   L'annonce se lit en gras discret ; le verdict, lui, se COLORE — c'est la
+   seule ligne de l'écran qui dise si le pari a tenu, et une ligne qui juge
+   doit se voir sans être cherchée. « Débordée » reste en ambre, jamais en
+   rouge : une annonce sur cinq est CENSÉE déborder, et la peindre comme une
+   panne pousserait à annoncer large pour ne plus jamais être pris en défaut. */
+.horloge-annonce {
+  font-variant-numeric: tabular-nums;
+}
+
+.horloge-verdict {
+  font-size: 12px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.horloge-verdict.tenue {
+  color: var(--green, #2f6b3a);
+  border-color: color-mix(in srgb, var(--green, #2f6b3a) 35%, var(--border));
+}
+
+.horloge-verdict.debordee {
+  color: var(--amber, #9a6b16);
+  border-color: color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
+}
+
+.horloge-alerte {
+  font-size: 12px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  color: var(--amber, #9a6b16);
+  background: color-mix(in srgb, var(--amber, #9a6b16) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
+}

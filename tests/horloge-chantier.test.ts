@@ -262,6 +262,16 @@ describe('calibrer — l’horloge se note elle-même', () => {
 describe('ce que l’humain lit', () => {
   it('direDuree passe d’unité sans mentir', () => {
     expect(direDuree(500)).toContain('seconde');
+    // ─── LE SEUL PALIER QUI SÉPARE LES DEUX LANGUES ────────────────────────
+    //
+    // Au-dessus d'une seconde, « 45 s », « 5 min » et « 2 h 05 » s'écrivent
+    // pareil des deux côtés. Éprouver la langue uniquement là ne peut rien
+    // voir : c'est le palier du dessous, et lui seul, qui rendait du français
+    // dans le chemin anglais. Même cécité que § 9 septemseptuagicenties —
+    // ancrer ce qui DISTINGUE, pas ce qui réunit.
+    expect(direDuree(500, 'en')).toBe('under a second');
+    expect(direDuree(500, 'en')).not.toContain('seconde');
+    expect(direDuree(500, 'fr')).toBe(direDuree(500));
     expect(direDuree(45_000)).toBe('45 s');
     expect(direDuree(min(5))).toBe('5 min');
     expect(direDuree(min(120))).toBe('2 h');

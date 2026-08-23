@@ -248,9 +248,20 @@ export function calibrer(annonces: readonly AnnoncePassee[]): Calibration {
   return { n: annonces.length, partTenue, ecart, verdict };
 }
 
-/** Une durée, dite comme un humain la lit. */
-export function direDuree(ms: number): string {
-  if (ms < 1000) return 'moins d’une seconde';
+/**
+ * Une durée, dite comme un humain la lit.
+ *
+ * ─── POURQUOI CETTE FONCTION A UNE LANGUE ────────────────────────────────────
+ *
+ * Au-dessus d'une seconde, tout ce qu'elle rend — « 45 s », « 5 min »,
+ * « 2 h 05 » — s'écrit pareil dans les deux langues. Le seul palier qui les
+ * SÉPARE est celui du dessous, et il rendait du français dans le chemin
+ * anglais. Un banc qui n'éprouve la langue que sur les paliers COMMUNS est
+ * aveugle à celui-là : c'est la même cécité que § 9 septemseptuagicenties,
+ * rencontrée une seconde fois, ici sur une sortie et non sur un choix.
+ */
+export function direDuree(ms: number, lang: 'fr' | 'en' = 'fr'): string {
+  if (ms < 1000) return lang === 'en' ? 'under a second' : 'moins d’une seconde';
   const s = Math.round(ms / 1000);
   if (s < 90) return `${s} s`;
   const min = Math.round(s / 60);
@@ -261,17 +272,27 @@ export function direDuree(ms: number): string {
 }
 
 /**
+ * Ce dont l'AFFICHAGE a réellement besoin.
+ *
+ * Volontairement plus étroit qu'`Annonce` : `p95Ms` ne s'affiche pas, donc
+ * l'exiger interdirait de rendre une annonce relue du journal — où seuls le
+ * socle, le `n` et les deux quantiles montrés voyagent. Une signature qui
+ * demande plus que ce qu'elle lit ferme des appels légitimes pour rien.
+ */
+export type AnnonceDite = Pick<Annonce, 'socle' | 'n' | 'p50Ms' | 'p80Ms'>;
+
+/**
  * L'annonce, telle qu'elle s'affiche. Elle porte TOUJOURS son incertitude et
  * la taille de son socle : un intervalle sans son `n` invite à lui faire une
  * confiance qu'il n'a pas méritée.
  */
-export function direAnnonce(a: Annonce, lang: 'fr' | 'en' = 'fr'): string {
+export function direAnnonce(a: AnnonceDite, lang: 'fr' | 'en' = 'fr'): string {
   if (a.socle === 'aucun') {
     return lang === 'en'
       ? `no estimate yet — ${a.n} observation(s), ${OBSERVATIONS_MIN} needed`
       : `pas encore d’estimation — ${a.n} observation(s), il en faut ${OBSERVATIONS_MIN}`;
   }
   return lang === 'en'
-    ? `${direDuree(a.p50Ms)}–${direDuree(a.p80Ms)} (8 times out of 10, ${a.n} obs.)`
-    : `${direDuree(a.p50Ms)} à ${direDuree(a.p80Ms)} — 8 fois sur 10 (${a.n} obs.)`;
+    ? `${direDuree(a.p50Ms, lang)}–${direDuree(a.p80Ms, lang)} (8 times out of 10, ${a.n} obs.)`
+    : `${direDuree(a.p50Ms, lang)} à ${direDuree(a.p80Ms, lang)} — 8 fois sur 10 (${a.n} obs.)`;
 }
