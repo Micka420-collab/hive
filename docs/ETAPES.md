@@ -13171,3 +13171,38 @@ n'appartient qu'à cette tuile.
 le code de sortie de `tail`** : la chaîne `&&` a continué comme si la jambe
 était verte. Le dépôt consigne déjà ce piège ; il a été repayé ici. Chaque jambe
 est maintenant lancée seule, sa sortie dans un fichier, son code lu.
+
+---
+
+## L'annonce dans la file — et la tâche #107 est close
+
+**Tâche #107, huitième et dernier lot.** Chaque tâche en vol porte son annonce
+dans la file d'attente de la vue Ruche, pour n'avoir pas à ouvrir chaque tiroir.
+
+**Le carnet disait « dans Plein Essaim » — c'était faux, et de ma main.** Plein
+Essaim est le panneau d'**autonomie**, pas une liste de tâches. Corrigé dans la
+doc plutôt que suivi : un carnet qu'on suit sans le vérifier fabrique du travail
+au mauvais endroit, et c'est le quatrième carnet périmé relevé en deux jours.
+
+**Un intervalle, jamais un plafond.** « ≤ 25 min » se lit comme une borne dure ;
+`p80Ms` est un quantile à 80 %, et une annonce sur cinq est censée le dépasser.
+Dans une ligne de file, où personne ne survole pour lire l'infobulle, seule la
+forme « 7 min–25 min » tient sans mentir.
+
+Balayage : base épinglée `6c6c52b`, **2 examinées, rien de nu**.
+
+### L'horloge, close
+
+| Pièce                                                   | État |
+| ------------------------------------------------------- | ---- |
+| Module pur (quantiles, reste conditionné, calibration)  | ✔    |
+| Registre `annonces_duree`, caste figée, élagueur câblé  | ✔    |
+| Annonce posée dans `envoyerTache`, la porte unique      | ✔    |
+| Alerte hors domaine, une fois par tâche, mémoire bornée | ✔    |
+| Affichage : annonce, **verdict**, alerte (tiroir)       | ✔    |
+| La note : `calibrer` câblé, tuile « Horloge tenue »     | ✔    |
+| L'annonce dans la file d'attente                        | ✔    |
+
+Le socle `exact` reste hors de portée : il demande un **genre** de tâche, donnée
+que la ruche ne mesure pas. Ce n'est pas un manque de câblage, et ce ne sera pas
+comblé par une heuristique de mots-clés.
