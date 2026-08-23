@@ -2766,3 +2766,18 @@ button.mc-cell:focus-visible {
 .tile-value-mot {
   font-variant-numeric: tabular-nums;
 }
+
+/* L'annonce dans la file : discrète, tabulaire, et jamais plus large que le
+   titre qu'elle accompagne. « hors domaine » est le seul état qui se colore —
+   c'est le moment où l'historique cesse de dire quoi que ce soit. */
+.queue-annonce {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.queue-annonce.hors {
+  color: var(--amber, #94560c);
+}

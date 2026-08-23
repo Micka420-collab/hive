@@ -241,10 +241,34 @@ C'est le même piège que celui fermé à l'affichage (`verdictAnnonce`), rencon
 une seconde fois à l'autre bout de la chaîne : comparer un réel à un plafond que
 personne n'a promis.
 
+## L'annonce dans la file d'attente
+
+Pour n'avoir pas à ouvrir chaque tiroir, la **file d'attente** de la vue Ruche
+porte l'annonce de chaque tâche en vol.
+
+> le carnet disait « dans Plein Essaim » — c'était une erreur de ma part : Plein
+> Essaim est le panneau d'**autonomie**, pas une liste de tâches. La surface qui
+> évite d'ouvrir les tiroirs est la file.
+
+**Un intervalle, jamais un plafond.** « ≤ 25 min » se lit comme une borne dure ;
+ce n'en est pas une, `p80Ms` étant un quantile à 80 %. Dans une ligne de file,
+où personne ne survole pour lire l'infobulle, seule la forme « 7 min–25 min »
+tient sans mentir — elle ne peut pas être lue comme une promesse. La phrase
+complète, avec son `n`, reste dans l'infobulle et dans le tiroir.
+
+**Rien sur socle `aucun`** : deux zéros rendus « 0 s–0 s » seraient l'exact
+contraire de « je ne sais pas encore ».
+
+**Hors domaine prend la place de l'intervalle.** Les deux moitiés coexistent —
+la tâche a été annoncée, puis elle est sortie du domaine. Garder l'intervalle
+serait le pire des deux mondes : un chiffre rassurant sur la seule tâche dont on
+sait qu'il ne s'applique plus.
+
 ## Ce qui reste à brancher
 
-- **Plein Essaim** — l'annonce sur les tâches en vol, pour n'avoir pas à ouvrir
-  chaque tiroir.
+Rien pour l'horloge. Le socle `exact` reste hors de portée tant que la ruche ne
+mesure pas un **genre** de tâche (ci-dessous), et ce n'est pas un manque de
+câblage — c'est une donnée qui n'existe pas.
 
 ### Et ce que je n'inventerai pas
 
