@@ -166,6 +166,56 @@ curl -fsSL .../install.sh | sh -s -- --non-interactive
 l'environnement : aucune question n'est posée, et une réponse manquante devient
 une **erreur explicite** plutôt qu'une invite qui attend dans le vide.
 
+### Sur une machine virtuelle Proxmox
+
+Deux scripts, deux endroits — ils ne se mélangent pas, et c'est volontaire :
+l'un connaît l'hyperviseur, l'autre connaît la ruche.
+
+**1. Sur l'hôte Proxmox** (console web → Shell) :
+
+```sh
+sh scripts/vm-proxmox.sh --essai   # montre ce qu'il ferait, ne crée rien
+sh scripts/vm-proxmox.sh
+```
+
+Il cherche un numéro de VM LIBRE — au-dessus de 9000, en regardant les VM **et**
+les conteneurs LXC, qui partagent le même espace de numéros — et ne touche à
+aucune machine existante. Il s'arrête plutôt que d'écraser quoi que ce soit.
+
+Réglages : `VM_NOM`, `VM_CPU`, `VM_RAM`, `VM_DISQUE`, `VM_ISO`, `VM_PONT`,
+`VM_STOCKAGE`. L'ISO par défaut est `ubuntu-26.04-live-server-amd64.iso` — pas
+le bureau (3,5 Go d'interface qu'un serveur ne montre à personne), et Ubuntu
+plutôt que Debian pour une raison mesurable : la CI de Hive est verte sur
+`ubuntu-latest`, et faire tourner la production sur la famille où la suite est
+éprouvée retire une classe entière de surprises.
+
+**2. Dans la machine virtuelle**, une fois Ubuntu installé :
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/scripts/poser-la-ruche.sh | sudo sh
+```
+
+Il pose Node 24, compile Hive, engendre les secrets **sur place** (`openssl rand`,
+`.env` en 0600, jamais en argument de commande — un argument se lit dans `ps`),
+installe un service `systemd` qui redémarre avec la machine, et n'ouvre le port
+qu'au réseau local.
+
+Il refait aussi la sonde du `Dockerfile` : `better-sqlite3` est une dépendance
+**optionnelle**, et quand sa compilation native échoue npm l'écarte en silence
+en rendant `0`. La ruche démarrerait alors, répondrait, et ne saurait rien
+ranger. Trois essais, puis une base réellement ouverte — sinon le script
+s'arrête au lieu de vous laisser une ruche mort-née.
+
+Le jeton n'est **pas affiché** à la fin : cette sortie finit dans un journal,
+un historique de terminal ou une capture d'écran. Le script vous dit où le lire.
+
+Pour recruter quelqu'un, ne partagez jamais ce jeton — la ruche a une porte
+faite pour ça, révocable et à durée limitée :
+
+```sh
+cd /opt/hive && sudo -u hive npm run cli -- invite --uses 1 --hours 24
+```
+
 ### Codes de sortie
 
 Les mêmes partout — scripts d'installation, `hive`, et
